@@ -42,7 +42,7 @@ class Interpreter:
 
         # setup, size argument binding
         for sz in proc.sizes:
-            if str(sz) is not in kwargs:
+            if not str(sz) in kwargs:
                 error(f"expected size '{sz}' to be supplied")
             if not is_pos_int(kwargs[str(sz)]):
                 error(f"expected size '{sz}' to have positive integer value")
@@ -50,7 +50,7 @@ class Interpreter:
         
         # setup, buffer argument binding
         for a in proc.args:
-            if str(a.name) is not in kwargs:
+            if not str(a.name) in kwargs:
                 error(f"expected argument '{a.name}' to be supplied")
             if not _simple_typecheck_buffer(a.type, kwargs[str(a.name)], self.env):
                 error(f"type of argument '{a.name}' value mismatches")
@@ -109,7 +109,7 @@ class Interpreter:
         if etyp is LoopIR.Read:
             buf = self.env[e.name]
             idx = ( (0,) if len(e.idx) == 0
-                         else tuple( self.eval_a(a) for a in s.idx )
+                         else tuple( self.eval_a(a) for a in s.idx ))
             return buf[idx]
         elif etyp is LoopIR.Const:
             return e.val
@@ -146,7 +146,7 @@ class Interpreter:
 
         if ptyp is BConst:
             return p.val
-        else
+        else:
             lhs, rhs = self.eval_a(p.lhs), self.eval_a(p.rhs)
             if ptype is Cmp:
                 if p.op == "=":
