@@ -144,5 +144,19 @@ class Interpreter:
     def eval_p(self, p):
         ptyp = type(p)
 
-        pass
-  
+        if ptyp is BConst:
+            return p.val
+        else
+            lhs, rhs = self.eval_a(p.lhs), self.eval_a(p.rhs)
+            if ptype is Cmp:
+                if p.op == "=":
+                    return (lhs == rhs)
+                elif p.op == "<":
+                    return (lhs < rhs)
+                elif p.op == ">":
+                    return (lhs > rhs)
+            elif ptype is And:
+                return (lhs and rhs)
+            elif ptype is Or:
+                return (lhs or rhs)
+            else: error("bad case")
