@@ -36,7 +36,7 @@ def is_type(obj):
 def shape(t):
   shp = []
   while type(t) is Tensor:
-    shp.append(t.range)
+    shp.append(t.hi)
     t = t.type
   assert t is R
   return shp

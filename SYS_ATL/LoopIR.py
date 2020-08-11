@@ -3,7 +3,7 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 
-from . import shared_types as T 
+from . import shared_types as T
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -67,9 +67,9 @@ module LoopIR {
                 fnarg*          args,
                 stmt            body,
                 srcinfo         srcinfo )
-    
+
     fnarg   = ( sym             name,
-                type            argtype,
+                type            type,
                 effect          effect,
                 srcinfo         srcinfo )
 
@@ -97,7 +97,7 @@ module LoopIR {
             | And ( pred lhs, pred rhs )
             | Or  ( pred lhs, pred rhs )
             attributes( srcinfo srcinfo )
-            
+
     aexpr   = AVar   ( sym name )
             | ASize  ( sym name )
             | AConst ( int val  )

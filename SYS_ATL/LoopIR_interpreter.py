@@ -3,7 +3,7 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 
-from . import shared_types as T 
+from . import shared_types as T
 from .LoopIR import LoopIR
 
 import numpy as np
@@ -19,9 +19,9 @@ def _eshape(typ,env):
 def _simple_typecheck_buffer(typ, buf, env):
     if type(buf) is not np.ndarray:
         return False
-    elif val.dtype != float and val.dtype != np.float64:
+    elif buf.dtype != float and buf.dtype != np.float64:
         return False
-    
+
     if typ is T.R:
         if tuple(buf.shape) != (1,):
             return False
@@ -29,7 +29,7 @@ def _simple_typecheck_buffer(typ, buf, env):
         shape = _eshape(typ,env)
         if shape != tuple(buf.shape):
             return False
-    
+
     return True
 
 class Interpreter:
@@ -43,19 +43,24 @@ class Interpreter:
         # setup, size argument binding
         for sz in proc.sizes:
             if not str(sz) in kwargs:
-                error(f"expected size '{sz}' to be supplied")
+                raise TypeError(f"expected size '{sz}' "
+                                f"to be supplied")
             if not is_pos_int(kwargs[str(sz)]):
-                error(f"expected size '{sz}' to have positive integer value")
+                raise TypeError(f"expected size '{sz}' to "
+                                f"have positive integer value")
             self.env[sz] = kwargs[str(sz)]
-        
+
         # setup, buffer argument binding
         for a in proc.args:
             if not str(a.name) in kwargs:
-                error(f"expected argument '{a.name}' to be supplied")
-            if not _simple_typecheck_buffer(a.type, kwargs[str(a.name)], self.env):
-                error(f"type of argument '{a.name}' value mismatches")
+                raise TypeError(f"expected argument '{a.name}' "
+                                f"to be supplied")
+            if not _simple_typecheck_buffer(a.type, kwargs[str(a.name)],
+                                            self.env):
+                raise TypeError(f"type of argument '{a.name}' "
+                                f"value mismatches")
             self.env[a.name] = kwargs[str(a.name)]
-        
+
         self.env.push()
         self.eval_s(proc.body)
         self.env.pop()
@@ -87,7 +92,7 @@ class Interpreter:
                 self.eval_s(s.body)
             self.env.pop()
         elif styp is LoopIR.ForAll:
-            hi = self.env(s.hi)
+            hi = self.env[s.hi]
             assert self.use_randomization is False, "TODO: Implement Randomization"
             self.env.push()
             for itr in range(0,hi):
@@ -101,15 +106,15 @@ class Interpreter:
                 size = _eshape(s.type, self.env)
                 #TODO: Maybe randomize?
                 self.env[s.name] = np.empty(size)
-        else: error("bad case")
-    
+        else: assert False, "bad case"
+
     def eval_e(self, e):
         etyp    = type(e)
 
         if etyp is LoopIR.Read:
             buf = self.env[e.name]
             idx = ( (0,) if len(e.idx) == 0
-                         else tuple( self.eval_a(a) for a in s.idx ))
+                         else tuple( self.eval_a(a) for a in e.idx ))
             return buf[idx]
         elif etyp is LoopIR.Const:
             return e.val
@@ -126,37 +131,42 @@ class Interpreter:
         elif etyp is LoopIR.Select:
             cond    = self.eval_p(e.cond)
             return self.eval_e(e.body) if cond else 0.0
-        else: error("bad case")
+        else: assert False, "bad case"
 
     def eval_a(self, a):
         atyp    = type(a)
 
-        if atyp is AVar or ASize:
+        if atyp is LoopIR.AVar or LoopIR.ASize:
             return self.env[a.name]
-        elif atyp is AConst:
+        elif atyp is LoopIR.AConst:
             return a.val
-        elif atyp is AScale:
+        elif atyp is LoopIR.AScale:
             return a.coeff * a.eval_a(a.rhs)
-        elif atyp is AAdd:
+        elif atyp is LoopIR.AAdd:
             return a.eval_a(a.lhs) + a.eval_a(a.rhs)
-        else: error("bad case")
-    
+        else: assert False, "bad case"
+
     def eval_p(self, p):
         ptyp = type(p)
 
-        if ptyp is BConst:
+        if ptyp is LoopIR.BConst:
             return p.val
         else:
             lhs, rhs = self.eval_a(p.lhs), self.eval_a(p.rhs)
-            if ptype is Cmp:
-                if p.op == "=":
+            if ptype is LoopIR.Cmp:
+                if p.op == "==":
                     return (lhs == rhs)
                 elif p.op == "<":
                     return (lhs < rhs)
                 elif p.op == ">":
                     return (lhs > rhs)
-            elif ptype is And:
+                elif p.op == "<=":
+                    return (lhs <= rhs)
+                elif p.op == ">=":
+                    return (lhs >= rhs)
+                else: assert False, "bad case"
+            elif ptype is LoopIR.And:
                 return (lhs and rhs)
-            elif ptype is Or:
+            elif ptype is LoopIR.Or:
                 return (lhs or rhs)
-            else: error("bad case")
+            else: assert False, "bad case"
