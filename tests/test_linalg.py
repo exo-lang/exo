@@ -1,4 +1,6 @@
 import numpy as np
+import sys
+sys.path.append(sys.path[0]+"/..")
 from SYS_ATL.debug_frontend_LoopIR import *
 from SYS_ATL.prelude import *
 from SYS_ATL.LoopIR_interpreter import Interpreter
@@ -9,7 +11,7 @@ from SYS_ATL.LoopIR_interpreter import Interpreter
 #       forall i = 0,n:
 #           res[i] = x[i] + y[i]
 #
-def test_1():
+def gen_add_vec():
     n   = Sym('n')
     x   = Sym('x')
     y   = Sym('y')
@@ -34,13 +36,14 @@ def test_1():
                     loop
                 ])
 
-TEST_1 = test_1()
-x = np.array([3.0,6.0,9.0])
-y = np.array([1.0,2.0,3.0])
-res = np.random.uniform(size=3)
-Interpreter(TEST_1, n=3, x=x, y=y, res=res)
-print(res)
-np.testing.assert_almost_equal(res,[4,8,12])
+def test_add_vec():
+    TEST_1 = gen_add_vec()
+    x = np.array([3.0,6.0,9.0])
+    y = np.array([1.0,2.0,3.0])
+    res = np.random.uniform(size=3)
+    Interpreter(TEST_1, n=3, x=x, y=y, res=res)
+    print(res)
+    np.testing.assert_almost_equal(res,[4,8,12])
 
 
 # Test 2 is multiply matrix
@@ -57,7 +60,7 @@ np.testing.assert_almost_equal(res,[4,8,12])
 #                   forall k = 0,p:
 #                       C[i,j] += A[i,k] * B[k,j]
 #
-def test_gemm():
+def gen_gemm():
     n   = Sym('n')
     m   = Sym('m')
     p   = Sym('p')
@@ -95,22 +98,22 @@ def test_gemm():
                     loop
                 ])
 
+def test_gemm():
+    A = np.array([[-1.0, 4.0],
+                  [-2.0, 5.0],
+                  [ 6.0,-3.0],
+                  [ 7.0, 8.0]])
 
-A = np.array([[-1.0, 4.0],
-              [-2.0, 5.0],
-              [ 6.0,-3.0],
-              [ 7.0, 8.0]])
+    B = np.array([[9.0, 0.0,  2.0],
+                  [3.0, 1.0, 10.0]])
 
-B = np.array([[9.0, 0.0,  2.0],
-              [3.0, 1.0, 10.0]])
+    C_answer = [[ 3.0, 4.0, 38.0],
+                [-3.0, 5.0, 46.0],
+                [45.0,-3.0,-18.0],
+                [87.0, 8.0, 94.0]]
 
-C_answer = [[ 3.0, 4.0, 38.0],
-            [-3.0, 5.0, 46.0],
-            [45.0,-3.0,-18.0],
-            [87.0, 8.0, 94.0]]
-
-TEST_GEMM = test_gemm()
-C = np.random.uniform(size=(4,3))
-Interpreter(TEST_GEMM, n=4, m=3, p=2, A=A, B=B, C=C)
-print(C)
-np.testing.assert_almost_equal(C,C_answer)
+    TEST_GEMM = gen_gemm()
+    C = np.random.uniform(size=(4,3))
+    Interpreter(TEST_GEMM, n=4, m=3, p=2, A=A, B=B, C=C)
+    print(C)
+    np.testing.assert_almost_equal(C,C_answer)
