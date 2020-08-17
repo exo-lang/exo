@@ -1,5 +1,5 @@
 import numpy as np
-import sys\
+import sys
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL.debug_frontend_LoopIR import *
 from SYS_ATL.prelude import *
