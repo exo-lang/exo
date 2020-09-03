@@ -144,6 +144,8 @@ class Interpreter:
             return a.coeff * a.eval_a(a.rhs)
         elif atyp is LoopIR.AAdd:
             return a.eval_a(a.lhs) + a.eval_a(a.rhs)
+        elif atyp is LoopIR.ASub:
+            return a.eval_a(a.lhs) - a.eval_a(a.rhs)
         else: assert False, "bad case"
 
     def eval_p(self, p):

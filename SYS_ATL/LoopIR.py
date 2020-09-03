@@ -103,6 +103,7 @@ module LoopIR {
             | AConst ( int val  )
             | AScale ( int coeff, aexpr rhs )
             | AAdd ( aexpr lhs, aexpr rhs )
+            | ASub ( aexpr lhs, aexpr rhs )
             attributes( srcinfo srcinfo )
 
 } """, {

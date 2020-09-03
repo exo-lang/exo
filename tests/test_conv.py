@@ -36,11 +36,34 @@ def gen_conv1d():
     src0= null_srcinfo()
 
     ai  = IR.AVar(i,src0)
-    rhs = IR.BinOp('+', IR.Read(x, [ai], src0),
-                        IR.Read(y, [ai], src0),
-                   src0)
-    s_a = IR.Assign(res, [ai], rhs, src0)
-    loop = IR.ForAll( i, n, s_a, src0 )
+    ajmin = IR.AVar(jmin,src0)
+    ajmax = IR.AVar(jmax,src0)
+    aj  = IR.AVar(j,src0)
+
+    jmin_a = IR.Assign(ajmin, [], IR.Const(0.0))
+    jmin_if = IR.If( IR.Cmp( ">=", ai, IR.ASub(m,1)),
+            IR.Assign(ajmin, [], IR.ASub(i,IR.ASub(m,1))))
+    jminseq = IR.Seq(jmin_a, jmin_if)
+
+    jmax_a = IR.Assign(ajmax, [], IR.ASub(n, 1))
+    jmax_if = IR.If( IR.Cmp("<", ai, IR.ASub(n,1)),
+            IR.Assign(ajmax, [], ai))
+    jmaxseq = IR.Seq(jmax_a, jmax_if)
+
+    jseq = IR.Seq(jminseq, jmaxseq)
+
+    inner_statement = # TODO: How to implement continue???
+    inner_loop = IR.ForAll(j, jmax, inner_statement, src0)
+
+    statement = IR.Seq(jseq, inner_loop)
+
+    outer_loop = IR.ForAll(i, r, statement, src0)
+
+#    rhs = IR.BinOp('+', IR.Read(x, [ai], src0),
+#                        IR.Read(y, [ai], src0),
+#                   src0)
+#    s_a = IR.Assign(res, [ai], rhs, src0)
+#    loop = IR.ForAll( i, n, s_a, src0 )
 
     return Proc('conv1d',
                 [n, m, r],
@@ -48,7 +71,7 @@ def gen_conv1d():
                   (k,R[m],'IN'),
                   (res,R[r],'OUT') ],
                 [
-                    loop
+                    outer_loop
                 ])
 
 def test_conv1d():
