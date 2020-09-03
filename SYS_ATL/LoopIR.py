@@ -20,6 +20,7 @@ s       ::= x[a*]  = e                   // assignment to buffer
           | s0 ; s1                      // serial composition
           | if p then s                  // conditional guard
           | forall i=0,n do s            // unordered looping
+          | forall i where p do s        // guarded unordered looping
           | alloc name : type            // memory allocation
                                          // assume sensible auto-free
 expressions
@@ -82,7 +83,8 @@ module LoopIR {
             | Pass()
             | Seq( stmt s0, stmt s1 )
             | If ( pred cond, stmt body )
-            | ForAll ( sym iter, sym hi, stmt body)
+            | ForAll ( sym iter, sym hi, stmt body )
+        --  | ForAllWhere ( sym iter, pred where, stmt body )
             | Alloc ( sym name, type type )
             attributes( srcinfo srcinfo )
 

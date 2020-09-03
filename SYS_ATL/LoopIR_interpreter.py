@@ -99,6 +99,8 @@ class Interpreter:
                 self.env[s.iter] = itr
                 self.eval_s(s.body)
             self.env.pop()
+        #elif styp is LoopIR.ForAllWhere:
+        #    for itr in
         elif styp is LoopIR.Alloc:
             if s.type is T.R:
                 self.env[s.name] = np.empty([1])
@@ -136,16 +138,16 @@ class Interpreter:
     def eval_a(self, a):
         atyp    = type(a)
 
-        if atyp is LoopIR.AVar or LoopIR.ASize:
+        if atyp is LoopIR.AVar or atyp is LoopIR.ASize:
             return self.env[a.name]
         elif atyp is LoopIR.AConst:
             return a.val
         elif atyp is LoopIR.AScale:
-            return a.coeff * a.eval_a(a.rhs)
+            return a.coeff * self.eval_a(a.rhs)
         elif atyp is LoopIR.AAdd:
-            return a.eval_a(a.lhs) + a.eval_a(a.rhs)
+            return self.eval_a(a.lhs) + self.eval_a(a.rhs)
         elif atyp is LoopIR.ASub:
-            return a.eval_a(a.lhs) - a.eval_a(a.rhs)
+            return self.eval_a(a.lhs) - self.eval_a(a.rhs)
         else: assert False, "bad case"
 
     def eval_p(self, p):
@@ -153,22 +155,24 @@ class Interpreter:
 
         if ptyp is LoopIR.BConst:
             return p.val
-        else:
+        elif ptyp is LoopIR.Cmp:
             lhs, rhs = self.eval_a(p.lhs), self.eval_a(p.rhs)
-            if ptype is LoopIR.Cmp:
-                if p.op == "==":
-                    return (lhs == rhs)
-                elif p.op == "<":
-                    return (lhs < rhs)
-                elif p.op == ">":
-                    return (lhs > rhs)
-                elif p.op == "<=":
-                    return (lhs <= rhs)
-                elif p.op == ">=":
-                    return (lhs >= rhs)
-                else: assert False, "bad case"
-            elif ptype is LoopIR.And:
+            if p.op == "==":
+                return (lhs == rhs)
+            elif p.op == "<":
+                return (lhs < rhs)
+            elif p.op == ">":
+                return (lhs > rhs)
+            elif p.op == "<=":
+                return (lhs <= rhs)
+            elif p.op == ">=":
+                return (lhs >= rhs)
+            else: assert False, "bad case"
+        elif ptyp is LoopIR.And or ptyp is LoopIR.Or:
+            lhs, rhs = self.eval_p(p.lhs), self.eval_p(p.rhs)
+            if ptyp is LoopIR.And:
                 return (lhs and rhs)
-            elif ptype is LoopIR.Or:
+            elif ptyp is LoopIR.Or:
                 return (lhs or rhs)
             else: assert False, "bad case"
+        else: assert False, "bad case"
