@@ -141,11 +141,15 @@ class Compiler:
                     f"}}")
         elif styp is LoopIR.Alloc:
             if s.type is T.R:
-                self.env[s.name] = np.empty([1])
+                name = self.env[s.name]
+                empty = np.empty([1])
+                return (f"{name} = {empty}")
             else:
                 size = _eshape(s.type, self.env)
                 #TODO: Maybe randomize?
-                self.env[s.name] = np.empty(size)
+                name = self.env[s.name]
+                empty = np.empty(size)
+                return (f"{name} = {empty}")
         else: assert False, "bad case"
 
     def comp_e(self, e):
@@ -155,62 +159,66 @@ class Compiler:
             buf = self.env[e.name]
             idx = ( (0,) if len(e.idx) == 0
                          else tuple( self.comp_a(a) for a in e.idx ))
-            return buf[idx]
+            return (f"{buf[idx]}")
         elif etyp is LoopIR.Const:
-            return e.val
+            return (f"e.val")
         elif etyp is LoopIR.BinOp:
             lhs, rhs = self.comp_e(e.lhs), self.comp_e(e.rhs)
             if e.op == "+":
-                return lhs + rhs
+                return (f"{lhs} + {rhs}")
             elif e.op == "-":
-                return lhs - rhs
+                return (f"{lhs} - {rhs}")
             elif e.op == "*":
-                return lhs * rhs
+                return (f"{lhs} * {rhs}")
             elif e.op == "/":
-                return lhs / rhs
+                return (f"{lhs} / {rhs}")
         elif etyp is LoopIR.Select:
             cond    = self.comp_p(e.cond)
-            return self.comp_e(e.body) if cond else 0.0
+            if cond:
+                body = self.comp_e(e.body)
+                return (f"{body}")
+            else:
+                return ("0.0")
         else: assert False, "bad case"
 
     def comp_a(self, a):
         atyp    = type(a)
 
         if atyp is LoopIR.AVar or atyp is LoopIR.ASize:
-            return self.env[a.name]
+            return (f"{self.env[a.name]}")
         elif atyp is LoopIR.AConst:
-            return a.val
+            return (f"a.val")
         elif atyp is LoopIR.AScale:
-            return a.coeff * self.comp_a(a.rhs)
+            return (f"{a.coeff} * {self.comp_a(a.rhs)}")
         elif atyp is LoopIR.AAdd:
-            return self.comp_a(a.lhs) + self.comp_a(a.rhs)
+            return (f"{self.comp_a(a.lhs)} + {self.comp_a(a.rhs)}")
         elif atyp is LoopIR.ASub:
-            return self.comp_a(a.lhs) - self.comp_a(a.rhs)
+            return (f"{self.comp_a(a.lhs)} - {self.comp_a(a.rhs)}")
         else: assert False, "bad case"
 
     def comp_p(self, p):
         ptyp = type(p)
 
         if ptyp is LoopIR.BConst:
-            return p.val
+            return (f"{p.val}")
         elif ptyp is LoopIR.Cmp:
             lhs, rhs = self.comp_a(p.lhs), self.comp_a(p.rhs)
             if p.op == "==":
-                return (lhs == rhs)
+                return (f"{lhs} == {rhs}")
             elif p.op == "<":
-                return (lhs < rhs)
+                return (f"{lhs} < {rhs}")
             elif p.op == ">":
-                return (lhs > rhs)
+                return (f"{lhs} > {rhs}")
             elif p.op == "<=":
-                return (lhs <= rhs)
+                return (f"{lhs} <= {rhs}")
             elif p.op == ">=":
-                return (lhs >= rhs)
+                return (f"{lhs} >= {rhs}")
             else: assert False, "bad case"
         elif ptyp is LoopIR.And or ptyp is LoopIR.Or:
             lhs, rhs = self.comp_p(p.lhs), self.comp_p(p.rhs)
             if ptyp is LoopIR.And:
-                return (lhs and rhs)
+                return (f"{lhs} && {rhs}")
             elif ptyp is LoopIR.Or:
-                return (lhs or rhs)
+                return (f"{lhs} || {rhs}")
             else: assert False, "bad case"
         else: assert False, "bad case"
