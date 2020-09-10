@@ -25,7 +25,7 @@ def run_compile(proc_list,c_file,h_file):
     fwd_decls = ""
     body = ""
     for p in proc_list:
-        d, b = p.comp_top()
+        d, b = p.comp_top(h_file)
         fwd_decls += d
         body += b
     
@@ -96,7 +96,7 @@ class Compiler:
             idx += (f"[{self.comp_a(a)}]")
         return idx
 
-    def comp_top(self):
+    def comp_top(self, h_file):
         self.env.push()
         stmt_str = self.comp_s(self.proc.body)
         self.env.pop()
@@ -112,10 +112,15 @@ class Compiler:
             arg_str += (f" float* {arg.name},")
 
         # Generate headers here?
-        proc_decl = (f"void {name}({size_str}{arg_str[:-1]});\n")
-        proc_def = (f"void {name}({size_str}{arg_str[:-1]}) {{\n"
+        proc_decl = ( f"#include <cstdio>\n"
+                    + f"#include <cstring>\n"
+                    + f"void {name}({size_str}{arg_str[:-1]});\n"
+                    )
+        proc_def =  ( f"#include \"{h_file}\"\n\n"
+                    + f"void {name}({size_str}{arg_str[:-1]}) {{\n"
                     + stmt_str + "\n"
-                    + "}\n")
+                    + "}\n"
+                    )
 
         #return proc_decl, proc_def
         return proc_decl, proc_def
