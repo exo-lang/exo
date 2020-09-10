@@ -86,6 +86,10 @@ class Compiler:
                                 f"value mismatches")
             self.env[a.name] = kwargs[str(a.name)]
 
+    def new_varname(self, symbol):
+        self.env[symbol] = repr(symbol)
+        return self.env[symbol]
+
     def comp_top(self):
         self.env.push()
         stmt_str = self.comp_s(self.proc.body)
@@ -133,8 +137,7 @@ class Compiler:
             #self.env.pop()
         elif styp is LoopIR.ForAll:
             hi      = self.env[s.hi] # this should be a string
-            #itr    = self.new_varname(s.iter) # allocate a new string
-            itr    = s.iter
+            itr     = self.new_varname(s.iter) # allocate a new string
             body    = self.comp_s(s.body)
             return (f"for (int {itr}=0; {itr} < {hi}; {itr}++) {{\n"+
                     f"{body}\n"+
@@ -185,9 +188,9 @@ class Compiler:
         atyp    = type(a)
 
         if atyp is LoopIR.AVar or atyp is LoopIR.ASize:
-            return (f"{self.env[a.name]}")
+            return self.env[a.name]
         elif atyp is LoopIR.AConst:
-            return (f"a.val")
+            return str(a.val)
         elif atyp is LoopIR.AScale:
             return (f"{a.coeff} * {self.comp_a(a.rhs)}")
         elif atyp is LoopIR.AAdd:
