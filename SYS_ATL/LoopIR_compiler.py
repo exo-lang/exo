@@ -101,14 +101,24 @@ class Compiler:
         stmt_str = self.comp_s(self.proc.body)
         self.env.pop()
 
-        # Generate headers here?
-        #proc_def = (f"void {proc.name}(buffer_pointers)\n"+
-        #            f"\n"+
-        #            f"\n")
-        #proc_decl = ()
+        name = self.proc.name
+        sizes = self.proc.sizes
+        args = self.proc.args
+        size_str = ""
+        arg_str = ""
+        for size in sizes:
+            size_str += (f"size_t {size},")
+        for arg in args:
+            arg_str += (f" float* {arg.name},")
 
-        #return proc_f, stmt_str
-        return "", stmt_str
+        # Generate headers here?
+        proc_decl = (f"void {name}({size_str}{arg_str[:-1]});\n")
+        proc_def = (f"void {name}({size_str}{arg_str[:-1]}) {{\n"
+                    + stmt_str + "\n"
+                    + "}\n")
+
+        #return proc_decl, proc_def
+        return proc_decl, proc_def
 
     def comp_s(self, s):
         styp    = type(s)
