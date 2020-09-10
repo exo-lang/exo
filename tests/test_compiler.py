@@ -45,5 +45,3 @@ def test_add_vec():
     res = np.random.uniform(size=3)
     c = Compiler(TEST_1, n=3, x=x, y=y, res=res)
     run_compile([c],"test.c", "test.h")
-    print(res)
-    np.testing.assert_almost_equal(res,[4,8,12])

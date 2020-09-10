@@ -22,7 +22,7 @@ def run_compile(proc_list,c_file,h_file):
     #
     # write out c_file and h_file
 
-    decl = ""
+    fwd_decls = ""
     body = ""
     for p in proc_list:
         d, b = p.comp_top()
@@ -30,7 +30,7 @@ def run_compile(proc_list,c_file,h_file):
         body += b
     
     f_header = open(h_file, "w")
-    f_header.write(fwd_delcs)
+    f_header.write(fwd_decls)
     f_header.close()
 
     f_cpp = open(c_file, "w")
@@ -96,12 +96,13 @@ class Compiler:
         self.env.pop()
 
         # Generate headers here?
-        proc_def = (f"void {proc.name}(buffer_pointers)\n"+
-                    f"\n"+
-                    f"\n")
+        #proc_def = (f"void {proc.name}(buffer_pointers)\n"+
+        #            f"\n"+
+        #            f"\n")
         #proc_decl = ()
 
-        return proc_f, stmt_str
+        #return proc_f, stmt_str
+        return "", stmt_str
 
     def comp_s(self, s):
         styp    = type(s)
@@ -162,9 +163,10 @@ class Compiler:
             buf = self.env[e.name]
             idx = ( (0,) if len(e.idx) == 0
                          else tuple( self.comp_a(a) for a in e.idx ))
-            return (f"{buf[idx]}")
+            #return buf[idx]
+            return (f"{e.name}[{idx}]")
         elif etyp is LoopIR.Const:
-            return (f"e.val")
+            return str(e.val)
         elif etyp is LoopIR.BinOp:
             lhs, rhs = self.comp_e(e.lhs), self.comp_e(e.rhs)
             if e.op == "+":
