@@ -90,6 +90,12 @@ class Compiler:
         self.env[symbol] = repr(symbol)
         return self.env[symbol]
 
+    def idx_str(self, idx_list):
+        idx = ""
+        for a in idx_list:
+            idx += (f"[{self.comp_a(a)}]")
+        return idx
+
     def comp_top(self):
         self.env.push()
         stmt_str = self.comp_s(self.proc.body)
@@ -115,17 +121,13 @@ class Compiler:
         elif styp is LoopIR.Pass:
             return (f"; // NOP :")
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            # lbuf[a0,a1,...] = rhs
-            lbuf = self.env[s.name]
-            if len(s.idx) == 0:
-                idx = (0,)
-            else:
-                idx  = tuple( self.comp_a(a) for a in s.idx )
+            lbuf = s.name
+            idx = self.idx_str(s.idx)
             rhs  = self.comp_e(s.rhs)
             if styp is LoopIR.Assign:
-                return (f"{lbuf}[{idx}] = {rhs}")
+                return (f"{lbuf}{idx} = {rhs};")
             else:
-                return (f"{lbuf}[{idx}] += {rhs}")
+                return (f"{lbuf}{idx} += {rhs};")
         elif styp is LoopIR.If:
             cond = self.comp_p(s.cond)
             body = self.comp_s(s.body)
@@ -161,10 +163,11 @@ class Compiler:
 
         if etyp is LoopIR.Read:
             buf = self.env[e.name]
-            idx = ( (0,) if len(e.idx) == 0
-                         else tuple( self.comp_a(a) for a in e.idx ))
+            #idx = ( (0,) if len(e.idx) == 0
+            #             else tuple( self.comp_a(a) for a in e.idx ))
             #return buf[idx]
-            return (f"{e.name}[{idx}]")
+            idx = self.idx_str(e.idx)
+            return (f"{e.name}" + idx)
         elif etyp is LoopIR.Const:
             return str(e.val)
         elif etyp is LoopIR.BinOp:
