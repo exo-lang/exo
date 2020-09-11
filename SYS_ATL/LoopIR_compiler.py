@@ -22,13 +22,19 @@ def run_compile(proc_list,c_file,h_file):
     #
     # write out c_file and h_file
 
-    fwd_decls = ""
-    body = ""
+    fwd_decls = """
+    #include <cstdio>
+    #include <cstring>
+    """
+
+    body = f"#include \"{h_file}\"\n\n"
     for p in proc_list:
-        d, b = p.comp_top(h_file)
+        d, b = Compiler(p).comp_top()
         fwd_decls += d
+        fwd_decls += '\n'
         body += b
-    
+        body += '\n'
+
     f_header = open(h_file, "w")
     f_header.write(fwd_decls)
     f_header.close()
@@ -58,65 +64,42 @@ def _simple_typecheck_buffer(typ, buf, env):
     return True
 
 class Compiler:
-    def __init__(self, proc, use_randomization=False, **kwargs):
+    def __init__(self, proc, **kwargs):
         assert type(proc) is LoopIR.proc
 
         self.proc   = proc
         self.env    = Environment()
-        self.use_randomization = use_randomization
+        self.names  = set()
 
         # setup, size argument binding
         for sz in proc.sizes:
-            if not str(sz) in kwargs:
-                raise TypeError(f"expected size '{sz}' "
-                                f"to be supplied")
-            if not is_pos_int(kwargs[str(sz)]):
-                raise TypeError(f"expected size '{sz}' to "
-                                f"have positive integer value")
-            self.env[sz] = kwargs[str(sz)]
+            self.env[sz] = self.new_varname(sz, True)
 
         # setup, buffer argument binding
         for a in proc.args:
-            if not str(a.name) in kwargs:
-                raise TypeError(f"expected argument '{a.name}' "
-                                f"to be supplied")
-            if not _simple_typecheck_buffer(a.type, kwargs[str(a.name)],
-                                            self.env):
-                raise TypeError(f"type of argument '{a.name}' "
-                                f"value mismatches")
-            self.env[a.name] = kwargs[str(a.name)]
+            self.env[a.name] = self.new_varname(a.name, True)
 
-    def new_varname(self, symbol):
-        self.env[symbol] = repr(symbol)
-        return self.env[symbol]
-
-    def idx_str(self, idx_list):
-        idx = ""
-        for a in idx_list:
-            idx += (f"[{self.comp_a(a)}]")
-        return idx
-
-    def comp_top(self, h_file):
-        self.env.push()
+    def comp_top(self):
         stmt_str = self.comp_s(self.proc.body)
-        self.env.pop()
 
+        assert self.proc.name != None, "expected names for compilation"
         name = self.proc.name
         sizes = self.proc.sizes
         args = self.proc.args
         size_str = ""
         arg_str = ""
+        typ_comment_str = ""
         for size in sizes:
-            size_str += (f"size_t {size},")
+            size_str    += f"size_t {size},"
         for arg in args:
-            arg_str += (f" float* {arg.name},")
+            arg_str     += f" float* {arg.name},"
+            typ_comment_str += f" {arg.name} : {arg.type} {arg.effect},"
 
         # Generate headers here?
-        proc_decl = ( f"#include <cstdio>\n"
-                    + f"#include <cstring>\n"
+        proc_decl = ( f"// {name}({typ_comment_str[:-1]} )\n"
                     + f"void {name}({size_str}{arg_str[:-1]});\n"
                     )
-        proc_def =  ( f"#include \"{h_file}\"\n\n"
+        proc_def =  ( f"// {name}({typ_comment_str[:-1]} )\n"
                     + f"void {name}({size_str}{arg_str[:-1]}) {{\n"
                     + stmt_str + "\n"
                     + "}\n"
@@ -125,16 +108,29 @@ class Compiler:
         #return proc_decl, proc_def
         return proc_decl, proc_def
 
+    def new_varname(self, symbol, force_literal=False):
+        s = str(symbol) if force_literal else repr(symbol)
+        assert s not in self.names, "name conflict!"
+        self.env[symbol] = s
+        self.names.add(s)
+        return self.env[symbol]
+
+    def idx_str(self, idx_list):
+        idx = ""
+        for a in idx_list:
+            idx += (f"[{self.comp_a(a)}]")
+        return idx
+
     def comp_s(self, s):
         styp    = type(s)
 
         if styp is LoopIR.Seq:
             first = self.comp_s(s.s0)
             second = self.comp_s(s.s1)
-            
+
             return (f"{first}\n\n{second}")
         elif styp is LoopIR.Pass:
-            return (f"; // NOP :")
+            return (f"; // # NO-OzP :")
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
             lbuf = s.name
             idx = self.idx_str(s.idx)

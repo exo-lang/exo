@@ -12,6 +12,7 @@ from SYS_ATL.LoopIR_compiler import Compiler, run_compile
 #       forall i = 0,n:
 #           res[i] = x[i] + y[i]
 #
+
 def gen_add_vec():
     n   = Sym('n')
     x   = Sym('x')
@@ -40,8 +41,9 @@ def gen_add_vec():
 @pytest.mark.skip(reason="trying to implement C compiler")
 def test_add_vec():
     TEST_1 = gen_add_vec()
-    x = np.array([3.0,6.0,9.0])
-    y = np.array([1.0,2.0,3.0])
-    res = np.random.uniform(size=3)
-    c = Compiler(TEST_1, n=3, x=x, y=y, res=res)
-    run_compile([c],"test.c", "test.h")
+    #x = np.array([3.0,6.0,9.0])
+    #y = np.array([1.0,2.0,3.0])
+    #res = np.random.uniform(size=3)
+    #c = Compiler(TEST_1, n=3, x=x, y=y, res=res)
+    #c = Compiler(TEST_1)
+    run_compile([TEST_1],"test.c", "test.h")

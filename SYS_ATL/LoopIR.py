@@ -116,3 +116,14 @@ module LoopIR {
     'predop':   lambda x: x in pred_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
 })
+
+
+@extclass(LoopIR.In)
+def __str__(self):
+    return "IN"
+@extclass(LoopIR.Out)
+def __str__(self):
+    return "OUT"
+@extclass(LoopIR.InOut)
+def __str__(self):
+    return "INOUT"
