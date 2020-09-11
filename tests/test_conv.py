@@ -16,6 +16,32 @@ from SYS_ATL.LoopIR_interpreter import Interpreter
 #               if (j < i+1 and j >= i-(m-1)) then
 #                    res[i] += x[j]*w[i-j]
 #
+
+#   conv1d(n : size, m : size, r: size, x : R[n], w : R[m],
+#                                       res : R[r] ):
+#       forall i = 0,r:
+#           res[i] = 0.0
+#       forall i = m-1,r+(m-1):
+#           let i' = i - (m-1)
+#               therefore i = i' + (m-1)
+#           forall j = 0,n:
+#               if (j <  i+1 and j >= i-(m-1))
+#                    res[i-(m-1)] += x[j]*w[i-j]
+#
+#
+#           forall j = 0,n:
+#               if (j <  i' + m and j >= i')
+#                    res[i'] += x[j]*w[i'-j+(m-1)]
+#
+#       forall i = 0,r:
+#           res[i] = 0.0
+#       forall i = 0,r:
+#           forall j = 0,n:
+#               if (j < i + m and j >= i)
+#                    res[i] += x[j]*w[i-j+m-1]
+#
+
+
 def gen_conv1d():
     n   = Sym('n')
     m   = Sym('m')
@@ -61,7 +87,7 @@ def gen_conv1d():
 
 # Test 2 is Full 2D convolution
 #
-#   conv2d(w : size, h : size, kw : size, kh : size, rw : size, rh : size, 
+#   conv2d(w : size, h : size, kw : size, kh : size, rw : size, rh : size,
 #          x : R[h,w], k : R[kh, kw], res : R[rh, rw] ):
 #       forall i = 0,rh:
 #         forall j = 0,rw:
@@ -69,7 +95,7 @@ def gen_conv1d():
 #       forall i = 0,rh: //padding? kw//2?
 #         forall j = 0,rw:
 #           forall ki = 0,h:
-#             forall kj = 0,w:     
+#             forall kj = 0,w:
 #               if (ki < i+1 and ki >= i-(kh-1) and kj < j+1 and kj >= j-(kw-1)) then
 #                    res[i,j] += x[ki,kj]*k[i-ki,j-kj]
 #
