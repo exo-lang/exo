@@ -25,7 +25,7 @@ class Sym:
     return self._nm
 
   def __repr__(self):
-    return f"{self._nm}${self._id}"
+    return f"{self._nm}_{self._id}"
 
   def __hash__(self): return id(self)
 
