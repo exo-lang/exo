@@ -59,6 +59,84 @@ def gen_conv1d():
                     loop_nest
                 ])
 
+# Test 2 is Full 2D convolution
+#
+#   conv2d(w : size, h : size, kw : size, kh : size, rw : size, rh : size, 
+#          x : R[h,w], k : R[kh, kw], res : R[rh, rw] ):
+#       forall i = 0,rh:
+#         forall j = 0,rw:
+#           res[i,j] = 0.0
+#       forall i = 0,rh: //padding? kw//2?
+#         forall j = 0,rw:
+#           forall ki = 0,h:
+#             forall kj = 0,w:     
+#               if (ki < i+1 and ki >= i-(kh-1) and kj < j+1 and kj >= j-(kw-1)) then
+#                    res[i,j] += x[ki,kj]*k[i-ki,j-kj]
+#
+def gen_conv2d():
+    w = Sym('w')
+    h = Sym('h')
+    kw = Sym('kw')
+    kh = Sym('kh')
+    rw = Sym('rw')
+    rh = Sym('rh')
+
+    x   = Sym('x')
+    k   = Sym('k')
+    res = Sym('res')
+    i   = Sym('i')
+    j   = Sym('j')
+    ki   = Sym('ki')
+    kj   = Sym('kj')
+
+    src0 = null_srcinfo()
+
+    ai  = IR.AVar(i,src0)
+    aj  = IR.AVar(j,src0)
+    aki  = IR.AVar(ki,src0)
+    akj  = IR.AVar(kj,src0)
+
+    akw  = IR.ASize(kw,src0)
+    akh  = IR.ASize(kh,src0)
+
+    loop_cond  = IR.And(
+                    IR.And(IR.Cmp('<=', aki, ai, src0),
+                           IR.Cmp('>', aki, IR.ASub(ai,akh,src0), src0),
+                        src0),
+                    IR.And(IR.Cmp('<=', akj, aj, src0),
+                           IR.Cmp('>', akj, IR.ASub(aj,akw,src0), src0),
+                        src0),
+                    src0)
+
+    statement  = IR.Reduce(res, [ai,aj], IR.BinOp('*', IR.Read(x, [ai,aj], src0),
+                                                    IR.Read(k, [
+                                                    IR.ASub(ai,aki, src0),
+                                                    IR.ASub(aj,akj, src0)
+                                                    ], src0),
+                                                    src0), src0)
+    loop_nest  = IR.ForAll(i, rh,
+                   IR.ForAll(j, rw,
+                     IR.ForAll(ki, h,
+                       IR.ForAll(kj, w,
+                         IR.If(loop_cond,
+                            statement,
+                         src0), src0), src0), src0), src0)
+
+    zero_res   = IR.ForAll(i, rh,
+                   IR.ForAll(j, rw,
+                     IR.Assign(res, [ai, aj], IR.Const(0.0,src0), src0), src0), src0)
+
+    return Proc('conv2d',
+                [w,h,kw,kh,rw,rh],
+                [ (x,R[h,w],'IN'),
+                  (w,R[kh,kw],'IN'),
+                  (res,R[rh,rw],'OUT') ],
+                [
+                    zero_res,
+                    loop_nest
+                ])
+
+
 def test_conv1d():
     TEST_1 = gen_conv1d()
     n = 5
