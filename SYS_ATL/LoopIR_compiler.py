@@ -6,6 +6,8 @@ from .prelude import *
 from . import shared_types as T
 from .LoopIR import LoopIR
 
+from .mem_analysis import MemoryAnalysis
+
 import numpy as np
 
 # --------------------------------------------------------------------------- #
@@ -26,7 +28,8 @@ def run_compile(proc_list,c_file,h_file):
 
     body = f"#include \"{h_file}\"\n\n"
     for p in proc_list:
-        d, b = Compiler(p).comp_top()
+        p       = MemoryAnalysis(p).result()
+        d, b    = Compiler(p).comp_top()
         fwd_decls += d
         body += b
         body += '\n'
@@ -163,6 +166,9 @@ class Compiler:
                 name = self.env[s.name]
                 empty = np.empty(size)
                 return (f"{name} = {empty}")
+        elif styp is LoopIR.Free:
+            name = self.env[s.name]
+            return f"free({name});"
         else: assert False, "bad case"
 
     def comp_e(self, e):
