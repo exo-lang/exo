@@ -42,11 +42,11 @@ def Proc(name, sizes, args, body):
     srcinfo = _prelude.get_srcinfo()
     def eff_convert(e):
         if e == 'IN':
-            return IR.In()
+            return _T.In
         elif e == 'OUT':
-            return IR.Out()
+            return _T.Out
         elif e == 'INOUT':
-            return IR.InOut()
+            return _T.InOut
         else: assert False, f"bad effect: {e}"
     args = [ IR.fnarg(name, t.typ, eff_convert(e), srcinfo)
              for (name, t, e) in args ]

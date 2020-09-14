@@ -74,10 +74,6 @@ module LoopIR {
                 effect          effect,
                 srcinfo         srcinfo )
 
-    effect  = In()
-            | Out()
-            | InOut()
-
     stmt    = Assign( sym name, aexpr* idx, expr rhs)
             | Reduce( sym name, aexpr* idx, expr rhs )
             | Pass()
@@ -112,18 +108,10 @@ module LoopIR {
     'name':     is_valid_name,
     'sym':      lambda x: type(x) is Sym,
     'type':     T.is_type,
+    'effect':   T.is_effect,
     'binop':    lambda x: x in bin_ops,
     'predop':   lambda x: x in pred_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
 })
 
 
-@extclass(LoopIR.In)
-def __str__(self):
-    return "IN"
-@extclass(LoopIR.Out)
-def __str__(self):
-    return "OUT"
-@extclass(LoopIR.InOut)
-def __str__(self):
-    return "INOUT"

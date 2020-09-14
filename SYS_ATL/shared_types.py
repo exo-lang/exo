@@ -12,10 +12,14 @@ module Types {
     type    = Num   ()
             | Error ()
             | Tensor( range hi, type type )
+
+    effect  = IN    ()
+            | OUT   ()
+            | INOUT ()
 } """, {
     'range': lambda x: is_pos_int(x) or type(x) is Sym,
 })
-ADTmemo(_Types,['Num','Error','Tensor'],{
+ADTmemo(_Types,['Num','Error','Tensor','IN','OUT','INOUT'],{
     'range': lambda x: x,
 })
 
@@ -25,11 +29,21 @@ Tensor  = _Types.Tensor
 R       = Num()
 err     = Error()
 
+IN      = _Types.IN
+OUT     = _Types.OUT
+INOUT   = _Types.INOUT
+In      = IN()
+Out     = OUT()
+InOut   = INOUT()
+
 # --------------------------------------------------------------------------- #
 # type helper functions
 
 def is_type(obj):
   return isinstance(obj,_Types.type)
+
+def is_effect(obj):
+  return isinstance(obj,_Types.effect)
 
 @extclass(Tensor)
 @extclass(Num)
@@ -64,4 +78,18 @@ def __str__(t):
       t._str_cached = f"{t.base()}[{rngs}]"
     else: assert False, "impossible type case"
   return t._str_cached
+
+@extclass(IN)
+def __str__(self):
+    return "IN"
+@extclass(OUT)
+def __str__(self):
+    return "OUT"
+@extclass(INOUT)
+def __str__(self):
+    return "INOUT"
+
 del __str__
+
+
+
