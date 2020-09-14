@@ -12,7 +12,6 @@ from SYS_ATL.LoopIR_compiler import Compiler, run_compile
 #       forall i = 0,n:
 #           res[i] = x[i] + y[i]
 #
-
 def gen_add_vec():
     n   = Sym('n')
     x   = Sym('x')
@@ -38,12 +37,40 @@ def gen_add_vec():
                     loop
                 ])
 
-@pytest.mark.skip(reason="trying to implement C compiler")
 def test_add_vec():
     TEST_1 = gen_add_vec()
-    #x = np.array([3.0,6.0,9.0])
-    #y = np.array([1.0,2.0,3.0])
-    #res = np.random.uniform(size=3)
-    #c = Compiler(TEST_1, n=3, x=x, y=y, res=res)
-    #c = Compiler(TEST_1)
     run_compile([TEST_1],"test.c", "test.h")
+
+# TEST 2 is alloc
+#   alloc( n : size, x : R[n]):
+#       int *ptr = (int*) malloc (n * sizeof(int));
+#       forall i = 0,n:
+#           ptr[i] = x[i];
+#       free(ptr);
+
+def gen_alloc():
+    n   = Sym('n')
+    x   = Sym('x')
+    ptr = Sym('ptr')
+    i   = Sym('i')
+
+    src0= null_srcinfo()
+
+    # How to pass n to alloc?
+    ma  = IR.Alloc(ptr, "Num", src0)
+    ai  = IR.AVar(i, src0)
+    rhs = IR.Read(x, [ai], src0)
+    s_a = IR.Assign(ma, [ai], rhs, src0)
+    body = IR.ForAll(i, n, s_a, src0)
+
+    return Proc('alloc',
+                [n],
+                [ (x,R[n],'IN')],
+                [
+                    body
+                ])
+
+@pytest.mark.skip(reason="WIP test")
+def test_alloc():
+    TEST_2 = gen_alloc()
+    run_compile([TEST_2],"test_alloc.c", "test_alloc.h")
