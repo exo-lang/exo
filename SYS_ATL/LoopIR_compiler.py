@@ -22,16 +22,12 @@ def run_compile(proc_list,c_file,h_file):
     #
     # write out c_file and h_file
 
-    fwd_decls = """
-    #include <cstdio>
-    #include <cstring>
-    """
+    fwd_decls = "#include <cstdio>\n" + "#include <cstring>\n\n"
 
     body = f"#include \"{h_file}\"\n\n"
     for p in proc_list:
         d, b = Compiler(p).comp_top()
         fwd_decls += d
-        fwd_decls += '\n'
         body += b
         body += '\n'
 

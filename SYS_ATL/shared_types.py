@@ -61,7 +61,7 @@ def __str__(t):
       t._str_cached = "err"
     elif type(t) is Tensor:
       rngs = ",".join([ str(r) for r in t.shape() ])
-      t._str_cached = f"[{rngs}]{t.base()}"
+      t._str_cached = f"{t.base()}[{rngs}]"
     else: assert False, "impossible type case"
   return t._str_cached
 del __str__
