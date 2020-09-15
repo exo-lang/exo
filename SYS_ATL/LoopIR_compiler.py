@@ -28,7 +28,7 @@ def run_compile(proc_list,c_file,h_file):
 
     body = f"#include \"{h_file}\"\n\n"
     for p in proc_list:
-        p       = MemoryAnalysis(p).result()
+        #p       = MemoryAnalysis(p).result()
         d, b    = Compiler(p).comp_top()
         fwd_decls += d
         body += b

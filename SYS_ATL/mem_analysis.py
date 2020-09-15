@@ -41,7 +41,8 @@ class MemoryAnalysis:
             s0 = self.mem_s(s.s0)
             s1 = self.mem_s(s.s1)
             return LoopIR.Seq(s0, s1, s.srcinfo)
-        elif styp is LoopIR.Pass or is LoopIR.Assign or styp is LoopIR.Reduce:
+        elif (styp is LoopIR.Pass or styp is LoopIR.Assign or
+              styp is LoopIR.Reduce):
             return s
         elif styp is LoopIR.If:
             self.push_frame()
