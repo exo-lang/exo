@@ -6,26 +6,30 @@ from .prelude import *
 from . import shared_types as T
 from .LoopIR import LoopIR
 
-import numpy as np
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Memory Analysis Pass
 
 class MemoryAnalysis:
-    def __init__(self, proc, **kwargs):
+    def __init__(self, proc):
         assert type(proc) is LoopIR.proc
 
         self.proc   = proc
-        #self.env    = Environment()
         self.tofree = []
 
     def result(self):
-        #return proc_decl, proc_def
-        return proc_decl, proc_def
+        return LoopIR.proc(
+                self.proc.name,
+                self.proc.sizes,
+                self.proc.args,
+                self.mem_s(self.proc.body),
+                self.proc.srcinfo)
 
     def push_frame(self):
         self.tofree.append(set())
+
+    def add_malloc(self, sym):
+        self.tofree[0].push(sym)
 
     def pop_frame(self, body):
         for nm in self.tofree.pop():
@@ -50,23 +54,14 @@ class MemoryAnalysis:
             body = self.pop_frame(body)
             return LoopIR.If(s.cond, body, s.srcinfo)
         elif styp is LoopIR.ForAll:
-            hi      = self.env[s.hi] # this should be a string
-            itr     = self.new_varname(s.iter) # allocate a new string
-            body    = self.comp_s(s.body)
-            return (f"for (int {itr}=0; {itr} < {hi}; {itr}++) {{\n"+
-                    f"{body}\n"+
-                    f"}}")
+            self.push_frame()
+            body = self.mem_s(s.body)
+            body = self.pop_frame(body)
+            return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
         elif styp is LoopIR.Alloc:
             if s.type is T.R:
-                name = self.env[s.name]
-                empty = np.empty([1])
-                return (f"{name} = {empty}")
-            else:
-                size = _eshape(s.type, self.env)
-                #TODO: Maybe randomize?
-                name = self.env[s.name]
-                empty = np.empty(size)
-                return (f"{name} = {empty}")
+                self.add_malloc(s.name)
+                return s
         elif styp is LoopIR.Free:
             assert False, ("There should not be frees inserted "+
                            "before mem analysis")

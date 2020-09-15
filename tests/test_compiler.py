@@ -59,7 +59,7 @@ def gen_alloc():
     ma  = IR.Alloc(ptr, R[n].typ, src0)
     ai  = IR.AVar(i, src0)
     rhs = IR.Read(x, [ai], src0)
-    s_a = IR.Assign(ma, [ai], rhs, src0)
+    s_a = IR.Assign(ptr, [ai], rhs, src0)
     body = IR.ForAll(i, n, s_a, src0)
 
     return Proc('alloc',
