@@ -6,6 +6,11 @@ from SYS_ATL.debug_frontend_LoopIR import *
 from SYS_ATL.prelude import *
 from SYS_ATL.LoopIR_compiler import Compiler, run_compile
 
+import ctypes
+import os
+import sys
+import subprocess
+
 # Test 1 is add vector
 #
 #   add_vec( n : size, x : R[n], y : R[n], res : R[n]):
@@ -40,6 +45,12 @@ def gen_add_vec():
 def test_add_vec():
     TEST_1 = gen_add_vec()
     run_compile([TEST_1],"test.c", "test.h")
+    compile_so_cmd  = ("clang -Wall -Werror -fPIC -O3 -shared "+
+                       "-o test.so test.c")
+    subprocess.run(compile_so_cmd, check=True, shell=True)
+    test_lib        = ctypes.CDLL("test.so")
+    print(test_lib.add_vec)
+
 
 # TEST 2 is alloc
 #   alloc( n : size, x : R[n]):
@@ -71,7 +82,7 @@ def gen_alloc():
                     seq
                 ])
 
-@pytest.mark.skip(reason="WIP test")
+#@pytest.mark.skip(reason="WIP test")
 def test_alloc():
     TEST_2 = gen_alloc()
     run_compile([TEST_2],"test_alloc.c", "test_alloc.h")
