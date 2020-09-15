@@ -82,6 +82,7 @@ module LoopIR {
             | ForAll ( sym iter, sym hi, stmt body )
         --  | ForAllWhere ( sym iter, pred where, stmt body )
             | Alloc ( sym name, type type )
+            | Free  ( sym name )
             attributes( srcinfo srcinfo )
 
     expr    = Read( sym name, aexpr* idx )

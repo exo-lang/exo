@@ -47,7 +47,6 @@ def test_add_vec():
 #       forall i = 0,n:
 #           ptr[i] = x[i];
 #       free(ptr);
-
 def gen_alloc():
     n   = Sym('n')
     x   = Sym('x')
@@ -57,7 +56,7 @@ def gen_alloc():
     src0= null_srcinfo()
 
     # How to pass n to alloc?
-    ma  = IR.Alloc(ptr, "Num", src0)
+    ma  = IR.Alloc(ptr, R[n].typ, src0)
     ai  = IR.AVar(i, src0)
     rhs = IR.Read(x, [ai], src0)
     s_a = IR.Assign(ma, [ai], rhs, src0)
