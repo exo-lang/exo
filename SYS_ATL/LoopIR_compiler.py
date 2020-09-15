@@ -156,16 +156,13 @@ class Compiler:
                     f"{body}\n"+
                     f"}}")
         elif styp is LoopIR.Alloc:
+            name = self.new_varname(s.name)
             if s.type is T.R:
-                name = self.env[s.name]
-                empty = np.empty([1])
-                return (f"{name} = {empty}")
+                return (f"int {name};")
             else:
                 size = _eshape(s.type, self.env)
                 #TODO: Maybe randomize?
-                name = self.env[s.name]
-                empty = np.empty(size)
-                return (f"{name} = {empty}")
+                return (f"int *{name} = (int*) malloc ({size[0]} * sizeof(int));")
         elif styp is LoopIR.Free:
             name = self.env[s.name]
             return f"free({name});"

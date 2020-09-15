@@ -56,17 +56,19 @@ def gen_alloc():
     src0= null_srcinfo()
 
     # How to pass n to alloc?
+    aptr = IR.AVar(ptr, src0)
     ma  = IR.Alloc(ptr, R[n].typ, src0)
     ai  = IR.AVar(i, src0)
     rhs = IR.Read(x, [ai], src0)
     s_a = IR.Assign(ptr, [ai], rhs, src0)
-    body = IR.ForAll(i, n, s_a, src0)
+    loop = IR.ForAll(i, n, s_a, src0)
+    seq = IR.Seq(ma, loop, src0)
 
     return Proc('alloc',
                 [n],
                 [ (x,R[n],'IN')],
                 [
-                    body
+                    seq
                 ])
 
 @pytest.mark.skip(reason="WIP test")

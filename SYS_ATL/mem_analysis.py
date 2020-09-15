@@ -18,23 +18,26 @@ class MemoryAnalysis:
         self.tofree = []
 
     def result(self):
+        self.push_frame()
+        body = self.mem_s(self.proc.body)
+        body = self.pop_frame(body)
         return LoopIR.proc(
                 self.proc.name,
                 self.proc.sizes,
                 self.proc.args,
-                self.mem_s(self.proc.body),
+                body,
                 self.proc.srcinfo)
 
     def push_frame(self):
         self.tofree.append(set())
 
     def add_malloc(self, sym):
-        self.tofree[0].push(sym)
+        self.tofree[-1].add(sym)
 
     def pop_frame(self, body):
         for nm in self.tofree.pop():
             body = LoopIR.Seq(body,
-                              LoopIR.Free(nm,body.srcinfo),
+                              LoopIR.Free(nm, body.srcinfo),
                               body.srcinfo)
         return body
 
@@ -59,9 +62,8 @@ class MemoryAnalysis:
             body = self.pop_frame(body)
             return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
         elif styp is LoopIR.Alloc:
-            if s.type is T.R:
-                self.add_malloc(s.name)
-                return s
+            self.add_malloc(s.name)
+            return s
         elif styp is LoopIR.Free:
             assert False, ("There should not be frees inserted "+
                            "before mem analysis")
