@@ -162,7 +162,7 @@ class Compiler:
             else:
                 size = _eshape(s.type, self.env)
                 #TODO: Maybe randomize?
-                return (f"int *{name} = (int*) malloc ({size[0]} * sizeof(int));")
+                return (f"float *{name} = (float*) malloc ({size[0]} * sizeof(float));")
         elif styp is LoopIR.Free:
             name = self.env[s.name]
             return f"free({name});"
