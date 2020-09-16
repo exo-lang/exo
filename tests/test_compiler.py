@@ -56,9 +56,7 @@ def test_add_vec():
     y = FloatArray(1.0,2.0,3.0)
     res = FloatArray(0.0,0.0,0.0)
     test_lib.add_vec(c_int(3), x, y, res)
-    for r in res:
-        print (r, end=" ")
-    print ()
+    np.testing.assert_almost_equal(res,[4,8,12])
 
 # TEST 2 is alloc
 #   alloc( n : size, x : R[n]):
