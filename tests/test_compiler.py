@@ -5,7 +5,7 @@ sys.path.append(sys.path[0]+"/..")
 from SYS_ATL.debug_frontend_LoopIR import *
 from SYS_ATL.prelude import *
 from SYS_ATL.LoopIR_compiler import Compiler, run_compile
-
+from ctypes import *
 import ctypes
 import os
 import sys
@@ -44,13 +44,21 @@ def gen_add_vec():
 
 def test_add_vec():
     TEST_1 = gen_add_vec()
-    run_compile([TEST_1],"test.c", "test.h")
-    compile_so_cmd  = ("clang -Wall -Werror -fPIC -O3 -shared "+
-                       "-o test.so test.c")
+    filename = "test1"
+    run_compile([TEST_1],(filename + ".c"), (filename + ".h"))
+    compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared "+
+                       "-o " + filename + ".so " + filename + ".c")
     subprocess.run(compile_so_cmd, check=True, shell=True)
-    test_lib        = ctypes.CDLL("test.so")
-    print(test_lib.add_vec)
-
+    abspath  = os.path.dirname(os.path.abspath(filename))
+    test_lib = ctypes.CDLL(abspath + '/' + filename + ".so")
+    FloatArray = c_float * 3
+    x = FloatArray(3.0,6.0,9.0)
+    y = FloatArray(1.0,2.0,3.0)
+    res = FloatArray(0.0,0.0,0.0)
+    test_lib.add_vec(c_int(3), x, y, res)
+    for r in res:
+        print (r, end=" ")
+    print ()
 
 # TEST 2 is alloc
 #   alloc( n : size, x : R[n]):

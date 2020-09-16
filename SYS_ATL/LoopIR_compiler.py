@@ -24,7 +24,8 @@ def run_compile(proc_list,c_file,h_file):
     #
     # write out c_file and h_file
 
-    fwd_decls = "#include <cstdio>\n" + "#include <cstring>\n\n"
+    #fwd_decls = "#include <cstdio>\n" + "#include <cstring>\n\n"
+    fwd_decls = ""
 
     body = f"#include \"{h_file}\"\n\n"
     for p in proc_list:
@@ -89,7 +90,7 @@ class Compiler:
         arg_str = ""
         typ_comment_str = ""
         for size in sizes:
-            size_str    += f"size_t {size},"
+            size_str    += f"int {size},"
         for arg in args:
             arg_str     += f" float* {arg.name},"
             typ_comment_str += f" {arg.name} : {arg.type} {arg.effect},"
