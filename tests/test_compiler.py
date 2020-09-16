@@ -60,7 +60,7 @@ def test_add_vec():
 
 # TEST 2 is alloc
 #   alloc( n : size, x : R[n]):
-#       int *ptr = (int*) malloc (n * sizeof(int));
+#       float *ptr = (float*) malloc (n * sizeof(float));
 #       forall i = 0,n:
 #           ptr[i] = x[i];
 #       free(ptr);
@@ -92,3 +92,42 @@ def gen_alloc():
 def test_alloc():
     TEST_2 = gen_alloc()
     run_compile([TEST_2],"test_alloc.c", "test_alloc.h")
+
+# TEST 3 is nested alloc
+#   alloc_nest( n : size, x : R[n], y: R[n]):
+#       float *ptr1 = (float*) malloc (n * sizeof(float));
+#       forall i = 0,n:
+#           ptr1[i] = x[i];
+#           float *ptr2 = (float*) malloc (n * sizeof(float));
+#           forall j = 0,n:
+#               ptr2[j] = y[i];
+#           free(ptr2);
+#       free(ptr1);
+def gen_alloc_nest():
+    n   = Sym('n')
+    x   = Sym('x')
+    ptr = Sym('ptr')
+    i   = Sym('i')
+
+    src0= null_srcinfo()
+
+    # How to pass n to alloc?
+    aptr = IR.AVar(ptr, src0)
+    ma  = IR.Alloc(ptr, R[n].typ, src0)
+    ai  = IR.AVar(i, src0)
+    rhs = IR.Read(x, [ai], src0)
+    s_a = IR.Assign(ptr, [ai], rhs, src0)
+    loop = IR.ForAll(i, n, s_a, src0)
+    seq = IR.Seq(ma, loop, src0)
+
+    return Proc('alloc_nest',
+                [n],
+                [ (x,R[n],'IN')],
+                [
+                    seq
+                ])
+
+#@pytest.mark.skip(reason="WIP test")
+def test_alloc_nest():
+    TEST_3 = gen_alloc_nest()
+    run_compile([TEST_3],"test_alloc_nest.c", "test_alloc_nest.h")
