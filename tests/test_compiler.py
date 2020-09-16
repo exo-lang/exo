@@ -53,9 +53,13 @@ def test_add_vec():
     test_lib = ctypes.CDLL(abspath + '/' + filename + ".so")
     FloatArray = c_float * 3
     x = FloatArray(3.0,6.0,9.0)
+    #xnp = np.array([3.0,6.0,9.0])
     y = FloatArray(1.0,2.0,3.0)
     res = FloatArray(0.0,0.0,0.0)
+    #res2 = np.random.uniform(size=3)
     test_lib.add_vec(c_int(3), x, y, res)
+    #Interpreter(TEST_1, n=3, x=x, y=y, res=res)
+    #np.testing.assert_almost_equal(res, res2)
     np.testing.assert_almost_equal(res,[4,8,12])
 
 # TEST 2 is alloc
@@ -94,15 +98,23 @@ def test_alloc():
     run_compile([TEST_2],"test_alloc.c", "test_alloc.h")
 
 # TEST 3 is nested alloc
-#   alloc_nest( n : size, x : R[n], y: R[n]):
-#       float *ptr1 = (float*) malloc (n * sizeof(float));
+#   alloc_nest( n : size, m : size, x : R[n,m], y: R[n,m], res : R[n,m] ):
+#       rloc : R[m]
 #       forall i = 0,n:
-#           ptr1[i] = x[i];
-#           float *ptr2 = (float*) malloc (n * sizeof(float));
-#           forall j = 0,n:
-#               ptr2[j] = y[i];
-#           free(ptr2);
-#       free(ptr1);
+#           xloc : R[m] @ GEMM_scratchpad
+#           yloc : R[m]
+#           forall j = 0,m:
+#               xloc[i,j] = x[i,j]
+#           forall j = 0,m:
+#               yloc[i,j] = y[i,j]
+#           forall j = 0,m:
+#               rloc[i,j] = xloc[i,j] + yloc[i,j]
+#           forall j = 0,m:
+#               res[i,j] = rloc[i,j]
+#           free(xloc)
+#           free(yloc);
+#       free(rloc);
+
 def gen_alloc_nest():
     n   = Sym('n')
     x   = Sym('x')
