@@ -5,11 +5,16 @@ sys.path.append(sys.path[0]+"/..")
 from SYS_ATL.debug_frontend_LoopIR import *
 from SYS_ATL.prelude import *
 from SYS_ATL.LoopIR_compiler import Compiler, run_compile
+from SYS_ATL.LoopIR_interpreter import Interpreter
 from ctypes import *
 import ctypes
 import os
 import sys
 import subprocess
+
+def cvt_c(n_array):
+    c_float_p = ctypes.POINTER(ctypes.c_float)
+    return n_array.astype(np.float32).ctypes.data_as(c_float_p)
 
 # Test 1 is add vector
 #
@@ -51,15 +56,15 @@ def test_add_vec():
     subprocess.run(compile_so_cmd, check=True, shell=True)
     abspath  = os.path.dirname(os.path.abspath(filename))
     test_lib = ctypes.CDLL(abspath + '/' + filename + ".so")
-    FloatArray = c_float * 3
-    x = FloatArray(3.0,6.0,9.0)
-    #xnp = np.array([3.0,6.0,9.0])
-    y = FloatArray(1.0,2.0,3.0)
-    res = FloatArray(0.0,0.0,0.0)
-    #res2 = np.random.uniform(size=3)
-    test_lib.add_vec(c_int(3), x, y, res)
-    #Interpreter(TEST_1, n=3, x=x, y=y, res=res)
-    #np.testing.assert_almost_equal(res, res2)
+    x = np.array([3.0,6.0,9.0])
+    y = np.array([1.0,2.0,3.0])
+    a_size = 3
+    res = np.random.uniform(size=a_size)
+    res_c = cvt_c(res)
+    test_lib.add_vec(c_int(a_size), cvt_c(x), cvt_c(y), res_c)
+    res_c = np.ctypeslib.as_array(res_c, shape=(a_size,))
+    Interpreter(TEST_1, n=3, x=x, y=y, res=res)
+    np.testing.assert_almost_equal(res, res_c)
     np.testing.assert_almost_equal(res,[4,8,12])
 
 # TEST 2 is alloc
