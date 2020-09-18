@@ -19,7 +19,7 @@ def _eshape(typ,env):
 def _simple_typecheck_buffer(typ, buf, env):
     if type(buf) is not np.ndarray:
         return False
-    elif buf.dtype != float and buf.dtype != np.float64:
+    elif buf.dtype != float and buf.dtype != np.float32:
         return False
 
     if typ is T.R:

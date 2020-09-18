@@ -31,13 +31,13 @@ class MemoryAnalysis:
     def push_frame(self):
         self.tofree.append(set())
 
-    def add_malloc(self, sym):
-        self.tofree[-1].add(sym)
+    def add_malloc(self, sym, typ):
+        self.tofree[-1].add( (sym,typ) )
 
     def pop_frame(self, body):
-        for nm in self.tofree.pop():
+        for (nm,typ) in self.tofree.pop():
             body = LoopIR.Seq(body,
-                              LoopIR.Free(nm, body.srcinfo),
+                              LoopIR.Free(nm, typ, body.srcinfo),
                               body.srcinfo)
         return body
 
@@ -62,7 +62,7 @@ class MemoryAnalysis:
             body = self.pop_frame(body)
             return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
         elif styp is LoopIR.Alloc:
-            self.add_malloc(s.name)
+            self.add_malloc(s.name, s.type)
             return s
         elif styp is LoopIR.Free:
             assert False, ("There should not be frees inserted "+
