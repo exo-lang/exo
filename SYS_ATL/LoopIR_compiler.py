@@ -90,7 +90,7 @@ class Compiler:
         arg_str = ""
         typ_comment_str = ""
         for size in sizes:
-            size_str    += f"int {size},"
+            size_str    += f" int {size},"
         for arg in args:
             arg_str     += f" float* {arg.name},"
             typ_comment_str += f" {arg.name} : {arg.type} {arg.effect},"
@@ -110,7 +110,10 @@ class Compiler:
 
     def new_varname(self, symbol, force_literal=False):
         s = str(symbol) if force_literal else repr(symbol)
-        assert s not in self.names, "name conflict!"
+        if s in self.names:
+            return self.env[symbol]
+        # TODO! Shall we allow name conflict here??
+        #assert s not in self.names, "name conflict!"
         self.env[symbol] = s
         self.names.add(s)
         return self.env[symbol]

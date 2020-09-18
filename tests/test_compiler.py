@@ -82,7 +82,6 @@ def gen_alloc():
     src0= null_srcinfo()
 
     # How to pass n to alloc?
-    aptr = IR.AVar(ptr, src0)
     ma  = IR.Alloc(ptr, R[n].typ, src0)
     ai  = IR.AVar(i, src0)
     rhs = IR.Read(x, [ai], src0)
@@ -122,26 +121,70 @@ def test_alloc():
 
 def gen_alloc_nest():
     n   = Sym('n')
+    m   = Sym('m')
     x   = Sym('x')
-    ptr = Sym('ptr')
+    y   = Sym('y')
+    res = Sym('res')
     i   = Sym('i')
+    j   = Sym('j')
+
+    rloc= Sym('rloc')
+    xloc= Sym('xloc')
+    yloc= Sym('yloc')
 
     src0= null_srcinfo()
 
-    # How to pass n to alloc?
-    aptr = IR.AVar(ptr, src0)
-    ma  = IR.Alloc(ptr, R[n].typ, src0)
+    rloc_a = IR.Alloc(rloc, R[m].typ, src0)
+
     ai  = IR.AVar(i, src0)
-    rhs = IR.Read(x, [ai], src0)
-    s_a = IR.Assign(ptr, [ai], rhs, src0)
-    loop = IR.ForAll(i, n, s_a, src0)
-    seq = IR.Seq(ma, loop, src0)
+    aj  = IR.AVar(j, src0)
+
+    xloc_a = IR.Alloc(xloc, R[m].typ, src0)
+    yloc_a = IR.Alloc(yloc, R[m].typ, src0)
+    seq_alloc = IR.Seq(xloc_a, yloc_a, src0)
+
+#           forall j = 0,m:
+#               xloc[i,j] = x[i,j]
+    rhs_1  = IR.Read(x, [ai,aj], src0)
+    body_1 = IR.Assign(xloc, [ai,aj], rhs_1, src0)
+    loop_1 = IR.ForAll(j, m, body_1, src0)
+    seq_1  = IR.Seq(seq_alloc, loop_1, src0)
+
+#           forall j = 0,m:
+#               yloc[i,j] = y[i,j]
+    rhs_2  = IR.Read(y, [ai,aj], src0)
+    body_2 = IR.Assign(yloc, [ai,aj], rhs_2, src0)
+    loop_2 = IR.ForAll(j, m, body_2, src0)
+    seq_2  = IR.Seq(seq_1, loop_2, src0)
+
+#           forall j = 0,m:
+#               rloc[i,j] = xloc[i,j] + yloc[i,j]
+    rhs_3  = IR.BinOp('+', IR.Read(xloc, [ai,aj], src0),
+                        IR.Read(yloc, [ai,aj], src0),
+                   src0)
+    body_3 = IR.Assign(rloc, [ai,aj], rhs_3, src0)
+    loop_3 = IR.ForAll(j, m, body_3, src0)
+    seq_3  = IR.Seq(seq_2, loop_3, src0)
+
+#           forall j = 0,m:
+#               res[i,j] = rloc[i,j]
+    rhs_4  = IR.Read(rloc, [ai,aj], src0)
+    body_4 = IR.Assign(res, [ai,aj], rhs_4, src0)
+    loop_4 = IR.ForAll(j, m, body_4, src0)
+    seq_4  = IR.Seq(seq_3, loop_4, src0)
+
+    loop = IR.ForAll(i, n, seq_4, src0)
+    seq_top = IR.Seq(rloc_a, loop, src0)
 
     return Proc('alloc_nest',
-                [n],
-                [ (x,R[n],'IN')],
+                [n, m],
                 [
-                    seq
+                    (x,R[n,m],'IN'),
+                    (y,R[n,m],'IN'),
+                    (res,R[n,m],'OUT')
+                ],
+                [
+                    seq_top
                 ])
 
 #@pytest.mark.skip(reason="WIP test")
