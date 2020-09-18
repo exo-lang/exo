@@ -24,8 +24,7 @@ def run_compile(proc_list,c_file,h_file):
     #
     # write out c_file and h_file
 
-    #fwd_decls = "#include <cstdio>\n" + "#include <cstring>\n\n"
-    fwd_decls = ""
+    fwd_decls = "#include <stdio.h>\n" + "#include <stdlib.h>\n\n"
 
     body = f"#include \"{h_file}\"\n\n"
     for p in proc_list:
@@ -92,7 +91,12 @@ class Compiler:
         for size in sizes:
             size_str    += f" int {size},"
         for arg in args:
-            arg_str     += f" float* {arg.name},"
+            # TODO! How can we get tensor size directly here?
+            ast = "*"
+            for s in str(arg.type):
+                if s == ",":
+                    ast += "*"
+            arg_str     += " float" + ast + f" {arg.name},"
             typ_comment_str += f" {arg.name} : {arg.type} {arg.effect},"
 
         # Generate headers here?
@@ -135,7 +139,7 @@ class Compiler:
         elif styp is LoopIR.Pass:
             return (f"; // # NO-OzP :")
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            lbuf = s.name
+            lbuf = self.env[s.name]
             idx = self.idx_str(s.idx)
             rhs  = self.comp_e(s.rhs)
             if styp is LoopIR.Assign:
@@ -181,7 +185,7 @@ class Compiler:
             #             else tuple( self.comp_a(a) for a in e.idx ))
             #return buf[idx]
             idx = self.idx_str(e.idx)
-            return (f"{e.name}" + idx)
+            return (f"{buf}" + idx)
         elif etyp is LoopIR.Const:
             return str(e.val)
         elif etyp is LoopIR.BinOp:

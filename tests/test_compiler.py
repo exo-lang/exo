@@ -190,4 +190,22 @@ def gen_alloc_nest():
 #@pytest.mark.skip(reason="WIP test")
 def test_alloc_nest():
     TEST_3 = gen_alloc_nest()
-    run_compile([TEST_3],"test_alloc_nest.c", "test_alloc_nest.h")
+    filename = "test_alloc_nest"
+    run_compile([TEST_3],(filename + ".c"), (filename + ".h"))
+    compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared "+
+                       "-o " + filename + ".so " + filename + ".c")
+    subprocess.run(compile_so_cmd, check=True, shell=True)
+    abspath  = os.path.dirname(os.path.abspath(filename))
+    test_lib = ctypes.CDLL(abspath + '/' + filename + ".so")
+    x = np.array([[1.0,2.0,3.0], [3.2,4.0,5.3]])
+    y = np.array([[2.6,3.7,8.9], [1.3,2.3,6.7]])
+    n_size = 2
+    m_size = 3
+    res = [np.random.uniform(size=m_size), np.random.uniform(size=m_size)] 
+    res_c = cvt_c(res)
+    test_lib.add_vec(c_int(n_size), c_int(m_size), cvt_c(x), cvt_c(y), res_c)
+    res_c = np.ctypeslib.as_array(res_c, shape=(n_size,m_size))
+    Interpreter(TEST_1, n=n_size, m=m_size, x=x, y=y, res=res)
+    print (res_c)
+    np.testing.assert_almost_equal(res, res_c)
+    #np.testing.assert_almost_equal(res,[4,8,12])
