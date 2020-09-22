@@ -7,6 +7,65 @@ from . import shared_types as T
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Untyped AST
+
+front_ops = {
+  "+":    True,
+  "-":    True,
+  "*":    True,
+  "/":    True,
+  #
+  "<":    True,
+  ">":    True,
+  "<=":   True,
+  ">=":   True,
+  "==":   True,
+  #
+  "and":  True,
+  "or":   True,
+}
+
+UAST = ADT("""
+module UAST {
+    proc    = ( name?           name,
+                sym*            sizes,
+                fnarg*          args,
+                stmt*           body,
+                srcinfo         srcinfo )
+
+    fnarg   = ( sym             name,
+                type            type,
+                effect          effect,
+                srcinfo         srcinfo )
+
+    stmt    = Assign  ( sym name, expr* idx, expr rhs )
+            | Reduce  ( sym name, expr* idx, expr rhs )
+            | Pass    ()
+            | If      ( expr cond, stmt* body,  stmt* orelse )
+            | ForAll  ( sym iter,  expr cond,   stmt* body )
+            | Alloc   ( sym name, type type )
+            attributes( srcinfo srcinfo )
+
+    expr    = Read    ( sym name, expr* idx )
+            | Const   ( object val )
+            | USub    ( expr arg ) -- i.e.  -(...)
+            | BinOp   ( op op, expr lhs, expr rhs )
+            | Range   ( expr lo, expr hi ) -- only use for loop cond
+            attributes( srcinfo srcinfo )
+
+} """, {
+    'name':     is_valid_name,
+    'sym':      lambda x: type(x) is Sym,
+    'type':     T.is_type,
+    'effect':   T.is_effect,
+    'op':       lambda x: x in front_ops,
+    'srcinfo':  lambda x: type(x) is SrcInfo,
+})
+
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Loop IR
 
 """
@@ -55,10 +114,10 @@ pred_ops = {
 }
 
 bin_ops = {
-    "+":    True,
-    "-":    True,
-    "*":    True,
-    "/":    True,
+  "+":    True,
+  "-":    True,
+  "*":    True,
+  "/":    True,
 }
 
 LoopIR = ADT("""

@@ -6,7 +6,7 @@ from inspect import (currentframe as _curr_frame,
 def is_pos_int(obj):
   return type(obj) is int and obj >= 1
 
-_valid_pattern = _re_compile("^[a-zA-Z_]\w*$")
+_valid_pattern = _re_compile(r"^[a-zA-Z_]\w*$")
 def is_valid_name(obj):
   return (type(obj) is str) and (_valid_pattern.match(obj) != None)
 
