@@ -11,3 +11,4 @@ test.h
 test_alloc.c
 test_alloc.h
 test.so
+tests/tmp/

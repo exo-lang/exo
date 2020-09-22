@@ -9,13 +9,14 @@ from .LoopIR import LoopIR
 from .mem_analysis import MemoryAnalysis
 
 import numpy as np
+import os
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Loop IR Compiler
 
 # top level compiler function called by tests!
-def run_compile(proc_list,c_file,h_file):
+def run_compile(proc_list,path,c_file,h_file):
     # take proc_list
     # for each p in proc_list:
     #   run Compiler() pass to get (decl, def)
@@ -24,8 +25,7 @@ def run_compile(proc_list,c_file,h_file):
     #
     # write out c_file and h_file
 
-    #fwd_decls = "#include <cstdio>\n" + "#include <cstring>\n\n"
-    fwd_decls = ""
+    fwd_decls = "#include <stdio.h>\n" + "#include <stdlib.h>\n\n"
 
     body = f"#include \"{h_file}\"\n\n"
     for p in proc_list:
@@ -35,33 +35,30 @@ def run_compile(proc_list,c_file,h_file):
         body += b
         body += '\n'
 
-    f_header = open(h_file, "w")
+    f_header = open(os.path.join(path, h_file), "w")
     f_header.write(fwd_decls)
     f_header.close()
 
-    f_cpp = open(c_file, "w")
+    f_cpp = open(os.path.join(path, c_file), "w")
     f_cpp.write(body)
     f_cpp.close()
 
-def _eshape(typ,env):
-    return tuple( r if is_pos_int(r) else env[r]
+def _type_shape(typ,env):
+    return tuple( str(r) if is_pos_int(r) else env[r]
                   for r in typ.shape() )
 
-def _simple_typecheck_buffer(typ, buf, env):
-    if type(buf) is not np.ndarray:
-        return False
-    elif buf.dtype != float and buf.dtype != np.float64:
-        return False
+def _type_size(typ,env):
+    szs     = _type_shape(typ,env)
+    return ("*").join(szs)
 
-    if typ is T.R:
-        if tuple(buf.shape) != (1,):
-            return False
-    else:
-        shape = _eshape(typ,env)
-        if shape != tuple(buf.shape):
-            return False
-
-    return True
+def _type_idx(typ,idx,env):
+    assert type(typ) is T.Tensor
+    szs     = _type_shape(typ,env)
+    assert len(szs) == len(idx)
+    s       = env[idx[0].name]
+    for i,n in zip(idx[1:],szs[1:]):
+        s   = f"({s}) * {n} + {env[i.name]}"
+    return s
 
 class Compiler:
     def __init__(self, proc, **kwargs):
@@ -69,31 +66,27 @@ class Compiler:
 
         self.proc   = proc
         self.env    = Environment()
+        self.envtyp = Environment()
         self.names  = set()
-
-        # setup, size argument binding
-        for sz in proc.sizes:
-            self.env[sz] = self.new_varname(sz, True)
-
-        # setup, buffer argument binding
-        for a in proc.args:
-            self.env[a.name] = self.new_varname(a.name, True)
-
-    def comp_top(self):
-        stmt_str = self.comp_s(self.proc.body)
 
         assert self.proc.name != None, "expected names for compilation"
         name = self.proc.name
-        sizes = self.proc.sizes
-        args = self.proc.args
         size_str = ""
         arg_str = ""
         typ_comment_str = ""
-        for size in sizes:
-            size_str    += f"int {size},"
-        for arg in args:
-            arg_str     += f" float* {arg.name},"
-            typ_comment_str += f" {arg.name} : {arg.type} {arg.effect},"
+
+        # setup, size argument binding
+        for sz in proc.sizes:
+            size        = self.new_varname(sz, force_literal=True)
+            size_str    += f" int {size},"
+
+        # setup, buffer argument binding
+        for a in proc.args:
+            name_arg = self.new_varname(a.name, typ=a.type, force_literal=True)
+            arg_str         += f" float* {name_arg},"
+            typ_comment_str += f" {name_arg} : {a.type} {a.effect},"
+
+        stmt_str = self.comp_s(self.proc.body)
 
         # Generate headers here?
         proc_decl = ( f"// {name}({typ_comment_str[:-1]} )\n"
@@ -105,21 +98,29 @@ class Compiler:
                     + "}\n"
                     )
 
-        #return proc_decl, proc_def
-        return proc_decl, proc_def
+        self.proc_decl = proc_decl
+        self.proc_def  = proc_def
 
-    def new_varname(self, symbol, force_literal=False):
+    def comp_top(self):
+        return self.proc_decl, self.proc_def
+
+    def new_varname(self, symbol, typ=None, force_literal=False):
         s = str(symbol) if force_literal else repr(symbol)
+        #if s in self.names:
+        #    return self.env[symbol]
+        # TODO! Shall we allow name conflict here??
         assert s not in self.names, "name conflict!"
         self.env[symbol] = s
         self.names.add(s)
+        if typ is not None:
+            self.envtyp[symbol] = typ
         return self.env[symbol]
 
-    def idx_str(self, idx_list):
-        idx = ""
-        for a in idx_list:
-            idx += (f"[{self.comp_a(a)}]")
-        return idx
+    def access_str(self, nm, idx_list):
+        buf = self.env[nm]
+        type = self.envtyp[nm]
+        idx  = _type_idx(type, idx_list, self.env)
+        return f"{buf}[{idx}]"
 
     def comp_s(self, s):
         styp    = type(s)
@@ -132,13 +133,15 @@ class Compiler:
         elif styp is LoopIR.Pass:
             return (f"; // # NO-OzP :")
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            lbuf = s.name
-            idx = self.idx_str(s.idx)
-            rhs  = self.comp_e(s.rhs)
-            if styp is LoopIR.Assign:
-                return (f"{lbuf}{idx} = {rhs};")
+            if self.envtyp[s.name] is T.R:
+                lhs = self.env[s.name]
             else:
-                return (f"{lbuf}{idx} += {rhs};")
+                lhs = self.access_str(s.name, s.idx)
+            rhs     = self.comp_e(s.rhs)
+            if styp is LoopIR.Assign:
+                return (f"{lhs} = {rhs};")
+            else:
+                return (f"{lhs} += {rhs};")
         elif styp is LoopIR.If:
             cond = self.comp_p(s.cond)
             body = self.comp_s(s.body)
@@ -157,28 +160,27 @@ class Compiler:
                     f"{body}\n"+
                     f"}}")
         elif styp is LoopIR.Alloc:
-            name = self.new_varname(s.name)
+            name = self.new_varname(s.name, typ=s.type)
             if s.type is T.R:
-                return (f"int {name};")
+                return (f"float {name};")
             else:
-                size = _eshape(s.type, self.env)
-                #TODO: Maybe randomize?
-                return (f"float *{name} = (float*) malloc ({size[0]} * sizeof(float));")
+                size = _type_size(s.type, self.env)
+                return (f"float *{name} = "+
+                        f"(float*) malloc ({size} * sizeof(float));")
         elif styp is LoopIR.Free:
-            name = self.env[s.name]
-            return f"free({name});"
+            if s.type is not T.R:
+                name = self.env[s.name]
+                return f"free({name});"
         else: assert False, "bad case"
 
     def comp_e(self, e):
         etyp    = type(e)
 
         if etyp is LoopIR.Read:
-            buf = self.env[e.name]
-            #idx = ( (0,) if len(e.idx) == 0
-            #             else tuple( self.comp_a(a) for a in e.idx ))
-            #return buf[idx]
-            idx = self.idx_str(e.idx)
-            return (f"{e.name}" + idx)
+            if self.envtyp[e.name] is T.R:
+                return self.env[e.name]
+            else:
+                return self.access_str(e.name, e.idx)
         elif etyp is LoopIR.Const:
             return str(e.val)
         elif etyp is LoopIR.BinOp:
