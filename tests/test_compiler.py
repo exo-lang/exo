@@ -12,6 +12,11 @@ import os
 import sys
 import subprocess
 
+# Initialize by creating a tmp directory
+directory = "tmp/"
+if not os.path.isdir(directory):
+    os.mkdir(directory)
+
 c_float_p = ctypes.POINTER(ctypes.c_float)
 
 def cvt_c(n_array):
@@ -58,12 +63,13 @@ def gen_add_vec():
 def test_add_vec():
     TEST_1 = gen_add_vec()
     filename = "test1"
-    run_compile([TEST_1],(filename + ".c"), (filename + ".h"))
+    run_compile([TEST_1],directory,(filename + ".c"), (filename + ".h"))
     compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared "+
-                       "-o " + filename + ".so " + filename + ".c")
+                       "-o " + directory + filename + ".so " +
+                       directory + filename + ".c")
     subprocess.run(compile_so_cmd, check=True, shell=True)
     abspath  = os.path.dirname(os.path.abspath(filename))
-    test_lib = ctypes.CDLL(abspath + '/' + filename + ".so")
+    test_lib = ctypes.CDLL(abspath + '/' + directory + filename + ".so")
     x = nparray([3.0,6.0,9.0])
     y = nparray([1.0,2.0,3.0])
     a_size = 3
@@ -104,10 +110,9 @@ def gen_alloc():
                     seq
                 ])
 
-#@pytest.mark.skip(reason="WIP test")
 def test_alloc():
     TEST_2 = gen_alloc()
-    run_compile([TEST_2],"test_alloc.c", "test_alloc.h")
+    run_compile([TEST_2],directory,"test_alloc.c", "test_alloc.h")
 
 # TEST 3 is nested alloc
 #   alloc_nest( n : size, m : size, x : R[n,m], y: R[n,m], res : R[n,m] ):
@@ -202,22 +207,21 @@ def gen_alloc_nest():
 def test_alloc_nest():
     TEST_3 = gen_alloc_nest()
     filename = "test_alloc_nest"
-    run_compile([TEST_3],(filename + ".c"), (filename + ".h"))
+    run_compile([TEST_3],directory,(filename + ".c"), (filename + ".h"))
     compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared "+
-                       "-o " + filename + ".so " + filename + ".c")
+                       "-o " + directory + filename + ".so " +
+                       directory + filename + ".c")
     subprocess.run(compile_so_cmd, check=True, shell=True)
     abspath  = os.path.dirname(os.path.abspath(filename))
-    test_lib = ctypes.CDLL(abspath + '/' + filename + ".so")
+    test_lib = ctypes.CDLL(abspath + '/' + directory + filename + ".so")
     x = nparray([[1.0,2.0,3.0], [3.2,4.0,5.3]])
     y = nparray([[2.6,3.7,8.9], [1.3,2.3,6.7]])
     n_size = 2
     m_size = 3
     res = nprand(size=(n_size,m_size))
-    #res = [np.random.uniform(size=m_size), np.random.uniform(size=m_size)]
     res_c = cvt_c(res)
     test_lib.alloc_nest(c_int(n_size), c_int(m_size), cvt_c(x), cvt_c(y), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size,m_size))
     Interpreter(TEST_3, n=n_size, m=m_size, x=x, y=y, res=res)
-    print (res_c)
     np.testing.assert_almost_equal(res, res_c)
-    #np.testing.assert_almost_equal(res,[4,8,12])
+    np.testing.assert_almost_equal(res_c,nparray([[3.6,5.7,11.9], [4.5,6.3,12.0]]))

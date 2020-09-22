@@ -4,8 +4,4 @@ __pycache__
 .coverage
 htmlcov
 
-tests/test.c
-tests/test.h
-test.c
-test.h
-
+tests/tmp/

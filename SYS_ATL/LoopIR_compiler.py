@@ -9,13 +9,14 @@ from .LoopIR import LoopIR
 from .mem_analysis import MemoryAnalysis
 
 import numpy as np
+import os
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Loop IR Compiler
 
 # top level compiler function called by tests!
-def run_compile(proc_list,c_file,h_file):
+def run_compile(proc_list,path,c_file,h_file):
     # take proc_list
     # for each p in proc_list:
     #   run Compiler() pass to get (decl, def)
@@ -34,11 +35,11 @@ def run_compile(proc_list,c_file,h_file):
         body += b
         body += '\n'
 
-    f_header = open(h_file, "w")
+    f_header = open(os.path.join(path, h_file), "w")
     f_header.write(fwd_decls)
     f_header.close()
 
-    f_cpp = open(c_file, "w")
+    f_cpp = open(os.path.join(path, c_file), "w")
     f_cpp.write(body)
     f_cpp.close()
 
