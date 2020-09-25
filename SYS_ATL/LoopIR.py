@@ -50,7 +50,7 @@ module UAST {
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
-            | Range   ( expr lo, expr hi ) -- only use for loop cond
+            | ParRange( expr lo, expr hi ) -- only use for loop cond
             attributes( srcinfo srcinfo )
 
 } """, {
@@ -160,6 +160,7 @@ module LoopIR {
             | ASize  ( sym name )
             | AConst ( int val  )
             | AScale ( int coeff, aexpr rhs )
+            | AScaleDiv ( aexpr lhs, int quotient )
             | AAdd ( aexpr lhs, aexpr rhs )
             | ASub ( aexpr lhs, aexpr rhs )
             attributes( srcinfo srcinfo )

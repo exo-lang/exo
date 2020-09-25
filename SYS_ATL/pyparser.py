@@ -337,16 +337,16 @@ class Parser:
 
   def parse_loop_cond(self, cond):
     if type(cond) is pyast.Call:
-      if type(cond.func) is pyast.Name and cond.func.id == "range":
+      if type(cond.func) is pyast.Name and cond.func.id == "par":
         if len(cond.keywords) > 0:
-          self.err(cond, "range() does not support named arguments")
+          self.err(cond, "par() does not support named arguments")
         elif len(cond.args) != 2:
-          self.err(cond, "range() expects exactly 2 arguments")
+          self.err(cond, "par() expects exactly 2 arguments")
         lo = self.parse_expr(cond.args[0])
         hi = self.parse_expr(cond.args[1])
-        return UAST.Range( lo, hi, self.getsrcinfo(cond) )
+        return UAST.ParRange( lo, hi, self.getsrcinfo(cond) )
       else:
-        self.err(cond, "expected 'range(..., ...)' or a predicate")
+        self.err(cond, "expected 'par(..., ...)' or a predicate")
     else:
       return self.parse_expr(cond)
 
@@ -470,8 +470,3 @@ class Parser:
 
     else:
       self.err(e, "unsupported form of expression")
-
-
-
-
-

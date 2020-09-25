@@ -19,7 +19,7 @@ from yapf.yapflib.yapf_api import FormatCode
   functions should return a list of strings, one for each line
 
   standard inputs
-  tab     - holds a string of white-space 
+  tab     - holds a string of white-space
   prec    - the operator precedence of the surrounding text
             if this string contains a lower precedence operation then
             we must wrap it in parentheses.
@@ -192,10 +192,6 @@ class UAST_PPrinter:
       return s
     elif type(e) is UAST.USub:
       return f"-{self.pexpr(e.arg,prec=60)}"
-    elif type(e) is UAST.Range:
-      return f"range({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
+    elif type(e) is UAST.ParRange:
+      return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
     else: assert False, "unrecognized expr type"
-
-
-
-

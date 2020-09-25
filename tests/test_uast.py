@@ -8,40 +8,45 @@ def test_conv1d():
   @proc
   def conv1d(n : size, m : size, r: size,
              x : R[n] @ IN, w : R[m] @ IN, res : R[r] @ OUT ):
-    for i in range(0,r):
+    for i in par(0,r):
       res[i] = 0.0
-    for i in range(0,r):
-      for j in range(0,n):
+    for i in par(0,r):
+      for j in par(0,n):
         if i <= j < i + m:
           res[i] += x[j]*w[i-j+m-1]
 
   assert type(conv1d) is Procedure
   print(conv1d._TESTING_UAST())
 
+# // <- integer division
+#
 # conv1d.reorder(j,i)
 # ->
-#    for i in range(0,r):
-#      for j in range(0,n):
+#    for i in par(0,r):
+#      for j in par(0,n):
 #        if i <= j < i + m:
 #          res[i] += x[j]*w[i-j+m-1]
-# 
+#
 # conv1d.split(j,2)
+# conv1d.split
 # ->
-#    for i in range(0,r):
+#    for i in par(0,r):
 #      res[i] = 0.0
-#    for i in range(0,r):
+#    for i in par(0,r):
 #      TODO: What is n/2?
-#      for j_1 in range(0,n/2):
-#        for j_2 in range(0,2):
+#      constant division
+#      for j_1 in par(0,n/2):
+#        for j_2 in par(0,2):
 #          j = j_1*2 + j_2
-#          if i <= j < i + m:
-#            res[i] += x[j]*w[i-j+m-1]
+#          if j < n:
+#            if i <= j < i + m:
+#              res[i] += x[j]*w[i-j+m-1]
 # OR ->
-#    for i in range(0,r):
+#    for i in par(0,r):
 #      res[i] = 0.0
-#    for i in range(0,r):
-#      for j_1 in range(0,n):
-#        for j_2 in range(0,2):
+#    for i in par(0,r):
+#      for j_1 in par(0,n):
+#        for j_2 in par(0,2):
 #          j = j_1*2 + j_2
 #          if j < n:
 #            if i <= j < i + m:
@@ -56,6 +61,7 @@ def test_conv1d():
 #          res[i] += x[j]*w[i-j+m-1]
 #
 # conv1d.unroll(i,3)
+# conv1d.split(i,3,i1,i2).unroll(i_2)
 # ->
 # TODO: What's r/3?
 #    for i in range(0,r/3):
