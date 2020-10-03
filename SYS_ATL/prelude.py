@@ -99,6 +99,3 @@ class Environment:
 
   def __setitem__(self,key,val):
     self._stack[-1][key] = val
-
-
-
