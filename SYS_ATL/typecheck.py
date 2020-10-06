@@ -37,7 +37,7 @@ module TypeCheckerTypes {
         | Idx()
         | Bool()
 }""",{})
-ADTmemo(_Types,['Size','Idx','Bool'],{})
+ADTmemo(T._Types,['Size','Idx','Bool'],{})
 sizeT = TT.Size()
 idxT  = TT.Idx()
 boolT = TT.Bool()
@@ -134,8 +134,8 @@ class TypeChecker:
             if len(stmt.orelse) > 0:
                 self.err(stmt, "else is not supported yet, sorry about that")
 
-            cond, ctyp  = self.check_p(stmt.cond)
-            body        = self.check_stmts(stmt.body, stmt.srcinfo)
+            cond = self.check_p(stmt.cond)
+            body = self.check_stmts(stmt.body)
             return LoopIR.If(cond, body, stmt.srcinfo)
 
         elif type(stmt) is UAST.ForAll:
@@ -166,57 +166,103 @@ class TypeChecker:
 
         else: assert False, "not a loopir in check_stmts"
 
-  def check_e(self, e):
-    if type(e) is UAST.Read:
-        idx = self.check_access(stmt, stmt.name, stmt.idx, lvalue=False)
-        return IR.Read(e.name, idx, e.srcinfo)
+    def check_e(self, e):
+        if type(e) is UAST.Read:
+            idx = self.check_access(e, e.name, e.idx, lvalue=False)
+            return LoopIR.Read(e.name, idx, e.srcinfo)
 
-    elif type(e) is UAST.Const:
-        if type(e.val) is float or e.val is int:
-            return LoopIR.Const(float(e.val), e.srcinfo)
-        else:
-            self.err(e, f"literal of unexpected type: {type(e.val)}  "+
-                        f"Value: {e.val}")
-            return LoopIR.Const(0, e.srcinfo)
+        elif type(e) is UAST.Const:
+            if type(e.val) is float or e.val is int:
+                return LoopIR.Const(float(e.val), e.srcinfo)
+            else:
+                self.err(e, f"literal of unexpected type: {type(e.val)}  "+
+                            f"Value: {e.val}")
+                return LoopIR.Const(0, e.srcinfo)
 
-    elif type(e) is UAST.USub:
-        arg = self.check_e(e.arg)
-        return LoopIR.BinOp( LoopIR.Const(-1.0, e.srcinfo), arg, e.srcinfo )
+        elif type(e) is UAST.USub:
+            arg = self.check_e(e.arg)
+            return LoopIR.BinOp("*", LoopIR.Const(-1.0, e.srcinfo), arg, e.srcinfo )
 
-    elif type(e) is UAST.BinOp:
-        if e.op not in bin_ops:
-            self.err(e, f"cannot perform op '{e.op}' on scalar number values")
-            return LoopIR.Const(0, e.srcinfo)
+        elif type(e) is UAST.BinOp:
+            if e.op not in bin_ops:
+                self.err(e, f"cannot perform op '{e.op}' on scalar number values")
+                return LoopIR.Const(0, e.srcinfo)
 
-        lhs = self.check_e(e.lhs)
-        rhs = self.check_e(e.rhs)
-        return LoopIR.BinOp(op, lhs, rhs, e.srcinfo)
+            lhs = self.check_e(e.lhs)
+            rhs = self.check_e(e.rhs)
+            return LoopIR.BinOp(e.op, lhs, rhs, e.srcinfo)
 
-    elif type(e) is UAST.ParRange:
-        assert False, ("parser should not place ParRange anywhere outside "+
-                       "of a for-loop condition")
-    else: assert False, "not a LoopIR in check_e"
+        elif type(e) is UAST.ParRange:
+            assert False, ("parser should not place ParRange anywhere outside "+
+                           "of a for-loop condition")
+        else: assert False, "not a LoopIR in check_e"
 
-  def check_a(self, e):
-          elif type(e) is UAST.Const:
-              if type(e.val) is float or e.val is int:
-                  return LoopIR.Const(e.val, e.srcinfo)
-              else:
-                  self.err(e, f"literal of unexpected type: {type(e.val)}  "+
-                              f"Value: {e.val}")
-                  return LoopIR.Const(0, e.srcinfo)
+    def check_a(self, a):
+        if type(a) is UAST.Read:
+            # AVar or ASize
+            if a.name in self.uast_proc.args:
+                return LoopIR.ASize(a.name, a.srcinfo)
+            else:
+                return LoopIR.AVar(a.name, a.srcinfo)
 
-      if expect_idx:
-          val = e.val
-          if type(e.val) is not int:
-              self.err(e, "expected an integer")
-              val = 0
-          return LoopIR.AConst(val, e.srcinfo), idxT
-      else:
+        elif type(a) is UAST.Const:
+            # AConst
+            if type(a.val) is int:
+                return LoopIR.AConst(int(a.val), a.srcinfo)
+            else:
+                self.err(a, f"Index value unexpected type: {type(a.val)}  "+
+                            f"Value: {a.val}")
+                return LoopIR.AConst(0, a.srcinfo)
 
-      pass
+        elif type(a) is UAST.BinOp:
+            #AScale, AScaleDiv, AAdd, or ASub
+            if a.op == "+" or a.op == "-":
+                lhs = self.check_a(a.lhs)
+                rhs = self.check_a(a.rhs)
+                IRnode = (LoopIR.AAdd if a.op == "+" else
+                          LoopIR.ASub)
+                return IRnode(lhs, rhs, a.srcinfo)
+            #elif a.op is "*" or a.op is "/":
+            #TODO: We don't have / yet
+            elif a.op == "*":
+                if a.lhs is not int and a.rhs is not int:
+                    self.err(a, f"Index can be scaled only by int. "+
+                                f"Unexpected type: {type(a.lhs)} and "+
+                                f"{type(a.rhs)}")
+                    return LoopIR.AScale(LoopIR.AConst(0), 0, a.srcinfo)
+                quo = a.lhs if a.lhs is int else a.rhs
+                scale = a.rhs if a.lhs is int else a.lhs
+                return LoopIR.AScale(quo, scale, a.srcinfo)
 
-  def check_p(self, e):
-                if type(e.val) is bool:
-                    return LoopIR.BConst(e.val, e.srcinfo), boolT
-      pass
+            else:
+                self.err(a, f"Is not a affine index operation: {a.op}")
+                return LoopIR.AScale(0, LoopIR.AConst(0), a.srcinfo)
+
+    def check_p(self, p):
+        if type(p) is UAST.Const:
+            # BConst
+            if p.val is bool:
+                return LoopIR.BConst(bool(p.val), p.srcinfo)
+            else:
+                self.err(p, f"Bool value unexpected type: {type(p.val)}  "+
+                            f"Value: {p.val}")
+                return LoopIR.BConst(False, p.srcinfo)
+        elif type(p) is UAST.BinOp:
+            if p.op == "and" or p.op == "or":
+                lhs = self.check_p(p.lhs)
+                rhs = self.check_p(p.rhs)
+                #| And ( pred lhs, pred rhs )
+                #| Or  ( pred lhs, pred rhs )
+                IRnode = (LoopIR.And if p.op == "and" else
+                          LoopIR.Or)
+                return IRnode(lhs, rhs, p.srcinfo)
+
+            elif p.op in pred_ops:
+                lhs = self.check_a(p.lhs)
+                rhs = self.check_a(p.rhs)
+                #| Cmp ( predop op, aexpr lhs, aexpr rhs )
+                return LoopIR.Cmp(p.op, lhs, rhs, p.srcinfo)
+
+            else:
+                self.err(p, f"Is not a predicate: {p.op}")
+                return LoopIR.BConst(False, p.srcinfo)

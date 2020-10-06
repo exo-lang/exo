@@ -16,7 +16,18 @@ def test_conv1d():
           res[i] += x[j]*w[i-j+m-1]
 
   assert type(conv1d) is Procedure
-  print(conv1d._TESTING_UAST())
+  conv1d.compile_c("tmp/", "uast_test_conv1d")
+
+test_conv1d()
+
+def test_add():
+  @proc
+  def add(n : size, x : R[n] @ IN, y : R[n] @ IN, res : R[n] @ OUT):
+    for i in par(0,n):
+      res[i] = x[i] + y[i]
+
+  assert type(add) is Procedure
+  add.compile_c("tmp/", "uast_test_add")
 
 # // <- integer division
 #
