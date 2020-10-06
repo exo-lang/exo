@@ -55,9 +55,9 @@ def _type_idx(typ,idx,env):
     assert type(typ) is T.Tensor
     szs     = _type_shape(typ,env)
     assert len(szs) == len(idx)
-    s       = env[idx[0].name]
+    s       = idx[0]
     for i,n in zip(idx[1:],szs[1:]):
-        s   = f"({s}) * {n} + {env[i.name]}"
+        s   = f"({s}) * {n} + ({i})"
     return s
 
 class Compiler:
@@ -119,7 +119,8 @@ class Compiler:
     def access_str(self, nm, idx_list):
         buf = self.env[nm]
         type = self.envtyp[nm]
-        idx  = _type_idx(type, idx_list, self.env)
+        idxs = [self.comp_a(i) for i in idx_list]
+        idx  = _type_idx(type, idxs, self.env)
         return f"{buf}[{idx}]"
 
     def comp_s(self, s):
