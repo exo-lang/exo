@@ -208,8 +208,8 @@ class Parser:
         self.err(node, "expected tensor type to be of the form 'R[...]'")
 
       # unpack single or multi-arg indexing to list of slices/indices
-      if type(node.slice) is pyast.ExtSlice:
-        dims = node.slice.dims
+      if type(node.slice) is pyast.Index and type(node.slice.value) is pyast.Tuple:
+        dims = node.slice.value.elts
       else:
         dims = [node.slice]
 
@@ -227,6 +227,12 @@ class Parser:
               if type(sz) is SizeStub:
                 typ = T.Tensor(sz.nm, typ)
                 continue
+        elif type(idx) is pyast.Name:
+          if idx.id in self.locals:
+            sz = self.locals[idx.id]
+            if type(sz) is SizeStub:
+              typ = T.Tensor(sz.nm, typ)
+              continue
         # error fall-through
         self.err(idx, "expected positive integer constant or size variable")
 
@@ -361,8 +367,8 @@ class Parser:
     if type(node) is pyast.Name:
       return node, []
     elif type(node) is pyast.Subscript:
-      if type(node.slice) is pyast.ExtSlice:
-        dims = node.slice.dims
+      if type(node.slice) is pyast.Index and type(node.slice.value) is pyast.Tuple:
+        dims = node.slice.value.elts
       else:
         dims = [node.slice]
 
@@ -370,9 +376,14 @@ class Parser:
         self.err(node, "expected lhs of form 'x' or 'x[...]'")
 
       def parse_idx(e):
-        if type(e) is not pyast.Index:
+        if type(e) is pyast.Index:
+          return self.parse_expr(e.value)
+        if type(e) is pyast.Name:
+          return self.parse_expr(e)
+        if type(e) is pyast.BinOp:
+          return self.parse_expr(e)
+        else:
           self.err(e, "slicing notation such as x[ a : b ] not allowed")
-        return self.parse_expr(e.value)
 
       return node.value, list(map(parse_idx, dims))
 
