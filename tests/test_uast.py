@@ -6,6 +6,7 @@ import os
 import sys
 import subprocess
 import numpy as np
+import scipy.stats as st
 from PIL import Image
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure
@@ -17,6 +18,11 @@ if not os.path.isdir(directory):
 
 c_float_p = ctypes.POINTER(ctypes.c_float)
 
+def gkern(kernlen=5, nsig=1):
+    x = np.linspace(-nsig, nsig, kernlen+1)
+    kern1d = np.diff(st.norm.cdf(x))
+    kern2d = np.outer(kern1d, kern1d)
+    return np.asarray(kern2d/kern2d.sum(), dtype=np.float32)
 
 def cvt_c(n_array):
     assert n_array.dtype == np.float32
@@ -105,9 +111,8 @@ def test_blur():
     image = np.asarray(o_image, dtype="float32")
     n_size = image.shape[0]
     m_size = image.shape[1]
-    k_size = 3
-    kernel = nparray(
-        [[1/16.0, 1/8.0, 1/16.0], [1/8.0, 1/4.0, 1/8.0], [1/16.0, 1/8.0, 1/16.0]])
+    k_size = 5
+    kernel = gkern(k_size,1)
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib.blur(c_int(n_size), c_int(m_size), c_int(
