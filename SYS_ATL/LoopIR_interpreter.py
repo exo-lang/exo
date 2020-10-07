@@ -12,9 +12,11 @@ import numpy as np
 # --------------------------------------------------------------------------- #
 # Loop IR Interpreter
 
-def _eshape(typ,env):
-    return tuple( r if is_pos_int(r) else env[r]
-                  for r in typ.shape() )
+
+def _eshape(typ, env):
+    return tuple(r if is_pos_int(r) else env[r]
+                 for r in typ.shape())
+
 
 def _simple_typecheck_buffer(typ, buf, env):
     if type(buf) is not np.ndarray:
@@ -26,18 +28,19 @@ def _simple_typecheck_buffer(typ, buf, env):
         if tuple(buf.shape) != (1,):
             return False
     else:
-        shape = _eshape(typ,env)
+        shape = _eshape(typ, env)
         if shape != tuple(buf.shape):
             return False
 
     return True
 
+
 class Interpreter:
     def __init__(self, proc, use_randomization=False, **kwargs):
         assert type(proc) is LoopIR.proc
 
-        self.proc   = proc
-        self.env    = Environment()
+        self.proc = proc
+        self.env = Environment()
         self.use_randomization = use_randomization
 
         # setup, size argument binding
@@ -66,7 +69,7 @@ class Interpreter:
         self.env.pop()
 
     def eval_s(self, s):
-        styp    = type(s)
+        styp = type(s)
 
         if styp is LoopIR.Seq:
             self.eval_s(s.s0)
@@ -79,8 +82,8 @@ class Interpreter:
             if len(s.idx) == 0:
                 idx = (0,)
             else:
-                idx  = tuple( self.eval_a(a) for a in s.idx )
-            rhs  = self.eval_e(s.rhs)
+                idx = tuple(self.eval_a(a) for a in s.idx)
+            rhs = self.eval_e(s.rhs)
             if styp is LoopIR.Assign:
                 lbuf[idx] = rhs
             else:
@@ -95,28 +98,29 @@ class Interpreter:
             hi = self.env[s.hi]
             assert self.use_randomization is False, "TODO: Implement Randomization"
             self.env.push()
-            for itr in range(0,hi):
+            for itr in range(0, hi):
                 self.env[s.iter] = itr
                 self.eval_s(s.body)
             self.env.pop()
-        #elif styp is LoopIR.ForAllWhere:
+        # elif styp is LoopIR.ForAllWhere:
         #    for itr in
         elif styp is LoopIR.Alloc:
             if s.type is T.R:
                 self.env[s.name] = np.empty([1])
             else:
                 size = _eshape(s.type, self.env)
-                #TODO: Maybe randomize?
+                # TODO: Maybe randomize?
                 self.env[s.name] = np.empty(size)
-        else: assert False, "bad case"
+        else:
+            assert False, "bad case"
 
     def eval_e(self, e):
-        etyp    = type(e)
+        etyp = type(e)
 
         if etyp is LoopIR.Read:
             buf = self.env[e.name]
-            idx = ( (0,) if len(e.idx) == 0
-                         else tuple( self.eval_a(a) for a in e.idx ))
+            idx = ((0,) if len(e.idx) == 0
+                   else tuple(self.eval_a(a) for a in e.idx))
             return buf[idx]
         elif etyp is LoopIR.Const:
             return e.val
@@ -131,12 +135,13 @@ class Interpreter:
             elif e.op == "/":
                 return lhs / rhs
         elif etyp is LoopIR.Select:
-            cond    = self.eval_p(e.cond)
+            cond = self.eval_p(e.cond)
             return self.eval_e(e.body) if cond else 0.0
-        else: assert False, "bad case"
+        else:
+            assert False, "bad case"
 
     def eval_a(self, a):
-        atyp    = type(a)
+        atyp = type(a)
 
         if atyp is LoopIR.AVar or atyp is LoopIR.ASize:
             return self.env[a.name]
@@ -148,7 +153,8 @@ class Interpreter:
             return self.eval_a(a.lhs) + self.eval_a(a.rhs)
         elif atyp is LoopIR.ASub:
             return self.eval_a(a.lhs) - self.eval_a(a.rhs)
-        else: assert False, "bad case"
+        else:
+            assert False, "bad case"
 
     def eval_p(self, p):
         ptyp = type(p)
@@ -167,12 +173,15 @@ class Interpreter:
                 return (lhs <= rhs)
             elif p.op == ">=":
                 return (lhs >= rhs)
-            else: assert False, "bad case"
+            else:
+                assert False, "bad case"
         elif ptyp is LoopIR.And or ptyp is LoopIR.Or:
             lhs, rhs = self.eval_p(p.lhs), self.eval_p(p.rhs)
             if ptyp is LoopIR.And:
                 return (lhs and rhs)
             elif ptyp is LoopIR.Or:
                 return (lhs or rhs)
-            else: assert False, "bad case"
-        else: assert False, "bad case"
+            else:
+                assert False, "bad case"
+        else:
+            assert False, "bad case"

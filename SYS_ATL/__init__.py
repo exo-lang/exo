@@ -7,6 +7,6 @@ from .API import Procedure
 from . import LoopIR_pprint
 
 __all__ = [
-  "proc",
-  "Procedure",
+    "proc",
+    "Procedure",
 ]

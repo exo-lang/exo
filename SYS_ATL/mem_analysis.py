@@ -10,11 +10,12 @@ from .LoopIR import LoopIR
 # --------------------------------------------------------------------------- #
 # Memory Analysis Pass
 
+
 class MemoryAnalysis:
     def __init__(self, proc):
         assert type(proc) is LoopIR.proc
 
-        self.proc   = proc
+        self.proc = proc
         self.tofree = []
 
     def result(self):
@@ -22,27 +23,27 @@ class MemoryAnalysis:
         body = self.mem_s(self.proc.body)
         body = self.pop_frame(body)
         return LoopIR.proc(
-                self.proc.name,
-                self.proc.sizes,
-                self.proc.args,
-                body,
-                self.proc.srcinfo)
+            self.proc.name,
+            self.proc.sizes,
+            self.proc.args,
+            body,
+            self.proc.srcinfo)
 
     def push_frame(self):
         self.tofree.append(set())
 
     def add_malloc(self, sym, typ):
-        self.tofree[-1].add( (sym,typ) )
+        self.tofree[-1].add((sym, typ))
 
     def pop_frame(self, body):
-        for (nm,typ) in self.tofree.pop():
+        for (nm, typ) in self.tofree.pop():
             body = LoopIR.Seq(body,
                               LoopIR.Free(nm, typ, body.srcinfo),
                               body.srcinfo)
         return body
 
     def mem_s(self, s):
-        styp    = type(s)
+        styp = type(s)
 
         if styp is LoopIR.Seq:
             s0 = self.mem_s(s.s0)
@@ -65,6 +66,7 @@ class MemoryAnalysis:
             self.add_malloc(s.name, s.type)
             return s
         elif styp is LoopIR.Free:
-            assert False, ("There should not be frees inserted "+
+            assert False, ("There should not be frees inserted " +
                            "before mem analysis")
-        else: assert False, "bad case"
+        else:
+            assert False, "bad case"

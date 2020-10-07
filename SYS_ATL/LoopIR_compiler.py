@@ -16,7 +16,9 @@ import os
 # Loop IR Compiler
 
 # top level compiler function called by tests!
-def run_compile(proc_list,path,c_file,h_file):
+
+
+def run_compile(proc_list, path, c_file, h_file):
     # take proc_list
     # for each p in proc_list:
     #   run Compiler() pass to get (decl, def)
@@ -29,8 +31,8 @@ def run_compile(proc_list,path,c_file,h_file):
 
     body = f"#include \"{h_file}\"\n\n"
     for p in proc_list:
-        p       = MemoryAnalysis(p).result()
-        d, b    = Compiler(p).comp_top()
+        p = MemoryAnalysis(p).result()
+        d, b = Compiler(p).comp_top()
         fwd_decls += d
         body += b
         body += '\n'
@@ -43,31 +45,35 @@ def run_compile(proc_list,path,c_file,h_file):
     f_cpp.write(body)
     f_cpp.close()
 
-def _type_shape(typ,env):
-    return tuple( str(r) if is_pos_int(r) else env[r]
-                  for r in typ.shape() )
 
-def _type_size(typ,env):
-    szs     = _type_shape(typ,env)
+def _type_shape(typ, env):
+    return tuple(str(r) if is_pos_int(r) else env[r]
+                 for r in typ.shape())
+
+
+def _type_size(typ, env):
+    szs = _type_shape(typ, env)
     return ("*").join(szs)
 
-def _type_idx(typ,idx,env):
+
+def _type_idx(typ, idx, env):
     assert type(typ) is T.Tensor
-    szs     = _type_shape(typ,env)
+    szs = _type_shape(typ, env)
     assert len(szs) == len(idx)
-    s       = idx[0]
-    for i,n in zip(idx[1:],szs[1:]):
-        s   = f"({s}) * {n} + ({i})"
+    s = idx[0]
+    for i, n in zip(idx[1:], szs[1:]):
+        s = f"({s}) * {n} + ({i})"
     return s
+
 
 class Compiler:
     def __init__(self, proc, **kwargs):
         assert type(proc) is LoopIR.proc
 
-        self.proc   = proc
-        self.env    = Environment()
+        self.proc = proc
+        self.env = Environment()
         self.envtyp = Environment()
-        self.names  = set()
+        self.names = set()
 
         assert self.proc.name != None, "expected names for compilation"
         name = self.proc.name
@@ -77,36 +83,36 @@ class Compiler:
 
         # setup, size argument binding
         for sz in proc.sizes:
-            size        = self.new_varname(sz, force_literal=True)
-            size_str    += f" int {size},"
+            size = self.new_varname(sz, force_literal=True)
+            size_str += f" int {size},"
 
         # setup, buffer argument binding
         for a in proc.args:
             name_arg = self.new_varname(a.name, typ=a.type, force_literal=True)
-            arg_str         += f" float* {name_arg},"
+            arg_str += f" float* {name_arg},"
             typ_comment_str += f" {name_arg} : {a.type} {a.effect},"
 
         stmt_str = self.comp_s(self.proc.body)
 
         # Generate headers here?
-        proc_decl = ( f"// {name}({typ_comment_str[:-1]} )\n"
-                    + f"void {name}({size_str}{arg_str[:-1]});\n"
-                    )
-        proc_def =  ( f"// {name}({typ_comment_str[:-1]} )\n"
+        proc_decl = (f"// {name}({typ_comment_str[:-1]} )\n"
+                     + f"void {name}({size_str}{arg_str[:-1]});\n"
+                     )
+        proc_def = (f"// {name}({typ_comment_str[:-1]} )\n"
                     + f"void {name}({size_str}{arg_str[:-1]}) {{\n"
                     + stmt_str + "\n"
-                    + "}\n"
+                      + "}\n"
                     )
 
         self.proc_decl = proc_decl
-        self.proc_def  = proc_def
+        self.proc_def = proc_def
 
     def comp_top(self):
         return self.proc_decl, self.proc_def
 
     def new_varname(self, symbol, typ=None, force_literal=False):
         s = str(symbol) if force_literal else repr(symbol)
-        #if s in self.names:
+        # if s in self.names:
         #    return self.env[symbol]
         # TODO! Shall we allow name conflict here??
         assert s not in self.names, "name conflict!"
@@ -120,11 +126,11 @@ class Compiler:
         buf = self.env[nm]
         type = self.envtyp[nm]
         idxs = [self.comp_a(i) for i in idx_list]
-        idx  = _type_idx(type, idxs, self.env)
+        idx = _type_idx(type, idxs, self.env)
         return f"{buf}[{idx}]"
 
     def comp_s(self, s):
-        styp    = type(s)
+        styp = type(s)
 
         if styp is LoopIR.Seq:
             first = self.comp_s(s.s0)
@@ -138,7 +144,7 @@ class Compiler:
                 lhs = self.env[s.name]
             else:
                 lhs = self.access_str(s.name, s.idx)
-            rhs     = self.comp_e(s.rhs)
+            rhs = self.comp_e(s.rhs)
             if styp is LoopIR.Assign:
                 return (f"{lhs} = {rhs};")
             else:
@@ -146,19 +152,19 @@ class Compiler:
         elif styp is LoopIR.If:
             cond = self.comp_p(s.cond)
             body = self.comp_s(s.body)
-            return (f"if ({cond}) {{\n"+
-                    f"{body}\n"+
+            return (f"if ({cond}) {{\n" +
+                    f"{body}\n" +
                     f"}}\n")
 
             # TODO: Do we have to push env here??
-            #self.env.push()
-            #self.env.pop()
+            # self.env.push()
+            # self.env.pop()
         elif styp is LoopIR.ForAll:
-            hi      = self.env[s.hi] # this should be a string
-            itr     = self.new_varname(s.iter) # allocate a new string
-            body    = self.comp_s(s.body)
-            return (f"for (int {itr}=0; {itr} < {hi}; {itr}++) {{\n"+
-                    f"{body}\n"+
+            hi = self.env[s.hi]  # this should be a string
+            itr = self.new_varname(s.iter)  # allocate a new string
+            body = self.comp_s(s.body)
+            return (f"for (int {itr}=0; {itr} < {hi}; {itr}++) {{\n" +
+                    f"{body}\n" +
                     f"}}")
         elif styp is LoopIR.Alloc:
             name = self.new_varname(s.name, typ=s.type)
@@ -166,16 +172,17 @@ class Compiler:
                 return (f"float {name};")
             else:
                 size = _type_size(s.type, self.env)
-                return (f"float *{name} = "+
+                return (f"float *{name} = " +
                         f"(float*) malloc ({size} * sizeof(float));")
         elif styp is LoopIR.Free:
             if s.type is not T.R:
                 name = self.env[s.name]
                 return f"free({name});"
-        else: assert False, "bad case"
+        else:
+            assert False, "bad case"
 
     def comp_e(self, e):
-        etyp    = type(e)
+        etyp = type(e)
 
         if etyp is LoopIR.Read:
             if self.envtyp[e.name] is T.R:
@@ -195,16 +202,17 @@ class Compiler:
             elif e.op == "/":
                 return (f"{lhs} / {rhs}")
         elif etyp is LoopIR.Select:
-            cond    = self.comp_p(e.cond)
+            cond = self.comp_p(e.cond)
             if cond:
                 body = self.comp_e(e.body)
                 return (f"{body}")
             else:
                 return ("0.0")
-        else: assert False, "bad case"
+        else:
+            assert False, "bad case"
 
     def comp_a(self, a):
-        atyp    = type(a)
+        atyp = type(a)
 
         if atyp is LoopIR.AVar or atyp is LoopIR.ASize:
             return self.env[a.name]
@@ -216,7 +224,8 @@ class Compiler:
             return (f"{self.comp_a(a.lhs)} + {self.comp_a(a.rhs)}")
         elif atyp is LoopIR.ASub:
             return (f"{self.comp_a(a.lhs)} - {self.comp_a(a.rhs)}")
-        else: assert False, "bad case"
+        else:
+            assert False, "bad case"
 
     def comp_p(self, p):
         ptyp = type(p)
@@ -235,12 +244,15 @@ class Compiler:
                 return (f"{lhs} <= {rhs}")
             elif p.op == ">=":
                 return (f"{lhs} >= {rhs}")
-            else: assert False, "bad case"
+            else:
+                assert False, "bad case"
         elif ptyp is LoopIR.And or ptyp is LoopIR.Or:
             lhs, rhs = self.comp_p(p.lhs), self.comp_p(p.rhs)
             if ptyp is LoopIR.And:
                 return (f"{lhs} && {rhs}")
             elif ptyp is LoopIR.Or:
                 return (f"{lhs} || {rhs}")
-            else: assert False, "bad case"
-        else: assert False, "bad case"
+            else:
+                assert False, "bad case"
+        else:
+            assert False, "bad case"

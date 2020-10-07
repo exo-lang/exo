@@ -11,11 +11,12 @@ from .LoopIR import LoopIR as IR
 
 Sym = _prelude.Sym
 
+
 class TypeWrap:
-    def __init__(self,typ):
+    def __init__(self, typ):
         self.typ = typ
 
-    def __getitem__(self,keys):
+    def __getitem__(self, keys):
         if type(keys) is not tuple:
             keys = (keys,)
         typ = self.typ
@@ -24,11 +25,13 @@ class TypeWrap:
             typ = _T.Tensor(k, typ)
         return TypeWrap(typ)
 
+
 R = TypeWrap(_T.R)
 
 #  typ = R[N,M]
 
-def _as_stmt_list(stmts,srcinfo):
+
+def _as_stmt_list(stmts, srcinfo):
     assert type(stmts) is list
     if len(stmts) == 0:
         return IR.Pass()
@@ -38,8 +41,10 @@ def _as_stmt_list(stmts,srcinfo):
         s = IR.Seq(s, s2, srcinfo)
     return s
 
+
 def Proc(name, sizes, args, body):
     srcinfo = _prelude.get_srcinfo()
+
     def eff_convert(e):
         if e == 'IN':
             return _T.In
@@ -47,7 +52,8 @@ def Proc(name, sizes, args, body):
             return _T.Out
         elif e == 'INOUT':
             return _T.InOut
-        else: assert False, f"bad effect: {e}"
-    args = [ IR.fnarg(name, t.typ, eff_convert(e), srcinfo)
-             for (name, t, e) in args ]
-    return IR.proc(name, sizes, args, _as_stmt_list(body,srcinfo), srcinfo)
+        else:
+            assert False, f"bad effect: {e}"
+    args = [IR.fnarg(name, t.typ, eff_convert(e), srcinfo)
+            for (name, t, e) in args]
+    return IR.proc(name, sizes, args, _as_stmt_list(body, srcinfo), srcinfo)

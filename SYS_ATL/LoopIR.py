@@ -10,19 +10,19 @@ from . import shared_types as T
 # Untyped AST
 
 front_ops = {
-  "+":    True,
-  "-":    True,
-  "*":    True,
-  "/":    True,
-  #
-  "<":    True,
-  ">":    True,
-  "<=":   True,
-  ">=":   True,
-  "==":   True,
-  #
-  "and":  True,
-  "or":   True,
+    "+":    True,
+    "-":    True,
+    "*":    True,
+    "/":    True,
+    #
+    "<":    True,
+    ">":    True,
+    "<=":   True,
+    ">=":   True,
+    "==":   True,
+    #
+    "and":  True,
+    "or":   True,
 }
 
 UAST = ADT("""
@@ -55,13 +55,12 @@ module UAST {
 
 } """, {
     'name':     is_valid_name,
-    'sym':      lambda x: type(x) is Sym,
+    'sym': lambda x: type(x) is Sym,
     'type':     T.is_type,
     'effect':   T.is_effect,
-    'op':       lambda x: x in front_ops,
-    'srcinfo':  lambda x: type(x) is SrcInfo,
+    'op': lambda x: x in front_ops,
+    'srcinfo': lambda x: type(x) is SrcInfo,
 })
-
 
 
 # --------------------------------------------------------------------------- #
@@ -106,18 +105,18 @@ type    ::= R                            // scalar "real" number
 """
 
 pred_ops = {
-  "<":    True,
-  ">":    True,
-  "<=":   True,
-  ">=":   True,
-  "==":   True,
+    "<":    True,
+    ">":    True,
+    "<=":   True,
+    ">=":   True,
+    "==":   True,
 }
 
 bin_ops = {
-  "+":    True,
-  "-":    True,
-  "*":    True,
-  "/":    True,
+    "+":    True,
+    "-":    True,
+    "*":    True,
+    "/":    True,
 }
 
 LoopIR = ADT("""
@@ -167,10 +166,10 @@ module LoopIR {
 
 } """, {
     'name':     is_valid_name,
-    'sym':      lambda x: type(x) is Sym,
+    'sym': lambda x: type(x) is Sym,
     'type':     T.is_type,
     'effect':   T.is_effect,
-    'binop':    lambda x: x in bin_ops,
-    'predop':   lambda x: x in pred_ops,
-    'srcinfo':  lambda x: type(x) is SrcInfo,
+    'binop': lambda x: x in bin_ops,
+    'predop': lambda x: x in pred_ops,
+    'srcinfo': lambda x: type(x) is SrcInfo,
 })
