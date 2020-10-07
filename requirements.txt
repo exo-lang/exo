@@ -5,3 +5,4 @@ pytest-cov >= 2
 astor
 yapf
 pillow
+scipy
