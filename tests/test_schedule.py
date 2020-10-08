@@ -13,19 +13,7 @@
 #    for i in par(0,r):
 #      res[i] = 0.0
 #    for i in par(0,r):
-#      TODO: What is n/2?
-#      constant division
 #      for j_1 in par(0,n/2):
-#        for j_2 in par(0,2):
-#          j = j_1*2 + j_2
-#          if j < n:
-#            if i <= j < i + m:
-#              res[i] += x[j]*w[i-j+m-1]
-# OR ->
-#    for i in par(0,r):
-#      res[i] = 0.0
-#    for i in par(0,r):
-#      for j_1 in par(0,n):
 #        for j_2 in par(0,2):
 #          j = j_1*2 + j_2
 #          if j < n:

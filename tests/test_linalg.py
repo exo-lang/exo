@@ -27,7 +27,8 @@ def gen_add_vec():
                    IR.Read(y, [ai], src0),
                    src0)
     s_a = IR.Assign(res, [ai], rhs, src0)
-    loop = IR.ForAll(i, n, s_a, src0)
+    an = IR.ASize(n, src0)
+    loop = IR.ForAll(i, an, s_a, src0)
 
     return Proc('add_vec',
                 [n],
@@ -79,15 +80,19 @@ def gen_gemm():
     aj = IR.AVar(j, ns)
     ak = IR.AVar(k, ns)
 
+    an = IR.ASize(n, ns)
+    am = IR.ASize(m, ns)
+    ap = IR.ASize(p, ns)
+
     zeroC = IR.Assign(C, [ai, aj], IR.Const(0.0, ns), ns)
     accC = IR.Reduce(C, [ai, aj], IR.BinOp('*', IR.Read(A, [ai, ak], ns),
                                            IR.Read(B, [ak, aj], ns),
                                            ns), ns)
 
-    loop = IR.ForAll(i, n,
-                     IR.ForAll(j, m,
+    loop = IR.ForAll(i, an,
+                     IR.ForAll(j, am,
                                IR.Seq(zeroC,
-                                      IR.ForAll(k, p, accC, ns),
+                                      IR.ForAll(k, ap, accC, ns),
                                       ns),
                                ns),
                      ns)

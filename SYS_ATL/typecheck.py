@@ -151,21 +151,24 @@ class TypeChecker:
             # handle standard ParRanges
             parerr = ("currently only supporting for-loops of the form:\n" +
                       "  for _ in par(0,size_var):")
+
             if (type(stmt.cond) is not UAST.ParRange or
                     type(stmt.cond.lo) is not UAST.Const or
                     stmt.cond.lo.val != 0 or
-                    type(stmt.cond.hi) is not UAST.Read or
-                    len(stmt.cond.hi.idx) > 0
+                    (type(stmt.cond.hi) is not UAST.Read and
+                    type(stmt.cond.hi) is not UAST.Const and
+                    type(stmt.cond.hi) is not UAST.BinOp)
                 ):
                 self.err(stmt.cond, parerr)
-            size_var = stmt.cond.hi.name
-            size_typ = self.env[size_var]
-            if size_typ is not T.err and size_typ is not sizeT:
-                self.err(stmt.cond.hi, f"expected upper bound of loop " +
-                                       f"'{size_var}' to be a size variable")
+
+            range_var = self.check_a(stmt.cond.hi)
+            #size_typ = self.env[size_var]
+            #if size_typ is not T.err and size_typ is not sizeT:
+            #    self.err(stmt.cond.hi, f"expected upper bound of loop " +
+            #                           f"'{size_var}' to be a size variable")
 
             body = self.check_stmts(stmt.body)
-            return LoopIR.ForAll(stmt.iter, size_var, body, stmt.srcinfo)
+            return LoopIR.ForAll(stmt.iter, range_var, body, stmt.srcinfo)
 
         elif type(stmt) is UAST.Alloc:
             self.env[stmt.name] = stmt.type
@@ -232,17 +235,30 @@ class TypeChecker:
                 IRnode = (LoopIR.AAdd if a.op == "+" else
                           LoopIR.ASub)
                 return IRnode(lhs, rhs, a.srcinfo)
-            # elif a.op is "*" or a.op is "/":
-            # TODO: We don't have / yet
             elif a.op == "*":
-                if a.lhs is not int and a.rhs is not int:
+                #| AScale ( int coeff, aexpr rhs )
+                if type(a.lhs) is not UAST.Const and type(a.rhs) is not UAST.Const:
                     self.err(a, f"Index can be scaled only by int. " +
                                 f"Unexpected type: {type(a.lhs)} and " +
                                 f"{type(a.rhs)}")
-                    return LoopIR.AScale(LoopIR.AConst(0), 0, a.srcinfo)
-                quo = a.lhs if a.lhs is int else a.rhs
-                scale = a.rhs if a.lhs is int else a.lhs
-                return LoopIR.AScale(quo, scale, a.srcinfo)
+                    return LoopIR.AScale(0, LoopIR.AConst(0, a.srcinfo), a.srcinfo)
+
+                coeff = a.lhs.val if type(a.lhs) is UAST.Const else a.rhs.val
+                rhs = self.check_a(a.rhs) if type(a.lhs) is UAST.Const else self.check_a(a.lhs)
+                return LoopIR.AScale(coeff, rhs, a.srcinfo)
+
+            elif a.op == "/":
+                # n/4
+                #| AScaleDiv ( aexpr lhs, int quotient )
+                if type(a.rhs) is not UAST.Const:
+                    self.err(a, f"Index can be scaled only by int. " +
+                                f"Unexpected type: {type(a.lhs)} and " +
+                                f"{type(a.rhs)}")
+                    return LoopIR.AScaleDiv(LoopIR.AConst(0, a.srcinfo), 0, a.srcinfo)
+
+                lhs = self.check_a(a.lhs)
+                quo = a.rhs.val
+                return LoopIR.AScaleDiv(lhs, quo, a.srcinfo)
 
             else:
                 self.err(a, f"Is not a affine index operation: {a.op}")

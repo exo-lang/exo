@@ -77,8 +77,8 @@ s       ::= x[a*]  = e                   // assignment to buffer
           | x[a*] += e                   // reduction to buffer
           | s0 ; s1                      // serial composition
           | if p then s                  // conditional guard
-          | forall i=0,n do s            // unordered looping
-          | forall i where p do s        // guarded unordered looping
+          | forall i=0,a do s            // unordered looping
+          --| forall i where p do s        // guarded unordered looping
           | alloc name : type            // memory allocation
                                          // assume sensible auto-free
 expressions
@@ -88,6 +88,7 @@ e       ::= x[a*]                        // variable access
           | c                            // scalar constant
           | e0 + e1                      // scalar addition
           | e0 * e1                      // scalar multiplication
+          | e0 / e1                      // scalar division
           | f(e0,...)                    // built-in scalar functions
           | (p)? e                       // select/indicator (optional)
 predicates
@@ -99,6 +100,7 @@ affine-index-expressions
 a       ::= i                            // index variable
           | c                            // rational(?) constant
           | c * a                        // scaling
+          | a / c                      // division
           | a0 + a1                      // addition
 type    ::= R                            // scalar "real" number
           | [n]type                      // array of n things
@@ -137,7 +139,7 @@ module LoopIR {
             | Pass()
             | Seq( stmt s0, stmt s1 )
             | If ( pred cond, stmt body )
-            | ForAll ( sym iter, sym hi, stmt body )
+            | ForAll ( sym iter, aexpr hi, stmt body )
         --  | ForAllWhere ( sym iter, pred where, stmt body )
             | Alloc ( sym name, type type )
             | Free  ( sym name, type type )
@@ -159,7 +161,7 @@ module LoopIR {
             | ASize  ( sym name )
             | AConst ( int val  )
             | AScale ( int coeff, aexpr rhs )
-           -- | AScaleDiv ( aexpr lhs, int quotient )
+            | AScaleDiv ( aexpr lhs, int quotient )
             | AAdd ( aexpr lhs, aexpr rhs )
             | ASub ( aexpr lhs, aexpr rhs )
             attributes( srcinfo srcinfo )

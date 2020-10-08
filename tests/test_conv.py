@@ -57,6 +57,8 @@ def gen_conv1d():
     ai = IR.AVar(i, src0)
     aj = IR.AVar(j, src0)
     am = IR.ASize(m, src0)
+    ar = IR.ASize(r, src0)
+    an = IR.ASize(n, src0)
 
     loop_cond = IR.And(IR.Cmp('<=', aj, ai, src0),
                        IR.Cmp('>', aj, IR.ASub(ai, am, src0), src0),
@@ -66,13 +68,13 @@ def gen_conv1d():
                                                   IR.ASub(ai, aj, src0)
                                               ], src0),
                                               src0), src0)
-    loop_nest = IR.ForAll(i, r,
-                          IR.ForAll(j, n,
+    loop_nest = IR.ForAll(i, ar,
+                          IR.ForAll(j, an,
                                     IR.If(loop_cond,
                                           statement,
                                           src0), src0), src0)
 
-    zero_res = IR.ForAll(i, r,
+    zero_res = IR.ForAll(i, ar,
                          IR.Assign(res, [ai], IR.Const(0.0, src0), src0), src0)
 
     return Proc('conv1d',
@@ -124,8 +126,13 @@ def gen_conv2d():
     aki = IR.AVar(ki, src0)
     akj = IR.AVar(kj, src0)
 
+#   conv2d(w : size, h : size, kw : size, kh : size, rw : size, rh : size,
     akw = IR.ASize(kw, src0)
     akh = IR.ASize(kh, src0)
+    arh = IR.ASize(rh, src0)
+    arw = IR.ASize(rw, src0)
+    ah = IR.ASize(h, src0)
+    aw = IR.ASize(w, src0)
 
     loop_cond = IR.And(
         IR.And(IR.Cmp('<=', aki, ai, src0),
@@ -142,16 +149,16 @@ def gen_conv2d():
                                                       IR.ASub(aj, akj, src0)
                                                   ], src0),
                                                   src0), src0)
-    loop_nest = IR.ForAll(i, rh,
-                          IR.ForAll(j, rw,
-                                    IR.ForAll(ki, h,
-                                              IR.ForAll(kj, w,
+    loop_nest = IR.ForAll(i, arh,
+                          IR.ForAll(j, arw,
+                                    IR.ForAll(ki, ah,
+                                              IR.ForAll(kj, aw,
                                                         IR.If(loop_cond,
                                                               statement,
                                                               src0), src0), src0), src0), src0)
 
-    zero_res = IR.ForAll(i, rh,
-                         IR.ForAll(j, rw,
+    zero_res = IR.ForAll(i, arh,
+                         IR.ForAll(j, arw,
                                    IR.Assign(res, [ai, aj], IR.Const(0.0, src0), src0), src0), src0)
 
     return Proc('conv2d',

@@ -156,11 +156,8 @@ class Compiler:
                     f"{body}\n" +
                     f"}}\n")
 
-            # TODO: Do we have to push env here??
-            # self.env.push()
-            # self.env.pop()
         elif styp is LoopIR.ForAll:
-            hi = self.env[s.hi]  # this should be a string
+            hi = self.comp_a(s.hi)
             itr = self.new_varname(s.iter)  # allocate a new string
             body = self.comp_s(s.body)
             return (f"for (int {itr}=0; {itr} < {hi}; {itr}++) {{\n" +
@@ -224,8 +221,10 @@ class Compiler:
             return (f"{self.comp_a(a.lhs)} + {self.comp_a(a.rhs)}")
         elif atyp is LoopIR.ASub:
             return (f"{self.comp_a(a.lhs)} - {self.comp_a(a.rhs)}")
-        else:
-            assert False, "bad case"
+        #TODO: Take floor here?
+        elif atyp is LoopIR.AScaleDiv:
+            return (f"{self.comp_a(a.lhs)} / {a.quotient}")
+        else: assert False, "bad case"
 
     def comp_p(self, p):
         ptyp = type(p)

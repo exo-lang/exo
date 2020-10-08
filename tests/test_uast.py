@@ -121,3 +121,52 @@ def test_blur():
     res_c = res_c.astype(np.uint8)
     out = Image.fromarray(res_c)
     out.save(directory + 'out.png')
+
+
+#    for i in par(0,r):
+#      res[i] = 0.0
+#    for i in par(0,r):
+#      for j_1 in par(0,n/2):
+#        for j_2 in par(0,2):
+#          j = j_1*2 + j_2
+#          if j < n:
+#            if i <= j < i + m:
+#              res[i] += x[j]*w[i-j+m-1]
+def test_blur_split():
+    @proc
+    def blur_split(n: size, m: size, k_size: size,
+             image: R[n, m] @ IN, kernel: R[k_size, k_size] @ IN, res: R[n, m] @ OUT):
+        for i in par(0, n):
+            for j in par(0, m):
+                res[i, j] = 0.0
+        for i in par(0, n):
+            for j1 in par(0, m/2):
+                for j2 in par(0, 2):
+                    for k in par(0, k_size):
+                        for l in par(0, k_size):
+                            if i+k >= 1 and i+k-n < 1 and j1*2+j2+l >= 1 and j1*2+j2+l-m < 1:
+                                res[i, j1*2+j2] += kernel[k, l] * image[i+k-1, j1*2+j2+l-1]
+
+    assert type(blur_split) is Procedure
+    filename = "uast_test_blur_split"
+    blur_split.compile_c(directory, filename)
+    compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared " +
+                      "-o " + directory + filename + ".so " +
+                      directory + filename + ".c")
+    subprocess.run(compile_so_cmd, check=True, shell=True)
+    abspath = os.path.dirname(os.path.abspath(filename))
+    test_lib = ctypes.CDLL(abspath + '/' + directory + filename + ".so")
+    o_image = Image.open('input.png')
+    image = np.asarray(o_image, dtype="float32")
+    n_size = image.shape[0]
+    m_size = image.shape[1]
+    k_size = 5
+    kernel = gkern(k_size,1)
+    res = nprand(size=(n_size, m_size))
+    res_c = cvt_c(res)
+    test_lib.blur_split(c_int(n_size), c_int(m_size), c_int(
+        k_size), cvt_c(image), cvt_c(kernel), res_c)
+    res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
+    res_c = res_c.astype(np.uint8)
+    out = Image.fromarray(res_c)
+    out.save(directory + 'out_split.png')

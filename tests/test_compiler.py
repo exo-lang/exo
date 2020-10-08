@@ -53,7 +53,8 @@ def gen_add_vec():
                    IR.Read(y, [ai], src0),
                    src0)
     s_a = IR.Assign(res, [ai], rhs, src0)
-    loop = IR.ForAll(i, n, s_a, src0)
+    an = IR.ASize(n, src0)
+    loop = IR.ForAll(i, an, s_a, src0)
 
     return Proc('add_vec',
                 [n],
@@ -107,7 +108,8 @@ def gen_alloc():
     ai = IR.AVar(i, src0)
     rhs = IR.Read(x, [ai], src0)
     s_a = IR.Assign(ptr, [ai], rhs, src0)
-    loop = IR.ForAll(i, n, s_a, src0)
+    an = IR.ASize(n, src0)
+    loop = IR.ForAll(i, an, s_a, src0)
     seq = IR.Seq(ma, loop, src0)
 
     return Proc('alloc',
@@ -172,14 +174,15 @@ def gen_alloc_nest():
 #               xloc[j] = x[i,j]
     rhs_1 = IR.Read(x, [ai, aj1], src0)
     body_1 = IR.Assign(xloc, [aj1], rhs_1, src0)
-    loop_1 = IR.ForAll(j1, m, body_1, src0)
+    am = IR.ASize(m, src0)
+    loop_1 = IR.ForAll(j1, am, body_1, src0)
     seq_1 = IR.Seq(seq_alloc, loop_1, src0)
 
 #           forall j = 0,m:
 #               yloc[j] = y[i,j]
     rhs_2 = IR.Read(y, [ai, aj2], src0)
     body_2 = IR.Assign(yloc, [aj2], rhs_2, src0)
-    loop_2 = IR.ForAll(j2, m, body_2, src0)
+    loop_2 = IR.ForAll(j2, am, body_2, src0)
     seq_2 = IR.Seq(seq_1, loop_2, src0)
 
 #           forall j = 0,m:
@@ -188,17 +191,18 @@ def gen_alloc_nest():
                      IR.Read(yloc, [aj3], src0),
                      src0)
     body_3 = IR.Assign(rloc, [aj3], rhs_3, src0)
-    loop_3 = IR.ForAll(j3, m, body_3, src0)
+    loop_3 = IR.ForAll(j3, am, body_3, src0)
     seq_3 = IR.Seq(seq_2, loop_3, src0)
 
 #           forall j = 0,m:
 #               res[i,j] = rloc[j]
     rhs_4 = IR.Read(rloc, [aj4], src0)
     body_4 = IR.Assign(res, [ai, aj4], rhs_4, src0)
-    loop_4 = IR.ForAll(j4, m, body_4, src0)
+    loop_4 = IR.ForAll(j4, am, body_4, src0)
     seq_4 = IR.Seq(seq_3, loop_4, src0)
 
-    loop = IR.ForAll(i, n, seq_4, src0)
+    an = IR.ASize(n, src0)
+    loop = IR.ForAll(i, an, seq_4, src0)
     seq_top = IR.Seq(rloc_a, loop, src0)
 
     return Proc('alloc_nest',
@@ -212,7 +216,6 @@ def gen_alloc_nest():
                     seq_top
                 ])
 
-# @pytest.mark.skip(reason="WIP test")
 
 
 def test_alloc_nest():
