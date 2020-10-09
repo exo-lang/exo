@@ -107,7 +107,8 @@ def test_blur():
     subprocess.run(compile_so_cmd, check=True, shell=True)
     abspath = os.path.dirname(os.path.abspath(filename))
     test_lib = ctypes.CDLL(abspath + '/' + directory + filename + ".so")
-    o_image = Image.open('input.png')
+    input_filename = os.path.dirname(os.path.realpath(__file__)) + "/input.png"
+    o_image = Image.open(input_filename)
     image = np.asarray(o_image, dtype="float32")
     n_size = image.shape[0]
     m_size = image.shape[1]
@@ -156,7 +157,8 @@ def test_blur_split():
     subprocess.run(compile_so_cmd, check=True, shell=True)
     abspath = os.path.dirname(os.path.abspath(filename))
     test_lib = ctypes.CDLL(abspath + '/' + directory + filename + ".so")
-    o_image = Image.open('input.png')
+    input_filename = os.path.dirname(os.path.realpath(__file__)) + "/input.png"
+    o_image = Image.open(input_filename)
     image = np.asarray(o_image, dtype="float32")
     n_size = image.shape[0]
     m_size = image.shape[1]
