@@ -36,8 +36,7 @@ def nparray(arg):
 def nprand(size):
     return np.random.uniform(size=size).astype(np.float32)
 
-
-def test_conv1d():
+def gen_conv1d():
     @proc
     def conv1d(n: size, m: size, r: size,
                x: R[n] @ IN, w: R[m] @ IN, res: R[r] @ OUT):
@@ -47,6 +46,11 @@ def test_conv1d():
             for j in par(0, n):
                 if j < i+1 and j >= i-m+1:
                     res[i] += x[j]*w[i-j]
+
+    return conv1d
+
+def test_conv1d():
+    conv1d = gen_conv1d()
 
     assert type(conv1d) is Procedure
     filename = "uast_test_conv1d"
@@ -81,8 +85,7 @@ def test_add():
     assert type(add) is Procedure
     add.compile_c("tmp/", "uast_test_add")
 
-
-def test_blur():
+def gen_blur():
     @proc
     def blur(n: size, m: size, k_size: size,
              image: R[n, m] @ IN, kernel: R[k_size, k_size] @ IN, res: R[n, m] @ OUT):
@@ -95,9 +98,11 @@ def test_blur():
                     for l in par(0, k_size):
                         if i+k >= 1 and i+k-n < 1 and j+l >= 1 and j+l-m < 1:
                             res[i, j] += kernel[k, l] * image[i+k-1, j+l-1]
-        # We can't do this!
-        #clump : R[n+2, m+2]
 
+    return blur
+
+def test_blur():
+    blur = gen_blur()
     assert type(blur) is Procedure
     filename = "uast_test_blur"
     blur.compile_c(directory, filename)
@@ -133,13 +138,16 @@ def test_blur():
 #          if j < n:
 #            if i <= j < i + m:
 #              res[i] += x[j]*w[i-j+m-1]
+
+# test_blur.split("j",["j1","j2"])
 def test_blur_split():
     @proc
     def blur_split(n: size, m: size, k_size: size,
              image: R[n, m] @ IN, kernel: R[k_size, k_size] @ IN, res: R[n, m] @ OUT):
         for i in par(0, n):
-            for j in par(0, m):
-                res[i, j] = 0.0
+            for j1 in par(0, m/2):
+                for j2 in par(0,2):
+                    res[i, j] = 0.0
         for i in par(0, n):
             for j1 in par(0, m/2):
                 for j2 in par(0, 2):
@@ -172,3 +180,19 @@ def test_blur_split():
     res_c = res_c.astype(np.uint8)
     out = Image.fromarray(res_c)
     out.save(directory + 'out_split.png')
+
+@pytest.mark.skip(reason="WIP test")
+def test_sched_blur():
+    blur        = gen_blur()
+    orig_blur   = blur
+
+    # do a simple tiling
+    blur = blur.split('j[1]',2,['j_hi','j_lo'])
+    blur = blur.split('i[1]',2,['i_hi','i_lo'])
+    blur = blur.reorder('i_lo','j_hi')
+
+    #@sched(blur)
+    #def tiled_blur():
+    #    j_hi, j_lo = split(j[1], 2)
+    #    i_hi, i_lo = split(i[1], 2)
+    #    reorder(i_lo,j_hi)
