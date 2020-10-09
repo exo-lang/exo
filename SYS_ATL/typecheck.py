@@ -25,11 +25,6 @@ from . import shared_types as T
 # --------------------------------------------------------------------------- #
 # The typechecker
 
-def unzip(xys):
-    xs = [x for x, y in xys]
-    ys = [y for x, y in xys]
-    return xs, ys
-
 
 TT = ADT("""
 module TypeCheckerTypes {
@@ -215,8 +210,8 @@ class TypeChecker:
             return LoopIR.BinOp(e.op, lhs, rhs, e.srcinfo)
 
         elif type(e) is UAST.ParRange:
-            assert False, ("parser should not place ParRange anywhere outside " +
-                           "of a for-loop condition")
+            assert False, ("parser should not place ParRange anywhere "+
+                           "outside of a for-loop condition")
         else:
             assert False, "not a LoopIR in check_e"
 
@@ -248,67 +243,59 @@ class TypeChecker:
                 return LoopIR.AConst(0, a.srcinfo)
 
         elif type(a) is UAST.BinOp:
+            lhs = self.check_a(a.lhs)
+            rhs = self.check_a(a.rhs)
             # AScale, AScaleDiv, AAdd, or ASub
             if a.op == "+" or a.op == "-":
-                lhs = self.check_a(a.lhs)
-                rhs = self.check_a(a.rhs)
-                IRnode = (LoopIR.AAdd if a.op == "+" else
-                          LoopIR.ASub)
+                IRnode = LoopIR.AAdd if a.op == "+" else LoopIR.ASub
                 return IRnode(lhs, rhs, a.srcinfo)
             elif a.op == "*":
-                #| AScale ( int coeff, aexpr rhs )
-                if type(a.lhs) is not UAST.Const and type(a.rhs) is not UAST.Const:
-                    self.err(a, f"Index can be scaled only by int. " +
-                                f"Unexpected type: {type(a.lhs)} and " +
-                                f"{type(a.rhs)}")
-                    return LoopIR.AScale(0, LoopIR.AConst(0, a.srcinfo), a.srcinfo)
-
-                coeff = a.lhs.val if type(a.lhs) is UAST.Const else a.rhs.val
-                rhs = self.check_a(a.rhs) if type(a.lhs) is UAST.Const else self.check_a(a.lhs)
-                return LoopIR.AScale(coeff, rhs, a.srcinfo)
+                if type(lhs) is LoopIR.AConst:
+                    return LoopIR.AScale(lhs.val, rhs, a.srcinfo)
+                elif type(rhs) is LoopIR.AConst:
+                    return LoopIR.AScale(rhs.val, lhs, a.srcinfo)
+                else:
+                    self.err(a, "The product of two (non-constant) affine "+
+                                "expressions is not affine.")
 
             elif a.op == "/":
-                # n/4
-                #| AScaleDiv ( aexpr lhs, int quotient )
-                if type(a.rhs) is not UAST.Const:
-                    self.err(a, f"Index can be scaled only by int. " +
-                                f"Unexpected type: {type(a.lhs)} and " +
-                                f"{type(a.rhs)}")
-                    return LoopIR.AScaleDiv(LoopIR.AConst(0, a.srcinfo), 0, a.srcinfo)
-
-                lhs = self.check_a(a.lhs)
-                quo = a.rhs.val
-                return LoopIR.AScaleDiv(lhs, quo, a.srcinfo)
+                if type(rhs) is LoopIR.AConst:
+                    if rhs.val == 0:
+                        self.err(a, "divide-by-zero not allowed")
+                    elif rhs.val < 0:
+                        self.err(a, "affine-division by negative not allowed")
+                    return LoopIR.AScaleDiv(lhs, rhs.val, a.srcinfo)
+                else:
+                    self.err(a, "Cannot divide an affine expression by "+
+                                "anything except a constant.")
 
             else:
-                self.err(a, f"Is not a affine index operation: {a.op}")
-                return LoopIR.AScale(0, LoopIR.AConst(0), a.srcinfo)
+                self.err(a, f"Is not an affine index operation: {a.op}")
+
+            # fall-through for error cases
+            return LoopIR.AConst(0,a.srcinfo)
 
     def check_p(self, p):
         if type(p) is UAST.Const:
-            # BConst
             if p.val is bool:
                 return LoopIR.BConst(bool(p.val), p.srcinfo)
             else:
-                self.err(p, f"Bool value unexpected type: {type(p.val)}  " +
-                            f"Value: {p.val}")
+                self.err(p, f"expected boolean literal, but got a literal of "+
+                            f"type: {type(p.val)}  " +
+                            f"literal-value: {p.val}")
                 return LoopIR.BConst(False, p.srcinfo)
         elif type(p) is UAST.BinOp:
             if p.op == "and" or p.op == "or":
                 lhs = self.check_p(p.lhs)
                 rhs = self.check_p(p.rhs)
-                # | And ( pred lhs, pred rhs )
-                # | Or  ( pred lhs, pred rhs )
-                IRnode = (LoopIR.And if p.op == "and" else
-                          LoopIR.Or)
+                IRnode = LoopIR.And if p.op == "and" else LoopIR.Or
                 return IRnode(lhs, rhs, p.srcinfo)
 
             elif p.op in pred_ops:
                 lhs = self.check_a(p.lhs)
                 rhs = self.check_a(p.rhs)
-                # | Cmp ( predop op, aexpr lhs, aexpr rhs )
                 return LoopIR.Cmp(p.op, lhs, rhs, p.srcinfo)
 
             else:
-                self.err(p, f"Is not a predicate: {p.op}")
+                self.err(p, f"Is not a predicate operation: {p.op}")
                 return LoopIR.BConst(False, p.srcinfo)
