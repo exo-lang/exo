@@ -4,11 +4,4 @@ __pycache__
 .coverage
 htmlcov
 
-tests/test.c
-tests/test.h
-test.c
-test.h
-test_alloc.c
-test_alloc.h
-test.so
-tests/tmp/
+tmp/
