@@ -132,7 +132,6 @@ class Interpreter:
                 return lhs - rhs
             elif e.op == "*":
                 return lhs * rhs
-            #TODO: is it fine with /?
             elif e.op == "/":
                 return lhs / rhs
         elif etyp is LoopIR.Select:
@@ -151,7 +150,7 @@ class Interpreter:
         elif atyp is LoopIR.AScale:
             return a.coeff * self.eval_a(a.rhs)
         elif atyp is LoopIR.AScaleDiv:
-            # Because it needs to be int
+            assert a.quotient > 0
             return self.eval_a(a.lhs) // a.quotient
         elif atyp is LoopIR.AAdd:
             return self.eval_a(a.lhs) + self.eval_a(a.rhs)

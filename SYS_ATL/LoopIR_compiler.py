@@ -29,7 +29,11 @@ def run_compile(proc_list, path, c_file, h_file):
 
     fwd_decls = "#include <stdio.h>\n" + "#include <stdlib.h>\n\n"
 
-    body = f"#include \"{h_file}\"\n\n"
+    body = (f"#include \"{h_file}\"\n\n"+
+             "int _floor_div(int num, int quot) {\n"+
+             "  int off = (num<0)? quot-1 : 0;\n"
+             "  return (num-off)/quot;\n"
+             "}\n\n")
     for p in proc_list:
         p = MemoryAnalysis(p).result()
         d, b = Compiler(p).comp_top()
@@ -191,20 +195,17 @@ class Compiler:
         elif etyp is LoopIR.BinOp:
             lhs, rhs = self.comp_e(e.lhs), self.comp_e(e.rhs)
             if e.op == "+":
-                return (f"{lhs} + {rhs}")
+                return f"({lhs} + {rhs})"
             elif e.op == "-":
-                return (f"{lhs} - {rhs}")
+                return f"({lhs} - {rhs})"
             elif e.op == "*":
-                return (f"{lhs} * {rhs}")
+                return f"({lhs} * {rhs})"
             elif e.op == "/":
-                return (f"{lhs} / {rhs}")
+                return f"({lhs} / {rhs})"
         elif etyp is LoopIR.Select:
             cond = self.comp_p(e.cond)
-            if cond:
-                body = self.comp_e(e.body)
-                return (f"{body}")
-            else:
-                return ("0.0")
+            body = self.comp_e(e.body)
+            return f"(({cond})? {body} : 0.0)"
         else:
             assert False, "bad case"
 
@@ -216,14 +217,14 @@ class Compiler:
         elif atyp is LoopIR.AConst:
             return str(a.val)
         elif atyp is LoopIR.AScale:
-            return (f"{a.coeff} * {self.comp_a(a.rhs)}")
+            return f"({a.coeff} * {self.comp_a(a.rhs)})"
         elif atyp is LoopIR.AAdd:
-            return (f"{self.comp_a(a.lhs)} + {self.comp_a(a.rhs)}")
+            return f"({self.comp_a(a.lhs)} + {self.comp_a(a.rhs)})"
         elif atyp is LoopIR.ASub:
-            return (f"{self.comp_a(a.lhs)} - {self.comp_a(a.rhs)}")
-        #TODO: Take floor here?
+            return f"({self.comp_a(a.lhs)} - {self.comp_a(a.rhs)})"
         elif atyp is LoopIR.AScaleDiv:
-            return (f"{self.comp_a(a.lhs)} / {a.quotient}")
+            assert a.quotient > 0
+            return f"_floor_div({self.comp_a(a.lhs)}, {a.quotient})"
         else: assert False, "bad case"
 
     def comp_p(self, p):

@@ -150,25 +150,34 @@ class TypeChecker:
 
             # handle standard ParRanges
             parerr = ("currently only supporting for-loops of the form:\n" +
-                      "  for _ in par(0,size_var):")
+                      "  for _ in par(0, affine_expression):")
 
             if (type(stmt.cond) is not UAST.ParRange or
                     type(stmt.cond.lo) is not UAST.Const or
-                    stmt.cond.lo.val != 0 or
-                    (type(stmt.cond.hi) is not UAST.Read and
-                    type(stmt.cond.hi) is not UAST.Const and
-                    type(stmt.cond.hi) is not UAST.BinOp)
-                ):
+                    stmt.cond.lo.val != 0):
                 self.err(stmt.cond, parerr)
 
-            range_var = self.check_a(stmt.cond.hi)
-            #size_typ = self.env[size_var]
-            #if size_typ is not T.err and size_typ is not sizeT:
-            #    self.err(stmt.cond.hi, f"expected upper bound of loop " +
-            #                           f"'{size_var}' to be a size variable")
+            hi = self.check_a(stmt.cond.hi)
+            print(hi)
+            # check that no index variables are used
+            def index_free_a(a):
+                if type(a) is LoopIR.AVar:
+                    return False
+                elif type(a) is LoopIR.ASize or type(a) is LoopIR.AConst:
+                    return True
+                elif type(a) is LoopIR.AScale:
+                    return index_free_a(a.rhs)
+                elif type(a) is LoopIR.AScaleDiv:
+                    return index_free_a(a.lhs)
+                else:
+                    return index_free_a(a.lhs) and index_free_a(a.rhs)
+            if not index_free_a(hi):
+                self.err(stmt.cond.hi, "expected upper bound of loop to "+
+                                       "only use size variables, not index "+
+                                       "variables")
 
             body = self.check_stmts(stmt.body)
-            return LoopIR.ForAll(stmt.iter, range_var, body, stmt.srcinfo)
+            return LoopIR.ForAll(stmt.iter, hi, body, stmt.srcinfo)
 
         elif type(stmt) is UAST.Alloc:
             self.env[stmt.name] = stmt.type
@@ -192,7 +201,8 @@ class TypeChecker:
 
         elif type(e) is UAST.USub:
             arg = self.check_e(e.arg)
-            return LoopIR.BinOp("*", LoopIR.Const(-1.0, e.srcinfo), arg, e.srcinfo)
+            return LoopIR.BinOp("*", LoopIR.Const(-1.0, e.srcinfo),
+                                     arg, e.srcinfo)
 
         elif type(e) is UAST.BinOp:
             if e.op not in bin_ops:
@@ -212,19 +222,29 @@ class TypeChecker:
 
     def check_a(self, a):
         if type(a) is UAST.Read:
-            # AVar or ASize
-            if a.name in self.uast_proc.args:
+            if len(a.idx) > 0:
+                self.err(a, "cannot access buffers inside affine expressions")
+
+            # check compatibility with buffer type
+            nmtyp = self.env[a.name]
+            if nmtyp is T.err:
+                return LoopIR.AConst(0,a.srcinfo)
+            elif nmtyp is idxT:
+                return LoopIR.AVar(a.name, a.srcinfo)
+            elif nmtyp is sizeT:
                 return LoopIR.ASize(a.name, a.srcinfo)
             else:
-                return LoopIR.AVar(a.name, a.srcinfo)
+                self.err(a, f"expected variable '{a.name}' to be an index "+
+                            f"or size variable")
+                return LoopIR.AConst(0,a.srcinfo)
 
         elif type(a) is UAST.Const:
             # AConst
             if type(a.val) is int:
                 return LoopIR.AConst(int(a.val), a.srcinfo)
             else:
-                self.err(a, f"Index value unexpected type: {type(a.val)}  " +
-                            f"Value: {a.val}")
+                self.err(a, f"Affine literal of unexpected type: "+
+                            f"{type(a.val)}  Value: {a.val}")
                 return LoopIR.AConst(0, a.srcinfo)
 
         elif type(a) is UAST.BinOp:
