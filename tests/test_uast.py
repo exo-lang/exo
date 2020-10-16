@@ -103,7 +103,6 @@ def gen_blur():
 
 def test_blur():
     blur = gen_blur()
-    blur = blur.split('j[1]',2,['j_hi','j_lo'])
     assert type(blur) is Procedure
     filename = "uast_test_blur"
     blur.compile_c(directory, filename)
@@ -182,14 +181,16 @@ def test_blur_split():
     out = Image.fromarray(res_c)
     out.save(directory + 'out_split.png')
 
-@pytest.mark.skip(reason="WIP test")
 def test_sched_blur():
     blur        = gen_blur()
     orig_blur   = blur
 
-    # do a simple tiling
-    blur = blur.split('j[1]',2,['j_hi','j_lo'])
-    #blur = blur.split('i[1]',2,['i_hi','i_lo'])
+    blur = blur.split('j',4,['j1','j2']) # This should just be equivalent to test_blur_split
+    #blur = blur.split('j[1]',4,['j1','j2'])
+    # TODO: How to do this?
+    # symbol is already splitted and trying to split the same symbol
+    #blur = blur.split('j[2]',2,['j1','j2'])
+
     #blur = blur.reorder('i_lo','j_hi')
 
     #@sched(blur)
@@ -197,3 +198,29 @@ def test_sched_blur():
     #    j_hi, j_lo = split(j[1], 2)
     #    i_hi, i_lo = split(i[1], 2)
     #    reorder(i_lo,j_hi)
+
+    # TODO: Should compare new and original IR
+    assert type(blur) is Procedure
+    filename = "uast_test_sched_blur"
+    blur.compile_c(directory, filename)
+    compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared " +
+                      "-o " + directory + filename + ".so " +
+                      directory + filename + ".c")
+    subprocess.run(compile_so_cmd, check=True, shell=True)
+    abspath = os.path.dirname(os.path.abspath(filename))
+    test_lib = ctypes.CDLL(abspath + '/' + directory + filename + ".so")
+    input_filename = os.path.dirname(os.path.realpath(__file__)) + "/input.png"
+    o_image = Image.open(input_filename)
+    image = np.asarray(o_image, dtype="float32")
+    n_size = image.shape[0]
+    m_size = image.shape[1]
+    k_size = 5
+    kernel = gkern(k_size,1)
+    res = nprand(size=(n_size, m_size))
+    res_c = cvt_c(res)
+    test_lib.blur(c_int(n_size), c_int(m_size), c_int(
+        k_size), cvt_c(image), cvt_c(kernel), res_c)
+    res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
+    res_c = res_c.astype(np.uint8)
+    out = Image.fromarray(res_c)
+    out.save(directory + 'out.png')

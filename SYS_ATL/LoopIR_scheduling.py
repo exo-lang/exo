@@ -19,17 +19,19 @@ import re
 #       prim ::= name-string
 #
 
-#TODO: Doesn't correctly handle case where there is no idx
 def name_str_2_symbols(proc, desc):
     assert type(proc) is LoopIR.proc
     # parse regular expression
     #   either name[int]
     #       or name
     name = re.search(r"^(\w+)", desc).group(0)
-    idx = int(re.search(r"\[([0-9_]+)\]", desc).group(1))
-
-    # idx is a non-negative integer if present
-    assert idx > 0
+    idx = re.search(r"\[([0-9_]+)\]", desc)
+    if idx is not None:
+        idx = int(idx.group(1))
+        # idx is a non-negative integer if present
+        assert idx > 0
+    else:
+        idx = None
 
     # find all occurrences of name
     sym_list = []
@@ -59,9 +61,13 @@ def name_str_2_symbols(proc, desc):
     # search proc body
     find_sym_stmt(proc.body, name)
 
-    assert len(sym_list) >= idx
+    if idx is not None:
+        assert len(sym_list) >= idx
+        res = [sym_list[idx-1]]
+    else:
+        res = sym_list
 
-    return [sym_list[idx-1]]
+    return res
 
 def name_str_2_pairs(proc, out_desc, in_desc):
     assert type(proc) is LoopIR.proc
