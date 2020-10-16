@@ -1,6 +1,7 @@
 from .prelude import *
 from .LoopIR import LoopIR
 from . import shared_types as T
+import re
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -23,9 +24,11 @@ def name_str_2_symbols(proc, desc):
     # parse regular expression
     #   either name[int]
     #       or name
-    name = desc # extract name
-    idx  = None
+    name = re.search(r"^(\w+)", desc).group(0)
+    idx = int(re.search(r"\[([0-9_]+)\]", desc).group(1))
+
     # idx is a non-negative integer if present
+    assert idx > 0
 
     # find all occurrences of name
     sym_list = []
@@ -40,19 +43,20 @@ def name_str_2_symbols(proc, desc):
 
     def find_sym_stmt(node, nm):
         if type(node) is LoopIR.Seq:
-            find_sym_stmt(node.s0)
-            find_sym_stmt(node.s1)
+            find_sym_stmt(node.s0, nm)
+            find_sym_stmt(node.s1, nm)
         elif type(node) is LoopIR.If:
-            find_sym_stmt(node.body)
+            find_sym_stmt(node.body, nm)
         elif type(node) is LoopIR.Alloc:
             if str(node.name) == nm:
                 sym_list.append(a.name)
         elif type(node) is LoopIR.ForAll:
             if str(node.iter) == nm:
                 sym_list.append(a.name)
-            find_sym_stmt(node.body)
+            find_sym_stmt(node.body, nm)
+
     # search proc body
-    find_sym_stmt(body, name)
+    find_sym_stmt(proc.body, name)
 
     return sym_list
 
@@ -119,7 +123,12 @@ class _Reorder:
     pass
 
 class _Split:
-    pass
+    def __init__(self, proc, split_var, quot, hi, lo):
+        self.proc = proc
+        pass
+
+    def result(self):
+        return self.proc
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

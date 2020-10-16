@@ -188,8 +188,8 @@ def test_sched_blur():
 
     # do a simple tiling
     blur = blur.split('j[1]',2,['j_hi','j_lo'])
-    blur = blur.split('i[1]',2,['i_hi','i_lo'])
-    blur = blur.reorder('i_lo','j_hi')
+    #blur = blur.split('i[1]',2,['i_hi','i_lo'])
+    #blur = blur.reorder('i_lo','j_hi')
 
     #@sched(blur)
     #def tiled_blur():
