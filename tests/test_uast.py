@@ -186,18 +186,12 @@ def test_sched_blur():
     orig_blur   = blur
 
     blur = blur.split('j',4,['j1','j2']) # This should just be equivalent to test_blur_split
-    #blur = blur.split('j[1]',4,['j1','j2'])
     # TODO: How to do this?
     # symbol is already splitted and trying to split the same symbol
+    #blur = blur.split('j[1]',4,['j1','j2'])
     #blur = blur.split('j[2]',2,['j1','j2'])
 
-    #blur = blur.reorder('i_lo','j_hi')
-
-    #@sched(blur)
-    #def tiled_blur():
-    #    j_hi, j_lo = split(j[1], 2)
-    #    i_hi, i_lo = split(i[1], 2)
-    #    reorder(i_lo,j_hi)
+    blur = blur.reorder('i','j1')
 
     # TODO: Should compare new and original IR
     assert type(blur) is Procedure
@@ -224,3 +218,10 @@ def test_sched_blur():
     res_c = res_c.astype(np.uint8)
     out = Image.fromarray(res_c)
     out.save(directory + 'out.png')
+
+    # In the future..
+    #@sched(blur)
+    #def tiled_blur():
+    #    j_hi, j_lo = split(j[1], 2)
+    #    i_hi, i_lo = split(i[1], 2)
+    #    reorder(i_lo,j_hi)
