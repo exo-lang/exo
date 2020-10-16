@@ -19,6 +19,7 @@ import re
 #       prim ::= name-string
 #
 
+#TODO: Doesn't correctly handle case where there is no idx
 def name_str_2_symbols(proc, desc):
     assert type(proc) is LoopIR.proc
     # parse regular expression
@@ -49,16 +50,18 @@ def name_str_2_symbols(proc, desc):
             find_sym_stmt(node.body, nm)
         elif type(node) is LoopIR.Alloc:
             if str(node.name) == nm:
-                sym_list.append(a.name)
+                sym_list.append(node.name)
         elif type(node) is LoopIR.ForAll:
             if str(node.iter) == nm:
-                sym_list.append(a.name)
+                sym_list.append(node.iter)
             find_sym_stmt(node.body, nm)
 
     # search proc body
     find_sym_stmt(proc.body, name)
 
-    return sym_list
+    assert len(sym_list) >= idx
+
+    return [sym_list[idx-1]]
 
 def name_str_2_pairs(proc, out_desc, in_desc):
     assert type(proc) is LoopIR.proc
@@ -127,9 +130,9 @@ class _Split:
         self.orig_proc = proc
         self.split_var = split_var
         self.quot = quot
-        self.hi = hi
-        self.lo = lo
-        self.count = []
+        self.hi = Sym(hi)
+        self.lo = Sym(lo)
+        self.count = {}
 
         body = self.split_s(self.orig_proc.body)
 
@@ -141,6 +144,11 @@ class _Split:
 
     def result(self):
         return self.proc
+
+    def substitute(self, srcinfo):
+        return LoopIR.AAdd(
+                LoopIR.AScale(self.quot, LoopIR.AVar(self.hi, srcinfo),
+                    srcinfo), LoopIR.AVar(self.lo, srcinfo), srcinfo)
 
     def split_s(self, s):
         styp = type(s)
@@ -162,12 +170,19 @@ class _Split:
             body = self.split_s(s.body)
             return LoopIR.If(cond, body, s.srcinfo)
         elif styp is LoopIR.ForAll:
-            itr = s.iter
-            #if (count[itr].empty) count[itr] = 0
-            #count[itr] += 1
-            hi = self.split_a(s.hi)
             body = self.split_s(s.body)
-            return LoopIR.ForAll(s.iter, hi, body, s.srcinfo)
+            hi = self.split_a(s.hi)
+            # Split this to two loops!!
+            if s.iter is self.split_var:
+                # Construct lo first and feed it to body
+                lo_ir = LoopIR.ForAll(self.lo,
+                            LoopIR.AConst(self.quot, s.srcinfo),
+                            body, s.srcinfo)
+
+                div = LoopIR.AScaleDiv(hi, self.quot, s.srcinfo)
+                return LoopIR.ForAll(self.hi, div, lo_ir, s.srcinfo)
+            else:
+                return LoopIR.ForAll(s.iter, hi, body, s.srcinfo)
         elif styp is LoopIR.Alloc or styp is LoopIR.Free:
             IRnode = (LoopIR.Alloc if styp is LoopIR.Alloc else
                       LoopIR.Free)
@@ -197,9 +212,16 @@ class _Split:
         atyp = type(a)
         
         if atyp is LoopIR.AVar:
-            return LoopIR.AVar(a.name, a.srcinfo)
+            # This is a splitted variable, substitute it!
+            if a.name is self.split_var:
+                return self.substitute(a.srcinfo)
+            else:
+                return LoopIR.AVar(a.name, a.srcinfo)
         elif atyp is LoopIR.ASize:
-            return LoopIR.ASize(a.name, a.srcinfo)
+            if a.name is self.split_var:
+                return self.substitute(a.srcinfo)
+            else:
+                return LoopIR.ASize(a.name, a.srcinfo)
         elif atyp is LoopIR.AConst:
             return LoopIR.AConst(int(a.val), a.srcinfo)
         elif atyp is LoopIR.AScale:

@@ -103,6 +103,7 @@ def gen_blur():
 
 def test_blur():
     blur = gen_blur()
+    blur = blur.split('j[1]',2,['j_hi','j_lo'])
     assert type(blur) is Procedure
     filename = "uast_test_blur"
     blur.compile_c(directory, filename)
