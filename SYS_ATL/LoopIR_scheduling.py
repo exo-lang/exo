@@ -1,4 +1,3 @@
-
 from .prelude import *
 from .LoopIR import LoopIR
 from . import shared_types as T
@@ -53,7 +52,7 @@ def name_str_2_symbols(proc, desc):
                 sym_list.append(a.name)
             find_sym_stmt(node.body)
     # search proc body
-    find_sym_stmt(body, name))
+    find_sym_stmt(body, name)
 
     return sym_list
 

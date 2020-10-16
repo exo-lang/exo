@@ -147,7 +147,7 @@ def test_blur_split():
         for i in par(0, n):
             for j1 in par(0, m/2):
                 for j2 in par(0,2):
-                    res[i, j] = 0.0
+                    res[i, j1*2+j2] = 0.0
         for i in par(0, n):
             for j1 in par(0, m/2):
                 for j2 in par(0, 2):

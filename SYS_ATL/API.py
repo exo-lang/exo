@@ -1,5 +1,5 @@
 from .prelude import *
-from .LoopIR import UAST
+from .LoopIR import UAST, LoopIR
 from . import shared_types as T
 from .typecheck import TypeChecker
 from .LoopIR_compiler import Compiler, run_compile
@@ -15,11 +15,11 @@ class Procedure:
         if isinstance(proc, LoopIR.proc):
             self._loopir_proc = proc
         else:
-            assert isinstance(uast, UAST.proc)
+            assert isinstance(proc, UAST.proc)
 
-            self._uast_proc = uast
+            self._uast_proc = proc
             if _testing != "UAST":
-                self._loopir_proc = TypeChecker(uast).get_loopir()
+                self._loopir_proc = TypeChecker(proc).get_loopir()
 
     def compile_c(self, directory, filename):
         run_compile([self._loopir_proc], directory,
