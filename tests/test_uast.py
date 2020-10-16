@@ -186,12 +186,14 @@ def test_sched_blur():
     orig_blur   = blur
 
     blur = blur.split('j',4,['j1','j2']) # This should just be equivalent to test_blur_split
+    blur = blur.split('i[2]',4,['i1','i2'])
     # TODO: How to do this?
     # symbol is already splitted and trying to split the same symbol
     #blur = blur.split('j[1]',4,['j1','j2'])
     #blur = blur.split('j[2]',2,['j1','j2'])
 
-    blur = blur.reorder('i','j1')
+    blur = blur.reorder('i','j1[1]')
+    blur = blur.reorder('k','l')
 
     # TODO: Should compare new and original IR
     assert type(blur) is Procedure

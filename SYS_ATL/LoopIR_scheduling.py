@@ -78,19 +78,20 @@ def name_str_2_pairs(proc, out_desc, in_desc):
     in_name = re.search(r"^(\w+)", in_desc).group(0)
     out_idx = re.search(r"\[([0-9_]+)\]", out_desc)
     in_idx = re.search(r"\[([0-9_]+)\]", in_desc)
+    
+    out_idx = int(out_idx.group(1)) if out_idx is not None else None
+    in_idx  = int(in_idx.group(1)) if in_idx is not None else None
+
+    # idx is a non-negative integer if present
     for idx in [out_idx, in_idx]:
         if idx is not None:
-            idx = int(idx.group(1))
-            # idx is a non-negative integer if present
             assert idx > 0
-        else:
-            idx = None
 
     # find all occurrences of name
     pair_list = []
     # TODO! Handle idx
-    #out_cnt   = 1
-    #in_cnt    = 1
+    out_cnt = 0
+    in_cnt  = 0
     def find_sym_stmt(node, out_sym):
         if type(node) is LoopIR.Seq:
             find_sym_stmt(node.s0, out_sym)
@@ -100,14 +101,18 @@ def name_str_2_pairs(proc, out_desc, in_desc):
         elif type(node) is LoopIR.ForAll:
             # first, search for the outer name
             if out_sym is None and str(node.iter) == out_name:
-                #if out_idx is None or out_idx is out_cnt:
-                #    out_cnt += 1
-                out_sym = node.iter
-                find_sym_stmt(node.body, out_sym)
-                out_sym = None
+                nonlocal out_cnt
+                out_cnt += 1
+                if out_idx is None or out_idx is out_cnt:
+                    out_sym = node.iter
+                    find_sym_stmt(node.body, out_sym)
+                    out_sym = None
             # if we are inside of an outer name match...
             elif out_sym is not None and str(node.iter) == in_name:
-                pair_list.append( (out_sym, node.iter) )
+                nonlocal in_cnt
+                in_cnt += 1
+                if in_idx is None or in_idx is in_cnt:
+                    pair_list.append( (out_sym, node.iter) )
             find_sym_stmt(node.body, out_sym)
 
     # search proc body
