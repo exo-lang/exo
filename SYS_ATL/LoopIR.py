@@ -140,7 +140,6 @@ module LoopIR {
             | Seq( stmt s0, stmt s1 )
             | If ( pred cond, stmt body )
             | ForAll ( sym iter, aexpr hi, stmt body )
-        --  | ForAllWhere ( sym iter, pred where, stmt body )
             | Alloc ( sym name, type type )
             | Free  ( sym name, type type )
             attributes( srcinfo srcinfo )

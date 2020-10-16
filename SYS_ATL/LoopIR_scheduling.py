@@ -124,11 +124,121 @@ class _Reorder:
 
 class _Split:
     def __init__(self, proc, split_var, quot, hi, lo):
-        self.proc = proc
-        pass
+        self.orig_proc = proc
+        self.split_var = split_var
+        self.quot = quot
+        self.hi = hi
+        self.lo = lo
+        self.count = []
+
+        body = self.split_s(self.orig_proc.body)
+
+        self.proc = LoopIR.proc(name  = self.orig_proc.name,
+                               sizes  = self.orig_proc.sizes,
+                               args   = self.orig_proc.args,
+                               body   = body,
+                               srcinfo= self.orig_proc.srcinfo)
 
     def result(self):
         return self.proc
+
+    def split_s(self, s):
+        styp = type(s)
+
+        if styp is LoopIR.Seq:
+            s0 = self.split_s(s.s0)
+            s1 = self.split_s(s.s1)
+            return LoopIR.Seq(s0, s1, s.srcinfo)
+        elif styp is LoopIR.Pass:
+            return LoopIR.Pass
+        elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
+            idx = [self.split_a(i) for i in s.idx]
+            rhs = self.split_e(s.rhs)
+            IRnode = (LoopIR.Assign if styp is LoopIR.Assign else
+                      LoopIR.Reduce)
+            return IRnode(s.name, idx, rhs, s.srcinfo)
+        elif styp is LoopIR.If:
+            cond = self.split_p(s.cond)
+            body = self.split_s(s.body)
+            return LoopIR.If(cond, body, s.srcinfo)
+        elif styp is LoopIR.ForAll:
+            itr = s.iter
+            #if (count[itr].empty) count[itr] = 0
+            #count[itr] += 1
+            hi = self.split_a(s.hi)
+            body = self.split_s(s.body)
+            return LoopIR.ForAll(s.iter, hi, body, s.srcinfo)
+        elif styp is LoopIR.Alloc or styp is LoopIR.Free:
+            IRnode = (LoopIR.Alloc if styp is LoopIR.Alloc else
+                      LoopIR.Free)
+            return IRnode(s.name, s.typ, s.srcinfo)
+        else:
+            assert False, "bad case"
+
+
+    def split_e(self, e):
+        if type(e) is LoopIR.Read:
+            idx = [self.split_a(i) for i in e.idx]
+            return LoopIR.Read(e.name, idx, e.srcinfo)
+        elif type(e) is LoopIR.Const:
+            return LoopIR.Const(float(e.val), e.srcinfo)
+        elif type(e) is LoopIR.BinOp:
+            lhs = self.split_e(e.lhs)
+            rhs = self.split_e(e.rhs)
+            return LoopIR.BinOp(e.op, lhs, rhs, e.srcinfo)
+        elif type(e) is LoopIR.Select:
+            pred = self.split_p(e.cond)
+            body = self.split_e(e.body)
+            return LoopIR.Select(pred, body, e.srcinfo)
+        else:
+            assert False, "not a LoopIR in split_e"
+
+    def split_a(self, a):
+        atyp = type(a)
+        
+        if atyp is LoopIR.AVar:
+            return LoopIR.AVar(a.name, a.srcinfo)
+        elif atyp is LoopIR.ASize:
+            return LoopIR.ASize(a.name, a.srcinfo)
+        elif atyp is LoopIR.AConst:
+            return LoopIR.AConst(int(a.val), a.srcinfo)
+        elif atyp is LoopIR.AScale:
+            rhs = self.split_a(a.rhs)
+            return LoopIR.AScale(int(a.coeff), rhs, a.srcinfo)
+        elif atyp is LoopIR.AScaleDiv:
+            lhs = self.split_a(a.lhs)
+            return LoopIR.AScaleDiv(lhs, int(a.quotient), a.srcinfo)
+        elif atyp is LoopIR.AAdd:
+            lhs = self.split_a(a.lhs)
+            rhs = self.split_a(a.rhs)
+            return LoopIR.AAdd(lhs, rhs, a.srcinfo)
+        elif atyp is LoopIR.ASub:
+            lhs = self.split_a(a.lhs)
+            rhs = self.split_a(a.rhs)
+            return LoopIR.ASub(lhs, rhs, a.srcinfo)
+        else:
+            assert False, "not a LoopIR in split_a"
+
+    def split_p(self, p):
+        if type(p) is LoopIR.BConst:
+            return LoopIR.BConst(bool(p.val), p.srcinfo)
+        elif type(p) is LoopIR.Cmp:
+            lhs = self.split_a(p.lhs)
+            rhs = self.split_a(p.rhs)
+            return LoopIR.Cmp(p.op, lhs, rhs, p.srcinfo)
+        elif type(p) is LoopIR.And:
+            lhs = self.split_p(p.lhs)
+            rhs = self.split_p(p.rhs)
+            return LoopIR.And(lhs, rhs, p.srcinfo)
+        elif type(p) is LoopIR.Or:
+            lhs = self.split_p(p.lhs)
+            rhs = self.split_p(p.rhs)
+            return LoopIR.Or(lhs, rhs, p.srcinfo)
+        else:
+            assert False, "not a LoopIR in split_p"
+
+
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
