@@ -47,5 +47,22 @@
 #        if i*3+3 <= j < i*3+3 + m:
 #          res[i*3+3] += x[j]*w[i*3+3-j+m-1]
 #
+#
+#
 # TODO: .parallel() and .vectorize() are not rewrite operations?
 #       Need to introduce notation which is not a Loop IR
+#
+# Idea on vectorize:
+#def foo():
+#    ...
+#    @instr(AVX_add)
+#    for i in par(0,n):
+#        A[i+j] = B[i+j] + C[i+j]
+#
+##-->
+#    for i_hi in par(0,(n+1)/4):
+#        @instr(AVX_add)
+#        for i_lo in par(0,4):
+#            A[4*i_hi + i_lo + j] = B[...] + C[...]
+#
+#foo = foo.instr('i','AVX_add')

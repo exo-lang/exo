@@ -21,6 +21,12 @@ class Procedure:
             if _testing != "UAST":
                 self._loopir_proc = TypeChecker(proc).get_loopir()
 
+    def __str__(self):
+        if hasattr(self,'_loopir_proc'):
+            return str(self._loopir_proc)
+        else:
+            return str(self._uast_proc)
+
     def compile_c(self, directory, filename):
         run_compile([self._loopir_proc], directory,
                     (filename + ".c"), (filename + ".h"))
