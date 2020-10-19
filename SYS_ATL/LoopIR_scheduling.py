@@ -243,8 +243,6 @@ class _Split:
             s0 = self.split_s(s.s0)
             s1 = self.split_s(s.s1)
             return LoopIR.Seq(s0, s1, s.srcinfo)
-        elif styp is LoopIR.Pass:
-            return LoopIR.Pass
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
             idx = [self.split_a(i) for i in s.idx]
             rhs = self.split_e(s.rhs)
@@ -269,20 +267,14 @@ class _Split:
                 return LoopIR.ForAll(self.hi, div, lo_ir, s.srcinfo)
             else:
                 return LoopIR.ForAll(s.iter, hi, body, s.srcinfo)
-        elif styp is LoopIR.Alloc or styp is LoopIR.Free:
-            IRnode = (LoopIR.Alloc if styp is LoopIR.Alloc else
-                      LoopIR.Free)
-            return IRnode(s.name, s.typ, s.srcinfo)
         else:
-            assert False, "bad case"
+            return s
 
 
     def split_e(self, e):
         if type(e) is LoopIR.Read:
             idx = [self.split_a(i) for i in e.idx]
             return LoopIR.Read(e.name, idx, e.srcinfo)
-        elif type(e) is LoopIR.Const:
-            return LoopIR.Const(float(e.val), e.srcinfo)
         elif type(e) is LoopIR.BinOp:
             lhs = self.split_e(e.lhs)
             rhs = self.split_e(e.rhs)
@@ -292,7 +284,7 @@ class _Split:
             body = self.split_e(e.body)
             return LoopIR.Select(pred, body, e.srcinfo)
         else:
-            assert False, "not a LoopIR in split_e"
+            return e
 
     def split_a(self, a):
         atyp = type(a)
@@ -308,8 +300,6 @@ class _Split:
                 return self.substitute(a.srcinfo)
             else:
                 return LoopIR.ASize(a.name, a.srcinfo)
-        elif atyp is LoopIR.AConst:
-            return LoopIR.AConst(int(a.val), a.srcinfo)
         elif atyp is LoopIR.AScale:
             rhs = self.split_a(a.rhs)
             return LoopIR.AScale(int(a.coeff), rhs, a.srcinfo)
@@ -325,12 +315,10 @@ class _Split:
             rhs = self.split_a(a.rhs)
             return LoopIR.ASub(lhs, rhs, a.srcinfo)
         else:
-            assert False, "not a LoopIR in split_a"
+            return a
 
     def split_p(self, p):
-        if type(p) is LoopIR.BConst:
-            return LoopIR.BConst(bool(p.val), p.srcinfo)
-        elif type(p) is LoopIR.Cmp:
+        if type(p) is LoopIR.Cmp:
             lhs = self.split_a(p.lhs)
             rhs = self.split_a(p.rhs)
             return LoopIR.Cmp(p.op, lhs, rhs, p.srcinfo)
@@ -343,7 +331,7 @@ class _Split:
             rhs = self.split_p(p.rhs)
             return LoopIR.Or(lhs, rhs, p.srcinfo)
         else:
-            assert False, "not a LoopIR in split_p"
+            return p
 
 
 
