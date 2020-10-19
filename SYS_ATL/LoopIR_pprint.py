@@ -2,7 +2,7 @@ import re
 import textwrap
 
 from .prelude import *
-from .LoopIR import UAST, front_ops
+from .LoopIR import UAST, front_ops, LoopIR
 from . import shared_types as T
 
 # google python formatting project

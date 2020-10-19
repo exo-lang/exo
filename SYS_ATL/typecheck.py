@@ -153,7 +153,6 @@ class TypeChecker:
                 self.err(stmt.cond, parerr)
 
             hi = self.check_a(stmt.cond.hi)
-            print(hi)
             # check that no index variables are used
             def index_free_a(a):
                 if type(a) is LoopIR.AVar:
