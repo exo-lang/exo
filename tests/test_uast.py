@@ -104,7 +104,13 @@ def gen_blur():
 def test_blur():
     blur = gen_blur()
     assert type(blur) is Procedure
+
     filename = "uast_test_blur"
+    # Write pretty printing to a file
+    f_header = open(os.path.join(directory, filename + "_pretty.py"), "w")
+    f_header.write(str(blur))
+    f_header.close()
+
     blur.compile_c(directory, filename)
     compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared " +
                       "-o " + directory + filename + ".so " +
@@ -190,9 +196,15 @@ def test_sched_blur():
     blur = blur.reorder('i','j1[1]')
     blur = blur.reorder('k','l')
 
+
     # TODO: Should compare new and original IR
     assert type(blur) is Procedure
     filename = "uast_test_sched_blur"
+    # Write pretty printing to a file
+    f_header = open(os.path.join(directory, filename + "_pretty.py"), "w")
+    f_header.write(str(blur))
+    f_header.close()
+    
     blur.compile_c(directory, filename)
     compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared " +
                       "-o " + directory + filename + ".so " +

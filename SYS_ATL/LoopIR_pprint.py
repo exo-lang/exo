@@ -231,13 +231,13 @@ class LoopIR_PPrinter:
         self._tab = ""
         self._lines = []
 
-        if isinstance(node, UAST.proc):
+        if isinstance(node, LoopIR.proc):
             self.pproc(node)
-        elif isinstance(node, UAST.fnarg):
+        elif isinstance(node, LoopIR.fnarg):
             self.addline(self.pfnarg(node))
-        elif isinstance(node, UAST.stmt):
-            self.pstmts([node])
-        elif isinstance(node, UAST.expr):
+        elif isinstance(node, LoopIR.stmt):
+            self.pstmt([node])
+        elif isinstance(node, LoopIR.expr):
             self.addline(self.pexpr(node))
         else:
             assert False, f"cannot print a {type(node)}"
@@ -288,60 +288,59 @@ class LoopIR_PPrinter:
         self.addline(f"def {name}({','.join(args)}):")
 
         self.push()
-        self.pstmts(p.body)
+        self.pstmt(p.body)
         self.pop()
 
     def pfnarg(self, a):
         return f"{self.new_name(a.name)} : {a.type} @ {a.effect}"
 
-    def pstmts(self, body):
-        for stmt in body:
-            if type(stmt) is UAST.Pass:
-                self.addline("pass")
-            elif type(stmt) is UAST.Assign or type(stmt) is UAST.Reduce:
-                op = "=" if type(stmt) is UAST.Assign else "+="
+    def pstmt(self, stmt):
+        if type(stmt) is LoopIR.Pass:
+            self.addline("pass")
+        elif type(stmt) is LoopIR.Seq:
+            self.pstmt(stmt.s0)
+            self.pstmt(stmt.s1)
+        elif type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
+            op = "=" if type(stmt) is LoopIR.Assign else "+="
 
-                rhs = self.pexpr(stmt.rhs)
+            rhs = self.pexpr(stmt.rhs)
 
-                if len(stmt.idx) > 0:
-                    idx = [self.pexpr(e) for e in stmt.idx]
-                    lhs = f"{self.new_name(stmt.name)}[{','.join(idx)}]"
-                else:
-                    lhs = self.new_name(stmt.name)
-
-                self.addline(f"{lhs} {op} {rhs}")
-            elif type(stmt) is UAST.Alloc:
-                self.addline(f"{self.new_name(stmt.name)} : {self.type}")
-            elif type(stmt) is UAST.If:
-                cond = self.pexpr(stmt.cond)
-                self.addline(f"if {cond}:")
-                self.push()
-                self.pstmts(stmt.body)
-                self.pop()
-                if len(stmt.orelse) > 0:
-                    self.addline("else:")
-                    self.push()
-                    self.pstmts(stmt.orelse)
-                    self.pop()
-            elif type(stmt) is UAST.ForAll:
-                cond = self.pexpr(stmt.cond)
-                self.addline(f"for {self.new_name(stmt.iter)} in {cond}:")
-                self.push()
-                self.pstmts(stmt.body)
-                self.pop()
+            if len(stmt.idx) > 0:
+                idx = [self.paexpr(e) for e in stmt.idx]
+                lhs = f"{self.new_name(stmt.name)}[{','.join(idx)}]"
             else:
-                assert False, "unrecognized stmt type"
+                lhs = self.new_name(stmt.name)
+
+            self.addline(f"{lhs} {op} {rhs}")
+        elif type(stmt) is LoopIR.Alloc:
+            self.addline(f"{self.new_name(stmt.name)} : {self.type}")
+        elif type(stmt) is LoopIR.Free:
+            self.addline(f"free {self.new_name(stmt.name)} : {self.type}")
+        elif type(stmt) is LoopIR.If:
+            cond = self.ppred(stmt.cond)
+            self.addline(f"if {cond}:")
+            self.push()
+            self.pstmt(stmt.body)
+            self.pop()
+        elif type(stmt) is LoopIR.ForAll:
+            hi = self.paexpr(stmt.hi)
+            self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}):")
+            self.push()
+            self.pstmt(stmt.body)
+            self.pop()
+        else:
+            assert False, "unrecognized stmt type"
 
     def pexpr(self, e, prec=0):
-        if type(e) is UAST.Read:
+        if type(e) is LoopIR.Read:
             if len(e.idx) > 0:
-                idx = [self.pexpr(i) for i in e.idx]
+                idx = [self.paexpr(i) for i in e.idx]
                 return f"{self.get_name(e.name)}[{','.join(idx)}]"
             else:
                 return self.get_name(e.name)
-        elif type(e) is UAST.Const:
+        elif type(e) is LoopIR.Const:
             return str(e.val)
-        elif type(e) is UAST.BinOp:
+        elif type(e) is LoopIR.BinOp:
             local_prec = op_prec[e.op]
             # increment rhs by 1 to account for left-associativity
             lhs = self.pexpr(e.lhs, prec=local_prec)
@@ -351,9 +350,56 @@ class LoopIR_PPrinter:
             if local_prec < prec:
                 s = f"({s})"
             return s
-        elif type(e) is UAST.USub:
-            return f"-{self.pexpr(e.arg,prec=60)}"
-        elif type(e) is UAST.ParRange:
-            return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
+        elif type(e) is LoopIR.Select:
+            cond = self.ppred(e.cond)
+            body = self.pexpr(e.body)
+            return f"({cond}) ? {body}"
+        else:
+            assert False, "unrecognized expr type"
+
+    def paexpr(self, a, prec=0):
+        if type(a) is LoopIR.AVar or type(a) is LoopIR.ASize:
+            return self.get_name(a.name)
+        elif type(a) is LoopIR.AConst:
+            return str(a.val)
+        elif type(a) is LoopIR.AAdd or type(a) is LoopIR.ASub:
+            op = "+" if type(a) is LoopIR.AAdd else "-"
+            lhs = self.paexpr(a.lhs, 40)
+            rhs = self.paexpr(a.rhs, 40+1)
+            s = f"{lhs} {op} {rhs}"
+            if 40 < prec:
+                s = f"({s})"
+            return s
+        elif type(a) is LoopIR.AScale:
+            rhs = self.paexpr(a.rhs, 50)
+            coeff = str(a.coeff)
+            return f"{coeff} * {rhs}"
+        elif type(a) is LoopIR.AScaleDiv:
+            lhs = self.paexpr(a.lhs, 50)
+            quo = str(a.quotient)
+            return f"{lhs} / {quo}"
+        else:
+            assert False, "unrecognized expr type"
+
+    def ppred(self, p, prec=0):
+        if type(p) is LoopIR.BConst:
+            return str(p.val)
+        elif type(p) is LoopIR.And or type(p) is LoopIR.Or:
+            op = "and" if type(p) is LoopIR.And else "or"
+            local_prec = 20 if type(p) is LoopIR.And else 10
+            lhs = self.ppred(p.lhs, local_prec)
+            rhs = self.ppred(p.rhs, local_prec+1)
+            s = f"{lhs} {op} {rhs}"
+            if local_prec < prec:
+                s = f"({s})"
+            return s
+        elif type(p) is LoopIR.Cmp:
+            local_prec = op_prec[p.op]
+            lhs = self.paexpr(p.lhs, local_prec)
+            rhs = self.paexpr(p.rhs, local_prec+1)
+            s = f"{lhs} {p.op} {rhs}"
+            if local_prec < prec:
+                s = f"({s})"
+            return s
         else:
             assert False, "unrecognized expr type"
