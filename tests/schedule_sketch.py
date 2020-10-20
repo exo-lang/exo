@@ -66,3 +66,10 @@
 #            A[4*i_hi + i_lo + j] = B[...] + C[...]
 #
 #foo = foo.instr('i','AVX_add')
+
+    # In the future..
+    #@sched(blur)
+    #def tiled_blur():
+    #    j_hi, j_lo = split(j[1], 2)
+    #    i_hi, i_lo = split(i[1], 2)
+    #    reorder(i_lo,j_hi)

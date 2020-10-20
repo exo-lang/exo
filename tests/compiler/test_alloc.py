@@ -10,26 +10,7 @@ from SYS_ATL.debug_frontend_LoopIR import *
 from SYS_ATL.prelude import *
 from SYS_ATL.LoopIR_compiler import Compiler, run_compile
 from SYS_ATL.LoopIR_interpreter import Interpreter
-
-# Initialize by creating a tmp directory
-directory = "tmp/"
-if not os.path.isdir(directory):
-    os.mkdir(directory)
-
-c_float_p = ctypes.POINTER(ctypes.c_float)
-
-
-def cvt_c(n_array):
-    assert n_array.dtype == np.float32
-    return n_array.ctypes.data_as(c_float_p)
-
-
-def nparray(arg):
-    return np.array(arg, dtype=np.float32)
-
-
-def nprand(size):
-    return np.random.uniform(size=size).astype(np.float32)
+from .helper import *
 
 # Test 1 is add vector
 #
@@ -37,7 +18,6 @@ def nprand(size):
 #       forall i = 0,n:
 #           res[i] = x[i] + y[i]
 #
-
 
 def gen_add_vec():
     n = Sym('n')
