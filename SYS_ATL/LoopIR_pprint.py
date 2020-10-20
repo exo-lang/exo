@@ -92,9 +92,16 @@ class UAST_PPrinter:
         assert linted, "generated unlinted code..."
         return fmtstr
 
-    def push(self):
-        self.env.push()
-        self._tab = self._tab + "  "
+    def push(self,only=None):
+        if only is None:
+            self.env.push()
+            self._tab = self._tab + "  "
+        elif only == 'env':
+            self.env.push()
+        elif only == 'tab':
+            self._tab = self._tab + "  "
+        else:
+            assert False, f"BAD only parameter {only}"
 
     def pop(self):
         self.env.pop()
@@ -150,9 +157,9 @@ class UAST_PPrinter:
 
                 if len(stmt.idx) > 0:
                     idx = [self.pexpr(e) for e in stmt.idx]
-                    lhs = f"{self.new_name(stmt.name)}[{','.join(idx)}]"
+                    lhs = f"{self.get_name(stmt.name)}[{','.join(idx)}]"
                 else:
-                    lhs = self.new_name(stmt.name)
+                    lhs = self.get_name(stmt.name)
 
                 self.addline(f"{lhs} {op} {rhs}")
             elif type(stmt) is UAST.Alloc:
@@ -170,8 +177,9 @@ class UAST_PPrinter:
                     self.pop()
             elif type(stmt) is UAST.ForAll:
                 cond = self.pexpr(stmt.cond)
+                self.push(only='env')
                 self.addline(f"for {self.new_name(stmt.iter)} in {cond}:")
-                self.push()
+                self.push(only='tab')
                 self.pstmts(stmt.body)
                 self.pop()
             else:
@@ -247,9 +255,16 @@ class LoopIR_PPrinter:
         assert linted, "generated unlinted code..."
         return fmtstr
 
-    def push(self):
-        self.env.push()
-        self._tab = self._tab + "  "
+    def push(self,only=None):
+        if only is None:
+            self.env.push()
+            self._tab = self._tab + "  "
+        elif only == 'env':
+            self.env.push()
+        elif only == 'tab':
+            self._tab = self._tab + "  "
+        else:
+            assert False, f"BAD only parameter {only}"
 
     def pop(self):
         self.env.pop()
@@ -307,9 +322,9 @@ class LoopIR_PPrinter:
 
             if len(stmt.idx) > 0:
                 idx = [self.paexpr(e) for e in stmt.idx]
-                lhs = f"{self.new_name(stmt.name)}[{','.join(idx)}]"
+                lhs = f"{self.get_name(stmt.name)}[{','.join(idx)}]"
             else:
-                lhs = self.new_name(stmt.name)
+                lhs = self.get_name(stmt.name)
 
             self.addline(f"{lhs} {op} {rhs}")
         elif type(stmt) is LoopIR.Alloc:
@@ -324,8 +339,9 @@ class LoopIR_PPrinter:
             self.pop()
         elif type(stmt) is LoopIR.ForAll:
             hi = self.paexpr(stmt.hi)
+            self.push(only='env')
             self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}):")
-            self.push()
+            self.push(only='tab')
             self.pstmt(stmt.body)
             self.pop()
         else:
