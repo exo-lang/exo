@@ -34,9 +34,9 @@ def test_blur():
     filename = "compiler_test_simple_blur"
 
     # Write pretty printing to a file
-    f_header = open(os.path.join(directory, filename + "_pretty.py"), "w")
-    f_header.write(str(blur))
-    f_header.close()
+    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty.write(str(blur))
+    f_pretty.close()
 
     blur.compile_c(directory, filename)
 
@@ -93,19 +93,21 @@ def test_sched_blur():
     blur        = gen_blur()
     orig_blur   = blur
 
-    blur = blur.split('j',4,['j1','j2']) # This should just be equivalent to test_blur_split
-    blur = blur.split('i[2]',4,['i1','i2'])
-    blur = blur.reorder('i','j1[1]')
-    blur = blur.reorder('k','l')
+    #blur = blur.split('j',4,['j1','j2']) # This should just be equivalent to test_blur_split
+    #blur = blur.split('i[2]',4,['i1','i2'])
+    #blur = blur.reorder('i','j1[1]')
+    #blur = blur.reorder('k','l')
+    #blur = blur.unroll('i[1]', 6)
+    blur = blur.unroll('i', 6)
 
     # TODO: Should compare new and original IR
     assert type(blur) is Procedure
     filename = "test_compiler_sched_blur"
 
     # Write pretty printing to a file
-    f_header = open(os.path.join(directory, filename + "_pretty.py"), "w")
-    f_header.write(str(blur))
-    f_header.close()
+    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty.write(str(blur))
+    f_pretty.close()
     
     blur.compile_c(directory, filename)
 

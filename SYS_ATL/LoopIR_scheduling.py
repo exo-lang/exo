@@ -335,6 +335,138 @@ class _Split:
 
 
 
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Unroll scheduling directive
+
+
+class _Unroll:
+    def __init__(self, proc, unroll_var, const):
+        self.orig_proc = proc
+        self.unroll_var = unroll_var
+        self.const = const
+
+        body = self.unroll_s(self.orig_proc.body)
+
+        self.proc = LoopIR.proc(name  = self.orig_proc.name,
+                               sizes  = self.orig_proc.sizes,
+                               args   = self.orig_proc.args,
+                               body   = body,
+                               srcinfo= self.orig_proc.srcinfo)
+
+    def result(self):
+        return self.proc
+
+    def substitute(self, srcinfo, unroll_itr):
+        return LoopIR.AAdd(
+                LoopIR.AScale(self.const, LoopIR.AVar(self.unroll_var, srcinfo),
+                            srcinfo), LoopIR.AConst(unroll_itr, srcinfo),
+                                                                srcinfo)
+
+    def unroll_s(self, s, unroll_itr=0):
+        styp = type(s)
+
+        if styp is LoopIR.Seq:
+            s0 = self.unroll_s(s.s0, unroll_itr)
+            s1 = self.unroll_s(s.s1, unroll_itr)
+            return LoopIR.Seq(s0, s1, s.srcinfo)
+        elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
+            idx = [self.unroll_a(i, unroll_itr) for i in s.idx]
+            rhs = self.unroll_e(s.rhs, unroll_itr)
+            IRnode = (LoopIR.Assign if styp is LoopIR.Assign else
+                      LoopIR.Reduce)
+            return IRnode(s.name, idx, rhs, s.srcinfo)
+        elif styp is LoopIR.If:
+            cond = self.unroll_p(s.cond, unroll_itr)
+            body = self.unroll_s(s.body, unroll_itr)
+            return LoopIR.If(cond, body, s.srcinfo)
+        elif styp is LoopIR.ForAll:
+            # unroll this to loops!!
+            if s.iter is self.unroll_var:
+                orig_body = s.body
+                hi = LoopIR.AScaleDiv(s.hi, self.const, s.srcinfo)
+            
+                body_seq = None
+                # TODO: Order shouldn't matter if everything is par, right?
+                for local_itr in reversed(range(0, self.const)):
+                    if body_seq is not None:
+                        body_seq = LoopIR.Seq(
+                                    self.unroll_s(orig_body, local_itr+1),
+                                    body_seq, s.srcinfo)
+                    else:
+                        body_seq = self.unroll_s(orig_body, local_itr+1)
+
+                return LoopIR.ForAll(s.iter, hi, body_seq, s.srcinfo)
+            else:
+                hi = self.unroll_a(s.hi, unroll_itr)
+                body = self.unroll_s(s.body, unroll_itr)
+                return LoopIR.ForAll(s.iter, hi, body, s.srcinfo)
+        else:
+            return s
+
+
+    def unroll_e(self, e, unroll_itr=0):
+        if type(e) is LoopIR.Read:
+            idx = [self.unroll_a(i, unroll_itr) for i in e.idx]
+            return LoopIR.Read(e.name, idx, e.srcinfo)
+        elif type(e) is LoopIR.BinOp:
+            lhs = self.unroll_e(e.lhs, unroll_itr)
+            rhs = self.unroll_e(e.rhs, unroll_itr)
+            return LoopIR.BinOp(e.op, lhs, rhs, e.srcinfo)
+        elif type(e) is LoopIR.Select:
+            pred = self.unroll_p(e.cond, unroll_itr)
+            body = self.unroll_e(e.body, unroll_itr)
+            return LoopIR.Select(pred, body, e.srcinfo)
+        else:
+            return e
+
+    def unroll_a(self, a, unroll_itr=0):
+        atyp = type(a)
+
+        if atyp is LoopIR.AVar:
+            # This is a unrolled variable, substitute it!
+            if a.name is self.unroll_var:
+                return self.substitute(a.srcinfo, unroll_itr)
+            else:
+                return LoopIR.AVar(a.name, a.srcinfo)
+        elif atyp is LoopIR.ASize:
+            if a.name is self.unroll_var:
+                return self.substitute(a.srcinfo, unroll_itr)
+            else:
+                return LoopIR.ASize(a.name, a.srcinfo)
+        elif atyp is LoopIR.AScale:
+            rhs = self.unroll_a(a.rhs, unroll_itr)
+            return LoopIR.AScale(int(a.coeff), rhs, a.srcinfo)
+        elif atyp is LoopIR.AScaleDiv:
+            lhs = self.unroll_a(a.lhs, unroll_itr)
+            return LoopIR.AScaleDiv(lhs, int(a.quotient), a.srcinfo)
+        elif atyp is LoopIR.AAdd:
+            lhs = self.unroll_a(a.lhs, unroll_itr)
+            rhs = self.unroll_a(a.rhs, unroll_itr)
+            return LoopIR.AAdd(lhs, rhs, a.srcinfo)
+        elif atyp is LoopIR.ASub:
+            lhs = self.unroll_a(a.lhs, unroll_itr)
+            rhs = self.unroll_a(a.rhs, unroll_itr)
+            return LoopIR.ASub(lhs, rhs, a.srcinfo)
+        else:
+            return a
+
+    def unroll_p(self, p, unroll_itr=0):
+        if type(p) is LoopIR.Cmp:
+            lhs = self.unroll_a(p.lhs, unroll_itr)
+            rhs = self.unroll_a(p.rhs, unroll_itr)
+            return LoopIR.Cmp(p.op, lhs, rhs, p.srcinfo)
+        elif type(p) is LoopIR.And:
+            lhs = self.unroll_p(p.lhs, unroll_itr)
+            rhs = self.unroll_p(p.rhs, unroll_itr)
+            return LoopIR.And(lhs, rhs, p.srcinfo)
+        elif type(p) is LoopIR.Or:
+            lhs = self.unroll_p(p.lhs, unroll_itr)
+            rhs = self.unroll_p(p.rhs, unroll_itr)
+            return LoopIR.Or(lhs, rhs, p.srcinfo)
+        else:
+            return p
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -343,3 +475,4 @@ class _Split:
 class Schedules:
     DoReorder   = _Reorder
     DoSplit     = _Split
+    DoUnroll    = _Unroll
