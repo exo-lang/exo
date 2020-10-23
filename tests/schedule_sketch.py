@@ -43,10 +43,39 @@
 #      for j in range(0,n):
 #        if i*3+2 <= j < i*3+2 + m:
 #          res[i*3+2] += x[j]*w[i*3+2-j+m-1]
+#      @instr(GEMMINNI_MATMUL)
 #      for j in range(0,n):
 #        if i*3+3 <= j < i*3+3 + m:
 #          res[i*3+3] += x[j]*w[i*3+3-j+m-1]
 #
+
+"""
+class Instruction:
+    def compile(self,...):
+        raise NotImplementedError("compile unimplemented")
+
+    def check(self,...):
+        raise NotImplementedError("check unimplemented")
+
+
+class GEMMINNI_MATMUL(Instruction):
+    def __init__(self):
+        pass
+
+    def compile(self,...):
+        return "some string"
+
+    # do this during typechecking?
+    def check_LoopIR(self,...):
+        pass
+
+    # do this during instruction-validity checking
+    def check_Instr(self,...):
+        pass
+"""
+
+
+
 #
 #
 # TODO: .parallel() and .vectorize() are not rewrite operations?

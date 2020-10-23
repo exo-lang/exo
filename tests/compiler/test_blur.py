@@ -98,7 +98,33 @@ def test_sched_blur():
     #blur = blur.reorder('i','j1[1]')
     #blur = blur.reorder('k','l')
     #blur = blur.unroll('i[1]', 6)
-    blur = blur.unroll('i', 6)
+#    blur = blur.unroll('i', 6)
+#    blur = blur.split('i',6,['i','iunroll']).simpler_unroll('iunroll')
+#
+#    for i in par(0,m):
+#        s
+#
+#    #-->
+#
+#    for i in par(0,m/3):
+#        for iunroll in par(0,3):
+#            #TODO! Insert If here
+#            if 3*i + iunroll < m:
+#                s
+#
+#    #-->
+#
+#    for i in par(0,m/3):
+#        if 3*i + 0 < m:
+#            s
+#        if 3*i + 1 < m:
+#            s
+#        if 3*i + 2 < m:
+#            s
+#
+#    for i in par(0, m):
+#        s
+
 
     # TODO: Should compare new and original IR
     assert type(blur) is Procedure
@@ -108,7 +134,7 @@ def test_sched_blur():
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
     f_pretty.write(str(blur))
     f_pretty.close()
-    
+
     blur.compile_c(directory, filename)
 
     n_size = image.shape[0]
