@@ -153,36 +153,90 @@ pair_list = [
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Reorder scheduling directive
+# Generic Tree Transformation Pass
 
-class _Reorder:
-    def __init__(self, proc, out_var, in_var):
-        self.orig_proc = proc
-        self.out_var = out_var
-        self.in_var  = in_var
+class _LoopIR_Rewrite:
+    def __init__(self, proc, *args, **kwargs):
+        self.orig_proc  = proc
 
-        body = self.reorder_s(self.orig_proc.body)
+        body = self.map_s(self.orig_proc.body)
 
-        self.proc = LoopIR.proc(name  = self.orig_proc.name,
-                               sizes  = self.orig_proc.sizes,
-                               args   = self.orig_proc.args,
-                               body   = body,
-                               srcinfo= self.orig_proc.srcinfo)
+        self.proc = LoopIR.proc(name    = self.orig_proc.name,
+                                sizes   = self.orig_proc.sizes,
+                                args    = self.orig_proc.args,
+                                body    = body,
+                                srcinfo = self.orig_proc.srcinfo)
 
     def result(self):
         return self.proc
 
-    def reorder_s(self, s):
+    def map_s(self, s):
         styp = type(s)
-
-        if styp is LoopIR.Seq:
-            s0 = self.reorder_s(s.s0)
-            s1 = self.reorder_s(s.s1)
-            return LoopIR.Seq(s0, s1, s.srcinfo)
+        if styp is LoopIR.Assign or styp is LoopIR.Reduce:
+            return styp( s.name, [ self.map_a(a) for a in s.idx ],
+                         self.map_e(s.rhs), s.srcinfo )
+        elif styp is LoopIR.Seq:
+            return LoopIR.Seq( self.map_s(s.s0), self.map_s(s.s1),
+                               s.srcinfo )
         elif styp is LoopIR.If:
-            body = self.reorder_s(s.body)
-            return LoopIR.If(s.cond, body, s.srcinfo)
+            return LoopIR.If( self.map_p(s.cond), self.map_s(s.body),
+                               s.srcinfo )
         elif styp is LoopIR.ForAll:
+            return LoopIR.If( s.iter, self.map_a(s.hi), self.map_s(s.body),
+                              s.srcinfo )
+        else:
+            return s
+
+    def map_e(self, e):
+        etyp = type(e)
+        if etyp is LoopIR.Read:
+            return LoopIR.Read( e.name, [ self.map_a(a) for a in e.idx ],
+                                e.srcinfo )
+        elif etyp is LoopIR.BinOp:
+            return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
+                                 e.srcinfo )
+        elif etyp is LoopIR.Select:
+            return LoopIR.Select( self.map_p(e.cond), self.map_e(e.body),
+                                  e.srcinfo )
+        else:
+            return e
+
+    def map_p(self, p):
+        ptyp = type(p)
+        if ptyp is LoopIR.Cmp:
+            return LoopIR.Cmp( p.op, self.map_a(p.lhs), self.map_a(p.rhs),
+                               p.srcinfo )
+        elif ptyp is LoopIR.And or ptyp is LoopIR.Or:
+            return ptyp( self.map_p(p.lhs), self.map_p(p.rhs),
+                         p.srcinfo )
+        else:
+            return p
+
+    def map_a(self, a):
+        atyp = type(a)
+        if atyp is LoopIR.AScale:
+            return LoopIR.AScale( p.coeff, self.map_a(p.rhs), p.srcinfo )
+        elif atyp is LoopIR.AScaleDiv:
+            return LoopIR.AScaleDiv( self.map_a(p.lhs), p.quotient, p.srcinfo )
+        elif atyp is LoopIR.AAdd or atyp is LoopIR.ASub:
+            return atyp( self.map_a(a.lhs), self.map_a(a.rhs), a.srcinfo )
+        else:
+            return a
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Reorder scheduling directive
+
+
+class _Reorder(_LoopIR_Rewrite):
+    def __init__(self, proc, out_var, in_var):
+        self.out_var = out_var
+        self.in_var  = in_var
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if type(s) is LoopIR.ForAll:
             if s.iter == self.out_var:
                 if type(s.body) is not LoopIR.ForAll:
                     raise SchedulingError(f"expected loop directly inside of "+
@@ -199,12 +253,9 @@ class _Reorder:
                     body = LoopIR.ForAll(s.body.iter, s.body.hi,
                                          body, s.body.srcinfo)
                     return body
-            else:
-                body = self.reorder_s(s.body)
-                return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
-        else:
-            return s
-
+        
+        # fall-through
+        return super().map_s(s)
 
 
 # --------------------------------------------------------------------------- #
@@ -212,51 +263,25 @@ class _Reorder:
 # Split scheduling directive
 
 
-class _Split:
+class _Split(_LoopIR_Rewrite):
     def __init__(self, proc, split_var, quot, hi, lo):
-        self.orig_proc = proc
         self.split_var = split_var
         self.quot = quot
         self.hi_i = Sym(hi)
         self.lo_i = Sym(lo)
 
-        body = self.split_s(self.orig_proc.body)
-
-        self.proc = LoopIR.proc(name  = self.orig_proc.name,
-                               sizes  = self.orig_proc.sizes,
-                               args   = self.orig_proc.args,
-                               body   = body,
-                               srcinfo= self.orig_proc.srcinfo)
-
-    def result(self):
-        return self.proc
+        super().__init__(proc)
 
     def substitute(self, srcinfo):
         return LoopIR.AAdd(
                 LoopIR.AScale(self.quot, LoopIR.AVar(self.hi_i, srcinfo),
                     srcinfo), LoopIR.AVar(self.lo_i, srcinfo), srcinfo)
 
-    def split_s(self, s):
-        styp = type(s)
-
-        if styp is LoopIR.Seq:
-            s0 = self.split_s(s.s0)
-            s1 = self.split_s(s.s1)
-            return LoopIR.Seq(s0, s1, s.srcinfo)
-        elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            idx = [self.split_a(i) for i in s.idx]
-            rhs = self.split_e(s.rhs)
-            IRnode = (LoopIR.Assign if styp is LoopIR.Assign else
-                      LoopIR.Reduce)
-            return IRnode(s.name, idx, rhs, s.srcinfo)
-        elif styp is LoopIR.If:
-            cond = self.split_p(s.cond)
-            body = self.split_s(s.body)
-            return LoopIR.If(cond, body, s.srcinfo)
-        elif styp is LoopIR.ForAll:
-            body = self.split_s(s.body)
+    def map_s(self, s):
+        if type(s) is LoopIR.ForAll:
             # Split this to two loops!!
             if s.iter is self.split_var:
+                body = self.map_s(s.body)
                 cond    = LoopIR.Cmp("<", self.substitute(s.srcinfo), s.hi,
                                      s.srcinfo)
                 body    = LoopIR.If(cond, body, s.srcinfo)
@@ -268,70 +293,18 @@ class _Split:
                                 body,
                                 s.srcinfo),
                             s.srcinfo)
-            else:
-                return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
-        else:
-            return s
 
+        # fall-through
+        return super().map_s(s)
 
-    def split_e(self, e):
-        if type(e) is LoopIR.Read:
-            idx = [self.split_a(i) for i in e.idx]
-            return LoopIR.Read(e.name, idx, e.srcinfo)
-        elif type(e) is LoopIR.BinOp:
-            lhs = self.split_e(e.lhs)
-            rhs = self.split_e(e.rhs)
-            return LoopIR.BinOp(e.op, lhs, rhs, e.srcinfo)
-        elif type(e) is LoopIR.Select:
-            pred = self.split_p(e.cond)
-            body = self.split_e(e.body)
-            return LoopIR.Select(pred, body, e.srcinfo)
-        else:
-            return e
-
-    def split_a(self, a):
-        atyp = type(a)
-
-        if atyp is LoopIR.AVar:
+    def map_a(self, a):
+        if type(a) is LoopIR.AVar:
             # This is a splitted variable, substitute it!
             if a.name is self.split_var:
                 return self.substitute(a.srcinfo)
-            else:
-                return a
-        elif atyp is LoopIR.AScale:
-            rhs = self.split_a(a.rhs)
-            return LoopIR.AScale(a.coeff, rhs, a.srcinfo)
-        elif atyp is LoopIR.AScaleDiv:
-            lhs = self.split_a(a.lhs)
-            return LoopIR.AScaleDiv(lhs, a.quotient, a.srcinfo)
-        elif atyp is LoopIR.AAdd:
-            lhs = self.split_a(a.lhs)
-            rhs = self.split_a(a.rhs)
-            return LoopIR.AAdd(lhs, rhs, a.srcinfo)
-        elif atyp is LoopIR.ASub:
-            lhs = self.split_a(a.lhs)
-            rhs = self.split_a(a.rhs)
-            return LoopIR.ASub(lhs, rhs, a.srcinfo)
-        else:
-            return a
 
-    def split_p(self, p):
-        if type(p) is LoopIR.Cmp:
-            lhs = self.split_a(p.lhs)
-            rhs = self.split_a(p.rhs)
-            return LoopIR.Cmp(p.op, lhs, rhs, p.srcinfo)
-        elif type(p) is LoopIR.And:
-            lhs = self.split_p(p.lhs)
-            rhs = self.split_p(p.rhs)
-            return LoopIR.And(lhs, rhs, p.srcinfo)
-        elif type(p) is LoopIR.Or:
-            lhs = self.split_p(p.lhs)
-            rhs = self.split_p(p.rhs)
-            return LoopIR.Or(lhs, rhs, p.srcinfo)
-        else:
-            return p
-
-
+        # fall-through
+        return super().map_a(a)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
