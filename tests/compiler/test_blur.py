@@ -89,46 +89,15 @@ def test_blur_split():
     out = Image.fromarray(res_c)
     out.save(directory + filename + '_out.png')
 
-def test_sched_blur():
+def test_split_blur():
     blur        = gen_blur()
     orig_blur   = blur
 
-    #blur = blur.split('j',4,['j1','j2']) # This should just be equivalent to test_blur_split
-    #blur = blur.split('i[2]',4,['i1','i2'])
-    #blur = blur.reorder('i','j1[1]')
-    #blur = blur.reorder('k','l')
-    #blur = blur.unroll('i[1]', 6)
-#    blur = blur.unroll('i', 6)
-#    blur = blur.split('i',6,['i','iunroll']).simpler_unroll('iunroll')
-#
-#    for i in par(0,m):
-#        s
-#
-#    #-->
-#
-#    for i in par(0,m/3):
-#        for iunroll in par(0,3):
-#            #TODO! Insert If here
-#            if 3*i + iunroll < m:
-#                s
-#
-#    #-->
-#
-#    for i in par(0,m/3):
-#        if 3*i + 0 < m:
-#            s
-#        if 3*i + 1 < m:
-#            s
-#        if 3*i + 2 < m:
-#            s
-#
-#    for i in par(0, m):
-#        s
+    blur = blur.split('j',4,['j1','j2'])
+    blur = blur.split('i[1]',4,['i1','i2'])
 
-
-    # TODO: Should compare new and original IR
     assert type(blur) is Procedure
-    filename = "test_compiler_sched_blur"
+    filename = "test_compiler_split_blur"
 
     # Write pretty printing to a file
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
@@ -136,7 +105,67 @@ def test_sched_blur():
     f_pretty.close()
 
     blur.compile_c(directory, filename)
+    n_size = image.shape[0]
+    m_size = image.shape[1]
+    k_size = 5
+    kernel = gkern(k_size,1)
+    res = nprand(size=(n_size, m_size))
+    res_c = cvt_c(res)
+    test_lib = generate_lib(directory, filename)
+    test_lib.blur(c_int(n_size), c_int(m_size), c_int(
+        k_size), cvt_c(image), cvt_c(kernel), res_c)
+    res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
+    res_c = res_c.astype(np.uint8)
+    out = Image.fromarray(res_c)
+    out.save(directory + filename + '_out.png')
 
+def test_reorder_blur():
+    blur        = gen_blur()
+    orig_blur   = blur
+
+    blur = blur.reorder('k','l')
+    blur = blur.reorder('i','j')
+
+    assert type(blur) is Procedure
+    filename = "test_compiler_reorder_blur"
+
+    # Write pretty printing to a file
+    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty.write(str(blur))
+    f_pretty.close()
+
+    blur.compile_c(directory, filename)
+    n_size = image.shape[0]
+    m_size = image.shape[1]
+    k_size = 5
+    kernel = gkern(k_size,1)
+    res = nprand(size=(n_size, m_size))
+    res_c = cvt_c(res)
+    test_lib = generate_lib(directory, filename)
+    test_lib.blur(c_int(n_size), c_int(m_size), c_int(
+        k_size), cvt_c(image), cvt_c(kernel), res_c)
+    res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
+    res_c = res_c.astype(np.uint8)
+    out = Image.fromarray(res_c)
+    out.save(directory + filename + '_out.png')
+
+def test_unroll_blur():
+    blur        = gen_blur()
+    orig_blur   = blur
+
+#    blur = blur.split('i',6,['i','iunroll']).simpler_unroll('iunroll')
+    blur = blur.split('j',4,['j1','j2'])
+    blur = blur.unroll('j2')
+
+    assert type(blur) is Procedure
+    filename = "test_compiler_unroll_blur"
+
+    # Write pretty printing to a file
+    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty.write(str(blur))
+    f_pretty.close()
+
+    blur.compile_c(directory, filename)
     n_size = image.shape[0]
     m_size = image.shape[1]
     k_size = 5

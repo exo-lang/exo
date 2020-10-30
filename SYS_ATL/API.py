@@ -72,13 +72,9 @@ class Procedure:
             loopir  = Schedules.DoReorder(loopir, out_v, in_v).result()
         return Procedure(loopir)
 
-    def unroll(self, unroll_var, unroll_const):
+    def unroll(self, unroll_var):
         if type(unroll_var) is not str:
             raise TypeError("expected first arg to be a string")
-        elif not is_pos_int(unroll_const):
-            raise TypeError("expected second arg to be a positive integer")
-        elif unroll_const == 1:
-            raise TypeError("why are you trying to unroll by 1?")
 
         unroll_names = name_str_2_symbols(self._loopir_proc, unroll_var)
         if len(unroll_names) == 0:
@@ -86,7 +82,7 @@ class Procedure:
                             f"'{unroll_var}'")
         loopir      = self._loopir_proc
         for nm in unroll_names:
-            loopir  = Schedules.DoUnroll(loopir, nm, const=unroll_const).result()
+            loopir  = Schedules.DoUnroll(loopir, nm).result()
         return Procedure(loopir)
 
 

@@ -182,7 +182,7 @@ class _LoopIR_Rewrite:
             return LoopIR.If( self.map_p(s.cond), self.map_s(s.body),
                                s.srcinfo )
         elif styp is LoopIR.ForAll:
-            return LoopIR.If( s.iter, self.map_a(s.hi), self.map_s(s.body),
+            return LoopIR.ForAll( s.iter, self.map_a(s.hi), self.map_s(s.body),
                               s.srcinfo )
         else:
             return s
@@ -215,9 +215,9 @@ class _LoopIR_Rewrite:
     def map_a(self, a):
         atyp = type(a)
         if atyp is LoopIR.AScale:
-            return LoopIR.AScale( p.coeff, self.map_a(p.rhs), p.srcinfo )
+            return LoopIR.AScale( a.coeff, self.map_a(a.rhs), a.srcinfo )
         elif atyp is LoopIR.AScaleDiv:
-            return LoopIR.AScaleDiv( self.map_a(p.lhs), p.quotient, p.srcinfo )
+            return LoopIR.AScaleDiv( self.map_a(a.lhs), a.quotient, a.srcinfo )
         elif atyp is LoopIR.AAdd or atyp is LoopIR.ASub:
             return atyp( self.map_a(a.lhs), self.map_a(a.rhs), a.srcinfo )
         else:
@@ -329,7 +329,7 @@ class _Unroll:
     def result(self):
         return self.proc
 
-    def alpha_buf_rename(self):
+    def alpha_buf_rename(self, s):
         styp = type(s)
 
         if styp is LoopIR.Seq:
