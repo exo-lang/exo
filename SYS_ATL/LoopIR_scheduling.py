@@ -311,23 +311,14 @@ class _Split(_LoopIR_Rewrite):
 # Unroll scheduling directive
 
 
-class _Unroll:
+class _Unroll(_LoopIR_Rewrite):
     def __init__(self, proc, unroll_var):
         self.orig_proc  = proc
         self.unroll_var = unroll_var
-
+        self.unroll_itr = 0
         self.env        = {}
 
-        body = self.unroll_s(self.orig_proc.body)
-
-        self.proc = LoopIR.proc(name  = self.orig_proc.name,
-                               sizes  = self.orig_proc.sizes,
-                               args   = self.orig_proc.args,
-                               body   = body,
-                               srcinfo= self.orig_proc.srcinfo)
-
-    def result(self):
-        return self.proc
+        super().__init__(proc)
 
     def alpha_buf_rename(self, s):
         styp = type(s)
@@ -390,24 +381,8 @@ class _Unroll:
         else:
             return e
 
-    def unroll_s(self, s, unroll_itr=0):
-        styp = type(s)
-
-        if styp is LoopIR.Seq:
-            s0 = self.unroll_s(s.s0, unroll_itr)
-            s1 = self.unroll_s(s.s1, unroll_itr)
-            return LoopIR.Seq(s0, s1, s.srcinfo)
-        elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            idx = [self.unroll_a(i, unroll_itr) for i in s.idx]
-            rhs = self.unroll_e(s.rhs, unroll_itr)
-            IRnode = (LoopIR.Assign if styp is LoopIR.Assign else
-                      LoopIR.Reduce)
-            return IRnode(s.name, idx, rhs, s.srcinfo)
-        elif styp is LoopIR.If:
-            cond = self.unroll_p(s.cond, unroll_itr)
-            body = self.unroll_s(s.body, unroll_itr)
-            return LoopIR.If(cond, body, s.srcinfo)
-        elif styp is LoopIR.ForAll:
+    def map_s(self, s):
+        if type(s) is LoopIR.ForAll:
             # unroll this to loops!!
             if s.iter is self.unroll_var:
                 if type(s.hi) is not LoopIR.AConst:
@@ -417,75 +392,31 @@ class _Unroll:
                 assert hi > 0
                 orig_body = s.body
 
-                body    = self.alpha_buf_rename(self.unroll_s(orig_body, 0))
+                self.unroll_itr = 0
+                body    = self.alpha_buf_rename(self.map_s(orig_body))
                 for i in range(1,hi):
-                    nxtbody = self.alpha_buf_rename(self.unroll_s(orig_body, i))
+                    self.unroll_itr = i
+                    nxtbody = self.alpha_buf_rename(self.map_s(orig_body))
                     body = LoopIR.Seq(body, nxtbody, s.srcinfo)
 
                 return body
             else:
-                body = self.unroll_s(s.body, unroll_itr)
+                body = self.map_s(s.body)
                 return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
-        else:
-            return s
 
+        # fall-through
+        return super().map_s(s)
 
-    def unroll_e(self, e, unroll_itr=0):
-        if type(e) is LoopIR.Read:
-            idx = [self.unroll_a(i, unroll_itr) for i in e.idx]
-            return LoopIR.Read(e.name, idx, e.srcinfo)
-        elif type(e) is LoopIR.BinOp:
-            lhs = self.unroll_e(e.lhs, unroll_itr)
-            rhs = self.unroll_e(e.rhs, unroll_itr)
-            return LoopIR.BinOp(e.op, lhs, rhs, e.srcinfo)
-        elif type(e) is LoopIR.Select:
-            pred = self.unroll_p(e.cond, unroll_itr)
-            body = self.unroll_e(e.body, unroll_itr)
-            return LoopIR.Select(pred, body, e.srcinfo)
-        else:
-            return e
-
-    def unroll_a(self, a, unroll_itr=0):
-        atyp = type(a)
-
-        if atyp is LoopIR.AVar:
+    def map_a(self, a):
+        if type(a) is LoopIR.AVar:
             # This is a unrolled variable, substitute it!
             if a.name is self.unroll_var:
-                return LoopIR.AConst(unroll_itr, a.srcinfo)
+                return LoopIR.AConst(self.unroll_itr, a.srcinfo)
             else:
                 return a
-        elif atyp is LoopIR.AScale:
-            rhs = self.unroll_a(a.rhs, unroll_itr)
-            return LoopIR.AScale(a.coeff, rhs, a.srcinfo)
-        elif atyp is LoopIR.AScaleDiv:
-            lhs = self.unroll_a(a.lhs, unroll_itr)
-            return LoopIR.AScaleDiv(lhs, a.quotient, a.srcinfo)
-        elif atyp is LoopIR.AAdd:
-            lhs = self.unroll_a(a.lhs, unroll_itr)
-            rhs = self.unroll_a(a.rhs, unroll_itr)
-            return LoopIR.AAdd(lhs, rhs, a.srcinfo)
-        elif atyp is LoopIR.ASub:
-            lhs = self.unroll_a(a.lhs, unroll_itr)
-            rhs = self.unroll_a(a.rhs, unroll_itr)
-            return LoopIR.ASub(lhs, rhs, a.srcinfo)
-        else:
-            return a
 
-    def unroll_p(self, p, unroll_itr=0):
-        if type(p) is LoopIR.Cmp:
-            lhs = self.unroll_a(p.lhs, unroll_itr)
-            rhs = self.unroll_a(p.rhs, unroll_itr)
-            return LoopIR.Cmp(p.op, lhs, rhs, p.srcinfo)
-        elif type(p) is LoopIR.And:
-            lhs = self.unroll_p(p.lhs, unroll_itr)
-            rhs = self.unroll_p(p.rhs, unroll_itr)
-            return LoopIR.And(lhs, rhs, p.srcinfo)
-        elif type(p) is LoopIR.Or:
-            lhs = self.unroll_p(p.lhs, unroll_itr)
-            rhs = self.unroll_p(p.rhs, unroll_itr)
-            return LoopIR.Or(lhs, rhs, p.srcinfo)
-        else:
-            return p
+        # fall-through
+        return super().map_a(a)
 
 
 # --------------------------------------------------------------------------- #
