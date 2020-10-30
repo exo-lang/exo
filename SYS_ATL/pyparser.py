@@ -168,13 +168,13 @@ class Parser:
                 self.locals[a.arg] = SizeStub(nm)
                 sizes.append(nm)
             else:
-                typ, eff = self.parse_arg_type(tnode)
+                typ, eff, mem = self.parse_arg_type(tnode)
                 if a.arg in names:
                     self.err(a, f"repeated argument name: '{a.arg}'")
                 names.add(a.arg)
                 nm = Sym(a.arg)
                 self.locals[a.arg] = nm
-                args.append(UAST.fnarg(nm, typ, eff, self.getsrcinfo(a)))
+                args.append(UAST.fnarg(nm, typ, eff, mem, self.getsrcinfo(a)))
 
         # return types are non-sensical for SYS_ATL, b/c it models procedures
         if fdef.returns is not None:
@@ -193,6 +193,18 @@ class Parser:
             self.err(node, "expected type and effect annotation of the form: " +
                            "type @ effect")
 
+        # is there a memory annotation?
+        if (type(node.left) is pyast.BinOp and
+            type(node.left.op) is pyast.MatMult):
+                # check for string
+                if type(node.right) is not pyast.Name:
+                    self.err(node.right, "expected memory annotation to be "+
+                                         "a string")
+                mem     = node.right.id
+                node    = node.left
+        else:
+            mem = None
+
         typ = self.parse_type(node.left)
 
         # extract effect
@@ -208,7 +220,7 @@ class Parser:
         else:
             self.err(node.right, eff_err_str)
 
-        return typ, eff
+        return typ, eff, mem
 
     def parse_type(self, node):
         if type(node) is pyast.Subscript:

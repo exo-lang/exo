@@ -84,7 +84,7 @@ def gen_alloc():
     src0 = null_srcinfo()
 
     # How to pass n to alloc?
-    ma = IR.Alloc(ptr, R[n].typ, src0)
+    ma = IR.Alloc(ptr, R[n].typ, None, src0)
     ai = IR.AVar(i, src0)
     rhs = IR.Read(x, [ai], src0)
     s_a = IR.Assign(ptr, [ai], rhs, src0)
@@ -138,7 +138,7 @@ def gen_alloc_nest():
 
     src0 = null_srcinfo()
 
-    rloc_a = IR.Alloc(rloc, R[m].typ, src0)
+    rloc_a = IR.Alloc(rloc, R[m].typ, None, src0)
 
     ai = IR.AVar(i, src0)
     aj1 = IR.AVar(j1, src0)
@@ -146,8 +146,8 @@ def gen_alloc_nest():
     aj3 = IR.AVar(j3, src0)
     aj4 = IR.AVar(j4, src0)
 
-    xloc_a = IR.Alloc(xloc, R[m].typ, src0)
-    yloc_a = IR.Alloc(yloc, R[m].typ, src0)
+    xloc_a = IR.Alloc(xloc, R[m].typ, None, src0)
+    yloc_a = IR.Alloc(yloc, R[m].typ, None, src0)
     seq_alloc = IR.Seq(xloc_a, yloc_a, src0)
 
 #           forall j = 0,m:

@@ -5,6 +5,8 @@ from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops, pred_ops
 from . import shared_types as T
 
+from .instructions import is_valid_mem
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
@@ -68,7 +70,11 @@ class TypeChecker:
         args = []
         for a in proc.args:
             self.env[a.name] = a.type
-            args.append(LoopIR.fnarg(a.name, a.type, a.effect, a.srcinfo))
+            mem = a.mem
+            if mem and not is_valid_mem(mem):
+                self.err(a, f"invalid memory name '{mem}'")
+                mem = None
+            args.append(LoopIR.fnarg(a.name, a.type, a.effect, mem, a.srcinfo))
 
         body = self.check_stmts(proc.body)
 
@@ -175,7 +181,11 @@ class TypeChecker:
 
         elif type(stmt) is UAST.Alloc:
             self.env[stmt.name] = stmt.type
-            return LoopIR.Alloc(stmt.name, stmt.type, stmt.srcinfo)
+            mem = stmt.mem
+            if mem and not is_valid_mem(mem):
+                self.err(a, f"invalid memory name '{mem}'")
+                mem = None
+            return LoopIR.Alloc(stmt.name, stmt.type, mem, stmt.srcinfo)
 
         else:
             assert False, "not a loopir in check_stmts"

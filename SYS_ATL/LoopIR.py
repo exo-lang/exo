@@ -36,6 +36,7 @@ module UAST {
     fnarg   = ( sym             name,
                 type            type,
                 effect          effect,
+                string?         mem,
                 srcinfo         srcinfo )
 
     stmt    = Assign  ( sym name, expr* idx, expr rhs )
@@ -43,7 +44,7 @@ module UAST {
             | Pass    ()
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | ForAll  ( sym iter,  expr cond,   stmt* body )
-            | Alloc   ( sym name, type type )
+            | Alloc   ( sym name, type type, string? mem )
             attributes( srcinfo srcinfo )
 
     expr    = Read    ( sym name, expr* idx )
@@ -131,6 +132,7 @@ module LoopIR {
     fnarg   = ( sym             name,
                 type            type,
                 effect          effect,
+                mem?            mem,
                 srcinfo         srcinfo )
 
     stmt    = Assign( sym name, aexpr* idx, expr rhs)
@@ -139,8 +141,8 @@ module LoopIR {
             | Seq( stmt s0, stmt s1 )
             | If ( pred cond, stmt body )
             | ForAll ( sym iter, aexpr hi, stmt body )
-            | Alloc ( sym name, type type )
-            | Free  ( sym name, type type )
+            | Alloc ( sym name, type type, mem? mem )
+            | Free  ( sym name, type type, mem? mem )
             attributes( srcinfo srcinfo )
 
     expr    = Read( sym name, aexpr* idx )
@@ -166,10 +168,11 @@ module LoopIR {
 
 } """, {
     'name':     is_valid_name,
-    'sym': lambda x: type(x) is Sym,
+    'sym':      lambda x: type(x) is Sym,
     'type':     T.is_type,
     'effect':   T.is_effect,
-    'binop': lambda x: x in bin_ops,
-    'predop': lambda x: x in pred_ops,
-    'srcinfo': lambda x: type(x) is SrcInfo,
+    'mem':      lambda x: type(x) is str,
+    'binop':    lambda x: x in bin_ops,
+    'predop':   lambda x: x in pred_ops,
+    'srcinfo':  lambda x: type(x) is SrcInfo,
 })

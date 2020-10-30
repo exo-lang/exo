@@ -54,6 +54,6 @@ def Proc(name, sizes, args, body):
             return _T.InOut
         else:
             assert False, f"bad effect: {e}"
-    args = [IR.fnarg(name, t.typ, eff_convert(e), srcinfo)
+    args = [IR.fnarg(name, t.typ, eff_convert(e), None, srcinfo)
             for (name, t, e) in args]
     return IR.proc(name, sizes, args, _as_stmt_list(body, srcinfo), srcinfo)
