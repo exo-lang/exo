@@ -97,7 +97,6 @@ def name_str_2_pairs(proc, out_desc, in_desc):
 
     # find all occurrences of name
     pair_list = []
-    # TODO! Handle idx
     out_cnt = 0
     in_cnt  = 0
     def find_sym_stmt(node, out_sym):
@@ -125,8 +124,6 @@ def name_str_2_pairs(proc, out_desc, in_desc):
 
     # search proc body
     find_sym_stmt(proc.body, None)
-
-    print(pair_list)
 
     return pair_list
 

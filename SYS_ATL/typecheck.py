@@ -59,8 +59,6 @@ del __str__
 class TypeChecker:
     def __init__(self, proc):
         self.uast_proc = proc
-        # TODO: Delete this
-        print(proc)
         self.env = Environment()
         self.errors = []
 
