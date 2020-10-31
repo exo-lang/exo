@@ -10,6 +10,8 @@ import textwrap
 from .prelude import *
 from .LoopIR import UAST, front_ops
 from . import shared_types as T
+from .instruction_type import Instruction
+from .instructions import Instr_Lookup
 
 from .API import Procedure
 
@@ -26,6 +28,12 @@ class SizeStub:
     def __init__(self, nm):
         assert type(nm) is Sym
         self.nm = nm
+
+class InstrStub:
+    def __init__(self, op, pynode):
+        assert isinstance(op, Instruction)
+        self.op = op
+        self.pynode = pynode
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -159,8 +167,8 @@ class Parser:
             tnode = a.annotation
             if type(tnode) is pyast.Name and tnode.id == 'size':
                 if len(args) > 0:
-                    self.err(
-                        a, f"sizes must be declared before all other arguments")
+                    self.err(a, f"sizes must be declared "+
+                                f"before all other arguments")
                 if a.arg in names:
                     self.err(a, f"repeated argument name: '{a.arg}'")
                 names.add(a.arg)
@@ -190,8 +198,8 @@ class Parser:
 
     def parse_arg_type(self, node):
         if type(node) is not pyast.BinOp or type(node.op) is not pyast.MatMult:
-            self.err(node, "expected type and effect annotation of the form: " +
-                           "type @ effect")
+            self.err(node, "expected type and effect annotation of the "+
+                           "form: type @ effect")
 
         # is there a memory annotation?
         if (type(node.left) is pyast.BinOp and
@@ -276,8 +284,8 @@ class Parser:
                 rhs = None
                 if type(s) is pyast.AnnAssign:
                     if s.value is not None:
-                        self.err(
-                            s, "Variable declaration should not have value assigned")
+                        self.err(s, "Variable declaration should not "+
+                                    "have value assigned")
                 else:
                     rhs = self.parse_expr(s.value)
 
@@ -304,7 +312,8 @@ class Parser:
                         self.locals[name_node.id] = nm
                         rstmts.append(UAST.Alloc(nm, T.R, self.getsrcinfo(s)))
 
-                # get the symbol corresponding to the name on the left-hand-side
+                # get the symbol corresponding to the name on the
+                # left-hand-side
                 if type(s) is pyast.Assign or type(s) is pyast.AugAssign:
                     if name_node.id not in self.locals:
                         self.err(
@@ -314,8 +323,8 @@ class Parser:
                         self.err(name_node, f"cannot write to " +
                                             f"size variable '{name_node.id}'")
                     elif type(nm) is not Sym:
-                        self.err(name_node, f"expected '{name_node.id}' to refer to " +
-                                            f"a local variable")
+                        self.err(name_node, f"expected '{name_node.id}' to "+
+                                            f"refer to a local variable")
 
                 # generate the assignemnt or reduction statement
                 if type(s) is pyast.Assign:
@@ -357,11 +366,54 @@ class Parser:
 
                 rstmts.append(UAST.If(cond, body, orelse, self.getsrcinfo(s)))
 
+            # ----- Instruction annotation parsing
+            elif (type(s) is pyast.Expr and
+                  type(s.value) is pyast.Call and
+                  type(s.value.func) is pyast.Name and
+                  s.value.func.id == "instr"):
+                if len(s.value.keywords) > 0:
+                    self.err(s.value, "cannot call instr() "+
+                                      "with keyword arguments")
+                elif len(s.value.args) != 1:
+                    self.err(s.value, "expected exactly "+
+                                      "one argument to instr()")
+                a = s.value.args[0]
+                if type(a) is not pyast.Name:
+                    self.err(s.value, "expected argument to instr() to "+
+                                      "be an instruction name")
+                elif a.id not in Instr_Lookup:
+                    self.err(s.value, f"did not recognize instruction name "+
+                                      f"{a.id}")
+
+                rstmts.append(InstrStub(Instr_Lookup[a.id](), s))
+
             # ----- Pass no-op parsing
             elif type(s) is pyast.Pass:
                 rstmts.append(UAST.Pass(self.getsrcinfo(s)))
             else:
                 self.err(s, "unsupported type of statement")
+
+        # process any Instruction Annotation Stubs...
+        rstmts, stmts = [], rstmts
+        if len(stmts) > 0 and type(stmts[-1]) is InstrStub:
+            self.err(stmts[-1].pynode,
+                     "cannot end a block with an instr() "+
+                     "annotation that doesn't annotate anything")
+        itr = 0
+        while itr < len(stmts):
+            s0 = stmts[itr]
+            if type(s0) is InstrStub:
+                s1 = stmts[itr+1]
+                if type(s1) is InstrStub:
+                    self.err(s0.pynode,
+                             "Cannot annotate an instruction annotation "+
+                             "with another instruction annotation")
+                rstmts.append(UAST.Instr(s0.op, s1,
+                                         self.getsrcinfo(s0.pynode)))
+                itr+=2
+            else:
+                rstmts.append(s0)
+                itr+=1
 
         return rstmts
 

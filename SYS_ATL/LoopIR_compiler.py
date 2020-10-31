@@ -184,6 +184,8 @@ class Compiler:
             if s.type is not T.R:
                 name = self.env[s.name]
                 return f"free({name});"
+        elif styp is LoopIR.Instr:
+            return s.op.compile(s.body, self)
         else:
             assert False, "bad case"
 

@@ -181,6 +181,8 @@ class _LoopIR_Rewrite:
         elif styp is LoopIR.ForAll:
             return LoopIR.ForAll( s.iter, self.map_a(s.hi), self.map_s(s.body),
                               s.srcinfo )
+        elif styp is LoopIR.Instr:
+            return LoopIR.Instr( s.op, self.map_s(s.body), s.srcinfo )
         else:
             return s
 
@@ -221,6 +223,57 @@ class _LoopIR_Rewrite:
             return a
 
 
+class _Alpha_Rename(_LoopIR_Rewrite):
+    def __init__(self, node):
+        self.env    = {}
+        if isinstance(node, LoopIR.stmt):
+            self.node = self.map_s(node)
+        elif isinstance(node, LoopIR.expr):
+            self.node = self.map_e(node)
+        elif isinstance(node, LoopIR.pred):
+            self.node = self.map_p(node)
+        elif isinstance(node, LoopIR.aexpr):
+            self.node = self.map_a(node)
+
+    def result(self):
+        return self.node
+
+    def map_s(self, s):
+        styp = type(s)
+        if styp is LoopIR.Assign or styp is LoopIR.Reduce:
+            nm = self.env[s.name] if s.name in self.env else s.name
+            return styp( nm, [ self.map_a(a) for a in s.idx ],
+                         self.map_e(s.rhs), s.srcinfo )
+        elif styp is LoopIR.ForAll:
+            itr = s.iter.copy()
+            self.env[s.iter] = itr
+            return LoopIR.ForAll( itr, self.map_a(s.hi), self.map_s(s.body),
+                                  s.srcinfo )
+        elif styp is LoopIR.Alloc:
+            nm = s.name.copy()
+            self.env[s.name] = nm
+            return LoopIR.Alloc( nm, s.type, s.mem, s.srcinfo )
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        etyp = type(e)
+        if etyp is LoopIR.Read:
+            nm = self.env[e.name] if e.name in self.env else e.name
+            return LoopIR.Read( nm, [ self.map_a(a) for a in e.idx ],
+                                e.srcinfo )
+
+        return super().map_e(e)
+
+    def map_a(self, a):
+        atyp = type(a)
+        if atyp is LoopIR.AVar:
+            nm = self.env[a.name] if a.name in self.env else a.name
+            return LoopIR.AVar( nm, a.srcinfo )
+
+        return super().map_a(a)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Reorder scheduling directive
@@ -250,7 +303,7 @@ class _Reorder(_LoopIR_Rewrite):
                     body = LoopIR.ForAll(s.body.iter, s.body.hi,
                                          body, s.body.srcinfo)
                     return body
-        
+
         # fall-through
         return super().map_s(s)
 
@@ -317,67 +370,6 @@ class _Unroll(_LoopIR_Rewrite):
 
         super().__init__(proc)
 
-    def alpha_buf_rename(self, s):
-        styp = type(s)
-
-        if styp is LoopIR.Seq:
-            s0 = self.alpha_buf_rename(s.s0)
-            s1 = self.alpha_buf_rename(s.s1)
-            return LoopIR.Seq(s0, s1, s.srcinfo)
-        elif styp is LoopIR.Alloc:
-            nm      = s.name.copy()
-            self.env[s.name] = nm
-            return LoopIR.Alloc(nm, s.type, s.srcinfo)
-        elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            rhs     = self.alpha_sub(s.rhs)
-            IRnode  = (LoopIR.Assign if styp is LoopIR.Assign else
-                       LoopIR.Reduce)
-            # replace the name?
-            nm      = self.env[s.name] if s.name in self.env else s.name
-            return IRnode(nm, s.idx, rhs, s.srcinfo)
-        elif styp is LoopIR.If:
-            body    = self.alpha_sub(s.body)
-            return LoopIR.If(s.cond, body, s.srcinfo)
-        elif styp is LoopIR.ForAll:
-            body    = self.alpha_sub(s.body)
-            return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
-        else:
-            return s
-
-    def alpha_sub(self, e):
-        etyp = type(e)
-
-        if etyp is LoopIR.Seq:
-            s0 = self.alpha_sub(e.s0)
-            s1 = self.alpha_sub(e.s1)
-            return LoopIR.Seq(s0, s1, e.srcinfo)
-        elif etyp is LoopIR.Assign:
-            rhs     = self.alpha_sub(e.rhs)
-            return LoopIR.Assign(e.name, e.idx, rhs, e.srcinfo)
-        elif etyp is LoopIR.Reduce:
-            rhs     = self.alpha_sub(e.rhs)
-            return LoopIR.Reduce(e.name, e.idx, rhs, e.srcinfo)
-        elif etyp is LoopIR.If:
-            body    = self.alpha_sub(e.body)
-            return LoopIR.If(e.cond, body, e.srcinfo)
-        elif etyp is LoopIR.ForAll:
-            body    = self.alpha_sub(e.body)
-            return LoopIR.ForAll(e.iter, e.hi, body, e.srcinfo)
-
-        elif etyp is LoopIR.Read:
-            nm  = self.env[e.name] if e.name in self.env else e.name
-            return LoopIR.Read(nm, e.idx, e.srcinfo)
-        elif etyp is LoopIR.BinOp:
-            lhs = self.alpha_sub(e.lhs)
-            rhs = self.alpha_sub(e.rhs)
-            return LoopIR.BinOp(e.op, lhs, rhs, e.srcinfo)
-        elif etyp is LoopIR.Select:
-            body = self.alpha_sub(e.body)
-            return LoopIR.Select(e.pred, body, e.srcinfo)
-
-        else:
-            return e
-
     def map_s(self, s):
         if type(s) is LoopIR.ForAll:
             # unroll this to loops!!
@@ -390,10 +382,11 @@ class _Unroll(_LoopIR_Rewrite):
                 orig_body = s.body
 
                 self.unroll_itr = 0
-                body    = self.alpha_buf_rename(self.map_s(orig_body))
+
+                body    = _Alpha_Rename(self.map_s(orig_body)).result()
                 for i in range(1,hi):
                     self.unroll_itr = i
-                    nxtbody = self.alpha_buf_rename(self.map_s(orig_body))
+                    nxtbody = _Alpha_Rename(self.map_s(orig_body)).result()
                     body = LoopIR.Seq(body, nxtbody, s.srcinfo)
 
                 return body

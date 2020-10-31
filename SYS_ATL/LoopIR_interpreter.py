@@ -111,6 +111,8 @@ class Interpreter:
                 size = _eshape(s.type, self.env)
                 # TODO: Maybe randomize?
                 self.env[s.name] = np.empty(size)
+        elif styp is LoopIR.Instr:
+            self.eval_s(s.body)
         else:
             assert False, "bad case"
 

@@ -5,6 +5,8 @@ from .prelude import *
 from .LoopIR import UAST, front_ops, LoopIR
 from . import shared_types as T
 
+
+
 # google python formatting project
 # to save myself the trouble of being overly clever
 from yapf.yapflib.yapf_api import FormatCode
@@ -166,6 +168,9 @@ class UAST_PPrinter:
             elif type(stmt) is UAST.Alloc:
                 mem = f" @{stmt.mem}" if stmt.mem else ""
                 self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
+            elif type(stmt) is UAST.Instr:
+                self.addline(f"instr({stmt.op.opname()})")
+                self.pstmts([stmt.body])
             elif type(stmt) is UAST.If:
                 cond = self.pexpr(stmt.cond)
                 self.addline(f"if {cond}:")
@@ -336,6 +341,9 @@ class LoopIR_PPrinter:
         elif type(stmt) is LoopIR.Free:
             mem = f" @{stmt.mem}" if stmt.mem else ""
             self.addline(f"free {self.new_name(stmt.name)} : {self.type}{mem}")
+        elif type(stmt) is LoopIR.Instr:
+            self.addline(f"instr({stmt.op.opname()})")
+            self.pstmt(stmt.body)
         elif type(stmt) is LoopIR.If:
             cond = self.ppred(stmt.cond)
             self.addline(f"if {cond}:")

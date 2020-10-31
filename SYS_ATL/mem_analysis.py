@@ -62,6 +62,9 @@ class MemoryAnalysis:
             body = self.mem_s(s.body)
             body = self.pop_frame(body)
             return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
+        elif styp is LoopIR.Instr:
+            body = self.mem_s(s.body)
+            return LoopIR.Instr(s.op, body, s.srcinfo)
         elif styp is LoopIR.Alloc:
             self.add_malloc(s.name, s.type, s.mem)
             return s

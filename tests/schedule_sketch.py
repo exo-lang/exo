@@ -102,3 +102,11 @@ class GEMMINNI_MATMUL(Instruction):
     #    j_hi, j_lo = split(j[1], 2)
     #    i_hi, i_lo = split(i[1], 2)
     #    reorder(i_lo,j_hi)
+
+"""
+instruction { .... }
+
+instr(GEMM_Load)
+for i in par(0,n):
+    x[i] = y[i]
+"""
