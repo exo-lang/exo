@@ -1,3 +1,4 @@
+from __future__ import annotations
 import subprocess
 import os
 import ctypes
@@ -5,11 +6,14 @@ from ctypes import *
 import numpy as np
 import sys
 import pytest
+from PIL import Image
+import scipy.stats as st
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL.debug_frontend_LoopIR import *
 from SYS_ATL.prelude import *
 from SYS_ATL.LoopIR_compiler import Compiler, run_compile
 from SYS_ATL.LoopIR_interpreter import Interpreter
+from SYS_ATL import proc, Procedure
 from .helper import *
 
 # Test 1 is add vector
@@ -19,7 +23,7 @@ from .helper import *
 #           res[i] = x[i] + y[i]
 #
 
-def gen_add_vec():
+def gen_add_vec_ir():
     n = Sym('n')
     x = Sym('x')
     y = Sym('y')
@@ -46,8 +50,8 @@ def gen_add_vec():
                 ])
 
 
-def test_add_vec():
-    TEST_1 = gen_add_vec()
+def test_add_vec_ir():
+    TEST_1 = gen_add_vec_ir()
     filename = "test1"
     run_compile([TEST_1], directory, (filename + ".c"), (filename + ".h"))
     compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared " +
@@ -75,7 +79,7 @@ def test_add_vec():
 #       free(ptr);
 
 
-def gen_alloc():
+def gen_alloc_ir():
     n = Sym('n')
     x = Sym('x')
     ptr = Sym('ptr')
@@ -100,8 +104,8 @@ def gen_alloc():
                 ])
 
 
-def test_alloc():
-    TEST_2 = gen_alloc()
+def test_alloc_ir():
+    TEST_2 = gen_alloc_ir()
     run_compile([TEST_2], directory, "test_alloc.c", "test_alloc.h")
 
 # TEST 3 is nested alloc
@@ -120,7 +124,7 @@ def test_alloc():
 #               res[i,j] = rloc[j]
 
 
-def gen_alloc_nest():
+def gen_alloc_nest_ir():
     n = Sym('n')
     m = Sym('m')
     x = Sym('x')
@@ -198,8 +202,8 @@ def gen_alloc_nest():
 
 
 
-def test_alloc_nest():
-    TEST_3 = gen_alloc_nest()
+def test_alloc_nest_ir():
+    TEST_3 = gen_alloc_nest_ir()
     filename = "test_alloc_nest"
     run_compile([TEST_3], directory, (filename + ".c"), (filename + ".h"))
     compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared " +
@@ -221,3 +225,26 @@ def test_alloc_nest():
     np.testing.assert_almost_equal(res, res_c)
     np.testing.assert_almost_equal(res_c, nparray(
         [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]))
+
+
+def gen_alloc():
+    @proc
+    def alloc(n: size, x: R[n] @ IN @ HEAP, res: R[n] @ OUT @ HEAP):
+        ptr : R[n] @ HEAP
+        for i in par(0,n):
+            ptr[i] = x[i]
+
+    return alloc
+
+def test_alloc():
+    alloc = gen_alloc()
+    assert type(alloc) is Procedure
+
+    filename = "compiler_test_simple_alloc"
+
+    # Write pretty printing to a file
+    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty.write(str(alloc))
+    f_pretty.close()
+
+    alloc.compile_c(directory, filename)

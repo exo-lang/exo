@@ -337,10 +337,10 @@ class LoopIR_PPrinter:
             self.addline(f"{lhs} {op} {rhs}")
         elif type(stmt) is LoopIR.Alloc:
             mem = f" @{stmt.mem}" if stmt.mem else ""
-            self.addline(f"{self.new_name(stmt.name)} : {self.type}{mem}")
+            self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
         elif type(stmt) is LoopIR.Free:
             mem = f" @{stmt.mem}" if stmt.mem else ""
-            self.addline(f"free {self.new_name(stmt.name)} : {self.type}{mem}")
+            self.addline(f"free {self.new_name(stmt.name)} : {stmt.type}{mem}")
         elif type(stmt) is LoopIR.Instr:
             self.addline(f"instr({stmt.op.opname()})")
             self.pstmt(stmt.body)

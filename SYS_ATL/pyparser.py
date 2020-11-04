@@ -230,6 +230,23 @@ class Parser:
 
         return typ, eff, mem
 
+    def parse_mem(self, node):
+        if type(node) is pyast.BinOp and type(node.op) is pyast.MatMult:
+            # check for string
+            if type(node.right) is not pyast.Name:
+                self.err(node.right, "expected memory annotation to be "+
+                                     "a string")
+
+            mem     = node.right.id
+            typ = self.parse_type(node.left)
+
+            return typ, mem
+
+        else:
+            typ = self.parse_type(node)
+            return typ, None
+
+
     def parse_type(self, node):
         if type(node) is pyast.Subscript:
             if type(node.value) is not pyast.Name or node.value.id != "R":
@@ -304,8 +321,8 @@ class Parser:
                 if type(s) is pyast.AnnAssign:
                     nm = Sym(name_node.id)
                     self.locals[name_node.id] = nm
-                    typ = self.parse_type(s.annotation)
-                    rstmts.append(UAST.Alloc(nm, typ, self.getsrcinfo(s)))
+                    typ, mem = self.parse_mem(s.annotation)
+                    rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
                 elif type(s) is pyast.Assign and len(idxs) == 0:
                     if name_node.id not in self.locals:
                         nm = Sym(name_node.id)
