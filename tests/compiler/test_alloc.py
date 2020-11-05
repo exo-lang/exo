@@ -231,8 +231,11 @@ def gen_alloc():
     @proc
     def alloc(n: size, x: R[n] @ IN @ HEAP, res: R[n] @ OUT @ HEAP):
         ptr : R[n] @ HEAP
-        for i in par(0,n):
-            ptr[i] = x[i]
+        for i in par(0,n/16):
+            instr(GEMM_Load)
+            for i2 in par(0,16):
+                if i*16+i2 < n:
+                    ptr[i] = x[i*16+i2]
 
     return alloc
 

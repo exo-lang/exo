@@ -93,7 +93,8 @@ class Compiler:
         for a in proc.args:
             name_arg = self.new_varname(a.name, typ=a.type, force_literal=True)
             arg_str += f" float* {name_arg},"
-            typ_comment_str += f" {name_arg} : {a.type} {a.effect},"
+            mem = f" @{a.mem}" if a.mem else ""
+            typ_comment_str += f" {name_arg} : {a.type} @{a.effect}{mem},"
 
         self.env.push()
         stmt_str = self.comp_s(self.proc.body)
