@@ -96,20 +96,24 @@ class GEMM_Load(Instruction):
         if len(itrs) is not len(lidx) or len(lidx) is not len(ridx):
             comp.err("indices has to be the same size", subtree)
 
-        if len(itrs) != 1:
-            raise NotImplementedError()
-
         # No idea how we can handle bounds checking here.
         # Ignore the if statement for now..
         res = ""
         res += f"// Move-in {rbuf} to {lbuf}\n"
         res += "gemmini_extended_config_ld(0, 1);\n"
-        oidx = lidx[0]
-        spad = oidx + "+" + str(self.sp_start_addr)
-        self.sp_start_addr += 1
-        # TODO: How to remember sp_start_addr??
-        res += f"gemmini_extended_mvin(*({rbuf}) + {oidx}*DIM, {spad}, 1, DIM);\n"
-        res += f"{lbuf}[{oidx}] = {spad};\n"
+        if len(itrs) == 1:
+            oidx = lidx[0]
+            spad = oidx + "+" + str(self.sp_start_addr)
+            self.sp_start_addr += 1
+            # TODO: How to remember sp_start_addr??
+            res += f"gemmini_extended_mvin(*{rbuf} + {oidx}*DIM, {spad}, 1, DIM);\n"
+            res += f"{lbuf}[{oidx}] = {spad};\n"
+        if len(itrs) == 2:
+            itr  = lidx[1] + "*" + his[0] + "+" + lidx[0]
+            spad = itr + "+" + str(self.sp_start_addr)
+            self.sp_start_addr += 1
+            res += f"gemmini_extended_mvin(*{rbuf} + ({itr})*DIM, {spad}, DIM, DIM);\n"
+            res += f"{lbuf}[{lidx[0]}][{lidx[1]}] = {spad};\n"
 
         return res
 """

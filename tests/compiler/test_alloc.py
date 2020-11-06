@@ -251,3 +251,32 @@ def test_alloc():
     f_pretty.close()
 
     alloc.compile_c(directory, filename)
+
+
+def gen_alloc_nest():
+    @proc
+    def alloc_nest(n: size, m: size, x: R[n, m] @ IN @ HEAP):
+        ptr : R[n, m] @ GEMM
+        for i in par(0,n/16):
+            for j in par(0,m/16):
+                instr(GEMM_Load)
+                for i2 in par(0,16):
+                    for j2 in par(0,16):
+                        if i*16+i2 < n and j*16+j2 < n:
+                            ptr[i, j] = x[i*16+i2, j*16+j2]
+
+    return alloc_nest
+
+def test_alloc_nest():
+    alloc_nest = gen_alloc_nest()
+    assert type(alloc_nest) is Procedure
+
+    filename = "compiler_test_alloc_nest"
+
+    # Write pretty printing to a file
+    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty.write(str(alloc_nest))
+    f_pretty.close()
+
+    alloc_nest.compile_c(directory, filename)
+

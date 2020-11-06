@@ -183,7 +183,7 @@ class TypeChecker:
             self.env[stmt.name] = stmt.type
             mem = stmt.mem
             if mem and not is_valid_mem(mem):
-                self.err(a, f"invalid memory name '{mem}'")
+                self.err(stmt, f"invalid memory name '{mem}'")
                 mem = None
             return LoopIR.Alloc(stmt.name, stmt.type, mem, stmt.srcinfo)
 
