@@ -68,9 +68,6 @@ class GEMM_Load(Instruction):
         his  = []
         lidx = []
         ridx = []
-        lbuf = None
-        rbuf = None
-        cond = None
         while type(subtree) is not LoopIR.If:
             if type(subtree) is LoopIR.ForAll:
                 itrs.append(comp.new_varname(subtree.iter))
@@ -88,10 +85,14 @@ class GEMM_Load(Instruction):
         if type(subtree.rhs) is not LoopIR.Read:
             tc.err(subtree.rhs, pattern_err)
             return
-        lbuf = comp.env[subtree.name]
-        rbuf = comp.env[subtree.rhs.name]
-        lidx = [comp.comp_a(i) for i in subtree.idx]
-        ridx = [comp.comp_a(i) for i in subtree.rhs.idx]
+        lbuf      = subtree.name
+        rbuf      = subtree.rhs.name
+        lbuf_name = comp.env[lbuf]
+        rbuf_name = comp.env[rbuf]
+        lidx      = subtree.idx
+        ridx      = subtree.rhs.idx
+        lidx_name = [comp.comp_a(i) for i in lidx]
+        ridx_name = [comp.comp_a(i) for i in ridx]
 
         if len(itrs) is not len(lidx) or len(lidx) is not len(ridx):
             comp.err("indices has to be the same size", subtree)
@@ -99,43 +100,19 @@ class GEMM_Load(Instruction):
         # No idea how we can handle bounds checking here.
         # Ignore the if statement for now..
         res = ""
-        res += f"// Move-in {rbuf} to {lbuf}\n"
+        res += f"//Move-in {rbuf_name} to {lbuf_name}\n"
         res += "gemmini_extended_config_ld(0, 1);\n"
-        if len(itrs) == 1:
-            oidx = lidx[0]
-            spad = oidx + "+" + str(self.sp_start_addr)
-            self.sp_start_addr += 1
-            # TODO: How to remember sp_start_addr??
-            res += f"gemmini_extended_mvin(*{rbuf} + {oidx}*DIM, {spad}, 1, DIM);\n"
-            res += f"{lbuf}[{oidx}] = {spad};\n"
-        if len(itrs) == 2:
-            itr  = lidx[1] + "*" + his[0] + "+" + lidx[0]
-            spad = itr + "+" + str(self.sp_start_addr)
-            self.sp_start_addr += 1
-            res += f"gemmini_extended_mvin(*{rbuf} + ({itr})*DIM, {spad}, DIM, DIM);\n"
-            res += f"{lbuf}[{lidx[0]}][{lidx[1]}] = {spad};\n"
+        itr = lidx_name[0]
+        for i, n in zip(lidx_name[1:], his[1:]):
+            itr = f"({itr})*{n}+({i})"
+
+        spad = itr + "+" + str(self.sp_start_addr)
+        self.sp_start_addr += 1
+        # TODO: How to remember sp_start_addr??
+        res += f"gemmini_extended_mvin(*{rbuf_name} + ({itr})*DIM, {spad}, DIM, DIM);\n"
+        res += f"{lbuf}[{itr}] = {spad};\n"
 
         return res
-"""
-    def access_str(self, nm, idx_list):
-        buf = self.env[nm]
-        type = self.envtyp[nm]
-        idxs = [self.comp_a(i) for i in idx_list]
-        idx = _type_idx(type, idxs, self.env)
-        return f"{buf}[{idx}]"
-
-
-        ptr : R[n] @ HEAP
-        for i in par(0,n/16):
-            instr(GEMM_Load)
-            for i2 in par(0,16):
-                if i*16+i2 < n:
-                    ptr[i] = x[i*16+i2]
-        =>
-        for i in par(0,n/16):
-            gemmni_extended_mvin(*x + i*DIM, i+sp_start_addr, 1, rows)
-            ptr[i] = i+sp_start_addr
-"""
 
 
 @newinstr
