@@ -171,6 +171,12 @@ module LoopIR {
             | ASub ( aexpr lhs, aexpr rhs )
             attributes( srcinfo srcinfo )
 
+--    expr    = Read( sym name, expr* idx )
+--            | Const( object val )
+--            | BinOp( binop op, expr lhs, expr rhs )
+--            | Select( expr cond, expr body )
+--            attributes( type type, srcinfo srcinfo )
+
 } """, {
     'name':     is_valid_name,
     'sym':      lambda x: type(x) is Sym,
