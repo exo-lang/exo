@@ -176,8 +176,9 @@ class _LoopIR_Rewrite:
             return LoopIR.Seq( self.map_s(s.s0), self.map_s(s.s1),
                                s.srcinfo )
         elif styp is LoopIR.If:
+            orelse = self.map_s(s.orelse) if s.orelse else None
             return LoopIR.If( self.map_p(s.cond), self.map_s(s.body),
-                               s.srcinfo )
+                              orelse, s.srcinfo )
         elif styp is LoopIR.ForAll:
             return LoopIR.ForAll( s.iter, self.map_a(s.hi), self.map_s(s.body),
                               s.srcinfo )
@@ -334,7 +335,7 @@ class _Split(_LoopIR_Rewrite):
                 body = self.map_s(s.body)
                 cond    = LoopIR.Cmp("<", self.substitute(s.srcinfo), s.hi,
                                      s.srcinfo)
-                body    = LoopIR.If(cond, body, s.srcinfo)
+                body    = LoopIR.If(cond, body, None, s.srcinfo)
                 hi_hi   = LoopIR.AScaleDiv(s.hi, self.quot, s.srcinfo)
                 lo_hi   = LoopIR.AConst(self.quot, s.srcinfo)
 

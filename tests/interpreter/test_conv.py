@@ -72,6 +72,7 @@ def gen_conv1d():
                           IR.ForAll(j, an,
                                     IR.If(loop_cond,
                                           statement,
+                                          None,
                                           src0), src0), src0)
 
     zero_res = IR.ForAll(i, ar,
@@ -155,6 +156,7 @@ def gen_conv2d():
                                               IR.ForAll(kj, aw,
                                                         IR.If(loop_cond,
                                                               statement,
+                                                              None,
                                                               src0), src0), src0), src0), src0)
 
     zero_res = IR.ForAll(i, arh,

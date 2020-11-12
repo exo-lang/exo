@@ -16,6 +16,7 @@ front_ops = {
     "-":    True,
     "*":    True,
     "/":    True,
+    "%":    True,
     #
     "<":    True,
     ">":    True,
@@ -82,6 +83,7 @@ s       ::= x[a*]  = e                   // assignment to buffer
           | x[a*] += e                   // reduction to buffer
           | s0 ; s1                      // serial composition
           | if p then s                  // conditional guard
+          | if p then s1 else s2         // conditional guard
           | forall i=0,a do s            // unordered looping
           | alloc name : type            // memory allocation
                                          // assume sensible auto-free
@@ -104,7 +106,8 @@ affine-index-expressions
 a       ::= i                            // index variable
           | c                            // rational(?) constant
           | c * a                        // scaling
-          | a / c                      // division
+          | a / c                        // division
+          | a % c                        // remainder
           | a0 + a1                      // addition
 type    ::= R                            // scalar "real" number
           | [n]type                      // array of n things
@@ -143,7 +146,7 @@ module LoopIR {
             | Reduce( sym name, aexpr* idx, expr rhs )
             | Pass()
             | Seq( stmt s0, stmt s1 )
-            | If ( pred cond, stmt body )
+            | If ( pred cond, stmt body, stmt? orelse )
             | ForAll ( sym iter, aexpr hi, stmt body )
             | Alloc ( sym name, type type, mem? mem )
             | Free  ( sym name, type type, mem? mem )
@@ -167,6 +170,7 @@ module LoopIR {
             | AConst ( int val  )
             | AScale ( int coeff, aexpr rhs )
             | AScaleDiv ( aexpr lhs, int quotient )
+            | AMod ( aexpr lhs, int divisor )
             | AAdd ( aexpr lhs, aexpr rhs )
             | ASub ( aexpr lhs, aexpr rhs )
             attributes( srcinfo srcinfo )

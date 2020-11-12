@@ -26,34 +26,33 @@ class GEMM_Load(Instruction):
         # Pattern match the above form to extract the following
         pattern_err = """
         expected a Load instruction to be a simple copy assignment
-        wrapped by a if and zero or more for-loops
+        wrapped by zero or more for-loops
         """
-        itrs = []
-        his  = []
-        lidx = []
-        ridx = []
-        lbuf = None
-        rbuf = None
-        cond = None
-        while type(subtree) is not LoopIR.If:
+        self.itrs = []
+        self.his  = []
+        self.lidx = []
+        self.ridx = []
+        self.lbuf = None
+        self.rbuf = None
+
+        while type(subtree) is not LoopIR.Assign:
             if type(subtree) is LoopIR.ForAll:
-                itrs.append(subtree.iter)
-                his.append(subtree.hi)
+                self.itrs.append(subtree.iter)
+                self.his.append(subtree.hi)
                 subtree = subtree.body
             else:
                 tc.err(subtree, pattern_err)
                 return
-
-        assert type(subtree) is LoopIR.If
-        cond = subtree.cond
-        subtree = subtree.body
-
         assert type(subtree) is LoopIR.Assign
         if type(subtree.rhs) is not LoopIR.Read:
             tc.err(subtree.rhs, pattern_err)
             return
-        lbuf, lidx = subtree.name, subtree.idx
-        rbuf, ridx = subtree.rhs.name, subtree.rhs.idx
+        self.lbuf, self.lidx = subtree.name, subtree.idx
+        self.rbuf, self.ridx = subtree.rhs.name, subtree.rhs.idx
+
+        if len(self.itrs) is not len(self.lidx)\
+                    or len(self.lidx) is not len(self.ridx):
+            tc.err("indices has to be the same size", subtree)
 
         #TODO: More typecheck here?
         # lbuf != rbuf?
@@ -64,53 +63,28 @@ class GEMM_Load(Instruction):
     #    pass
 
     def compile(self, subtree, comp):
-        itrs = []
-        his  = []
-        lidx = []
-        ridx = []
-        while type(subtree) is not LoopIR.If:
-            if type(subtree) is LoopIR.ForAll:
-                itrs.append(comp.new_varname(subtree.iter))
-                his.append(comp.comp_a(subtree.hi))
-                subtree = subtree.body
-            else:
-                tc.err(subtree, pattern_err)
-                return
-
-        assert type(subtree) is LoopIR.If
-        cond    = subtree.cond
-        subtree = subtree.body
-
-        assert type(subtree) is LoopIR.Assign
-        if type(subtree.rhs) is not LoopIR.Read:
-            tc.err(subtree.rhs, pattern_err)
-            return
-        lbuf      = subtree.name
-        rbuf      = subtree.rhs.name
-        lbuf_name = comp.env[lbuf]
-        rbuf_name = comp.env[rbuf]
-        lidx      = subtree.idx
-        ridx      = subtree.rhs.idx
-        lidx_name = [comp.comp_a(i) for i in lidx]
-        ridx_name = [comp.comp_a(i) for i in ridx]
-
-        if len(itrs) is not len(lidx) or len(lidx) is not len(ridx):
-            comp.err("indices has to be the same size", subtree)
+        his_comp  = [comp.comp_a(i) for i in self.his]
+        itrs_comp = [comp.new_varname(i) for i in self.itrs]
+        rbuf_name = comp.env[self.rbuf]
+        lbuf_name = comp.env[self.lbuf]
+        lidx_comp = [comp.comp_a(i) for i in self.lidx]
+        ridx_comp = [comp.comp_a(i) for i in self.ridx]
 
         # No idea how we can handle bounds checking here.
         # Ignore the if statement for now..
         res = ""
         res += f"//Move-in {rbuf_name} to {lbuf_name}\n"
         res += "gemmini_extended_config_ld(0, 1);\n"
-        itr = lidx_name[0]
-        for i, n in zip(lidx_name[1:], his[1:]):
+        itr = lidx_comp[0]
+        for i, n in zip(lidx_comp[1:], his_comp[1:]):
             itr = f"({itr})*{n}+({i})"
 
         spad = itr + "+" + str(self.sp_start_addr)
         self.sp_start_addr += 1
         # TODO: How to remember sp_start_addr??
-        res += f"gemmini_extended_mvin(*{rbuf_name} + ({itr})*DIM, {spad}, DIM, DIM);\n"
-        res += f"{lbuf}[{itr}] = {spad};\n"
+        res += (f"gemmini_extended_mvin(*{rbuf_name} + "+
+                f"({itr})*DIM, {spad}, DIM, DIM);\n")
+        res += f"{self.lbuf}[{itr}] = {spad};\n"
 
         return res
 

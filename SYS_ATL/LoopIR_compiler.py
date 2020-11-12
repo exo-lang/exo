@@ -156,13 +156,19 @@ class Compiler:
         elif styp is LoopIR.If:
             cond = self.comp_p(s.cond)
             self.env.push()
-            print("pushed")
             body = self.comp_s(s.body)
             self.env.pop()
-            print("popped")
-            return (f"if ({cond}) {{\n" +
-                    f"{body}\n" +
-                    f"}}\n")
+            ret = (f"if ({cond}) {{\n" +
+                  f"{body}\n" +
+                  f"}}\n")
+
+            if s.orelse:
+                ebody = self.comp_s(s.orelse)
+                ret += (f"else {{\n" +
+                       f"{ebody}\n" +
+                       f"}}\n")
+
+            return ret
 
         elif styp is LoopIR.ForAll:
             hi = self.comp_a(s.hi)
@@ -233,6 +239,9 @@ class Compiler:
         elif atyp is LoopIR.AScaleDiv:
             assert a.quotient > 0
             return f"_floor_div({self.comp_a(a.lhs)}, {a.quotient})"
+        elif atyp is LoopIR.AMod:
+            assert a.divisor > 0
+            return f"{self.comp_a(a.lhs)} % {a.divisor})"
         else: assert False, "bad case"
 
     def comp_p(self, p):

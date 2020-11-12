@@ -94,6 +94,11 @@ class Interpreter:
             if cond:
                 self.eval_s(s.body)
             self.env.pop()
+            if s.orelse and not cond:
+                self.env.push()
+                self.eval_s(s.orelse)
+                self.env.pop()
+
         elif styp is LoopIR.ForAll:
             hi = self.eval_a(s.hi)
             assert self.use_randomization is False, "TODO: Implement Randomization"
@@ -154,6 +159,9 @@ class Interpreter:
         elif atyp is LoopIR.AScaleDiv:
             assert a.quotient > 0
             return self.eval_a(a.lhs) // a.quotient
+        elif atyp is LoopIR.AMod:
+            assert a.divisor > 0
+            return self.eval_a(a.lhs) % a.divisor
         elif atyp is LoopIR.AAdd:
             return self.eval_a(a.lhs) + self.eval_a(a.rhs)
         elif atyp is LoopIR.ASub:

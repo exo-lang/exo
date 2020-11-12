@@ -407,6 +407,10 @@ class LoopIR_PPrinter:
             lhs = self.paexpr(a.lhs, 50)
             quo = str(a.quotient)
             return f"{lhs} / {quo}"
+        elif type(a) is LoopIR.AMod:
+            lhs = self.paexpr(a.lhs, 50)
+            div = str(a.divisor)
+            return f"{lhs} % {div}"
         else:
             assert False, "unrecognized expr type"
 

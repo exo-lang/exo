@@ -227,193 +227,57 @@ def test_alloc_nest_ir():
         [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]))
 
 
-def gen_alloc():
+def gen_alloc1():
     @proc
-    def alloc(n: size, x: R[n] @ IN @ HEAP, res: R[n] @ OUT @ HEAP):
-        ptr : R[n] @ HEAP
-        for i in par(0,n/16):
-            instr(GEMM_Load)
-            for i2 in par(0,16):
-                if i*16+i2 < n:
-                    ptr[i] = x[i*16+i2]
-
-    return alloc
-
-def test_alloc():
-    alloc = gen_alloc()
-    assert type(alloc) is Procedure
-
-    filename = "compiler_test_simple_alloc"
-
-    # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
-    f_pretty.write(str(alloc))
-    f_pretty.close()
-
-    alloc.compile_c(directory, filename)
-
-
-def gen_alloc_nest():
-    @proc
-    def alloc_nest(n: size, m: size, x: R[n, m] @ IN @ HEAP):
-        ptr : R[n, m] @ GEMM
-        for i in par(0,n/16):
-            for j in par(0,m/16):
+    def alloc1( n : size, x : R[n] @ IN, y : R[n] @ OUT @ GEMM ):
+        for i0 in par(0,n/16):
+            if i0 == n/16-1:
                 instr(GEMM_Load)
-                for i2 in par(0,16):
-                    for j2 in par(0,16):
-                        if i*16+i2 < n and j*16+j2 < n:
-                            ptr[i, j] = x[i*16+i2, j*16+j2]
+                for i1 in par(0,n%16):
+                    y[i0] = x[i0*16+i1]
+            else:
+                instr(GEMM_Load)
+                for i1 in par(0,16):
+                    y[i0] = x[i0*16+i1]
 
-    return alloc_nest
+    return alloc1
 
-"""
-# step 1: explore tail strategies w/o GEMMINI
-# step 2: extend exploration of tail strategies to consider GEMMINI
-@proc
-def foo( n : size, x : R[n] @ IN, y : R[n] @ OUT):
-    for i in par(0,n):
-        y[i] = x[i] + 1
+def test_alloc1():
+    alloc1 = gen_alloc1()
+    assert type(alloc1) is Procedure
 
-foo = foo.split(i,16,[i0,i1],"split_case0")
-         .instr(i1, GEMMINI)
-
-    foo.split()
-       .peel_off_last_iter(i0)
-       .simplify(i1[0])
-
-@proc
-def foo_split_guard( n : size, x : R[n] @ IN, y : R[n] @ OUT):
-    for i0 in par(0,ceil(n/16)):
-        for i1 in par(0,16):
-            if i0*16 + i1 < n:
-                y[i0*16+i1] = x[i0*16+i1] + 1
-
-#peel_off_last_iter ->>
-    for i0 in par(0,ceil(n/16)-1):
-        for i1 in par(0,16):
-            if i0*16 + i1 < n:
-                y[i0*16+i1] = x[i0*16+i1] + 1
-    i0' = ceil(n/16)-1
-    for i1 in par(0,16):
-        if i0'*16 + i1 < n:
-            y[i0'*16+i1] = x[i0'*16+i1] + 1
-
-#simplify(i1[0]) ->>
-    for i0 in par(0,ceil(n/16)-1):   i0 < ceil(n/16) - 1
-        for i1 in par(0,16):
-            y[i0*16+i1] = x[i0*16+i1] + 1
-    i0' = ceil(n/16)-1
-    for i1 in par(0,16):
-        if i0'*16 + i1 < n:
-            y[i0'*16+i1] = x[i0'*16+i1] + 1
-
-
-@Proc
-Foo( n : size, m : size, p : size )
-    RESERVE SPACE globmem in DRAM
-
-    buf : R[n]
-        --> elem* buf = globmem
-
-    A   : R[m]
-        --> elem* A   = globmem + n
-
-    for k in ...:
-        B : R[p]
-        --> elem* B   = globmem + n + m
-        for j
-            B = A lbuf
-        for j
-            x += B
-        free B
-        --> noop;
-
-    free A
-    free buf
-
-    FREE globmem
-
-required_bytes = Query_Foo_memory(n,m,p)
-globmem = my_globmem + offset;
-Foo_manual_mem(globmem, n,m,p, ...)
-
-Foo(n,m,p, ...)
-
-
-A : R[n,m]
-
-buf : R[n,m] @ GEMMINI_SCRATCHPAD
-
-buf : R[n,16] @ GEMM
-instr(GEMM_LD)
-for i0 in par(0,16):
-    for i1 in par(0,16):
-        buf[i0,i1] = input[i0][i1]
-
-
-=>
-gemmini_extended_config_ld(0,1)
-gemmini_extended_mvin(input, sp_start_addr, 3, 16)
-
-LOAD ... into buf
-
-@proc
-def foo_split_case0( n : size, x : R[n] @ IN, y : R[n] @ OUT):
-    for i0 in par(0,ceil(n/16)):
-        if i0 == ceil(n/16)-1:
-            instr(GEMMINI)
-            for i1 in par(0,n%16):
-                y[i0*16+i1] = x[i0*16+i1] + 1
-        else:
-            instr(GEMMINI)
-            for i1 in par(0,16):
-                y[i0*16+i1] = x[i0*16+i1] + 1
-
-@proc
-def foo_split_case1( n : size, x : R[n] @ IN, y : R[n] @ OUT):
-    for i0 in par(0,ceil(n/16)):
-        for i1 in par(0,16):
-            y[i0*16+i1] = x[i0*16+i1] + 1
-    for i1 in par(0,n%16):
-        y[(ceil(n/16)-1)*16+i1] = x[(ceil(n/16)-1)*16+i1] + 1
-
-@proc
-def foo_split_shift_in( n : size, x : R[n] @ IN, y : R[n] @ OUT):
-    for i0 in par(0,ceil(n/16)):
-        i_base = i0*16
-        if i0 == ceil(n/16)-1:
-            i_base = n - 16
-        for i1 in par(0,16):
-            i = ibase + i1
-            y[i] = x[i] + 1
-
-@proc
-def foo_split_shift_in_case1( n : size, x : R[n] @ IN, y : R[n] @ OUT):
-    for i0 in par(0,floor((n+1)/16)):
-        @instr(HWACHA)
-        for i1 in par(0,16):
-            y[i0*16 + i1] = x[i0*16 + i1] + 1
-    @instr(HWACHA)
-    for i1 in par(0,16):
-        y[n-16+i1] = x[n-16+i1] + 1
-
-@proc
-def foo_split_overcompute( n : size, x : R[16*ceil(n/16)] @ IN, y : R[16*ceil(n/16)] @ OUT):
-    for i0 in par(0,ceil(n/16)):
-        for i1 in par(0,16):
-            y[i0*16+i1] = x[i0*16+i1] + 1
-"""
-
-def test_alloc_nest():
-    alloc_nest = gen_alloc_nest()
-    assert type(alloc_nest) is Procedure
-
-    filename = "compiler_test_alloc_nest"
+    filename = "compiler_test_alloc1"
 
     # Write pretty printing to a file
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
-    f_pretty.write(str(alloc_nest))
+    f_pretty.write(str(alloc1))
     f_pretty.close()
 
-    alloc_nest.compile_c(directory, filename)
+    alloc1.compile_c(directory, filename)
+
+
+def gen_alloc2():
+    @proc
+    def alloc2( n : size, x : R[n] @ IN, y : R[n] @ OUT @ GEMM ):
+        for i0 in par(0,n/16-1):
+            instr(GEMM_Load)
+            for i1 in par(0,16):
+                y[i0] = x[i0*16+i1]
+        instr(GEMM_Load)
+        for i1 in par(0,n%16):
+            y[n/16-1] = x[(n/16-1)*16+i1]
+
+    return alloc2
+
+def test_alloc2():
+    alloc2 = gen_alloc2()
+    assert type(alloc2) is Procedure
+
+    filename = "compiler_test_alloc2"
+
+    # Write pretty printing to a file
+    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty.write(str(alloc2))
+    f_pretty.close()
+
+    alloc2.compile_c(directory, filename)

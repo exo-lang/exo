@@ -139,12 +139,13 @@ class TypeChecker:
             return LoopIR.Pass(stmt.srcinfo)
 
         elif type(stmt) is UAST.If:
-            if len(stmt.orelse) > 0:
-                self.err(stmt, "else is not supported yet, sorry about that")
-
             cond = self.check_p(stmt.cond)
             body = self.check_stmts(stmt.body)
-            return LoopIR.If(cond, body, stmt.srcinfo)
+            if len(stmt.orelse) == 0:
+                return LoopIR.If(cond, body, None, stmt.srcinfo)
+            if len(stmt.orelse) > 0:
+                ebody = self.check_stmts(stmt.orelse)
+                return LoopIR.If(cond, body, ebody, stmt.srcinfo)
 
         elif type(stmt) is UAST.ForAll:
             self.env[stmt.iter] = idxT
@@ -168,6 +169,8 @@ class TypeChecker:
                 elif type(a) is LoopIR.AScale:
                     return index_free_a(a.rhs)
                 elif type(a) is LoopIR.AScaleDiv:
+                    return index_free_a(a.lhs)
+                elif type(a) is LoopIR.AMod:
                     return index_free_a(a.lhs)
                 else:
                     return index_free_a(a.lhs) and index_free_a(a.rhs)
@@ -282,6 +285,15 @@ class TypeChecker:
                 else:
                     self.err(a, "Cannot divide an affine expression by "+
                                 "anything except a constant.")
+
+            elif a.op == "%":
+                if type(rhs) is LoopIR.AConst:
+                    if rhs.val < 0:
+                        self.err(a, "mod by negative not supported")
+                    return LoopIR.AMod(lhs, rhs.val, a.srcinfo)
+                else:
+                    self.err(a, "Cannot take a remainder of an affine "+
+                                "expression by anything except a constant.")
 
             else:
                 self.err(a, f"Is not an affine index operation: {a.op}")

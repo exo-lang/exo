@@ -56,7 +56,12 @@ class MemoryAnalysis:
             self.push_frame()
             body = self.mem_s(s.body)
             body = self.pop_frame(body)
-            return LoopIR.If(s.cond, body, s.srcinfo)
+            ebody = None
+            if s.orelse:
+                self.push_frame()
+                ebody = self.mem_s(s.orelse)
+                ebody = self.pop_frame(ebody)
+            return LoopIR.If(s.cond, body, ebody, s.srcinfo)
         elif styp is LoopIR.ForAll:
             self.push_frame()
             body = self.mem_s(s.body)
