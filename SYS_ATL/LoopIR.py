@@ -113,7 +113,16 @@ type    ::= R                            // scalar "real" number
           | [n]type                      // array of n things
 """
 
-pred_ops = {
+bin_ops = {
+    "+":    True,
+    "-":    True,
+    "*":    True,
+    "/":    True,
+    "%":    True,
+
+    "and":  True,
+    "or":   True,
+
     "<":    True,
     ">":    True,
     "<=":   True,
@@ -121,65 +130,34 @@ pred_ops = {
     "==":   True,
 }
 
-bin_ops = {
-    "+":    True,
-    "-":    True,
-    "*":    True,
-    "/":    True,
-}
-
 LoopIR = ADT("""
 module LoopIR {
     proc    = ( name?           name,
-                sym*            sizes,
                 fnarg*          args,
                 stmt            body,
                 srcinfo         srcinfo )
 
     fnarg   = ( sym             name,
                 type            type,
-                effect          effect,
+                effect?         effect,
                 mem?            mem,
                 srcinfo         srcinfo )
 
     stmt    = Assign( sym name, aexpr* idx, expr rhs)
             | Reduce( sym name, aexpr* idx, expr rhs )
             | Pass()
-            | Seq( stmt s0, stmt s1 )
-            | If ( pred cond, stmt body, stmt? orelse )
-            | ForAll ( sym iter, aexpr hi, stmt body )
+            | If ( pred cond, stmt* body, stmt* orelse )
+            | ForAll ( sym iter, aexpr hi, stmt* body )
             | Alloc ( sym name, type type, mem? mem )
             | Free  ( sym name, type type, mem? mem )
             | Instr ( instr op, stmt body )
             attributes( srcinfo srcinfo )
 
     expr    = Read( sym name, aexpr* idx )
-            | Const( float val )
+            | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
-            | Select( pred cond, expr body )
-            attributes( srcinfo srcinfo )
-
-    pred    = BConst( bool val )
-            | Cmp ( predop op, aexpr lhs, aexpr rhs )
-            | And ( pred lhs, pred rhs )
-            | Or  ( pred lhs, pred rhs )
-            attributes( srcinfo srcinfo )
-
-    aexpr   = AVar   ( sym name )
-            | ASize  ( sym name )
-            | AConst ( int val  )
-            | AScale ( int coeff, aexpr rhs )
-            | AScaleDiv ( aexpr lhs, int quotient )
-            | AMod ( aexpr lhs, int divisor )
-            | AAdd ( aexpr lhs, aexpr rhs )
-            | ASub ( aexpr lhs, aexpr rhs )
-            attributes( srcinfo srcinfo )
-
---    expr    = Read( sym name, expr* idx )
---            | Const( object val )
---            | BinOp( binop op, expr lhs, expr rhs )
---            | Select( expr cond, expr body )
---            attributes( type type, srcinfo srcinfo )
+            | Select( expr cond, expr body )
+            attributes( type type, srcinfo srcinfo )
 
 } """, {
     'name':     is_valid_name,
@@ -189,6 +167,5 @@ module LoopIR {
     'instr':    lambda x: isinstance(x, Instruction),
     'mem':      lambda x: type(x) is str,
     'binop':    lambda x: x in bin_ops,
-    'predop':   lambda x: x in pred_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
 })

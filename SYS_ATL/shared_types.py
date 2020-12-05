@@ -10,6 +10,10 @@ from .prelude import *
 _Types = ADT("""
 module Types {
     type    = Num   ()
+            | Bool  ()
+            | Int   ()
+            | Index ()
+            | Size  ()
             | Error ()
             | Tensor( range hi, type type )
 
@@ -19,15 +23,24 @@ module Types {
 } """, {
     'range': lambda x: is_pos_int(x) or type(x) is Sym,
 })
-ADTmemo(_Types, ['Num', 'Error', 'Tensor', 'IN', 'OUT', 'INOUT'], {
+ADTmemo(_Types, ['Num', 'Bool', 'Int', 'Index', 'Size', 'Error',
+                 'Tensor', 'IN', 'OUT', 'INOUT'], {
     'range': lambda x: x,
 })
 
-Num = _Types.Num
-Error = _Types.Error
-Tensor = _Types.Tensor
-R = Num()
-err = Error()
+Num     = _Types.Num
+Bool    = _Types.Bool
+Int     = _Types.Int
+Index   = _Types.Index
+Size    = _Types.Size
+Error   = _Types.Error
+Tensor  = _Types.Tensor
+R       = Num()
+bool    = Bool()    # note: accessed as T.bool outside this module
+int     = Int()
+index   = Index()
+size    = Size()
+err     = Error()
 
 IN = _Types.IN
 OUT = _Types.OUT
@@ -57,17 +70,27 @@ def shape(t):
         t = t.type
     assert t is R
     return shp
-
-
 del shape
 
+@extclass(_Types.type)
+def is_numeric(t):
+    return type(t) is Num or type(t) is Tensor
+del is_numeric
+
+@extclass(_Types.type)
+def is_indexable(t):
+    return type(t) is Int or type(t) is Index or type(t) is Size
+del is_indexable
+
+@extclass(_Types.type)
+def is_sizeable(t):
+    return type(t) is Int or type(t) is Size
+del is_sizeable
 
 @extclass(Tensor)
 @extclass(Num)
 def base(t):
     return R
-
-
 del base
 
 
@@ -79,6 +102,12 @@ def __str__(t):
     if not hasattr(t, '_str_cached'):
         if type(t) is Num:
             t._str_cached = "R"
+        elif type(t) is Bool:
+            t._str_cached = "bool"
+        elif type(t) is Index:
+            t._str_cached = "index"
+        elif type(t) is Size:
+            t._str_cached = "size"
         elif type(t) is Error:
             t._str_cached = "err"
         elif type(t) is Tensor:

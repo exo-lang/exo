@@ -227,6 +227,15 @@ def test_alloc_nest_ir():
         [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]))
 
 
+"""
+@proc
+GEMM_Load(y : R[...], i : index, x : R[...], j : index, n : size):
+    for j in par(0,n):
+        y[i + k] = x[j + k]
+    => gemmini_extended_mvin(x + (i0_26)*DIM, y, DIM, DIM);
+    GEMM_Load(y, i0, x, i0, 16)
+    alloc1 = alloc1.inline('GEMM_Load')
+"""
 def gen_alloc1():
     @proc
     def alloc1( n : size, x : R[n] @ IN, y : R[n] @ OUT @ GEMM ):
