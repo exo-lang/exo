@@ -1,6 +1,3 @@
-
-
-
 uint32_t  HEAP_SIZE = {heap_size};
 uint8_t   HEAP[HEAP_SIZE];
 

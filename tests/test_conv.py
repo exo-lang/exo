@@ -29,7 +29,7 @@ def test_conv1d():
     conv1d = gen_conv1d()
 
     assert type(conv1d) is Procedure
-    filename = "uast_test_conv1d"
+    filename = "test_conv1d"
     conv1d.compile_c(directory, filename)
 
     n_size = 5
@@ -45,4 +45,3 @@ def test_conv1d():
     res_c = np.ctypeslib.as_array(res_c, shape=(r_size,))
     np.testing.assert_almost_equal(res_c, nparray(
         [0.12, 0.68, 0.27, -1.26, 2.78, -2.2, 0]))
-

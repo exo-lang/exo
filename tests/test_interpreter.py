@@ -28,7 +28,6 @@ def test_conv1d():
     w = np.array([0.6, 1.9, -2.2])
     res = np.random.uniform(size=r)
     conv1d.interpreter(n=n, m=m, r=r, x=x, w=w, res=res)
-    print(res)
     np.testing.assert_almost_equal(
         res, [0.12, 0.68, 0.27, -1.26, 2.78, -2.2, 0])
 
@@ -47,7 +46,6 @@ def test_add_vec():
     y = np.array([1.0, 2.0, 3.0])
     res = np.random.uniform(size=3)
     add_vec.interpreter(n=3, x=x, y=y, res=res)
-    print(res)
     np.testing.assert_almost_equal(res, [4, 8, 12])
 
 # multiply matrix test
@@ -84,5 +82,4 @@ def test_gemm():
     gemm = gen_gemm()
     C = np.random.uniform(size=(4, 3))
     gemm.interpreter(n=4, m=3, p=2, A=A, B=B, C=C)
-    print(C)
     np.testing.assert_almost_equal(C, C_answer)

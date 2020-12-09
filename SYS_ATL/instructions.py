@@ -81,7 +81,7 @@ class GEMM_Load(Instruction):
         spad = itr + "+" + str(self.sp_start_addr)
         self.sp_start_addr += 1
         # TODO: How to remember sp_start_addr??
-        res += (f"gemmini_extended_mvin(*{rbuf_name} + "+
+        res += (f"gemmini_extended_mvin({rbuf_name} + "+
                 f"({itr})*DIM, {spad}, DIM, DIM);\n")
         res += f"{self.lbuf}[{itr}] = {spad};\n"
 

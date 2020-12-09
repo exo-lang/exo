@@ -354,6 +354,13 @@ class LoopIR_PPrinter:
                 self.push()
                 self.pstmt(p)
                 self.pop()
+            if stmt.orelse:
+                self.addline(f"else:")
+                for p in stmt.orelse:
+                    self.push()
+                    self.pstmt(p)
+                    self.pop()
+
         elif type(stmt) is LoopIR.ForAll:
             hi = self.pexpr(stmt.hi)
             for p in stmt.body:

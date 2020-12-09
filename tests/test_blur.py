@@ -27,19 +27,21 @@ def gen_blur():
 
     return blur
 
-def test_blur():
+def test_simple_blur():
     blur = gen_blur()
     assert type(blur) is Procedure
 
-    filename = "compiler_test_simple_blur"
+    filename = "test_simple_blur"
 
     # Write pretty printing to a file
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
     f_pretty.write(str(blur))
     f_pretty.close()
 
+    # Compile blur to C file
     blur.compile_c(directory, filename)
 
+    # Execute
     n_size = image.shape[0]
     m_size = image.shape[1]
     k_size = 5
@@ -55,9 +57,9 @@ def test_blur():
     out.save(directory + filename + '_out.png')
 
 
-def test_blur_split():
+def test_simple_blur_split():
     @proc
-    def blur_split(n: size, m: size, k_size: size,
+    def simple_blur_split(n: size, m: size, k_size: size,
              image: R[n, m] @ IN, kernel: R[k_size, k_size] @ IN, res: R[n, m] @ OUT):
         for i in par(0, n):
             for j1 in par(0, m/2):
@@ -71,9 +73,9 @@ def test_blur_split():
                             if i+k >= 1 and i+k-n < 1 and j1*2+j2+l >= 1 and j1*2+j2+l-m < 1:
                                 res[i, j1*2+j2] += kernel[k, l] * image[i+k-1, j1*2+j2+l-1]
 
-    assert type(blur_split) is Procedure
-    filename = "test_compiler_blur_split"
-    blur_split.compile_c(directory, filename)
+    assert type(simple_blur_split) is Procedure
+    filename = "test_simple_blur_split"
+    simple_blur_split.compile_c(directory, filename)
 
     n_size = image.shape[0]
     m_size = image.shape[1]
@@ -82,7 +84,7 @@ def test_blur_split():
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(directory, filename)
-    test_lib.blur_split(c_int(n_size), c_int(m_size), c_int(
+    test_lib.simple_blur_split(c_int(n_size), c_int(m_size), c_int(
         k_size), cvt_c(image), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
@@ -97,7 +99,7 @@ def test_split_blur():
     blur = blur.split('i[1]',4,['i1','i2'])
 
     assert type(blur) is Procedure
-    filename = "test_compiler_split_blur"
+    filename = "test_split_blur"
 
     # Write pretty printing to a file
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
@@ -127,7 +129,7 @@ def test_reorder_blur():
     blur = blur.reorder('i','j')
 
     assert type(blur) is Procedure
-    filename = "test_compiler_reorder_blur"
+    filename = "test_reorder_blur"
 
     # Write pretty printing to a file
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
@@ -160,7 +162,7 @@ def test_unroll_blur():
     blur = blur.unroll('j2')
 
     assert type(blur) is Procedure
-    filename = "test_compiler_unroll_blur"
+    filename = "test_unroll_blur"
 
     # Write pretty printing to a file
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")

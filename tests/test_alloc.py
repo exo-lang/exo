@@ -64,7 +64,7 @@ def test_alloc1():
     alloc1 = gen_alloc1()
     assert type(alloc1) is Procedure
 
-    filename = "compiler_test_alloc1"
+    filename = "test_alloc1"
 
     # Write pretty printing to a file
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
@@ -91,7 +91,7 @@ def test_alloc2():
     alloc2 = gen_alloc2()
     assert type(alloc2) is Procedure
 
-    filename = "compiler_test_alloc2"
+    filename = "test_alloc2"
 
     # Write pretty printing to a file
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")

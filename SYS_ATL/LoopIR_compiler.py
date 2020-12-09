@@ -115,7 +115,7 @@ class Compiler:
         for b in stmts:
             self.env.push()
             stmt_str += self.comp_s(b)
-            stmt_str += "\n\n"
+            #stmt_str += "\n\n"
             self.env.pop()
 
         return stmt_str
@@ -144,7 +144,7 @@ class Compiler:
         styp = type(s)
 
         if styp is LoopIR.Pass:
-            return (f"; // # NO-OzP :")
+            return (f"; // # NO-OzP :\n")
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
             if self.envtyp[s.name] is T.R:
                 lhs = self.env[s.name]
@@ -152,20 +152,20 @@ class Compiler:
                 lhs = self.access_str(s.name, s.idx)
             rhs = self.comp_e(s.rhs)
             if styp is LoopIR.Assign:
-                return (f"{lhs} = {rhs};")
+                return (f"{lhs} = {rhs};\n")
             else:
-                return (f"{lhs} += {rhs};")
+                return (f"{lhs} += {rhs};\n")
         elif styp is LoopIR.If:
             cond = self.comp_e(s.cond)
             body = self.comp_stmts(s.body)
             ret = (f"if ({cond}) {{\n" +
-                  f"{body}\n" +
+                  f"{body}" +
                   f"}}\n")
 
             if s.orelse:
                 ebody = self.comp_stmts(s.orelse)
                 ret += (f"else {{\n" +
-                       f"{ebody}\n" +
+                       f"{ebody}" +
                        f"}}\n")
 
             return ret
@@ -175,20 +175,20 @@ class Compiler:
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
             body = self.comp_stmts(s.body)
             return (f"for (int {itr}=0; {itr} < {hi}; {itr}++) {{\n" +
-                    f"{body}\n" +
-                    f"}}")
+                    f"{body}" +
+                    f"}}\n")
         elif styp is LoopIR.Alloc:
             name = self.new_varname(s.name, typ=s.type)
             if s.type is T.R:
-                return (f"float {name};")
+                return (f"float {name};\n")
             else:
                 size = _type_size(s.type, self.env)
                 return (f"float *{name} = " +
-                        f"(float*) malloc ({size} * sizeof(float));")
+                        f"(float*) malloc ({size} * sizeof(float));\n")
         elif styp is LoopIR.Free:
             if s.type is not T.R:
                 name = self.env[s.name]
-                return f"free({name});"
+                return f"free({name});\n"
         elif styp is LoopIR.Instr:
             return s.op.compile(s.body, self)
         else:
