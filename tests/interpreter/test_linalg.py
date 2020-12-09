@@ -22,12 +22,12 @@ def gen_add_vec():
 
     src0 = null_srcinfo()
 
-    ai = IR.AVar(i, src0)
+    ai = IR.Read(i, T.Index, src0)
     rhs = IR.BinOp('+', IR.Read(x, [ai], src0),
                    IR.Read(y, [ai], src0),
                    src0)
     s_a = IR.Assign(res, [ai], rhs, src0)
-    an = IR.ASize(n, src0)
+    an = IR.Read(n, src0)
     loop = IR.ForAll(i, an, s_a, src0)
 
     return Proc('add_vec',

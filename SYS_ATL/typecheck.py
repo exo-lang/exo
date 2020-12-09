@@ -2,7 +2,7 @@ from .asdl.adt import ADT
 from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
-from .LoopIR import UAST, LoopIR, front_ops, bin_ops, pred_ops
+from .LoopIR import UAST, LoopIR, front_ops, bin_ops
 from . import shared_types as T
 
 from .instruction_type import is_valid_mem
@@ -37,7 +37,7 @@ class TypeChecker:
         args = []
         for sz in proc.sizes:
             self.env[sz] = T.size
-            args.append(LoopIR.fnarg(sz, T.size, None, None, proc.srcinfo)
+            args.append(LoopIR.fnarg(sz, T.size, None, None, proc.srcinfo))
 
         for a in proc.args:
             self.env[a.name] = a.type
@@ -107,7 +107,7 @@ class TypeChecker:
             rhs     = self.check_e(stmt.rhs)
             if rhs.type != T.err and not rhs.type.is_numeric():
                 self.err(rhs, f"cannot assign/reduce a "+
-                              f"'{rhs.type}' type value"))
+                              f"'{rhs.type}' type value")
 
             IRnode  = (LoopIR.Assign if type(stmt) is UAST.Assign else
                        LoopIR.Reduce)
@@ -121,7 +121,9 @@ class TypeChecker:
             if cond.type != T.err and cond.type != T.bool:
                 self.err(cond, f"expected a bool expression")
             body    = self.check_stmts(stmt.body)
-            ebody   = self.check_stmts(stmt.orelse)
+            ebody   = []
+            if len(stmt.orelse) > 0:
+                ebody   = self.check_stmts(stmt.orelse)
             return LoopIR.If(cond, body, ebody, stmt.srcinfo)
 
         elif type(stmt) is UAST.ForAll:

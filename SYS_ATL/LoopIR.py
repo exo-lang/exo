@@ -134,7 +134,7 @@ LoopIR = ADT("""
 module LoopIR {
     proc    = ( name?           name,
                 fnarg*          args,
-                stmt            body,
+                stmt*           body,
                 srcinfo         srcinfo )
 
     fnarg   = ( sym             name,
@@ -143,17 +143,17 @@ module LoopIR {
                 mem?            mem,
                 srcinfo         srcinfo )
 
-    stmt    = Assign( sym name, aexpr* idx, expr rhs)
-            | Reduce( sym name, aexpr* idx, expr rhs )
+    stmt    = Assign( sym name, expr* idx, expr rhs)
+            | Reduce( sym name, expr* idx, expr rhs )
             | Pass()
-            | If ( pred cond, stmt* body, stmt* orelse )
-            | ForAll ( sym iter, aexpr hi, stmt* body )
+            | If ( expr cond, stmt* body, stmt* orelse )
+            | ForAll ( sym iter, expr hi, stmt* body )
             | Alloc ( sym name, type type, mem? mem )
             | Free  ( sym name, type type, mem? mem )
             | Instr ( instr op, stmt body )
             attributes( srcinfo srcinfo )
 
-    expr    = Read( sym name, aexpr* idx )
+    expr    = Read( sym name, expr* idx )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
             | Select( expr cond, expr body )

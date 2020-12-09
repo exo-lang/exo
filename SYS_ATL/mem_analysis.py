@@ -19,12 +19,10 @@ class MemoryAnalysis:
         self.tofree = []
 
     def result(self):
-        self.push_frame()
-        body = self.mem_s(self.proc.body)
-        body = self.pop_frame(body)
+        body = self.mem_stmts(self.proc.body)
+
         return LoopIR.proc(
             self.proc.name,
-            self.proc.sizes,
             self.proc.args,
             body,
             self.proc.srcinfo)
@@ -36,36 +34,35 @@ class MemoryAnalysis:
         self.tofree[-1].add((sym, typ, mem))
 
     def pop_frame(self, body):
+        new_body = [body]
         for (nm, typ, mem) in self.tofree.pop():
-            body = LoopIR.Seq(body,
-                              LoopIR.Free(nm, typ, mem, body.srcinfo),
-                              body.srcinfo)
+            new_body.append(LoopIR.Free(nm, typ, mem, body.srcinfo))
+
+        return new_body
+    
+    def mem_stmts(self, stmts):
+        body = []
+        for b in stmts:
+            self.push_frame()
+            mem   = self.mem_s(b)
+            body += self.pop_frame(mem)
+
         return body
 
     def mem_s(self, s):
         styp = type(s)
 
-        if styp is LoopIR.Seq:
-            s0 = self.mem_s(s.s0)
-            s1 = self.mem_s(s.s1)
-            return LoopIR.Seq(s0, s1, s.srcinfo)
-        elif (styp is LoopIR.Pass or styp is LoopIR.Assign or
+        if (styp is LoopIR.Pass or styp is LoopIR.Assign or
               styp is LoopIR.Reduce):
             return s
         elif styp is LoopIR.If:
-            self.push_frame()
-            body = self.mem_s(s.body)
-            body = self.pop_frame(body)
-            ebody = None
+            body = self.mem_stmts(s.body)
+            ebody = []
             if s.orelse:
-                self.push_frame()
-                ebody = self.mem_s(s.orelse)
-                ebody = self.pop_frame(ebody)
+                ebody = self.mem_stmts(s.orelse)
             return LoopIR.If(s.cond, body, ebody, s.srcinfo)
         elif styp is LoopIR.ForAll:
-            self.push_frame()
-            body = self.mem_s(s.body)
-            body = self.pop_frame(body)
+            body = self.mem_stmts(s.body)
             return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
         elif styp is LoopIR.Instr:
             body = self.mem_s(s.body)
