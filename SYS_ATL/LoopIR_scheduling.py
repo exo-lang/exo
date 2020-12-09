@@ -45,29 +45,26 @@ def name_str_2_symbols(proc, desc):
     sym_list = []
 
     # search proc signature for symbol
-    for sz in proc.sizes:
-        if str(sz) == name:
-            sym_list.append(sz)
     for a in proc.args:
         if str(a.name) == name:
             sym_list.append(a.name)
 
     def find_sym_stmt(node, nm):
-        if type(node) is LoopIR.Seq:
-            find_sym_stmt(node.s0, nm)
-            find_sym_stmt(node.s1, nm)
-        elif type(node) is LoopIR.If:
-            find_sym_stmt(node.body, nm)
+        if type(node) is LoopIR.If:
+            for b in node.body:
+                find_sym_stmt(b, nm)
         elif type(node) is LoopIR.Alloc:
             if str(node.name) == nm:
                 sym_list.append(node.name)
         elif type(node) is LoopIR.ForAll:
             if str(node.iter) == nm:
                 sym_list.append(node.iter)
-            find_sym_stmt(node.body, nm)
+            for b in node.body:
+                find_sym_stmt(b, nm)
 
     # search proc body
-    find_sym_stmt(proc.body, name)
+    for b in proc.body:
+        find_sym_stmt(b, name)
 
     if idx is not None:
         assert len(sym_list) >= idx
@@ -100,11 +97,9 @@ def name_str_2_pairs(proc, out_desc, in_desc):
     out_cnt = 0
     in_cnt  = 0
     def find_sym_stmt(node, out_sym):
-        if type(node) is LoopIR.Seq:
-            find_sym_stmt(node.s0, out_sym)
-            find_sym_stmt(node.s1, out_sym)
-        elif type(node) is LoopIR.If:
-            find_sym_stmt(node.body, out_sym)
+        if type(node) is LoopIR.If:
+            for b in node.body:
+                find_sym_stmt(b, out_sym)
         elif type(node) is LoopIR.ForAll:
             # first, search for the outer name
             if out_sym is None and str(node.iter) == out_name:
@@ -112,7 +107,8 @@ def name_str_2_pairs(proc, out_desc, in_desc):
                 out_cnt += 1
                 if out_idx is None or out_idx is out_cnt:
                     out_sym = node.iter
-                    find_sym_stmt(node.body, out_sym)
+                    for b in node.body:
+                        find_sym_stmt(b, out_sym)
                     out_sym = None
             # if we are inside of an outer name match...
             elif out_sym is not None and str(node.iter) == in_name:
@@ -120,10 +116,12 @@ def name_str_2_pairs(proc, out_desc, in_desc):
                 in_cnt += 1
                 if in_idx is None or in_idx is in_cnt:
                     pair_list.append( (out_sym, node.iter) )
-            find_sym_stmt(node.body, out_sym)
+            for b in node.body:
+                find_sym_stmt(b, out_sym)
 
     # search proc body
-    find_sym_stmt(proc.body, None)
+    for b in proc.body:
+        find_sym_stmt(b, None)
 
     return pair_list
 
@@ -156,10 +154,9 @@ class _LoopIR_Rewrite:
     def __init__(self, proc, *args, **kwargs):
         self.orig_proc  = proc
 
-        body = self.map_s(self.orig_proc.body)
+        body = self.map_stmts(self.orig_proc.body)
 
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
-                                sizes   = self.orig_proc.sizes,
                                 args    = self.orig_proc.args,
                                 body    = body,
                                 srcinfo = self.orig_proc.srcinfo)
@@ -167,74 +164,53 @@ class _LoopIR_Rewrite:
     def result(self):
         return self.proc
 
+    def map_stmts(self, stmts):
+        body = []
+        for b in stmts:
+            body += self.map_s(b)
+        return body
+
     def map_s(self, s):
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            return styp( s.name, [ self.map_a(a) for a in s.idx ],
-                         self.map_e(s.rhs), s.srcinfo )
-        elif styp is LoopIR.Seq:
-            return LoopIR.Seq( self.map_s(s.s0), self.map_s(s.s1),
-                               s.srcinfo )
+            return [styp( s.name, [ self.map_e(a) for a in s.idx ],
+                         self.map_e(s.rhs), s.srcinfo )]
         elif styp is LoopIR.If:
-            orelse = self.map_s(s.orelse) if s.orelse else None
-            return LoopIR.If( self.map_p(s.cond), self.map_s(s.body),
-                              orelse, s.srcinfo )
+            return [LoopIR.If( self.map_e(s.cond), self.map_stmts(s.body),
+                              self.map_stmts(s.orelse), s.srcinfo )]
         elif styp is LoopIR.ForAll:
-            return LoopIR.ForAll( s.iter, self.map_a(s.hi), self.map_s(s.body),
-                              s.srcinfo )
+            return [LoopIR.ForAll( s.iter, self.map_e(s.hi), self.map_stmts(s.body),
+                              s.srcinfo )]
         elif styp is LoopIR.Instr:
-            return LoopIR.Instr( s.op, self.map_s(s.body), s.srcinfo )
+            return [LoopIR.Instr( s.op, self.map_s(s.body), s.srcinfo )]
         else:
-            return s
+            return [s]
 
     def map_e(self, e):
         etyp = type(e)
         if etyp is LoopIR.Read:
-            return LoopIR.Read( e.name, [ self.map_a(a) for a in e.idx ],
-                                e.srcinfo )
+            return LoopIR.Read( e.name, [ self.map_e(a) for a in e.idx ], e.type, e.srcinfo )
         elif etyp is LoopIR.BinOp:
             return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
-                                 e.srcinfo )
+                                 e.type, e.srcinfo )
         elif etyp is LoopIR.Select:
-            return LoopIR.Select( self.map_p(e.cond), self.map_e(e.body),
+            return LoopIR.Select( self.map_e(e.cond), self.map_e(e.body),
                                   e.srcinfo )
         else:
             return e
-
-    def map_p(self, p):
-        ptyp = type(p)
-        if ptyp is LoopIR.Cmp:
-            return LoopIR.Cmp( p.op, self.map_a(p.lhs), self.map_a(p.rhs),
-                               p.srcinfo )
-        elif ptyp is LoopIR.And or ptyp is LoopIR.Or:
-            return ptyp( self.map_p(p.lhs), self.map_p(p.rhs),
-                         p.srcinfo )
-        else:
-            return p
-
-    def map_a(self, a):
-        atyp = type(a)
-        if atyp is LoopIR.AScale:
-            return LoopIR.AScale( a.coeff, self.map_a(a.rhs), a.srcinfo )
-        elif atyp is LoopIR.AScaleDiv:
-            return LoopIR.AScaleDiv( self.map_a(a.lhs), a.quotient, a.srcinfo )
-        elif atyp is LoopIR.AAdd or atyp is LoopIR.ASub:
-            return atyp( self.map_a(a.lhs), self.map_a(a.rhs), a.srcinfo )
-        else:
-            return a
 
 
 class _Alpha_Rename(_LoopIR_Rewrite):
     def __init__(self, node):
         self.env    = {}
-        if isinstance(node, LoopIR.stmt):
-            self.node = self.map_s(node)
-        elif isinstance(node, LoopIR.expr):
-            self.node = self.map_e(node)
-        elif isinstance(node, LoopIR.pred):
-            self.node = self.map_p(node)
-        elif isinstance(node, LoopIR.aexpr):
-            self.node = self.map_a(node)
+        self.node = []
+        for n in node:
+            if isinstance(n, LoopIR.stmt):
+                self.node += self.map_s(n)
+            # This branch is not used. _Alpha_Rename is always
+            # called with list of stmts
+            #elif isinstance(n, LoopIR.expr):
+            #    self.node.append(self.map_e(n))
 
     def result(self):
         return self.node
@@ -243,17 +219,17 @@ class _Alpha_Rename(_LoopIR_Rewrite):
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             nm = self.env[s.name] if s.name in self.env else s.name
-            return styp( nm, [ self.map_a(a) for a in s.idx ],
-                         self.map_e(s.rhs), s.srcinfo )
+            return [styp( nm, [ self.map_e(a) for a in s.idx ],
+                         self.map_e(s.rhs), s.srcinfo )]
         elif styp is LoopIR.ForAll:
             itr = s.iter.copy()
             self.env[s.iter] = itr
-            return LoopIR.ForAll( itr, self.map_a(s.hi), self.map_s(s.body),
-                                  s.srcinfo )
+            return [LoopIR.ForAll( itr, self.map_e(s.hi), self.map_stmts(s.body),
+                                  s.srcinfo )]
         elif styp is LoopIR.Alloc:
             nm = s.name.copy()
             self.env[s.name] = nm
-            return LoopIR.Alloc( nm, s.type, s.mem, s.srcinfo )
+            return [LoopIR.Alloc( nm, s.type, s.mem, s.srcinfo )]
 
         return super().map_s(s)
 
@@ -261,19 +237,10 @@ class _Alpha_Rename(_LoopIR_Rewrite):
         etyp = type(e)
         if etyp is LoopIR.Read:
             nm = self.env[e.name] if e.name in self.env else e.name
-            return LoopIR.Read( nm, [ self.map_a(a) for a in e.idx ],
-                                e.srcinfo )
+            return LoopIR.Read( nm, [ self.map_e(a) for a in e.idx ],
+                                e.type, e.srcinfo )
 
         return super().map_e(e)
-
-    def map_a(self, a):
-        atyp = type(a)
-        if atyp is LoopIR.AVar:
-            nm = self.env[a.name] if a.name in self.env else a.name
-            return LoopIR.AVar( nm, a.srcinfo )
-
-        return super().map_a(a)
-
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -289,20 +256,20 @@ class _Reorder(_LoopIR_Rewrite):
     def map_s(self, s):
         if type(s) is LoopIR.ForAll:
             if s.iter == self.out_var:
-                if type(s.body) is not LoopIR.ForAll:
+                if len(s.body) != 1 or type(s.body[0]) is not LoopIR.ForAll:
                     raise SchedulingError(f"expected loop directly inside of "+
                                           f"{self.out_var} loop")
-                elif s.body.iter != self.in_var:
+                elif s.body[0].iter != self.in_var:
                     raise SchedulingError(f"expected loop directly inside of "+
                                           f"{self.out_var} loop to have "+
                                           f"iteration variable {self.in_var}")
                 else:
-                    body = s.body.body
+                    body = s.body[0].body
                     # wrap outer loop; now inner loop
-                    body = LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
+                    body = [LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)]
                     # wrap inner loop; now outer loop
-                    body = LoopIR.ForAll(s.body.iter, s.body.hi,
-                                         body, s.body.srcinfo)
+                    body = [LoopIR.ForAll(s.body[0].iter, s.body[0].hi,
+                                         body, s.body[0].srcinfo)]
                     return body
 
         # fall-through
@@ -324,38 +291,41 @@ class _Split(_LoopIR_Rewrite):
         super().__init__(proc)
 
     def substitute(self, srcinfo):
-        return LoopIR.AAdd(
-                LoopIR.AScale(self.quot, LoopIR.AVar(self.hi_i, srcinfo),
-                    srcinfo), LoopIR.AVar(self.lo_i, srcinfo), srcinfo)
+        return LoopIR.BinOp("+",
+                LoopIR.BinOp("*", LoopIR.Const(self.quot, T.int, srcinfo),
+                    LoopIR.Read(self.hi_i, [], T.index, srcinfo), T.index,
+                    srcinfo), LoopIR.Read(self.lo_i, [], T.index, srcinfo),
+                T.index, srcinfo)
 
     def map_s(self, s):
         if type(s) is LoopIR.ForAll:
             # Split this to two loops!!
             if s.iter is self.split_var:
-                body = self.map_s(s.body)
-                cond    = LoopIR.Cmp("<", self.substitute(s.srcinfo), s.hi,
-                                     s.srcinfo)
-                body    = LoopIR.If(cond, body, None, s.srcinfo)
-                hi_hi   = LoopIR.AScaleDiv(s.hi, self.quot, s.srcinfo)
-                lo_hi   = LoopIR.AConst(self.quot, s.srcinfo)
+                body = self.map_stmts(s.body)
+                cond    = LoopIR.BinOp("<", self.substitute(s.srcinfo), s.hi,
+                                        T.bool, s.srcinfo)
+                body    = [LoopIR.If(cond, body, [], s.srcinfo)]
+                lo_hi   = LoopIR.Const(self.quot, T.int, s.srcinfo)
+                hi_hi   = LoopIR.BinOp("/", s.hi, lo_hi, T.index, s.srcinfo)
 
-                return LoopIR.ForAll(self.hi_i, hi_hi,
-                            LoopIR.ForAll(self.lo_i, lo_hi,
+                return [LoopIR.ForAll(self.hi_i, hi_hi,
+                            [LoopIR.ForAll(self.lo_i, lo_hi,
                                 body,
-                                s.srcinfo),
-                            s.srcinfo)
+                                s.srcinfo)],
+                            s.srcinfo)]
 
         # fall-through
         return super().map_s(s)
 
-    def map_a(self, a):
-        if type(a) is LoopIR.AVar:
-            # This is a splitted variable, substitute it!
-            if a.name is self.split_var:
-                return self.substitute(a.srcinfo)
+    def map_e(self, e):
+        if type(e) is LoopIR.Read:
+            if e.type is T.index:
+                # This is a splitted variable, substitute it!
+                if e.name is self.split_var:
+                    return self.substitute(e.srcinfo)
 
         # fall-through
-        return super().map_a(a)
+        return super().map_e(e)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -375,39 +345,39 @@ class _Unroll(_LoopIR_Rewrite):
         if type(s) is LoopIR.ForAll:
             # unroll this to loops!!
             if s.iter is self.unroll_var:
-                if type(s.hi) is not LoopIR.AConst:
+                if type(s.hi) is not LoopIR.Const:
                     raise SchedulingError(f"expected loop '{s.iter}' "+
                                           f"to have constant bounds")
+                #if len(s.body) != 1:
+                #    raise SchedulingError(f"expected loop '{s.iter}' "+
+                #                          f"to have only one body")
                 hi      = s.hi.val
                 assert hi > 0
                 orig_body = s.body
 
                 self.unroll_itr = 0
 
-                body    = _Alpha_Rename(self.map_s(orig_body)).result()
+                body    = _Alpha_Rename(self.map_stmts(orig_body)).result()
                 for i in range(1,hi):
                     self.unroll_itr = i
-                    nxtbody = _Alpha_Rename(self.map_s(orig_body)).result()
-                    body = LoopIR.Seq(body, nxtbody, s.srcinfo)
+                    nxtbody = _Alpha_Rename(self.map_stmts(orig_body)).result()
+                    body   += nxtbody
 
                 return body
-            else:
-                body = self.map_s(s.body)
-                return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
 
         # fall-through
         return super().map_s(s)
 
-    def map_a(self, a):
-        if type(a) is LoopIR.AVar:
-            # This is a unrolled variable, substitute it!
-            if a.name is self.unroll_var:
-                return LoopIR.AConst(self.unroll_itr, a.srcinfo)
-            else:
-                return a
+    def map_e(self, e):
+        if type(e) is LoopIR.Read:
+            if e.type is T.index:
+                # This is a unrolled variable, substitute it!
+                if e.name is self.unroll_var:
+                    return LoopIR.Const(self.unroll_itr, T.index,
+                                        e.srcinfo)
 
         # fall-through
-        return super().map_a(a)
+        return super().map_e(e)
 
 
 # --------------------------------------------------------------------------- #
