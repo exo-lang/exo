@@ -1,9 +1,6 @@
-
 from .prelude import *
-
 from . import shared_types as T
 from .LoopIR import LoopIR
-
 from .instruction_type import Instruction
 
 # --------------------------------------------------------------------------- #
@@ -39,7 +36,9 @@ class GEMM_Load(Instruction):
             if type(subtree) is LoopIR.ForAll:
                 self.itrs.append(subtree.iter)
                 self.his.append(subtree.hi)
-                subtree = subtree.body
+                if len(subtree.body) != 1:
+                    tc.err(subtree, pattern_err)
+                subtree = subtree.body[0]
             else:
                 tc.err(subtree, pattern_err)
                 return
@@ -63,12 +62,12 @@ class GEMM_Load(Instruction):
     #    pass
 
     def compile(self, subtree, comp):
-        his_comp  = [comp.comp_a(i) for i in self.his]
-        itrs_comp = [comp.new_varname(i) for i in self.itrs]
+        his_comp  = [comp.comp_e(i) for i in self.his]
+        itrs_comp = [comp.new_varname(i, typ=T.index) for i in self.itrs]
         rbuf_name = comp.env[self.rbuf]
         lbuf_name = comp.env[self.lbuf]
-        lidx_comp = [comp.comp_a(i) for i in self.lidx]
-        ridx_comp = [comp.comp_a(i) for i in self.ridx]
+        lidx_comp = [comp.comp_e(i) for i in self.lidx]
+        ridx_comp = [comp.comp_e(i) for i in self.ridx]
 
         # No idea how we can handle bounds checking here.
         # Ignore the if statement for now..

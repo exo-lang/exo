@@ -16,7 +16,7 @@ if not os.path.isdir(directory):
     os.mkdir(directory)
 
 # Dump image here
-input_filename = os.path.dirname(os.path.realpath(__file__)) + "/../input.png"
+input_filename = os.path.dirname(os.path.realpath(__file__)) + "/input.png"
 o_image = Image.open(input_filename)
 image = np.asarray(o_image, dtype="float32")
 

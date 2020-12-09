@@ -135,6 +135,8 @@ def test_reorder_blur():
     f_pretty.close()
 
     blur.compile_c(directory, filename)
+
+    #Execute
     n_size = image.shape[0]
     m_size = image.shape[1]
     k_size = 5

@@ -3,13 +3,12 @@ from .LoopIR import UAST, LoopIR
 from . import shared_types as T
 from .typecheck import TypeChecker
 from .LoopIR_compiler import Compiler, run_compile
+from .LoopIR_interpreter import Interpreter, run_interpreter
 from .LoopIR_scheduling import Schedules, name_str_2_symbols, name_str_2_pairs
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   Procedure Objects
-
-
 class Procedure:
     def __init__(self, proc, _testing=None):
         if isinstance(proc, LoopIR.proc):
@@ -30,6 +29,9 @@ class Procedure:
     def compile_c(self, directory, filename):
         run_compile([self._loopir_proc], directory,
                     (filename + ".c"), (filename + ".h"))
+
+    def interpreter(self, **kwargs):
+        run_interpreter([self._loopir_proc], kwargs)
 
     # scheduling operations
     def split(self, split_var, split_const, out_vars):
@@ -84,15 +86,3 @@ class Procedure:
         for nm in unroll_names:
             loopir  = Schedules.DoUnroll(loopir, nm).result()
         return Procedure(loopir)
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-#   Compilation of sets of Procedures
-
-def compile(procs, dir, c_file, h_file):
-    for p in procs:
-        if type(p) is not Procedure:
-            raise TypeError("compile() expects a list of Procedures "+
-                            "as its first argument")
-    run_compile([ p._loopir_proc for p in procs ], dir, c_file, h_file)

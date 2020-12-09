@@ -34,47 +34,46 @@ def _simple_typecheck_buffer(typ, buf, env):
 
     return True
 
+def run_interpreter(proc_list, kwargs):
+    for p in proc_list:
+        Interpreter(p, kwargs)
 
 class Interpreter:
-    def __init__(self, proc, use_randomization=False, **kwargs):
+    def __init__(self, proc, kwargs, use_randomization=False):
         assert type(proc) is LoopIR.proc
 
         self.proc = proc
         self.env = Environment()
         self.use_randomization = use_randomization
 
-        # setup, size argument binding
-        for sz in proc.sizes:
-            if not str(sz) in kwargs:
-                raise TypeError(f"expected size '{sz}' "
-                                f"to be supplied")
-            if not is_pos_int(kwargs[str(sz)]):
-                raise TypeError(f"expected size '{sz}' to "
-                                f"have positive integer value")
-            self.env[sz] = kwargs[str(sz)]
-
         # setup, buffer argument binding
         for a in proc.args:
             if not str(a.name) in kwargs:
                 raise TypeError(f"expected argument '{a.name}' "
                                 f"to be supplied")
-            if not _simple_typecheck_buffer(a.type, kwargs[str(a.name)],
-                                            self.env):
-                raise TypeError(f"type of argument '{a.name}' "
-                                f"value mismatches")
+            if a.type is T.size:
+                if not is_pos_int(kwargs[str(a.name)]):
+                    raise TypeError(f"expected size '{a.name}' to "
+                                    f"have positive integer value")
+            else:
+                if not _simple_typecheck_buffer(a.type, kwargs[str(a.name)],
+                                                self.env):
+                    raise TypeError(f"type of argument '{a.name}' "
+                                    f"value mismatches")
             self.env[a.name] = kwargs[str(a.name)]
 
         self.env.push()
-        self.eval_s(proc.body)
+        self.eval_stmts(proc.body)
         self.env.pop()
+
+    def eval_stmts(self, stmts):
+        for s in stmts:
+            self.eval_s(s)
 
     def eval_s(self, s):
         styp = type(s)
 
-        if styp is LoopIR.Seq:
-            self.eval_s(s.s0)
-            self.eval_s(s.s1)
-        elif styp is LoopIR.Pass:
+        if styp is LoopIR.Pass:
             pass
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
             # lbuf[a0,a1,...] = rhs
@@ -82,30 +81,30 @@ class Interpreter:
             if len(s.idx) == 0:
                 idx = (0,)
             else:
-                idx = tuple(self.eval_a(a) for a in s.idx)
+                idx = tuple(self.eval_e(a) for a in s.idx)
             rhs = self.eval_e(s.rhs)
             if styp is LoopIR.Assign:
                 lbuf[idx] = rhs
             else:
                 lbuf[idx] += rhs
         elif styp is LoopIR.If:
-            cond = self.eval_p(s.cond)
-            self.env.push()
+            cond = self.eval_e(s.cond)
             if cond:
-                self.eval_s(s.body)
-            self.env.pop()
+                self.env.push()
+                self.eval_stmts(s.body)
+                self.env.pop()
             if s.orelse and not cond:
                 self.env.push()
-                self.eval_s(s.orelse)
+                self.eval_stmts(s.orelse)
                 self.env.pop()
 
         elif styp is LoopIR.ForAll:
-            hi = self.eval_a(s.hi)
+            hi = self.eval_e(s.hi)
             assert self.use_randomization is False, "TODO: Implement Randomization"
             self.env.push()
             for itr in range(0, hi):
                 self.env[s.iter] = itr
-                self.eval_s(s.body)
+                self.eval_stmts(s.body)
             self.env.pop()
         # elif styp is LoopIR.ForAllWhere:
         #    for itr in
@@ -119,6 +118,7 @@ class Interpreter:
         elif styp is LoopIR.Instr:
             self.eval_s(s.body)
         else:
+            print(styp)
             assert False, "bad case"
 
     def eval_e(self, e):
@@ -126,8 +126,10 @@ class Interpreter:
 
         if etyp is LoopIR.Read:
             buf = self.env[e.name]
+            if type(buf) is int:
+                return buf
             idx = ((0,) if len(e.idx) == 0
-                   else tuple(self.eval_a(a) for a in e.idx))
+                   else tuple(self.eval_e(a) for a in e.idx))
             return buf[idx]
         elif etyp is LoopIR.Const:
             return e.val
@@ -141,60 +143,24 @@ class Interpreter:
                 return lhs * rhs
             elif e.op == "/":
                 return lhs / rhs
+            elif e.op == "%":
+                return lhs % rhs
+            elif e.op == "==":
+                return (lhs == rhs)
+            elif e.op == "<":
+                return (lhs < rhs)
+            elif e.op == ">":
+                return (lhs > rhs)
+            elif e.op == "<=":
+                return (lhs <= rhs)
+            elif e.op == ">=":
+                return (lhs >= rhs)
+            elif e.op == "and":
+                return (lhs and rhs)
+            elif e.op == "or":
+                return (lhs or rhs)
         elif etyp is LoopIR.Select:
             cond = self.eval_p(e.cond)
             return self.eval_e(e.body) if cond else 0.0
-        else:
-            assert False, "bad case"
-
-    def eval_a(self, a):
-        atyp = type(a)
-
-        if atyp is LoopIR.AVar or atyp is LoopIR.ASize:
-            return self.env[a.name]
-        elif atyp is LoopIR.AConst:
-            return a.val
-        elif atyp is LoopIR.AScale:
-            return a.coeff * self.eval_a(a.rhs)
-        elif atyp is LoopIR.AScaleDiv:
-            assert a.quotient > 0
-            return self.eval_a(a.lhs) // a.quotient
-        elif atyp is LoopIR.AMod:
-            assert a.divisor > 0
-            return self.eval_a(a.lhs) % a.divisor
-        elif atyp is LoopIR.AAdd:
-            return self.eval_a(a.lhs) + self.eval_a(a.rhs)
-        elif atyp is LoopIR.ASub:
-            return self.eval_a(a.lhs) - self.eval_a(a.rhs)
-        else:
-            assert False, "bad case"
-
-    def eval_p(self, p):
-        ptyp = type(p)
-
-        if ptyp is LoopIR.BConst:
-            return p.val
-        elif ptyp is LoopIR.Cmp:
-            lhs, rhs = self.eval_a(p.lhs), self.eval_a(p.rhs)
-            if p.op == "==":
-                return (lhs == rhs)
-            elif p.op == "<":
-                return (lhs < rhs)
-            elif p.op == ">":
-                return (lhs > rhs)
-            elif p.op == "<=":
-                return (lhs <= rhs)
-            elif p.op == ">=":
-                return (lhs >= rhs)
-            else:
-                assert False, "bad case"
-        elif ptyp is LoopIR.And or ptyp is LoopIR.Or:
-            lhs, rhs = self.eval_p(p.lhs), self.eval_p(p.rhs)
-            if ptyp is LoopIR.And:
-                return (lhs and rhs)
-            elif ptyp is LoopIR.Or:
-                return (lhs or rhs)
-            else:
-                assert False, "bad case"
         else:
             assert False, "bad case"
