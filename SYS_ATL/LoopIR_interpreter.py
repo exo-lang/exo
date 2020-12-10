@@ -159,8 +159,5 @@ class Interpreter:
                 return (lhs and rhs)
             elif e.op == "or":
                 return (lhs or rhs)
-        elif etyp is LoopIR.Select:
-            cond = self.eval_p(e.cond)
-            return self.eval_e(e.body) if cond else 0.0
         else:
             assert False, "bad case"

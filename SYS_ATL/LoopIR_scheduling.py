@@ -193,24 +193,18 @@ class _LoopIR_Rewrite:
         elif etyp is LoopIR.BinOp:
             return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
                                  e.type, e.srcinfo )
-        elif etyp is LoopIR.Select:
-            return LoopIR.Select( self.map_e(e.cond), self.map_e(e.body),
-                                  e.srcinfo )
         else:
             return e
 
 
 class _Alpha_Rename(_LoopIR_Rewrite):
     def __init__(self, node):
+        assert isinstance(node, list)
         self.env    = {}
         self.node = []
         for n in node:
-            if isinstance(n, LoopIR.stmt):
-                self.node += self.map_s(n)
-            # This branch is not used. _Alpha_Rename is always
-            # called with list of stmts
-            #elif isinstance(n, LoopIR.expr):
-            #    self.node.append(self.map_e(n))
+            assert isinstance(n, LoopIR.stmt)  # only case handled for now
+            self.node += self.map_s(n)
 
     def result(self):
         return self.node

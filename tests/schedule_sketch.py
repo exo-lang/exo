@@ -251,4 +251,32 @@ instruction { .... }
 instr(GEMM_Load)
 for i in par(0,n):
     x[i] = y[i]
-"""
+
+# basic source
+for i :
+    alloc A
+    # do something with A
+    comp1(A)
+    alloc B
+    # do something with B, but not A
+    comp2(B)
+
+
+for i :
+    alloc A
+    # do something with A
+    comp1(A)
+    #alloc B
+    # change B to A in the following
+    # do something with B, but not A
+    comp2(A)
+
+
+alloc A[2]
+for i :
+    # do something with A
+    comp1(A[i%2])
+    #alloc B
+    # change B to A in the following
+    # do something with B, but not A
+    comp2(A[(i+1)%2])

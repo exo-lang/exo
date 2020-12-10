@@ -30,7 +30,7 @@ class Procedure:
         run_compile([self._loopir_proc], directory,
                     (filename + ".c"), (filename + ".h"))
 
-    def interpreter(self, **kwargs):
+    def interpret(self, **kwargs):
         run_interpreter([self._loopir_proc], kwargs)
 
     # scheduling operations

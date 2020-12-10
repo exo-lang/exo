@@ -214,26 +214,26 @@ class Compiler:
             elif e.op == "*":
                 return f"({lhs} * {rhs})"
             elif e.op == "/":
-                return f"({lhs} / {rhs})"
+                if e.type.is_numeric():
+                    return f"({lhs} / {rhs})"
+                else:
+                    #TODO: insert floor here
+                    return f"_floor_div({lhs}, {rhs})"
             elif e.op == "%":
                 return f"({lhs} % {rhs})"
             elif e.op == "==":
-                return (f"{lhs} == {rhs}")
+                return (f"({lhs} == {rhs})")
             elif e.op == "<":
-                return (f"{lhs} < {rhs}")
+                return (f"({lhs} < {rhs})")
             elif e.op == ">":
-                return (f"{lhs} > {rhs}")
+                return (f"({lhs} > {rhs})")
             elif e.op == "<=":
-                return (f"{lhs} <= {rhs}")
+                return (f"({lhs} <= {rhs})")
             elif e.op == ">=":
-                return (f"{lhs} >= {rhs}")
+                return (f"({lhs} >= {rhs})")
             elif e.op == "and":
-                return (f"{lhs} && {rhs}")
+                return (f"({lhs} && {rhs})")
             elif e.op == "or":
-                return (f"{lhs} || {rhs}")
-        elif etyp is LoopIR.Select:
-            cond = self.comp_e(e.cond)
-            body = self.comp_e(e.body)
-            return f"(({cond})? {body} : 0.0)"
+                return (f"({lhs} || {rhs})")
         else:
             assert False, "bad case"

@@ -392,9 +392,5 @@ class LoopIR_PPrinter:
             if local_prec < prec:
                 s = f"({s})"
             return s
-        elif type(e) is LoopIR.Select:
-            cond = self.pexpr(e.cond)
-            body = self.pexpr(e.body)
-            return f"({cond}) ? {body}"
         else:
             assert False, "unrecognized expr type"
