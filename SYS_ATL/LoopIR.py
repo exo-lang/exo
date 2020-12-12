@@ -49,6 +49,7 @@ module UAST {
             | ForAll  ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, string? mem )
             | Instr   ( instr op, stmt body )
+            | Call    ( proc f, expr* args )
             attributes( srcinfo srcinfo )
 
     expr    = Read    ( sym name, expr* idx )
@@ -103,14 +104,15 @@ module LoopIR {
                 mem?            mem,
                 srcinfo         srcinfo )
 
-    stmt    = Assign( sym name, expr* idx, expr rhs)
-            | Reduce( sym name, expr* idx, expr rhs )
+    stmt    = Assign ( sym name, expr* idx, expr rhs)
+            | Reduce ( sym name, expr* idx, expr rhs )
             | Pass()
-            | If ( expr cond, stmt* body, stmt* orelse )
+            | If     ( expr cond, stmt* body, stmt* orelse )
             | ForAll ( sym iter, expr hi, stmt* body )
-            | Alloc ( sym name, type type, mem? mem )
-            | Free  ( sym name, type type, mem? mem )
-            | Instr ( instr op, stmt body )
+            | Alloc  ( sym name, type type, mem? mem )
+            | Free   ( sym name, type type, mem? mem )
+            | Instr  ( instr op, stmt body )
+            | Call   ( proc f, expr* args )
             attributes( srcinfo srcinfo )
 
     expr    = Read( sym name, expr* idx )

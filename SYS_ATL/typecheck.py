@@ -85,14 +85,21 @@ class TypeChecker:
         if typ is T.err:
             pass
         elif typ.is_numeric():
-            if len(typ.shape()) != len(idx):
+            if len(typ.shape()) < len(idx):
                 self.err(node, f"expected access of variable " +
                                f"'{nm}' of type '{typ}' to have " +
-                               f"{len(typ.shape())} " +
+                               f"no more than {len(typ.shape())} " +
+                               f"indices, but {len(idx)} were found.")
+                typ = T.err
+            elif lvalue and len(typ.shape()) != len(idx):
+                self.err(node, f"expected lvalue access of variable " +
+                               f"'{nm}' of type '{typ}' to have " +
+                               f"exactly {len(typ.shape())} " +
                                f"indices, but {len(idx)} were found.")
                 typ = T.err
             else:
-                typ = typ.base()
+                for _ in idx:
+                    typ = typ.type
         elif lvalue:
             self.err(node, f"cannot assign/reduce to '{nm}', " +
                            f"a non-numeric variable of type '{typ}'")
@@ -104,8 +111,9 @@ class TypeChecker:
         if type(stmt) is UAST.Assign or type(stmt) is UAST.Reduce:
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx,
                                          lvalue=True)
+            assert (typ is T.R or typ is T.err)
             rhs     = self.check_e(stmt.rhs)
-            if rhs.type != T.err and not rhs.type.is_numeric():
+            if rhs.type != T.err and rhs.type != T.R:
                 self.err(rhs, f"cannot assign/reduce a "+
                               f"'{rhs.type}' type value")
 
@@ -159,6 +167,50 @@ class TypeChecker:
             stmt.op.typecheck(body, self)
             return LoopIR.Instr(stmt.op, body, stmt.srcinfo)
 
+        elif type(stmt) is UAST.Call:
+            args    = [ self.check_e(a) for a in stmt.args ]
+            # need to introspect on f to get arguments and their types
+            # first need to establish size variable mapping
+            size_map = {}
+            for a,fa in zip(args, f.args):
+                if fa.type is T.size:
+                    is_err = True
+                    if a.type == T.err:
+                        pass
+                    elif a.type != T.size and a.type != T.int:
+                        self.err(a, "expected argument of 'size' or 'int' "+
+                                    "type, but got argument of "+
+                                    f"type '{a.type}'")
+                    else:
+                        if a.type == T.size:
+                            if type(a) is not LoopIR.Read:
+                                self.err(a, "expected size arguments to be "+
+                                            "simply variables for now")
+                            else:
+                                is_err = False
+                                size_map[fa.name] = a.name
+                        elif a.type == T.int:
+                            if type(a) is not LoopIR.Const:
+                                self.err(a, "expected int arguments to be "+
+                                            "simply literals for now")
+                            else:
+                                is_err = False
+                                size_map[fa.name] = a.val
+                    if is_err:
+                        return LoopIR.Pass(stmt.srcinfo)
+
+            # now that we have processed size arguments, we can type-check
+            # the rest of the arguments
+            for a,fa in zip(args, f.args):
+                if a.type == T.err or fa.type == T.size:
+                    continue
+
+                fatype = fa.type.subst(size_map)
+                if a.type != fatype:
+                    self.err(a, f"expected argument of type '{fatype}'")
+
+            return LoopIR.Call(stmt.f, args, stmt.srcinfo)
+
         else:
             assert False, "not a loopir in check_stmts"
 
@@ -187,6 +239,9 @@ class TypeChecker:
                                     LoopIR.Const(neg1, arg.type, e.srcinfo),
                                     arg,
                                     arg.type, e.srcinfo)
+            elif arg.type != T.err:
+                self.err(e, f"cannot negate expression of type '{arg.type}'")
+            return LoopIR.Const(0,T.err,e.srcinfo)
 
         elif type(e) is UAST.BinOp:
             lhs = self.check_e(e.lhs)
@@ -215,18 +270,26 @@ class TypeChecker:
                   e.op == "/" or e.op == "%"):
                 if lhs.type == T.R:
                     if rhs.type != T.R:
-                        self.err(rhs, "expected numeric type")
+                        self.err(rhs, "expected scalar 'R' type")
                         typ = T.err
                     elif e.op == "%":
-                        self.err(e, "cannot compute modulus of 'num' values")
+                        self.err(e, "cannot compute modulus of 'R' values")
                         typ = T.err
                     else:
                         typ = T.R
+                elif rhs.type == T.R:
+                    self.err(lhs, "expected scalar 'R' type")
                 elif lhs.type == T.bool:
                     self.err(lhs, "cannot perform arithmetic on 'bool' values")
                     typ = T.err
                 elif rhs.type == T.bool:
                     self.err(rhs, "cannot perform arithmetic on 'bool' values")
+                    typ = T.err
+                elif type(lhs.type) is T.Tensor:
+                    self.err(lhs, "cannot perform arithmetic on tensors")
+                    typ = T.err
+                elif type(rhs.type) is T.Tensor:
+                    self.err(rhs, "cannot perform arithmetic on tensors")
                     typ = T.err
                 else:
                     assert lhs.type.is_indexable()

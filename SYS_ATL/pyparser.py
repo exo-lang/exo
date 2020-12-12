@@ -404,6 +404,31 @@ class Parser:
 
                 rstmts.append(InstrStub(Instr_Lookup[a.id](), s))
 
+            # ----- Sub-routine call parsing
+            elif (type(s) is pyast.Expr and
+                  type(s.value) is pyast.Call and
+                  type(s.value.func) is pyast.Name):
+                fname = s.value.func.id
+                if fname in self.locals:
+                    f = self.locals[fname]
+                elif fname in self.globals:
+                    f = self.globals[fname]
+                else:
+                    self.err(s.value.func, f"procedure '{fname}' "+
+                                            "was undefined")
+                if not isinstance(f, Procedure):
+                    self.err(s.value.func, f"expected '{fname}' "+
+                                            "to be a procedure")
+
+                if len(s.value.keywords) > 0:
+                    self.err(s.value, "cannot call procedure() "+
+                                      "with keyword arguments")
+
+                args = [ self.parse_expr(a) for a in s.value.args ]
+
+                rstmts.append(UAST.Call(f.INTERNAL_proc(),
+                              args, s.value.srcinfo))
+
             # ----- Pass no-op parsing
             elif type(s) is pyast.Pass:
                 rstmts.append(UAST.Pass(self.getsrcinfo(s)))

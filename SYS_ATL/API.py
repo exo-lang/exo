@@ -26,6 +26,9 @@ class Procedure:
         else:
             return str(self._uast_proc)
 
+    def INTERNAL_proc(self):
+        return self._loopir_proc
+
     def compile_c(self, directory, filename):
         run_compile([self._loopir_proc], directory,
                     (filename + ".c"), (filename + ".h"))

@@ -93,6 +93,15 @@ def base(t):
     return R
 del base
 
+@extclass(_Types.type)
+def subst(t, lookup):
+    if type(t) is Tensor:
+        typ     = t.type.subst(lookup)
+        hi      = t.hi if is_pos_int(t.hi) else lookup[t.hi]
+        return Tensor(hi, typ)
+    else:
+        return t
+del subst
 
 # --------------------------------------------------------------------------- #
 # string representation of types...
