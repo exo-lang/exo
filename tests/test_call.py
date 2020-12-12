@@ -27,11 +27,11 @@ def gen_proj(dot):
     #   (x.y)/|y|  * (y /|y|) = (x.y)/(|y|^2) * y = (x.y)/(y.y) * y
     @proc
     def proj(n : size, x : R[n] @ INOUT, y : R[n] @ IN):
-        alloc xy : R
-        alloc y2 : R
+        xy : R
+        y2 : R
         dot(n, x, y, xy)
         dot(n, y, y, y2)
-        alloc s : R
+        s : R
         s = xy / y2
         for i in par(0,n):
             x[i] = s * y[i]
