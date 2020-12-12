@@ -33,19 +33,21 @@ class MemoryAnalysis:
     def add_malloc(self, sym, typ, mem):
         self.tofree[-1].add((sym, typ, mem))
 
-    def pop_frame(self, body):
-        new_body = [body]
-        for (nm, typ, mem) in self.tofree.pop():
-            new_body.append(LoopIR.Free(nm, typ, mem, body.srcinfo))
+    def pop_frame(self, srcinfo):
+        suffix = [ LoopIR.Free(nm, typ, mem, srcinfo)
+                   for (nm, typ, mem) in self.tofree.pop() ]
 
-        return new_body
-    
+        return suffix
+
     def mem_stmts(self, stmts):
+        if len(stmts) == 0:
+            return stmts
+
         body = []
+        self.push_frame()
         for b in stmts:
-            self.push_frame()
-            mem   = self.mem_s(b)
-            body += self.pop_frame(mem)
+            body.append(self.mem_s(b))
+        body += self.pop_frame(body[0].srcinfo)
 
         return body
 
@@ -56,10 +58,8 @@ class MemoryAnalysis:
               styp is LoopIR.Reduce):
             return s
         elif styp is LoopIR.If:
-            body = self.mem_stmts(s.body)
-            ebody = []
-            if s.orelse:
-                ebody = self.mem_stmts(s.orelse)
+            body    = self.mem_stmts(s.body)
+            ebody   = self.mem_stmts(s.orelse)
             return LoopIR.If(s.cond, body, ebody, s.srcinfo)
         elif styp is LoopIR.ForAll:
             body = self.mem_stmts(s.body)

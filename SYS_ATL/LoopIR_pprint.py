@@ -5,8 +5,6 @@ from .prelude import *
 from .LoopIR import UAST, front_ops, LoopIR
 from . import shared_types as T
 
-
-
 # google python formatting project
 # to save myself the trouble of being overly clever
 from yapf.yapflib.yapf_api import FormatCode
@@ -305,23 +303,21 @@ class LoopIR_PPrinter:
     def pproc(self, p):
         name = p.name or "_anon_"
 
-        args = []
-        for a in p.args:
-            if a.type == T.size:
-                args.append(f"{self.new_name(a.name)} : size")
-            else:
-                args.append(self.pfnarg(a))
+        args = [ self.pfnarg(a) for a in p.args ]
 
         self.addline(f"def {name}({','.join(args)}):")
 
-        for p in p.body:
-            self.push()
-            self.pstmt(p)
-            self.pop()
+        self.push()
+        for proc in p.body:
+            self.pstmt(proc)
+        self.pop()
 
     def pfnarg(self, a):
-        mem = f" @{a.mem}" if a.mem else ""
-        return f"{self.new_name(a.name)} : {a.type} @ {a.effect}{mem}"
+        if a.type == T.size:
+            return f"{self.new_name(a.name)} : size"
+        else:
+            mem = f" @{a.mem}" if a.mem else ""
+            return f"{self.new_name(a.name)} : {a.type} @ {a.effect}{mem}"
 
     def pstmt(self, stmt):
         if type(stmt) is LoopIR.Pass:
@@ -350,28 +346,27 @@ class LoopIR_PPrinter:
         elif type(stmt) is LoopIR.If:
             cond = self.pexpr(stmt.cond)
             self.addline(f"if {cond}:")
+            self.push()
             for p in stmt.body:
-                self.push()
                 self.pstmt(p)
-                self.pop()
-            if stmt.orelse:
+            self.pop()
+            if len(stmt.orelse) > 0:
                 self.addline(f"else:")
+                self.push()
                 for p in stmt.orelse:
-                    self.push()
                     self.pstmt(p)
-                    self.pop()
+                self.pop()
 
         elif type(stmt) is LoopIR.ForAll:
             hi = self.pexpr(stmt.hi)
+            self.push(only='env')
+            self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}):")
+            self.push(only='tab')
             for p in stmt.body:
-                self.push(only='env')
-                self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}):")
-                self.push(only='tab')
                 self.pstmt(p)
-                self.pop()
+            self.pop()
         else:
-            print(type(stmt))
-            assert False, "unrecognized stmt type"
+            assert False, f"unrecognized stmt: {type(stmt)}"
 
     def pexpr(self, e, prec=0):
         if type(e) is LoopIR.Read:
@@ -393,4 +388,4 @@ class LoopIR_PPrinter:
                 s = f"({s})"
             return s
         else:
-            assert False, "unrecognized expr type"
+            assert False, f"unrecognized expr: {type(e)}"

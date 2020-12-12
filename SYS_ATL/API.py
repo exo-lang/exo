@@ -31,7 +31,7 @@ class Procedure:
                     (filename + ".c"), (filename + ".h"))
 
     def interpret(self, **kwargs):
-        run_interpreter([self._loopir_proc], kwargs)
+        run_interpreter(self._loopir_proc, kwargs)
 
     # scheduling operations
     def split(self, split_var, split_const, out_vars):

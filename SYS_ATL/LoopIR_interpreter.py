@@ -34,9 +34,8 @@ def _simple_typecheck_buffer(typ, buf, env):
 
     return True
 
-def run_interpreter(proc_list, kwargs):
-    for p in proc_list:
-        Interpreter(p, kwargs)
+def run_interpreter(proc, kwargs):
+    Interpreter(proc, kwargs)
 
 class Interpreter:
     def __init__(self, proc, kwargs, use_randomization=False):
@@ -46,15 +45,21 @@ class Interpreter:
         self.env = Environment()
         self.use_randomization = use_randomization
 
+        # must bind all size arguments first
+        for a in proc.args:
+            if a.type is T.size:
+                if not is_pos_int(kwargs[str(a.name)]):
+                    raise TypeError(f"expected size '{a.name}' to "
+                                    f"have positive integer value")
+                self.env[a.name] = kwargs[str(a.name)]
+
         # setup, buffer argument binding
         for a in proc.args:
             if not str(a.name) in kwargs:
                 raise TypeError(f"expected argument '{a.name}' "
                                 f"to be supplied")
             if a.type is T.size:
-                if not is_pos_int(kwargs[str(a.name)]):
-                    raise TypeError(f"expected size '{a.name}' to "
-                                    f"have positive integer value")
+                continue # already bound these
             else:
                 if not _simple_typecheck_buffer(a.type, kwargs[str(a.name)],
                                                 self.env):
@@ -100,14 +105,12 @@ class Interpreter:
 
         elif styp is LoopIR.ForAll:
             hi = self.eval_e(s.hi)
-            assert self.use_randomization is False, "TODO: Implement Randomization"
+            assert self.use_randomization is False, "TODO: Implement Rand"
             self.env.push()
             for itr in range(0, hi):
                 self.env[s.iter] = itr
                 self.eval_stmts(s.body)
             self.env.pop()
-        # elif styp is LoopIR.ForAllWhere:
-        #    for itr in
         elif styp is LoopIR.Alloc:
             if s.type is T.R:
                 self.env[s.name] = np.empty([1])
@@ -118,7 +121,6 @@ class Interpreter:
         elif styp is LoopIR.Instr:
             self.eval_s(s.body)
         else:
-            print(styp)
             assert False, "bad case"
 
     def eval_e(self, e):
@@ -127,6 +129,8 @@ class Interpreter:
         if etyp is LoopIR.Read:
             buf = self.env[e.name]
             if type(buf) is int:
+                return buf
+            elif type(buf) is bool:
                 return buf
             idx = ((0,) if len(e.idx) == 0
                    else tuple(self.eval_e(a) for a in e.idx))
@@ -141,8 +145,11 @@ class Interpreter:
                 return lhs - rhs
             elif e.op == "*":
                 return lhs * rhs
-            elif e.op == "/":
-                return lhs / rhs
+            elif e.op == "/": # is this right?
+                if type(lhs) is int:
+                    return lhs // rhs
+                else:
+                    return lhs / rhs
             elif e.op == "%":
                 return lhs % rhs
             elif e.op == "==":

@@ -53,6 +53,8 @@ def name_str_2_symbols(proc, desc):
         if type(node) is LoopIR.If:
             for b in node.body:
                 find_sym_stmt(b, nm)
+            for b in node.orelse:
+                find_sym_stmt(b, nm)
         elif type(node) is LoopIR.Alloc:
             if str(node.name) == nm:
                 sym_list.append(node.name)
@@ -99,6 +101,8 @@ def name_str_2_pairs(proc, out_desc, in_desc):
     def find_sym_stmt(node, out_sym):
         if type(node) is LoopIR.If:
             for b in node.body:
+                find_sym_stmt(b, out_sym)
+            for b in node.orelse:
                 find_sym_stmt(b, out_sym)
         elif type(node) is LoopIR.ForAll:
             # first, search for the outer name
@@ -165,31 +169,32 @@ class _LoopIR_Rewrite:
         return self.proc
 
     def map_stmts(self, stmts):
-        body = []
-        for b in stmts:
-            body += self.map_s(b)
-        return body
+        return [ s for b in stmts
+                   for s in self.map_s(b) ]
 
     def map_s(self, s):
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             return [styp( s.name, [ self.map_e(a) for a in s.idx ],
-                         self.map_e(s.rhs), s.srcinfo )]
+                          self.map_e(s.rhs), s.srcinfo )]
         elif styp is LoopIR.If:
             return [LoopIR.If( self.map_e(s.cond), self.map_stmts(s.body),
-                              self.map_stmts(s.orelse), s.srcinfo )]
+                               self.map_stmts(s.orelse), s.srcinfo )]
         elif styp is LoopIR.ForAll:
-            return [LoopIR.ForAll( s.iter, self.map_e(s.hi), self.map_stmts(s.body),
-                              s.srcinfo )]
+            return [LoopIR.ForAll( s.iter, self.map_e(s.hi),
+                                   self.map_stmts(s.body), s.srcinfo )]
         elif styp is LoopIR.Instr:
-            return [LoopIR.Instr( s.op, self.map_s(s.body), s.srcinfo )]
+            b = self.map_s(s.body)
+            assert len(b) == 1
+            return [LoopIR.Instr( s.op, b[0], s.srcinfo )]
         else:
             return [s]
 
     def map_e(self, e):
         etyp = type(e)
         if etyp is LoopIR.Read:
-            return LoopIR.Read( e.name, [ self.map_e(a) for a in e.idx ], e.type, e.srcinfo )
+            return LoopIR.Read( e.name, [ self.map_e(a) for a in e.idx ],
+                                e.type, e.srcinfo )
         elif etyp is LoopIR.BinOp:
             return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
                                  e.type, e.srcinfo )
@@ -218,8 +223,9 @@ class _Alpha_Rename(_LoopIR_Rewrite):
         elif styp is LoopIR.ForAll:
             itr = s.iter.copy()
             self.env[s.iter] = itr
-            return [LoopIR.ForAll( itr, self.map_e(s.hi), self.map_stmts(s.body),
-                                  s.srcinfo )]
+            return [LoopIR.ForAll( itr, self.map_e(s.hi),
+                                   self.map_stmts(s.body),
+                                   s.srcinfo )]
         elif styp is LoopIR.Alloc:
             nm = s.name.copy()
             self.env[s.name] = nm
@@ -258,13 +264,13 @@ class _Reorder(_LoopIR_Rewrite):
                                           f"{self.out_var} loop to have "+
                                           f"iteration variable {self.in_var}")
                 else:
+                    # this is the actual body inside both for-loops
                     body = s.body[0].body
-                    # wrap outer loop; now inner loop
-                    body = [LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)]
-                    # wrap inner loop; now outer loop
-                    body = [LoopIR.ForAll(s.body[0].iter, s.body[0].hi,
-                                         body, s.body[0].srcinfo)]
-                    return body
+                    return [LoopIR.ForAll(s.body[0].iter, s.body[0].hi,
+                                [LoopIR.ForAll(s.iter, s.hi,
+                                    body,
+                                    s.srcinfo)],
+                                s.body[0].srcinfo)]
 
         # fall-through
         return super().map_s(s)
@@ -286,10 +292,12 @@ class _Split(_LoopIR_Rewrite):
 
     def substitute(self, srcinfo):
         return LoopIR.BinOp("+",
-                LoopIR.BinOp("*", LoopIR.Const(self.quot, T.int, srcinfo),
-                    LoopIR.Read(self.hi_i, [], T.index, srcinfo), T.index,
-                    srcinfo), LoopIR.Read(self.lo_i, [], T.index, srcinfo),
-                T.index, srcinfo)
+                    LoopIR.BinOp("*",
+                                 LoopIR.Const(self.quot, T.int, srcinfo),
+                                 LoopIR.Read(self.hi_i, [], T.index, srcinfo),
+                                 T.index, srcinfo),
+                    LoopIR.Read(self.lo_i, [], T.index, srcinfo),
+                    T.index, srcinfo)
 
     def map_s(self, s):
         if type(s) is LoopIR.ForAll:
@@ -298,13 +306,13 @@ class _Split(_LoopIR_Rewrite):
                 body = self.map_stmts(s.body)
                 cond    = LoopIR.BinOp("<", self.substitute(s.srcinfo), s.hi,
                                         T.bool, s.srcinfo)
-                body    = [LoopIR.If(cond, body, [], s.srcinfo)]
+                body    = LoopIR.If(cond, body, [], s.srcinfo)
                 lo_hi   = LoopIR.Const(self.quot, T.int, s.srcinfo)
                 hi_hi   = LoopIR.BinOp("/", s.hi, lo_hi, T.index, s.srcinfo)
 
                 return [LoopIR.ForAll(self.hi_i, hi_hi,
                             [LoopIR.ForAll(self.lo_i, lo_hi,
-                                body,
+                                [body],
                                 s.srcinfo)],
                             s.srcinfo)]
 
