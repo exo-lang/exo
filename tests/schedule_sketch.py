@@ -280,3 +280,57 @@ for i :
     # change B to A in the following
     # do something with B, but not A
     comp2(A[(i+1)%2])
+    
+def sub\_mul(size n, size m, )
+for i in par(0, n):
+  for j in par(0, m):
+    res[..] = A[..] * B[..]
+
+-> "GEMM\_MUL(res, A, B, C, D..)"
+
+
+# source
+@proc
+def source(...):
+    for i in par(0,n):
+        z[i] = x[i] + y[i]
+    
+# vec-instr
+@proc
+def add4v( dst, src0, src1, i ):
+    for k in par(0,4):
+        dst[i+k] = src0[i+k] + src1[i+k]
+
+source = source.split(i,4)
+
+> for i in par(0,n/4):
+>     for j in par(0,4):
+>         z[4*i+j] = x[4*i+j] + y[4*i+j]
+
+source = source.abstract(for j, add4v)
+
+
+> for i in par(0,n/4):
+>     add4v(?dst, ?src0, ?src1, ?i)
+
+
+
+for k in par(0,4):
+    dst'[i'+k] = src0'[i'+k] + src1'[i'+k]
+
+= 
+
+for j in par(0,4):
+    z[j+4*i+0] = x[4*i+j] + y[4*i+j]
+
+
+
+k = j
+{dst'} = {z}
+{src0'} = {x}
+{src1'} = {y}
+{0 <= j < 4}
+{0 <= i < n/4}
+{i'+j} = {j+4*i+0}
+{i'+j} = {4*i+j}
+{i'+j} = {4*i+j}
