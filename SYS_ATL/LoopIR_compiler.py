@@ -5,7 +5,7 @@ import re
 from .prelude import *
 
 from . import shared_types as T
-from .LoopIR import LoopIR
+from .LoopIR import LoopIR, LoopIR_Do
 
 from .mem_analysis import MemoryAnalysis
 
@@ -36,6 +36,49 @@ op_prec = {
     "%":      60,
 }
 
+class LoopIR_SubProcs(LoopIR_Do):
+    def __init__(self, proc):
+        self._subprocs = set()
+        super().__init__(proc)
+
+    def result(self):
+        return self._subprocs
+
+    # to improve efficiency
+    def do_e(self,e):
+        pass
+
+    def do_s(self, s):
+        if type(s) is LoopIR.Call:
+            self._subprocs.add(s.f)
+        else:
+            super().do_s(s)
+
+def find_all_subprocs(proc_list):
+    to_visit    = [ p for p in reversed(proc_list) ] # ** see below
+    queued      = set(to_visit)
+    proc_list   = []
+    visited     = set(proc_list)
+
+    # ** to_visit is reversed so that in the simple case of requesting e.g.
+    # run_compile([p1, p2], ...) the generated C-code will list the def.
+    # of p1 before p2
+
+    # flood-fill algorithm to produce a topological-sort/order
+    while len(to_visit) > 0:
+        p = to_visit.pop(0) # de-queue
+        visited.add(p)
+        proc_list.append(p)
+
+        subp = LoopIR_SubProcs(p).result()
+        for sp in subp:
+            assert sp not in visited, "found cycle in the call graph"
+            if sp not in queued:
+                queued.add(sp)
+                to_visit.append(sp) #en-queue
+
+    return [ p for p in reversed(proc_list) ]
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Loop IR Compiler
@@ -48,21 +91,32 @@ def run_compile(proc_list, path, c_file, h_file):
     # for each p in proc_list:
     #   run Compiler() pass to get (decl, def)
     #
-    # check for name conflicts between procs
-    #
     # write out c_file and h_file
+
+    orig_procs  = set(proc_list)
+    proc_list   = find_all_subprocs(proc_list)
+
+    # check for name conflicts between procs
+    used_names  = set()
+    for p in proc_list:
+        if p.name in used_names:
+            raise Exception(f"Cannot compile multiple "+
+                            f"procedures named '{p.name}'")
+        used_names.add(p.name)
 
     fwd_decls = "#include <stdio.h>\n" + "#include <stdlib.h>\n\n"
 
-    body = (f"#include \"{h_file}\"\n\n"+
-             "int _floor_div(int num, int quot) {\n"+
-             "  int off = (num<0)? quot-1 : 0;\n"
-             "  return (num-off)/quot;\n"
-             "}\n\n")
+    body = ("int _floor_div(int num, int quot) {\n"+
+            "  int off = (num<0)? quot-1 : 0;\n"+
+            "  return (num-off)/quot;\n"+
+            "}\n\n")
+
     for p in proc_list:
         p = MemoryAnalysis(p).result()
         d, b = Compiler(p).comp_top()
-        fwd_decls += d
+        # only dump .h-file forward declarations for requested procedures
+        if p in orig_procs:
+            fwd_decls += d
         body += b
         body += '\n'
 
@@ -150,7 +204,7 @@ class Compiler:
     def comp_top(self):
         return self.proc_decl, self.proc_def
 
-    def new_varname(self, symbol, typ=None):
+    def new_varname(self, symbol, typ):
         strnm   = str(symbol)
         if strnm not in self.names:
             pass
@@ -167,8 +221,7 @@ class Compiler:
 
         self.names[strnm]   = strnm
         self.env[symbol]    = strnm
-        if typ is not None:
-            self.envtyp[symbol] = typ
+        self.envtyp[symbol] = typ
         return strnm
 
     def push(self,only=None):
@@ -239,9 +292,6 @@ class Compiler:
         elif styp is LoopIR.Alloc:
             name = self.new_varname(s.name, typ=s.type)
             if s.type is T.R:
-                #TODO: broken
-                #If we have float* in the function, should we dereference
-                #upon reading??
                 self.add_line(f"float {name};")
             else:
                 size = _type_size(s.type, self.env)
@@ -253,20 +303,35 @@ class Compiler:
                 self.add_line(f"free({name});")
         elif styp is LoopIR.Instr:
             return s.op.compile(s.body, self)
+        elif styp is LoopIR.Call:
+            fname   = s.f.name
+            args    = [ self.comp_e(e, call_arg=True) for e in s.args ]
+            self.add_line(f"{fname}({','.join(args)})")
         else:
             assert False, "bad case"
 
-    def comp_e(self, e, prec=0):
+    def comp_e(self, e, prec=0, call_arg=False):
         etyp = type(e)
 
         if etyp is LoopIR.Read:
             rtyp = self.envtyp[e.name]
-            if e.name in self._scalar_refs:
-                return f"*{self.env[e.name]}"
-            elif type(rtyp) is not T.Tensor:
-                return self.env[e.name]
+            if call_arg:
+                if rtyp is T.size:
+                    return self.env[e.name]
+                elif e.name in self._scalar_refs:
+                    return self.env[e.name]
+                elif type(rtyp) is T.Tensor:
+                    return self.env[e.name]
+                else:
+                    assert rtyp is T.R
+                    return f"&{self.env[e.name]}"
             else:
-                return self.access_str(e.name, e.idx)
+                if e.name in self._scalar_refs:
+                    return f"*{self.env[e.name]}"
+                elif type(rtyp) is not T.Tensor:
+                    return self.env[e.name]
+                else:
+                    return self.access_str(e.name, e.idx)
         elif etyp is LoopIR.Const:
             return str(e.val)
         elif etyp is LoopIR.BinOp:

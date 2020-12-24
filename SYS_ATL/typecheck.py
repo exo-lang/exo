@@ -50,7 +50,10 @@ class TypeChecker:
 
         body = self.check_stmts(proc.body)
 
-        self.loopir_proc = LoopIR.proc(name=proc.name,
+        if not proc.name:
+            self.err(proc, "expected all procedures to be named")
+
+        self.loopir_proc = LoopIR.proc(name=proc.name or "anon",
                                        args=args,
                                        body=body,
                                        srcinfo=proc.srcinfo)
@@ -172,7 +175,7 @@ class TypeChecker:
             # need to introspect on f to get arguments and their types
             # first need to establish size variable mapping
             size_map = {}
-            for a,fa in zip(args, f.args):
+            for a,fa in zip(args, stmt.f.args):
                 if fa.type is T.size:
                     is_err = True
                     if a.type == T.err:
@@ -201,13 +204,19 @@ class TypeChecker:
 
             # now that we have processed size arguments, we can type-check
             # the rest of the arguments
-            for a,fa in zip(args, f.args):
+            for a,fa in zip(args, stmt.f.args):
                 if a.type == T.err or fa.type == T.size:
                     continue
 
                 fatype = fa.type.subst(size_map)
                 if a.type != fatype:
                     self.err(a, f"expected argument of type '{fatype}'")
+
+                # ensure scalars are simply variable names
+                if a.type == T.R:
+                    if type(a) is not LoopIR.Read or len(a.idx) != 0:
+                        self.err(a, "expected scalar arguments to be "+
+                                    "simply variable names for now")
 
             return LoopIR.Call(stmt.f, args, stmt.srcinfo)
 

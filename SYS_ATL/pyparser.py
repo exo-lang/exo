@@ -327,7 +327,8 @@ class Parser:
                     if name_node.id not in self.locals:
                         nm = Sym(name_node.id)
                         self.locals[name_node.id] = nm
-                        rstmts.append(UAST.Alloc(nm, T.R, self.getsrcinfo(s)))
+                        rstmts.append(UAST.Alloc(nm, T.R, None,
+                                                 self.getsrcinfo(s)))
 
                 # get the symbol corresponding to the name on the
                 # left-hand-side
@@ -427,7 +428,7 @@ class Parser:
                 args = [ self.parse_expr(a) for a in s.value.args ]
 
                 rstmts.append(UAST.Call(f.INTERNAL_proc(),
-                              args, s.value.srcinfo))
+                              args, self.getsrcinfo(s.value)))
 
             # ----- Pass no-op parsing
             elif type(s) is pyast.Pass:

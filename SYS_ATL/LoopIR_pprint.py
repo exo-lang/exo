@@ -170,6 +170,10 @@ class UAST_PPrinter:
             elif type(stmt) is UAST.Instr:
                 self.addline(f"instr({stmt.op.opname()})")
                 self.pstmts([stmt.body])
+            elif type(stmt) is UAST.Call:
+                pname   = stmt.f.name or "_anon_"
+                args    = [ self.pexpr(a) for a in p.args ]
+                self.addline(f"{pname}({','.join(args)})")
             elif type(stmt) is UAST.If:
                 cond = self.pexpr(stmt.cond)
                 self.addline(f"if {cond}:")
@@ -256,7 +260,8 @@ class LoopIR_PPrinter:
 
     def str(self):
         fmtstr, linted = FormatCode("\n".join(self._lines))
-        assert linted, "generated unlinted code..."
+        if isinstance(self._node, LoopIR.proc):
+            assert linted, "generated unlinted code..."
         return fmtstr
 
     def push(self,only=None):
@@ -301,11 +306,11 @@ class LoopIR_PPrinter:
             return repr(nm)
 
     def pproc(self, p):
-        name = p.name or "_anon_"
+        assert p.name
 
         args = [ self.pfnarg(a) for a in p.args ]
 
-        self.addline(f"def {name}({','.join(args)}):")
+        self.addline(f"def {p.name}({','.join(args)}):")
 
         self.push()
         for proc in p.body:
@@ -343,6 +348,9 @@ class LoopIR_PPrinter:
         elif type(stmt) is LoopIR.Instr:
             self.addline(f"instr({stmt.op.opname()})")
             self.pstmt(stmt.body)
+        elif type(stmt) is LoopIR.Call:
+            args    = [ self.pexpr(a) for a in stmt.args ]
+            self.addline(f"{stmt.f.name}({','.join(args)})")
         elif type(stmt) is LoopIR.If:
             cond = self.pexpr(stmt.cond)
             self.addline(f"if {cond}:")

@@ -14,7 +14,7 @@ from .helper import *
 def gen_dot():
     @proc
     def dot(m: size, x : R[m] @ IN, y : R[m] @ IN, r : R @ OUT):
-        z = 0
+        z = 0.0
         for i in par(0, m):
             z += x[i]*y[i]
 
@@ -38,7 +38,7 @@ def gen_proj(dot):
 
     return proj
 
-@pytest.mark.skip(reason="working on function call!")
+#@pytest.mark.skip(reason="working on function call!")
 def test_normalize():
     dot  = gen_dot()
     proj = gen_proj(dot)
@@ -50,10 +50,10 @@ def test_normalize():
 
     # Write pretty printing to a file
     f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
-    f_pretty.write(str(blur))
+    f_pretty.write(str(dot))
     f_pretty.close()
 
-    [dot, normalize].compile_c(directory, filename)
+    proj.compile_c(directory, filename)
 
 """
     n_size = image.shape[0]

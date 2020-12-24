@@ -12,7 +12,6 @@ import numpy as np
 # --------------------------------------------------------------------------- #
 # Loop IR Interpreter
 
-
 def _eshape(typ, env):
     return tuple(r if is_pos_int(r) else env[r]
                  for r in typ.shape())
@@ -102,7 +101,6 @@ class Interpreter:
                 self.env.push()
                 self.eval_stmts(s.orelse)
                 self.env.pop()
-
         elif styp is LoopIR.ForAll:
             hi = self.eval_e(s.hi)
             assert self.use_randomization is False, "TODO: Implement Rand"
@@ -120,10 +118,16 @@ class Interpreter:
                 self.env[s.name] = np.empty(size)
         elif styp is LoopIR.Instr:
             self.eval_s(s.body)
+        elif styp is LoopIR.Call:
+            argvals     = [ self.eval_e(a, call_arg=True) for a in s.args ]
+            argnames    = [ str(a.name) for a in s.f.args ]
+            kwargs      = { nm : val for nm,val in zip(argnames,argvals) }
+            Interpreter(s.f, kwargs,
+                        use_randomization=self.use_randomization)
         else:
             assert False, "bad case"
 
-    def eval_e(self, e):
+    def eval_e(self, e, call_arg=False):
         etyp = type(e)
 
         if etyp is LoopIR.Read:
@@ -132,9 +136,12 @@ class Interpreter:
                 return buf
             elif type(buf) is bool:
                 return buf
-            idx = ((0,) if len(e.idx) == 0
-                   else tuple(self.eval_e(a) for a in e.idx))
-            return buf[idx]
+            if call_arg:
+                return buf
+            else:
+                idx = ((0,) if len(e.idx) == 0
+                       else tuple(self.eval_e(a) for a in e.idx))
+                return buf[idx]
         elif etyp is LoopIR.Const:
             return e.val
         elif etyp is LoopIR.BinOp:

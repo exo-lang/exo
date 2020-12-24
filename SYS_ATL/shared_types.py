@@ -113,6 +113,8 @@ def __str__(t):
             t._str_cached = "R"
         elif type(t) is Bool:
             t._str_cached = "bool"
+        elif type(t) is Int:
+            t._str_cached = "int"
         elif type(t) is Index:
             t._str_cached = "index"
         elif type(t) is Size:

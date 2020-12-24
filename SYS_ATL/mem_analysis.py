@@ -55,7 +55,7 @@ class MemoryAnalysis:
         styp = type(s)
 
         if (styp is LoopIR.Pass or styp is LoopIR.Assign or
-              styp is LoopIR.Reduce):
+              styp is LoopIR.Reduce or styp is LoopIR.Call):
             return s
         elif styp is LoopIR.If:
             body    = self.mem_stmts(s.body)

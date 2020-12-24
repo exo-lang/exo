@@ -280,7 +280,7 @@ for i :
     # change B to A in the following
     # do something with B, but not A
     comp2(A[(i+1)%2])
-    
+
 def sub\_mul(size n, size m, )
 for i in par(0, n):
   for j in par(0, m):
@@ -294,7 +294,7 @@ for i in par(0, n):
 def source(...):
     for i in par(0,n):
         z[i] = x[i] + y[i]
-    
+
 # vec-instr
 @proc
 def add4v( dst, src0, src1, i ):
@@ -318,7 +318,7 @@ source = source.abstract(for j, add4v)
 for k in par(0,4):
     dst'[i'+k] = src0'[i'+k] + src1'[i'+k]
 
-= 
+=
 
 for j in par(0,4):
     z[j+4*i+0] = x[4*i+j] + y[4*i+j]
@@ -334,3 +334,20 @@ k = j
 {i'+j} = {j+4*i+0}
 {i'+j} = {4*i+j}
 {i'+j} = {4*i+j}
+
+
+@proc
+def inc( n : size, x : R[n] ):
+    for i in par(0,n):
+        x[i] = x[i] + 1
+
+@proc
+def foo(...):
+    ...
+    y : R[m]
+    # p > m
+
+    z alias= y[p-m:p]
+
+    for j in par(0,m):
+        y[(p-m)+j] = y[(p-m)+j] + 1

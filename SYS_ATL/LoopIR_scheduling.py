@@ -1,5 +1,5 @@
 from .prelude import *
-from .LoopIR import LoopIR
+from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do
 from . import shared_types as T
 import re
 
@@ -150,104 +150,13 @@ pair_list = [
 ]
 """
 
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Generic Tree Transformation Pass
-
-class _LoopIR_Rewrite:
-    def __init__(self, proc, *args, **kwargs):
-        self.orig_proc  = proc
-
-        body = self.map_stmts(self.orig_proc.body)
-
-        self.proc = LoopIR.proc(name    = self.orig_proc.name,
-                                args    = self.orig_proc.args,
-                                body    = body,
-                                srcinfo = self.orig_proc.srcinfo)
-
-    def result(self):
-        return self.proc
-
-    def map_stmts(self, stmts):
-        return [ s for b in stmts
-                   for s in self.map_s(b) ]
-
-    def map_s(self, s):
-        styp = type(s)
-        if styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            return [styp( s.name, [ self.map_e(a) for a in s.idx ],
-                          self.map_e(s.rhs), s.srcinfo )]
-        elif styp is LoopIR.If:
-            return [LoopIR.If( self.map_e(s.cond), self.map_stmts(s.body),
-                               self.map_stmts(s.orelse), s.srcinfo )]
-        elif styp is LoopIR.ForAll:
-            return [LoopIR.ForAll( s.iter, self.map_e(s.hi),
-                                   self.map_stmts(s.body), s.srcinfo )]
-        elif styp is LoopIR.Instr:
-            b = self.map_s(s.body)
-            assert len(b) == 1
-            return [LoopIR.Instr( s.op, b[0], s.srcinfo )]
-        else:
-            return [s]
-
-    def map_e(self, e):
-        etyp = type(e)
-        if etyp is LoopIR.Read:
-            return LoopIR.Read( e.name, [ self.map_e(a) for a in e.idx ],
-                                e.type, e.srcinfo )
-        elif etyp is LoopIR.BinOp:
-            return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
-                                 e.type, e.srcinfo )
-        else:
-            return e
-
-
-class _Alpha_Rename(_LoopIR_Rewrite):
-    def __init__(self, node):
-        assert isinstance(node, list)
-        self.env    = {}
-        self.node = []
-        for n in node:
-            assert isinstance(n, LoopIR.stmt)  # only case handled for now
-            self.node += self.map_s(n)
-
-    def result(self):
-        return self.node
-
-    def map_s(self, s):
-        styp = type(s)
-        if styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            nm = self.env[s.name] if s.name in self.env else s.name
-            return [styp( nm, [ self.map_e(a) for a in s.idx ],
-                         self.map_e(s.rhs), s.srcinfo )]
-        elif styp is LoopIR.ForAll:
-            itr = s.iter.copy()
-            self.env[s.iter] = itr
-            return [LoopIR.ForAll( itr, self.map_e(s.hi),
-                                   self.map_stmts(s.body),
-                                   s.srcinfo )]
-        elif styp is LoopIR.Alloc:
-            nm = s.name.copy()
-            self.env[s.name] = nm
-            return [LoopIR.Alloc( nm, s.type, s.mem, s.srcinfo )]
-
-        return super().map_s(s)
-
-    def map_e(self, e):
-        etyp = type(e)
-        if etyp is LoopIR.Read:
-            nm = self.env[e.name] if e.name in self.env else e.name
-            return LoopIR.Read( nm, [ self.map_e(a) for a in e.idx ],
-                                e.type, e.srcinfo )
-
-        return super().map_e(e)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Reorder scheduling directive
 
 
-class _Reorder(_LoopIR_Rewrite):
+class _Reorder(LoopIR_Rewrite):
     def __init__(self, proc, out_var, in_var):
         self.out_var = out_var
         self.in_var  = in_var
@@ -281,7 +190,7 @@ class _Reorder(_LoopIR_Rewrite):
 # Split scheduling directive
 
 
-class _Split(_LoopIR_Rewrite):
+class _Split(LoopIR_Rewrite):
     def __init__(self, proc, split_var, quot, hi, lo):
         self.split_var = split_var
         self.quot = quot
@@ -334,7 +243,7 @@ class _Split(_LoopIR_Rewrite):
 # Unroll scheduling directive
 
 
-class _Unroll(_LoopIR_Rewrite):
+class _Unroll(LoopIR_Rewrite):
     def __init__(self, proc, unroll_var):
         self.orig_proc  = proc
         self.unroll_var = unroll_var
@@ -359,10 +268,10 @@ class _Unroll(_LoopIR_Rewrite):
 
                 self.unroll_itr = 0
 
-                body    = _Alpha_Rename(self.map_stmts(orig_body)).result()
+                body    = Alpha_Rename(self.map_stmts(orig_body)).result()
                 for i in range(1,hi):
                     self.unroll_itr = i
-                    nxtbody = _Alpha_Rename(self.map_stmts(orig_body)).result()
+                    nxtbody = Alpha_Rename(self.map_stmts(orig_body)).result()
                     body   += nxtbody
 
                 return body
