@@ -9,7 +9,8 @@ from PIL import Image
 import scipy.stats as st
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure
-from .helper import *
+sys.path.append(sys.path[0]+"/.")
+from helper import *
 
 def gen_blur():
     @proc

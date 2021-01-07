@@ -10,7 +10,8 @@ import scipy.stats as st
 from PIL import Image
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure
-from .helper import *
+sys.path.append(sys.path[0]+"/.")
+from helper import *
 
 def gen_conv1d():
     @proc

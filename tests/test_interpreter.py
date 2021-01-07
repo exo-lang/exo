@@ -3,7 +3,8 @@ import numpy as np
 import sys
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure
-from .helper import *
+sys.path.append(sys.path[0]+"/.")
+from helper import *
 
 # Test 1 is Full 1D convolution
 def gen_conv1d():
