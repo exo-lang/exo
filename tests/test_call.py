@@ -15,9 +15,9 @@ from .helper import *
 def gen_dot():
     @proc
     def dot(m: size, x : R[m] @ IN, y : R[m] @ IN, r : R @ OUT):
-        z = 0.0
+        r = 0.0
         for i in par(0, m):
-            z += x[i]*y[i]
+            r += x[i]*y[i]
 
     return dot
 
@@ -69,3 +69,13 @@ def test_normalize():
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
 """
+
+def test_inline():
+    dot  = gen_dot()
+    proj = gen_proj(dot)
+
+    proj_in1 = proj.inline("dot(_,_,_,_)")
+    print(proj_in1)
+
+    proj_in2 = proj_in1.inline("dot(_,_,_,_)")
+    print(proj_in2)

@@ -6,6 +6,8 @@ from .LoopIR_compiler import Compiler, run_compile
 from .LoopIR_interpreter import Interpreter, run_interpreter
 from .LoopIR_scheduling import Schedules, name_str_2_symbols, name_str_2_pairs
 
+from .pattern_match import match_pattern
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   Procedure Objects
@@ -25,6 +27,9 @@ class Procedure:
             return str(self._loopir_proc)
         else:
             return str(self._uast_proc)
+
+    def _repr_markdown_(self):
+        return ("```python\n"+self.__str__()+"\n```")
 
     def INTERNAL_proc(self):
         return self._loopir_proc
@@ -88,4 +93,22 @@ class Procedure:
         loopir      = self._loopir_proc
         for nm in unroll_names:
             loopir  = Schedules.DoUnroll(loopir, nm).result()
+        return Procedure(loopir)
+
+    def abstract(self, subproc, pattern):
+        pass
+
+    def inline(self, call_site_pattern):
+        body        = self._loopir_proc.body
+        stmt_lists  = match_pattern(body, call_site_pattern,
+                                    call_depth=1, default_match_no=0)
+        if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
+            raise TypeError("failed to find call site")
+        else:
+            call_stmt = stmt_lists[0][0]
+            if type(call_stmt) is not LoopIR.Call:
+                raise TypeError("pattern did not describe a call-site")
+
+        loopir      = self._loopir_proc
+        loopir      = Schedules.DoInline(loopir, call_stmt).result()
         return Procedure(loopir)

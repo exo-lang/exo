@@ -73,6 +73,37 @@ module UAST {
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Pattern AST
+#   - used to specify pattern-matches
+
+PAST = ADT("""
+module PAST {
+
+    stmt    = Assign  ( name name, expr* idx, expr rhs )
+            | Reduce  ( name name, expr* idx, expr rhs )
+            | Pass    ()
+            | If      ( expr cond, stmt* body,  stmt* orelse )
+            | ForAll  ( name iter, expr hi,     stmt* body )
+            | Alloc   ( name name ) -- may want to add type & mem back in?
+            | Call    ( name f, expr* args )
+            | S_Hole  ()
+            attributes( srcinfo srcinfo )
+
+    expr    = Read    ( name name, expr* idx )
+            | E_Hole  ()
+            | Const   ( object val )
+            | USub    ( expr arg ) -- i.e.  -(...)
+            | BinOp   ( op op, expr lhs, expr rhs )
+            attributes( srcinfo srcinfo )
+
+} """, {
+    'name':         lambda x: x == '_' or is_valid_name(x),
+    'op':           lambda x: x in front_ops,
+    'srcinfo':      lambda x: type(x) is SrcInfo,
+})
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Loop IR
 
 bin_ops = {
@@ -105,7 +136,7 @@ module LoopIR {
                 mem?            mem,
                 srcinfo         srcinfo )
 
-    stmt    = Assign ( sym name, expr* idx, expr rhs)
+    stmt    = Assign ( sym name, expr* idx, expr rhs )
             | Reduce ( sym name, expr* idx, expr rhs )
             | Pass()
             | If     ( expr cond, stmt* body, stmt* orelse )
@@ -237,7 +268,7 @@ class Alpha_Rename(LoopIR_Rewrite):
     def __init__(self, node):
         assert isinstance(node, list)
         self.env    = {}
-        self.node = []
+        self.node   = []
         for n in node:
             assert isinstance(n, LoopIR.stmt)  # only case handled for now
             self.node += self.map_s(n)
@@ -270,5 +301,46 @@ class Alpha_Rename(LoopIR_Rewrite):
             nm = self.env[e.name] if e.name in self.env else e.name
             return LoopIR.Read( nm, [ self.map_e(a) for a in e.idx ],
                                 e.type, e.srcinfo )
+
+        return super().map_e(e)
+
+
+class SubstArgs(LoopIR_Rewrite):
+    def __init__(self, stmts, binding):
+        assert isinstance(stmts, list)
+        assert isinstance(binding, dict)
+        assert all( isinstance(v, LoopIR.expr) for v in binding.values() )
+        self.env    = binding
+        self.stmts  = []
+        for s in stmts:
+            assert isinstance(s, LoopIR.stmt)  # only case handled for now
+            self.stmts += self.map_s(s)
+
+    def result(self):
+        return self.stmts
+
+    def map_s(self, s):
+        styp = type(s)
+        if styp is LoopIR.Assign or styp is LoopIR.Reduce:
+            if s.name in self.env:
+                e = self.env[s.name]
+                assert type(e) is LoopIR.Read and len(e.idx) == 0
+                return [styp( e.name, [ self.map_e(a) for a in s.idx ],
+                             self.map_e(s.rhs), s.srcinfo )]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        etyp = type(e)
+        if etyp is LoopIR.Read:
+            if e.name in self.env:
+                if len(e.idx) == 0:
+                    return self.env[e.name]
+                else:
+                    sub_e = self.env[e.name]
+                    assert type(sub_e) is LoopIR.Read and len(sub_e.idx) == 0
+                    return LoopIR.Read( sub_e.name,
+                                        [ self.map_e(a) for a in e.idx ],
+                                        e.type, e.srcinfo )
 
         return super().map_e(e)

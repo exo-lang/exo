@@ -5,3 +5,5 @@ __pycache__
 htmlcov
 
 tmp/
+
+.ipynb_checkpoints

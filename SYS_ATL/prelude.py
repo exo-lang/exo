@@ -8,10 +8,12 @@ def is_pos_int(obj):
 
 
 _valid_pattern = _re_compile(r"^[a-zA-Z_]\w*$")
-
+valid_name_pattern = r"[a-zA-Z_]\w*"
 
 def is_valid_name(obj):
-    return (type(obj) is str) and (_valid_pattern.match(obj) != None)
+    return ((type(obj) is str) and
+            obj != '_' and  # prohibit the name '_' universally
+            (_valid_pattern.match(obj) != None))
 
 
 class Sym:

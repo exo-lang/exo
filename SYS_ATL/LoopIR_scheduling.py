@@ -1,5 +1,5 @@
 from .prelude import *
-from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do
+from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do, SubstArgs
 from . import shared_types as T
 import re
 
@@ -293,9 +293,45 @@ class _Unroll(LoopIR_Rewrite):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Unroll scheduling directive
+
+
+class _Inline(LoopIR_Rewrite):
+    def __init__(self, proc, call_stmt):
+        assert type(call_stmt) is LoopIR.Call
+        self.orig_proc  = proc
+        self.call_stmt  = call_stmt
+        self.env        = {}
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s == self.call_stmt:
+            # first, set-up a binding from sub-proc arguments
+            # to supplied expressions at the call-site
+            call_bind   = { xd.name : a for xd,a in zip(s.f.args,s.args) }
+
+            # whenever we copy code we need to alpha-rename for safety
+            body        = Alpha_Rename(s.f.body).result()
+
+            # then we will substitute the bindings for the call
+            body        = SubstArgs(body, call_bind).result()
+
+            # the code to splice in at this point
+            return body
+
+        # fall-through
+        return super().map_s(s)
+
+    def map_e(self, e):
+        return e
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # The Passes to export
 
 class Schedules:
     DoReorder   = _Reorder
     DoSplit     = _Split
     DoUnroll    = _Unroll
+    DoInline    = _Inline
