@@ -11,7 +11,7 @@ from PIL import Image
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure
 sys.path.append(sys.path[0]+"/.")
-from helper import *
+from .helper import *
 
 def gen_conv1d():
     @proc

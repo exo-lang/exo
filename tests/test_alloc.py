@@ -10,7 +10,7 @@ import scipy.stats as st
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure
 sys.path.append(sys.path[0]+"/.")
-from helper import *
+from .helper import *
 
 """
 def test_alloc_nest_ir():
