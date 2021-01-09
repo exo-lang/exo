@@ -6,6 +6,7 @@ import inspect
 import ast as pyast
 import astor
 import textwrap
+import sys
 
 from .prelude import *
 from .LoopIR import UAST, front_ops, PAST
@@ -287,16 +288,27 @@ class Parser:
                 self.err(
                     node, "expected tensor type to be of the form 'R[...]'")
 
-            # unpack single or multi-arg indexing to list of slices/indices
-            if (type(node.slice) is pyast.Slice or
-                type(node.slice) is pyast.ExtSlice):
-                self.err(node, "index-slicing not allowed")
-            else:
-                assert type(node.slice) is pyast.Index
-                if type(node.slice.value) is pyast.Tuple:
-                    dims = node.slice.value.elts
+            if sys.version_info[:3] >= (3, 9):
+                # unpack single or multi-arg indexing to list of slices/indices
+                if type(node.slice) is pyast.Slice:
+                    self.err(node, "index-slicing not allowed")
                 else:
-                    dims = [node.slice.value]
+                    if type(node.slice) is pyast.Tuple:
+                        dims = node.slice.elts
+                    else:
+                        assert type(node.slice) is pyast.Name
+                        dims = [node.slice]
+            else:
+                # unpack single or multi-arg indexing to list of slices/indices
+                if (type(node.slice) is pyast.Slice or
+                    type(node.slice) is pyast.ExtSlice):
+                    self.err(node, "index-slicing not allowed")
+                else:
+                    assert type(node.slice) is pyast.Index
+                    if type(node.slice.value) is pyast.Tuple:
+                        dims = node.slice.value.elts
+                    else:
+                        dims = [node.slice.value]
 
             # convert the dimension list into a full tensor type
             typ = T.R
@@ -520,15 +532,27 @@ class Parser:
         if type(node) is pyast.Name:
             return node, []
         elif type(node) is pyast.Subscript:
-            if (type(node.slice) is pyast.Slice or
-                type(node.slice) is pyast.ExtSlice):
-                self.err(node, "index-slicing not allowed")
-            else:
-                assert type(node.slice) is pyast.Index
-                if type(node.slice.value) is pyast.Tuple:
-                    dims = node.slice.value.elts
+            if sys.version_info[:3] >= (3, 9):
+                # unpack single or multi-arg indexing to list of slices/indices
+                if type(node.slice) is pyast.Slice:
+                    self.err(node, "index-slicing not allowed")
                 else:
-                    dims = [node.slice.value]
+                    if type(node.slice) is pyast.Tuple:
+                        dims = node.slice.elts
+                    else:
+                        assert type(node.slice) is pyast.Name or type(node.slice) is pyast.BinOp
+                        dims = [node.slice]
+            else:
+                # unpack single or multi-arg indexing to list of slices/indices
+                if (type(node.slice) is pyast.Slice or
+                    type(node.slice) is pyast.ExtSlice):
+                    self.err(node, "index-slicing not allowed")
+                else:
+                    assert type(node.slice) is pyast.Index
+                    if type(node.slice.value) is pyast.Tuple:
+                        dims = node.slice.value.elts
+                    else:
+                        dims = [node.slice.value]
 
             if type(node.value) is not pyast.Name:
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
