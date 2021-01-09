@@ -293,7 +293,7 @@ class _Unroll(LoopIR_Rewrite):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Unroll scheduling directive
+# Inline scheduling directive
 
 
 class _Inline(LoopIR_Rewrite):
@@ -326,6 +326,33 @@ class _Inline(LoopIR_Rewrite):
     def map_e(self, e):
         return e
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Call Swap scheduling directive
+
+
+class _CallSwap(LoopIR_Rewrite):
+    def __init__(self, proc, call_stmt, new_subproc):
+        assert type(call_stmt) is LoopIR.Call
+        self.orig_proc  = proc
+        self.call_stmt  = call_stmt
+        self.new_subproc = new_subproc
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s == self.call_stmt:
+            return [ LoopIR.Call(self.new_subproc, s.args, s.srcinfo) ]
+
+        # fall-through
+        return super().map_s(s)
+
+    def map_e(self, e):
+        return e
+
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # The Passes to export
@@ -335,3 +362,4 @@ class Schedules:
     DoSplit     = _Split
     DoUnroll    = _Unroll
     DoInline    = _Inline
+    DoCallSwap  = _CallSwap

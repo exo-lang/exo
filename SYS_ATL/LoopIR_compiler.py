@@ -81,18 +81,30 @@ def find_all_subprocs(proc_list):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Loop IR Compiler
+# Loop IR Compiler Entry-points
 
 # top level compiler function called by tests!
 
 
 def run_compile(proc_list, path, c_file, h_file):
-    # take proc_list
-    # for each p in proc_list:
-    #   run Compiler() pass to get (decl, def)
-    #
-    # write out c_file and h_file
 
+    fwd_decls, body = compile_to_strings(proc_list)
+
+    fwd_decls = ("#include <stdio.h>\n"+
+                 "#include <stdlib.h>\n"+
+                 "\n"+
+                 fwd_decls)
+
+    with open(os.path.join(path, h_file), "w") as f_header:
+        f_header.write(fwd_decls)
+
+    with open(os.path.join(path, c_file), "w") as f_cpp:
+        f_cpp.write(body)
+
+
+def compile_to_strings(proc_list):
+
+    # get transitive closure of call-graph
     orig_procs  = set(proc_list)
     proc_list   = find_all_subprocs(proc_list)
 
@@ -104,27 +116,28 @@ def run_compile(proc_list, path, c_file, h_file):
                             f"procedures named '{p.name}'")
         used_names.add(p.name)
 
-    fwd_decls = "#include <stdio.h>\n" + "#include <stdlib.h>\n\n"
+    body = ["int _floor_div(int num, int quot) {",
+            "  int off = (num<0)? quot-1 : 0;",
+            "  return (num-off)/quot;",
+            "}",
+            "\n"]
 
-    body = ("int _floor_div(int num, int quot) {\n"+
-            "  int off = (num<0)? quot-1 : 0;\n"+
-            "  return (num-off)/quot;\n"+
-            "}\n\n")
+    fwd_decls = []
 
     for p in proc_list:
         p = MemoryAnalysis(p).result()
         d, b = Compiler(p).comp_top()
         # only dump .h-file forward declarations for requested procedures
         if p in orig_procs:
-            fwd_decls += d
-        body += b
-        body += '\n'
+            fwd_decls.append(d)
+        body.append(b)
 
-    with open(os.path.join(path, h_file), "w") as f_header:
-        f_header.write(fwd_decls)
+    return ("\n".join(fwd_decls), "\n".join(body))
 
-    with open(os.path.join(path, c_file), "w") as f_cpp:
-        f_cpp.write(body)
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Loop IR Compiler
 
 
 def _type_shape(typ, env):
@@ -193,7 +206,7 @@ class Compiler:
         self.proc_def = proc_def
 
     def add_line(self, line):
-        self._lines.append(self._tab+line+"\n")
+        self._lines.append(self._tab+line)
 
     def comp_stmts(self, stmts):
         self.push()
