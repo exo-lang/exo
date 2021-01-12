@@ -252,7 +252,7 @@ class LoopIR_PPrinter:
         elif isinstance(node, LoopIR.fnarg):
             self.addline(self.pfnarg(node))
         elif isinstance(node, LoopIR.stmt):
-            self.pstmt([node])
+            self.pstmt(node)
         elif isinstance(node, LoopIR.expr):
             self.addline(self.pexpr(node))
         else:

@@ -780,7 +780,7 @@ class PatternParser:
                         s.target, "expected simple name for iterator variable")
                 itr = s.target.id
                 cond = self.parse_loop_cond(s.iter)
-                body = self.parse_stmt_block(s.body)
+                body = self.parse_stmts(s.body)
                 self.pop()
 
                 rstmts.append(PAST.ForAll(itr, cond, body, self.getsrcinfo(s)))
@@ -790,10 +790,10 @@ class PatternParser:
                 cond = self.parse_expr(s.test)
 
                 self.push()
-                body = self.parse_stmt_block(s.body)
+                body = self.parse_stmts(s.body)
                 self.pop()
                 self.push()
-                orelse = self.parse_stmt_block(s.orelse)
+                orelse = self.parse_stmts(s.orelse)
                 self.pop()
 
                 rstmts.append(PAST.If(cond, body, orelse, self.getsrcinfo(s)))
@@ -855,6 +855,8 @@ class PatternParser:
             return node.value, idxs
 
     def parse_loop_cond(self, cond):
+        if type(cond) is pyast.Name and cond.id == '_':
+            return self.parse_expr(cond)
         if type(cond) is pyast.Call:
             if type(cond.func) is pyast.Name and cond.func.id == "par":
                 if len(cond.keywords) > 0:
