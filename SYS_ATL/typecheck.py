@@ -35,10 +35,6 @@ class TypeChecker:
         self.errors = []
 
         args = []
-        for sz in proc.sizes:
-            self.env[sz] = T.size
-            args.append(LoopIR.fnarg(sz, T.size, None, None, proc.srcinfo))
-
         for a in proc.args:
             self.env[a.name] = a.type
             mem = a.mem

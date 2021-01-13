@@ -11,6 +11,7 @@ sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
+import pytest
 
 def gen_alloc_nest():
     @proc
@@ -85,6 +86,7 @@ def gen_alloc1():
 
     return alloc1
 
+@pytest.mark.skip(reason="old instruction annotation deprecated")
 def test_alloc1():
     alloc1 = gen_alloc1()
     assert type(alloc1) is Procedure
@@ -112,6 +114,7 @@ def gen_alloc2():
 
     return alloc2
 
+@pytest.mark.skip(reason="old instruction annotation deprecated")
 def test_alloc2():
     alloc2 = gen_alloc2()
     assert type(alloc2) is Procedure
