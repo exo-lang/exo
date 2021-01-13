@@ -281,7 +281,7 @@ class PatternMatch:
     if etyp is LoopIR.Read:
       return ( self.match_name(pat.name, e.name) and
                all( self.match_e(pi,si)
-                    for pi,si in zip(pat.idx,stmt.idx) ) )
+                    for pi,si in zip(pat.idx,e.idx) ) )
     elif etyp is LoopIR.Const:
       return ( pat.val == e.val )
     elif etyp is LoopIR.BinOp:

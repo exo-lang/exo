@@ -255,7 +255,7 @@ class LoopIR_Do:
     def do_e(self, e):
         etyp = type(e)
         if etyp is LoopIR.Read:
-            for e in s.idx:
+            for e in e.idx:
                 self.do_e(e)
         elif etyp is LoopIR.BinOp:
             self.do_e(e.lhs)

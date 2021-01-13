@@ -164,16 +164,20 @@ class Procedure:
             loopir  = Schedules.DoUnroll(loopir, nm).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def _find_callsite(self, call_site_pattern):
+    def _find_stmt(self, stmt_pattern, call_depth=2):
         body        = self._loopir_proc.body
-        stmt_lists  = match_pattern(body, call_site_pattern,
-                                    call_depth=2, default_match_no=0)
+        stmt_lists  = match_pattern(body, stmt_pattern,
+                                    call_depth=call_depth,
+                                    default_match_no=0)
         if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
             raise TypeError("failed to find call site")
         else:
-            call_stmt = stmt_lists[0][0]
-            if type(call_stmt) is not LoopIR.Call:
-                raise TypeError("pattern did not describe a call-site")
+            return stmt_lists[0][0]
+
+    def _find_callsite(self, call_site_pattern):
+        call_stmt   = self._find_stmt(call_site_pattern, call_depth=3)
+        if type(call_stmt) is not LoopIR.Call:
+            raise TypeError("pattern did not describe a call-site")
 
         return call_stmt
 
@@ -222,39 +226,37 @@ class Procedure:
             raise TypeError("expected second argument 'n_lifts' to be "+
                             "a positive integer")
 
-        body        = self._loopir_proc.body
-        stmt_lists  = match_pattern(body, alloc_site_pattern,
-                                    call_depth=2, default_match_no=0)
-        if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
-            raise TypeError("failed to find alloc stmt")
-        else:
-            alloc_stmt = stmt_lists[0][0]
-            if type(call_stmt) is not LoopIR.Alloc:
-                raise TypeError("pattern did not describe an alloc statement")
+        alloc_stmt  = self._find_stmt(alloc_site_pattern)
+        if type(alloc_stmt) is not LoopIR.Alloc:
+            raise TypeError("pattern did not describe an alloc statement")
 
         loopir      = self._loopir_proc
         loopir      = Schedules.DoLiftAlloc(loopir, alloc_stmt,
                                                     n_lifts).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-
     def fission_after(self, stmt_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "+
                             "a positive integer")
 
-        body        = self._loopir_proc.body
-        stmt_lists  = match_pattern(body, stmt_pattern,
-                                    call_depth=2, default_match_no=0)
-        if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
-            raise TypeError("failed to find pattern stmt")
-        else:
-            stmt = stmt_lists[0][0]
+        stmt        = self._find_stmt(alloc_site_pattern)
 
         loopir      = self._loopir_proc
         loopir      = Schedules.DoFissionLoops(loopir, stmt,
                                                        n_lifts).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def factor_out_stmt(self, name, stmt_pattern):
+        if not is_valid_name(new_name):
+            raise TypeError("expected first argument to be a valid name")
+        stmt        = self._find_stmt(alloc_site_pattern)
+
+        loopir          = self._loopir_proc
+        passobj         = Schedules.DoFactorOut(loopir, name, stmt)
+        loopir, subproc = passobj.result(), passobj.subproc()
+        return ( Procedure(loopir, _provenance_eq_Procedure=self),
+                 Procedure(subproc) )
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

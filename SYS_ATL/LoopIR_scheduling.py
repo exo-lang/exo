@@ -3,6 +3,8 @@ from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do, SubstArgs
 from . import shared_types as T
 import re
 
+from collections import defaultdict
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Scheduling Errors
@@ -431,7 +433,7 @@ class _BindExpr(LoopIR_Rewrite):
         # handle recursive part of pass at this statement
         stmts = super().map_s(s)
         if self.found_expr:
-            stmts = [ LoopIR.Alloc(self.new_name, T.R, s.srcinfo),
+            stmts = [ LoopIR.Alloc(self.new_name, T.R, None, s.srcinfo),
                       LoopIR.Assign(self.new_name, [],
                                     self.expr, self.expr.srcinfo )
                     ] + stmts
@@ -451,6 +453,48 @@ class _BindExpr(LoopIR_Rewrite):
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
 
+# data-flow dependencies between variable names
+class _Alloc_Dependencies(LoopIR_Do):
+    def __init__(self, buf_sym, stmts):
+        self._buf_sym = buf_sym
+        self._lhs     = None
+        self._depends = defaultdict(lambda: set())
+
+        self.do_stmts(stmts)
+
+    def result(self):
+        return self._depends[self._buf_sym]
+
+    def do_s(self, s):
+        if type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
+            self._lhs = s.name
+        elif type(s) is LoopIR.Call:
+            # giant cross-bar of dependencies on the arguments
+            for fa, a in zip(s.f.args, s.args):
+                maybe_out = (not fa.effect or fa.effect != T.In)
+                buf_arg   = (a.type.is_numeric() and type(a) is LoopIR.Read)
+                if buf_arg and maybe_out:
+                    self._lhs = a.name
+                    for aa in s.args:
+                        maybe_in = (not fa.effect or fa.effect != T.Out)
+                        if maybe_in:
+                            self.do_e(aa)
+
+            # already handled all sub-terms above
+            # don't do the usual statement processing
+            return
+        else:
+            self._lhs = None
+
+        super().do_s(s)
+
+    def do_e(self, e):
+        if type(e) is LoopIR.Read:
+            if self._lhs:
+                self._depends[self._lhs].add(e.name)
+
+        super().do_e(e)
+
 
 class _LiftAlloc(LoopIR_Rewrite):
     def __init__(self, proc, alloc_stmt, n_lifts):
@@ -459,6 +503,8 @@ class _LiftAlloc(LoopIR_Rewrite):
         self.orig_proc      = proc
         self.alloc_stmt     = alloc_stmt
         self.alloc_sym      = alloc_stmt.name
+        self.alloc_deps     = _Alloc_Dependencies(self.alloc_sym,
+                                                  proc.body).result()
         self.n_lifts        = n_lifts
 
         self.ctrl_ctxt      = []
@@ -534,7 +580,7 @@ class _LiftAlloc(LoopIR_Rewrite):
                                       f"'{self.alloc_sym}' because it "+
                                       "was passed into a sub-procedure "+
                                       "call; TODO: fix this!")
-            idx = [ LoopIR.Read(i, [], T.index, s.srcinfo)
+            idx = [ LoopIR.Read(i, [], T.index, e.srcinfo)
                     for i in self.access_idxs ] + e.idx
             return LoopIR.Read( e.name, idx, e.type, e.srcinfo )
 
@@ -552,18 +598,20 @@ class _LiftAlloc(LoopIR_Rewrite):
                 # guards; oh well.
                 continue
             elif type(s) is LoopIR.ForAll:
-                idxs.append(s.iter)
-                if type(s.hi) == LoopIR.Read:
-                    assert s.hi.type == T.size
-                    assert len(s.hi.idx) == 0
-                    rngs.append(s.hi.name)
-                elif type(s.hi) == LoopIR.Const:
-                    assert s.hi.type == T.int
-                    rngs.append(s.hi.val)
-                else:
-                    raise SchedulingError("Can only lift through loops "+
-                                          "with simple range bounds, "+
-                                          "i.e. a variable or constant")
+                # note, do not accrue false dependencies
+                if s.iter in self.alloc_deps:
+                    idxs.append(s.iter)
+                    if type(s.hi) == LoopIR.Read:
+                        assert s.hi.type == T.size
+                        assert len(s.hi.idx) == 0
+                        rngs.append(s.hi.name)
+                    elif type(s.hi) == LoopIR.Const:
+                        assert s.hi.type == T.int
+                        rngs.append(s.hi.val)
+                    else:
+                        raise SchedulingError("Can only lift through loops "+
+                                              "with simple range bounds, "+
+                                              "i.e. a variable or constant")
             else: assert False, "bad case"
 
         return (idxs, rngs)
@@ -593,6 +641,54 @@ class _Is_Alloc_Free(LoopIR_Do):
 
 def _is_alloc_free(stmts):
     return _Is_Alloc_Free(stmts).result()
+
+
+# data-flow dependencies between variable names
+class _FreeVars(LoopIR_Do):
+    def __init__(self, stmts):
+        self._fvs     = set()
+        self._bound   = set()
+
+        self.do_stmts(stmts)
+
+    def result(self):
+        return self._fvs
+
+    def do_s(self, s):
+        if type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
+            self._bound.add(s.name)
+        elif type(s) is LoopIR.ForAll:
+            self._bound.add(s.iter)
+        elif type(s) is LoopIR.Alloc:
+            self._bound.add(s.name)
+
+        super().do_s(s)
+
+    def do_e(self, e):
+        if type(e) is LoopIR.Read:
+            if e.name not in self._bound:
+                self._fvs.add(e.name)
+
+        super().do_e(e)
+
+def _FV(stmts):
+    return _FreeVars(stmts).result()
+
+def _is_idempotent(stmts):
+    def _stmt(s):
+        styp = type(s)
+        if styp is LoopIR.Reduce:
+            return False
+        elif styp is LoopIR.Call:
+            return _is_idempotent(s.f.body)
+        elif styp is LoopIR.If:
+            return _is_idempotent(s.body) and _is_idempotent(s.orelse)
+        elif styp is LoopIR.ForAll:
+            return _is_idempotent(s.body)
+        else:
+            return True
+
+    return all( _stmt(s) for s in stmts )
 
 
 # structure is weird enough to skip using the Rewrite-pass super-class
@@ -685,11 +781,16 @@ class _FissionLoops:
                 self.n_lifts -= 1
                 self.alloc_check(pre)
 
-                pre         = [LoopIR.ForAll(s.iter, s.hi, pre, s.srcinfo)]
-                post        = [LoopIR.ForAll(s.iter, s.hi, post, s.srcinfo)]
-                # since we are copying the binding of s.iter,
-                # we should perform an Alpha_Rename for safety
-                pre         = Alpha_Rename(pre).result()
+                # we can skip the loop iteration if the
+                # body doesn't depend on the loop
+                # and the body is idempotent
+                if s.iter in _FV(pre) or not _is_idempotent(pre):
+                    pre     = [LoopIR.ForAll(s.iter, s.hi, pre, s.srcinfo)]
+                    # since we are copying the binding of s.iter,
+                    # we should perform an Alpha_Rename for safety
+                    pre         = Alpha_Rename(pre).result()
+                if s.iter in _FV(post) or not _is_idempotent(pre):
+                    post    = [LoopIR.ForAll(s.iter, s.hi, post, s.srcinfo)]
 
                 return (pre,post)
 
@@ -706,6 +807,34 @@ class _FissionLoops:
         else:
             return ([single_stmt],[])
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+#   Factor out a sub-statement as a Procedure scheduling directive
+
+# turn a collection of statements with free variables
+# into a procedure
+#class _MakeClosure:
+#    pass
+
+class _DoFactorOut(LoopIR_Rewrite):
+    def __init__(self, proc, name, stmt):
+        assert isinstance(expr, LoopIR.expr)
+        assert expr.type == T.R
+        self.orig_proc      = proc
+        self.sub_proc_name  = name
+        self.match_stmt     = stmt
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s == self.match_stmt:
+
+        else:
+            return super().map_s(s)
+
+    def map_e(self, e):
+        return e
 
 
 
@@ -726,3 +855,4 @@ class Schedules:
     DoBindExpr          = _BindExpr
     DoLiftAlloc         = _LiftAlloc
     DoFissionLoops      = _FissionLoops
+    DoFactorOut         = _DoFactorOut
