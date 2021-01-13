@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Redirect output to stderr.
+exec 1>&2
+
+NB_FILES=$(git diff --cached --name-only --diff-filter=ACMR |
+           grep ".*ipynb$")
+
+while IFS= read -r line
+do
+  jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $line
+  git add $line
+done <<< "$NB_FILES"

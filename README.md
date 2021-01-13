@@ -32,6 +32,15 @@ We are trying to maintain a dependency listing in requirements.txt.  You should 
 pip install -r requirements.txt
 ```
 
+### PLEASE Set Up The Hooks
+
+We cannot automate the enabling of git hooks on your copy of the repository, but the following is the closest we can come to that.  After you clone the repository, please run the following command in the root directory for the project
+```
+git config core.hooksPath githooks
+```
+
+This will setup the repository to use the provided project hooks.  In particular, we have pre-commit hooks there that will prevent the repository history getting bloated with iPython Notebook output.
+
 
 ## Notes for Testing
 
