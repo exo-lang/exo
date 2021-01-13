@@ -829,7 +829,7 @@ class _DoFactorOut(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s == self.match_stmt:
-
+            pass
         else:
             return super().map_s(s)
 
