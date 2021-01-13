@@ -93,9 +93,9 @@ class Procedure:
         decls, defns = compile_to_strings([self._loopir_proc])
         return defns
 
-    def compile_c(self, directory, filename):
+    def compile_c(self, directory, filename, malloc=False):
         run_compile([self._loopir_proc], directory,
-                    (filename + ".c"), (filename + ".h"))
+                    (filename + ".c"), (filename + ".h"), malloc)
 
     def interpret(self, **kwargs):
         run_interpreter(self._loopir_proc, kwargs)
