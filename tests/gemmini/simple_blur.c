@@ -53,9 +53,13 @@ int main() {
     int m = 205;
     int n = 128;
     float res[n][m];
-    blur(n, m, 5, image, kernel, res);
 
-    printf("printing..\n");
+    unsigned long cpu_start = read_cycles();
+    blur(n, m, 5, image, kernel, res);
+    unsigned long cpu_end = read_cycles();
+    printf("\nCycles taken: %u\n", cpu_end-cpu_start);
+
+    printf("printing result..\n");
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < m; j++) {
             printf("%d ", (int)res[i][j]);
