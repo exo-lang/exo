@@ -11,8 +11,6 @@ import sys
 from .prelude import *
 from .LoopIR import UAST, front_ops, PAST
 from . import shared_types as T
-from .instruction_type import Instruction
-from .instructions import Instr_Lookup
 
 from .API import Procedure
 
@@ -29,12 +27,6 @@ class SizeStub:
     def __init__(self, nm):
         assert type(nm) is Sym
         self.nm = nm
-
-class InstrStub:
-    def __init__(self, op, pynode):
-        assert isinstance(op, Instruction)
-        self.op = op
-        self.pynode = pynode
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -461,27 +453,6 @@ class Parser:
 
                 rstmts.append(UAST.If(cond, body, orelse, self.getsrcinfo(s)))
 
-            # ----- Instruction annotation parsing
-            elif (type(s) is pyast.Expr and
-                  type(s.value) is pyast.Call and
-                  type(s.value.func) is pyast.Name and
-                  s.value.func.id == "instr"):
-                if len(s.value.keywords) > 0:
-                    self.err(s.value, "cannot call instr() "+
-                                      "with keyword arguments")
-                elif len(s.value.args) != 1:
-                    self.err(s.value, "expected exactly "+
-                                      "one argument to instr()")
-                a = s.value.args[0]
-                if type(a) is not pyast.Name:
-                    self.err(s.value, "expected argument to instr() to "+
-                                      "be an instruction name")
-                elif a.id not in Instr_Lookup:
-                    self.err(s.value, f"did not recognize instruction name "+
-                                      f"{a.id}")
-
-                rstmts.append(InstrStub(Instr_Lookup[a.id](), s))
-
             # ----- Sub-routine call parsing
             elif (type(s) is pyast.Expr and
                   type(s.value) is pyast.Call and
@@ -512,28 +483,6 @@ class Parser:
                 rstmts.append(UAST.Pass(self.getsrcinfo(s)))
             else:
                 self.err(s, "unsupported type of statement")
-
-        # process any Instruction Annotation Stubs...
-        rstmts, stmts = [], rstmts
-        if len(stmts) > 0 and type(stmts[-1]) is InstrStub:
-            self.err(stmts[-1].pynode,
-                     "cannot end a block with an instr() "+
-                     "annotation that doesn't annotate anything")
-        itr = 0
-        while itr < len(stmts):
-            s0 = stmts[itr]
-            if type(s0) is InstrStub:
-                s1 = stmts[itr+1]
-                if type(s1) is InstrStub:
-                    self.err(s0.pynode,
-                             "Cannot annotate an instruction annotation "+
-                             "with another instruction annotation")
-                rstmts.append(UAST.Instr(s0.op, s1,
-                                         self.getsrcinfo(s0.pynode)))
-                itr+=2
-            else:
-                rstmts.append(s0)
-                itr+=1
 
         return rstmts
 

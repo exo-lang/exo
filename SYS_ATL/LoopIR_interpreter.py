@@ -122,8 +122,6 @@ class Interpreter:
                 size = _eshape(s.type, self.env)
                 # TODO: Maybe randomize?
                 self.env[s.name] = np.empty(size)
-        elif styp is LoopIR.Instr:
-            self.eval_s(s.body)
         elif styp is LoopIR.Call:
             argvals     = [ self.eval_e(a, call_arg=True) for a in s.args ]
             argnames    = [ str(a.name) for a in s.f.args ]

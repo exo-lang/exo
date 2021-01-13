@@ -321,8 +321,6 @@ class Compiler:
             if s.type is not T.R:
                 name = self.env[s.name]
                 self.add_line(f"free({name});")
-        elif styp is LoopIR.Instr:
-            return s.op.compile(s.body, self)
         elif styp is LoopIR.Call:
             fname   = s.f.name
             args    = [ self.comp_e(e, call_arg=True) for e in s.args ]

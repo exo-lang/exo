@@ -5,7 +5,6 @@ from .prelude import *
 
 from . import shared_types as T
 
-from .instruction_type import Instruction
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -47,7 +46,6 @@ module UAST {
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | ForAll  ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, string? mem )
-            | Instr   ( instr op, stmt body )
             | Call    ( loopir_proc f, expr* args )
             attributes( srcinfo srcinfo )
 
@@ -64,7 +62,6 @@ module UAST {
     'type':         T.is_type,
     'effect':       T.is_effect,
     'loopir_proc':  lambda x: type(x) is LoopIR.proc,
-    'instr':        lambda x: isinstance(x, Instruction),
     'op':           lambda x: x in front_ops,
     'srcinfo':      lambda x: type(x) is SrcInfo,
 })
@@ -142,7 +139,6 @@ module LoopIR {
             | ForAll ( sym iter, expr hi, stmt* body )
             | Alloc  ( sym name, type type, mem? mem )
             | Free   ( sym name, type type, mem? mem )
-            | Instr  ( instr op, stmt body )
             | Call   ( proc f, expr* args )
             attributes( srcinfo srcinfo )
 
@@ -156,7 +152,6 @@ module LoopIR {
     'sym':      lambda x: type(x) is Sym,
     'type':     T.is_type,
     'effect':   T.is_effect,
-    'instr':    lambda x: isinstance(x, Instruction),
     'mem':      lambda x: type(x) is str,
     'binop':    lambda x: x in bin_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
@@ -202,10 +197,6 @@ class LoopIR_Rewrite:
         elif styp is LoopIR.ForAll:
             return [LoopIR.ForAll( s.iter, self.map_e(s.hi),
                                    self.map_stmts(s.body), s.srcinfo )]
-        elif styp is LoopIR.Instr:
-            b = self.map_s(s.body)
-            assert len(b) == 1
-            return [LoopIR.Instr( s.op, b[0], s.srcinfo )]
         else:
             return [s]
 
@@ -243,8 +234,6 @@ class LoopIR_Do:
         elif styp is LoopIR.ForAll:
             self.do_e(s.hi)
             self.do_stmts(s.body)
-        elif styp is LoopIR.Instr:
-            self.do_s(s.body)
         elif styp is LoopIR.Call:
             for e in s.args:
                 self.do_e(e)

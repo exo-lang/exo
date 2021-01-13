@@ -136,8 +136,7 @@ class UAST_PPrinter:
 
     def pproc(self, p):
         name = p.name or "_anon_"
-        args = [f"{self.new_name(sz)} : size" for sz in p.sizes]
-        args += [self.pfnarg(a) for a in p.args]
+        args = [ self.pfnarg(a) for a in p.args ]
         self.addline(f"def {name}({','.join(args)}):")
 
         self.push()
@@ -145,8 +144,9 @@ class UAST_PPrinter:
         self.pop()
 
     def pfnarg(self, a):
-        mem = f" @{stmt.mem}" if stmt.mem else ""
-        return f"{self.new_name(a.name)} : {a.type} @ {a.effect}{mem}"
+        eff = f" @{a.effect}" if a.effect else ""
+        mem = f" @{a.mem}" if a.mem else ""
+        return f"{self.new_name(a.name)} : {a.type}{eff}{mem}"
 
     def pstmts(self, body):
         for stmt in body:
@@ -167,9 +167,6 @@ class UAST_PPrinter:
             elif type(stmt) is UAST.Alloc:
                 mem = f" @{stmt.mem}" if stmt.mem else ""
                 self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
-            elif type(stmt) is UAST.Instr:
-                self.addline(f"instr({stmt.op.opname()})")
-                self.pstmts([stmt.body])
             elif type(stmt) is UAST.Call:
                 pname   = stmt.f.name or "_anon_"
                 args    = [ self.pexpr(a) for a in p.args ]
@@ -345,9 +342,6 @@ class LoopIR_PPrinter:
         elif type(stmt) is LoopIR.Free:
             mem = f" @{stmt.mem}" if stmt.mem else ""
             self.addline(f"free {self.new_name(stmt.name)} : {stmt.type}{mem}")
-        elif type(stmt) is LoopIR.Instr:
-            self.addline(f"instr({stmt.op.opname()})")
-            self.pstmt(stmt.body)
         elif type(stmt) is LoopIR.Call:
             args    = [ self.pexpr(a) for a in stmt.args ]
             self.addline(f"{stmt.f.name}({','.join(args)})")

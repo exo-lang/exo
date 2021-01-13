@@ -5,8 +5,6 @@ from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops
 from . import shared_types as T
 
-from .instruction_type import is_valid_mem
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
@@ -160,11 +158,6 @@ class TypeChecker:
                 self.err(stmt, f"invalid memory name '{mem}'")
                 mem = None
             return LoopIR.Alloc(stmt.name, stmt.type, mem, stmt.srcinfo)
-
-        elif type(stmt) is UAST.Instr:
-            body = self.check_single_stmt(stmt.body)
-            stmt.op.typecheck(body, self)
-            return LoopIR.Instr(stmt.op, body, stmt.srcinfo)
 
         elif type(stmt) is UAST.Call:
             args    = [ self.check_e(a) for a in stmt.args ]
