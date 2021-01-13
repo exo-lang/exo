@@ -1,10 +1,4 @@
-#include<stdint.h>
-#include<assert.h>
-#include<string.h>
-#include<stdio.h>
-
-//uint32_t  HEAP_SIZE = {heap_size};
-#define HEAP_SIZE 1000000
+#define HEAP_SIZE {heap_size}
 
 uint8_t HEAP[HEAP_SIZE];
 

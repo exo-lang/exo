@@ -86,14 +86,23 @@ def find_all_subprocs(proc_list):
 # top level compiler function called by tests!
 
 
-def run_compile(proc_list, path, c_file, h_file):
+def run_compile(proc_list, path, c_file, h_file, malloc=False):
 
     fwd_decls, body = compile_to_strings(proc_list)
 
-    fwd_decls = ("#include <stdio.h>\n"+
-                 "#include <stdlib.h>\n"+
-                 "\n"+
-                 fwd_decls)
+    includes = "#include <stdio.h>\n" + "#include <stdlib.h>\n"
+
+    if malloc:
+        includes += ("#include <stdint.h>\n"+
+                     "#include <assert.h>\n"+
+                     "#include <string.h>\n")
+
+        with open(os.path.dirname(os.path.realpath(__file__)) + "/malloc.c", "r") as f_malloc:
+            m_lines = f_malloc.readlines()
+            m_lines[0] = m_lines[0].format(heap_size = 100000)
+            body = "".join(m_lines) + body
+
+    fwd_decls = includes + "\n"+ fwd_decls
 
     with open(os.path.join(path, h_file), "w") as f_header:
         f_header.write(fwd_decls)
