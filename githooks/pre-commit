@@ -8,6 +8,9 @@ NB_FILES=$(git diff --cached --name-only --diff-filter=ACMR |
 
 while IFS= read -r line
 do
-  jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $line
-  git add $line
+  if [ -f "$line" ]
+  then
+    jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $line
+    git add $line
+  fi
 done <<< "$NB_FILES"
