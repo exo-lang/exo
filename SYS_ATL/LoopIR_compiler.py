@@ -108,6 +108,7 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
         f_header.write(fwd_decls)
 
     with open(os.path.join(path, c_file), "w") as f_cpp:
+        f_cpp.write("#include \"" + h_file + "\"\n\n");
         f_cpp.write(body)
 
 
