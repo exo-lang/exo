@@ -191,39 +191,95 @@ class _Reorder(LoopIR_Rewrite):
 
 
 class _Split(LoopIR_Rewrite):
-    def __init__(self, proc, split_var, quot, hi, lo):
+    def __init__(self, proc, split_var, quot, hi, lo, cut_tail=False):
         self.split_var = split_var
         self.quot = quot
         self.hi_i = Sym(hi)
         self.lo_i = Sym(lo)
+        self.cut_i = Sym(lo)
+
+        self._tail_strategy = 'cut' if cut_tail else 'guard'
+        self._in_cut_tail = False
 
         super().__init__(proc)
 
     def substitute(self, srcinfo):
-        return LoopIR.BinOp("+",
-                    LoopIR.BinOp("*",
-                                 LoopIR.Const(self.quot, T.int, srcinfo),
-                                 LoopIR.Read(self.hi_i, [], T.index, srcinfo),
-                                 T.index, srcinfo),
-                    LoopIR.Read(self.lo_i, [], T.index, srcinfo),
-                    T.index, srcinfo)
+        cnst = lambda x: LoopIR.Const(x, T.int, srcinfo)
+        rd   = lambda x: LoopIR.Read(x, [], T.index, srcinfo)
+        op   = lambda op,lhs,rhs: LoopIR.BinOp(op,lhs,rhs,T.index, srcinfo)
+
+        return op('+', op('*', cnst(self.quot),
+                               rd(self.hi_i)),
+                       rd(self.lo_i))
+
+    def cut_tail_sub(self, srcinfo):
+        return self._cut_tail_sub
 
     def map_s(self, s):
         if type(s) is LoopIR.ForAll:
             # Split this to two loops!!
             if s.iter is self.split_var:
-                body = self.map_stmts(s.body)
-                cond    = LoopIR.BinOp("<", self.substitute(s.srcinfo), s.hi,
-                                        T.bool, s.srcinfo)
-                body    = LoopIR.If(cond, body, [], s.srcinfo)
-                lo_hi   = LoopIR.Const(self.quot, T.int, s.srcinfo)
-                hi_hi   = LoopIR.BinOp("/", s.hi, lo_hi, T.index, s.srcinfo)
+                # short-hands for sanity
+                def boolop(op,lhs,rhs):
+                    return LoopIR.BinOp(op,lhs,rhs,T.bool,s.srcinfo)
+                def szop(op,lhs,rhs):
+                    return LoopIR.BinOp(op,lhs,rhs,lhs.type,s.srcinfo)
+                def cnst(intval):
+                    return LoopIR.Const(intval, T.int, s.srcinfo)
+                def rd(i):
+                    return LoopIR.Read(i, [], T.index, s.srcinfo)
 
-                return [LoopIR.ForAll(self.hi_i, hi_hi,
-                            [LoopIR.ForAll(self.lo_i, lo_hi,
-                                [body],
-                                s.srcinfo)],
-                            s.srcinfo)]
+                # in the simple case, wrap body in a guard
+                if self._tail_strategy == 'guard':
+                    body    = self.map_stmts(s.body)
+                    idx_sub = self.substitute(s.srcinfo)
+                    cond    = boolop("<", idx_sub, s.hi)
+                    body    = [LoopIR.If(cond, body, [], s.srcinfo)]
+                    lo_rng  = cnst(self.quot)
+                    hi_rng  = szop("/", s.hi, lo_rng)
+
+                    return [LoopIR.ForAll(self.hi_i, hi_rng,
+                                [LoopIR.ForAll(self.lo_i, lo_rng,
+                                    body,
+                                    s.srcinfo)],
+                                s.srcinfo)]
+
+                # an alternate scheme is to split the loop in two
+                # by cutting off the tail into a second loop
+                elif self._tail_strategy == 'cut':
+                    # if N == s.hi and Q == self.quot, then
+                    #   we want Ncut == (N-Q+1)/Q
+                    Q       = cnst(self.quot)
+                    N       = s.hi
+                    NQ1     = szop("+", szop("-", N, Q), cnst(1))
+                    Ncut    = szop("/", NQ1, Q)
+
+                    # and then for the tail loop, we want to
+                    # iterate from 0 to Ntail
+                    # where Ntail == (N - Ncut*Q)
+                    Ntail   = szop("-", N, szop("*", Ncut, Q))
+                    # in that loop we want the iteration variable to
+                    # be mapped instead to (Ncut*Q + cut_i)
+                    self._cut_tail_sub = szop("+", rd(self.cut_i),
+                                                   szop("*", Ncut, Q))
+
+                    main_body = self.map_stmts(s.body)
+                    self._in_cut_tail = True
+                    tail_body = Alpha_Rename(self.map_stmts(s.body)).result()
+                    self._in_cut_tail = False
+
+                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
+                                [LoopIR.ForAll(self.lo_i, Q,
+                                    main_body,
+                                    s.srcinfo)],
+                                s.srcinfo),
+                             LoopIR.ForAll(self.cut_i, Ntail,
+                                tail_body,
+                                s.srcinfo)]
+
+                    return loops
+
+                else: assert False, f"bad tail strategy"
 
         # fall-through
         return super().map_s(s)
@@ -233,7 +289,10 @@ class _Split(LoopIR_Rewrite):
             if e.type is T.index:
                 # This is a splitted variable, substitute it!
                 if e.name is self.split_var:
-                    return self.substitute(e.srcinfo)
+                    if self._in_cut_tail:
+                        return self.cut_tail_sub(e.srcinfo)
+                    else:
+                        return self.substitute(e.srcinfo)
 
         # fall-through
         return super().map_e(e)
@@ -352,14 +411,318 @@ class _CallSwap(LoopIR_Rewrite):
         return e
 
 
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Bind Expression scheduling directive
+
+
+class _BindExpr(LoopIR_Rewrite):
+    def __init__(self, proc, new_name, expr):
+        assert isinstance(expr, LoopIR.expr)
+        assert expr.type == T.R
+        self.orig_proc  = proc
+        self.new_name   = Sym(new_name)
+        self.expr       = expr
+        self.found_expr = False
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        # handle recursive part of pass at this statement
+        stmts = super().map_s(s)
+        if self.found_expr:
+            stmts = [ LoopIR.Alloc(self.new_name, T.R, s.srcinfo),
+                      LoopIR.Assign(self.new_name, [],
+                                    self.expr, self.expr.srcinfo )
+                    ] + stmts
+            self.found_expr = False
+
+        return stmts
+
+    def map_e(self, e):
+        if e is self.expr:
+            self.found_expr = True
+            return LoopIR.Read(self.new_name, [], e.type, e.srcinfo)
+        else:
+            return super().map_e(e)
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Lift Allocation scheduling directive
+
+
+class _LiftAlloc(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, n_lifts):
+        assert type(alloc_stmt) is LoopIR.Alloc
+        assert is_pos_int(n_lifts)
+        self.orig_proc      = proc
+        self.alloc_stmt     = alloc_stmt
+        self.alloc_sym      = alloc_stmt.name
+        self.n_lifts        = n_lifts
+
+        self.ctrl_ctxt      = []
+        self.lift_site      = None
+
+        self.lifted_stmt    = None
+        self.access_idxs    = None
+        self._in_call_arg   = False
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s == self.alloc_stmt:
+            # mark the point we want to lift this alloc-stmt to
+            n_up = min( self.n_lifts, len(self.ctrl_ctxt) )
+            self.lift_site = self.ctrl_ctxt[-n_up]
+
+            # extract the ranges and variables of enclosing loops
+            idxs, rngs = self.get_ctxt_itrs_and_rngs(n_up)
+
+            # compute the lifted allocation buffer type, and
+            # the new allocation statement
+            new_typ = s.type
+            for r in reversed(rngs):
+                new_typ = T.Tensor(r, new_typ)
+
+            self.lifted_stmt = LoopIR.Alloc( s.name, new_typ, s.mem,
+                                             s.srcinfo )
+            self.access_idxs = idxs
+
+            # erase the statement from this location
+            return []
+
+        elif type(s) is LoopIR.If or type(s) is LoopIR.ForAll:
+            # handle recursive part of pass at this statement
+            self.ctrl_ctxt.append(s)
+            stmts = super().map_s(s)
+            self.ctrl_ctxt.pop()
+
+            # splice in lifted statement at the point to lift-to
+            if s == self.lift_site:
+                stmts = [ self.lifted_stmt ] + stmts
+
+            return stmts
+
+        elif type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
+            # in this case, we may need to substitute the
+            # buffer name on the lhs of the assignment/reduction
+            if s.name == self.alloc_sym:
+                assert self.access_idxs is not None
+                idx = [ LoopIR.Read(i, [], T.index, s.srcinfo)
+                        for i in self.access_idxs ] + s.idx
+                rhs = self.map_e(s.rhs)
+                # return allocation or reduction...
+                return [ type(s)( s.name, idx, rhs, s.srcinfo ) ]
+
+        elif type(s) is LoopIR.Call:
+            # substitution in call arguments currently unsupported;
+            # so setting flag here
+            self._in_call_arg = True
+            stmts = super().map_s(s)
+            self._in_call_arg = False
+            return stmts
+        
+        # fall-through
+        return super().map_s(s)
+
+    def map_e(self, e):
+        if type(e) is LoopIR.Read and e.name == self.alloc_sym:
+            assert self.access_idxs is not None
+            if self._in_call_arg:
+                raise SchedulingError("cannot lift allocation of "+
+                                      f"'{self.alloc_sym}' because it "+
+                                      "was passed into a sub-procedure "+
+                                      "call; TODO: fix this!")
+            idx = [ LoopIR.Read(i, [], T.index, s.srcinfo)
+                    for i in self.access_idxs ] + e.idx
+            return LoopIR.Read( e.name, idx, e.type, e.srcinfo )
+
+        # fall-through
+        return super().map_e(e)
+
+    def get_ctxt_itrs_and_rngs(self, n_up):
+        rngs    = []
+        idxs    = []
+        for s in self.ctrl_ctxt[-n_up:]:
+            if type(s) is LoopIR.If:
+                # if-statements do not affect allocations
+                # note that this may miss opportunities to
+                # shrink the allocation by being aware of
+                # guards; oh well.
+                continue
+            elif type(s) is LoopIR.ForAll:
+                idxs.append(s.iter)
+                if type(s.hi) == LoopIR.Read:
+                    assert s.hi.type == T.size
+                    assert len(s.hi.idx) == 0
+                    rngs.append(s.hi.name)
+                elif type(s.hi) == LoopIR.Const:
+                    assert s.hi.type == T.int
+                    rngs.append(s.hi.val)
+                else:
+                    raise SchedulingError("Can only lift through loops "+
+                                          "with simple range bounds, "+
+                                          "i.e. a variable or constant")
+            else: assert False, "bad case"
+
+        return (idxs, rngs)
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Fissioning at a Statement scheduling directive
+
+class _Is_Alloc_Free(LoopIR_Do):
+    def __init__(self, stmts):
+        self._is_alloc_free = True
+
+        self.do_stmts(stmts)
+
+    def result(self):
+        return self._is_alloc_free
+
+    def do_s(self, s):
+        if type(s) is LoopIR.Alloc:
+            self._is_alloc_free = False
+
+        super().do_s(s)
+
+    def do_e(self, e):
+        pass
+
+def _is_alloc_free(stmts):
+    return _Is_Alloc_Free(stmts).result()
+
+
+# structure is weird enough to skip using the Rewrite-pass super-class
+class _FissionLoops:
+    def __init__(self, proc, stmt, n_lifts):
+        assert isinstance(stmt, LoopIR.stmt)
+        assert is_pos_int(n_lifts)
+        self.orig_proc      = proc
+        self.tgt_stmt       = stmt
+        self.n_lifts        = n_lifts
+
+        self.hit_fission    = False     # signal to map_stmts
+
+        pre_body, post_body = self.map_stmts(proc.body)
+        self.proc = LoopIR.proc(name    = self.orig_proc.name,
+                                args    = self.orig_proc.args,
+                                body    = pre_body + post_body,
+                                srcinfo = self.orig_proc.srcinfo)
+
+    def result(self):
+        return self.proc
+
+    def alloc_check(self, stmts):
+        if not _is_alloc_free(stmts):
+            raise SchedulingError("Will not fission here, because "+
+                                  "an allocation might be buried "+
+                                  "in a different scope than some use-site")
+
+    # returns a pair of stmt-lists
+    # for those statements occuring before and
+    # after the fission point
+    def map_stmts(self, stmts):
+        pre_stmts           = []
+        post_stmts          = []
+        for orig_s in stmts:
+            pre, post       = self.map_s(orig_s)
+            pre_stmts      += pre
+            post_stmts     += post
+
+        return (pre_stmts, post_stmts)
+
+    # see map_stmts comment
+    def map_s(self, s):
+        if s == self.tgt_stmt:
+            assert self.hit_fission == False
+            self.hit_fission = True
+            # none-the-less make sure we return this statement in
+            # the pre-fission position
+            return ([s],[])
+
+        elif type(s) is LoopIR.If:
+
+            # first, check if we need to split the body
+            pre, post       = self.map_stmts(s.body)
+            fission_body    = (len(pre) > 0 and len(post) > 0 and
+                               self.n_lifts > 0)
+            if fission_body:
+                self.n_lifts -= 1
+                self.alloc_check(pre)
+                pre         = LoopIR.If(s.cond, pre, [], s.srcinfo)
+                post        = LoopIR.If(s.cond, post, s.orelse, s.srcinfo)
+                return ([pre],[post])
+
+            body = pre+post
+            
+            # if we don't, then check if we need to split the or-else
+            pre, post       = self.map_stmts(s.orelse)
+            fission_orelse  = (len(pre) > 0 and len(post) > 0 and
+                               self.n_lifts > 0)
+            if fission_orelse:
+                self.n_lifts -= 1
+                self.alloc_check(pre)
+                pre         = LoopIR.If(s.cond, body, pre, s.srcinfo)
+                post        = LoopIR.If(s.cond, [], post, s.srcinfo)
+                return ([pre],[post])
+
+            orelse = pre+post
+
+            # if we neither split the body nor the or-else,
+            # then we need to gather together the pre and post.
+            single_stmt = LoopIR.If(s.cond, body, orelse, s.srcinfo)
+
+        elif type(s) is LoopIR.ForAll:
+
+            # check if we need to split the loop
+            pre, post       = self.map_stmts(s.body)
+            do_fission      = (len(pre) > 0 and len(post) > 0 and
+                               self.n_lifts > 0)
+            if do_fission:
+                self.n_lifts -= 1
+                self.alloc_check(pre)
+
+                pre         = [LoopIR.ForAll(s.iter, s.hi, pre, s.srcinfo)]
+                post        = [LoopIR.ForAll(s.iter, s.hi, post, s.srcinfo)]
+                # since we are copying the binding of s.iter,
+                # we should perform an Alpha_Rename for safety
+                pre         = Alpha_Rename(pre).result()
+
+                return (pre,post)
+
+            # if we didn't split, then compose pre and post of the body
+            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, s.srcinfo)
+
+        else:
+            # all other statements cannot recursively
+            # contain statements, so...
+            single_stmt = s
+
+        if self.hit_fission:
+            return ([],[single_stmt])
+        else:
+            return ([single_stmt],[])
+
+
+
+
+
+
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # The Passes to export
 
 class Schedules:
-    DoReorder   = _Reorder
-    DoSplit     = _Split
-    DoUnroll    = _Unroll
-    DoInline    = _Inline
-    DoCallSwap  = _CallSwap
+    DoReorder           = _Reorder
+    DoSplit             = _Split
+    DoUnroll            = _Unroll
+    DoInline            = _Inline
+    DoCallSwap          = _CallSwap
+    DoBindExpr          = _BindExpr
+    DoLiftAlloc         = _LiftAlloc
+    DoFissionLoops      = _FissionLoops

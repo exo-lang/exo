@@ -6,3 +6,4 @@ astor
 yapf
 pillow
 scipy
+jupyter_contrib_nbextensions

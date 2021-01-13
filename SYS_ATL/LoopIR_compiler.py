@@ -125,9 +125,9 @@ def compile_to_strings(proc_list):
                             f"procedures named '{p.name}'")
         used_names.add(p.name)
 
-    body = ["int _floor_div(int num, int quot) {",
-            "  int off = (num<0)? quot-1 : 0;",
-            "  return (num-off)/quot;",
+    body = ["int _ceil_div(int num, int quot) {",
+            "  int off = (num>0)? quot-1 : 0;",
+            "  return (num+off)/quot;",
             "}",
             "\n"]
 
@@ -218,10 +218,8 @@ class Compiler:
         self._lines.append(self._tab+line)
 
     def comp_stmts(self, stmts):
-        self.push()
         for b in stmts:
             self.comp_s(b)
-        self.pop()
 
     def comp_top(self):
         return self.proc_decl, self.proc_def
@@ -371,7 +369,7 @@ class Compiler:
             rhs = self.comp_e(e.rhs, local_prec+1)
 
             if int_div:
-                return f"_floor_div({lhs}, {rhs})"
+                return f"_ceil_div({lhs}, {rhs})"
 
             s = f"{lhs} {op} {rhs}"
             if local_prec < prec:
