@@ -468,6 +468,7 @@ class _Alloc_Dependencies(LoopIR_Do):
     def do_s(self, s):
         if type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
             self._lhs = s.name
+            self._depends[s.name].add(s.name)
         elif type(s) is LoopIR.Call:
             # giant cross-bar of dependencies on the arguments
             for fa, a in zip(s.f.args, s.args):

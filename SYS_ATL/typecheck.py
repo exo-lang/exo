@@ -161,52 +161,67 @@ class TypeChecker:
 
         elif type(stmt) is UAST.Call:
             args    = [ self.check_e(a) for a in stmt.args ]
-            # need to introspect on f to get arguments and their types
-            # first need to establish size variable mapping
+
+            # because procedures have dependently-typed signatures,
+            # we need to re-map size types as we type-check
             size_map = {}
-            for a,fa in zip(args, stmt.f.args):
-                if fa.type is T.size:
-                    is_err = True
-                    if a.type == T.err:
-                        pass
-                    elif a.type != T.size and a.type != T.int:
-                        self.err(a, "expected argument of 'size' or 'int' "+
-                                    "type, but got argument of "+
-                                    f"type '{a.type}'")
+            for call_a,sig_a in zip(args, stmt.f.args):
+                is_err = True
+                if call_a.type == T.err:
+                    pass
+                elif sig_a.type is T.size:
+                    if call_a.type == T.size:
+                        if type(call_a) is not LoopIR.Read:
+                            self.err(call_a, "expected size arguments to be "+
+                                             "simply variables or constants "+
+                                             "for now")
+                        else:
+                            is_err = False
+                            size_map[sig_a.name] = call_a.name
+                    elif call_a.type == T.int:
+                        if type(call_a) is not LoopIR.Const:
+                            self.err(call_a, "expected size arguments to be "+
+                                             "simply variables or constants "+
+                                             "for now")
+                        else:
+                            is_err = False
+                            size_map[sig_a.name] = call_a.val
                     else:
-                        if a.type == T.size:
-                            if type(a) is not LoopIR.Read:
-                                self.err(a, "expected size arguments to be "+
-                                            "simply variables for now")
-                            else:
-                                is_err = False
-                                size_map[fa.name] = a.name
-                        elif a.type == T.int:
-                            if type(a) is not LoopIR.Const:
-                                self.err(a, "expected int arguments to be "+
-                                            "simply literals for now")
-                            else:
-                                is_err = False
-                                size_map[fa.name] = a.val
-                    if is_err:
-                        return LoopIR.Pass(stmt.srcinfo)
+                        self.err(call_a, "expected argument of 'size' or "+
+                                         "'int' type, but got argument of "+
+                                        f"type '{call_a.type}'")
 
-            # now that we have processed size arguments, we can type-check
-            # the rest of the arguments
-            for a,fa in zip(args, stmt.f.args):
-                if a.type == T.err or fa.type == T.size:
-                    continue
+                elif sig_a.type is T.index:
+                    if not call_a.type.is_indexable():
+                        self.err(call_a, "expected index-type expression, "+
+                                         f"but got type {call_a.type}")
+                    else:
+                        is_err = False
 
-                fatype = fa.type.subst(size_map)
-                if a.type != fatype:
-                    self.err(a, f"expected argument of type '{fatype}'")
+                elif sig_a.type.is_numeric():
+                    sig_type = sig_a.type.subst(size_map)
+                    if call_a.type != sig_type:
+                        self.err(call_a,
+                                 f"expected argument of type '{sig_type}'")
 
-                # ensure scalars are simply variable names
-                if a.type == T.R:
-                    if type(a) is not LoopIR.Read or len(a.idx) != 0:
-                        self.err(a, "expected scalar arguments to be "+
-                                    "simply variable names for now")
+                    # ensure scalars are simply variable names
+                    elif call_a.type == T.R:
+                        if (type(call_a) is not LoopIR.Read or
+                            len(call_a.idx) != 0):
+                            self.err(call_a, "expected scalar arguments "+
+                                             "to be simply variable names "+
+                                             "for now")
+                        else:
+                            is_err = False
+                    else:
+                        is_err = False
 
+                else: assert False, "bad argument type case"
+
+                if is_err:
+                    return LoopIR.Pass(stmt.srcinfo)
+
+            # if no errors were hit, then we get to here
             return LoopIR.Call(stmt.f, args, stmt.srcinfo)
 
         else:

@@ -183,34 +183,42 @@ class Compiler:
         self._scalar_refs = set()
 
         assert self.proc.name != None, "expected names for compilation"
-        name = self.proc.name
-        arg_str = ""
-        typ_comment_str = ""
+        name            = self.proc.name
+        arg_strs        = []
+        typ_comments    = []
 
         for a in proc.args:
             name_arg = self.new_varname(a.name, typ=a.type)
             # setup, size argument binding
             if a.type == T.size:
-                arg_str += f" int {name_arg},"
+                arg_strs.append(f"int {name_arg}")
+                typ_comments.append(f"{name_arg} : size")
+            # setup, index argument binding
+            elif a.type == T.index:
+                arg_strs.append(f"int {name_arg}")
+                typ_comments.append(f"{name_arg} : index")
             # setup, arguments
             else:
                 if a.type == T.R:
                     self._scalar_refs.add(a.name)
-                arg_str += f" float* {name_arg},"
-                mem = f" @{a.mem}" if a.mem else ""
-                typ_comment_str += f" {name_arg} : {a.type} @{a.effect}{mem},"
+                arg_strs.append(f"float* {name_arg}")
+                mem             = f" @{a.mem}" if a.mem else ""
+                comment_str     = f"{name_arg} : {a.type} @{a.effect}{mem}"
+                typ_comments.append(comment_str)
 
         self.comp_stmts(self.proc.body)
 
         # Generate headers here?
-        proc_decl = (f"// {name}({typ_comment_str[:-1]} )\n"
-                     + f"void {name}({arg_str[:-1]});\n"
-                     )
-        proc_def = (f"// {name}({typ_comment_str[:-1]} )\n"
-                    + f"void {name}({arg_str[:-1]}) {{\n"
-                    + "\n".join(self._lines) + "\n"
-                      + "}\n"
-                    )
+        comment     = (f"// {name}(\n"+
+                        ',\n'.join(['//     '+s for s in typ_comments])+
+                        '\n'+
+                        "// )\n")
+        proc_decl   = (comment+
+                       f"void {name}( {', '.join(arg_strs)} );\n")
+        proc_def    = (comment+
+                       f"void {name}( {', '.join(arg_strs)} ) {{\n"+
+                        "\n".join(self._lines) + "\n"+
+                        "}\n")
 
         self.proc_decl = proc_decl
         self.proc_def = proc_def
@@ -335,7 +343,7 @@ class Compiler:
         if etyp is LoopIR.Read:
             rtyp = self.envtyp[e.name]
             if call_arg:
-                if rtyp is T.size:
+                if rtyp is T.size or rtyp is T.index:
                     return self.env[e.name]
                 elif e.name in self._scalar_refs:
                     return self.env[e.name]

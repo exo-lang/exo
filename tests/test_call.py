@@ -74,6 +74,8 @@ def test_inline():
     dot  = gen_dot()
     proj = gen_proj(dot)
 
+    print(proj)
+
     proj_in1 = proj.inline("dot(_,_,_,_)")
     print(proj_in1)
 

@@ -217,6 +217,10 @@ class Procedure:
         else:
             expr = expr_list[0]
 
+        if not expr.type.is_numeric():
+            raise TypeError("only numeric (not index or size) expressions "+
+                            "can be targeted by bind_expr()")
+
         loopir      = self._loopir_proc
         loopir      = Schedules.DoBindExpr(loopir, new_name, expr).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
