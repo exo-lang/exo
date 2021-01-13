@@ -193,31 +193,25 @@ class Parser:
 
         # process each argument in order
         # we will assume for now that all sizes come first
-        sizes = []
+        #sizes = []
         args = []
         names = set()
         for a in fargs.args:
             if a.annotation is None:
                 self.err(a, "expected argument to be typed, i.e. 'x : T'")
             tnode = a.annotation
-            if type(tnode) is pyast.Name and tnode.id == 'size':
-                if len(args) > 0:
-                    self.err(a, f"sizes must be declared "+
-                                f"before all other arguments")
-                if a.arg in names:
-                    self.err(a, f"repeated argument name: '{a.arg}'")
-                names.add(a.arg)
-                nm = Sym(a.arg)
+
+            typ, eff, mem   = self.parse_arg_type(tnode)
+            if a.arg in names:
+                self.err(a, f"repeated argument name: '{a.arg}'")
+            names.add(a.arg)
+            nm = Sym(a.arg)
+            if typ == T.size:
                 self.locals[a.arg] = SizeStub(nm)
-                sizes.append(nm)
             else:
-                typ, eff, mem = self.parse_arg_type(tnode)
-                if a.arg in names:
-                    self.err(a, f"repeated argument name: '{a.arg}'")
-                names.add(a.arg)
-                nm = Sym(a.arg)
+                # note we don't need to stub the index variables
                 self.locals[a.arg] = nm
-                args.append(UAST.fnarg(nm, typ, eff, mem, self.getsrcinfo(a)))
+            args.append(UAST.fnarg(nm, typ, eff, mem, self.getsrcinfo(a)))
 
         # return types are non-sensical for SYS_ATL, b/c it models procedures
         if fdef.returns is not None:
@@ -226,44 +220,80 @@ class Parser:
         # parse the procedure body
         body = self.parse_stmt_block(fdef.body)
         return UAST.proc(name=fdef.name,
-                         sizes=sizes,
                          args=args,
                          body=body,
                          srcinfo=self.getsrcinfo(fdef))
 
     def parse_arg_type(self, node):
-        if type(node) is not pyast.BinOp or type(node.op) is not pyast.MatMult:
-            self.err(node, "expected type and effect annotation of the "+
-                           "form: type @ effect")
+        # Arg was of the form ` name : annotation `
+        # The annotation will be of one of the following forms
+        #   ` type `
+        #   ` type @ effect `
+        #   ` type @ effect @ memory `
+        def is_at(x):
+            return type(x) is pyast.BinOp and type(x.op) is pyast.MatMult
 
-        # is there a memory annotation?
-        if (type(node.left) is pyast.BinOp and
-            type(node.left.op) is pyast.MatMult):
-                # check for string
-                if type(node.right) is not pyast.Name:
-                    self.err(node.right, "expected memory annotation to be "+
-                                         "a string")
-                mem     = node.right.id
-                node    = node.left
+        # decompose top-level of annotation syntax
+        if is_at(node):
+            typ_node = node.left
+            if is_at(node.right):
+                eff_node = node.right.left
+                mem_node = node.right.right
+            else:
+                eff_node = node.right
+                mem_node = None
         else:
-            mem = None
+            typ_node = node
+            eff_node = None
+            mem_node = None
 
-        typ = self.parse_type(node.left)
+        # detect which sort of type we have here
+        is_size     = lambda x: type(x) is pyast.Name and x.id == "size"
+        is_index    = lambda x: type(x) is pyast.Name and x.id == "index"
 
-        # extract effect
-        eff_err_str = "Expected effect to be 'IN', 'OUT', or 'INOUT'"
-        if type(node.right) is not pyast.Name:
-            self.err(node.right, eff_err_str)
-        elif node.right.id == "IN":
-            eff = T.In
-        elif node.right.id == "OUT":
-            eff = T.Out
-        elif node.right.id == "INOUT":
-            eff = T.InOut
+        # parse each kind of type here
+        if is_size(typ_node):
+            if eff_node is not None or mem_node is not None:
+                self.err(node, "size types should not be annotated with "+
+                               "effects or memory locations")
+            return T.size, None, None
+
+        elif is_index(typ_node):
+            if eff_node is not None or mem_node is not None:
+                self.err(node, "size types should not be annotated with "+
+                               "effects or memory locations")
+            return T.index, None, None
+
         else:
-            self.err(node.right, eff_err_str)
+            if eff_node is None:
+                self.err(node, "expected type and effect annotation of the "+
+                               "form: type @ effect")
 
-        return typ, eff, mem
+            typ = self.parse_num_type(typ_node)
+
+            # extract effect
+            eff_err_str = "Expected effect to be 'IN', 'OUT', or 'INOUT'"
+            if type(eff_node) is not pyast.Name:
+                self.err(eff_node, eff_err_str)
+            elif eff_node.id == "IN":
+                eff = T.In
+            elif eff_node.id == "OUT":
+                eff = T.Out
+            elif eff_node.id == "INOUT":
+                eff = T.InOut
+            else:
+                self.err(eff_node, eff_err_str)
+
+            if mem_node:
+                if type(mem_node) is not pyast.Name:
+                    self.err(mem_node, "expected memory annotation to be "+
+                                       "a string")
+                mem = mem_node.id
+            else:
+                mem = None
+
+            return typ, eff, mem
+
 
     def parse_mem(self, node):
         if type(node) is pyast.BinOp and type(node.op) is pyast.MatMult:
@@ -273,16 +303,13 @@ class Parser:
                                      "a string")
 
             mem     = node.right.id
-            typ = self.parse_type(node.left)
-
-            return typ, mem
-
         else:
-            typ = self.parse_type(node)
-            return typ, None
+            mem     = None
+        typ = self.parse_num_type(node)
+        return typ, mem
 
 
-    def parse_type(self, node):
+    def parse_num_type(self, node):
         if type(node) is pyast.Subscript:
             if type(node.value) is not pyast.Name or node.value.id != "R":
                 self.err(
@@ -323,8 +350,12 @@ class Parser:
                         if type(sz) is SizeStub:
                             typ = T.Tensor(sz.nm, typ)
                             continue
-                self.err(
-                    idx, "expected positive integer constant or size variable")
+                        else:
+                            self.err(idx, f"'{idx.id}' is not a size")
+                    else:
+                        self.err(idx, f"'{idx.id}' is undefined")
+                self.err(idx, "expected positive integer "+
+                              "constant or size variable")
 
             return typ
 
@@ -332,7 +363,7 @@ class Parser:
             return T.R
 
         else:
-            self.err(node, "unrecognized type: "+astor.dump(node))
+            self.err(node, "unrecognized type: "+astor.dump_tree(node))
 
     def parse_stmt_block(self, stmts):
         assert type(stmts) is list

@@ -31,14 +31,13 @@ front_ops = {
 UAST = ADT("""
 module UAST {
     proc    = ( name?           name,
-                sym*            sizes,
                 fnarg*          args,
                 stmt*           body,
                 srcinfo         srcinfo )
 
     fnarg   = ( sym             name,
                 type            type,
-                effect          effect,
+                effect?         effect,
                 string?         mem,
                 srcinfo         srcinfo )
 
