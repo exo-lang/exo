@@ -3,7 +3,7 @@ from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do, SubstArgs
 from . import shared_types as T
 import re
 
-from collections import defaultdict
+from collections import defaultdict, ChainMap
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -644,7 +644,7 @@ def _is_alloc_free(stmts):
     return _Is_Alloc_Free(stmts).result()
 
 
-# data-flow dependencies between variable names
+# which variable symbols are free
 class _FreeVars(LoopIR_Do):
     def __init__(self, stmts):
         self._fvs     = set()
@@ -657,7 +657,8 @@ class _FreeVars(LoopIR_Do):
 
     def do_s(self, s):
         if type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
-            self._bound.add(s.name)
+            if s.name not in self._bound:
+                self._fvs.add(s.name)
         elif type(s) is LoopIR.ForAll:
             self._bound.add(s.iter)
         elif type(s) is LoopIR.Alloc:
@@ -813,24 +814,89 @@ class _FissionLoops:
 # --------------------------------------------------------------------------- #
 #   Factor out a sub-statement as a Procedure scheduling directive
 
-# turn a collection of statements with free variables
-# into a procedure
-#class _MakeClosure:
-#    pass
+def _make_closure(name, stmts, var_types):
+    FVs     = _FV(stmts)
+    info    = stmts[0].srcinfo
+
+    # work out the calling arguments (args) and sub-proc args (fnargs)
+    args    = []
+    fnargs  = []
+
+    # first, scan over all the arguments and convert them.
+    # accumulate all size symbols separately
+    sizes   = set()
+    for v in FVs:
+        typ = var_types[v]
+        if typ is T.size:
+            sizes.add(v)
+        elif typ is T.index:
+            args.append(LoopIR.Read(v, [], typ, info))
+            fnargs.append(LoopIR.fnarg(v, typ, None, None, info))
+        else:
+            # add sizes (that this arg depends on) to the signature
+            for sz in typ.shape():
+                if type(sz) is Sym:
+                    sizes.add(sz)
+            args.append(LoopIR.Read(v, [], typ, info))
+            fnargs.append(LoopIR.fnarg(v, typ, T.InOut, None, info))
+
+    # now prepend all sizes to the argument list
+    sizes   = list(sizes)
+    args    = [ LoopIR.Read(sz, [], T.size, info) for sz in sizes ] + args
+    fnargs  = [ LoopIR.fnarg(sz, T.size, None, None, info) 
+                for sz in sizes ] + fnargs
+
+    closure = LoopIR.proc(name, fnargs, stmts, info)
+
+    return closure, args
 
 class _DoFactorOut(LoopIR_Rewrite):
     def __init__(self, proc, name, stmt):
-        assert isinstance(expr, LoopIR.expr)
-        assert expr.type == T.R
+        assert isinstance(stmt, LoopIR.stmt)
         self.orig_proc      = proc
         self.sub_proc_name  = name
         self.match_stmt     = stmt
+        self.new_subproc    = None
+
+        self.var_types      = ChainMap()
+
+        for a in proc.args:
+            self.var_types[a.name] = a.type
 
         super().__init__(proc)
 
+    def subproc(self):
+        return self.new_subproc
+
+    def push(self):
+        self.var_types = self.var_types.new_child()
+
+    def pop(self):
+        self.var_types = self.var_types.parents
+
     def map_s(self, s):
         if s == self.match_stmt:
-            pass
+            subproc, args = _make_closure(self.sub_proc_name,
+                                          [s], self.var_types)
+            self.new_subproc = subproc
+            return [LoopIR.Call(subproc, args, s.srcinfo)]
+        elif type(s) is LoopIR.Alloc:
+            self.var_types[s.name] = s.type
+            return [s]
+        elif type(s) is LoopIR.ForAll:
+            self.push()
+            self.var_types[s.iter] = T.index
+            body    = self.map_stmts(s.body)
+            self.pop()
+            return [LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)]
+        elif type(s) is LoopIR.If:
+            self.push()
+            body    = self.map_stmts(s.body)
+            self.pop()
+            self.push()
+            orelse  = self.map_stmts(s.orelse)
+            self.pop()
+            return [LoopIR.If(s.cond, body, orelse, s.srcinfo)]
         else:
             return super().map_s(s)
 

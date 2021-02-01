@@ -244,7 +244,7 @@ class Procedure:
             raise TypeError("expected second argument 'n_lifts' to be "+
                             "a positive integer")
 
-        stmt        = self._find_stmt(alloc_site_pattern)
+        stmt        = self._find_stmt(stmt_pattern)
 
         loopir      = self._loopir_proc
         loopir      = Schedules.DoFissionLoops(loopir, stmt,
@@ -252,9 +252,9 @@ class Procedure:
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def factor_out_stmt(self, name, stmt_pattern):
-        if not is_valid_name(new_name):
+        if not is_valid_name(name):
             raise TypeError("expected first argument to be a valid name")
-        stmt        = self._find_stmt(alloc_site_pattern)
+        stmt        = self._find_stmt(stmt_pattern)
 
         loopir          = self._loopir_proc
         passobj         = Schedules.DoFactorOut(loopir, name, stmt)

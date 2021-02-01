@@ -129,4 +129,100 @@ for k in par(0,K):
                 if 0 <= i-r:
                     res[k,i] += y[c,r,i] * w[k,c,r]
 
+
+
+im2col, conv1d = conv1d.factor_out("for c in _: _")
+
+conv1d = conv1d.abstract(im2col, "for c in _: _")
+
+
+# V6 (re-orderings)
+def 1dconv(...):
+    ...
+
+    y : R[C,R,W]
+
+    im2col( ... )
+
+    matmul( ... )
+
+def im2col( ... )
+    for c in par(0,C):
+        for r in par(0,R):
+            for i in par(0,W):
+                if 0 <= i-r:
+                    y[c,r,i] = x[c,i-r]
+
+def matmul(K,C,R,W, w, y, res):
+    for k in par(0,K):
+        for c in par(0,C):
+            for r in par(0,R):
+                for i in par(0,W):
+                    if 0 <= i-r:
+                        res[k,i] += y[c,r,i] * w[k,c,r]
+
+
+matmul.make_instruction(" GEMM_BLAS(K,C,R,W, w + 32, );")
+
+
+
+@proc
+def GEMM_mvin(
+    N : size, M : size,
+    src : R[N][M] @ DRAM,
+    dst : R[16][16] @ GEMM,
+    src_i : index,
+    src_j : index
+):
+    for i in par(0,16):
+        for j in par(0,16):
+            dst[i,j] = src[ src_i + i, src_j + j ]
+
+GEMM_mvin = GEMM_mvin.make_instruction(
+    "gemmini_mvin(src + src_i * M, );"
+)
+
+@proc
+def GEMM_mvout(...):
+    ...
+
+@proc
+def GEMM_matmul(...):
+    ...
+
+
+def tile_loop_for_GEMMINI(p, loop_pattern, ...):
+    ...
+
+
+
+try:
+    tile_loop_for_GEMMINI(...)
+catch SchedulingError:
+    # try other scheduling method here
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 """
