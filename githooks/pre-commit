@@ -10,7 +10,7 @@ while IFS= read -r line
 do
   if [ -f "$line" ]
   then
-    jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $line
-    git add $line
+    jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace "$line"
+    git add "$line"
   fi
 done <<< "$NB_FILES"
