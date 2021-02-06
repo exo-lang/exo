@@ -49,6 +49,7 @@ class Procedure:
             self._uast_proc = proc
             if _testing != "UAST":
                 self._loopir_proc = TypeChecker(proc).get_loopir()
+                self._effect = InferEffects(self._loopir_proc).get_loopir()
 
         # find the root provenance
         parent = _provenance_eq_Procedure
@@ -337,7 +338,7 @@ _F32_PTR = ctypes.POINTER(ctypes.c_float)
 
 class CJit_Func:
     """ Manage JIT compilation of C code for convenience """
-  
+
     def __init__(self, proc, c_code):
         self._proc      = proc
 
@@ -418,5 +419,3 @@ class CJit_Func:
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-
-

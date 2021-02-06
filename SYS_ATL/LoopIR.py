@@ -4,7 +4,7 @@ from .asdl.adt import memo as ADTmemo
 from .prelude import *
 
 from . import shared_types as T
-
+from .LoopIR_effects import Effects as E
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -128,7 +128,7 @@ module LoopIR {
 
     fnarg   = ( sym             name,
                 type            type,
-                effect?         effect,
+                old_effect?     effect,
                 mem?            mem,
                 srcinfo         srcinfo )
 
@@ -140,7 +140,7 @@ module LoopIR {
             | Alloc  ( sym name, type type, mem? mem )
             | Free   ( sym name, type type, mem? mem )
             | Call   ( proc f, expr* args )
-            attributes( srcinfo srcinfo )
+            attributes( effect? eff, srcinfo srcinfo )
 
     expr    = Read( sym name, expr* idx )
             | Const( object val )
@@ -151,7 +151,8 @@ module LoopIR {
     'name':     is_valid_name,
     'sym':      lambda x: type(x) is Sym,
     'type':     T.is_type,
-    'effect':   T.is_effect,
+    'old_effect':   T.is_effect,
+    'effect':   lambda x: type(x) is E.effect,
     'mem':      lambda x: type(x) is str,
     'binop':    lambda x: x in bin_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
