@@ -33,7 +33,8 @@ module Effects {
                 effset*     reduces,
                 srcinfo     srcinfo )
 
-    -- this corresponds to `{ loc for names in int if pred }`
+    -- JRK: the notation of this comprehension is confusing - maybe just use math:
+    -- this corresponds to `{ buffer : loc for *names in int if pred }`
     effset  = ( sym         buffer,
                 expr*       loc,    -- e.g. reading at (i+1,j+1)
                 sym*        names,
@@ -94,6 +95,7 @@ def eff_union(e1, e2, srcinfo=None):
                            e1.reduces + e2.reduces,
                            srcinfo )
 
+# handle conditional
 def eff_filter(pred, e):
     def filter_es(es):
         preds = None
@@ -106,16 +108,16 @@ def eff_filter(pred, e):
                            [ filter_es(es) for es in e.reduces ],
                            e.srcinfo )
 
+# handle for loop
 def eff_bind(bind_name, e, pred=None):
     assert type(bind_name) is Sym
     def bind_es(es):
         if pred is None:
             preds = es.pred
-        # Is this correct?
-        else:
+        elif es.pred is None:
             preds = pred
-            #preds = Effects.BinOp("and", pred, Effects.Var(bind_name),
-            #                      T.bool, pred.srcinfo)
+        else:
+            preds = Effects.BinOp("and", pred, es.pred, T.bool, pred.srcinfo)
         return Effects.effset(es.buffer, es.loc, [bind_name]+es.names,
                               preds, es.srcinfo)
 
