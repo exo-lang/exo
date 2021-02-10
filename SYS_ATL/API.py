@@ -5,6 +5,7 @@ from .typecheck import TypeChecker
 from .LoopIR_compiler import Compiler, run_compile, compile_to_strings
 from .LoopIR_interpreter import Interpreter, run_interpreter
 from .LoopIR_scheduling import Schedules, name_str_2_symbols, name_str_2_pairs
+from .effectcheck import InferEffects
 
 from .pattern_match import match_pattern
 
@@ -49,7 +50,7 @@ class Procedure:
             self._uast_proc = proc
             if _testing != "UAST":
                 self._loopir_proc = TypeChecker(proc).get_loopir()
-                self._effect = InferEffects(self._loopir_proc).get_loopir()
+                self._loopir_proc = InferEffects(self._loopir_proc).get_loopir()
 
         # find the root provenance
         parent = _provenance_eq_Procedure

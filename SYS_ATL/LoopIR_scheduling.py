@@ -180,8 +180,8 @@ class _Reorder(LoopIR_Rewrite):
                     return [LoopIR.ForAll(s.body[0].iter, s.body[0].hi,
                                 [LoopIR.ForAll(s.iter, s.hi,
                                     body,
-                                    s.srcinfo)],
-                                s.body[0].srcinfo)]
+                                    s.eff, s.srcinfo)],
+                                s.body[0].eff, s.body[0].srcinfo)]
 
         # fall-through
         return super().map_s(s)
@@ -236,15 +236,15 @@ class _Split(LoopIR_Rewrite):
                     body    = self.map_stmts(s.body)
                     idx_sub = self.substitute(s.srcinfo)
                     cond    = boolop("<", idx_sub, s.hi)
-                    body    = [LoopIR.If(cond, body, [], s.srcinfo)]
+                    body    = [LoopIR.If(cond, body, [], s.eff, s.srcinfo)]
                     lo_rng  = cnst(self.quot)
                     hi_rng  = szop("/", s.hi, lo_rng)
 
                     return [LoopIR.ForAll(self.hi_i, hi_rng,
                                 [LoopIR.ForAll(self.lo_i, lo_rng,
                                     body,
-                                    s.srcinfo)],
-                                s.srcinfo)]
+                                    s.eff, s.srcinfo)],
+                                s.eff, s.srcinfo)]
 
                 # an alternate scheme is to split the loop in two
                 # by cutting off the tail into a second loop
@@ -273,11 +273,11 @@ class _Split(LoopIR_Rewrite):
                     loops = [LoopIR.ForAll(self.hi_i, Ncut,
                                 [LoopIR.ForAll(self.lo_i, Q,
                                     main_body,
-                                    s.srcinfo)],
-                                s.srcinfo),
+                                    s.eff, s.srcinfo)],
+                                s.eff, s.srcinfo),
                              LoopIR.ForAll(self.cut_i, Ntail,
                                 tail_body,
-                                s.srcinfo)]
+                                s.eff, s.srcinfo)]
 
                     return loops
 

@@ -191,13 +191,13 @@ class LoopIR_Rewrite:
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             return [styp( s.name, [ self.map_e(a) for a in s.idx ],
-                          self.map_e(s.rhs), s.srcinfo )]
+                          self.map_e(s.rhs), s.eff, s.srcinfo )]
         elif styp is LoopIR.If:
             return [LoopIR.If( self.map_e(s.cond), self.map_stmts(s.body),
-                               self.map_stmts(s.orelse), s.srcinfo )]
+                               self.map_stmts(s.orelse), s.eff, s.srcinfo )]
         elif styp is LoopIR.ForAll:
             return [LoopIR.ForAll( s.iter, self.map_e(s.hi),
-                                   self.map_stmts(s.body), s.srcinfo )]
+                                   self.map_stmts(s.body), s.eff, s.srcinfo )]
         else:
             return [s]
 
@@ -270,17 +270,17 @@ class Alpha_Rename(LoopIR_Rewrite):
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             nm = self.env[s.name] if s.name in self.env else s.name
             return [styp( nm, [ self.map_e(a) for a in s.idx ],
-                         self.map_e(s.rhs), s.srcinfo )]
+                         self.map_e(s.rhs), s.eff, s.srcinfo )]
         elif styp is LoopIR.ForAll:
             itr = s.iter.copy()
             self.env[s.iter] = itr
             return [LoopIR.ForAll( itr, self.map_e(s.hi),
                                    self.map_stmts(s.body),
-                                   s.srcinfo )]
+                                   s.eff, s.srcinfo )]
         elif styp is LoopIR.Alloc:
             nm = s.name.copy()
             self.env[s.name] = nm
-            return [LoopIR.Alloc( nm, s.type, s.mem, s.srcinfo )]
+            return [LoopIR.Alloc( nm, s.type, s.mem, s.eff, s.srcinfo )]
 
         return super().map_s(s)
 
@@ -315,7 +315,7 @@ class SubstArgs(LoopIR_Rewrite):
                 e = self.env[s.name]
                 assert type(e) is LoopIR.Read and len(e.idx) == 0
                 return [styp( e.name, [ self.map_e(a) for a in s.idx ],
-                             self.map_e(s.rhs), s.srcinfo )]
+                             self.map_e(s.rhs), s.eff, s.srcinfo )]
 
         return super().map_s(s)
 

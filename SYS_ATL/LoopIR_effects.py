@@ -48,7 +48,7 @@ module Effects {
 } """, {
     'sym':          lambda x: type(x) is Sym,
     'type':         T.is_type,
-    'binop':        lambda x: x in bin_ops,
+    'binop':        lambda x: x in front_ops,
     'srcinfo':      lambda x: type(x) is SrcInfo,
 })
 
@@ -81,8 +81,10 @@ module Effects {
 # Helper Functions
 
 def eff_null(srcinfo = None):
-    srcinfo = null_srcinfo()
-
+    return Effects.effect( [],
+                           [],
+                           [],
+                           srcinfo )
 
 def eff_union(e1, e2, srcinfo=None):
     srcinfo = srcinfo or e1.srcinfo
@@ -94,12 +96,14 @@ def eff_union(e1, e2, srcinfo=None):
 
 def eff_filter(pred, e):
     def filter_es(es):
-        preds = Effects.BinOp("and", pred, es.pred, T.bool, pred.srcinfo)
+        preds = None
+        if pred is not None and es.pred is not None:
+            preds = Effects.BinOp("and", pred, es.pred, T.bool, pred.srcinfo)
         return Effects.effset(es.buffer, es.loc, es.names, preds, es.srcinfo)
 
     return Effects.effect( [ filter_es(es) for es in e.reads ],
-                           [ filter_es(es) for es in e.writes ]
-                           [ filter_es(es) for es in e.reduces ]
+                           [ filter_es(es) for es in e.writes ],
+                           [ filter_es(es) for es in e.reduces ],
                            e.srcinfo )
 
 def eff_bind(bind_name, e, pred=None):
@@ -107,12 +111,15 @@ def eff_bind(bind_name, e, pred=None):
     def bind_es(es):
         if pred is None:
             preds = es.pred
+        # Is this correct?
         else:
-            preds = Effects.BinOp("and", pred, es.pred, T.bool, pred.srcinfo)
+            preds = pred
+            #preds = Effects.BinOp("and", pred, Effects.Var(bind_name),
+            #                      T.bool, pred.srcinfo)
         return Effects.effset(es.buffer, es.loc, [bind_name]+es.names,
                               preds, es.srcinfo)
 
     return Effects.effect( [ bind_es(es) for es in e.reads ],
-                           [ bind_es(es) for es in e.writes ]
-                           [ bind_es(es) for es in e.reduces ]
+                           [ bind_es(es) for es in e.writes ],
+                           [ bind_es(es) for es in e.reduces ],
                            e.srcinfo )

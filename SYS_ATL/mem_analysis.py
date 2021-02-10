@@ -34,7 +34,7 @@ class MemoryAnalysis:
         self.tofree[-1].add((sym, typ, mem))
 
     def pop_frame(self, srcinfo):
-        suffix = [ LoopIR.Free(nm, typ, mem, srcinfo)
+        suffix = [ LoopIR.Free(nm, typ, mem, None, srcinfo)
                    for (nm, typ, mem) in self.tofree.pop() ]
 
         return suffix
@@ -60,10 +60,10 @@ class MemoryAnalysis:
         elif styp is LoopIR.If:
             body    = self.mem_stmts(s.body)
             ebody   = self.mem_stmts(s.orelse)
-            return LoopIR.If(s.cond, body, ebody, s.srcinfo)
+            return LoopIR.If(s.cond, body, ebody, None, s.srcinfo)
         elif styp is LoopIR.ForAll:
             body = self.mem_stmts(s.body)
-            return LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)
+            return LoopIR.ForAll(s.iter, s.hi, body, None, s.srcinfo)
         elif styp is LoopIR.Alloc:
             self.add_malloc(s.name, s.type, s.mem)
             return s

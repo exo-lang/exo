@@ -116,10 +116,10 @@ class TypeChecker:
 
             IRnode  = (LoopIR.Assign if type(stmt) is UAST.Assign else
                        LoopIR.Reduce)
-            return IRnode(stmt.name, idx, rhs, stmt.srcinfo)
+            return IRnode(stmt.name, idx, rhs, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Pass:
-            return LoopIR.Pass(stmt.srcinfo)
+            return LoopIR.Pass(None, stmt.srcinfo)
 
         elif type(stmt) is UAST.If:
             cond    = self.check_e(stmt.cond)
@@ -129,7 +129,7 @@ class TypeChecker:
             ebody   = []
             if len(stmt.orelse) > 0:
                 ebody   = self.check_stmts(stmt.orelse)
-            return LoopIR.If(cond, body, ebody, stmt.srcinfo)
+            return LoopIR.If(cond, body, ebody, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.ForAll:
             self.env[stmt.iter] = T.index
@@ -149,7 +149,7 @@ class TypeChecker:
                              "type 'size'")
 
             body = self.check_stmts(stmt.body)
-            return LoopIR.ForAll(stmt.iter, hi, body, stmt.srcinfo)
+            return LoopIR.ForAll(stmt.iter, hi, body, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Alloc:
             self.env[stmt.name] = stmt.type
@@ -157,7 +157,7 @@ class TypeChecker:
             if mem and not is_valid_mem(mem):
                 self.err(stmt, f"invalid memory name '{mem}'")
                 mem = None
-            return LoopIR.Alloc(stmt.name, stmt.type, mem, stmt.srcinfo)
+            return LoopIR.Alloc(stmt.name, stmt.type, mem, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Call:
             args    = [ self.check_e(a) for a in stmt.args ]
@@ -219,10 +219,10 @@ class TypeChecker:
                 else: assert False, "bad argument type case"
 
                 if is_err:
-                    return LoopIR.Pass(stmt.srcinfo)
+                    return LoopIR.Pass(None, stmt.srcinfo)
 
             # if no errors were hit, then we get to here
-            return LoopIR.Call(stmt.f, args, stmt.srcinfo)
+            return LoopIR.Call(stmt.f, args, None, stmt.srcinfo)
 
         else:
             assert False, "not a loopir in check_stmts"
@@ -254,7 +254,7 @@ class TypeChecker:
                                     arg.type, e.srcinfo)
             elif arg.type != T.err:
                 self.err(e, f"cannot negate expression of type '{arg.type}'")
-            return LoopIR.Const(0,T.err,e.srcinfo)
+            return LoopIR.Const(0, T.err, e.srcinfo)
 
         elif type(e) is UAST.BinOp:
             lhs = self.check_e(e.lhs)
