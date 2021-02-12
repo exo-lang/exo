@@ -3,6 +3,7 @@ import textwrap
 
 from .prelude import *
 from .LoopIR import UAST, front_ops, LoopIR
+from .LoopIR_effects import Effects as E
 from . import shared_types as T
 
 # google python formatting project
@@ -219,9 +220,6 @@ class UAST_PPrinter:
             assert False, "unrecognized expr type"
 
 
-
-
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # LoopIR Pretty Printing
@@ -321,9 +319,47 @@ class LoopIR_PPrinter:
             mem = f" @{a.mem}" if a.mem else ""
             return f"{self.new_name(a.name)} : {a.type} @ {a.effect}{mem}"
 
+    def peffexpr(self, expr):
+        if type(expr) is E.Var:
+            estr = self.get_name(expr.name)
+        elif type(expr) is E.Const:
+            estr = str(expr.val)
+        elif type(expr) is E.BinOp:
+            estr = f"{self.peffexpr(expr.lhs)} {expr.op} {self.peffexpr(expr.rhs)}"
+
+        return estr
+        
+    def peffsets(self, effsets):
+        assert len(effsets) > 0, "Effsets size is zero"
+        eff_strs = []
+        for effset in effsets:
+            buf = self.get_name(effset.buffer)
+            loc = "(" + ','.join([self.peffexpr(l) for l in effset.loc]) + ")"
+            names = "(" + ','.join([self.get_name(n) for n in effset.names]) + ")"
+            pred = "True"
+            if effset.pred is not None:
+                pred = self.peffexpr(effset.pred)
+
+            s = f"{{ {buf} : {loc} for {names} in Z if {pred} }}"
+            eff_strs.append(s)
+    
+        return ', '.join(eff_strs)
+
+    def peffect(self, effect):
+        eff_str = ""
+        if len(effect.reads) > 0:
+            eff_str = f"Reads: {self.peffsets(effect.reads)}"
+        if len(effect.writes) > 0:
+            eff_str = f"Writes: {self.peffsets(effect.writes)}"
+        if len(effect.reduces) > 0:
+            eff_str = f"Reduces: {self.peffsets(effect.reduces)}"
+
+        return eff_str
+
     def pstmt(self, stmt):
+        eff = self.peffect(stmt.eff)
         if type(stmt) is LoopIR.Pass:
-            self.addline("pass")
+            self.addline("pass # {eff}")
         elif type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
             op = "=" if type(stmt) is LoopIR.Assign else "+="
 
@@ -335,19 +371,19 @@ class LoopIR_PPrinter:
             else:
                 lhs = self.get_name(stmt.name)
 
-            self.addline(f"{lhs} {op} {rhs}")
+            self.addline(f"{lhs} {op} {rhs} # {eff}")
         elif type(stmt) is LoopIR.Alloc:
             mem = f" @{stmt.mem}" if stmt.mem else ""
-            self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
+            self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem} # {eff}")
         elif type(stmt) is LoopIR.Free:
             mem = f" @{stmt.mem}" if stmt.mem else ""
-            self.addline(f"free {self.new_name(stmt.name)} : {stmt.type}{mem}")
+            self.addline(f"free {self.new_name(stmt.name)} : {stmt.type}{mem} # {eff}")
         elif type(stmt) is LoopIR.Call:
             args    = [ self.pexpr(a) for a in stmt.args ]
-            self.addline(f"{stmt.f.name}({','.join(args)})")
+            self.addline(f"{stmt.f.name}({','.join(args)}) # {eff}")
         elif type(stmt) is LoopIR.If:
             cond = self.pexpr(stmt.cond)
-            self.addline(f"if {cond}:")
+            self.addline(f"if {cond}: # {eff}")
             self.push()
             for p in stmt.body:
                 self.pstmt(p)
@@ -362,7 +398,7 @@ class LoopIR_PPrinter:
         elif type(stmt) is LoopIR.ForAll:
             hi = self.pexpr(stmt.hi)
             self.push(only='env')
-            self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}):")
+            self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}): # {eff}")
             self.push(only='tab')
             for p in stmt.body:
                 self.pstmt(p)
@@ -391,3 +427,5 @@ class LoopIR_PPrinter:
             return s
         else:
             assert False, f"unrecognized expr: {type(e)}"
+
+

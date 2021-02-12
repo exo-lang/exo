@@ -98,8 +98,11 @@ def eff_union(e1, e2, srcinfo=None):
 # handle conditional
 def eff_filter(pred, e):
     def filter_es(es):
-        preds = None
-        if pred is not None and es.pred is not None:
+        if pred is None:
+            preds = es.pred
+        elif es.pred is None:
+            preds = pred
+        else:
             preds = Effects.BinOp("and", pred, es.pred, T.bool, pred.srcinfo)
         return Effects.effset(es.buffer, es.loc, es.names, preds, es.srcinfo)
 
