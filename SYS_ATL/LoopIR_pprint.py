@@ -357,7 +357,8 @@ class LoopIR_PPrinter:
         return eff_str
 
     def pstmt(self, stmt):
-        eff = self.peffect(stmt.eff)
+        #eff = self.peffect(stmt.eff)
+        eff = ""
         if type(stmt) is LoopIR.Pass:
             self.addline("pass # {eff}")
         elif type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
