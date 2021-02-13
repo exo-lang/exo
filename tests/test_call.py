@@ -81,39 +81,3 @@ def test_inline():
 
     proj_in2 = proj_in1.inline("dot(_,_,_,_)")
     print(proj_in2)
-
-
-# Scratch for GEMMINI
-def gen_load():
-    @proc
-    def load(n: size, r: size, nx : size, x : R[n] @ IN, y : R[n] @ OUT):
-        for i in par(0, r):
-            y[nx] = x[nx*16 + i]
-
-    return load
-
-def gen_load_abs():
-    @proc
-    def load_abs(n: size, r: size, nx : size, x : R[n] @ IN, y : R[n] @ OUT):
-        "gemmini_extended_mvin(x + nx*DIM, y + nx*DIM, DIM, DIM)"
-
-    return load_abs
-
-def gen_alloc():
-    @proc
-    def alloc( n : size, x : R[n] @ IN, y : R[n] @ OUT @ GEMM ):
-        for i0 in par(0,n/16):
-            if i0 == n/16-1:
-                for i1 in par(0,n%16):
-                    y[i0] = x[i0*16+i1]
-            else:
-                for i1 in par(0,16):
-                    y[i0] = x[i0*16+i1]
-
-    return alloc
-
-def test_alloc():
-    alloc = gen_alloc()
-    load  = gen_load()
-    load_abstract = gen_load_abs()
-    alloc.abstract(load, load_abstract)

@@ -5,7 +5,8 @@ from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops
 from . import shared_types as T
 from .LoopIR_effects import Effects as E
-from .LoopIR_effects import eff_union, eff_filter, eff_bind, eff_null
+from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
+                             eff_null, eff_remove_buf)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -52,48 +53,54 @@ def negate_expr(e):
 # !! Should we add effects to exprs as well? Or to propagate up to stmt
 def read_effect(e):
     if type(e) is LoopIR.Read:
-        loc = [ lift_expr(idx) for idx in e.idx ]
-        return E.effect([E.effset(e.name, loc, [], None, e.srcinfo)]
-                        ,[] ,[] , e.srcinfo)
+        if e.type.is_numeric():
+            loc = [ lift_expr(idx) for idx in e.idx ]
+            return E.effect([E.effset(e.name, loc, [], None, e.srcinfo)]
+                            ,[] ,[] , e.srcinfo)
+        else:
+            return eff_null(e.srcinfo)
     elif type(e) is LoopIR.BinOp:
-        return eff_union(read_effect(e.lhs), read_effect(e.rhs))
+        return eff_union(read_effect(e.lhs), read_effect(e.rhs),
+                         srcinfo=e.srcinfo)
     elif type(e) is LoopIR.Const:
         return eff_null(e.srcinfo)
     else:
         assert False, "bad case"
-    
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Annotation of an AST with Effects
 
-class InferEffects():
+class InferEffects:
     def __init__(self, proc):
-        body, eff = self.infer_stmts(proc.body)
+        self.orig_proc  = proc
+        body, eff = self.map_stmts(self.orig_proc.body)
 
-        self.loopir_proc = LoopIR.proc(name=proc.name,
-                                       args=proc.args,
-                                       body=body,
-                                       srcinfo=proc.srcinfo)
+        self.proc = LoopIR.proc(name    = self.orig_proc.name,
+                                args    = self.orig_proc.args,
+                                body    = body,
+                                srcinfo = self.orig_proc.srcinfo)
 
-        self.effect  = eff
+    def result(self):
+        return self.proc
 
-    def get_effect(self):
-        return self.effect
-
-    def get_loopir(self):
-        return self.loopir_proc
-
-    def infer_stmts(self, body):
+    def map_stmts(self, body):
         assert len(body) > 0
         eff   = eff_null(body[0].srcinfo)
         stmts = []
-        for s in body:
-             new_s = self.infer_single_stmt(s)
-             stmts.append(new_s)
-             eff = eff_union(eff, new_s.eff)
-        return (stmts, eff)
+        for s in reversed(body):
+            new_s = self.map_s(s)
+            stmts.append(new_s)
+            if type(new_s) is LoopIR.Alloc:
+                eff_remove_buf(new_s.name, eff)
+                # remove_effects...
+                #if (new_s.eff.buffer is ...)
+                pass
+            else:
+                eff = eff_union(eff, new_s.eff)
+        return ([s for s in reversed(stmts)], eff)
 
-    def infer_single_stmt(self, stmt):
+    def map_s(self, stmt):
         if type(stmt) is LoopIR.Assign:
             buf = stmt.name
             loc = [ lift_expr(idx) for idx in stmt.idx ]
@@ -159,9 +166,6 @@ class InferEffects():
             return LoopIR.Pass(eff_null(stmt.srcinfo), stmt.srcinfo)
         elif type(stmt) is LoopIR.Alloc:
             return LoopIR.Alloc(stmt.name, stmt.type, stmt.mem,
-                                eff_null(stmt.srcinfo), stmt.srcinfo)
-        elif type(stmt) is LoopIR.Free:
-            return LoopIR.Free(stmt.name, stmt.type, stmt.mem,
                                 eff_null(stmt.srcinfo), stmt.srcinfo)
 
         else:

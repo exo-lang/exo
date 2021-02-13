@@ -51,7 +51,6 @@ class Procedure:
             if _testing != "UAST":
                 self._loopir_proc = TypeChecker(proc).get_loopir()
                 self._loopir_proc = InferEffects(self._loopir_proc).get_loopir()
-                print(self._loopir_proc)
 
         # find the root provenance
         parent = _provenance_eq_Procedure
@@ -66,7 +65,6 @@ class Procedure:
             # and then set this new proc's root
             _proc_root[self._loopir_proc] = parent
 
-
     def __str__(self):
         if hasattr(self,'_loopir_proc'):
             return str(self._loopir_proc)
@@ -76,18 +74,23 @@ class Procedure:
     def _repr_markdown_(self):
         return ("```python\n"+self.__str__()+"\n```")
 
+    def INTERNAL_proc(self):
+        return self._loopir_proc
+
+    # -------------------------------- #
+    #     introspection operations
+    # -------------------------------- #
+
     def name(self):
         return self._loopir_proc.name
 
-    def rename(self, name):
-        if not is_valid_name(name):
-            raise TypeError(f"'{name}' is not a valid name")
-        p = self._loopir_proc
-        p = LoopIR.proc( name, p.args, p.body, p.srcinfo )
-        return Procedure(p, _provenance_eq_Procedure=self)
+    def show_effect(self, stmt_pattern):
+        stmt        = self._find_stmt(stmt_pattern)
+        return str(stmt.eff)
 
-    def INTERNAL_proc(self):
-        return self._loopir_proc
+    # ---------------------------------------------- #
+    #     execution / interpretation operations
+    # ---------------------------------------------- #
 
     def show_c_code(self):
         return MarkDownBlob("```c\n"+self.c_code_str()+"\n```")
@@ -112,6 +115,13 @@ class Procedure:
     # ------------------------------- #
     #     scheduling operations
     # ------------------------------- #
+
+    def rename(self, name):
+        if not is_valid_name(name):
+            raise TypeError(f"'{name}' is not a valid name")
+        p = self._loopir_proc
+        p = LoopIR.proc( name, p.args, p.body, p.srcinfo )
+        return Procedure(p, _provenance_eq_Procedure=self)
 
     def split(self, split_var, split_const, out_vars, cut_tail=False):
         if type(split_var) is not str:
@@ -173,7 +183,7 @@ class Procedure:
                                     call_depth=call_depth,
                                     default_match_no=0)
         if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
-            raise TypeError("failed to find call site")
+            raise TypeError("failed to find statement")
         else:
             return stmt_lists[0][0]
 

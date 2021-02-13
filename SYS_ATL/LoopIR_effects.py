@@ -79,7 +79,92 @@ module Effects {
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Helper Functions
+# Printing Functions
+
+op_prec = {
+    "or":     10,
+    #
+    "and":    20,
+    #
+    "<":      30,
+    ">":      30,
+    "<=":     30,
+    ">=":     30,
+    "==":     30,
+    #
+    "+":      40,
+    "-":      40,
+    #
+    "*":      50,
+    "/":      50,
+    "%":      50,
+    #
+    # unary - 60
+}
+
+@extclass(Effects.effect)
+def __str__(self):
+    return effect_as_str(self)
+del __str__
+
+def effect_as_str(e):
+    assert type(e) is Effects.effect
+
+    def name(sym):
+        return str(sym)
+
+    def exprstr(e, prec=0):
+        if type(e) is Effects.Var:
+            return name(e.name)
+        elif type(e) is Effects.Const:
+            return str(e.val)
+        elif type(e) is Effects.BinOp:
+            local_prec  = op_prec[e.op]
+            lhs         = exprstr(e.lhs, prec=local_prec)
+            rhs         = exprstr(e.rhs, prec=local_prec+1)
+            if local_prec < prec:
+                return f"({lhs} {e.op} {rhs})"
+            else:
+                return f"{lhs} {e.op} {rhs}"
+
+    def esstr(es, tab="  "):
+        lines = []
+        buf = name(es.buffer)
+        loc = "(" + ','.join([exprstr(l) for l in es.loc]) + ")"
+        if len(es.names) == 0:
+            names = ""
+        else:
+            names = f"for ({','.join([name(n) for n in es.names])}) in Z"
+
+        if es.pred is None:
+            lines.append(f"{tab}{{ {buf} : {loc} {names} }}")
+        else:
+            lines.append(f"{tab}{{ {buf} : {loc} {names} if")
+            tab += "  "
+            pred = exprstr(es.pred)
+            lines.append(f"{tab}{pred} }}")
+
+        return '\n'.join(lines)
+
+    eff_str = ""
+    if len(e.reads) > 0:
+        eff_str += "Reads:\n"
+        eff_str += '\n'.join([esstr(es) for es in e.reads])
+        eff_str += "\n"
+    if len(e.writes) > 0:
+        eff_str += f"Writes:\n  "
+        eff_str += '\n'.join([esstr(es) for es in e.writes])
+        eff_str += "\n"
+    if len(e.reduces) > 0:
+        eff_str += f"Reduces:\n  "
+        eff_str += '\n'.join([esstr(es) for es in e.reduces])
+        eff_str += "\n"
+
+    return eff_str
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Construction/Composition Functions
 
 def eff_null(srcinfo = None):
     return Effects.effect( [],
@@ -94,6 +179,12 @@ def eff_union(e1, e2, srcinfo=None):
                            e1.writes + e2.writes,
                            e1.reduces + e2.reduces,
                            srcinfo )
+
+def eff_remove_buf(buf, e):
+    return Effects.effect( [ es for es in e.reads   if es.buffer != buf ],
+                           [ es for es in e.writes  if es.buffer != buf ],
+                           [ es for es in e.reduces if es.buffer != buf ],
+                           e.srcinfo )
 
 # handle conditional
 def eff_filter(pred, e):

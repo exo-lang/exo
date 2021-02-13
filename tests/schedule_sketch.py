@@ -1,3 +1,198 @@
+
+
+def gen_store():
+    @proc
+    @instr("gemmini_config_st(4 * {dst_m});\n"+
+           "gemmini_extended_mvout( "+
+                "({dst}) + ({dst_r})*({dst_m}) + ({dst_c}),"+
+                "({src}) + ({src_r}) );")
+    def gemmini_st(
+        src_n : size,
+        src_r : index,
+        dst_n : size,
+        dst_m : size,
+        dst_r : index,
+        dst_c : index,
+        col_dim : size,
+        row_dim : size,
+        #scale : R @ IN @ DRAM,
+        src : R[src_n,16]       @ OUT  @ GEMM_SCRATCH,
+        dst : R[dst_n,dst_m,16] @ IN   @ DRAM,
+        1 <= col_dim <= 16,
+        1 <= row_dim <= 16
+    ):
+        for i in par(0,row_dim):
+            for j in par(0,col_dim):
+                dst[dst_r + i, dst_c + j] = src[src_r + i, j]
+
+
+    @proc
+    @instr("gemmini_config_st(4 * {dst_m});\n"+
+           "gemmini_extended_mvout( "+
+                "({dst}) + ({dst_r})*({dst_m}) + ({dst_c}),"+
+                "({src}) + ({src_r}) );")
+    def gemmini_st_acc(
+        src_n : size,
+        src_r : index,
+        dst_n : size,
+        dst_m : size,
+        dst_r : index,
+        dst_c : index,
+        col_dim : size,
+        row_dim : size,
+        #scale : R @ IN @ DRAM,
+        src : R[src_n,16]       @ OUT  @ GEMM_ACC,
+        dst : R[dst_n,dst_m,16] @ IN   @ DRAM,
+        1 <= col_dim <= 16,
+        1 <= row_dim <= 16
+    ):
+        for i in par(0,row_dim):
+            for j in par(0,col_dim):
+                dst[dst_r + i, dst_c + j] = src[src_r + i, j]
+
+    # gemmini_extended_mvout(dram_addr: uint64_t (pointer), spad_addr: uint32_t, cols: uint16_t, rows: uint16_t)
+    # 1 <= cols <= 16
+    # 1 <= rows <= 16
+    # 2 is WS; we are accumulating over accumulator
+    # gemmini_config_ex(2, 0, 0, 1.0, 0) # This is only useful for moving data out from the Accumulator
+    # gemmini_config_st(stride: bytes)
+
+    # notes on GEMMINI ADDRESS SPACE
+    #
+    #   - addresses going into the accumulator have MSB (Bit 32)=1
+    #       i.e. set addr = addr | 0x80000000
+    #
+    #   - to overwrite what's in the accumulator (Bit 31)=0
+    #   - to accumulate on top of what's already in the acc. (Bit 31)=1
+    #   - to mvout 8-bit data from acc.,  (Bit 30)=0
+    #   - to mvout 32-bit data from acc., (Bit 30)=1
+
+    return gemmini_st
+
+# Scratch for GEMMINI
+def gen_load():
+    @proc
+    @instr("gemmini_extended3_config_ld(4 * {src_m}, 1.0f, 0, 0);\n"+
+           "gemmini_extended_mvin( "+
+                "({src}) + ({src_r})*({src_m}) + ({src_c}),"+
+                "({dst}) + ({dst_r}) );")
+    def gemmini_ld(
+        src_n : size,
+        src_m : size,
+        src_r : index,
+        src_c : index,
+        dst_n : size,
+        dst_r : index,
+        col_dim : size,
+        row_dim : size,
+        #scale : R @ IN @ DRAM,
+        src : R[src_n,src_m] @ IN  @ DRAM,
+        dst : R[dst_n,16]    @ OUT @ GEMM_SCRATCH,
+        1 <= col_dim <= 16,
+        1 <= row_dim <= 16
+    ):
+        for i in par(0,row_dim):
+            for j in par(0,col_dim):
+                dst[dst_r + i, j] = src[src_r + i, src_c + j]
+
+    @proc
+    @instr("gemmini_extended3_config_ld(4 * {src_m}, 1.0f, 0, 0);\n"+
+           "gemmini_extended_mvin( "+
+                "({src}) + ({src_r})*({src_m}) + ({src_c}),"+
+                "({dst}) + ({dst_r}) );")
+    def gemmini_ld_acc(
+        src_n : size,
+        src_m : size,
+        src_r : index,
+        src_c : index,
+        dst_n : size,
+        dst_r : index,
+        col_dim : size,
+        row_dim : size,
+        #scale : R @ IN @ DRAM,
+        src : R[src_n,src_m] @ IN  @ DRAM,
+        dst : R[dst_n,16]    @ OUT @ GEMM_ACC,
+        1 <= col_dim <= 16,
+        1 <= row_dim <= 16
+    ):
+        for i in par(0,row_dim):
+            for j in par(0,col_dim):
+                dst[dst_r + i, j] = src[src_r + i, src_c + j]
+
+
+    # gemmini_extended3_config_ld((stride, scale, shrunk, id)
+    # - stride is stride between rows, in bytes, in DRAM
+    #       stride is uint64
+    # - scale  is floating point number to multiply by
+    #       scale is fp32
+    # - shrunk is 0 or 1: if true, load 8-bit data into the accumulator
+    #                     if false, load 32-bit data
+    # - id     is which # load instr you're setting config for (use 0)
+
+    # gemmini_extended_mvin( src, dst, col_dim in #elems, row_dim in #elems )
+    # - src (DRAM), dst (scratchpad) are pointers/uint64
+    # - col_dim, row_dim are uint16
+    # - 1 <= col_dim <= (is a param; 64 in practice for 8-bit, 16 for 32-bit)
+    # - 1 <= row_dim <= 16
+    # - dead space on columns is garbage
+
+    # gemmini_extended_mvin(x + nx*DIM, y + nx*DIM, DIM, DIM)
+    # gemmini_extended_mvin2(x + nx*DIM, y + nx*DIM, DIM, DIM)
+    # gemmini_extended_mvin3(x + nx*DIM, y + nx*DIM, DIM, DIM)
+
+    # config chooses the stride of the mvin
+    # 3 different possible strides: (not fixed in the language, e.g. ...)
+    #   - weights
+    #   - image
+    #   - bias  (output)
+
+    return gemmini_ld
+
+def gen_gemm_app():
+    @proc
+    def gemm_app( n : size, x : R[n] @ IN, y : R[n] @ OUT):
+        for i0 in par(0,n/16):
+            if i0 == n/16-1:
+                for i1 in par(0,n%16):
+                    y[i0*16+i1] = x[i0*16+i1]
+            else:
+                load(n, 16, i0, x, y)
+                #for i1 in par(0,16):
+                #    y[i0*16+i1] = x[i0*16+i1]
+
+    return gemm_app
+
+def test_alloc():
+    gemm_app = gen_gemm_app()
+    load  = gen_load()
+    gemm_app = gemm_app.abstract(load, "for _ in par(0,16): _")
+    #alloc.compile_c(directory, "test_alloc")
+    #print(alloc)
+
+
+# generaated C
+// alloc(
+//     n : size,
+//     x : R[n] @IN,
+//     y : R[n] @OUT
+// )
+void alloc( int n, float* x, float* y ) {
+for (int i0=0; i0 < _ceil_div(n, 16); i0++) {
+  if (i0 == _ceil_div(n, 16) - 1) {
+    for (int i1=0; i1 < n % 16; i1++) {
+      y[i0 * 16 + i1] = x[i0 * 16 + i1];
+    }
+  } else {
+    gemmini_extended_mvin(i1 + i0*16, i1 + i0*16, 16, 16)
+    //for (int i1=0; i1 < 16; i1++) {
+    //  y[i0 * 16 + i1] = x[i0 * 16 + i1];
+    //}
+  }
+}
+}
+
+
+
 # step 1: explore tail strategies w/o GEMMINI
 # step 2: extend exploration of tail strategies to consider GEMMINI
 @proc
