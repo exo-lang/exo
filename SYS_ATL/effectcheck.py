@@ -81,6 +81,11 @@ class InferEffects:
                                 body    = body,
                                 srcinfo = self.orig_proc.srcinfo)
 
+        self.effect = eff
+
+    def get_effect(self):
+        return self.effect
+
     def result(self):
         return self.proc
 
@@ -93,9 +98,6 @@ class InferEffects:
             stmts.append(new_s)
             if type(new_s) is LoopIR.Alloc:
                 eff_remove_buf(new_s.name, eff)
-                # remove_effects...
-                #if (new_s.eff.buffer is ...)
-                pass
             else:
                 eff = eff_union(eff, new_s.eff)
         return ([s for s in reversed(stmts)], eff)
@@ -127,12 +129,12 @@ class InferEffects:
 
         elif type(stmt) is LoopIR.If:
             cond = lift_expr(stmt.cond)
-            body, body_effects = self.infer_stmts(stmt.body)
+            body, body_effects = self.map_stmts(stmt.body)
             body_effects = eff_filter(cond ,body_effects)
             orelse_effects = eff_null(stmt.srcinfo)
             orelse = stmt.orelse
             if len(stmt.orelse) > 0:
-                orelse, orelse_effects = self.infer_stmts(stmt.orelse)
+                orelse, orelse_effects = self.map_stmts(stmt.orelse)
                 orelse_effects = eff_filter(negate_expr(cond), orelse_effects)
             effects = eff_union(body_effects, orelse_effects)
 
@@ -148,7 +150,7 @@ class InferEffects:
                                        , T.bool, stmt.srcinfo)
             pred  = E.BinOp("and", lhs, rhs, T.bool, stmt.srcinfo)
 
-            body, body_effect = self.infer_stmts(stmt.body)
+            body, body_effect = self.map_stmts(stmt.body)
             effects = eff_bind(stmt.iter, body_effect, pred=pred)
 
             return LoopIR.ForAll(stmt.iter, stmt.hi, body,
