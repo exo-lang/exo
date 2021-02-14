@@ -1,8 +1,9 @@
 from .asdl.adt import ADT
 from .asdl.adt import memo as ADTmemo
+from z3 import *
 
 from .prelude import *
-from .LoopIR import UAST, LoopIR, front_ops, bin_ops
+from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
 from . import shared_types as T
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
@@ -176,3 +177,44 @@ class InferEffects:
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Check Bounds and Parallelism semantics for an effect-annotated AST
+
+# Check if Alloc sizes and function arg sizes are actually larger than bounds
+# TODO: Employ SMT Solver here!
+class CheckEffects(LoopIR_Rewrite):
+    def __init__(self, proc):
+        super().__init__(proc)
+
+    def map_stmts(self, body):
+        assert len(body) > 0
+        self.effects = eff_null(body[0].srcinfo)
+        stmts = []
+        for s in reversed(body):
+            new_s = self.map_s(s)
+            stmts.append(new_s)
+            if type(new_s) is LoopIR.Alloc:
+                eff_remove_buf(new_s.name, eff)
+            else:
+                self.effects = eff_union(eff, new_s.eff)
+        return [s for s in reversed(stmts)]
+
+    def map_s(self, stmt):
+        def check_bounds(sym, shape):
+            for e in self.effects:
+                if e.buffer == sym:
+                    for i in range(len(e.loc)):
+                        if type(e.loc[i]) is E.Const:
+                            if is_pos_int(shape[i]):
+                                assert shape[i] <= e.loc[i].val, "out of bounds access"
+                        elif type(e.loc[i]) is E.Var:
+                            pass
+
+            return res
+
+        # Bounds checking
+        if type(stmt) is LoopIR.Alloc or type(stmt) is LoopIR.Reduce:
+            if type(stmt.type) is T.Tensor:
+                check_bounds(stmt.name, stmt.type.shape())
+
+            return [stmt]
+        else:
+            return super().map_s(stmt)
