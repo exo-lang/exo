@@ -7,7 +7,7 @@ from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
 from . import shared_types as T
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
-                             eff_null, eff_remove_buf)
+                             eff_null, eff_remove_buf, effect_as_str)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -180,9 +180,40 @@ class InferEffects:
 
 # Check if Alloc sizes and function arg sizes are actually larger than bounds
 # TODO: Employ SMT Solver here!
-class CheckEffects(LoopIR_Rewrite):
+class CheckEffects:
     def __init__(self, proc):
-        super().__init__(proc)
+        self.orig_proc  = proc
+
+        # Map sym to z3 variable
+        self.env = Environment()
+
+        self.effects = []
+        self.map_stmts(self.orig_proc.body)
+
+        self.proc = LoopIR.proc(name    = self.orig_proc.name,
+                                args    = self.orig_proc.args,
+                                body    = self.orig_proc.body,
+                                srcinfo = self.orig_proc.srcinfo)
+
+    def sym_to_z3(sym):
+        if env[sym] is None:
+            self.vars.push(str(sym) + " = Int(" + str(sym) + ")")
+            env[sym] = str(sym)
+        return env[sym]
+
+    def expr_to_z3(expr):
+        if type(expr) is E.Const:
+            assert type(expr.val) is int, "Effect must be int"
+            return str(expr.val)
+        elif type(expr) is E.Var:
+            return sym_to_z3(expr.name)
+        elif type(expr) is E.BinOp:
+            lhs = expr_to_z3(expr.lhs)
+            rhs = expr_to_z3(expr.rhs)
+            return lhs + " " + expr.op + " " + rhs
+
+    def result(self):
+        return self.orig_proc
 
     def map_stmts(self, body):
         assert len(body) > 0
@@ -192,29 +223,32 @@ class CheckEffects(LoopIR_Rewrite):
             new_s = self.map_s(s)
             stmts.append(new_s)
             if type(new_s) is LoopIR.Alloc:
-                eff_remove_buf(new_s.name, eff)
+                eff_remove_buf(new_s.name, self.effects)
             else:
-                self.effects = eff_union(eff, new_s.eff)
+                self.effects = eff_union(self.effects, new_s.eff)
+            effect_as_str(self.effects)
+
+        # Construct z3 solver here and run!
+
         return [s for s in reversed(stmts)]
 
     def map_s(self, stmt):
-        def check_bounds(sym, shape):
-            for e in self.effects:
+        def check_effects(sym, shape, effects):
+            for e in effects:
                 if e.buffer == sym:
                     for i in range(len(e.loc)):
-                        if type(e.loc[i]) is E.Const:
-                            if is_pos_int(shape[i]):
-                                assert shape[i] <= e.loc[i].val, "out of bounds access"
-                        elif type(e.loc[i]) is E.Var:
-                            pass
+                        # Bound location to shape
 
-            return res
+                        # Find 
+
+        def check_bounds(sym, shape):
+            check_effects(sym, shape, self.effects.reads)
+            check_effects(sym, shape, self.effects.writes)
+            check_effects(sym, shape, self.effects.reduces)
 
         # Bounds checking
-        if type(stmt) is LoopIR.Alloc or type(stmt) is LoopIR.Reduce:
+        if type(stmt) is LoopIR.Alloc:
             if type(stmt.type) is T.Tensor:
                 check_bounds(stmt.name, stmt.type.shape())
 
-            return [stmt]
-        else:
-            return super().map_s(stmt)
+        return stmt
