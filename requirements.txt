@@ -7,4 +7,4 @@ yapf
 pillow
 scipy
 jupyter_contrib_nbextensions
-z3-solver
+pysmt

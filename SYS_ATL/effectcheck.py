@@ -1,6 +1,7 @@
 from .asdl.adt import ADT
 from .asdl.adt import memo as ADTmemo
-from z3 import *
+import pysmt
+from pysmt import shortcuts as SMT
 
 from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
@@ -194,8 +195,6 @@ class InferEffects:
 #       What we really want to check is that
 #           CTXT_PRED ==> IN_BOUNDS( x, T, e )
 #
-#       x ==> y
-#
 #       IN_BOUNDS( x, T, e ) =
 #           AND es in e: IN_BOUNDS( x, T, es )
 #       IN_BOUNDS( x, T, (y, ...) ) = TRUE
@@ -222,9 +221,6 @@ class InferEffects:
 #   s has effect WRITE { y : (i+j) for j in int if 0 <= j < n and i+j < n }
 #
 #   CTXT_PRED is 0 <= i < n
-#
-
-#
 
 
 #
@@ -294,7 +290,6 @@ class InferEffects:
 #
 
 # Check if Alloc sizes and function arg sizes are actually larger than bounds
-# TODO: Employ SMT Solver here!
 class CheckEffects:
     def __init__(self, proc):
         self.orig_proc  = proc
@@ -305,65 +300,93 @@ class CheckEffects:
         self.effects = []
         self.map_stmts(self.orig_proc.body)
 
-        self.proc = LoopIR.proc(name    = self.orig_proc.name,
-                                args    = self.orig_proc.args,
-                                body    = self.orig_proc.body,
-                                srcinfo = self.orig_proc.srcinfo)
-
-    def sym_to_z3(sym):
-        if env[sym] is None:
-            self.vars.push(str(sym) + " = Int(" + str(sym) + ")")
-            env[sym] = str(sym)
-        return env[sym]
-
-    def expr_to_z3(expr):
-        if type(expr) is E.Const:
-            assert type(expr.val) is int, "Effect must be int"
-            return str(expr.val)
-        elif type(expr) is E.Var:
-            return sym_to_z3(expr.name)
-        elif type(expr) is E.BinOp:
-            lhs = expr_to_z3(expr.lhs)
-            rhs = expr_to_z3(expr.rhs)
-            return lhs + " " + expr.op + " " + rhs
-
     def result(self):
         return self.orig_proc
 
+    def sym_to_smt(sym):
+        if env[sym] is None:
+            env[sym] = SMT.Symbol(str(sym), SMT.INT)
+        return env[sym]
+
+    def expr_to_smt(expr):
+        if type(expr) is E.Const:
+            assert type(expr.val) is int, "Effect must be int"
+            return SMT.INT(expr.val)
+        elif type(expr) is E.Var:
+            return sym_to_smt(expr.name)
+        elif type(expr) is E.BinOp:
+            lhs = expr_to_smt(expr.lhs)
+            rhs = expr_to_smt(expr.rhs)
+            if expr.op == "+":
+                return lhs + rhs
+            elif expr.op == "-":
+                return lhs - rhs
+            elif expr.op == "*":
+                return lhs * rhs
+            elif expr.op == "/":
+                return lhs / rhs
+            elif expr.op == "%":
+                return lhs % rhs
+            elif expr.op == "<":
+                return SMT.LT(lhs, rhs)
+            elif expr.op == ">":
+                return SMT.GT(lhs, rhs)
+            elif expr.op == "<=":
+                return SMT.LE(lhs, rhs)
+            elif expr.op == ">=":
+                return SMT.GE(lhs, rhs)
+            elif expr.op == "==":
+                return SMT.Equals(lhs, rhs)
+            elif expr.op == "and":
+                return SMT.And(lhs, rhs)
+            elif expr.op == "or":
+                return SMT.Or(lhs, rhs)
+
+    def shape_loc_smt(shape, loc):
+        assert len(shape) == len(loc), "buffer loc should be same as buffer shape"
+        smt = SMT.Bool(True)
+        for i in len(shape):
+            # 1 <= loc[i] <= shape[i]
+            loc_e = expr_to_smt(loc[i])
+            lhs = SMT.LE(Int(1), loc_e)
+            rhs = SMT.LE(loc_e, expr_to_smt(shape[i]))
+            smt = SMT.And(smt, SMT.And(lhs, rhs))
+
+        return smt
+
+    def in_bounds(sym, shape, eff):
+        if type(eff) is E.effect:
+            f = SMT.And(SMT.And(in_bounds(sym, shape, eff.reads),
+                        in_bounds(sym, shape, eff.writes)),
+                        in_bounds(sym, shape, eff.reduces))
+            # ??
+            return self.solver.verify(f)
+
+        elif type(eff) is E.effset:
+            if sym != eff.buffer:
+                return SMT.Bool(True)
+            else:
+#       IN_BOUNDS( x, T, (x, (i,j), nms, pred ) ) =
+#           forall nms in Z, pred ==> in_bounds(T, (i,j))
+                nms_e = [sym_to_z3(e) for e in eff.nms]
+                forall_e = SMT.ForAll(nms_e,
+                            SMT.Implies(expr_to_smt(eff.pred),
+                                shape_loc_smt(shape, eff.loc)))
+                return forall_e
+
     def map_stmts(self, body):
         assert len(body) > 0
-        self.effects = eff_null(body[0].srcinfo)
-        stmts = []
-        for s in reversed(body):
-            new_s = self.map_s(s)
-            stmts.append(new_s)
-            if type(new_s) is LoopIR.Alloc:
-                eff_remove_buf(new_s.name, self.effects)
-            else:
-                self.effects = eff_union(self.effects, new_s.eff)
-            effect_as_str(self.effects)
+        self.context.append(eff_null(body[0].srcinfo))
 
-        # Construct z3 solver here and run!
+        for i in len(body):
+            stmt = body[i]
+            self.context = eff_union(self.context, stmt.eff)
 
-        return [s for s in reversed(stmts)]
+            if type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.If:
+                body_eff = self.map_stmts(stmt.body)
+                self.context = eff_union(self.context, body_eff)
+            elif type(stmt) is LoopIR.Alloc:
+                s_eff = self.map_stmts(body[:i+1])
+                in_bounds(stmt.name, stmt.type.shape(), s_eff)
 
-    def map_s(self, stmt):
-        def check_effects(sym, shape, effects):
-            for e in effects:
-                if e.buffer == sym:
-                    for i in range(len(e.loc)):
-                        # Bound location to shape
-
-                        # Find 
-
-        def check_bounds(sym, shape):
-            check_effects(sym, shape, self.effects.reads)
-            check_effects(sym, shape, self.effects.writes)
-            check_effects(sym, shape, self.effects.reduces)
-
-        # Bounds checking
-        if type(stmt) is LoopIR.Alloc:
-            if type(stmt.type) is T.Tensor:
-                check_bounds(stmt.name, stmt.type.shape())
-
-        return stmt
+        return self.context.pop()
