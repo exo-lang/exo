@@ -98,7 +98,7 @@ class InferEffects:
             new_s = self.map_s(s)
             stmts.append(new_s)
             if type(new_s) is LoopIR.Alloc:
-                eff_remove_buf(new_s.name, eff)
+                eff = eff_remove_buf(new_s.name, eff)
             else:
                 eff = eff_union(eff, new_s.eff)
         return ([s for s in reversed(stmts)], eff)
@@ -177,6 +177,121 @@ class InferEffects:
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Check Bounds and Parallelism semantics for an effect-annotated AST
+
+#
+#   What is bounds checking?
+#
+#       (x : T)  ;  s
+#       s has effect e
+#       Also, we may assume certain things about the context
+#       Let us assume some CTXT_PRED
+#
+#       Then, x is memory safe iff. all accesses to x in s are "in-bounds"
+#       There is a relationship between buffer types (i.e. shapes)
+#       and effect-types, which says that the effect is "in-bounds"
+#       with respect to the buffer type (and you need to know the buffer name)
+#       
+#       What we really want to check is that
+#           CTXT_PRED ==> IN_BOUNDS( x, T, e )
+#
+#       x ==> y
+#
+#       IN_BOUNDS( x, T, e ) =
+#           AND es in e: IN_BOUNDS( x, T, es )
+#       IN_BOUNDS( x, T, (y, ...) ) = TRUE
+#       IN_BOUNDS( x, T, (x, (i,j), nms, pred ) ) =
+#           forall nms in Z, pred ==> in_bounds(T, (i,j))
+#       
+#
+#   (assert CTXT_PRED_1)
+#   (assert CTXT_PRED_2)
+#   (valid IN_BOUNDS( x, T, e ) )
+#   (valid IN_BOUNDS( y, T2, e2 ) )
+#
+#
+#   for i in par(0,n):
+#       ...
+#       y : R[n]
+#
+#       y[i] = 32
+#       
+#       for j in par(0,n):
+#           if i+j < n:
+#               y[i+j] = 32
+#
+#   s has effect WRITE { y : (i+j) for j in int if 0 <= j < n and i+j < n }
+#
+#   CTXT_PRED is 0 <= i < n
+#
+
+#
+
+
+#
+#   What is parallelism checking?
+#
+#       In general the situation is that we have a parallel for loop
+#      
+#       for i in par(0,n): s
+#       
+#       s has effect e
+#
+#       We want to check that 
+#           forall i0,i1: 0 <= i0 < i1 < n ==> COMMUTES( [i |-> i0]e,
+#                                                        [i |-> i1]e )
+#
+#       R, W, +
+#
+#       R commutes with R
+#       + commutes with +
+#       any two other effects do not commute
+#
+#       COMMUTES( (r0, w0, p0), (r1, w1, p1) ) =
+#           AND ( NOT_CONFLICTS( r0, w1 )
+#                 NOT_CONFLICTS( r0, p1 )
+#                 NOT_CONFLICTS( w0, r1 )
+#                 NOT_CONFLICTS( w0, w1 )
+#                 NOT_CONFLICTS( w0, p1 )
+#                 NOT_CONFLICTS( p0, r1 )
+#                 NOT_CONFLICTS( p0, w1 ) )
+#
+#       NOT_CONFLICTS( (x,...), (y,...) ) = TRUE
+#       NOT_CONFLICTS( (x, loc0, nms0, pred0), (x, loc1, nms1, pred1) ) =
+#           forall nms0, nms1: pred0 AND pred1 ==> loc0 != loc1
+#
+#       Let's try to re-develop these ideas in the setting where
+#       we assume that the two effects are identical except for
+#       our substitution
+#
+#       COMMUTES( i, n, e ) =
+#           forall i0,i1: 0 <= i0 < i1 < n ==>
+#                       COMMUTES( [i |-> i0]e, [i |-> i1]e )
+#           
+#       COMMUTES( i, n, (r, w, p) ) =
+#           AND( NOT_CONFLICTS(i, n, r, w)
+#                NOT_CONFLICTS(i, n, r, p)
+#                NOT_CONFLICTS(i, n, w, w)
+#                NOT_CONFLICTS(i, n, w, p) )
+#
+#       NOT_CONFLICTS( i, n, (x,...), (y,...) ) = TRUE
+#       NOT_CONFLICTS( i, n, (x, loc0, nms0, pred0),
+#                            (x, loc1, nms1, pred1) ) =
+#           forall i0,i1: 0 <= i0 < i1 < n ==>
+#               forall nms0, nms1:
+#                   [sub i0,nms0]pred0 AND [sub i1,nms1]pred1 ==>
+#                   [sub i0,nms0]loc0 != [sub i1,nms1]loc1
+#           
+#       cond ==> (x AND y)   ===   (cond ==> x) AND (cond ==> y)
+#   
+#           AND ( forall _: _ ==> NOT_CONFLICTS( r0, w1 )
+#                 forall _: _ ==> NOT_CONFLICTS( r0, p1 )
+#                 forall _: _ ==> NOT_CONFLICTS( w0, r1 )
+#                 forall _: _ ==> NOT_CONFLICTS( w0, w1 )
+#                 forall _: _ ==> NOT_CONFLICTS( w0, p1 )
+#                 forall _: _ ==> NOT_CONFLICTS( p0, r1 )
+#                 forall _: _ ==> NOT_CONFLICTS( p0, w1 ) )
+#
+#
 
 # Check if Alloc sizes and function arg sizes are actually larger than bounds
 # TODO: Employ SMT Solver here!
