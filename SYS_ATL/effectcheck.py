@@ -296,19 +296,32 @@ class CheckEffects:
 
         # Map sym to z3 variable
         self.env = Environment()
+        self.context = E.Const(True, T.bool, self.orig_proc.body[0].srcinfo)
+        self.effect  = []
+        self.errors = []
 
-        self.effects = []
-        self.map_stmts(self.orig_proc.body)
+        body_eff = self.map_stmts(self.orig_proc.body)
+
+        for arg in proc.args:
+            self.map_effects(arg.name, [arg.type], body_eff)
+
+        # do error checking here
+        if len(self.errors) > 0:
+            raise EffectsError("Errors occurred during effect checking:\n" +
+                            "\n".join(self.errors))
 
     def result(self):
         return self.orig_proc
 
-    def sym_to_smt(sym):
+    def err(self, node, msg):
+        self.errors.append(f"{node.srcinfo}: {msg}")
+
+    def sym_to_smt(self, sym):
         if env[sym] is None:
             env[sym] = SMT.Symbol(str(sym), SMT.INT)
         return env[sym]
 
-    def expr_to_smt(expr):
+    def expr_to_smt(self, expr):
         if type(expr) is E.Const:
             assert type(expr.val) is int, "Effect must be int"
             return SMT.INT(expr.val)
@@ -342,10 +355,10 @@ class CheckEffects:
             elif expr.op == "or":
                 return SMT.Or(lhs, rhs)
 
-    def shape_loc_smt(shape, loc):
+    def shape_loc_smt(self, shape, loc):
         assert len(shape) == len(loc), "buffer loc should be same as buffer shape"
         smt = SMT.Bool(True)
-        for i in len(shape):
+        for i in range(len(shape)):
             # 1 <= loc[i] <= shape[i]
             loc_e = expr_to_smt(loc[i])
             lhs = SMT.LE(Int(1), loc_e)
@@ -354,39 +367,106 @@ class CheckEffects:
 
         return smt
 
-    def in_bounds(sym, shape, eff):
-        if type(eff) is E.effect:
-            f = SMT.And(SMT.And(in_bounds(sym, shape, eff.reads),
-                        in_bounds(sym, shape, eff.writes)),
-                        in_bounds(sym, shape, eff.reduces))
-            # ??
-            return self.solver.verify(f)
+    def in_bounds(self, sym, shape, eff, eff_str):
+        assert type(eff) is E.effset, "effset should be passed to in_bounds"
 
-        elif type(eff) is E.effset:
-            if sym != eff.buffer:
-                return SMT.Bool(True)
-            else:
+        if sym != eff.buffer:
+            return SMT.Bool(True)
+        else:
 #       IN_BOUNDS( x, T, (x, (i,j), nms, pred ) ) =
 #           forall nms in Z, pred ==> in_bounds(T, (i,j))
-                nms_e = [sym_to_z3(e) for e in eff.nms]
-                forall_e = SMT.ForAll(nms_e,
-                            SMT.Implies(expr_to_smt(eff.pred),
-                                shape_loc_smt(shape, eff.loc)))
-                return forall_e
+            nms_e = [sym_to_z3(e) for e in eff.nms]
+            forall_e = SMT.ForAll(nms_e,
+                        SMT.Implies(expr_to_smt(eff.pred),
+                            shape_loc_smt(shape, eff.loc)))
+
+            if forall_e.is_valid():
+                return True
+            else:
+                self.err(sym, "is " + eff_str + " out-of-bounds")
+
+                return False
+
+
+    def map_effects(self, sym, shape, eff):
+        effs = [(eff.reads, "read"), (eff.writes, "write"),
+                (eff.reduces, "reduce")]
+
+        for (es,y) in effs:
+            for e in es:
+                self.in_bounds(sym, shape, e, y)
+
+        return
+
+#       NOT_CONFLICTS( i, n, (x,...), (y,...) ) = TRUE
+#       NOT_CONFLICTS( i, n, (x, loc0, nms0, pred0),
+#                            (x, loc1, nms1, pred1) ) =
+#           forall i0,i1: 0 <= i0 < i1 < n ==>
+#               forall nms0, nms1:
+#                   [sub i0,nms0]pred0 AND [sub i1,nms1]pred1 ==>
+#                   [sub i0,nms0]loc0 != [sub i1,nms1]loc1
+    def not_conflicts(self, sym, hi, e1, e2):
+        if e1.buffer != e2.buffer:
+            return True
+        else:
+            pass
+
+
+#       COMMUTES( i, n, (r, w, p) ) =
+    def commutes(self, sym, hi, eff):
+#           AND( NOT_CONFLICTS(i, n, r, w)
+        for r in eff.reads:
+            for w in eff.writes:
+                self.not_conflicts(sym, hi, r, w)
+#                NOT_CONFLICTS(i, n, r, p)
+        for r in eff.reads:
+            for p in eff.reduces:
+                self.not_conflicts(sym, hi, r, p)
+#                NOT_CONFLICTS(i, n, w, w)
+        for w1 in eff.writes:
+            for w2 in eff.writes:
+                self.not_conflicts(sym, hi, w1, w2)
+#                NOT_CONFLICTS(i, n, w, p) )
+        for w in eff.writes:
+            for p in eff.reduces:
+                self.not_conflicts(sym, hi, w, p)
+
+        return
 
     def map_stmts(self, body):
-        assert len(body) > 0
-        self.context.append(eff_null(body[0].srcinfo))
+        def bind_pred(eff):
+            assert type(eff) is list, "bind_pred should be called with list of effset"
+            pred = E.Const(1, T.bool, body[0].srcinfo)
+            for i in range(len(eff)):
+                pred = E.BinOp("and", pred, eff[0].pred, T.bool, body[0].srcinfo)
+            return pred
 
-        for i in len(body):
+        assert len(body) > 0
+        self.effect.append(eff_null(body[0].srcinfo))
+
+        for i in range(len(body)):
             stmt = body[i]
-            self.context = eff_union(self.context, stmt.eff)
 
             if type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.If:
+                old_context = self.context
+                self.context = E.BinOp("and",
+                               E.BinOp("and", bind_pred(stmt.eff.reads),
+                                              bind_pred(stmt.eff.writes),
+                                     T.bool, stmt.srcinfo),
+                               E.BinOp("and", bind_pred(stmt.eff.reduces), old_context,
+                                        T.bool, stmt.srcinfo),
+                                     T.bool, stmt.srcinfo)
+
+                # Bounds checking here
                 body_eff = self.map_stmts(stmt.body)
-                self.context = eff_union(self.context, body_eff)
+                # Parallelism checking here
+                if type(stmt) is LoopIR.ForAll:
+                    self.commutes(stmt.iter, stmt.hi, body_eff)
+
+                self.context = old_context
+                self.effect[-1] = eff_union(self.effect[-1], body_eff)
             elif type(stmt) is LoopIR.Alloc:
                 s_eff = self.map_stmts(body[:i+1])
-                in_bounds(stmt.name, stmt.type.shape(), s_eff)
+                self.map_effects(stmt.name, stmt.type.shape(), s_eff)
 
-        return self.context.pop()
+        return self.effect.pop() # Returns union of all effects
