@@ -53,6 +53,16 @@ module Effects {
     'srcinfo':      lambda x: type(x) is SrcInfo,
 })
 
+#
+#   for i in par(0, n):      # eff { WRITE, x : (i,j) for i,j in Z
+#                            #            if 0 <= i < n and 0 <= j < n }
+#       for j in par(0, n):  # eff { WRITE, x : (i,j) for j in Z
+#                            #            if 0 <= j < n }
+#           x[i,j] = ...     # eff WRITE, x : (i,j)
+#
+#
+
+
 
 # Unused Proposal
 

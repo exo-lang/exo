@@ -1,14 +1,20 @@
-from .asdl.adt import ADT
-from .asdl.adt import memo as ADTmemo
-import pysmt
-from pysmt import shortcuts as SMT
-
 from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
 from . import shared_types as T
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
                              eff_null, eff_remove_buf, effect_as_str)
+
+from collections import ChainMap
+
+import pysmt
+from pysmt import shortcuts as SMT
+
+def _get_smt_solver():
+    factory = pysmt.factory.Factory(pysmt.shortcuts.get_env())
+    slvs    = factory.all_solvers()
+    if len(slvs) == 0: raise OSError("Could not find any SMT solvers")
+    return pysmt.shortcuts.Solver(name=next(iter(slvs)))
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -25,6 +31,20 @@ def lift_expr(e):
         return E.BinOp( e.op, lift_expr(e.lhs), lift_expr(e.rhs),
                         e.type, e.srcinfo )
     else: assert False, "bad case, e is " + str(type(e))
+
+def expr_subst(env, e):
+    """ perform the substitutions specified by env in expression e """
+    if type(e) is E.Const:
+        return e
+    elif type(e) is E.Var:
+        if e.name in env:
+            return E.Var(env[e.name], e.type, e.srcinfo)
+        else:
+            return e
+    elif type(e) is E.BinOp:
+        return E.BinOp(e.op, expr_subst(env, e.lhs), expr_subst(env, e.rhs),
+                       e.type, e.srcinfo)
+    else: assert False, "bad case"
 
 def negate_expr(e):
     assert e.type == T.bool, "can only negate predicates"
@@ -191,7 +211,7 @@ class InferEffects:
 #       There is a relationship between buffer types (i.e. shapes)
 #       and effect-types, which says that the effect is "in-bounds"
 #       with respect to the buffer type (and you need to know the buffer name)
-#       
+#
 #       What we really want to check is that
 #           CTXT_PRED ==> IN_BOUNDS( x, T, e )
 #
@@ -200,7 +220,7 @@ class InferEffects:
 #       IN_BOUNDS( x, T, (y, ...) ) = TRUE
 #       IN_BOUNDS( x, T, (x, (i,j), nms, pred ) ) =
 #           forall nms in Z, pred ==> in_bounds(T, (i,j))
-#       
+#
 #
 #   (assert CTXT_PRED_1)
 #   (assert CTXT_PRED_2)
@@ -213,7 +233,7 @@ class InferEffects:
 #       y : R[n]
 #
 #       y[i] = 32
-#       
+#
 #       for j in par(0,n):
 #           if i+j < n:
 #               y[i+j] = 32
@@ -227,12 +247,12 @@ class InferEffects:
 #   What is parallelism checking?
 #
 #       In general the situation is that we have a parallel for loop
-#      
+#
 #       for i in par(0,n): s
-#       
+#
 #       s has effect e
 #
-#       We want to check that 
+#       We want to check that
 #           forall i0,i1: 0 <= i0 < i1 < n ==> COMMUTES( [i |-> i0]e,
 #                                                        [i |-> i1]e )
 #
@@ -262,7 +282,7 @@ class InferEffects:
 #       COMMUTES( i, n, e ) =
 #           forall i0,i1: 0 <= i0 < i1 < n ==>
 #                       COMMUTES( [i |-> i0]e, [i |-> i1]e )
-#           
+#
 #       COMMUTES( i, n, (r, w, p) ) =
 #           AND( NOT_CONFLICTS(i, n, r, w)
 #                NOT_CONFLICTS(i, n, r, p)
@@ -276,9 +296,9 @@ class InferEffects:
 #               forall nms0, nms1:
 #                   [sub i0,nms0]pred0 AND [sub i1,nms1]pred1 ==>
 #                   [sub i0,nms0]loc0 != [sub i1,nms1]loc1
-#           
+#
 #       cond ==> (x AND y)   ===   (cond ==> x) AND (cond ==> y)
-#   
+#
 #           AND ( forall _: _ ==> NOT_CONFLICTS( r0, w1 )
 #                 forall _: _ ==> NOT_CONFLICTS( r0, p1 )
 #                 forall _: _ ==> NOT_CONFLICTS( w0, r1 )
@@ -295,15 +315,21 @@ class CheckEffects:
         self.orig_proc  = proc
 
         # Map sym to z3 variable
-        self.env = Environment()
-        self.context = E.Const(True, T.bool, self.orig_proc.body[0].srcinfo)
-        self.effect  = []
-        self.errors = []
+        self.env        = ChainMap()
+        #self.context    = E.Const(True, T.bool, proc.srcinfo)
+        self.errors     = []
 
+        self.solver     = _get_smt_solver()
+
+        self.push()
         body_eff = self.map_stmts(self.orig_proc.body)
 
         for arg in proc.args:
-            self.map_effects(arg.name, [arg.type], body_eff)
+            #self.solver.push()
+            #self.solver.add_assertion(self.expr_to_smt(self.context))
+            self.check_bounds(arg.name, [arg.type], body_eff)
+            #self.solver.pop()
+        self.pop()
 
         # do error checking here
         if len(self.errors) > 0:
@@ -313,33 +339,45 @@ class CheckEffects:
     def result(self):
         return self.orig_proc
 
+    def push(self):
+        self.solver.push()
+        self.env = self.env.new_child()
+
+    def pop(self):
+        self.env = self.env.parents
+        self.solver.pop()
+
     def err(self, node, msg):
         self.errors.append(f"{node.srcinfo}: {msg}")
 
     def sym_to_smt(self, sym):
-        if env[sym] is None:
-            env[sym] = SMT.Symbol(str(sym), SMT.INT)
-        return env[sym]
+        if sym not in self.env:
+            self.env[sym] = SMT.Symbol(str(sym), SMT.INT)
+        return self.env[sym]
 
     def expr_to_smt(self, expr):
+        assert isinstance(expr, E.expr), "expected Effects.expr"
         if type(expr) is E.Const:
-            assert type(expr.val) is int, "Effect must be int"
-            return SMT.INT(expr.val)
+            if expr.type == T.bool:
+                return SMT.Bool(expr.val)
+            elif expr.type.is_indexable():
+                return SMT.Int(expr.val)
+            else: assert False, "unrecognized const type: {type(expr.val)}"
         elif type(expr) is E.Var:
-            return sym_to_smt(expr.name)
+            return self.sym_to_smt(expr.name)
         elif type(expr) is E.BinOp:
-            lhs = expr_to_smt(expr.lhs)
-            rhs = expr_to_smt(expr.rhs)
+            lhs = self.expr_to_smt(expr.lhs)
+            rhs = self.expr_to_smt(expr.rhs)
             if expr.op == "+":
-                return lhs + rhs
+                return SMT.Plus(lhs, rhs)
             elif expr.op == "-":
-                return lhs - rhs
+                return SMT.Minus(lhs, rhs)
             elif expr.op == "*":
-                return lhs * rhs
+                return SMT.Times(lhs, rhs)
             elif expr.op == "/":
-                return lhs / rhs
+                return SMT.Div(lhs, rhs)
             elif expr.op == "%":
-                return lhs % rhs
+                raise NotImplementedError("modulus currently unsupported")
             elif expr.op == "<":
                 return SMT.LT(lhs, rhs)
             elif expr.op == ">":
@@ -354,49 +392,42 @@ class CheckEffects:
                 return SMT.And(lhs, rhs)
             elif expr.op == "or":
                 return SMT.Or(lhs, rhs)
+        else: assert False, "bad case"
 
-    def shape_loc_smt(self, shape, loc):
-        assert len(shape) == len(loc), "buffer loc should be same as buffer shape"
-        smt = SMT.Bool(True)
-        for i in range(len(shape)):
-            # 1 <= loc[i] <= shape[i]
-            loc_e = expr_to_smt(loc[i])
-            lhs = SMT.LE(Int(1), loc_e)
-            rhs = SMT.LE(loc_e, expr_to_smt(shape[i]))
-            smt = SMT.And(smt, SMT.And(lhs, rhs))
-
-        return smt
-
-    def in_bounds(self, sym, shape, eff, eff_str):
+    def check_in_bounds(self, sym, shape, eff, eff_str):
         assert type(eff) is E.effset, "effset should be passed to in_bounds"
 
-        if sym != eff.buffer:
-            return SMT.Bool(True)
-        else:
+        if sym == eff.buffer:
 #       IN_BOUNDS( x, T, (x, (i,j), nms, pred ) ) =
 #           forall nms in Z, pred ==> in_bounds(T, (i,j))
-            nms_e = [sym_to_z3(e) for e in eff.nms]
-            forall_e = SMT.ForAll(nms_e,
-                        SMT.Implies(expr_to_smt(eff.pred),
-                            shape_loc_smt(shape, eff.loc)))
 
-            if forall_e.is_valid():
-                return True
-            else:
-                self.err(sym, "is " + eff_str + " out-of-bounds")
+            self.solver.push()
+            self.solver.add_assertion(self.expr_to_smt(eff.pred))
+            in_bds = SMT.Bool(True)
+            assert len(eff.loc) == len(shape)
+            for e, hi in zip(eff.loc, shape):
+                # 1 <= loc[i] <= shape[i]
+                e   = self.expr_to_smt(e)
+                lhs = SMT.LE(SMT.Int(1), e)
+                if type(hi) is int:
+                    rhs = SMT.LE(e, SMT.Int(hi))
+                else:
+                    rhs = SMT.LE(e, self.sym_to_smt(hi))
+                in_bds = SMT.And(in_bds, SMT.And(lhs, rhs))
 
-                return False
+            # TODO: Extract counter example from SMT solver
+            if not self.solver.is_valid(in_bds):
+                self.err(eff, f"{sym} is {eff_str} out-of-bounds")
 
+            self.solver.pop()
 
-    def map_effects(self, sym, shape, eff):
+    def check_bounds(self, sym, shape, eff):
         effs = [(eff.reads, "read"), (eff.writes, "write"),
                 (eff.reduces, "reduce")]
 
         for (es,y) in effs:
             for e in es:
-                self.in_bounds(sym, shape, e, y)
-
-        return
+                self.check_in_bounds(sym, shape, e, y)
 
 #       NOT_CONFLICTS( i, n, (x,...), (y,...) ) = TRUE
 #       NOT_CONFLICTS( i, n, (x, loc0, nms0, pred0),
@@ -405,68 +436,112 @@ class CheckEffects:
 #               forall nms0, nms1:
 #                   [sub i0,nms0]pred0 AND [sub i1,nms1]pred1 ==>
 #                   [sub i0,nms0]loc0 != [sub i1,nms1]loc1
-    def not_conflicts(self, sym, hi, e1, e2):
-        if e1.buffer != e2.buffer:
-            return True
-        else:
-            pass
+    def not_conflicts(self, iter, hi, e1, e2):
+        if e1.buffer == e2.buffer:
+            self.solver.push()
+            # determine name substitutions
+            iter1   = iter.copy()
+            iter2   = iter.copy()
+            sub1    = { nm : nm.copy() for nm in e1.names }
+            sub1[iter] = iter1
+            sub2    = { nm : nm.copy() for nm in e2.names }
+            sub2[iter] = iter2
+
+            pred1   = expr_subst(sub1, e1.pred)
+            pred2   = expr_subst(sub2, e2.pred)
+            self.solver.add_assertion(pred1)
+            self.solver.add_assertion(pred2)
+
+            loc1    = [ expr_subst(sub1, i) for i in e1.loc ]
+            loc2    = [ expr_subst(sub2, i) for i in e2.loc ]
+            loc_neq = SMT.Bool(False)
+            for i1, i2 in zip(loc1,loc2):
+                loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
+
+            if not self.solver.is_valid(loc_neq):
+                self.err(e1, f"data race conflict with statement on "+
+                             f"{e2.srcinfo} while accessing {e1.buffer} "+
+                             f"in loop over {iter}.")
+
+            self.solver.pop()
 
 
 #       COMMUTES( i, n, (r, w, p) ) =
-    def commutes(self, sym, hi, eff):
+    def check_commutes(self, iter, hi, eff):
+
 #           AND( NOT_CONFLICTS(i, n, r, w)
         for r in eff.reads:
             for w in eff.writes:
-                self.not_conflicts(sym, hi, r, w)
+                self.not_conflicts(iter, hi, r, w)
 #                NOT_CONFLICTS(i, n, r, p)
         for r in eff.reads:
             for p in eff.reduces:
-                self.not_conflicts(sym, hi, r, p)
+                self.not_conflicts(iter, hi, r, p)
 #                NOT_CONFLICTS(i, n, w, w)
         for w1 in eff.writes:
             for w2 in eff.writes:
-                self.not_conflicts(sym, hi, w1, w2)
+                self.not_conflicts(iter, hi, w1, w2)
 #                NOT_CONFLICTS(i, n, w, p) )
         for w in eff.writes:
             for p in eff.reduces:
-                self.not_conflicts(sym, hi, w, p)
+                self.not_conflicts(iter, hi, w, p)
 
         return
 
     def map_stmts(self, body):
-        def bind_pred(eff):
-            assert type(eff) is list, "bind_pred should be called with list of effset"
-            pred = E.Const(1, T.bool, body[0].srcinfo)
-            for i in range(len(eff)):
-                pred = E.BinOp("and", pred, eff[0].pred, T.bool, body[0].srcinfo)
-            return pred
-
+        """ Returns an effect for the argument `body`
+            And also checks bounds/parallelism for any
+            allocations/loops within `body`
+        """
         assert len(body) > 0
-        self.effect.append(eff_null(body[0].srcinfo))
+        body_eff = eff_null(body[-1].srcinfo)
 
-        for i in range(len(body)):
-            stmt = body[i]
-
+        for stmt in reversed(body):
             if type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.If:
-                old_context = self.context
-                self.context = E.BinOp("and",
-                               E.BinOp("and", bind_pred(stmt.eff.reads),
-                                              bind_pred(stmt.eff.writes),
-                                     T.bool, stmt.srcinfo),
-                               E.BinOp("and", bind_pred(stmt.eff.reduces), old_context,
-                                        T.bool, stmt.srcinfo),
-                                     T.bool, stmt.srcinfo)
+                #old_context = self.context
+                self.push()
+                if type(stmt) is LoopIR.ForAll:
+                    def bd_pred(x,hi,srcinfo):
+                        zero    = E.Const(0, T.int, srcinfo)
+                        x       = E.Var(x, T.int, srcinfo)
+                        hi      = lift_expr(hi)
+                        return E.BinOp("and",
+                                    E.BinOp("<=", zero, x, T.bool, srcinfo),
+                                    E.BinOp("<",  x,   hi, T.bool, srcinfo),
+                                T.bool, srcinfo)
 
-                # Bounds checking here
-                body_eff = self.map_stmts(stmt.body)
+                    self.solver.add_assertion(bd_pred(stmt.iter, stmt.hi,
+                                                      stmt.srcinfo))
+                    #self.context = E.BinOp("and",
+                    #                       bd_pred(stmt.iter, stmt.hi,
+                    #                               stmt.srcinfo),
+                    #                       self.context,
+                    #                       T.bool, stmt.srcinfo)
+                elif type(stmt) is LoopIR.If:
+                    self.solver.add_assertion(lift_expr(stmt.cond))
+                    #self.context = E.BinOp("and",
+                    #                       lift_expr(stmt.cond),
+                    #                       self.context,
+                    #                       T.bool, stmt.srcinfo)
+
+                # recursively process body in either case
+                sub_body_eff = self.map_stmts(stmt.body)
+
                 # Parallelism checking here
                 if type(stmt) is LoopIR.ForAll:
-                    self.commutes(stmt.iter, stmt.hi, body_eff)
+                    #self.solver.push()
+                    #self.solver.add_assertion(self.expr_to_smt(self.context))
+                    self.check_commutes(stmt.iter, stmt.hi, sub_body_eff)
+                    #self.solver.pop()
 
-                self.context = old_context
-                self.effect[-1] = eff_union(self.effect[-1], body_eff)
+                self.pop()
+                #self.context = old_context
+                body_eff = eff_union(body_eff, stmt.eff)
             elif type(stmt) is LoopIR.Alloc:
-                s_eff = self.map_stmts(body[:i+1])
-                self.map_effects(stmt.name, stmt.type.shape(), s_eff)
+                #self.solver.push()
+                #self.solver.add_assertion(self.expr_to_smt(self.context))
+                self.check_bounds(stmt.name, stmt.type.shape(), body_eff)
+                #self.solver.pop()
+                body_eff = eff_remove_buf(stmt.name, body_eff)
 
-        return self.effect.pop() # Returns union of all effects
+        return body_eff # Returns union of all effects

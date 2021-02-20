@@ -1,3 +1,115 @@
+# A, B, C: scratchpad addresses
+# gemmini_extended_preload(B, C, B_cols, B_rows, C_cols, C_rows);
+# gemmini_extended_compute_preloaded(A, ~((0(uint32_t))), A_cols, A_rows, 16, 16);
+
+# 1 <= *_cols <= 16
+# 1 <= *_rows <= 16
+
+# A and B are padded with zeros until 16
+# C is masked out
+
+# Gemmini matmuls compute C = A * B
+# Gemmini-supported dataflows: OS mode, WS mode
+# (0 := Output-stationary)
+# 1 := Weight-stationary
+# In WS mode, we preload B into the systolic array
+# (In OS mode, we preload zeroes into the systolic array)
+# FOR NOW, USE WS
+def gen_matmul():
+    @proc
+    @instr("gemmini_extended_preload("+
+                "({B}) + ({B_row_off}), (({C}) + ({C_row_off})) | (1 << 30), "+
+                "{M}, {K}, "+
+                "{M}, {N}"+
+           ");\n"+
+           "gemmini_extended_compute_preloaded("+
+                "({A}) + ({A_row_off}), ~((uint32_t)0), "+
+                "{K}, {N}, "+
+                "16, 16"+
+           ");")
+    def gemmini_matmul_acc(
+        N : size,
+        M : size,
+        K : size,
+        A_row_off  : index,
+        B_row_off  : index,
+        C_row_off : index,
+        nA : size,
+        nB : size,
+        nC : size,
+        A : R[nA,16] @ GEMM_SCRATCH,
+        B : R[nB,16] @ GEMM_SCRATCH,
+        C : R[nC,16] @ GEMM_ACC,
+        1 <= N <= 16,
+        1 <= M <= 16,
+        1 <= K <= 16
+    ):
+        for i in par(0,N):
+            for j in par(0,M):
+                for k in par(0,K):
+                    C[C_row_off+i, j] += A[A_row_off+i, k] * B[B_row_off+k, j]
+
+
+    @proc
+    @instr("gemmini_extended_preload("+
+                "({B}) + ({B_row_off}), ({C}) + ({C_row_off}), "+
+                "{M}, {K}, "+
+                "{M}, {N}"+
+           ");\n"+
+           "gemmini_extended_compute_preloaded("+
+                "({A}) + ({A_row_off}), ~((uint32_t)0), "+
+                "{K}, {N}, "+
+                "16, 16"+
+           ");")
+    def gemmini_matmul(
+        N : size,
+        M : size,
+        K : size,
+        A_row_off  : index,
+        B_row_off  : index,
+        C_row_off : index,
+        nA : size,
+        nB : size,
+        nC : size,
+        A : R[nA,16] @ GEMM_SCRATCH,
+        B : R[nB,16] @ GEMM_SCRATCH,
+        C : R[nC,16] @ GEMM_ACC,
+        1 <= N <= 16,
+        1 <= M <= 16,
+        1 <= K <= 16
+    ):
+        for i in par(0,N):
+            for j in par(0,M):
+                C[C_row_off+i, j] = 0.0
+                for k in par(0,K):
+                    C[C_row_off+i, j] += A[A_row_off+i, k] * B[B_row_off+k, j]
+
+def gen_zeromem():
+    @proc
+    @instr("gemmini_extended_mvin( NULL, ({x}) + ({off}) );")
+    def gemmini_zeromem(
+        N       : size,
+        N_rows  : size,
+        off     : index,
+        x : R[N_rows,16] @ GEMM_SCRATCH,
+        1 <= N <= 16
+    ):
+        for i in par(0,N):
+            for j in par(0,16):
+                x[i,j] = 0.0
+
+    @proc
+    @instr("gemmini_extended_mvin( NULL, ({x}) + ({off}) );")
+    def gemmini_zeromem_acc(
+        N       : size,
+        N_rows  : size,
+        off     : index,
+        x : R[N_rows,16] @ GEMM_ACC,
+        1 <= N <= 16
+    ):
+        for i in par(0,N):
+            for j in par(0,16):
+                x[i,j] = 0.0
 
 
 def gen_store():
@@ -16,8 +128,8 @@ def gen_store():
         col_dim : size,
         row_dim : size,
         #scale : R @ IN @ DRAM,
-        src : R[src_n,16]       @ OUT  @ GEMM_SCRATCH,
-        dst : R[dst_n,dst_m,16] @ IN   @ DRAM,
+        src : R[src_n,16]    @ OUT  @ GEMM_SCRATCH,
+        dst : R[dst_n,dst_m] @ IN   @ DRAM,
         1 <= col_dim <= 16,
         1 <= row_dim <= 16
     ):
@@ -41,8 +153,8 @@ def gen_store():
         col_dim : size,
         row_dim : size,
         #scale : R @ IN @ DRAM,
-        src : R[src_n,16]       @ OUT  @ GEMM_ACC,
-        dst : R[dst_n,dst_m,16] @ IN   @ DRAM,
+        src : R[src_n,16]    @ OUT  @ GEMM_ACC,
+        dst : R[dst_n,dst_m] @ IN   @ DRAM,
         1 <= col_dim <= 16,
         1 <= row_dim <= 16
     ):
@@ -53,8 +165,8 @@ def gen_store():
     # gemmini_extended_mvout(dram_addr: uint64_t (pointer), spad_addr: uint32_t, cols: uint16_t, rows: uint16_t)
     # 1 <= cols <= 16
     # 1 <= rows <= 16
-    # 2 is WS; we are accumulating over accumulator
-    # gemmini_config_ex(2, 0, 0, 1.0, 0) # This is only useful for moving data out from the Accumulator
+    # 1 is WS; we are accumulating over accumulator
+    # gemmini_config_ex(1, 0, 0, 1.0, 0) # This is only useful for moving data out from the Accumulator
     # gemmini_config_st(stride: bytes)
 
     # notes on GEMMINI ADDRESS SPACE
