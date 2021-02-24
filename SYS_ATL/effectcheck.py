@@ -325,15 +325,13 @@ class CheckEffects:
         body_eff = self.map_stmts(self.orig_proc.body)
 
         for arg in proc.args:
-            #self.solver.push()
-            #self.solver.add_assertion(self.expr_to_smt(self.context))
-            self.check_bounds(arg.name, [arg.type], body_eff)
-            #self.solver.pop()
+            if type(arg.type) is not T.Size:
+                self.check_bounds(arg.name, arg.type.shape(), body_eff)
         self.pop()
 
         # do error checking here
         if len(self.errors) > 0:
-            raise EffectsError("Errors occurred during effect checking:\n" +
+            raise TypeError("Errors occurred during effect checking:\n" +
                             "\n".join(self.errors))
 
     def result(self):
@@ -404,17 +402,21 @@ class CheckEffects:
             self.solver.push()
             self.solver.add_assertion(self.expr_to_smt(eff.pred))
             in_bds = SMT.Bool(True)
+            print(eff.loc)
+            print(shape)
             assert len(eff.loc) == len(shape)
             for e, hi in zip(eff.loc, shape):
                 # 1 <= loc[i] <= shape[i]
                 e   = self.expr_to_smt(e)
-                lhs = SMT.LE(SMT.Int(1), e)
+                lhs = SMT.LE(SMT.Int(0), e)
                 if type(hi) is int:
-                    rhs = SMT.LE(e, SMT.Int(hi))
+                    rhs = SMT.LT(e, SMT.Int(hi))
                 else:
-                    rhs = SMT.LE(e, self.sym_to_smt(hi))
+                    rhs = SMT.LT(e, self.sym_to_smt(hi))
                 in_bds = SMT.And(in_bds, SMT.And(lhs, rhs))
-
+            
+            print(self.solver.assertions)
+            print(in_bds)
             # TODO: Extract counter example from SMT solver
             if not self.solver.is_valid(in_bds):
                 self.err(eff, f"{sym} is {eff_str} out-of-bounds")
@@ -449,11 +451,11 @@ class CheckEffects:
 
             pred1   = expr_subst(sub1, e1.pred)
             pred2   = expr_subst(sub2, e2.pred)
-            self.solver.add_assertion(pred1)
-            self.solver.add_assertion(pred2)
+            self.solver.add_assertion(self.expr_to_smt(pred1))
+            self.solver.add_assertion(self.expr_to_smt(pred2))
 
-            loc1    = [ expr_subst(sub1, i) for i in e1.loc ]
-            loc2    = [ expr_subst(sub2, i) for i in e2.loc ]
+            loc1    = [ self.expr_to_smt(expr_subst(sub1, i)) for i in e1.loc ]
+            loc2    = [ self.expr_to_smt(expr_subst(sub2, i)) for i in e2.loc ]
             loc_neq = SMT.Bool(False)
             for i1, i2 in zip(loc1,loc2):
                 loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
@@ -510,19 +512,13 @@ class CheckEffects:
                                     E.BinOp("<",  x,   hi, T.bool, srcinfo),
                                 T.bool, srcinfo)
 
-                    self.solver.add_assertion(bd_pred(stmt.iter, stmt.hi,
-                                                      stmt.srcinfo))
-                    #self.context = E.BinOp("and",
-                    #                       bd_pred(stmt.iter, stmt.hi,
-                    #                               stmt.srcinfo),
-                    #                       self.context,
-                    #                       T.bool, stmt.srcinfo)
+                    self.solver.add_assertion(self.expr_to_smt(bd_pred(
+                                                stmt.iter, stmt.hi,
+                                                  stmt.srcinfo)))
+
                 elif type(stmt) is LoopIR.If:
-                    self.solver.add_assertion(lift_expr(stmt.cond))
-                    #self.context = E.BinOp("and",
-                    #                       lift_expr(stmt.cond),
-                    #                       self.context,
-                    #                       T.bool, stmt.srcinfo)
+                    self.solver.add_assertion(self.expr_to_smt(
+                                                lift_expr(stmt.cond)))
 
                 # recursively process body in either case
                 sub_body_eff = self.map_stmts(stmt.body)

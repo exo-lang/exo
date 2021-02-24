@@ -60,7 +60,6 @@ def is_type(obj):
 def is_effect(obj):
     return isinstance(obj, _Types.effect)
 
-
 @extclass(Tensor)
 @extclass(Num)
 def shape(t):
