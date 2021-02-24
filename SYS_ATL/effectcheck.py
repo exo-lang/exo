@@ -168,7 +168,7 @@ class InferEffects:
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
             lhs   = E.BinOp("<=", E.Const(0, T.int, stmt.srcinfo)
                                 , bound, T.bool, stmt.srcinfo)
-            rhs   = E.BinOp("<=", bound, lift_expr(stmt.hi)
+            rhs   = E.BinOp("<", bound, lift_expr(stmt.hi)
                                        , T.bool, stmt.srcinfo)
             pred  = E.BinOp("and", lhs, rhs, T.bool, stmt.srcinfo)
 
@@ -348,9 +348,11 @@ class CheckEffects:
     def err(self, node, msg):
         self.errors.append(f"{node.srcinfo}: {msg}")
 
+    # TODO: Add allow_allocation arg here, to check if we're introducing new
+    # symbols from the right place.
     def sym_to_smt(self, sym):
         if sym not in self.env:
-            self.env[sym] = SMT.Symbol(str(sym), SMT.INT)
+            self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
         return self.env[sym]
 
     def expr_to_smt(self, expr):
@@ -402,8 +404,7 @@ class CheckEffects:
             self.solver.push()
             self.solver.add_assertion(self.expr_to_smt(eff.pred))
             in_bds = SMT.Bool(True)
-            print(eff.loc)
-            print(shape)
+
             assert len(eff.loc) == len(shape)
             for e, hi in zip(eff.loc, shape):
                 # 1 <= loc[i] <= shape[i]
@@ -414,9 +415,7 @@ class CheckEffects:
                 else:
                     rhs = SMT.LT(e, self.sym_to_smt(hi))
                 in_bds = SMT.And(in_bds, SMT.And(lhs, rhs))
-            
-            print(self.solver.assertions)
-            print(in_bds)
+
             # TODO: Extract counter example from SMT solver
             if not self.solver.is_valid(in_bds):
                 self.err(eff, f"{sym} is {eff_str} out-of-bounds")
@@ -444,11 +443,17 @@ class CheckEffects:
             # determine name substitutions
             iter1   = iter.copy()
             iter2   = iter.copy()
+            iter1_smt = self.sym_to_smt(iter1)
+            iter2_smt = self.sym_to_smt(iter2)
+            iter_pred = SMT.And(SMT.And(SMT.LE(SMT.Int(0), iter1_smt),
+                                SMT.LT(iter1_smt, iter2_smt)),
+                                SMT.LT(iter2_smt, self.expr_to_smt(hi)))
+            self.solver.add_assertion(iter_pred)
+
             sub1    = { nm : nm.copy() for nm in e1.names }
             sub1[iter] = iter1
             sub2    = { nm : nm.copy() for nm in e2.names }
             sub2[iter] = iter2
-
             pred1   = expr_subst(sub1, e1.pred)
             pred2   = expr_subst(sub2, e2.pred)
             self.solver.add_assertion(self.expr_to_smt(pred1))
@@ -460,6 +465,8 @@ class CheckEffects:
             for i1, i2 in zip(loc1,loc2):
                 loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
 
+            print(self.solver.assertions)
+            print(loc_neq)
             if not self.solver.is_valid(loc_neq):
                 self.err(e1, f"data race conflict with statement on "+
                              f"{e2.srcinfo} while accessing {e1.buffer} "+
@@ -512,9 +519,12 @@ class CheckEffects:
                                     E.BinOp("<",  x,   hi, T.bool, srcinfo),
                                 T.bool, srcinfo)
 
-                    self.solver.add_assertion(self.expr_to_smt(bd_pred(
-                                                stmt.iter, stmt.hi,
-                                                  stmt.srcinfo)))
+                    bd_tmp = bd_pred(
+                            stmt.iter, stmt.hi,
+                              stmt.srcinfo)
+                    smt_tmp = self.expr_to_smt(bd_tmp)
+
+                    self.solver.add_assertion(smt_tmp)
 
                 elif type(stmt) is LoopIR.If:
                     self.solver.add_assertion(self.expr_to_smt(
@@ -522,15 +532,15 @@ class CheckEffects:
 
                 # recursively process body in either case
                 sub_body_eff = self.map_stmts(stmt.body)
+                self.pop()
 
                 # Parallelism checking here
                 if type(stmt) is LoopIR.ForAll:
                     #self.solver.push()
                     #self.solver.add_assertion(self.expr_to_smt(self.context))
-                    self.check_commutes(stmt.iter, stmt.hi, sub_body_eff)
+                    self.check_commutes(stmt.iter, lift_expr(stmt.hi), sub_body_eff)
                     #self.solver.pop()
 
-                self.pop()
                 #self.context = old_context
                 body_eff = eff_union(body_eff, stmt.eff)
             elif type(stmt) is LoopIR.Alloc:
