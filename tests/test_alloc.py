@@ -61,69 +61,54 @@ def test_alloc_nest():
     np.testing.assert_almost_equal(res_c, nparray(
         [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]))
 
-
-"""
-@proc
-GEMM_Load(y : R[...], i : index, x : R[...], j : index, n : size):
-    for j in par(0,n):
-        y[i + k] = x[j + k]
-    => gemmini_extended_mvin(x + (i0_26)*DIM, y, DIM, DIM);
-    GEMM_Load(y, i0, x, i0, 16)
-    alloc1 = alloc1.inline('GEMM_Load')
-"""
-def gen_alloc1():
+def gen_bad_access1():
     @proc
-    def alloc1( n : size, x : R[n] @ IN, y : R[n] @ OUT @ GEMM ):
-        for i0 in par(0,n/16):
-            if i0 == n/16-1:
-                instr(GEMM_Load)
-                for i1 in par(0,n%16):
-                    y[i0] = x[i0*16+i1]
-            else:
-                instr(GEMM_Load)
-                for i1 in par(0,16):
-                    y[i0] = x[i0*16+i1]
+    def bad_access1(n : size, m : size,
+                   x : R[n,m] @ IN, y: R[n,m] @ IN, res : R[n,m] @ OUT):
+        rloc : R[m]
+        for i in par(0,m):
+            xloc : R[m]
+            yloc : R[m]
+            for j in par(0,n):
+                xloc[j] = x[i,j]
+            for j in par(0,m):
+                yloc[j] = y[i,j]
+            for j in par(0,m):
+                rloc[j] = xloc[j] + yloc[j]
+            for j in par(0,m):
+                res[i,j] = rloc[j]
 
-    return alloc1
+    return bad_access1
 
-@pytest.mark.skip(reason="old instruction annotation deprecated")
-def test_alloc1():
-    alloc1 = gen_alloc1()
-    assert type(alloc1) is Procedure
-
-    filename = "test_alloc1"
-
-    # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
-    f_pretty.write(str(alloc1))
-    f_pretty.close()
-
-    alloc1.compile_c(directory, filename)
-
-
-def gen_alloc2():
+def gen_bad_access2():
     @proc
-    def alloc2( n : size, x : R[n] @ IN, y : R[n] @ OUT @ GEMM ):
-        for i0 in par(0,n/16-1):
-            instr(GEMM_Load)
-            for i1 in par(0,16):
-                y[i0] = x[i0*16+i1]
-        instr(GEMM_Load)
-        for i1 in par(0,n%16):
-            y[n/16-1] = x[(n/16-1)*16+i1]
+    def bad_access2(n : size, m : size,
+                   x : R[n,m] @ IN, y: R[n,m] @ IN, res : R[n,m] @ OUT):
+        rloc : R[m]
+        for i in par(0,n):
+            xloc : R[m]
+            yloc : R[m]
+            for j in par(0,m):
+                xloc[j] = x[i+1,j]
+            for j in par(0,m):
+                yloc[j] = y[i,j]
+            for j in par(0,m):
+                rloc[j] = xloc[j] + yloc[j-1]
+            for j in par(0,m):
+                res[i,j] = rloc[j]
 
-    return alloc2
+    return bad_access1
 
-@pytest.mark.skip(reason="old instruction annotation deprecated")
-def test_alloc2():
-    alloc2 = gen_alloc2()
-    assert type(alloc2) is Procedure
+def test_bad_access1():
+    try:
+        gen_bad_access1()
+        assert False, "should raise TypeError"
+    except TypeError:
+        print("Ok")
 
-    filename = "test_alloc2"
-
-    # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
-    f_pretty.write(str(alloc2))
-    f_pretty.close()
-
-    alloc2.compile_c(directory, filename)
+def test_bad_access2():
+    try:
+        gen_bad_access2()
+        assert False, "should raise TypeError"
+    except TypeError:
+        print("Ok")

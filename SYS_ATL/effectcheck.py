@@ -465,9 +465,9 @@ class CheckEffects:
             for i1, i2 in zip(loc1,loc2):
                 loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
 
-            print(self.solver.assertions)
-            print(loc_neq)
             if not self.solver.is_valid(loc_neq):
+                print(self.solver.assertions)
+                print(loc_neq)
                 self.err(e1, f"data race conflict with statement on "+
                              f"{e2.srcinfo} while accessing {e1.buffer} "+
                              f"in loop over {iter}.")
@@ -507,7 +507,6 @@ class CheckEffects:
 
         for stmt in reversed(body):
             if type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.If:
-                #old_context = self.context
                 self.push()
                 if type(stmt) is LoopIR.ForAll:
                     def bd_pred(x,hi,srcinfo):
@@ -519,12 +518,11 @@ class CheckEffects:
                                     E.BinOp("<",  x,   hi, T.bool, srcinfo),
                                 T.bool, srcinfo)
 
-                    bd_tmp = bd_pred(
-                            stmt.iter, stmt.hi,
-                              stmt.srcinfo)
-                    smt_tmp = self.expr_to_smt(bd_tmp)
-
-                    self.solver.add_assertion(smt_tmp)
+                    self.solver.add_assertion(
+                                self.expr_to_smt(
+                                            bd_pred(
+                                                stmt.iter, stmt.hi,
+                                                stmt.srcinfo)))
 
                 elif type(stmt) is LoopIR.If:
                     self.solver.add_assertion(self.expr_to_smt(
@@ -536,18 +534,11 @@ class CheckEffects:
 
                 # Parallelism checking here
                 if type(stmt) is LoopIR.ForAll:
-                    #self.solver.push()
-                    #self.solver.add_assertion(self.expr_to_smt(self.context))
                     self.check_commutes(stmt.iter, lift_expr(stmt.hi), sub_body_eff)
-                    #self.solver.pop()
 
-                #self.context = old_context
                 body_eff = eff_union(body_eff, stmt.eff)
             elif type(stmt) is LoopIR.Alloc:
-                #self.solver.push()
-                #self.solver.add_assertion(self.expr_to_smt(self.context))
                 self.check_bounds(stmt.name, stmt.type.shape(), body_eff)
-                #self.solver.pop()
                 body_eff = eff_remove_buf(stmt.name, body_eff)
 
         return body_eff # Returns union of all effects
