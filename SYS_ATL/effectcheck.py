@@ -375,9 +375,23 @@ class CheckEffects:
             elif expr.op == "*":
                 return SMT.Times(lhs, rhs)
             elif expr.op == "/":
-                return SMT.Div(lhs, rhs)
+                # Introduce new Sym
+                div_smt = self.sym_to_smt(Sym("div_sym"))
+                # rhs*z <= lhs < rhs*(z+1)
+                rhs_eq  = SMT.LE(SMT.Times(rhs, div_smt), lhs)
+                lhs_eq  = SMT.LT(lhs,
+                        SMT.Times(rhs, SMT.Plus(div_smt, SMT.Int(1))))
+                self.solver.add_assertion(SMT.And(rhs_eq, lhs_eq))
+                return div_smt
             elif expr.op == "%":
-                raise NotImplementedError("modulus currently unsupported")
+                # Similar to Div, but return lhs - rhs*z instead
+                mod_smt = self.sym_to_smt(Sym("mod_sym"))
+                # rhs*z <= lhs < rhs*(z+1)
+                rhs_eq  = SMT.LE(SMT.Times(rhs, mod_smt), lhs)
+                lhs_eq  = SMT.LT(lhs,
+                        SMT.Times(rhs, SMT.Plus(mod_smt, SMT.Int(1))))
+                self.solver.add_assertion(SMT.And(rhs_eq, lhs_eq))
+                return SMT.Minus(lhs, SMT.Times(rhs, mod_smt))
             elif expr.op == "<":
                 return SMT.LT(lhs, rhs)
             elif expr.op == ">":
