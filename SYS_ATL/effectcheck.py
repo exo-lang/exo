@@ -375,23 +375,28 @@ class CheckEffects:
             elif expr.op == "*":
                 return SMT.Times(lhs, rhs)
             elif expr.op == "/":
-                # Introduce new Sym
-                div_smt = self.sym_to_smt(Sym("div_sym"))
+                assert type(expr.rhs) is E.Const
+                assert expr.rhs.val > 0
+                # Introduce new Sym (z in formula below)
+                div_tmp = self.sym_to_smt(Sym("div_tmp"))
                 # rhs*z <= lhs < rhs*(z+1)
-                rhs_eq  = SMT.LE(SMT.Times(rhs, div_smt), lhs)
+                rhs_eq  = SMT.LE(SMT.Times(rhs, div_tmp), lhs)
                 lhs_eq  = SMT.LT(lhs,
-                        SMT.Times(rhs, SMT.Plus(div_smt, SMT.Int(1))))
+                        SMT.Times(rhs, SMT.Plus(div_tmp, SMT.Int(1))))
                 self.solver.add_assertion(SMT.And(rhs_eq, lhs_eq))
-                return div_smt
+                return div_tmp
             elif expr.op == "%":
+                # x % y is defined as x - floor(x/y)
                 # Similar to Div, but return lhs - rhs*z instead
-                mod_smt = self.sym_to_smt(Sym("mod_sym"))
+                mod_tmp = self.sym_to_smt(Sym("mod_tmp"))
                 # rhs*z <= lhs < rhs*(z+1)
-                rhs_eq  = SMT.LE(SMT.Times(rhs, mod_smt), lhs)
+                raise NotImplementedError("TODO: support modulo")
+                # lhs - (rhs * mod_tmp)
+                rhs_eq  = SMT.LE(SMT.Times(rhs, mod_tmp), lhs)
                 lhs_eq  = SMT.LT(lhs,
-                        SMT.Times(rhs, SMT.Plus(mod_smt, SMT.Int(1))))
+                        SMT.Times(rhs, SMT.Plus(mod_tmp, SMT.Int(1))))
                 self.solver.add_assertion(SMT.And(rhs_eq, lhs_eq))
-                return SMT.Minus(lhs, SMT.Times(rhs, mod_smt))
+                return SMT.Minus(lhs, SMT.Times(rhs, mod_tmp))
             elif expr.op == "<":
                 return SMT.LT(lhs, rhs)
             elif expr.op == ">":
@@ -520,37 +525,47 @@ class CheckEffects:
         body_eff = eff_null(body[-1].srcinfo)
 
         for stmt in reversed(body):
-            if type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.If:
+            if type(stmt) is LoopIR.ForAll:
                 self.push()
-                if type(stmt) is LoopIR.ForAll:
-                    def bd_pred(x,hi,srcinfo):
-                        zero    = E.Const(0, T.int, srcinfo)
-                        x       = E.Var(x, T.int, srcinfo)
-                        hi      = lift_expr(hi)
-                        return E.BinOp("and",
-                                    E.BinOp("<=", zero, x, T.bool, srcinfo),
-                                    E.BinOp("<",  x,   hi, T.bool, srcinfo),
-                                T.bool, srcinfo)
+                def bd_pred(x,hi,srcinfo):
+                    zero    = E.Const(0, T.int, srcinfo)
+                    x       = E.Var(x, T.int, srcinfo)
+                    hi      = lift_expr(hi)
+                    return E.BinOp("and",
+                                E.BinOp("<=", zero, x, T.bool, srcinfo),
+                                E.BinOp("<",  x,   hi, T.bool, srcinfo),
+                            T.bool, srcinfo)
 
-                    self.solver.add_assertion(
-                                self.expr_to_smt(
-                                            bd_pred(
-                                                stmt.iter, stmt.hi,
-                                                stmt.srcinfo)))
+                self.solver.add_assertion(
+                    self.expr_to_smt(bd_pred(stmt.iter, stmt.hi,
+                                             stmt.srcinfo)))
 
-                elif type(stmt) is LoopIR.If:
-                    self.solver.add_assertion(self.expr_to_smt(
-                                                lift_expr(stmt.cond)))
-
-                # recursively process body in either case
                 sub_body_eff = self.map_stmts(stmt.body)
                 self.pop()
 
                 # Parallelism checking here
-                if type(stmt) is LoopIR.ForAll:
-                    self.check_commutes(stmt.iter, lift_expr(stmt.hi), sub_body_eff)
+                self.check_commutes(stmt.iter, lift_expr(stmt.hi), sub_body_eff)
 
                 body_eff = eff_union(body_eff, stmt.eff)
+
+            if type(stmt) is LoopIR.If:
+                # first, do the if-branch
+                self.push()
+                self.solver.add_assertion(self.expr_to_smt(
+                                                lift_expr(stmt.cond)))
+                self.map_stmts(stmt.body)
+                self.pop()
+
+                # then the else-branch
+                if len(stmt.orelse) > 0:
+                    self.push()
+                    neg_cond = negate_expr( lift_expr(stmt.cond) )
+                    self.solver.add_assertion(self.expr_to_smt(neg_cond))
+                    self.map_stmts(stmt.orelse)
+                    self.pop()
+
+                body_eff = eff_union(body_eff, stmt.eff)
+
             elif type(stmt) is LoopIR.Alloc:
                 self.check_bounds(stmt.name, stmt.type.shape(), body_eff)
                 body_eff = eff_remove_buf(stmt.name, body_eff)

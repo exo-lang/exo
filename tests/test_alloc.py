@@ -17,8 +17,8 @@ def gen_alloc_nest():
     @proc
     def alloc_nest(n : size, m : size,
                    x : R[n,m] @ IN, y: R[n,m] @ IN, res : R[n,m] @ OUT):
-        rloc : R[m]
         for i in par(0,n):
+            rloc : R[m]
             xloc : R[m]
             yloc : R[m]
             for j in par(0,m):
@@ -100,15 +100,11 @@ def gen_bad_access2():
     return bad_access1
 
 def test_bad_access1():
-    try:
+    with pytest.raises(TypeError,
+                       match='Errors occurred during effect checking'):
         gen_bad_access1()
-        assert False, "should raise TypeError"
-    except TypeError:
-        print("Ok")
 
 def test_bad_access2():
-    try:
+    with pytest.raises(TypeError,
+                       match='Errors occurred during effect checking'):
         gen_bad_access2()
-        assert False, "should raise TypeError"
-    except TypeError:
-        print("Ok")

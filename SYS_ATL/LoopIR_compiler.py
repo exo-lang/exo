@@ -126,9 +126,9 @@ def compile_to_strings(proc_list):
                             f"procedures named '{p.name}'")
         used_names.add(p.name)
 
-    body = ["int _ceil_div(int num, int quot) {",
-            "  int off = (num>0)? quot-1 : 0;",
-            "  return (num+off)/quot;",
+    body = ["int _floor_div(int num, int quot) {",
+            "  int off = (num>=0)? 0 : quot-1;",
+            "  return (num-off)/quot;",
             "}",
             "\n"]
 
@@ -376,7 +376,7 @@ class Compiler:
             rhs = self.comp_e(e.rhs, local_prec+1)
 
             if int_div:
-                return f"_ceil_div({lhs}, {rhs})"
+                return f"_floor_div({lhs}, {rhs})"
 
             s = f"{lhs} {op} {rhs}"
             if local_prec < prec:

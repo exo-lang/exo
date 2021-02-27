@@ -311,6 +311,9 @@ class TypeChecker:
                         if rhs.type != T.int:
                             self.err(rhs, "cannot divide or modulo by a "+
                                           "non-constant value")
+                        if rhs.val <= 0:
+                            self.err(rhs, "cannot divide or modulo by a "+
+                                          "negative value")
                         typ = lhs.type
                     elif e.op == "*":
                         if lhs.type == T.int:
