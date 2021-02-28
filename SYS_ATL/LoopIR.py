@@ -125,6 +125,7 @@ module LoopIR {
                 fnarg*          args,
                 stmt*           body,
                 string?         instr,
+                effect?         eff,
                 srcinfo         srcinfo )
 
     fnarg   = ( sym             name,
@@ -180,6 +181,7 @@ class LoopIR_Rewrite:
                                 args    = self.orig_proc.args,
                                 body    = body,
                                 instr   = self.orig_proc.instr,
+                                eff     = self.orig_proc.eff,
                                 srcinfo = self.orig_proc.srcinfo)
 
     def result(self):

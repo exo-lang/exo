@@ -102,6 +102,7 @@ class InferEffects:
                                 args    = self.orig_proc.args,
                                 body    = body,
                                 instr   = self.orig_proc.instr,
+                                eff     = eff,
                                 srcinfo = self.orig_proc.srcinfo)
 
         self.effect = eff
@@ -180,11 +181,19 @@ class InferEffects:
                                  effects, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.Call:
-            # Do we need to check arguments types here?
-            # ^ Maybe in CheckEffects
-            proc_eff = InferEffects(stmt.f).get_effect()
+            proc = stmt.f
+            if stmt.f.eff is None:
+                proc_eff = InferEffects(proc).get_effect()
+                proc = LoopIR.proc(name   = stmt.f.name,
+                                   args   = stmt.f.args,
+                                   body   = stmt.f.body,
+                                   instr  = stmt.f.instr,
+                                   eff    = proc_eff,
+                                   srcinfo= stmt.f.srcinfo)
+            else:
+                proc_eff = proc.eff
 
-            return LoopIR.Call(stmt.f, stmt.args,
+            return LoopIR.Call(proc, stmt.args,
                                proc_eff, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.Pass:

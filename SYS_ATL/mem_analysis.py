@@ -26,6 +26,7 @@ class MemoryAnalysis:
             self.proc.args,
             body,
             self.proc.instr,
+            self.proc.eff,
             self.proc.srcinfo)
 
     def push_frame(self):
