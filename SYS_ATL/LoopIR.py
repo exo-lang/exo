@@ -124,7 +124,7 @@ module LoopIR {
     proc    = ( name            name,
                 fnarg*          args,
                 stmt*           body,
-            --  string?         instr,
+                string?         instr,
                 srcinfo         srcinfo )
 
     fnarg   = ( sym             name,
@@ -179,6 +179,7 @@ class LoopIR_Rewrite:
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
                                 args    = self.orig_proc.args,
                                 body    = body,
+                                instr   = self.orig_proc.instr,
                                 srcinfo = self.orig_proc.srcinfo)
 
     def result(self):

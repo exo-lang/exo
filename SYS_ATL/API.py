@@ -121,7 +121,7 @@ class Procedure:
         if not is_valid_name(name):
             raise TypeError(f"'{name}' is not a valid name")
         p = self._loopir_proc
-        p = LoopIR.proc( name, p.args, p.body, p.srcinfo )
+        p = LoopIR.proc( name, p.args, p.body, p.instr, p.srcinfo )
         return Procedure(p, _provenance_eq_Procedure=self)
 
     def split(self, split_var, split_const, out_vars, cut_tail=False):

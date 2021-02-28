@@ -32,6 +32,19 @@ class SizeStub:
 # --------------------------------------------------------------------------- #
 # Top-level decorator
 
+def instr(instruction, _testing=None):
+    if type(instruction) is not str:
+        raise TypeError("@instr decorator must be @instr(<your instuction>)")
+    def inner(f):
+        if type(f) is not types.FunctionType:
+            raise TypeError("@instr decorator must be applied to a function")
+        return f
+    
+    # TODO: How to pass instruction to proc here?
+    # Design question
+    # 1. When @instr exists, don't add @proc
+    # 2. Or we just let @proc to have argument, like @proc("gemmini..")
+    return inner
 
 def proc(f, _testing=None):
     if type(f) is not types.FunctionType:

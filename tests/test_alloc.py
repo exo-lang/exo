@@ -8,13 +8,14 @@ import sys
 from PIL import Image
 import scipy.stats as st
 sys.path.append(sys.path[0]+"/..")
-from SYS_ATL import proc, Procedure
+from SYS_ATL import proc, instr, Procedure
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 import pytest
 
 def gen_alloc_nest():
     @proc
+    @instr("kurage")
     def alloc_nest(n : size, m : size,
                    x : R[n,m] @ IN, y: R[n,m] @ IN, res : R[n,m] @ OUT):
         for i in par(0,n):

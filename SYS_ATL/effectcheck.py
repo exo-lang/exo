@@ -101,6 +101,7 @@ class InferEffects:
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
                                 args    = self.orig_proc.args,
                                 body    = body,
+                                instr   = self.orig_proc.instr,
                                 srcinfo = self.orig_proc.srcinfo)
 
         self.effect = eff
