@@ -38,16 +38,15 @@ def instr(instruction, _testing=None):
     def inner(f):
         if type(f) is not types.FunctionType:
             raise TypeError("@instr decorator must be applied to a function")
-        return f
+
+        return proc(f, instr=instruction)
     
-    # TODO: How to pass instruction to proc here?
-    # Design question
-    # 1. When @instr exists, don't add @proc
-    # 2. Or we just let @proc to have argument, like @proc("gemmini..")
     return inner
 
-def proc(f, _testing=None):
-    if type(f) is not types.FunctionType:
+def proc(f, instr=None,_testing=None):
+    if type(f) is Procedure:
+        return f
+    elif type(f) is not types.FunctionType:
         raise TypeError("@proc decorator must be applied to a function")
 
     # note that we must dedent in case the function is defined
@@ -93,6 +92,7 @@ def proc(f, _testing=None):
     # try:
     parser = Parser(module.body[0], func_globals,
                     srclocals, getsrcinfo,
+                    instr  =instr,
                     as_func=True)
     # except ParseError as pe:
     #  pemsg = "Encountered error while parsing decorated function:\n"+str(pe)
@@ -142,7 +142,7 @@ def pattern(s, filename=None, lineno=None):
 class Parser:
     def __init__(self, module_ast, func_globals, srclocals, getsrcinfo,
                  as_func=False, as_macro=False,
-                 as_quote=False, as_index=False):
+                 as_quote=False, as_index=False, instr=None):
 
         self.module_ast = module_ast
         self.globals = func_globals
@@ -153,7 +153,7 @@ class Parser:
 
         self.locals.push()
         if as_func:
-            self._cached_result = self.parse_fdef(module_ast)
+            self._cached_result = self.parse_fdef(module_ast, instr=instr)
         # elif as_macro:
         #  self._cached_result = self.parse_fdef(module_ast)
         # elif as_quote:
@@ -180,7 +180,7 @@ class Parser:
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # structural parsing rules...
 
-    def parse_fdef(self, fdef):
+    def parse_fdef(self, fdef, instr=None):
         assert type(fdef) == pyast.FunctionDef
 
         fargs = fdef.args
@@ -227,6 +227,7 @@ class Parser:
         return UAST.proc(name=fdef.name,
                          args=args,
                          body=body,
+                         instr=instr,
                          srcinfo=self.getsrcinfo(fdef))
 
     def parse_arg_type(self, node):

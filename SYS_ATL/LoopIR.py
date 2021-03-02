@@ -32,6 +32,7 @@ module UAST {
     proc    = ( name?           name,
                 fnarg*          args,
                 stmt*           body,
+                string?         instr,
                 srcinfo         srcinfo )
 
     fnarg   = ( sym             name,

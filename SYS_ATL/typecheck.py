@@ -50,7 +50,7 @@ class TypeChecker:
         self.loopir_proc = LoopIR.proc(name =proc.name or "anon",
                                        args =args,
                                        body =body,
-                                       instr="instr!",
+                                       instr=proc.instr,
                                        eff  =None,
                                        srcinfo=proc.srcinfo)
 

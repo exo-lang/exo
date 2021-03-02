@@ -1,7 +1,5 @@
 from .prelude import *
-#from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
 from . import shared_types as T
-
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -30,12 +28,28 @@ class Memory:
         free    = None,
         read    = None,
         write   = None,
-        reduce  = None,
+        red     = None,
     ):
-        self._name = name
-        self._alloc = alloc
 
+    self._name  = name
+    self._alloc = alloc
+    self._free  = free
+    self._read  = read
+    self._write = write
+    self._reduce= red
 
+# TODO: How to encode size??
+# Or assume that alloc/free code must not change by types?
+# How to handle different types? e.g. float, double,..
+if s.type is T.R:
+    self.add_line(f"float {name};")
+else:
+    size = _type_size(s.type, self.env)
+    self.add_line(f"float *{name} = " +
+            f"(float*) malloc ({size} * sizeof(float));")
+
+DRAM = Memory("DRAM",
+        alloc = 
 
 
 """
