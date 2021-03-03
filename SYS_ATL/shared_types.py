@@ -86,6 +86,12 @@ def is_sizeable(t):
     return type(t) is Int or type(t) is Size
 del is_sizeable
 
+# TODO: Fix
+@extclass(Tensor)
+def basetype(t):
+    return "float*"
+del basetype
+
 @extclass(Tensor)
 @extclass(Num)
 def base(t):

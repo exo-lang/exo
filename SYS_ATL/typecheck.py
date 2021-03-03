@@ -5,6 +5,8 @@ from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops
 from . import shared_types as T
 
+from .memory import *
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
@@ -20,6 +22,17 @@ from . import shared_types as T
 #     - We're not going to check for parallelism-induced race-conditions here
 #
 
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Helper functions
+
+# TODO: How to get a list of all instances of Memory class here?
+# Create a register function in API?
+def get_mem(mem):
+    if DRAM._name == mem:
+        return DRAM
+    else:
+        return None
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -156,10 +169,11 @@ class TypeChecker:
         elif type(stmt) is UAST.Alloc:
             self.env[stmt.name] = stmt.type
             mem = stmt.mem
-            if mem and not is_valid_mem(mem):
+            memtype = get_mem(mem)
+            if mem and memtype is None:
                 self.err(stmt, f"invalid memory name '{mem}'")
                 mem = None
-            return LoopIR.Alloc(stmt.name, stmt.type, mem, None, stmt.srcinfo)
+            return LoopIR.Alloc(stmt.name, stmt.type, memtype, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Call:
             args    = [ self.check_e(a) for a in stmt.args ]

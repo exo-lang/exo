@@ -6,6 +6,8 @@ from .prelude import *
 from . import shared_types as T
 from .LoopIR_effects import Effects as E
 
+from .memory import Memory
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Untyped AST
@@ -156,7 +158,7 @@ module LoopIR {
     'type':     T.is_type,
     'old_effect':   T.is_effect,
     'effect':   lambda x: type(x) is E.effect,
-    'mem':      lambda x: type(x) is str,
+    'mem':      lambda x: isinstance(x, Memory),
     'binop':    lambda x: x in bin_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
 })

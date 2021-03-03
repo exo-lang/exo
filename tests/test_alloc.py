@@ -19,9 +19,9 @@ def gen_alloc_nest():
     def alloc_nest(n : size, m : size,
                    x : R[n,m] @ IN, y: R[n,m] @ IN, res : R[n,m] @ OUT):
         for i in par(0,n):
-            rloc : R[m]
-            xloc : R[m]
-            yloc : R[m]
+            rloc : R[m] @DRAM
+            xloc : R[m] @DRAM
+            yloc : R[m] @DRAM
             for j in par(0,m):
                 xloc[j] = x[i,j]
             for j in par(0,m):

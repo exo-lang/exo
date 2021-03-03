@@ -309,6 +309,7 @@ class Parser:
                                      "a string")
 
             mem     = node.right.id
+            node    = node.left
         else:
             mem     = None
         typ = self.parse_num_type(node)

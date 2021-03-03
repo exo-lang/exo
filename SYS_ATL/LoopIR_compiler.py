@@ -278,6 +278,10 @@ class Compiler:
         idx = _type_idx(type, idxs, self.env)
         return f"{buf}[{idx}]"
 
+    def shape_strs(self, shape):
+        s = [self.env[nm] for nm in shape]
+        return s
+
     def comp_s(self, s):
         styp = type(s)
 
@@ -320,16 +324,19 @@ class Compiler:
 
         elif styp is LoopIR.Alloc:
             name = self.new_varname(s.name, typ=s.type)
-            if s.type is T.R:
-                self.add_line(f"float {name};")
-            else:
-                size = _type_size(s.type, self.env)
-                self.add_line(f"float *{name} = " +
-                        f"(float*) malloc ({size} * sizeof(float));")
+            line = s.mem._alloc( name,
+                                 s.type.basetype(),
+                                 self.shape_strs( s.type.shape() ),
+                                 None )
+
+            self.add_line(line)
         elif styp is LoopIR.Free:
-            if s.type is not T.R:
-                name = self.env[s.name]
-                self.add_line(f"free({name});")
+            name = self.env[s.name]
+            line = s.mem._free( name,
+                                s.type.basetype(),
+                                self.shape_strs( s.type.shape() ),
+                                None )
+            self.add_line(line)
         elif styp is LoopIR.Call:
             fname   = s.f.name
             args    = [ self.comp_e(e, call_arg=True) for e in s.args ]
