@@ -40,7 +40,7 @@ module UAST {
     fnarg   = ( sym             name,
                 type            type,
                 effect?         effect,
-                string?         mem,
+                mem?            mem,
                 srcinfo         srcinfo )
 
     stmt    = Assign  ( sym name, expr* idx, expr rhs )
@@ -48,7 +48,7 @@ module UAST {
             | Pass    ()
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | ForAll  ( sym iter,  expr cond,   stmt* body )
-            | Alloc   ( sym name, type type, string? mem )
+            | Alloc   ( sym name, type type, mem? mem )
             | Call    ( loopir_proc f, expr* args )
             attributes( srcinfo srcinfo )
 
@@ -64,6 +64,7 @@ module UAST {
     'sym':          lambda x: type(x) is Sym,
     'type':         T.is_type,
     'effect':       T.is_effect,
+    'mem':          lambda x: isinstance(x, Memory),
     'loopir_proc':  lambda x: type(x) is LoopIR.proc,
     'op':           lambda x: x in front_ops,
     'srcinfo':      lambda x: type(x) is SrcInfo,

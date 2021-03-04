@@ -26,13 +26,11 @@ from .memory import *
 # --------------------------------------------------------------------------- #
 # Helper functions
 
-# TODO: How to get a list of all instances of Memory class here?
-# Create a register function in API?
-def get_mem(mem):
-    if DRAM._name == mem:
-        return DRAM
+def is_valid_mem(mem):
+    if isinstance(mem, Memory):
+        return True
     else:
-        return None
+        return False
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -169,11 +167,11 @@ class TypeChecker:
         elif type(stmt) is UAST.Alloc:
             self.env[stmt.name] = stmt.type
             mem = stmt.mem
-            memtype = get_mem(mem)
-            if mem and memtype is None:
+            memtype = is_valid_mem(mem)
+            if mem and memtype is False:
                 self.err(stmt, f"invalid memory name '{mem}'")
                 mem = None
-            return LoopIR.Alloc(stmt.name, stmt.type, memtype, None, stmt.srcinfo)
+            return LoopIR.Alloc(stmt.name, stmt.type, mem, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Call:
             args    = [ self.check_e(a) for a in stmt.args ]

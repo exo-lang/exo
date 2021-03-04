@@ -14,6 +14,8 @@ from . import shared_types as T
 
 from .API import Procedure
 
+from .memory import *
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -27,6 +29,9 @@ class SizeStub:
     def __init__(self, nm):
         assert type(nm) is Sym
         self.nm = nm
+
+def str_to_mem(name):
+    return getattr(sys.modules[__name__], name)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -174,7 +179,7 @@ class Parser:
     def eval_expr(self, expr):
         assert isinstance(expr, pyast.expr)
         code = compile(pyast.Expression(expr), '', 'eval')
-        e_obj = eval(code, func_globals, srclocals)
+        e_obj = eval(code, self.globals, self.locals)
         return e_obj
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
@@ -308,7 +313,10 @@ class Parser:
                 self.err(node.right, "expected memory annotation to be "+
                                      "a string")
 
-            mem     = node.right.id
+            # node.right == Name
+            # x[n] @ DRAM
+            # x[n] @ lib.scratch
+            mem     = self.eval_expr(node.right)
             node    = node.left
         else:
             mem     = None
