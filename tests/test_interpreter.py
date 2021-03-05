@@ -10,7 +10,7 @@ from .helper import *
 def gen_conv1d():
     @proc
     def conv1d(n : size, m : size, r: size, x : R[n] @ IN,
-               w : R[m] @ IN , res : R[r] @OUT):
+               w : R[m] , res : R[r]):
        for i in par(0, r):
            res[i] = 0.0
        for i in par(0,r):
@@ -54,9 +54,9 @@ def test_add_vec():
 def gen_gemm():
     @proc
     def gemm( n : size, m : size, p : size,
-         C : R[n,m] @ OUT,
-         A : R[n,p] @ IN,
-         B : R[p,m] @ IN,
+         C : R[n,m],
+         A : R[n,p],
+         B : R[p,m],
        ):
        for i in par(0,n):
            for j in par(0,m):

@@ -19,7 +19,7 @@ def gen_conv1d():
     # R is the filter width
     @proc
     def conv1d(K: size, C : size, W: size, R: size,
-               w : R[K,C,R] @ IN, x: R[C,W] @ IN, res: R[K,W] @ OUT):
+               w : R[K,C,R], x: R[C,W], res: R[K,W]):
         # zero-out the result tensor
         for k in par(0,K):
             for i in par(0, W):

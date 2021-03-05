@@ -16,7 +16,7 @@ import pytest
 def gen_alloc_nest():
     @instr("kurage")
     def alloc_nest(n : size, m : size,
-                   x : R[n,m] @ IN, y: R[n,m] @ IN, res : R[n,m] @ OUT):
+                   x : R[n,m], y: R[n,m] @ DRAM, res : R[n,m] @ DRAM):
         for i in par(0,n):
             rloc : R[m] @DRAM
             xloc : R[m] @DRAM
@@ -64,7 +64,7 @@ def test_alloc_nest():
 def gen_bad_access1():
     @proc
     def bad_access1(n : size, m : size,
-                   x : R[n,m] @ IN, y: R[n,m] @ IN, res : R[n,m] @ OUT):
+                    x : R[n,m], y: R[n,m], res : R[n,m]):
         rloc : R[m]
         for i in par(0,m):
             xloc : R[m]
@@ -83,7 +83,7 @@ def gen_bad_access1():
 def gen_bad_access2():
     @proc
     def bad_access2(n : size, m : size,
-                   x : R[n,m] @ IN, y: R[n,m] @ IN, res : R[n,m] @ OUT):
+                   x : R[n,m], y: R[n,m] @ DRAM, res : R[n,m] @ DRAM):
         rloc : R[m]
         for i in par(0,n):
             xloc : R[m]

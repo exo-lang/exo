@@ -12,6 +12,8 @@ from .prelude import *
 from .LoopIR import UAST, front_ops, PAST
 from . import shared_types as T
 
+from collections import ChainMap
+
 from .API import Procedure
 
 # --------------------------------------------------------------------------- #
@@ -73,7 +75,7 @@ def proc(f, _instr=None,_testing=None):
     assert(type(stack_frames[1]) == inspect.FrameInfo)
     func_locals = stack_frames[1].frame.f_locals
     assert(type(func_locals) == dict)
-    srclocals = Environment(func_locals)
+    srclocals = ChainMap(func_locals)
 
     # patch in Built-In functions to scope
     # srclocals['name'] = object
@@ -152,7 +154,7 @@ class Parser:
 
         self.as_index = as_index
 
-        self.locals.push()
+        self.push()
         if as_func:
             self._cached_result = self.parse_fdef(module_ast, instr=instr)
         # elif as_macro:
@@ -161,10 +163,15 @@ class Parser:
         #  self._cached_result = self.parse_fdef(module_ast)
         else:
             assert False, "parser mode configuration unsupported"
-        self.locals.pop()
+        self.pop()
 
     def result(self):
         return self._cached_result
+
+    def push(self):
+        self.locals = self.locals.new_child()
+    def pop(self):
+        self.locals = self.locals.parents
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # parser helper routines
@@ -207,7 +214,7 @@ class Parser:
                 self.err(a, "expected argument to be typed, i.e. 'x : T'")
             tnode = a.annotation
 
-            typ, eff, mem   = self.parse_arg_type(tnode)
+            typ, mem   = self.parse_arg_type(tnode)
             if a.arg in names:
                 self.err(a, f"repeated argument name: '{a.arg}'")
             names.add(a.arg)
@@ -217,7 +224,7 @@ class Parser:
             else:
                 # note we don't need to stub the index variables
                 self.locals[a.arg] = nm
-            args.append(UAST.fnarg(nm, typ, eff, mem, self.getsrcinfo(a)))
+            args.append(UAST.fnarg(nm, typ, T.InOut, mem, self.getsrcinfo(a)))
 
         # return types are non-sensical for SYS_ATL, b/c it models procedures
         if fdef.returns is not None:
@@ -235,23 +242,16 @@ class Parser:
         # Arg was of the form ` name : annotation `
         # The annotation will be of one of the following forms
         #   ` type `
-        #   ` type @ effect `
-        #   ` type @ effect @ memory `
+        #   ` type @ memory `
         def is_at(x):
             return type(x) is pyast.BinOp and type(x.op) is pyast.MatMult
 
         # decompose top-level of annotation syntax
         if is_at(node):
             typ_node = node.left
-            if is_at(node.right):
-                eff_node = node.right.left
-                mem_node = node.right.right
-            else:
-                eff_node = node.right
-                mem_node = None
+            mem_node = node.right
         else:
             typ_node = node
-            eff_node = None
             mem_node = None
 
         # detect which sort of type we have here
@@ -260,55 +260,27 @@ class Parser:
 
         # parse each kind of type here
         if is_size(typ_node):
-            if eff_node is not None or mem_node is not None:
+            if mem_node is not None:
                 self.err(node, "size types should not be annotated with "+
-                               "effects or memory locations")
-            return T.size, None, None
+                               "memory locations")
+            return T.size, None
 
         elif is_index(typ_node):
-            if eff_node is not None or mem_node is not None:
+            if mem_node is not None:
                 self.err(node, "size types should not be annotated with "+
-                               "effects or memory locations")
-            return T.index, None, None
+                               "memory locations")
+            return T.index, None
 
         else:
-            if eff_node is None:
-                self.err(node, "expected type and effect annotation of the "+
-                               "form: type @ effect")
-
             typ = self.parse_num_type(typ_node)
 
-            # extract effect
-            eff_err_str = "Expected effect to be 'IN', 'OUT', or 'INOUT'"
-            if type(eff_node) is not pyast.Name:
-                self.err(eff_node, eff_err_str)
-            elif eff_node.id == "IN":
-                eff = T.In
-            elif eff_node.id == "OUT":
-                eff = T.Out
-            elif eff_node.id == "INOUT":
-                eff = T.InOut
-            else:
-                self.err(eff_node, eff_err_str)
+            mem = self.eval_expr(mem_node) if mem_node else None
 
-            if mem_node:
-                if type(mem_node) is not pyast.Name:
-                    self.err(mem_node, "expected memory annotation to be "+
-                                       "a string")
-                mem = mem_node.id
-            else:
-                mem = None
-
-            return typ, eff, mem
+            return typ, mem
 
 
-    def parse_mem(self, node):
+    def parse_alloc_typmem(self, node):
         if type(node) is pyast.BinOp and type(node.op) is pyast.MatMult:
-            # check for string
-            if type(node.right) is not pyast.Name:
-                self.err(node.right, "expected memory annotation to be "+
-                                     "a string")
-
             # node.right == Name
             # x[n] @ DRAM
             # x[n] @ lib.scratch
@@ -409,7 +381,7 @@ class Parser:
                 if type(s) is pyast.AnnAssign:
                     nm = Sym(name_node.id)
                     self.locals[name_node.id] = nm
-                    typ, mem = self.parse_mem(s.annotation)
+                    typ, mem = self.parse_alloc_typmem(s.annotation)
                     rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
                 elif type(s) is pyast.Assign and len(idxs) == 0:
                     if name_node.id not in self.locals:
@@ -447,7 +419,7 @@ class Parser:
                 if len(s.orelse) > 0:
                     self.err(s, "else clause on for-loops unsupported")
 
-                self.locals.push()
+                self.push()
                 if type(s.target) is not pyast.Name:
                     self.err(
                         s.target, "expected simple name for iterator variable")
@@ -455,7 +427,7 @@ class Parser:
                 self.locals[s.target.id] = itr
                 hi   = self.parse_loop_cond(s.iter)
                 body = self.parse_stmt_block(s.body)
-                self.locals.pop()
+                self.pop()
 
                 rstmts.append(UAST.ForAll(itr, hi, body, self.getsrcinfo(s)))
 
@@ -463,12 +435,12 @@ class Parser:
             elif type(s) is pyast.If:
                 cond = self.parse_expr(s.test)
 
-                self.locals.push()
+                self.push()
                 body = self.parse_stmt_block(s.body)
-                self.locals.pop()
-                self.locals.push()
+                self.pop()
+                self.push()
                 orelse = self.parse_stmt_block(s.orelse)
-                self.locals.pop()
+                self.pop()
 
                 rstmts.append(UAST.If(cond, body, orelse, self.getsrcinfo(s)))
 
@@ -699,9 +671,6 @@ class PatternParser:
 
         self.module_stmts   = module_stmts
         self.getsrcinfo     = getsrcinfo
-        #self.locals     = ChainMap()
-
-        #self.push()
 
         is_expr = False
         if len(module_stmts) == 1:
@@ -714,8 +683,6 @@ class PatternParser:
         else:
             self._past_result   = self.parse_stmts(module_stmts)
 
-        #self.locals.pop()
-
     def result(self):
         return self._past_result
 
@@ -727,11 +694,9 @@ class PatternParser:
 
     def push(self):
         pass
-        #self.locals = self.locals.new_child()
 
     def pop(self):
         pass
-        #self.locals = self.locals.parents
 
     #def eval_expr(self, expr):
     #    assert isinstance(expr, pyast.expr)

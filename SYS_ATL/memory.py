@@ -76,7 +76,11 @@ class Memory:
         self._write     = write
         self._reduce    = red
 
-def dram_alloc(new_name, prim_type, shape, error):
+    def name(self):
+        return self._name
+
+
+def _dram_alloc(new_name, prim_type, shape, error):
     if prim_type is "float":
         return ("float {new_name};")
     else:
@@ -86,13 +90,13 @@ def dram_alloc(new_name, prim_type, shape, error):
         return (f"{prim_type} {new_name} = " +
                 f"({prim_type}) malloc ({size_str} * sizeof({prim_type}));")
 
-def dram_free(new_name, prim_type, shape, error):
+def _dram_free(new_name, prim_type, shape, error):
     if prim_type is "float":
         return ""
     else:
         return f"free({new_name});"
 
 DRAM = Memory("DRAM",
-        alloc = dram_alloc,
-        free = dram_free
+        alloc   = _dram_alloc,
+        free    = _dram_free
        )

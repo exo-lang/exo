@@ -14,7 +14,7 @@ from .helper import *
 
 def gen_dot():
     @proc
-    def dot(m: size, x : R[m] @ IN, y : R[m] @ IN, r : R @ OUT):
+    def dot(m: size, x : R[m] , y : R[m] , r : R ):
         r = 0.0
         for i in par(0, m):
             r += x[i]*y[i]
@@ -27,7 +27,7 @@ def gen_proj(dot):
     # because...
     #   (x.y)/|y|  * (y /|y|) = (x.y)/(|y|^2) * y = (x.y)/(y.y) * y
     @proc
-    def proj(n : size, x : R[n] @ INOUT, y : R[n] @ IN):
+    def proj(n : size, x : R[n], y : R[n]):
         xy : R
         y2 : R
         dot(n, x, y, xy)

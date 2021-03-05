@@ -145,9 +145,8 @@ class UAST_PPrinter:
         self.pop()
 
     def pfnarg(self, a):
-        eff = f" @{a.effect}" if a.effect else ""
-        mem = f" @{a.mem}" if a.mem else ""
-        return f"{self.new_name(a.name)} : {a.type}{eff}{mem}"
+        mem = f" @{a.mem.name()}" if a.mem else ""
+        return f"{self.new_name(a.name)} : {a.type}{mem}"
 
     def pstmts(self, body):
         for stmt in body:
@@ -166,7 +165,7 @@ class UAST_PPrinter:
 
                 self.addline(f"{lhs} {op} {rhs}")
             elif type(stmt) is UAST.Alloc:
-                mem = f" @{stmt.mem}" if stmt.mem else ""
+                mem = f" @{stmt.mem.name()}" if stmt.mem else ""
                 self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
             elif type(stmt) is UAST.Call:
                 pname   = stmt.f.name or "_anon_"
@@ -316,8 +315,8 @@ class LoopIR_PPrinter:
         if a.type == T.size:
             return f"{self.new_name(a.name)} : size"
         else:
-            mem = f" @{a.mem}" if a.mem else ""
-            return f"{self.new_name(a.name)} : {a.type} @ {a.effect}{mem}"
+            mem = f" @{a.mem.name()}" if a.mem else ""
+            return f"{self.new_name(a.name)} : {a.type} {mem}"
 
     def pstmt(self, stmt):
         if type(stmt) is LoopIR.Pass:
@@ -335,7 +334,7 @@ class LoopIR_PPrinter:
 
             self.addline(f"{lhs} {op} {rhs}")
         elif type(stmt) is LoopIR.Alloc:
-            mem = f" @{stmt.mem._name}" if stmt.mem else ""
+            mem = f" @{stmt.mem.name()}" if stmt.mem else ""
             self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
         elif type(stmt) is LoopIR.Free:
             mem = f" @{stmt.mem._name}" if stmt.mem else ""

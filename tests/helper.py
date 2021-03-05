@@ -45,5 +45,3 @@ def generate_lib(directory, filename):
     subprocess.run(compile_so_cmd, check=True, shell=True)
     abspath = os.path.dirname(os.path.abspath(filename))
     return ctypes.CDLL(abspath + '/' + directory + filename + ".so")
-
-

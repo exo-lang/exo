@@ -15,7 +15,7 @@ from .helper import *
 def gen_blur():
     @proc
     def blur(n: size, m: size, k_size: size,
-             image: R[n, m] @ IN, kernel: R[k_size, k_size] @ IN, res: R[n, m] @ OUT):
+             image: R[n, m], kernel: R[k_size, k_size], res: R[n, m]):
         for i in par(0, n):
             for j in par(0, m):
                 res[i, j] = 0.0
@@ -61,7 +61,7 @@ def test_simple_blur():
 def test_simple_blur_split():
     @proc
     def simple_blur_split(n: size, m: size, k_size: size,
-             image: R[n, m] @ IN, kernel: R[k_size, k_size] @ IN, res: R[n, m] @ OUT):
+             image: R[n, m], kernel: R[k_size, k_size], res: R[n, m]):
         for i in par(0, n):
             for j1 in par(0, m/2):
                 for j2 in par(0,2):

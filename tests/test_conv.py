@@ -16,7 +16,7 @@ from .helper import *
 def gen_conv1d():
     @proc
     def conv1d(n: size, m: size, r: size,
-               x: R[n] @ IN, w: R[m] @ IN, res: R[r] @ OUT):
+               x: R[n], w: R[m], res: R[r]):
         for i in par(0, r):
             res[i] = 0.0
         for i in par(0, r):
