@@ -167,8 +167,9 @@ class TypeChecker:
         elif type(stmt) is UAST.Alloc:
             self.env[stmt.name] = stmt.type
             mem = stmt.mem
-            memtype = is_valid_mem(mem)
-            if mem and memtype is False:
+            if mem is None:
+                mem = DRAM
+            if mem and not is_valid_mem(mem):
                 self.err(stmt, f"invalid memory name '{mem}'")
                 mem = None
             return LoopIR.Alloc(stmt.name, stmt.type, mem, None, stmt.srcinfo)

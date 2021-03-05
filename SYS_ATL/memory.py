@@ -87,7 +87,9 @@ def dram_alloc(new_name, prim_type, shape, error):
                 f"({prim_type}) malloc ({size_str} * sizeof({prim_type}));")
 
 def dram_free(new_name, prim_type, shape, error):
-    if prim_type is not "float":
+    if prim_type is "float":
+        return ""
+    else:
         return f"free({new_name});"
 
 DRAM = Memory("DRAM",
