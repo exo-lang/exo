@@ -569,7 +569,7 @@ class _LiftAlloc(LoopIR_Rewrite):
             stmts = super().map_s(s)
             self._in_call_arg = False
             return stmts
-        
+
         # fall-through
         return super().map_s(s)
 
@@ -708,6 +708,8 @@ class _FissionLoops:
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
                                 args    = self.orig_proc.args,
                                 body    = pre_body + post_body,
+                                instr   = None,
+                                eff     = self.orig_proc.eff,
                                 srcinfo = self.orig_proc.srcinfo)
 
     def result(self):
@@ -755,7 +757,7 @@ class _FissionLoops:
                 return ([pre],[post])
 
             body = pre+post
-            
+
             # if we don't, then check if we need to split the or-else
             pre, post       = self.map_stmts(s.orelse)
             fission_orelse  = (len(pre) > 0 and len(post) > 0 and
@@ -843,10 +845,12 @@ def _make_closure(name, stmts, var_types):
     # now prepend all sizes to the argument list
     sizes   = list(sizes)
     args    = [ LoopIR.Read(sz, [], T.size, info) for sz in sizes ] + args
-    fnargs  = [ LoopIR.fnarg(sz, T.size, None, None, info) 
+    fnargs  = [ LoopIR.fnarg(sz, T.size, None, None, info)
                 for sz in sizes ] + fnargs
 
-    closure = LoopIR.proc(name, fnargs, stmts, info)
+    eff     = None
+    raise NotImplementedError("need to figure out effect of new closure")
+    closure = LoopIR.proc(name, fnargs, stmts, None, eff, info)
 
     return closure, args
 

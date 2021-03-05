@@ -42,14 +42,12 @@ def instr(instruction, _testing=None):
         if type(f) is not types.FunctionType:
             raise TypeError("@instr decorator must be applied to a function")
 
-        return proc(f, instr=instruction)
-    
+        return proc(f, _instr=instruction, _testing=_testing)
+
     return inner
 
-def proc(f, instr=None,_testing=None):
-    if type(f) is Procedure:
-        return f
-    elif type(f) is not types.FunctionType:
+def proc(f, _instr=None,_testing=None):
+    if type(f) is not types.FunctionType:
         raise TypeError("@proc decorator must be applied to a function")
 
     # note that we must dedent in case the function is defined
@@ -95,8 +93,8 @@ def proc(f, instr=None,_testing=None):
     # try:
     parser = Parser(module.body[0], func_globals,
                     srclocals, getsrcinfo,
-                    instr  =instr,
-                    as_func=True)
+                    instr   =_instr,
+                    as_func =True)
     # except ParseError as pe:
     #  pemsg = "Encountered error while parsing decorated function:\n"+str(pe)
     #  raise ParseError(pemsg) from pe

@@ -176,7 +176,7 @@ del __hash__
 
 
 class LoopIR_Rewrite:
-    def __init__(self, proc, *args, **kwargs):
+    def __init__(self, proc, instr=None, *args, **kwargs):
         self.orig_proc  = proc
 
         body = self.map_stmts(self.orig_proc.body)
@@ -184,7 +184,7 @@ class LoopIR_Rewrite:
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
                                 args    = self.orig_proc.args,
                                 body    = body,
-                                instr   = self.orig_proc.instr,
+                                instr   = instr,
                                 eff     = self.orig_proc.eff,
                                 srcinfo = self.orig_proc.srcinfo)
 

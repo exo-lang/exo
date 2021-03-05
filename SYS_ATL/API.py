@@ -89,6 +89,12 @@ class Procedure:
         stmt        = self._find_stmt(stmt_pattern)
         return str(stmt.eff)
 
+    def is_instr(self):
+        return self._loopir_proc.instr != None
+
+    def get_instr_macro(self):
+        return self._loopir_proc.instr
+
     # ---------------------------------------------- #
     #     execution / interpretation operations
     # ---------------------------------------------- #
