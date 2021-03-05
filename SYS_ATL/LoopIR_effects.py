@@ -174,6 +174,44 @@ def effect_as_str(e):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Substitution of Effect Variables in an effect
+
+@extclass(Effects.effect)
+@extclass(Effects.effset)
+@extclass(Effects.expr)
+def subst(self, env):
+    return eff_subst(env, self)
+
+del subst
+
+def eff_subst(env, eff):
+    if type(eff) is Effects.effset:
+        assert all( nm not in env for nm in eff.names )
+        buf  = env[eff.buffer] if eff.buffer in env else eff.buffer
+        pred = eff_subst(env, eff.pred) if eff.pred else None
+        return Effects.effset(buf,
+                              [ eff_subst(env, e) for e in eff.loc ],
+                              eff.names,
+                              pred,
+                              eff.srcinfo)
+    elif type(eff) is Effects.Var:
+        return env[eff.name] if eff.name in env else eff
+    elif type(eff) is Effects.Const:
+        return eff
+    elif type(eff) is Effects.BinOp:
+        return Effects.BinOp(eff.op, eff_subst(env, eff.lhs),
+                                     eff_subst(env, eff.rhs),
+                             eff.type, eff.srcinfo)
+    elif type(eff) is Effects.effect:
+        return Effects.effect( [eff_subst(env, es) for es in eff.reads],
+                               [eff_subst(env, es) for es in eff.writes],
+                               [eff_subst(env, es) for es in eff.reduces],
+                               eff.srcinfo )
+    else:
+        assert False, f"bad case: {type(eff)}"
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Construction/Composition Functions
 
 def eff_null(srcinfo = None):

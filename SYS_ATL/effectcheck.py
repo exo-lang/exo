@@ -181,20 +181,23 @@ class InferEffects:
                                  effects, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.Call:
-            proc = stmt.f
-            if stmt.f.eff is None:
-                proc_eff = InferEffects(proc).get_effect()
-                proc = LoopIR.proc(name   = stmt.f.name,
-                                   args   = stmt.f.args,
-                                   body   = stmt.f.body,
-                                   instr  = stmt.f.instr,
-                                   eff    = proc_eff,
-                                   srcinfo= stmt.f.srcinfo)
-            else:
-                proc_eff = proc.eff
+            assert stmt.f.eff is not None
+            # build up a substitution dictionary....
+            # sig is a LoopIR.fnarg, arg is a LoopIR.expr
+            subst = dict()
+            for sig,arg in zip(stmt.f.args, stmt.args):
+                if sig.type.is_numeric():
+                    assert type(arg) is LoopIR.Read
+                    subst[sig.name] = arg.name
+                elif sig.type.is_indexable():
+                    # in this case we have a LoopIR expression...
+                    subst[sig.name] = lift_expr(arg)
+                else: assert False, "bad case"
 
-            return LoopIR.Call(proc, stmt.args,
-                               proc_eff, stmt.srcinfo)
+            eff = stmt.f.eff.subst(subst)
+
+            return LoopIR.Call(stmt.f, stmt.args,
+                               stmt.f.eff, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.Pass:
             return LoopIR.Pass(eff_null(stmt.srcinfo), stmt.srcinfo)
