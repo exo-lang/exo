@@ -8,6 +8,7 @@ from . import shared_types as T
 from .LoopIR import LoopIR, LoopIR_Do
 
 from .mem_analysis import MemoryAnalysis
+from .memory import MemGenError
 
 import numpy as np
 import os
@@ -79,6 +80,35 @@ def find_all_subprocs(proc_list):
 
     return [ p for p in reversed(proc_list) ]
 
+class LoopIR_FindMems(LoopIR_Do):
+    def __init__(self, proc):
+        self._mems = set()
+        for a in proc.args:
+            if a.mem:
+                self._mems.add(a.mem)
+        super().__init__(proc)
+
+    def result(self):
+        return self._mems
+
+    # to improve efficiency
+    def do_e(self,e):
+        pass
+
+    def do_s(self, s):
+        if type(s) is LoopIR.Alloc:
+            if s.mem:
+                self._mems.add(s.mem)
+        else:
+            super().do_s(s)
+
+def find_all_mems(proc_list):
+    mems = set()
+    for p in proc_list:
+        mems.add( LoopIR_FindMems(p).result() )
+
+    return [ m for m in mems ]
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Loop IR Compiler Entry-points
@@ -117,6 +147,7 @@ def compile_to_strings(proc_list):
     # get transitive closure of call-graph
     orig_procs  = set(proc_list)
     proc_list   = find_all_subprocs(proc_list)
+    mem_list    = find_all_mems(proc_list)
 
     # check for name conflicts between procs
     used_names  = set()
@@ -131,6 +162,11 @@ def compile_to_strings(proc_list):
             "  return (num-off)/quot;",
             "}",
             "\n"]
+
+    for m in mem_list:
+        if m._global:
+            body.append(m._global)
+            body.append("\n")
 
     fwd_decls = []
 
@@ -178,6 +214,7 @@ class Compiler:
         self.env    = Environment()
         self.names  = Environment()
         self.envtyp = Environment()
+        self.mems   = dict()
         self._tab   = ""
         self._lines = []
         self._scalar_refs = set()
@@ -188,7 +225,8 @@ class Compiler:
         typ_comments    = []
 
         for a in proc.args:
-            name_arg = self.new_varname(a.name, typ=a.type)
+            mem = a.mem if a.type.is_numeric() else None
+            name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
             # setup, size argument binding
             if a.type == T.size:
                 arg_strs.append(f"int {name_arg}")
@@ -233,7 +271,7 @@ class Compiler:
     def comp_top(self):
         return self.proc_decl, self.proc_def
 
-    def new_varname(self, symbol, typ):
+    def new_varname(self, symbol, typ, mem=None):
         strnm   = str(symbol)
         if strnm not in self.names:
             pass
@@ -251,6 +289,8 @@ class Compiler:
         self.names[strnm]   = strnm
         self.env[symbol]    = strnm
         self.envtyp[symbol] = typ
+        if mem is not None:
+            self.mems[symbol] = mem
         return strnm
 
     def push(self,only=None):
@@ -295,9 +335,17 @@ class Compiler:
             else:
                 lhs = self.access_str(s.name, s.idx)
             rhs = self.comp_e(s.rhs)
+
+            mem = self.mems[s.name]
             if styp is LoopIR.Assign:
+                if not mem._write:
+                    raise MemGenError(f"{s.srcinfo}: cannot write to buffer "+
+                                      f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} = {rhs};")
             else:
+                if not mem._reduce:
+                    raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "+
+                                      f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} += {rhs};")
         elif styp is LoopIR.If:
             cond = self.comp_e(s.cond)
@@ -323,17 +371,19 @@ class Compiler:
             self.add_line("}")
 
         elif styp is LoopIR.Alloc:
-            name = self.new_varname(s.name, typ=s.type)
+            name = self.new_varname(s.name, typ=s.type, mem=s.mem)
+            assert s.type.basetype == T.R
             line = s.mem._alloc( name,
-                                 s.type.basetype(),
+                                 "float",
                                  self.shape_strs( s.type.shape() ),
                                  None )
 
             self.add_line(line)
         elif styp is LoopIR.Free:
             name = self.env[s.name]
+            assert s.type.basetype == T.R
             line = s.mem._free( name,
-                                s.type.basetype(),
+                                "float",
                                 self.shape_strs( s.type.shape() ),
                                 None )
             self.add_line(line)
@@ -360,6 +410,11 @@ class Compiler:
                     assert rtyp is T.R
                     return f"&{self.env[e.name]}"
             else:
+                mem = self.mems[e.name]
+                if not mem._read:
+                    raise MemGenError(f"{s.srcinfo}: cannot read from buffer "+
+                                      f"'{s.name}' in memory '{mem.name()}'")
+
                 if e.name in self._scalar_refs:
                     return f"*{self.env[e.name]}"
                 elif type(rtyp) is not T.Tensor:

@@ -10,6 +10,7 @@ from .prelude import *
 _Types = ADT("""
 module Types {
     type    = Num   ()
+            | F32   ()
             | Bool  ()
             | Int   ()
             | Index ()
@@ -23,12 +24,13 @@ module Types {
 } """, {
     'range': lambda x: is_pos_int(x) or type(x) is Sym,
 })
-ADTmemo(_Types, ['Num', 'Bool', 'Int', 'Index', 'Size', 'Error',
+ADTmemo(_Types, ['Num', 'F32', 'Bool', 'Int', 'Index', 'Size', 'Error',
                  'Tensor', 'IN', 'OUT', 'INOUT'], {
     'range': lambda x: x,
 })
 
 Num     = _Types.Num
+F32     = _Types.F32
 Bool    = _Types.Bool
 Int     = _Types.Int
 Index   = _Types.Index
@@ -36,6 +38,7 @@ Size    = _Types.Size
 Error   = _Types.Error
 Tensor  = _Types.Tensor
 R       = Num()
+f32     = F32()
 bool    = Bool()    # note: accessed as T.bool outside this module
 int     = Int()
 index   = Index()
@@ -62,18 +65,24 @@ def is_effect(obj):
 
 @extclass(Tensor)
 @extclass(Num)
+@extclass(F32)
 def shape(t):
     shp = []
     while type(t) is Tensor:
         shp.append(t.hi)
         t = t.type
-    assert t is R
+    assert t.is_real_scalar()
     return shp
 del shape
 
 @extclass(_Types.type)
+def is_real_scalar(t):
+    return type(t) is Num or type(t) is F32
+del is_real_scalar
+
+@extclass(_Types.type)
 def is_numeric(t):
-    return type(t) is Num or type(t) is Tensor
+    return t.is_real_scalar() or type(t) is Tensor
 del is_numeric
 
 @extclass(_Types.type)
@@ -86,21 +95,12 @@ def is_sizeable(t):
     return type(t) is Int or type(t) is Size
 del is_sizeable
 
-# TODO: Fix this
-@extclass(Tensor)
-@extclass(Num)
+@extclass(_Types.type)
 def basetype(t):
-    if type(t) is Tensor:
-        return "float*"
-    elif type(t) is Num:
-        return "float"
+    while type(t) is Tensor:
+        t = t.type
+    return t
 del basetype
-
-@extclass(Tensor)
-@extclass(Num)
-def base(t):
-    return R
-del base
 
 @extclass(_Types.type)
 def subst(t, lookup):
@@ -120,6 +120,8 @@ def __str__(t):
     if not hasattr(t, '_str_cached'):
         if type(t) is Num:
             t._str_cached = "R"
+        elif type(t) is F32:
+            t._str_cached = "f32"
         elif type(t) is Bool:
             t._str_cached = "bool"
         elif type(t) is Int:
@@ -132,7 +134,7 @@ def __str__(t):
             t._str_cached = "err"
         elif type(t) is Tensor:
             rngs = ",".join([str(r) for r in t.shape()])
-            t._str_cached = f"{t.base()}[{rngs}]"
+            t._str_cached = f"{t.basetype()}[{rngs}]"
         else:
             assert False, "impossible type case"
     return t._str_cached

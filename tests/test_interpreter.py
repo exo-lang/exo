@@ -9,7 +9,7 @@ from .helper import *
 # Test 1 is Full 1D convolution
 def gen_conv1d():
     @proc
-    def conv1d(n : size, m : size, r: size, x : R[n] @ IN,
+    def conv1d(n : size, m : size, r: size, x : R[n],
                w : R[m] , res : R[r]):
        for i in par(0, r):
            res[i] = 0.0
@@ -35,7 +35,7 @@ def test_conv1d():
 # add vector test
 def gen_add_vec():
     @proc
-    def add_vec( n : size, x : R[n] @ IN, y : R[n] @ IN, res : R[n] @ OUT):
+    def add_vec( n : size, x : R[n], y : R[n], res : R[n]):
        for i in par(0, n):
            res[i] = x[i] + y[i]
 

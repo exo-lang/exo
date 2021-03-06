@@ -57,7 +57,7 @@ class MemGenError(Exception):
 
 class Memory:
     def __init__(self, name,
-        globl  = None, # C code
+        globl   = None, # C code
         alloc   = None, # python gemmini_extended_compute_preloaded
         free    = None,
         read    = None,
@@ -81,22 +81,26 @@ class Memory:
 
 
 def _dram_alloc(new_name, prim_type, shape, error):
-    if prim_type is "float":
-        return ("float {new_name};")
+    if len(shape) == 0:
+        return ("{prim_type} {new_name};")
     else:
         size_str = shape[0]
         for s in shape[1:]:
             size_str = f"{s} * {size_str}"
-        return (f"{prim_type} {new_name} = " +
-                f"({prim_type}) malloc ({size_str} * sizeof({prim_type}));")
+        return (f"{prim_type} *{new_name} = " +
+                f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
 
 def _dram_free(new_name, prim_type, shape, error):
-    if prim_type is "float":
-        return ""
+    if len(shape) == 0:
+            return ""
     else:
         return f"free({new_name});"
 
 DRAM = Memory("DRAM",
+        globl   = "",
         alloc   = _dram_alloc,
-        free    = _dram_free
+        free    = _dram_free,
+        read    = True,
+        write   = True,
+        red     = True
        )
