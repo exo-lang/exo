@@ -122,9 +122,9 @@ class TypeChecker:
         if type(stmt) is UAST.Assign or type(stmt) is UAST.Reduce:
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx,
                                          lvalue=True)
-            assert (typ is T.R or typ is T.err)
+            assert (typ.is_real_scalar() or typ is T.err)
             rhs     = self.check_e(stmt.rhs)
-            if rhs.type != T.err and rhs.type != T.R:
+            if rhs.type != T.err and not rhs.type.is_real_scalar():
                 self.err(rhs, f"cannot assign/reduce a "+
                               f"'{rhs.type}' type value")
 
@@ -221,7 +221,7 @@ class TypeChecker:
                                  f"expected argument of type '{sig_type}'")
 
                     # ensure scalars are simply variable names
-                    elif call_a.type == T.R:
+                    elif call_a.type.is_real_scalar():
                         if (type(call_a) is not LoopIR.Read or
                             len(call_a.idx) != 0):
                             self.err(call_a, "expected scalar arguments "+
@@ -249,6 +249,7 @@ class TypeChecker:
             return LoopIR.Read(e.name, idx, typ, e.srcinfo)
 
         elif type(e) is UAST.Const:
+            # TODO: What should be the default const type?
             if type(e.val) is float:
                 return LoopIR.Const(e.val, T.R, e.srcinfo)
             elif type(e.val) is int:
@@ -262,8 +263,8 @@ class TypeChecker:
 
         elif type(e) is UAST.USub:
             arg = self.check_e(e.arg)
-            if arg.type == T.R or arg.type.is_indexable():
-                neg1 = -1.0 if arg.type == T.R else -1
+            if arg.type.is_real_scalar() or arg.type.is_indexable():
+                neg1 = -1.0 if arg.type.is_real_scalar() else -1
                 return LoopIR.BinOp("*",
                                     LoopIR.Const(neg1, arg.type, e.srcinfo),
                                     arg,
@@ -297,17 +298,20 @@ class TypeChecker:
                 typ = T.bool
             elif (e.op == "+" or e.op == "-" or e.op == "*" or
                   e.op == "/" or e.op == "%"):
-                if lhs.type == T.R:
-                    if rhs.type != T.R:
-                        self.err(rhs, "expected scalar 'R' type")
+                if lhs.type.is_real_scalar():
+                    if not rhs.type.is_real_scalar():
+                        self.err(rhs, "expected scalar type")
                         typ = T.err
                     elif e.op == "%":
                         self.err(e, "cannot compute modulus of 'R' values")
                         typ = T.err
                     else:
-                        typ = T.R
-                elif rhs.type == T.R:
-                    self.err(lhs, "expected scalar 'R' type")
+                        if lhs.type == T.R:
+                            typ = T.R
+                        elif lhs.type == T.f32:
+                            typ = T.f32
+                elif rhs.type.is_real_scalar():
+                    self.err(lhs, "expected scalar type")
                 elif lhs.type == T.bool:
                     self.err(lhs, "cannot perform arithmetic on 'bool' values")
                     typ = T.err

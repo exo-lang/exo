@@ -294,9 +294,10 @@ class Parser:
 
     def parse_num_type(self, node):
         if type(node) is pyast.Subscript:
-            if type(node.value) is not pyast.Name or node.value.id != "R":
+            if (type(node.value) is not pyast.Name
+                    or (node.value.id != "R" and node.value.id != "F32")):
                 self.err(
-                    node, "expected tensor type to be of the form 'R[...]'")
+                    node, "expected tensor type to be of the form 'R[...]' or 'F32[...]'")
 
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
@@ -321,7 +322,11 @@ class Parser:
                         dims = [node.slice.value]
 
             # convert the dimension list into a full tensor type
-            typ = T.R
+            if node.value.id == "R":
+                typ = T.R
+            elif node.value.id == "F32":
+                typ = T.f32
+
             for idx in reversed(dims):
                 if type(idx) is pyast.Constant:
                     if is_pos_int(idx.value):
@@ -344,6 +349,8 @@ class Parser:
 
         elif type(node) is pyast.Name and node.id == "R":
             return T.R
+        elif type(node) is pyast.Name and node.id == "F32":
+            return T.f32
 
         else:
             self.err(node, "unrecognized type: "+astor.dump_tree(node))

@@ -75,6 +75,15 @@ def shape(t):
     return shp
 del shape
 
+@extclass(Num)
+@extclass(F32)
+def ctype(t):
+    if type(t) is Num:
+        return "float"
+    elif type(t) is F32:
+        return "float"
+del ctype
+
 @extclass(_Types.type)
 def is_real_scalar(t):
     return type(t) is Num or type(t) is F32

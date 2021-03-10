@@ -237,7 +237,7 @@ class Compiler:
                 typ_comments.append(f"{name_arg} : index")
             # setup, arguments
             else:
-                if a.type == T.R:
+                if a.type.is_real_scalar():
                     self._scalar_refs.add(a.name)
                 arg_strs.append(f"float* {name_arg}")
                 mem             = f" @{a.mem}" if a.mem else ""
@@ -330,7 +330,7 @@ class Compiler:
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
             if s.name in self._scalar_refs:
                 lhs = f"*{self.env[s.name]}"
-            elif self.envtyp[s.name] is T.R:
+            elif self.envtyp[s.name].is_real_scalar():
                 lhs = self.env[s.name]
             else:
                 lhs = self.access_str(s.name, s.idx)
@@ -372,18 +372,20 @@ class Compiler:
 
         elif styp is LoopIR.Alloc:
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
-            assert s.type.basetype() == T.R
+            assert s.type.basetype().is_real_scalar()
+            ctype = s.type.basetype().ctype()
             line = s.mem._alloc( name,
-                                 "float",
+                                 ctype,
                                  self.shape_strs( s.type.shape() ),
                                  None )
 
             self.add_line(line)
         elif styp is LoopIR.Free:
             name = self.env[s.name]
-            assert s.type.basetype() == T.R
+            assert s.type.basetype().is_real_scalar()
+            ctype = s.type.basetype().ctype()
             line = s.mem._free( name,
-                                "float",
+                                ctype,
                                 self.shape_strs( s.type.shape() ),
                                 None )
             self.add_line(line)
