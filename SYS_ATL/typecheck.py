@@ -47,11 +47,12 @@ class TypeChecker:
         for a in proc.args:
             self.env[a.name] = a.type
             mem = a.mem
+            if mem is None:
+                mem = DRAM
             if mem and not is_valid_mem(mem):
                 self.err(a, f"invalid memory name '{mem}'")
                 mem = None
             args.append(LoopIR.fnarg(a.name, a.type, a.effect, mem, a.srcinfo))
-
 
         body = self.check_stmts(proc.body)
 

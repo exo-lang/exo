@@ -105,7 +105,7 @@ class LoopIR_FindMems(LoopIR_Do):
 def find_all_mems(proc_list):
     mems = set()
     for p in proc_list:
-        mems.add( LoopIR_FindMems(p).result() )
+        mems.update( LoopIR_FindMems(p).result() )
 
     return [ m for m in mems ]
 
@@ -372,7 +372,7 @@ class Compiler:
 
         elif styp is LoopIR.Alloc:
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
-            assert s.type.basetype == T.R
+            assert s.type.basetype() == T.R
             line = s.mem._alloc( name,
                                  "float",
                                  self.shape_strs( s.type.shape() ),
@@ -381,7 +381,7 @@ class Compiler:
             self.add_line(line)
         elif styp is LoopIR.Free:
             name = self.env[s.name]
-            assert s.type.basetype == T.R
+            assert s.type.basetype() == T.R
             line = s.mem._free( name,
                                 "float",
                                 self.shape_strs( s.type.shape() ),
@@ -410,6 +410,9 @@ class Compiler:
                     assert rtyp is T.R
                     return f"&{self.env[e.name]}"
             else:
+                if rtyp.is_indexable():
+                    return self.env[e.name]
+
                 mem = self.mems[e.name]
                 if not mem._read:
                     raise MemGenError(f"{s.srcinfo}: cannot read from buffer "+
