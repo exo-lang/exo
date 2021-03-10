@@ -32,7 +32,7 @@ def _simple_typecheck_buffer(fnarg, kwargs, env):
         #raise TypeError(f"type of argument '{name}' "
         #                f"value mismatches")
 
-    if typ is T.R:
+    if typ.is_real_scalar():
         if tuple(buf.shape) != (1,):
             raise TypeError(f"{pre}: expected buffer of shape (1,), "+
                             f"but got shape {tuple(buf.shape)}")
@@ -117,7 +117,7 @@ class Interpreter:
                 self.eval_stmts(s.body)
             self.env.pop()
         elif styp is LoopIR.Alloc:
-            if s.type is T.R:
+            if s.type.is_real_scalar():
                 self.env[s.name] = np.empty([1])
             else:
                 size = _eshape(s.type, self.env)

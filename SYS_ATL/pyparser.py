@@ -295,9 +295,10 @@ class Parser:
     def parse_num_type(self, node):
         if type(node) is pyast.Subscript:
             if (type(node.value) is not pyast.Name
-                    or (node.value.id != "R" and node.value.id != "F32")):
+                    or (node.value.id != "R" and node.value.id != "F32"
+                        and node.value.id != "F64")):
                 self.err(
-                    node, "expected tensor type to be of the form 'R[...]' or 'F32[...]'")
+                    node, "expected tensor type to be of the form 'R/F32/F64[...]'")
 
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
@@ -326,6 +327,8 @@ class Parser:
                 typ = T.R
             elif node.value.id == "F32":
                 typ = T.f32
+            elif node.value.id == "F64":
+                typ = T.f64
 
             for idx in reversed(dims):
                 if type(idx) is pyast.Constant:
@@ -351,6 +354,8 @@ class Parser:
             return T.R
         elif type(node) is pyast.Name and node.id == "F32":
             return T.f32
+        elif type(node) is pyast.Name and node.id == "F64":
+            return T.f64
 
         else:
             self.err(node, "unrecognized type: "+astor.dump_tree(node))
@@ -392,6 +397,7 @@ class Parser:
                     rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
                 elif type(s) is pyast.Assign and len(idxs) == 0:
                     if name_node.id not in self.locals:
+                        # TODO: Fix here
                         nm = Sym(name_node.id)
                         self.locals[name_node.id] = nm
                         rstmts.append(UAST.Alloc(nm, T.R, None,

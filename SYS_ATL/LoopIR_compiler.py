@@ -239,7 +239,8 @@ class Compiler:
             else:
                 if a.type.is_real_scalar():
                     self._scalar_refs.add(a.name)
-                arg_strs.append(f"float* {name_arg}")
+                ctyp = a.type.basetype().ctype()
+                arg_strs.append(f"{ctyp}* {name_arg}")
                 mem             = f" @{a.mem}" if a.mem else ""
                 comment_str     = f"{name_arg} : {a.type} @{a.effect}{mem}"
                 typ_comments.append(comment_str)

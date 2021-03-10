@@ -20,23 +20,25 @@ input_filename = os.path.dirname(os.path.realpath(__file__)) + "/input.png"
 o_image = Image.open(input_filename)
 image = np.asarray(o_image, dtype="float32")
 
-c_float_p = ctypes.POINTER(ctypes.c_float)
-
-def gkern(kernlen=5, nsig=1):
+def gkern(kernlen=5, nsig=1, typ=np.float32):
     x = np.linspace(-nsig, nsig, kernlen+1)
     kern1d = np.diff(st.norm.cdf(x))
     kern2d = np.outer(kern1d, kern1d)
-    return np.asarray(kern2d/kern2d.sum(), dtype=np.float32)
+    return np.asarray(kern2d/kern2d.sum(), dtype=typ)
 
-def cvt_c(n_array):
-    assert n_array.dtype == np.float32
-    return n_array.ctypes.data_as(c_float_p)
+def cvt_c(n_array, typ=np.float32):
+    if typ is np.float32:
+        return n_array.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    elif typ is np.float64:
+        return n_array.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
 
-def nparray(arg):
-    return np.array(arg, dtype=np.float32)
+    assert False
 
-def nprand(size):
-    return np.random.uniform(size=size).astype(np.float32)
+def nparray(arg, typ=np.float32):
+    return np.array(arg, dtype=typ)
+
+def nprand(size, typ=np.float32):
+    return np.random.uniform(size=size).astype(typ)
 
 def generate_lib(directory, filename):
     compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared " +

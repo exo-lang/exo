@@ -11,6 +11,7 @@ _Types = ADT("""
 module Types {
     type    = Num   ()
             | F32   ()
+            | F64   ()
             | Bool  ()
             | Int   ()
             | Index ()
@@ -24,13 +25,14 @@ module Types {
 } """, {
     'range': lambda x: is_pos_int(x) or type(x) is Sym,
 })
-ADTmemo(_Types, ['Num', 'F32', 'Bool', 'Int', 'Index', 'Size', 'Error',
+ADTmemo(_Types, ['Num', 'F32', 'F64', 'Bool', 'Int', 'Index', 'Size', 'Error',
                  'Tensor', 'IN', 'OUT', 'INOUT'], {
     'range': lambda x: x,
 })
 
 Num     = _Types.Num
 F32     = _Types.F32
+F64     = _Types.F64
 Bool    = _Types.Bool
 Int     = _Types.Int
 Index   = _Types.Index
@@ -39,6 +41,7 @@ Error   = _Types.Error
 Tensor  = _Types.Tensor
 R       = Num()
 f32     = F32()
+f64     = F64()
 bool    = Bool()    # note: accessed as T.bool outside this module
 int     = Int()
 index   = Index()
@@ -66,6 +69,7 @@ def is_effect(obj):
 @extclass(Tensor)
 @extclass(Num)
 @extclass(F32)
+@extclass(F64)
 def shape(t):
     shp = []
     while type(t) is Tensor:
@@ -77,16 +81,19 @@ del shape
 
 @extclass(Num)
 @extclass(F32)
+@extclass(F64)
 def ctype(t):
     if type(t) is Num:
         return "float"
     elif type(t) is F32:
         return "float"
+    elif type(t) is F64:
+        return "double"
 del ctype
 
 @extclass(_Types.type)
 def is_real_scalar(t):
-    return type(t) is Num or type(t) is F32
+    return type(t) is Num or type(t) is F32 or type(t) is F64
 del is_real_scalar
 
 @extclass(_Types.type)
@@ -131,6 +138,8 @@ def __str__(t):
             t._str_cached = "R"
         elif type(t) is F32:
             t._str_cached = "f32"
+        elif type(t) is F64:
+            t._str_cached = "f64"
         elif type(t) is Bool:
             t._str_cached = "bool"
         elif type(t) is Int:
