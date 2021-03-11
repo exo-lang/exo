@@ -241,8 +241,8 @@ class Compiler:
                     self._scalar_refs.add(a.name)
                 ctyp = a.type.basetype().ctype()
                 arg_strs.append(f"{ctyp}* {name_arg}")
-                mem             = f" @{a.mem}" if a.mem else ""
-                comment_str     = f"{name_arg} : {a.type} @{a.effect}{mem}"
+                mem             = f" @{a.mem.name()}" if a.mem else ""
+                comment_str     = f"{name_arg} : {a.type} {mem}"
                 typ_comments.append(comment_str)
 
         self.comp_stmts(self.proc.body)

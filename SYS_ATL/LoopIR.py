@@ -39,7 +39,6 @@ module UAST {
 
     fnarg   = ( sym             name,
                 type            type,
-                effect?         effect,
                 mem?            mem,
                 srcinfo         srcinfo )
 
@@ -63,7 +62,6 @@ module UAST {
     'name':         is_valid_name,
     'sym':          lambda x: type(x) is Sym,
     'type':         T.is_type,
-    'effect':       T.is_effect,
     'mem':          lambda x: isinstance(x, Memory),
     'loopir_proc':  lambda x: type(x) is LoopIR.proc,
     'op':           lambda x: x in front_ops,
@@ -134,7 +132,6 @@ module LoopIR {
 
     fnarg   = ( sym             name,
                 type            type,
-                old_effect?     effect,
                 mem?            mem,
                 srcinfo         srcinfo )
 
@@ -157,7 +154,6 @@ module LoopIR {
     'name':     is_valid_name,
     'sym':      lambda x: type(x) is Sym,
     'type':     T.is_type,
-    'old_effect':   T.is_effect,
     'effect':   lambda x: type(x) is E.effect,
     'mem':      lambda x: isinstance(x, Memory),
     'binop':    lambda x: x in bin_ops,

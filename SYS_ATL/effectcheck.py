@@ -338,7 +338,7 @@ class CheckEffects:
         body_eff = self.map_stmts(self.orig_proc.body)
 
         for arg in proc.args:
-            if type(arg.type) is not T.Size:
+            if type(arg.type) is not T.Size and type(arg.type) is not T.Index:
                 self.check_bounds(arg.name, arg.type.shape(), body_eff)
         self.pop()
 

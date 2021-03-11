@@ -224,7 +224,7 @@ class Parser:
             else:
                 # note we don't need to stub the index variables
                 self.locals[a.arg] = nm
-            args.append(UAST.fnarg(nm, typ, T.InOut, mem, self.getsrcinfo(a)))
+            args.append(UAST.fnarg(nm, typ, mem, self.getsrcinfo(a)))
 
         # return types are non-sensical for SYS_ATL, b/c it models procedures
         if fdef.returns is not None:
