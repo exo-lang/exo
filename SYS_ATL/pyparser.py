@@ -345,6 +345,12 @@ class Parser:
                             self.err(idx, f"'{idx.id}' is not a size")
                     else:
                         self.err(idx, f"'{idx.id}' is undefined")
+                elif type(idx) is pyast.BinOp:
+                    if idx.right in self.locals and idx.left in self.locals:
+                        rsz = self.locals[idx.right]
+                        lsz = self.locals[idx.left]
+                        if type(rsz) is SizeStub and type(lsz) is SizeStub:
+                            typ = T.Tensor(...)
                 self.err(idx, "expected positive integer "+
                               "constant or size variable")
 

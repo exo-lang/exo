@@ -51,7 +51,8 @@ class Procedure:
             if _testing != "UAST":
                 self._loopir_proc = TypeChecker(proc).get_loopir()
                 self._loopir_proc = InferEffects(self._loopir_proc).result()
-                self._loopir_proc = CheckEffects(self._loopir_proc).result()
+                #TODO: Revert this!
+                #self._loopir_proc = CheckEffects(self._loopir_proc).result()
 
         # find the root provenance
         parent = _provenance_eq_Procedure

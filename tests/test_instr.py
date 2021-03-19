@@ -45,17 +45,17 @@ def gen_gemmini_ld():
 
 # Assume n%16 == 0 and m%16 == 0
 # r = n*m/16
-# w = (i+1)*j*16 #TODO: How to handle windowing?
+# w = (i+1)*j*16
+#TODO: How to handle windowing?
 def gen_ld_2d(gemmini_ld):
     @proc
-    def ld_2d(n : size, m : size, r : size, w : index, x : F32[n, m], y : F32[r, 16]):
+    def ld_2d(n : size, m : size, x : F32[n, m], y : F32[n*m/16, 16]):
         for i in par(0, n/16):
             for j in par(0, m/16):
-                gemmini_ld(n, m, i*16, j*16, r, w, 16, 16, x, y)
+                gemmini_ld(n, m, i*16, j*16, n*m/16, (i+1)*j*16, 16, 16, x, y)
 
     return ld_2d
 
-@pytest.mark.skip
 def test_load():
     # TODO: How to inline the instruction?
     # LoopIR.Call? Or add scheduling directive?
