@@ -2,6 +2,7 @@
 # --------------------------------------------------------------------------- #
 # Helper Functions
 
+import os
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -88,16 +89,29 @@ def _dram_alloc(new_name, prim_type, shape, error):
         for s in shape[1:]:
             size_str = f"{s} * {size_str}"
         return (f"{prim_type} *{new_name} = " +
-                f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
+                f"({prim_type}*) malloc_dram ({size_str} * sizeof({prim_type}));")
 
 def _dram_free(new_name, prim_type, shape, error):
     if len(shape) == 0:
             return ""
     else:
-        return f"free({new_name});"
+        return f"free_dram({new_name});"
+
+def _dram_globl():
+    __location__ = os.path.realpath(
+        os.path.join(os.getcwd(), os.path.dirname(__file__)))
+
+    with open(os.path.join(__location__, 'malloc.c'), 'r') as fp:
+        line = fp.readline()
+        malloc = line.format(heap_size = 100000000)
+        while line:
+            line = fp.readline()
+            malloc += line
+
+    return malloc
 
 DRAM = Memory("DRAM",
-        globl   = "",
+        globl   = _dram_globl(),
         alloc   = _dram_alloc,
         free    = _dram_free,
         read    = True,
