@@ -23,8 +23,8 @@ import pytest
 def gen_gemmini_ld():
     @instr("gemmini_extended3_config_ld(4 * {src_m}, 1.0f, 0, 0);\n"+
            "gemmini_extended_mvin( "+
-                "({src}) + ({src_r})*({src_m}) + ({src_c}),"+
-                "({dst}) + ({dst_r}) );")
+                "{src} + {src_r}*{src_m} + {src_c},"+
+                "{dst} + {dst_r}, {col_dim}, {row_dim} );")
     def gemmini_ld(
         src_n : size,
         src_m : size,
@@ -42,6 +42,30 @@ def gen_gemmini_ld():
                 dst[dst_r + i, j] = src[src_r + i, src_c + j]
         
     return gemmini_ld
+
+def gen_ld_16(gemmini_ld):
+    @proc
+    def ld_16(x : F32[16, 16] @ DRAM, y : F32[16, 16] @ GEMM_SCRATCH):
+        gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, x, y)
+
+    return ld_16
+
+def test_load_16():
+    gemm_ld = gen_gemmini_ld()
+    ld_16 = gen_ld_16(gemm_ld)
+
+    assert type(gemm_ld) is Procedure
+    assert type(ld_16) is Procedure
+
+    filename = "test_load_16"
+
+    # Write pretty printing to a file
+    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty.write(str(ld_16))
+    f_pretty.close()
+
+    ld_16.compile_c(directory, filename)
+
 
 # Assume n%16 == 0 and m%16 == 0
 # r = n*m/16

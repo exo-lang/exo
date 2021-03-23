@@ -97,7 +97,7 @@ def gen_bad_access2():
             for j in par(0,m):
                 res[i,j] = rloc[j]
 
-    return bad_access1
+    return bad_access2
 
 def test_bad_access1():
     with pytest.raises(TypeError,

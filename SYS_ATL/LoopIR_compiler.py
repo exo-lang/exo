@@ -391,9 +391,17 @@ class Compiler:
                                 None )
             self.add_line(line)
         elif styp is LoopIR.Call:
-            fname   = s.f.name
             args    = [ self.comp_e(e, call_arg=True) for e in s.args ]
-            self.add_line(f"{fname}({','.join(args)})")
+            if s.f.instr is not None:
+                d = dict()
+                assert len(s.f.args) == len(args)
+                for i in range(len(args)):
+                    d[str(s.f.args[i].name)] = args[i]
+
+                self.add_line(f"{s.f.instr.format(**d)}")
+            else:
+                fname   = s.f.name
+                self.add_line(f"{fname}({','.join(args)})")
         else:
             assert False, "bad case"
 
@@ -408,7 +416,11 @@ class Compiler:
                 elif e.name in self._scalar_refs:
                     return self.env[e.name]
                 elif type(rtyp) is T.Tensor:
-                    return self.env[e.name]
+                    mem = self.mems[e.name]
+                    if mem.name() is "DRAM":
+                        return self.env[e.name]
+                    else:
+                        return "0"
                 else:
                     assert rtyp is T.R
                     return f"&{self.env[e.name]}"

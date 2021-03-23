@@ -123,7 +123,7 @@ def _gemm_free(new_name, prim_type, shape, error):
         return f"gemm_free({new_name});"
 
 GEMM_SCRATCH = Memory("GEMM_SCRATCH",
-        globl   = "",
+        globl   = ("#include \"include/gemmini_testutils.h\"\n"),
         alloc   = _gemm_alloc,
         free    = _gemm_free,
         read    = True,
