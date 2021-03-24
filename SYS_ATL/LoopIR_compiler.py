@@ -416,11 +416,7 @@ class Compiler:
                 elif e.name in self._scalar_refs:
                     return self.env[e.name]
                 elif type(rtyp) is T.Tensor:
-                    mem = self.mems[e.name]
-                    if mem.name() is "DRAM":
-                        return self.env[e.name]
-                    else:
-                        return "0"
+                    return self.env[e.name]
                 else:
                     assert rtyp is T.R
                     return f"&{self.env[e.name]}"

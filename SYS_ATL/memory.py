@@ -81,7 +81,37 @@ class Memory:
         return self._name
 
 
+# ----------- DRAM on LINUX ----------------
+
 def _dram_alloc(new_name, prim_type, shape, error):
+    if len(shape) == 0:
+        return ("{prim_type} {new_name};")
+    else:
+        size_str = shape[0]
+        for s in shape[1:]:
+            size_str = f"{s} * {size_str}"
+        return (f"{prim_type} *{new_name} = " +
+                f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
+
+def _dram_free(new_name, prim_type, shape, error):
+    if len(shape) == 0:
+            return ""
+    else:
+        return f"free({new_name});"
+
+DRAM = Memory("DRAM",
+        globl   = "",
+        alloc   = _dram_alloc,
+        free    = _dram_free,
+        read    = True,
+        write   = True,
+        red     = True
+       )
+
+
+# ----------- DRAM using custom malloc ----------------
+
+def _mdram_alloc(new_name, prim_type, shape, error):
     if len(shape) == 0:
         return ("{prim_type} {new_name};")
     else:
@@ -91,33 +121,37 @@ def _dram_alloc(new_name, prim_type, shape, error):
         return (f"{prim_type} *{new_name} = " +
                 f"({prim_type}*) malloc_dram ({size_str} * sizeof({prim_type}));")
 
-def _dram_free(new_name, prim_type, shape, error):
+def _mdram_free(new_name, prim_type, shape, error):
     if len(shape) == 0:
             return ""
     else:
         return f"free_dram({new_name});"
 
-def _dram_globl():
+def _mdram_globl():
     __location__ = os.path.realpath(
         os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
     with open(os.path.join(__location__, 'malloc.c'), 'r') as fp:
         line = fp.readline()
-        malloc = line.format(heap_size = 100000000)
+        malloc = line.format(heap_size = 100000)
         while line:
             line = fp.readline()
             malloc += line
 
     return malloc
 
-DRAM = Memory("DRAM",
-        globl   = _dram_globl(),
-        alloc   = _dram_alloc,
-        free    = _dram_free,
+MDRAM = Memory("MDRAM",
+        globl   = _mdram_globl(),
+        alloc   = _mdram_alloc,
+        free    = _mdram_free,
         read    = True,
         write   = True,
         red     = True
        )
+
+
+
+# ----------- GEMMINI scratchpad ----------------
 
 # TODO: How does gemm_malloc looks like?
 def _gemm_alloc(new_name, prim_type, shape, error):

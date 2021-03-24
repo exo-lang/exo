@@ -17,19 +17,9 @@ int main() {
             x[i][j] = (float)1.0*i*j;
         }
     }
-    float y[16][16];
+    float *y = (float*) 0;
 
     ld_16(x, y);
-    /*
-    unsigned long cpu_start = read_cycles();
-    unsigned long cpu_end = read_cycles();
-    printf("\nCycles taken for simple_blur: %u\n", cpu_end-cpu_start);
-
-    cpu_start = read_cycles();
-    unroll_blur(n, m, 5, image, kernel, res);
-    cpu_end = read_cycles();
-    printf("Cycles taken for unroll_blur: %u\n", cpu_end-cpu_start);
-    */
 
     printf("\nDone\n");
 

@@ -24,7 +24,7 @@ def gen_gemmini_ld():
     @instr("gemmini_extended3_config_ld(4 * {src_m}, 1.0f, 0, 0);\n"+
            "gemmini_extended_mvin( "+
                 "{src} + {src_r}*{src_m} + {src_c},"+
-                "{dst} + {dst_r}, {col_dim}, {row_dim} );")
+                "((int) {dst}) + {dst_r}, {col_dim}, {row_dim} );")
     def gemmini_ld(
         src_n : size,
         src_m : size,
