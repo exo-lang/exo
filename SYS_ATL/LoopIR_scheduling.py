@@ -707,6 +707,7 @@ class _FissionLoops:
         pre_body, post_body = self.map_stmts(proc.body)
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
                                 args    = self.orig_proc.args,
+                                preds   = self.orig_proc.preds,
                                 body    = pre_body + post_body,
                                 instr   = None,
                                 eff     = self.orig_proc.eff,

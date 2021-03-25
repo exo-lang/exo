@@ -24,6 +24,7 @@ class MemoryAnalysis:
         return LoopIR.proc(
             self.proc.name,
             self.proc.args,
+            self.proc.preds,
             body,
             self.proc.instr,
             self.proc.eff,

@@ -100,6 +100,7 @@ class InferEffects:
 
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
                                 args    = self.orig_proc.args,
+                                preds   = self.orig_proc.preds,
                                 body    = body,
                                 instr   = self.orig_proc.instr,
                                 eff     = eff,
@@ -336,6 +337,9 @@ class CheckEffects:
 
         self.push()
         body_eff = self.map_stmts(self.orig_proc.body)
+
+        for p in proc.preds:
+            self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
 
         for arg in proc.args:
             if type(arg.type) is not T.Size and type(arg.type) is not T.Index:

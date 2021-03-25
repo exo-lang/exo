@@ -181,6 +181,7 @@ class LoopIR_Rewrite:
 
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
                                 args    = self.orig_proc.args,
+                                preds   = self.orig_proc.preds,
                                 body    = body,
                                 instr   = instr,
                                 eff     = self.orig_proc.eff,

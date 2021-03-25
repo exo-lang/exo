@@ -54,6 +54,13 @@ class TypeChecker:
                 mem = None
             args.append(LoopIR.fnarg(a.name, a.type, mem, a.srcinfo))
 
+        preds = []
+        for p in proc.preds:
+            pred = self.check_e(p)
+            if pred.type != T.err and pred.type != T.bool:
+                self.err(pred, f"expected a bool expression")
+            preds.append(pred)
+
         body = self.check_stmts(proc.body)
 
         if not proc.name:
@@ -61,6 +68,7 @@ class TypeChecker:
 
         self.loopir_proc = LoopIR.proc(name =proc.name or "anon",
                                        args =args,
+                                       preds=preds,
                                        body =body,
                                        instr=proc.instr,
                                        eff  =None,
