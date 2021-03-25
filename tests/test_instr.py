@@ -14,13 +14,62 @@ sys.path.append(sys.path[0]+"/.")
 from .helper import *
 import pytest
 
-# TODO: Add predicate to args
-# Otherwise effectcheck is not happy about dst and src windowing
-# depending on arbitrary src_r and dst_r
-# Effect on src READ:
-#   0 <= i < row_dim, 0 <= j < col_dim
-#   0 <= src_r + i < src_n, 0 <= src_c + j < src_m
-# This is not valid..
+#--------------------- GEMMINI MVOUT ----------------------
+def gen_gemmini_store():
+    @instr("gemmini_config_st(4 * {dst_m});\n"+
+           "gemmini_extended_mvout( "+
+                "((int) {dst}) + {dst_r}*{dst_m} + {dst_c},"+
+                "{src} + {src_r} , {col_dim}, {row_dim} );")
+    def gemmini_st(
+        src_n : size,
+        src_r : index,
+        dst_n : size,
+        dst_m : size,
+        dst_r : index,
+        dst_c : index,
+        col_dim : size,
+        row_dim : size,
+        src : F32[src_n,16]    @ GEMM_SCRATCH,
+        dst : F32[dst_n,dst_m] @ DRAM
+    ):
+        assert 0 < row_dim <= 16
+        assert 0 < col_dim <= 16
+        assert 0 <= src_r <= src_n
+        assert 0 <= src_r + row_dim <= src_n
+        assert 0 <= dst_r <= dst_n
+        assert 0 <= dst_c <= dst_m
+        assert 0 <= dst_r + row_dim <= dst_n
+        assert 0 <= dst_c + col_dim <= dst_m
+
+        for i in par(0,row_dim):
+            for j in par(0,col_dim):
+                dst[dst_r + i, dst_c + j] = src[src_r + i, j]
+
+    return gemmini_st
+
+def gen_st_16(gemmini_st):
+    @proc
+    def st_16(x : F32[16, 16] @ GEMM_SCRATCH, y : F32[16, 16] @ DRAM):
+        gemmini_st(16, 0, 16, 16, 0, 0, 16, 16, x, y)
+
+    return st_16
+
+def test_store_16():
+    gemm_st = gen_gemmini_store()
+    st_16 = gen_st_16(gemm_st)
+
+    filename = "test_store_16"
+
+    # Write pretty printing to a file
+    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty.write(str(st_16))
+    f_pretty.close()
+
+    st_16.compile_c(directory, filename)
+
+
+
+#--------------------- GEMMINI MVIN ----------------------
 def gen_gemmini_ld():
     @instr("gemmini_extended3_config_ld(4 * {src_m}, 1.0f, 0, 0);\n"+
            "gemmini_extended_mvin( "+
@@ -77,6 +126,7 @@ def test_load_16():
     ld_16.compile_c(directory, filename)
 
 
+#----------------- arbitrary size matrix multiply --------------------
 # Assume n%16 == 0 and m%16 == 0
 # r = n*m/16
 # w = (i+1)*j*16 #TODO: How to handle windowing?
