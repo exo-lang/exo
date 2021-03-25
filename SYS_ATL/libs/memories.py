@@ -1,4 +1,5 @@
-
+from SYS_ATL import Memory
+import os
 
 # ----------- DRAM using custom malloc ----------------
 
