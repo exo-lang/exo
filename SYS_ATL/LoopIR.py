@@ -33,6 +33,7 @@ UAST = ADT("""
 module UAST {
     proc    = ( name?           name,
                 fnarg*          args,
+                expr*           preds,
                 stmt*           body,
                 string?         instr,
                 srcinfo         srcinfo )
@@ -125,6 +126,7 @@ LoopIR = ADT("""
 module LoopIR {
     proc    = ( name            name,
                 fnarg*          args,
+                expr*           preds,
                 stmt*           body,
                 string?         instr,
                 effect?         eff,

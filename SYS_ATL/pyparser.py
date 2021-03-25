@@ -230,10 +230,28 @@ class Parser:
         if fdef.returns is not None:
             self.err(fdef, "SYS_ATL does not support function return types")
 
+        # parse out any assertions at the front of the statement block
+        # first split the assertions out
+        first_non_assert = 0
+        while (first_non_assert < len(fdef.body) and
+               type(fdef.body[first_non_assert]) == pyast.Assert):
+            first_non_assert += 1
+        assertions = fdef.body[0:first_non_assert]
+        pyast_body = fdef.body[first_non_assert:]
+
+        # then parse out predicates from the assertions
+        preds = []
+        for a in assertions:
+            if a.msg is not None:
+                self.err(a, "SYS_ATL procedure assertions should "+
+                            "not have messages")
+            preds.append(self.parse_expr(a.test))
+
         # parse the procedure body
-        body = self.parse_stmt_block(fdef.body)
+        body = self.parse_stmt_block(pyast_body)
         return UAST.proc(name=fdef.name,
                          args=args,
+                         preds=preds,
                          body=body,
                          instr=instr,
                          srcinfo=self.getsrcinfo(fdef))
@@ -297,8 +315,8 @@ class Parser:
             if (type(node.value) is not pyast.Name
                     or (node.value.id != "R" and node.value.id != "F32"
                         and node.value.id != "F64")):
-                self.err(
-                    node, "expected tensor type to be of the form 'R/F32/F64[...]'")
+                self.err(node, "expected tensor type to be "+
+                               "of the form 'R/F32/F64[...]'")
 
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
@@ -485,6 +503,10 @@ class Parser:
             # ----- Pass no-op parsing
             elif type(s) is pyast.Pass:
                 rstmts.append(UAST.Pass(self.getsrcinfo(s)))
+                
+            elif type(s) is pyast.Assert:
+                self.err(s, "predicate assert should happen at the beginning "+
+                            "of a function")
             else:
                 self.err(s, "unsupported type of statement")
 
@@ -524,7 +546,8 @@ class Parser:
                     if type(node.slice) is pyast.Tuple:
                         dims = node.slice.elts
                     else:
-                        assert type(node.slice) is pyast.Name or type(node.slice) is pyast.BinOp
+                        assert (type(node.slice) is pyast.Name or
+                                type(node.slice) is pyast.BinOp)
                         dims = [node.slice]
             else:
                 # unpack single or multi-arg indexing to list of slices/indices
