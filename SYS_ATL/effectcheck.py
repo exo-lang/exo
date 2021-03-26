@@ -587,4 +587,22 @@ class CheckEffects:
                 self.check_bounds(stmt.name, stmt.type.shape(), body_eff)
                 body_eff = eff_remove_buf(stmt.name, body_eff)
 
+            elif type(stmt) is LoopIR.Call:
+                subst = dict()
+                for sig,arg in zip(stmt.f.args, stmt.args):
+                    if sig.type.is_numeric():
+                        pass
+                    elif sig.type.is_indexable():
+                        # in this case we have a LoopIR expression...
+                        subst[sig.name] = lift_expr(arg)
+                    else: assert False, "bad case"
+
+                for p in stmt.f.preds:
+                    pred = lift_expr(p).subst(subst)
+                    # Check that asserts are correct
+                    if not self.solver.is_valid(self.expr_to_smt(pred)):
+                        self.err(stmt, f"Could not verify assertion in "+
+                                       f"{stmt.f.name} at {p.srcinfo}")
+
+
         return body_eff # Returns union of all effects

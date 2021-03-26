@@ -32,13 +32,13 @@ def gen_gemmini_ld():
         src : F32[src_n, src_m] @ DRAM,
         dst : F32[dst_n, 16]    @ GEMM_SCRATCH,
     ):
-        assert 0 < row_dim <= 16
-        assert 0 < col_dim <= 16
-        assert 0 <= src_r <= src_n
-        assert 0 <= src_c <= src_m
+        assert row_dim <= 16
+        assert col_dim <= 16
+        assert 0 <= src_r < src_n
+        assert 0 <= src_c < src_m
         assert 0 <= src_r + row_dim <= src_n
         assert 0 <= src_c + col_dim <= src_m
-        assert 0 <= dst_r <= dst_n
+        assert 0 <= dst_r < dst_n
         assert 0 <= dst_r + row_dim <= dst_n
 
         for i in par(0, row_dim):
@@ -65,12 +65,12 @@ def gen_gemmini_store():
         src : F32[src_n,16]    @ GEMM_SCRATCH,
         dst : F32[dst_n,dst_m] @ DRAM
     ):
-        assert 0 < row_dim <= 16
-        assert 0 < col_dim <= 16
-        assert 0 <= src_r <= src_n
+        assert row_dim <= 16
+        assert col_dim <= 16
+        assert 0 <= src_r < src_n
         assert 0 <= src_r + row_dim <= src_n
-        assert 0 <= dst_r <= dst_n
-        assert 0 <= dst_c <= dst_m
+        assert 0 <= dst_r < dst_n
+        assert 0 <= dst_c < dst_m
         assert 0 <= dst_r + row_dim <= dst_n
         assert 0 <= dst_c + col_dim <= dst_m
 
