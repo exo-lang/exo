@@ -139,7 +139,8 @@ module LoopIR {
 
     stmt    = Assign ( sym name, expr* idx, expr rhs )
             | Reduce ( sym name, expr* idx, expr rhs )
-            | Pass()
+        --  | Alias  ( sym name, expr rhs ) -- rhs has to be a slice expr?
+            | Pass   ()
             | If     ( expr cond, stmt* body, stmt* orelse )
             | ForAll ( sym iter, expr hi, stmt* body )
             | Alloc  ( sym name, type type, mem? mem )
@@ -148,9 +149,14 @@ module LoopIR {
             attributes( effect? eff, srcinfo srcinfo )
 
     expr    = Read( sym name, expr* idx )
+        --  | Slice( sym name, slice_idx* idx )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
             attributes( type type, srcinfo srcinfo )
+
+    -- slice_idx = SlicePoint( expr val )
+    --           | SliceRange( expr lo, expr hi )
+    --           attributes(srcinfo srcinfo)
 
 } """, {
     'name':     is_valid_name,
