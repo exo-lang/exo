@@ -18,6 +18,7 @@ module Types {
             | Size  ()
             | Error ()
             | Tensor( range hi, type type )
+    --| Window( sym orig, expr* lo, expr* hi, type orig_type )
 
     effect  = IN    ()
             | OUT   ()
