@@ -17,6 +17,14 @@ int main() {
             x[i][j] = (float)1.0*i*j;
         }
     }
+    for (int i = 0; i < 16; i++) {
+        for (int j = 0; j < 16; j++) {
+            printf("%d ", (int)x[i][j]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+
     float *y = (float*) 0;
     float z[16][16];
 

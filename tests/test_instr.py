@@ -19,7 +19,7 @@ def gen_gemmini_ld():
     @instr("gemmini_extended3_config_ld(4 * {src_m}, 1.0f, 0, 0);\n"+
            "gemmini_extended_mvin( "+
                 "{src} + {src_r}*{src_m} + {src_c},"+
-                "((int) {dst}) + {dst_r}, {col_dim}, {row_dim} );")
+                "((uint32_t) {dst}) + {dst_r}, {col_dim}, {row_dim} );")
     def gemmini_ld(
         src_n : size,
         src_m : size,
@@ -51,7 +51,7 @@ def gen_gemmini_ld():
 def gen_gemmini_store():
     @instr("gemmini_config_st(4 * {dst_m});\n"+
            "gemmini_extended_mvout( "+
-                "((int) {dst}) + {dst_r}*{dst_m} + {dst_c},"+
+                "((uint32_t) {dst}) + {dst_r}*{dst_m} + {dst_c},"+
                 "{src} + {src_r} , {col_dim}, {row_dim} );")
     def gemmini_st(
         src_n : size,
