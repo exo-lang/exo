@@ -433,8 +433,9 @@ class _BindExpr(LoopIR_Rewrite):
         # handle recursive part of pass at this statement
         stmts = super().map_s(s)
         if self.found_expr:
+            # TODO Fix Assign, probably wrong
             stmts = [ LoopIR.Alloc(self.new_name, T.R, None, s.srcinfo),
-                      LoopIR.Assign(self.new_name, [],
+                      LoopIR.Assign(self.new_name, s.type, s.cast, [],
                                     self.expr, self.expr.srcinfo )
                     ] + stmts
             self.found_expr = False
@@ -560,7 +561,8 @@ class _LiftAlloc(LoopIR_Rewrite):
                         for i in self.access_idxs ] + s.idx
                 rhs = self.map_e(s.rhs)
                 # return allocation or reduction...
-                return [ type(s)( s.name, idx, rhs, s.srcinfo ) ]
+                return [ type(s)( s.name, s.type, s.cast,
+                                  idx, rhs, s.srcinfo ) ]
 
         elif type(s) is LoopIR.Call:
             # substitution in call arguments currently unsupported;

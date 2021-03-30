@@ -8,6 +8,7 @@ from . import shared_types as T
 from .LoopIR import LoopIR, LoopIR_Do
 
 from .mem_analysis import MemoryAnalysis
+from .prec_analysis import PrecisionAnalysis
 from .memory import MemGenError
 
 import numpy as np
@@ -172,6 +173,7 @@ def compile_to_strings(proc_list):
 
     for p in proc_list:
         p = MemoryAnalysis(p).result()
+        p = PrecisionAnalysis(p).result()
         d, b = Compiler(p).comp_top()
         # only dump .h-file forward declarations for requested procedures
         if p in orig_procs:
@@ -337,17 +339,23 @@ class Compiler:
                 lhs = self.access_str(s.name, s.idx)
             rhs = self.comp_e(s.rhs)
 
+            cast = ""
+            if s.cast:
+                cast = f"({s.cast})"
+            if s.cast and type(s.rhs) is LoopIR.BinOp:
+                rhs = "(" + rhs + ")"
+
             mem = self.mems[s.name]
             if styp is LoopIR.Assign:
                 if not mem._write:
                     raise MemGenError(f"{s.srcinfo}: cannot write to buffer "+
                                       f"'{s.name}' in memory '{mem.name()}'")
-                self.add_line(f"{lhs} = {rhs};")
+                self.add_line(f"{lhs} = {cast}{rhs};")
             else:
                 if not mem._reduce:
                     raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "+
                                       f"'{s.name}' in memory '{mem.name()}'")
-                self.add_line(f"{lhs} += {rhs};")
+                self.add_line(f"{lhs} += {cast}{rhs};")
         elif styp is LoopIR.If:
             cond = self.comp_e(s.cond)
             self.add_line(f"if ({cond}) {{")

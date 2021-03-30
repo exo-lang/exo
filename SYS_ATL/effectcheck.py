@@ -137,7 +137,8 @@ class InferEffects:
                                [], stmt.srcinfo)
             effects = eff_union(rhs_eff, effects)
 
-            return LoopIR.Assign(stmt.name, stmt.idx, stmt.rhs,
+            return LoopIR.Assign(stmt.name, stmt.type, stmt.cast,
+                                 stmt.idx, stmt.rhs,
                                  effects, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.Reduce:
@@ -149,7 +150,8 @@ class InferEffects:
                                , stmt.srcinfo)
             effects = eff_union(rhs_eff, effects)
 
-            return LoopIR.Reduce(stmt.name, stmt.idx, stmt.rhs,
+            return LoopIR.Reduce(stmt.name, stmt.type, stmt.cast,
+                                 stmt.idx, stmt.rhs,
                                  effects, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.If:

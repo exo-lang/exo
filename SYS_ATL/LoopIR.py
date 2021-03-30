@@ -137,8 +137,8 @@ module LoopIR {
                 mem?            mem,
                 srcinfo         srcinfo )
 
-    stmt    = Assign ( sym name, expr* idx, expr rhs )
-            | Reduce ( sym name, expr* idx, expr rhs )
+    stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
+            | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
         --  | Alias  ( sym name, expr rhs ) -- rhs has to be a slice expr?
             | Pass   ()
             | If     ( expr cond, stmt* body, stmt* orelse )
@@ -203,7 +203,8 @@ class LoopIR_Rewrite:
     def map_s(self, s):
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            return [styp( s.name, [ self.map_e(a) for a in s.idx ],
+            return [styp( s.name, s.type, s.cast,
+                        [ self.map_e(a) for a in s.idx ],
                           self.map_e(s.rhs), s.eff, s.srcinfo )]
         elif styp is LoopIR.If:
             return [LoopIR.If( self.map_e(s.cond), self.map_stmts(s.body),
@@ -282,7 +283,8 @@ class Alpha_Rename(LoopIR_Rewrite):
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             nm = self.env[s.name] if s.name in self.env else s.name
-            return [styp( nm, [ self.map_e(a) for a in s.idx ],
+            return [styp( nm, s.type, s.cast,
+                        [ self.map_e(a) for a in s.idx ],
                          self.map_e(s.rhs), s.eff, s.srcinfo )]
         elif styp is LoopIR.ForAll:
             itr = s.iter.copy()
@@ -327,8 +329,9 @@ class SubstArgs(LoopIR_Rewrite):
             if s.name in self.env:
                 e = self.env[s.name]
                 assert type(e) is LoopIR.Read and len(e.idx) == 0
-                return [styp( e.name, [ self.map_e(a) for a in s.idx ],
-                             self.map_e(s.rhs), s.eff, s.srcinfo )]
+                return [styp( e.name, s.type, s.cast,
+                            [ self.map_e(a) for a in s.idx ],
+                              self.map_e(s.rhs), s.eff, s.srcinfo )]
 
         return super().map_s(s)
 

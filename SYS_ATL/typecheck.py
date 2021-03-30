@@ -138,7 +138,7 @@ class TypeChecker:
 
             IRnode  = (LoopIR.Assign if type(stmt) is UAST.Assign else
                        LoopIR.Reduce)
-            return IRnode(stmt.name, idx, rhs, None, stmt.srcinfo)
+            return IRnode(stmt.name, typ, None, idx, rhs, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Pass:
             return LoopIR.Pass(None, stmt.srcinfo)
@@ -313,11 +313,19 @@ class TypeChecker:
                     elif e.op == "%":
                         self.err(e, "cannot compute modulus of 'R' values")
                         typ = T.err
+                    elif lhs.type != rhs.type:
+                        # Typeerror if precision types are different
+                        self.err(rhs, "cannot compute different precision types")
+                        typ = T.err
                     else:
                         if lhs.type == T.R:
                             typ = T.R
                         elif lhs.type == T.f32:
                             typ = T.f32
+                        elif lhs.type == T.f64:
+                            typ = T.f64
+                        elif lhs.type == T.int8:
+                            typ = T.int8
                 elif rhs.type.is_real_scalar():
                     self.err(lhs, "expected scalar type")
                 elif lhs.type == T.bool:
