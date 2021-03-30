@@ -11,19 +11,19 @@
 int main() {
     gemmini_flush(0);
 
-    int8_t x[16][16];
-    int8_t y[16][16];
-    int8_t z[16][16];
+    float x[16][16];
+    float y[16][16];
+    float z[16][16];
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
-            x[i][j] = (int8_t)i*j;
-            y[i][j] = (int8_t)i*j;
+            x[i][j] = (float)i*j;
+            y[i][j] = (float)j*i;
         }
     }
 
-    int8_t *xg = (int8_t*) 0;
-    int8_t *yg = (int8_t*) 300;
-    int8_t *zg = (int8_t*) 600;
+    float *xg = (float*) 0;
+    float *yg = (float*) 2000;
+    float *zg = (float*) 4000;
 
     matmul_16(x, xg, y, yg, z, zg);
 
