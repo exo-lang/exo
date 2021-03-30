@@ -11,8 +11,8 @@
 int main() {
     gemmini_flush(0);
 
-    float *x = (float*) 0;
-    float y[16][16];
+    int8_t *x = (int8_t*) 0;
+    int8_t y[16][16];
 
     st_16(x, y);
 

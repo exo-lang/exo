@@ -16,7 +16,7 @@ import pytest
 
 #--------------------- GEMMINI MVIN ----------------------
 def gen_gemmini_ld():
-    @instr("gemmini_extended3_config_ld(4 * {src_m}, 1.0f, 0, 0);\n"+
+    @instr("gemmini_extended3_config_ld(1 * {src_m}, 1.0f, 0, 0);\n"+
            "gemmini_extended_mvin( "+
                 "{src} + {src_r}*{src_m} + {src_c},"+
                 "((uint32_t) {dst}) + {dst_r}, {col_dim}, {row_dim} );")
@@ -29,8 +29,8 @@ def gen_gemmini_ld():
         dst_r : index,
         col_dim : size,
         row_dim : size,
-        src : F32[src_n, src_m] @ DRAM,
-        dst : F32[dst_n, 16]    @ GEMM_SCRATCH,
+        src : INT8[src_n, src_m] @ DRAM,
+        dst : INT8[dst_n, 16]    @ GEMM_SCRATCH,
     ):
         assert row_dim <= 16
         assert col_dim <= 16
@@ -49,7 +49,7 @@ def gen_gemmini_ld():
 
 #--------------------- GEMMINI MVOUT ----------------------
 def gen_gemmini_store():
-    @instr("gemmini_config_st(4 * {dst_m});\n"+
+    @instr("gemmini_config_st(1 * {dst_m});\n"+
            "gemmini_extended_mvout( "+
                 "((uint32_t) {dst}) + {dst_r}*{dst_m} + {dst_c},"+
                 "{src} + {src_r} , {col_dim}, {row_dim} );")
@@ -62,8 +62,8 @@ def gen_gemmini_store():
         dst_c : index,
         col_dim : size,
         row_dim : size,
-        src : F32[src_n,16]    @ GEMM_SCRATCH,
-        dst : F32[dst_n,dst_m] @ DRAM
+        src : INT8[src_n,16]    @ GEMM_SCRATCH,
+        dst : INT8[dst_n,dst_m] @ DRAM
     ):
         assert row_dim <= 16
         assert col_dim <= 16
@@ -84,7 +84,9 @@ def gen_gemmini_store():
 
 def gen_ld_st_16(gemmini_ld, gemmini_st):
     @proc
-    def ld_st_16(x : F32[16, 16] @ DRAM, y : F32[16, 16] @ GEMM_SCRATCH, z : F32[16, 16] @ DRAM):
+    def ld_st_16(x : INT8[16, 16] @ DRAM,
+                 y : INT8[16, 16] @ GEMM_SCRATCH,
+                 z : INT8[16, 16] @ DRAM):
         gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, x, y)
         gemmini_st(16, 0, 16, 16, 0, 0, 16, 16, y, z)
 
@@ -106,7 +108,7 @@ def test_ld_st_16():
 
 def gen_st_16(gemmini_st):
     @proc
-    def st_16(x : F32[16, 16] @ GEMM_SCRATCH, y : F32[16, 16] @ DRAM):
+    def st_16(x : INT8[16, 16] @ GEMM_SCRATCH, y : INT8[16, 16] @ DRAM):
         gemmini_st(16, 0, 16, 16, 0, 0, 16, 16, x, y)
 
     return st_16
@@ -128,7 +130,7 @@ def test_store_16():
 
 def gen_ld_16(gemmini_ld):
     @proc
-    def ld_16(x : F32[16, 16] @ DRAM, y : F32[16, 16] @ GEMM_SCRATCH):
+    def ld_16(x : INT8[16, 16] @ DRAM, y : INT8[16, 16] @ GEMM_SCRATCH):
         gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, x, y)
 
     return ld_16

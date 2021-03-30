@@ -11,30 +11,42 @@
 int main() {
     gemmini_flush(0);
 
-    float x[16][16];
+    int8_t x[16][16];
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
-            x[i][j] = (float)1.0*i*j;
+            x[i][j] = (int8_t)i*j;
         }
     }
-    for (int i = 0; i < 16; i++) {
-        for (int j = 0; j < 16; j++) {
-            printf("%d ", (int)x[i][j]);
-        }
-        printf("\n");
-    }
-    printf("\n");
 
-    float *y = (float*) 0;
-    float z[16][16];
+    int8_t *y = (int8_t*) 0;
+    int8_t z[16][16];
 
     ld_st_16(x, y, z);
 
+    bool flag = true;
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
-            printf("%d ", (int)z[i][j]);
+            if (x[i][j] != z[i][j]) {
+                flag = false;
+            }
         }
-        printf("\n");
+    }
+    if (flag == false) {
+        printf("Test failed!\n");
+        printf("Expected output is:\n");
+        for (int i = 0; i < 16; i++) {
+            for (int j = 0; j < 16; j++)
+                printf("%d ", (int)x[i][j]);
+            printf("\n");
+        }
+        printf("The actual output is:\n");
+        for (int i = 0; i < 16; i++) {
+            for (int j = 0; j < 16; j++)
+                printf("%d ", (int)z[i][j]);
+            printf("\n");
+        }
+    } else {
+        printf("Success!\n");
     }
 
     printf("\nDone\n");

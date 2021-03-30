@@ -13,13 +13,13 @@
 int main() {
     gemmini_flush(0);
 
-    float x[16][16];
+    int8_t x[16][16];
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
-            x[i][j] = (float)1.0*i*j;
+            x[i][j] = (int8_t)1.0*i*j;
         }
     }
-    float *y = (float*) 0;
+    int8_t *y = (int8_t*) 0;
 
     ld_16(x, y);
 

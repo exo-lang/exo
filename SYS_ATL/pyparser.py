@@ -314,9 +314,10 @@ class Parser:
         if type(node) is pyast.Subscript:
             if (type(node.value) is not pyast.Name
                     or (node.value.id != "R" and node.value.id != "F32"
-                        and node.value.id != "F64")):
+                        and node.value.id != "F64"
+                        and node.value.id != "INT8")):
                 self.err(node, "expected tensor type to be "+
-                               "of the form 'R/F32/F64[...]'")
+                               "of the form 'R/F32/F64/INT8[...]'")
 
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
@@ -347,6 +348,8 @@ class Parser:
                 typ = T.f32
             elif node.value.id == "F64":
                 typ = T.f64
+            elif node.value.id == "INT8":
+                typ = T.int8
 
             for idx in reversed(dims):
                 if type(idx) is pyast.Constant:
@@ -374,6 +377,8 @@ class Parser:
             return T.f32
         elif type(node) is pyast.Name and node.id == "F64":
             return T.f64
+        elif type(node) is pyast.Name and node.id == "INT8":
+            return T.int8
 
         else:
             self.err(node, "unrecognized type: "+astor.dump_tree(node))
