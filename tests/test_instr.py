@@ -81,6 +81,89 @@ def gen_gemmini_store():
     return gemmini_st
 
 
+#--------------------- GEMMINI MATMUL ----------------------
+def gen_gemmini_matmul():
+    @instr("gemmini_extended_preload("+
+                "(uint32_t)({B} + {B_row_off}), (uint32_t)({C} + {C_row_off}), "+
+                "{M}, {K}, "+
+                "{M}, {N}"+
+           ");\n"+
+           "gemmini_extended_compute_preloaded("+
+                "(uint32_t)({A} + {A_row_off}), ~((uint32_t)0), "+
+                "{K}, {N}, "+
+                "16, 16"+
+           ");")
+    def gemmini_matmul(
+        N : size,
+        M : size,
+        K : size,
+        A_row_off : index,
+        B_row_off : index,
+        C_row_off : index,
+        nA : size,
+        nB : size,
+        nC : size,
+        A : INT8[nA,16] @ GEMM_SCRATCH,
+        B : INT8[nB,16] @ GEMM_SCRATCH,
+        C : INT8[nC,16] @ GEMM_SCRATCH
+    ):
+        assert 1 <= N <= 16
+        assert 1 <= M <= 16
+        assert 1 <= K <= 16
+        assert 0 <= A_row_off < nA
+        assert 0 <= B_row_off < nB
+        assert 0 <= C_row_off < nC
+        assert 0 <= A_row_off + N <= nA
+        assert 0 <= B_row_off + K <= nB
+        assert 0 <= C_row_off + N <= nC
+        assert N <= nC
+        assert N <= nA
+        assert K <= nB
+
+        for i in par(0,N):
+            for j in par(0,M):
+                C[C_row_off+i, j] = 0.0
+                for k in par(0,K):
+                    C[C_row_off+i, j] += A[A_row_off+i, k] * B[B_row_off+k, j]
+
+    return gemmini_matmul
+
+
+
+def gen_matmul_16(gemmini_ld, gemmini_st, gemmini_matmul):
+    @proc
+    def matmul_16(A      : INT8[16, 16] @ DRAM,
+                  A_GEMM : INT8[16, 16] @ GEMM_SCRATCH,
+                  B      : INT8[16, 16] @ DRAM,
+                  B_GEMM : INT8[16, 16] @ GEMM_SCRATCH,
+                  C      : INT8[16, 16] @ DRAM,
+                  C_GEMM : INT8[16, 16] @ GEMM_SCRATCH):
+        # Load A and B to scratchpad
+        gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, A, A_GEMM)
+        gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, B, B_GEMM)
+
+        gemmini_matmul(16, 16, 16, 0, 0, 0, 16, 16, 16, A_GEMM, B_GEMM, C_GEMM)
+
+        # Store C_GEMM to C
+        gemmini_st(16, 0, 16, 16, 0, 0, 16, 16, C_GEMM, C)
+
+    return matmul_16
+def test_matmul_16():
+    gemm_ld = gen_gemmini_ld()
+    gemm_st = gen_gemmini_store()
+    gemm_matmul = gen_gemmini_matmul()
+    matmul = gen_matmul_16(gemm_ld, gemm_st, gemm_matmul)
+
+    assert type(gemm_ld) is Procedure
+    assert type(gemm_st) is Procedure
+    assert type(gemm_matmul) is Procedure
+    assert type(matmul) is Procedure
+
+    filename = "test_matmul_16"
+
+    matmul.compile_c(directory, filename)
+
+
 
 def gen_ld_st_16(gemmini_ld, gemmini_st):
     @proc

@@ -6,27 +6,31 @@
 #include <time.h>
 
 #include "include/gemmini_testutils.h"
-#include "tmp/test_ld_st_16.h"
+#include "tmp/test_matmul_16.h"
 
 int main() {
     gemmini_flush(0);
 
     int8_t x[16][16];
+    int8_t y[16][16];
+    int8_t z[16][16];
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
             x[i][j] = (int8_t)i*j;
+            y[i][j] = (int8_t)i*j;
         }
     }
 
-    int8_t *y = (int8_t*) 300;
-    int8_t z[16][16];
+    int8_t *xg = (int8_t*) 0;
+    int8_t *yg = (int8_t*) 300;
+    int8_t *zg = (int8_t*) 600;
 
-    ld_st_16(x, y, z);
+    matmul_16(x, xg, y, yg, z, zg);
 
     bool flag = true;
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
-            if (x[i][j] != z[i][j]) {
+            if (z[i][j] != (x[i][j] * y[i][j])) {
                 flag = false;
             }
         }
@@ -36,7 +40,7 @@ int main() {
         printf("Expected output is:\n");
         for (int i = 0; i < 16; i++) {
             for (int j = 0; j < 16; j++)
-                printf("%d ", (int)x[i][j]);
+                printf("%d ", (int)(x[i][j]*y[i][j]));
             printf("\n");
         }
         printf("The actual output is:\n");
