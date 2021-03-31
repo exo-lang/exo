@@ -10,7 +10,7 @@ import sys
 
 from .prelude import *
 from .LoopIR import UAST, front_ops, PAST
-from .LoopIR import T
+#from .LoopIR import T
 
 from collections import ChainMap
 
@@ -219,7 +219,7 @@ class Parser:
                 self.err(a, f"repeated argument name: '{a.arg}'")
             names.add(a.arg)
             nm = Sym(a.arg)
-            if typ == T.size:
+            if type(typ) == UAST.Size:
                 self.locals[a.arg] = SizeStub(nm)
             else:
                 # note we don't need to stub the index variables
@@ -281,13 +281,13 @@ class Parser:
             if mem_node is not None:
                 self.err(node, "size types should not be annotated with "+
                                "memory locations")
-            return T.size, None
+            return UAST.Size(), None
 
         elif is_index(typ_node):
             if mem_node is not None:
                 self.err(node, "size types should not be annotated with "+
                                "memory locations")
-            return T.index, None
+            return UAST.Index(), None
 
         else:
             typ = self.parse_num_type(typ_node)
@@ -343,24 +343,24 @@ class Parser:
 
             # convert the dimension list into a full tensor type
             if node.value.id == "R":
-                typ = T.R
+                typ = UAST.Num()
             elif node.value.id == "F32":
-                typ = T.f32
+                typ = UAST.F32()
             elif node.value.id == "F64":
-                typ = T.f64
+                typ = UAST.F64()
             elif node.value.id == "INT8":
-                typ = T.int8
+                typ = UAST.INT8()
 
             for idx in reversed(dims):
                 if type(idx) is pyast.Constant:
                     if is_pos_int(idx.value):
-                        typ = T.Tensor(idx.value, typ)
+                        typ = UAST.Tensor(idx.value, typ)
                         continue
                 elif type(idx) is pyast.Name:
                     if idx.id in self.locals:
                         sz = self.locals[idx.id]
                         if type(sz) is SizeStub:
-                            typ = T.Tensor(sz.nm, typ)
+                            typ = UAST.Tensor(sz.nm, typ)
                             continue
                         else:
                             self.err(idx, f"'{idx.id}' is not a size")
@@ -372,13 +372,13 @@ class Parser:
             return typ
 
         elif type(node) is pyast.Name and node.id == "R":
-            return T.R
+            return UAST.Num()
         elif type(node) is pyast.Name and node.id == "F32":
-            return T.f32
+            return UAST.F32()
         elif type(node) is pyast.Name and node.id == "F64":
-            return T.f64
+            return UAST.F64()
         elif type(node) is pyast.Name and node.id == "INT8":
-            return T.int8
+            return UAST.INT8()
 
         else:
             self.err(node, "unrecognized type: "+astor.dump_tree(node))
@@ -423,7 +423,7 @@ class Parser:
                         # TODO: Fix here
                         nm = Sym(name_node.id)
                         self.locals[name_node.id] = nm
-                        rstmts.append(UAST.Alloc(nm, T.R, None,
+                        rstmts.append(UAST.Alloc(nm, UAST.Num(), None,
                                                  self.getsrcinfo(s)))
 
                 # get the symbol corresponding to the name on the

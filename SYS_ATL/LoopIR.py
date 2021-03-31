@@ -211,15 +211,57 @@ module UAST {
             | ParRange( expr lo, expr hi ) -- only use for loop cond
             attributes( srcinfo srcinfo )
 
+    type    = Num   ()
+            | F32   ()
+            | F64   ()
+            | INT8  ()
+            | Bool  ()
+            | Int   ()
+            | Size  ()
+            | Index ()
+            | Tensor( range hi, type type )
 } """, {
     'name':         is_valid_name,
     'sym':          lambda x: type(x) is Sym,
-    'type':         T.is_type,
     'mem':          lambda x: isinstance(x, Memory),
     'loopir_proc':  lambda x: type(x) is LoopIR.proc,
     'op':           lambda x: x in front_ops,
-    'srcinfo':      lambda x: type(x) is SrcInfo,
+    'range':        lambda x: is_pos_int(x) or type(x) is Sym,
+    'srcinfo':      lambda x: type(x) is SrcInfo
 })
+
+ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Size',
+               'Index', 'Tensor'], {
+    'range': lambda x: x,
+})
+
+@extclass(UAST.type)
+def __str__(t):
+    if not hasattr(t, '_str_cached'):
+        if type(t) is UAST.Num:
+            t._str_cached = "R"
+        elif type(t) is UAST.F32:
+            t._str_cached = "f32"
+        elif type(t) is UAST.F64:
+            t._str_cached = "f64"
+        elif type(t) is UAST.INT8:
+            t._str_cached = "int8"
+        elif type(t) is UAST.Bool:
+            t._str_cached = "bool"
+        elif type(t) is UAST.Int:
+            t._str_cached = "int"
+        elif type(t) is UAST.Index:
+            t._str_cached = "index"
+        elif type(t) is UAST.Size:
+            t._str_cached = "size"
+        elif type(t) is UAST.Tensor:
+            rngs = ",".join([str(r) for r in t.shape()])
+            t._str_cached = f"{t.basetype()}[{rngs}]"
+        else:
+            assert False, "impossible type case"
+    return t._str_cached
+
+del __str__
 
 
 # --------------------------------------------------------------------------- #
