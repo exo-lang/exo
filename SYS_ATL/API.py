@@ -1,6 +1,6 @@
 from .prelude import *
 from .LoopIR import UAST, LoopIR
-from . import shared_types as T
+from .LoopIR import T
 from .typecheck import TypeChecker
 from .LoopIR_compiler import Compiler, run_compile, compile_to_strings
 from .LoopIR_interpreter import Interpreter, run_interpreter

@@ -3,7 +3,8 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 
-from . import shared_types as T
+#from .LoopIR import T
+from . import LoopIR
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -48,7 +49,7 @@ module Effects {
 
 } """, {
     'sym':          lambda x: type(x) is Sym,
-    'type':         T.is_type,
+    'type':         lambda x: LoopIR.T.is_type(x),
     'binop':        lambda x: x in front_ops,
     'srcinfo':      lambda x: type(x) is SrcInfo,
 })
@@ -242,7 +243,8 @@ def eff_filter(pred, e):
         elif es.pred is None:
             preds = pred
         else:
-            preds = Effects.BinOp("and", pred, es.pred, T.bool, pred.srcinfo)
+            preds = Effects.BinOp("and", pred, es.pred,
+                                  LoopIR.T.bool, pred.srcinfo)
         return Effects.effset(es.buffer, es.loc, es.names, preds, es.srcinfo)
 
     return Effects.effect( [ filter_es(es) for es in e.reads ],
@@ -259,7 +261,8 @@ def eff_bind(bind_name, e, pred=None):
         elif es.pred is None:
             preds = pred
         else:
-            preds = Effects.BinOp("and", pred, es.pred, T.bool, pred.srcinfo)
+            preds = Effects.BinOp("and", pred, es.pred,
+                                  LoopIR.T.bool, pred.srcinfo)
         return Effects.effset(es.buffer, es.loc, [bind_name]+es.names,
                               preds, es.srcinfo)
 

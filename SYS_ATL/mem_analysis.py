@@ -3,7 +3,7 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 
-from . import shared_types as T
+from .LoopIR import T
 from .LoopIR import LoopIR
 
 # --------------------------------------------------------------------------- #

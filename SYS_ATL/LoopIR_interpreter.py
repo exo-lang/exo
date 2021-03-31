@@ -3,7 +3,7 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 
-from . import shared_types as T
+from .LoopIR import T
 from .LoopIR import LoopIR
 
 import numpy as np
@@ -57,7 +57,7 @@ class Interpreter:
             if not str(a.name) in kwargs:
                 raise TypeError(f"expected argument '{a.name}' "
                                 f"to be supplied")
-            
+
             if a.type is T.size:
                 if not is_pos_int(kwargs[str(a.name)]):
                     raise TypeError(f"expected size '{a.name}' to "

@@ -3,10 +3,162 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 
-from . import shared_types as T
 from .LoopIR_effects import Effects as E
 
 from .memory import Memory
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Types
+
+_Types = ADT("""
+module Types {
+    type    = Num   ()
+            | F32   ()
+            | F64   ()
+            | INT8  ()
+            | Bool  ()
+            | Int   ()
+            | Index ()
+            | Size  ()
+            | Error ()
+            | Tensor( range hi, type type )
+    --| Window( sym orig, expr* lo, expr* hi, type orig_type )
+} """, {
+    'range': lambda x: is_pos_int(x) or type(x) is Sym,
+})
+ADTmemo(_Types, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Index', 'Size', 'Error',
+                 'Tensor'], {
+    'range': lambda x: x,
+})
+
+class T:
+    Num     = _Types.Num
+    F32     = _Types.F32
+    F64     = _Types.F64
+    INT8    = _Types.INT8
+    Bool    = _Types.Bool
+    Int     = _Types.Int
+    Index   = _Types.Index
+    Size    = _Types.Size
+    Error   = _Types.Error
+    Tensor  = _Types.Tensor
+    R       = Num()
+    f32     = F32()
+    int8    = INT8()
+    f64     = F64()
+    bool    = Bool()    # note: accessed as T.bool outside this module
+    int     = Int()
+    index   = Index()
+    size    = Size()
+    err     = Error()
+
+    def is_type(obj):
+        return isinstance(obj, _Types.type)
+
+# --------------------------------------------------------------------------- #
+# type helper functions
+
+@extclass(T.Tensor)
+@extclass(T.Num)
+@extclass(T.F32)
+@extclass(T.F64)
+@extclass(T.INT8)
+def shape(t):
+    shp = []
+    while type(t) is T.Tensor:
+        shp.append(t.hi)
+        t = t.type
+    assert t.is_real_scalar()
+    return shp
+del shape
+
+@extclass(T.Num)
+@extclass(T.F32)
+@extclass(T.F64)
+@extclass(T.INT8)
+def ctype(t):
+    if type(t) is T.Num:
+        return "float"
+    elif type(t) is T.F32:
+        return "float"
+    elif type(t) is T.F64:
+        return "double"
+    elif type(t) is T.INT8:
+        return "int8_t"
+del ctype
+
+@extclass(_Types.type)
+def is_real_scalar(t):
+    return (type(t) is T.Num or type(t) is T.F32 or
+            type(t) is T.F64 or type(t) is T.INT8)
+del is_real_scalar
+
+@extclass(_Types.type)
+def is_numeric(t):
+    return t.is_real_scalar() or type(t) is T.Tensor
+del is_numeric
+
+@extclass(_Types.type)
+def is_indexable(t):
+    return type(t) is T.Int or type(t) is T.Index or type(t) is T.Size
+del is_indexable
+
+@extclass(_Types.type)
+def is_sizeable(t):
+    return type(t) is T.Int or type(t) is T.Size
+del is_sizeable
+
+@extclass(_Types.type)
+def basetype(t):
+    while type(t) is T.Tensor:
+        t = t.type
+    return t
+del basetype
+
+@extclass(_Types.type)
+def subst(t, lookup):
+    if type(t) is T.Tensor:
+        typ     = t.type.subst(lookup)
+        hi      = t.hi if is_pos_int(t.hi) else lookup[t.hi]
+        return T.Tensor(hi, typ)
+    else:
+        return t
+del subst
+
+# --------------------------------------------------------------------------- #
+# string representation of types...
+
+@extclass(_Types.type)
+def __str__(t):
+    if not hasattr(t, '_str_cached'):
+        if type(t) is T.Num:
+            t._str_cached = "R"
+        elif type(t) is T.F32:
+            t._str_cached = "f32"
+        elif type(t) is T.F64:
+            t._str_cached = "f64"
+        elif type(t) is T.INT8:
+            t._str_cached = "int8"
+        elif type(t) is T.Bool:
+            t._str_cached = "bool"
+        elif type(t) is T.Int:
+            t._str_cached = "int"
+        elif type(t) is T.Index:
+            t._str_cached = "index"
+        elif type(t) is T.Size:
+            t._str_cached = "size"
+        elif type(t) is T.Error:
+            t._str_cached = "err"
+        elif type(t) is T.Tensor:
+            rngs = ",".join([str(r) for r in t.shape()])
+            t._str_cached = f"{t.basetype()}[{rngs}]"
+        else:
+            assert False, "impossible type case"
+    return t._str_cached
+
+del __str__
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

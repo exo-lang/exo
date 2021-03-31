@@ -1,6 +1,6 @@
 from .prelude import *
 from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do, SubstArgs
-from . import shared_types as T
+from .LoopIR import T
 import re
 
 from collections import defaultdict, ChainMap

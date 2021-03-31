@@ -10,7 +10,7 @@ import sys
 
 from .prelude import *
 from .LoopIR import UAST, front_ops, PAST
-from . import shared_types as T
+from .LoopIR import T
 
 from collections import ChainMap
 
@@ -508,7 +508,7 @@ class Parser:
             # ----- Pass no-op parsing
             elif type(s) is pyast.Pass:
                 rstmts.append(UAST.Pass(self.getsrcinfo(s)))
-                
+
             elif type(s) is pyast.Assert:
                 self.err(s, "predicate assert should happen at the beginning "+
                             "of a function")

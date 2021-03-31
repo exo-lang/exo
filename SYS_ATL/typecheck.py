@@ -3,7 +3,7 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops
-from . import shared_types as T
+from .LoopIR import T
 
 from .memory import *
 
