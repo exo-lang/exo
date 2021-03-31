@@ -11,15 +11,15 @@
 int main() {
     gemmini_flush(0);
 
-    int8_t x[16][16];
+    float x[16][16];
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
-            x[i][j] = (int8_t)i*j;
+            x[i][j] = (float)i*j;
         }
     }
 
-    int8_t *y = (int8_t*) 300;
-    int8_t z[16][16];
+    float *y = (float*) 300;
+    float z[16][16];
 
     ld_st_16(x, y, z);
 

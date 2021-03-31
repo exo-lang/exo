@@ -17,20 +17,23 @@ int main() {
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
             x[i][j] = (float)i*j;
-            y[i][j] = (float)j*i;
+            y[i][j] = (float)(i*j*2.5);
         }
     }
 
     float *xg = (float*) 0;
-    float *yg = (float*) 2000;
-    float *zg = (float*) 4000;
+    float *yg = (float*) 16;
+    float *zg = (float*) 32;
 
     matmul_16(x, xg, y, yg, z, zg);
 
     bool flag = true;
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
-            if (z[i][j] != (x[i][j] * y[i][j])) {
+            float res = 0;
+            for (int k = 0; k < 16; k++)
+                res += x[i][k] * y[k][j];
+            if (z[i][j] != res) {
                 flag = false;
             }
         }
@@ -39,8 +42,12 @@ int main() {
         printf("Test failed!\n");
         printf("Expected output is:\n");
         for (int i = 0; i < 16; i++) {
-            for (int j = 0; j < 16; j++)
-                printf("%d ", (int)(x[i][j]*y[i][j]));
+            for (int j = 0; j < 16; j++) {
+                float res = 0;
+                for (int k = 0; k < 16; k++)
+                    res += x[i][k] * y[k][j];
+                printf("%d ", (int)res);
+            }
             printf("\n");
         }
         printf("The actual output is:\n");
