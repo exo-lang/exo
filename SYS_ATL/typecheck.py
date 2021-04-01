@@ -3,7 +3,7 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops
-from . import shared_types as T
+from .LoopIR import T
 
 from .memory import *
 
@@ -32,6 +32,28 @@ def is_valid_mem(mem):
     else:
         return False
 
+def type_lift(typ):
+    if type(typ) is UAST.Num:
+        return T.R
+    elif type(typ) is UAST.F32:
+        return T.f32
+    elif type(typ) is UAST.F64:
+        return T.f64
+    elif type(typ) is UAST.INT8:
+        return T.int8
+    elif type(typ) is UAST.Bool:
+        return T.bool
+    elif type(typ) is UAST.Int:
+        return T.int
+    elif type(typ) is UAST.Size:
+        return T.size
+    elif type(typ) is UAST.Index:
+        return T.index
+    elif type(typ) is UAST.Tensor:
+        return T.Tensor(typ.hi, type_lift(typ.type))
+    else:
+        assert False, "bad case"
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # The typechecker
@@ -45,14 +67,15 @@ class TypeChecker:
 
         args = []
         for a in proc.args:
-            self.env[a.name] = a.type
+            typ = type_lift(a.type)
+            self.env[a.name] = typ
             mem = a.mem
             if mem is None:
                 mem = DRAM
             if mem and not is_valid_mem(mem):
                 self.err(a, f"invalid memory name '{mem}'")
                 mem = None
-            args.append(LoopIR.fnarg(a.name, a.type, mem, a.srcinfo))
+            args.append(LoopIR.fnarg(a.name, typ, mem, a.srcinfo))
 
         preds = []
         for p in proc.preds:
@@ -174,14 +197,15 @@ class TypeChecker:
             return LoopIR.ForAll(stmt.iter, hi, body, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Alloc:
-            self.env[stmt.name] = stmt.type
+            typ = type_lift(stmt.type)
+            self.env[stmt.name] = typ
             mem = stmt.mem
             if mem is None:
                 mem = DRAM
             if mem and not is_valid_mem(mem):
                 self.err(stmt, f"invalid memory name '{mem}'")
                 mem = None
-            return LoopIR.Alloc(stmt.name, stmt.type, mem, None, stmt.srcinfo)
+            return LoopIR.Alloc(stmt.name, typ, mem, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Call:
             args    = [ self.check_e(a) for a in stmt.args ]

@@ -3,7 +3,6 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 
-from . import shared_types as T
 from .LoopIR_effects import Effects as E
 
 from .memory import Memory
@@ -59,15 +58,57 @@ module UAST {
             | ParRange( expr lo, expr hi ) -- only use for loop cond
             attributes( srcinfo srcinfo )
 
+    type    = Num   ()
+            | F32   ()
+            | F64   ()
+            | INT8  ()
+            | Bool  ()
+            | Int   ()
+            | Size  ()
+            | Index ()
+            | Tensor( range hi, type type )
 } """, {
     'name':         is_valid_name,
     'sym':          lambda x: type(x) is Sym,
-    'type':         T.is_type,
     'mem':          lambda x: isinstance(x, Memory),
     'loopir_proc':  lambda x: type(x) is LoopIR.proc,
     'op':           lambda x: x in front_ops,
-    'srcinfo':      lambda x: type(x) is SrcInfo,
+    'range':        lambda x: is_pos_int(x) or type(x) is Sym,
+    'srcinfo':      lambda x: type(x) is SrcInfo
 })
+
+ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Size',
+               'Index', 'Tensor'], {
+    'range': lambda x: x,
+})
+
+@extclass(UAST.type)
+def __str__(t):
+    if not hasattr(t, '_str_cached'):
+        if type(t) is UAST.Num:
+            t._str_cached = "R"
+        elif type(t) is UAST.F32:
+            t._str_cached = "f32"
+        elif type(t) is UAST.F64:
+            t._str_cached = "f64"
+        elif type(t) is UAST.INT8:
+            t._str_cached = "int8"
+        elif type(t) is UAST.Bool:
+            t._str_cached = "bool"
+        elif type(t) is UAST.Int:
+            t._str_cached = "int"
+        elif type(t) is UAST.Index:
+            t._str_cached = "index"
+        elif type(t) is UAST.Size:
+            t._str_cached = "size"
+        elif type(t) is UAST.Tensor:
+            rngs = ",".join([str(r) for r in t.shape()])
+            t._str_cached = f"{t.basetype()}[{rngs}]"
+        else:
+            assert False, "impossible type case"
+    return t._str_cached
+
+del __str__
 
 
 # --------------------------------------------------------------------------- #
@@ -158,14 +199,31 @@ module LoopIR {
     --           | SliceRange( expr lo, expr hi )
     --           attributes(srcinfo srcinfo)
 
+    type    = Num   ()
+            | F32   ()
+            | F64   ()
+            | INT8  ()
+            | Bool  ()
+            | Int   ()
+            | Index ()
+            | Size  ()
+            | Error ()
+            | Tensor( range hi, type type )
+    --| Window( sym orig, expr* lo, expr* hi, type orig_type )
+
 } """, {
     'name':     is_valid_name,
     'sym':      lambda x: type(x) is Sym,
-    'type':     T.is_type,
     'effect':   lambda x: type(x) is E.effect,
     'mem':      lambda x: isinstance(x, Memory),
+    'range':    lambda x: is_pos_int(x) or type(x) is Sym,
     'binop':    lambda x: x in bin_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
+})
+
+ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Index',
+                 'Size', 'Error', 'Tensor'], {
+    'range': lambda x: x,
 })
 
 # make proc be a hashable object
@@ -173,6 +231,138 @@ module LoopIR {
 def __hash__(self):
     return id(self)
 del __hash__
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Types
+
+class T:
+    Num     = LoopIR.Num
+    F32     = LoopIR.F32
+    F64     = LoopIR.F64
+    INT8    = LoopIR.INT8
+    Bool    = LoopIR.Bool
+    Int     = LoopIR.Int
+    Index   = LoopIR.Index
+    Size    = LoopIR.Size
+    Error   = LoopIR.Error
+    Tensor  = LoopIR.Tensor
+    R       = Num()
+    f32     = F32()
+    int8    = INT8()
+    f64     = F64()
+    bool    = Bool()    # note: accessed as T.bool outside this module
+    int     = Int()
+    index   = Index()
+    size    = Size()
+    err     = Error()
+
+    def is_type(obj):
+        return isinstance(obj, LoopIR.type)
+
+# --------------------------------------------------------------------------- #
+# type helper functions
+
+@extclass(T.Tensor)
+@extclass(T.Num)
+@extclass(T.F32)
+@extclass(T.F64)
+@extclass(T.INT8)
+def shape(t):
+    shp = []
+    while type(t) is T.Tensor:
+        shp.append(t.hi)
+        t = t.type
+    assert t.is_real_scalar()
+    return shp
+del shape
+
+@extclass(T.Num)
+@extclass(T.F32)
+@extclass(T.F64)
+@extclass(T.INT8)
+def ctype(t):
+    if type(t) is T.Num:
+        return "float"
+    elif type(t) is T.F32:
+        return "float"
+    elif type(t) is T.F64:
+        return "double"
+    elif type(t) is T.INT8:
+        return "int8_t"
+del ctype
+
+@extclass(LoopIR.type)
+def is_real_scalar(t):
+    return (type(t) is T.Num or type(t) is T.F32 or
+            type(t) is T.F64 or type(t) is T.INT8)
+del is_real_scalar
+
+@extclass(LoopIR.type)
+def is_numeric(t):
+    return t.is_real_scalar() or type(t) is T.Tensor
+del is_numeric
+
+@extclass(LoopIR.type)
+def is_indexable(t):
+    return type(t) is T.Int or type(t) is T.Index or type(t) is T.Size
+del is_indexable
+
+@extclass(LoopIR.type)
+def is_sizeable(t):
+    return type(t) is T.Int or type(t) is T.Size
+del is_sizeable
+
+@extclass(LoopIR.type)
+def basetype(t):
+    while type(t) is T.Tensor:
+        t = t.type
+    return t
+del basetype
+
+@extclass(LoopIR.type)
+def subst(t, lookup):
+    if type(t) is T.Tensor:
+        typ     = t.type.subst(lookup)
+        hi      = t.hi if is_pos_int(t.hi) else lookup[t.hi]
+        return T.Tensor(hi, typ)
+    else:
+        return t
+del subst
+
+# --------------------------------------------------------------------------- #
+# string representation of types...
+
+@extclass(LoopIR.type)
+def __str__(t):
+    if not hasattr(t, '_str_cached'):
+        if type(t) is T.Num:
+            t._str_cached = "R"
+        elif type(t) is T.F32:
+            t._str_cached = "f32"
+        elif type(t) is T.F64:
+            t._str_cached = "f64"
+        elif type(t) is T.INT8:
+            t._str_cached = "int8"
+        elif type(t) is T.Bool:
+            t._str_cached = "bool"
+        elif type(t) is T.Int:
+            t._str_cached = "int"
+        elif type(t) is T.Index:
+            t._str_cached = "index"
+        elif type(t) is T.Size:
+            t._str_cached = "size"
+        elif type(t) is T.Error:
+            t._str_cached = "err"
+        elif type(t) is T.Tensor:
+            rngs = ",".join([str(r) for r in t.shape()])
+            t._str_cached = f"{t.basetype()}[{rngs}]"
+        else:
+            assert False, "impossible type case"
+    return t._str_cached
+
+del __str__
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

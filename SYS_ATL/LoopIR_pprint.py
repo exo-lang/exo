@@ -4,7 +4,7 @@ import textwrap
 from .prelude import *
 from .LoopIR import UAST, front_ops, LoopIR
 from .LoopIR_effects import Effects as E
-from . import shared_types as T
+from .LoopIR import T
 
 # google python formatting project
 # to save myself the trouble of being overly clever

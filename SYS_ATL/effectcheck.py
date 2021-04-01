@@ -1,6 +1,6 @@
 from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
-from . import shared_types as T
+from .LoopIR import T
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
                              eff_null, eff_remove_buf, effect_as_str)
