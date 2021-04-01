@@ -6,7 +6,7 @@
 #include <time.h>
 
 #include "include/gemmini_testutils.h"
-#include "tmp/test_store_16.h"
+#include "../tmp/test_store_16.h"
 
 int main() {
     gemmini_flush(0);

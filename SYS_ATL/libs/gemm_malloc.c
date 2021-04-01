@@ -1,7 +1,5 @@
-//#define HEAP_SIZE {heap_size}
-//#define DIM {dim}
-#define HEAP_SIZE 1000
-#define DIM 16
+#define HEAP_SIZE {heap_size}
+#define DIM {dim}
 
 #include<stdio.h>
 #include<stdint.h>
@@ -15,13 +13,13 @@ typedef struct __attribute__((__packed__)) NewBlock {
 NewBlock BLOCKS[HEAP_SIZE / sizeof(NewBlock)];
 uint32_t gemm_last_ptr;
 
-void init_mem() {
+void gemm_init_mem() {
   for(uint32_t i=0; i<sizeof(BLOCKS); i++)
     ((uint8_t*)BLOCKS)[i] = 0;
   gemm_last_ptr = 0;
 }
 
-uint32_t malloc_gemm(long unsigned int size) {
+uint32_t gemm_malloc(long unsigned int size) {
   if(size == 0) return -1;
   size = (size + DIM - 1) / DIM;
   int i;
@@ -43,7 +41,7 @@ uint32_t malloc_gemm(long unsigned int size) {
   return BLOCKS[i].loc;
 }
 
-void free_gemm(uint32_t addr) {
+void gemm_free(uint32_t addr) {
   for(int i=0; BLOCKS[i].size > 0; i++) {
     if(BLOCKS[i].is_used && BLOCKS[i].loc == addr) {
       BLOCKS[i].is_used = 0;
@@ -53,37 +51,39 @@ void free_gemm(uint32_t addr) {
   return;
 }
 
+/*
 #include <stdio.h>
 #include <stdlib.h>
 int main(void) {
   fprintf(stderr, "calling init_mem\n");
   init_mem();
-  uint32_t zero = malloc_gemm(10);
+  uint32_t zero = gemm_malloc(10);
   fprintf(stderr, "zero: %d\n", zero);
-  uint32_t one = malloc_gemm(20);
+  uint32_t one = gemm_malloc(20);
   fprintf(stderr, "one: %d\n", one);
-  uint32_t three = malloc_gemm(40);
+  uint32_t three = gemm_malloc(40);
   fprintf(stderr, "three: %d\n", three);
-  uint32_t six = malloc_gemm(100);
+  uint32_t six = gemm_malloc(100);
   fprintf(stderr, "six: %d\n", six);
-  uint32_t _13 = malloc_gemm(200);
+  uint32_t _13 = gemm_malloc(200);
   fprintf(stderr, "_13: %d\n", _13);
 
-  free_gemm(one);
-  uint32_t one2 = malloc_gemm(20);
+  gemm_free(one);
+  uint32_t one2 = gemm_malloc(20);
   fprintf(stderr, "one2: %d\n", one2);
-  free_gemm(_13);
-  uint32_t _13_2 = malloc_gemm(300);
+  gemm_free(_13);
+  uint32_t _13_2 = gemm_malloc(300);
   fprintf(stderr, "_13_2: %d\n", _13_2);
 
-  uint32_t t = malloc_gemm(30);
+  uint32_t t = gemm_malloc(30);
   fprintf(stderr, "t: %d\n", t);
 
   for (int i = 0; i < 100; i ++) {
-    uint32_t ptr = malloc_gemm(rand()%100);
+    uint32_t ptr = gemm_malloc(rand()%100);
     printf("%d\n", ptr);
-    free_gemm(ptr);
+    gemm_free(ptr);
   }
 
   return 0;
 }
+*/

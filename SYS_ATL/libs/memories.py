@@ -45,7 +45,6 @@ MDRAM = Memory("MDRAM",
 
 # ----------- GEMMINI scratchpad ----------------
 
-# TODO: How does gemm_malloc looks like?
 def _gemm_alloc(new_name, prim_type, shape, error):
     if len(shape) == 0:
         return ("{prim_type} {new_name};")
@@ -62,8 +61,24 @@ def _gemm_free(new_name, prim_type, shape, error):
     else:
         return f"gemm_free({new_name});"
 
+def _gemm_global():
+    __location__ = os.path.realpath(
+        os.path.join(os.getcwd(), os.path.dirname(__file__)))
+
+    malloc = "#include \"include/gemmini_testutils.h\"\n"
+    with open(os.path.join(__location__, 'gemm_malloc.c'), 'r') as fp:
+        line = fp.readline()
+        malloc += line.format(heap_size = 100000)
+        line = fp.readline()
+        malloc += line.format(dim = 16)
+        while line:
+            line = fp.readline()
+            malloc += line
+
+    return malloc
+
 GEMM_SCRATCH = Memory("GEMM_SCRATCH",
-        globl   = ("#include \"include/gemmini_testutils.h\"\n"),
+        globl   = _gemm_global(),
         alloc   = _gemm_alloc,
         free    = _gemm_free,
         read    = True,

@@ -9,7 +9,7 @@ from PIL import Image
 import scipy.stats as st
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, instr, Procedure, DRAM
-from SYS_ATL.libs.memories import GEMM_SCRATCH
+from SYS_ATL.libs.memories import GEMM_SCRATCH, MDRAM
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 import pytest
@@ -130,7 +130,48 @@ def gen_gemmini_matmul():
     return gemmini_matmul
 
 
+# Matmul test with custom mallocs (DRAM & GEMM)
+def gen_matmul_16_malloc(gemmini_ld, gemmini_st, gemmini_matmul):
+    @proc
+    def matmul_16_malloc(C : F32[16, 16] @ DRAM):
+        A : F32[16,16] @ MDRAM
+        B : F32[16,16] @ MDRAM
+        A_GEMM : F32[16,16] @ GEMM_SCRATCH
+        B_GEMM : F32[16,16] @ GEMM_SCRATCH
+        C_GEMM : F32[16,16] @ GEMM_SCRATCH
 
+        for i in par(0, 16):
+            for j in par(0, 16):
+                A[i,j] = 3.0
+                B[i,j] = 5.0
+
+        # Load A and B to scratchpad
+        gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, A, A_GEMM)
+        gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, B, B_GEMM)
+
+        gemmini_matmul(16, 16, 16, 0, 0, 0, 16, 16, 16, A_GEMM, B_GEMM, C_GEMM)
+
+        # Store C_GEMM to C
+        gemmini_st(16, 0, 16, 16, 0, 0, 16, 16, C_GEMM, C)
+
+    return matmul_16_malloc
+def test_matmul_16_malloc():
+    gemm_ld = gen_gemmini_ld()
+    gemm_st = gen_gemmini_store()
+    gemm_matmul = gen_gemmini_matmul()
+    matmul_malloc = gen_matmul_16_malloc(gemm_ld, gemm_st, gemm_matmul)
+
+    assert type(gemm_ld) is Procedure
+    assert type(gemm_st) is Procedure
+    assert type(gemm_matmul) is Procedure
+    assert type(matmul_malloc) is Procedure
+
+    filename = "test_matmul_16_malloc"
+
+    matmul_malloc.compile_c(directory, filename)
+
+
+# matmul test
 def gen_matmul_16(gemmini_ld, gemmini_st, gemmini_matmul):
     @proc
     def matmul_16(A      : F32[16, 16] @ DRAM,

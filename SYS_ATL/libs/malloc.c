@@ -30,7 +30,7 @@ void *search(FreeBlock *cur, uint32_t bytes) {
         uint32_t size = sizeof(uint32_t) + sizeof(FreeBlock*);
 
         if (cur->next == 0 && cur->size < bytes + size) {
-            fprintf(stderr, "Out of memory!\n");
+            printf("Out of memory!\n");
             return 0;
         } else if (cur->next == 0 && cur->size >= (bytes + size)) {
             // cut cur into bytes blocks and create new

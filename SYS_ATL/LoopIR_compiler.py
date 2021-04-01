@@ -322,8 +322,7 @@ class Compiler:
         return f"{buf}[{idx}]"
 
     def shape_strs(self, shape):
-        s = [self.env[nm] for nm in shape]
-        return s
+        return [str(nm) if is_pos_int(nm) else self.env[nm] for nm in shape]
 
     def comp_s(self, s):
         styp = type(s)
