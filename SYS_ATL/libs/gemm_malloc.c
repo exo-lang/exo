@@ -74,10 +74,13 @@ uint32_t malloc_gemm(long unsigned int bytes) {
     return loc;
 }
 
+// TODO: How to free?? We don't have address.
+// Keep track of "not-free-list"??
 void *search_free(uint32_t ptr) {
     FreeBlock *cur = freelist;
 
     for(;;) {
+        printf("cur->loc: %d\n", cur->loc);
         if (cur->next == 0 && cur->loc != ptr) {
             fprintf(stderr, "No such ptr!\n");
             return 0;
@@ -110,6 +113,8 @@ int main(void) {
   fprintf(stderr, "three: %d\n", three);
   uint32_t six = malloc_gemm(100);
   fprintf(stderr, "six: %d\n", six);
+  uint32_t _13 = malloc_gemm(200);
+  fprintf(stderr, "_13: %d\n", _13);
 
   free_gemm(one);
   uint32_t one2 = malloc_gemm(20);
