@@ -223,11 +223,11 @@ class UAST_PPrinter:
 # --------------------------------------------------------------------------- #
 # LoopIR Pretty Printing
 
-
 @extclass(LoopIR.proc)
 @extclass(LoopIR.fnarg)
 @extclass(LoopIR.stmt)
 @extclass(LoopIR.expr)
+@extclass(LoopIR.type)
 def __str__(self):
     return LoopIR_PPrinter(self).str()
 del __str__
@@ -249,6 +249,8 @@ class LoopIR_PPrinter:
             self.pstmt(node)
         elif isinstance(node, LoopIR.expr):
             self.addline(self.pexpr(node))
+        elif isinstance(node, LoopIR.type):
+            self.addline(self.ptype(node))
         else:
             assert False, f"cannot print a {type(node)}"
 
@@ -316,7 +318,7 @@ class LoopIR_PPrinter:
             return f"{self.new_name(a.name)} : size"
         else:
             mem = f" @{a.mem.name()}" if a.mem else ""
-            return f"{self.new_name(a.name)} : {a.type} {mem}"
+            return f"{self.new_name(a.name)} : {self.ptype(a.type)} {mem}"
 
     def pstmt(self, stmt):
         if type(stmt) is LoopIR.Pass:
@@ -335,10 +337,12 @@ class LoopIR_PPrinter:
             self.addline(f"{lhs} {op} {rhs}")
         elif type(stmt) is LoopIR.Alloc:
             mem = f" @{stmt.mem.name()}" if stmt.mem else ""
-            self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
+            self.addline(f"{self.new_name(stmt.name)} : "+
+                         f"{self.ptype(stmt.type)}{mem}")
         elif type(stmt) is LoopIR.Free:
             mem = f" @{stmt.mem._name}" if stmt.mem else ""
-            self.addline(f"free {self.new_name(stmt.name)} : {stmt.type}{mem}")
+            self.addline(f"free {self.new_name(stmt.name)} : "+
+                         f"{self.ptype(stmt.type)}{mem}")
         elif type(stmt) is LoopIR.Call:
             args    = [ self.pexpr(a) for a in stmt.args ]
             self.addline(f"{stmt.f.name}({','.join(args)})")
@@ -388,3 +392,28 @@ class LoopIR_PPrinter:
             return s
         else:
             assert False, f"unrecognized expr: {type(e)}"
+
+    def ptype(self, t):
+        if type(t) is T.Num:
+            return "R"
+        elif type(t) is T.F32:
+            return "f32"
+        elif type(t) is T.F64:
+            return "f64"
+        elif type(t) is T.INT8:
+            return "int8"
+        elif type(t) is T.Bool:
+            return "bool"
+        elif type(t) is T.Int:
+            return "int"
+        elif type(t) is T.Index:
+            return "index"
+        elif type(t) is T.Size:
+            return "size"
+        elif type(t) is T.Error:
+            return "err"
+        elif type(t) is T.Tensor:
+            rngs = ",".join([self.pexpr(r) for r in t.shape()])
+            return f"{t.basetype()}[{rngs}]"
+        else:
+            assert False, "impossible type case"

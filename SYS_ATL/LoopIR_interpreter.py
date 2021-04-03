@@ -17,31 +17,6 @@ def _eshape(typ, env):
                  for r in typ.shape())
 
 
-def _simple_typecheck_buffer(fnarg, kwargs, env):
-    typ = fnarg.type
-    buf = kwargs[str(fnarg.name)]
-    nm  = fnarg.name
-    # raise TypeError(f"type of argument '{a.name}' "
-    #                 f"value mismatches")
-    pre = f"bad argument '{nm}'"
-    if type(buf) is not np.ndarray:
-        raise TypeError(f"{pre}: expected numpy.ndarray")
-    elif buf.dtype != float and buf.dtype != np.float32:
-        raise TypeError(f"{pre}: expected buffer of floating-point values; "+
-                        f"had '{buf.dtype}' values")
-        #raise TypeError(f"type of argument '{name}' "
-        #                f"value mismatches")
-
-    if typ.is_real_scalar():
-        if tuple(buf.shape) != (1,):
-            raise TypeError(f"{pre}: expected buffer of shape (1,), "+
-                            f"but got shape {tuple(buf.shape)}")
-    else:
-        shape = _eshape(typ, env)
-        if shape != tuple(buf.shape):
-            raise TypeError(f"{pre}: expected buffer of shape {shape}, "+
-                            f"but got shape {tuple(buf.shape)}")
-
 def run_interpreter(proc, kwargs):
     Interpreter(proc, kwargs)
 
@@ -70,12 +45,37 @@ class Interpreter:
                 self.env[a.name] = kwargs[str(a.name)]
             else:
                 assert a.type.is_numeric()
-                _simple_typecheck_buffer(a, kwargs, self.env)
+                self.simple_typecheck_buffer(a, kwargs)
                 self.env[a.name] = kwargs[str(a.name)]
 
         self.env.push()
         self.eval_stmts(proc.body)
         self.env.pop()
+
+    def simple_typecheck_buffer(fnarg, kwargs):
+        typ = fnarg.type
+        buf = kwargs[str(fnarg.name)]
+        nm  = fnarg.name
+        # raise TypeError(f"type of argument '{a.name}' "
+        #                 f"value mismatches")
+        pre = f"bad argument '{nm}'"
+        if type(buf) is not np.ndarray:
+            raise TypeError(f"{pre}: expected numpy.ndarray")
+        elif buf.dtype != float and buf.dtype != np.float32:
+            raise TypeError(f"{pre}: expected buffer of floating-point values; "+
+                            f"had '{buf.dtype}' values")
+            #raise TypeError(f"type of argument '{name}' "
+            #                f"value mismatches")
+
+        if typ.is_real_scalar():
+            if tuple(buf.shape) != (1,):
+                raise TypeError(f"{pre}: expected buffer of shape (1,), "+
+                                f"but got shape {tuple(buf.shape)}")
+        else:
+            shape = self.eval_shape(typ)
+            if shape != tuple(buf.shape):
+                raise TypeError(f"{pre}: expected buffer of shape {shape}, "+
+                                f"but got shape {tuple(buf.shape)}")
 
     def eval_stmts(self, stmts):
         for s in stmts:
@@ -120,7 +120,7 @@ class Interpreter:
             if s.type.is_real_scalar():
                 self.env[s.name] = np.empty([1])
             else:
-                size = _eshape(s.type, self.env)
+                size = self.eval_shape(s.type)
                 # TODO: Maybe randomize?
                 self.env[s.name] = np.empty(size)
         elif styp is LoopIR.Call:
@@ -180,3 +180,6 @@ class Interpreter:
                 return (lhs or rhs)
         else:
             assert False, "bad case"
+
+    def eval_shape(self, typ):
+        return tuple( self.eval_e(s) for s in typ.shape() )

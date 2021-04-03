@@ -208,7 +208,7 @@ module LoopIR {
             | Index ()
             | Size  ()
             | Error ()
-            | Tensor( range hi, type type )
+            | Tensor( expr hi, type type )
     --| Window( sym orig, expr* lo, expr* hi, type orig_type )
 
 } """, {
@@ -216,15 +216,12 @@ module LoopIR {
     'sym':      lambda x: type(x) is Sym,
     'effect':   lambda x: type(x) is E.effect,
     'mem':      lambda x: isinstance(x, Memory),
-    'range':    lambda x: is_pos_int(x) or type(x) is Sym,
     'binop':    lambda x: x in bin_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
 })
 
 ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Index',
-                 'Size', 'Error', 'Tensor'], {
-    'range': lambda x: x,
-})
+                 'Size', 'Error'])
 
 # make proc be a hashable object
 @extclass(LoopIR.proc)
@@ -323,6 +320,7 @@ del basetype
 
 @extclass(LoopIR.type)
 def subst(t, lookup):
+    raise NotImplementedError("TODO: fix 'range' to 'expr' change")
     if type(t) is T.Tensor:
         typ     = t.type.subst(lookup)
         hi      = t.hi if is_pos_int(t.hi) else lookup[t.hi]
@@ -330,39 +328,6 @@ def subst(t, lookup):
     else:
         return t
 del subst
-
-# --------------------------------------------------------------------------- #
-# string representation of types...
-
-@extclass(LoopIR.type)
-def __str__(t):
-    if not hasattr(t, '_str_cached'):
-        if type(t) is T.Num:
-            t._str_cached = "R"
-        elif type(t) is T.F32:
-            t._str_cached = "f32"
-        elif type(t) is T.F64:
-            t._str_cached = "f64"
-        elif type(t) is T.INT8:
-            t._str_cached = "int8"
-        elif type(t) is T.Bool:
-            t._str_cached = "bool"
-        elif type(t) is T.Int:
-            t._str_cached = "int"
-        elif type(t) is T.Index:
-            t._str_cached = "index"
-        elif type(t) is T.Size:
-            t._str_cached = "size"
-        elif type(t) is T.Error:
-            t._str_cached = "err"
-        elif type(t) is T.Tensor:
-            rngs = ",".join([str(r) for r in t.shape()])
-            t._str_cached = f"{t.basetype()}[{rngs}]"
-        else:
-            assert False, "impossible type case"
-    return t._str_cached
-
-del __str__
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

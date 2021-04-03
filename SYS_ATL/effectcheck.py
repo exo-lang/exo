@@ -344,8 +344,16 @@ class CheckEffects:
             self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
 
         for arg in proc.args:
-            if type(arg.type) is not T.Size and type(arg.type) is not T.Index:
-                self.check_bounds(arg.name, arg.type.shape(), body_eff)
+            if type(arg.type) is T.Size:
+                pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
+                self.solver.add_assertion(pos_sz)
+            elif arg.type.is_numeric():
+                shape = [ lift_expr(s) for s in arg.type.shape() ]
+                # check that all sizes are positive
+                for s in shape:
+                    self.check_pos_size(s)
+                # check the bounds
+                self.check_bounds(arg.name, shape, body_eff)
         self.pop()
 
         # do error checking here
@@ -445,13 +453,10 @@ class CheckEffects:
 
             assert len(eff.loc) == len(shape)
             for e, hi in zip(eff.loc, shape):
-                # 1 <= loc[i] <= shape[i]
+                # 1 <= loc[i] < shape[i]
                 e   = self.expr_to_smt(e)
                 lhs = SMT.LE(SMT.Int(0), e)
-                if type(hi) is int:
-                    rhs = SMT.LT(e, SMT.Int(hi))
-                else:
-                    rhs = SMT.LT(e, self.sym_to_smt(hi))
+                rhs = SMT.LT(e, self.expr_to_smt(hi))
                 in_bds = SMT.And(in_bds, SMT.And(lhs, rhs))
 
             # TODO: Extract counter example from SMT solver
@@ -535,6 +540,21 @@ class CheckEffects:
 
         return
 
+    def check_pos_size(self, expr):
+        e_pos = SMT.LT( SMT.Int(0), self.expr_to_smt(expr) )
+        if not self.solver.is_valid(e_pos):
+            self.err(expr, "expected expression to always be positive")
+
+    def check_call_shape_eqv(self, argshp, sigshp, node):
+        eqv_dim = SMT.Bool(True)
+        for a,s in zip(argshp, sigshp):
+            eqv_dim = SMT.And(eqv_dim,
+                              SMT.Equals(self.expr_to_smt(a),
+                                         self.expr_to_smt(s)))
+        if not self.solver.is_valid(eqv_dim):
+            self.err(node, "type-shape of calling argument may not equal "+
+                           "the required type-shape")
+
     def map_stmts(self, body):
         """ Returns an effect for the argument `body`
             And also checks bounds/parallelism for any
@@ -586,17 +606,30 @@ class CheckEffects:
                 body_eff = eff_union(body_eff, stmt.eff)
 
             elif type(stmt) is LoopIR.Alloc:
-                self.check_bounds(stmt.name, stmt.type.shape(), body_eff)
+                shape = [ lift_expr(s) for s in stmt.type.shape() ]
+                # check that all sizes are positive
+                for s in shape:
+                    self.check_pos_size(s)
+                # check that all accesses are in bounds
+                self.check_bounds(stmt.name, shape, body_eff)
                 body_eff = eff_remove_buf(stmt.name, body_eff)
 
             elif type(stmt) is LoopIR.Call:
                 subst = dict()
                 for sig,arg in zip(stmt.f.args, stmt.args):
                     if sig.type.is_numeric():
-                        pass
+                        # need to compare equivalence of shapes
+                        arg_shape = [ lift_expr(s) for s in arg.type.shape() ]
+                        sig_shape = [ lift_expr(s) for s in sig.type.shape() ]
+                        sig_shape = [ s.subst(subst) for s in sig_shape ]
+                        self.check_call_shape_eqv(arg_shape, sig_shape, arg)
                     elif sig.type.is_indexable():
                         # in this case we have a LoopIR expression...
-                        subst[sig.name] = lift_expr(arg)
+                        e_arg           = lift_expr(arg)
+                        subst[sig.name] = e_arg
+                        if sig.type == T.size:
+                            self.check_pos_size(e_arg)
+
                     else: assert False, "bad case"
 
                 for p in stmt.f.preds:

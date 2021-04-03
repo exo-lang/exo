@@ -187,27 +187,6 @@ def compile_to_strings(proc_list):
 # --------------------------------------------------------------------------- #
 # Loop IR Compiler
 
-
-def _type_shape(typ, env):
-    return tuple(str(r) if is_pos_int(r) else env[r]
-                 for r in typ.shape())
-
-
-def _type_size(typ, env):
-    szs = _type_shape(typ, env)
-    return ("*").join(szs)
-
-
-def _type_idx(typ, idx, env):
-    assert type(typ) is T.Tensor
-    szs = _type_shape(typ, env)
-    assert len(szs) == len(idx)
-    s = idx[0]
-    for i, n in zip(idx[1:], szs[1:]):
-        s = f"({s}) * {n} + ({i})"
-    return s
-
-
 class Compiler:
     def __init__(self, proc, **kwargs):
         assert type(proc) is LoopIR.proc
@@ -318,11 +297,19 @@ class Compiler:
         buf = self.env[nm]
         type = self.envtyp[nm]
         idxs = [self.comp_e(i) for i in idx_list]
-        idx = _type_idx(type, idxs, self.env)
+        idx = self._type_idx(type, idxs)
         return f"{buf}[{idx}]"
 
-    def shape_strs(self, shape):
-        return [str(nm) if is_pos_int(nm) else self.env[nm] for nm in shape]
+    def shape_strs(self, shape, prec=100):
+        return [ self.comp_e(s,prec=prec) for s in shape ]
+
+    def _type_idx(self, typ, idx):
+        szs = self.shape_strs(typ.shape(), prec=61)
+        assert len(szs) == len(idx)
+        s = idx[0]
+        for i, n in zip(idx[1:], szs[1:]):
+            s = f"({s}) * {n} + ({i})"
+        return s
 
     def comp_s(self, s):
         styp = type(s)

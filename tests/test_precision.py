@@ -40,7 +40,7 @@ def gen_good_prec1():
 def gen_bad_prec1():
     @proc
     def bad_prec1(n : size, m : size,
-                   x : F32[n,m], y: INT8[n,m], res : F64[n,m]):
+                  x : F32[n,m], y: INT8[n,m], res : F64[n,m]):
         for i in par(0,n):
             rloc : F64[m]
             xloc : F32[m]

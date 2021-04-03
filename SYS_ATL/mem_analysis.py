@@ -3,13 +3,11 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 
-from .LoopIR import T
 from .LoopIR import LoopIR
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Memory Analysis Pass
-
 
 class MemoryAnalysis:
     def __init__(self, proc):

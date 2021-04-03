@@ -73,3 +73,11 @@ class PrecisionAnalysis:
             return LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)
         else:
             assert False, "bad case"
+
+"""
+    def map_e(self, e):
+                            elif lhs.type != rhs.type:
+                                # Typeerror if precision types are different
+                                self.err(rhs, "cannot compute different precision types")
+                                typ = T.err
+"""

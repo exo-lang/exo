@@ -44,7 +44,7 @@ def gen_gemmini_ld():
         for i in par(0, row_dim):
             for j in par(0, col_dim):
                 dst[dst_r + i, j] = src[src_r + i, src_c + j]
-        
+
     return gemmini_ld
 
 #--------------------- GEMMINI MVOUT ----------------------
@@ -282,10 +282,10 @@ def test_load_16():
 # w = (i+1)*j*16 #TODO: How to handle windowing?
 def gen_ld_2d(gemmini_ld):
     @proc
-    def ld_2d(n : size, m : size, r : size, w : index, x : F32[n, m], y : F32[r, 16]):
+    def ld_2d(n : size, m : size, x : F32[n, m], y : F32[n, m//16, 16]):
         for i in par(0, n/16):
             for j in par(0, m/16):
-                gemmini_ld(n, m, i*16, j*16, r, w, 16, 16, x, y)
+                gemmini_ld(n, m, x[i:i+16, j:j+16], y[i:i+16, j, :])
 
     return ld_2d
 

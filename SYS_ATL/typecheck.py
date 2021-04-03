@@ -32,28 +32,6 @@ def is_valid_mem(mem):
     else:
         return False
 
-def type_lift(typ):
-    if type(typ) is UAST.Num:
-        return T.R
-    elif type(typ) is UAST.F32:
-        return T.f32
-    elif type(typ) is UAST.F64:
-        return T.f64
-    elif type(typ) is UAST.INT8:
-        return T.int8
-    elif type(typ) is UAST.Bool:
-        return T.bool
-    elif type(typ) is UAST.Int:
-        return T.int
-    elif type(typ) is UAST.Size:
-        return T.size
-    elif type(typ) is UAST.Index:
-        return T.index
-    elif type(typ) is UAST.Tensor:
-        return T.Tensor(typ.hi, type_lift(typ.type))
-    else:
-        assert False, "bad case"
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # The typechecker
@@ -67,7 +45,7 @@ class TypeChecker:
 
         args = []
         for a in proc.args:
-            typ = type_lift(a.type)
+            typ = self.check_t(a.type, a.srcinfo)
             self.env[a.name] = typ
             mem = a.mem
             if mem is None:
@@ -197,7 +175,7 @@ class TypeChecker:
             return LoopIR.ForAll(stmt.iter, hi, body, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Alloc:
-            typ = type_lift(stmt.type)
+            typ = self.check_t(stmt.type, stmt.srcinfo)
             self.env[stmt.name] = typ
             mem = stmt.mem
             if mem is None:
@@ -247,10 +225,15 @@ class TypeChecker:
                         is_err = False
 
                 elif sig_a.type.is_numeric():
-                    sig_type = sig_a.type.subst(size_map)
-                    if call_a.type != sig_type:
+                    if len(call_a.type.shape()) != len(sig_a.type.shape()):
                         self.err(call_a,
-                                 f"expected argument of type '{sig_type}'")
+                                 f"expected argument of type '{sig_type}', "
+                                 f"but got '{call_a}'")
+
+                    #sig_type = sig_a.type.subst(size_map)
+                    #if call_a.type != sig_type:
+                    #    self.err(call_a,
+                    #             f"expected argument of type '{sig_type}'")
 
                     # ensure scalars are simply variable names
                     elif call_a.type.is_real_scalar():
@@ -337,10 +320,6 @@ class TypeChecker:
                     elif e.op == "%":
                         self.err(e, "cannot compute modulus of 'R' values")
                         typ = T.err
-                    elif lhs.type != rhs.type:
-                        # Typeerror if precision types are different
-                        self.err(rhs, "cannot compute different precision types")
-                        typ = T.err
                     else:
                         if lhs.type == T.R:
                             typ = T.R
@@ -402,3 +381,29 @@ class TypeChecker:
                            "outside of a for-loop condition")
         else:
             assert False, "not a LoopIR in check_e"
+
+    def check_t(self, typ, srcinfo):
+        if type(typ) is UAST.Num:
+            return T.R
+        elif type(typ) is UAST.F32:
+            return T.f32
+        elif type(typ) is UAST.F64:
+            return T.f64
+        elif type(typ) is UAST.INT8:
+            return T.int8
+        elif type(typ) is UAST.Bool:
+            return T.bool
+        elif type(typ) is UAST.Int:
+            return T.int
+        elif type(typ) is UAST.Size:
+            return T.size
+        elif type(typ) is UAST.Index:
+            return T.index
+        elif type(typ) is UAST.Tensor:
+            if is_pos_int(typ.hi):
+                hi = LoopIR.Const(typ.hi, T.int, srcinfo)
+            else:
+                hi = LoopIR.Read(typ.hi, [], T.size, srcinfo)
+            return T.Tensor(hi, self.check_t(typ.type, srcinfo))
+        else:
+            assert False, "bad case"
