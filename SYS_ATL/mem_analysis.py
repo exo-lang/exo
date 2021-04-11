@@ -18,6 +18,7 @@ class MemoryAnalysis:
 
     def result(self):
         body = self.mem_stmts(self.proc.body)
+        assert (len(self.tofree) == 0)
 
         return LoopIR.proc(
             self.proc.name,
@@ -29,10 +30,12 @@ class MemoryAnalysis:
             self.proc.srcinfo)
 
     def push_frame(self):
-        self.tofree.append(set())
+        self.tofree.append([])
 
     def add_malloc(self, sym, typ, mem):
-        self.tofree[-1].add((sym, typ, mem))
+        assert isinstance(self.tofree[-1], list)
+        assert isinstance((sym, typ, mem), tuple)
+        self.tofree[-1].append((sym, typ, mem))
 
     def pop_frame(self, srcinfo):
         suffix = [ LoopIR.Free(nm, typ, mem, None, srcinfo)

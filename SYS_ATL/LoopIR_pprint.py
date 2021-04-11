@@ -255,6 +255,10 @@ class LoopIR_PPrinter:
             assert False, f"cannot print a {type(node)}"
 
     def str(self):
+        if isinstance(self._node, LoopIR.type):
+            assert len(self._lines) == 1
+            return self._lines[0]
+
         fmtstr, linted = FormatCode("\n".join(self._lines))
         if isinstance(self._node, LoopIR.proc):
             assert linted, "generated unlinted code..."

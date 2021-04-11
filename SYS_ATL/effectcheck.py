@@ -338,16 +338,18 @@ class CheckEffects:
         self.solver     = _get_smt_solver()
 
         self.push()
-        body_eff = self.map_stmts(self.orig_proc.body)
-
-        for p in proc.preds:
-            self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
-
+        # Add assersions
         for arg in proc.args:
             if type(arg.type) is T.Size:
                 pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
                 self.solver.add_assertion(pos_sz)
-            elif arg.type.is_numeric():
+        for p in proc.preds:
+            self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
+
+        body_eff = self.map_stmts(self.orig_proc.body)
+
+        for arg in proc.args:
+            if arg.type.is_numeric():
                 shape = [ lift_expr(s) for s in arg.type.shape() ]
                 # check that all sizes are positive
                 for s in shape:
