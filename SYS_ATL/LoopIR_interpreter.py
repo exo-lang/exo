@@ -52,7 +52,7 @@ class Interpreter:
         self.eval_stmts(proc.body)
         self.env.pop()
 
-    def simple_typecheck_buffer(fnarg, kwargs):
+    def simple_typecheck_buffer(self, fnarg, kwargs):
         typ = fnarg.type
         buf = kwargs[str(fnarg.name)]
         nm  = fnarg.name
