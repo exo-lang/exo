@@ -55,7 +55,9 @@ class PrecisionAnalysis:
         elif styp is LoopIR.Call:
             args = [ self.map_e(a) for a in s.args ]
             for call_a,sig_a in zip(args, s.f.args):
-                if call_a.type.basetype() != sig_a.type.basetype():
+                if type(call_a.type) == T.Int and sig_a.type.is_indexable():
+                    pass
+                elif call_a.type.basetype() != sig_a.type.basetype():
                     self.err(s, "cannot call a subprocedure"+
                                 " with a different precision")
             return s
