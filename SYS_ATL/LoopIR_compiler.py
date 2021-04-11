@@ -412,7 +412,7 @@ class Compiler:
                 elif type(rtyp) is T.Tensor:
                     return self.env[e.name]
                 else:
-                    assert rtyp is T.R
+                    assert rtyp.is_real_scalar()
                     return f"&{self.env[e.name]}"
             else:
                 if rtyp.is_indexable():

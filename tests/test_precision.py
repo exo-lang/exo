@@ -57,7 +57,6 @@ def gen_bad_prec1():
     return bad_prec1
 
 
-
 def test_good_prec1():
     good_prec1 = gen_good_prec1()
     assert type(good_prec1) is Procedure
@@ -88,7 +87,51 @@ def test_good_prec1():
         [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]],typ=np.float64), decimal=4)
 
 
+def gen_dot():
+    @proc
+    def dot(m: size, x : F32[m] , y : F32[m] , r : F32 ):
+        r = 0.0
+        for i in par(0, m):
+            r += x[i]*y[i]
+
+    return dot
+
+def gen_good_prec2(dot):
+    @proc
+    def hoge(n : size, x : F32[n], y : F32[n]):
+        xy : F32
+        dot(n, x, y, xy)
+
+    return hoge
+
+def gen_bad_prec2(dot):
+    @proc
+    def hoge(n : size, x : INT8[n], y : INT8[n]):
+        xy : F32
+        dot(n, x, y, xy)
+
+    return hoge
+
 def test_bad_prec1():
     with pytest.raises(TypeError,
-                       match='Errors occurred during typechecking'):
-        gen_bad_prec1()
+                       match='Errors occurred during precision checking'):
+        bad_prec1 = gen_bad_prec1()
+        filename = "test_bad_prec1"
+        bad_prec1.compile_c(directory, filename)
+
+def test_good_prec2():
+    dot = gen_dot()
+    good_prec2 = gen_good_prec2(dot)
+    assert type(good_prec2) is Procedure
+
+    filename = "test_good_prec2"
+
+    good_prec2.compile_c(directory, filename)
+
+def test_bad_prec2():
+    with pytest.raises(TypeError,
+                       match='Errors occurred during precision checking'):
+        dot = gen_dot()
+        bad_prec2 = gen_bad_prec2(dot)
+        filename = "test_bad_prec2"
+        bad_prec2.compile_c(directory, filename)

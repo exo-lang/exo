@@ -48,20 +48,28 @@ class PrecisionAnalysis:
     def map_s(self, s):
         styp = type(s)
 
-        # If binop try to an operation in different precision type,
-        # raise error (in TypeCheck)
         # Don't do anything for call for now.
-        if (styp is LoopIR.Pass or styp is LoopIR.Alloc or
-              styp is LoopIR.Reduce or styp is LoopIR.Call or
-                styp is LoopIR.Free):
+        if (styp is LoopIR.Pass or styp is LoopIR.Alloc or styp is LoopIR.Free):
             return s
+        # Check precision of caller and callee
+        elif styp is LoopIR.Call:
+            args = [ self.map_e(a) for a in s.args ]
+            for call_a,sig_a in zip(args, s.f.args):
+                if call_a.type.basetype() != sig_a.type.basetype():
+                    self.err(s, "cannot call a subprocedure"+
+                                " with a different precision")
+            return s
+
         # Allow implicit casting for assign and reduce
+        # If binop an operation in different precision type,
+        # raise error
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
+            rhs = self.map_e(s.rhs)
             cast = None
-            if (s.type != T.err and s.rhs.type != T.err and
+            if (s.type != T.err and rhs.type != T.err and
                 s.type != s.rhs.type):
                 cast = s.type.basetype().ctype()
-            return styp ( s.name, s.type, cast, s.idx, s.rhs, s.eff, s.srcinfo)
+            return styp ( s.name, s.type, cast, s.idx, rhs, s.eff, s.srcinfo)
 
         elif styp is LoopIR.If:
             body    = self.map_stmts(s.body)
@@ -74,10 +82,19 @@ class PrecisionAnalysis:
         else:
             assert False, "bad case"
 
-"""
     def map_e(self, e):
-                            elif lhs.type != rhs.type:
-                                # Typeerror if precision types are different
-                                self.err(rhs, "cannot compute different precision types")
-                                typ = T.err
-"""
+        typ = type(e)
+        if typ is LoopIR.Read or typ is LoopIR.Const:
+            return e
+        elif typ is LoopIR.BinOp:
+            lhs = self.map_e(e.lhs)
+            rhs = self.map_e(e.rhs)
+            if lhs.type != rhs.type:
+                # Typeerror if precision types are different
+                self.err(e, "cannot compute different precision types")
+                typ = T.err
+            else:
+                typ = lhs.type
+            return LoopIR.BinOp(e.op, e.lhs, e.rhs, typ, e.srcinfo)
+        else:
+            assert False, "not a LoopIR in check_e"
