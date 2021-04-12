@@ -26,12 +26,6 @@ from .memory import *
 # --------------------------------------------------------------------------- #
 # Helper functions
 
-def is_valid_mem(mem):
-    if isinstance(mem, Memory):
-        return True
-    else:
-        return False
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # The typechecker
@@ -50,9 +44,6 @@ class TypeChecker:
             mem = a.mem
             if mem is None:
                 mem = DRAM
-            if mem and not is_valid_mem(mem):
-                self.err(a, f"invalid memory name '{mem}'")
-                mem = None
             args.append(LoopIR.fnarg(a.name, typ, mem, a.srcinfo))
 
         preds = []
@@ -180,9 +171,6 @@ class TypeChecker:
             mem = stmt.mem
             if mem is None:
                 mem = DRAM
-            if mem and not is_valid_mem(mem):
-                self.err(stmt, f"invalid memory name '{mem}'")
-                mem = None
             return LoopIR.Alloc(stmt.name, typ, mem, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Call:
@@ -227,8 +215,8 @@ class TypeChecker:
                 elif sig_a.type.is_numeric():
                     if len(call_a.type.shape()) != len(sig_a.type.shape()):
                         self.err(call_a,
-                                 f"expected argument of type '{sig_type}', "
-                                 f"but got '{call_a}'")
+                                 f"expected argument of type '{sig_a.type}', "
+                                 f"but got '{call_a.type}'")
 
                     #sig_type = sig_a.type.subst(size_map)
                     #if call_a.type != sig_type:
@@ -269,9 +257,8 @@ class TypeChecker:
                 return LoopIR.Const(e.val, T.R, e.srcinfo)
             elif type(e.val) is int:
                 return LoopIR.Const(e.val, T.int, e.srcinfo)
-            elif type(e.val) is bool:
-                return LoopIR.Const(e.val, T.bool, e.srcinfo)
             else:
+            # We currently don't allow constant bool type
                 self.err(e, f"literal of unexpected type '{type(e.val)}' "
                             f"and value: {e.val}")
                 return LoopIR.Const(0, T.err, e.srcinfo)
@@ -301,7 +288,9 @@ class TypeChecker:
                     self.err(rhs, "expected 'bool' argument to logical op")
                 typ = T.bool
             elif e.op == "==" and lhs.type == T.bool and rhs.type == T.bool:
-                typ = T.bool
+                self.err(e, "using \"==\" for boolean not supported. Use "+
+                            "\"and\" instead")
+                typ = T.err
             elif (e.op == "<" or e.op == "<=" or e.op == "==" or
                   e.op == ">" or e.op == ">="):
                 if not lhs.type.is_indexable():
@@ -331,28 +320,20 @@ class TypeChecker:
                             typ = T.int8
                 elif rhs.type.is_real_scalar():
                     self.err(lhs, "expected scalar type")
-                elif lhs.type == T.bool:
+                elif lhs.type == T.bool or rhs.type == T.bool:
                     self.err(lhs, "cannot perform arithmetic on 'bool' values")
                     typ = T.err
-                elif rhs.type == T.bool:
-                    self.err(rhs, "cannot perform arithmetic on 'bool' values")
-                    typ = T.err
-                elif type(lhs.type) is T.Tensor:
+                elif type(lhs.type) is T.Tensor or type(rhs.type) is T.Tensor:
                     self.err(lhs, "cannot perform arithmetic on tensors")
-                    typ = T.err
-                elif type(rhs.type) is T.Tensor:
-                    self.err(rhs, "cannot perform arithmetic on tensors")
                     typ = T.err
                 else:
                     assert lhs.type.is_indexable()
                     assert rhs.type.is_indexable()
                     if e.op == "/" or e.op == "%":
-                        if rhs.type != T.int:
+                        if rhs.type != T.int or type(rhs) is not LoopIR.Const:
                             self.err(rhs, "cannot divide or modulo by a "+
                                           "non-constant value")
-                        if rhs.val <= 0:
-                            self.err(rhs, "cannot divide or modulo by a "+
-                                          "negative value")
+                            typ = T.err
                         typ = lhs.type
                     elif e.op == "*":
                         if lhs.type == T.int:

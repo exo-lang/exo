@@ -327,7 +327,8 @@ class Parser:
                     if type(node.slice) is pyast.Tuple:
                         dims = node.slice.elts
                     else:
-                        assert type(node.slice) is pyast.Name
+                        assert (type(node.slice) is pyast.Name or
+                                type(node.slice) is pyast.Constant)
                         dims = [node.slice]
             else:
                 # unpack single or multi-arg indexing to list of slices/indices
