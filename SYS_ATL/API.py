@@ -431,7 +431,7 @@ class CJit_Func:
                     err( "expected buffer of shape (1,) "+
                         f"but got shape {tuple(a.shape)}")
             else:
-                shape = tuple(r if is_pos_int(r) else env[r]
+                shape = tuple(r if is_pos_int(r) else env[r.name]
                               for r in typ.shape())
                 if shape != tuple(a.shape):
                     err(f"expected buffer of shape {shape} "+

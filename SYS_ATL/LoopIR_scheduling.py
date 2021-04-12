@@ -777,7 +777,7 @@ class _FissionLoops:
 
             # if we neither split the body nor the or-else,
             # then we need to gather together the pre and post.
-            single_stmt = LoopIR.If(s.cond, body, orelse, s.srcinfo)
+            single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
 
         elif type(s) is LoopIR.ForAll:
 
