@@ -85,6 +85,9 @@ class Procedure:
     def name(self):
         return self._loopir_proc.name
 
+    def show_effects(self):
+        return str(self._loopir_proc.eff)
+
     def show_effect(self, stmt_pattern):
         stmt        = self._find_stmt(stmt_pattern)
         return str(stmt.eff)

@@ -82,6 +82,27 @@ ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Size',
     'range': lambda x: x,
 })
 
+
+@extclass(UAST.Tensor)
+@extclass(UAST.Num)
+@extclass(UAST.F32)
+@extclass(UAST.F64)
+@extclass(UAST.INT8)
+def shape(t):
+    shp = []
+    while type(t) is UAST.Tensor:
+        shp.append(t.hi)
+        t = t.type
+    return shp
+del shape
+
+@extclass(UAST.type)
+def basetype(t):
+    while type(t) is UAST.Tensor:
+        t = t.type
+    return t
+del basetype
+
 @extclass(UAST.type)
 def __str__(t):
     if not hasattr(t, '_str_cached'):

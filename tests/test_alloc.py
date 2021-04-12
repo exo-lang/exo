@@ -48,6 +48,11 @@ def test_alloc_nest():
     f_pretty.write(str(alloc_nest))
     f_pretty.close()
 
+    # Write effect printing to a file
+    f_effect = open(os.path.join(directory, filename + "_effect.atl"), "w")
+    f_effect.write(str(alloc_nest.show_effects()))
+    f_effect.close()
+
     alloc_nest.compile_c(directory, filename)
 
     x = nparray([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]])
