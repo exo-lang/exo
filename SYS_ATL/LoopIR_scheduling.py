@@ -404,7 +404,7 @@ class _CallSwap(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s == self.call_stmt:
-            return [ LoopIR.Call(self.new_subproc, s.args, s.srcinfo) ]
+            return [ LoopIR.Call(self.new_subproc, s.args, None, s.srcinfo) ]
 
         # fall-through
         return super().map_s(s)
@@ -434,9 +434,9 @@ class _BindExpr(LoopIR_Rewrite):
         stmts = super().map_s(s)
         if self.found_expr:
             # TODO Fix Assign, probably wrong
-            stmts = [ LoopIR.Alloc(self.new_name, T.R, None, s.srcinfo),
+            stmts = [ LoopIR.Alloc(self.new_name, T.R, None, None, s.srcinfo),
                       LoopIR.Assign(self.new_name, s.type, s.cast, [],
-                                    self.expr, self.expr.srcinfo )
+                                    self.expr, None, self.expr.srcinfo )
                     ] + stmts
             self.found_expr = False
 
@@ -533,8 +533,9 @@ class _LiftAlloc(LoopIR_Rewrite):
             for r in reversed(rngs):
                 new_typ = T.Tensor(r, new_typ)
 
+            # TODO: What is the effect here?
             self.lifted_stmt = LoopIR.Alloc( s.name, new_typ, s.mem,
-                                             s.srcinfo )
+                                             None, s.srcinfo )
             self.access_idxs = idxs
 
             # erase the statement from this location
@@ -562,7 +563,7 @@ class _LiftAlloc(LoopIR_Rewrite):
                 rhs = self.map_e(s.rhs)
                 # return allocation or reduction...
                 return [ type(s)( s.name, s.type, s.cast,
-                                  idx, rhs, s.srcinfo ) ]
+                                  idx, rhs, None, s.srcinfo ) ]
 
         elif type(s) is LoopIR.Call:
             # substitution in call arguments currently unsupported;
@@ -607,10 +608,10 @@ class _LiftAlloc(LoopIR_Rewrite):
                     if type(s.hi) == LoopIR.Read:
                         assert s.hi.type == T.size
                         assert len(s.hi.idx) == 0
-                        rngs.append(s.hi.name)
+                        rngs.append(s.hi)
                     elif type(s.hi) == LoopIR.Const:
                         assert s.hi.type == T.int
-                        rngs.append(s.hi.val)
+                        rngs.append(s.hi)
                     else:
                         raise SchedulingError("Can only lift through loops "+
                                               "with simple range bounds, "+
@@ -755,8 +756,8 @@ class _FissionLoops:
             if fission_body:
                 self.n_lifts -= 1
                 self.alloc_check(pre)
-                pre         = LoopIR.If(s.cond, pre, [], s.srcinfo)
-                post        = LoopIR.If(s.cond, post, s.orelse, s.srcinfo)
+                pre         = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
+                post        = LoopIR.If(s.cond, post, s.orelse, None, s.srcinfo)
                 return ([pre],[post])
 
             body = pre+post
@@ -768,8 +769,8 @@ class _FissionLoops:
             if fission_orelse:
                 self.n_lifts -= 1
                 self.alloc_check(pre)
-                pre         = LoopIR.If(s.cond, body, pre, s.srcinfo)
-                post        = LoopIR.If(s.cond, [], post, s.srcinfo)
+                pre         = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
+                post        = LoopIR.If(s.cond, [], post, None, s.srcinfo)
                 return ([pre],[post])
 
             orelse = pre+post
@@ -792,17 +793,17 @@ class _FissionLoops:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre     = [LoopIR.ForAll(s.iter, s.hi, pre, s.srcinfo)]
+                    pre     = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre         = Alpha_Rename(pre).result()
                 if s.iter in _FV(post) or not _is_idempotent(pre):
-                    post    = [LoopIR.ForAll(s.iter, s.hi, post, s.srcinfo)]
+                    post    = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
 
                 return (pre,post)
 
             # if we didn't split, then compose pre and post of the body
-            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, s.srcinfo)
+            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, None, s.srcinfo)
 
         else:
             # all other statements cannot recursively
@@ -836,24 +837,24 @@ def _make_closure(name, stmts, var_types):
             sizes.add(v)
         elif typ is T.index:
             args.append(LoopIR.Read(v, [], typ, info))
-            fnargs.append(LoopIR.fnarg(v, typ, None, None, info))
+            fnargs.append(LoopIR.fnarg(v, typ, None, info))
         else:
             # add sizes (that this arg depends on) to the signature
             for sz in typ.shape():
                 if type(sz) is Sym:
                     sizes.add(sz)
             args.append(LoopIR.Read(v, [], typ, info))
-            fnargs.append(LoopIR.fnarg(v, typ, T.InOut, None, info))
+            fnargs.append(LoopIR.fnarg(v, typ, None, info))
 
     # now prepend all sizes to the argument list
     sizes   = list(sizes)
     args    = [ LoopIR.Read(sz, [], T.size, info) for sz in sizes ] + args
-    fnargs  = [ LoopIR.fnarg(sz, T.size, None, None, info)
+    fnargs  = [ LoopIR.fnarg(sz, T.size, None, info)
                 for sz in sizes ] + fnargs
 
     eff     = None
-    raise NotImplementedError("need to figure out effect of new closure")
-    closure = LoopIR.proc(name, fnargs, stmts, None, eff, info)
+    # TODO: raise NotImplementedError("need to figure out effect of new closure")
+    closure = LoopIR.proc(name, fnargs, [], stmts, None, eff, info)
 
     return closure, args
 
@@ -886,7 +887,7 @@ class _DoFactorOut(LoopIR_Rewrite):
             subproc, args = _make_closure(self.sub_proc_name,
                                           [s], self.var_types)
             self.new_subproc = subproc
-            return [LoopIR.Call(subproc, args, s.srcinfo)]
+            return [LoopIR.Call(subproc, args, None, s.srcinfo)]
         elif type(s) is LoopIR.Alloc:
             self.var_types[s.name] = s.type
             return [s]
@@ -895,7 +896,7 @@ class _DoFactorOut(LoopIR_Rewrite):
             self.var_types[s.iter] = T.index
             body    = self.map_stmts(s.body)
             self.pop()
-            return [LoopIR.ForAll(s.iter, s.hi, body, s.srcinfo)]
+            return [LoopIR.ForAll(s.iter, s.hi, body, None, s.srcinfo)]
         elif type(s) is LoopIR.If:
             self.push()
             body    = self.map_stmts(s.body)
@@ -903,7 +904,7 @@ class _DoFactorOut(LoopIR_Rewrite):
             self.push()
             orelse  = self.map_stmts(s.orelse)
             self.pop()
-            return [LoopIR.If(s.cond, body, orelse, s.srcinfo)]
+            return [LoopIR.If(s.cond, body, orelse, None, s.srcinfo)]
         else:
             return super().map_s(s)
 
