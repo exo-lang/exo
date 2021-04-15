@@ -177,3 +177,15 @@ def test_bad_access2():
     with pytest.raises(TypeError,
                        match='Errors occurred during effect checking'):
         gen_bad_access2()
+
+def gen_very_bad_access():
+    @proc
+    def foo():
+        x2 : R[1]
+        huga : R
+        huga = x2[100]
+
+def test_window():
+    with pytest.raises(TypeError,
+                       match='x2 is read out-of-bounds'):
+        proj = gen_very_bad_access()

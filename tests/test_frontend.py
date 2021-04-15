@@ -460,3 +460,24 @@ def test_binop15():
     with pytest.raises(TypeError,
                        match='cannot multiply two non-constant indexing/sizing expressions'):
         binop15 = gen_binop15()
+
+def gen_dot_bad():
+    @proc
+    def dot(m: size, x : R[1,1] , y : R[m] ):
+        huga : R
+        pass
+
+    return dot
+
+def gen_proj_bad(dot):
+    @proc
+    def proj(n : size, x : R[100, 10, 1], y : R[10, n]):
+        dot(n, x[1], y[0])
+
+    return proj
+
+def test_proj_bad():
+    with pytest.raises(TypeError,
+                       match='type-shape of calling argument may not equal the required type-shape'):
+        dot  = gen_dot_bad()
+        proj = gen_proj_bad(dot)

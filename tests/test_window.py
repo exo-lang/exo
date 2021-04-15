@@ -8,30 +8,22 @@ import numpy as np
 import scipy.stats as st
 import pytest
 sys.path.append(sys.path[0]+"/..")
-from SYS_ATL import proc, Procedure
+from SYS_ATL import proc, instr, Procedure, DRAM
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
 def gen_dot():
     @proc
-    def dot(m: size, x : R[m] , y : R[m] , r : R ):
-        r = 0.0
-        for i in par(0, m):
-            r += x[i]*y[i]
+    def dot(m: size, x : R[1,1] , y : R[m] ):
+        huga : R
+        pass
 
     return dot
 
 def gen_proj(dot):
     @proc
-    def proj(n : size, x : R[10, n], y : R[10, n]):
-        xy : R
-        y2 : R
-        dot(n, x[0], y[4], xy)
-        dot(n, y[0], y[2], y2)
-        s : R
-        s = xy / y2
-        for i in par(0,n):
-            x[0,i] = s * y[0,i]
+    def proj(n : size, x : R[100, 1, 1], y : R[10, n]):
+        dot(n, x[1121], y[0])
 
     return proj
 
@@ -66,6 +58,7 @@ def gen_alloc_nest():
 
     return alloc_nest
 
+@pytest.mark.skip()
 def test_alloc_nest():
     alloc_nest = gen_alloc_nest()
     assert type(alloc_nest) is Procedure
@@ -95,24 +88,18 @@ def gen_bad_alloc_nest():
     def alloc_nest(n : size, m : size,
                    x : R[n,m], y: R[n,m], res : R[1,n,m]):
         for i in par(0,n):
-            rloc : R[n,m]
-            xloc : R[n,m]
-            yloc : R[n,m]
             for j in par(0,m):
-                xloc[i,j] = x[i,j]
-            for j in par(0,m):
-                yloc[i-i,j] = y[i,j+0]
-            for j in par(0,m):
-                rloc[4-5,j] = xloc[i,j] + yloc[0,j]
-            for j in par(0,m):
-                res[21,i,j] = rloc[4-3,j]
+                res[0,i,j] = x[i-1+1+i-i*1,j] + y[i,j+4 -4*2]
 
     return alloc_nest
 
+@pytest.mark.skip()
 def test_bad_alloc_nest():
-    alloc_nest = gen_alloc_nest()
-    assert type(alloc_nest) is Procedure
+    with pytest.raises(TypeError,
+                       match='y is read out-of-bounds'):
+        alloc_nest = gen_bad_alloc_nest()
+        assert type(alloc_nest) is Procedure
 
-    filename = "test_window_bad_alloc_nest"
+        filename = "test_window_bad_alloc_nest"
 
-    alloc_nest.compile_c(directory, filename)
+        alloc_nest.compile_c(directory, filename)

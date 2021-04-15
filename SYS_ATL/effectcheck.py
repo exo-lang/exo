@@ -197,10 +197,14 @@ class InferEffects:
                     subst[sig.name] = lift_expr(arg)
                 else: assert False, "bad case"
 
-            eff = stmt.f.eff.subst(subst)
+            eff = stmt.f.eff
+            # TODO: Add read effect to call args
+            #for sig in stmt.f.args:
+            #    eff = eff_union(read_effect(arg), eff)
+            eff = eff.subst(subst)
 
             return LoopIR.Call(stmt.f, stmt.args,
-                               stmt.f.eff, stmt.srcinfo)
+                               eff, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.Pass:
             return LoopIR.Pass(eff_null(stmt.srcinfo), stmt.srcinfo)
@@ -450,7 +454,8 @@ class CheckEffects:
 #           forall nms in Z, pred ==> in_bounds(T, (i,j))
 
             self.solver.push()
-            self.solver.add_assertion(self.expr_to_smt(eff.pred))
+            if eff.pred is not None:
+                self.solver.add_assertion(self.expr_to_smt(eff.pred))
             in_bds = SMT.Bool(True)
 
             assert len(eff.loc) == len(shape)
@@ -499,10 +504,12 @@ class CheckEffects:
             sub1[iter] = iter1
             sub2    = { nm : nm.copy() for nm in e2.names }
             sub2[iter] = iter2
-            pred1   = expr_subst(sub1, e1.pred)
-            pred2   = expr_subst(sub2, e2.pred)
-            self.solver.add_assertion(self.expr_to_smt(pred1))
-            self.solver.add_assertion(self.expr_to_smt(pred2))
+            if e1.pred is not None:
+                pred1   = expr_subst(sub1, e1.pred)
+                self.solver.add_assertion(self.expr_to_smt(pred1))
+            if e2.pred is not None:
+                pred2   = expr_subst(sub2, e2.pred)
+                self.solver.add_assertion(self.expr_to_smt(pred2))
 
             loc1    = [ self.expr_to_smt(expr_subst(sub1, i)) for i in e1.loc ]
             loc2    = [ self.expr_to_smt(expr_subst(sub2, i)) for i in e2.loc ]
@@ -511,8 +518,6 @@ class CheckEffects:
                 loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
 
             if not self.solver.is_valid(loc_neq):
-                print(self.solver.assertions)
-                print(loc_neq)
                 self.err(e1, f"data race conflict with statement on "+
                              f"{e2.srcinfo} while accessing {e1.buffer} "+
                              f"in loop over {iter}.")
@@ -548,6 +553,7 @@ class CheckEffects:
             self.err(expr, "expected expression to always be positive")
 
     def check_call_shape_eqv(self, argshp, sigshp, node):
+        assert len(argshp) == len(sigshp)
         eqv_dim = SMT.Bool(True)
         for a,s in zip(argshp, sigshp):
             eqv_dim = SMT.And(eqv_dim,
@@ -640,6 +646,11 @@ class CheckEffects:
                     if not self.solver.is_valid(self.expr_to_smt(pred)):
                         self.err(stmt, f"Could not verify assertion in "+
                                        f"{stmt.f.name} at {p.srcinfo}")
+
+                body_eff = eff_union(body_eff, stmt.eff)
+
+            else:
+                body_eff = eff_union(body_eff, stmt.eff)
 
 
         return body_eff # Returns union of all effects
