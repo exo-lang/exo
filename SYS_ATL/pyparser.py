@@ -553,6 +553,7 @@ class Parser:
                         dims = node.slice.elts
                     else:
                         assert (type(node.slice) is pyast.Name or
+                                type(node.slice) is pyast.Constant or
                                 type(node.slice) is pyast.BinOp)
                         dims = [node.slice]
             else:

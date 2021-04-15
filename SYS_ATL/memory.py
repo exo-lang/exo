@@ -83,7 +83,7 @@ class Memory:
 
 def _dram_alloc(new_name, prim_type, shape, error):
     if len(shape) == 0:
-        return ("{prim_type} {new_name};")
+        return (f"{prim_type} {new_name};")
     else:
         size_str = shape[0]
         for s in shape[1:]:

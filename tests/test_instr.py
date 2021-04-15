@@ -276,35 +276,37 @@ def test_load_16():
     ld_16.compile_c(directory, filename)
 
 
-#----------------- arbitrary size matrix multiply --------------------
+#----------------- arbitrary size matrix load --------------------
 # Assume n%16 == 0 and m%16 == 0
-# r = n*m/16
-# w = (i+1)*j*16 #TODO: How to handle windowing?
 def gen_ld_2d(gemmini_ld):
     @proc
-    def ld_2d(n : size, m : size, x : F32[n, m], y : F32[n, m//16, 16]):
+    def ld_2d(n : size, m : size, x : F32[n, m] @DRAM, y : F32[n, m/16, 16] @ GEMM_SCRATCH):
         for i in par(0, n/16):
             for j in par(0, m/16):
-                gemmini_ld(n, m, x[i:i+16, j:j+16], y[i:i+16, j, :])
+                gemmini_ld(16, 16, x[i:i+16, j:j+16], y[i:i+16, j, :])
+                #gemmini_ld(n, m, x[i:i+16, j:j+16], y[i:i+16, j])
 
     return ld_2d
 
 @pytest.mark.skip
 def test_load():
-    # TODO: How to inline the instruction?
-    # LoopIR.Call? Or add scheduling directive?
     gemm_ld = gen_gemmini_ld()
     ld_2d = gen_ld_2d(gemm_ld)
-    #ld_2d = ld_2d.inline("gemmini_ld(_,_,_,_,_,_,_,_,_,_)")
 
     assert type(gemm_ld) is Procedure
     assert type(ld_2d) is Procedure
 
     filename = "test_load"
 
-    # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
-    f_pretty.write(str(ld_2d))
-    f_pretty.close()
-
     ld_2d.compile_c(directory, filename)
+
+#
+def gen_ld_2d_2(gemmini_ld):
+    @proc
+    def ld_2d(n : size, m : size, x : F32[n, m] @DRAM, y : F32[n, m/16, 16] @ GEMM_SCRATCH):
+        for i in par(0, n/16):
+            for j in par(0, m/16):
+                gemmini_ld(16, 16, x[i:i+16, j:j+16], y[i:i+16, j, :])
+        gemmini_ld(n%16, m%16, x[n-n%16: , m-m%16: ], y[n-n%16: ,])
+
+    return ld_2d

@@ -395,7 +395,7 @@ class Compiler:
                 self.add_line(f"{s.f.instr.format(**d)}")
             else:
                 fname   = s.f.name
-                self.add_line(f"{fname}({','.join(args)})")
+                self.add_line(f"{fname}({','.join(args)});")
         else:
             assert False, "bad case"
 
