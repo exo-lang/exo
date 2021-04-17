@@ -288,8 +288,7 @@ class TypeChecker:
                     self.err(rhs, "expected 'bool' argument to logical op")
                 typ = T.bool
             elif e.op == "==" and lhs.type == T.bool and rhs.type == T.bool:
-                self.err(e, "using \"==\" for boolean not supported. Use "+
-                            "\"and\" instead")
+                self.err(e, "using \"==\" for boolean not supported.")
                 typ = T.err
             elif (e.op == "<" or e.op == "<=" or e.op == "==" or
                   e.op == ">" or e.op == ">="):
@@ -321,7 +320,8 @@ class TypeChecker:
                 elif rhs.type.is_real_scalar():
                     self.err(lhs, "expected scalar type")
                 elif lhs.type == T.bool or rhs.type == T.bool:
-                    self.err(lhs, "cannot perform arithmetic on 'bool' values")
+                    node = lhs if lhs.type == T.bool else rhs
+                    self.err(node, "cannot perform arithmetic on 'bool' values")
                     typ = T.err
                 elif type(lhs.type) is T.Tensor or type(rhs.type) is T.Tensor:
                     self.err(lhs, "cannot perform arithmetic on tensors")

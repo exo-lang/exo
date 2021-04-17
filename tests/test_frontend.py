@@ -337,7 +337,7 @@ def gen_binop4():
     return hoge
 def test_binop4():
     with pytest.raises(TypeError,
-                       match='using \"==\" for boolean not supported. Use \"and\" instead'):
+                       match='using \"==\" for boolean not supported.'):
         binop4 = gen_binop4()
 
 
