@@ -29,8 +29,8 @@ def gen_gemmini_ld():
         dst_r : index,
         col_dim : size,
         row_dim : size,
-        src : F32[src_n, src_m] @ DRAM,
-        dst : F32[dst_n, 16]    @ GEMM_SCRATCH,
+        src : f32[src_n, src_m] @ DRAM,
+        dst : f32[dst_n, 16]    @ GEMM_SCRATCH,
     ):
         assert row_dim <= 16
         assert col_dim <= 16
@@ -62,8 +62,8 @@ def gen_gemmini_store():
         dst_c : index,
         col_dim : size,
         row_dim : size,
-        src : F32[src_n,16]    @ GEMM_SCRATCH,
-        dst : F32[dst_n,dst_m] @ DRAM
+        src : f32[src_n,16]    @ GEMM_SCRATCH,
+        dst : f32[dst_n,dst_m] @ DRAM
     ):
         assert row_dim <= 16
         assert col_dim <= 16
@@ -104,9 +104,9 @@ def gen_gemmini_matmul():
         nA : size,
         nB : size,
         nC : size,
-        A : F32[nA,16] @ GEMM_SCRATCH,
-        B : F32[nB,16] @ GEMM_SCRATCH,
-        C : F32[nC,16] @ GEMM_SCRATCH
+        A : f32[nA,16] @ GEMM_SCRATCH,
+        B : f32[nB,16] @ GEMM_SCRATCH,
+        C : f32[nC,16] @ GEMM_SCRATCH
     ):
         assert 1 <= N <= 16
         assert 1 <= M <= 16
@@ -133,12 +133,12 @@ def gen_gemmini_matmul():
 # Matmul test with custom mallocs (DRAM & GEMM)
 def gen_matmul_16_malloc(gemmini_ld, gemmini_st, gemmini_matmul):
     @proc
-    def matmul_16_malloc(C : F32[16, 16] @ DRAM):
-        A : F32[16,16] @ MDRAM
-        B : F32[16,16] @ MDRAM
-        A_GEMM : F32[16,16] @ GEMM_SCRATCH
-        B_GEMM : F32[16,16] @ GEMM_SCRATCH
-        C_GEMM : F32[16,16] @ GEMM_SCRATCH
+    def matmul_16_malloc(C : f32[16, 16] @ DRAM):
+        A : f32[16,16] @ MDRAM
+        B : f32[16,16] @ MDRAM
+        A_GEMM : f32[16,16] @ GEMM_SCRATCH
+        B_GEMM : f32[16,16] @ GEMM_SCRATCH
+        C_GEMM : f32[16,16] @ GEMM_SCRATCH
 
         for i in par(0, 16):
             for j in par(0, 16):
@@ -174,12 +174,12 @@ def test_matmul_16_malloc():
 # matmul test
 def gen_matmul_16(gemmini_ld, gemmini_st, gemmini_matmul):
     @proc
-    def matmul_16(A      : F32[16, 16] @ DRAM,
-                  A_GEMM : F32[16, 16] @ GEMM_SCRATCH,
-                  B      : F32[16, 16] @ DRAM,
-                  B_GEMM : F32[16, 16] @ GEMM_SCRATCH,
-                  C      : F32[16, 16] @ DRAM,
-                  C_GEMM : F32[16, 16] @ GEMM_SCRATCH):
+    def matmul_16(A      : f32[16, 16] @ DRAM,
+                  A_GEMM : f32[16, 16] @ GEMM_SCRATCH,
+                  B      : f32[16, 16] @ DRAM,
+                  B_GEMM : f32[16, 16] @ GEMM_SCRATCH,
+                  C      : f32[16, 16] @ DRAM,
+                  C_GEMM : f32[16, 16] @ GEMM_SCRATCH):
         # Load A and B to scratchpad
         gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, A, A_GEMM)
         gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, B, B_GEMM)
@@ -209,9 +209,9 @@ def test_matmul_16():
 
 def gen_ld_st_16(gemmini_ld, gemmini_st):
     @proc
-    def ld_st_16(x : F32[16, 16] @ DRAM,
-                 y : F32[16, 16] @ GEMM_SCRATCH,
-                 z : F32[16, 16] @ DRAM):
+    def ld_st_16(x : f32[16, 16] @ DRAM,
+                 y : f32[16, 16] @ GEMM_SCRATCH,
+                 z : f32[16, 16] @ DRAM):
         gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, x, y)
         gemmini_st(16, 0, 16, 16, 0, 0, 16, 16, y, z)
 
@@ -233,7 +233,7 @@ def test_ld_st_16():
 
 def gen_st_16(gemmini_st):
     @proc
-    def st_16(x : F32[16, 16] @ GEMM_SCRATCH, y : F32[16, 16] @ DRAM):
+    def st_16(x : f32[16, 16] @ GEMM_SCRATCH, y : f32[16, 16] @ DRAM):
         gemmini_st(16, 0, 16, 16, 0, 0, 16, 16, x, y)
 
     return st_16
@@ -255,7 +255,7 @@ def test_store_16():
 
 def gen_ld_16(gemmini_ld):
     @proc
-    def ld_16(x : F32[16, 16] @ DRAM, y : F32[16, 16] @ GEMM_SCRATCH):
+    def ld_16(x : f32[16, 16] @ DRAM, y : f32[16, 16] @ GEMM_SCRATCH):
         gemmini_ld(16, 16, 0, 0, 16, 0, 16, 16, x, y)
 
     return ld_16
@@ -280,7 +280,7 @@ def test_load_16():
 # Assume n%16 == 0 and m%16 == 0
 def gen_ld_2d(gemmini_ld):
     @proc
-    def ld_2d(n : size, m : size, x : F32[n, m] @DRAM, y : F32[n, m/16, 16] @ GEMM_SCRATCH):
+    def ld_2d(n : size, m : size, x : f32[n, m] @DRAM, y : f32[n, m/16, 16] @ GEMM_SCRATCH):
         for i in par(0, n/16):
             for j in par(0, m/16):
                 gemmini_ld(16, 16, x[i:i+16, j:j+16], y[i:i+16, j, :])
@@ -303,7 +303,7 @@ def test_load():
 #
 def gen_ld_2d_2(gemmini_ld):
     @proc
-    def ld_2d(n : size, m : size, x : F32[n, m] @DRAM, y : F32[n, m/16, 16] @ GEMM_SCRATCH):
+    def ld_2d(n : size, m : size, x : f32[n, m] @DRAM, y : f32[n, m/16, 16] @ GEMM_SCRATCH):
         for i in par(0, n/16):
             for j in par(0, m/16):
                 gemmini_ld(16, 16, x[i:i+16, j:j+16], y[i:i+16, j, :])

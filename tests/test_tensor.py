@@ -38,7 +38,7 @@ def test_tensor():
 # -------- Support partial windowing call ------
 def gen_dot():
     @proc
-    def dot(m: size, x : F32[m] , y : F32[m] , r : F32 ):
+    def dot(m: size, x : f32[m] , y : f32[m] , r : f32 ):
         r = 0.0
         for i in par(0, m):
             r += x[i]*y[i]
@@ -47,12 +47,12 @@ def gen_dot():
 
 def gen_proj(dot):
     @proc
-    def proj(n : size, m : size, x : F32[n,m], y : F32[m,n]):
-        xy : F32
-        y2 : F32
+    def proj(n : size, m : size, x : f32[n,m], y : f32[m,n]):
+        xy : f32
+        y2 : f32
         dot(n, x[1,:], y[:,2], xy)
         dot(n, y[:,3], y[:,3], y2)
-        s : F32
+        s : f32
         s = xy / y2
         for i in par(0,n):
             x[i] = s * y[i]

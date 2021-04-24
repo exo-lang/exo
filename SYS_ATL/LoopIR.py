@@ -66,20 +66,18 @@ module UAST {
             | Int   ()
             | Size  ()
             | Index ()
-            | Tensor( range hi, type type )
+            | Tensor( expr hi, type type )
 } """, {
     'name':         is_valid_name,
     'sym':          lambda x: type(x) is Sym,
     'mem':          lambda x: isinstance(x, Memory),
     'loopir_proc':  lambda x: type(x) is LoopIR.proc,
     'op':           lambda x: x in front_ops,
-    'range':        lambda x: is_pos_int(x) or type(x) is Sym,
+    #'range':        lambda x: is_pos_int(x) or type(x) is Sym,
     'srcinfo':      lambda x: type(x) is SrcInfo
 })
 
-ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Size',
-               'Index', 'Tensor'], {
-    'range': lambda x: x,
+ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Size', 'Index'], {
 })
 
 

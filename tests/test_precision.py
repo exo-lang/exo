@@ -20,11 +20,11 @@ import pytest
 def gen_good_prec1():
     @proc
     def good_prec1(n : size, m : size,
-                   x : F32[n,m], y: F32[n,m], res : F64[n,m]):
+                   x : f32[n,m], y: f32[n,m], res : f64[n,m]):
         for i in par(0,n):
-            rloc : F64[m]
-            xloc : F32[m]
-            yloc : F32[m]
+            rloc : f64[m]
+            xloc : f32[m]
+            yloc : f32[m]
             for j in par(0,m):
                 xloc[j] = x[i,j]
             for j in par(0,m):
@@ -40,11 +40,11 @@ def gen_good_prec1():
 def gen_bad_prec1():
     @proc
     def bad_prec1(n : size, m : size,
-                  x : F32[n,m], y: INT8[n,m], res : F64[n,m]):
+                  x : f32[n,m], y: i8[n,m], res : f64[n,m]):
         for i in par(0,n):
-            rloc : F64[m]
-            xloc : F32[m]
-            yloc : INT8[m]
+            rloc : f64[m]
+            xloc : f32[m]
+            yloc : i8[m]
             for j in par(0,m):
                 xloc[j] = x[i,j]
             for j in par(0,m):
@@ -89,7 +89,7 @@ def test_good_prec1():
 
 def gen_dot():
     @proc
-    def dot(m: size, x : F32[m] , y : F32[m] , r : F32 ):
+    def dot(m: size, x : f32[m] , y : f32[m] , r : f32 ):
         r = 0.0
         for i in par(0, m):
             r += x[i]*y[i]
@@ -98,16 +98,16 @@ def gen_dot():
 
 def gen_good_prec2(dot):
     @proc
-    def hoge(n : size, x : F32[n], y : F32[n]):
-        xy : F32
+    def hoge(n : size, x : f32[n], y : f32[n]):
+        xy : f32
         dot(n, x, y, xy)
 
     return hoge
 
 def gen_bad_prec2(dot):
     @proc
-    def hoge(n : size, x : INT8[n], y : INT8[n]):
-        xy : F32
+    def hoge(n : size, x : i8[n], y : i8[n]):
+        xy : f32
         dot(n, x, y, xy)
 
     return hoge

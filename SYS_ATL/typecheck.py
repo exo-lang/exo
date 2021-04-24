@@ -39,7 +39,7 @@ class TypeChecker:
 
         args = []
         for a in proc.args:
-            typ = self.check_t(a.type, a.srcinfo)
+            typ = self.check_t(a.type)
             self.env[a.name] = typ
             mem = a.mem
             if mem is None:
@@ -166,7 +166,7 @@ class TypeChecker:
             return LoopIR.ForAll(stmt.iter, hi, body, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Alloc:
-            typ = self.check_t(stmt.type, stmt.srcinfo)
+            typ = self.check_t(stmt.type)
             self.env[stmt.name] = typ
             mem = stmt.mem
             if mem is None:
@@ -176,52 +176,23 @@ class TypeChecker:
         elif type(stmt) is UAST.Call:
             args    = [ self.check_e(a) for a in stmt.args ]
 
-            # because procedures have dependently-typed signatures,
-            # we need to re-map size types as we type-check
-            size_map = {}
             for call_a,sig_a in zip(args, stmt.f.args):
-                is_err = True
                 if call_a.type == T.err:
                     pass
                 elif sig_a.type is T.size:
-                    if call_a.type == T.size:
-                        if type(call_a) is not LoopIR.Read:
-                            self.err(call_a, "expected size arguments to be "+
-                                             "simply variables or constants "+
-                                             "for now")
-                        else:
-                            is_err = False
-                            size_map[sig_a.name] = call_a.name
-                    elif call_a.type == T.int:
-                        if type(call_a) is not LoopIR.Const:
-                            self.err(call_a, "expected size arguments to be "+
-                                             "simply variables or constants "+
-                                             "for now")
-                        else:
-                            is_err = False
-                            size_map[sig_a.name] = call_a.val
-                    else:
-                        self.err(call_a, "expected argument of 'size' or "+
-                                         "'int' type, but got argument of "+
-                                        f"type '{call_a.type}'")
-
+                    if not call_a.type.is_sizeable():
+                        self.err(call_a, "expected size arguments to have "+
+                                         "'size' type")
                 elif sig_a.type is T.index:
                     if not call_a.type.is_indexable():
                         self.err(call_a, "expected index-type expression, "+
                                          f"but got type {call_a.type}")
-                    else:
-                        is_err = False
 
                 elif sig_a.type.is_numeric():
                     if len(call_a.type.shape()) != len(sig_a.type.shape()):
                         self.err(call_a,
                                  f"expected argument of type '{sig_a.type}', "
                                  f"but got '{call_a.type}'")
-
-                    #sig_type = sig_a.type.subst(size_map)
-                    #if call_a.type != sig_type:
-                    #    self.err(call_a,
-                    #             f"expected argument of type '{sig_type}'")
 
                     # ensure scalars are simply variable names
                     elif call_a.type.is_real_scalar():
@@ -230,17 +201,9 @@ class TypeChecker:
                             self.err(call_a, "expected scalar arguments "+
                                              "to be simply variable names "+
                                              "for now")
-                        else:
-                            is_err = False
-                    else:
-                        is_err = False
 
                 else: assert False, "bad argument type case"
 
-                if is_err:
-                    return LoopIR.Pass(None, stmt.srcinfo)
-
-            # if no errors were hit, then we get to here
             return LoopIR.Call(stmt.f, args, None, stmt.srcinfo)
 
         else:
@@ -363,28 +326,27 @@ class TypeChecker:
         else:
             assert False, "not a LoopIR in check_e"
 
-    def check_t(self, typ, srcinfo):
-        if type(typ) is UAST.Num:
-            return T.R
-        elif type(typ) is UAST.F32:
-            return T.f32
-        elif type(typ) is UAST.F64:
-            return T.f64
-        elif type(typ) is UAST.INT8:
-            return T.int8
-        elif type(typ) is UAST.Bool:
-            return T.bool
-        elif type(typ) is UAST.Int:
-            return T.int
-        elif type(typ) is UAST.Size:
-            return T.size
-        elif type(typ) is UAST.Index:
-            return T.index
+
+    _typ_table = {
+        UAST.Num    : T.R,
+        UAST.F32    : T.f32,
+        UAST.F64    : T.f64,
+        UAST.INT8   : T.int8,
+        UAST.Bool   : T.bool,
+        UAST.Int    : T.int,
+        UAST.Size   : T.size,
+        UAST.Index  : T.index,
+    }
+
+    def check_t(self, typ):
+        if type(typ) in TypeChecker._typ_table:
+            return TypeChecker._typ_table[type(typ)]
         elif type(typ) is UAST.Tensor:
-            if is_pos_int(typ.hi):
-                hi = LoopIR.Const(typ.hi, T.int, srcinfo)
-            else:
-                hi = LoopIR.Read(typ.hi, [], T.size, srcinfo)
-            return T.Tensor(hi, self.check_t(typ.type, srcinfo))
+            hi          = self.check_e(typ.hi)
+            sub_typ     = self.check_t(typ.type)
+            if not hi.type.is_sizeable():
+                self.err(hi, "expected array size expression "+
+                             "to have type 'size'")
+            return T.Tensor(hi, sub_typ)
         else:
             assert False, "bad case"

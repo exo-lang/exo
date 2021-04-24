@@ -45,11 +45,11 @@ def gen_blur():
              image  : R[N, M],          # an N x M array; for input
              kernel : R[K, K],
              res    : R[N, M]):        # an N x M array; for output
-        
+
         for x in par(0, N):                  # zero out the `res`ult array
             for y in par(0, M):
                 res[x, y] = 0.0
-        
+
         for x in par(0, N):                  # loop nest specifying the blur
             for y in par(0, M):
                 for i in par(0, K):

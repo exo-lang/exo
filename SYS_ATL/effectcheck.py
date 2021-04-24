@@ -626,8 +626,13 @@ class CheckEffects:
                 subst = dict()
                 for sig,arg in zip(stmt.f.args, stmt.args):
                     if sig.type.is_numeric():
-                        # need to compare equivalence of shapes
+                        # need to check that the argument shape
+                        # has all positive dimensions
                         arg_shape = [ lift_expr(s) for s in arg.type.shape() ]
+                        for e in arg_shape:
+                            self.check_pos_size(e)
+                        # also, need to check that the argument shape
+                        # is exactly the shape specified in the signature
                         sig_shape = [ lift_expr(s) for s in sig.type.shape() ]
                         sig_shape = [ s.subst(subst) for s in sig_shape ]
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)

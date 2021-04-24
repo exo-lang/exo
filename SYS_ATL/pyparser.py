@@ -309,15 +309,20 @@ class Parser:
         typ = self.parse_num_type(node)
         return typ, mem
 
+    _prim_types = {
+        'R'     : UAST.Num(),
+        'f32'   : UAST.F32(),
+        'f64'   : UAST.F64(),
+        'i8'    : UAST.INT8(),
+    }
 
     def parse_num_type(self, node):
         if type(node) is pyast.Subscript:
             if (type(node.value) is not pyast.Name
-                    or (node.value.id != "R" and node.value.id != "F32"
-                        and node.value.id != "F64"
-                        and node.value.id != "INT8")):
+                    or node.value.id not in Parser._prim_types):
                 self.err(node, "expected tensor type to be "+
-                               "of the form 'R/F32/F64/INT8[...]'")
+                               "of the form 'R[...]', 'f32[...]', etc.")
+            typ = Parser._prim_types[node.value.id]
 
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
@@ -343,44 +348,15 @@ class Parser:
                         dims = [node.slice.value]
 
             # convert the dimension list into a full tensor type
-            if node.value.id == "R":
-                typ = UAST.Num()
-            elif node.value.id == "F32":
-                typ = UAST.F32()
-            elif node.value.id == "F64":
-                typ = UAST.F64()
-            elif node.value.id == "INT8":
-                typ = UAST.INT8()
-
             for idx in reversed(dims):
-                if type(idx) is pyast.Constant:
-                    if is_pos_int(idx.value):
-                        typ = UAST.Tensor(idx.value, typ)
-                        continue
-                elif type(idx) is pyast.Name:
-                    if idx.id in self.locals:
-                        sz = self.locals[idx.id]
-                        if type(sz) is SizeStub:
-                            typ = UAST.Tensor(sz.nm, typ)
-                            continue
-                        else:
-                            self.err(idx, f"'{idx.id}' is not a size")
-                    else:
-                        self.err(idx, f"'{idx.id}' is undefined")
-                self.err(idx, "expected positive integer "+
-                              "constant or size variable")
+                # new version
+                e = self.parse_expr(idx)
+                typ = UAST.Tensor(e, typ)
 
             return typ
 
-        elif type(node) is pyast.Name and node.id == "R":
-            return UAST.Num()
-        elif type(node) is pyast.Name and node.id == "F32":
-            return UAST.F32()
-        elif type(node) is pyast.Name and node.id == "F64":
-            return UAST.F64()
-        elif type(node) is pyast.Name and node.id == "INT8":
-            return UAST.INT8()
-
+        elif type(node) is pyast.Name and node.id in Parser._prim_types:
+            return Parser._prim_types[node.id]
         else:
             self.err(node, "unrecognized type: "+astor.dump_tree(node))
 
