@@ -205,7 +205,7 @@ def gen_call_read_size2(call_read_size1):
     return hoge
 def test_call_read_size1():
     with pytest.raises(TypeError,
-                       match='expected argument of '):
+                       match='expected size arguments to have'):
         call_read_size1 = gen_call_read_size1()
         call_read_size2 = gen_call_read_size2(call_read_size1)
 
@@ -229,7 +229,7 @@ def test_call_index_read1():
 
 def gen_call_tensor1_read1():
     @proc
-    def hoge(n : size, m : size, y : F64[n,m]):
+    def hoge(n : size, m : size, y : f64[n,m]):
         pass
     return hoge
 def gen_call_tensor1_read2(call_tensor1_read1):
@@ -246,7 +246,7 @@ def test_call_tensor1_read1():
 
 def gen_call_tensor2_read1():
     @proc
-    def hoge(y : F64):
+    def hoge(y : f64):
         pass
     return hoge
 def gen_call_tensor2_read2(call_tensor2_read1):
@@ -389,7 +389,7 @@ def test_binop8():
 
 def gen_binop9():
     @proc
-    def hoge(x : F64):
+    def hoge(x : f64):
         x = x + 8.0
     return hoge
 def test_binop9():
@@ -398,7 +398,7 @@ def test_binop9():
 
 def gen_binop10():
     @proc
-    def hoge(x : INT8):
+    def hoge(x : i8):
         x = x + 8.0
     return hoge
 def test_binop10():
@@ -407,7 +407,7 @@ def test_binop10():
 
 def gen_binop11():
     @proc
-    def hoge(x : INT8):
+    def hoge(x : i8):
         x = (1 == 0) + (0 == 1)
     return hoge
 def test_binop11():

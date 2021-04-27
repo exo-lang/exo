@@ -65,6 +65,7 @@ op_prec = {
 @extclass(UAST.fnarg)
 @extclass(UAST.stmt)
 @extclass(UAST.expr)
+@extclass(UAST.type)
 def __str__(self):
     return UAST_PPrinter(self).str()
 del __str__
@@ -86,12 +87,19 @@ class UAST_PPrinter:
             self.pstmts([node])
         elif isinstance(node, UAST.expr):
             self.addline(self.pexpr(node))
+        elif isinstance(node, UAST.type):
+            self.addline(self.ptype(node))
         else:
             assert False, f"cannot print a {type(node)}"
 
     def str(self):
+        if isinstance(self._node, UAST.type):
+            assert len(self._lines) == 1
+            return self._lines[0]
+
         fmtstr, linted = FormatCode("\n".join(self._lines))
-        assert linted, "generated unlinted code..."
+        if isinstance(self._node, LoopIR.proc):
+            assert linted, "generated unlinted code..."
         return fmtstr
 
     def push(self,only=None):
@@ -218,6 +226,28 @@ class UAST_PPrinter:
         else:
             assert False, "unrecognized expr type"
 
+    def ptype(self, t):
+        if type(t) is UAST.Num:
+            return "R"
+        elif type(t) is UAST.F32:
+            return "f32"
+        elif type(t) is UAST.F64:
+            return "f64"
+        elif type(t) is UAST.INT8:
+            return "i8"
+        elif type(t) is UAST.Bool:
+            return "bool"
+        elif type(t) is UAST.Int:
+            return "int"
+        elif type(t) is UAST.Index:
+            return "index"
+        elif type(t) is UAST.Size:
+            return "size"
+        elif type(t) is UAST.Tensor:
+            rngs = ",".join([self.pexpr(r) for r in t.shape()])
+            return f"{t.basetype()}[{rngs}]"
+        else:
+            assert False, "impossible type case"
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -405,7 +435,7 @@ class LoopIR_PPrinter:
         elif type(t) is T.F64:
             return "f64"
         elif type(t) is T.INT8:
-            return "int8"
+            return "i8"
         elif type(t) is T.Bool:
             return "bool"
         elif type(t) is T.Int:
