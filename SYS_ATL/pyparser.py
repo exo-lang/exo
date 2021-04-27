@@ -349,7 +349,8 @@ class Parser:
 
             # convert the dimension list into a full tensor type
             exprs = [self.parse_expr(idx) for idx in dims]
-            typ = UAST.Tensor(exprs, typ)
+            #TODO: Should we set default stride here??
+            typ = UAST.Tensor(exprs, [], typ)
 
             return typ
 

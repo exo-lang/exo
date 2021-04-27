@@ -115,7 +115,8 @@ class TypeChecker:
                 if len(hi) == 0:
                     typ = typ.basetype()
                 else:
-                    typ = T.Tensor(hi, typ.type)
+                    # TODO: Fix here!
+                    typ = T.Tensor(hi, [], typ.type)
         elif lvalue:
             self.err(node, f"cannot assign/reduce to '{nm}', " +
                            f"a non-numeric variable of type '{typ}'")
@@ -348,11 +349,12 @@ class TypeChecker:
             return TypeChecker._typ_table[type(typ)]
         elif type(typ) is UAST.Tensor:
             hi          = [self.check_e(h) for h in typ.hi]
+            stride      = [self.check_e(s) for s in typ.stride]
             sub_typ     = self.check_t(typ.type)
             for h in hi:
                 if not h.type.is_sizeable():
                     self.err(h, "expected array size expression "+
                                  "to have type 'size'")
-            return T.Tensor(hi, sub_typ)
+            return T.Tensor(hi, stride, sub_typ)
         else:
             assert False, "bad case"
