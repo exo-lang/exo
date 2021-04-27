@@ -66,7 +66,7 @@ module UAST {
             | Int   ()
             | Size  ()
             | Index ()
-            | Tensor( expr hi, type type )
+            | Tensor( expr *hi, type type )
 } """, {
     'name':         is_valid_name,
     'sym':          lambda x: type(x) is Sym,
@@ -86,16 +86,13 @@ ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Size', 'Index'], {
 @extclass(UAST.F64)
 @extclass(UAST.INT8)
 def shape(t):
-    shp = []
-    while type(t) is UAST.Tensor:
-        shp.append(t.hi)
-        t = t.type
+    shp = t.hi if type(t) is UAST.Tensor else []
     return shp
 del shape
 
 @extclass(UAST.type)
 def basetype(t):
-    while type(t) is UAST.Tensor:
+    if type(t) is UAST.Tensor:
         t = t.type
     return t
 del basetype
@@ -169,7 +166,6 @@ module LoopIR {
 
     stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
             | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
-        --  | Alias  ( sym name, expr rhs ) -- rhs has to be a slice expr?
             | Pass   ()
             | If     ( expr cond, stmt* body, stmt* orelse )
             | ForAll ( sym iter, expr hi, stmt* body )
@@ -179,14 +175,9 @@ module LoopIR {
             attributes( effect? eff, srcinfo srcinfo )
 
     expr    = Read( sym name, expr* idx )
-        --  | Slice( sym name, slice_idx* idx )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
             attributes( type type, srcinfo srcinfo )
-
-    -- slice_idx = SlicePoint( expr val )
-    --           | SliceRange( expr lo, expr hi )
-    --           attributes(srcinfo srcinfo)
 
     type    = Num   ()
             | F32   ()
@@ -197,8 +188,9 @@ module LoopIR {
             | Index ()
             | Size  ()
             | Error ()
-            | Tensor( expr hi, type type )
-    --| Window( sym orig, expr* lo, expr* hi, type orig_type )
+            | Tensor( expr *hi, type type )
+        --| Tensor( expr *hi, expr *stride, type type )
+        --| Window( sym orig, expr* lo, expr* hi, type orig_type )
 
 } """, {
     'name':     is_valid_name,
@@ -256,11 +248,7 @@ class T:
 @extclass(T.F64)
 @extclass(T.INT8)
 def shape(t):
-    shp = []
-    while type(t) is T.Tensor:
-        shp.append(t.hi)
-        t = t.type
-    assert t.is_real_scalar()
+    shp = t.hi if type(t) is T.Tensor else []
     return shp
 del shape
 
@@ -302,7 +290,7 @@ del is_sizeable
 
 @extclass(LoopIR.type)
 def basetype(t):
-    while type(t) is T.Tensor:
+    if type(t) is T.Tensor:
         t = t.type
     return t
 del basetype

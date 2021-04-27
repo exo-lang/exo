@@ -530,8 +530,8 @@ class _LiftAlloc(LoopIR_Rewrite):
             # compute the lifted allocation buffer type, and
             # the new allocation statement
             new_typ = s.type
-            for r in reversed(rngs):
-                new_typ = T.Tensor(r, new_typ)
+            if len(rngs) > 0:
+                new_typ = T.Tensor(rngs, new_typ)
 
             # TODO: What is the effect here?
             self.lifted_stmt = LoopIR.Alloc( s.name, new_typ, s.mem,

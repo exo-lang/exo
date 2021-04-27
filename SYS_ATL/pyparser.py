@@ -348,10 +348,8 @@ class Parser:
                         dims = [node.slice.value]
 
             # convert the dimension list into a full tensor type
-            for idx in reversed(dims):
-                # new version
-                e = self.parse_expr(idx)
-                typ = UAST.Tensor(e, typ)
+            exprs = [self.parse_expr(idx) for idx in dims]
+            typ = UAST.Tensor(exprs, typ)
 
             return typ
 
