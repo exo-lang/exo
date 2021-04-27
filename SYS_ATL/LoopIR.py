@@ -67,6 +67,7 @@ module UAST {
             | Size  ()
             | Index ()
             | Tensor( expr *hi, expr *stride, type type )
+            | Window( sym orig, expr* lo, expr* hi, type orig_type )
 } """, {
     'name':         is_valid_name,
     'sym':          lambda x: type(x) is Sym,
@@ -189,8 +190,7 @@ module LoopIR {
             | Size  ()
             | Error ()
             | Tensor( expr *hi, expr *stride, type type )
-        --| Tensor( expr *hi, expr *stride, type type )
-        --| Window( sym orig, expr* lo, expr* hi, type orig_type )
+            | Window( sym orig, expr* lo, expr* hi, type orig_type )
 
 } """, {
     'name':     is_valid_name,

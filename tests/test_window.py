@@ -58,7 +58,6 @@ def gen_alloc_nest():
 
     return alloc_nest
 
-@pytest.mark.skip()
 def test_alloc_nest():
     alloc_nest = gen_alloc_nest()
     assert type(alloc_nest) is Procedure
@@ -93,7 +92,6 @@ def gen_bad_alloc_nest():
 
     return alloc_nest
 
-@pytest.mark.skip()
 def test_bad_alloc_nest():
     with pytest.raises(TypeError,
                        match='y is read out-of-bounds'):

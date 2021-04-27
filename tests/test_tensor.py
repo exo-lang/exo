@@ -70,3 +70,18 @@ def test_normalize():
     filename = "test_proj_partial"
 
     proj.compile_c(directory, filename)
+
+def gen_assign():
+    @proc
+    def assign(n : size, m : size, x : f32[n, m]):
+        y : f32[m]
+        y = x[0, :]
+        z : f32[3]
+        z = y[0 : 3]
+    return assign
+
+@pytest.mark.skip
+def test_assign():
+    assign = gen_assign()
+    filename = "test_assign"
+    assign.compile_c(directory, filename)
