@@ -324,21 +324,31 @@ class Parser:
                                "of the form 'R[...]', 'f32[...]', etc.")
             typ = Parser._prim_types[node.value.id]
 
-            # unpack single or multi-arg indexing to list of slices/indices
-            if type(node.slice) is pyast.Slice:
-                self.err(node, "index-slicing not allowed")
-            else:
-                if type(node.slice) is pyast.Tuple:
-                    dims = node.slice.elts
+            if sys.version_info[:3] >= (3, 9):
+                # unpack single or multi-arg indexing to list of slices/indices
+                if type(node.slice) is pyast.Slice:
+                    self.err(node, "index-slicing not allowed")
                 else:
-                    assert (type(node.slice) is pyast.Name or
-                            type(node.slice) is pyast.Constant)
-                    dims = [node.slice]
+                    if type(node.slice) is pyast.Tuple:
+                        dims = node.slice.elts
+                    else:
+                        assert (type(node.slice) is pyast.Name or
+                                type(node.slice) is pyast.Constant)
+                        dims = [node.slice]
+            else:
+                if (type(node.slice) is pyast.Slice or
+                    type(node.slice) is pyast.ExtSlice):
+                    self.err(node, "index-slicing not allowed")
+                else:
+                    assert type(node.slice) is pyast.Index
+                    if type(node.slice.value) is pyast.Tuple:
+                        dims = node.slice.value.elts
+                    else:
+                        dims = [node.slice.value]
 
             # convert the dimension list into a full tensor type
             exprs = [self.parse_expr(idx) for idx in dims]
-            #TODO: Should we set default stride here??
-            typ = UAST.Tensor(exprs, [], typ)
+            typ = UAST.Tensor(exprs, typ)
 
             return typ
 
@@ -507,16 +517,27 @@ class Parser:
         if type(node) is pyast.Name:
             return node, []
         elif type(node) is pyast.Subscript:
-            # unpack single or multi-arg indexing to list of slices/indices
-            if type(node.slice) is pyast.Slice:
-                self.err(node, "index-slicing not allowed")
-            elif type(node.slice) is pyast.Tuple:
-                dims = node.slice.elts
+            if sys.version_info[:3] >= (3, 9):
+                # unpack single or multi-arg indexing to list of slices/indices
+                if type(node.slice) is pyast.Slice:
+                    self.err(node, "index-slicing not allowed")
+                elif type(node.slice) is pyast.Tuple:
+                    dims = node.slice.elts
+                else:
+                    assert (type(node.slice) is pyast.Name or
+                            type(node.slice) is pyast.Constant or
+                            type(node.slice) is pyast.BinOp)
+                    dims = [node.slice]
             else:
-                assert (type(node.slice) is pyast.Name or
-                        type(node.slice) is pyast.Constant or
-                        type(node.slice) is pyast.BinOp)
-                dims = [node.slice]
+               if (type(node.slice) is pyast.Slice or
+                    type(node.slice) is pyast.ExtSlice):
+                    self.err(node, "index-slicing not allowed")
+               else:
+                    assert type(node.slice) is pyast.Index
+                    if type(node.slice.value) is pyast.Tuple:
+                        dims = node.slice.value.elts
+                    else:
+                        dims = [node.slice.value]
 
             if type(node.value) is not pyast.Name:
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
@@ -529,23 +550,6 @@ class Parser:
                     idxs.append( self.parse_expr(e) )
 
             return node.value, idxs
-
-    def parse_slice(self, e, orig_name):
-        assert type(e) is pyast.Slice
-
-        if len(e.lower) > 1 or len(e.upper) > 1:
-            self.err(e, "lower and upper slicing value"+
-                        " cannot be greater than 1")
-        lower = None
-        upper = None
-        if len(e.lower) == 1:
-            lower = self.parse_expr(e.lower[0])
-        if len(e.upper) == 1:
-            upper = self.parse_expr(e.upper[0])
-        if e.step is not None:
-            self.err(e, "step in Slice not supported (yet)")
-
-        return lower, upper
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):

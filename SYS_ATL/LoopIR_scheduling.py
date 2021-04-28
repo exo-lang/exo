@@ -531,8 +531,7 @@ class _LiftAlloc(LoopIR_Rewrite):
             # the new allocation statement
             new_typ = s.type
             if len(rngs) > 0:
-                #TODO: Fix stride!
-                new_typ = T.Tensor(rngs, [], new_typ)
+                new_typ = T.Tensor(rngs, new_typ)
 
             # TODO: What is the effect here?
             self.lifted_stmt = LoopIR.Alloc( s.name, new_typ, s.mem,

@@ -158,41 +158,6 @@ def test_call_pass1():
         call_pass1 = gen_call_pass1()
         call_pass2 = gen_call_pass2(call_pass1)
 
-
-def gen_call_read1():
-    @proc
-    def hoge(y : size):
-        pass
-    return hoge
-def gen_call_read2(call_read1):
-    @proc
-    def hoge(x : size, r : size):
-        call_read1(r + x)
-    return hoge
-def test_call_read1():
-    with pytest.raises(TypeError,
-                       match='expected size arguments to be simply variables or constants for now'):
-        call_read1 = gen_call_read1()
-        call_read2 = gen_call_read2(call_read1)
-
-
-def gen_call_int_read1():
-    @proc
-    def hoge(y : size):
-        pass
-    return hoge
-def gen_call_int_read2(call_int_read1):
-    @proc
-    def hoge():
-        call_int_read1(3 + 2)
-    return hoge
-def test_call_int_read1():
-    with pytest.raises(TypeError,
-                       match='expected size arguments to be simply variables or constants for now'):
-        call_int_read1 = gen_call_int_read1()
-        call_int_read2 = gen_call_int_read2(call_int_read1)
-
-
 def gen_call_read_size1():
     @proc
     def hoge(y : size):
