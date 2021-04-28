@@ -844,16 +844,27 @@ class PatternParser:
         if type(node) is pyast.Name:
             return node, []
         elif type(node) is pyast.Subscript:
-            # unpack single or multi-arg indexing to list of slices/indices
-            if type(node.slice) is pyast.Slice:
-                self.err(node, "index-slicing not allowed")
-            else:
-                if type(node.slice) is pyast.Tuple:
+            if sys.version_info[:3] >= (3, 9):
+                # unpack single or multi-arg indexing to list of slices/indices
+                if type(node.slice) is pyast.Slice:
+                    self.err(node, "index-slicing not allowed")
+                elif type(node.slice) is pyast.Tuple:
                     dims = node.slice.elts
                 else:
                     assert (type(node.slice) is pyast.Name or
+                            type(node.slice) is pyast.Constant or
                             type(node.slice) is pyast.BinOp)
                     dims = [node.slice]
+            else:
+               if (type(node.slice) is pyast.Slice or
+                    type(node.slice) is pyast.ExtSlice):
+                    self.err(node, "index-slicing not allowed")
+               else:
+                    assert type(node.slice) is pyast.Index
+                    if type(node.slice.value) is pyast.Tuple:
+                        dims = node.slice.value.elts
+                    else:
+                        dims = [node.slice.value]
 
             if type(node.value) is not pyast.Name:
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
