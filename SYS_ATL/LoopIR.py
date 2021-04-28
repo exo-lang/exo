@@ -189,9 +189,13 @@ module LoopIR {
             | Index ()
             | Size  ()
             | Error ()
-            | Tensor( expr *hi, expr *stride, type type )
+            | Tensor( expr *hi, type type )
             | Window( sym orig, expr* lo, expr* hi, type orig_type )
-
+  x[i,j] --> x[ i*stride[0] + j*stride[1] ]
+  x : R[N,M]
+  x[i,j] --> x[ i*M + j*1 ]
+  x : R[N,M,P]
+  x[i,j,k] --> x[ i*(M*P) + j*P + k*1 ]
 } """, {
     'name':     is_valid_name,
     'sym':      lambda x: type(x) is Sym,
