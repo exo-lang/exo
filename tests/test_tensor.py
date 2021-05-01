@@ -38,12 +38,13 @@ def test_tensor():
 # -------- Support partial windowing call ------
 def gen_dot():
     @proc
-    def dot(m: size, x : f32[m] , y : f32[m] , r : f32 ):
+    def dot(m: size, x : [f32][m] , y : [f32][m] , r : f32 ):
         r = 0.0
         for i in par(0, m):
             r += x[i]*y[i]
 
     return dot
+
 
 def gen_proj(dot):
     @proc
@@ -52,7 +53,7 @@ def gen_proj(dot):
         y2 : f32
         dot(m, x[1,:], y[:,2], xy)
         dot(m, y[:,3], y[:,3], y2)
-        mv_gemmini(x[i:i+16,:])
+        mv_gemmini(x[i:i+16,j:j+16])
         # WindowExpr( sym base, w_access *idx ) -- oh wait, this is broken
         # UAST
         # w_access = Interval( expr? lo, expr? hi )
@@ -90,6 +91,14 @@ def gen_assign():
         # y --> (float *)
         # y : R[n] windowed from (x : R[n,m]) by x[0:n,0]
         # y : R[n,1] windowed from (x : R[n,m]) by x[0:n,0:1]
+        #
+        # y : R[n]    ----    i.e. y is a tensor of R-values and dim (n)
+        #               --> <R>*
+        # y : [R][n,m] ----- i.e. y is a window of R-values and dim (n)
+        #               --> struct win_R_2 { <R>* data; int strides[2]; }
+        # [R][n,m]
+        # i8 f32
+        #  R  f32
         #
         # ____ = z : R[n,m] windowed from (x : R[n,m,p]) by x[:,:,3]
         # y : R[n] windowed from (_____) by z[0:n,0]

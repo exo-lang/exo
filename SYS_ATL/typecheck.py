@@ -48,7 +48,10 @@ class TypeChecker:
 
         preds = []
         for p in proc.preds:
-            pred = self.check_e(p)
+            if type(p) is UAST.StrideAssert:
+                pred = self.check_stride_assert(p)
+            else:
+                pred = self.check_e(p)
             if pred.type != T.err and pred.type != T.bool:
                 self.err(pred, f"expected a bool expression")
             preds.append(pred)
@@ -211,6 +214,9 @@ class TypeChecker:
 
             return LoopIR.Call(stmt.f, args, None, stmt.srcinfo)
 
+        elif type(stmt) is UAST.WindowStmt:
+            raise NotImplementedError()
+
         else:
             assert False, "not a loopir in check_stmts"
 
@@ -325,11 +331,39 @@ class TypeChecker:
 
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
 
+        elif type(stmt) is UAST.WindowExpr:
+            raise NotImplementedError()
+            # note the type of the expression should be T.Window,
+            # not the original tensor
+            # and the constructed T.Window type needs to reference this
+            # expression...? oh... that might be a problem...
+            #window_expr = LoopIR.WindowExpr( ..., T.err, stmt.srcinfo )
+            #w_typ       = T.Window( base, win, window_expr )
+            #window_expr.type = w_typ
+
         elif type(e) is UAST.ParRange:
             assert False, ("parser should not place ParRange anywhere "+
                            "outside of a for-loop condition")
         else:
             assert False, "not a LoopIR in check_e"
+
+    def check_stride_assert(p):
+        idx, typ = self.check_access(p, p.name, [], lvalue=False)
+        assert len(idx) == 0
+        p_typ = T.bool
+        if typ != T.err and not typ.is_tensor_or_window():
+            self.err(p, f"expected {p.name} to be a tensor or window")
+            p_typ = T.err
+        else:
+            shape = typ.shape()
+            if not (0 <= p.idx < len(shape)):
+                self.err(p, f"expected index {p.idx} to be in-bounds "+
+                            f"(i.e. 0 <= {p.idx} < {len(shape)})")
+                p_typ = T.err
+            if not is_pos_int(p.val):
+                self.err(p, f"expected positive integer stride, got {p.val}")
+                p_typ = T.err
+        return LoopIR.StrideAssert(p.name, p.idx, p.val, p_typ, p.srcinfo)
 
 
     _typ_table = {
@@ -353,6 +387,6 @@ class TypeChecker:
                 if not h.type.is_sizeable():
                     self.err(h, "expected array size expression "+
                                  "to have type 'size'")
-            return T.Tensor(hi, sub_typ)
+            return T.Tensor(hi, typ.is_window, sub_typ)
         else:
             assert False, "bad case"

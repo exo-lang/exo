@@ -49,13 +49,20 @@ module UAST {
             | ForAll  ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
             | Call    ( loopir_proc f, expr* args )
+            | WindowStmt( sym lhs, expr rhs )
             attributes( srcinfo srcinfo )
 
     expr    = Read    ( sym name, expr* idx )
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
+            | WindowExpr( sym base, w_access *idx )
+            | StrideAssert( sym name, int idx, int val )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
+            attributes( srcinfo srcinfo )
+
+    w_access= Interval( expr? lo, expr? hi )
+            | Point( expr pt )
             attributes( srcinfo srcinfo )
 
     type    = Num   ()
@@ -66,8 +73,7 @@ module UAST {
             | Int   ()
             | Size  ()
             | Index ()
-            | Tensor( expr *hi, type type )
-            | Window( sym orig, expr* lo, expr* hi, type orig_type )
+            | Tensor( expr *hi, bool is_window, type type )
 } """, {
     'name':         is_valid_name,
     'sym':          lambda x: type(x) is Sym,
@@ -173,12 +179,19 @@ module LoopIR {
             | Alloc  ( sym name, type type, mem? mem )
             | Free   ( sym name, type type, mem? mem )
             | Call   ( proc f, expr* args )
+            | WindowStmt( sym lhs, WindowExpr window_e )
             attributes( effect? eff, srcinfo srcinfo )
 
     expr    = Read( sym name, expr* idx )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
+            | WindowExpr( sym base, w_access *idx )
+            | StrideAssert( sym name, int idx, int val )
             attributes( type type, srcinfo srcinfo )
+
+    w_access= Interval( expr? lo, expr? hi )
+            | Point( expr pt )
+            attributes( srcinfo srcinfo )
 
     type    = Num   ()
             | F32   ()
@@ -189,8 +202,9 @@ module LoopIR {
             | Index ()
             | Size  ()
             | Error ()
-            | Tensor( expr *hi, type type )
-            | Window( sym orig, expr* lo, expr* hi, type orig_type )
+            | Tensor( expr *hi, bool is_window, type type )
+            | WindowType = ( type base, type as_tensor, expr window )
+
 } """, {
     'name':     is_valid_name,
     'sym':      lambda x: type(x) is Sym,
@@ -225,6 +239,7 @@ class T:
     Size    = LoopIR.Size
     Error   = LoopIR.Error
     Tensor  = LoopIR.Tensor
+    Window  = LoopIR.WindowType
     R       = Num()
     f32     = F32()
     int8    = INT8()
@@ -242,11 +257,14 @@ class T:
 # type helper functions
 
 @extclass(T.Tensor)
+@extclass(T.Window)
 @extclass(T.Num)
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
 def shape(t):
+    if type(t) is T.Window:
+        t = t.as_tensor
     shp = t.hi if type(t) is T.Tensor else []
     return shp
 del shape
@@ -273,8 +291,13 @@ def is_real_scalar(t):
 del is_real_scalar
 
 @extclass(LoopIR.type)
+def is_tensor_or_window(t):
+    return (type(t) is T.Tensor or type(t) is T.Window)
+del is_tensor_or_window
+
+@extclass(LoopIR.type)
 def is_numeric(t):
-    return t.is_real_scalar() or type(t) is T.Tensor
+    return t.is_real_scalar() or type(t) is T.Tensor or type(t) is T.Window
 del is_numeric
 
 @extclass(LoopIR.type)
@@ -289,21 +312,23 @@ del is_sizeable
 
 @extclass(LoopIR.type)
 def basetype(t):
+    if type(t) is T.Window:
+        t = t.as_tensor
     if type(t) is T.Tensor:
         t = t.type
     return t
 del basetype
 
-@extclass(LoopIR.type)
-def subst(t, lookup):
-    raise NotImplementedError("TODO: fix 'range' to 'expr' change")
-    if type(t) is T.Tensor:
-        typ     = t.type.subst(lookup)
-        hi      = t.hi if is_pos_int(t.hi) else lookup[t.hi]
-        return T.Tensor(hi, typ)
-    else:
-        return t
-del subst
+#@extclass(LoopIR.type)
+#def subst(t, lookup):
+#    raise NotImplementedError("TODO: fix 'range' to 'expr' change")
+#    if type(t) is T.Tensor:
+#        typ     = t.type.subst(lookup)
+#        hi      = t.hi if is_pos_int(t.hi) else lookup[t.hi]
+#        return T.Tensor(hi, typ)
+#    else:
+#        return t
+#del subst
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
