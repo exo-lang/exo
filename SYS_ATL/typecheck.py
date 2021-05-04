@@ -118,7 +118,7 @@ class TypeChecker:
                 if len(hi) == 0:
                     typ = typ.basetype()
                 else:
-                    typ = T.Tensor(hi, typ.type)
+                    typ = T.Tensor(hi, False, typ.type)
         elif lvalue:
             self.err(node, f"cannot assign/reduce to '{nm}', " +
                            f"a non-numeric variable of type '{typ}'")

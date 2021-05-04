@@ -348,7 +348,7 @@ class Parser:
 
             # convert the dimension list into a full tensor type
             exprs = [self.parse_expr(idx) for idx in dims]
-            typ = UAST.Tensor(exprs, typ)
+            typ = UAST.Tensor(exprs, False, typ)
 
             return typ
 

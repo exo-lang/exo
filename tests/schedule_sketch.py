@@ -1,3 +1,71 @@
+def gen_gemmini_ld():
+    @instr("gemmini_extended3_config_ld({dst.strides[0]}, 1.0f, 0, 0);\n"+
+           "gemmini_extended_mvin( {src.data}, ((uint32_t) {dst.data}),"+
+                                  "{m}, {n} );")
+    def gemmini_ld(
+        n   : size,
+        m   : size,
+        src : [i8][n, m] @ DRAM,
+        dst : [i8][n, 16] @ GEMM_SCRATCH,
+    ):
+        assert n <= 16
+        assert m <= 16
+        #assert stride(src, 1) == 1
+        #assert stride(dst, 0) == 16
+        #assert stride(dst, 1) == 1
+
+        for i in par(0, n):
+            for j in par(0, m):
+                dst[i,j] = src[i,j]
+
+    return gemmini_ld
+
+    """
+    { P } S { Q }
+
+    # if x is an order-m tensor (m=1 vector, m=2 matrix, etc.)
+    # then let 0 <= i < m index the i-th stride
+    # let n be an arbitrary value for the stride in the i-th dimension
+    # stride(x, 0, n1) /\ stride(x, 1, n2) /\ .... /\ stride(x, i, ni)
+    ------- { stride(x, i, n) }
+    xx = x[...] # (if k indices before the ith index are point indices)
+    ------- { stride(xx, i-k, n) }
+
+    # e.g.
+    ------- { stride(x, 1, n) }
+    xx = x[31,:]
+    ------- { stride(xx, 0, n) }
+
+    # other basic axiom about strides
+    ------- {}
+    x : R[n_0,n_1,...,n_m-1]
+    ------- { stride(x, 0, n_1*n_2*...) /\ ... /\ stride(x, m-1, 1) }
+    return [x[-1], 1]
+
+
+    x : R[n,m/16,16] @ GEMM_SCRATCH
+    def get_alloc_strides(dims=[None, None, 16]):
+        strides = [ (len(dims)-1, 1)) ]
+        sz      = 1
+        for i,d in reversed(enumerate(dims)):
+            if d is not None:
+                sz = sz * d
+                strides.push_front((i-1,d))
+            else:
+                break
+
+        return strides
+
+    #return [(len(x)-2,16),(2,1)]
+        #   (d0, d1, d2)     --> strides = (d1*d2, d2, 1)
+        #   [:,1,:]
+        #                    --> strides = (d1*d2,1)
+
+
+    gemmini_ld(n,m,xx,yy)
+    """
+
+
 # A, B, C: scratchpad addresses
 # gemmini_extended_preload(B, C, B_cols, B_rows, C_cols, C_rows);
 # gemmini_extended_compute_preloaded(A, ~((0(uint32_t))), A_cols, A_rows, 16, 16);

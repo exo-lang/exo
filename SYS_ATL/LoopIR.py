@@ -179,13 +179,13 @@ module LoopIR {
             | Alloc  ( sym name, type type, mem? mem )
             | Free   ( sym name, type type, mem? mem )
             | Call   ( proc f, expr* args )
-            | WindowStmt( sym lhs, WindowExpr window_e )
+            | WindowStmt( sym lhs, expr window_e )
             attributes( effect? eff, srcinfo srcinfo )
 
     expr    = Read( sym name, expr* idx )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
-            | WindowExpr( sym base, w_access *idx )
+            | WindowExpr( sym base, w_access* idx )
             | StrideAssert( sym name, int idx, int val )
             attributes( type type, srcinfo srcinfo )
 
@@ -202,8 +202,8 @@ module LoopIR {
             | Index ()
             | Size  ()
             | Error ()
-            | Tensor( expr *hi, bool is_window, type type )
-            | WindowType = ( type base, type as_tensor, expr window )
+            | Tensor     ( expr* hi, bool is_window, type type )
+            | WindowType ( type base, type as_tensor, expr window )
 
 } """, {
     'name':     is_valid_name,
