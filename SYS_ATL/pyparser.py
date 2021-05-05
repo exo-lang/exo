@@ -393,11 +393,14 @@ class Parser:
                     if len(s.targets) > 1:
                         self.err(s, "expected only one expression " +
                                     "on the left of an assignment")
-                    name_node, idxs = self.parse_lvalue(s.targets[0])
+                    name_node, idxs, is_window = self.parse_lvalue(s.targets[0])
                 else:
-                    name_node, idxs = self.parse_lvalue(s.target)
+                    name_node, idxs, is_window = self.parse_lvalue(s.target)
+
+                if is_window:
+                    self.err(s.target, "left hand cannot be window")
                 if type(s) is pyast.AnnAssign and len(idxs) > 0:
-                    self.err(tgt, "expected simple name in declaration")
+                    self.err(s.taget, "expected simple name in declaration")
 
                 # insert any needed Allocs
                 if type(s) is pyast.AnnAssign:
@@ -406,12 +409,11 @@ class Parser:
                     typ, mem = self.parse_alloc_typmem(s.annotation)
                     rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
                 elif type(s) is pyast.Assign and len(idxs) == 0:
-                    if name_node.id not in self.locals:
-                        # TODO: Fix here
-                        nm = Sym(name_node.id)
-                        self.locals[name_node.id] = nm
-                        rstmts.append(UAST.Alloc(nm, UAST.Num(), None,
-                                                 self.getsrcinfo(s)))
+                    assert name_node.id not in self.locals
+                    nm = Sym(name_node.id)
+                    self.locals[name_node.id] = nm
+                    rstmts.append(UAST.Alloc(nm, UAST.Num(), None,
+                                             self.getsrcinfo(s)))
 
                 # get the symbol corresponding to the name on the
                 # left-hand-side
@@ -429,8 +431,12 @@ class Parser:
 
                 # generate the assignemnt or reduction statement
                 if type(s) is pyast.Assign:
-                    rstmts.append(UAST.Assign(
-                        nm, idxs, rhs, self.getsrcinfo(s)))
+                    if type(rhs) is UAST.WindowExpr:
+                        rstmts.append(UAST.WindowStmt(nm, rhs,
+                                                 self.getsrcinfo(s)))
+                    else:
+                        rstmts.append(UAST.Assign(
+                            nm, idxs, rhs, self.getsrcinfo(s)))
                 elif type(s) is pyast.AugAssign:
                     if type(s.op) is not pyast.Add:
                         self.err(s, "only += reductions currently supported")
@@ -528,18 +534,17 @@ class Parser:
 
     def parse_array_indexing(self, node):
         if type(node) is pyast.Name:
-            return node, []
+            return node, [], False
         elif type(node) is pyast.Subscript:
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
-                if type(node.slice) is pyast.Slice:
-                    self.err(node, "index-slicing not allowed")
-                elif type(node.slice) is pyast.Tuple:
+                if type(node.slice) is pyast.Tuple:
                     dims = node.slice.elts
                 else:
                     assert (type(node.slice) is pyast.Name or
                             type(node.slice) is pyast.Constant or
-                            type(node.slice) is pyast.BinOp)
+                            type(node.slice) is pyast.BinOp or
+                            type(node.slice) is pyast.Slice)
                     dims = [node.slice]
             else:
                if (type(node.slice) is pyast.Slice or
@@ -555,19 +560,28 @@ class Parser:
             if type(node.value) is not pyast.Name:
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
 
+            is_window = False
             idxs = []
             for e in dims:
                 if type(e) is pyast.Slice:
-                    idxs.append( self.parse_slice(e, node.value) )
+                    idxs.append( self.parse_slice(e) )
+                    is_window = True
                 else:
                     idxs.append( self.parse_expr(e) )
 
-            return node.value, idxs
+            return node.value, idxs, is_window
+
+    def parse_slice(self, e):
+        assert type(e) is pyast.Slice
+        lo = None if e.lower is None else self.parse_expr(e.lower)
+        hi = None if e.lower is None else self.parse_expr(e.upper)
+
+        return UAST.Interval(lo, hi, self.getsrcinfo(e))
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):
         if type(e) is pyast.Name or type(e) is pyast.Subscript:
-            nm_node, idxs = self.parse_array_indexing(e)
+            nm_node, idxs, is_window = self.parse_array_indexing(e)
 
             # get the buffer name
             if nm_node.id not in self.locals:
@@ -579,7 +593,10 @@ class Parser:
                 self.err(nm_node, f"expected '{nm_node.id}' to refer to " +
                                   f"a local variable")
 
-            return UAST.Read(nm, idxs, self.getsrcinfo(e))
+            if is_window:
+                return UAST.WindowExpr(nm, idxs, self.getsrcinfo(e))
+            else:
+                return UAST.Read(nm, idxs, self.getsrcinfo(e))
 
         elif type(e) is pyast.Constant:
             return UAST.Const(e.value, self.getsrcinfo(e))

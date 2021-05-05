@@ -215,7 +215,14 @@ class TypeChecker:
             return LoopIR.Call(stmt.f, args, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.WindowStmt:
-            raise NotImplementedError()
+            rhs = self.check_e(stmt.rhs)
+            if type(rhs) is not LoopIR.WindowExpr:
+                self.err(stmt, "expected window expresion "+
+                               "in window statement")
+            
+            self.env[stmt.lhs] = rhs.type
+
+            return LoopIR.WindowStmt( stmt.lhs, rhs, None, stmt.srcinfo )
 
         else:
             assert False, "not a loopir in check_stmts"
@@ -331,15 +338,24 @@ class TypeChecker:
 
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
 
-        elif type(stmt) is UAST.WindowExpr:
-            raise NotImplementedError()
+        elif type(e) is UAST.WindowExpr:
             # note the type of the expression should be T.Window,
             # not the original tensor
             # and the constructed T.Window type needs to reference this
             # expression...? oh... that might be a problem...
-            #window_expr = LoopIR.WindowExpr( ..., T.err, stmt.srcinfo )
-            #w_typ       = T.Window( base, win, window_expr )
-            #window_expr.type = w_typ
+            idx = [ self.check_e(i) for i in e.idx ]
+            typ = self.env[e.base]
+            window_expr = LoopIR.WindowExpr( e.base, idx, T.err, e.srcinfo )
+            w_typ       = T.Window( typ.basetype(), typ, window_expr )
+            window_expr.type = w_typ
+
+            return LoopIR.WindowExpr( e.base, idx, w_typ, e.srcinfo )
+
+        elif type(e) is UAST.Interval:
+            lo = None if e.lo is None else self.check_e(e.lo)
+            hi = None if e.hi is None else self.check_e(e.hi)
+
+            return LoopIR.Interval( lo, hi, T.index, e.srcinfo )
 
         elif type(e) is UAST.ParRange:
             assert False, ("parser should not place ParRange anywhere "+

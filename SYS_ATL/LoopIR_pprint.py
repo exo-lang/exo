@@ -449,5 +449,8 @@ class LoopIR_PPrinter:
         elif type(t) is T.Tensor:
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
             return f"{t.basetype()}[{rngs}]"
+        #TODO: Fix!!
+        elif type(t) is T.Window:
+            return "windowww"
         else:
             assert False, "impossible type case"

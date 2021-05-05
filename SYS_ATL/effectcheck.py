@@ -215,6 +215,11 @@ class InferEffects:
         elif type(stmt) is LoopIR.Alloc:
             return LoopIR.Alloc(stmt.name, stmt.type, stmt.mem,
                                 eff_null(stmt.srcinfo), stmt.srcinfo)
+            
+        #TODO: Fix
+        elif type(stmt) is LoopIR.WindowStmt:
+            return LoopIR.WindowStmt(stmt.lhs, stmt.rhs,
+                                     eff_null(stmt.srcinfo), stmt.srcinfo)
 
         else:
             assert False, "Invalid statement"

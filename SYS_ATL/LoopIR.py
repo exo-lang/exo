@@ -56,14 +56,16 @@ module UAST {
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
-            | WindowExpr( sym base, w_access *idx )
+            | WindowExpr( sym base, expr* idx )
             | StrideAssert( sym name, int idx, int val )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
+            | Interval( expr? lo, expr? hi )
             attributes( srcinfo srcinfo )
 
-    w_access= Interval( expr? lo, expr? hi )
-            | Point( expr pt )
-            attributes( srcinfo srcinfo )
+    -- w_access= 
+    --        | Interval( expr? lo, expr? hi )
+    --        | Point( expr pt )
+    --        attributes( srcinfo srcinfo )
 
     type    = Num   ()
             | F32   ()
@@ -179,19 +181,20 @@ module LoopIR {
             | Alloc  ( sym name, type type, mem? mem )
             | Free   ( sym name, type type, mem? mem )
             | Call   ( proc f, expr* args )
-            | WindowStmt( sym lhs, expr window_e )
+            | WindowStmt( sym lhs, expr rhs )
             attributes( effect? eff, srcinfo srcinfo )
 
     expr    = Read( sym name, expr* idx )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
-            | WindowExpr( sym base, w_access* idx )
+            | WindowExpr( sym base, expr* idx )
             | StrideAssert( sym name, int idx, int val )
+            | Interval( expr? lo, expr? hi )
             attributes( type type, srcinfo srcinfo )
 
-    w_access= Interval( expr? lo, expr? hi )
-            | Point( expr pt )
-            attributes( srcinfo srcinfo )
+    -- w_access= Interval( expr? lo, expr? hi )
+    --        | Point( expr pt )
+    --        attributes( srcinfo srcinfo )
 
     type    = Num   ()
             | F32   ()
