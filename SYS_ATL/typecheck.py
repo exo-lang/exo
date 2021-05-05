@@ -347,7 +347,7 @@ class TypeChecker:
         else:
             assert False, "not a LoopIR in check_e"
 
-    def check_stride_assert(p):
+    def check_stride_assert(self, p):
         idx, typ = self.check_access(p, p.name, [], lvalue=False)
         assert len(idx) == 0
         p_typ = T.bool
@@ -363,8 +363,8 @@ class TypeChecker:
             if not is_pos_int(p.val):
                 self.err(p, f"expected positive integer stride, got {p.val}")
                 p_typ = T.err
-        return LoopIR.StrideAssert(p.name, p.idx, p.val, p_typ, p.srcinfo)
 
+        return LoopIR.StrideAssert(p.name, p.idx, p.val, p_typ, p.srcinfo)
 
     _typ_table = {
         UAST.Num    : T.R,

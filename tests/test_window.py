@@ -53,7 +53,6 @@ def gen_stride_assert():
                 dst[i,j] = src[i,j]
 
     return stride_assert
-@pytest.mark.skip
 def test_stride_assert():
     sa = gen_stride_assert()
     assert type(sa) is Procedure

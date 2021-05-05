@@ -650,6 +650,44 @@ class Parser:
 
         elif type(e) is pyast.Compare:
             assert len(e.ops) == len(e.comparators)
+
+            # Parse stride assert here
+            if type(e.left) is pyast.Call:
+                if (type(e.left.func) is not pyast.Name
+                       or e.left.func.id is not "stride"):
+                    self.err(e.left, "Only stride assert is "+
+                                     "permitted in assert using call")
+
+                if (len(e.comparators) != 1 or
+                        type(e.comparators[0]) is not pyast.Constant or
+                        type(e.comparators[0].value) is not int):
+                    self.err(e.comparators, "Stride should be an integer")
+
+                val = e.comparators[0].value
+
+                if (len(e.left.args) != 2 or len(e.ops) != 1
+                        or type(e.ops[0]) is not pyast.Eq):
+                    self.err(e.left, "Stride assert must be in 'stride("+
+                                     "<buffer name>, <dimension>) == "+
+                                     "<stride value> form")
+
+                if type(e.left.args[0]) is not pyast.Name:
+                    self.err(e.left, "Stride assert first argment should "+
+                                     "be a buffer name")
+
+                name = e.left.args[0].id
+                if name not in self.locals:
+                    self.err(e.left, f"variable '{name}' undefined")
+                name = self.locals[name]
+
+                if (type(e.left.args[1]) is not pyast.Constant or
+                        type(e.left.args[1].value) is not int):
+                    self.err(e.left, "Stride assert second argment should "+
+                                     "be a dimension in integer")
+                idx  = e.left.args[1].value
+
+                return UAST.StrideAssert(name, idx, val, self.getsrcinfo(e))
+
             vals = ([self.parse_expr(e.left)] +
                     [self.parse_expr(v) for v in e.comparators])
             srcinfo = self.getsrcinfo(e)

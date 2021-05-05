@@ -30,6 +30,10 @@ def lift_expr(e):
     elif type(e) is LoopIR.BinOp:
         return E.BinOp( e.op, lift_expr(e.lhs), lift_expr(e.rhs),
                         e.type, e.srcinfo )
+    #TODO!!: Fix this
+    elif type(e) is LoopIR.StrideAssert:
+        return E.Const( True, T.bool, e.srcinfo)
+
     else: assert False, "bad case, e is " + str(type(e))
 
 def expr_subst(env, e):
