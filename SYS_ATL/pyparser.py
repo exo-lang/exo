@@ -409,11 +409,11 @@ class Parser:
                     typ, mem = self.parse_alloc_typmem(s.annotation)
                     rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
                 elif type(s) is pyast.Assign and len(idxs) == 0:
-                    assert name_node.id not in self.locals
-                    nm = Sym(name_node.id)
-                    self.locals[name_node.id] = nm
-                    rstmts.append(UAST.Alloc(nm, UAST.Num(), None,
-                                             self.getsrcinfo(s)))
+                    if name_node.id not in self.locals:
+                        nm = Sym(name_node.id)
+                        self.locals[name_node.id] = nm
+                        rstmts.append(UAST.Alloc(nm, UAST.Num(), None,
+                                                 self.getsrcinfo(s)))
 
                 # get the symbol corresponding to the name on the
                 # left-hand-side
