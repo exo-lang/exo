@@ -30,9 +30,6 @@ def lift_expr(e):
     elif type(e) is LoopIR.BinOp:
         return E.BinOp( e.op, lift_expr(e.lhs), lift_expr(e.rhs),
                         e.type, e.srcinfo )
-    #TODO!!: Fix this
-    elif type(e) is LoopIR.StrideAssert:
-        return E.Const( True, T.bool, e.srcinfo)
 
     else: assert False, "bad case, e is " + str(type(e))
 
@@ -215,7 +212,7 @@ class InferEffects:
         elif type(stmt) is LoopIR.Alloc:
             return LoopIR.Alloc(stmt.name, stmt.type, stmt.mem,
                                 eff_null(stmt.srcinfo), stmt.srcinfo)
-            
+
         #TODO: Fix
         elif type(stmt) is LoopIR.WindowStmt:
             return LoopIR.WindowStmt(stmt.lhs, stmt.rhs,
@@ -357,7 +354,11 @@ class CheckEffects:
                 pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
                 self.solver.add_assertion(pos_sz)
         for p in proc.preds:
-            self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
+            if type(p) is LoopIR.StrideAssert:
+                #Add assert like normal
+                pass
+            else:
+                self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
 
         body_eff = self.map_stmts(self.orig_proc.body)
 

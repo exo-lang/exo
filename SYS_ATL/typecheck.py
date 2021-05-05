@@ -128,6 +128,7 @@ class TypeChecker:
 
     def check_single_stmt(self, stmt):
         if type(stmt) is UAST.Assign or type(stmt) is UAST.Reduce:
+            # TODO: Branch LoopIR.Stmt here
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx,
                                          lvalue=True)
             assert (typ.is_real_scalar() or typ is T.err)
@@ -219,7 +220,7 @@ class TypeChecker:
             if type(rhs) is not LoopIR.WindowExpr:
                 self.err(stmt, "expected window expresion "+
                                "in window statement")
-            
+
             self.env[stmt.lhs] = rhs.type
 
             return LoopIR.WindowStmt( stmt.lhs, rhs, None, stmt.srcinfo )

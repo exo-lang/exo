@@ -245,7 +245,63 @@ class Parser:
             if a.msg is not None:
                 self.err(a, "SYS_ATL procedure assertions should "+
                             "not have messages")
-            preds.append(self.parse_expr(a.test))
+
+            # stride-assert handling
+            if (type(a) is pyast.Compare and
+                len(a.ops) == 1 and
+                a.ops[0] == pyast.Eq and
+                type(a.left) == pyast.Call and
+                type(a.left.func) == pyast.Name and
+                a.left.func.id == "stride"):
+
+                # now we are guaranteed that we have an assertion of the form:
+                #       assert stride(...) == ...
+                assert len(a.ops) == len(a.comparators)
+                rhs     = a.comparators[0]
+                s_args  =
+                if len()
+
+
+            # Parse stride assert here
+            if type(e.left) is pyast.Call:
+                if (type(e.left.func) is not pyast.Name
+                       or e.left.func.id is not "stride"):
+                    self.err(e.left, "Only stride assert is "+
+                                     "permitted in assert using call")
+
+                if (len(e.comparators) != 1 or
+                        type(e.comparators[0]) is not pyast.Constant or
+                        type(e.comparators[0].value) is not int):
+                    self.err(e.comparators, "Stride should be an integer")
+
+                val = e.comparators[0].value
+
+                if (len(e.left.args) != 2 or len(e.ops) != 1
+                        or type(e.ops[0]) is not pyast.Eq):
+                    self.err(e.left, "Stride assert must be in 'stride("+
+                                     "<buffer name>, <dimension>) == "+
+                                     "<stride value> form")
+
+                if type(e.left.args[0]) is not pyast.Name:
+                    self.err(e.left, "Stride assert first argment should "+
+                                     "be a buffer name")
+
+                name = e.left.args[0].id
+                if name not in self.locals:
+                    self.err(e.left, f"variable '{name}' undefined")
+                name = self.locals[name]
+
+                if (type(e.left.args[1]) is not pyast.Constant or
+                        type(e.left.args[1].value) is not int):
+                    self.err(e.left, "Stride assert second argment should "+
+                                     "be a dimension in integer")
+                idx  = e.left.args[1].value
+
+                return UAST.StrideAssert(name, idx, val, self.getsrcinfo(e))
+
+                preds.append(UAST.StrideAssert(...))
+            else:
+                preds.append(self.parse_expr(a.test))
 
         # parse the procedure body
         body = self.parse_stmt_block(pyast_body)
@@ -327,7 +383,13 @@ class Parser:
                     self.err(node, "Window expression should annotate "+
                                    "only one type, e.g. [R]")
 
-                typ       = Parser._prim_types[node.value.elts[0].id]
+                base = node.value.elts[0]
+                if (type(base) is not pyast.Name or
+                    base.id not in Parser._prim_types):
+                    self.err(node, "expected window type to be of "+
+                                   "the form '[R][...]', '[f32][...]', etc.")
+
+                typ       = Parser._prim_types[base.id]
                 is_window = True
             elif (type(node.value) is pyast.Name
                     and node.value.id in Parser._prim_types):
@@ -394,13 +456,16 @@ class Parser:
                         self.err(s, "expected only one expression " +
                                     "on the left of an assignment")
                     name_node, idxs, is_window = self.parse_lvalue(s.targets[0])
+                    lhs = s.targets[0]
                 else:
                     name_node, idxs, is_window = self.parse_lvalue(s.target)
+                    lhs = s.target
 
                 if is_window:
-                    self.err(s.target, "left hand cannot be window")
+                    self.err(lhs, "cannot perform windowing on "+
+                                  "left-hand-side of an assignment")
                 if type(s) is pyast.AnnAssign and len(idxs) > 0:
-                    self.err(s.taget, "expected simple name in declaration")
+                    self.err(lhs, "expected simple name in declaration")
 
                 # insert any needed Allocs
                 if type(s) is pyast.AnnAssign:
@@ -431,12 +496,8 @@ class Parser:
 
                 # generate the assignemnt or reduction statement
                 if type(s) is pyast.Assign:
-                    if type(rhs) is UAST.WindowExpr:
-                        rstmts.append(UAST.WindowStmt(nm, rhs,
-                                                 self.getsrcinfo(s)))
-                    else:
-                        rstmts.append(UAST.Assign(
-                            nm, idxs, rhs, self.getsrcinfo(s)))
+                    rstmts.append(UAST.Assign(
+                        nm, idxs, rhs, self.getsrcinfo(s)))
                 elif type(s) is pyast.AugAssign:
                     if type(s.op) is not pyast.Add:
                         self.err(s, "only += reductions currently supported")
@@ -541,16 +602,13 @@ class Parser:
                 if type(node.slice) is pyast.Tuple:
                     dims = node.slice.elts
                 else:
-                    assert (type(node.slice) is pyast.Name or
-                            type(node.slice) is pyast.Constant or
-                            type(node.slice) is pyast.BinOp or
-                            type(node.slice) is pyast.Slice)
                     dims = [node.slice]
             else:
-               if (type(node.slice) is pyast.Slice or
-                    type(node.slice) is pyast.ExtSlice):
-                    self.err(node, "index-slicing not allowed")
-               else:
+                if type(node.slice) is pyast.Slice:
+                    dims = [node.slice]
+                elif type(node.slice) is pyast.ExtSlice:
+                    dims = node.slice.dims
+                else:
                     assert type(node.slice) is pyast.Index
                     if type(node.slice.value) is pyast.Tuple:
                         dims = node.slice.value.elts
@@ -560,23 +618,23 @@ class Parser:
             if type(node.value) is not pyast.Name:
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
 
-            is_window = False
-            idxs = []
-            for e in dims:
-                if type(e) is pyast.Slice:
-                    idxs.append( self.parse_slice(e) )
-                    is_window = True
-                else:
-                    idxs.append( self.parse_expr(e) )
+            is_window = any( type(e) is pyast.Slice for e in dims )
+            idxs = [ self.parse_slice(e) if is_window else self.parse_expr(e)
+                     for e in dims ]
 
             return node.value, idxs, is_window
 
     def parse_slice(self, e):
-        assert type(e) is pyast.Slice
-        lo = None if e.lower is None else self.parse_expr(e.lower)
-        hi = None if e.lower is None else self.parse_expr(e.upper)
+        if type(e) is pyast.Slice:
+            lo = None if e.lower is None else self.parse_expr(e.lower)
+            hi = None if e.upper is None else self.parse_expr(e.upper)
+            if e.step is not None:
+                self.err(e, "expected windowing to have the form x[:], "+
+                            "x[i:], x[:j], or x[i:j], but not x[i:j:k]")
 
-        return UAST.Interval(lo, hi, self.getsrcinfo(e))
+            return UAST.Interval(lo, hi, self.getsrcinfo(e))
+        else:
+            return UAST.Point( self.parse_expr(e), self.getsrcinfo(e) )
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):
@@ -667,43 +725,6 @@ class Parser:
 
         elif type(e) is pyast.Compare:
             assert len(e.ops) == len(e.comparators)
-
-            # Parse stride assert here
-            if type(e.left) is pyast.Call:
-                if (type(e.left.func) is not pyast.Name
-                       or e.left.func.id is not "stride"):
-                    self.err(e.left, "Only stride assert is "+
-                                     "permitted in assert using call")
-
-                if (len(e.comparators) != 1 or
-                        type(e.comparators[0]) is not pyast.Constant or
-                        type(e.comparators[0].value) is not int):
-                    self.err(e.comparators, "Stride should be an integer")
-
-                val = e.comparators[0].value
-
-                if (len(e.left.args) != 2 or len(e.ops) != 1
-                        or type(e.ops[0]) is not pyast.Eq):
-                    self.err(e.left, "Stride assert must be in 'stride("+
-                                     "<buffer name>, <dimension>) == "+
-                                     "<stride value> form")
-
-                if type(e.left.args[0]) is not pyast.Name:
-                    self.err(e.left, "Stride assert first argment should "+
-                                     "be a buffer name")
-
-                name = e.left.args[0].id
-                if name not in self.locals:
-                    self.err(e.left, f"variable '{name}' undefined")
-                name = self.locals[name]
-
-                if (type(e.left.args[1]) is not pyast.Constant or
-                        type(e.left.args[1].value) is not int):
-                    self.err(e.left, "Stride assert second argment should "+
-                                     "be a dimension in integer")
-                idx  = e.left.args[1].value
-
-                return UAST.StrideAssert(name, idx, val, self.getsrcinfo(e))
 
             vals = ([self.parse_expr(e.left)] +
                     [self.parse_expr(v) for v in e.comparators])

@@ -49,7 +49,6 @@ module UAST {
             | ForAll  ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
             | Call    ( loopir_proc f, expr* args )
-            | WindowStmt( sym lhs, expr rhs )
             attributes( srcinfo srcinfo )
 
     expr    = Read    ( sym name, expr* idx )
@@ -59,13 +58,11 @@ module UAST {
             | WindowExpr( sym base, expr* idx )
             | StrideAssert( sym name, int idx, int val )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
-            | Interval( expr? lo, expr? hi )
             attributes( srcinfo srcinfo )
 
-    -- w_access= 
-    --        | Interval( expr? lo, expr? hi )
-    --        | Point( expr pt )
-    --        attributes( srcinfo srcinfo )
+    w_access= Interval( expr? lo, expr? hi )
+            | Point( expr pt )
+            attributes( srcinfo srcinfo )
 
     type    = Num   ()
             | F32   ()
@@ -188,13 +185,15 @@ module LoopIR {
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
             | WindowExpr( sym base, expr* idx )
-            | StrideAssert( sym name, int idx, int val )
-            | Interval( expr? lo, expr? hi )
+            | StrideAssert( sym name, int idx, int val ) -- may only occur
+                                                         -- at proc.preds
+            | Interval( expr lo, expr hi )
             attributes( type type, srcinfo srcinfo )
 
-    -- w_access= Interval( expr? lo, expr? hi )
-    --        | Point( expr pt )
-    --        attributes( srcinfo srcinfo )
+    w_access= Interval( expr lo, expr hi )
+            | Point( expr pt )
+            attributes( srcinfo srcinfo )
+    -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
 
     type    = Num   ()
             | F32   ()
