@@ -290,7 +290,7 @@ class Parser:
             return UAST.Index(), None
 
         else:
-            typ = self.parse_num_type(typ_node)
+            typ = self.parse_num_type(typ_node, is_arg=True)
 
             mem = self.eval_expr(mem_node) if mem_node else None
 
@@ -316,13 +316,26 @@ class Parser:
         'i8'    : UAST.INT8(),
     }
 
-    def parse_num_type(self, node):
+    def parse_num_type(self, node, is_arg = False):
         if type(node) is pyast.Subscript:
-            if (type(node.value) is not pyast.Name
-                    or node.value.id not in Parser._prim_types):
+            if type(node.value) is pyast.List:
+                if is_arg is not True:
+                    self.err(node, "Window expression such as [R] "+
+                                   "should only be used in the function "+
+                                   "signature")
+                if len(node.value.elts) != 1:
+                    self.err(node, "Window expression should annotate "+
+                                   "only one type, e.g. [R]")
+
+                typ       = Parser._prim_types[node.value.elts[0].id]
+                is_window = True
+            elif (type(node.value) is pyast.Name
+                    and node.value.id in Parser._prim_types):
+                typ       = Parser._prim_types[node.value.id]
+                is_window = False
+            else:
                 self.err(node, "expected tensor type to be "+
                                "of the form 'R[...]', 'f32[...]', etc.")
-            typ = Parser._prim_types[node.value.id]
 
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
@@ -348,7 +361,7 @@ class Parser:
 
             # convert the dimension list into a full tensor type
             exprs = [self.parse_expr(idx) for idx in dims]
-            typ = UAST.Tensor(exprs, False, typ)
+            typ = UAST.Tensor(exprs, is_window, typ)
 
             return typ
 

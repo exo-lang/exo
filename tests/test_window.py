@@ -9,95 +9,130 @@ import scipy.stats as st
 import pytest
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, instr, Procedure, DRAM
+from SYS_ATL.libs.memories import GEMM_SCRATCH, MDRAM
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
+def gen_window():
+    @proc
+    def window(
+        n   : size,
+        m   : size,
+        src : [i8][n, m] @ DRAM,
+        dst : [i8][n, 16] @ GEMM_SCRATCH,
+    ):
+        assert n <= 16
+        assert m <= 16
+
+        for i in par(0, n):
+            for j in par(0, m):
+                dst[i,j] = src[i,j]
+
+    return window
+def test_window():
+    win = gen_window()
+    assert type(win) is Procedure
+
+
+def gen_stride_assert():
+    @proc
+    def stride_assert(
+        n   : size,
+        m   : size,
+        src : [i8][n, m] @ DRAM,
+        dst : [i8][n, 16] @ GEMM_SCRATCH,
+    ):
+        assert n <= 16
+        assert m <= 16
+        assert stride(src, 1) == 1
+        assert stride(dst, 0) == 16
+        assert stride(dst, 1) == 1
+
+        for i in par(0, n):
+            for j in par(0, m):
+                dst[i,j] = src[i,j]
+
+    return stride_assert
+@pytest.mark.skip
+def test_stride_assert():
+    sa = gen_stride_assert()
+    assert type(sa) is Procedure
+
+
+def gen_window_stmt():
+    @proc
+    def window_stmt(n : size, m : size, x : f32[n, m]):
+        y = x[:, 0]
+        z : f32[n]
+        for i in par(0, n):
+            z[i] = y[i]
+
+    return window_stmt
+@pytest.mark.skip
+def test_window_stmt():
+    ws = gen_window_stmt()
+    assert type(ws) is Procedure
+
+
 def gen_dot():
     @proc
-    def dot(m: size, x : R[1,1] , y : R[m] ):
-        huga : R
-        pass
-
+    def dot(m: size, x : [f32][m] , y : [f32][m] , r : f32 ):
+        r = 0.0
+        for i in par(0, m):
+            r += x[i]*y[i]
     return dot
-
 def gen_proj(dot):
     @proc
-    def proj(n : size, x : R[100, 1, 1], y : R[10, n]):
-        dot(n, x[1121], y[0])
-
+    def proj(n : size, m : size, x : f32[n,m], y : f32[m,n]):
+        xy : f32
+        y2 : f32
+        dot(m, x[1,:], y[:,2], xy)
+        dot(m, y[:,3], y[:,3], y2)
+        s : f32
+        s = xy / y2
+        for i in par(0,n):
+            x[i] = s * y[i]
     return proj
-
-def test_window():
+@pytest.mark.skip
+def test_normalize():
     dot  = gen_dot()
     proj = gen_proj(dot)
-
     assert type(dot) is Procedure
     assert type(proj) is Procedure
 
-    filename = "test_window_proj"
 
-    proj.compile_c(directory, filename)
+def gen_gemmini_ld():
+    @instr("gemmini_extended3_config_ld({dst.strides[0]}, 1.0f, 0, 0);\n"+
+           "gemmini_extended_mvin( {src.data}, ((uint32_t) {dst.data}),"+
+                                  "{m}, {n} );")
+    def gemmini_ld(
+        n   : size,
+        m   : size,
+        src : [i8][n, m] @ DRAM,
+        dst : [i8][n, 16] @ GEMM_SCRATCH,
+    ):
+        assert n <= 16
+        assert m <= 16
+        assert stride(src, 1) == 1
+        assert stride(dst, 0) == 16
+        assert stride(dst, 1) == 1
 
-def gen_alloc_nest():
+        for i in par(0, n):
+            for j in par(0, m):
+                dst[i,j] = src[i,j]
+
+    return gemmini_ld
+def gen_ld_2d(gemmini_ld):
     @proc
-    def alloc_nest(n : size, m : size,
-                   x : R[n,m], y: R[n,m], res : R[1,n,m]):
-        assert n > 1
-        for i in par(0,n):
-            rloc : R[n,m]
-            xloc : R[n,m]
-            yloc : R[n,m]
-            for j in par(0,m):
-                xloc[i,j] = x[i,j]
-            for j in par(0,m):
-                yloc[i-i,j] = y[i,j+0]
-            for j in par(0,m):
-                rloc[4-3,j] = xloc[i,j] + yloc[0,j]
-            for j in par(0,m):
-                res[0+0,i,j] = rloc[4-3,j]
-
-    return alloc_nest
-
-def test_alloc_nest():
-    alloc_nest = gen_alloc_nest()
-    assert type(alloc_nest) is Procedure
-
-    filename = "test_window_alloc_nest"
-
-    alloc_nest.compile_c(directory, filename)
-
-    x = nparray([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]])
-    y = nparray([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]])
-    n_size = 2
-    m_size = 3
-    res = nprand(size=(1,n_size, m_size))
-    res_c = cvt_c(res)
-
-    test_lib = generate_lib(directory, filename)
-    test_lib.alloc_nest(c_int(n_size), c_int(
-        m_size), cvt_c(x), cvt_c(y), res_c)
-    res_c = np.ctypeslib.as_array(res_c, shape=(1,n_size, m_size))
-    alloc_nest.interpret(n=n_size, m=m_size, x=x, y=y, res=res)
-    np.testing.assert_almost_equal(res, res_c)
-    np.testing.assert_almost_equal(res_c, nparray(
-        [[[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]]))
-
-def gen_bad_alloc_nest():
-    @proc
-    def alloc_nest(n : size, m : size,
-                   x : R[n,m], y: R[n,m], res : R[1,n,m]):
-        for i in par(0,n):
-            for j in par(0,m):
-                res[0,i,j] = x[i-1+1+i-i*1,j] + y[i,j+4 -4*2]
-
-    return alloc_nest
-
-def test_bad_alloc_nest():
-    with pytest.raises(TypeError,
-                       match='y is read out-of-bounds'):
-        alloc_nest = gen_bad_alloc_nest()
-        assert type(alloc_nest) is Procedure
-
-        filename = "test_window_bad_alloc_nest"
-
-        alloc_nest.compile_c(directory, filename)
+    def ld_2d(n : size, m : size, x : f32[n, m] @DRAM, y : f32[n, m/16, 16] @ GEMM_SCRATCH):
+        for i in par(0, n/16):
+            for j in par(0, m/16):
+                gemmini_ld(16, 16, x[i:i+16, j:j+16], y[i:i+16, j, :])
+        gemmini_ld(n%16, m%16, x[n-n%16: , m-m%16: ], y[n-n%16: ,])
+    return ld_2d
+@pytest.mark.skip
+def test_ld():
+    gemmini_ld = gen_gemmini_ld()
+    gen_ld_2d  = gen_ld_2d(gemmini_ld)
+    assert type(gemmini_ld) is Procedure
+    assert type(gen_ld_2d) is Procedure
