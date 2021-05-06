@@ -247,9 +247,10 @@ class Parser:
                             "not have messages")
 
             # stride-assert handling
+            a = a.test
             if (type(a) is pyast.Compare and
                 len(a.ops) == 1 and
-                a.ops[0] == pyast.Eq and
+                type(a.ops[0]) is pyast.Eq and
                 type(a.left) == pyast.Call and
                 type(a.left.func) == pyast.Name and
                 a.left.func.id == "stride"):
@@ -258,50 +259,29 @@ class Parser:
                 #       assert stride(...) == ...
                 assert len(a.ops) == len(a.comparators)
                 rhs     = a.comparators[0]
-                s_args  =
-                if len()
+                if (type(rhs) is not pyast.Constant or
+                    type(rhs.value) is not int):
+                    self.err(a.comparators, "Stride should be an integer")
 
-
-            # Parse stride assert here
-            if type(e.left) is pyast.Call:
-                if (type(e.left.func) is not pyast.Name
-                       or e.left.func.id is not "stride"):
-                    self.err(e.left, "Only stride assert is "+
-                                     "permitted in assert using call")
-
-                if (len(e.comparators) != 1 or
-                        type(e.comparators[0]) is not pyast.Constant or
-                        type(e.comparators[0].value) is not int):
-                    self.err(e.comparators, "Stride should be an integer")
-
-                val = e.comparators[0].value
-
-                if (len(e.left.args) != 2 or len(e.ops) != 1
-                        or type(e.ops[0]) is not pyast.Eq):
-                    self.err(e.left, "Stride assert must be in 'stride("+
+                if len(a.left.args) != 2:
+                    self.err(a.left, "Stride assert must be in 'stride("+
                                      "<buffer name>, <dimension>) == "+
                                      "<stride value> form")
 
-                if type(e.left.args[0]) is not pyast.Name:
-                    self.err(e.left, "Stride assert first argment should "+
-                                     "be a buffer name")
-
-                name = e.left.args[0].id
+                name = a.left.args[0].id
                 if name not in self.locals:
-                    self.err(e.left, f"variable '{name}' undefined")
+                    self.err(a.left, f"variable '{name}' undefined")
                 name = self.locals[name]
 
-                if (type(e.left.args[1]) is not pyast.Constant or
-                        type(e.left.args[1].value) is not int):
-                    self.err(e.left, "Stride assert second argment should "+
+                if (type(a.left.args[1]) is not pyast.Constant or
+                        type(a.left.args[1].value) is not int):
+                    self.err(a.left, "Stride assert second argment should "+
                                      "be a dimension in integer")
-                idx  = e.left.args[1].value
+                idx  = a.left.args[1].value
 
-                return UAST.StrideAssert(name, idx, val, self.getsrcinfo(e))
-
-                preds.append(UAST.StrideAssert(...))
+                preds.append(UAST.StrideAssert(name, idx, rhs.value, self.getsrcinfo(a)))
             else:
-                preds.append(self.parse_expr(a.test))
+                preds.append(self.parse_expr(a))
 
         # parse the procedure body
         body = self.parse_stmt_block(pyast_body)

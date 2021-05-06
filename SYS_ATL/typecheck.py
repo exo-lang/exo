@@ -129,6 +129,13 @@ class TypeChecker:
     def check_single_stmt(self, stmt):
         if type(stmt) is UAST.Assign or type(stmt) is UAST.Reduce:
             # TODO: Branch LoopIR.Stmt here
+            if type(stmt.rhs) is UAST.WindowExpr:
+                rhs = self.check_e(stmt.rhs)
+                self.env[stmt.name] = rhs.type
+
+                return LoopIR.WindowStmt( stmt.name, rhs, None, stmt.srcinfo )
+
+
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx,
                                          lvalue=True)
             assert (typ.is_real_scalar() or typ is T.err)
@@ -215,18 +222,19 @@ class TypeChecker:
 
             return LoopIR.Call(stmt.f, args, None, stmt.srcinfo)
 
-        elif type(stmt) is UAST.WindowStmt:
-            rhs = self.check_e(stmt.rhs)
-            if type(rhs) is not LoopIR.WindowExpr:
-                self.err(stmt, "expected window expresion "+
-                               "in window statement")
-
-            self.env[stmt.lhs] = rhs.type
-
-            return LoopIR.WindowStmt( stmt.lhs, rhs, None, stmt.srcinfo )
-
         else:
             assert False, "not a loopir in check_stmts"
+
+    def check_w_access(self, e):
+        if type(e) is UAST.Point:
+            return LoopIR.Point( self.check_e(e.pt), e.srcinfo )
+
+        elif type(e) is UAST.Interval:
+            #TODO: Insert Tensor hi and lo here
+            lo = LoopIR.Const(0, T.index, e.srcinfo) if e.lo is None else self.check_e(e.lo)
+            hi = LoopIR.Const(10, T.index, e.srcinfo) if e.hi is None else self.check_e(e.hi)
+
+            return LoopIR.Interval( lo, hi, e.srcinfo )
 
     def check_e(self, e):
         if type(e) is UAST.Read:
@@ -344,19 +352,13 @@ class TypeChecker:
             # not the original tensor
             # and the constructed T.Window type needs to reference this
             # expression...? oh... that might be a problem...
-            idx = [ self.check_e(i) for i in e.idx ]
+            idx = [ self.check_w_access(i) for i in e.idx ]
             typ = self.env[e.base]
             window_expr = LoopIR.WindowExpr( e.base, idx, T.err, e.srcinfo )
             w_typ       = T.Window( typ.basetype(), typ, window_expr )
             window_expr.type = w_typ
 
             return LoopIR.WindowExpr( e.base, idx, w_typ, e.srcinfo )
-
-        elif type(e) is UAST.Interval:
-            lo = None if e.lo is None else self.check_e(e.lo)
-            hi = None if e.hi is None else self.check_e(e.hi)
-
-            return LoopIR.Interval( lo, hi, T.index, e.srcinfo )
 
         elif type(e) is UAST.ParRange:
             assert False, ("parser should not place ParRange anywhere "+

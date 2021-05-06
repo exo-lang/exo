@@ -55,7 +55,7 @@ module UAST {
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
-            | WindowExpr( sym base, expr* idx )
+            | WindowExpr( sym base, w_access* idx )
             | StrideAssert( sym name, int idx, int val )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
             attributes( srcinfo srcinfo )
@@ -184,16 +184,15 @@ module LoopIR {
     expr    = Read( sym name, expr* idx )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
-            | WindowExpr( sym base, expr* idx )
+            | WindowExpr( sym base, w_access* idx )
             | StrideAssert( sym name, int idx, int val ) -- may only occur
                                                          -- at proc.preds
-            | Interval( expr lo, expr hi )
             attributes( type type, srcinfo srcinfo )
 
+    -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
     w_access= Interval( expr lo, expr hi )
             | Point( expr pt )
             attributes( srcinfo srcinfo )
-    -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
 
     type    = Num   ()
             | F32   ()
