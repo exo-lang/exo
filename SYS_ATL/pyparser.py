@@ -266,7 +266,7 @@ class Parser:
                 if len(a.left.args) != 2:
                     self.err(a.left, "Stride assert must be in 'stride("+
                                      "<buffer name>, <dimension>) == "+
-                                     "<stride value> form")
+                                     "<stride value>' form")
 
                 name = a.left.args[0].id
                 if name not in self.locals:

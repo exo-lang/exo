@@ -128,9 +128,10 @@ class TypeChecker:
 
     def check_single_stmt(self, stmt):
         if type(stmt) is UAST.Assign or type(stmt) is UAST.Reduce:
-            # TODO: Branch LoopIR.Stmt here
+
             if type(stmt.rhs) is UAST.WindowExpr:
-                rhs = self.check_e(stmt.rhs)
+                rhs = self.check_e(stmt.rhs, window_ok=True)
+                assert type(rhs) is LoopIR.WindowExpr
                 self.env[stmt.name] = rhs.type
 
                 return LoopIR.WindowStmt( stmt.name, rhs, None, stmt.srcinfo )
@@ -190,7 +191,7 @@ class TypeChecker:
             return LoopIR.Alloc(stmt.name, typ, mem, None, stmt.srcinfo)
 
         elif type(stmt) is UAST.Call:
-            args    = [ self.check_e(a) for a in stmt.args ]
+            args    = [ self.check_e(a, window_ok=True) for a in stmt.args ]
 
             for call_a,sig_a in zip(args, stmt.f.args):
                 if call_a.type == T.err:
@@ -225,18 +226,20 @@ class TypeChecker:
         else:
             assert False, "not a loopir in check_stmts"
 
-    def check_w_access(self, e):
+
+    def check_w_access(self, e, tensor_hi):
         if type(e) is UAST.Point:
             return LoopIR.Point( self.check_e(e.pt), e.srcinfo )
 
         elif type(e) is UAST.Interval:
-            #TODO: Insert Tensor hi and lo here
-            lo = LoopIR.Const(0, T.index, e.srcinfo) if e.lo is None else self.check_e(e.lo)
-            hi = LoopIR.Const(10, T.index, e.srcinfo) if e.hi is None else self.check_e(e.hi)
+            lo = (LoopIR.Const(0, T.index, e.srcinfo)
+                    if e.lo is None else self.check_e(e.lo))
+            hi = tensor_hi if e.hi is None else self.check_e(e.hi)
 
             return LoopIR.Interval( lo, hi, e.srcinfo )
 
-    def check_e(self, e):
+
+    def check_e(self, e, window_ok = False):
         if type(e) is UAST.Read:
             idx, typ = self.check_access(e, e.name, e.idx, lvalue=False)
             return LoopIR.Read(e.name, idx, typ, e.srcinfo)
@@ -347,22 +350,32 @@ class TypeChecker:
 
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
 
-        elif type(e) is UAST.WindowExpr:
-            # note the type of the expression should be T.Window,
-            # not the original tensor
-            # and the constructed T.Window type needs to reference this
-            # expression...? oh... that might be a problem...
-            idx = [ self.check_w_access(i) for i in e.idx ]
+        elif type(e) is UAST.WindowExpr and window_ok:
             typ = self.env[e.base]
+            if type(typ) is not T.Tensor:
+                self.err(e, "cannot perform windowing on non-tensor "+
+                            "type {e.base}")
+            if len(typ.hi) != len(e.idx):
+                self.err(e, "expected windowing dimension to be the same "+
+                            "as original tensor")
+            idx = [ self.check_w_access(w, t) for w,t in zip(e.idx, typ.hi) ]
+
             window_expr = LoopIR.WindowExpr( e.base, idx, T.err, e.srcinfo )
             w_typ       = T.Window( typ.basetype(), typ, window_expr )
             window_expr.type = w_typ
 
-            return LoopIR.WindowExpr( e.base, idx, w_typ, e.srcinfo )
+            return window_expr
+
+        elif type(e) is UAST.WindowExpr and window_ok == False:
+            self.err(e, "windowing not allowed in this location")
+            return LoopIR.Const(0, T.err, e.srcinfo)
 
         elif type(e) is UAST.ParRange:
             assert False, ("parser should not place ParRange anywhere "+
                            "outside of a for-loop condition")
+        elif type(e) is UAST.StrideAssert:
+            assert False, ("parser should not place StrideAssert anywhere "+
+                           "beyond the beginning of a proc")
         else:
             assert False, "not a LoopIR in check_e"
 
