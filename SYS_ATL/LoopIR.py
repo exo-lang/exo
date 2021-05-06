@@ -270,7 +270,7 @@ def shape(t):
         for i in t.window.idx:
             if type(i) is LoopIR.Interval:
                 shp.append(i)
-            return shp
+        return shp
     shp = t.hi if type(t) is T.Tensor else []
     return shp
 del shape

@@ -371,9 +371,9 @@ class TypeChecker:
 
         elif type(e) is UAST.WindowExpr and window_ok:
             typ = self.env[e.base]
-            if type(typ) is not T.Tensor:
+            if type(typ) is not T.Tensor and type(typ) is not T.Window:
                 self.err(e, "cannot perform windowing on non-tensor "+
-                            "type {e.base}")
+                            "non-window type {e.base}")
             if len(typ.hi) != len(e.idx):
                 self.err(e, "expected windowing dimension to be the same "+
                             "as original tensor")

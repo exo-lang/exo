@@ -86,12 +86,7 @@ def gen_proj(dot):
         y2 : f32
         dot(m, x[1,:], y[:,2], xy)
         dot(m, y[:,3], y[:,3], y2)
-        s : f32
-        s = xy / y2
-        for i in par(0,n):
-            x[i] = s * y[i]
     return proj
-@pytest.mark.skip
 def test_normalize():
     dot  = gen_dot()
     proj = gen_proj(dot)
@@ -126,11 +121,10 @@ def gen_ld_2d(gemmini_ld):
         for i in par(0, n/16):
             for j in par(0, m/16):
                 gemmini_ld(16, 16, x[i:i+16, j:j+16], y[i:i+16, j, :])
-        gemmini_ld(n%16, m%16, x[n-n%16: , m-m%16: ], y[n-n%16: ,])
+        gemmini_ld(n%16, m%16, x[n-n%16: , m-m%16: ], y[n-n%16: , m-m%16, :])
     return ld_2d
-@pytest.mark.skip
 def test_ld():
     gemmini_ld = gen_gemmini_ld()
-    gen_ld_2d  = gen_ld_2d(gemmini_ld)
+    ld_2d  = gen_ld_2d(gemmini_ld)
     assert type(gemmini_ld) is Procedure
-    assert type(gen_ld_2d) is Procedure
+    assert type(ld_2d) is Procedure
