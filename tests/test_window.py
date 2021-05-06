@@ -62,9 +62,9 @@ def gen_window_stmt():
     @proc
     def window_stmt(n : size, m : size, x : f32[n, m]):
         y = x[:, 0]
-#        z : f32[n]
-#        for i in par(0, n):
-#            z[i] = y[i]
+        z : f32[n]
+        for i in par(0, n):
+            z[i] = y[i]
 
     return window_stmt
 def test_window_stmt():

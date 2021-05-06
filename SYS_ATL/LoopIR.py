@@ -264,8 +264,13 @@ class T:
 @extclass(T.F64)
 @extclass(T.INT8)
 def shape(t):
+    #shape=dimension of a window is number of Interval
     if type(t) is T.Window:
-        t = t.as_tensor
+        shp = []
+        for i in t.window.idx:
+            if type(i) is LoopIR.Interval:
+                shp.append(i)
+            return shp
     shp = t.hi if type(t) is T.Tensor else []
     return shp
 del shape

@@ -113,12 +113,31 @@ class TypeChecker:
                 typ = T.err
             elif len(idx) > 0:
                 # Construct a type
-                assert type(typ) is T.Tensor
-                hi = typ.hi[len(idx):]
-                if len(hi) == 0:
-                    typ = typ.basetype()
+                if type(typ) is T.Window:
+                    if len(typ.shape()) == len(idx):
+                        typ = typ.base
+                    else:
+                        new_idxs = []
+                        for i in range(len(typ.window.idx)):
+                            w_i = typ.window.idx[i]
+                            if type(w_i) is LoopIR.Interval:
+                                new_idxs.append( LoopIR.Point(idx[i], w_i.srcinfo) )
+                            else:
+                                new_idxs.append(w_i)
+
+                        window_expr = LoopIR.WindowExpr( typ.window.base,
+                                            new_idxs, T.err, node.srcinfo )
+                        typ       = T.Window( typ.base, typ.as_tensor, window_expr )
+                        window_expr.type = typ
+                    
+                elif type(typ) is T.Tensor:
+                    hi = typ.hi[len(idx):]
+                    if len(hi) == 0:
+                        typ = typ.basetype()
+                    else:
+                        typ = T.Tensor(hi, typ.is_window, typ.type)
                 else:
-                    typ = T.Tensor(hi, typ.is_window, typ.type)
+                    self.err(node, "expected indexing in tensor or window")
         elif lvalue:
             self.err(node, f"cannot assign/reduce to '{nm}', " +
                            f"a non-numeric variable of type '{typ}'")
