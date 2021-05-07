@@ -255,31 +255,7 @@ class Parser:
                 type(a.left.func) == pyast.Name and
                 a.left.func.id == "stride"):
 
-                # now we are guaranteed that we have an assertion of the form:
-                #       assert stride(...) == ...
-                assert len(a.ops) == len(a.comparators)
-                rhs     = a.comparators[0]
-                if (type(rhs) is not pyast.Constant or
-                    type(rhs.value) is not int):
-                    self.err(a.comparators, "Stride should be an integer")
-
-                if len(a.left.args) != 2:
-                    self.err(a.left, "Stride assert must be in 'stride("+
-                                     "<buffer name>, <dimension>) == "+
-                                     "<stride value>' form")
-
-                name = a.left.args[0].id
-                if name not in self.locals:
-                    self.err(a.left, f"variable '{name}' undefined")
-                name = self.locals[name]
-
-                if (type(a.left.args[1]) is not pyast.Constant or
-                        type(a.left.args[1].value) is not int):
-                    self.err(a.left, "Stride assert second argment should "+
-                                     "be a dimension in integer")
-                idx  = a.left.args[1].value
-
-                preds.append(UAST.StrideAssert(name, idx, rhs.value, self.getsrcinfo(a)))
+                preds.append(self.parse_stride_assert(a))
             else:
                 preds.append(self.parse_expr(a))
 
@@ -291,6 +267,34 @@ class Parser:
                          body=body,
                          instr=instr,
                          srcinfo=self.getsrcinfo(fdef))
+
+    def parse_stride_assert(self, a):
+        # we assume that we have an assertion of the form:
+        #       assert stride(...) == ...
+        assert len(a.ops) == len(a.comparators)
+        rhs     = a.comparators[0]
+        args    = a.left.args
+
+        if type(rhs) is not pyast.Constant or not is_pos_int(rhs.value):
+            self.err(rhs, "Can only assert that the stride "+
+                          "is a positive integer")
+
+        if (len(args) != 2 or type(args[0]) is not pyast.Name
+                           or type(args[1]) is not pyast.Constant
+                           or type(args[1].value) is not int):
+            self.err(a.left, "expected stride(...) in assertion to "+
+                             "have exactly 2 arguments: the identifier for "+
+                             "the buffer we are talking about "+
+                             "and an integer specifying which dimension")
+
+        name    = args[0].id
+        if name not in self.locals:
+            self.err(args[0], f"variable '{name}' undefined")
+        name    = self.locals[name]
+
+        idx  = args[1].value
+
+        return UAST.StrideAssert(name, idx, rhs.value, self.getsrcinfo(a))
 
     def parse_arg_type(self, node):
         # Arg was of the form ` name : annotation `
@@ -453,12 +457,16 @@ class Parser:
                     self.locals[name_node.id] = nm
                     typ, mem = self.parse_alloc_typmem(s.annotation)
                     rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
-                elif type(s) is pyast.Assign and len(idxs) == 0:
-                    if name_node.id not in self.locals:
-                        nm = Sym(name_node.id)
-                        self.locals[name_node.id] = nm
-                        rstmts.append(UAST.Alloc(nm, UAST.Num(), None,
-                                                 self.getsrcinfo(s)))
+
+                # handle cases of ambiguous assignment to undefined
+                # variables
+                if ( type(s) is pyast.Assign and len(idxs) == 0 and
+                     name_node.id not in self.locals ):
+                    nm = Sym(name_node.id)
+                    self.locals[name_node.id] = nm
+                    do_fresh_assignment = True
+                else:
+                    do_fresh_assignment = False
 
                 # get the symbol corresponding to the name on the
                 # left-hand-side
@@ -475,7 +483,10 @@ class Parser:
                                             f"refer to a local variable")
 
                 # generate the assignemnt or reduction statement
-                if type(s) is pyast.Assign:
+                if do_fresh_assignment:
+                    rstmts.append(UAST.FreshAssign(
+                        nm, rhs, self.getsrcinfo(s)))
+                elif type(s) is pyast.Assign:
                     rstmts.append(UAST.Assign(
                         nm, idxs, rhs, self.getsrcinfo(s)))
                 elif type(s) is pyast.AugAssign:
@@ -599,12 +610,22 @@ class Parser:
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
 
             is_window = any( type(e) is pyast.Slice for e in dims )
-            idxs = [ self.parse_slice(e) if is_window else self.parse_expr(e)
+            idxs = [ (self.parse_slice(e, node) if is_window else
+                      self.parse_expr(e))
                      for e in dims ]
 
             return node.value, idxs, is_window
 
-    def parse_slice(self, e):
+    def parse_slice(self, e, node):
+        if sys.version_info[:3] >= (3, 9):
+            srcinfo = self.getsrcinfo(e)
+        else:
+            if type(e) is pyast.Index:
+                e = e.value
+                srcinfo = self.getsrcinfo(e)
+            else:
+                srcinfo = self.getsrcinfo(node)
+
         if type(e) is pyast.Slice:
             lo = None if e.lower is None else self.parse_expr(e.lower)
             hi = None if e.upper is None else self.parse_expr(e.upper)
@@ -612,9 +633,9 @@ class Parser:
                 self.err(e, "expected windowing to have the form x[:], "+
                             "x[i:], x[:j], or x[i:j], but not x[i:j:k]")
 
-            return UAST.Interval(lo, hi, self.getsrcinfo(e))
+            return UAST.Interval(lo, hi, srcinfo)
         else:
-            return UAST.Point( self.parse_expr(e), self.getsrcinfo(e) )
+            return UAST.Point( self.parse_expr(e), srcinfo )
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):

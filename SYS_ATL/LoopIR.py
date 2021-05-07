@@ -44,6 +44,7 @@ module UAST {
 
     stmt    = Assign  ( sym name, expr* idx, expr rhs )
             | Reduce  ( sym name, expr* idx, expr rhs )
+            | FreshAssign( sym name, expr rhs )
             | Pass    ()
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | ForAll  ( sym iter,  expr cond,   stmt* body )
@@ -55,7 +56,7 @@ module UAST {
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
-            | WindowExpr( sym base, w_access* idx )
+            | WindowExpr( sym name, w_access* idx )
             | StrideAssert( sym name, int idx, int val )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
             attributes( srcinfo srcinfo )
@@ -184,7 +185,7 @@ module LoopIR {
     expr    = Read( sym name, expr* idx )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
-            | WindowExpr( sym base, w_access* idx )
+            | WindowExpr( sym name, w_access* idx )
             | StrideAssert( sym name, int idx, int val ) -- may only occur
                                                          -- at proc.preds
             attributes( type type, srcinfo srcinfo )
@@ -204,7 +205,12 @@ module LoopIR {
             | Size  ()
             | Error ()
             | Tensor     ( expr* hi, bool is_window, type type )
-            | WindowType ( type base, type as_tensor, expr window )
+            -- src          - type of the tensor
+            --                from which the window was created
+            -- as_tensor    - tensor type as if this window were simply
+            --                a tensor itself
+            -- window       - the expression that created this window
+            | WindowType ( type src, type as_tensor, expr window )
 
 } """, {
     'name':     is_valid_name,
@@ -264,15 +270,13 @@ class T:
 @extclass(T.F64)
 @extclass(T.INT8)
 def shape(t):
-    #shape=dimension of a window is number of Interval
     if type(t) is T.Window:
-        shp = []
-        for i in t.window.idx:
-            if type(i) is LoopIR.Interval:
-                shp.append(i)
-        return shp
-    shp = t.hi if type(t) is T.Tensor else []
-    return shp
+        return t.as_tensor.shape()
+    elif type(t) is T.Tensor:
+        assert type(t.type) is not T.Tensor, "expect no nesting"
+        return t.hi
+    else:
+        return []
 del shape
 
 @extclass(T.Num)
@@ -319,10 +323,12 @@ del is_sizeable
 @extclass(LoopIR.type)
 def basetype(t):
     if type(t) is T.Window:
-        t = t.as_tensor
-    if type(t) is T.Tensor:
-        t = t.type
-    return t
+        return t.as_tensor.basetype()
+    elif type(t) is T.Tensor:
+        assert not t.type.is_tensor_or_window()
+        return t.type
+    else:
+        return t
 del basetype
 
 #@extclass(LoopIR.type)
