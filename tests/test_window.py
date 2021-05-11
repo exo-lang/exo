@@ -130,19 +130,19 @@ def gen_ld_2d(gemmini_ld):
         # handle last tile row
         if n%16 > 0:
             for j in par(0, m/16):
-                xx = x[ n/16:n, j*16:j*16+16 ]
-                yy = y[ n/16:n, j, : ]
+                xx = x[ n - n%16:n, j*16:j*16+16 ]
+                yy = y[ n - n%16:n, j, : ]
                 gemmini_ld(n%16, 16, xx, yy)
         # handle last tile column
         if m%16 > 0:
             for i in par(0, n/16):
-                xx = x[ i*16:i*16+16, m/16:m ]
+                xx = x[ i*16:i*16+16, m - m%16:m ]
                 yy = y[ i*16:i*16+16, m/16, : ]
                 gemmini_ld(16, m%16, xx, yy)
         # handle last corner
         if n%16 > 0 and m%16 > 0:
-            gemmini_ld(n%16, m%16, x[n/16:n, m/16:m],
-                                   y[n/16:n, m/16, :])
+            gemmini_ld(n%16, m%16, x[n - n%16:n, m - m%16:m],
+                                   y[n - n%16:n, m/16, :])
 
         #gemmini_ld(n%16, m%16, x[n-n%16: , m-m%16: ], y[n-n%16: , m-m%16, :])
     return ld_2d

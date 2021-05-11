@@ -569,6 +569,7 @@ class CheckEffects:
                         SMT.Times(rhs, SMT.Plus(mod_tmp, SMT.Int(1))))
                 self.solver.add_assertion(SMT.And(rhs_eq, lhs_eq))
                 return SMT.Minus(lhs, SMT.Times(rhs, mod_tmp))
+
             elif expr.op == "<":
                 return SMT.LT(lhs, rhs)
             elif expr.op == ">":
@@ -695,9 +696,9 @@ class CheckEffects:
         assert len(argshp) == len(sigshp)
         eqv_dim = SMT.Bool(True)
         for a,s in zip(argshp, sigshp):
-            eqv_dim = SMT.And(eqv_dim,
-                              SMT.Equals(self.expr_to_smt(a),
-                                         self.expr_to_smt(s)))
+            eq_here = SMT.Equals(self.expr_to_smt(a),
+                       self.expr_to_smt(s))
+            eqv_dim = SMT.And(eqv_dim, eq_here)
         if not self.solver.is_valid(eqv_dim):
             self.err(node, "type-shape of calling argument may not equal "+
                            "the required type-shape")
