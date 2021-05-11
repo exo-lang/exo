@@ -82,6 +82,8 @@ def gen_dot():
 def gen_proj(dot):
     @proc
     def proj(n : size, m : size, x : f32[n,m], y : f32[m,n]):
+        assert n > 4
+        assert m > 4
         xy : f32
         y2 : f32
         dot(m, x[1,:], y[:,2], xy)
@@ -117,11 +119,32 @@ def gen_gemmini_ld():
     return gemmini_ld
 def gen_ld_2d(gemmini_ld):
     @proc
-    def ld_2d(n : size, m : size, x : f32[n, m] @DRAM, y : f32[n, m/16, 16] @ GEMM_SCRATCH):
+    def ld_2d(n : size, m : size, x : f32[n, m] @DRAM,
+                                  y : f32[n, (m+15)/16, 16] @ GEMM_SCRATCH):
+        # handle all full tile-rows
         for i in par(0, n/16):
             for j in par(0, m/16):
-                gemmini_ld(16, 16, x[i:i+16, j:j+16], y[i:i+16, j, :])
-        gemmini_ld(n%16, m%16, x[n-n%16: , m-m%16: ], y[n-n%16: , m-m%16, :])
+                xx = x[ i*16:i*16+16, j*16:j*16+16 ]
+                yy = y[ i*16:i*16+16, j, : ]
+                gemmini_ld(16, 16, xx, yy)
+        # handle last tile row
+        if n%16 > 0:
+            for j in par(0, m/16):
+                xx = x[ n/16:n, j*16:j*16+16 ]
+                yy = y[ n/16:n, j, : ]
+                gemmini_ld(n%16, 16, xx, yy)
+        # handle last tile column
+        if m%16 > 0:
+            for i in par(0, n/16):
+                xx = x[ i*16:i*16+16, m/16:m ]
+                yy = y[ i*16:i*16+16, m/16, : ]
+                gemmini_ld(16, m%16, xx, yy)
+        # handle last corner
+        if n%16 > 0 and m%16 > 0:
+            gemmini_ld(n%16, m%16, x[n/16:n, m/16:m],
+                                   y[n/16:n, m/16, :])
+
+        #gemmini_ld(n%16, m%16, x[n-n%16: , m-m%16: ], y[n-n%16: , m-m%16, :])
     return ld_2d
 def test_ld():
     gemmini_ld = gen_gemmini_ld()

@@ -72,23 +72,6 @@ def negate_expr(e):
                            T.bool, e.srcinfo)
     assert False, "bad case"
 
-# We don't need effect for Const and BinOp
-# !! Should we add effects to exprs as well? Or to propagate up to stmt
-def read_effect(e):
-    if type(e) is LoopIR.Read:
-        if e.type.is_numeric():
-            loc = [ lift_expr(idx) for idx in e.idx ]
-            return E.effect([E.effset(e.name, loc, [], None, e.srcinfo)]
-                            ,[] ,[] , e.srcinfo)
-        else:
-            return eff_null(e.srcinfo)
-    elif type(e) is LoopIR.BinOp:
-        return eff_union(read_effect(e.lhs), read_effect(e.rhs),
-                         srcinfo=e.srcinfo)
-    elif type(e) is LoopIR.Const:
-        return eff_null(e.srcinfo)
-    else:
-        assert False, "bad case"
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -97,6 +80,12 @@ def read_effect(e):
 class InferEffects:
     def __init__(self, proc):
         self.orig_proc  = proc
+
+        self._types     = {}
+        for a in proc.args:
+            self._types[a.name] = a.type
+        self.rec_stmts_types(self.orig_proc.body)
+
         body, eff = self.map_stmts(self.orig_proc.body)
 
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
@@ -115,6 +104,25 @@ class InferEffects:
     def result(self):
         return self.proc
 
+    def rec_stmts_types(self, body):
+        assert len(body) > 0
+        for s in body:
+            self.rec_s_types(s)
+
+    def rec_s_types(self, stmt):
+        if type(stmt) is LoopIR.If:
+            self.rec_stmts_types(stmt.body)
+            if len(stmt.orelse) > 0:
+                self.rec_stmts_types(stmt.orelse)
+        elif type(stmt) is LoopIR.ForAll:
+            self.rec_stmts_types(stmt.body)
+        elif type(stmt) is LoopIR.Alloc:
+            self._types[stmt.name] = stmt.type
+        elif type(stmt) is LoopIR.WindowStmt:
+            self._types[stmt.lhs] = stmt.rhs.type
+        else:
+            pass
+
     def map_stmts(self, body):
         assert len(body) > 0
         eff   = eff_null(body[0].srcinfo)
@@ -129,31 +137,22 @@ class InferEffects:
         return ([s for s in reversed(stmts)], eff)
 
     def map_s(self, stmt):
-        if type(stmt) is LoopIR.Assign:
+        if type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
+            styp = type(stmt)
             buf = stmt.name
             loc = [ lift_expr(idx) for idx in stmt.idx ]
-            rhs_eff = read_effect(stmt.rhs)
-            effects = E.effect([], [E.effset(buf, loc,
-                                            [], None, stmt.srcinfo)],
-                               [], stmt.srcinfo)
+            rhs_eff = self.eff_e(stmt.rhs)
+            effset  = E.effset(buf, loc, [], None, stmt.srcinfo)
+            if styp is LoopIR.Assign:
+                effects = E.effect([], [effset], [], stmt.srcinfo)
+            else: # Reduce
+                effects = E.effect([], [], [effset], stmt.srcinfo)
+
             effects = eff_union(rhs_eff, effects)
 
-            return LoopIR.Assign(stmt.name, stmt.type, stmt.cast,
-                                 stmt.idx, stmt.rhs,
-                                 effects, stmt.srcinfo)
-
-        elif type(stmt) is LoopIR.Reduce:
-            buf = stmt.name
-            loc = [ lift_expr(idx) for idx in stmt.idx ]
-            rhs_eff = read_effect(stmt.rhs)
-            effects = E.effect([], [],
-                               [E.effset(buf, loc, [], None, stmt.srcinfo)]
-                               , stmt.srcinfo)
-            effects = eff_union(rhs_eff, effects)
-
-            return LoopIR.Reduce(stmt.name, stmt.type, stmt.cast,
-                                 stmt.idx, stmt.rhs,
-                                 effects, stmt.srcinfo)
+            return styp(stmt.name, stmt.type, stmt.cast,
+                        stmt.idx, stmt.rhs,
+                        effects, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.If:
             cond = lift_expr(stmt.cond)
@@ -188,21 +187,28 @@ class InferEffects:
             assert stmt.f.eff is not None
             # build up a substitution dictionary....
             # sig is a LoopIR.fnarg, arg is a LoopIR.expr
-            subst = dict()
+            subst       = {}
             for sig,arg in zip(stmt.f.args, stmt.args):
                 if sig.type.is_numeric():
-                    assert type(arg) is LoopIR.Read
-                    subst[sig.name] = arg.name
+                    assert (type(arg) is LoopIR.Read or
+                            type(arg) is LoopIR.WindowExpr)
+                    if type(arg.type) is T.Window:
+                        pass # handle below
+                    else:
+                        subst[sig.name] = arg.name
                 elif sig.type.is_indexable():
                     # in this case we have a LoopIR expression...
                     subst[sig.name] = lift_expr(arg)
                 else: assert False, "bad case"
 
             eff = stmt.f.eff
-            # TODO: Add read effect to call args
-            #for sig in stmt.f.args:
-            #    eff = eff_union(read_effect(arg), eff)
             eff = eff.subst(subst)
+
+            # translate effects occuring on windowed arguments
+            for sig,arg in zip(stmt.f.args, stmt.args):
+                if sig.type.is_numeric():
+                    if type(arg.type) is T.Window:
+                        eff = self.translate_eff(eff, sig.name, arg.type)
 
             return LoopIR.Call(stmt.f, stmt.args,
                                eff, stmt.srcinfo)
@@ -212,14 +218,83 @@ class InferEffects:
         elif type(stmt) is LoopIR.Alloc:
             return LoopIR.Alloc(stmt.name, stmt.type, stmt.mem,
                                 eff_null(stmt.srcinfo), stmt.srcinfo)
-
-        #TODO: Fix
         elif type(stmt) is LoopIR.WindowStmt:
             return LoopIR.WindowStmt(stmt.lhs, stmt.rhs,
                                      eff_null(stmt.srcinfo), stmt.srcinfo)
 
         else:
             assert False, "Invalid statement"
+
+    # extract effects from this expression; return E.effect
+    def eff_e(self, e):
+        if type(e) is LoopIR.Read:
+            if e.type.is_numeric():
+                # we may assume that we're not in a call-argument position
+                assert e.type.is_real_scalar()
+                loc = [ lift_expr(idx) for idx in e.idx ]
+                eff = E.effect([E.effset(e.name, loc, [], None, e.srcinfo)],
+                               [] ,[] , e.srcinfo)
+
+                # x[...], x
+                buf_typ = self._types[e.name]
+                if type(buf_typ) is T.Window:
+                    eff = self.translate_eff(eff, e.name, buf_typ)
+
+                return eff
+            else:
+                return eff_null(e.srcinfo)
+        elif type(e) is LoopIR.BinOp:
+            return eff_union(self.eff_e(e.lhs), self.eff_e(e.rhs),
+                             srcinfo=e.srcinfo)
+        elif type(e) is LoopIR.Const:
+            return eff_null(e.srcinfo)
+        elif type(e) is LoopIR.WindowExpr:
+            return eff_null(e.srcinfo)
+        else:
+            assert False, "bad case"
+
+    def translate_eff(self, eff, buf_name, win_typ):
+        assert type(eff) == E.effect
+        assert type(win_typ) == T.Window
+        def translate_set(es):
+            if es.buffer != buf_name:
+                return es
+            # otherwise, need to translate through the window
+            #   Let `i` = es.loc
+            #       `x` = es.buffer
+            # For a windowing operation `x = y[:,lo:hi,3]`
+            #   Let `j,k` be the indices into `y`.
+            # Then,
+            #   j == i + lo
+            #   k == 3
+            # which means we can get the transformed locations
+            # by simply adding the `lo` offsets from windowing operations
+            loc = es.loc
+            buf = buf_name
+            typ = win_typ
+            while type(typ) is T.Window:
+                win     = typ.window
+                buf     = win.name
+                typ     = self._types[buf]
+                loc_i   = 0
+                new_loc = []
+                for w_acc in win.idx:
+                    if type(w_acc) is LoopIR.Point:
+                        new_loc.append(lift_expr(w_acc.pt))
+                    elif type(w_acc) is LoopIR.Interval:
+                        j = E.BinOp("+", loc[loc_i], lift_expr(w_acc.lo),
+                                    T.index, w_acc.lo.srcinfo)
+                        new_loc.append(j)
+                        loc_i += 1
+                assert loc_i == len(loc)
+                loc = new_loc
+
+            return E.effset( buf, loc, es.names, es.pred, es.srcinfo)
+
+        return E.effect([ translate_set(es) for es in eff.reads ],
+                        [ translate_set(es) for es in eff.writes ],
+                        [ translate_set(es) for es in eff.reduces ],
+                        eff.srcinfo)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -348,14 +423,13 @@ class CheckEffects:
         self.solver     = _get_smt_solver()
 
         self.push()
-        # Add assersions
+        # Add assertions
         for arg in proc.args:
             if type(arg.type) is T.Size:
                 pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
                 self.solver.add_assertion(pos_sz)
         for p in proc.preds:
             if type(p) is LoopIR.StrideAssert:
-                #Add assert like normal
                 pass
             else:
                 self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
@@ -420,6 +494,59 @@ class CheckEffects:
             elif expr.op == "/":
                 assert type(expr.rhs) is E.Const
                 assert expr.rhs.val > 0
+                # x // y is defined as floor(x/y)
+                # Let z == floor(x/y)
+                # Suppose we have P(x // y).
+                # Then,
+                #   P(x % y) =~= forall z, z == x // y ==> P(z)
+                #   P(x % y) =~= exists z, z == x // y /\ P(z)
+                # These two statements are not formally the same, so let's
+                # work with both in the following...
+                #
+                # Consider now that
+                #       z == x // y =~=  z == floor(x/y)
+                #                   =~=  z <= x/y < z + 1
+                #                   =~=  y*z <= x < y*(z+1)
+                # which is an affine equation when y is constant.
+                #
+                # Let's substitute this back into the two quantifier forms
+                #   forall z, y*z <= x < y*(z+1) ==> P(z)
+                #   exists z, y*z <= x < y*(z+1) /\ P(z)
+                #
+                # My concern is that we are placing this rewrite into both
+                # the position of hypothesis and goal.  So for
+                #       forall x, H ==> G  (which =~= forall x, ~H \/ G)
+                # If we place the forall form above into the G position,
+                # everything works out pretty easily...
+                #       forall x, H ==> (forall z, C ==> P(z))
+                #   =~= forall x, ~H \/ (forall z, C ==> P(z))
+                #   =~= forall x, forall z, ~H \/ (C ==> P(z))
+                #   =~= forall x, forall z, H ==> (C ==> P(z))
+                #   =~= forall x, forall z, H /\ C ==> P(z)
+                # If we place the forall form above into the H position,
+                # we get
+                #       forall x, (forall z, C ==> P(z)) ==> G
+                #   =~= forall x, ~(forall z, C ==> P(z)) \/ G
+                #   =~= forall x, (exists z, ~(C ==> P(z)) \/ G
+                #   =~= forall x, exists z, ~(C ==> P(z) \/ G
+                #   =~= forall x, exists z, ~(~C \/ P(z)) \/ G
+                #   =~= forall x, exists z, (C /\ P(z)) \/ G
+                # This is a mess!
+                #
+                # What about if in the hypothesis case, we try using
+                # the alternate `exists ...` quantifier form to begin with...
+                # Then we get,
+                #       forall x, (exists z, C /\ P(z)) ==> G
+                #   =~= forall x, ~(exists z, C /\ P(z)) \/ G
+                #   =~= forall x, (forall z, ~C \/ ~P(z)) \/ G
+                #   =~= forall x, forall z, ~C \/ ~P(z) \/ G
+                #   =~= forall x, forall z, C ==> ~P(z) \/ G
+                #   =~= forall x, forall z, C ==> (P(z) ==> G)
+                #   =~= forall x, forall z, (C /\ P(z)) ==> G
+                # This is now the same thing we were expecting to get
+                # in the goal position!  So it turns out it's safe too!
+                #
+
                 # Introduce new Sym (z in formula below)
                 div_tmp = self.sym_to_smt(Sym("div_tmp"))
                 # rhs*z <= lhs < rhs*(z+1)
@@ -429,12 +556,14 @@ class CheckEffects:
                 self.solver.add_assertion(SMT.And(rhs_eq, lhs_eq))
                 return div_tmp
             elif expr.op == "%":
-                # x % y is defined as x - floor(x/y)
-                # Similar to Div, but return lhs - rhs*z instead
+                assert type(expr.rhs) is E.Const
+                assert expr.rhs.val > 0
+                # In the below, copy the logic above for division
+                # to construct `mod_tmp` s.t.
+                #   mod_tmp = floor(lhs / rhs)
+                # Then,
+                #   lhs % rhs = lhs - rhs * mod_tmp
                 mod_tmp = self.sym_to_smt(Sym("mod_tmp"))
-                # rhs*z <= lhs < rhs*(z+1)
-                raise NotImplementedError("TODO: support modulo")
-                # lhs - (rhs * mod_tmp)
                 rhs_eq  = SMT.LE(SMT.Times(rhs, mod_tmp), lhs)
                 lhs_eq  = SMT.LT(lhs,
                         SMT.Times(rhs, SMT.Plus(mod_tmp, SMT.Int(1))))
@@ -656,11 +785,15 @@ class CheckEffects:
                     else: assert False, "bad case"
 
                 for p in stmt.f.preds:
-                    pred = lift_expr(p).subst(subst)
-                    # Check that asserts are correct
-                    if not self.solver.is_valid(self.expr_to_smt(pred)):
-                        self.err(stmt, f"Could not verify assertion in "+
-                                       f"{stmt.f.name} at {p.srcinfo}")
+                    if type(p) is LoopIR.StrideAssert:
+                        # TODO: currently unhandled
+                        pass
+                    else:
+                        pred = lift_expr(p).subst(subst)
+                        # Check that asserts are correct
+                        if not self.solver.is_valid(self.expr_to_smt(pred)):
+                            self.err(stmt, f"Could not verify assertion in "+
+                                           f"{stmt.f.name} at {p.srcinfo}")
 
                 body_eff = eff_union(body_eff, stmt.eff)
 

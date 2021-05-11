@@ -34,7 +34,8 @@ module Effects {
                 effset*     reduces,
                 srcinfo     srcinfo )
 
-    -- JRK: the notation of this comprehension is confusing - maybe just use math:
+    -- JRK: the notation of this comprehension is confusing -
+    ---     maybe just use math:
     -- this corresponds to `{ buffer : loc for *names in int if pred }`
     effset  = ( sym         buffer,
                 expr*       loc,    -- e.g. reading at (i+1,j+1)
