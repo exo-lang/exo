@@ -66,6 +66,7 @@ op_prec = {
 @extclass(UAST.stmt)
 @extclass(UAST.expr)
 @extclass(UAST.type)
+@extclass(UAST.w_access)
 def __str__(self):
     return UAST_PPrinter(self).str()
 del __str__
@@ -89,11 +90,20 @@ class UAST_PPrinter:
             self.addline(self.pexpr(node))
         elif isinstance(node, UAST.type):
             self.addline(self.ptype(node))
+        elif isinstance(node, UAST.w_access):
+            if type(node) is UAST.Interval:
+                lo = self.pexpr(node.lo) if node.lo else "None"
+                hi = self.pexpr(node.hi) if node.hi else "None"
+                self.addline(f"Interval({lo},{hi})")
+            elif type(node) is UAST.Point:
+                self.addline(f"Point({self.pexpr(node.pt)})")
+            else: assert False, "bad case"
         else:
             assert False, f"cannot print a {type(node)}"
 
     def str(self):
-        if isinstance(self._node, UAST.type):
+        if (isinstance(self._node, UAST.type) or
+            isinstance(self._node, UAST.w_access)):
             assert len(self._lines) == 1
             return self._lines[0]
 
@@ -149,6 +159,10 @@ class UAST_PPrinter:
         self.addline(f"def {name}({','.join(args)}):")
 
         self.push()
+        if p.instr:
+            self.addline(f'# @instr("{p.instr}")')
+        for pred in p.preds:
+            self.addline(f"assert {self.pexpr(pred)}")
         self.pstmts(p.body)
         self.pop()
 
@@ -172,6 +186,9 @@ class UAST_PPrinter:
                     lhs = self.get_name(stmt.name)
 
                 self.addline(f"{lhs} {op} {rhs}")
+            elif type(stmt) is UAST.FreshAssign:
+                rhs = self.pexpr(stmt.rhs)
+                self.addline(f"{self.new_name(stmt.name)} = rhs")
             elif type(stmt) is UAST.Alloc:
                 mem = f" @{stmt.mem.name()}" if stmt.mem else ""
                 self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
@@ -223,6 +240,19 @@ class UAST_PPrinter:
             return f"-{self.pexpr(e.arg,prec=60)}"
         elif type(e) is UAST.ParRange:
             return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
+        elif type(e) is UAST.WindowExpr:
+            def pacc(w):
+                if type(w) is UAST.Point:
+                    return self.pexpr(w.pt)
+                elif type(w) is UAST.Interval:
+                    lo = self.pexpr(w.lo) if w.lo else ""
+                    hi = self.pexpr(w.hi) if w.hi else ""
+                    return f"{lo}:{hi}"
+                else: assert False, "bad case"
+            return (f"{self.get_name(e.name)}"+
+                    f"[{', '.join([ pacc(w) for w in e.idx ])}]")
+        elif type(e) is UAST.StrideAssert:
+            return f"stride({self.get_name(e.name)}, {e.idx}) == {e.val}"
         else:
             assert False, "unrecognized expr type"
 
@@ -244,8 +274,11 @@ class UAST_PPrinter:
         elif type(t) is UAST.Size:
             return "size"
         elif type(t) is UAST.Tensor:
+            base = str(t.basetype())
+            if t.is_window:
+                base = f"[{base}]"
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
-            return f"{t.basetype()}[{rngs}]"
+            return f"{base}[{rngs}]"
         else:
             assert False, "impossible type case"
 
@@ -281,11 +314,19 @@ class LoopIR_PPrinter:
             self.addline(self.pexpr(node))
         elif isinstance(node, LoopIR.type):
             self.addline(self.ptype(node))
+        elif isinstance(node, LoopIR.w_access):
+            if type(node) is LoopIR.Interval:
+                self.addline(f"Interval({self.pexpr(node.lo)},"+
+                             f"{self.pexpr(node.hi)})")
+            elif type(node) is LoopIR.Point:
+                self.addline(f"Point({self.pexpr(node.pt)})")
+            else: assert False, "bad case"
         else:
             assert False, f"cannot print a {type(node)}"
 
     def str(self):
-        if isinstance(self._node, LoopIR.type):
+        if (isinstance(self._node, LoopIR.type) or
+            isinstance(self._node, LoopIR.w_access)):
             assert len(self._lines) == 1
             return self._lines[0]
 
@@ -343,6 +384,10 @@ class LoopIR_PPrinter:
         self.addline(f"def {p.name}({','.join(args)}):")
 
         self.push()
+        if p.instr:
+            self.addline(f'# @instr("{p.instr}")')
+        for pred in p.preds:
+            self.addline(f"assert {self.pexpr(pred)}")
         for proc in p.body:
             self.pstmt(proc)
         self.pop()
@@ -369,6 +414,9 @@ class LoopIR_PPrinter:
                 lhs = self.get_name(stmt.name)
 
             self.addline(f"{lhs} {op} {rhs}")
+        elif type(stmt) is LoopIR.WindowStmt:
+            rhs = self.pexpr(stmt.rhs)
+            self.addline(f"{self.new_name(stmt.lhs)} = rhs")
         elif type(stmt) is LoopIR.Alloc:
             mem = f" @{stmt.mem.name()}" if stmt.mem else ""
             self.addline(f"{self.new_name(stmt.name)} : "+
@@ -424,6 +472,17 @@ class LoopIR_PPrinter:
             if local_prec < prec:
                 s = f"({s})"
             return s
+        elif type(e) is LoopIR.WindowExpr:
+            def pacc(w):
+                if type(w) is LoopIR.Point:
+                    return self.pexpr(w.pt)
+                elif type(w) is LoopIR.Interval:
+                    return f"{self.pexpr(w.lo)}:{self.pexpr(w.hi)}"
+                else: assert False, "bad case"
+            return (f"{self.get_name(e.name)}"+
+                    f"[{', '.join([ pacc(w) for w in e.idx ])}]")
+        elif type(e) is LoopIR.StrideAssert:
+            return f"stride({self.get_name(e.name)}, {e.idx}) == {e.val}"
         else:
             assert False, f"unrecognized expr: {type(e)}"
 
@@ -447,10 +506,13 @@ class LoopIR_PPrinter:
         elif type(t) is T.Error:
             return "err"
         elif type(t) is T.Tensor:
+            base = str(t.basetype())
+            if t.is_window:
+                base = f"[{base}]"
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
-            return f"{t.basetype()}[{rngs}]"
-        #TODO: Fix!!
+            return f"{base}[{rngs}]"
         elif type(t) is T.Window:
-            return "windowww"
+            return (f"Window(src={t.src},as_tensor={t.as_tensor},"+
+                    f"window={t.window})")
         else:
             assert False, "impossible type case"
