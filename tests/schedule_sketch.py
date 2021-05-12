@@ -1,3 +1,171 @@
+
+"""
+static void tiled_resadd(const size_t I, const size_t J,
+        const size_t tile_I, const size_t tile_J,
+        const scale_t A_scale,
+        const scale_t B_scale,
+        const acc_scale_t C_scale,
+        const elem_t * A,
+        const elem_t * B,
+        elem_t * C,
+        bool relu,
+        enum tiled_matmul_type_t matadd_type) {
+
+    gemmini_config_st(J * sizeof(elem_t));
+    gemmini_config_ex(WS, relu ? RELU : NO_ACTIVATION, 0, C_scale, 0);
+
+    gemmini_extended4_config_ld(J * sizeof(elem_t), A_scale, true, DIM, 0);
+    gemmini_extended4_config_ld(J * sizeof(elem_t), B_scale, true, DIM, 1);
+
+    for (size_t i = 0; i < I; i += tile_I) {
+        for (size_t j = 0; j < J; j += tile_J) {
+            const size_t I_tile = i + tile_I <= I ? tile_I : I - i;
+            const size_t J_tile = j + tile_J <= J ? tile_J : J - j;
+
+            const elem_t * a = A + i * J + j;
+            const elem_t * b = B + i * J + j;
+            elem_t * c = C + i * J + j;
+
+            sp_tiled_resadd(I_tile, J_tile,
+                    A_scale, B_scale, a, b, c,
+                    J, J, J,
+                    relu);
+        }
+    }
+
+    gemmini_fence();
+}
+"""
+
+"""
+static void tiled_matmul_auto(
+        size_t dim_I, size_t dim_J, size_t dim_K,
+        const elem_t* A, const elem_t* B,
+        const void * D, void * C,
+        size_t stride_A, size_t stride_B, size_t stride_D, size_t stride_C,
+        scale_t A_scale_factor, scale_t B_scale_factor, scale_acc_t D_scale_factor,
+        int act, acc_scale_t scale, size_t relu6_shift, bool repeating_bias,
+        bool transpose_A, bool transpose_B,
+        bool full_C, bool low_D,
+        uint8_t weightA,
+        enum tiled_matmul_type_t tiled_matmul_type);
+
+"""
+
+# C == D
+# A == B
+# A == D, B == D if C != D
+
+# implements:
+#   A READ, B READ, D READ, C WRITE
+#       This code will zero out C before accumulating
+#   C = A * B + D
+
+# A has dim_I rows and dim_K columns
+# B has dim_K rows and dim_J columns
+# C has dim_I rows and dim_J columns
+# D has (repeating_bias ? 1 : dim_I) rows and dim_J columns
+
+# stride
+# stride_A = 500
+# 0 to dim_K-1 has the first row of A
+# 500 to 500+dim_K-1 has the second row of A
+
+@proc
+def tiled_matmul_auto(
+    dim_I : size, dim_J : size, dim_K : size,
+    A, B, D, C, # data # TODO:
+    stride_A-D,
+    A-D_scale_factor, # what is this...?
+    act,
+    scale,
+    relu6_shift,
+    repeating_bias,
+    transpose_A, # ok duh
+    transpose_B, # ok duh
+    full_C,
+    low_D,
+    weightA,
+    tiled_matmul_type_t
+):
+    pass
+
+
+"""
+API:
+
+static void tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
+        const elem_t* A, const elem_t* B,
+        const void * D, void * C,
+        size_t stride_A, size_t stride_B, size_t stride_D, size_t stride_C,
+        scale_t A_scale_factor, scale_t B_scale_factor, scale_acc_t D_scale_factor,
+        int act, acc_scale_t scale, size_t relu6_shift, bool repeating_bias,
+        bool transpose_A, bool transpose_B,
+        bool full_C, bool low_D,
+        uint8_t weightA,
+        enum tiled_matmul_type_t tiled_matmul_type)
+
+static void tiled_conv_A_stride_auto(
+        int batch_size, int in_dim, int in_channels,
+        int out_channels, int out_dim,
+        int stride, int input_dilation, int kernel_dilation, int padding, int kernel_dim,
+        bool wrot180, bool trans_output_1203, bool trans_input_3120,
+        bool trans_weight_1203, bool trans_weight_0132,
+
+        const elem_t * input,
+        const elem_t * weights,
+        const acc_t * bias,
+        elem_t * output,
+
+        int act, acc_scale_t scale, size_t relu6_shift,
+        int pool_size, int pool_stride, int pool_padding,
+
+        enum tiled_matmul_type_t tiled_conv_type)
+
+static void tiled_conv_downsample(
+        int batch_size, int in_dim, int in_channels,
+        int out_channels, int out_dim,
+
+        const elem_t * input,
+        const elem_t * weights,
+        const acc_t * bias,
+        elem_t * output,
+
+        int act, acc_scale_t scale, size_t relu6_shift,
+
+        enum tiled_matmul_type_t tiled_conv_type)
+
+static void tiled_conv_auto(
+        int batch_size, int in_dim, int in_channels,
+        int out_channels, int out_dim,
+        int stride, int padding, int kernel_dim,
+
+        const elem_t * input,
+        const elem_t * weights,
+        const acc_t * bias,
+        elem_t * output,
+
+        int act, acc_scale_t scale, size_t relu6_shift,
+        int pool_size, int pool_stride, int pool_padding,
+
+        enum tiled_matmul_type_t tiled_conv_type)
+
+static void tiled_resadd_auto(const size_t I, const size_t J,
+        const scale_t A_scale,
+        const scale_t B_scale,
+        const acc_scale_t C_scale,
+        const elem_t * A,
+        const elem_t * B,
+        elem_t * C,
+        bool relu,
+        enum tiled_matmul_type_t matadd_type)
+
+static void tiled_global_average_auto(const elem_t * input, elem_t * output,
+    int batches, int channels, int dim,
+    enum tiled_matmul_type_t type)
+
+"""
+
 def gen_gemmini_ld():
     @instr("gemmini_extended3_config_ld({dst.strides[0]}, 1.0f, 0, 0);\n"+
            "gemmini_extended_mvin( {src.data}, ((uint32_t) {dst.data}),"+
