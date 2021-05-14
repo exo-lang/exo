@@ -49,7 +49,7 @@ static void tiled_matmul_auto(
         bool full_C, bool low_D,
         uint8_t weightA,
         enum tiled_matmul_type_t tiled_matmul_type);
-
+scale_t = f32
 """
 
 # C == D
@@ -66,11 +66,40 @@ static void tiled_matmul_auto(
 # C has dim_I rows and dim_J columns
 # D has (repeating_bias ? 1 : dim_I) rows and dim_J columns
 
-# stride
+# stride is the second dimension
 # stride_A = 500
 # 0 to dim_K-1 has the first row of A
 # 500 to 500+dim_K-1 has the second row of A
+# for i in par(0, dim_I):
+#     for k in par(0, dim_K):
+#         a = A + i * stride_A + k;
 
+#   C = (A_scale_factor * A * B_scale_factor * B + D_scale_factor * D) * scale
+
+# act is activation function. 0 means no activation. 1 means RELU
+# Scan C and if <0 then put 0
+
+# ignore relu6_shift (deprecated)
+# repeating_bias says that all rows of D are the same, so D only needs to have one row
+# Make sure we copy D dim_I times to scratchpad
+# call gemmini_extended_config_ex with A_transpose == 1 before calling
+# gemmini_extended_preload.
+# gemmini_extended_config_ex(dataflows, act, sys_shift, acc_scale, relu6_shift, A_stride, A_transpose, B_tranpose)
+#                            dataflows -> 0 : OS, 1 : WS
+#                            act       -> 0 : no activation, 1 : RELU
+#                            sys_shift -> 0 (deprecated)
+#                            acc_scale -> type f32, same as "scale" in tiled_matmul_auto
+#                            relu6_shift -> 0 (deprecated)
+#                            A_stride  -> 1 (default), # of rows between A's rows
+#                            A_transpose -> 1 please transpose, 0 not
+#                            B_transpose -> 1 please transpose, 0 not
+
+
+# full_C -> False : C is elem_t (int8), True: C is acc_t (int32)
+# low_D  -> False : D is acc_t (int32), True: D is elem_t (int8)
+# weightA -> set to 3 all the time? for each element of B, move in weightA elements of A.
+#            After moving in all of A, just moving in remaing B
+# tiled_matmul_type := 0 -> OS | 1 -> WS | 2 -> CPU
 @proc
 def tiled_matmul_auto(
     dim_I : size, dim_J : size, dim_K : size,
@@ -86,7 +115,7 @@ def tiled_matmul_auto(
     full_C,
     low_D,
     weightA,
-    tiled_matmul_type_t
+    tiled_matmul_type
 ):
     pass
 
