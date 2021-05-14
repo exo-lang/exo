@@ -7,6 +7,8 @@ from .LoopIR_effects import Effects as E
 
 from .memory import Memory
 
+from collections import ChainMap
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Untyped AST
@@ -250,6 +252,7 @@ class T:
     R       = Num()
     f32     = F32()
     int8    = INT8()
+    i8      = INT8()
     f64     = F64()
     bool    = Bool()    # note: accessed as T.bool outside this module
     int     = Int()
@@ -344,18 +347,42 @@ del basetype
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+
+# convert from LoopIR.expr to E.expr
+def lift_to_eff_expr(e):
+    if type(e) is LoopIR.Read:
+        assert len(e.idx) == 0
+        return E.Var( e.name, e.type, e.srcinfo )
+    elif type(e) is LoopIR.Const:
+        return E.Const( e.val, e.type, e.srcinfo )
+    elif type(e) is LoopIR.BinOp:
+        return E.BinOp( e.op,
+                        lift_to_eff_expr(e.lhs),
+                        lift_to_eff_expr(e.rhs),
+                        e.type, e.srcinfo )
+
+    else: assert False, "bad case, e is " + str(type(e))
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Standard Pass Templates for Loop IR
 
 
 class LoopIR_Rewrite:
     def __init__(self, proc, instr=None, *args, **kwargs):
         self.orig_proc  = proc
+        self._rewrite_cache = {}
 
+        args = [ LoopIR.fnarg(a.name, self.map_t(a.type), a.mem, a.srcinfo)
+                 for a in self.orig_proc.args ]
+        preds= [ self.map_e(p) for p in self.orig_proc.preds ]
         body = self.map_stmts(self.orig_proc.body)
 
+        eff  = self.map_eff(self.orig_proc.eff)
+
         self.proc = LoopIR.proc(name    = self.orig_proc.name,
-                                args    = self.orig_proc.args,
-                                preds   = self.orig_proc.preds,
+                                args    = args,
+                                preds   = preds,
                                 body    = body,
                                 instr   = instr,
                                 eff     = self.orig_proc.eff,
@@ -371,32 +398,113 @@ class LoopIR_Rewrite:
     def map_s(self, s):
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            return [styp( s.name, s.type, s.cast,
+            return [styp( s.name, self.map_t(s.type), s.cast,
                         [ self.map_e(a) for a in s.idx ],
-                          self.map_e(s.rhs), s.eff, s.srcinfo )]
+                          self.map_e(s.rhs), self.map_eff(s.eff), s.srcinfo )]
+        elif styp is LoopIR.WindowStmt:
+            return [LoopIR.WindowStmt( s.lhs, self.map_e(s.rhs),
+                                       self.map_eff(s.eff), s.srcinfo )]
         elif styp is LoopIR.If:
             return [LoopIR.If( self.map_e(s.cond), self.map_stmts(s.body),
-                               self.map_stmts(s.orelse), s.eff, s.srcinfo )]
+                               self.map_stmts(s.orelse),
+                               self.map_eff(s.eff), s.srcinfo )]
         elif styp is LoopIR.ForAll:
             return [LoopIR.ForAll( s.iter, self.map_e(s.hi),
-                                   self.map_stmts(s.body), s.eff, s.srcinfo )]
+                                   self.map_stmts(s.body),
+                                   self.map_eff(s.eff), s.srcinfo )]
+        elif styp is LoopIR.Call:
+            return [LoopIR.Call( s.f, [ self.map_e(a) for a in s.args ],
+                                 self.map_eff(s.eff), s.srcinfo )]
+        elif styp is LoopIR.Alloc:
+            return [LoopIR.Alloc( s.name, self.map_t(s.type), s.mem,
+                                  self.map_eff(s.eff), s.srcinfo )]
         else:
             return [s]
 
     def map_e(self, e):
-        etyp = type(e)
+        etyp    = type(e)
         if etyp is LoopIR.Read:
             return LoopIR.Read( e.name, [ self.map_e(a) for a in e.idx ],
-                                e.type, e.srcinfo )
+                                self.map_t(e.type), e.srcinfo )
         elif etyp is LoopIR.BinOp:
             return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
-                                 e.type, e.srcinfo )
+                                 self.map_t(e.type), e.srcinfo )
+        elif etyp is LoopIR.WindowExpr:
+            if e in self._rewrite_cache:
+                return self._rewrite_cache[e]
+            # must shim in a value to stop recursion.
+            # and then the corresponding type must be patched later...
+            self._rewrite_cache[e] = e
+
+            # patch the type object
+            win_e = self.map_window_e(e)
+            win_e.type.window = win_e
+
+            self._rewrite_cache[e] = win_e
+            return win_e
+        else:
+            # constant case cannot have variable-size tensor type
+            # stride assert case has bool type
+            return e
+
+    def map_window_e(self, e):
+        def map_w(w):
+            if type(w) is LoopIR.Interval:
+                return LoopIR.Interval(self.map_e(w.lo),
+                                       self.map_e(w.hi), e.srcinfo)
+            else:
+                return LoopIR.Point(self.map_e(w.pt), e.srcinfo)
+        win_e = LoopIR.WindowExpr( e.name, [ map_w(w) for w in e.idx ],
+                                   self.map_t(e.type), e.srcinfo )
+
+
+    def map_t(self, t):
+        # should memo-ize to handle loopy recursion on WindowExpr
+        if t in self._rewrite_cache:
+            return self._rewrite_cache[t]
+
+        res  = t
+        ttyp = type(t)
+        if ttyp is T.Tensor:
+            res = T.Tensor( [ self.map_e(r) for r in t.hi ],
+                            t.is_window, self.map_t(t.type) )
+        elif ttyp is T.Window:
+            res = T.Window( self.map_t(t.src), self.map_t(t.as_tensor),
+                            self.map_e(t.window) )
+
+        self._rewrite_cache[t] = res
+        return res
+
+    def map_eff(self, eff):
+        return E.effect( [ self.map_eff_es(es) for es in eff.reads ],
+                         [ self.map_eff_es(es) for es in eff.writes ],
+                         [ self.map_eff_es(es) for es in eff.reduces ],
+                         self.srcinfo )
+
+    def map_eff_es(self, es):
+        return E.effset( es.buffer,
+                         [ self.map_eff_e(i) for i in es.loc ],
+                         es.names,
+                         self.map_eff_e(es.pred) if es.pred else None,
+                         es.srcinfo )
+
+    def map_eff_e(self, e):
+        if type(e) is E.BinOp:
+            return E.BinOp(e.op, self.map_eff_e(e.lhs),
+                                 self.map_eff_e(e.rhs), e.type, e.srcinfo )
         else:
             return e
+
 
 class LoopIR_Do:
     def __init__(self, proc, *args, **kwargs):
         self.proc  = proc
+        self._do_cache = {}
+
+        for a in self.proc.args:
+            self.do_t(a.type)
+        for p in self.proc.preds:
+            self.do_e(p)
 
         self.do_stmts(self.proc.body)
 
@@ -410,6 +518,9 @@ class LoopIR_Do:
             for e in s.idx:
                 self.do_e(e)
             self.do_e(s.rhs)
+            self.do_t(s.type)
+        elif styp is LoopIR.WindowStmt:
+            self.do_e(s.rhs)
         elif styp is LoopIR.If:
             self.do_e(s.cond)
             self.do_stmts(s.body)
@@ -420,8 +531,12 @@ class LoopIR_Do:
         elif styp is LoopIR.Call:
             for e in s.args:
                 self.do_e(e)
+        elif styp is LoopIR.Alloc:
+            self.do_t(s.type)
         else:
             pass
+
+        self.do_eff(s.eff)
 
     def do_e(self, e):
         etyp = type(e)
@@ -431,39 +546,118 @@ class LoopIR_Do:
         elif etyp is LoopIR.BinOp:
             self.do_e(e.lhs)
             self.do_e(e.rhs)
+        elif etyp is LoopIR.WindowExpr:
+            if e in self._do_cache:
+                return
+            else:
+                self._do_cache[e] = True
+
+            def do_w(w):
+                if type(w) is LoopIR.Interval:
+                    self.do_e(w.lo)
+                    self.do_e(w.hi)
+                elif type(w) is LoopIR.Point:
+                    self.do_e(w.pt)
+                else: assert False, "bad case"
+            for i in e.idx:
+                do_w(i)
         else:
-            return e
+            pass
+
+        self.do_t(e.type)
+
+    def do_t(self, t):
+        if type(t) is T.Tensor:
+            for i in t.hi:
+                self.do_e(i)
+        elif type(t) is T.Window:
+            if t in self._do_cache:
+                return
+            else:
+                self._do_cache[t] = True
+
+            self.do_t(t.src)
+            self.do_t(t.as_tensor)
+            self.do_e(t.window)
+        else:
+            pass
+
+    def do_eff(self, eff):
+        for es in eff.reads:
+            self.do_eff_es(es)
+        for es in eff.writes:
+            self.do_eff_es(es)
+        for es in eff.reduces:
+            self.do_eff_es(es)
+
+    def do_eff_es(self, es):
+        for i in es.loc:
+            self.do_eff_e(i)
+        if es.pred:
+            self.do_eff_es(es.pred)
+
+    def do_eff_e(self, e):
+        if type(e) is E.BinOp:
+            self.do_eff_e(e.lhs)
+            self.do_eff_e(e.rhs)
 
 
 class Alpha_Rename(LoopIR_Rewrite):
     def __init__(self, node):
         assert isinstance(node, list)
-        self.env    = {}
+        self.env    = ChainMap()
         self.node   = []
         for n in node:
-            assert isinstance(n, LoopIR.stmt)  # only case handled for now
-            self.node += self.map_s(n)
+            if isinstance(n, LoopIR.stmt):
+                self.node += self.map_s(n)
+            elif isinstance(n, LoopIR.expr):
+                self.node += [self.map_e(n)]
+            elif isinstance(n, E.effect):
+                self.node += [self.map_eff(n)]
+            else: assert False, "expected stmt or expr or effect"
 
     def result(self):
         return self.node
+
+    def push(self):
+        self.env = self.env.new_child()
+    def pop(self):
+        self.env = self.env.parents
 
     def map_s(self, s):
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             nm = self.env[s.name] if s.name in self.env else s.name
-            return [styp( nm, s.type, s.cast,
+            return [styp( nm, self.map_t(s.type), s.cast,
                         [ self.map_e(a) for a in s.idx ],
-                         self.map_e(s.rhs), s.eff, s.srcinfo )]
+                         self.map_e(s.rhs), self.map_eff(s.eff), s.srcinfo )]
+        elif styp is LoopIR.WindowStmt:
+            rhs = self.map_e(s.rhs)
+            lhs = s.lhs.copy()
+            self.env[s.lhs] = lhs
+            return [LoopIR.WindowStmt( lhs, rhs,
+                                       self.map_eff(s.eff), s.srcinfo )]
+        elif styp is LoopIR.If:
+            self.push()
+            stmts = super().map_s(s)
+            self.pop()
+            return stmts
+
         elif styp is LoopIR.ForAll:
+            hi  = self.map_e(s.hi)
+            eff = self.map_eff(s.eff)
+            self.push()
             itr = s.iter.copy()
             self.env[s.iter] = itr
-            return [LoopIR.ForAll( itr, self.map_e(s.hi),
-                                   self.map_stmts(s.body),
-                                   s.eff, s.srcinfo )]
+            stmts = [LoopIR.ForAll( itr, hi, self.map_stmts(s.body),
+                                    eff, s.srcinfo )]
+            self.pop()
+            return stmts
         elif styp is LoopIR.Alloc:
             nm = s.name.copy()
             self.env[s.name] = nm
-            return [LoopIR.Alloc( nm, s.type, s.mem, s.eff, s.srcinfo )]
+            return [LoopIR.Alloc( nm, self.map_t(s.type), s.mem,
+                                  self.map_eff(s.eff), s.srcinfo )]
 
         return super().map_s(s)
 
@@ -472,40 +666,76 @@ class Alpha_Rename(LoopIR_Rewrite):
         if etyp is LoopIR.Read:
             nm = self.env[e.name] if e.name in self.env else e.name
             return LoopIR.Read( nm, [ self.map_e(a) for a in e.idx ],
-                                e.type, e.srcinfo )
+                                self.map_t(e.type), e.srcinfo )
+        elif etyp is LoopIR.StrideAssert:
+            nm = self.env[e.name] if e.name in self.env else e.name
+            return LoopIR.StrideAssert(nm, e.idx, e.val, e.type, e.srcinfo)
 
         return super().map_e(e)
 
+    def map_window_e(self, e):
+        win_e = super().map_window_e(e)
+        nm = self.env[e.name] if e.name in self.env else e.name
+        win_e.name = nm
+        return win_e
+
+    def map_eff_es(self, es):
+        self.push()
+        names = [ nm.copy() for nm in es.names ]
+        for orig,new in zip(es.names, names):
+            self.env[orig] = new
+
+        buf = self.env[es.buffer] if es.buffer in self.env else es.buffer
+        eset = E.effset( buf,
+                         [ self.map_eff_e(i) for i in es.loc ],
+                         names,
+                         self.map_eff_e(es.pred) if es.pred else None,
+                         es.srcinfo )
+        self.pop()
+        return eset
+
+    def map_eff_e(self, e):
+        if type(e) is E.Var:
+            nm = self.env[e.name] if e.name in self.env else e.name
+            return E.Var( nm, e.type, e.srcinfo )
+        
+        return super().map_eff_e(e)
+
 
 class SubstArgs(LoopIR_Rewrite):
-    def __init__(self, stmts, binding):
-        assert isinstance(stmts, list)
+    def __init__(self, nodes, binding):
+        assert isinstance(nodes, list)
         assert isinstance(binding, dict)
         assert all( isinstance(v, LoopIR.expr) for v in binding.values() )
+        assert all( type(v) != LoopIR.WindowExpr for v in binding.values() )
         self.env    = binding
-        self.stmts  = []
-        for s in stmts:
-            assert isinstance(s, LoopIR.stmt)  # only case handled for now
-            self.stmts += self.map_s(s)
+        self.nodes  = []
+        for n in nodes:
+            if isinstance(s, LoopIR.stmt):
+                self.nodes += self.map_s(n)
+            elif isinstance(e, LoopIR.expr):
+                self.nodes += [self.map_e(n)]
+            else: assert False, "expected stmt or expr"
 
     def result(self):
-        return self.stmts
+        return self.nodes
 
     def map_s(self, s):
+        # this substitution could refer to a read or a window expression
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             if s.name in self.env:
                 e = self.env[s.name]
                 assert type(e) is LoopIR.Read and len(e.idx) == 0
-                return [styp( e.name, s.type, s.cast,
+                return [styp( e.name, self.map_t(s.type), s.cast,
                             [ self.map_e(a) for a in s.idx ],
                               self.map_e(s.rhs), s.eff, s.srcinfo )]
 
         return super().map_s(s)
 
     def map_e(self, e):
-        etyp = type(e)
-        if etyp is LoopIR.Read:
+        # this substitution could refer to a read or a window expression
+        if type(e) is LoopIR.Read:
             if e.name in self.env:
                 if len(e.idx) == 0:
                     return self.env[e.name]
@@ -517,3 +747,24 @@ class SubstArgs(LoopIR_Rewrite):
                                         e.type, e.srcinfo )
 
         return super().map_e(e)
+
+    def map_eff_es(self, es):
+        # this substitution could refer to a read or a window expression
+        new_es = super().map_eff_es(es)
+        if es.buffer in self.env:
+            sub_e = self.env[es.buffer]
+            assert type(sub_e) is LoopIR.Read and len(sub_e.idx) == 0
+            new_es.buffer = sub_e.name
+        return new_es
+
+    def map_eff_e(self, e):
+        # purely index expressions
+        if type(e) is E.Var:
+            assert e.type.is_indexable()
+            if e.name in self.env:
+                sub_e = self.env[e.name]
+                assert sub_e.type.is_indexable()
+                return lift_to_eff_expr(sub_e)
+
+        return super().map_eff_e(e)
+

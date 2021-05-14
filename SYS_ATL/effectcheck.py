@@ -1,5 +1,6 @@
 from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
+from .LoopIR import lift_to_eff_expr as lift_expr
 from .LoopIR import T
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
