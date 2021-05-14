@@ -309,6 +309,12 @@ def is_tensor_or_window(t):
 del is_tensor_or_window
 
 @extclass(LoopIR.type)
+def is_win(t):
+    return ( (type(t) is T.Tensor and t.is_window ) or
+             (type(t) is T.Window))
+del is_win
+
+@extclass(LoopIR.type)
 def is_numeric(t):
     return t.is_real_scalar() or type(t) is T.Tensor or type(t) is T.Window
 del is_numeric
@@ -698,7 +704,7 @@ class Alpha_Rename(LoopIR_Rewrite):
         if type(e) is E.Var:
             nm = self.env[e.name] if e.name in self.env else e.name
             return E.Var( nm, e.type, e.srcinfo )
-        
+
         return super().map_eff_e(e)
 
 
@@ -767,4 +773,3 @@ class SubstArgs(LoopIR_Rewrite):
                 return lift_to_eff_expr(sub_e)
 
         return super().map_eff_e(e)
-

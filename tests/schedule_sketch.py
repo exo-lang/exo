@@ -74,6 +74,10 @@ scale_t = f32
 #     for k in par(0, dim_K):
 #         a = A + i * stride_A + k;
 
+
+# questions for Hasan:
+#   are strides measured in n_elements or in bytes?
+
 #   C = (A_scale_factor * A * B_scale_factor * B + D_scale_factor * D) * scale
 
 # act is activation function. 0 means no activation. 1 means RELU
@@ -105,19 +109,78 @@ def tiled_matmul_auto(
     dim_I : size, dim_J : size, dim_K : size,
     A, B, D, C, # data # TODO:
     stride_A-D,
-    A-D_scale_factor, # what is this...?
-    act,
+    A-D_scale_factor,
+    act, # 0 means no RELU, 1 means RELU
     scale,
-    relu6_shift,
-    repeating_bias,
+    relu6_shift, # deprecated (use 0 as value)
+    repeating_bias, # boolean, if true all rows of D are the same
     transpose_A, # ok duh
     transpose_B, # ok duh
-    full_C,
-    low_D,
-    weightA,
-    tiled_matmul_type
+    full_C,     # boolean, false = C has type i8; true = C has type i32
+    low_D,      # boolean, false = D has type i32; true = D has type i8
+    weightA,    # set to 3; do we need to worry?
+    tiled_matmul_type   # 0 -> OS, 1 -> WS, 2 -> CPU   (can ignore)
 ):
     pass
+
+# actual matmul...
+def gen_matmul(use_relu, D_repeat, transpose_A, transpose_B):
+    assert not use_relu
+    assert not D_repeat
+    assert not transpose_A
+    assert not transpose_B
+    @proc
+    def matmul(
+        dim_I : size, dim_J : size, dim_K : size,
+        A : [R][dim_I,dim_K],
+        B : [R][dim_K,dim_J],
+        C : [R][dim_I,dim_J],
+        D : [R][dim_I,dim_J],
+        scale_A : R,
+        scale_B : R,
+        scale_C : R,
+        scale_D : R,
+    ):
+        for i in par(0,dim_I):
+            for j in par(0,dim_J):
+                C[i,j] = scale_C * scale_D * D[i,j]
+                for k in par(0,dim_K):
+                    C[i,j] += scale_C * ((scale_A * A[i,k]) *
+                                         (scale_B * B[k,j]))
+
+    return matmul
+
+"""
+static void tiled_matmul_auto(
+        size_t dim_I, size_t dim_J, size_t dim_K,
+        const elem_t* A, const elem_t* B,
+        const void * D, void * C,
+        size_t stride_A, size_t stride_B, size_t stride_D, size_t stride_C,
+        scale_t A_scale_factor, scale_t B_scale_factor, scale_acc_t D_scale_factor,
+        int act, acc_scale_t scale, size_t relu6_shift, bool repeating_bias,
+        bool transpose_A, bool transpose_B,
+        bool full_C, bool low_D,
+        uint8_t weightA,
+        enum tiled_matmul_type_t tiled_matmul_type)
+{
+    if( act == 0 && relu6_shift == 0 && repeating_bias == 0 &&
+        transpose_A == 0 && transpose_B == 0 && full_C == 1 && low_D == 0 &&
+        weightA == 3 && tiled_matmul_type == 2 )
+    {
+        matmul_systl(dim_I, dim_J, dim_K,
+                     systl_win_2f32 { A, {stride_A,1} },
+                     systl_win_2f32 { B, {stride_B,1} },
+                     systl_win_2f32 { C, {stride_C,1} },
+                     systl_win_2f32 { D, {stride_D,1} },
+                     A_scale_factor, B_scale_factor,
+                     scale, D_scale_factor);
+    }
+}
+"""
+
+
+
+
 
 
 """

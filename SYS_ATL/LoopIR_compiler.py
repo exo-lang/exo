@@ -2,6 +2,8 @@ from .asdl.adt import ADT
 from .asdl.adt import memo as ADTmemo
 import re
 
+from collections import defaultdict
+
 from .prelude import *
 
 from .LoopIR import T
@@ -17,6 +19,8 @@ import os
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+
+CacheDict = lambda: defaultdict(CacheDict)
 
 op_prec = {
     "or":     10,
@@ -110,6 +114,28 @@ def find_all_mems(proc_list):
 
     return [ m for m in mems ]
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
+_window_struct_shorthand = {
+    T.f32       : 'f32',
+    T.f64       : 'f64',
+    T.i8        : 'i8',
+}
+
+def window_struct(basetyp, n_dims):
+    assert n_dims >= 1
+    sname = f"systl_win_{n_dims}{_window_struct_shorthand[basetyp]}"
+
+    sdef = (f"struct {sname}{{\n"+
+            f"    {basetyp.ctype()} *data;\n"+
+            f"    int strides[{n_dims}];\n"+
+            f"}};")
+
+    return sname, sdef
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Loop IR Compiler Entry-points
@@ -128,7 +154,8 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
                      "#include <assert.h>\n"+
                      "#include <string.h>\n")
 
-        with open(os.path.dirname(os.path.realpath(__file__)) + "/malloc.c", "r") as f_malloc:
+        with open(os.path.dirname(os.path.realpath(__file__)) +
+                                  "/malloc.c", "r") as f_malloc:
             m_lines = f_malloc.readlines()
             m_lines[0] = m_lines[0].format(heap_size = 100000)
             body = "".join(m_lines) + body
@@ -170,15 +197,21 @@ def compile_to_strings(proc_list):
             body.append("\n")
 
     fwd_decls = []
+    struct_defns = set()
 
     for p in proc_list:
-        p = MemoryAnalysis(p).result()
-        p = PrecisionAnalysis(p).result()
-        d, b = Compiler(p).comp_top()
+        p       = MemoryAnalysis(p).result()
+        p       = PrecisionAnalysis(p).result()
+        comp    = Compiler(p)
+        d, b    = comp.comp_top()
+        struct_defns = struct_defns.union(comp.struct_defns())
         # only dump .h-file forward declarations for requested procedures
         if p in orig_procs:
             fwd_decls.append(d)
         body.append(b)
+
+    # add struct definitions before the other forward declarations
+    fwd_decls = list(struct_defns) + fwd_decls
 
     return ("\n".join(fwd_decls), "\n".join(body))
 
@@ -200,6 +233,9 @@ class Compiler:
         self._lines = []
         self._scalar_refs = set()
 
+        self.window_defns = set()
+        self.window_cache = CacheDict()
+
         assert self.proc.name != None, "expected names for compilation"
         name            = self.proc.name
         arg_strs        = []
@@ -220,8 +256,12 @@ class Compiler:
             else:
                 if a.type.is_real_scalar():
                     self._scalar_refs.add(a.name)
-                ctyp = a.type.basetype().ctype()
-                arg_strs.append(f"{ctyp}* {name_arg}")
+                if a.type.is_win():
+                    ctyp = self.get_window_type(a.type)
+                    arg_strs.append(f"{ctyp} {name_arg}")
+                else:
+                    ctyp = a.type.basetype().ctype()
+                    arg_strs.append(f"{ctyp}* {name_arg}")
                 mem             = f" @{a.mem.name()}" if a.mem else ""
                 comment_str     = f"{name_arg} : {a.type} {mem}"
                 typ_comments.append(comment_str)
@@ -252,6 +292,9 @@ class Compiler:
 
     def comp_top(self):
         return self.proc_decl, self.proc_def
+
+    def struct_defns(self):
+        return self.window_defns
 
     def new_varname(self, symbol, typ, mem=None):
         strnm   = str(symbol)
@@ -297,19 +340,64 @@ class Compiler:
         buf = self.env[nm]
         type = self.envtyp[nm]
         idxs = [self.comp_e(i) for i in idx_list]
-        idx = self._type_idx(type, idxs)
-        return f"{buf}[{idx}]"
+        idx_expr = self.get_idx_offset(buf,type,idxs)
+        if not type.is_win():
+            return f"{buf}[{idx_expr}]"
+        else:
+            return f"{buf}.data[{idx_expr}]"
 
     def shape_strs(self, shape, prec=100):
         return [ self.comp_e(s,prec=prec) for s in shape ]
 
-    def _type_idx(self, typ, idx):
-        szs = self.shape_strs(typ.shape(), prec=61)
-        assert len(szs) == len(idx)
-        s = idx[0]
-        for i, n in zip(idx[1:], szs[1:]):
-            s = f"({s}) * {n} + ({i})"
-        return s
+    def tensor_strides(self, shape, prec=100):
+        szs = self.shape_strs(shape, max(prec,61))
+        assert len(szs) >= 1
+        strides = ["1"]
+        s = szs[-1]
+        for sz in reversed(szs[:-1]):
+            strides.append(s)
+            s = f"{sz} * {s}"
+        strides = list(reversed(strides))
+        return strides
+
+    # works for any tensor or window type
+    def get_strides(self, name, typ, prec=100):
+        if typ.is_win():
+            return [ f"{name}.strides[{i}]" for i in range(len(typ.shape())) ]
+        else:
+            return self.tensor_strides(typ.shape(), prec)
+
+    def get_idx_offset(self, name, typ, idx):
+        strides = self.get_strides(name, typ, prec=61)
+        assert len(strides) == len(idx)
+        acc = " + ".join([ f"{i} * {s}" for i,s in zip(idx,strides) ])
+        return acc
+
+    #def _type_idx(self, typ, idx):
+        #szs = self.shape_strs(typ.shape(), prec=61)
+        #assert len(szs) == len(idx)
+        #s = idx[0]
+        #for i, n in zip(idx[1:], szs[1:]):
+        #    s = f"({s}) * {n} + ({i})"
+        #return s
+
+    def get_window_type(self, typ):
+        if type(typ) is T.Window:
+            base    = typ.as_tensor.basetype()
+            n_dims  = len(typ.as_tensor.shape())
+        elif type(typ) is T.Tensor and typ.is_window:
+            base    = typ.basetype()
+            n_dims  = len(typ.shape())
+        else: assert False, f"not a window type: {typ}"
+
+        lookup = self.window_cache[base][n_dims]
+        if type(lookup) is str:
+            return lookup
+        else:
+            name, defn = window_struct(base, n_dims)
+            self.window_defns.add(defn)
+            self.window_cache[base][n_dims] = name
+            return name
 
     def comp_s(self, s):
         styp = type(s)
@@ -326,10 +414,10 @@ class Compiler:
             rhs = self.comp_e(s.rhs)
 
             cast = ""
-            if s.cast:
-                cast = f"({s.cast})"
-            if s.cast and type(s.rhs) is LoopIR.BinOp:
-                rhs = "(" + rhs + ")"
+            if s.type.basetype() != s.rhs.type.basetype():
+                cast = f"({s.type.ctype()})""
+                if type(s.rhs) is LoopIR.BinOp:
+                    rhs = f"({rhs})"
 
             mem = self.mems[s.name]
             if styp is LoopIR.Assign:
@@ -342,6 +430,13 @@ class Compiler:
                     raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "+
                                       f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} += {cast}{rhs};")
+        elif styp is LoopIR.WindowStmt:
+            win_struct  = self.get_window_type(s.rhs.type)
+            rhs         = self.comp_e(s.rhs)
+            assert type(s.rhs) is LoopIR.WindowExpr
+            mem         = self.mems[s.rhs.name]
+            lhs         = self.new_varname(s.lhs, typ=s.rhs.type, mem=mem)
+            self.add_line(f"{win_struct} {lhs} = {rhs};")
         elif styp is LoopIR.If:
             cond = self.comp_e(s.cond)
             self.add_line(f"if ({cond}) {{")
@@ -385,6 +480,8 @@ class Compiler:
                                 None )
             self.add_line(line)
         elif styp is LoopIR.Call:
+            assert all(a.type.is_win() == fna.type.is_win()
+                       for a, fna in zip(s.args, s.f.args))
             args    = [ self.comp_e(e, call_arg=True) for e in s.args ]
             if s.f.instr is not None:
                 d = dict()
@@ -405,11 +502,12 @@ class Compiler:
         if etyp is LoopIR.Read:
             rtyp = self.envtyp[e.name]
             if call_arg:
-                if rtyp is T.size or rtyp is T.index:
+                assert len(e.idx) == 0
+                if rtyp.is_indexable():
                     return self.env[e.name]
                 elif e.name in self._scalar_refs:
                     return self.env[e.name]
-                elif type(rtyp) is T.Tensor:
+                elif rtyp.is_tensor_or_window():
                     return self.env[e.name]
                 else:
                     assert rtyp.is_real_scalar()
@@ -425,10 +523,36 @@ class Compiler:
 
                 if e.name in self._scalar_refs:
                     return f"*{self.env[e.name]}"
-                elif type(rtyp) is not T.Tensor:
+                elif not rtyp.is_tensor_or_window():
                     return self.env[e.name]
                 else:
                     return self.access_str(e.name, e.idx)
+        elif etyp is LoopIR.WindowExpr:
+            win_struct  = self.get_window_type(e.type)
+            base        = self.env[e.name]
+            basetyp     = self.envtyp[e.name]
+            mem         = self.mem[e.name]
+            if not mem._read:
+                assert False, "TODO: handle GEMMINI Windowing"
+
+            # compute offset to new data pointer
+            def w_lo(w):
+                return (w.lo if type(w) is LoopIR.Interval else w.pt)
+
+            idxs        = [ self.comp_e(w_lo(w)) for w in e.idx ]
+            idx_expr    = self.get_idx_offset(base, basetyp, idxs)
+            if not basetyp.is_win():
+                dataptr = f"{base} + {idx_expr}"
+            else:
+                dataptr = f"{base}.data + {idx_expr}"
+
+            # compute new window strides
+            strides     = self.get_strides(base, basetyp, prec=0)
+            assert len(strides) == len(e.idx)
+            strides     = [ s for s,w in zip(strides,e.idx)
+                              if type(w) is LoopIR.Interval ]
+
+            return f"{win_struct}{{ {dataptr}, {{ {','.join(strides)} }} }}"
         elif etyp is LoopIR.Const:
             return str(e.val)
         elif etyp is LoopIR.BinOp:

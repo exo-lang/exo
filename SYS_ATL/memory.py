@@ -59,9 +59,9 @@ class Memory:
         globl   = None, # C code
         alloc   = None, # python gemmini_extended_compute_preloaded
         free    = None,
-        read    = None,
-        write   = None,
-        red     = None,
+        read    = False,
+        write   = False,
+        red     = False,
     ):
         if alloc is None:
             raise TypeError("must supply 'alloc' argument")
