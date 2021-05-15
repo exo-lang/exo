@@ -11,6 +11,7 @@ from .LoopIR import LoopIR, LoopIR_Do
 
 from .mem_analysis import MemoryAnalysis
 from .prec_analysis import PrecisionAnalysis
+from .win_analysis import WindowAnalysis
 from .memory import MemGenError
 
 import numpy as np
@@ -202,6 +203,7 @@ def compile_to_strings(proc_list):
     for p in proc_list:
         p       = MemoryAnalysis(p).result()
         p       = PrecisionAnalysis(p).result()
+        p       = WindowAnalysis(p).result()
         comp    = Compiler(p)
         d, b    = comp.comp_top()
         struct_defns = struct_defns.union(comp.struct_defns())
@@ -415,7 +417,7 @@ class Compiler:
 
             cast = ""
             if s.type.basetype() != s.rhs.type.basetype():
-                cast = f"({s.type.ctype()})""
+                cast = f"({s.type.ctype()})"
                 if type(s.rhs) is LoopIR.BinOp:
                     rhs = f"({rhs})"
 

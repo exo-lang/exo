@@ -376,8 +376,7 @@ def lift_to_eff_expr(e):
 
 class LoopIR_Rewrite:
     def __init__(self, proc, instr=None, *args, **kwargs):
-        self.orig_proc  = proc
-        self._rewrite_cache = {}
+        self._minimal_init(proc)
 
         args = [ LoopIR.fnarg(a.name, self.map_t(a.type), a.mem, a.srcinfo)
                  for a in self.orig_proc.args ]
@@ -393,6 +392,10 @@ class LoopIR_Rewrite:
                                 instr   = instr,
                                 eff     = self.orig_proc.eff,
                                 srcinfo = self.orig_proc.srcinfo)
+
+    def _minimal_init(self, proc):
+        self.orig_proc  = proc
+        self._rewrite_cache = {}
 
     def result(self):
         return self.proc
@@ -436,17 +439,17 @@ class LoopIR_Rewrite:
             return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
                                  self.map_t(e.type), e.srcinfo )
         elif etyp is LoopIR.WindowExpr:
-            if e in self._rewrite_cache:
-                return self._rewrite_cache[e]
+            if id(e) in self._rewrite_cache:
+                return self._rewrite_cache[id(e)]
             # must shim in a value to stop recursion.
             # and then the corresponding type must be patched later...
-            self._rewrite_cache[e] = e
+            self._rewrite_cache[id(e)] = e
 
             # patch the type object
             win_e = self.map_window_e(e)
             win_e.type.window = win_e
 
-            self._rewrite_cache[e] = win_e
+            self._rewrite_cache[id(e)] = win_e
             return win_e
         else:
             # constant case cannot have variable-size tensor type
@@ -466,8 +469,8 @@ class LoopIR_Rewrite:
 
     def map_t(self, t):
         # should memo-ize to handle loopy recursion on WindowExpr
-        if t in self._rewrite_cache:
-            return self._rewrite_cache[t]
+        if id(t) in self._rewrite_cache:
+            return self._rewrite_cache[id(t)]
 
         res  = t
         ttyp = type(t)
@@ -478,14 +481,16 @@ class LoopIR_Rewrite:
             res = T.Window( self.map_t(t.src), self.map_t(t.as_tensor),
                             self.map_e(t.window) )
 
-        self._rewrite_cache[t] = res
+        self._rewrite_cache[id(t)] = res
         return res
 
     def map_eff(self, eff):
+        if eff is None:
+            return eff
         return E.effect( [ self.map_eff_es(es) for es in eff.reads ],
                          [ self.map_eff_es(es) for es in eff.writes ],
                          [ self.map_eff_es(es) for es in eff.reduces ],
-                         self.srcinfo )
+                         eff.srcinfo )
 
     def map_eff_es(self, es):
         return E.effset( es.buffer,
@@ -589,6 +594,8 @@ class LoopIR_Do:
             pass
 
     def do_eff(self, eff):
+        if eff is None:
+            return
         for es in eff.reads:
             self.do_eff_es(es)
         for es in eff.writes:
@@ -600,7 +607,7 @@ class LoopIR_Do:
         for i in es.loc:
             self.do_eff_e(i)
         if es.pred:
-            self.do_eff_es(es.pred)
+            self.do_eff_e(es.pred)
 
     def do_eff_e(self, e):
         if type(e) is E.BinOp:
@@ -610,6 +617,7 @@ class LoopIR_Do:
 
 class Alpha_Rename(LoopIR_Rewrite):
     def __init__(self, node):
+        super()._minimal_init(None)
         assert isinstance(node, list)
         self.env    = ChainMap()
         self.node   = []
@@ -710,6 +718,7 @@ class Alpha_Rename(LoopIR_Rewrite):
 
 class SubstArgs(LoopIR_Rewrite):
     def __init__(self, nodes, binding):
+        super()._minimal_init(None)
         assert isinstance(nodes, list)
         assert isinstance(binding, dict)
         assert all( isinstance(v, LoopIR.expr) for v in binding.values() )
@@ -717,9 +726,9 @@ class SubstArgs(LoopIR_Rewrite):
         self.env    = binding
         self.nodes  = []
         for n in nodes:
-            if isinstance(s, LoopIR.stmt):
+            if isinstance(n, LoopIR.stmt):
                 self.nodes += self.map_s(n)
-            elif isinstance(e, LoopIR.expr):
+            elif isinstance(n, LoopIR.expr):
                 self.nodes += [self.map_e(n)]
             else: assert False, "expected stmt or expr"
 

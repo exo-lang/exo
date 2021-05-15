@@ -3,76 +3,62 @@ from .asdl.adt import memo as ADTmemo
 
 from .prelude import *
 
-from .LoopIR import LoopIR
+from .LoopIR import LoopIR, T, LoopIR_Rewrite
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Memory Analysis Pass
 
-class WindowAnalysis:
+class WindowAnalysis(LoopIR_Rewrite):
     def __init__(self, proc):
         assert type(proc) is LoopIR.proc
+        super().__init__(proc)
 
-        self.proc = proc
-        self.tofree = []
+    def err(node, msg):
+        raise TypeError(f"{node.srcinfo}: {msg}")
 
-    def result(self):
-        body = self.mem_stmts(self.proc.body)
-        assert (len(self.tofree) == 0)
+    def map_s(self, s):
+        if type(s) is LoopIR.Call:
+            args = s.args
+            def promote_tensor(a,sa):
+                assert sa.type.is_win()
+                assert not a.type.is_win()
+                assert type(a) is LoopIR.Read and len(a.idx) == 0
+                shape = a.type.shape()
+                idx = [ LoopIR.Interval(LoopIR.Const(0,T.int,N.srcinfo),
+                                        N, N.srcinfo)
+                        for N in shape ]
+                win_e = LoopIR.WindowExpr(a.name, idx, T.err, a.srcinfo)
+                win_e.type = T.Window(a.type,
+                                      T.Tensor(shape, True,
+                                               a.type.basetype()),
+                                      win_e)
+                return win_e
 
-        return LoopIR.proc(
-            self.proc.name,
-            self.proc.args,
-            self.proc.preds,
-            body,
-            self.proc.instr,
-            self.proc.eff,
-            self.proc.srcinfo)
+            def promote_arg(a,sa):
+                if sa.type.is_win() and not a.type.is_win():
+                    return promote_tensor(a,sa)
+                elif (type(sa.type) is T.Tensor and
+                      not sa.type.is_win() and
+                      a.type.is_win()):
+                    self.err(a, "expected a non-window tensor")
 
-    def push_frame(self):
-        self.tofree.append([])
+                return a
 
-    def add_malloc(self, sym, typ, mem):
-        assert isinstance(self.tofree[-1], list)
-        assert isinstance((sym, typ, mem), tuple)
-        self.tofree[-1].append((sym, typ, mem))
+            args = [ promote_arg(a,sa) for a,sa in zip(args, s.f.args) ] 
 
-    def pop_frame(self, srcinfo):
-        suffix = [ LoopIR.Free(nm, typ, mem, None, srcinfo)
-                   for (nm, typ, mem) in self.tofree.pop() ]
+            return [LoopIR.Call( s.f, args, s.eff, s.srcinfo )]
 
-        return suffix
+        return super().map_s(s)
 
-    def mem_stmts(self, stmts):
-        if len(stmts) == 0:
-            return stmts
+    # make this more efficient by not rewriting
+    # most of the sub-trees
+    def map_e(self,e):
+        return e
+    def map_t(self,t):
+        return t
+    def map_eff(self,eff):
+        return eff
 
-        body = []
-        self.push_frame()
-        for b in stmts:
-            body.append(self.mem_s(b))
-        body += self.pop_frame(body[0].srcinfo)
 
-        return body
 
-    def mem_s(self, s):
-        styp = type(s)
-
-        if (styp is LoopIR.Pass or styp is LoopIR.Assign or
-              styp is LoopIR.Reduce or styp is LoopIR.Call):
-            return s
-        elif styp is LoopIR.If:
-            body    = self.mem_stmts(s.body)
-            ebody   = self.mem_stmts(s.orelse)
-            return LoopIR.If(s.cond, body, ebody, None, s.srcinfo)
-        elif styp is LoopIR.ForAll:
-            body = self.mem_stmts(s.body)
-            return LoopIR.ForAll(s.iter, s.hi, body, None, s.srcinfo)
-        elif styp is LoopIR.Alloc:
-            self.add_malloc(s.name, s.type, s.mem)
-            return s
-        elif styp is LoopIR.Free:
-            assert False, ("There should not be frees inserted " +
-                           "before mem analysis")
-        else:
-            assert False, "bad case"
