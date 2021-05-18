@@ -491,6 +491,8 @@ class Compiler:
                 for i in range(len(args)):
                     d[str(s.f.args[i].name)] = args[i]
 
+                print(s.f.instr)
+                print(d)
                 self.add_line(f"{s.f.instr.format(**d)}")
             else:
                 fname   = s.f.name
@@ -533,7 +535,7 @@ class Compiler:
             win_struct  = self.get_window_type(e.type)
             base        = self.env[e.name]
             basetyp     = self.envtyp[e.name]
-            mem         = self.mem[e.name]
+            mem         = self.mems[e.name]
             if not mem._read:
                 assert False, "TODO: handle GEMMINI Windowing"
 

@@ -33,6 +33,9 @@ def test_window():
     win = gen_window()
     assert type(win) is Procedure
 
+    filename = "test_window_window"
+    win.compile_c(directory, filename)
+
 
 def gen_stride_assert():
     @proc
@@ -57,6 +60,8 @@ def test_stride_assert():
     sa = gen_stride_assert()
     assert type(sa) is Procedure
 
+    filename = "test_window_stride_assert"
+    sa.compile_c(directory, filename)
 
 def gen_window_stmt():
     @proc
@@ -71,6 +76,8 @@ def test_window_stmt():
     ws = gen_window_stmt()
     assert type(ws) is Procedure
 
+    filename = "test_window_stmt"
+    ws.compile_c(directory, filename)
 
 def gen_dot():
     @proc
@@ -94,11 +101,13 @@ def test_normalize():
     proj = gen_proj(dot)
     assert type(dot) is Procedure
     assert type(proj) is Procedure
+    filename = "test_window_proj"
+    proj.compile_c(directory, filename)
 
 
 def gen_gemmini_ld():
-    @instr("gemmini_extended3_config_ld({dst.strides[0]}, 1.0f, 0, 0);\n"+
-           "gemmini_extended_mvin( {src.data}, ((uint32_t) {dst.data}),"+
+    @instr("gemmini_extended3_config_ld({dst}.strides[0], 1.0f, 0, 0);\n"+
+           "gemmini_extended_mvin( {src}.data, ((uint32_t) {dst}.data),"+
                                   "{m}, {n} );")
     def gemmini_ld(
         n   : size,
@@ -119,8 +128,8 @@ def gen_gemmini_ld():
     return gemmini_ld
 def gen_ld_2d(gemmini_ld):
     @proc
-    def ld_2d(n : size, m : size, x : f32[n, m] @DRAM,
-                                  y : f32[n, (m+15)/16, 16] @ GEMM_SCRATCH):
+    def ld_2d(n : size, m : size, x : i8[n, m] @DRAM,
+                                  y : i8[n, (m+15)/16, 16] @ GEMM_SCRATCH):
         # handle all full tile-rows
         for i in par(0, n/16):
             for j in par(0, m/16):
@@ -144,10 +153,12 @@ def gen_ld_2d(gemmini_ld):
             gemmini_ld(n%16, m%16, x[n - n%16:n, m - m%16:m],
                                    y[n - n%16:n, m/16, :])
 
-        #gemmini_ld(n%16, m%16, x[n-n%16: , m-m%16: ], y[n-n%16: , m-m%16, :])
     return ld_2d
 def test_ld():
     gemmini_ld = gen_gemmini_ld()
     ld_2d  = gen_ld_2d(gemmini_ld)
     assert type(gemmini_ld) is Procedure
     assert type(ld_2d) is Procedure
+
+    filename = "test_window_ld_2d"
+    ld_2d.compile_c(directory, filename)
