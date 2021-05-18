@@ -259,8 +259,8 @@ class Compiler:
                 if a.type.is_real_scalar():
                     self._scalar_refs.add(a.name)
                 if a.type.is_win():
-                    ctyp = self.get_window_type(a.type)
-                    arg_strs.append(f"{ctyp} {name_arg}")
+                    wintyp = self.get_window_type(a.type)
+                    arg_strs.append(f"struct {wintyp} {name_arg}")
                 else:
                     ctyp = a.type.basetype().ctype()
                     arg_strs.append(f"{ctyp}* {name_arg}")
@@ -438,7 +438,7 @@ class Compiler:
             assert type(s.rhs) is LoopIR.WindowExpr
             mem         = self.mems[s.rhs.name]
             lhs         = self.new_varname(s.lhs, typ=s.rhs.type, mem=mem)
-            self.add_line(f"{win_struct} {lhs} = {rhs};")
+            self.add_line(f"struct {win_struct} {lhs} = {rhs};")
         elif styp is LoopIR.If:
             cond = self.comp_e(s.cond)
             self.add_line(f"if ({cond}) {{")
@@ -491,8 +491,6 @@ class Compiler:
                 for i in range(len(args)):
                     d[str(s.f.args[i].name)] = args[i]
 
-                print(s.f.instr)
-                print(d)
                 self.add_line(f"{s.f.instr.format(**d)}")
             else:
                 fname   = s.f.name
@@ -553,10 +551,13 @@ class Compiler:
             # compute new window strides
             strides     = self.get_strides(base, basetyp, prec=0)
             assert len(strides) == len(e.idx)
+            assert len(strides) > 0
             strides     = [ s for s,w in zip(strides,e.idx)
                               if type(w) is LoopIR.Interval ]
 
-            return f"{win_struct}{{ {dataptr}, {{ {','.join(strides)} }} }}"
+            struct_str = f"(struct {win_struct}){{ {dataptr}, {','.join(strides)} }}"
+
+            return struct_str
         elif etyp is LoopIR.Const:
             return str(e.val)
         elif etyp is LoopIR.BinOp:
