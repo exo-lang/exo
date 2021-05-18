@@ -97,7 +97,7 @@ def test_split_blur():
     orig_blur   = blur
 
     blur = blur.split('j',4,['j1','j2'])
-    blur = blur.split('i[1]',4,['i1','i2'])
+    blur = blur.split('i#1',4,['i1','i2'])
 
     assert type(blur) is Procedure
     filename = "test_split_blur"

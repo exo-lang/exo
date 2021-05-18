@@ -4,7 +4,9 @@ from .LoopIR import T
 from .typecheck import TypeChecker
 from .LoopIR_compiler import Compiler, run_compile, compile_to_strings
 from .LoopIR_interpreter import Interpreter, run_interpreter
-from .LoopIR_scheduling import Schedules, name_str_2_symbols, name_str_2_pairs
+from .LoopIR_scheduling import Schedules
+from .LoopIR_scheduling import (iter_name_to_pattern, 
+                                nested_iter_names_to_pattern)
 from .effectcheck import InferEffects, CheckEffects
 
 from .pattern_match import match_pattern
@@ -95,7 +97,7 @@ class Procedure:
     def is_instr(self):
         return self._loopir_proc.instr != None
 
-    def get_instr_macro(self):
+    def get_instr(self):
         return self._loopir_proc.instr
 
     # ---------------------------------------------- #
@@ -144,17 +146,16 @@ class Procedure:
             raise TypeError("expected third arg to be a list or tuple")
         elif len(out_vars) != 2:
             raise TypeError("expected third arg list/tuple to have length 2")
-        elif type(out_vars[0]) != str or type(out_vars[1]) != str:
+        elif not all(is_valid_name(s) for s in out_vars):
             raise TypeError("expected third arg to be a list/tuple of two "+
-                            "strings")
+                            "valid name strings")
 
-        split_names = name_str_2_symbols(self._loopir_proc, split_var)
-        if len(split_names) == 0:
-            raise TypeError(f"failed to find any symbols described by "+
-                            f"'{split_var}'")
+        pattern     = iter_name_to_pattern(split_var)
+        # default_match_no=None means match all
+        stmts       = self._find_stmt(pattern, default_match_no=None)
         loopir      = self._loopir_proc
-        for nm in split_names:
-            loopir  = Schedules.DoSplit(loopir, nm, quot=split_const,
+        for s in stmts:
+            loopir  = Schedules.DoSplit(loopir, s, quot=split_const,
                                         hi=out_vars[0], lo=out_vars[1],
                                         cut_tail=cut_tail).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
@@ -162,38 +163,38 @@ class Procedure:
     def reorder(self, out_var, in_var):
         if type(out_var) is not str:
             raise TypeError("expected first arg to be a string")
-        elif type(in_var) is not str:
-            raise TypeError("expected second arg to be a string")
+        elif not is_valid_name(in_var):
+            raise TypeError("expected second arg to be a valid name string")
 
-        reorder_pairs = name_str_2_pairs(self._loopir_proc, out_var, in_var)
-        if len(reorder_pairs) == 0:
-            raise TypeError(f"failed to find nested symbol pairs described "+
-                            f"by '{out_var}' outside of '{in_var}'")
+        pattern     = nested_iter_names_to_pattern(out_var, in_var)
+        # default_match_no=None means match all
+        stmts       = self._find_stmt(pattern, default_match_no=None)
         loopir      = self._loopir_proc
-        for out_v, in_v in reorder_pairs:
-            loopir  = Schedules.DoReorder(loopir, out_v, in_v).result()
+        for s in stmts:
+            loopir  = Schedules.DoReorder(loopir, s).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def unroll(self, unroll_var):
         if type(unroll_var) is not str:
             raise TypeError("expected first arg to be a string")
 
-        unroll_names = name_str_2_symbols(self._loopir_proc, unroll_var)
-        if len(unroll_names) == 0:
-            raise TypeError(f"failed to find any symbols described by "+
-                            f"'{unroll_var}'")
+        pattern     = iter_name_to_pattern(unroll_var)
+        # default_match_no=None means match all
+        stmts       = self._find_stmt(pattern, default_match_no=None)
         loopir      = self._loopir_proc
-        for nm in unroll_names:
-            loopir  = Schedules.DoUnroll(loopir, nm).result()
+        for s in stmts:
+            loopir  = Schedules.DoUnroll(loopir, s).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def _find_stmt(self, stmt_pattern, call_depth=2):
+    def _find_stmt(self, stmt_pattern, call_depth=2, default_match_no=0):
         body        = self._loopir_proc.body
         stmt_lists  = match_pattern(body, stmt_pattern,
                                     call_depth=call_depth,
-                                    default_match_no=0)
+                                    default_match_no=default_match_no)
         if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
             raise TypeError("failed to find statement")
+        elif default_match_no is None:
+            return [ s[0] for s in stmt_lists ]
         else:
             return stmt_lists[0][0]
 

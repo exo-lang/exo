@@ -21,19 +21,6 @@ def _get_smt_solver():
 # --------------------------------------------------------------------------- #
 # Helper Functions
 
-# convert from LoopIR.expr to E.expr
-def lift_expr(e):
-    if type(e) is LoopIR.Read:
-        assert len(e.idx) == 0
-        return E.Var( e.name, e.type, e.srcinfo )
-    elif type(e) is LoopIR.Const:
-        return E.Const( e.val, e.type, e.srcinfo )
-    elif type(e) is LoopIR.BinOp:
-        return E.BinOp( e.op, lift_expr(e.lhs), lift_expr(e.rhs),
-                        e.type, e.srcinfo )
-
-    else: assert False, "bad case, e is " + str(type(e))
-
 def expr_subst(env, e):
     """ perform the substitutions specified by env in expression e """
     if type(e) is E.Const:

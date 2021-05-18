@@ -212,6 +212,22 @@ def eff_subst(env, eff):
     else:
         assert False, f"bad case: {type(eff)}"
 
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Querying of the effect of a block of already annotated statements
+
+def get_effect_of_stmts(body):
+    assert len(body) > 0
+    eff   = eff_null(body[0].srcinfo)
+    for s in reversed(body):
+        if type(s) is LoopIR.LoopIR.Alloc:
+            eff = eff_remove_buf(s.name, eff)
+        elif s.eff is not None:
+            eff = eff_union(eff, s.eff)
+    return eff
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Construction/Composition Functions

@@ -1,6 +1,11 @@
 from .prelude import *
 from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do, SubstArgs
 from .LoopIR import T
+from .LoopIR import lift_to_eff_expr
+from .LoopIR_effects import Effects as E
+from .LoopIR_effects import get_effect_of_stmts
+from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
+                             eff_null, eff_remove_buf, effect_as_str)
 import re
 
 from collections import defaultdict, ChainMap
@@ -17,141 +22,44 @@ class SchedulingError(Exception):
 # --------------------------------------------------------------------------- #
 # Finding Names
 
-#
-#   current name descriptor language
-#
-#       d    ::= e
-#              | e > e
-#
-#       e    ::= prim[int]
-#              | prim
-#
-#       prim ::= name-string
-#
+def iter_name_to_pattern(namestr):
+    results = re.search(r"^([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$", namestr)
+    if not results:
+        raise TypeError("expected iterator name pattern of the form\n"+
+                        "  ident (# integer)?\n"+
+                        "where ident is the name of the iterator variable "+
+                        "and (e.g.) '#2' may optionally be attached to mean "+
+                        "'the second occurence of the identifier")
 
-def name_str_2_symbols(proc, desc):
-    assert type(proc) is LoopIR.proc
-    # parse regular expression
-    #   either name[int]
-    #       or name
-    name = re.search(r"^(\w+)", desc).group(0)
-    idx = re.search(r"\[([0-9_]+)\]", desc)
-    if idx is not None:
-        idx = int(idx.group(1))
-        # idx is a non-negative integer if present
-        assert idx > 0
+    name        = results[1]
+    if results[3]:
+        count   = f" #{int(results[3])-1}"
     else:
-        idx = None
+        count   = ""
 
-    # find all occurrences of name
-    sym_list = []
+    pattern     = f"for {name} in _: _{count}"
+    return pattern
 
-    # search proc signature for symbol
-    for a in proc.args:
-        if str(a.name) == name:
-            sym_list.append(a.name)
 
-    def find_sym_stmt(node, nm):
-        if type(node) is LoopIR.If:
-            for b in node.body:
-                find_sym_stmt(b, nm)
-            for b in node.orelse:
-                find_sym_stmt(b, nm)
-        elif type(node) is LoopIR.Alloc:
-            if str(node.name) == nm:
-                sym_list.append(node.name)
-        elif type(node) is LoopIR.ForAll:
-            if str(node.iter) == nm:
-                sym_list.append(node.iter)
-            for b in node.body:
-                find_sym_stmt(b, nm)
+def nested_iter_names_to_pattern(namestr, inner):
+    results = re.search(r"^([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$", namestr)
+    if not results:
+        raise TypeError("expected iterator name pattern of the form\n"+
+                        "  ident (# integer)?\n"+
+                        "where ident is the name of the iterator variable "+
+                        "and (e.g.) '#2' may optionally be attached to mean "+
+                        "'the second occurence of the identifier")
+    assert is_valid_name(inner)
 
-    # search proc body
-    for b in proc.body:
-        find_sym_stmt(b, name)
-
-    if idx is not None:
-        assert len(sym_list) >= idx
-        res = [sym_list[idx-1]]
+    name        = results[1]
+    if results[3]:
+        count   = f" #{int(results[3])-1}"
     else:
-        res = sym_list
+        count   = ""
 
-    return res
-
-def name_str_2_pairs(proc, out_desc, in_desc):
-    assert type(proc) is LoopIR.proc
-    # parse regular expression
-    #   either name[int]
-    #       or name
-    out_name = re.search(r"^(\w+)", out_desc).group(0)
-    in_name = re.search(r"^(\w+)", in_desc).group(0)
-    out_idx = re.search(r"\[([0-9_]+)\]", out_desc)
-    in_idx = re.search(r"\[([0-9_]+)\]", in_desc)
-
-    out_idx = int(out_idx.group(1)) if out_idx is not None else None
-    in_idx  = int(in_idx.group(1)) if in_idx is not None else None
-
-    # idx is a non-negative integer if present
-    for idx in [out_idx, in_idx]:
-        if idx is not None:
-            assert idx > 0
-
-    # find all occurrences of name
-    pair_list = []
-    out_cnt = 0
-    in_cnt  = 0
-    def find_sym_stmt(node, out_sym):
-        if type(node) is LoopIR.If:
-            for b in node.body:
-                find_sym_stmt(b, out_sym)
-            for b in node.orelse:
-                find_sym_stmt(b, out_sym)
-        elif type(node) is LoopIR.ForAll:
-            # first, search for the outer name
-            if out_sym is None and str(node.iter) == out_name:
-                nonlocal out_cnt
-                out_cnt += 1
-                if out_idx is None or out_idx is out_cnt:
-                    out_sym = node.iter
-                    for b in node.body:
-                        find_sym_stmt(b, out_sym)
-                    out_sym = None
-            # if we are inside of an outer name match...
-            elif out_sym is not None and str(node.iter) == in_name:
-                nonlocal in_cnt
-                in_cnt += 1
-                if in_idx is None or in_idx is in_cnt:
-                    pair_list.append( (out_sym, node.iter) )
-            for b in node.body:
-                find_sym_stmt(b, out_sym)
-
-    # search proc body
-    for b in proc.body:
-        find_sym_stmt(b, None)
-
-    return pair_list
-
-
-"""
-Here is an example of nested naming insanity
-The numbers give us unique identifiers for the names
-
-for j =  0
-    for i =  1
-        for j =  2
-            for i =  3
-                for i =  4
-
-searching for j,i
-pair_list = [
-    0,1
-    0,3
-    0,4
-    2,3
-    2,4
-]
-"""
-
+    pattern     = (f"for {name} in _:\n"+
+                   f"  for {inner} in _: _{count}")
+    return pattern
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -159,32 +67,57 @@ pair_list = [
 
 
 class _Reorder(LoopIR_Rewrite):
-    def __init__(self, proc, out_var, in_var):
-        self.out_var = out_var
-        self.in_var  = in_var
+    def __init__(self, proc, loop_stmt):
+        self.stmt    = loop_stmt
+        self.out_var = loop_stmt.iter
+        if ( len(loop_stmt.body) != 1 or
+             type(loop_stmt.body[0]) is not LoopIR.ForAll ):
+            raise SchedulingError(f"expected loop directly inside of "+
+                                  f"{self.out_var} loop")
+        self.in_var  = loop_stmt.body[0].iter
+
         super().__init__(proc)
 
     def map_s(self, s):
-        if type(s) is LoopIR.ForAll:
-            if s.iter == self.out_var:
-                if len(s.body) != 1 or type(s.body[0]) is not LoopIR.ForAll:
-                    raise SchedulingError(f"expected loop directly inside of "+
-                                          f"{self.out_var} loop")
-                elif s.body[0].iter != self.in_var:
-                    raise SchedulingError(f"expected loop directly inside of "+
-                                          f"{self.out_var} loop to have "+
-                                          f"iteration variable {self.in_var}")
-                else:
-                    # this is the actual body inside both for-loops
-                    body = s.body[0].body
-                    return [LoopIR.ForAll(s.body[0].iter, s.body[0].hi,
-                                [LoopIR.ForAll(s.iter, s.hi,
-                                    body,
-                                    s.eff, s.srcinfo)],
-                                s.body[0].eff, s.body[0].srcinfo)]
+        if s == self.stmt:
+            # short-hands for sanity
+            def boolop(op,lhs,rhs):
+                return LoopIR.BinOp(op,lhs,rhs,T.bool,s.srcinfo)
+            def cnst(intval):
+                return LoopIR.Const(intval, T.int, s.srcinfo)
+            def rd(i):
+                return LoopIR.Read(i, [], T.index, s.srcinfo)
+            def rng(x, hi):
+                lhs = boolop("<=", cnst(0), x)
+                rhs = boolop("<", x, hi)
+                return boolop("and", lhs, rhs)
+            def do_bind(x, hi, eff):
+                cond    = lift_to_eff_expr( rng(rd(x),hi) )
+                return eff_bind(x, eff, pred=cond)
+
+            # this is the actual body inside both for-loops
+            body        = s.body[0].body
+            body_eff    = get_effect_of_stmts(body)
+            # blah
+            inner_eff   = do_bind(s.iter, s.hi, body_eff)
+            return [LoopIR.ForAll(s.body[0].iter, s.body[0].hi,
+                        [LoopIR.ForAll(s.iter, s.hi,
+                            body,
+                            inner_eff, s.srcinfo)],
+                        s.body[0].eff, s.body[0].srcinfo)]
 
         # fall-through
         return super().map_s(s)
+
+    # make this more efficient by not rewriting
+    # most of the sub-trees
+    def map_e(self,e):
+        return e
+    def map_t(self,t):
+        return t
+    def map_eff(self,eff):
+        return eff
+
 
 
 # --------------------------------------------------------------------------- #
@@ -193,12 +126,15 @@ class _Reorder(LoopIR_Rewrite):
 
 
 class _Split(LoopIR_Rewrite):
-    def __init__(self, proc, split_var, quot, hi, lo, cut_tail=False):
-        self.split_var = split_var
+    def __init__(self, proc, split_loop, quot, hi, lo, cut_tail=False):
+        self.split_loop     = split_loop
+        self.split_var      = split_loop.iter
         self.quot = quot
         self.hi_i = Sym(hi)
         self.lo_i = Sym(lo)
         self.cut_i = Sym(lo)
+
+        assert quot > 1
 
         self._tail_strategy = 'cut' if cut_tail else 'guard'
         self._in_cut_tail = False
@@ -218,70 +154,92 @@ class _Split(LoopIR_Rewrite):
         return self._cut_tail_sub
 
     def map_s(self, s):
-        if type(s) is LoopIR.ForAll:
-            # Split this to two loops!!
-            if s.iter is self.split_var:
-                # short-hands for sanity
-                def boolop(op,lhs,rhs):
-                    return LoopIR.BinOp(op,lhs,rhs,T.bool,s.srcinfo)
-                def szop(op,lhs,rhs):
-                    return LoopIR.BinOp(op,lhs,rhs,lhs.type,s.srcinfo)
-                def cnst(intval):
-                    return LoopIR.Const(intval, T.int, s.srcinfo)
-                def rd(i):
-                    return LoopIR.Read(i, [], T.index, s.srcinfo)
+        if s == self.split_loop:
+            # short-hands for sanity
+            def boolop(op,lhs,rhs):
+                return LoopIR.BinOp(op,lhs,rhs,T.bool,s.srcinfo)
+            def szop(op,lhs,rhs):
+                return LoopIR.BinOp(op,lhs,rhs,lhs.type,s.srcinfo)
+            def cnst(intval):
+                return LoopIR.Const(intval, T.int, s.srcinfo)
+            def rd(i):
+                return LoopIR.Read(i, [], T.index, s.srcinfo)
+            def ceildiv(lhs,rhs):
+                assert type(rhs) is LoopIR.Const and rhs.val > 1
+                rhs_1 = cnst(rhs.val-1)
+                return szop("/", szop("+", lhs, rhs_1), rhs)
 
-                # in the simple case, wrap body in a guard
-                if self._tail_strategy == 'guard':
-                    body    = self.map_stmts(s.body)
-                    idx_sub = self.substitute(s.srcinfo)
-                    cond    = boolop("<", idx_sub, s.hi)
-                    body    = [LoopIR.If(cond, body, [], s.eff, s.srcinfo)]
-                    lo_rng  = cnst(self.quot)
-                    hi_rng  = szop("/", s.hi, lo_rng)
+            def rng(x, hi):
+                lhs = boolop("<=", cnst(0), x)
+                rhs = boolop("<", x, hi)
+                return boolop("and", lhs, rhs)
+            def do_bind(x, hi, eff):
+                cond    = lift_to_eff_expr( rng(rd(x),hi) )
+                return eff_bind(x, eff, pred=cond)
 
-                    return [LoopIR.ForAll(self.hi_i, hi_rng,
-                                [LoopIR.ForAll(self.lo_i, lo_rng,
-                                    body,
-                                    s.eff, s.srcinfo)],
-                                s.eff, s.srcinfo)]
+            # in the simple case, wrap body in a guard
+            if self._tail_strategy == 'guard':
+                body    = self.map_stmts(s.body)
+                body_eff= get_effect_of_stmts(body)
+                idx_sub = self.substitute(s.srcinfo)
+                cond    = boolop("<", idx_sub, s.hi)
+                # condition for guarded loop is applied to effects
+                body_eff= eff_filter(lift_to_eff_expr(cond), body_eff)
+                body    = [LoopIR.If(cond, body, [], body_eff, s.srcinfo)]
 
-                # an alternate scheme is to split the loop in two
-                # by cutting off the tail into a second loop
-                elif self._tail_strategy == 'cut':
-                    # if N == s.hi and Q == self.quot, then
-                    #   we want Ncut == (N-Q+1)/Q
-                    Q       = cnst(self.quot)
-                    N       = s.hi
-                    NQ1     = szop("+", szop("-", N, Q), cnst(1))
-                    Ncut    = szop("/", NQ1, Q)
+                lo_rng  = cnst(self.quot)
+                hi_rng  = ceildiv(s.hi, lo_rng)
 
-                    # and then for the tail loop, we want to
-                    # iterate from 0 to Ntail
-                    # where Ntail == (N - Ncut*Q)
-                    Ntail   = szop("-", N, szop("*", Ncut, Q))
-                    # in that loop we want the iteration variable to
-                    # be mapped instead to (Ncut*Q + cut_i)
-                    self._cut_tail_sub = szop("+", rd(self.cut_i),
-                                                   szop("*", Ncut, Q))
+                # pred for inner loop is: 0 <= lo <= lo_rng
+                inner_eff   = do_bind(self.lo_i, lo_rng, body_eff)
 
-                    main_body = self.map_stmts(s.body)
-                    self._in_cut_tail = True
-                    tail_body = Alpha_Rename(self.map_stmts(s.body)).result()
-                    self._in_cut_tail = False
+                return [LoopIR.ForAll(self.hi_i, hi_rng,
+                            [LoopIR.ForAll(self.lo_i, lo_rng,
+                                body,
+                                inner_eff, s.srcinfo)],
+                            s.eff, s.srcinfo)]
 
-                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
-                                [LoopIR.ForAll(self.lo_i, Q,
-                                    main_body,
-                                    s.eff, s.srcinfo)],
-                                s.eff, s.srcinfo),
-                             LoopIR.ForAll(self.cut_i, Ntail,
-                                tail_body,
-                                s.eff, s.srcinfo)]
+            # an alternate scheme is to split the loop in two
+            # by cutting off the tail into a second loop
+            elif self._tail_strategy == 'cut':
+                # if N == s.hi and Q == self.quot, then
+                #   we want Ncut == (N-Q+1)/Q
+                Q       = cnst(self.quot)
+                N       = s.hi
+                Ncut    = szop("/", N, Q) # floor div
 
-                    return loops
+                # and then for the tail loop, we want to
+                # iterate from 0 to Ntail
+                # where Ntail == N % Q
+                Ntail   = szop("%", N, Q)
+                # in that loop we want the iteration variable to
+                # be mapped instead to (Ncut*Q + cut_i)
+                self._cut_tail_sub = szop("+", rd(self.cut_i),
+                                               szop("*", Ncut, Q))
 
-                else: assert False, f"bad tail strategy"
+                main_body = self.map_stmts(s.body)
+                self._in_cut_tail = True
+                tail_body = Alpha_Rename(self.map_stmts(s.body)).result()
+                self._in_cut_tail = False
+
+                main_eff    = get_effect_of_stmts(main_body)
+                tail_eff    = get_effect_of_stmts(tail_body)
+                lo_eff      = do_bind(self.lo_i, Q, main_eff)
+                hi_eff      = do_bind(self.hi_i, Ncut, lo_eff)
+                tail_eff    = do_bind(self.cut_i, Ntail, tail_eff)
+
+                loops = [LoopIR.ForAll(self.hi_i, Ncut,
+                            [LoopIR.ForAll(self.lo_i, Q,
+                                main_body,
+                                lo_eff, s.srcinfo)],
+                            hi_eff, s.srcinfo),
+                         LoopIR.ForAll(self.cut_i, Ntail,
+                            tail_body,
+                            tail_eff, s.srcinfo)]
+
+                return loops
+
+            else: assert False, f"bad tail strategy"
 
         # fall-through
         return super().map_s(s)
@@ -289,7 +247,7 @@ class _Split(LoopIR_Rewrite):
     def map_e(self, e):
         if type(e) is LoopIR.Read:
             if e.type is T.index:
-                # This is a splitted variable, substitute it!
+                # This is a split variable, substitute it!
                 if e.name is self.split_var:
                     if self._in_cut_tail:
                         return self.cut_tail_sub(e.srcinfo)
@@ -299,24 +257,41 @@ class _Split(LoopIR_Rewrite):
         # fall-through
         return super().map_e(e)
 
+    def map_eff_e(self, e):
+        if type(e) is E.Var:
+            if e.type is T.index:
+                # This is a split variable, substitute it!
+                if e.name is self.split_var:
+                    if self._in_cut_tail:
+                        sub = self.cut_tail_sub(e.srcinfo)
+                    else:
+                        sub = self.substitute(e.srcinfo)
+                    return lift_to_eff_expr(sub)
+
+        # fall-through
+        return super().map_eff_e(e)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Unroll scheduling directive
 
 
 class _Unroll(LoopIR_Rewrite):
-    def __init__(self, proc, unroll_var):
-        self.orig_proc  = proc
-        self.unroll_var = unroll_var
-        self.unroll_itr = 0
-        self.env        = {}
+    def __init__(self, proc, unroll_loop):
+        self.orig_proc      = proc
+        self.unroll_loop    = unroll_loop
+        self.unroll_var     = unroll_loop.iter
+        self.unroll_itr     = 0
+        self.env            = {}
 
         super().__init__(proc)
 
     def map_s(self, s):
-        if type(s) is LoopIR.ForAll:
-            # unroll this to loops!!
-            if s.iter is self.unroll_var:
+        if s == self.unroll_loop:
+        #if type(s) is LoopIR.ForAll:
+        #    # unroll this to loops!!
+        #    if s.iter is self.unroll_var:
                 if type(s.hi) is not LoopIR.Const:
                     raise SchedulingError(f"expected loop '{s.iter}' "+
                                           f"to have constant bounds")
@@ -343,13 +318,22 @@ class _Unroll(LoopIR_Rewrite):
     def map_e(self, e):
         if type(e) is LoopIR.Read:
             if e.type is T.index:
-                # This is a unrolled variable, substitute it!
+                # This is an unrolled variable, substitute it!
                 if e.name is self.unroll_var:
-                    return LoopIR.Const(self.unroll_itr, T.index,
-                                        e.srcinfo)
+                    return LoopIR.Const(self.unroll_itr, T.index, e.srcinfo)
 
         # fall-through
         return super().map_e(e)
+
+    def map_eff_e(self, e):
+        if type(e) is E.Var:
+            if e.type is T.index:
+                # This is an unrolled variable, substitute it!
+                if e.name is self.unroll_var:
+                    return E.Const(self.unroll_itr, T.index, e.srcinfo)
+
+        # fall-through
+        return super().map_eff_e(e)
 
 
 # --------------------------------------------------------------------------- #
@@ -368,9 +352,22 @@ class _Inline(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s == self.call_stmt:
+            # handle potential window expressions in call positions
+            win_binds   = []
+            def map_bind(nm, a):
+                if type(a) is LoopIR.WindowExpr:
+                    stmt = LoopIR.WindowStmt( nm, a, eff_null(a.srcinfo),
+                                                     a.srcinfo )
+                    win_binds.append(stmt)
+                    return LoopIR.Read( nm, [], a.type, a.srcinfo )
+                else:
+                    return a
+
             # first, set-up a binding from sub-proc arguments
             # to supplied expressions at the call-site
-            call_bind   = { xd.name : a for xd,a in zip(s.f.args,s.args) }
+            call_bind   = { xd.name : map_bind(xd.name, a)
+                            for xd,a in zip(s.f.args,s.args) }
+
 
             # whenever we copy code we need to alpha-rename for safety
             body        = Alpha_Rename(s.f.body).result()
@@ -378,14 +375,25 @@ class _Inline(LoopIR_Rewrite):
             # then we will substitute the bindings for the call
             body        = SubstArgs(body, call_bind).result()
 
+            # note that all sub-procedure assertions must be true
+            # even if not asserted, or else this call being inlined
+            # wouldn't have been valid to make in the first place
+
             # the code to splice in at this point
-            return body
+            return win_binds + body
 
         # fall-through
         return super().map_s(s)
 
-    def map_e(self, e):
+    # make this more efficient by not rewriting
+    # most of the sub-trees
+    def map_e(self,e):
         return e
+    def map_t(self,t):
+        return t
+    def map_eff(self,eff):
+        return eff
+
 
 
 # --------------------------------------------------------------------------- #
@@ -409,8 +417,14 @@ class _CallSwap(LoopIR_Rewrite):
         # fall-through
         return super().map_s(s)
 
-    def map_e(self, e):
+    # make this more efficient by not rewriting
+    # most of the sub-trees
+    def map_e(self,e):
         return e
+    def map_t(self,t):
+        return t
+    def map_eff(self,eff):
+        return eff
 
 
 # --------------------------------------------------------------------------- #

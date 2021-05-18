@@ -39,7 +39,7 @@ def match_pattern(ast, pattern_str, call_depth=0, default_match_no=None):
   match = re.search(r"^([^\#]+)\#(\d+)\s*$", pattern_str)
   if match:
     pattern_str = match[1]
-    match_no    = match[2]
+    match_no    = int(match[2]) if match[2] is not None else None
   else:
     match_no    = default_match_no # None means match-all
 
