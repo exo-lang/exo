@@ -49,7 +49,8 @@ class PrecisionAnalysis:
         styp = type(s)
 
         # Don't do anything for call for now.
-        if (styp is LoopIR.Pass or styp is LoopIR.Alloc or styp is LoopIR.Free):
+        if (styp is LoopIR.Pass or styp is LoopIR.Alloc or
+                styp is LoopIR.Free or styp is LoopIR.WindowStmt):
             return s
         # Check precision of caller and callee
         elif styp is LoopIR.Call:
@@ -85,12 +86,14 @@ class PrecisionAnalysis:
 
     def map_e(self, e):
         typ = type(e)
-        if typ is LoopIR.Read or typ is LoopIR.Const:
+        if (typ is LoopIR.Read or typ is LoopIR.Const or
+                typ is LoopIR.WindowExpr):
             return e
         elif typ is LoopIR.BinOp:
             lhs = self.map_e(e.lhs)
             rhs = self.map_e(e.rhs)
-            if lhs.type != rhs.type:
+            if (lhs.type.is_numeric() and rhs.type.is_numeric and 
+                lhs.type != rhs.type):
                 # Typeerror if precision types are different
                 self.err(e, "cannot compute different precision types")
                 typ = T.err
