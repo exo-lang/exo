@@ -372,7 +372,7 @@ class Compiler:
     def get_idx_offset(self, name, typ, idx):
         strides = self.get_strides(name, typ, prec=61)
         assert len(strides) == len(idx)
-        acc = " + ".join([ f"{i} * {s}" for i,s in zip(idx,strides) ])
+        acc = " + ".join([ f"({i}) * ({s})" for i,s in zip(idx,strides) ])
         return acc
 
     #def _type_idx(self, typ, idx):
