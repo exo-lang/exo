@@ -46,7 +46,8 @@ op_prec = {
 class LoopIR_SubProcs(LoopIR_Do):
     def __init__(self, proc):
         self._subprocs = set()
-        super().__init__(proc)
+        if proc.instr is None:
+            super().__init__(proc)
 
     def result(self):
         return self._subprocs
@@ -201,16 +202,22 @@ def compile_to_strings(proc_list):
     struct_defns = set()
 
     for p in proc_list:
-        p       = MemoryAnalysis(p).result()
-        p       = PrecisionAnalysis(p).result()
-        p       = WindowAnalysis(p).result()
-        comp    = Compiler(p)
-        d, b    = comp.comp_top()
-        struct_defns = struct_defns.union(comp.struct_defns())
-        # only dump .h-file forward declarations for requested procedures
-        if p in orig_procs:
-            fwd_decls.append(d)
-        body.append(b)
+        # don't compile instruction procedures, but add a comment?
+        if p.instr is not None:
+            body.append("\n/* relying on the following instruction...\n"+
+                        p.instr+"\n"+
+                        "*/\n")
+        else:
+            p       = MemoryAnalysis(p).result()
+            p       = PrecisionAnalysis(p).result()
+            p       = WindowAnalysis(p).result()
+            comp    = Compiler(p)
+            d, b    = comp.comp_top()
+            struct_defns = struct_defns.union(comp.struct_defns())
+            # only dump .h-file forward declarations for requested procedures
+            if p in orig_procs:
+                fwd_decls.append(d)
+            body.append(b)
 
     # add struct definitions before the other forward declarations
     fwd_decls = list(struct_defns) + fwd_decls
@@ -513,8 +520,8 @@ class Compiler:
 
                 mem = self.mems[e.name]
                 if not mem._read:
-                    raise MemGenError(f"{s.srcinfo}: cannot read from buffer "+
-                                      f"'{s.name}' in memory '{mem.name()}'")
+                    raise MemGenError(f"{e.srcinfo}: cannot read from buffer "+
+                                      f"'{e.name}' in memory '{mem.name()}'")
 
                 if e.name in self._scalar_refs:
                     return f"*{self.env[e.name]}"
@@ -527,8 +534,6 @@ class Compiler:
             base        = self.env[e.name]
             basetyp     = self.envtyp[e.name]
             mem         = self.mems[e.name]
-            if not mem._read:
-                assert False, "TODO: handle GEMMINI Windowing"
 
             # compute offset to new data pointer
             def w_lo(w):
