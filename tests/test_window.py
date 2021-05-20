@@ -263,9 +263,9 @@ def gen_gemmini_matmul():
         N : size,
         M : size,
         K : size,
-        A : [f32][N, K] @ GEMM_SCRATCH,
-        B : [f32][K, M] @ GEMM_SCRATCH,
-        C : [f32][N, M] @ GEMM_SCRATCH
+        A : [f32][N, 16] @ GEMM_SCRATCH,
+        B : [f32][K, 16] @ GEMM_SCRATCH,
+        C : [f32][N, 16] @ GEMM_SCRATCH
     ):
         assert N <= 16
         assert M <= 16
