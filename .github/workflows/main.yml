@@ -24,4 +24,4 @@ jobs:
       - run: git submodule init
       - run: git submodule update --recursive --remote
       - run: pip install -r requirements.txt
-      - run: pytest
+      - run: python -m pytest
