@@ -112,8 +112,8 @@ def gen_gemmini_ld():
     def gemmini_ld(
         n   : size,
         m   : size,
-        src : [i8][n, m] @ DRAM,
-        dst : [i8][n, 16] @ GEMM_SCRATCH,
+        src : [f32][n, m] @ DRAM,
+        dst : [f32][n, 16] @ GEMM_SCRATCH,
     ):
         assert n <= 16
         assert m <= 16
@@ -128,8 +128,8 @@ def gen_gemmini_ld():
     return gemmini_ld
 def gen_ld_2d(gemmini_ld):
     @proc
-    def ld_2d(n : size, m : size, x : i8[n, m] @DRAM,
-                                  y : i8[n, (m+15)/16, 16] @ GEMM_SCRATCH):
+    def ld_2d(n : size, m : size, x : f32[n, m] @DRAM,
+                                  y : f32[n, (m+15)/16, 16] @ GEMM_SCRATCH):
         # handle all full tile-rows
         for i in par(0, n/16):
             for j in par(0, m/16):
@@ -150,8 +150,9 @@ def gen_ld_2d(gemmini_ld):
                 gemmini_ld(16, m%16, xx, yy)
         # handle last corner
         if n%16 > 0 and m%16 > 0:
-            gemmini_ld(n%16, m%16, x[n - n%16:n, m - m%16:m],
-                                   y[n - n%16:n, m/16, :])
+            xx = x[n - n%16:n, m - m%16:m]
+            yy = y[n - n%16:n, m/16, :]
+            gemmini_ld(n%16, m%16, xx, yy)
 
     return ld_2d
 def test_ld():
@@ -162,3 +163,61 @@ def test_ld():
 
     filename = "test_window_ld_2d"
     ld_2d.compile_c(directory, filename)
+
+
+def gen_gemmini_store():
+    @instr("gemmini_config_st({dst}.strides[0]);\n"+
+           "gemmini_extended_mvout( "+
+                "((uint32_t) {dst}.data), {src}.data, {m}, {n} );")
+    def gemmini_st(
+        n   : size,
+        m   : size,
+        src : f32[n, 16] @ GEMM_SCRATCH,
+        dst : f32[n, m]  @ DRAM
+    ):
+        assert n <= 16
+        assert m <= 16
+        assert stride(dst, 1) == 1
+        assert stride(src, 0) == 16
+        assert stride(src, 1) == 1
+
+        for i in par(0, n):
+            for j in par(0, m):
+                dst[i, j] = src[i, j]
+
+    return gemmini_st
+def gen_st_2d(gemmini_st):
+    @proc
+    def st_2d(n : size, m : size, x : f32[n, (m+15)/16, 16] @ GEMM_SCRATCH,
+                                  y : f32[n, m] @DRAM):
+        # handle all full tile-rows
+        for i in par(0, n/16):
+            for j in par(0, m/16):
+                xx = x[ i*16:i*16+16, j, : ]
+                yy = y[ i*16:i*16+16, j*16:j*16+16 ]
+                gemmini_st(16, 16, xx, yy)
+        # handle last tile row
+        if n%16 > 0:
+            for j in par(0, m/16):
+                xx = x[ n - n%16:n, j, : ]
+                yy = y[ n - n%16:n, j*16:j*16+16 ]
+                gemmini_st(n%16, 16, xx, yy)
+        # handle last tile column
+        if m%16 > 0:
+            for i in par(0, n/16):
+                xx = x[ i*16:i*16+16, m/16, : ]
+                yy = y[ i*16:i*16+16, m - m%16:m ]
+                gemmini_st(16, m%16, xx, yy)
+        # handle last corner
+        if n%16 > 0 and m%16 > 0:
+            xx = x[n - n%16:n, m/16, :]
+            yy = y[n - n%16:n, m - m%16:m]
+            gemmini_st(n%16, m%16, xx, yy)
+
+    return st_2d
+def test_st():
+    gemmini_st = gen_gemmini_store()
+    st_2d  = gen_st_2d(gemmini_st)
+
+    filename = "test_window_st_2d"
+    st_2d.compile_c(directory, filename)
