@@ -108,7 +108,7 @@ def test_normalize():
 def gen_gemmini_ld():
     @instr("gemmini_extended3_config_ld({dst}.strides[0]*sizeof(float), 1.0f, 0, 0);\n"+
            "gemmini_extended_mvin( {src}.data, ((uint64_t) {dst}.data),"+
-                                  "{m}, {n} );")
+                                  "16, {n} );")
     def gemmini_ld(
         n   : size,
         m   : size,
@@ -166,9 +166,9 @@ def test_ld():
 
 
 def gen_gemmini_store():
-    @instr("gemmini_config_st({dst}.strides[0]*sizeof(float));\n"+
+    @instr("gemmini_config_st({src}.strides[0]*sizeof(float));\n"+
            "gemmini_extended_mvout( "+
-                "((uint64_t) {dst}.data), {src}.data, {m}, {n} );")
+                "((uint64_t) {dst}.data), {src}.data, 16, {n} );")
     def gemmini_st(
         n   : size,
         m   : size,

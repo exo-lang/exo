@@ -11,7 +11,7 @@
 int main() {
     gemmini_flush(0);
 
-    int size_n = 30;
+    int size_n = 16;
     int size_m = 31;
 
     float x[size_n][size_m];
@@ -29,7 +29,7 @@ int main() {
     bool flag = true;
     for (int i = 0; i < size_n; i++) {
         for (int j = 0; j < size_m; j++) {
-            if (x[i][j] != z[i][j]) {
+            if ((int)x[i][j] != (int)z[i][j]) {
                 flag = false;
             }
         }
