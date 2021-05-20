@@ -19,7 +19,7 @@ def gen_gemmini_ld():
     @instr("gemmini_extended3_config_ld(4 * {src_m}, 1.0f, 0, 0);\n"+
            "gemmini_extended_mvin( "+
                 "{src} + {src_r}*{src_m} + {src_c},"+
-                "((uint32_t) {dst}) + {dst_r}, {col_dim}, {row_dim} );")
+                "((uint64_t) {dst}) + {dst_r}, {col_dim}, {row_dim} );")
     def gemmini_ld(
         src_n : size,
         src_m : size,
@@ -52,7 +52,7 @@ def gen_gemmini_ld():
 def gen_gemmini_store():
     @instr("gemmini_config_st(4 * {dst_m});\n"+
            "gemmini_extended_mvout( "+
-                "((uint32_t) {dst}) + {dst_r}*{dst_m} + {dst_c},"+
+                "((uint64_t) {dst}) + {dst_r}*{dst_m} + {dst_c},"+
                 "{src} + {src_r} , {col_dim}, {row_dim} );")
     def gemmini_st(
         src_n : size,
@@ -86,12 +86,12 @@ def gen_gemmini_store():
 def gen_gemmini_matmul():
     @instr("gemmini_config_ex(WS, NO_ACTIVATION, 0, ACC_SCALE_IDENTITY, 0);\n"+
            "gemmini_extended_preload("+
-                "(uint32_t)({B} + {B_row_off}), (uint32_t)({C} + {C_row_off}), "+
+                "(uint64_t)({B} + {B_row_off}), (uint64_t)({C} + {C_row_off}), "+
                 "{M}, {K}, "+
                 "{M}, {N}"+
            ");\n"+
            "gemmini_extended_compute_preloaded("+
-                "(uint32_t)({A} + {A_row_off}), ~((uint32_t)0), "+
+                "(uint64_t)({A} + {A_row_off}), ~((uint64_t)0), "+
                 "{K}, {N}, "+
                 "16, 16"+
            ");")

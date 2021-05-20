@@ -106,8 +106,8 @@ def test_normalize():
 
 
 def gen_gemmini_ld():
-    @instr("gemmini_extended3_config_ld({dst}.strides[0], 1.0f, 0, 0);\n"+
-           "gemmini_extended_mvin( {src}.data, ((uint32_t) {dst}.data),"+
+    @instr("gemmini_extended3_config_ld({dst}.strides[0]*sizeof(float), 1.0f, 0, 0);\n"+
+           "gemmini_extended_mvin( {src}.data, ((uint64_t) {dst}.data),"+
                                   "{m}, {n} );")
     def gemmini_ld(
         n   : size,
@@ -166,14 +166,14 @@ def test_ld():
 
 
 def gen_gemmini_store():
-    @instr("gemmini_config_st({dst}.strides[0]);\n"+
+    @instr("gemmini_config_st({dst}.strides[0]*sizeof(float));\n"+
            "gemmini_extended_mvout( "+
-                "((uint32_t) {dst}.data), {src}.data, {m}, {n} );")
+                "((uint64_t) {dst}.data), {src}.data, {m}, {n} );")
     def gemmini_st(
         n   : size,
         m   : size,
-        src : f32[n, 16] @ GEMM_SCRATCH,
-        dst : f32[n, m]  @ DRAM
+        src : [f32][n, 16] @ GEMM_SCRATCH,
+        dst : [f32][n, m]  @ DRAM
     ):
         assert n <= 16
         assert m <= 16
@@ -221,3 +221,102 @@ def test_st():
 
     filename = "test_window_st_2d"
     st_2d.compile_c(directory, filename)
+
+def gen_ld_st_2d(ld_2d, st_2d):
+    @proc
+    def ld_st_2d(
+            N : size,
+            M : size,
+            A      : f32[N, M]             @ DRAM,
+            A_GEMM : f32[N, (M+15)/16, 16] @ GEMM_SCRATCH,
+            B      : f32[N, M]             @ DRAM,
+            ):
+
+        ld_2d(N, M, A, A_GEMM)
+        st_2d(N, M, A_GEMM, B)
+
+    return ld_st_2d
+def test_ld_st_2d():
+    gemmini_ld = gen_gemmini_ld()
+    ld_2d  = gen_ld_2d(gemmini_ld)
+    gemmini_st = gen_gemmini_store()
+    st_2d  = gen_st_2d(gemmini_st)
+    ld_st_2d = gen_ld_st_2d(ld_2d, st_2d)
+
+    filename = "test_window_ld_st_2d"
+    ld_st_2d.compile_c(directory, filename)
+
+
+def gen_gemmini_matmul():
+    @instr("gemmini_config_ex(WS, NO_ACTIVATION, 0, ACC_SCALE_IDENTITY, 0);\n"+
+           "gemmini_extended_preload("+
+                "(uint64_t)({B}.data), (uint64_t)({C}.data), "+
+                "{M}, {K}, "+
+                "{M}, {N}"+
+           ");\n"+
+           "gemmini_extended_compute_preloaded("+
+                "(uint64_t)({A}.data), ~((uint64_t)0), "+
+                "{K}, {N}, "+
+                "16, 16"+
+           ");")
+    def gemmini_matmul(
+        N : size,
+        M : size,
+        K : size,
+        A : [f32][N, 16] @ GEMM_SCRATCH,
+        B : [f32][M, 16] @ GEMM_SCRATCH,
+        C : [f32][K, 16] @ GEMM_SCRATCH
+    ):
+        assert N == 16
+        assert M == 16
+        assert K == 16
+
+        for i in par(0,N):
+            for j in par(0,M):
+                for k in par(0,K):
+                    C[i, j] += A[i, k] * B[k, j]
+
+    return gemmini_matmul
+# C = A * B
+def gen_matmul_2d(ld_2d, st_2d, gemmini_matmul):
+    @proc
+    def matmul_2d(
+            N : size,
+            M : size,
+            K : size,
+            A      : f32[N, K]             @ DRAM,
+            A_GEMM : f32[N, (K+15)/16, 16] @ GEMM_SCRATCH,
+            B      : f32[K, M]             @ DRAM,
+            B_GEMM : f32[K, (M+15)/16, 16] @ GEMM_SCRATCH,
+            C      : f32[N, M]             @ DRAM,
+            C_GEMM : f32[N, (M+15)/16, 16] @ GEMM_SCRATCH):
+
+        # Load A and B to scratchpad
+        ld_2d(N, K, A, A_GEMM)
+        ld_2d(K, M, B, B_GEMM)
+
+        # handle all full tile-rows
+        for i in par(0, N/16):
+            for j in par(0, M/16):
+                for k in par(0, K/16):
+                    aa = A_GEMM[ i*16:i*16+16, k, : ]
+                    bb = B_GEMM[ k*16:k*16+16, j, : ]
+                    cc = C_GEMM[ i*16:i*16+16, j, : ]
+
+                    gemmini_matmul(16, 16, 16, aa, bb, cc)
+
+        # Store C_GEMM to C
+        st_2d(N, M, C_GEMM, C)
+
+    return matmul_2d
+
+def test_matmul_2d():
+    gemmini_ld = gen_gemmini_ld()
+    ld_2d  = gen_ld_2d(gemmini_ld)
+    gemmini_st = gen_gemmini_store()
+    st_2d  = gen_st_2d(gemmini_st)
+    gemmini_matmul = gen_gemmini_matmul()
+    matmul_2d = gen_matmul_2d(ld_2d, st_2d, gemmini_matmul)
+
+    filename = "test_window_matmul_2d"
+    matmul_2d.compile_c(directory, filename)

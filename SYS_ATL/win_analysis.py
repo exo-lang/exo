@@ -14,7 +14,7 @@ class WindowAnalysis(LoopIR_Rewrite):
         assert type(proc) is LoopIR.proc
         super().__init__(proc)
 
-    def err(node, msg):
+    def err(self, node, msg):
         raise TypeError(f"{node.srcinfo}: {msg}")
 
     def map_s(self, s):
