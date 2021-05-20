@@ -3,6 +3,17 @@
 
 We make active use of newer Python 3.x features such as f-strings, so please use a more recent (I am writing this in Sept. 2020) version of Python if you're getting errors about unsupported features.
 
+### Requirements.txt
+
+We are trying to maintain a dependency listing in requirements.txt.  You should be able to install all of these dependencies with the command
+```
+pip install -r requirements.txt
+```
+
+### PySMT
+
+Depending on your setup, getting PySMT to work correctly may be difficult.  You need to independently install a solver such as Z3 or CVC4, and even then getting the PySMT library to correctly locate that solver may be difficult.  We have included the `z3-solver` python package as a requirement, which will hopefully avoid this issue, but you can also install z3 (or your choice of solver) independently.
+
 ### Submodules
 If you have an ssh key uploaded to GitHub, you should be able to simply run the "it handles everything" command
 ```
@@ -24,13 +35,6 @@ git submodule update --recursive --remote
 ```
 to pull through the new URL and establish the link.
 
-
-### Requirements.txt
-
-We are trying to maintain a dependency listing in requirements.txt.  You should be able to install all of these dependencies with the command
-```
-pip install -r requirements.txt
-```
 
 ### PLEASE Set Up The Hooks
 
