@@ -263,13 +263,13 @@ def gen_gemmini_matmul():
         N : size,
         M : size,
         K : size,
-        A : [f32][N, 16] @ GEMM_SCRATCH,
-        B : [f32][M, 16] @ GEMM_SCRATCH,
-        C : [f32][K, 16] @ GEMM_SCRATCH
+        A : [f32][N, K] @ GEMM_SCRATCH,
+        B : [f32][K, M] @ GEMM_SCRATCH,
+        C : [f32][N, M] @ GEMM_SCRATCH
     ):
-        assert N == 16
-        assert M == 16
-        assert K == 16
+        assert N <= 16
+        assert M <= 16
+        assert K <= 16
 
         for i in par(0,N):
             for j in par(0,M):
@@ -304,6 +304,64 @@ def gen_matmul_2d(ld_2d, st_2d, gemmini_matmul):
                     cc = C_GEMM[ i*16:i*16+16, j, : ]
 
                     gemmini_matmul(16, 16, 16, aa, bb, cc)
+
+        if N%16 > 0:
+            for j in par(0, M/16):
+                for k in par(0, K/16):
+                    aa = A_GEMM[ N-N%16:N, k, : ]
+                    bb = B_GEMM[ k*16:k*16+16, j, : ]
+                    cc = C_GEMM[ N-N%16:N, j, : ]
+
+                    gemmini_matmul(N%16, 16, 16, aa, bb, cc)
+
+        if M%16 > 0:
+            for i in par(0, N/16):
+                for k in par(0, K/16):
+                    aa = A_GEMM[ i*16:i*16+16, k, : ]
+                    bb = B_GEMM[ k*16:k*16+16, M/16, : ]
+                    cc = C_GEMM[ i*16:i*16+16, M/16, : ]
+
+                    gemmini_matmul(16, M%16, 16, aa, bb, cc)
+
+        if K%16 > 0:
+            for i in par(0, N/16):
+                for j in par(0, M/16):
+                    aa = A_GEMM[ i*16:i*16+16, K/16, : ]
+                    bb = B_GEMM[ K-K%16:K, j, : ]
+                    cc = C_GEMM[ i*16:i*16+16, j, : ]
+
+                    gemmini_matmul(16, 16, K%16, aa, bb, cc)
+
+        if N%16 > 0 and K%16 > 0:
+            for j in par(0, M/16):
+                aa = A_GEMM[ N-N%16:N, K/16, : ]
+                bb = B_GEMM[ K-K%16:K, j, : ]
+                cc = C_GEMM[ N-N%16:N, j, : ]
+
+                gemmini_matmul(N%16, 16, K%16, aa, bb, cc)
+
+        if N%16 > 0 and M%16 > 0:
+            for k in par(0, K/16):
+                aa = A_GEMM[ N-N%16:N, k, : ]
+                bb = B_GEMM[ k*16:k*16+16, M/16, : ]
+                cc = C_GEMM[ N-N%16:N, M/16, : ]
+
+                gemmini_matmul(N%16, M%16, 16, aa, bb, cc)
+
+        if M%16 > 0 and K%16 > 0:
+            for i in par(0, N/16):
+                aa = A_GEMM[ i*16:i*16+16, K/16, : ]
+                bb = B_GEMM[ K-K%16:K, M/16, : ]
+                cc = C_GEMM[ i*16:i*16+16, M/16, : ]
+
+                gemmini_matmul(16, M%16, K%16, aa, bb, cc)
+
+        if N%16 > 0 and M%16 > 0 and K%16 > 0:
+            aa = A_GEMM[ N-N%16:N, K/16, : ]
+            bb = B_GEMM[ K-K%16:K, M/16, : ]
+            cc = C_GEMM[ N-N%16:N, M/16, : ]
+
+            gemmini_matmul(N%16, M%16, K%16, aa, bb, cc)
 
         # Store C_GEMM to C
         st_2d(N, M, C_GEMM, C)
