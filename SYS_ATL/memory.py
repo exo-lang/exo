@@ -59,6 +59,7 @@ class Memory:
         globl   = None, # C code
         alloc   = None, # python gemmini_extended_compute_preloaded
         free    = None,
+        window  = None
         read    = False,
         write   = False,
         red     = False,
@@ -71,6 +72,7 @@ class Memory:
         self._global    = globl
         self._alloc     = alloc
         self._free      = free
+        self._window    = window
         self._read      = read
         self._write     = write
         self._reduce    = red
@@ -81,7 +83,7 @@ class Memory:
 
 # ----------- DRAM on LINUX ----------------
 
-def _dram_alloc(new_name, prim_type, shape, error):
+def _dram_alloc(new_name, prim_type, shape, srcinfo):
     if len(shape) == 0:
         return (f"{prim_type} {new_name};")
     else:
@@ -91,7 +93,7 @@ def _dram_alloc(new_name, prim_type, shape, error):
         return (f"{prim_type} *{new_name} = " +
                 f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
 
-def _dram_free(new_name, prim_type, shape, error):
+def _dram_free(new_name, prim_type, shape, srcinfo):
     if len(shape) == 0:
             return ""
     else:

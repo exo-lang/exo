@@ -338,6 +338,7 @@ class Compiler:
         self.names.pop()
         self._tab = self._tab[:-2]
 
+    # TODO: GLB
     def access_str(self, nm, idx_list):
         buf = self.env[nm]
         type = self.envtyp[nm]
@@ -374,14 +375,6 @@ class Compiler:
         assert len(strides) == len(idx)
         acc = " + ".join([ f"({i}) * ({s})" for i,s in zip(idx,strides) ])
         return acc
-
-    #def _type_idx(self, typ, idx):
-        #szs = self.shape_strs(typ.shape(), prec=61)
-        #assert len(szs) == len(idx)
-        #s = idx[0]
-        #for i, n in zip(idx[1:], szs[1:]):
-        #    s = f"({s}) * {n} + ({i})"
-        #return s
 
     def get_window_type(self, typ):
         if type(typ) is T.Window:
@@ -469,7 +462,7 @@ class Compiler:
             line = s.mem._alloc( name,
                                  ctype,
                                  self.shape_strs( s.type.shape() ),
-                                 None )
+                                 s.srcinfo )
 
             self.add_line(line)
         elif styp is LoopIR.Free:
@@ -479,7 +472,7 @@ class Compiler:
             line = s.mem._free( name,
                                 ctype,
                                 self.shape_strs( s.type.shape() ),
-                                None )
+                                s.srcinfo )
             self.add_line(line)
         elif styp is LoopIR.Call:
             assert all(a.type.is_win() == fna.type.is_win()
@@ -542,18 +535,25 @@ class Compiler:
                 return (w.lo if type(w) is LoopIR.Interval else w.pt)
 
             idxs        = [ self.comp_e(w_lo(w)) for w in e.idx ]
-            idx_expr    = self.get_idx_offset(base, basetyp, idxs)
-            if not basetyp.is_win():
-                dataptr = f"{base} + {idx_expr}"
-            else:
-                dataptr = f"{base}.data + {idx_expr}"
 
             # compute new window strides
-            strides     = self.get_strides(base, basetyp, prec=0)
-            assert len(strides) == len(e.idx)
-            assert len(strides) > 0
-            strides     = [ s for s,w in zip(strides,e.idx)
+            all_strides = self.get_strides(base, basetyp, prec=0)
+            assert len(all_strides) == len(e.idx)
+            assert len(all_strides) > 0
+            strides     = [ s for s,w in zip(all_strides,e.idx)
                               if type(w) is LoopIR.Interval ]
+
+            # apply offset to new data pointer
+            baseptr     = base
+            if basetyp.is_win():
+                baseptr = f"{base}.data"
+            if mem._window:
+                dataptr     = mem._window(basetyp.basetype().ctype(),
+                                          base, idxs, all_strides, e.srcinfo)
+            else:
+                idx_expr    = self.get_idx_offset(base, basetyp, idxs)
+                dataptr     = f"{baseptr} + {idx_expr}"
+
 
             struct_str = f"(struct {win_struct}){{ {dataptr}, {','.join(strides)} }}"
 
