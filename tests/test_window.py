@@ -13,13 +13,14 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH, MDRAM
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
+
 def gen_window():
     @proc
     def window(
         n   : size,
         m   : size,
         src : [i8][n, m] @ DRAM,
-        dst : [i8][n, 16] @ GEMM_SCRATCH,
+        dst : [i8][n, 16] @ DRAM,
     ):
         assert n <= 16
         assert m <= 16
@@ -43,7 +44,7 @@ def gen_stride_assert():
         n   : size,
         m   : size,
         src : [i8][n, m] @ DRAM,
-        dst : [i8][n, 16] @ GEMM_SCRATCH,
+        dst : [i8][n, 16] @ DRAM,
     ):
         assert n <= 16
         assert m <= 16
@@ -186,6 +187,7 @@ def gen_gemmini_store():
                 dst[i, j] = src[i, j]
 
     return gemmini_st
+
 def gen_st_2d(gemmini_st):
     @proc
     def st_2d(n : size, m : size, x : f32[n, (m+15)/16, 16] @ GEMM_SCRATCH,

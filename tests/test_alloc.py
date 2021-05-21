@@ -19,7 +19,7 @@ import pytest
 # ------- Nested alloc test for normal DRAM ------
 
 def gen_alloc_nest():
-    @instr("kurage")
+    @proc
     def alloc_nest(n : size, m : size,
                    x : R[n,m], y: R[n,m] @ DRAM, res : R[n,m] @ DRAM):
         for i in par(0,n):
@@ -76,7 +76,7 @@ def test_alloc_nest():
 # ------- Nested alloc test for custom malloc DRAM ------
 
 def gen_alloc_nest_malloc():
-    @instr("kurage")
+    @proc
     def alloc_nest_malloc(n : size, m : size,
                    x : R[n,m] @ MDRAM, y: R[n,m] @ MDRAM, res : R[n,m] @ MDRAM):
         for i in par(0,n):

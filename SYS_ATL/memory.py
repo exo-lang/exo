@@ -105,5 +105,5 @@ DRAM = Memory("DRAM",
         free    = _dram_free,
         read    = True,
         write   = True,
-        red     = True
+        red     = True,
        )
