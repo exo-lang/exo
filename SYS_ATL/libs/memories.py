@@ -80,7 +80,7 @@ def _gemm_global():
     __location__ = os.path.realpath(
         os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
-    malloc = "#include \"include/gemmini_testutils.h\"\n"
+    malloc = '#include "include/gemmini.h"\n'
     with open(os.path.join(__location__, 'gemm_malloc.c'), 'r') as fp:
         line = fp.readline()
         malloc += line.format(heap_size = 100000)

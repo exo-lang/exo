@@ -149,7 +149,8 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
 
     fwd_decls, body = compile_to_strings(proc_list)
 
-    includes = "#include <stdio.h>\n" + "#include <stdlib.h>\n"
+    #includes = "#include <stdio.h>\n" + "#include <stdlib.h>\n"
+    includes = ""
 
     if malloc:
         includes += ("#include <stdint.h>\n"+
@@ -164,6 +165,12 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
 
     fwd_decls = includes + "\n"+ fwd_decls
 
+    H_FILE_CONST = re.sub(r'\W', '_', h_file).upper()
+    fwd_decls = (f"#ifndef _{H_FILE_CONST}_\n"+
+                 f"#define _{H_FILE_CONST}_\n"+
+                 fwd_decls+
+                 f"#endif //_{H_FILE_CONST}_\n")
+
     with open(os.path.join(path, h_file), "w") as f_header:
         f_header.write(fwd_decls)
 
@@ -175,7 +182,7 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
 def compile_to_strings(proc_list):
 
     # get transitive closure of call-graph
-    orig_procs  = set(proc_list)
+    orig_procs  = [ id(p) for p in proc_list ]
     proc_list   = find_all_subprocs(proc_list)
     mem_list    = find_all_mems(proc_list)
 
@@ -204,10 +211,13 @@ def compile_to_strings(proc_list):
     for p in proc_list:
         # don't compile instruction procedures, but add a comment?
         if p.instr is not None:
+            argstr = ','.join([str(a.name)for a in p.args])
             body.append("\n/* relying on the following instruction...\n"+
+                        f"{p.name}({argstr})\n"+
                         p.instr+"\n"+
                         "*/\n")
         else:
+            p_to_start = p
             p       = MemoryAnalysis(p).result()
             p       = PrecisionAnalysis(p).result()
             p       = WindowAnalysis(p).result()
@@ -215,7 +225,7 @@ def compile_to_strings(proc_list):
             d, b    = comp.comp_top()
             struct_defns = struct_defns.union(comp.struct_defns())
             # only dump .h-file forward declarations for requested procedures
-            if p in orig_procs:
+            if id(p_to_start) in orig_procs:
                 fwd_decls.append(d)
             body.append(b)
 
