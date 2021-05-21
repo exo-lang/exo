@@ -59,7 +59,7 @@ class Memory:
         globl   = None, # C code
         alloc   = None, # python gemmini_extended_compute_preloaded
         free    = None,
-        window  = None
+        window  = None,
         read    = False,
         write   = False,
         red     = False,

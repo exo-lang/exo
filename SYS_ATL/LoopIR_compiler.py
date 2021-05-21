@@ -416,14 +416,14 @@ class Compiler:
 
             mem = self.mems[s.name]
             if styp is LoopIR.Assign:
-                if not mem._write:
-                    raise MemGenError(f"{s.srcinfo}: cannot write to buffer "+
-                                      f"'{s.name}' in memory '{mem.name()}'")
+                #if not mem._write:
+                #    raise MemGenError(f"{s.srcinfo}: cannot write to buffer "+
+                #                      f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} = {cast}{rhs};")
             else:
-                if not mem._reduce:
-                    raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "+
-                                      f"'{s.name}' in memory '{mem.name()}'")
+                #if not mem._reduce:
+                #    raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "+
+                #                      f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} += {cast}{rhs};")
         elif styp is LoopIR.WindowStmt:
             win_struct  = self.get_window_type(s.rhs.type)
@@ -512,9 +512,9 @@ class Compiler:
                     return self.env[e.name]
 
                 mem = self.mems[e.name]
-                if not mem._read:
-                    raise MemGenError(f"{s.srcinfo}: cannot read from buffer "+
-                                      f"'{s.name}' in memory '{mem.name()}'")
+                #if not mem._read:
+                #    raise MemGenError(f"{e.srcinfo}: cannot read from buffer "+
+                #                      f"'{e.name}' in memory '{mem.name()}'")
 
                 if e.name in self._scalar_refs:
                     return f"*{self.env[e.name]}"
@@ -527,8 +527,6 @@ class Compiler:
             base        = self.env[e.name]
             basetyp     = self.envtyp[e.name]
             mem         = self.mems[e.name]
-            if not mem._read:
-                assert False, "TODO: handle GEMMINI Windowing"
 
             # compute offset to new data pointer
             def w_lo(w):

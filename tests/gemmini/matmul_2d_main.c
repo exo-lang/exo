@@ -11,9 +11,9 @@
 int main() {
     gemmini_flush(0);
 
-    int size_n = 16;
-    int size_m = 16;
-    int size_k = 32;
+    int size_n = 20;
+    int size_m = 17;
+    int size_k = 16;
 
     float x[size_n][size_k];
     float y[size_k][size_m];
