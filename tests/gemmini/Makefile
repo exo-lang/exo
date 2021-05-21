@@ -1,6 +1,7 @@
 
-
-ROOT=/nscratch/gilbo/chipyard/generators/gemmini/software/gemmini-rocc-tests
+GEMMINI_ROOT?=$(RISCV)/../generators/gemmini
+GEMMINI_ROCC_TESTS=$(GEMMINI_ROOT)/software/gemmini-rocc-tests
+ROOT=$(GEMMINI_ROCC_TESTS)
 BCOMMON=$(ROOT)/riscv-tests/benchmarks/common
 
 CC_BAREMETAL=riscv64-unknown-elf-gcc
