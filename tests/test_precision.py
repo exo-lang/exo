@@ -64,11 +64,11 @@ def test_good_prec1():
     filename = "test_good_prec1"
 
     # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty = open(os.path.join(TMP_DIR, filename + "_pretty.atl"), "w")
     f_pretty.write(str(good_prec1))
     f_pretty.close()
 
-    good_prec1.compile_c(directory, filename)
+    good_prec1.compile_c(TMP_DIR, filename)
 
     x = nparray([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]])
     y = nparray([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]])
@@ -77,7 +77,7 @@ def test_good_prec1():
     res = nprand(size=(n_size, m_size), typ=np.float64)
     res_c = cvt_c(res, typ=np.float64)
 
-    test_lib = generate_lib(directory, filename)
+    test_lib = generate_lib(filename)
     test_lib.good_prec1(c_int(n_size), c_int(
         m_size), cvt_c(x), cvt_c(y), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
@@ -117,7 +117,7 @@ def test_bad_prec1():
                        match='Errors occurred during precision checking'):
         bad_prec1 = gen_bad_prec1()
         filename = "test_bad_prec1"
-        bad_prec1.compile_c(directory, filename)
+        bad_prec1.compile_c(TMP_DIR, filename)
 
 def test_good_prec2():
     dot = gen_dot()
@@ -126,7 +126,7 @@ def test_good_prec2():
 
     filename = "test_good_prec2"
 
-    good_prec2.compile_c(directory, filename)
+    good_prec2.compile_c(TMP_DIR, filename)
 
 def test_bad_prec2():
     with pytest.raises(TypeError,
@@ -134,4 +134,4 @@ def test_bad_prec2():
         dot = gen_dot()
         bad_prec2 = gen_bad_prec2(dot)
         filename = "test_bad_prec2"
-        bad_prec2.compile_c(directory, filename)
+        bad_prec2.compile_c(TMP_DIR, filename)

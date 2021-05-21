@@ -50,11 +50,11 @@ def test_normalize():
     filename = "test_proj"
 
     # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty = open(os.path.join(TMP_DIR, filename + "_pretty.atl"), "w")
     f_pretty.write(str(dot))
     f_pretty.close()
 
-    proj.compile_c(directory, filename)
+    proj.compile_c(TMP_DIR, filename)
 
 """
     n_size = image.shape[0]
@@ -63,7 +63,7 @@ def test_normalize():
     kernel = gkern(k_size,1)
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
-    test_lib = generate_lib(directory, filename)
+    test_lib = generate_lib(filename)
     test_lib.blur(c_int(n_size), c_int(m_size), c_int(
         k_size), cvt_c(image), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))

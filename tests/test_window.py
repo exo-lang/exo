@@ -35,7 +35,7 @@ def test_window():
     assert type(win) is Procedure
 
     filename = "test_window_window"
-    win.compile_c(directory, filename)
+    win.compile_c(TMP_DIR, filename)
 
 
 def gen_stride_assert():
@@ -62,7 +62,7 @@ def test_stride_assert():
     assert type(sa) is Procedure
 
     filename = "test_window_stride_assert"
-    sa.compile_c(directory, filename)
+    sa.compile_c(TMP_DIR, filename)
 
 def gen_window_stmt():
     @proc
@@ -78,7 +78,7 @@ def test_window_stmt():
     assert type(ws) is Procedure
 
     filename = "test_window_stmt"
-    ws.compile_c(directory, filename)
+    ws.compile_c(TMP_DIR, filename)
 
 def gen_dot():
     @proc
@@ -103,7 +103,7 @@ def test_normalize():
     assert type(dot) is Procedure
     assert type(proj) is Procedure
     filename = "test_window_proj"
-    proj.compile_c(directory, filename)
+    proj.compile_c(TMP_DIR, filename)
 
 
 def gen_gemmini_ld():
@@ -163,7 +163,7 @@ def test_ld():
     assert type(ld_2d) is Procedure
 
     filename = "test_window_ld_2d"
-    ld_2d.compile_c(directory, filename)
+    ld_2d.compile_c(TMP_DIR, filename)
 
 
 def gen_gemmini_store():
@@ -222,7 +222,7 @@ def test_st():
     st_2d  = gen_st_2d(gemmini_st)
 
     filename = "test_window_st_2d"
-    st_2d.compile_c(directory, filename)
+    st_2d.compile_c(TMP_DIR, filename)
 
 def gen_ld_st_2d(ld_2d, st_2d):
     @proc
@@ -246,7 +246,7 @@ def test_ld_st_2d():
     ld_st_2d = gen_ld_st_2d(ld_2d, st_2d)
 
     filename = "test_window_ld_st_2d"
-    ld_st_2d.compile_c(directory, filename)
+    ld_st_2d.compile_c(TMP_DIR, filename)
 
 
 def gen_gemmini_matmul():
@@ -379,4 +379,4 @@ def test_matmul_2d():
     matmul_2d = gen_matmul_2d(ld_2d, st_2d, gemmini_matmul)
 
     filename = "test_window_matmul_2d"
-    matmul_2d.compile_c(directory, filename)
+    matmul_2d.compile_c(TMP_DIR, filename)

@@ -10,13 +10,18 @@ import scipy.stats as st
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure
 
+# Figure out the filesystem location of this file
+# and then all other resources can be located relative to it.
+_TEST_DIR           = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR           = os.path.abspath(os.path.join(_TEST_DIR,'..'))
+TMP_DIR             = os.path.join(_TEST_DIR,'tmp')
+
 # Initialize by creating a tmp directory
-directory = "tmp/"
-if not os.path.isdir(directory):
-    os.mkdir(directory)
+if not os.path.isdir(TMP_DIR):
+    os.mkdir(TMP_DIR)
 
 # Dump image here
-input_filename = os.path.dirname(os.path.realpath(__file__)) + "/input.png"
+input_filename = os.path.join(_TEST_DIR,"input.png")
 o_image = Image.open(input_filename)
 image = np.asarray(o_image, dtype="float32")
 
@@ -40,10 +45,11 @@ def nparray(arg, typ=np.float32):
 def nprand(size, typ=np.float32):
     return np.random.uniform(size=size).astype(typ)
 
-def generate_lib(directory, filename):
-    compile_so_cmd = ("clang -Wall -Werror -fPIC -O3 -shared " +
-                      "-o " + directory + filename + ".so " +
-                      directory + filename + ".c")
+def generate_lib(filename):
+    c_file      = os.path.join(TMP_DIR, filename+'.c')
+    so_file     = os.path.join(TMP_DIR, filename+'.so')
+    compile_so_cmd = (f"clang -Wall -Werror -fPIC -O3 -shared " +
+                      f"{c_file} -o {so_file}")
     subprocess.run(compile_so_cmd, check=True, shell=True)
     abspath = os.path.dirname(os.path.abspath(filename))
-    return ctypes.CDLL(abspath + '/' + directory + filename + ".so")
+    return ctypes.CDLL(so_file)

@@ -169,7 +169,7 @@ def test_matmul_16_malloc():
 
     filename = "test_matmul_16_malloc"
 
-    matmul_malloc.compile_c(directory, filename)
+    matmul_malloc.compile_c(TMP_DIR, filename)
 
 
 # matmul test
@@ -204,7 +204,7 @@ def test_matmul_16():
 
     filename = "test_matmul_16"
 
-    matmul.compile_c(directory, filename)
+    matmul.compile_c(TMP_DIR, filename)
 
 
 
@@ -228,7 +228,7 @@ def test_ld_st_16():
 
     filename = "test_ld_st_16"
 
-    ld_st_16.compile_c(directory, filename)
+    ld_st_16.compile_c(TMP_DIR, filename)
 
 
 
@@ -245,11 +245,11 @@ def test_store_16():
     filename = "test_store_16"
 
     # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty = open(os.path.join(TMP_DIR, filename + "_pretty.atl"), "w")
     f_pretty.write(str(st_16))
     f_pretty.close()
 
-    st_16.compile_c(directory, filename)
+    st_16.compile_c(TMP_DIR, filename)
 
 
 
@@ -270,11 +270,11 @@ def test_load_16():
     filename = "test_load_16"
 
     # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty = open(os.path.join(TMP_DIR, filename + "_pretty.atl"), "w")
     f_pretty.write(str(ld_16))
     f_pretty.close()
 
-    ld_16.compile_c(directory, filename)
+    ld_16.compile_c(TMP_DIR, filename)
 
 
 #----------------- arbitrary size matrix load --------------------
@@ -299,7 +299,7 @@ def test_load():
 
     filename = "test_load"
 
-    ld_2d.compile_c(directory, filename)
+    ld_2d.compile_c(TMP_DIR, filename)
 
 #
 def gen_ld_2d_2(gemmini_ld):

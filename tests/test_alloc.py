@@ -44,16 +44,16 @@ def test_alloc_nest():
     filename = "test_alloc_nest"
 
     # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty = open(os.path.join(TMP_DIR, filename + "_pretty.atl"), "w")
     f_pretty.write(str(alloc_nest))
     f_pretty.close()
 
     # Write effect printing to a file
-    f_effect = open(os.path.join(directory, filename + "_effect.atl"), "w")
+    f_effect = open(os.path.join(TMP_DIR, filename + "_effect.atl"), "w")
     f_effect.write(str(alloc_nest.show_effects()))
     f_effect.close()
 
-    alloc_nest.compile_c(directory, filename)
+    alloc_nest.compile_c(TMP_DIR, filename)
 
     x = nparray([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]])
     y = nparray([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]])
@@ -62,7 +62,7 @@ def test_alloc_nest():
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
 
-    test_lib = generate_lib(directory, filename)
+    test_lib = generate_lib(filename)
     test_lib.alloc_nest(c_int(n_size), c_int(
         m_size), cvt_c(x), cvt_c(y), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
@@ -101,11 +101,11 @@ def test_alloc_nest_malloc():
     filename = "test_alloc_nest_malloc"
 
     # Write pretty printing to a file
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty = open(os.path.join(TMP_DIR, filename + "_pretty.atl"), "w")
     f_pretty.write(str(alloc_nest))
     f_pretty.close()
 
-    alloc_nest.compile_c(directory, filename)
+    alloc_nest.compile_c(TMP_DIR, filename)
 
     x = nparray([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]])
     y = nparray([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]])
@@ -114,7 +114,7 @@ def test_alloc_nest_malloc():
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
 
-    test_lib = generate_lib(directory, filename)
+    test_lib = generate_lib(filename)
     # Initialize custom malloc here
     test_lib.init_mem()
     test_lib.alloc_nest_malloc(c_int(n_size), c_int(

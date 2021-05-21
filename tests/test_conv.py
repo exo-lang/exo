@@ -31,7 +31,7 @@ def test_conv1d():
 
     assert type(conv1d) is Procedure
     filename = "test_conv1d"
-    conv1d.compile_c(directory, filename)
+    conv1d.compile_c(TMP_DIR, filename)
 
     n_size = 5
     m_size = 3
@@ -40,7 +40,7 @@ def test_conv1d():
     w = nparray([0.6, 1.9, -2.2])
     res = nprand(size=(r_size))
     res_c = cvt_c(res)
-    test_lib = generate_lib(directory, filename)
+    test_lib = generate_lib(filename)
     test_lib.conv1d(c_int(n_size), c_int(m_size),
                     c_int(r_size), cvt_c(x), cvt_c(w), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(r_size,))

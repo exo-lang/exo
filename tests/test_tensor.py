@@ -33,7 +33,7 @@ def test_tensor():
 
     filename = "test_tensor"
 
-    tensor.compile_c(directory, filename)
+    tensor.compile_c(TMP_DIR, filename)
 
 # -------- Support partial windowing call ------
 def gen_dot():
@@ -79,7 +79,7 @@ def test_normalize():
 
     filename = "test_proj_partial"
 
-    proj.compile_c(directory, filename)
+    proj.compile_c(TMP_DIR, filename)
 
 def gen_assign():
     @proc
@@ -130,4 +130,4 @@ def gen_assign():
 def test_assign():
     assign = gen_assign()
     filename = "test_assign"
-    assign.compile_c(directory, filename)
+    assign.compile_c(TMP_DIR, filename)

@@ -78,9 +78,9 @@ def test_im2col():
 """
     filename = "test_im2col"
 
-    f_pretty = open(os.path.join(directory, filename + "_pretty.atl"), "w")
+    f_pretty = open(os.path.join(TMP_DIR, filename + "_pretty.atl"), "w")
     f_pretty.write(str(im2col_conv))
     f_pretty.close()
 
-    im2col.compile_c(directory, filename)
+    im2col.compile_c(TMP_DIR, filename)
 """
