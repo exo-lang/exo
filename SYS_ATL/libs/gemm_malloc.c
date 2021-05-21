@@ -1,9 +1,10 @@
 #define HEAP_SIZE {heap_size}
 #define DIM {dim}
 
-#include<stdio.h>
-#include<stdint.h>
-#include<assert.h>
+#include "include/gemmini.h"
+#include <stdio.h>
+#include <stdint.h>
+#include <assert.h>
 
 typedef struct __attribute__((__packed__)) NewBlock {
     uint32_t size;

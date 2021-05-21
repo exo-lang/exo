@@ -100,7 +100,7 @@ def _dram_free(new_name, prim_type, shape, srcinfo):
         return f"free({new_name});"
 
 DRAM = Memory("DRAM",
-        globl   = "",
+        globl   = "#include <stdio.h>\n" + "#include <stdlib.h>\n",
         alloc   = _dram_alloc,
         free    = _dram_free,
         read    = True,

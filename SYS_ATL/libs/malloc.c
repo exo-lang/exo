@@ -1,6 +1,8 @@
 #define HEAP_SIZE {heap_size}
 
-#include<stdint.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 uint8_t HEAP[HEAP_SIZE];
 

@@ -20,10 +20,9 @@ def _mdram_free(new_name, prim_type, shape, srcinfo):
         return f"free_dram({new_name});"
 
 def _mdram_globl():
-    __location__ = os.path.realpath(
-        os.path.join(os.getcwd(), os.path.dirname(__file__)))
+    _here_  = os.path.dirname(os.path.abspath(__file__))
 
-    with open(os.path.join(__location__, 'malloc.c'), 'r') as fp:
+    with open(os.path.join(_here_, 'malloc.c'), 'r') as fp:
         line = fp.readline()
         malloc = line.format(heap_size = 100000)
         while line:
@@ -77,11 +76,10 @@ def _gemm_window(prim_type, baseptr, indices, strides, srcinfo):
     return f"({prim_type}*)( (uint32_t){baseptr} + ({offset})/16 )"
 
 def _gemm_global():
-    __location__ = os.path.realpath(
-        os.path.join(os.getcwd(), os.path.dirname(__file__)))
+    _here_  = os.path.dirname(os.path.abspath(__file__))
 
-    malloc = '#include "include/gemmini.h"\n'
-    with open(os.path.join(__location__, 'gemm_malloc.c'), 'r') as fp:
+    malloc = ''
+    with open(os.path.join(_here_, 'gemm_malloc.c'), 'r') as fp:
         line = fp.readline()
         malloc += line.format(heap_size = 100000)
         line = fp.readline()
