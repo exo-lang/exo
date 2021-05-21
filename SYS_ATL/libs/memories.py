@@ -60,20 +60,22 @@ def _gemm_alloc(new_name, prim_type, shape, srcinfo):
                                "unless innermost dimension is exactly 16.  "+
                                f"got {shape[-1]}")
         return (f"{prim_type} *{new_name} = " +
-                f"({prim_type}*) gemm_malloc ({size_str} * sizeof({prim_type}));")
+                f"({prim_type}*) ((uint64_t)gemm_malloc ({size_str} * sizeof({prim_type})));")
 
 def _gemm_free(new_name, prim_type, shape, srcinfo):
     if len(shape) == 0:
             return ""
     else:
-        return f"gemm_free({new_name});"
+        return f"gemm_free((uint64_t)({new_name}));"
 
 def _gemm_window(prim_type, baseptr, indices, strides, srcinfo):
     # assume that strides[-1] == 1
     #    and that strides[-2] == 16 (if there is a strides[-2])
     assert len(indices) == len(strides) and len(strides) >= 2
     offset = " + ".join([ f"({i}) * ({s})" for i,s in zip(indices,strides) ])
-    return f"({prim_type}*)( (uint32_t){baseptr} + ({offset})/16 )"
+    return (f"({prim_type}*)((uint64_t)( "+
+            f"((uint32_t)((uint64_t){baseptr})) + "+
+            f"({offset})/16 ))")
 
 def _gemm_global():
     _here_  = os.path.dirname(os.path.abspath(__file__))

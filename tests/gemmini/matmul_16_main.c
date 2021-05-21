@@ -11,13 +11,13 @@
 int main() {
     gemmini_flush(0);
 
-    float x[16][16];
-    float y[16][16];
-    float z[16][16];
+    float x[16*16];
+    float y[16*16];
+    float z[16*16];
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
-            x[i][j] = (float)i*j;
-            y[i][j] = (float)(i*j*2.5);
+            x[16*i + j] = (float)i*j;
+            y[16*i + j] = (float)(i*j*2.5);
         }
     }
 
@@ -32,8 +32,8 @@ int main() {
         for (int j = 0; j < 16; j++) {
             float res = 0;
             for (int k = 0; k < 16; k++)
-                res += x[i][k] * y[k][j];
-            if (z[i][j] != res) {
+                res += x[16*i + k] * y[16*k + j];
+            if (z[16*i + j] != res) {
                 flag = false;
             }
         }
@@ -45,7 +45,7 @@ int main() {
             for (int j = 0; j < 16; j++) {
                 float res = 0;
                 for (int k = 0; k < 16; k++)
-                    res += x[i][k] * y[k][j];
+                    res += x[16*i + k] * y[16*k + j];
                 printf("%d ", (int)res);
             }
             printf("\n");
@@ -53,7 +53,7 @@ int main() {
         printf("The actual output is:\n");
         for (int i = 0; i < 16; i++) {
             for (int j = 0; j < 16; j++)
-                printf("%d ", (int)z[i][j]);
+                printf("%d ", (int)z[16*i + j]);
             printf("\n");
         }
     } else {

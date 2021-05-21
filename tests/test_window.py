@@ -162,7 +162,7 @@ def test_ld():
     assert type(gemmini_ld) is Procedure
     assert type(ld_2d) is Procedure
 
-    filename = "test_window_ld_2d"
+    filename = "test_ld_2d"
     ld_2d.compile_c(TMP_DIR, filename)
 
 
@@ -221,7 +221,7 @@ def test_st():
     gemmini_st = gen_gemmini_store()
     st_2d  = gen_st_2d(gemmini_st)
 
-    filename = "test_window_st_2d"
+    filename = "test_st_2d"
     st_2d.compile_c(TMP_DIR, filename)
 
 def gen_ld_st_2d(ld_2d, st_2d):
@@ -245,7 +245,7 @@ def test_ld_st_2d():
     st_2d  = gen_st_2d(gemmini_st)
     ld_st_2d = gen_ld_st_2d(ld_2d, st_2d)
 
-    filename = "test_window_ld_st_2d"
+    filename = "test_ld_st_2d"
     ld_st_2d.compile_c(TMP_DIR, filename)
 
 
@@ -378,5 +378,5 @@ def test_matmul_2d():
     gemmini_matmul = gen_gemmini_matmul()
     matmul_2d = gen_matmul_2d(ld_2d, st_2d, gemmini_matmul)
 
-    filename = "test_window_matmul_2d"
+    filename = "test_matmul_2d"
     matmul_2d.compile_c(TMP_DIR, filename)

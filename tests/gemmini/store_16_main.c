@@ -12,7 +12,7 @@ int main() {
     gemmini_flush(0);
 
     float *x = (float*) 0;
-    float y[16][16];
+    float y[16*16];
 
     st_16(x, y);
 

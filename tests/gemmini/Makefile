@@ -1,33 +1,57 @@
-all:
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/load_16_main.c /home/yuka/SYS_ATL/tests/tmp/test_load_16.c -o load_16 /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini load_16
 
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/store_16_main.c /home/yuka/SYS_ATL/tests/tmp/test_store_16.c -o store_16 /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini store_16
 
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/ld_st_16_main.c /home/yuka/SYS_ATL/tests/tmp/test_ld_st_16.c -o ld_st_16 /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini ld_st_16
+ROOT=/nscratch/gilbo/chipyard/generators/gemmini/software/gemmini-rocc-tests
+BCOMMON=$(ROOT)/riscv-tests/benchmarks/common
 
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/matmul_16_main.c /home/yuka/SYS_ATL/tests/tmp/test_matmul_16.c -o matmul_16 /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini matmul_16
+CC_BAREMETAL=riscv64-unknown-elf-gcc
+CFLAGS_BAREMETAL= \
+  -DPREALLOCATE=1 \
+  -DMULTITHREAD=1 \
+  -mcmodel=medany \
+  -std=gnu99 \
+  -O2 \
+  -ffast-math \
+  -fno-common \
+  -fno-builtin-printf \
+  -march=rv64gc -Wa,-march=rv64gcxhwacha \
+  -lm \
+  -lgcc \
+  -I$(ROOT)/riscv-tests \
+  -I$(ROOT)/riscv-tests/env \
+  -I$(ROOT) \
+  -I$(BCOMMON) \
+  -DID_STRING= \
+  -nostdlib \
+  -nostartfiles \
+  -static \
+  -T $(BCOMMON)/test.ld \
+  -DBAREMETAL=1
 
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/alloc_nest_main.c /home/yuka/SYS_ATL/tests/tmp/test_alloc_nest_malloc.c -o alloc_nest_malloc /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini alloc_nest_malloc
+SYSTL_ROOT=../..
+TEST_ROOT=..
+TMP_DIR=$(TEST_ROOT)/tmp
 
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/malloc_matmul16_main.c /home/yuka/SYS_ATL/tests/tmp/test_matmul_16_malloc.c -o malloc_matmul16 /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini malloc_matmul16
+COMPILE=$(CC_BAREMETAL) $(CFLAGS_BAREMETAL) $(BCOMMON)/*.c $(BCOMMON)/*.S
 
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/ld_2d_main.c /home/yuka/SYS_ATL/tests/tmp/test_window_ld_2d.c -o ld_2d /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini ld_2d
+TEST_LIST=\
+  load_16 store_16 ld_st_16 matmul_16 \
+  alloc_nest_malloc matmul_16_malloc \
+  ld_2d st_2d ld_st_2d matmul_2d
 
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/st_2d_main.c /home/yuka/SYS_ATL/tests/tmp/test_window_st_2d.c -o st_2d /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini st_2d
+TEST_BINS=$(TEST_LIST:=.test)
+TEST_EXECS=$(TEST_LIST:=.run)
 
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/ld_st_2d_main.c /home/yuka/SYS_ATL/tests/tmp/test_window_ld_st_2d.c -o ld_st_2d /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini ld_st_2d
+all: $(TEST_EXECS)
+	@echo "done running all tests"
 
-	riscv64-unknown-elf-gcc  -DPREALLOCATE=1 -DMULTITHREAD=1 -mcmodel=medany -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -march=rv64gc -Wa,-march=rv64gcxhwacha -lm -lgcc -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/env -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests -I/home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common -DID_STRING=  -nostdlib -nostartfiles -static -T /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/test.ld -DBAREMETAL=1  /home/yuka/SYS_ATL/tests/gemmini/matmul_2d_main.c /home/yuka/SYS_ATL/tests/tmp/test_window_matmul_2d.c -o matmul_2d /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/crt.S /home/yuka/chipyard/generators/gemmini/software/gemmini-rocc-tests/riscv-tests/benchmarks/common/syscalls.c
-	spike --extension=gemmini matmul_2d
+%.run: %.test
+	spike --extension=gemmini $^
 
+%.test: %_main.c $(TMP_DIR)/test_%.c
+	$(COMPILE) -I$(TMP_DIR) $^ -o $@
+
+.PHONY: clean
 clean:
-	rm load_16 store_16 ld_st_16 matmul_16 alloc_nest_malloc malloc_matmul16 ld_2d st_2d ld_st_2d matmul_2d
+	rm $(TEST_BINS)
+
+

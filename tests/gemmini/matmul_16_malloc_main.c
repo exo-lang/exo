@@ -6,7 +6,7 @@
 #include <time.h>
 
 #include "include/gemmini_testutils.h"
-#include "../tmp/test_matmul_16.h"
+#include "../tmp/test_matmul_16_malloc.h"
 
 void init_mem();
 void gemm_init_mem();
@@ -16,14 +16,14 @@ int main() {
     init_mem();
     gemm_init_mem();
 
-    float z[16][16];
+    float z[16*16];
 
     matmul_16_malloc(z);
 
     printf("The actual output is:\n");
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++)
-            printf("%d ", (int)z[i][j]);
+            printf("%d ", (int)z[16*i + j]);
         printf("\n");
     }
     printf("\nDone\n");
