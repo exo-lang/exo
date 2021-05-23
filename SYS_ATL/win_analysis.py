@@ -25,6 +25,7 @@ class WindowAnalysis(LoopIR_Rewrite):
                 assert not a.type.is_win()
                 assert type(a) is LoopIR.Read and len(a.idx) == 0
                 shape = a.type.shape()
+                assert len(shape) > 0
                 idx = [ LoopIR.Interval(LoopIR.Const(0,T.int,N.srcinfo),
                                         N, N.srcinfo)
                         for N in shape ]

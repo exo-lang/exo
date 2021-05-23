@@ -237,6 +237,31 @@ def __hash__(self):
 del __hash__
 
 
+# break recursion...
+@extclass(LoopIR.WindowType)
+def __hash__(self):
+    return hash([type(self), self.src, self.as_tensor, id(self.window)])
+del __hash__
+
+@extclass(LoopIR.WindowType)
+def __repr__(self):
+    return (f"WindowType(src={repr(self.src)},"+
+                       f"as_tensor={repr(self.as_tensor)},"+
+                       f"window=(name={repr(self.window.name)},"+
+                               f"idx={repr(self.window.idx)}))")
+del __repr__
+
+@extclass(LoopIR.WindowType)
+def __eq__(lhs,rhs):
+    return (type(lhs) == type(rhs) and lhs.src == rhs.src and
+            lhs.as_tensor == rhs.as_tensor and
+            id(lhs.window) == id(rhs.window))
+del __eq__
+
+
+
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Types
@@ -460,7 +485,10 @@ class LoopIR_Rewrite:
 
             # patch the type object
             win_e = self.map_window_e(e)
-            win_e.type.window = win_e
+            # reconstruct the window type to avoid mutation gotchas
+            win_e.type = T.Window(win_e.type.src,
+                                  win_e.type.as_tensor,
+                                  win_e)
 
             self._rewrite_cache[id(e)] = win_e
             return win_e

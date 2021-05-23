@@ -39,7 +39,9 @@ def get_default_prec():
 class PrecisionAnalysis(LoopIR_Rewrite):
     def __init__(self, proc):
         assert type(proc) is LoopIR.proc
-        self._errors = []
+        self._errors    = []
+        self._types     = {}
+        self.default    = get_default_prec()
 
         super().__init__(proc)
 
@@ -50,45 +52,154 @@ class PrecisionAnalysis(LoopIR_Rewrite):
     def err(self, node, msg):
         self._errors.append(f"{node.srcinfo}: {msg}")
 
+    def set_type(self, name, typ):
+        assert name not in self._types
+        self._types[name] = typ
+    def get_type(self, name, default=None):
+        if name not in self._types and default is not None:
+            return default
+        else:
+            return self._types[name]
+
+    def splice_type(self, t, bt):
+        if t.is_real_scalar():
+            return bt
+        elif type(t) is T.Tensor:
+            return T.Tensor(t.hi, t.is_window, self.splice_type(t.type, bt))
+        elif type(t) is T.Window:
+            return T.Window(self.splice_type(t.src, bt),
+                            self.splice_type(t.as_tensor, bt),
+                            t.window)
+        else:
+            return t
+
+    def map_fnarg(self, a):
+        typ = a.type
+        if typ.is_numeric() and typ.basetype() == T.R:
+            typ = self.splice_type(typ, self.default)
+        
+        self.set_type(a.name, typ)
+            
+        return LoopIR.fnarg(a.name, typ, a.mem, a.srcinfo)
+
     def map_s(self, s):
-        styp = type(s)
+        # always do standard sub-processing
+        # and then possibly patch up the results
+        # in a post-traversal sort of way below
+        # before returning
+        result  = super().map_s(s)
+        styp    = type(s)
+
         if styp is LoopIR.Call:
-            args = [ self.map_e(a) for a in s.args ]
+            assert len(result) == 1
+
+            # check call arguments for precision consistency...
+            args = result[0].args
             for call_a, sig_a in zip(args, s.f.args):
-                if sig_a.type.is_numeric():
-                    if call_a.type.basetype() != sig_a.type.basetype():
-                        self.err(call_a,
-                            f"expected precision {sig_a.type.basetype()}, "+
-                            f"but got {call_a.type.basetype()}")
-            return [LoopIR.Call( s.f, [ self.map_e(a) for a in s.args ],
-                                 self.map_eff(s.eff), s.srcinfo )]
-
+                ct  = call_a.type.basetype()
+                st  = sig_a.type.basetype()
+                st  = self.default if st == T.R else st
+                if st.is_numeric() and st != ct:
+                    self.err(call_a, f"expected precision {st}, but got {ct}")
+            
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            rhs = self.map_e(s.rhs)
-            cast = None
-            if (s.type != T.err and rhs.type != T.err and
-                s.type != s.rhs.type):
-                cast = s.type.basetype().ctype()
-            return [styp(s.name, s.type, cast, s.idx, rhs, s.eff, s.srcinfo)]
+            rtyp = result[0].rhs.type
+            ltyp = self.get_type(s.name).basetype()
+            assert ltyp != T.err and ltyp != T.R
 
-        # fall-through
-        return super().map_s(s)
+            # update the type annotation here if needed
+            result[0].type = ltyp
+            
+            # potentially coerce the entire right-hand-side
+            if rtyp != T.err:
+                # potentially coerce the entire right-hand-side
+                if rtyp == T.R:
+                    result[0].rhs = self.coerce_e(result[0].rhs, ltyp)
+                    rtyp = ltyp
+
+                # TODO: remove the `cast` field entirely
+                if ltyp != rtyp:
+                    # then we have an implicit cast at this point
+                    result[0].cast = "yup, cast!"
+
+        elif styp is LoopIR.WindowStmt:
+            # update the type binding for this symbol...
+            self.set_type(result[0].lhs, result[0].rhs.type)
+
+        elif styp is LoopIR.Alloc:
+            typ = result[0].type
+            if s.type.basetype() == T.R:
+                typ = self.splice_type(s.type, self.default)
+            result[0].type = typ
+            self.set_type(s.name, typ)
+
+        return result
+
+    def map_window_e(self, e):
+        btyp    = self.get_type(e.name).basetype()
+        wtyp    = self.splice_type(e.type, btyp)
+        return LoopIR.WindowExpr( e.name, e.idx, wtyp, e.srcinfo )
 
     def map_e(self, e):
-        if type(e) is LoopIR.BinOp:
+        if type(e) is LoopIR.Read:
+            typ     = e.type
+            if typ.is_numeric():
+                btyp = self.get_type(e.name).basetype()
+                typ = self.splice_type(e.type, btyp)
+            return LoopIR.Read(e.name, e.idx, typ, e.srcinfo)
+
+        elif type(e) is LoopIR.BinOp:
             lhs = self.map_e(e.lhs)
             rhs = self.map_e(e.rhs)
-            if (lhs.type.is_numeric() and rhs.type.is_numeric() and 
-                lhs.type != rhs.type):
-                # Typeerror if precision types are different
+
+            # first let's get the index expressions
+            # and booleans out of the way
+            if not e.type.is_numeric():
+                return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
+            
+            assert ((lhs.type == T.err or lhs.type.is_real_scalar()) and
+                    (rhs.type == T.err or rhs.type.is_real_scalar()))
+            if lhs.type == T.err or rhs.type == T.err:
+                typ = T.err
+            elif lhs.type == T.R and rhs.type == T.R:
+                typ = T.R
+            elif lhs.type == T.R:
+                typ = rhs.type
+                lhs = self.coerce_e(lhs, typ)
+            elif rhs.type == T.R:
+                typ = lhs.type
+                rhs = self.coerce_e(rhs, typ)
+            elif lhs.type != rhs.type: # no T.R or T.err left, so...
                 self.err(e, f"cannot compute operation '{e.op}' between "+
-                            f"an {lhs.type} and {rhs.type} value")
+                            f"inconsistent precision types: "+
+                            f"{lhs.type} and {rhs.type}")
                 typ = T.err
             else:
                 typ = lhs.type
-            return LoopIR.BinOp(e.op, e.lhs, e.rhs, typ, e.srcinfo)
+            return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
+
 
         return super().map_e(e)
+
+    # this routine allows for us to retro-actively
+    # induce appropriate casts onto T.R typed constants at
+    # the leaves of numeric expressions
+    def coerce_e(self, e, btyp):
+        if type(e) is LoopIR.Const:
+            assert e.type == btyp or e.type == T.R
+            return LoopIR.Const(e.val, btyp, e.srcinfo)
+        elif type(e) is LoopIR.BinOp:
+            lhs, rhs = e.lhs, e.rhs
+            if lhs.type == T.R:
+                lhs = self.coerce_e(lhs, btyp)
+            if rhs.type == T.R:
+                rhs = self.coerce_e(rhs, btyp)
+            assert lhs.type == btyp
+            assert rhs.type == btyp
+            
+            return LoopIR.BinOp(e.op, lhs, rhs, btyp, e.srcinfo)
+        else:
+            assert False, f"Should not be coercing a {type(e)} Node"
 
     # make this more efficient by not rewriting
     # most of the sub-trees

@@ -188,7 +188,7 @@ class UAST_PPrinter:
                 self.addline(f"{lhs} {op} {rhs}")
             elif type(stmt) is UAST.FreshAssign:
                 rhs = self.pexpr(stmt.rhs)
-                self.addline(f"{self.new_name(stmt.name)} = rhs")
+                self.addline(f"{self.new_name(stmt.name)} = {rhs}")
             elif type(stmt) is UAST.Alloc:
                 mem = f" @{stmt.mem.name()}" if stmt.mem else ""
                 self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
@@ -418,15 +418,14 @@ class LoopIR_PPrinter:
             self.addline(f"{lhs} {op} {rhs}")
         elif type(stmt) is LoopIR.WindowStmt:
             rhs = self.pexpr(stmt.rhs)
-            self.addline(f"{self.new_name(stmt.lhs)} = rhs")
+            self.addline(f"{self.new_name(stmt.lhs)} = {rhs}")
         elif type(stmt) is LoopIR.Alloc:
             mem = f" @{stmt.mem.name()}" if stmt.mem else ""
             self.addline(f"{self.new_name(stmt.name)} : "+
                          f"{self.ptype(stmt.type)}{mem}")
         elif type(stmt) is LoopIR.Free:
             mem = f" @{stmt.mem._name}" if stmt.mem else ""
-            self.addline(f"free {self.new_name(stmt.name)} : "+
-                         f"{self.ptype(stmt.type)}{mem}")
+            self.addline(f"free({self.get_name(stmt.name)})")
         elif type(stmt) is LoopIR.Call:
             args    = [ self.pexpr(a) for a in stmt.args ]
             self.addline(f"{stmt.f.name}({','.join(args)})")

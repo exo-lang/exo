@@ -218,9 +218,9 @@ def compile_to_strings(proc_list):
                         "*/\n")
         else:
             p_to_start = p
-            p       = MemoryAnalysis(p).result()
             p       = PrecisionAnalysis(p).result()
             p       = WindowAnalysis(p).result()
+            p       = MemoryAnalysis(p).result()
             comp    = Compiler(p)
             d, b    = comp.comp_top()
             struct_defns = struct_defns.union(comp.struct_defns())
@@ -242,6 +242,8 @@ def compile_to_strings(proc_list):
 class Compiler:
     def __init__(self, proc, **kwargs):
         assert type(proc) is LoopIR.proc
+        print("COMPILING")
+        print(proc)
 
         self.proc   = proc
         self.env    = Environment()
@@ -388,6 +390,8 @@ class Compiler:
             return self.tensor_strides(typ.shape(), prec)
 
     def get_idx_offset(self, name, typ, idx):
+        print(name)
+        print(typ)
         strides = self.get_strides(name, typ, prec=61)
         assert len(strides) == len(idx)
         acc = " + ".join([ f"({i}) * ({s})" for i,s in zip(idx,strides) ])

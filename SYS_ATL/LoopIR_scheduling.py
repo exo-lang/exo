@@ -409,23 +409,7 @@ class _SetTypAndMem(LoopIR_Rewrite):
         self.win        = win
         self.mem        = mem
 
-        # first try to find the substitution among the arguments
-        # to the procedure
-        args    = [ self.map_fnarg(a) for a in proc.args ]
-        did_sub = any( id(a) != id(orig_a)
-                       for a,orig_a in zip(args,proc.args) )
-
-        if self.n_match is None or self.n_match > 0:
-            super().__init__(proc)
-            self.proc.args = args
-        else:
-            return LoopIR.proc( name    = self.orig_proc.name,
-                                args    = args,
-                                preds   = self.orig_proc.preds,
-                                body    = self.orig_proc.body,
-                                instr   = self.orig_proc.instr,
-                                eff     = self.orig_proc.eff,
-                                srcinfo = self.orig_proc.srcinfo )
+        super().__init__(proc)
 
     def check_inst(self):
         # otherwise, handle instance counting...
