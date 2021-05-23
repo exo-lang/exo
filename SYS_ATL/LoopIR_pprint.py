@@ -265,6 +265,8 @@ class UAST_PPrinter:
             return "f64"
         elif type(t) is UAST.INT8:
             return "i8"
+        elif type(t) is UAST.INT32:
+            return "i32"
         elif type(t) is UAST.Bool:
             return "bool"
         elif type(t) is UAST.Int:
@@ -495,6 +497,8 @@ class LoopIR_PPrinter:
             return "f64"
         elif type(t) is T.INT8:
             return "i8"
+        elif type(t) is T.INT32:
+            return "i32"
         elif type(t) is T.Bool:
             return "bool"
         elif type(t) is T.Int:

@@ -71,6 +71,7 @@ module UAST {
             | F32   ()
             | F64   ()
             | INT8  ()
+            | INT32 ()
             | Bool  ()
             | Int   ()
             | Size  ()
@@ -85,7 +86,8 @@ module UAST {
     'srcinfo':      lambda x: type(x) is SrcInfo
 })
 
-ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Size', 'Index'], {
+ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'INT32',
+               'Bool', 'Int', 'Size', 'Index'], {
 })
 
 
@@ -94,6 +96,7 @@ ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Size', 'Index'], {
 @extclass(UAST.F32)
 @extclass(UAST.F64)
 @extclass(UAST.INT8)
+@extclass(UAST.INT32)
 def shape(t):
     shp = t.hi if type(t) is UAST.Tensor else []
     return shp
@@ -201,6 +204,7 @@ module LoopIR {
             | F32   ()
             | F64   ()
             | INT8  ()
+            | INT32 ()
             | Bool  ()
             | Int   ()
             | Index ()
@@ -223,7 +227,7 @@ module LoopIR {
     'srcinfo':  lambda x: type(x) is SrcInfo,
 })
 
-ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'Bool', 'Int', 'Index',
+ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'INT32' 'Bool', 'Int', 'Index',
                  'Size', 'Error'])
 
 # make proc be a hashable object
@@ -242,6 +246,7 @@ class T:
     F32     = LoopIR.F32
     F64     = LoopIR.F64
     INT8    = LoopIR.INT8
+    INT32   = LoopIR.INT32
     Bool    = LoopIR.Bool
     Int     = LoopIR.Int
     Index   = LoopIR.Index
@@ -253,6 +258,8 @@ class T:
     f32     = F32()
     int8    = INT8()
     i8      = INT8()
+    int32   = INT32()
+    i32     = INT32()
     f64     = F64()
     bool    = Bool()    # note: accessed as T.bool outside this module
     int     = Int()
@@ -272,6 +279,7 @@ class T:
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
+@extclass(T.INT32)
 def shape(t):
     if type(t) is T.Window:
         return t.as_tensor.shape()
@@ -286,6 +294,7 @@ del shape
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
+@extclass(T.INT32)
 def ctype(t):
     if type(t) is T.Num:
         return "float"
@@ -295,12 +304,14 @@ def ctype(t):
         return "double"
     elif type(t) is T.INT8:
         return "int8_t"
+    elif type(t) is T.INT32:
+        return "int32_t"
 del ctype
 
 @extclass(LoopIR.type)
 def is_real_scalar(t):
     return (type(t) is T.Num or type(t) is T.F32 or
-            type(t) is T.F64 or type(t) is T.INT8)
+            type(t) is T.F64 or type(t) is T.INT8 or type(t) is T.INT32)
 del is_real_scalar
 
 @extclass(LoopIR.type)
@@ -378,8 +389,7 @@ class LoopIR_Rewrite:
     def __init__(self, proc, instr=None, *args, **kwargs):
         self._minimal_init(proc)
 
-        args = [ LoopIR.fnarg(a.name, self.map_t(a.type), a.mem, a.srcinfo)
-                 for a in self.orig_proc.args ]
+        args = [ self.map_fnarg(a) for a in self.orig_proc.args ]
         preds= [ self.map_e(p) for p in self.orig_proc.preds ]
         body = self.map_stmts(self.orig_proc.body)
 
@@ -399,6 +409,9 @@ class LoopIR_Rewrite:
 
     def result(self):
         return self.proc
+
+    def map_fnarg(self, a):
+        return LoopIR.fnarg(a.name, self.map_t(a.type), a.mem, a.srcinfo)
 
     def map_stmts(self, stmts):
         return [ s for b in stmts
@@ -465,6 +478,7 @@ class LoopIR_Rewrite:
                 return LoopIR.Point(self.map_e(w.pt), e.srcinfo)
         win_e = LoopIR.WindowExpr( e.name, [ map_w(w) for w in e.idx ],
                                    self.map_t(e.type), e.srcinfo )
+        return win_e
 
 
     def map_t(self, t):

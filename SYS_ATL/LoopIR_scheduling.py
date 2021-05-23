@@ -22,18 +22,23 @@ class SchedulingError(Exception):
 # --------------------------------------------------------------------------- #
 # Finding Names
 
-def iter_name_to_pattern(namestr):
+def name_plus_count(namestr):
     results = re.search(r"^([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$", namestr)
     if not results:
-        raise TypeError("expected iterator name pattern of the form\n"+
+        raise TypeError("expected name pattern of the form\n"+
                         "  ident (# integer)?\n"+
-                        "where ident is the name of the iterator variable "+
+                        "where ident is the name of a variable "+
                         "and (e.g.) '#2' may optionally be attached to mean "+
-                        "'the second occurence of the identifier")
+                        "'the second occurence of that identifier")
 
     name        = results[1]
-    if results[3]:
-        count   = f" #{int(results[3])-1}"
+    count       = int(results[3]) if results[3] else None
+    return name,count
+
+def iter_name_to_pattern(namestr):
+    name, count = name_plus_count(namestr)
+    if count is not None:
+        count   = f" #{count-1}"
     else:
         count   = ""
 
@@ -42,20 +47,12 @@ def iter_name_to_pattern(namestr):
 
 
 def nested_iter_names_to_pattern(namestr, inner):
-    results = re.search(r"^([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$", namestr)
-    if not results:
-        raise TypeError("expected iterator name pattern of the form\n"+
-                        "  ident (# integer)?\n"+
-                        "where ident is the name of the iterator variable "+
-                        "and (e.g.) '#2' may optionally be attached to mean "+
-                        "'the second occurence of the identifier")
-    assert is_valid_name(inner)
-
-    name        = results[1]
-    if results[3]:
-        count   = f" #{int(results[3])-1}"
+    name, count = name_plus_count(namestr)
+    if count is not None:
+        count   = f" #{count-1}"
     else:
         count   = ""
+    assert is_valid_name(inner)
 
     pattern     = (f"for {name} in _:\n"+
                    f"  for {inner} in _: _{count}")
@@ -394,6 +391,133 @@ class _Inline(LoopIR_Rewrite):
     def map_eff(self,eff):
         return eff
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Set Type and/or Memory Annotations scheduling directive
+
+
+# This pass uses a raw name string instead of a pattern
+class _SetTypAndMem(LoopIR_Rewrite):
+    def __init__(self, proc, name, inst_no, basetyp=None, win=None, mem=None):
+        ind = lambda x: 1 if x else 0
+        assert ind(basetyp) + ind(win) + ind(mem) == 1
+        self.orig_proc  = proc
+        self.name       = name
+        self.n_match    = inst_no
+        self.basetyp    = basetyp
+        self.win        = win
+        self.mem        = mem
+
+        # first try to find the substitution among the arguments
+        # to the procedure
+        args    = [ self.map_fnarg(a) for a in proc.args ]
+        did_sub = any( id(a) != id(orig_a)
+                       for a,orig_a in zip(args,proc.args) )
+
+        if self.n_match is None or self.n_match > 0:
+            super().__init__(proc)
+            self.proc.args = args
+        else:
+            return LoopIR.proc( name    = self.orig_proc.name,
+                                args    = args,
+                                preds   = self.orig_proc.preds,
+                                body    = self.orig_proc.body,
+                                instr   = self.orig_proc.instr,
+                                eff     = self.orig_proc.eff,
+                                srcinfo = self.orig_proc.srcinfo )
+
+    def check_inst(self):
+        # otherwise, handle instance counting...
+        if self.n_match is None:
+            return True
+        else:
+            self.n_match = self.n_match-1
+            return (self.n_match == 0)
+
+    def early_exit(self):
+        return self.n_match is not None and self.n_match <= 0
+
+    def change_precision(self, t):
+        assert self.basetyp.is_real_scalar()
+        if t.is_real_scalar():
+            return self.basetyp
+        elif type(t) is T.Tensor:
+            assert t.type.is_real_scalar()
+            return T.Tensor(t.hi, t.is_window, self.basetyp)
+        else:
+            assert False, "bad case"
+
+    def change_window(self, t):
+        assert type(t) is T.Tensor
+        assert type(self.win) is bool
+        return T.Tensor(t.hi, self.win, t.type)
+
+    def map_fnarg(self, a):
+        if str(a.name) != self.name:
+            return a
+
+        # otherwise, handle instance counting...
+        if not self.check_inst():
+            return a
+
+        # if that passed, we definitely found the symbol being pointed at
+        # So attempt the substitution
+        typ     = a.type
+        mem     = a.mem
+        if self.basetyp is not None:
+            if not a.type.is_numeric():
+                raise SchedulingError("cannot change the precision of a "+
+                                      "non-numeric argument")
+            typ = self.change_precision(typ)
+        elif self.win is not None:
+            if not a.type.is_tensor_or_window():
+                raise SchedulingError("cannot change windowing of a "+
+                                      "non-tensor/window argument")
+            typ = self.change_window(typ)
+        else:
+            assert self.mem is not None
+            if not a.type.is_numeric():
+                raise SchedulingError("cannot change the memory of a "+
+                                      "non-numeric argument")
+            mem = self.mem
+
+        return LoopIR.fnarg( a.name, typ, mem, a.srcinfo )
+
+    def map_s(self, s):
+        if self.early_exit():
+            return [s]
+
+        if type(s) is LoopIR.Alloc and str(s.name) == self.name:
+            if self.check_inst():
+
+                # if that passed, we definitely found the symbol being pointed at
+                # So attempt the substitution
+                typ     = a.type
+                assert typ.is_numeric()
+                mem     = a.mem
+                if self.basetyp is not None:
+                    typ = self.change_precision(typ)
+                elif self.win is not None:
+                    raise SchedulingError("cannot change an allocation to "+
+                                          "be or not be a window")
+                else:
+                    assert self.mem is not None
+                    mem = self.mem
+
+                return [LoopIR.Alloc( s.name, typ, mem, s.effect, s.srcinfo )]
+
+        # fall-through
+        return super().map_s(s)
+
+    # make this more efficient by not rewriting
+    # most of the sub-trees
+    def map_e(self,e):
+        return e
+    def map_t(self,t):
+        return t
+    def map_eff(self,eff):
+        return eff
 
 
 # --------------------------------------------------------------------------- #
@@ -940,6 +1064,7 @@ class Schedules:
     DoSplit             = _Split
     DoUnroll            = _Unroll
     DoInline            = _Inline
+    SetTypAndMem        = _SetTypAndMem
     DoCallSwap          = _CallSwap
     DoBindExpr          = _BindExpr
     DoLiftAlloc         = _LiftAlloc

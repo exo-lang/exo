@@ -5,9 +5,12 @@ from .typecheck import TypeChecker
 from .LoopIR_compiler import Compiler, run_compile, compile_to_strings
 from .LoopIR_interpreter import Interpreter, run_interpreter
 from .LoopIR_scheduling import Schedules
-from .LoopIR_scheduling import (iter_name_to_pattern, 
+from .LoopIR_scheduling import (name_plus_count,
+                                iter_name_to_pattern, 
                                 nested_iter_names_to_pattern)
 from .effectcheck import InferEffects, CheckEffects
+
+from .memory import Memory
 
 from .pattern_match import match_pattern
 
@@ -132,8 +135,80 @@ class Procedure:
         if not is_valid_name(name):
             raise TypeError(f"'{name}' is not a valid name")
         p = self._loopir_proc
-        p = LoopIR.proc( name, p.args, p.preds, p.body, p.instr, p.eff, p.srcinfo )
+        p = LoopIR.proc( name, p.args, p.preds, p.body,
+                         p.instr, p.eff, p.srcinfo )
         return Procedure(p, _provenance_eq_Procedure=self)
+
+    def make_instr(self, instr):
+        if type(instr) is not str:
+            raise TypeError("expected an instruction macro "+
+                            "(Python string with {} escapes "+
+                            "as an argument")
+        p = self._loopir_proc
+        p = LoopIR.proc( p.name, p.args, p.preds, p.body,
+                         instr, p.eff, p.srcinfo )
+        return Procedure(p, _provenance_eq_Procedure=self)
+
+    def set_precision(self, name, typ_abbreviation):
+        name, count = name_plus_count(name)
+        _shorthand = {
+            'R':    T.R,
+            'f32':  T.f32,
+            'f64':  T.f64,
+            'i8':   T.int8,
+            'i32':  T.int32,
+        }
+        if typ_abbreviation in _shorthand:
+            typ = _shorthand[typ_abbreviation]
+        else:
+            raise TypeError("expected second argument to set_precision() "+
+                            "to be a valid primitive type abbreviation")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.SetTypAndMem(loopir, name, count,
+                                        basetyp=typ).result()
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def set_window(self, name, is_window):
+        name, count = name_plus_count(name)
+        if type(is_window) is not bool:
+            raise TypeError("expected second argument to set_window() to "+
+                            "be a boolean")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.SetTypAndMem(loopir, name, count,
+                                        win=is_window).result()
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+        
+    def set_memory(self, name, memory_obj):
+        name, count = name_plus_count(name)
+        if type(memory_obj) is not Memory:
+            raise TypeError("expected second argument to set_memory() to "+
+                            "be a Memory object")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.SetTypAndMem(loopir, name, count,
+                                        mem=memory_obj).result()
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def _find_stmt(self, stmt_pattern, call_depth=2, default_match_no=0):
+        body        = self._loopir_proc.body
+        stmt_lists  = match_pattern(body, stmt_pattern,
+                                    call_depth=call_depth,
+                                    default_match_no=default_match_no)
+        if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
+            raise TypeError("failed to find statement")
+        elif default_match_no is None:
+            return [ s[0] for s in stmt_lists ]
+        else:
+            return stmt_lists[0][0]
+
+    def _find_callsite(self, call_site_pattern):
+        call_stmt   = self._find_stmt(call_site_pattern, call_depth=3)
+        if type(call_stmt) is not LoopIR.Call:
+            raise TypeError("pattern did not describe a call-site")
+
+        return call_stmt
 
     def split(self, split_var, split_const, out_vars, cut_tail=False):
         if type(split_var) is not str:
@@ -185,25 +260,6 @@ class Procedure:
         for s in stmts:
             loopir  = Schedules.DoUnroll(loopir, s).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
-
-    def _find_stmt(self, stmt_pattern, call_depth=2, default_match_no=0):
-        body        = self._loopir_proc.body
-        stmt_lists  = match_pattern(body, stmt_pattern,
-                                    call_depth=call_depth,
-                                    default_match_no=default_match_no)
-        if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
-            raise TypeError("failed to find statement")
-        elif default_match_no is None:
-            return [ s[0] for s in stmt_lists ]
-        else:
-            return stmt_lists[0][0]
-
-    def _find_callsite(self, call_site_pattern):
-        call_stmt   = self._find_stmt(call_site_pattern, call_depth=3)
-        if type(call_stmt) is not LoopIR.Call:
-            raise TypeError("pattern did not describe a call-site")
-
-        return call_stmt
 
     def abstract(self, subproc, pattern):
         raise NotImplementedError("TODO: implement abstract")

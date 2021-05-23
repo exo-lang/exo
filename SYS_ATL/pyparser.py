@@ -354,6 +354,7 @@ class Parser:
         'f32'   : UAST.F32(),
         'f64'   : UAST.F64(),
         'i8'    : UAST.INT8(),
+        'i32'   : UAST.INT32(),
     }
 
     def parse_num_type(self, node, is_arg = False):
