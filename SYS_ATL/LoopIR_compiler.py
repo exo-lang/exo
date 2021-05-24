@@ -153,8 +153,7 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
     includes = ""
 
     if malloc:
-        includes += ("#include <stdint.h>\n"+
-                     "#include <assert.h>\n"+
+        includes += ("#include <assert.h>\n"+
                      "#include <string.h>\n")
 
         with open(os.path.dirname(os.path.realpath(__file__)) +
@@ -175,7 +174,9 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
         f_header.write(fwd_decls)
 
     with open(os.path.join(path, c_file), "w") as f_cpp:
-        f_cpp.write("#include \"" + h_file + "\"\n\n");
+        f_cpp.write(f'#include "{h_file}"\n'+
+                    f'#include <stdint.h>\n'+
+                    f'\n');
         f_cpp.write(body)
 
 
@@ -194,11 +195,17 @@ def compile_to_strings(proc_list):
                             f"procedures named '{p.name}'")
         used_names.add(p.name)
 
-    body = ["int _floor_div(int num, int quot) {",
+    body = ["#include <stdint.h>\n",
+            "",
+            "inline int _floor_div(int num, int quot) {",
             "  int off = (num>=0)? 0 : quot-1;",
             "  return (num-off)/quot;",
             "}",
-            "\n"]
+            "",
+            "inline int8_t _clamp_32to8(int32_t x) {",
+            "  return (x < -128)? -128 : ((x > 127)? 127 : x);",
+            "}",
+            "",]
 
     for m in mem_list:
         if m._global:
@@ -275,6 +282,8 @@ class Compiler:
                 typ_comments.append(f"{name_arg} : index")
             # setup, arguments
             else:
+                assert a.type.is_numeric()
+                assert a.type.basetype() != T.R
                 if a.type.is_real_scalar():
                     self._scalar_refs.add(a.name)
                 if a.type.is_win():
@@ -357,7 +366,6 @@ class Compiler:
         self.names.pop()
         self._tab = self._tab[:-2]
 
-    # TODO: GLB
     def access_str(self, nm, idx_list):
         buf = self.env[nm]
         type = self.envtyp[nm]
@@ -429,23 +437,29 @@ class Compiler:
                 lhs = self.access_str(s.name, s.idx)
             rhs = self.comp_e(s.rhs)
 
-            cast = ""
-            if s.type.basetype() != s.rhs.type.basetype():
-                cast = f"({s.type.ctype()})"
-                if type(s.rhs) is LoopIR.BinOp:
-                    rhs = f"({rhs})"
+            # possibly cast!
+            lbtyp = s.type.basetype()
+            rbtyp = s.rhs.type.basetype()
+            if lbtyp != rbtyp:
+                assert s.type.is_real_scalar()
+                assert s.rhs.type.is_real_scalar()
+
+                if lbtyp == T.i8 and rbtyp == T.i32:
+                    rhs = f"_clamp_32to8({rhs})"
+                else:
+                    rhs = f"({lbtyp.ctype()})({rhs})"
 
             mem = self.mems[s.name]
             if styp is LoopIR.Assign:
                 #if not mem._write:
                 #    raise MemGenError(f"{s.srcinfo}: cannot write to buffer "+
                 #                      f"'{s.name}' in memory '{mem.name()}'")
-                self.add_line(f"{lhs} = {cast}{rhs};")
+                self.add_line(f"{lhs} = {rhs};")
             else:
                 #if not mem._reduce:
                 #    raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "+
                 #                      f"'{s.name}' in memory '{mem.name()}'")
-                self.add_line(f"{lhs} += {cast}{rhs};")
+                self.add_line(f"{lhs} += {rhs};")
         elif styp is LoopIR.WindowStmt:
             win_struct  = self.get_window_type(s.rhs.type)
             rhs         = self.comp_e(s.rhs)
@@ -479,6 +493,7 @@ class Compiler:
         elif styp is LoopIR.Alloc:
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
             assert s.type.basetype().is_real_scalar()
+            assert s.type.basetype() != T.R
             ctype = s.type.basetype().ctype()
             line = s.mem._alloc( name,
                                  ctype,
