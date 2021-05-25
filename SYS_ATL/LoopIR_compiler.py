@@ -150,7 +150,7 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
     fwd_decls, body = compile_to_strings(proc_list)
 
     #includes = "#include <stdio.h>\n" + "#include <stdlib.h>\n"
-    includes = ""
+    includes = "#include <stdint.h>"
 
     if malloc:
         includes += ("#include <assert.h>\n"+
@@ -249,8 +249,6 @@ def compile_to_strings(proc_list):
 class Compiler:
     def __init__(self, proc, **kwargs):
         assert type(proc) is LoopIR.proc
-        print("COMPILING")
-        print(proc)
 
         self.proc   = proc
         self.env    = Environment()
@@ -398,8 +396,6 @@ class Compiler:
             return self.tensor_strides(typ.shape(), prec)
 
     def get_idx_offset(self, name, typ, idx):
-        print(name)
-        print(typ)
         strides = self.get_strides(name, typ, prec=61)
         assert len(strides) == len(idx)
         acc = " + ".join([ f"({i}) * ({s})" for i,s in zip(idx,strides) ])
@@ -518,7 +514,7 @@ class Compiler:
                 d = dict()
                 assert len(s.f.args) == len(args)
                 for i in range(len(args)):
-                    d[str(s.f.args[i].name)] = args[i]
+                    d[str(s.f.args[i].name)] = f"({args[i]})"
 
                 self.add_line(f"{s.f.instr.format(**d)}")
             else:

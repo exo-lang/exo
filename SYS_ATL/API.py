@@ -45,6 +45,14 @@ class MarkDownBlob:
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   Procedure Objects
+
+def compile_procs(proc_list, path, c_file, h_file, malloc=False):
+    assert isinstance(proc_list, list)
+    assert all(type(p) is Procedure for p in proc_list)
+    run_compile([ p._loopir_proc for p in proc_list ],
+                path, c_file, h_file, malloc=malloc)
+
+
 class Procedure:
     def __init__(self, proc, _testing=None, _provenance_eq_Procedure=None):
         if isinstance(proc, LoopIR.proc):
