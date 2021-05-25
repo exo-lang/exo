@@ -124,6 +124,7 @@ _window_struct_shorthand = {
     T.f32       : 'f32',
     T.f64       : 'f64',
     T.i8        : 'i8',
+    T.i32       : 'i32',
 }
 
 def window_struct(basetyp, n_dims):
