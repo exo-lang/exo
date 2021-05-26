@@ -215,7 +215,7 @@ def test_ldzerost_acc_i8_16():
   def ldzerost_acc_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
     tmp : i32[16,16] @ GEMM_ACCUM
     ld_acc_i8(16,16, x, tmp)
-    zero_acc_i8(8,8, tmp[4:12,:])
+    zero_acc_i32(8,8, tmp[4:12,:])
     st_acc_i8(16,16, tmp, y)
   T.add_proc(ldzerost_acc_i8_16)
 
@@ -245,3 +245,118 @@ def test_ldzerost_acc_i8_16():
               ''])
 
   T.compile().run()
+
+
+# --------------------------------------------------------------------------- #
+#   Individual MatMul Tests
+# --------------------------------------------------------------------------- #
+
+
+
+def test_matmul_i8_ones_16():
+  T = GemmTestBuilder('matmul_i8_ones_16')
+  T.add_body(['gemm_init_mem();',
+              'gemmini_flush(0);',
+              ''])
+
+
+  T.alloc_dram_2i8('x', 16, 16, '1')
+  T.alloc_dram_2i8('y', 16, 16, '1')
+  T.alloc_dram_2i8('z', 16, 16, '16') # expected result
+  T.alloc_dram_2i8('res', 16, 16, '0')
+
+  @proc
+  def matmul_i8_ones_16(
+    x : i8[16,16] @ DRAM,
+    y : i8[16,16] @ DRAM,
+    res : i8[16,16] @ DRAM,
+  ):
+    A : i8[16,16] @ GEMM_SCRATCH
+    B : i8[16,16] @ GEMM_SCRATCH
+    C : i32[16,16] @ GEMM_ACCUM
+    ld_i8(16,16, x, A)
+    ld_i8(16,16, y, B)
+    zero_acc_i32(16,16, C)
+
+    matmul_i8(16,16,16, A, B, C)
+
+    st_acc_i8(16,16, C, res)
+  T.add_proc(matmul_i8_ones_16)
+
+
+  T.add_body(['matmul_i8_ones_16(x, y, res);',
+              '',
+              'gemmini_fence();',
+              '',
+              'if(check_eq_2i8(16,16, z, res)) {',
+              '    printf("Correct\\n");',
+              '} else {',
+              '    printf("Results Don\'t Match\\n");',
+              '    printf("Correct Result (res):\\n");',
+              '    print_2i8(16,16, res);',
+              '    printf("Computed Roundtrip (z):\\n");',
+              '    print_2i8(16,16, z);',
+              '    exit(1);',
+              '}',
+              ''])
+
+  T.compile().run()
+
+
+def test_matmul_i8_ones_odd():
+  T = GemmTestBuilder('matmul_i8_ones_odd')
+  T.add_body(['gemm_init_mem();',
+              'gemmini_flush(0);',
+              ''])
+
+
+  # 15 x 9 x 13
+  T.alloc_dram_2i8('x', 15, 9, '1')
+  T.alloc_dram_2i8('y', 9, 13, '1')
+  T.alloc_dram_2i8('z', 15, 13, '9') # expected result
+  T.alloc_dram_2i8('res', 15, 13, '0')
+
+  @proc
+  def matmul_i8_ones_odd(
+    x : i8[15,9] @ DRAM,
+    y : i8[9,13] @ DRAM,
+    res : i8[15,13] @ DRAM,
+  ):
+    A : i8[15,16] @ GEMM_SCRATCH
+    B : i8[9,16] @ GEMM_SCRATCH
+    C : i32[15,16] @ GEMM_ACCUM
+    ld_i8(15,9, x, A)
+    ld_i8(9,13, y, B)
+    zero_acc_i32(15,13, C)
+
+    matmul_i8(15,13,9, A, B, C)
+
+    st_acc_i8(15,13, C, res)
+  T.add_proc(matmul_i8_ones_odd)
+
+
+  T.add_body(['matmul_i8_ones_odd(x, y, res);',
+              '',
+              'gemmini_fence();',
+              '',
+              'if(check_eq_2i8(15,13, z, res)) {',
+              '    printf("Correct\\n");',
+              '} else {',
+              '    printf("Results Don\'t Match\\n");',
+              '    printf("Correct Result (res):\\n");',
+              '    print_2i8(15,13, res);',
+              '    printf("Computed Roundtrip (z):\\n");',
+              '    print_2i8(15,13, z);',
+              '    exit(1);',
+              '}',
+              ''])
+
+  T.compile().run()
+
+
+
+
+
+
+
+

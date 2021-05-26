@@ -89,10 +89,10 @@ def zero_i8(
         for j in par(0, m):
             dst[i,j] = 0.0
 
-zero_acc_i8 = (zero_i8.rename('zero_acc_i8')
-                      .set_precision('dst', 'i32')
-                      .set_memory('dst', GEMM_ACCUM)
-                      .make_instr(_gemm_zero_i8))
+zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
+                       .set_precision('dst', 'i32')
+                       .set_memory('dst', GEMM_ACCUM)
+                       .make_instr(_gemm_zero_i8))
 
 @instr("gemmini_config_ex(WS, NO_ACTIVATION, 0, ACC_SCALE_IDENTITY, 0);\n"+
        "gemmini_extended_preload("+

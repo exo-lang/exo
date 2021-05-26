@@ -689,7 +689,9 @@ class CheckEffects:
             eqv_dim = SMT.And(eqv_dim, eq_here)
         if not self.solver.is_valid(eqv_dim):
             self.err(node, "type-shape of calling argument may not equal "+
-                           "the required type-shape")
+                           "the required type-shape: "+
+                           f"[{','.join(map(str,argshp))}] vs. "+
+                           f"[{','.join(map(str,sigshp))}]")
 
     def map_stmts(self, body):
         """ Returns an effect for the argument `body`

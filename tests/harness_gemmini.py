@@ -238,9 +238,16 @@ class GemmTestBuilder:
     self.body += [f'{name} = (int8_t*)((uint64_t){malloc}({N}*{M}/16));',
                   '']
 
+  def start_timer(self, name):
+    self.body += [f'unsigned long {name}_start = read_cycles();']
+
+  def stop_timer(self, name, msg):
+    self.body += [f'unsigned long {name}_stop = read_cycles();',
+                  f'printf("{msg}: %d\\n", {name}_stop - {name}_start);',
+                  '']
+
   def add_body(self, lines):
     assert type(lines) is list
     self.body += lines
 
-  def check_2i8(self, N, M, lhs, rhs):
-    self.body += [f'']
+
