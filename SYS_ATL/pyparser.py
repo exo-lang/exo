@@ -528,16 +528,17 @@ class Parser:
 
             # ----- Sub-routine call parsing
             elif (type(s) is pyast.Expr and
-                  type(s.value) is pyast.Call and
-                  type(s.value.func) is pyast.Name):
-                fname = s.value.func.id
-                if fname in self.locals:
-                    f = self.locals[fname]
-                elif fname in self.globals:
-                    f = self.globals[fname]
-                else:
-                    self.err(s.value.func, f"procedure '{fname}' "+
-                                            "was undefined")
+                  type(s.value) is pyast.Call): #and
+                  #type(s.value.func) is pyast.Name):
+                f = self.eval_expr(s.value.func)
+                #fname = s.value.func.id
+                #if fname in self.locals:
+                #    f = self.locals[fname]
+                #elif fname in self.globals:
+                #    f = self.globals[fname]
+                #else:
+                #    self.err(s.value.func, f"procedure '{fname}' "+
+                #                            "was undefined")
                 if not isinstance(f, Procedure):
                     self.err(s.value.func, f"expected '{fname}' "+
                                             "to be a procedure")
@@ -616,6 +617,7 @@ class Parser:
                      for e in dims ]
 
             return node.value, idxs, is_window
+        else: assert False, "bad case"
 
     def parse_slice(self, e, node):
         if sys.version_info[:3] >= (3, 9):
@@ -643,15 +645,35 @@ class Parser:
         if type(e) is pyast.Name or type(e) is pyast.Subscript:
             nm_node, idxs, is_window = self.parse_array_indexing(e)
 
-            # get the buffer name
-            if nm_node.id not in self.locals:
-                self.err(nm_node, f"variable '{nm_node.id}' undefined")
-            nm = self.locals[nm_node.id]
+            if nm_node.id in self.locals:
+                nm = self.locals[nm_node.id]
+            elif nm_node.id in self.globals:
+                nm = self.globals[nm_node.id]
+            else:
+                nm = None
+            
             if type(nm) is SizeStub:
                 nm = nm.nm
-            elif type(nm) is not Sym:
-                self.err(nm_node, f"expected '{nm_node.id}' to refer to " +
-                                  f"a local variable")
+            elif type(nm) is Sym:
+                pass # nm is already set correctly
+            elif type(nm) is int or type(nm) is float:
+                if len(idxs) > 0:
+                    self.err(nm_node, f"cannot index '{nm_node.id}' because "+
+                                      f"it is the constant {nm}")
+                else:
+                    return UAST.Const(nm, self.getsrcinfo(e))
+            else: # could not resolve name to anything
+                self.err(nm_node, f"variable '{nm_node.id}' undefined")
+
+            ## get the buffer name
+            #if nm_node.id not in self.locals:
+            #    self.err(nm_node, f"variable '{nm_node.id}' undefined")
+            #nm = self.locals[nm_node.id]
+            #if type(nm) is SizeStub:
+            #    nm = nm.nm
+            #elif type(nm) is not Sym:
+            #    self.err(nm_node, f"expected '{nm_node.id}' to refer to " +
+            #                      f"a local variable")
 
             if is_window:
                 return UAST.WindowExpr(nm, idxs, self.getsrcinfo(e))
@@ -807,12 +829,6 @@ class PatternParser:
 
     def pop(self):
         pass
-
-    #def eval_expr(self, expr):
-    #    assert isinstance(expr, pyast.expr)
-    #    code = compile(pyast.Expression(expr), '', 'eval')
-    #    e_obj = eval(code)
-    #    return e_obj
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # structural parsing rules...

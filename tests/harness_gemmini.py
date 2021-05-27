@@ -19,6 +19,8 @@ if GEMMINI_ROOT is None:
                 allow_module_level=True)
   GEMMINI_ROOT = os.path.join(RISCV,'..','generators','gemmini')
 GEMMINI_ROOT        = os.path.abspath(GEMMINI_ROOT)
+CHIPYARD_ROOT       = os.path.abspath(os.path.join(GEMMINI_ROOT,'..','..'))
+SIMS_VCS_DIR        = os.path.join(CHIPYARD_ROOT,'sims','vcs')
 GEMMINI_ROCC_TESTS  = os.path.join(GEMMINI_ROOT,'software',
                                                 'gemmini-rocc-tests')
 ROOT                = GEMMINI_ROCC_TESTS
@@ -66,6 +68,8 @@ class ENV:
   pass
 
 ENV.GEMMINI_ROOT        = GEMMINI_ROOT
+ENV.CHIPYARD_ROOT       = CHIPYARD_ROOT
+ENV.SIMS_VCS_DIR        = SIMS_VCS_DIR
 ENV.GEMMINI_ROCC_TESTS  = GEMMINI_ROCC_TESTS
 ENV.ROOT                = ROOT
 ENV.BCOMMON             = BCOMMON
@@ -139,6 +143,13 @@ def gemmini_run(binfile):
   if 0 != subprocess.call(CMD, shell=True):
     raise OSError("Spike Execution Failed")
 
+def gemmini_run_on_vcs(binfile):
+  binfile   = os.path.join(ENV.GEMM_BUILD_DIR, binfile)
+  CMD = f"{SIMS_VCS_DIR}/simv-chipyard-GemminiRocketConfig {binfile}"
+
+  if 0 != subprocess.call(CMD, shell=True):
+    raise OSError("VCS Execution Failed")
+
 class GemmTestBuilder:
   def __init__(self, test_name):
     self.test_name  = test_name
@@ -192,6 +203,8 @@ class GemmTestBuilder:
   def run(self):
     gemmini_run(self.test_name)
 
+  def vcs(self):
+    gemmini_run_on_vcs(self.test_name)
 
 
   def alloc_dram_2i8(self, name, N, M, init):

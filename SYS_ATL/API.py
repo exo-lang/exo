@@ -157,6 +157,14 @@ class Procedure:
                          instr, p.eff, p.srcinfo )
         return Procedure(p, _provenance_eq_Procedure=self)
 
+    def partial_eval(self, *args):
+        p = self._loopir_proc
+        if len(args) > len(p.args):
+            raise TypeError(f"expected no more than {len(p.args)} "+
+                            f"arguments, but got {len(args)}")
+        p = Schedules.DoPartialEval(p, args).result()
+        return Procedure(p)
+
     def set_precision(self, name, typ_abbreviation):
         name, count = name_plus_count(name)
         _shorthand = {
@@ -218,7 +226,8 @@ class Procedure:
 
         return call_stmt
 
-    def split(self, split_var, split_const, out_vars, cut_tail=False):
+    def split(self, split_var, split_const, out_vars,
+              cut_tail=False, perfect=False):
         if type(split_var) is not str:
             raise TypeError("expected first arg to be a string")
         elif not is_pos_int(split_const):
@@ -240,7 +249,8 @@ class Procedure:
         for s in stmts:
             loopir  = Schedules.DoSplit(loopir, s, quot=split_const,
                                         hi=out_vars[0], lo=out_vars[1],
-                                        cut_tail=cut_tail).result()
+                                        cut_tail=cut_tail,
+                                        perfect=perfect).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def reorder(self, out_var, in_var):

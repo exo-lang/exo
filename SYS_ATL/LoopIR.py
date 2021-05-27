@@ -425,7 +425,7 @@ class LoopIR_Rewrite:
                                 preds   = preds,
                                 body    = body,
                                 instr   = instr,
-                                eff     = self.orig_proc.eff,
+                                eff     = eff,
                                 srcinfo = self.orig_proc.srcinfo)
 
     def _minimal_init(self, proc):
@@ -551,8 +551,7 @@ class LoopIR_Rewrite:
 
 class LoopIR_Do:
     def __init__(self, proc, *args, **kwargs):
-        self.proc  = proc
-        self._do_cache = {}
+        self._minimal_init(proc)
 
         for a in self.proc.args:
             self.do_t(a.type)
@@ -560,6 +559,10 @@ class LoopIR_Do:
             self.do_e(p)
 
         self.do_stmts(self.proc.body)
+
+    def _minimal_init(self, proc):
+        self.proc      = proc
+        self._do_cache = {}
 
     def do_stmts(self, stmts):
         for s in stmts:
@@ -600,10 +603,10 @@ class LoopIR_Do:
             self.do_e(e.lhs)
             self.do_e(e.rhs)
         elif etyp is LoopIR.WindowExpr:
-            if e in self._do_cache:
+            if id(e) in self._do_cache:
                 return
             else:
-                self._do_cache[e] = True
+                self._do_cache[id(e)] = True
 
             def do_w(w):
                 if type(w) is LoopIR.Interval:
@@ -624,10 +627,10 @@ class LoopIR_Do:
             for i in t.hi:
                 self.do_e(i)
         elif type(t) is T.Window:
-            if t in self._do_cache:
+            if id(t) in self._do_cache:
                 return
             else:
-                self._do_cache[t] = True
+                self._do_cache[id(t)] = True
 
             self.do_t(t.src)
             self.do_t(t.as_tensor)

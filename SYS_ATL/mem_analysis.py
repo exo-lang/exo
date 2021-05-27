@@ -5,6 +5,8 @@ from .prelude import *
 
 from .LoopIR import LoopIR
 
+from .memory import DRAM
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Memory Analysis Pass
@@ -13,8 +15,15 @@ class MemoryAnalysis:
     def __init__(self, proc):
         assert type(proc) is LoopIR.proc
 
+        self.mem_env = {}
+
         self.proc = proc
         self.tofree = []
+
+        for a in proc.args:
+            if a.type.is_numeric():
+                mem = a.mem if a.mem else DRAM
+                self.mem_env[a.name] = mem
 
     def result(self):
         body = self.mem_stmts(self.proc.body)
@@ -55,13 +64,36 @@ class MemoryAnalysis:
 
         return body
 
+    def get_e_mem(self, e):
+        if type(e) is LoopIR.WindowExpr or type(e) is LoopIR.Read:
+            return self.mem_env[e.name]
+        else: assert False
+
     def mem_s(self, s):
         styp = type(s)
 
         if (styp is LoopIR.Pass or styp is LoopIR.Assign or
-              styp is LoopIR.Reduce or styp is LoopIR.Call or
-              styp is LoopIR.WindowStmt):
+              styp is LoopIR.Reduce):
             return s
+
+        elif styp is LoopIR.WindowStmt:
+            mem = self.get_e_mem(s.rhs)
+            self.mem_env[s.lhs] = mem
+            return s
+            
+        elif styp is LoopIR.Call:
+            # check memory consistency at call boundaries
+            for ca, sa in zip(s.args, s.f.args):
+                if sa.type.is_numeric():
+                    smem = sa.mem if sa.mem else DRAM
+                    cmem = self.get_e_mem(ca)
+                    if smem != cmem:
+                        raise TypeError(f"{ca.srcinfo}: expected "+
+                            f"argument in {smem.name()} but got an "+
+                            f"argument in {cmem.name()}")
+
+            return s
+
         elif styp is LoopIR.If:
             body    = self.mem_stmts(s.body)
             ebody   = self.mem_stmts(s.orelse)
@@ -70,8 +102,11 @@ class MemoryAnalysis:
             body = self.mem_stmts(s.body)
             return LoopIR.ForAll(s.iter, s.hi, body, None, s.srcinfo)
         elif styp is LoopIR.Alloc:
+            mem = s.mem if s.mem else DRAM
+            self.mem_env[s.name] = mem
             self.add_malloc(s.name, s.type, s.mem)
             return s
+
         elif styp is LoopIR.Free:
             assert False, ("There should not be frees inserted " +
                            "before mem analysis")

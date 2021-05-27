@@ -119,6 +119,39 @@ def matmul_i8(
 
     for i in par(0,N):
         for j in par(0,M):
+            C[i,j] = 0.0
+            for k in par(0,K):
+                a : i32
+                b : i32
+                a = A[i,k]
+                b = B[k,j]
+                C[i, j] += a * b
+
+@instr("gemmini_config_ex(WS, NO_ACTIVATION, 0, ACC_SCALE_IDENTITY, 0);\n"+
+       "gemmini_extended_preload("+
+            "(uint64_t)({B}.data), (uint64_t)({C}.data) | 0x40000000, "+
+            "{M}, {K}, "+
+            "{M}, {N}"+
+       ");\n"+
+       "gemmini_extended_compute_preloaded("+
+            "(uint64_t)({A}.data), ~((uint64_t)0), "+
+            "{K}, {N}, "+
+            "16, 16"+
+       ");")
+def matmul_acc_i8(
+    N : size,
+    M : size,
+    K : size,
+    A : [i8][N, 16] @ GEMM_SCRATCH,
+    B : [i8][K, 16] @ GEMM_SCRATCH,
+    C : [i32][N, 16] @ GEMM_ACCUM,
+):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    for i in par(0,N):
+        for j in par(0,M):
             for k in par(0,K):
                 a : i32
                 b : i32

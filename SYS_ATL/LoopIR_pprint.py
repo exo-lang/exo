@@ -106,7 +106,7 @@ class UAST_PPrinter:
             isinstance(self._node, UAST.w_access)):
             assert len(self._lines) == 1
             return self._lines[0]
-
+            
         fmtstr, linted = FormatCode("\n".join(self._lines))
         if isinstance(self._node, LoopIR.proc):
             assert linted, "generated unlinted code..."
@@ -160,7 +160,11 @@ class UAST_PPrinter:
 
         self.push()
         if p.instr:
-            self.addline(f'# @instr("{p.instr}")')
+            instr_lines = p.instr.split('\n')
+            instr_lines = ([f'# @instr {instr_lines[0]}']+
+                           [f'#        {l}' for l in instr_lines[1:] ])
+            for l in instr_lines:
+                self.addline(l)
         for pred in p.preds:
             self.addline(f"assert {self.pexpr(pred)}")
         self.pstmts(p.body)
@@ -387,7 +391,11 @@ class LoopIR_PPrinter:
 
         self.push()
         if p.instr:
-            self.addline(f'# @instr("{p.instr}")')
+            instr_lines = p.instr.split('\n')
+            instr_lines = ([f'# @instr {instr_lines[0]}']+
+                           [f'#        {l}' for l in instr_lines[1:] ])
+            for l in instr_lines:
+                self.addline(l)
         for pred in p.preds:
             self.addline(f"assert {self.pexpr(pred)}")
         for proc in p.body:

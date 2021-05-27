@@ -6,6 +6,7 @@ from .LoopIR_effects import Effects as E
 from .LoopIR_effects import get_effect_of_stmts
 from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
                              eff_null, eff_remove_buf, effect_as_str)
+from .effectcheck import InferEffects
 import re
 
 from collections import defaultdict, ChainMap
@@ -123,7 +124,8 @@ class _Reorder(LoopIR_Rewrite):
 
 
 class _Split(LoopIR_Rewrite):
-    def __init__(self, proc, split_loop, quot, hi, lo, cut_tail=False):
+    def __init__(self, proc, split_loop, quot, hi, lo,
+                 cut_tail=False, perfect=False):
         self.split_loop     = split_loop
         self.split_var      = split_loop.iter
         self.quot = quot
@@ -134,6 +136,8 @@ class _Split(LoopIR_Rewrite):
         assert quot > 1
 
         self._tail_strategy = 'cut' if cut_tail else 'guard'
+        if perfect:
+            self._tail_strategy = 'perfect'
         self._in_cut_tail = False
 
         super().__init__(proc)
@@ -235,6 +239,33 @@ class _Split(LoopIR_Rewrite):
                             tail_eff, s.srcinfo)]
 
                 return loops
+
+            elif self._tail_strategy == 'perfect':
+                if type(s.hi) is not LoopIR.Const:
+                    raise SchedulingError(
+                        f"cannot perfectly split the '{s.iter}' loop "+
+                        f"unless it has a constant bound")
+                elif s.hi.val % self.quot != 0:
+                    raise SchedulingError(
+                        f"cannot perfectly split the '{s.iter}' loop "+
+                        f"because {self.quot} does not evenly divide "+
+                        f"{s.hi.val}")
+                
+                # otherwise, we're good to go
+                body    = self.map_stmts(s.body)
+                body_eff= get_effect_of_stmts(body)
+
+                lo_rng  = cnst(self.quot)
+                hi_rng  = cnst(s.hi.val // self.quot)
+
+                # pred for inner loop is: 0 <= lo <= lo_rng
+                inner_eff   = do_bind(self.lo_i, lo_rng, body_eff)
+
+                return [LoopIR.ForAll(self.hi_i, hi_rng,
+                            [LoopIR.ForAll(self.lo_i, lo_rng,
+                                body,
+                                inner_eff, s.srcinfo)],
+                            s.eff, s.srcinfo)]
 
             else: assert False, f"bad tail strategy"
 
@@ -394,6 +425,69 @@ class _Inline(LoopIR_Rewrite):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Partial Evaluation scheduling directive
+
+
+class _PartialEval(LoopIR_Rewrite):
+    def __init__(self, proc, arg_vals):
+        self.env        = {}
+        arg_gap         = len(proc.args) - len(arg_vals)
+        assert arg_gap >= 0
+        arg_vals = list(arg_vals) + [ None for _ in range(arg_gap) ]
+
+        super()._minimal_init(proc)
+
+        # bind values for partial evaluation
+        for v, a in zip(arg_vals, proc.args):
+            if v is None:
+                pass
+            elif a.type.is_indexable():
+                if type(v) is int:
+                    self.env[a.name] = v
+                else:
+                    raise SchedulingError("cannot partially evaluate "+
+                                          "to a non-int value")
+            else:
+                raise SchedulingError("cannot partially evaluate "+
+                                      "numeric (non-index) arguments")
+
+        args    = [ self.map_fnarg(a) for v,a in zip(arg_vals, proc.args)
+                                      if v is None ]
+        preds   = [ self.map_e(p) for p in self.orig_proc.preds ]
+        body    = self.map_stmts(self.orig_proc.body)
+        eff     = self.map_eff(self.orig_proc.eff)
+
+        self.proc = LoopIR.proc(name    = self.orig_proc.name,
+                                args    = args,
+                                preds   = preds,
+                                body    = body,
+                                instr   = None,
+                                eff     = eff,
+                                srcinfo = self.orig_proc.srcinfo)
+
+    def map_e(self,e):
+        if type(e) is LoopIR.Read:
+            if e.type.is_indexable():
+                assert len(e.idx) == 0
+                if e.name in self.env:
+                    return LoopIR.Const(self.env[e.name], T.int, e.srcinfo)
+            
+        return super().map_e(e)
+
+    def map_eff_e(self,e):
+        if type(e) is E.Var:
+            assert e.type.is_indexable()
+            if e.name in self.env:
+                return E.Const(self.env[e.name], T.int, e.srcinfo)
+
+        return super().map_eff_e(e)
+
+
+
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Set Type and/or Memory Annotations scheduling directive
 
 
@@ -477,9 +571,9 @@ class _SetTypAndMem(LoopIR_Rewrite):
 
                 # if that passed, we definitely found the symbol being pointed at
                 # So attempt the substitution
-                typ     = a.type
+                typ     = s.type
                 assert typ.is_numeric()
-                mem     = a.mem
+                mem     = s.mem
                 if self.basetyp is not None:
                     typ = self.change_precision(typ)
                 elif self.win is not None:
@@ -489,7 +583,7 @@ class _SetTypAndMem(LoopIR_Rewrite):
                     assert self.mem is not None
                     mem = self.mem
 
-                return [LoopIR.Alloc( s.name, typ, mem, s.effect, s.srcinfo )]
+                return [LoopIR.Alloc( s.name, typ, mem, s.eff, s.srcinfo )]
 
         # fall-through
         return super().map_s(s)
@@ -582,7 +676,9 @@ class _Alloc_Dependencies(LoopIR_Do):
         self._buf_sym = buf_sym
         self._lhs     = None
         self._depends = defaultdict(lambda: set())
+        self._alias   = defaultdict(lambda: None)
 
+        super()._minimal_init(None)
         self.do_stmts(stmts)
 
     def result(self):
@@ -590,35 +686,90 @@ class _Alloc_Dependencies(LoopIR_Do):
 
     def do_s(self, s):
         if type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
-            self._lhs = s.name
-            self._depends[s.name].add(s.name)
+            lhs         = self._alias[s.name] or s.name
+            self._lhs   = lhs
+            self._depends[lhs].add(lhs)
+        elif type(s) is LoopIR.WindowStmt:
+            rhs_buf     = self._alias[s.rhs.name] or s.rhs.name
+            self._alias[s.lhs] = rhs_buf
+            self._lhs   = rhs_buf
+            self._depends[rhs_buf].add(rhs_buf)
         elif type(s) is LoopIR.Call:
+            # internal dependencies of each argument
+            for a in s.args:
+                self.do_e(a)
             # giant cross-bar of dependencies on the arguments
             for fa, a in zip(s.f.args, s.args):
-                maybe_out = (not fa.effect or fa.effect != T.In)
-                buf_arg   = (a.type.is_numeric() and type(a) is LoopIR.Read)
-                if buf_arg and maybe_out:
-                    self._lhs = a.name
+                if fa.type.is_numeric():
+                    name = self._alias[a.name] or a.name
+                    # handle any potential indexing of this variable
                     for aa in s.args:
-                        maybe_in = (not fa.effect or fa.effect != T.Out)
-                        if maybe_in:
+                        if aa.type.is_indexable():
                             self.do_e(aa)
+                    # if this buffer is being written,
+                    # then handle dependencies on other buffers
+                    maybe_write = self.analyze_eff(s.f.eff, fa.name,
+                                                   write=True)
+                    if maybe_write:
+                      self._lhs = name
+                      for faa, aa in zip(s.f.args, s.args):
+                        if faa.type.is_numeric():
+                          maybe_read  = self.analyze_eff(s.f.eff, faa.name,
+                                                         read=True)
+                          if maybe_read:
+                            self.do_e(aa)
+                      self._lhs = None
 
             # already handled all sub-terms above
             # don't do the usual statement processing
             return
-        else:
-            self._lhs = None
 
         super().do_s(s)
+        self._lhs = None
+
+    def analyze_eff(self, eff, buf, write=False, read=False):
+        if read:
+            if any(es.buffer == buf for es in eff.reads):
+                return True
+        if write:
+            if any(es.buffer == buf for es in eff.writes):
+                return True
+        if read or write:
+            if any(es.buffer == buf for es in eff.reduces):
+                return True
+        
+        return False
 
     def do_e(self, e):
-        if type(e) is LoopIR.Read:
-            if self._lhs:
-                self._depends[self._lhs].add(e.name)
+        if type(e) is LoopIR.Read or type(e) is LoopIR.WindowExpr:
+            def visit_idx(e):
+                if type(e) is LoopIR.Read:
+                    for i in e.idx:
+                        self.do_e(i)
+                else:
+                    for w in e.idx:
+                        if type(w) is LoopIR.Interval:
+                            self.do_e(w.lo)
+                            self.do_e(w.hi)
+                        else:
+                            self.do_e(w.pt)
+                            
+            lhs     = self._lhs
+            name    = self._alias[e.name] or e.name
+            self._lhs = name
+            if lhs:
+                self._depends[lhs].add(name)
+            visit_idx(e)
+            self._lhs = lhs
+            visit_idx(e)
+        
+        else:
+            super().do_e(e)
 
-        super().do_e(e)
-
+    def do_t(self, t):
+        pass
+    def do_eff(self, eff):
+        pass
 
 class _LiftAlloc(LoopIR_Rewrite):
     def __init__(self, proc, alloc_stmt, n_lifts):
@@ -629,6 +780,7 @@ class _LiftAlloc(LoopIR_Rewrite):
         self.alloc_sym      = alloc_stmt.name
         self.alloc_deps     = _Alloc_Dependencies(self.alloc_sym,
                                                   proc.body).result()
+
         self.n_lifts        = n_lifts
 
         self.ctrl_ctxt      = []
@@ -636,10 +788,14 @@ class _LiftAlloc(LoopIR_Rewrite):
 
         self.lifted_stmt    = None
         self.access_idxs    = None
+        self.alloc_type     = None
         self._in_call_arg   = False
 
         super().__init__(proc)
 
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+                   
     def map_s(self, s):
         if s == self.alloc_stmt:
             # mark the point we want to lift this alloc-stmt to
@@ -652,13 +808,17 @@ class _LiftAlloc(LoopIR_Rewrite):
             # compute the lifted allocation buffer type, and
             # the new allocation statement
             new_typ = s.type
+            if type(new_typ) is T.Tensor:
+                rngs += new_typ.shape()
+                new_typ = new_typ.basetype()
             if len(rngs) > 0:
                 new_typ = T.Tensor(rngs, False, new_typ)
 
-            # TODO: What is the effect here?
+            # effect remains null
             self.lifted_stmt = LoopIR.Alloc( s.name, new_typ, s.mem,
                                              None, s.srcinfo )
             self.access_idxs = idxs
+            self.alloc_type  = new_typ
 
             # erase the statement from this location
             return []
@@ -701,14 +861,44 @@ class _LiftAlloc(LoopIR_Rewrite):
     def map_e(self, e):
         if type(e) is LoopIR.Read and e.name == self.alloc_sym:
             assert self.access_idxs is not None
-            if self._in_call_arg:
-                raise SchedulingError("cannot lift allocation of "+
-                                      f"'{self.alloc_sym}' because it "+
-                                      "was passed into a sub-procedure "+
-                                      "call; TODO: fix this!")
-            idx = [ LoopIR.Read(i, [], T.index, e.srcinfo)
+            if len(self.access_idxs) == 0:
+                return e
+            
+            #if self._in_call_arg:
+            if e.type.is_real_scalar():
+                idx = [ LoopIR.Read(i, [], T.index, e.srcinfo)
+                        for i in self.access_idxs ] + e.idx
+                return LoopIR.Read( e.name, idx, e.type, e.srcinfo )
+            else:
+                assert self._in_call_arg
+                assert len(e.idx) == 0
+                # then we need to replace this read with a
+                # windowing expression
+                idx = ([ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
+                                     e.srcinfo)
+                        for i in self.access_idxs ] +
+                       [ LoopIR.Interval(LoopIR.Const(0,T.int,e.srcinfo),
+                                         hi, e.srcinfo)
+                         for hi in e.type.shape() ])
+                tensor_type = (e.type.as_tensor if type(e.type) is T.Window
+                               else e.type)
+                win_e = LoopIR.WindowExpr( e.name, idx, e.type, e.srcinfo )
+                win_e.type = T.Window( self.alloc_type, tensor_type,
+                                       win_e )
+                return win_e
+
+        if type(e) is LoopIR.WindowExpr and e.name == self.alloc_sym:
+            assert self.access_idxs is not None
+            if len(self.access_idxs) == 0:
+                return e
+            # otherwise, extend windowing with accesses...
+
+            idx = [ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
+                                 e.srcinfo)
                     for i in self.access_idxs ] + e.idx
-            return LoopIR.Read( e.name, idx, e.type, e.srcinfo )
+            win_e = LoopIR.WindowExpr( e.name, idx, e.type, e.srcinfo )
+            win_e.type = T.Window( self.alloc_type, e.type.as_tensor, win_e )
+            return win_e
 
         # fall-through
         return super().map_e(e)
@@ -751,6 +941,7 @@ class _Is_Alloc_Free(LoopIR_Do):
     def __init__(self, stmts):
         self._is_alloc_free = True
 
+        super()._minimal_init(None)
         self.do_stmts(stmts)
 
     def result(self):
@@ -1048,6 +1239,7 @@ class Schedules:
     DoSplit             = _Split
     DoUnroll            = _Unroll
     DoInline            = _Inline
+    DoPartialEval       = _PartialEval
     SetTypAndMem        = _SetTypAndMem
     DoCallSwap          = _CallSwap
     DoBindExpr          = _BindExpr
