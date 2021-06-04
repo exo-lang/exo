@@ -3,6 +3,7 @@ import sys
 from SYS_ATL import proc, instr, Procedure, DRAM
 sys.path.append(sys.path[0]+"/..")
 
+# Merge this file to frontend?
 
 def gen_conv1d():
     @instr("TEST", _testing="UAST")
