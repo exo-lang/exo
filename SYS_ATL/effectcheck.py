@@ -439,6 +439,19 @@ class CheckEffects:
             raise TypeError("Errors occurred during effect checking:\n" +
                             "\n".join(self.errors))
 
+    def counter_example(self):
+        smt_syms = [ smt for sym,smt in self.env.items() if smt.get_type() == SMT.INT ]
+        val_map = self.solver.get_py_values(smt_syms)
+
+        mapping = []
+        for sym,smt in self.env.items():
+            if smt.get_type() == SMT.INT:
+                s = f" {sym} = {val_map[smt]}"
+                if s not in mapping:
+                    mapping.append(s)
+
+        return ",".join(mapping)
+
     def result(self):
         return self.orig_proc
 
@@ -594,9 +607,10 @@ class CheckEffects:
                 rhs = SMT.LT(e, self.expr_to_smt(hi))
                 in_bds = SMT.And(in_bds, SMT.And(lhs, rhs))
 
-            # TODO: Extract counter example from SMT solver
             if not self.solver.is_valid(in_bds):
-                self.err(eff, f"{sym} is {eff_str} out-of-bounds")
+                eg = self.counter_example()
+                self.err(eff, f"{sym} is {eff_str} out-of-bounds "+
+                              f"when: {eg}.")
 
             self.solver.pop()
 
@@ -646,9 +660,10 @@ class CheckEffects:
                 loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
 
             if not self.solver.is_valid(loc_neq):
+                eg = self.counter_example()
                 self.err(e1, f"data race conflict with statement on "+
                              f"{e2.srcinfo} while accessing {e1.buffer} "+
-                             f"in loop over {iter}.")
+                             f"in loop over {iter}, when: {eg}.")
 
             self.solver.pop()
 
@@ -678,7 +693,9 @@ class CheckEffects:
     def check_pos_size(self, expr):
         e_pos = SMT.LT( SMT.Int(0), self.expr_to_smt(expr) )
         if not self.solver.is_valid(e_pos):
-            self.err(expr, "expected expression to always be positive")
+            eg = self.counter_example()
+            self.err(expr, "expected expression to always be positive. "+
+                           f"It can be non positive when: {eg}.")
 
     def check_call_shape_eqv(self, argshp, sigshp, node):
         assert len(argshp) == len(sigshp)
@@ -688,10 +705,12 @@ class CheckEffects:
                        self.expr_to_smt(s))
             eqv_dim = SMT.And(eqv_dim, eq_here)
         if not self.solver.is_valid(eqv_dim):
+            eg = self.counter_example()
             self.err(node, "type-shape of calling argument may not equal "+
                            "the required type-shape: "+
                            f"[{','.join(map(str,argshp))}] vs. "+
-                           f"[{','.join(map(str,sigshp))}]")
+                           f"[{','.join(map(str,sigshp))}]."+
+                           f" It could be non equal when: {eg}")
 
     def map_stmts(self, body):
         """ Returns an effect for the argument `body`
@@ -783,8 +802,10 @@ class CheckEffects:
                         pred = lift_expr(p).subst(subst)
                         # Check that asserts are correct
                         if not self.solver.is_valid(self.expr_to_smt(pred)):
+                            eg = self.counter_example()
                             self.err(stmt, f"Could not verify assertion in "+
-                                           f"{stmt.f.name} at {p.srcinfo}")
+                                           f"{stmt.f.name} at {p.srcinfo}."+
+                                           f" Assertion is false when: {eg}")
 
                 body_eff = eff_union(body_eff, stmt.eff)
 
