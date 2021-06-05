@@ -446,9 +446,7 @@ class CheckEffects:
         mapping = []
         for sym,smt in self.env.items():
             if smt.get_type() == SMT.INT:
-                s = f" {sym} = {val_map[smt]}"
-                if s not in mapping:
-                    mapping.append(s)
+                mapping.append(f" {sym} = {val_map[smt]}")
 
         return ",".join(mapping)
 
@@ -594,7 +592,7 @@ class CheckEffects:
 #       IN_BOUNDS( x, T, (x, (i,j), nms, pred ) ) =
 #           forall nms in Z, pred ==> in_bounds(T, (i,j))
 
-            self.solver.push()
+            self.push()
             if eff.pred is not None:
                 self.solver.add_assertion(self.expr_to_smt(eff.pred))
             in_bds = SMT.Bool(True)
@@ -612,11 +610,11 @@ class CheckEffects:
                 self.err(eff, f"{sym} is {eff_str} out-of-bounds "+
                               f"when: {eg}.")
 
-            self.solver.pop()
+            self.pop()
 
     def check_bounds(self, sym, shape, eff):
-        effs = [(eff.reads, "read"), (eff.writes, "write"),
-                (eff.reduces, "reduce")]
+        effs = [(eff.reads, "read"), (eff.writes, "written"),
+                (eff.reduces, "reduced")]
 
         for (es,y) in effs:
             for e in es:
@@ -631,7 +629,7 @@ class CheckEffects:
 #                   [sub i0,nms0]loc0 != [sub i1,nms1]loc1
     def not_conflicts(self, iter, hi, e1, e2):
         if e1.buffer == e2.buffer:
-            self.solver.push()
+            self.push()
             # determine name substitutions
             iter1   = iter.copy()
             iter2   = iter.copy()
@@ -665,7 +663,7 @@ class CheckEffects:
                              f"{e2.srcinfo} while accessing {e1.buffer} "+
                              f"in loop over {iter}, when: {eg}.")
 
-            self.solver.pop()
+            self.pop()
 
 
 #       COMMUTES( i, n, (r, w, p) ) =

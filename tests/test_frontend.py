@@ -60,7 +60,68 @@ def test_bad_access3():
             huga : R
             huga = x2[100]
 
+# do sizes match
 
+# something that works but is on the edge of working
+
+# we added complex stuff about division and modulo
+# is that working?
+
+# are we testing a case of an else branch?
+
+# what if effset.pred is None?
+
+# size positivity checks
+
+# making sure asserts are checked
+# making sure asserts are used to prove other things
+
+# make sure that effects are getting translated through windowing
+# correctly
+
+# check that windowing is always in-bounds
+#   note checking above translation is maybe better done for data-races
+
+# Data Race? Yes
+# for i in par(0,n):
+#     if i+1 < n:
+#         x[i,i] = x[i+1,i+1]
+
+# Data Race? No
+# for i in par(0,n):
+#     if i+1 < n:
+#         x[i,i] = x[i+1,i]
+
+# Data Race? No
+# y = x[1:,:]
+# for i in par(0,n):
+#     if i+1 < n:
+#         x[i,i] = y[i,i]
+
+# one big issue is aliasing in sub-procedure arguments
+# def foo(n : size, x : [R][n,n], y : [R][n,n]):
+#   for i in par(0,n):
+#     if i+1 < n:
+#         x[i,i] = y[i,i]
+
+# stride assert
+
+# test basic commutativity properties exhaustively in combinations
+# R,W,+  R,W,+
+#
+# def foo():
+#   x : R
+#   for i in par(0,2):
+#       x = 3
+#       y = x
+
+# for i in par(0, n):
+#   x[2*i] = x[2*i+1]
+
+# https://en.wikipedia.org/wiki/Jacobi_method
+# red black gauss seidel
+# https://www.cs.cornell.edu/~bindel/class/cs5220-s10/slides/lec14.pdf
+# wavefront parallel
 
 # ------- Window related tests ---------
 

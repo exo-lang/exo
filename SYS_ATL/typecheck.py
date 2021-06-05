@@ -345,11 +345,14 @@ class TypeChecker:
         elif type(e) is UAST.USub:
             arg = self.check_e(e.arg)
             if arg.type.is_real_scalar() or arg.type.is_indexable():
-                neg1 = -1.0 if arg.type.is_real_scalar() else -1
-                return LoopIR.BinOp("*",
-                                    LoopIR.Const(neg1, arg.type, e.srcinfo),
-                                    arg,
-                                    arg.type, e.srcinfo)
+                if type(arg) is LoopIR.Const:
+                    return LoopIR.Const(arg.val, arg.type, e.srcinfo)
+                else:
+                    neg1 = -1.0
+                    if arg.type.is_indexable():
+                        neg1 = int(neg1)
+                    neg1 = LoopIR.Const(neg1, arg.type, e.srcinfo)
+                    return LoopIR.BinOp("*", neg1, arg, arg.type, e.srcinfo)
             elif arg.type != T.err:
                 self.err(e, f"cannot negate expression of type '{arg.type}'")
             return LoopIR.Const(0, T.err, e.srcinfo)
