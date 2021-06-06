@@ -455,12 +455,10 @@ def test_binop12():
                 pass
 
 def test_binop13():
-    with pytest.raises(TypeError,
-                       match='cannot divide or modulo by a non-constant value'):
-        @proc
-        def hoge(x : size, y : size):
-            if ((x / -3) > 0):
-                pass
+    @proc
+    def hoge(x : size, y : size):
+        if ((x / -3) > 0):
+            pass
 
 def test_binop14():
     @proc
