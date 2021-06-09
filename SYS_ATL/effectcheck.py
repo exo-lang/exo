@@ -421,7 +421,8 @@ class CheckEffects:
             # Construct strides
             if arg.type.is_numeric():
                 shape = [ lift_expr(s) for s in arg.type.shape() ]
-                strides[arg.name] = self.get_stride(shape)
+                if arg.type.is_tensor_or_window():
+                    strides[arg.name] = self.get_stride(shape)
 
         for p in proc.preds:
             if type(p) is LoopIR.StrideAssert:
@@ -815,7 +816,8 @@ class CheckEffects:
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
                         # initialize strides
-                        strides[sig.name] = self.get_stride(arg_shape)
+                        if arg.type.is_tensor_or_window():
+                            strides[sig.name] = self.get_stride(arg_shape)
 
                     elif sig.type.is_indexable():
                         # in this case we have a LoopIR expression...
