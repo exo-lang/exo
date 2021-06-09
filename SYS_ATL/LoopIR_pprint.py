@@ -1,5 +1,6 @@
 import re
 import textwrap
+from collections import ChainMap
 
 from .prelude import *
 from .LoopIR import UAST, front_ops, LoopIR
@@ -76,7 +77,7 @@ class UAST_PPrinter:
     def __init__(self, node):
         self._node = node
 
-        self.env = Environment()
+        self.env = ChainMap()
         self._tab = ""
         self._lines = []
 
@@ -114,17 +115,17 @@ class UAST_PPrinter:
 
     def push(self,only=None):
         if only is None:
-            self.env.push()
+            self.env.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.push()
+            self.env.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.pop()
+        self.env.parents
         self._tab = self._tab[:-2]
 
     def addline(self, line):
@@ -306,7 +307,7 @@ class LoopIR_PPrinter:
     def __init__(self, node):
         self._node = node
 
-        self.env = Environment()
+        self.env = ChainMap()
         self._tab = ""
         self._lines = []
 
@@ -343,17 +344,17 @@ class LoopIR_PPrinter:
 
     def push(self,only=None):
         if only is None:
-            self.env.push()
+            self.env.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.push()
+            self.env.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.pop()
+        self.env.parents
         self._tab = self._tab[:-2]
 
     def addline(self, line):

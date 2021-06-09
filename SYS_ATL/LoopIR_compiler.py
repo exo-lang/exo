@@ -3,6 +3,7 @@ from .asdl.adt import memo as ADTmemo
 import re
 
 from collections import defaultdict
+from collections import ChainMap
 
 from .prelude import *
 
@@ -252,9 +253,9 @@ class Compiler:
         assert type(proc) is LoopIR.proc
 
         self.proc   = proc
-        self.env    = Environment()
-        self.names  = Environment()
-        self.envtyp = Environment()
+        self.env    = ChainMap()
+        self.names  = ChainMap()
+        self.envtyp = dict()
         self.mems   = dict()
         self._tab   = ""
         self._lines = []
@@ -349,20 +350,20 @@ class Compiler:
 
     def push(self,only=None):
         if only is None:
-            self.env.push()
-            self.names.push()
+            self.env.new_child()
+            self.names.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.push()
-            self.names.push()
+            self.env.new_child()
+            self.names.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.pop()
-        self.names.pop()
+        self.env.parents
+        self.names.parents
         self._tab = self._tab[:-2]
 
     def access_str(self, nm, idx_list):

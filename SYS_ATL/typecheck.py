@@ -34,7 +34,7 @@ from .memory import *
 class TypeChecker:
     def __init__(self, proc):
         self.uast_proc = proc
-        self.env = Environment()
+        self.env = dict()
         self.errors = []
 
         args = []
