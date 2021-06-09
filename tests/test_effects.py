@@ -9,6 +9,7 @@ import scipy.stats as st
 import pytest
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure, DRAM
+from SYS_ATL.libs.memories import GEMM_SCRATCH
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
@@ -59,6 +60,68 @@ def test_bad_access3():
             x2 : R[1]
             huga : R
             huga = x2[100]
+
+# This should work
+def test_stride_assert1():
+    @proc
+    def foo(
+        n   : size,
+        m   : size,
+        src : [i8][n, m]  @ DRAM,
+        dst : [i8][n, 16] @ GEMM_SCRATCH,
+    ):
+        assert stride(src, 1) == 1
+        assert stride(dst, 0) == 16
+        assert stride(dst, 1) == 1
+        pass
+    @proc
+    def bar():
+        x : i8[30,10] @ DRAM
+        y : i8[30,16] @ GEMM_SCRATCH
+        foo(30,10, x, y)
+
+# This should not work
+def test_stride_assert2():
+    with pytest.raises(TypeError,
+                       match='Could not verify stride assert in foo'):
+        @proc
+        def foo(
+            n   : size,
+            m   : size,
+            src : [i8][n, m]  @ DRAM,
+            dst : [i8][n, 16] @ GEMM_SCRATCH,
+        ):
+            assert stride(src, 1) == 1
+            assert stride(dst, 0) == 3
+            assert stride(dst, 1) == 1
+            pass
+        @proc
+        def bar():
+            x : i8[30,10] @ DRAM
+            y : i8[30,16] @ GEMM_SCRATCH
+            foo(30,10, x, y)
+
+# This should work
+def test_stride_assert3():
+    @proc
+    def foo(n : size, m : size,
+            x : [i8][n, m] @ DRAM, y : [i8][10, 9]):
+        assert stride(x, 1) == 1
+        assert stride(y, 0) == 9
+        assert stride(y, 1) == 1
+        pass
+
+# This should not work
+def test_stride_assert4():
+    with pytest.raises(TypeError,
+                       match='Could not verify stride assert in foo'):
+        @proc
+        def foo(n : size, m : size,
+                x : [i8][n, m] @ DRAM, y : [i8][10, 9]):
+            assert stride(x, 1) == 1
+            assert stride(y, 0) == 5
+            assert stride(y, 1) == 1
+            pass
 
 # do sizes match
 

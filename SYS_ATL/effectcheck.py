@@ -411,14 +411,21 @@ class CheckEffects:
         self.solver     = _get_smt_solver()
 
         self.push()
+
+        strides = dict()
         # Add assertions
         for arg in proc.args:
             if type(arg.type) is T.Size:
                 pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
                 self.solver.add_assertion(pos_sz)
+            # Construct strides
+            if arg.type.is_numeric():
+                shape = [ lift_expr(s) for s in arg.type.shape() ]
+                strides[arg.name] = self.get_stride(shape)
+
         for p in proc.preds:
             if type(p) is LoopIR.StrideAssert:
-                pass
+                self.assert_stride(p, strides, proc)
             else:
                 self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
 
@@ -438,6 +445,28 @@ class CheckEffects:
         if len(self.errors) > 0:
             raise TypeError("Errors occurred during effect checking:\n" +
                             "\n".join(self.errors))
+
+    def get_stride(self, shape):
+        assert len(shape) >= 1
+
+        stride = [E.Const(1, T.int, shape[-1].srcinfo)]
+        s = shape[-1]
+        for sz in reversed(shape[:-1]):
+            stride.append(s)
+            s = E.BinOp("*", sz, s, sz.type, sz.srcinfo)
+        stride = list(reversed(stride))
+
+        return stride
+
+    def assert_stride(self, p, strides, f):
+        assert type(p) is LoopIR.StrideAssert
+        assert type(f) is LoopIR.proc
+
+        s = strides[p.name][p.idx]
+        sa = SMT.Equals(self.expr_to_smt(s), SMT.Int(p.val))
+        if not self.solver.is_valid(sa):
+            self.err(f, f"Could not verify stride assert in "+
+                        f"{f.name} at {p.srcinfo}.")
 
     def counter_example(self):
         smt_syms = [ smt for sym,smt in self.env.items() if smt.get_type() == SMT.INT ]
@@ -770,7 +799,8 @@ class CheckEffects:
                 body_eff = eff_remove_buf(stmt.name, body_eff)
 
             elif type(stmt) is LoopIR.Call:
-                subst = dict()
+                strides = dict()
+                subst   = dict()
                 for sig,arg in zip(stmt.f.args, stmt.args):
                     if sig.type.is_numeric():
                         # need to check that the argument shape
@@ -783,6 +813,10 @@ class CheckEffects:
                         sig_shape = [ lift_expr(s) for s in sig.type.shape() ]
                         sig_shape = [ s.subst(subst) for s in sig_shape ]
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
+
+                        # initialize strides
+                        strides[sig.name] = self.get_stride(arg_shape)
+
                     elif sig.type.is_indexable():
                         # in this case we have a LoopIR expression...
                         e_arg           = lift_expr(arg)
@@ -794,8 +828,8 @@ class CheckEffects:
 
                 for p in stmt.f.preds:
                     if type(p) is LoopIR.StrideAssert:
-                        # TODO: currently unhandled
-                        pass
+                        self.assert_stride(p, strides, stmt.f)
+
                     else:
                         pred = lift_expr(p).subst(subst)
                         # Check that asserts are correct
