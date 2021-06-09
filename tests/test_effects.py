@@ -123,12 +123,89 @@ def test_stride_assert4():
             assert stride(y, 1) == 1
             pass
 
-# do sizes match
+def test_assert1():
+    with pytest.raises(TypeError,
+                       match='Could not verify assertion'):
+        @proc
+        def foo(n :size, x : i8[n,n]):
+            assert n == 1
+            pass
+        @proc
+        def bar():
+            z : i8[3, 3]
+            foo(3, z)
 
-# something that works but is on the edge of working
+def test_size1():
+    with pytest.raises(TypeError,
+                       match='type-shape of calling argument'):
+        @proc
+        def foo(x : i8[3,3]):
+            pass
+        @proc
+        def bar():
+            z : i8[3, 4]
+            foo(z)
 
-# we added complex stuff about division and modulo
-# is that working?
+# Data Race? Yes
+def test_race1():
+    with pytest.raises(TypeError,
+                       match='data race conflict with statement'):
+        @proc
+        def foo(n : size, x : R[n,n]):
+            for i in par(0,n):
+                if i+1 < n:
+                    x[i,i] = x[i+1,i+1]
+
+# Data Race? No
+def test_race2():
+    @proc
+    def foo(n : size, x : R[n,n]):
+        for i in par(0,n):
+            if i+1 < n:
+                x[i,i] = x[i+1,i]
+
+# Data Race? No
+def test_race3():
+    @proc
+    def foo(n : size, x : R[n,n]):
+        y = x[1:,:]
+        for i in par(0,n):
+            if i+1 < n:
+                x[i,i] = y[i,i]
+
+# one big issue is aliasing in sub-procedure arguments
+# TODO: Think about this behaviour
+def test_race4():
+    @proc
+    def foo(n : size, x : [R][n,n], y : [R][n,n]):
+        for i in par(0,n):
+            if i+1 < n:
+                x[i,i] = y[i,i]
+                
+    @proc
+    def bar(n : size, z : R[n,n]):
+        foo(n, z, z)
+
+def test_div1():
+    @proc
+    def foo(n : size):
+        assert n == 3
+        pass
+
+    @proc
+    def bar():
+        foo(10/3)
+
+def test_mod1():
+    @proc
+    def foo(n : size):
+        assert n == 1
+        pass
+
+    @proc
+    def bar():
+        foo(10%3)
+
 
 # are we testing a case of an else branch?
 
@@ -144,28 +221,6 @@ def test_stride_assert4():
 
 # check that windowing is always in-bounds
 #   note checking above translation is maybe better done for data-races
-
-# Data Race? Yes
-# for i in par(0,n):
-#     if i+1 < n:
-#         x[i,i] = x[i+1,i+1]
-
-# Data Race? No
-# for i in par(0,n):
-#     if i+1 < n:
-#         x[i,i] = x[i+1,i]
-
-# Data Race? No
-# y = x[1:,:]
-# for i in par(0,n):
-#     if i+1 < n:
-#         x[i,i] = y[i,i]
-
-# one big issue is aliasing in sub-procedure arguments
-# def foo(n : size, x : [R][n,n], y : [R][n,n]):
-#   for i in par(0,n):
-#     if i+1 < n:
-#         x[i,i] = y[i,i]
 
 # stride assert
 
