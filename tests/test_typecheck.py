@@ -263,10 +263,19 @@ def test_binop12():
                 pass
 
 def test_binop13():
-    @proc
-    def hoge(x : size, y : size):
-        if ((x / -3) > 0):
-            pass
+    with pytest.raises(TypeError,
+                       match='cannot divide or modulo by zero or a negative value'):
+        @proc
+        def hoge(x : size, y : size):
+            if ((x / -3) > 0):
+                pass
+def test_binop13_2():
+    with pytest.raises(TypeError,
+                       match='cannot divide or modulo by zero or a negative value'):
+        @proc
+        def hoge(x : size, y : size):
+            if ((x / 0) > 0):
+                pass
 
 def test_binop14():
     @proc

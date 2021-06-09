@@ -346,7 +346,7 @@ class TypeChecker:
             arg = self.check_e(e.arg)
             if arg.type.is_real_scalar() or arg.type.is_indexable():
                 if type(arg) is LoopIR.Const:
-                    return LoopIR.Const(arg.val, arg.type, e.srcinfo)
+                    return LoopIR.Const(-arg.val, arg.type, e.srcinfo)
                 else:
                     neg1 = -1.0
                     if arg.type.is_indexable():
@@ -419,6 +419,11 @@ class TypeChecker:
                             self.err(rhs, "cannot divide or modulo by a "+
                                           "non-constant value")
                             typ = T.err
+                        elif rhs.val <= 0:
+                            self.err(rhs, "cannot divide or modulo by zero "+
+                                          "or a negative value")
+                            typ = T.err
+
                         typ = lhs.type
                     elif e.op == "*":
                         if lhs.type == T.int:
