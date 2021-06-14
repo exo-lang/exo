@@ -48,7 +48,8 @@ def nprand(size, typ=np.float32):
 def generate_lib(filename):
     c_file      = os.path.join(TMP_DIR, filename+'.c')
     so_file     = os.path.join(TMP_DIR, filename+'.so')
-    compile_so_cmd = (f"clang -Wall -Werror -fPIC -O3 -shared " +
+    compiler    = os.getenv('CC', default='clang')
+    compile_so_cmd = (f"{compiler} -Wall -Werror -fPIC -O3 -shared " +
                       f"{c_file} -o {so_file}")
     subprocess.run(compile_so_cmd, check=True, shell=True)
     abspath = os.path.dirname(os.path.abspath(filename))

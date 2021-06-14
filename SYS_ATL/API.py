@@ -392,7 +392,8 @@ def comp_and_load_c_file(filename, c_code):
     filename    += hashstr
     c_filename  = os.path.join(_C_CACHE, filename+".c")
     so_filename = os.path.join(_C_CACHE, filename+".so")
-    comp_cmd    = (f"clang -Wall -Werror -fPIC -O3 -shared "+
+    compiler    = os.getenv('CC', default='clang')
+    comp_cmd    = (f"{compiler} -Wall -Werror -fPIC -O3 -shared "+
                    f"-o {so_filename} {c_filename}")
 
     def matches_file(src, fname):
