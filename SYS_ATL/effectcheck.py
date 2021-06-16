@@ -284,6 +284,161 @@ class InferEffects:
                         [ translate_set(es) for es in eff.reduces ],
                         eff.srcinfo)
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Stride Assert Checking
+
+# Stride assert should be handled in separate path from EffectCheck, because
+# 1. Tracking WindowStmt involves a forward path analysis, but EffectCheck does
+#    a backward path analysis based on Effects computed in InferEffects
+# 2. Stride assert check doesn't need SMT solver, nor depend on any of other
+#    code in EffectCheck.
+
+class StrideAssertCheck:
+    def __init__(self, proc):
+        self.orig_proc  = proc
+
+        self.env        = ChainMap() #map of sym to type
+        self.strides    = ChainMap()
+        self.errors     = []
+
+        self.push()
+
+        # stride asserts at entry proc
+        # If the input buffer is a Tensor and has assert stride:
+        #   1. If the strides are constants
+        #      Check the assert stride and complain if they are inconsistent
+        #   2. If the strides are sizes
+        #      If dim is not the last dimension, then the strides
+        #      depends on input sizes so complain
+        # If the input buffer is a Window and has assert stride:
+        #   1. Add assertion -- assume it is true.
+        for arg in proc.args:
+            if arg.type.is_numeric():
+                if arg.type.is_tensor_or_window():
+                    self.env[arg.name] = arg.type
+                    if arg.type.is_tensor():
+                        self.strides[arg.name] = self.get_stride(
+                                                 arg.type.shape(), False)
+                    elif arg.type.is_window():
+                        self.strides[arg.name] = self.get_stride(
+                                                 arg.type.shape(), True)
+
+        for p in proc.preds:
+            if type(p) is LoopIR.StrideAssert:
+                assert p.name in self.env
+
+                if self.env[p.name].is_tensor(): # Tensor case
+                    self.assert_stride(p, proc)
+                else: # Add assertion
+                    self.add_assert_stride(p)
+
+        self.map_stmts(self.orig_proc.body)
+
+        self.pop()
+
+        # do error checking here
+        if len(self.errors) > 0:
+            raise TypeError("Errors occurred during stride assert checking:\n" +
+                            "\n".join(self.errors))
+
+    def push(self):
+        self.env = self.env.new_child()
+        self.strides = self.strides.new_child()
+
+    def pop(self):
+        self.env = self.env.parents
+        self.strides = self.strides.parents
+
+    def err(self, node, msg):
+        self.errors.append(f"{node.srcinfo}: {msg}")
+
+    def get_stride(self, shape, is_window):
+        assert len(shape) >= 1
+
+        if is_window:
+            stride = [None]
+            valid  = False
+        else:
+            stride = [1]
+            valid = True
+
+        s       = shape[-1]
+        for sz in reversed(shape[:-1]):
+            if sz.type is not LoopIR.Constant:
+                valid = False
+
+            if valid:
+                stride.append(s)
+                s = s * sz.val
+            else:
+                stride.append(None)
+        stride = list(reversed(stride))
+
+        return stride
+
+    #   1. If the strides are constants
+    #        Check the assert stride and complain if they are inconsistent
+    #   2. If the strides are sizes
+    #        If dim is not the last dimension, then the strides
+    #        depends on input sizes so complain
+    def assert_stride(self, p, f):
+        assert type(p) is LoopIR.StrideAssert
+        assert type(f) is LoopIR.proc
+
+        s = self.strides[p.name][p.idx]
+
+        # If there is no sufficient information (due to argument being
+        # size variable) emit error and return.
+        if s is None:
+            self.err(f, f"Could not verify stride assert in "+
+                        f"{f.name} at {p.srcinfo}. If {p.name} is a Tensor, "+
+                        f"it has size variable as a buffer size."+
+                        f"If {p.name} is a Window, additional stride assert "+
+                        f"to dim {p.idx} is necessary at the call site.")
+
+        if s != p.val:
+            self.err(f, f"Could not verify stride assert in "+
+                        f"{f.name} at {p.srcinfo}.")
+    
+    def add_assert_stride(self, p):
+        assert type(p) is LoopIR.StrideAssert
+        assert p.name in self.strides
+        assert len(self.strides[p.name]) >= p.idx
+        
+        self.strides[p.name][p.idx] = p.val
+
+    def map_stmts(self, body):
+        assert len(body) > 0
+
+        for stmt in body:
+            if type(stmt) is LoopIR.WindowStmt:
+                pass
+                # compute new stride
+                # add new stride and name to self.strides
+            elif type(stmt) is LoopIR.Call:
+                # Check windowexpr!
+                strides = dict()
+                for sig,arg in zip(stmt.f.args, stmt.args):
+                    if sig.type.is_numeric():
+                        # initialize strides
+                        if arg.type.is_tensor_or_window():
+                            strides[sig.name] = self.get_stride(arg_shape)
+
+                for p in stmt.f.preds:
+                    if type(p) is LoopIR.StrideAssert:
+                        self.assert_stride(subst(p), stmt.f)
+
+                    else:
+                        pred = lift_expr(p).subst(subst)
+                        # Check that asserts are correct
+                        if not self.solver.is_valid(self.expr_to_smt(pred)):
+                            eg = self.counter_example()
+                            self.err(stmt, f"Could not verify assertion in "+
+                                           f"{stmt.f.name} at {p.srcinfo}."+
+                                           f" Assertion is false when: {eg}")
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Check Bounds and Parallelism semantics for an effect-annotated AST
@@ -405,29 +560,21 @@ class CheckEffects:
 
         # Map sym to z3 variable
         self.env        = ChainMap()
-        #self.context    = E.Const(True, T.bool, proc.srcinfo)
         self.errors     = []
 
         self.solver     = _get_smt_solver()
 
         self.push()
 
-        strides = dict()
         # Add assertions
         for arg in proc.args:
             if type(arg.type) is T.Size:
                 pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
                 self.solver.add_assertion(pos_sz)
-            # Construct strides
-            if arg.type.is_numeric():
-                shape = [ lift_expr(s) for s in arg.type.shape() ]
-                if arg.type.is_tensor_or_window():
-                    strides[arg.name] = self.get_stride(shape)
 
         for p in proc.preds:
-            if type(p) is LoopIR.StrideAssert:
-                self.assert_stride(p, strides, proc)
-            else:
+            # Handled in Stride assert check
+            if type(p) is not LoopIR.StrideAssert:
                 self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
 
         body_eff = self.map_stmts(self.orig_proc.body)
@@ -447,28 +594,6 @@ class CheckEffects:
             raise TypeError("Errors occurred during effect checking:\n" +
                             "\n".join(self.errors))
 
-    def get_stride(self, shape):
-        assert len(shape) >= 1
-
-        stride = [E.Const(1, T.int, shape[-1].srcinfo)]
-        s = shape[-1]
-        for sz in reversed(shape[:-1]):
-            stride.append(s)
-            s = E.BinOp("*", sz, s, sz.type, sz.srcinfo)
-        stride = list(reversed(stride))
-
-        return stride
-
-    def assert_stride(self, p, strides, f):
-        assert type(p) is LoopIR.StrideAssert
-        assert type(f) is LoopIR.proc
-
-        s = strides[p.name][p.idx]
-        sa = SMT.Equals(self.expr_to_smt(s), SMT.Int(p.val))
-        if not self.solver.is_valid(sa):
-            self.err(f, f"Could not verify stride assert in "+
-                        f"{f.name} at {p.srcinfo}.")
-
     def counter_example(self):
         smt_syms = [ smt for sym,smt in self.env.items() if smt.get_type() == SMT.INT ]
         val_map = self.solver.get_py_values(smt_syms)
@@ -479,9 +604,6 @@ class CheckEffects:
                 mapping.append(f" {sym} = {val_map[smt]}")
 
         return ",".join(mapping)
-
-    def result(self):
-        return self.orig_proc
 
     def push(self):
         self.solver.push()
@@ -800,7 +922,6 @@ class CheckEffects:
                 body_eff = eff_remove_buf(stmt.name, body_eff)
 
             elif type(stmt) is LoopIR.Call:
-                strides = dict()
                 subst   = dict()
                 for sig,arg in zip(stmt.f.args, stmt.args):
                     if sig.type.is_numeric():
@@ -815,10 +936,6 @@ class CheckEffects:
                         sig_shape = [ s.subst(subst) for s in sig_shape ]
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
-                        # initialize strides
-                        if arg.type.is_tensor_or_window():
-                            strides[sig.name] = self.get_stride(arg_shape)
-
                     elif sig.type.is_indexable():
                         # in this case we have a LoopIR expression...
                         e_arg           = lift_expr(arg)
@@ -829,10 +946,8 @@ class CheckEffects:
                     else: assert False, "bad case"
 
                 for p in stmt.f.preds:
-                    if type(p) is LoopIR.StrideAssert:
-                        self.assert_stride(p, strides, stmt.f)
-
-                    else:
+                    # Stride assert handled in separate check
+                    if type(p) is not LoopIR.StrideAssert:
                         pred = lift_expr(p).subst(subst)
                         # Check that asserts are correct
                         if not self.solver.is_valid(self.expr_to_smt(pred)):
