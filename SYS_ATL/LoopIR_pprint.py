@@ -54,7 +54,8 @@ op_prec = {
     "/":      50,
     "%":      50,
     #
-    # unary - 60
+    # unary minus
+    "~":      60,
 }
 
 # --------------------------------------------------------------------------- #
@@ -242,7 +243,7 @@ class UAST_PPrinter:
                 s = f"({s})"
             return s
         elif type(e) is UAST.USub:
-            return f"-{self.pexpr(e.arg,prec=60)}"
+            return f"-{self.pexpr(e.arg,prec=op_prec['~'])}"
         elif type(e) is UAST.ParRange:
             return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
         elif type(e) is UAST.WindowExpr:
@@ -472,6 +473,8 @@ class LoopIR_PPrinter:
                 return self.get_name(e.name)
         elif type(e) is LoopIR.Const:
             return str(e.val)
+        elif type(e) is LoopIR.USub:
+            return f'-{self.pexpr(e.arg, op_prec["~"])}'
         elif type(e) is LoopIR.BinOp:
             local_prec = op_prec[e.op]
             # increment rhs by 1 to account for left-associativity

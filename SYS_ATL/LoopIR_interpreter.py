@@ -150,6 +150,8 @@ class Interpreter:
                 return buf[idx]
         elif etyp is LoopIR.Const:
             return e.val
+        elif etyp is LoopIR.USub:
+            return -self.eval_e(e.arg)
         elif etyp is LoopIR.BinOp:
             lhs, rhs = self.eval_e(e.lhs), self.eval_e(e.rhs)
             if e.op == "+":
