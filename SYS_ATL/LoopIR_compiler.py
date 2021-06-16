@@ -42,6 +42,8 @@ op_prec = {
     "*":      60,
     "/":      60,
     "%":      60,
+    # unary minus
+    "~":      70,
 }
 
 class LoopIR_SubProcs(LoopIR_Do):
@@ -615,5 +617,7 @@ class Compiler:
                 s = f"({s})"
 
             return s
+        elif etyp is LoopIR.USub:
+            return f'-{self.comp_e(e.arg, op_prec["~"])}'
         else:
             assert False, "bad case"

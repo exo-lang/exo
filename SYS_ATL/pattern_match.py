@@ -67,7 +67,7 @@ _PAST_to_LoopIR = {
   #
   PAST.Read:          LoopIR.Read,
   PAST.Const:         LoopIR.Const,
-  PAST.USub:          None,
+  PAST.USub:          LoopIR.USub,
   PAST.BinOp:         LoopIR.BinOp,
   PAST.E_Hole:        None,
 }
@@ -145,6 +145,9 @@ class PatternMatch:
     if etyp is LoopIR.BinOp:
       self.find_e_in_e(pat, e.lhs)
       self.find_e_in_e(pat, e.rhs)
+
+    if etyp is LoopIR.USub:
+      self.find_e_in_e(pat, e.arg)
 
 
   def find_stmts_in_stmts(self, pat, stmts):
@@ -269,8 +272,6 @@ class PatternMatch:
     # and we don't have to worry about Kleene-Star behavior
     if type(pat) is PAST.E_Hole:
       return True
-    elif type(pat) is PAST.USub:
-      raise PatternMatchError("unary minus currently disallowed in pattern")
 
     # first ensure that we the pattern and statement
     # are the same constructor
@@ -288,8 +289,10 @@ class PatternMatch:
       return ( pat.op == e.op and
                self.match_e(pat.lhs, e.lhs) and
                self.match_e(pat.rhs, e.rhs) )
-    else: assert False, "bad case"
-
+    elif etyp is LoopIR.USub:
+      return self.match_e(pat.arg, e.arg)
+    else:
+      assert False, "bad case"
 
   def match_name(self, pat_nm, ir_sym):
     return pat_nm == '_' or pat_nm == str(ir_sym)
