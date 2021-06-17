@@ -385,7 +385,6 @@ class CheckStrideAsserts:
         assert type(p) is LoopIR.StrideAssert
         assert type(f) is LoopIR.proc
 
-        print(p.name, self.strides[p.name])
         s = self.strides[p.name][p.idx]
 
         # If there is no sufficient information (due to argument being
