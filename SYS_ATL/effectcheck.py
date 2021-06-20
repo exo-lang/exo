@@ -317,24 +317,19 @@ class CheckStrideAsserts:
         for arg in proc.args:
             if arg.type.is_tensor_or_window():
                 local_env[arg.name] = arg.type
-                if arg.type.is_win():
-                    self.strides[arg.name] = self.get_stride(
-                                             arg.type.shape(), True)
-                else:
-                    self.strides[arg.name] = self.get_stride(
-                                             arg.type.shape(), False)
+                self.get_stride(arg.name, arg.type.shape(), arg.type.is_win())
 
         for p in proc.preds:
             if type(p) is LoopIR.StrideAssert:
                 assert p.name in local_env
 
                 if arg.type.is_win():
-                    self.add_assert_stride(p)
+                    self.assume_stride(p)
                 else:
-                    self.assert_stride(p, proc)
+                    self.check_stride(p, proc)
 
         # Check body for call
-        self.map_stmts(self.orig_proc.body)
+        self.map_stmts(self.orig_proc.body, proc)
 
         self.pop()
 
@@ -352,36 +347,23 @@ class CheckStrideAsserts:
     def err(self, node, msg):
         self.errors.append(f"{node.srcinfo}: {msg}")
 
-    def get_stride(self, shape, is_window):
+    def get_stride(self, name, shape, is_window):
         assert len(shape) >= 1
 
         if is_window:
-            stride = [None]
-            valid  = False
+            self.strides[name] = [None] * len(shape)
         else:
-            stride = [1]
-            valid  = True
+            stride = [None] * len(shape)
+            stride[-1] = 1
+            for i,sz in reversed(list(enumerate(shape))):
+                if i > 0:
+                    if type(sz) is not LoopIR.Const:
+                        break
+                    else:
+                        stride[i-1] = sz.val * stride[i]
+            self.strides[name] = stride
 
-        if type(shape[-1]) is not LoopIR.Const:
-            valid = False
-            s     = None
-        else:
-            s     = shape[-1].val
-
-        for sz in reversed(shape[:-1]):
-            if type(sz) is not LoopIR.Const:
-                valid = False
-
-            if valid:
-                stride.append(s)
-                s = s * sz.val
-            else:
-                stride.append(None)
-        stride = list(reversed(stride))
-
-        return stride
-
-    def assert_stride(self, p, f):
+    def check_stride(self, p, f):
         assert type(p) is LoopIR.StrideAssert
         assert type(f) is LoopIR.proc
 
@@ -400,25 +382,20 @@ class CheckStrideAsserts:
             self.err(f, f"Could not verify stride assert in "+
                         f"{f.name} at {p.srcinfo}.")
     
-    def add_assert_stride(self, p):
+    def assume_stride(self, p):
         assert type(p) is LoopIR.StrideAssert
         assert p.name in self.strides
         assert len(self.strides[p.name]) > p.idx
         
         self.strides[p.name][p.idx] = p.val
 
-    def map_stmts(self, body):
+    def map_stmts(self, body, orig_f):
         def stride_from_windowexpr(expr):
             assert type(expr) is LoopIR.WindowExpr
             assert len(self.strides[expr.name]) == len(expr.idx)
 
-            new_stride = []
-            # TODO: Test this, is this correct??
-            for s,idx in zip(self.strides[expr.name], expr.idx):
-                if type(idx) is LoopIR.Interval:
-                    new_stride.append(s)
-
-            return new_stride
+            return [ s for s, idx in zip(self.strides[expr.name], expr.idx)
+                             if type(idx) is LoopIR.Interval ]
             
         for stmt in body:
             if type(stmt) is LoopIR.WindowStmt:
@@ -430,23 +407,20 @@ class CheckStrideAsserts:
             elif type(stmt) is LoopIR.Alloc:
                 # add new stride here
                 if stmt.type.is_tensor_or_window():
-                    if stmt.type.is_win():
-                        self.strides[stmt.name] = self.get_stride(stmt.type.shape(), True)
-                    else:
-                        self.strides[stmt.name] = self.get_stride(stmt.type.shape(), False)
+                    self.get_stride(stmt.name, stmt.type.shape(), stmt.type.is_win())
 
             elif type(stmt) is LoopIR.ForAll:
                 self.push()
-                self.map_stmts(stmt.body)
+                self.map_stmts(stmt.body, orig_f)
                 self.pop()
 
             elif type(stmt) is LoopIR.If:
                 self.push()
-                self.map_stmts(stmt.body)
+                self.map_stmts(stmt.body, orig_f)
                 self.pop()
 
                 self.push()
-                self.map_stmts(stmt.orelse)
+                self.map_stmts(stmt.orelse, orig_f)
                 self.pop()
 
             elif type(stmt) is LoopIR.Call:
@@ -465,9 +439,9 @@ class CheckStrideAsserts:
 
                 for p in stmt.f.preds:
                     if type(p) is LoopIR.StrideAssert:
-                        self.assert_stride(p, stmt.f)
+                        self.check_stride(p, orig_f)
 
-                self.map_stmts(stmt.f.body)
+                self.map_stmts(stmt.f.body, stmt.f)
 
                 self.pop()
 
