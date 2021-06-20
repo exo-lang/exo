@@ -323,3 +323,29 @@ def test_alloc_nest_malloc():
     np.testing.assert_almost_equal(res_c, nparray(
         [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]))
 
+
+def test_unary_neg():
+    @proc
+    def negate_array(n: size, x: R[n], res: R[n] @ DRAM):  # pragma: no cover
+        for i in par(0, n):
+            res[i] = -x[i] + -(x[i]) - -(x[i] + 0.0)
+
+    assert type(negate_array) is Procedure
+    filename = test_unary_neg.__name__
+
+    with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
+        f.write(str(negate_array))
+
+    negate_array.compile_c(TMP_DIR, filename)
+
+    x = nparray([1.0, 2.0, 3.0, 4.0])
+    n_size = 4
+    res = nprand(size=(4,))
+    res_c = cvt_c(res)
+
+    test_lib = generate_lib(filename)
+    test_lib.negate_array(c_int(n_size), cvt_c(x),  res_c)
+    res_c = np.ctypeslib.as_array(res_c, shape=(n_size,))
+    negate_array.interpret(n=n_size, x=x, res=res)
+    np.testing.assert_almost_equal(res, res_c)
+    np.testing.assert_almost_equal(res_c, -x)

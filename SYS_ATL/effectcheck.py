@@ -234,6 +234,8 @@ class InferEffects:
         elif type(e) is LoopIR.BinOp:
             return eff_union(self.eff_e(e.lhs), self.eff_e(e.rhs),
                              srcinfo=e.srcinfo)
+        elif type(e) is LoopIR.USub:
+            return self.eff_e(e.arg)
         elif type(e) is LoopIR.Const:
             return eff_null(e.srcinfo)
         elif type(e) is LoopIR.WindowExpr:

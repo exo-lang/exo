@@ -148,6 +148,15 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 typ = self.splice_type(e.type, btyp)
             return LoopIR.Read(e.name, e.idx, typ, e.srcinfo)
 
+        elif type(e) is LoopIR.USub:
+            arg = self.map_e(e.arg)
+
+            if not e.type.is_numeric():
+                return LoopIR.USub(arg, e.type, e.srcinfo)
+
+            assert arg.type.is_real_scalar() or arg.type == T.err
+            return LoopIR.USub(arg, arg.type, e.srcinfo)
+
         elif type(e) is LoopIR.BinOp:
             lhs = self.map_e(e.lhs)
             rhs = self.map_e(e.rhs)
@@ -188,6 +197,12 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         if type(e) is LoopIR.Const:
             assert e.type == btyp or e.type == T.R
             return LoopIR.Const(e.val, btyp, e.srcinfo)
+        elif type(e) is LoopIR.USub:
+            arg = e.arg
+            if arg.type == T.R:
+                arg = self.coerce_e(arg, btyp)
+            assert arg.type == btyp
+            return LoopIR.USub(arg, btyp, e.srcinfo)
         elif type(e) is LoopIR.BinOp:
             lhs, rhs = e.lhs, e.rhs
             if lhs.type == T.R:
