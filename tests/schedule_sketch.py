@@ -1,4 +1,49 @@
 
+# Unification memo
+_gemm_ld_i8   = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
+                 "1.0f, 0, 0);\n"+
+                 "gemmini_extended_mvin( {src}.data, "+
+                              "((uint64_t) {dst}.data), {m}, {n} );")
+@instr(_gemm_ld_i8)
+def ld_i8(
+    n   : size,
+    m   : size,
+    src : [i8][n, m] @ DRAM,
+    dst : [i8][n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    # unknown
+    # n, m, dst, src
+    for i in par(0, n):
+        for j in par(0, m):
+            dst_[i+klo,j+llo] = src_[i+ilo,j+jlo]
+
+    ld_i8(n_, m_, src_[ilo:ihi, jlo:jhi], dst_[klo:khi, llo:lhi])
+
+    # body
+    # known
+    # AG, A, i, k
+    for i_in in par(0, 16):
+        for k_in in par(0, 16):
+            AG[i_in,k_in] = A[16 * i + i_in, 16 * k + k_in]
+
+
+    # stmt : syntactic match
+    # numeric : syntactic match
+    # sizes, index : linear equations equality pysmt
+    # boolean (affine (non)equality) : syntactic match
+    # Solve the problem and check the result for now
+
+    # TODO think:
+    # asserts, windowing, inequality for sizes??
+
+
+
 # ------- Tensor expression test ------
 
 def gen_tensor():
