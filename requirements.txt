@@ -8,5 +8,6 @@ pillow
 scipy
 jupyter_contrib_nbextensions
 pysmt
+sympy
 
 z3-solver

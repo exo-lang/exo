@@ -8,6 +8,7 @@ from .LoopIR_scheduling import Schedules
 from .LoopIR_scheduling import (name_plus_count,
                                 iter_name_to_pattern, 
                                 nested_iter_names_to_pattern)
+from .LoopIR_unification import Unification
 from .effectcheck import InferEffects, CheckEffects, CheckStrideAsserts
 
 from .memory import Memory
@@ -281,7 +282,17 @@ class Procedure:
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def abstract(self, subproc, pattern):
-        raise NotImplementedError("TODO: implement abstract")
+        if type(subproc) is not Procedure:
+            raise TypeError("expected first arg to be a subprocedure")
+        elif type(pattern) is not str:
+            raise TypeError("expected second arg to be a string")
+
+        stmts  = self._find_stmt(pattern, default_match_no=None)
+        loopir = self._loopir_proc
+        for s in stmts:
+            loopir = Unification(loopir, subproc._loopir_proc, s).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def inline(self, call_site_pattern):
         call_stmt   = self._find_callsite(call_site_pattern)
