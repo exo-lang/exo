@@ -5,6 +5,74 @@ from collections import ChainMap
 import sympy as SYMPY
 
 
+class DoReplace(LoopIR_Rewrite):
+    def __init__(self, proc, subproc, stmt_block):
+        # ensure that subproc and stmt_block match in # of statements
+        n_stmts = len(subproc.body)
+        if len(stmt_block) < n_stmts:
+            raise SchedulingError("Not enough statements to match")
+        stmt_block = stmt_block[:n_stmts]
+
+        self.subproc        = subproc
+        self.target_block   = stmt_block
+
+        super().__init__(proc)
+
+    def map_stmts(self, stmts):
+        # see if we can find the target block in this block
+        n_stmts = len(self.target_block)
+        match_i = None
+        for i,s in enumerate(stmts):
+            if s == self.target_block[0]:
+                if stmts[i:i+n_stmts] == self.target_block:
+                    match_i = i
+                    break
+
+        if match_i is None:
+            return super().map_stmts(stmts)
+        else: # process the match
+            raise NotImplementedError("need to work out splicing")
+            Unify(subproc.body?, stmt_block)
+
+            new_args = [self.sym_to_expr(s, stmt.srcinfo) for s in res]
+            new_call = LoopIR.Call(self.subproc, new_args, None, stmt.srcinfo)
+
+            return stmts[ : match_i] + [new_call] + stmts[match_i+n_stmts : ]
+
+    # make this more efficient by not rewriting
+    # most of the sub-trees
+    def map_e(self,e):
+        return e
+    def map_t(self,t):
+        return t
+    def map_eff(self,eff):
+        return eff
+
+# For Unification we have a problem of the form
+#
+#   Stmt_Block (w/free variables)   ===   subproc(?a, ?b, ?c[?d:?e])
+#                                   ===   [args |> ?]asserts ; (need to prove)
+#                                           (also assertions about windows
+#                                            and sizes)
+#                                         [args |> ?]body
+#
+#   list of stmts === list of stmts
+#       if
+#   s1 === s1'
+#   s2 === s2' ...
+#
+#  [s ; pass] === [s]
+#
+#
+#
+(\...  body)(?, ?, ?[?:?]) === [... |-> ?, ?, ?[?:?]] asserts + body
+#
+# So how do we break that down?
+#
+# step 1: inline call to subproc
+#
+#
+
 def subst(proc, stmt, call):
     body = []
     for s in proc.body:
@@ -133,7 +201,7 @@ class Unification:
         self.env[s1] = s1_sym
         self.env[s2] = s2_sym
         self.equations.append(s1_sym - s2_sym)
-    
+
     # expr equality
     def eq_expr(self, e1, e2):
         e1 = self.expr_to_sym(e1)

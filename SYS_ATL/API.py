@@ -6,9 +6,9 @@ from .LoopIR_compiler import Compiler, run_compile, compile_to_strings
 from .LoopIR_interpreter import Interpreter, run_interpreter
 from .LoopIR_scheduling import Schedules
 from .LoopIR_scheduling import (name_plus_count,
-                                iter_name_to_pattern, 
+                                iter_name_to_pattern,
                                 nested_iter_names_to_pattern)
-from .LoopIR_unification import Unification
+from .LoopIR_unification import DoReplace
 from .effectcheck import InferEffects, CheckEffects, CheckStrideAsserts
 
 from .memory import Memory
@@ -197,7 +197,7 @@ class Procedure:
         loopir = Schedules.SetTypAndMem(loopir, name, count,
                                         win=is_window).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
-        
+
     def set_memory(self, name, memory_obj):
         name, count = name_plus_count(name)
         if type(memory_obj) is not Memory:
@@ -281,16 +281,21 @@ class Procedure:
             loopir  = Schedules.DoUnroll(loopir, s).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def abstract(self, subproc, pattern):
+    def replace(self, subproc, pattern):
         if type(subproc) is not Procedure:
             raise TypeError("expected first arg to be a subprocedure")
         elif type(pattern) is not str:
             raise TypeError("expected second arg to be a string")
 
-        stmts  = self._find_stmt(pattern, default_match_no=None)
+        body        = self._loopir_proc.body
+        stmt_lists  = match_pattern(body, pattern, call_depth=1)
+        if len(stmt_lists) == 0:
+            raise TypeError("failed to find statement")
+
         loopir = self._loopir_proc
-        for s in stmts:
-            loopir = Unification(loopir, subproc._loopir_proc, s).result()
+        for stmt_block in stmt_lists:
+            loopir = DoReplace(loopir, subproc._loopir_proc,
+                               stmt_block).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
@@ -319,7 +324,7 @@ class Procedure:
             raise TypeError("expected first argument to be a valid name")
         body        = self._loopir_proc.body
         expr_list   = match_pattern(body, expr_pattern,
-                                    call_depth=2, default_match_no=0)
+                                    call_depth=1, default_match_no=0)
         if len(expr_list) == 0:
             raise TypeError("failed to find expression")
         elif not isinstance(expr_list[0], LoopIR.expr):
