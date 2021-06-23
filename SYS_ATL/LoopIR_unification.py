@@ -1,5 +1,5 @@
 from .prelude import *
-from .LoopIR import LoopIR, T, LoopIR_Do
+from .LoopIR import LoopIR, T, LoopIR_Rewrite
 
 from collections import ChainMap
 import sympy as SYMPY
@@ -32,7 +32,7 @@ class DoReplace(LoopIR_Rewrite):
             return super().map_stmts(stmts)
         else: # process the match
             raise NotImplementedError("need to work out splicing")
-            Unify(subproc.body?, stmt_block)
+            #Unify(subproc.body?, stmt_block)
 
             new_args = [self.sym_to_expr(s, stmt.srcinfo) for s in res]
             new_call = LoopIR.Call(self.subproc, new_args, None, stmt.srcinfo)
@@ -65,7 +65,7 @@ class DoReplace(LoopIR_Rewrite):
 #
 #
 #
-(\...  body)(?, ?, ?[?:?]) === [... |-> ?, ?, ?[?:?]] asserts + body
+# (\...  body)(?, ?, ?[?:?]) === [... |-> ?, ?, ?[?:?]] asserts + body
 #
 # So how do we break that down?
 #

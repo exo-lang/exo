@@ -13,6 +13,7 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
+@pytest.mark.skip
 def test_unify1():
     @proc
     def bar(n : size, src : R[n,n], dst : R[n,n]):
@@ -30,7 +31,7 @@ def test_unify1():
     # should be bar(5, y, x)
     print(foo)
 
-
+@pytest.mark.skip
 def test_unify2():
     @proc
     def bar(n : size, src : [R][n,n], dst : [R][n,n]):
@@ -48,7 +49,7 @@ def test_unify2():
     # should be bar(5, y[5:10,2:7], x[3:8,1:6])
     print(foo)
 
-
+@pytest.mark.skip
 def test_unify3():
     @proc
     def simd_add4(dst : [R][4], a : [R][4], b : [R][4]):
