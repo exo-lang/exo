@@ -38,15 +38,26 @@ def ld_i8(
 _gemm_ld_acc_i8 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                    "1.0f, 1, 0);\n"+
                    "gemmini_extended_mvin( {src}.data, "+
-                                "((uint64_t) {dst}.data), {m}, {n} );")
+                                "((uint32_t) {dst}.data), {m}, {n} );")
 ld_acc_i8 = (ld_i8.rename('ld_acc_i8')
                   .set_precision('dst', 'i32')
                   .set_memory('dst', GEMM_ACCUM)
                   .make_instr(_gemm_ld_acc_i8))
 
+_gemm_ld_i32   = ("gemmini_extended3_config_ld({src}.strides[0]*4, "+
+                 "1.0f, 0, 0);\n"+
+                 "gemmini_extended_mvin( ((uint64_t) {src}.data), "+
+                               "((uint32_t) {dst}.data), {m}, {n} );")
+ld_acc_i32 = (ld_i8.rename('ld_acc_i32')
+                  .set_precision('src', 'i32')
+                  .set_precision('dst', 'i32')
+                  .set_memory('dst', GEMM_ACCUM)
+                  .make_instr(_gemm_ld_i32))
+
+
 _gemm_st_i8   = ("gemmini_config_st({dst}.strides[0]*1);\n"+
                  "gemmini_extended_mvout( "+
-                      "((uint64_t) {dst}.data), {src}.data, {m}, {n} );")
+                      "((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
 @instr(_gemm_st_i8)
 def st_i8(
     n   : size,
@@ -70,6 +81,19 @@ st_acc_i8 = (st_i8.rename('st_acc_i8')
                   .set_precision('src', 'i32')
                   .set_memory('src', GEMM_ACCUM)
                   .make_instr(_gemm_st_acc_i8))
+
+
+_gemm_st_acc_i32 = ("gemmini_config_ex(WS, NO_ACTIVATION, 0, "+
+                                       "ACC_SCALE_IDENTITY, 0);\n"+
+                     "gemmini_config_st({dst}.strides[0]*4);\n"+
+                     "gemmini_extended_mvout( ((uint64_t) {dst}.data), "+
+                     "((uint32_t) {src}.data | 0x20000000), {m}, {n} );")
+st_acc_i32 = (st_i8.rename('st_acc_i32')
+                   .set_precision('src', 'i32')
+                   .set_precision('dst', 'i32')
+                   .set_memory('src', GEMM_ACCUM)
+                   .make_instr(_gemm_st_acc_i32))
+
 
 _gemm_zero_i8 = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
                  "gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+

@@ -165,6 +165,98 @@ def test_matmul_i8_ones_odd():
   T.compile().run()
 
 
+def test_matmul_basic_i32():
+  T = GemmTestBuilder('matmul_basic_i32')
+  T.add_body(['gemm_init_mem();',
+              'gemmini_flush(0);',
+              ''])
+
+  NN = 64
+  MM = 32
+  KK = 128
+
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
+  T.alloc_dram_2i32('z_cpu', NN, MM, '0') # expected result
+  T.alloc_dram_2i32('z_gemmini', NN, MM, '0')
+
+  @proc
+  def matmul_on_cpu(
+    N : size,
+    M : size,
+    K : size,
+    A : i8[N,K] @ DRAM,
+    B : i8[K,M] @ DRAM,
+    C : i32[N,M] @ DRAM,
+  ):
+    for i in par(0,N):
+      for j in par(0,M):
+        res : i32
+        res = 0.0
+        for k in par(0,K):
+          a : i32
+          b : i32
+          a = A[i,k]
+          b = B[k,j]
+          res += a*b
+        C[i,j] = res
+  T.add_proc(matmul_on_cpu)
+
+  @proc
+  def matmul_on_gemmini(
+    N : size,
+    M : size,
+    K : size,
+    A : i8[N,K] @ DRAM,
+    B : i8[K,M] @ DRAM,
+    C : i32[N,M] @ DRAM,
+  ):
+    assert N % 16 == 0
+    assert M % 16 == 0
+    assert K % 16 == 0
+    
+    for i in par(0,N/16):
+      for j in par(0,M/16):
+        res : i32[16,16] @ GEMM_ACCUM
+        zero_acc_i32(16,16,res)
+
+        for k in par(0,K/16):
+          Ablock : i8[16,16] @ GEMM_SCRATCH
+          Bblock : i8[16,16] @ GEMM_SCRATCH
+          ld_i8(16,16, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
+          ld_i8(16,16, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
+          
+          matmul_acc_i8(16,16,16, Ablock, Bblock, res)
+
+        st_acc_i32(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
+  
+  T.add_proc(matmul_on_gemmini)
+
+  T.start_timer('cpu')
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, x, y, z_cpu);',
+              f'gemmini_fence();'])
+  T.stop_timer('cpu', 'Cycles for CPU version')
+
+  T.start_timer('gemmini')
+  T.add_body([f'matmul_on_gemmini({NN}, {MM}, {KK}, x, y, z_gemmini);',
+              f'gemmini_fence();',
+              f''])
+  T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+  
+  T.add_body([f'if(check_eq_2i32({NN},{MM}, z_cpu, z_gemmini)) {{',
+               '    printf("Correct\\n");',
+               '} else {',
+               '    printf("Results Don\'t Match\\n");',
+               '    printf("Correct Result (z_cpu):\\n");',
+              f'    print_2i32({NN},{MM}, z_cpu);',
+               '    printf("Computed Roundtrip (z_gemmini):\\n");',
+              f'    print_2i32({NN},{MM}, z_gemmini);',
+               '    exit(1);',
+               '}',
+               ''])
+  
+
+  T.compile().run()
 
 
 

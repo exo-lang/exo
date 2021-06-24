@@ -166,9 +166,25 @@ class GemmTestBuilder:
                   '        printf("\\n");',
                   '    }',
                   '}',
-                  '',
+                  'void print_2i32(int N, int M, int32_t *data) {',
+                  '    for(int i=0; i<N; i++) {',
+                  '        for(int j=0; j<M; j++)',
+                  '            printf("%d ", (int)data[M*i + j]);',
+                  '        printf("\\n");',
+                  '    }',
+                  '}',
                   'bool check_eq_2i8(int N, int M, '+
                                    'int8_t *lhs, int8_t *rhs) {',
+                  '    bool flag = true;'
+                  '    for(int i=0; i<N; i++) {',
+                  '        for(int j=0; j<M; j++)',
+                  '            if(lhs[M*i + j] != rhs[M*i + j])',
+                  '                flag = false;'
+                  '    }',
+                  '    return flag;'
+                  '}',
+                  'bool check_eq_2i32(int N, int M, '+
+                                   'int32_t *lhs, int32_t *rhs) {',
                   '    bool flag = true;'
                   '    for(int i=0; i<N; i++) {',
                   '        for(int j=0; j<M; j++)',
@@ -215,13 +231,13 @@ class GemmTestBuilder:
                   f'}}}}',
                   '']
 
-  #def alloc_dram_2i32(self, name, N, M, init):
-  #  self.glob += [f'int32_t {name}[{N}*{M}];','']
-  #  self.body += [f'for(int i=0; i<{N}; i++) {{',
-  #                f'    for(int j=0; j<{M}; j++) {{',
-  #                f'        {name}[({M})*i + j] = {init};',
-  #                f'}}}}',
-  #                '']
+  def alloc_dram_2i32(self, name, N, M, init):
+    self.glob += [f'int32_t {name}[{N}*{M}];','']
+    self.body += [f'for(int i=0; i<{N}; i++) {{',
+                  f'    for(int j=0; j<{M}; j++) {{',
+                  f'        {name}[({M})*i + j] = {init};',
+                  f'}}}}',
+                  '']
 
   def install_gemm_allocator(self):
     if self._has_gemm_alloc:

@@ -354,9 +354,37 @@ def test_matmul_i8_ones_odd():
   T.compile().run()
 
 
+def test_ldst_acc_i32_16():
+  T = GemmTestBuilder('ldst_acc_i32_16')
+  T.add_body(['gemm_acc_init_mem();',
+              'gemmini_flush(0);',
+              ''])
 
+  @proc
+  def ldst_acc_i32_16( x : i32[16,16] @ DRAM, y : i32[16,16] @ DRAM ):
+    tmp : i32[16,16] @ GEMM_ACCUM
+    ld_acc_i32(16,16, x, tmp)
+    st_acc_i32(16,16, tmp, y)
+  T.add_proc(ldst_acc_i32_16)
 
+  T.alloc_dram_2i32('x', 16, 16, 'i+j')
+  T.alloc_dram_2i32('y', 16, 16, '0')
 
+  T.add_body(['ldst_acc_i32_16(x, y);',
+              '',
+              'gemmini_fence();',
+              '',
+              'if(check_eq_2i32(16,16, x, y)) {',
+              '    printf("Correct\\n");',
+              '} else {',
+              '    printf("Results Don\'t Match\\n");',
+              '    printf("Correct Result (x):\\n");',
+              '    print_2i32(16,16, x);',
+              '    printf("Computed Roundtrip (y):\\n");',
+              '    print_2i32(16,16, y);',
+              '    exit(1);',
+              '}',
+              ''])
 
-
+  T.compile().run()
 

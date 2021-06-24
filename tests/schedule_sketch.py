@@ -1,4 +1,8 @@
 
+# Bit 32 ---- Should always be 1 for accumulator address
+# Bit 31 ---- If 0, overwrite data in the accumulator. Relevant for matmul and mvin. For mvout it's don't care.
+# Bit 30 ---- If 0, mvout 8 bit data from accum. If 1, mvout 32 bit data. This is relevant only in mvout, so for mvin and matmul bit 30 is don't care.
+
 # Unification memo
 _gemm_ld_i8   = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                  "1.0f, 0, 0);\n"+
