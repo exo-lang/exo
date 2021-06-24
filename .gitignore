@@ -12,3 +12,9 @@ gemmini_build/
 
 .idea/
 venv/
+
+*~
+*#
+build
+autom4te.cache
+configure
