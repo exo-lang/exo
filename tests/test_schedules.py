@@ -64,6 +64,6 @@ def test_unify3():
             for j in par(0,4):
                 z[4*i + j] = x[4*i + j] + y[4*i + j]
 
-    foo = foo.replace(bar, "for i in _ : _")
+    foo = foo.replace(bar, "for j in _ : _")
     # should be simd_add4(z[i:i+4], x[i:i+4], y[i:i+4])
     print(foo)
