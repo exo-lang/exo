@@ -20,8 +20,8 @@ import pytest
 #   Basic MatMul Test
 # --------------------------------------------------------------------------- #
 
-def test_matmul_basic():
-  T = GemmTestBuilder('matmul_basic')
+def test_matmul_c_i8():
+  T = GemmTestBuilder('matmul_c_i8')
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
@@ -58,7 +58,7 @@ def test_matmul_basic():
   T.add_proc(matmul_on_cpu)
 
   @proc
-  def matmul_on_gemmini(
+  def matmul_c_i8(
     N : size,
     M : size,
     K : size,
@@ -85,7 +85,7 @@ def test_matmul_basic():
 
         st_acc_i8(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
   
-  T.add_proc(matmul_on_gemmini)
+  T.add_proc(matmul_c_i8)
 
   T.start_timer('cpu')
   T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, x, y, z_cpu);',
@@ -93,7 +93,7 @@ def test_matmul_basic():
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_on_gemmini({NN}, {MM}, {KK}, x, y, z_gemmini);',
+  T.add_body([f'matmul_c_i8({NN}, {MM}, {KK}, x, y, z_gemmini);',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -165,8 +165,8 @@ def test_matmul_i8_ones_odd():
   T.compile().run()
 
 
-def test_matmul_basic_i32():
-  T = GemmTestBuilder('matmul_basic_i32')
+def test_matmul_c_i32():
+  T = GemmTestBuilder('matmul_c_i32')
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
@@ -203,7 +203,7 @@ def test_matmul_basic_i32():
   T.add_proc(matmul_on_cpu)
 
   @proc
-  def matmul_on_gemmini(
+  def matmul_c_i32(
     N : size,
     M : size,
     K : size,
@@ -230,7 +230,7 @@ def test_matmul_basic_i32():
 
         st_acc_i32(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
   
-  T.add_proc(matmul_on_gemmini)
+  T.add_proc(matmul_c_i32)
 
   T.start_timer('cpu')
   T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, x, y, z_cpu);',
@@ -238,7 +238,7 @@ def test_matmul_basic_i32():
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_on_gemmini({NN}, {MM}, {KK}, x, y, z_gemmini);',
+  T.add_body([f'matmul_c_i32({NN}, {MM}, {KK}, x, y, z_gemmini);',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
