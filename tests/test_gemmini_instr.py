@@ -32,7 +32,9 @@ def test_ldst_i8_16():
   @proc
   def ldst_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
     tmp : i8[16,16] @ GEMM_SCRATCH
-    ld_i8(16,16, x, tmp)
+    scale : f32
+    scale = 1.0
+    ld_i8(16,16, scale, x, tmp)
     st_i8(16,16, tmp, y)
   T.add_proc(ldst_i8_16)
 
@@ -67,7 +69,9 @@ def test_ldst_acc_i8_16():
   @proc
   def ldst_acc_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
     tmp : i32[16,16] @ GEMM_ACCUM
-    ld_acc_i8(16,16, x, tmp)
+    scale : f32
+    scale = 1.0
+    ld_acc_i8(16,16, scale, x, tmp)
     st_acc_i8(16,16, tmp, y)
   T.add_proc(ldst_acc_i8_16)
 
@@ -102,7 +106,9 @@ def test_ldst_i8_odd():
   @proc
   def ldst_i8_odd( x : i8[15,7] @ DRAM, y : i8[15,7] @ DRAM ):
     tmp : i8[15,16] @ GEMM_SCRATCH
-    ld_i8(15,7, x, tmp)
+    scale : f32
+    scale = 1.0
+    ld_i8(15,7, scale, x, tmp)
     st_i8(15,7, tmp, y)
   T.add_proc(ldst_i8_odd)
 
@@ -137,7 +143,9 @@ def test_ldst_acc_i8_acc():
   @proc
   def ldst_acc_i8_acc( x : i8[7,13] @ DRAM, y : i8[7,13] @ DRAM ):
     tmp : i32[7,16] @ GEMM_ACCUM
-    ld_acc_i8(7,13, x, tmp)
+    scale : f32
+    scale = 1.0
+    ld_acc_i8(7,13, scale, x, tmp)
     st_acc_i8(7,13, tmp, y)
   T.add_proc(ldst_acc_i8_acc)
 
@@ -172,7 +180,9 @@ def test_ldzerost_i8_16():
   @proc
   def ldzerost_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
     tmp : i8[16,16] @ GEMM_SCRATCH
-    ld_i8(16,16, x, tmp)
+    scale : f32
+    scale = 1.0
+    ld_i8(16,16, scale, x, tmp)
     zero_i8(8,8, tmp[4:12,:])
     st_i8(16,16, tmp, y)
   T.add_proc(ldzerost_i8_16)
@@ -214,7 +224,9 @@ def test_ldzerost_acc_i8_16():
   @proc
   def ldzerost_acc_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
     tmp : i32[16,16] @ GEMM_ACCUM
-    ld_acc_i8(16,16, x, tmp)
+    scale : f32
+    scale = 1.0
+    ld_acc_i8(16,16, scale, x, tmp)
     zero_acc_i32(8,8, tmp[4:12,:])
     st_acc_i8(16,16, tmp, y)
   T.add_proc(ldzerost_acc_i8_16)
@@ -274,11 +286,13 @@ def test_matmul_i8_ones_16():
     A : i8[16,16] @ GEMM_SCRATCH
     B : i8[16,16] @ GEMM_SCRATCH
     C : i32[16,16] @ GEMM_ACCUM
-    ld_i8(16,16, x, A)
-    ld_i8(16,16, y, B)
+    scale : f32
+    scale = 1.0
+    ld_i8(16,16, scale, x, A)
+    ld_i8(16,16, scale, y, B)
     zero_acc_i32(16,16, C)
 
-    matmul_i8(16,16,16, A, B, C)
+    matmul_i8(16,16,16, scale, A, B, C)
 
     st_acc_i8(16,16, C, res)
   T.add_proc(matmul_i8_ones_16)
@@ -325,11 +339,13 @@ def test_matmul_i8_ones_odd():
     A : i8[15,16] @ GEMM_SCRATCH
     B : i8[9,16] @ GEMM_SCRATCH
     C : i32[15,16] @ GEMM_ACCUM
-    ld_i8(15,9, x, A)
-    ld_i8(9,13, y, B)
+    scale : f32
+    scale = 1.0
+    ld_i8(15,9, scale, x, A)
+    ld_i8(9,13, scale, y, B)
     zero_acc_i32(15,13, C)
 
-    matmul_i8(15,13,9, A, B, C)
+    matmul_i8(15,13,9, scale, A, B, C)
 
     st_acc_i8(15,13, C, res)
   T.add_proc(matmul_i8_ones_odd)
@@ -363,7 +379,9 @@ def test_ldst_acc_i32_16():
   @proc
   def ldst_acc_i32_16( x : i32[16,16] @ DRAM, y : i32[16,16] @ DRAM ):
     tmp : i32[16,16] @ GEMM_ACCUM
-    ld_acc_i32(16,16, x, tmp)
+    scale : f32
+    scale = 1.0
+    ld_acc_i32(16,16, scale, x, tmp)
     st_acc_i32(16,16, tmp, y)
   T.add_proc(ldst_acc_i32_16)
 

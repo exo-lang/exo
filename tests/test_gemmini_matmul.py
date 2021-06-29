@@ -67,6 +67,9 @@ def test_matmul_c_i8():
     C : i8[N,M] @ DRAM,
   ):
 
+    scale : f32
+    scale = 1.0
+
     for i in par(0,N/16):
         for j in par(0,M/16):
             res : i32[16,16] @ GEMM_ACCUM
@@ -75,18 +78,18 @@ def test_matmul_c_i8():
             for k in par(0,K/16):
                 Ablock : i8[16,16] @ GEMM_SCRATCH
                 Bblock : i8[16,16] @ GEMM_SCRATCH
-                ld_i8(16,16, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
-                ld_i8(16,16, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
+                ld_i8(16,16, scale, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
+                ld_i8(16,16, scale, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(16,16,16, Ablock, Bblock, res)
+                matmul_acc_i8(16,16,16, scale, Ablock, Bblock, res)
 
             if K%16 > 0:
                 Ablock : i8[16,16] @ GEMM_SCRATCH
                 Bblock : i8[K%16,16] @ GEMM_SCRATCH
-                ld_i8(16,K%16, A[ 16*i:16*(i+1), K-K%16: ], Ablock)
-                ld_i8(K%16,16, B[ K-K%16:, 16*j:16*(j+1) ], Bblock)
+                ld_i8(16,K%16, scale, A[ 16*i:16*(i+1), K-K%16: ], Ablock)
+                ld_i8(K%16,16, scale, B[ K-K%16:, 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(16,16,K%16, Ablock, Bblock, res)
+                matmul_acc_i8(16,16,K%16, scale, Ablock, Bblock, res)
 
             st_acc_i8(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
 
@@ -98,18 +101,18 @@ def test_matmul_c_i8():
             for k in par(0,K/16):
                 Ablock : i8[N%16,16] @ GEMM_SCRATCH
                 Bblock : i8[16,16] @ GEMM_SCRATCH
-                ld_i8(N%16,16, A[ N-N%16:, 16*k:16*(k+1) ], Ablock)
-                ld_i8(16,16, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
+                ld_i8(N%16,16, scale, A[ N-N%16:, 16*k:16*(k+1) ], Ablock)
+                ld_i8(16,16, scale, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(N%16,16,16, Ablock, Bblock, res)
+                matmul_acc_i8(N%16,16,16, scale, Ablock, Bblock, res)
                 
             if K%16 > 0:
                 Ablock : i8[N%16,16] @ GEMM_SCRATCH
                 Bblock : i8[K%16,16] @ GEMM_SCRATCH
-                ld_i8(N%16,K%16, A[ N-N%16:, K-K%16: ], Ablock)
-                ld_i8(K%16,16, B[ K-K%16:, 16*j:16*(j+1) ], Bblock)
+                ld_i8(N%16,K%16, scale, A[ N-N%16:, K-K%16: ], Ablock)
+                ld_i8(K%16,16, scale, B[ K-K%16:, 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(N%16,16,K%16, Ablock, Bblock, res)
+                matmul_acc_i8(N%16,16,K%16, scale, Ablock, Bblock, res)
 
             st_acc_i8(N%16,16, res, C[ N-N%16:, 16*j:16*(j+1) ])
 
@@ -121,18 +124,18 @@ def test_matmul_c_i8():
             for k in par(0,K/16):
                 Ablock : i8[16,16] @ GEMM_SCRATCH
                 Bblock : i8[16,16] @ GEMM_SCRATCH
-                ld_i8(16,16, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
-                ld_i8(16,M%16, B[ 16*k:16*(k+1), M-M%16: ], Bblock)
+                ld_i8(16,16, scale, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
+                ld_i8(16,M%16, scale, B[ 16*k:16*(k+1), M-M%16: ], Bblock)
           
-                matmul_acc_i8(16,M%16,16, Ablock, Bblock, res)
+                matmul_acc_i8(16,M%16,16, scale, Ablock, Bblock, res)
 
             if K%16 > 0:
                 Ablock : i8[16,16] @ GEMM_SCRATCH
                 Bblock : i8[K%16,16] @ GEMM_SCRATCH
-                ld_i8(16,K%16, A[ 16*i:16*(i+1), K-K%16: ], Ablock)
-                ld_i8(K%16,M%16, B[ K-K%16:, M-M%16: ], Bblock)
+                ld_i8(16,K%16, scale, A[ 16*i:16*(i+1), K-K%16: ], Ablock)
+                ld_i8(K%16,M%16, scale, B[ K-K%16:, M-M%16: ], Bblock)
           
-                matmul_acc_i8(16,M%16,K%16, Ablock, Bblock, res)
+                matmul_acc_i8(16,M%16,K%16, scale, Ablock, Bblock, res)
 
             st_acc_i8(16,M%16, res, C[ 16*i:16*(i+1), M-M%16: ])
 
@@ -143,18 +146,18 @@ def test_matmul_c_i8():
         for k in par(0,K/16):
             Ablock : i8[N%16,16] @ GEMM_SCRATCH
             Bblock : i8[16,16] @ GEMM_SCRATCH
-            ld_i8(N%16,16, A[ N-N%16:, 16*k:16*(k+1) ], Ablock)
-            ld_i8(16,M%16, B[ 16*k:16*(k+1), M-M%16: ], Bblock)
+            ld_i8(N%16,16, scale, A[ N-N%16:, 16*k:16*(k+1) ], Ablock)
+            ld_i8(16,M%16, scale, B[ 16*k:16*(k+1), M-M%16: ], Bblock)
       
-            matmul_acc_i8(N%16,M%16,16, Ablock, Bblock, res)
+            matmul_acc_i8(N%16,M%16,16, scale, Ablock, Bblock, res)
 
         if K%16 > 0:
             Ablock : i8[N%16,16] @ GEMM_SCRATCH
             Bblock : i8[K%16,16] @ GEMM_SCRATCH
-            ld_i8(N%16,K%16, A[ N-N%16:, K-K%16: ], Ablock)
-            ld_i8(K%16,M%16, B[ K-K%16:, M-M%16: ], Bblock)
+            ld_i8(N%16,K%16, scale, A[ N-N%16:, K-K%16: ], Ablock)
+            ld_i8(K%16,M%16, scale, B[ K-K%16:, M-M%16: ], Bblock)
       
-            matmul_acc_i8(N%16, M%16, K%16, Ablock, Bblock, res)
+            matmul_acc_i8(N%16, M%16, K%16, scale, Ablock, Bblock, res)
 
         st_acc_i8(N%16, M%16, res, C[ N-N%16:, M-M%16: ])
   
