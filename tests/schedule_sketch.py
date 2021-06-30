@@ -1,3 +1,19 @@
+@proc
+def bar(n : size, src : [R][n]):
+  for i in par(0,n):
+    src[i] = 1.0
+
+@proc
+def foo(x : R[10, 20, 30]):
+  for j in par(0, 30):
+    x[0, 1, j] = 1.0
+
+# ->
+def foo(x : R[10, 20, 30]):
+  bar(30, x[0, 1, 0:30])
+
+
+
 
 # Bit 32 ---- Should always be 1 for accumulator address
 # Bit 31 ---- If 0, overwrite data in the accumulator. Relevant for matmul and mvin. For mvout it's don't care.

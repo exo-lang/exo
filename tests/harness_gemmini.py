@@ -239,6 +239,10 @@ class GemmTestBuilder:
                   f'}}}}',
                   '']
 
+  def alloc_dram_f32(self, name, init):
+      self.glob += [f'float {name}[1];','']
+      self.body += [f'{name}[0] = {init};','']
+
   def install_gemm_allocator(self):
     if self._has_gemm_alloc:
       return

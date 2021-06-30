@@ -35,7 +35,7 @@ def test_ldst_i8_16():
     scale : f32
     scale = 1.0
     ld_i8(16,16, scale, x, tmp)
-    st_i8(16,16, tmp, y)
+    st_i8(16,16, scale, tmp, y)
   T.add_proc(ldst_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
@@ -72,7 +72,7 @@ def test_ldst_acc_i8_16():
     scale : f32
     scale = 1.0
     ld_acc_i8(16,16, scale, x, tmp)
-    st_acc_i8(16,16, tmp, y)
+    st_acc_i8(16,16, scale, tmp, y)
   T.add_proc(ldst_acc_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
@@ -109,7 +109,7 @@ def test_ldst_i8_odd():
     scale : f32
     scale = 1.0
     ld_i8(15,7, scale, x, tmp)
-    st_i8(15,7, tmp, y)
+    st_i8(15,7, scale, tmp, y)
   T.add_proc(ldst_i8_odd)
 
   T.alloc_dram_2i8('x', 15, 7, 'i+j')
@@ -146,7 +146,7 @@ def test_ldst_acc_i8_acc():
     scale : f32
     scale = 1.0
     ld_acc_i8(7,13, scale, x, tmp)
-    st_acc_i8(7,13, tmp, y)
+    st_acc_i8(7,13, scale, tmp, y)
   T.add_proc(ldst_acc_i8_acc)
 
   T.alloc_dram_2i8('x', 7, 13, 'i+j')
@@ -184,7 +184,7 @@ def test_ldzerost_i8_16():
     scale = 1.0
     ld_i8(16,16, scale, x, tmp)
     zero_i8(8,8, tmp[4:12,:])
-    st_i8(16,16, tmp, y)
+    st_i8(16,16, scale, tmp, y)
   T.add_proc(ldzerost_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
@@ -228,7 +228,7 @@ def test_ldzerost_acc_i8_16():
     scale = 1.0
     ld_acc_i8(16,16, scale, x, tmp)
     zero_acc_i32(8,8, tmp[4:12,:])
-    st_acc_i8(16,16, tmp, y)
+    st_acc_i8(16,16, scale, tmp, y)
   T.add_proc(ldzerost_acc_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
@@ -292,9 +292,9 @@ def test_matmul_i8_ones_16():
     ld_i8(16,16, scale, y, B)
     zero_acc_i32(16,16, C)
 
-    matmul_i8(16,16,16, scale, A, B, C)
+    matmul_i8(16,16,16, A, B, C)
 
-    st_acc_i8(16,16, C, res)
+    st_acc_i8(16,16, scale, C, res)
   T.add_proc(matmul_i8_ones_16)
 
 
@@ -345,9 +345,9 @@ def test_matmul_i8_ones_odd():
     ld_i8(9,13, scale, y, B)
     zero_acc_i32(15,13, C)
 
-    matmul_i8(15,13,9, scale, A, B, C)
+    matmul_i8(15,13,9, A, B, C)
 
-    st_acc_i8(15,13, C, res)
+    st_acc_i8(15,13, scale, C, res)
   T.add_proc(matmul_i8_ones_odd)
 
 
@@ -382,7 +382,7 @@ def test_ldst_acc_i32_16():
     scale : f32
     scale = 1.0
     ld_acc_i32(16,16, scale, x, tmp)
-    st_acc_i32(16,16, tmp, y)
+    st_acc_i32(16,16, scale, tmp, y)
   T.add_proc(ldst_acc_i32_16)
 
   T.alloc_dram_2i32('x', 16, 16, 'i+j')

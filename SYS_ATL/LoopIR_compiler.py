@@ -542,7 +542,7 @@ class Compiler:
                     return self.env[e.name]
                 else:
                     assert rtyp.is_real_scalar()
-                    return self.env[e.name]
+                    return f"&{self.env[e.name]}"
             else:
                 if rtyp.is_indexable():
                     return self.env[e.name]
