@@ -85,16 +85,27 @@ st_acc_i8 = (st_i8.rename('st_acc_i8')
                   .make_instr(_gemm_st_acc_i8))
 
 
-_gemm_st_acc_i32 = ("gemmini_config_ex(WS, NO_ACTIVATION, 0, "+
-                                       "{scale}[0], 0);\n"+
-                     "gemmini_config_st({dst}.strides[0]*4);\n"+
-                     "gemmini_extended_mvout( ((uint64_t) {dst}.data), "+
-                     "((uint32_t) {src}.data | 0x20000000), {m}, {n} );")
-st_acc_i32 = (st_i8.rename('st_acc_i32')
-                   .set_precision('src', 'i32')
-                   .set_precision('dst', 'i32')
-                   .set_memory('src', GEMM_ACCUM)
-                   .make_instr(_gemm_st_acc_i32))
+_gemm_st_acc_i32 = ("gemmini_config_ex(WS, NO_ACTIVATION, 0, 1.0f, 0);\n"+
+                    "gemmini_config_st({dst}.strides[0]*4);\n"+
+                    "gemmini_extended_mvout( ((uint64_t) {dst}.data), "+
+                    "((uint32_t) {src}.data | 0x20000000), {m}, {n} );")
+@instr(_gemm_st_acc_i32)
+def st_acc_i32(
+    n     : size,
+    m     : size,
+    src   : [i32][n, 16] @ GEMM_ACCUM,
+    dst   : [i32][n, m]  @ DRAM
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(dst, 1) == 1
+    assert stride(src, 0) == 16
+    assert stride(src, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            dst[i, j] = src[i, j]
+
 
 
 _gemm_zero_i8 = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
