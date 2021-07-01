@@ -208,7 +208,9 @@ def pre_bake_abstract_A(p, pattern, instr):
             for k in par(0, 4):
                 AG : i8[16,16] @ MDRAM
                 BG : i8[16,16] @ MDRAM
-                ld_i8(16, 16, A[16*i:16*i+16, 16*k:16*k+16], AG)
+                scale : f32
+                scale = 1.0
+                ld_i8(16, 16, scale, A[16*i:16*i+16, 16*k:16*k+16], AG)
                 for k_in in par(0, 16):
                     for j_in in par(0, 16):
                         BG[k_in,j_in] = B[16 * k + k_in, 16 * j + j_in]
@@ -229,6 +231,8 @@ def pre_bake_abstract_BC_and_mmul(p):
     B: i8[64, 64] @ DRAM,
     C: i8[64, 64] @ DRAM
   ):
+    scale : f32
+    scale = 1.0
     for i in par(0, 4):
         for j in par(0, 4):
             CG : i8[16,16] @ MDRAM
@@ -236,10 +240,10 @@ def pre_bake_abstract_BC_and_mmul(p):
             for k in par(0, 4):
                 AG : i8[16,16] @ MDRAM
                 BG : i8[16,16] @ MDRAM
-                ld_i8(16, 16, A[16*i:16*i+16, 16*k:16*k+16], AG)
-                ld_i8(16, 16, B[16*k:16*k+16, 16*j:16*j+16], BG)
+                ld_i8(16, 16, scale, A[16*i:16*i+16, 16*k:16*k+16], AG)
+                ld_i8(16, 16, scale, B[16*k:16*k+16, 16*j:16*j+16], BG)
                 matmul_acc_i8(16,16,16, AG, BG, CG)
-            st_acc_i8(16,16, CG, C[16*i:16*i+16, 16*j:16*j+16])
+            st_acc_i8(16,16, scale, CG, C[16*i:16*i+16, 16*j:16*j+16])
   return matmul2d
 
 
