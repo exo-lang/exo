@@ -2082,6 +2082,11 @@ static void tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
         uint8_t weightA,
         enum tiled_matmul_type_t tiled_matmul_type) {
 
+    float a_scale = (float) A_scale_factor;
+    float b_scale = (float) B_scale_factor;
+    float c_scale = (float) scale;
+    float d_scale = (float) D_scale_factor;
+
     if (act != 0) {
         printf("We only support no activation\n");
         exit(1);
@@ -2111,39 +2116,39 @@ static void tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
         if (full_C) {
             printf("C is int32\n");
             // C is int32
-            matmul_c_i32(dim_I, dim_J, dim_K, &A_scale_factor, &B_scale_factor, A, B, C);
+            matmul_c_i32(dim_I, dim_J, dim_K, &a_scale, &b_scale, A, B, C);
         } else if (!full_C) {
             printf("C is int8\n");
             // C is int8
-            matmul_c_i8(dim_I, dim_J, dim_K, &A_scale_factor, &B_scale_factor, &scale, A, B, C);
+            matmul_c_i8(dim_I, dim_J, dim_K, &a_scale, &b_scale, &c_scale, A, B, C);
         }
     } else {
         // Four patterns depending on C and D precisions
         if (full_C & low_D) {
             printf("C is int32 and D is i8\n");
-            if (scale != 1.0) {
+            if (c_scale != 1.0) {
                 printf("Cannot scale C with i32");
                 exit(1);
             }
             // C is int32 and D is i8
-            matmul_c_i32_d_i8(dim_I, dim_J, dim_K, &A_scale_factor, &B_scale_factor, &D_scale_factor, A, B, C, D);
+            matmul_c_i32_d_i8(dim_I, dim_J, dim_K, &a_scale, &b_scale, &d_scale, A, B, C, D);
             //matmul_c_i32_d_i8_cpu(dim_I, dim_J, dim_K, A, B, C, D);
         } else if (full_C & !low_D) {
             printf("C is int32 and D is i32\n");
-            if (scale != 1.0) {
+            if (c_scale != 1.0) {
                 printf("Cannot scale C with i32");
                 exit(1);
             }
             // C is int32 and D is i32
-            matmul_c_i32_d_i32(dim_I, dim_J, dim_K, &A_scale_factor, &B_scale_factor, &D_scale_factor, A, B, C, D);
+            matmul_c_i32_d_i32(dim_I, dim_J, dim_K, &a_scale, &b_scale, &d_scale, A, B, C, D);
         } else if (!full_C & low_D) {
             printf("C is int8 and D is i8\n");
             // C is int8 and D is i8
-            matmul_c_i8_d_i8(dim_I, dim_J, dim_K, &A_scale_factor, &B_scale_factor, &scale, &D_scale_factor, A, B, C, D);
+            matmul_c_i8_d_i8(dim_I, dim_J, dim_K, &a_scale, &b_scale, &c_scale, &d_scale, A, B, C, D);
         } else if (!full_C & !low_D) {
             printf("C is int8 and D is i32\n");
             // C is int8 and D is i32
-            matmul_c_i8_d_i8(dim_I, dim_J, dim_K, &A_scale_factor, &B_scale_factor, &scale, &D_scale_factor, A, B, C, D);
+            matmul_c_i8_d_i32(dim_I, dim_J, dim_K, &a_scale, &b_scale, &c_scale, &d_scale, A, B, C, D);
         }
     }
 }
