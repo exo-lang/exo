@@ -382,7 +382,7 @@ def test_ldst_acc_i32_16():
     scale : f32
     scale = 1.0
     ld_acc_i32(16,16, scale, x, tmp)
-    st_acc_i32(16,16, scale, tmp, y)
+    st_acc_i32(16,16, tmp, y)
   T.add_proc(ldst_acc_i32_16)
 
   T.alloc_dram_2i32('x', 16, 16, 'i+j')

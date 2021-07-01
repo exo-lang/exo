@@ -75,7 +75,10 @@ def st_i8(
 
     for i in par(0, n):
         for j in par(0, m):
-            dst[i, j] = src[i, j]
+            tmp : f32
+            tmp = src[i,j]
+            tmp = tmp * scale
+            dst[i, j] = tmp
 
 _gemm_st_acc_i8 = ("gemmini_config_ex(WS, NO_ACTIVATION, 0, "+
                    "{scale}[0], 0);\n"+_gemm_st_i8)
