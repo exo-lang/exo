@@ -67,18 +67,20 @@ def test_ldst_acc_i8_16():
               ''])
 
   @proc
-  def ldst_acc_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
+  def ldst_acc_i8_16( x : i8[16,16] @ DRAM, xx : i32[16,16] @DRAM, y : i8[16,16] @ DRAM ):
     tmp : i32[16,16] @ GEMM_ACCUM
     scale : f32
+    scale = 0.0
+    ld_acc_i32(16,16, scale, xx, tmp)
     scale = 1.0
-    ld_acc_i8(16,16, scale, x, tmp)
     st_acc_i8(16,16, scale, tmp, y)
   T.add_proc(ldst_acc_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
+  T.alloc_dram_2i32('xx', 16, 16, 'i+j')
   T.alloc_dram_2i8('y', 16, 16, '0')
 
-  T.add_body(['ldst_acc_i8_16(x, y);',
+  T.add_body(['ldst_acc_i8_16(x,xx, y);',
               '',
               'gemmini_fence();',
               '',
@@ -369,7 +371,7 @@ def test_matmul_i8_ones_odd():
 
   T.compile().run()
 
-
+# TODO: This is wrong! acc i32 doesn't scale
 def test_ldst_acc_i32_16():
   T = GemmTestBuilder('ldst_acc_i32_16')
   T.add_body(['gemm_acc_init_mem();',
@@ -380,7 +382,7 @@ def test_ldst_acc_i32_16():
   def ldst_acc_i32_16( x : i32[16,16] @ DRAM, y : i32[16,16] @ DRAM ):
     tmp : i32[16,16] @ GEMM_ACCUM
     scale : f32
-    scale = 1.0
+    scale = 4.0
     ld_acc_i32(16,16, scale, x, tmp)
     st_acc_i32(16,16, tmp, y)
   T.add_proc(ldst_acc_i32_16)

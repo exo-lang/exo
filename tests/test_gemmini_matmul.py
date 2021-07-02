@@ -585,7 +585,6 @@ def test_matmul_c_i8_d_i8():
 
 
 
-
 def test_matmul_c_i8_d_i32():
   T = GemmTestBuilder('matmul_c_i8_d_i32')
   T.add_body(['gemm_init_mem();',
@@ -972,16 +971,15 @@ def test_matmul_c_i32_d_i8():
   T.compile().run()
 
 
-
 def test_matmul_c_i32_d_i32():
   T = GemmTestBuilder('matmul_c_i32_d_i32')
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
 
-  NN = 60
-  MM = 70
-  KK = 120
+  NN = 16
+  MM = 16
+  KK = 16
 
   T.alloc_dram_2i8('x', NN, KK, '2')
   T.alloc_dram_2i8('y', KK, MM, '3')
@@ -1160,7 +1158,7 @@ def test_matmul_c_i32_d_i32():
   
 
   T.compile().run()
-
+  
 
 
 

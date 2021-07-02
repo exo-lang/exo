@@ -32,7 +32,10 @@ def ld_i8(
 
     for i in par(0, n):
         for j in par(0, m):
-            dst[i,j] = src[i,j] * scale
+            tmp : f32
+            tmp      = src[i,j]
+            tmp      = tmp * scale
+            dst[i,j] = tmp
 
 # in order to load i8 values into the i32 accumulator memory,
 # we must specify `shrunk=1` (3rd param of ..._config_ld)
@@ -45,15 +48,31 @@ ld_acc_i8 = (ld_i8.rename('ld_acc_i8')
                   .set_memory('dst', GEMM_ACCUM)
                   .make_instr(_gemm_ld_acc_i8))
 
-_gemm_ld_i32   = ("gemmini_extended3_config_ld({src}.strides[0]*4, "+
-                 "{scale}[0], 0, 0);\n"+
-                 "gemmini_extended_mvin( ((uint64_t) {src}.data), "+
+
+_gemm_ld_acc_i32   = ("gemmini_extended3_config_ld({src}.strides[0]*4, "+
+                      "{scale}[0], 0, 0);\n"+
+                      "gemmini_extended_mvin( ((uint64_t) {src}.data), "+
                                "((uint32_t) {dst}.data), {m}, {n} );")
-ld_acc_i32 = (ld_i8.rename('ld_acc_i32')
-                  .set_precision('src', 'i32')
-                  .set_precision('dst', 'i32')
-                  .set_memory('dst', GEMM_ACCUM)
-                  .make_instr(_gemm_ld_i32))
+@instr(_gemm_ld_acc_i32)
+def ld_acc_i32(
+    n     : size,
+    m     : size,
+    scale : f32,
+    src   : [i32][n, m] @ DRAM,
+    dst   : [i32][n, 16] @ GEMM_ACCUM,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : f32
+            tmp      = src[i,j]
+            tmp      = tmp * scale
+            dst[i,j] = tmp
 
 
 _gemm_st_i8   = ("gemmini_config_st({dst}.strides[0]*1);\n"+
@@ -136,12 +155,12 @@ zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
 
 @instr("gemmini_config_ex(WS, NO_ACTIVATION, 0, 1.0f, 0);\n"+
        "gemmini_extended_preload("+
-            "(uint64_t)({B}.data), (uint64_t)({C}.data), "+
+            "(uint32_t)({B}.data), (uint32_t)({C}.data), "+
             "{M}, {K}, "+
             "{M}, {N}"+
        ");\n"+
        "gemmini_extended_compute_preloaded("+
-            "(uint64_t)({A}.data), ~((uint64_t)0), "+
+            "(uint32_t)({A}.data), ~((uint32_t)0), "+
             "{K}, {N}, "+
             "16, 16"+
        ");")
@@ -169,12 +188,12 @@ def matmul_i8(
 
 @instr("gemmini_config_ex(WS, NO_ACTIVATION, 0, 1.0f, 0);\n"+
        "gemmini_extended_preload("+
-            "(uint64_t)({B}.data), (uint64_t)({C}.data) | 0x40000000, "+
+            "(uint32_t)({B}.data), (uint32_t)({C}.data) | 0x40000000, "+
             "{M}, {K}, "+
             "{M}, {N}"+
        ");\n"+
        "gemmini_extended_compute_preloaded("+
-            "(uint64_t)({A}.data), ~((uint64_t)0), "+
+            "(uint32_t)({A}.data), ~((uint32_t)0), "+
             "{K}, {N}, "+
             "16, 16"+
        ");")
