@@ -53,10 +53,10 @@ int main (int argc, char * argv[]) {
         exit(1);
     }
 
-    bool check = false;
+    bool check = true;
 
     if (argc < 4) {
-        check = false;
+        check = true;
     } else if (strcmp(argv[3], "check") == 0) {
         check = true;
     } else {
