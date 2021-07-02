@@ -153,7 +153,8 @@ zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
                        .set_memory('dst', GEMM_ACCUM)
                        .make_instr(_gemm_zero_i8))
 
-@instr("gemmini_config_ex(WS, NO_ACTIVATION, 0, 1.0f, 0);\n"+
+# TODO: algorithm is wrong
+@instr("gemmini_extended_config_ex(WS, (int){act}, 0, 1.0f, 0, 1, (bool){trans_a}, (bool){trans_b});\n"+
        "gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data), "+
             "{M}, {K}, "+
@@ -168,6 +169,9 @@ def matmul_i8(
     N : size,
     M : size,
     K : size,
+    act : i8,
+    trans_a : i8,
+    trans_b : i8,
     A : [i8][N, 16] @ GEMM_SCRATCH,
     B : [i8][K, 16] @ GEMM_SCRATCH,
     C : [i32][N, 16] @ GEMM_ACCUM,
@@ -186,7 +190,8 @@ def matmul_i8(
                 b = B[k,j]
                 C[i, j] += a * b
 
-@instr("gemmini_config_ex(WS, NO_ACTIVATION, 0, 1.0f, 0);\n"+
+# TODO: algorithm is wrong
+@instr("gemmini_extended_config_ex(WS, (int){act}, 0, 1.0f, 0, 1, (bool){trans_a}, (bool){trans_b});\n"+
        "gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data) | 0x40000000, "+
             "{M}, {K}, "+
@@ -201,6 +206,9 @@ def matmul_acc_i8(
     N : size,
     M : size,
     K : size,
+    act : i8,
+    trans_a : i8,
+    trans_b : i8,
     A : [i8][N, 16] @ GEMM_SCRATCH,
     B : [i8][K, 16] @ GEMM_SCRATCH,
     C : [i32][N, 16] @ GEMM_ACCUM,
