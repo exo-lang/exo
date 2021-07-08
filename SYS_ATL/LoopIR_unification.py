@@ -49,7 +49,24 @@ class DoReplace(LoopIR_Rewrite):
         return eff
 
 
-
+# Make separate equation editing paths
+# 1. Initial construction
+# 2. Address aliases (Alloc, windowStmt)
+# 3. Address Read and Assign/Reduce, and WindowExpr 
+#    name == name
+#    Indexing expressions
+#    (Real Scalar : simple)
+#    i. subproc arg is a Tensor
+#       body's index === args's index
+#       call arg is just arg
+#    ii.type is window : 
+#       Generate placeholder points/Intervals (forall arg's index, exact matching index should exist in body's index)
+#       The fact that arg's index exists => body's index is Interval, not point
+#       Body's index didn't match with any arg's index => Point
+#       body's index === placeholder
+#    windowexpr is very similar to Read, except that index is w_access!
+#       indices should be exact same if arg is Tensor
+#       arg is window : generate placeholder and body's index === placeholder
 class Unification:
     def __init__(self, subproc, stmt_block):
         self.equations = []

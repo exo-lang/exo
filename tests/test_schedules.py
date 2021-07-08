@@ -67,3 +67,21 @@ def test_unify3():
     foo = foo.replace(bar, "for j in _ : _")
     # should be simd_add4(z[i:i+4], x[i:i+4], y[i:i+4])
     print(foo)
+
+@pytest.mark.skip
+def test_unify4():
+    @proc
+    def bar(n : size, src : [R][n]):
+        for i in par(0,n):
+            if i < n-2:
+                kurage(src[i:i+2])
+
+    @proc
+    def foo(x : R[50, 1]):
+        for j in par(0,50):
+            if j < 48:
+                kurage(x[j:j+2, 0])
+
+    foo = foo.replace(bar, "for j in _ : _")
+    # should be bar(50, x[:, 0])
+    print(foo)
