@@ -123,13 +123,16 @@ class Unification:
         elif type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
         #stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
         #TODO: Think!
+            pass
 
         elif type(stmt) is LoopIR.Pass:
             pass
 
         elif type(stmt) is LoopIR.Alloc:
+            pass
             # Substitute the rest of body by this new symbol?
         elif type(stmt) is LoopIR.WindowStmt:
+            pass
             # Substitute the rest of body by this new symbol?
         elif type(stmt) is LoopIR.Call:
             if sub_stmt.f != stmt.f:
@@ -138,10 +141,10 @@ class Unification:
             for e1, e2 in zip(sub_stmt.args, stmt.args):
                 self.check_expr(e1, e2)
 
-    stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
-            | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
-            | Alloc  ( sym name, type type, mem? mem )
-            | WindowStmt( sym lhs, expr rhs )
+#    stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
+#            | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
+#            | Alloc  ( sym name, type type, mem? mem )
+#            | WindowStmt( sym lhs, expr rhs )
 
     def check_expr(self, e1, e2):
         if type(e1) is not type(e2):
@@ -149,6 +152,7 @@ class Unification:
 
         # numeric type should match syntactically
         if type(e1) is LoopIR.Read:
+            pass
             # TODO: Think!
         elif type(e1) is LoopIR.Const:
             if e1.val != e2.name:
