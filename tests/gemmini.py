@@ -191,6 +191,7 @@ def matmul_i8(
                 C[i, j] += a * b
 
 # TODO: algorithm is wrong
+# Need to have a branch on bool and builtin act funciton
 @instr("gemmini_extended_config_ex(WS, (int){act}, 0, 1.0f, 0, 1, (bool){trans_a}, (bool){trans_b});\n"+
        "gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data) | 0x40000000, "+

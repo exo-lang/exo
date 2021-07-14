@@ -67,20 +67,18 @@ def test_ldst_acc_i8_16():
               ''])
 
   @proc
-  def ldst_acc_i8_16( x : i8[16,16] @ DRAM, xx : i32[16,16] @DRAM, y : i8[16,16] @ DRAM ):
+  def ldst_acc_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
     tmp : i32[16,16] @ GEMM_ACCUM
     scale : f32
-    scale = 0.0
-    ld_acc_i32(16,16, scale, xx, tmp)
     scale = 1.0
+    ld_acc_i8(16,16, scale, x, tmp)
     st_acc_i8(16,16, scale, tmp, y)
   T.add_proc(ldst_acc_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
-  T.alloc_dram_2i32('xx', 16, 16, 'i+j')
   T.alloc_dram_2i8('y', 16, 16, '0')
 
-  T.add_body(['ldst_acc_i8_16(x,xx, y);',
+  T.add_body(['ldst_acc_i8_16(x, y);',
               '',
               'gemmini_fence();',
               '',
@@ -294,7 +292,13 @@ def test_matmul_i8_ones_16():
     ld_i8(16,16, scale, y, B)
     zero_acc_i32(16,16, C)
 
-    matmul_i8(16,16,16, A, B, C)
+    act : i8
+    trans_a : i8
+    trans_b : i8
+    act = 0.0
+    trans_a = 0.0
+    trans_b = 0.0
+    matmul_i8(16,16,16, act, trans_a, trans_b, A, B, C)
 
     st_acc_i8(16,16, scale, C, res)
   T.add_proc(matmul_i8_ones_16)
@@ -347,7 +351,13 @@ def test_matmul_i8_ones_odd():
     ld_i8(9,13, scale, y, B)
     zero_acc_i32(15,13, C)
 
-    matmul_i8(15,13,9, A, B, C)
+    act : i8
+    trans_a : i8
+    trans_b : i8
+    act = 0.0
+    trans_a = 0.0
+    trans_b = 0.0
+    matmul_i8(15,13,9, act, trans_a, trans_b, A, B, C)
 
     st_acc_i8(15,13, scale, C, res)
   T.add_proc(matmul_i8_ones_odd)

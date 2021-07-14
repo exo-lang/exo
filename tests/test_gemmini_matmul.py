@@ -1589,22 +1589,19 @@ def test_matmul_c_i32_d_i8_rep():
   T.compile().run()
 
 
-
-
-@pytest.mark.skip()
 def test_matmul_c_i32_d_i32():
   T = GemmTestBuilder('matmul_c_i32_d_i32')
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
 
-  NN = 16
-  MM = 16
-  KK = 16
+  NN = 60
+  MM = 70
+  KK = 120
 
   T.alloc_dram_2i8('x', NN, KK, '2')
   T.alloc_dram_2i8('y', KK, MM, '3')
-  T.alloc_dram_2i32('d', NN, MM, '2')
+  T.alloc_dram_2i8('d', NN, MM, '2')
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('d_scale', '4.0f')
@@ -1654,6 +1651,9 @@ def test_matmul_c_i32_d_i32():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
+    acc : i8,
+    trans_a : i8,
+    trans_b : i8,
     A : i8[N,K] @ DRAM,
     B : i8[K,M] @ DRAM,
     C : i32[N,M] @ DRAM,
@@ -1671,7 +1671,7 @@ def test_matmul_c_i32_d_i32():
                 ld_i8(16,16, a_scale, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
                 ld_i8(16,16, b_scale, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(16,16,16,  Ablock, Bblock, res)
+                matmul_acc_i8(16,16,16, acc, trans_a, trans_b, Ablock, Bblock, res)
 
             if K%16 > 0:
                 Ablock : i8[16,16] @ GEMM_SCRATCH
@@ -1679,7 +1679,7 @@ def test_matmul_c_i32_d_i32():
                 ld_i8(16,K%16, a_scale, A[ 16*i:16*(i+1), K-K%16: ], Ablock)
                 ld_i8(K%16,16, b_scale, B[ K-K%16:, 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(16,16,K%16, Ablock, Bblock, res)
+                matmul_acc_i8(16,16,K%16, acc, trans_a, trans_b, Ablock, Bblock, res)
 
             st_acc_i32(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
 
@@ -1694,7 +1694,7 @@ def test_matmul_c_i32_d_i32():
                 ld_i8(N%16,16, a_scale, A[ N-N%16:, 16*k:16*(k+1) ], Ablock)
                 ld_i8(16,16, b_scale, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(N%16,16,16, Ablock, Bblock, res)
+                matmul_acc_i8(N%16,16,16, acc, trans_a, trans_b, Ablock, Bblock, res)
                 
             if K%16 > 0:
                 Ablock : i8[N%16,16] @ GEMM_SCRATCH
@@ -1702,7 +1702,7 @@ def test_matmul_c_i32_d_i32():
                 ld_i8(N%16,K%16, a_scale, A[ N-N%16:, K-K%16: ], Ablock)
                 ld_i8(K%16,16, b_scale, B[ K-K%16:, 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(N%16,16,K%16, Ablock, Bblock, res)
+                matmul_acc_i8(N%16,16,K%16, acc, trans_a, trans_b, Ablock, Bblock, res)
 
             st_acc_i32(N%16,16, res, C[ N-N%16:, 16*j:16*(j+1) ])
 
@@ -1717,7 +1717,7 @@ def test_matmul_c_i32_d_i32():
                 ld_i8(16,16, a_scale, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
                 ld_i8(16,M%16, b_scale, B[ 16*k:16*(k+1), M-M%16: ], Bblock)
           
-                matmul_acc_i8(16,M%16,16, Ablock, Bblock, res)
+                matmul_acc_i8(16,M%16,16, acc, trans_a, trans_b, Ablock, Bblock, res)
 
             if K%16 > 0:
                 Ablock : i8[16,16] @ GEMM_SCRATCH
@@ -1725,7 +1725,7 @@ def test_matmul_c_i32_d_i32():
                 ld_i8(16,K%16, a_scale, A[ 16*i:16*(i+1), K-K%16: ], Ablock)
                 ld_i8(K%16,M%16, b_scale, B[ K-K%16:, M-M%16: ], Bblock)
           
-                matmul_acc_i8(16,M%16,K%16, Ablock, Bblock, res)
+                matmul_acc_i8(16,M%16,K%16, acc, trans_a, trans_b, Ablock, Bblock, res)
 
             st_acc_i32(16,M%16, res, C[ 16*i:16*(i+1), M-M%16: ])
 
@@ -1739,7 +1739,7 @@ def test_matmul_c_i32_d_i32():
             ld_i8(N%16,16, a_scale, A[ N-N%16:, 16*k:16*(k+1) ], Ablock)
             ld_i8(16,M%16, b_scale, B[ 16*k:16*(k+1), M-M%16: ], Bblock)
       
-            matmul_acc_i8(N%16,M%16,16, Ablock, Bblock, res)
+            matmul_acc_i8(N%16,M%16,16, acc, trans_a, trans_b, Ablock, Bblock, res)
 
         if K%16 > 0:
             Ablock : i8[N%16,16] @ GEMM_SCRATCH
@@ -1747,7 +1747,7 @@ def test_matmul_c_i32_d_i32():
             ld_i8(N%16,K%16, a_scale, A[ N-N%16:, K-K%16: ], Ablock)
             ld_i8(K%16,M%16, b_scale, B[ K-K%16:, M-M%16: ], Bblock)
       
-            matmul_acc_i8(N%16, M%16, K%16, Ablock, Bblock, res)
+            matmul_acc_i8(N%16, M%16, K%16, acc, trans_a, trans_b, Ablock, Bblock, res)
 
         st_acc_i32(N%16, M%16, res, C[ N-N%16:, M-M%16: ])
   
@@ -1760,7 +1760,7 @@ def test_matmul_c_i32_d_i32():
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32_d_i32({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, x, y, z_gemmini, d);',
+  T.add_body([f'matmul_c_i32_d_i32({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, 0, 0, 0, x, y, z_gemmini, d);',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -1779,7 +1779,204 @@ def test_matmul_c_i32_d_i32():
   
 
   T.compile().run()
+
+
+
+def test_matmul_c_i32_d_i32_rep():
+  T = GemmTestBuilder('matmul_c_i32_d_i32_rep')
+  T.add_body(['gemm_init_mem();',
+              'gemmini_flush(0);',
+              ''])
+
+  NN = 60
+  MM = 70
+  KK = 120
+
+  T.alloc_dram_2i8('x', NN, KK, '2')
+  T.alloc_dram_2i8('y', KK, MM, '3')
+  T.alloc_dram_2i32('d', 1, MM, '2')
+  T.alloc_dram_f32('a_scale', '3.0f')
+  T.alloc_dram_f32('b_scale', '2.0f')
+  T.alloc_dram_f32('d_scale', '4.0f')
+  T.alloc_dram_2i32('z_cpu', NN, MM, '0') # expected result
+  T.alloc_dram_2i32('z_gemmini', NN, MM, '0')
+
+  @proc
+  def matmul_on_cpu(
+    N : size,
+    M : size,
+    K : size,
+    a_scale : f32,
+    b_scale : f32,
+    d_scale : f32,
+    A : i8[N,K] @ DRAM,
+    B : i8[K,M] @ DRAM,
+    C : i32[N,M] @ DRAM,
+    D : i32[1,M] @ DRAM,
+  ):
+    for i in par(0,N):
+      for j in par(0,M):
+        res   : i32
+        tmp_d : f32
+        tmp_d = D[0,j]
+        tmp_d = tmp_d * d_scale
+        res   = tmp_d
+        for k in par(0,K):
+          tmp_a : f32
+          tmp_b : f32
+          tmp_a = A[i,k]
+          tmp_b = B[k,j]
+          tmp_a = tmp_a * a_scale
+          tmp_b = tmp_b * b_scale
+          a : i32
+          b : i32
+          a = tmp_a
+          b = tmp_b
+          res += a*b
+        C[i,j] = res
+  T.add_proc(matmul_on_cpu)
+
+  @proc
+  def matmul_c_i32_d_i32_rep(
+    N : size,
+    M : size,
+    K : size,
+    a_scale : f32,
+    b_scale : f32,
+    d_scale : f32,
+    acc : i8,
+    trans_a : i8,
+    trans_b : i8,
+    A : i8[N,K] @ DRAM,
+    B : i8[K,M] @ DRAM,
+    C : i32[N,M] @ DRAM,
+    D : i32[1,M] @ DRAM,
+  ):
+
+    for i in par(0,N/16):
+        for j in par(0,M/16):
+            res : i32[16,16] @ GEMM_ACCUM
+            for l in par(0, 16):
+                ld_acc_i32(1, 16, d_scale, D[ 0:1, 16*j:16*(j+1) ], res[l:l+1, :])
+
+            for k in par(0,K/16):
+                Ablock : i8[16,16] @ GEMM_SCRATCH
+                Bblock : i8[16,16] @ GEMM_SCRATCH
+                ld_i8(16,16, a_scale, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
+                ld_i8(16,16, b_scale, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
+          
+                matmul_acc_i8(16,16,16, acc, trans_a, trans_b, Ablock, Bblock, res)
+
+            if K%16 > 0:
+                Ablock : i8[16,16] @ GEMM_SCRATCH
+                Bblock : i8[K%16,16] @ GEMM_SCRATCH
+                ld_i8(16,K%16, a_scale, A[ 16*i:16*(i+1), K-K%16: ], Ablock)
+                ld_i8(K%16,16, b_scale, B[ K-K%16:, 16*j:16*(j+1) ], Bblock)
+          
+                matmul_acc_i8(16,16,K%16, acc, trans_a, trans_b, Ablock, Bblock, res)
+
+            st_acc_i32(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
+
+    if N%16 > 0:
+        for j in par(0,M/16):
+            res : i32[N%16,16] @ GEMM_ACCUM
+            for l in par(0, N%16):
+                ld_acc_i32(1, 16, d_scale, D[ 0:1, 16*j:16*(j+1) ], res[l:l+1, :])
+
+            for k in par(0,K/16):
+                Ablock : i8[N%16,16] @ GEMM_SCRATCH
+                Bblock : i8[16,16] @ GEMM_SCRATCH
+                ld_i8(N%16,16, a_scale, A[ N-N%16:, 16*k:16*(k+1) ], Ablock)
+                ld_i8(16,16, b_scale, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
+          
+                matmul_acc_i8(N%16,16,16, acc, trans_a, trans_b, Ablock, Bblock, res)
+                
+            if K%16 > 0:
+                Ablock : i8[N%16,16] @ GEMM_SCRATCH
+                Bblock : i8[K%16,16] @ GEMM_SCRATCH
+                ld_i8(N%16,K%16, a_scale, A[ N-N%16:, K-K%16: ], Ablock)
+                ld_i8(K%16,16, b_scale, B[ K-K%16:, 16*j:16*(j+1) ], Bblock)
+          
+                matmul_acc_i8(N%16,16,K%16, acc, trans_a, trans_b, Ablock, Bblock, res)
+
+            st_acc_i32(N%16,16, res, C[ N-N%16:, 16*j:16*(j+1) ])
+
+    if M%16 > 0:
+        for i in par(0,N/16):
+            res : i32[16,16] @ GEMM_ACCUM
+            for l in par(0, 16):
+                ld_acc_i32(1, M%16, d_scale, D[ 0:1, M-M%16: ], res[l:l+1, :])
+
+            for k in par(0,K/16):
+                Ablock : i8[16,16] @ GEMM_SCRATCH
+                Bblock : i8[16,16] @ GEMM_SCRATCH
+                ld_i8(16,16, a_scale, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
+                ld_i8(16,M%16, b_scale, B[ 16*k:16*(k+1), M-M%16: ], Bblock)
+          
+                matmul_acc_i8(16,M%16,16, acc, trans_a, trans_b, Ablock, Bblock, res)
+
+            if K%16 > 0:
+                Ablock : i8[16,16] @ GEMM_SCRATCH
+                Bblock : i8[K%16,16] @ GEMM_SCRATCH
+                ld_i8(16,K%16, a_scale, A[ 16*i:16*(i+1), K-K%16: ], Ablock)
+                ld_i8(K%16,M%16, b_scale, B[ K-K%16:, M-M%16: ], Bblock)
+          
+                matmul_acc_i8(16,M%16,K%16, acc, trans_a, trans_b, Ablock, Bblock, res)
+
+            st_acc_i32(16,M%16, res, C[ 16*i:16*(i+1), M-M%16: ])
+
+    if N%16 > 0 and M%16 > 0:
+        res : i32[N%16,16] @ GEMM_ACCUM
+        for l in par(0, N%16):
+            ld_acc_i32(1, M%16, d_scale, D[ 0:1, M-M%16: ], res[l:l+1, :])
+
+        for k in par(0,K/16):
+            Ablock : i8[N%16,16] @ GEMM_SCRATCH
+            Bblock : i8[16,16] @ GEMM_SCRATCH
+            ld_i8(N%16,16, a_scale, A[ N-N%16:, 16*k:16*(k+1) ], Ablock)
+            ld_i8(16,M%16, b_scale, B[ 16*k:16*(k+1), M-M%16: ], Bblock)
+      
+            matmul_acc_i8(N%16,M%16,16, acc, trans_a, trans_b, Ablock, Bblock, res)
+
+        if K%16 > 0:
+            Ablock : i8[N%16,16] @ GEMM_SCRATCH
+            Bblock : i8[K%16,16] @ GEMM_SCRATCH
+            ld_i8(N%16,K%16, a_scale, A[ N-N%16:, K-K%16: ], Ablock)
+            ld_i8(K%16,M%16, b_scale, B[ K-K%16:, M-M%16: ], Bblock)
+      
+            matmul_acc_i8(N%16, M%16, K%16, acc, trans_a, trans_b, Ablock, Bblock, res)
+
+        st_acc_i32(N%16, M%16, res, C[ N-N%16:, M-M%16: ])
   
+
+  T.add_proc(matmul_c_i32_d_i32_rep)
+
+  T.start_timer('cpu')
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, x, y, z_cpu, d);',
+              f'gemmini_fence();'])
+  T.stop_timer('cpu', 'Cycles for CPU version')
+
+  T.start_timer('gemmini')
+  T.add_body([f'matmul_c_i32_d_i32_rep({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, 0, 0, 0, x, y, z_gemmini, d);',
+              f'gemmini_fence();',
+              f''])
+  T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+  
+  T.add_body([f'if(check_eq_2i32({NN},{MM}, z_cpu, z_gemmini)) {{',
+               '    printf("Correct\\n");',
+               '} else {',
+               '    printf("Results Don\'t Match\\n");',
+               '    printf("Correct Result (z_cpu):\\n");',
+              f'    print_2i32({NN},{MM}, z_cpu);',
+               '    printf("Computed Roundtrip (z_gemmini):\\n");',
+              f'    print_2i32({NN},{MM}, z_gemmini);',
+               '    exit(1);',
+               '}',
+               ''])
+  
+
+  T.compile().run()
+
 
 
 
@@ -1811,7 +2008,13 @@ def test_matmul_i8_ones_odd():
     ld_i8(9,13, scale, y, B)
     zero_acc_i32(15,13, C)
 
-    matmul_i8(15,13,9, A, B, C)
+    act : i8
+    trans_a : i8
+    trans_b : i8
+    act = 0.0
+    trans_a = 0.0
+    trans_b = 0.0
+    matmul_i8(15,13,9, act, trans_a, trans_b, A, B, C)
 
     st_acc_i8(15,13, scale, C, res)
   T.add_proc(matmul_i8_ones_odd)
