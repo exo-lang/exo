@@ -13,7 +13,7 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
-@pytest.mark.skip
+#@pytest.mark.skip
 def test_unify1():
     @proc
     def bar(n : size, src : R[n,n], dst : R[n,n]):

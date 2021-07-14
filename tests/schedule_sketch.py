@@ -1,3 +1,36 @@
+
+# TODO THINK:
+# Effects?
+# Sanity check on the backend
+import GEMMINI from SYS_ATL.libs.state 
+@instr("gemmini_extended3_config_ld({a}, {b}, {GEMMINI.c}, {d}, {e});")
+def extended_load_config(
+        a : ..,
+        b : ..,
+        c : bool,
+        d : bool
+        ):
+
+    GEMMINI.act = act
+    # 
+    GEMMINI.d = d
+    GEMMINI.e = ...
+    .....
+
+
+@instr("gemmini_extended3_config_ld({a}, {b}, {c}, {d});")
+def extended_load_config(
+        a : ..,
+        b : ..,
+        c : bool,
+        d : bool,
+        state : context
+        ):
+
+    state.c = True
+    .....
+
+
 @proc
 def bar(n : size, src : [R][n]):
   for i in par(0,n):

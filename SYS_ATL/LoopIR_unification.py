@@ -31,8 +31,7 @@ class DoReplace(LoopIR_Rewrite):
         if match_i is None:
             return super().map_stmts(stmts)
         else: # process the match
-            raise NotImplementedError("need to work out splicing")
-            res = Unification(subproc, stmt_block)
+            res = Unification(self.subproc, stmts)
 
             new_args = [self.sym_to_expr(s, stmt.srcinfo) for s in res]
             new_call = LoopIR.Call(self.subproc, new_args, None, stmt.srcinfo)
@@ -49,13 +48,17 @@ class DoReplace(LoopIR_Rewrite):
         return eff
 
 
+def subst(stmts, old_sym, new_sym):
+    # Replace all old_sym in stmts with new_sym
+    pass
+
 # Make separate equation editing paths
 # 1. Initial construction
-# 2. Address aliases (Alloc, windowStmt)
-# 3. Address Read and Assign/Reduce, and WindowExpr 
-#    name == name
+#      Address aliases (Alloc, windowStmt)
+#        Substitute the rest of body by this new symbol?
+# 2. Address Read and Assign/Reduce, and WindowExpr 
+#    lhs.name == rhs.name
 #    Indexing expressions
-#    (Real Scalar : simple)
 #    i. subproc arg is a Tensor
 #       body's index === args's index
 #       call arg is just arg
@@ -78,10 +81,44 @@ class Unification:
 
         # Initialize size
         for a in subproc.args:
-            if a.type.is_size():
+            if type(a.type) is T.size:
                 self.equation.append(a > 0)
+            self.unknowns.append(a)
 
-        self.check_stmts(subproc.body, stmt_block)
+        self.init_stmts(subproc.body, stmt_block)
+
+        self.expand_eqs()
+
+    def expand_eqs():
+        for (e1, e2) in self.equations:
+            if (type(e1) is LoopIR.Read or
+                type(e1) is LoopIR.Assign or
+                type(e1) is LoopIR.Reduce or
+                type(e1) is LoopIR.WindowExpr):
+
+                self.expand_eq(e1, e2)
+
+    def expand_eq(e1, e2):
+        if type(e1) is LoopIR.Read:
+            self.equations.append( (e1.name, e2.name) )
+            
+            if e1.type.is_tensor() and e2.type.is_tensor():
+#       body's index === args's index
+#       call arg is just arg
+                for e1_idx, e2_idx in zip(e1.idx, e2.idx):
+                    self.equations.append( (e1_idx, e2_idx) )
+
+            elif e1.type.is_window() and e2.type.is_window():
+                # The caller window expression should have a form of
+                # res[0, 1, i, j, 3] === x[?a, ?b, ?c, ?d, ?e] (x[i, j, l] in body)
+                # The first thing we can resolve is bounded read, which are i and j
+                #  ---> ?c and ?d are Intervals
+                # All other indices are Points
+                # So just construct a equation
+
+                pass
+            else:
+                assert False, "type error"
 
 
     def err(self):
@@ -94,13 +131,17 @@ class Unification:
         self.env = self.env.parents
 
 
-    def check_stmts(self, body, stmt_block):
-        assert len(subproc_body) == len(stmts)
+#    stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
+#            | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
 
+    def init_stmts(self, body, stmt_block):
+        assert len(body) == len(stmt_block)
+
+        # Equations in self.equations are initialized
         for sub,s in zip(body, stmt_block):
-            self.check_stmt(sub, s)
+            self.init_stmt(sub, s)
 
-    def check_stmt(self, sub_stmt, stmt):
+    def init_stmt(self, sub_stmt, stmt):
         # If stmt type are different, emit error
         if type(stmt) is not type(sub_stmt):
             self.err()
@@ -111,74 +152,103 @@ class Unification:
             sub_body = subst(sub_stmt.body, sub_stmt.iter, stmt.iter)
 
             # hi == hi
-            self.equations.append(sub_stmt.hi, stmt.hi)
+            self.equations.append( (sub_stmt.hi, stmt.hi ) )
 
-            self.check_stmts(sub_body, stmt.body)
+            self.init_stmts(sub_body, stmt.body)
 
         elif type(stmt) is LoopIR.If:
-            self.check_expr(sub_stmt.cond, stmt.cond)
+            self.init_expr(sub_stmt.cond, stmt.cond)
 
-            self.check_stmts(sub_stmt.body, stmt.body)
-            self.check_stmts(sub_stmt.orelse, stmt.orelse)
-        elif type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
-        #stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
-        #TODO: Think!
-            pass
+            self.init_stmts(sub_stmt.body, stmt.body)
+            self.init_stmts(sub_stmt.orelse, stmt.orelse)
 
-        elif type(stmt) is LoopIR.Pass:
-            pass
-
-        elif type(stmt) is LoopIR.Alloc:
-            pass
-            # Substitute the rest of body by this new symbol?
-        elif type(stmt) is LoopIR.WindowStmt:
-            pass
-            # Substitute the rest of body by this new symbol?
         elif type(stmt) is LoopIR.Call:
             if sub_stmt.f != stmt.f:
                 self.err()
 
             for e1, e2 in zip(sub_stmt.args, stmt.args):
-                self.check_expr(e1, e2)
+                self.init_expr(e1, e2)
 
-#    stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
-#            | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
 #            | Alloc  ( sym name, type type, mem? mem )
-#            | WindowStmt( sym lhs, expr rhs )
+        elif type(stmt) is LoopIR.Alloc:
+            # TODO: This should be syntactic check
+            if sub_stmt.type.is_real_scalar() and stmt.type.is_real_scalar():
+                pass # Good
+            elif sub_stmt.type.is_tensor() and stmt.type.is_tensor():
+#            | Tensor     ( expr* hi, bool is_window, type type )
+                for sub_h, h in zip(sub_stmt.type.hi, stmt.type.hi):
+                    self.init_expr(sub_h, h)
+            else:
+                self.err()
 
-    def check_expr(self, e1, e2):
+            # Substitute sub_stmt body's name to stmt.name
+            sub_body = subst(sub_stmt.body, sub_stmt.name, stmt.name)
+
+            self.init_stmts(sub_body, stmt.body)
+
+#            | WindowStmt( sym lhs, expr rhs )
+        elif type(stmt) is LoopIR.WindowStmt:
+            if sub_stmt.rhs is LoopIR.WindowExpr and stmt.rhs is LoopIR.WindowExpr:
+                # TODO: This should be a syntactic check!?
+#            | WindowExpr( sym name, w_access* idx )
+#            | WindowType ( type src, type as_tensor, expr window )
+                for sub_idx, idx in zip(sub_stmt.rhs.idx, stmt.rhs.idx):
+                    if sub_idx is not idx:
+                        self.err()
+
+                # TODO: Check sub_stmt.rhs.type == stmt.rhs.type
+            else:
+                self.err()
+            
+            # Rename
+            sub_body = subst(sub_stmt.body, sub_stmt.lhs, stmt.lhs)
+
+            self.equations.append( (sub_stmt, stmt) )
+
+        # This is uninterpreted "holes" at this point!
+        elif type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
+            self.equations.append( (sub_stmt, stmt) )
+
+        elif type(stmt) is LoopIR.Pass:
+            pass
+
+        else:
+            assert False, "bad case!"
+
+
+    def init_expr(self, e1, e2):
         if type(e1) is not type(e2):
             self.err()
 
         # numeric type should match syntactically
         if type(e1) is LoopIR.Read:
-            pass
-            # TODO: Think!
+            if e1.type.is_tensor_or_window():
+            # This is uninterpreted "holes" at this point!
+                self.equations.append( (e1, e2) )
+            else:
+                assert len(e1.idx) == 0
+                self.equations.append( (e1.name, e2.name) )
+
         elif type(e1) is LoopIR.Const:
             if e1.val != e2.name:
                 self.err()
+
         elif type(e1) is LoopIR.USub:
-            self.check_expr(e1.arg, e2.arg)
+            self.init_expr(e1.arg, e2.arg)
+
         elif type(e1) is LoopIR.BinOp:
             if e1.op != e2.op:
                 self.err()
-            self.check_expr(e1.lhs, e2.lhs)
-            self.check_expr(e1.rhs, e2.rhs)
+
+            self.init_expr(e1.lhs, e2.lhs)
+            self.init_expr(e1.rhs, e2.rhs)
+
         elif type(e1) is LoopIR.WindowExpr:
-            # TODO: Think!
-            if e1.name != e2.name:
-                self.err()
-
-            for i1,i2 in zip(e1.idx, e1.idx):
-                if type(i1) != type(i2):
-                    self.err()
-
-                if type(i1) is LoopIR.Interval:
-                    self.check_expr(i1.lo, i2.lo)
-                    self.check_expr(i1.hi, i2.hi)
-                elif type(i1) is LoopIR.Point:
-                    self.check_expr(i1.pt)
+            # Uninterpreted "holes" at this point!
+            self.equations.append( (e1, e2) )
+                    
         elif type(e1) is LoopIR.StrideAssert:
             pass
+
         else:
             assert False, "bad case"
