@@ -315,6 +315,7 @@ class Parser:
         # detect which sort of type we have here
         is_size     = lambda x: type(x) is pyast.Name and x.id == "size"
         is_index    = lambda x: type(x) is pyast.Name and x.id == "index"
+        is_bool     = lambda x: type(x) is pyast.Name and x.id == "bool"
 
         # parse each kind of type here
         if is_size(typ_node):
@@ -328,6 +329,12 @@ class Parser:
                 self.err(node, "size types should not be annotated with "+
                                "memory locations")
             return UAST.Index(), None
+
+        elif is_bool(typ_node):
+            if mem_node is not None:
+                self.err(node, "size types should not be annotated with "+
+                               "memory locations")
+            return UAST.Bool(), None
 
         else:
             typ = self.parse_num_type(typ_node, is_arg=True)
