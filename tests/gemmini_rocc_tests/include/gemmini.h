@@ -2821,6 +2821,10 @@ static void tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
                 matmul_c_i32_d_i8(dim_I, dim_J, dim_K, &a_scale, &b_scale, &d_scale, act_, trans_a, trans_b, A, B, C, D);
             }
         } else if (full_C & !low_D) {
+            if (c_scale != 1.0) {
+                printf("Cannot scale C with i32");
+                exit(1);
+            }
             printf("C is int32 and D is i32\n");
             if (repeating_bias) {
                 matmul_c_i32_d_i32_rep(dim_I, dim_J, dim_K, &a_scale, &b_scale, &d_scale, act_, trans_a, trans_b, A, B, C, D);
