@@ -14,6 +14,7 @@ from .helper import *
 
 # --- Typechecking tests ---
 
+@pytest.mark.skip()
 def test_bool1():
     @proc
     def bool(b : bool):

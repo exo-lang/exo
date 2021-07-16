@@ -1,3 +1,6 @@
+from .asdl.adt import ADT
+from .asdl.adt import memo as ADTmemo
+
 from .prelude import *
 from .LoopIR import LoopIR, T, LoopIR_Rewrite
 
@@ -31,7 +34,7 @@ class DoReplace(LoopIR_Rewrite):
         if match_i is None:
             return super().map_stmts(stmts)
         else: # process the match
-            res = Unification(self.subproc, stmts)
+            res = Unification(self.subproc, stmts).result()
 
             new_args = [self.sym_to_expr(s, stmt.srcinfo) for s in res]
             new_call = LoopIR.Call(self.subproc, new_args, None, stmt.srcinfo)
@@ -48,27 +51,78 @@ class DoReplace(LoopIR_Rewrite):
         return eff
 
 
-def subst(stmts, old_sym, new_sym):
-    # Replace all old_sym in stmts with new_sym
-    pass
 
 # Description of a "System of Equations"
-#
-#       system      = (basic_eq* eqs)
-#                   -- meaning:     eqs[0] /\ eqs[1] /\ eqs[2] /\ ...
-#       basic_eq    = SimpleEq( expr lhs, expr rhs )
-#                   -- meaning:     lhs == rhs
-#                   | DisjOfEq( expr* lhs, expr* rhs )
-#                   -- meaning:     lhs[0] == rhs[0] \/ lhs[1] == rhs[1] \/ ...
-#
-#     expr  =  Const(int val)
-#           |  Hole( sym name )     -- values we want to solve for
-#           |  Var( sym name )      -- unknowns that cannot be used in solution, e.g. j
-#           |  Symbol( sym name )   -- symbols that can be in solution
-#           |  Add( expr lhs, expr rhs )
-#           |  Scale( int coeff, expr e )
-#
-#
+Equations = ADT("""
+module Equations {
+    system      = (basic_eq* eqs)
+                   -- meaning:     eqs[0] /\ eqs[1] /\ eqs[2] /\ ...
+    basic_eq    = SimpleEq( expr lhs, expr rhs )
+                   -- meaning:     lhs == rhs
+                | DisjOfEq( expr* lhs, expr* rhs )
+                   -- meaning:     lhs[0] == rhs[0] \/ lhs[1] == rhs[1] \/ ...
+
+    expr  =  Const(int val)
+          |  Hole( sym name )     -- values we want to solve for
+          |  Var( sym name )      -- unknowns that cannot be used in solution, e.g. j
+          |  Symbol( sym name )   -- symbols that can be in solution
+          |  Add( expr lhs, expr rhs )
+          |  Scale( int coeff, expr e )
+
+} """, {
+    'sym':          lambda x: type(x) is Sym,
+})
+
+@extclass(Equations.Const)
+def __str__(self):
+    return str(self.val)
+@extclass(Equations.Hole)
+def __str__(self):
+    return str(self.name)
+@extclass(Equations.Var)
+def __str__(self):
+    return str(self.name)
+@extclass(Equations.Symbol)
+def __str__(self):
+    return str(self.name)
+@extclass(Equations.Add)
+def __str__(self):
+    return f"({self.lhs} + {self.rhs})"
+@extclass(Equations.Scale)
+def __str__(self):
+    return f"({str(self.coeff)} + {self.e})"
+@extclass(Equations.system)
+def __str__(self):
+    return equations_as_str(self)
+del __str__
+
+def equations_as_str(e):
+    assert type(e) is Equations.system
+
+    def name(sym):
+        return str(sym)
+
+    def basic_str(eq):
+        if type(eq) is Equations.SimpleEq:
+            line = f"({str(eq.lhs)} == {str(eq.rhs)})"
+        elif type(eq) is Equations.DisjOfEq:
+            dis = []
+            for lhs, rhs in zip(eq.lhs, eq.rhs):
+                dis.append(f"{str(lhs)} == {str(rhs)}")
+            
+            line = "(" + " \/ ".join(dis) + ")"
+
+        return line
+
+    eq_str = ""
+    eq_str += ' /\ \n'.join([basic_str(eq) for eq in e.eqs])
+    eq_str += "\n"
+
+    return eq_str
+
+
+
+
 #   def foo(n : size, x : R[n]):
 #       for i in par(0,n):
 #           x[i] = 0.0
@@ -82,7 +136,6 @@ def subst(stmts, old_sym, new_sym):
 #       foo(?n, ?x)
 #
 #   foo(m,y[j,:])
-#
 #
 #
 # Description of Naively normalized system (in disjunctive normal form)
@@ -132,10 +185,7 @@ def subst(stmts, old_sym, new_sym):
 #   Put another way, if we find a "bad solution" hopefully we've constructed
 #   the problem so that finding that bad solution implies that there are no
 #   good solutions.
-#
-#
-#
-#
+
 
 # Gilbert's sympy solving an integer linear system notes
 #
@@ -148,9 +198,6 @@ def subst(stmts, old_sym, new_sym):
 # # how to perform row-reduction on a matrix
 # # rref = Row Reduced Echelon Form
 # R, pivots   = A.rref()
-
-
-
 
 # Make separate equation editing paths
 # 1. Initial construction
@@ -177,69 +224,26 @@ def subst(stmts, old_sym, new_sym):
 #    windowexpr is very similar to Read, except that index is w_access!
 #       indices should be exact same if arg is Tensor
 #       arg is window : generate placeholder and body's index === placeholder
+
+
+
 class Unification:
     def __init__(self, subproc, stmt_block):
         self.equations = []
-        self.unknowns = []
+        
+        # TODO: Asserts
+        # We don't have inequality in EQs IR
 
-        # Initialize asserts
-        for a in subproc.preds:
-            self.equations.append(a)
-
-        # Initialize size
-        for a in subproc.args:
-            if type(a.type) is T.size:
-                self.equation.append(a > 0)
-            self.unknowns.append(a)
+        # TODO: Size
+        # Inequality...??
 
         self.init_stmts(subproc.body, stmt_block)
-
-        self.expand_eqs()
-
-    def expand_eqs():
-        for (e1, e2) in self.equations:
-            if (type(e1) is LoopIR.Read or
-                type(e1) is LoopIR.Assign or
-                type(e1) is LoopIR.Reduce or
-                type(e1) is LoopIR.WindowExpr):
-
-                self.expand_eq(e1, e2)
-
-    def expand_eq(e1, e2):
-        if type(e1) is LoopIR.Read:
-            self.equations.append( (e1.name, e2.name) )
-
-            if e1.type.is_tensor() and e2.type.is_tensor():
-#       body's index === args's index
-#       call arg is just arg
-                for e1_idx, e2_idx in zip(e1.idx, e2.idx):
-                    self.equations.append( (e1_idx, e2_idx) )
-
-            elif e1.type.is_window() and e2.type.is_window():
-                # The caller window expression should have a form of
-                # res[0, 1, i, j, 3] === x[?a, ?b, ?c, ?d, ?e] (x[i, j, l] in body)
-                # The first thing we can resolve is bounded read, which are i and j
-                #  ---> ?c and ?d are Intervals
-                # All other indices are Points
-                # So just construct a equation
-
-                pass
-            else:
-                assert False, "type error"
-
 
     def err(self):
         raise TypeError("subproc and pattern don't match")
 
-    def push(self):
-        self.env = self.env.new_child()
-
-    def pop(self):
-        self.env = self.env.parents
-
-
-#    stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
-#            | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
+    def result(self):
+        return self.equations
 
     def init_stmts(self, body, stmt_block):
 
@@ -280,7 +284,7 @@ class Unification:
             for e1, e2 in zip(sub_stmt.args, stmt.args):
                 if e1.type.is_tensor_or_window():
                         # This is uninterpreted "holes" at this p
-                self.init_expr(e1, e2)
+                    self.init_expr(e1, e2)
 
 #            | Alloc  ( sym name, type type, mem? mem )
         elif type(stmt) is LoopIR.Alloc:
