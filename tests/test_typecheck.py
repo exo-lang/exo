@@ -14,6 +14,13 @@ from .helper import *
 
 # --- Typechecking tests ---
 
+def test_bool1():
+    @proc
+    def bool(b : bool):
+        assert b == True
+
+        pass
+
 def test_badpred():
     with pytest.raises(TypeError,
                        match='Errors occurred during typechecking'):
