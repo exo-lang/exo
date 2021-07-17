@@ -53,12 +53,12 @@ int main (int argc, char * argv[]) {
         exit(1);
     }
 
-    bool check = true;
+    bool check = false;
 
     if (argc < 4) {
-        check = true;
+        check = false;
     } else if (strcmp(argv[3], "check") == 0) {
-        check = true;
+        check = false;
     } else {
         printf("Unknown command-line argument\n");
         printf("usage: %s [-h] matmul_option [check]\n  matmul_option may be 'os', 'ws', or cpu'\n", argv[0]);
@@ -578,6 +578,10 @@ int main (int argc, char * argv[]) {
         matmul_cycles += end - start;
         printf("matmul 14 cycles: %llu \n", end - start);
     }
+
+    printf("conv_14_out:\n");
+    HIST_MATRIX(conv_14_out);
+    exit(0);
 
     // Downsampling conv_11_out
     // conv_15

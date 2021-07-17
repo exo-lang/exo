@@ -243,25 +243,25 @@ class Unification:
         raise TypeError("subproc and pattern don't match")
 
     def result(self):
-        return self.equations
+        return Equations.system(self.equations)
 
-    def init_stmts(self, body, stmt_block):
 
-        if len(body) == 0 and len(stmt_block) == 0:
-            return
+    def init_stmts(self, sub_body, stmt_block):
         if len(body) != len(stmt_block):
             self.err()
 
-        stmt = stmt_block[0]
-        sub_stmt = body[0]
-        stmt_rest = stmt_block[1:]
-        sub_stmt_rest = body[1:]
+        for sub, block in zip(sub_body, stmt_block):
+            init_stmt(sub, block)
+        
+
+    def init_stmt(self, sub_stmt, stmt):
 
         # If stmt type are different, emit error
         if type(stmt) is not type(sub_stmt):
             self.err()
 
         if type(stmt) is LoopIR.ForAll:
+            Equations.Var
             # Substitute all occurance of subproc_stmt.iter in
             # subproc body to stmt.iter
             sub_body = subst(sub_stmt.body, sub_stmt.iter, stmt.iter)
