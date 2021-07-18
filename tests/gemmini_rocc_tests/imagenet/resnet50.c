@@ -579,10 +579,6 @@ int main (int argc, char * argv[]) {
         printf("matmul 14 cycles: %llu \n", end - start);
     }
 
-    printf("conv_14_out:\n");
-    HIST_MATRIX(conv_14_out);
-    exit(0);
-
     // Downsampling conv_11_out
     // conv_15
     if (!conv) {
