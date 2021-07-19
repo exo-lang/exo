@@ -2,14 +2,22 @@
 # TODO THINK:
 # Effects?
 # Sanity check on the backend
+
+# Try few example?
+# scalar floats are special case
 import GEMMINI from SYS_ATL.libs.state 
 @instr("gemmini_extended3_config_ld({a}, {b}, {GEMMINI.c}, {d}, {e});")
 def extended_load_config(
         a : ..,
-        b : ..,
+        b : int,
         c : bool,
         d : bool
         ):
+
+    new  : bool
+    _new_ : int
+    if _new_ > 5:
+        new = False
 
     GEMMINI.act = act
     # 

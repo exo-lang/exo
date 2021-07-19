@@ -230,6 +230,9 @@ def equations_as_str(e):
 class Unification:
     def __init__(self, subproc, stmt_block):
         self.equations = []
+
+        self.unknowns  = []
+        self.new_syms  = []
         
         # TODO: Asserts
         # We don't have inequality in EQs IR
@@ -261,15 +264,26 @@ class Unification:
             self.err()
 
         if type(stmt) is LoopIR.ForAll:
-            Equations.Var
-            # Substitute all occurance of subproc_stmt.iter in
-            # subproc body to stmt.iter
-            sub_body = subst(sub_stmt.body, sub_stmt.iter, stmt.iter)
+            iter_eq = Equations.SimpleEq( Equations.Var(sub_stmt.iter), Equations.Var(stmt.iter) )
 
-            # hi == hi
-            self.equations.append( (sub_stmt.hi, stmt.hi ) )
+            if sub_stmt.hi in self.unknowns:
+                lhs_eq = Equations.Hole(sub_stmt.hi)
+            elif type(sub_stmt.hi) is LoopIR.Const:
+                lhs_eq = Equations.Const(sub_stmt.hi.val)
+            else:
+                lhs_eq = Equations.Var(sub_stmt.hi)
 
-            self.init_stmts(sub_body, stmt.body)
+            if type(stmt.hi) is LoopIR.Const:
+                rhs_eq = Equations.Const(stmt.hi.val)
+            else:
+                rhs_eq = Equations.Symbol(stmt.hi)
+
+            hi_eq   = Equations.SimpleEq( lhs_eq, rhs_eq )
+
+            self.equations.append( iter_eq )
+            self.equations.append( hi_eq )
+
+            self.init_stmts(sub_stmt.body, stmt.body)
 
         elif type(stmt) is LoopIR.If:
             self.init_expr(sub_stmt.cond, stmt.cond)
