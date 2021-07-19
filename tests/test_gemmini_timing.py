@@ -24,6 +24,7 @@ import pytest
 #   MatMul Demo
 # --------------------------------------------------------------------------- #
 
+@pytest.mark.skip()
 def test_matmul_demo():
   T = GemmTestBuilder('matmul_demo')
   do_init(T)
