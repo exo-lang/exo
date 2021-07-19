@@ -6,6 +6,7 @@ from .prelude import *
 from .LoopIR_effects import Effects as E
 
 from .memory import Memory
+from .builtins import BuiltIn
 
 from collections import ChainMap
 
@@ -190,6 +191,7 @@ module LoopIR {
     expr    = Read( sym name, expr* idx )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
+            | BuiltIn( builtin f, expr* args )
             | WindowExpr( sym name, w_access* idx )
             | StrideAssert( sym name, int idx, int val ) -- may only occur
                                                          -- at proc.preds
@@ -223,6 +225,7 @@ module LoopIR {
     'sym':      lambda x: type(x) is Sym,
     'effect':   lambda x: type(x) is E.effect,
     'mem':      lambda x: isinstance(x, Memory),
+    'builtin':  lambda x: isinstance(x, BuiltIn),
     'binop':    lambda x: x in bin_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
 })

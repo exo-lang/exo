@@ -11,6 +11,7 @@ import sys
 from .prelude import *
 from .LoopIR import UAST, front_ops, PAST
 #from .LoopIR import T
+from .builtins import sin
 
 from collections import ChainMap
 
@@ -155,6 +156,9 @@ class Parser:
         self.as_index = as_index
 
         self.push()
+        # add builtins
+        self.locals['sin'] = sin
+
         if as_func:
             self._cached_result = self.parse_fdef(module_ast, instr=instr)
         # elif as_macro:
