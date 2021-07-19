@@ -90,5 +90,4 @@ def test_normalize():
     assert type(proj) is Procedure
     filename = "test_window_proj"
     proj.compile_c(TMP_DIR, filename)
-
-
+    
