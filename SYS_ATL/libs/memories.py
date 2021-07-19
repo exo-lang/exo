@@ -123,13 +123,13 @@ def _gemm_accum_alloc(new_name, prim_type, shape, srcinfo):
                                "unless innermost dimension is exactly 16.  "+
                                f"got {shape[-1]}")
         return (f"{prim_type} *{new_name} = " +
-                f"({prim_type}*) ((uint64_t)gemm_acc_malloc ({size_str} * sizeof({prim_type})));")
+                f"({prim_type}*) ((uint32_t)gemm_acc_malloc ({size_str} * sizeof({prim_type})));")
 
 def _gemm_accum_free(new_name, prim_type, shape, srcinfo):
     if len(shape) == 0:
             return ""
     else:
-        return f"gemm_acc_free((uint64_t)({new_name}));"
+        return f"gemm_acc_free((uint32_t)({new_name}));"
 
 def _gemm_accum_window(prim_type, baseptr, indices, strides, srcinfo):
     # assume that strides[-1] == 1

@@ -234,6 +234,8 @@ class InferEffects:
         elif type(e) is LoopIR.BinOp:
             return eff_union(self.eff_e(e.lhs), self.eff_e(e.rhs),
                              srcinfo=e.srcinfo)
+        elif type(e) is LoopIR.USub:
+            return self.eff_e(e.arg)
         elif type(e) is LoopIR.Const:
             return eff_null(e.srcinfo)
         elif type(e) is LoopIR.WindowExpr:
@@ -283,6 +285,167 @@ class InferEffects:
                         [ translate_set(es) for es in eff.writes ],
                         [ translate_set(es) for es in eff.reduces ],
                         eff.srcinfo)
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Stride Assert Checking
+
+# Stride assert should be handled in separate path from EffectCheck, because
+# 1. Tracking WindowStmt involves a forward path analysis, but EffectCheck does
+#    a backward path analysis based on Effects computed in InferEffects
+# 2. Stride assert check doesn't need SMT solver, nor depend on any of other
+#    code in EffectCheck.
+
+class CheckStrideAsserts:
+    def __init__(self, proc):
+        self.orig_proc  = proc
+
+        self.strides    = ChainMap()
+        self.errors     = []
+
+        self.push()
+
+        # Stride asserts at entry proc
+        # If the input buffer is a Tensor and has assert stride:
+        #   1. If the strides are constants
+        #      Check the assert stride and complain if they are inconsistent
+        #   2. If the strides are sizes
+        #      If dim is not the last dimension, then the strides
+        #      depends on input sizes so complain
+        # If the input buffer is a Window and has assert stride:
+        #   1. Add assertion -- assume it is true.
+        local_env = dict() # map of sym to type
+        for arg in proc.args:
+            if arg.type.is_tensor_or_window():
+                local_env[arg.name] = arg.type
+                self.get_stride(arg.name, arg.type.shape(), arg.type.is_win())
+
+        for p in proc.preds:
+            if type(p) is LoopIR.StrideAssert:
+                assert p.name in local_env
+
+                if arg.type.is_win():
+                    self.assume_stride(p)
+                else:
+                    self.check_stride(p, proc)
+
+        # Check body for call
+        self.map_stmts(self.orig_proc.body, proc)
+
+        self.pop()
+
+        # do error checking here
+        if len(self.errors) > 0:
+            raise TypeError("Errors occurred during stride assert checking:\n" +
+                            "\n".join(self.errors))
+
+    def push(self):
+        self.strides = self.strides.new_child()
+
+    def pop(self):
+        self.strides = self.strides.parents
+
+    def err(self, node, msg):
+        self.errors.append(f"{node.srcinfo}: {msg}")
+
+    def get_stride(self, name, shape, is_window):
+        assert len(shape) >= 1
+
+        if is_window:
+            self.strides[name] = [None] * len(shape)
+        else:
+            stride = [None] * len(shape)
+            stride[-1] = 1
+            for i,sz in reversed(list(enumerate(shape))):
+                if i > 0:
+                    if type(sz) is not LoopIR.Const:
+                        break
+                    else:
+                        stride[i-1] = sz.val * stride[i]
+            self.strides[name] = stride
+
+    def check_stride(self, p, f):
+        assert type(p) is LoopIR.StrideAssert
+        assert type(f) is LoopIR.proc
+
+        s = self.strides[p.name][p.idx]
+
+        # If there is no sufficient information (due to argument being
+        # size variable) emit error and return.
+        if s is None:
+            self.err(f, f"Could not verify stride assert in "+
+                        f"{f.name} at {p.srcinfo}. If {p.name} is a Tensor, "+
+                        f"it has size variable as a buffer size. "+
+                        f"If {p.name} is a Window, additional stride assert "+
+                        f"to dim {p.idx} is necessary at the call site.")
+
+        if s != p.val:
+            self.err(f, f"Could not verify stride assert in "+
+                        f"{f.name} at {p.srcinfo}.")
+    
+    def assume_stride(self, p):
+        assert type(p) is LoopIR.StrideAssert
+        assert p.name in self.strides
+        assert len(self.strides[p.name]) > p.idx
+        
+        self.strides[p.name][p.idx] = p.val
+
+    def map_stmts(self, body, orig_f):
+        def stride_from_windowexpr(expr):
+            assert type(expr) is LoopIR.WindowExpr
+            assert len(self.strides[expr.name]) == len(expr.idx)
+
+            return [ s for s, idx in zip(self.strides[expr.name], expr.idx)
+                             if type(idx) is LoopIR.Interval ]
+            
+        for stmt in body:
+            if type(stmt) is LoopIR.WindowStmt:
+                # compute new stride
+                # add new stride and name to self.strides
+                new_name = stmt.lhs
+                self.strides[new_name] = stride_from_windowexpr(stmt.rhs)
+
+            elif type(stmt) is LoopIR.Alloc:
+                # add new stride here
+                if stmt.type.is_tensor_or_window():
+                    self.get_stride(stmt.name, stmt.type.shape(), stmt.type.is_win())
+
+            elif type(stmt) is LoopIR.ForAll:
+                self.push()
+                self.map_stmts(stmt.body, orig_f)
+                self.pop()
+
+            elif type(stmt) is LoopIR.If:
+                self.push()
+                self.map_stmts(stmt.body, orig_f)
+                self.pop()
+
+                self.push()
+                self.map_stmts(stmt.orelse, orig_f)
+                self.pop()
+
+            elif type(stmt) is LoopIR.Call:
+                self.push()
+
+                # Check windowexpr!
+                # add new strides with sig name
+                for sig,arg in zip(stmt.f.args, stmt.args):
+                    if arg.type.is_tensor_or_window():
+                        if type(arg) is LoopIR.WindowExpr:
+                            self.strides[sig.name] = stride_from_windowexpr(arg)
+                        elif type(arg) is LoopIR.Read:
+                            self.strides[sig.name] = self.strides[arg.name]
+                        else:
+                            assert False, "bad case"
+
+                for p in stmt.f.preds:
+                    if type(p) is LoopIR.StrideAssert:
+                        self.check_stride(p, orig_f)
+
+                self.map_stmts(stmt.f.body, stmt.f)
+
+                self.pop()
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -405,21 +568,21 @@ class CheckEffects:
 
         # Map sym to z3 variable
         self.env        = ChainMap()
-        #self.context    = E.Const(True, T.bool, proc.srcinfo)
         self.errors     = []
 
         self.solver     = _get_smt_solver()
 
         self.push()
+
         # Add assertions
         for arg in proc.args:
             if type(arg.type) is T.Size:
                 pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
                 self.solver.add_assertion(pos_sz)
+
         for p in proc.preds:
-            if type(p) is LoopIR.StrideAssert:
-                pass
-            else:
+            # Handled in Stride assert check
+            if type(p) is not LoopIR.StrideAssert:
                 self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
 
         body_eff = self.map_stmts(self.orig_proc.body)
@@ -439,8 +602,16 @@ class CheckEffects:
             raise TypeError("Errors occurred during effect checking:\n" +
                             "\n".join(self.errors))
 
-    def result(self):
-        return self.orig_proc
+    def counter_example(self):
+        smt_syms = [ smt for sym,smt in self.env.items() if smt.get_type() == SMT.INT ]
+        val_map = self.solver.get_py_values(smt_syms)
+
+        mapping = []
+        for sym,smt in self.env.items():
+            if smt.get_type() == SMT.INT:
+                mapping.append(f" {sym} = {val_map[smt]}")
+
+        return ",".join(mapping)
 
     def push(self):
         self.solver.push()
@@ -581,7 +752,7 @@ class CheckEffects:
 #       IN_BOUNDS( x, T, (x, (i,j), nms, pred ) ) =
 #           forall nms in Z, pred ==> in_bounds(T, (i,j))
 
-            self.solver.push()
+            self.push()
             if eff.pred is not None:
                 self.solver.add_assertion(self.expr_to_smt(eff.pred))
             in_bds = SMT.Bool(True)
@@ -594,15 +765,16 @@ class CheckEffects:
                 rhs = SMT.LT(e, self.expr_to_smt(hi))
                 in_bds = SMT.And(in_bds, SMT.And(lhs, rhs))
 
-            # TODO: Extract counter example from SMT solver
             if not self.solver.is_valid(in_bds):
-                self.err(eff, f"{sym} is {eff_str} out-of-bounds")
+                eg = self.counter_example()
+                self.err(eff, f"{sym} is {eff_str} out-of-bounds "+
+                              f"when: {eg}.")
 
-            self.solver.pop()
+            self.pop()
 
     def check_bounds(self, sym, shape, eff):
-        effs = [(eff.reads, "read"), (eff.writes, "write"),
-                (eff.reduces, "reduce")]
+        effs = [(eff.reads, "read"), (eff.writes, "written"),
+                (eff.reduces, "reduced")]
 
         for (es,y) in effs:
             for e in es:
@@ -617,7 +789,7 @@ class CheckEffects:
 #                   [sub i0,nms0]loc0 != [sub i1,nms1]loc1
     def not_conflicts(self, iter, hi, e1, e2):
         if e1.buffer == e2.buffer:
-            self.solver.push()
+            self.push()
             # determine name substitutions
             iter1   = iter.copy()
             iter2   = iter.copy()
@@ -646,11 +818,12 @@ class CheckEffects:
                 loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
 
             if not self.solver.is_valid(loc_neq):
+                eg = self.counter_example()
                 self.err(e1, f"data race conflict with statement on "+
                              f"{e2.srcinfo} while accessing {e1.buffer} "+
-                             f"in loop over {iter}.")
+                             f"in loop over {iter}, when: {eg}.")
 
-            self.solver.pop()
+            self.pop()
 
 
 #       COMMUTES( i, n, (r, w, p) ) =
@@ -678,7 +851,9 @@ class CheckEffects:
     def check_pos_size(self, expr):
         e_pos = SMT.LT( SMT.Int(0), self.expr_to_smt(expr) )
         if not self.solver.is_valid(e_pos):
-            self.err(expr, "expected expression to always be positive")
+            eg = self.counter_example()
+            self.err(expr, "expected expression to always be positive. "+
+                           f"It can be non positive when: {eg}.")
 
     def check_call_shape_eqv(self, argshp, sigshp, node):
         assert len(argshp) == len(sigshp)
@@ -688,10 +863,12 @@ class CheckEffects:
                        self.expr_to_smt(s))
             eqv_dim = SMT.And(eqv_dim, eq_here)
         if not self.solver.is_valid(eqv_dim):
+            eg = self.counter_example()
             self.err(node, "type-shape of calling argument may not equal "+
                            "the required type-shape: "+
                            f"[{','.join(map(str,argshp))}] vs. "+
-                           f"[{','.join(map(str,sigshp))}]")
+                           f"[{','.join(map(str,sigshp))}]."+
+                           f" It could be non equal when: {eg}")
 
     def map_stmts(self, body):
         """ Returns an effect for the argument `body`
@@ -753,7 +930,7 @@ class CheckEffects:
                 body_eff = eff_remove_buf(stmt.name, body_eff)
 
             elif type(stmt) is LoopIR.Call:
-                subst = dict()
+                subst   = dict()
                 for sig,arg in zip(stmt.f.args, stmt.args):
                     if sig.type.is_numeric():
                         # need to check that the argument shape
@@ -766,6 +943,7 @@ class CheckEffects:
                         sig_shape = [ lift_expr(s) for s in sig.type.shape() ]
                         sig_shape = [ s.subst(subst) for s in sig_shape ]
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
+
                     elif sig.type.is_indexable():
                         # in this case we have a LoopIR expression...
                         e_arg           = lift_expr(arg)
@@ -776,15 +954,15 @@ class CheckEffects:
                     else: assert False, "bad case"
 
                 for p in stmt.f.preds:
-                    if type(p) is LoopIR.StrideAssert:
-                        # TODO: currently unhandled
-                        pass
-                    else:
+                    # Stride assert handled in separate check
+                    if type(p) is not LoopIR.StrideAssert:
                         pred = lift_expr(p).subst(subst)
                         # Check that asserts are correct
                         if not self.solver.is_valid(self.expr_to_smt(pred)):
+                            eg = self.counter_example()
                             self.err(stmt, f"Could not verify assertion in "+
-                                           f"{stmt.f.name} at {p.srcinfo}")
+                                           f"{stmt.f.name} at {p.srcinfo}."+
+                                           f" Assertion is false when: {eg}")
 
                 body_eff = eff_union(body_eff, stmt.eff)
 

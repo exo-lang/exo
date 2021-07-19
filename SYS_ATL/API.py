@@ -6,9 +6,10 @@ from .LoopIR_compiler import Compiler, run_compile, compile_to_strings
 from .LoopIR_interpreter import Interpreter, run_interpreter
 from .LoopIR_scheduling import Schedules
 from .LoopIR_scheduling import (name_plus_count,
-                                iter_name_to_pattern, 
+                                iter_name_to_pattern,
                                 nested_iter_names_to_pattern)
-from .effectcheck import InferEffects, CheckEffects
+from .LoopIR_unification import DoReplace
+from .effectcheck import InferEffects, CheckEffects, CheckStrideAsserts
 
 from .memory import Memory
 
@@ -64,7 +65,8 @@ class Procedure:
             if _testing != "UAST":
                 self._loopir_proc = TypeChecker(proc).get_loopir()
                 self._loopir_proc = InferEffects(self._loopir_proc).result()
-                self._loopir_proc = CheckEffects(self._loopir_proc).result()
+                CheckEffects(self._loopir_proc)
+                CheckStrideAsserts(self._loopir_proc)
 
         # find the root provenance
         parent = _provenance_eq_Procedure
@@ -195,7 +197,7 @@ class Procedure:
         loopir = Schedules.SetTypAndMem(loopir, name, count,
                                         win=is_window).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
-        
+
     def set_memory(self, name, memory_obj):
         name, count = name_plus_count(name)
         if type(memory_obj) is not Memory:
@@ -279,8 +281,23 @@ class Procedure:
             loopir  = Schedules.DoUnroll(loopir, s).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def abstract(self, subproc, pattern):
-        raise NotImplementedError("TODO: implement abstract")
+    def replace(self, subproc, pattern):
+        if type(subproc) is not Procedure:
+            raise TypeError("expected first arg to be a subprocedure")
+        elif type(pattern) is not str:
+            raise TypeError("expected second arg to be a string")
+
+        body        = self._loopir_proc.body
+        stmt_lists  = match_pattern(body, pattern, call_depth=1)
+        if len(stmt_lists) == 0:
+            raise TypeError("failed to find statement")
+
+        loopir = self._loopir_proc
+        for stmt_block in stmt_lists:
+            loopir = DoReplace(loopir, subproc._loopir_proc,
+                               stmt_block).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def inline(self, call_site_pattern):
         call_stmt   = self._find_callsite(call_site_pattern)
@@ -307,7 +324,7 @@ class Procedure:
             raise TypeError("expected first argument to be a valid name")
         body        = self._loopir_proc.body
         expr_list   = match_pattern(body, expr_pattern,
-                                    call_depth=2, default_match_no=0)
+                                    call_depth=1, default_match_no=0)
         if len(expr_list) == 0:
             raise TypeError("failed to find expression")
         elif not isinstance(expr_list[0], LoopIR.expr):
@@ -392,7 +409,8 @@ def comp_and_load_c_file(filename, c_code):
     filename    += hashstr
     c_filename  = os.path.join(_C_CACHE, filename+".c")
     so_filename = os.path.join(_C_CACHE, filename+".so")
-    comp_cmd    = (f"clang -Wall -Werror -fPIC -O3 -shared "+
+    compiler    = os.getenv('CC', default='clang')
+    comp_cmd    = (f"{compiler} -Wall -Werror -fPIC -O3 -shared "+
                    f"-o {so_filename} {c_filename}")
 
     def matches_file(src, fname):

@@ -190,6 +190,7 @@ module LoopIR {
 
     expr    = Read( sym name, expr* idx )
             | Const( object val )
+            | USub( expr arg )  -- i.e.  -(...)
             | BinOp( binop op, expr lhs, expr rhs )
             | BuiltIn( builtin f, expr* args )
             | WindowExpr( sym name, w_access* idx )
@@ -405,6 +406,8 @@ def lift_to_eff_expr(e):
                         lift_to_eff_expr(e.lhs),
                         lift_to_eff_expr(e.rhs),
                         e.type, e.srcinfo )
+    elif isinstance(e, LoopIR.USub):
+        return E.BinOp('-', E.Const(0, e.type, e.srcinfo), lift_to_eff_expr(e.arg), e.type, e.srcinfo)
 
     else: assert False, "bad case, e is " + str(type(e))
 
@@ -479,6 +482,8 @@ class LoopIR_Rewrite:
         elif etyp is LoopIR.BinOp:
             return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
                                  self.map_t(e.type), e.srcinfo )
+        elif etyp is LoopIR.USub:
+            return LoopIR.USub(self.map_e(e.arg), self.map_t(e.type), e.srcinfo)
         elif etyp is LoopIR.WindowExpr:
             if id(e) in self._rewrite_cache:
                 return self._rewrite_cache[id(e)]
@@ -605,6 +610,8 @@ class LoopIR_Do:
         elif etyp is LoopIR.BinOp:
             self.do_e(e.lhs)
             self.do_e(e.rhs)
+        elif etyp is LoopIR.USub:
+            self.do_e(e.arg)
         elif etyp is LoopIR.WindowExpr:
             if id(e) in self._do_cache:
                 return

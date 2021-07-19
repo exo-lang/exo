@@ -250,7 +250,7 @@ class _Split(LoopIR_Rewrite):
                         f"cannot perfectly split the '{s.iter}' loop "+
                         f"because {self.quot} does not evenly divide "+
                         f"{s.hi.val}")
-                
+
                 # otherwise, we're good to go
                 body    = self.map_stmts(s.body)
                 body_eff= get_effect_of_stmts(body)
@@ -471,7 +471,7 @@ class _PartialEval(LoopIR_Rewrite):
                 assert len(e.idx) == 0
                 if e.name in self.env:
                     return LoopIR.Const(self.env[e.name], T.int, e.srcinfo)
-            
+
         return super().map_e(e)
 
     def map_eff_e(self,e):
@@ -737,7 +737,7 @@ class _Alloc_Dependencies(LoopIR_Do):
         if read or write:
             if any(es.buffer == buf for es in eff.reduces):
                 return True
-        
+
         return False
 
     def do_e(self, e):
@@ -753,7 +753,7 @@ class _Alloc_Dependencies(LoopIR_Do):
                             self.do_e(w.hi)
                         else:
                             self.do_e(w.pt)
-                            
+
             lhs     = self._lhs
             name    = self._alias[e.name] or e.name
             self._lhs = name
@@ -762,7 +762,7 @@ class _Alloc_Dependencies(LoopIR_Do):
             visit_idx(e)
             self._lhs = lhs
             visit_idx(e)
-        
+
         else:
             super().do_e(e)
 
@@ -795,7 +795,7 @@ class _LiftAlloc(LoopIR_Rewrite):
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
-                   
+
     def map_s(self, s):
         if s == self.alloc_stmt:
             # mark the point we want to lift this alloc-stmt to
@@ -863,7 +863,7 @@ class _LiftAlloc(LoopIR_Rewrite):
             assert self.access_idxs is not None
             if len(self.access_idxs) == 0:
                 return e
-            
+
             #if self._in_call_arg:
             if e.type.is_real_scalar():
                 idx = [ LoopIR.Read(i, [], T.index, e.srcinfo)

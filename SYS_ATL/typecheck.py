@@ -34,7 +34,7 @@ from .memory import *
 class TypeChecker:
     def __init__(self, proc):
         self.uast_proc = proc
-        self.env = Environment()
+        self.env = dict()
         self.errors = []
 
         args = []
@@ -345,11 +345,10 @@ class TypeChecker:
         elif type(e) is UAST.USub:
             arg = self.check_e(e.arg)
             if arg.type.is_real_scalar() or arg.type.is_indexable():
-                neg1 = -1.0 if arg.type.is_real_scalar() else -1
-                return LoopIR.BinOp("*",
-                                    LoopIR.Const(neg1, arg.type, e.srcinfo),
-                                    arg,
-                                    arg.type, e.srcinfo)
+                if type(arg) is LoopIR.Const:
+                    return LoopIR.Const(-arg.val, arg.type, e.srcinfo)
+                else:
+                    return LoopIR.USub(arg, arg.type, e.srcinfo)
             elif arg.type != T.err:
                 self.err(e, f"cannot negate expression of type '{arg.type}'")
             return LoopIR.Const(0, T.err, e.srcinfo)
@@ -416,6 +415,11 @@ class TypeChecker:
                             self.err(rhs, "cannot divide or modulo by a "+
                                           "non-constant value")
                             typ = T.err
+                        elif rhs.val <= 0:
+                            self.err(rhs, "cannot divide or modulo by zero "+
+                                          "or a negative value")
+                            typ = T.err
+
                         typ = lhs.type
                     elif e.op == "*":
                         if lhs.type == T.int:

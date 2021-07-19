@@ -1,5 +1,6 @@
 from .asdl.adt import ADT
 from .asdl.adt import memo as ADTmemo
+from collections import ChainMap
 
 from .prelude import *
 
@@ -25,7 +26,7 @@ class Interpreter:
         assert type(proc) is LoopIR.proc
 
         self.proc = proc
-        self.env = Environment()
+        self.env = ChainMap()
         self.use_randomization = use_randomization
 
         for a in proc.args:
@@ -48,9 +49,9 @@ class Interpreter:
                 self.simple_typecheck_buffer(a, kwargs)
                 self.env[a.name] = kwargs[str(a.name)]
 
-        self.env.push()
+        self.env.new_child()
         self.eval_stmts(proc.body)
-        self.env.pop()
+        self.env.parents
 
     def simple_typecheck_buffer(self, fnarg, kwargs):
         typ = fnarg.type
@@ -101,21 +102,21 @@ class Interpreter:
         elif styp is LoopIR.If:
             cond = self.eval_e(s.cond)
             if cond:
-                self.env.push()
+                self.env.new_child()
                 self.eval_stmts(s.body)
-                self.env.pop()
+                self.env.parents
             if s.orelse and not cond:
-                self.env.push()
+                self.env.new_child()
                 self.eval_stmts(s.orelse)
-                self.env.pop()
+                self.env.parents
         elif styp is LoopIR.ForAll:
             hi = self.eval_e(s.hi)
             assert self.use_randomization is False, "TODO: Implement Rand"
-            self.env.push()
+            self.env.new_child()
             for itr in range(0, hi):
                 self.env[s.iter] = itr
                 self.eval_stmts(s.body)
-            self.env.pop()
+            self.env.parents
         elif styp is LoopIR.Alloc:
             if s.type.is_real_scalar():
                 self.env[s.name] = np.empty([1])
@@ -149,6 +150,8 @@ class Interpreter:
                 return buf[idx]
         elif etyp is LoopIR.Const:
             return e.val
+        elif etyp is LoopIR.USub:
+            return -self.eval_e(e.arg)
         elif etyp is LoopIR.BinOp:
             lhs, rhs = self.eval_e(e.lhs), self.eval_e(e.rhs)
             if e.op == "+":

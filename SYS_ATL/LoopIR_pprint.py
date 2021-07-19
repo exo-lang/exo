@@ -1,5 +1,6 @@
 import re
 import textwrap
+from collections import ChainMap
 
 from .prelude import *
 from .LoopIR import UAST, front_ops, LoopIR
@@ -53,7 +54,8 @@ op_prec = {
     "/":      50,
     "%":      50,
     #
-    # unary - 60
+    # unary minus
+    "~":      60,
 }
 
 # --------------------------------------------------------------------------- #
@@ -76,7 +78,7 @@ class UAST_PPrinter:
     def __init__(self, node):
         self._node = node
 
-        self.env = Environment()
+        self.env = ChainMap()
         self._tab = ""
         self._lines = []
 
@@ -114,17 +116,17 @@ class UAST_PPrinter:
 
     def push(self,only=None):
         if only is None:
-            self.env.push()
+            self.env.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.push()
+            self.env.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.pop()
+        self.env.parents
         self._tab = self._tab[:-2]
 
     def addline(self, line):
@@ -241,7 +243,7 @@ class UAST_PPrinter:
                 s = f"({s})"
             return s
         elif type(e) is UAST.USub:
-            return f"-{self.pexpr(e.arg,prec=60)}"
+            return f"-{self.pexpr(e.arg,prec=op_prec['~'])}"
         elif type(e) is UAST.ParRange:
             return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
         elif type(e) is UAST.WindowExpr:
@@ -306,7 +308,7 @@ class LoopIR_PPrinter:
     def __init__(self, node):
         self._node = node
 
-        self.env = Environment()
+        self.env = ChainMap()
         self._tab = ""
         self._lines = []
 
@@ -343,17 +345,17 @@ class LoopIR_PPrinter:
 
     def push(self,only=None):
         if only is None:
-            self.env.push()
+            self.env.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.push()
+            self.env.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.pop()
+        self.env.parents
         self._tab = self._tab[:-2]
 
     def addline(self, line):
@@ -471,6 +473,8 @@ class LoopIR_PPrinter:
                 return self.get_name(e.name)
         elif type(e) is LoopIR.Const:
             return str(e.val)
+        elif type(e) is LoopIR.USub:
+            return f'-{self.pexpr(e.arg, op_prec["~"])}'
         elif type(e) is LoopIR.BinOp:
             local_prec = op_prec[e.op]
             # increment rhs by 1 to account for left-associativity

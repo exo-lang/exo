@@ -1,4 +1,102 @@
 
+# TODO THINK:
+# Effects?
+# Sanity check on the backend
+import GEMMINI from SYS_ATL.libs.state 
+@instr("gemmini_extended3_config_ld({a}, {b}, {GEMMINI.c}, {d}, {e});")
+def extended_load_config(
+        a : ..,
+        b : ..,
+        c : bool,
+        d : bool
+        ):
+
+    GEMMINI.act = act
+    # 
+    GEMMINI.d = d
+    GEMMINI.e = ...
+    .....
+
+
+@instr("gemmini_extended3_config_ld({a}, {b}, {c}, {d});")
+def extended_load_config(
+        a : ..,
+        b : ..,
+        c : bool,
+        d : bool,
+        state : context
+        ):
+
+    state.c = True
+    .....
+
+
+@proc
+def bar(n : size, src : [R][n]):
+  for i in par(0,n):
+    src[i] = 1.0
+
+@proc
+def foo(x : R[10, 20, 30]):
+  for j in par(0, 30):
+    x[0, 1, j] = 1.0
+
+# ->
+def foo(x : R[10, 20, 30]):
+  bar(30, x[0, 1, 0:30])
+
+
+
+
+# Bit 32 ---- Should always be 1 for accumulator address
+# Bit 31 ---- If 0, overwrite data in the accumulator. Relevant for matmul and mvin. For mvout it's don't care.
+# Bit 30 ---- If 0, mvout 8 bit data from accum. If 1, mvout 32 bit data. This is relevant only in mvout, so for mvin and matmul bit 30 is don't care.
+
+# Unification memo
+_gemm_ld_i8   = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
+                 "1.0f, 0, 0);\n"+
+                 "gemmini_extended_mvin( {src}.data, "+
+                              "((uint64_t) {dst}.data), {m}, {n} );")
+@instr(_gemm_ld_i8)
+def ld_i8(
+    n   : size,
+    m   : size,
+    src : [i8][n, m] @ DRAM,
+    dst : [i8][n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    # unknown
+    # n, m, dst, src
+    for i in par(0, n):
+        for j in par(0, m):
+            dst_[i+klo,j+llo] = src_[i+ilo,j+jlo]
+
+    ld_i8(n_, m_, src_[ilo:ihi, jlo:jhi], dst_[klo:khi, llo:lhi])
+
+    # body
+    # known
+    # AG, A, i, k
+    for i_in in par(0, 16):
+        for k_in in par(0, 16):
+            AG[i_in,k_in] = A[16 * i + i_in, 16 * k + k_in]
+
+
+    # stmt : syntactic match
+    # numeric : syntactic match
+    # sizes, index : linear equations equality pysmt
+    # boolean (affine (non)equality) : syntactic match
+    # Solve the problem and check the result for now
+
+    # TODO think:
+    # asserts, windowing, inequality for sizes??
+
+
+
 # ------- Tensor expression test ------
 
 def gen_tensor():

@@ -9,3 +9,12 @@ gemmini_build/
 
 .ipynb_checkpoints
 .sys_atl_c_cache
+
+.idea/
+venv/
+
+*~
+*#
+build
+autom4te.cache
+configure

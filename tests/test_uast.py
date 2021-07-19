@@ -3,6 +3,7 @@ import sys
 from SYS_ATL import proc, instr, Procedure, DRAM
 sys.path.append(sys.path[0]+"/..")
 
+# Merge this file to frontend?
 
 def gen_conv1d():
     @instr("TEST", _testing="UAST")
@@ -21,6 +22,19 @@ def test_conv1d():
     conv1d = gen_conv1d()
     assert type(conv1d) is Procedure
     print(conv1d)
+
+
+def test_unary_neg():
+    @instr("TEST", _testing="UAST")
+    def negate_array(n: size, x: R[n], res: R[n] @ DRAM):  # pragma: no cover
+        for i in par(0, n):
+            res[i] = -x[i] + -(x[i]) - -(x[i] + 0.0)
+
+    assert type(negate_array) is Procedure
+    code = str(negate_array)
+    print(code)
+    assert 'res[i] = -x[i] + -x[i] - -(x[i] + 0.0)' in code
+
 
 def gen_alloc_nest():
     @instr("TEST", _testing="UAST")

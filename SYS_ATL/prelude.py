@@ -77,35 +77,3 @@ def get_srcinfo(depth=1):
 
 _null_srcinfo_obj = SrcInfo("unknown", 0)
 def null_srcinfo(): return _null_srcinfo_obj
-
-
-# Contexts
-class Environment:
-    """Replacement for Dict with ability to keep a stack"""
-
-    def __init__(self, init_dict=None):
-        self._bottom_dict = init_dict
-        self._stack = [dict()]
-
-    def push(self):
-        self._stack.append(dict())
-
-    def pop(self):
-        self._stack.pop()
-
-    def __getitem__(self, key):
-        for e in reversed(self._stack):
-            if key in e:
-                return e[key]
-        if self._bottom_dict and key in self._bottom_dict:
-            return self._bottom_dict[key]
-        raise KeyError(key)
-
-    def __contains__(self, key):
-        for e in reversed(self._stack):
-            if key in e:
-                return True
-        return bool(self._bottom_dict and key in self._bottom_dict)
-
-    def __setitem__(self, key, val):
-        self._stack[-1][key] = val
