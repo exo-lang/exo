@@ -14,13 +14,31 @@ from .helper import *
 
 # --- Typechecking tests ---
 
-@pytest.mark.skip()
 def test_bool1():
     @proc
     def bool(b : bool):
         assert b == True
 
-        pass
+        x : f32
+        if b == True:
+            x = 0.0
+
+def test_bool2():
+    @proc
+    def bool(a : bool, b : bool):
+
+        x : f32
+        if a == b:
+            x = 0.0
+
+def test_bool3():
+    @proc
+    def bool(a : bool, b : bool):
+
+        x : f32
+        if False:
+            x = 0.0
+
 
 def test_badpred():
     with pytest.raises(TypeError,
@@ -167,7 +185,7 @@ def test_call_tensor2_read1():
 
 def test_const_bool():
     with pytest.raises(TypeError,
-                       match='literal of unexpected type'):
+                       match='cannot assign/reduce a \'bool\' type value'):
         @proc
         def hoge(x : R):
             x = True
@@ -207,6 +225,7 @@ def test_binop3():
             if 3 and (1 == 1):
                 pass
 
+@pytest.mark.skip()
 def test_binop4():
     with pytest.raises(TypeError,
                        match='using \"==\" for boolean not supported.'):

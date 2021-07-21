@@ -331,11 +331,12 @@ class TypeChecker:
             return window_expr
 
         elif type(e) is UAST.Const:
-            # TODO: What should be the default const type?
             if type(e.val) is float:
                 return LoopIR.Const(e.val, T.R, e.srcinfo)
             elif type(e.val) is int:
                 return LoopIR.Const(e.val, T.int, e.srcinfo)
+            elif type(e.val) is bool:
+                return LoopIR.Const(e.val, T.bool, e.srcinfo)
             else:
             # We currently don't allow constant bool type
                 self.err(e, f"literal of unexpected type '{type(e.val)}' "
@@ -366,8 +367,7 @@ class TypeChecker:
                     self.err(rhs, "expected 'bool' argument to logical op")
                 typ = T.bool
             elif e.op == "==" and lhs.type == T.bool and rhs.type == T.bool:
-                self.err(e, "using \"==\" for boolean not supported.")
-                typ = T.err
+                typ = T.bool
             elif (e.op == "<" or e.op == "<=" or e.op == "==" or
                   e.op == ">" or e.op == ">="):
                 if not lhs.type.is_indexable():

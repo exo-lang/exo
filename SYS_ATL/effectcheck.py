@@ -626,9 +626,12 @@ class CheckEffects:
 
     # TODO: Add allow_allocation arg here, to check if we're introducing new
     # symbols from the right place.
-    def sym_to_smt(self, sym):
+    def sym_to_smt(self, sym, typ=T.int):
         if sym not in self.env:
-            self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
+            if typ is T.int:
+                self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
+            elif typ is T.bool:
+                self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
         return self.env[sym]
 
     def expr_to_smt(self, expr):
@@ -640,7 +643,7 @@ class CheckEffects:
                 return SMT.Int(expr.val)
             else: assert False, "unrecognized const type: {type(expr.val)}"
         elif type(expr) is E.Var:
-            return self.sym_to_smt(expr.name)
+            return self.sym_to_smt(expr.name, expr.type)
         elif type(expr) is E.BinOp:
             lhs = self.expr_to_smt(expr.lhs)
             rhs = self.expr_to_smt(expr.rhs)
@@ -738,7 +741,12 @@ class CheckEffects:
             elif expr.op == ">=":
                 return SMT.GE(lhs, rhs)
             elif expr.op == "==":
-                return SMT.Equals(lhs, rhs)
+                if expr.lhs.type == T.bool and expr.rhs.type == T.bool:
+                    return SMT.Iff(lhs, rhs)
+                elif expr.lhs.type.is_indexable() and expr.rhs.type.is_indexable():
+                    return SMT.Equals(lhs, rhs)
+                else:
+                    assert False, "bad case"
             elif expr.op == "and":
                 return SMT.And(lhs, rhs)
             elif expr.op == "or":
