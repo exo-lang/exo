@@ -628,9 +628,9 @@ class CheckEffects:
 
     # TODO: Add allow_allocation arg here, to check if we're introducing new
     # symbols from the right place.
-    def sym_to_smt(self, sym, typ=T.int):
+    def sym_to_smt(self, sym, typ=T.index):
         if sym not in self.env:
-            if typ is T.int:
+            if typ.is_indexable():
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
             elif typ is T.bool:
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
