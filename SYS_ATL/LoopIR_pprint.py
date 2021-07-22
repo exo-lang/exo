@@ -259,6 +259,10 @@ class UAST_PPrinter:
                     f"[{', '.join([ pacc(w) for w in e.idx ])}]")
         elif type(e) is UAST.StrideAssert:
             return f"stride({self.get_name(e.name)}, {e.idx}) == {e.val}"
+        elif type(e) is UAST.BuiltIn:
+            pname   = e.f.name() or "_anon_"
+            args    = [ self.pexpr(a) for a in e.args ]
+            self.addline(f"{pname}({','.join(args)})")
         else:
             assert False, "unrecognized expr type"
 
@@ -496,6 +500,10 @@ class LoopIR_PPrinter:
                     f"[{', '.join([ pacc(w) for w in e.idx ])}]")
         elif type(e) is LoopIR.StrideAssert:
             return f"stride({self.get_name(e.name)}, {e.idx}) == {e.val}"
+        elif type(e) is LoopIR.BuiltIn:
+            pname   = e.f.name() or "_anon_"
+            args    = [ self.pexpr(a) for a in e.args ]
+            self.addline(f"{pname}({','.join(args)})")
         else:
             assert False, f"unrecognized expr: {type(e)}"
 

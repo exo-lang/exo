@@ -186,6 +186,11 @@ class Interpreter:
                 return (lhs and rhs)
             elif e.op == "or":
                 return (lhs or rhs)
+
+        elif etyp is LoopIR.BuiltIn:
+            args    = [ self.eval_e(a) for a in e.args ]
+            return e.f.interpret(args)
+
         else:
             assert False, "bad case"
 

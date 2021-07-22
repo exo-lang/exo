@@ -382,3 +382,27 @@ def test_bool1():
     test_lib = generate_lib(filename)
     test_lib.bool1(c_bool(inp1), c_bool(inp2))
     bool1.interpret(a=inp1, b=inp2)
+
+def test_sin1():
+    @proc
+    def sin1(x : f32):
+        x = sin(x)
+
+    assert type(sin1) is Procedure
+    filename = test_sin1.__name__
+
+    with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
+        f.write(str(sin1))
+
+    sin1.compile_c(TMP_DIR, filename)
+
+    inp1 = nparray([4.0])
+    test_lib = generate_lib(filename)
+    test_lib.sin1(cvt_c(inp1))
+    res_c = np.ctypeslib.as_array(inp1, shape=(1,))
+
+    sin1.interpret(x=inp1)
+
+    np.testing.assert_almost_equal(inp1, res_c)
+
+

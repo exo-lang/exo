@@ -112,6 +112,22 @@ class LoopIR_FindMems(LoopIR_Do):
         else:
             super().do_s(s)
 
+class LoopIR_FindBuiltIns(LoopIR_Do):
+    def __init__(self, proc):
+        self._bultins = set()
+        super().__init__(proc)
+
+    def result(self):
+        return self._bultins
+
+    # to improve efficiency
+    def do_e(self,e):
+        if type(e) is LoopIR.BuiltIn:
+            self._bultins.add(e.f)
+
+    def do_s(self, s):
+        super().do_s(s)
+
 def find_all_mems(proc_list):
     mems = set()
     for p in proc_list:
@@ -119,6 +135,12 @@ def find_all_mems(proc_list):
 
     return [ m for m in mems ]
 
+def find_all_builtins(proc_list):
+    builtins = set()
+    for p in proc_list:
+        builtins.update( LoopIR_FindBuiltIns(p).result() )
+
+    return [ b for b in builtins ]
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -190,6 +212,7 @@ def compile_to_strings(proc_list):
     orig_procs  = [ id(p) for p in proc_list ]
     proc_list   = find_all_subprocs(proc_list)
     mem_list    = find_all_mems(proc_list)
+    builtin_list= find_all_builtins(proc_list)
 
     # check for name conflicts between procs
     used_names  = set()
@@ -214,6 +237,12 @@ def compile_to_strings(proc_list):
     for m in mem_list:
         if m._global:
             body.append(m._global)
+            body.append("\n")
+
+    for b in builtin_list:
+        glb = b.globl()
+        if glb:
+            body.append(glb)
             body.append("\n")
 
     fwd_decls = []
@@ -630,5 +659,10 @@ class Compiler:
             return s
         elif etyp is LoopIR.USub:
             return f'-{self.comp_e(e.arg, op_prec["~"])}'
+
+        elif etyp is LoopIR.BuiltIn:
+            args    = [ self.comp_e(a, call_arg=True) for a in e.args ]
+            return e.f.compile(args)
+
         else:
             assert False, "bad case"
