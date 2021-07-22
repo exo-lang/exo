@@ -63,6 +63,38 @@ class _Sin(BuiltIn):
 sin = _Sin()
 
 
+class _Relu(BuiltIn):
+    def __init__(self):
+        super().__init__('relu')
+
+    def typecheck(self, args):
+        if len(args) != 1:
+            raise _BErr(f"expected 1 argument, got {len(args)}")
+
+        atyp    = args[0].type
+        if not atyp.is_real_scalar():
+            raise _BErr(f"expected argument 1 to be a real scalar value, but "+
+                      f"got type {atyp}")
+        return atyp
+
+    def globl(self):
+        s =  ("double _relu_(double x) {\n"+
+              "    if (x > 0.0) return x;\n"+
+              "    else return 0.0;\n"+
+              "}\n")
+        return s
+
+    def interpret(self, args):
+        if args[0] > 0:
+            return args[0]
+        else:
+            return 0
+
+    def compile(self, args):
+        return f"_relu_((double)*{args[0]})"
+
+relu = _Relu()
+
 
 
 

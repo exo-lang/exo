@@ -158,6 +158,7 @@ class Parser:
         self.push()
         # add builtins
         self.locals['sin'] = sin
+        self.locals['relu'] = relu
 
         if as_func:
             self._cached_result = self.parse_fdef(module_ast, instr=instr)
