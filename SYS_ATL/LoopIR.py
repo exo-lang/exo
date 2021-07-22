@@ -59,6 +59,7 @@ module UAST {
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
+            | BuiltIn( builtin f, expr* args )
             | WindowExpr( sym name, w_access* idx )
             | StrideAssert( sym name, int idx, int val )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
@@ -82,6 +83,7 @@ module UAST {
     'name':         is_valid_name,
     'sym':          lambda x: type(x) is Sym,
     'mem':          lambda x: isinstance(x, Memory),
+    'builtin':  lambda x: isinstance(x, BuiltIn),
     'loopir_proc':  lambda x: type(x) is LoopIR.proc,
     'op':           lambda x: x in front_ops,
     'srcinfo':      lambda x: type(x) is SrcInfo

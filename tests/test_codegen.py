@@ -349,3 +349,21 @@ def test_unary_neg():
     negate_array.interpret(n=n_size, x=x, res=res)
     np.testing.assert_almost_equal(res, res_c)
     np.testing.assert_almost_equal(res_c, -x)
+
+@pytest.mark.skip()
+def test_bool1():
+    @proc
+    def bool1(b : bool):
+        assert b == True
+
+        x : f32
+        if b == True:
+            x = 0.0
+
+    assert type(bool1) is Procedure
+    filename = test_bool1.__name__
+
+    with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
+        f.write(str(bool1))
+
+    bool1.compile_c(TMP_DIR, filename)

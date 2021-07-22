@@ -11,7 +11,7 @@ import sys
 from .prelude import *
 from .LoopIR import UAST, front_ops, PAST
 #from .LoopIR import T
-from .builtins import sin
+from .builtins import *
 
 from collections import ChainMap
 
@@ -795,6 +795,22 @@ class Parser:
                 res = c if res is None else UAST.BinOp("and", res, c, srcinfo)
 
             return res
+
+        elif type(e) is pyast.Call:
+            f     = self.eval_expr(e.func)
+            fname = e.func.id
+
+            if not isinstance(f, BuiltIn):
+                self.err(e.func, f"expected '{fname}' "+
+                                  "to be a builtin function")
+
+            if len(e.keywords) > 0:
+                self.err(s.value, "cannot call a builtin function "+
+                                  "with keyword arguments")
+
+            args = [ self.parse_expr(a) for a in e.args ]
+
+            return UAST.BuiltIn( f, args, self.getsrcinfo(e) )
 
         else:
             self.err(e, "unsupported form of expression")

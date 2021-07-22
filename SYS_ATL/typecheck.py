@@ -6,6 +6,7 @@ from .LoopIR import UAST, LoopIR, front_ops, bin_ops
 from .LoopIR import T
 
 from .memory import *
+from .builtins import BuiltIn_Typecheck_Error
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -442,6 +443,18 @@ class TypeChecker:
             else: assert False, f"bad op: '{e.op}'"
 
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
+
+        elif type(e) is UAST.BuiltIn:
+
+            args    = [ self.check_e(a) for a in e.args ]
+
+            try:
+                typ = e.f.typecheck(args)
+            except BuiltIn_Typecheck_Error as err:
+                typ = T.err
+                self.err(e, str(err))
+
+            return LoopIR.BuiltIn( e.f, args, typ, e.srcinfo)
 
         elif type(e) is UAST.ParRange:
             assert False, ("parser should not place ParRange anywhere "+

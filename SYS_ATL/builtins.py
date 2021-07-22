@@ -25,32 +25,33 @@ class BuiltIn:
   def name(self):
     return self._name
 
-  def typecheck(self, *args):
+  def typecheck(self, args):
     raise NotImplementedError()
 
-  def interpret(self, *args):
+  def interpret(self, args):
     raise NotImplementedError()
 
-  def compile(self, *args):
+  def compile(self, args):
     raise NotImplementedError()
 
 class _Sin(BuiltIn):
   def __init__(self):
     super().__init__('sin')
 
-  def typecheck(self, *args):
+  def typecheck(self, args):
     if len(args) != 1:
       raise _BErr(f"expected 1 argument, got {len(args)}")
+
     atyp    = args[0].type
     if not atyp.is_real_scalar():
       raise _BErr(f"expected argument 1 to be a real scalar value, but "+
                   f"got type {atyp}")
     return atyp
 
-  def interpret(self, *args):
+  def interpret(self, args):
     raise NotImplementedError()
 
-  def compile(self, *args):
+  def compile(self, args):
     raise NotImplementedError()
 
 sin = _Sin()

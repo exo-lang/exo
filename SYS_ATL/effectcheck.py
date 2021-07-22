@@ -240,6 +240,8 @@ class InferEffects:
             return eff_null(e.srcinfo)
         elif type(e) is LoopIR.WindowExpr:
             return eff_null(e.srcinfo)
+        elif type(e) is LoopIR.BuiltIn:
+            return eff_null(e.srcinfo)
         else:
             assert False, "bad case"
 
