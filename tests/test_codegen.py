@@ -350,14 +350,23 @@ def test_unary_neg():
     np.testing.assert_almost_equal(res, res_c)
     np.testing.assert_almost_equal(res_c, -x)
 
-@pytest.mark.skip()
 def test_bool1():
     @proc
-    def bool1(b : bool):
+    def bool1(a : bool, b : bool):
         assert b == True
 
         x : f32
         if b == True:
+            x = 0.0
+
+        if a == b:
+            x = 0.0
+
+        if False:
+            x = 0.0
+
+        x : f32
+        if a:
             x = 0.0
 
     assert type(bool1) is Procedure
@@ -367,3 +376,9 @@ def test_bool1():
         f.write(str(bool1))
 
     bool1.compile_c(TMP_DIR, filename)
+
+    inp1 = True
+    inp2 = False
+    test_lib = generate_lib(filename)
+    test_lib.bool1(c_bool(inp1), c_bool(inp2))
+    bool1.interpret(a=inp1, b=inp2)
