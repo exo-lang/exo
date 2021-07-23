@@ -486,18 +486,19 @@ class LoopIR_PPrinter:
                 s = f"({s})"
             return s
         elif type(e) is LoopIR.WindowExpr:
-            def pacc(w):
-                if type(w) is LoopIR.Point:
-                    return self.pexpr(w.pt)
-                elif type(w) is LoopIR.Interval:
-                    return f"{self.pexpr(w.lo)}:{self.pexpr(w.hi)}"
-                else: assert False, "bad case"
             return (f"{self.get_name(e.name)}"+
-                    f"[{', '.join([ pacc(w) for w in e.idx ])}]")
+                    f"[{', '.join([ self.pwacc(w) for w in e.idx ])}]")
         elif type(e) is LoopIR.StrideAssert:
             return f"stride({self.get_name(e.name)}, {e.idx}) == {e.val}"
         else:
             assert False, f"unrecognized expr: {type(e)}"
+
+    def pwacc(self, w):
+        if type(w) is LoopIR.Point:
+            return self.pexpr(w.pt)
+        elif type(w) is LoopIR.Interval:
+            return f"{self.pexpr(w.lo)}:{self.pexpr(w.hi)}"
+        else: assert False, "bad case"
 
     def ptype(self, t):
         if type(t) is T.Num:
@@ -527,7 +528,8 @@ class LoopIR_PPrinter:
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
             return f"{base}[{rngs}]"
         elif type(t) is T.Window:
-            return (f"Window(src={t.src},as_tensor={t.as_tensor},"+
-                    f"window={t.window})")
+            return (f"Window(src_type={t.src_type},as_tensor={t.as_tensor},"+
+                    f"src_buf={t.src_buf},"+
+                    f"idx=[{', '.join([ self.pwacc(w) for w in t.idx ])}])")
         else:
             assert False, "impossible type case"

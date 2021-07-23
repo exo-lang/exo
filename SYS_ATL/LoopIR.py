@@ -219,7 +219,8 @@ module LoopIR {
             -- as_tensor    - tensor type as if this window were simply
             --                a tensor itself
             -- window       - the expression that created this window
-            | WindowType ( type src, type as_tensor, expr window )
+            | WindowType ( type src_type, type as_tensor,
+                           sym src_buf, w_access *idx )
 
 } """, {
     'name':     is_valid_name,
@@ -241,6 +242,8 @@ def __hash__(self):
 del __hash__
 
 
+"""
+TODO: Delete this once change verified
 # break recursion...
 @extclass(LoopIR.WindowType)
 def __hash__(self):
@@ -261,7 +264,7 @@ def __eq__(lhs,rhs):
             lhs.as_tensor == rhs.as_tensor and
             id(lhs.window) == id(rhs.window))
 del __eq__
-
+"""
 
 
 
@@ -418,7 +421,7 @@ def lift_to_eff_expr(e):
 
 class LoopIR_Rewrite:
     def __init__(self, proc, instr=None, *args, **kwargs):
-        self._minimal_init(proc)
+        self.orig_proc  = proc
 
         args = [ self.map_fnarg(a) for a in self.orig_proc.args ]
         preds= [ self.map_e(p) for p in self.orig_proc.preds ]
@@ -433,10 +436,6 @@ class LoopIR_Rewrite:
                                 instr   = instr,
                                 eff     = eff,
                                 srcinfo = self.orig_proc.srcinfo)
-
-    def _minimal_init(self, proc):
-        self.orig_proc  = proc
-        self._rewrite_cache = {}
 
     def result(self):
         return self.proc
@@ -485,54 +484,33 @@ class LoopIR_Rewrite:
         elif etyp is LoopIR.USub:
             return LoopIR.USub(self.map_e(e.arg), self.map_t(e.type), e.srcinfo)
         elif etyp is LoopIR.WindowExpr:
-            if id(e) in self._rewrite_cache:
-                return self._rewrite_cache[id(e)]
-            # must shim in a value to stop recursion.
-            # and then the corresponding type must be patched later...
-            self._rewrite_cache[id(e)] = e
+            return LoopIR.WindowExpr(e.name,
+                                     [ self.map_w_access(w) for w in e.idx ],
+                                     self.map_t(e.type), e.srcinfo)
 
-            # patch the type object
-            win_e = self.map_window_e(e)
-            # reconstruct the window type to avoid mutation gotchas
-            win_e.type = T.Window(win_e.type.src,
-                                  win_e.type.as_tensor,
-                                  win_e)
-
-            self._rewrite_cache[id(e)] = win_e
-            return win_e
         else:
             # constant case cannot have variable-size tensor type
             # stride assert case has bool type
             return e
 
-    def map_window_e(self, e):
-        def map_w(w):
-            if type(w) is LoopIR.Interval:
-                return LoopIR.Interval(self.map_e(w.lo),
-                                       self.map_e(w.hi), e.srcinfo)
-            else:
-                return LoopIR.Point(self.map_e(w.pt), e.srcinfo)
-        win_e = LoopIR.WindowExpr( e.name, [ map_w(w) for w in e.idx ],
-                                   self.map_t(e.type), e.srcinfo )
-        return win_e
-
+    def map_w_access(self, w):
+        if type(w) is LoopIR.Interval:
+            return LoopIR.Interval(self.map_e(w.lo),
+                                   self.map_e(w.hi), w.srcinfo)
+        else:
+            return LoopIR.Point(self.map_e(w.pt), w.srcinfo)
 
     def map_t(self, t):
-        # should memo-ize to handle loopy recursion on WindowExpr
-        if id(t) in self._rewrite_cache:
-            return self._rewrite_cache[id(t)]
-
-        res  = t
         ttyp = type(t)
         if ttyp is T.Tensor:
-            res = T.Tensor( [ self.map_e(r) for r in t.hi ],
-                            t.is_window, self.map_t(t.type) )
+            return T.Tensor( [ self.map_e(r) for r in t.hi ],
+                             t.is_window, self.map_t(t.type) )
         elif ttyp is T.Window:
-            res = T.Window( self.map_t(t.src), self.map_t(t.as_tensor),
-                            self.map_e(t.window) )
-
-        self._rewrite_cache[id(t)] = res
-        return res
+            return T.Window( self.map_t(t.src_type), self.map_t(t.as_tensor),
+                             t.src_buf,
+                             [ self.map_w_access(w) for w in e.idx ] )
+        else:
+            return t
 
     def map_eff(self, eff):
         if eff is None:
@@ -559,7 +537,7 @@ class LoopIR_Rewrite:
 
 class LoopIR_Do:
     def __init__(self, proc, *args, **kwargs):
-        self._minimal_init(proc)
+        self.proc      = proc
 
         for a in self.proc.args:
             self.do_t(a.type)
@@ -567,10 +545,6 @@ class LoopIR_Do:
             self.do_e(p)
 
         self.do_stmts(self.proc.body)
-
-    def _minimal_init(self, proc):
-        self.proc      = proc
-        self._do_cache = {}
 
     def do_stmts(self, stmts):
         for s in stmts:
@@ -613,38 +587,30 @@ class LoopIR_Do:
         elif etyp is LoopIR.USub:
             self.do_e(e.arg)
         elif etyp is LoopIR.WindowExpr:
-            if id(e) in self._do_cache:
-                return
-            else:
-                self._do_cache[id(e)] = True
-
-            def do_w(w):
-                if type(w) is LoopIR.Interval:
-                    self.do_e(w.lo)
-                    self.do_e(w.hi)
-                elif type(w) is LoopIR.Point:
-                    self.do_e(w.pt)
-                else: assert False, "bad case"
-            for i in e.idx:
-                do_w(i)
+            for w in e.idx:
+                self.do_w_access(w)
         else:
             pass
 
         self.do_t(e.type)
+
+    def do_w_access(self, w):
+        if type(w) is LoopIR.Interval:
+            self.do_e(w.lo)
+            self.do_e(w.hi)
+        elif type(w) is LoopIR.Point:
+            self.do_e(w.pt)
+        else: assert False, "bad case"
 
     def do_t(self, t):
         if type(t) is T.Tensor:
             for i in t.hi:
                 self.do_e(i)
         elif type(t) is T.Window:
-            if id(t) in self._do_cache:
-                return
-            else:
-                self._do_cache[id(t)] = True
-
-            self.do_t(t.src)
+            self.do_t(t.src_type)
             self.do_t(t.as_tensor)
-            self.do_e(t.window)
+            for w in t.idx:
+                self.do_w_access(w)
         else:
             pass
 
@@ -670,9 +636,11 @@ class LoopIR_Do:
             self.do_eff_e(e.rhs)
 
 
+#class FreeVars(LoopIR_Do):
+
+
 class Alpha_Rename(LoopIR_Rewrite):
     def __init__(self, node):
-        super()._minimal_init(None)
         assert isinstance(node, list)
         self.env    = ChainMap()
         self.node   = []
@@ -736,17 +704,16 @@ class Alpha_Rename(LoopIR_Rewrite):
             nm = self.env[e.name] if e.name in self.env else e.name
             return LoopIR.Read( nm, [ self.map_e(a) for a in e.idx ],
                                 self.map_t(e.type), e.srcinfo )
+        elif etyp is LoopIR.WindowExpr:
+            win_e = super().map_e(e)
+            nm = self.env[e.name] if e.name in self.env else e.name
+            win_e.name = nm
+            return win_e
         elif etyp is LoopIR.StrideAssert:
             nm = self.env[e.name] if e.name in self.env else e.name
             return LoopIR.StrideAssert(nm, e.idx, e.val, e.type, e.srcinfo)
 
         return super().map_e(e)
-
-    def map_window_e(self, e):
-        win_e = super().map_window_e(e)
-        nm = self.env[e.name] if e.name in self.env else e.name
-        win_e.name = nm
-        return win_e
 
     def map_eff_es(self, es):
         self.push()
@@ -773,7 +740,6 @@ class Alpha_Rename(LoopIR_Rewrite):
 
 class SubstArgs(LoopIR_Rewrite):
     def __init__(self, nodes, binding):
-        super()._minimal_init(None)
         assert isinstance(nodes, list)
         assert isinstance(binding, dict)
         assert all( isinstance(v, LoopIR.expr) for v in binding.values() )

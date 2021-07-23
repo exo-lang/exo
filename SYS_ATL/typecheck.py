@@ -325,10 +325,8 @@ class TypeChecker:
             window_shape    = self.build_window_shape(idx)
             as_tensor       = T.Tensor(window_shape, True, typ.type)
 
-            window_expr = LoopIR.WindowExpr( e.name, idx, T.err, e.srcinfo )
-            w_typ       = T.Window( typ, as_tensor, window_expr )
-            window_expr.type = w_typ
-            return window_expr
+            w_typ           = T.Window( typ, as_tensor, e.name, idx )
+            return LoopIR.WindowExpr( e.name, idx, w_typ, e.srcinfo )
 
         elif type(e) is UAST.Const:
             # TODO: What should be the default const type?

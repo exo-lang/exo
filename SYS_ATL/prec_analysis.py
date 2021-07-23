@@ -67,9 +67,10 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         elif type(t) is T.Tensor:
             return T.Tensor(t.hi, t.is_window, self.splice_type(t.type, bt))
         elif type(t) is T.Window:
-            return T.Window(self.splice_type(t.src, bt),
+            return T.Window(self.splice_type(t.src_type, bt),
                             self.splice_type(t.as_tensor, bt),
-                            t.window)
+                            t.src_buf,
+                            t.idx)
         else:
             return t
 
@@ -135,11 +136,6 @@ class PrecisionAnalysis(LoopIR_Rewrite):
 
         return result
 
-    def map_window_e(self, e):
-        btyp    = self.get_type(e.name).basetype()
-        wtyp    = self.splice_type(e.type, btyp)
-        return LoopIR.WindowExpr( e.name, e.idx, wtyp, e.srcinfo )
-
     def map_e(self, e):
         if type(e) is LoopIR.Read:
             typ     = e.type
@@ -147,6 +143,11 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 btyp = self.get_type(e.name).basetype()
                 typ = self.splice_type(e.type, btyp)
             return LoopIR.Read(e.name, e.idx, typ, e.srcinfo)
+
+        elif type(e) is LoopIR.WindowExpr:
+            btyp    = self.get_type(e.name).basetype()
+            wtyp    = self.splice_type(e.type, btyp)
+            return LoopIR.WindowExpr( e.name, e.idx, wtyp, e.srcinfo )
 
         elif type(e) is LoopIR.USub:
             arg = self.map_e(e.arg)
