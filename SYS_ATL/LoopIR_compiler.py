@@ -112,6 +112,22 @@ class LoopIR_FindMems(LoopIR_Do):
         else:
             super().do_s(s)
 
+class LoopIR_FindBuiltIns(LoopIR_Do):
+    def __init__(self, proc):
+        self._bultins = set()
+        super().__init__(proc)
+
+    def result(self):
+        return self._bultins
+
+    # to improve efficiency
+    def do_e(self,e):
+        if type(e) is LoopIR.BuiltIn:
+            self._bultins.add(e.f)
+
+    def do_s(self, s):
+        super().do_s(s)
+
 def find_all_mems(proc_list):
     mems = set()
     for p in proc_list:
@@ -119,6 +135,12 @@ def find_all_mems(proc_list):
 
     return [ m for m in mems ]
 
+def find_all_builtins(proc_list):
+    builtins = set()
+    for p in proc_list:
+        builtins.update( LoopIR_FindBuiltIns(p).result() )
+
+    return [ b for b in builtins ]
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -154,7 +176,7 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
     fwd_decls, body = compile_to_strings(proc_list)
 
     #includes = "#include <stdio.h>\n" + "#include <stdlib.h>\n"
-    includes = "#include <stdint.h>"
+    includes = "#include <stdint.h>\n" + "#include <stdbool.h>\n"
 
     if malloc:
         includes += ("#include <assert.h>\n"+
@@ -190,6 +212,7 @@ def compile_to_strings(proc_list):
     orig_procs  = [ id(p) for p in proc_list ]
     proc_list   = find_all_subprocs(proc_list)
     mem_list    = find_all_mems(proc_list)
+    builtin_list= find_all_builtins(proc_list)
 
     # check for name conflicts between procs
     used_names  = set()
@@ -214,6 +237,12 @@ def compile_to_strings(proc_list):
     for m in mem_list:
         if m._global:
             body.append(m._global)
+            body.append("\n")
+
+    for b in builtin_list:
+        glb = b.globl()
+        if glb:
+            body.append(glb)
             body.append("\n")
 
     fwd_decls = []
@@ -282,6 +311,9 @@ class Compiler:
             elif a.type == T.index:
                 arg_strs.append(f"int {name_arg}")
                 typ_comments.append(f"{name_arg} : index")
+            elif a.type == T.bool:
+                arg_strs.append(f"bool {name_arg}")
+                typ_comments.append(f"{name_arg} : bool")
             # setup, arguments
             else:
                 assert a.type.is_numeric()
@@ -536,6 +568,8 @@ class Compiler:
                 assert len(e.idx) == 0
                 if rtyp.is_indexable():
                     return self.env[e.name]
+                elif rtyp is T.bool:
+                    return self.env[e.name]
                 elif e.name in self._scalar_refs:
                     return self.env[e.name]
                 elif rtyp.is_tensor_or_window():
@@ -544,7 +578,7 @@ class Compiler:
                     assert rtyp.is_real_scalar()
                     return f"&{self.env[e.name]}"
             else:
-                if rtyp.is_indexable():
+                if rtyp.is_indexable() or rtyp is T.bool:
                     return self.env[e.name]
 
                 mem = self.mems[e.name]
@@ -594,7 +628,13 @@ class Compiler:
 
             return struct_str
         elif etyp is LoopIR.Const:
-            return str(e.val)
+            if type(e.val) is bool:
+                if e.val == True:
+                    return "true"
+                else:
+                    return "false"
+            else:
+                return str(e.val)
         elif etyp is LoopIR.BinOp:
             local_prec  = op_prec[e.op]
             int_div     = (e.op == "/" and not e.type.is_numeric())
@@ -619,5 +659,10 @@ class Compiler:
             return s
         elif etyp is LoopIR.USub:
             return f'-{self.comp_e(e.arg, op_prec["~"])}'
+
+        elif etyp is LoopIR.BuiltIn:
+            args    = [ self.comp_e(a, call_arg=True) for a in e.args ]
+            return e.f.compile(args)
+
         else:
             assert False, "bad case"

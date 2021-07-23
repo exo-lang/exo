@@ -44,6 +44,11 @@ class Interpreter:
                     raise TypeError(f"expected index variable '{a.name}' "
                                     f"to be an integer")
                 self.env[a.name] = kwargs[str(a.name)]
+            elif a.type is T.bool:
+                if type(kwargs[str(a.name)]) is not bool:
+                    raise TypeError(f"expected bool variable '{a.name}' "
+                                    f"to be a bool")
+                self.env[a.name] = kwargs[str(a.name)]
             else:
                 assert a.type.is_numeric()
                 self.simple_typecheck_buffer(a, kwargs)
@@ -181,6 +186,11 @@ class Interpreter:
                 return (lhs and rhs)
             elif e.op == "or":
                 return (lhs or rhs)
+
+        elif etyp is LoopIR.BuiltIn:
+            args    = [ self.eval_e(a) for a in e.args ]
+            return e.f.interpret(args)
+
         else:
             assert False, "bad case"
 

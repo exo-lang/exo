@@ -349,3 +349,82 @@ def test_unary_neg():
     negate_array.interpret(n=n_size, x=x, res=res)
     np.testing.assert_almost_equal(res, res_c)
     np.testing.assert_almost_equal(res_c, -x)
+
+def test_bool1():
+    @proc
+    def bool1(a : bool, b : bool):
+        assert b == True
+
+        x : f32
+        if b == True:
+            x = 0.0
+
+        if a == b:
+            x = 0.0
+
+        if False:
+            x = 0.0
+
+        x : f32
+        if a:
+            x = 0.0
+
+    assert type(bool1) is Procedure
+    filename = test_bool1.__name__
+
+    with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
+        f.write(str(bool1))
+
+    bool1.compile_c(TMP_DIR, filename)
+
+    inp1 = True
+    inp2 = False
+    test_lib = generate_lib(filename)
+    test_lib.bool1(c_bool(inp1), c_bool(inp2))
+    bool1.interpret(a=inp1, b=inp2)
+
+def test_sin1():
+    @proc
+    def sin1(x : f32):
+        x = sin(x)
+
+    assert type(sin1) is Procedure
+    filename = test_sin1.__name__
+
+    with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
+        f.write(str(sin1))
+
+    sin1.compile_c(TMP_DIR, filename)
+
+    inp1 = nparray([4.0])
+    test_lib = generate_lib(filename)
+    test_lib.sin1(cvt_c(inp1))
+    res_c = np.ctypeslib.as_array(inp1, shape=(1,))
+
+    sin1.interpret(x=inp1)
+
+    np.testing.assert_almost_equal(inp1, res_c)
+
+
+def test_relu1():
+    @proc
+    def relu1(x : f32):
+        x = relu(x)
+
+    assert type(relu1) is Procedure
+    filename = test_relu1.__name__
+
+    with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
+        f.write(str(relu1))
+
+    relu1.compile_c(TMP_DIR, filename)
+
+    inp1 = nparray([-4.0])
+    test_lib = generate_lib(filename)
+    test_lib.relu1(cvt_c(inp1))
+    res_c = np.ctypeslib.as_array(inp1, shape=(1,))
+
+    relu1.interpret(x=inp1)
+
+    np.testing.assert_almost_equal(inp1, res_c)
+

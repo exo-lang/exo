@@ -6,6 +6,7 @@ from .LoopIR import UAST, LoopIR, front_ops, bin_ops
 from .LoopIR import T
 
 from .memory import *
+from .builtins import BuiltIn_Typecheck_Error
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -329,11 +330,12 @@ class TypeChecker:
             return LoopIR.WindowExpr( e.name, idx, w_typ, e.srcinfo )
 
         elif type(e) is UAST.Const:
-            # TODO: What should be the default const type?
             if type(e.val) is float:
                 return LoopIR.Const(e.val, T.R, e.srcinfo)
             elif type(e.val) is int:
                 return LoopIR.Const(e.val, T.int, e.srcinfo)
+            elif type(e.val) is bool:
+                return LoopIR.Const(e.val, T.bool, e.srcinfo)
             else:
             # We currently don't allow constant bool type
                 self.err(e, f"literal of unexpected type '{type(e.val)}' "
@@ -364,8 +366,7 @@ class TypeChecker:
                     self.err(rhs, "expected 'bool' argument to logical op")
                 typ = T.bool
             elif e.op == "==" and lhs.type == T.bool and rhs.type == T.bool:
-                self.err(e, "using \"==\" for boolean not supported.")
-                typ = T.err
+                typ = T.bool
             elif (e.op == "<" or e.op == "<=" or e.op == "==" or
                   e.op == ">" or e.op == ">="):
                 if not lhs.type.is_indexable():
@@ -440,6 +441,18 @@ class TypeChecker:
             else: assert False, f"bad op: '{e.op}'"
 
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
+
+        elif type(e) is UAST.BuiltIn:
+
+            args    = [ self.check_e(a) for a in e.args ]
+
+            try:
+                typ = e.f.typecheck(args)
+            except BuiltIn_Typecheck_Error as err:
+                typ = T.err
+                self.err(e, str(err))
+
+            return LoopIR.BuiltIn( e.f, args, typ, e.srcinfo)
 
         elif type(e) is UAST.ParRange:
             assert False, ("parser should not place ParRange anywhere "+
