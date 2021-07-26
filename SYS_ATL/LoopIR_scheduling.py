@@ -435,7 +435,7 @@ class _PartialEval(LoopIR_Rewrite):
         assert arg_gap >= 0
         arg_vals = list(arg_vals) + [ None for _ in range(arg_gap) ]
 
-        super()._minimal_init(proc)
+        self.orig_proc = proc
 
         # bind values for partial evaluation
         for v, a in zip(arg_vals, proc.args):
@@ -678,7 +678,6 @@ class _Alloc_Dependencies(LoopIR_Do):
         self._depends = defaultdict(lambda: set())
         self._alias   = defaultdict(lambda: None)
 
-        super()._minimal_init(None)
         self.do_stmts(stmts)
 
     def result(self):
@@ -882,10 +881,9 @@ class _LiftAlloc(LoopIR_Rewrite):
                          for hi in e.type.shape() ])
                 tensor_type = (e.type.as_tensor if type(e.type) is T.Window
                                else e.type)
-                win_e = LoopIR.WindowExpr( e.name, idx, e.type, e.srcinfo )
-                win_e.type = T.Window( self.alloc_type, tensor_type,
-                                       win_e )
-                return win_e
+                win_typ     = T.Window( self.alloc_type, tensor_type,
+                                        e.name, idx )
+                return LoopIR.WindowExpr( e.name, idx, win_typ, e.srcinfo )
 
         if type(e) is LoopIR.WindowExpr and e.name == self.alloc_sym:
             assert self.access_idxs is not None
@@ -896,9 +894,9 @@ class _LiftAlloc(LoopIR_Rewrite):
             idx = [ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
                                  e.srcinfo)
                     for i in self.access_idxs ] + e.idx
-            win_e = LoopIR.WindowExpr( e.name, idx, e.type, e.srcinfo )
-            win_e.type = T.Window( self.alloc_type, e.type.as_tensor, win_e )
-            return win_e
+            win_typ     = T.Window( self.alloc_type, e.type.as_tensor,
+                                    e.name, idx )
+            return LoopIR.WindowExpr( e.name, idx, win_typ, e.srcinfo )
 
         # fall-through
         return super().map_e(e)
@@ -941,7 +939,6 @@ class _Is_Alloc_Free(LoopIR_Do):
     def __init__(self, stmts):
         self._is_alloc_free = True
 
-        super()._minimal_init(None)
         self.do_stmts(stmts)
 
     def result(self):

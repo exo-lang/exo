@@ -273,12 +273,12 @@ class InferEffects:
             buf = buf_name
             typ = win_typ
             while type(typ) is T.Window:
-                win     = typ.window
-                buf     = win.name
+                buf     = typ.src_buf
+                idx     = typ.idx
                 typ     = self._types[buf]
                 loc_i   = 0
                 new_loc = []
-                for w_acc in win.idx:
+                for w_acc in idx:
                     if type(w_acc) is LoopIR.Point:
                         new_loc.append(lift_expr(w_acc.pt))
                     elif type(w_acc) is LoopIR.Interval:

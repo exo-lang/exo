@@ -24,17 +24,14 @@ class WindowAnalysis(LoopIR_Rewrite):
                 assert sa.type.is_win()
                 assert not a.type.is_win()
                 assert type(a) is LoopIR.Read and len(a.idx) == 0
-                shape = a.type.shape()
+                shape   = a.type.shape()
                 assert len(shape) > 0
-                idx = [ LoopIR.Interval(LoopIR.Const(0,T.int,N.srcinfo),
-                                        N, N.srcinfo)
-                        for N in shape ]
-                win_e = LoopIR.WindowExpr(a.name, idx, T.err, a.srcinfo)
-                win_e.type = T.Window(a.type,
-                                      T.Tensor(shape, True,
-                                               a.type.basetype()),
-                                      win_e)
-                return win_e
+                idx     = [ LoopIR.Interval(LoopIR.Const(0,T.int,N.srcinfo),
+                                            N, N.srcinfo)
+                            for N in shape ]
+                as_tens = T.Tensor(shape, True, a.type.basetype())
+                win_typ = T.Window(a.type, as_tens, a.name, idx)
+                return LoopIR.WindowExpr(a.name, idx, win_typ, a.srcinfo)
 
             def promote_arg(a,sa):
                 if sa.type.is_win() and not a.type.is_win():

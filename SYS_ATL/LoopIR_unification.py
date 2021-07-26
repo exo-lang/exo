@@ -5,7 +5,21 @@ from .prelude import *
 from .LoopIR import LoopIR, T, LoopIR_Rewrite
 
 from collections import ChainMap
-import sympy as SYMPY
+from functools import reduce
+
+import pysmt
+from pysmt import shortcuts as SMT
+
+def _get_smt_solver():
+    factory = pysmt.factory.Factory(pysmt.shortcuts.get_env())
+    slvs    = factory.all_solvers()
+    if len(slvs) == 0: raise OSError("Could not find any SMT solvers")
+    return pysmt.shortcuts.Solver(name=next(iter(slvs)))
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
 
 
 class DoReplace(LoopIR_Rewrite):
@@ -51,21 +65,31 @@ class DoReplace(LoopIR_Rewrite):
         return eff
 
 
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Unification "System of Equations" grammar
 
-# Description of a "System of Equations"
-Equations = ADT("""
-module Equations {
-    system      = (basic_eq* eqs)
-                   -- meaning:     eqs[0] /\ eqs[1] /\ eqs[2] /\ ...
-    basic_eq    = SimpleEq( expr lhs, expr rhs )
-                   -- meaning:     lhs == rhs
-                | DisjOfEq( expr* lhs, expr* rhs )
-                   -- meaning:     lhs[0] == rhs[0] \/ lhs[1] == rhs[1] \/ ...
+# the problem designates disjoint subsets of the variables used
+# as "holes" (variables to solve for) and "knowns" (variables to express
+# a solution as an affine combination of).  Any variable not in either of
+# those lists is unknown but not permissible in a solution expression.
+UEq = ADT("""
+module UEq {
+    problem = ( sym*    holes,  -- symbols the solution is requested for
+                sym*    knowns, -- symbols allowed in solution expressions
+                pred*   preds   -- conj of equations
+              )
 
+    pred    = Conj( pred* preds )
+            | Disj( pred* preds )
+            | Cases( sym case_var, case* cases )
+            | Eq( expr lhs, expr rhs )
+
+    case    = ( string label, pred pred )
+    
+    -- affine expressions
     expr  =  Const(int val)
-          |  Hole( sym name )     -- values we want to solve for
-          |  Var( sym name )      -- unknowns that cannot be used in solution, e.g. j
-          |  Symbol( sym name )   -- symbols that can be in solution
+          |  Var( sym name )
           |  Add( expr lhs, expr rhs )
           |  Scale( int coeff, expr e )
 
@@ -73,53 +97,168 @@ module Equations {
     'sym':          lambda x: type(x) is Sym,
 })
 
-@extclass(Equations.Const)
+
+# -------------------------------------- #
+# Conversion to Strings for Debug
+
+def _str_uexpr(e, prec=0):
+    etyp = type(e)
+    if etyp is UEq.Const:
+        return str(e.val)
+    elif etyp is UEq.Var:
+        return str(e.name)
+    elif etyp is UEq.Add:
+        s = f"{_str_uexpr(e.lhs,0)} + {_str_uexpr(e.rhs,1)}"
+        if prec > 0:
+            s = f"({s})"
+        return s
+    elif etyp is UEq.Scale:
+        return f"{e.coeff}*{_str_uexpr(e.e,10)}"
+    else: assert False, "bad case"
+
+@extclass(UEq.Const)
+@extclass(UEq.Var)
+@extclass(UEq.Add)
+@extclass(UEq.Scale)
 def __str__(self):
-    return str(self.val)
-@extclass(Equations.Hole)
-def __str__(self):
-    return str(self.name)
-@extclass(Equations.Var)
-def __str__(self):
-    return str(self.name)
-@extclass(Equations.Symbol)
-def __str__(self):
-    return str(self.name)
-@extclass(Equations.Add)
-def __str__(self):
-    return f"({self.lhs} + {self.rhs})"
-@extclass(Equations.Scale)
-def __str__(self):
-    return f"({str(self.coeff)} + {self.e})"
-@extclass(Equations.system)
-def __str__(self):
-    return equations_as_str(self)
+    return _str_uexpr(self)
 del __str__
 
-def equations_as_str(e):
-    assert type(e) is Equations.system
+@extclass(UEq.case)
+def __str__(self):
+    return f"{self.label}: {self.pred}"
+del __str__
 
-    def name(sym):
-        return str(sym)
+def _str_upred(p, prec=0):
+    ptyp = type(p)
+    if ptyp is UEq.Eq:
+        return f"{p.lhs} == {p.rhs}"
+    elif ptyp is UEq.Conj or ptyp is UEq.Disj:
+        op  = ' and ' if UEq.Conj else ' or '
+        s   = op.join([ _str_upred(pp,1) for pp in p.preds ])
+        if prec > 0:
+            s = f"({s})"
+        return s
+    elif ptyp is UEq.Cases:
+        return (f'cases({p.case_var}) '+
+                ' | '.join([ f"({case})" for case in p.cases ]))
+    else: assert False, "bad case"
 
-    def basic_str(eq):
-        if type(eq) is Equations.SimpleEq:
-            line = f"({str(eq.lhs)} == {str(eq.rhs)})"
-        elif type(eq) is Equations.DisjOfEq:
-            dis = []
-            for lhs, rhs in zip(eq.lhs, eq.rhs):
-                dis.append(f"{str(lhs)} == {str(rhs)}")
-            
-            line = "(" + " \/ ".join(dis) + ")"
+@extclass(UEq.Conj)
+@extclass(UEq.Disj)
+@extclass(UEq.Eq)
+def __str__(self):
+    return _str_upred(self)
+del __str__
 
-        return line
+@extclass(UEq.problem)
+def __str__(prob):
+    lines = [ "Holes:   "+', '.join([ str(x) for x in prob.holes ]) ,
+              "Knowns:  "+', '.join([ str(x) for x in prob.knowns ]) ]
+    lines += [ str(p) for p in prob.preds ]
+    return '\n'.join(lines)
+del __str__
 
-    eq_str = ""
-    eq_str += ' /\ \n'.join([basic_str(eq) for eq in e.eqs])
-    eq_str += "\n"
 
-    return eq_str
+# -------------------------------------- #
+# How to solve this system of equations
 
+@extclass(UEq.problem)
+def solve(prob):
+    solver      = _get_smt_solver()
+
+    known_list  = prob.knowns
+    known_idx   = { k : i for i,k in enumerate(known_list) }
+    Nk          = len(known_list)
+
+    var_set     = dict()
+    case_set    = dict()
+    def get_var(x):
+        if x in var_set:
+            return var_set[x]
+        else:
+            vec = ([ SMT.Symbol(f"{repr(x)}_{repr(k)}", SMT.INT)
+                     for k in known_list ] +
+                   [ SMT.Symbol(f"{repr(x)}_const", SMT.INT) ])
+            var_set[x] = vec
+            return vec
+    def get_case(x):
+        if x not in case_set:
+            case_set[x] = SMT.Symbol(f"{repr(x)}", SMT.INT)
+        return case_set[x]
+    # initialize all hole variables, ensuring they are defined
+    for x in prob.holes:
+        get_var(x)
+
+    def lower_e(e):
+        if type(e) is UEq.Const:
+            return ([SMT.Int(0)] * Nk) + [SMT.Int(e.val)]
+        elif type(e) is UEq.Var:
+            if e.name in known_idx:
+                one_hot = [SMT.Int(0)] * (Nk+1)
+                one_hot[known_idx[e.name]] = SMT.Int(1)
+                return one_hot
+            else:
+                return get_var(e.name)
+        elif type(e) is UEq.Add:
+            lhs = lower_e(e.lhs)
+            rhs = lower_e(e.rhs)
+            return [ SMT.Plus(x,y) for x,y in zip(lhs,rhs) ]
+        elif type(e) is UEq.Scale:
+            arg = lower_e(e.e)
+            return [ SMT.Times(e.coeff, a) for a in arg ]
+        else: assert False, "bad case"
+
+    def lower_p(p):
+        if type(p) is UEq.Eq:
+            lhs = lower_e(p.lhs)
+            rhs = lower_e(p.rhs)
+            return SMT.And(*[ SMT.Equals(x,y) for x,y in zip(lhs,rhs) ])
+        elif type(p) is UEq.Conj:
+            return SMT.And(*[ lower_p(pp) for pp in p.preds ])
+        elif type(p) is UEq.Disj:
+            return SMT.Or(*[ lower_p(pp) for pp in p.preds ])
+        elif type(p) is UEq.Cases:
+            case_var = get_case(p.case_var)
+            def per_case(i,c):
+                pp = lower_p(c.pred)
+                is_case = SMT.Equals(case_var, SMT.Int(i))
+                return SMT.Implies(is_case, pp)
+            return SMT.Or(*[ per_case(i,c) for i,c in enumerate(p.cases) ])
+        else: assert False, "bad case"
+
+    prob_pred   = SMT.And(*[ lower_p(p) for p in prob.preds ])
+    if not solver.is_sat(prob_pred):
+        return None
+    else:
+        solutions = dict()
+        for x in prob.holes:
+            x_syms  = get_var(x)
+            x_vals  = solver.get_py_values(x_syms)
+            expr    = None
+            for x,v in zip(known_list, x_vals):
+                v = int(v)
+                if v == 0:
+                    continue
+                elif v == 1:
+                    term = UEq.Var(x)
+                else:
+                    term = UEq.Scale(v, UEq.Var(x))
+
+                expr = term if expr is None else UEq.Add(expr, term)
+
+            # constant offset
+            off     = UEq.Const(int(x_vals[-1]))
+            expr    = off if expr is None else UEq.Add(expr, off)
+
+            solutions[x] = expr
+
+        # report on case decisions
+        for x in case_set:
+            val = solver.get_py_value(case_set[x])
+            solutions[x] = int(val)
+
+        return solutions
 
 
 
@@ -224,6 +363,11 @@ def equations_as_str(e):
 #    windowexpr is very similar to Read, except that index is w_access!
 #       indices should be exact same if arg is Tensor
 #       arg is window : generate placeholder and body's index === placeholder
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Unification compiler pass
 
 
 
