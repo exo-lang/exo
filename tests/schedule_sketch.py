@@ -1,4 +1,22 @@
 
+x : f32
+y : i8
+y = x
+
+when storing i8
+clamping
+y = x 
+if x < 127 and x > -128:
+    x
+elif x > 127:
+    127
+elif x < -128:
+    -128
+
+relu implementation
+just checking the sig 
+
+
 # TODO THINK:
 # Effects?
 # Sanity check on the backend

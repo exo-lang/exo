@@ -23,6 +23,7 @@ import pytest
 def test_matmul_c_i8():
   T = GemmTestBuilder('matmul_c_i8')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -35,7 +36,6 @@ def test_matmul_c_i8():
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('c_scale', '2.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
   T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
@@ -47,31 +47,73 @@ def test_matmul_c_i8():
     a_scale : f32,
     b_scale : f32,
     c_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i8][N,M] @ DRAM,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i8][N,M] @ MDRAM,
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res : i32
-        res = 0.0
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        tmp_res : f32
-        tmp_res = res
-        tmp_res = tmp_res * c_scale
-        res = tmp_res
-        C[i,j] = res
+        for j in par(0,M):
+            res : i32
+            res = 0.0
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            if acc == True:
+                res = relu(res)
+
+            tmp_res1 : f32
+            tmp_res1 = res
+            tmp_res1 = tmp_res1 * c_scale
+
+            tmp_res2 : i8
+            clamp(tmp_res1, tmp_res2)
+            C[i,j] = tmp_res2
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -82,9 +124,9 @@ def test_matmul_c_i8():
     a_scale : f32,
     b_scale : f32,
     c_scale : f32,
-    acc     : i8,
-    trans_a : i8,
-    trans_b : i8,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
@@ -188,12 +230,12 @@ def test_matmul_c_i8():
   T.add_proc(matmul_c_i8)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i8({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -217,18 +259,19 @@ def test_matmul_c_i8():
 def test_matmul_c_i32():
   T = GemmTestBuilder('matmul_c_i32')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
-  NN = 6
-  MM = 7
-  KK = 4
+  # TODO: fails when 7 7 8
+  NN = 70
+  MM = 70
+  KK = 80
 
   T.alloc_dram_2i8('x', NN, KK, '1')
   T.alloc_dram_2i8('y', KK, MM, '1')
-  T.alloc_dram_f32('a_scale', '2.0f')
-  T.alloc_dram_f32('b_scale', '3.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
+  T.alloc_dram_f32('a_scale', '1.0f')
+  T.alloc_dram_f32('b_scale', '1.0f')
   T.alloc_dram_2i32('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i32('z_gemmini', NN, MM, '0')
 
@@ -239,27 +282,63 @@ def test_matmul_c_i32():
     K : size,
     a_scale : f32,
     b_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i32][N,M] @ DRAM,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i32][N,M] @ MDRAM,
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res : i32
-        res = 0.0
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        C[i,j] = res
+        for j in par(0,M):
+            res : i32
+            res = 0.0
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            C[i,j] = res
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -269,9 +348,8 @@ def test_matmul_c_i32():
     K : size,
     a_scale : f32,
     b_scale : f32,
-    acc     : i8,
-    trans_a : i8,
-    trans_b : i8,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
@@ -301,7 +379,7 @@ def test_matmul_c_i32():
           
                 matmul_acc_i8(16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,16, acc, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
+            st_acc_i32(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
 
     if N%16 > 0:
         for j in par(0,M/16):
@@ -324,7 +402,7 @@ def test_matmul_c_i32():
           
                 matmul_acc_i8(N%16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(N%16,16, acc, res, C[ N-N%16:, 16*j:16*(j+1) ])
+            st_acc_i32(N%16,16, res, C[ N-N%16:, 16*j:16*(j+1) ])
 
     if M%16 > 0:
         for i in par(0,N/16):
@@ -347,7 +425,7 @@ def test_matmul_c_i32():
           
                 matmul_acc_i8(16,M%16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,M%16, acc, res, C[ 16*i:16*(i+1), M-M%16: ])
+            st_acc_i32(16,M%16, res, C[ 16*i:16*(i+1), M-M%16: ])
 
     if N%16 > 0 and M%16 > 0:
         res : i32[N%16,16] @ GEMM_ACCUM
@@ -369,18 +447,18 @@ def test_matmul_c_i32():
       
             matmul_acc_i8(N%16, M%16, K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-        st_acc_i32(N%16, M%16, acc, res, C[ N-N%16:, M-M%16: ])
+        st_acc_i32(N%16, M%16, res, C[ N-N%16:, M-M%16: ])
   
 
   T.add_proc(matmul_c_i32)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32({NN}, {MM}, {KK}, a_scale, b_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i32({NN}, {MM}, {KK}, a_scale, b_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -401,10 +479,10 @@ def test_matmul_c_i32():
   T.compile().run()
 
 
-
 def test_matmul_c_i8_d_i8():
   T = GemmTestBuilder('matmul_c_i8_d_i8')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -412,14 +490,13 @@ def test_matmul_c_i8_d_i8():
   MM = 70
   KK = 120
 
-  T.alloc_dram_2i8('x', NN, KK, '2')
-  T.alloc_dram_2i8('y', KK, MM, '3')
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
   T.alloc_dram_2i8('d', NN, MM, '2')
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('c_scale', '2.0f')
   T.alloc_dram_f32('d_scale', '4.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
   T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
@@ -432,35 +509,77 @@ def test_matmul_c_i8_d_i8():
     b_scale : f32,
     c_scale : f32,
     d_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i8][N,M] @ DRAM,
-    D : [i8][N,M] @ DRAM,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i8][N,M] @ MDRAM,
+    D : [i8][N,M] @ MDRAM
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res   : i32
-        tmp_d : f32
-        tmp_d = D[i,j]
-        tmp_d = tmp_d * d_scale
-        res   = tmp_d
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        tmp_res : f32
-        tmp_res = res
-        tmp_res = tmp_res * c_scale
-        res = tmp_res
-        C[i,j] = res
+        for j in par(0,M):
+            res   : i32
+            tmp_d : f32
+            tmp_d = D[i,j]
+            tmp_d = tmp_d * d_scale
+            res   = tmp_d
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            if acc == True:
+                res = relu(res)
+
+            tmp_res1 : f32
+            tmp_res1 = res
+            tmp_res1 = tmp_res1 * c_scale
+
+            tmp_res2 : i8
+            clamp(tmp_res1, tmp_res2)
+            C[i,j] = tmp_res2
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -472,13 +591,13 @@ def test_matmul_c_i8_d_i8():
     b_scale : f32,
     c_scale : f32,
     d_scale : f32,
-    acc : i8,
-    trans_a : i8,
-    trans_b : i8,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
-    D : [i8][N,M] @ DRAM,
+    D : [i8][N,M] @ DRAM
   ):
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
@@ -496,7 +615,7 @@ def test_matmul_c_i8_d_i8():
                 ld_i8(16,16, a_scale, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
                 ld_i8(16,16, b_scale, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(16,16,16, trans_a, trans_b,  Ablock, Bblock, res)
+                matmul_acc_i8(16,16,16, trans_a, trans_b, Ablock, Bblock, res)
 
             if K%16 > 0:
                 Ablock : i8[16,16] @ GEMM_SCRATCH
@@ -580,16 +699,16 @@ def test_matmul_c_i8_d_i8():
   T.add_proc(matmul_c_i8_d_i8)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_d_i8({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i8_d_i8({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
+  
   T.add_body([f'if(check_eq_2i8({NN},{MM}, z_cpu, z_gemmini)) {{',
                '    printf("Correct\\n");',
                '} else {',
@@ -610,6 +729,7 @@ def test_matmul_c_i8_d_i8():
 def test_matmul_c_i8_d_i8_rep():
   T = GemmTestBuilder('matmul_c_i8_d_i8_rep')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -617,14 +737,13 @@ def test_matmul_c_i8_d_i8_rep():
   MM = 70
   KK = 120
 
-  T.alloc_dram_2i8('x', NN, KK, '2')
-  T.alloc_dram_2i8('y', KK, MM, '3')
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
   T.alloc_dram_2i8('d', 1, MM, '2')
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('c_scale', '2.0f')
   T.alloc_dram_f32('d_scale', '4.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
   T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
@@ -637,35 +756,77 @@ def test_matmul_c_i8_d_i8_rep():
     b_scale : f32,
     c_scale : f32,
     d_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i8][N,M] @ DRAM,
-    D : [i8][1,M] @ DRAM,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i8][N,M] @ MDRAM,
+    D : [i8][1,M] @ MDRAM
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res   : i32
-        tmp_d : f32
-        tmp_d = D[0,j]
-        tmp_d = tmp_d * d_scale
-        res   = tmp_d
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        tmp_res : f32
-        tmp_res = res
-        tmp_res = tmp_res * c_scale
-        res = tmp_res
-        C[i,j] = res
+        for j in par(0,M):
+            res   : i32
+            tmp_d : f32
+            tmp_d = D[0,j]
+            tmp_d = tmp_d * d_scale
+            res   = tmp_d
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            if acc == True:
+                res = relu(res)
+
+            tmp_res1 : f32
+            tmp_res1 = res
+            tmp_res1 = tmp_res1 * c_scale
+
+            tmp_res2 : i8
+            clamp(tmp_res1, tmp_res2)
+            C[i,j] = tmp_res2
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -677,13 +838,13 @@ def test_matmul_c_i8_d_i8_rep():
     b_scale : f32,
     c_scale : f32,
     d_scale : f32,
-    acc : i8,
-    trans_a : i8,
-    trans_b : i8,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
-    D : [i8][1,M] @ DRAM,
+    D : [i8][1,M] @ DRAM
   ):
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
@@ -702,7 +863,7 @@ def test_matmul_c_i8_d_i8_rep():
                 ld_i8(16,16, a_scale, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
                 ld_i8(16,16, b_scale, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
           
-                matmul_acc_i8(16,16,16, trans_a, trans_b,  Ablock, Bblock, res)
+                matmul_acc_i8(16,16,16, trans_a, trans_b, Ablock, Bblock, res)
 
             if K%16 > 0:
                 Ablock : i8[16,16] @ GEMM_SCRATCH
@@ -789,16 +950,16 @@ def test_matmul_c_i8_d_i8_rep():
   T.add_proc(matmul_c_i8_d_i8_rep)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_d_i8_rep({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
+  T.add_body([f'matmul_c_i8_d_i8_rep({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
+  
   T.add_body([f'if(check_eq_2i8({NN},{MM}, z_cpu, z_gemmini)) {{',
                '    printf("Correct\\n");',
                '} else {',
@@ -816,10 +977,10 @@ def test_matmul_c_i8_d_i8_rep():
 
 
 
-
 def test_matmul_c_i8_d_i32():
   T = GemmTestBuilder('matmul_c_i8_d_i32')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -827,14 +988,13 @@ def test_matmul_c_i8_d_i32():
   MM = 70
   KK = 120
 
-  T.alloc_dram_2i8('x', NN, KK, '2')
-  T.alloc_dram_2i8('y', KK, MM, '3')
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
   T.alloc_dram_2i32('d', NN, MM, '2')
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('c_scale', '2.0f')
   T.alloc_dram_f32('d_scale', '4.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
   T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
@@ -847,35 +1007,77 @@ def test_matmul_c_i8_d_i32():
     b_scale : f32,
     c_scale : f32,
     d_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i8][N,M] @ DRAM,
-    D : [i32][N,M] @ DRAM,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i8][N,M] @ MDRAM,
+    D : [i32][N,M] @ MDRAM
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res   : i32
-        tmp_d : f32
-        tmp_d = D[i,j]
-        tmp_d = tmp_d * d_scale
-        res   = tmp_d
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        tmp_res : f32
-        tmp_res = res
-        tmp_res = tmp_res * c_scale
-        res = tmp_res
-        C[i,j] = res
+        for j in par(0,M):
+            res   : i32
+            tmp_d : f32
+            tmp_d = D[i,j]
+            tmp_d = tmp_d * d_scale
+            res   = tmp_d
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            if acc == True:
+                res = relu(res)
+
+            tmp_res1 : f32
+            tmp_res1 = res
+            tmp_res1 = tmp_res1 * c_scale
+
+            tmp_res2 : i8
+            clamp(tmp_res1, tmp_res2)
+            C[i,j] = tmp_res2
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -887,13 +1089,13 @@ def test_matmul_c_i8_d_i32():
     b_scale : f32,
     c_scale : f32,
     d_scale : f32,
-    acc : i8,
-    trans_a : i8,
-    trans_b : i8,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
-    D : [i32][N,M] @ DRAM,
+    D : [i32][N,M] @ DRAM
   ):
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
@@ -995,16 +1197,16 @@ def test_matmul_c_i8_d_i32():
   T.add_proc(matmul_c_i8_d_i32)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_d_i32({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i8_d_i32({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
+  
   T.add_body([f'if(check_eq_2i8({NN},{MM}, z_cpu, z_gemmini)) {{',
                '    printf("Correct\\n");',
                '} else {',
@@ -1019,11 +1221,13 @@ def test_matmul_c_i8_d_i32():
   
 
   T.compile().run()
-  
+
+
 
 def test_matmul_c_i8_d_i32_rep():
   T = GemmTestBuilder('matmul_c_i8_d_i32_rep')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -1031,14 +1235,13 @@ def test_matmul_c_i8_d_i32_rep():
   MM = 70
   KK = 120
 
-  T.alloc_dram_2i8('x', NN, KK, '2')
-  T.alloc_dram_2i8('y', KK, MM, '3')
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
   T.alloc_dram_2i32('d', 1, MM, '2')
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('c_scale', '2.0f')
   T.alloc_dram_f32('d_scale', '4.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
   T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
@@ -1051,35 +1254,77 @@ def test_matmul_c_i8_d_i32_rep():
     b_scale : f32,
     c_scale : f32,
     d_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i8][N,M] @ DRAM,
-    D : [i32][1,M] @ DRAM,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i8][N,M] @ MDRAM,
+    D : [i32][1,M] @ MDRAM
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res   : i32
-        tmp_d : f32
-        tmp_d = D[0,j]
-        tmp_d = tmp_d * d_scale
-        res   = tmp_d
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        tmp_res : f32
-        tmp_res = res
-        tmp_res = tmp_res * c_scale
-        res = tmp_res
-        C[i,j] = res
+        for j in par(0,M):
+            res   : i32
+            tmp_d : f32
+            tmp_d = D[0,j]
+            tmp_d = tmp_d * d_scale
+            res   = tmp_d
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            if acc == True:
+                res = relu(res)
+
+            tmp_res1 : f32
+            tmp_res1 = res
+            tmp_res1 = tmp_res1 * c_scale
+
+            tmp_res2 : i8
+            clamp(tmp_res1, tmp_res2)
+            C[i,j] = tmp_res2
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -1091,15 +1336,14 @@ def test_matmul_c_i8_d_i32_rep():
     b_scale : f32,
     c_scale : f32,
     d_scale : f32,
-    acc : i8,
-    trans_a : i8,
-    trans_b : i8,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
-    D : [i32][1,M] @ DRAM,
+    D : [i32][1,M] @ DRAM
   ):
-
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
     assert stride(C, 1) == 1
@@ -1204,12 +1448,12 @@ def test_matmul_c_i8_d_i32_rep():
   T.add_proc(matmul_c_i8_d_i32_rep)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_d_i32_rep({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
+  T.add_body([f'matmul_c_i8_d_i32_rep({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -1234,6 +1478,7 @@ def test_matmul_c_i8_d_i32_rep():
 def test_matmul_c_i32_d_i8():
   T = GemmTestBuilder('matmul_c_i32_d_i8')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -1241,13 +1486,12 @@ def test_matmul_c_i32_d_i8():
   MM = 70
   KK = 120
 
-  T.alloc_dram_2i8('x', NN, KK, '2')
-  T.alloc_dram_2i8('y', KK, MM, '3')
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
   T.alloc_dram_2i8('d', NN, MM, '2')
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('d_scale', '4.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
   T.alloc_dram_2i32('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i32('z_gemmini', NN, MM, '0')
 
@@ -1259,31 +1503,67 @@ def test_matmul_c_i32_d_i8():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i32][N,M] @ DRAM,
-    D : [i8][N,M] @ DRAM,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i32][N,M] @ MDRAM,
+    D : [i8][N,M] @ MDRAM
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res   : i32
-        tmp_d : f32
-        tmp_d = D[i,j]
-        tmp_d = tmp_d * d_scale
-        res   = tmp_d
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        C[i,j] = res
+        for j in par(0,M):
+            res   : i32
+            tmp_d : f32
+            tmp_d = D[i,j]
+            tmp_d = tmp_d * d_scale
+            res   = tmp_d
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            C[i,j] = res
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -1294,13 +1574,12 @@ def test_matmul_c_i32_d_i8():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    acc : i8,
-    trans_a : i8,
-    trans_b : i8,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
-    D : [i8][N,M] @ DRAM,
+    D : [i8][N,M] @ DRAM
   ):
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
@@ -1328,7 +1607,7 @@ def test_matmul_c_i32_d_i8():
           
                 matmul_acc_i8(16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,16, acc, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
+            st_acc_i32(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
 
     if N%16 > 0:
         for j in par(0,M/16):
@@ -1351,7 +1630,7 @@ def test_matmul_c_i32_d_i8():
           
                 matmul_acc_i8(N%16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(N%16,16, acc, res, C[ N-N%16:, 16*j:16*(j+1) ])
+            st_acc_i32(N%16,16, res, C[ N-N%16:, 16*j:16*(j+1) ])
 
     if M%16 > 0:
         for i in par(0,N/16):
@@ -1374,7 +1653,7 @@ def test_matmul_c_i32_d_i8():
           
                 matmul_acc_i8(16,M%16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,M%16, acc, res, C[ 16*i:16*(i+1), M-M%16: ])
+            st_acc_i32(16,M%16, res, C[ 16*i:16*(i+1), M-M%16: ])
 
     if N%16 > 0 and M%16 > 0:
         res : i32[N%16,16] @ GEMM_ACCUM
@@ -1396,22 +1675,22 @@ def test_matmul_c_i32_d_i8():
       
             matmul_acc_i8(N%16, M%16, K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-        st_acc_i32(N%16, M%16, acc, res, C[ N-N%16:, M-M%16: ])
+        st_acc_i32(N%16, M%16, res, C[ N-N%16:, M-M%16: ])
   
 
   T.add_proc(matmul_c_i32_d_i8)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32_d_i8({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i32_d_i8({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
+  
   T.add_body([f'if(check_eq_2i32({NN},{MM}, z_cpu, z_gemmini)) {{',
                '    printf("Correct\\n");',
                '} else {',
@@ -1428,10 +1707,10 @@ def test_matmul_c_i32_d_i8():
   T.compile().run()
 
 
-
 def test_matmul_c_i32_d_i8_rep():
   T = GemmTestBuilder('matmul_c_i32_d_i8_rep')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -1439,13 +1718,12 @@ def test_matmul_c_i32_d_i8_rep():
   MM = 70
   KK = 120
 
-  T.alloc_dram_2i8('x', NN, KK, '2')
-  T.alloc_dram_2i8('y', KK, MM, '3')
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
   T.alloc_dram_2i8('d', 1, MM, '2')
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('d_scale', '4.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
   T.alloc_dram_2i32('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i32('z_gemmini', NN, MM, '0')
 
@@ -1457,31 +1735,67 @@ def test_matmul_c_i32_d_i8_rep():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i32][N,M] @ DRAM,
-    D : [i8][1,M] @ DRAM,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i32][N,M] @ MDRAM,
+    D : [i8][1,M] @ MDRAM
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res   : i32
-        tmp_d : f32
-        tmp_d = D[0,j]
-        tmp_d = tmp_d * d_scale
-        res   = tmp_d
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        C[i,j] = res
+        for j in par(0,M):
+            res   : i32
+            tmp_d : f32
+            tmp_d = D[0,j]
+            tmp_d = tmp_d * d_scale
+            res   = tmp_d
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            C[i,j] = res
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -1492,13 +1806,12 @@ def test_matmul_c_i32_d_i8_rep():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    acc : i8,
-    trans_a : i8,
-    trans_b : i8,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
-    D : [i8][1,M] @ DRAM,
+    D : [i8][1,M] @ DRAM
   ):
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
@@ -1527,7 +1840,7 @@ def test_matmul_c_i32_d_i8_rep():
           
                 matmul_acc_i8(16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,16, acc, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
+            st_acc_i32(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
 
     if N%16 > 0:
         for j in par(0,M/16):
@@ -1551,7 +1864,7 @@ def test_matmul_c_i32_d_i8_rep():
           
                 matmul_acc_i8(N%16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(N%16,16, acc, res, C[ N-N%16:, 16*j:16*(j+1) ])
+            st_acc_i32(N%16,16, res, C[ N-N%16:, 16*j:16*(j+1) ])
 
     if M%16 > 0:
         for i in par(0,N/16):
@@ -1575,7 +1888,7 @@ def test_matmul_c_i32_d_i8_rep():
           
                 matmul_acc_i8(16,M%16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,M%16, acc, res, C[ 16*i:16*(i+1), M-M%16: ])
+            st_acc_i32(16,M%16, res, C[ 16*i:16*(i+1), M-M%16: ])
 
     if N%16 > 0 and M%16 > 0:
         res : i32[N%16,16] @ GEMM_ACCUM
@@ -1598,22 +1911,22 @@ def test_matmul_c_i32_d_i8_rep():
       
             matmul_acc_i8(N%16, M%16, K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-        st_acc_i32(N%16, M%16, acc, res, C[ N-N%16:, M-M%16: ])
+        st_acc_i32(N%16, M%16, res, C[ N-N%16:, M-M%16: ])
   
 
   T.add_proc(matmul_c_i32_d_i8_rep)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32_d_i8_rep({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
+  T.add_body([f'matmul_c_i32_d_i8_rep({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
+  
   T.add_body([f'if(check_eq_2i32({NN},{MM}, z_cpu, z_gemmini)) {{',
                '    printf("Correct\\n");',
                '} else {',
@@ -1631,11 +1944,10 @@ def test_matmul_c_i32_d_i8_rep():
 
 
 
-
-
 def test_matmul_c_i32_d_i32():
   T = GemmTestBuilder('matmul_c_i32_d_i32')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -1643,13 +1955,12 @@ def test_matmul_c_i32_d_i32():
   MM = 70
   KK = 120
 
-  T.alloc_dram_2i8('x', NN, KK, '2')
-  T.alloc_dram_2i8('y', KK, MM, '3')
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
   T.alloc_dram_2i32('d', NN, MM, '2')
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('d_scale', '4.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
   T.alloc_dram_2i32('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i32('z_gemmini', NN, MM, '0')
 
@@ -1661,31 +1972,67 @@ def test_matmul_c_i32_d_i32():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i32][N,M] @ DRAM,
-    D : [i32][N,M] @ DRAM,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i32][N,M] @ MDRAM,
+    D : [i32][N,M] @ MDRAM
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res   : i32
-        tmp_d : f32
-        tmp_d = D[i,j]
-        tmp_d = tmp_d * d_scale
-        res   = tmp_d
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        C[i,j] = res
+        for j in par(0,M):
+            res   : i32
+            tmp_d : f32
+            tmp_d = D[i,j]
+            tmp_d = tmp_d * d_scale
+            res   = tmp_d
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            C[i,j] = res
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -1696,13 +2043,12 @@ def test_matmul_c_i32_d_i32():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    acc : i8,
-    trans_a : i8,
-    trans_b : i8,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
-    D : [i32][N,M] @ DRAM,
+    D : [i32][N,M] @ DRAM
   ):
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
@@ -1730,7 +2076,7 @@ def test_matmul_c_i32_d_i32():
           
                 matmul_acc_i8(16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,16, acc, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
+            st_acc_i32(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
 
     if N%16 > 0:
         for j in par(0,M/16):
@@ -1753,7 +2099,7 @@ def test_matmul_c_i32_d_i32():
           
                 matmul_acc_i8(N%16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(N%16,16, acc, res, C[ N-N%16:, 16*j:16*(j+1) ])
+            st_acc_i32(N%16,16, res, C[ N-N%16:, 16*j:16*(j+1) ])
 
     if M%16 > 0:
         for i in par(0,N/16):
@@ -1776,7 +2122,7 @@ def test_matmul_c_i32_d_i32():
           
                 matmul_acc_i8(16,M%16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,M%16, acc, res, C[ 16*i:16*(i+1), M-M%16: ])
+            st_acc_i32(16,M%16, res, C[ 16*i:16*(i+1), M-M%16: ])
 
     if N%16 > 0 and M%16 > 0:
         res : i32[N%16,16] @ GEMM_ACCUM
@@ -1798,22 +2144,22 @@ def test_matmul_c_i32_d_i32():
       
             matmul_acc_i8(N%16, M%16, K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-        st_acc_i32(N%16, M%16, acc, res, C[ N-N%16:, M-M%16: ])
+        st_acc_i32(N%16, M%16, res, C[ N-N%16:, M-M%16: ])
   
 
   T.add_proc(matmul_c_i32_d_i32)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32_d_i32({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i32_d_i32({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
+  
   T.add_body([f'if(check_eq_2i32({NN},{MM}, z_cpu, z_gemmini)) {{',
                '    printf("Correct\\n");',
                '} else {',
@@ -1830,11 +2176,10 @@ def test_matmul_c_i32_d_i32():
   T.compile().run()
 
 
-
-
 def test_matmul_c_i32_d_i32_rep():
   T = GemmTestBuilder('matmul_c_i32_d_i32_rep')
   T.add_body(['gemm_init_mem();',
+              'init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -1842,13 +2187,12 @@ def test_matmul_c_i32_d_i32_rep():
   MM = 70
   KK = 120
 
-  T.alloc_dram_2i8('x', NN, KK, '2')
-  T.alloc_dram_2i8('y', KK, MM, '3')
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
   T.alloc_dram_2i32('d', 1, MM, '2')
   T.alloc_dram_f32('a_scale', '3.0f')
   T.alloc_dram_f32('b_scale', '2.0f')
   T.alloc_dram_f32('d_scale', '4.0f')
-  T.alloc_dram_2i8('zero', 1, 1, '0')
   T.alloc_dram_2i32('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i32('z_gemmini', NN, MM, '0')
 
@@ -1860,31 +2204,67 @@ def test_matmul_c_i32_d_i32_rep():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    A : [i8][N,K] @ DRAM,
-    B : [i8][K,M] @ DRAM,
-    C : [i32][N,M] @ DRAM,
-    D : [i32][1,M] @ DRAM,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i32][N,M] @ MDRAM,
+    D : [i32][1,M] @ MDRAM
   ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    tmp_A : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N and i < K:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,K):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ MDRAM
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K and i < M:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,M):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
-      for j in par(0,M):
-        res   : i32
-        tmp_d : f32
-        tmp_d = D[0,j]
-        tmp_d = tmp_d * d_scale
-        res   = tmp_d
-        for k in par(0,K):
-          tmp_a : f32
-          tmp_b : f32
-          tmp_a = A[i,k]
-          tmp_b = B[k,j]
-          tmp_a = tmp_a * a_scale
-          tmp_b = tmp_b * b_scale
-          a : i32
-          b : i32
-          a = tmp_a
-          b = tmp_b
-          res += a*b
-        C[i,j] = res
+        for j in par(0,M):
+            res   : i32
+            tmp_d : f32
+            tmp_d = D[0,j]
+            tmp_d = tmp_d * d_scale
+            res   = tmp_d
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = tmp_A[i,k]
+                tmp_b = tmp_B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            C[i,j] = res
+
   T.add_proc(matmul_on_cpu)
 
   @proc
@@ -1895,13 +2275,12 @@ def test_matmul_c_i32_d_i32_rep():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    acc : i8,
-    trans_a : i8,
-    trans_b : i8,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
-    D : [i32][1,M] @ DRAM,
+    D : [i32][1,M] @ DRAM
   ):
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
@@ -1930,7 +2309,7 @@ def test_matmul_c_i32_d_i32_rep():
           
                 matmul_acc_i8(16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,16, acc, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
+            st_acc_i32(16,16, res, C[ 16*i:16*(i+1), 16*j:16*(j+1) ])
 
     if N%16 > 0:
         for j in par(0,M/16):
@@ -1954,7 +2333,7 @@ def test_matmul_c_i32_d_i32_rep():
           
                 matmul_acc_i8(N%16,16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(N%16,16, acc, res, C[ N-N%16:, 16*j:16*(j+1) ])
+            st_acc_i32(N%16,16, res, C[ N-N%16:, 16*j:16*(j+1) ])
 
     if M%16 > 0:
         for i in par(0,N/16):
@@ -1978,7 +2357,7 @@ def test_matmul_c_i32_d_i32_rep():
           
                 matmul_acc_i8(16,M%16,K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-            st_acc_i32(16,M%16, acc, res, C[ 16*i:16*(i+1), M-M%16: ])
+            st_acc_i32(16,M%16, res, C[ 16*i:16*(i+1), M-M%16: ])
 
     if N%16 > 0 and M%16 > 0:
         res : i32[N%16,16] @ GEMM_ACCUM
@@ -2001,22 +2380,22 @@ def test_matmul_c_i32_d_i32_rep():
       
             matmul_acc_i8(N%16, M%16, K%16, trans_a, trans_b, Ablock, Bblock, res)
 
-        st_acc_i32(N%16, M%16, acc, res, C[ N-N%16:, M-M%16: ])
+        st_acc_i32(N%16, M%16, res, C[ N-N%16:, M-M%16: ])
   
 
   T.add_proc(matmul_c_i32_d_i32_rep)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
+  T.add_body([f'matmul_on_cpu({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32_d_i32_rep({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, zero, zero, zero, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
+  T.add_body([f'matmul_c_i32_d_i32_rep({NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
+  
   T.add_body([f'if(check_eq_2i32({NN},{MM}, z_cpu, z_gemmini)) {{',
                '    printf("Correct\\n");',
                '} else {',
@@ -2031,6 +2410,8 @@ def test_matmul_c_i32_d_i32_rep():
   
 
   T.compile().run()
+
+
 
 
 

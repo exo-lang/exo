@@ -226,6 +226,11 @@ class TypeChecker:
                         self.err(call_a, "expected index-type expression, "+
                                          f"but got type {call_a.type}")
 
+                elif sig_a.type is T.bool:
+                    if not call_a.type is T.bool:
+                        self.err(call_a, "expected bool-type variable, "+
+                                        f"but got type {call_a.type}")
+
                 elif sig_a.type.is_numeric():
                     if len(call_a.type.shape()) != len(sig_a.type.shape()):
                         self.err(call_a,
