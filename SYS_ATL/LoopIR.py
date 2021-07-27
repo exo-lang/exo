@@ -510,7 +510,7 @@ class LoopIR_Rewrite:
         elif ttyp is T.Window:
             return T.Window( self.map_t(t.src_type), self.map_t(t.as_tensor),
                              t.src_buf,
-                             [ self.map_w_access(w) for w in e.idx ] )
+                             [ self.map_w_access(w) for w in t.idx ] )
         else:
             return t
 

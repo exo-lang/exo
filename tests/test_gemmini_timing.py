@@ -106,34 +106,6 @@ def test_matmul_demo():
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def pre_bake_stage_C(p, pattern, name_in, name='CG'):
   @proc
   def matmul2d(
@@ -243,8 +215,8 @@ def pre_bake_abstract_BC_and_mmul(p):
                 BG : i8[16,16] @ MDRAM
                 ld_i8(16, 16, scale, A[16*i:16*i+16, 16*k:16*k+16], AG)
                 ld_i8(16, 16, scale, B[16*k:16*k+16, 16*j:16*j+16], BG)
-                matmul_acc_i8(16,16,16, AG, BG, CG)
-            st_acc_i8(16,16, scale, CG, C[16*i:16*i+16, 16*j:16*j+16])
+                matmul_acc_i8(16,16,16, False, False, AG, BG, CG)
+            st_acc_i8(16,16, scale, False, CG, C[16*i:16*i+16, 16*j:16*j+16])
   return matmul2d
 
 
@@ -263,5 +235,82 @@ def do_init(T):
   def mdram_dummy():
     x : i8 @ MDRAM
   T.add_proc(mdram_dummy)
+
+
+
+def test_matmul_gemmini():
+  T = GemmTestBuilder('matmul_gemmini')
+  T.add_body(['gemm_init_mem();',
+              'init_mem();',
+              'gemmini_flush(0);',
+              ''])
+
+  NN = 60
+  MM = 70
+  KK = 120
+
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
+  T.alloc_dram_f32('a_scale', '3.0f')
+  T.alloc_dram_f32('b_scale', '2.0f')
+  T.alloc_dram_f32('c_scale', '2.0f')
+  T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
+  T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
+
+  @proc
+  def matmul_on_cpu(
+    N : size,
+    M : size,
+    K : size,
+    a_scale : f32,
+    b_scale : f32,
+    c_scale : f32,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i8][N,M] @ MDRAM,
+  ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    for i in par(0,N):
+        for j in par(0,M):
+            res : i32
+            res = 0.0
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_b : f32
+                tmp_a = A[i,k]
+                tmp_b = B[k,j]
+                tmp_a = tmp_a * a_scale
+                tmp_b = tmp_b * b_scale
+                a : i32
+                b : i32
+                a = tmp_a
+                b = tmp_b
+                res += a*b
+
+            if acc == True:
+                res = relu(res)
+
+            tmp_res1 : f32
+            tmp_res1 = res
+            tmp_res1 = tmp_res1 * c_scale
+
+            tmp_res2 : i8
+            clamp(tmp_res1, tmp_res2)
+            C[i,j] = tmp_res2
+
+  T.add_proc(matmul_on_cpu)
+  matmul = matmul_on_cpu.split('i',16,['i','i_in'], cut_tail=True)
+  matmul = matmul.reorder('i_in','j')
+  matmul = matmul.split('j',16,['j','j_in'], cut_tail=True)
+  matmul = matmul.split('k',16,['k','k_in'], cut_tail=True)
+  #matmul = matmul.lift_alloc('res : _', n_lifts=2)
+
+  print(matmul)
 
 

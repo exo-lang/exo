@@ -29,6 +29,7 @@ def ld_i8(
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
+    #assert gemmini.stride == stride(src, 0)
 
     for i in par(0, n):
         for j in par(0, m):
