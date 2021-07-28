@@ -309,7 +309,7 @@ def test_matmul_gemmini():
   matmul = matmul.reorder('i_in','j')
   matmul = matmul.split('j',16,['j','j_in'], cut_tail=True)
   matmul = matmul.split('k',16,['k','k_in'], cut_tail=True)
-  #matmul = matmul.lift_alloc('res : _', n_lifts=2)
+  matmul = matmul.lift_alloc('res : _', n_lifts=2)
 
   print(matmul)
 

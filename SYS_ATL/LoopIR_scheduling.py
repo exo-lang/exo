@@ -681,7 +681,20 @@ class _Alloc_Dependencies(LoopIR_Do):
         self.do_stmts(stmts)
 
     def result(self):
-        return self._depends[self._buf_sym]
+        depends = self._depends[self._buf_sym]
+        new     = list(depends)
+        done    = []
+        while True:
+            sym = new.pop()
+            done.append(sym)
+            d = self._depends[sym]
+            depends.update(d)
+            [ new.append(s) for s in d if s not in done ]
+
+            if len(new) == 0:
+                break
+
+        return depends
 
     def do_s(self, s):
         if type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
