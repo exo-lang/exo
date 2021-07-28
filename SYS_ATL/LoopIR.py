@@ -483,6 +483,9 @@ class LoopIR_Rewrite:
         elif etyp is LoopIR.BinOp:
             return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
                                  self.map_t(e.type), e.srcinfo )
+        elif etyp is LoopIR.BuiltIn:
+            return LoopIR.BuiltIn( e.f, [ self.map_e(a) for a in e.args ],
+                                   self.map_t(e.type), e.srcinfo )
         elif etyp is LoopIR.USub:
             return LoopIR.USub(self.map_e(e.arg), self.map_t(e.type), e.srcinfo)
         elif etyp is LoopIR.WindowExpr:
@@ -586,6 +589,9 @@ class LoopIR_Do:
         elif etyp is LoopIR.BinOp:
             self.do_e(e.lhs)
             self.do_e(e.rhs)
+        elif etyp is LoopIR.BuiltIn:
+            for a in e.args:
+                self.do_e(a)
         elif etyp is LoopIR.USub:
             self.do_e(e.arg)
         elif etyp is LoopIR.WindowExpr:

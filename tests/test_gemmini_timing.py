@@ -282,15 +282,17 @@ def test_matmul_gemmini():
             res = 0.0
             for k in par(0,K):
                 tmp_a : f32
-                tmp_b : f32
                 tmp_a = A[i,k]
-                tmp_b = B[k,j]
                 tmp_a = tmp_a * a_scale
-                tmp_b = tmp_b * b_scale
                 a : i32
-                b : i32
                 a = tmp_a
+
+                tmp_b : f32
+                tmp_b = B[k,j]
+                tmp_b = tmp_b * b_scale
+                b : i32
                 b = tmp_b
+
                 res += a*b
 
             if acc == True:
@@ -305,11 +307,16 @@ def test_matmul_gemmini():
             C[i,j] = tmp_res2
 
   T.add_proc(matmul_on_cpu)
-  matmul = matmul_on_cpu.split('i',16,['i','i_in'], cut_tail=True)
+  matmul = matmul_on_cpu
+  matmul = matmul.split('i',16,['i','i_in'], cut_tail=True)
   matmul = matmul.reorder('i_in','j')
   matmul = matmul.split('j',16,['j','j_in'], cut_tail=True)
-  matmul = matmul.split('k',16,['k','k_in'], cut_tail=True)
   matmul = matmul.lift_alloc('res : _', n_lifts=2)
+  matmul = matmul.fission_after('res[_] = 0.0', n_lifts=2)
+
+#  matmul = matmul.fission_after('for k in _:_ #1', n_lifts=2)
+#  matmul = matmul.split('k',16,['k','k_in'], cut_tail=True)
+#  matmul = matmul.lift_alloc('tmp_a : _', n_lifts=2)
 
   print(matmul)
 
