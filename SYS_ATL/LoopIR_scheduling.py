@@ -947,27 +947,45 @@ class _LiftAlloc(LoopIR_Rewrite):
 # --------------------------------------------------------------------------- #
 # Fissioning at a Statement scheduling directive
 
-# Just scanning the top-level statements is fine, because we know that
-# alloc will be freed when going out-of-scope
-class _Is_Alloc_Free():
-    def __init__(self, stmts):
-        self._is_alloc_free = True
+def check_used(variables, eff):
+    for e in eff:
+        if e.buffer in variables:
+            return True
+    return False
 
-        self.do_stmts(stmts)
+class _Is_Alloc_Free(LoopIR_Do):
+    def __init__(self, pre, post):
+        self._is_alloc_free = True
+        self._alloc_var = []
+
+        self.do_stmts(pre)
+
+        # make sure all of _alloc_vars are not used in any of the
+        # post statement
+        for s in post:
+            if s.eff is None:
+                continue
+            if check_used(self._alloc_var, s.eff.reads):
+                self._is_alloc_free = False
+                break
+            if check_used(self._alloc_var, s.eff.writes):
+                self._is_alloc_free = False
+                break
+            if check_used(self._alloc_var, s.eff.reduces):
+                self._is_alloc_free = False
+                break
 
     def result(self):
         return self._is_alloc_free
 
-    def do_stmts(self, stmts):
-        for s in stmts:
-            self.do_s(s)
-
     def do_s(self, s):
         if type(s) is LoopIR.Alloc:
-            self._is_alloc_free = False
+            self._alloc_var.append(s.name)
 
-def _is_alloc_free(stmts):
-    return _Is_Alloc_Free(stmts).result()
+        super().do_s(s)
+
+def _is_alloc_free(pre, post):
+    return _Is_Alloc_Free(pre, post).result()
 
 
 # which variable symbols are free
@@ -1042,8 +1060,8 @@ class _FissionLoops:
     def result(self):
         return self.proc
 
-    def alloc_check(self, stmts):
-        if not _is_alloc_free(stmts):
+    def alloc_check(self, pre, post):
+        if not _is_alloc_free(pre, post):
             raise SchedulingError("Will not fission here, because "+
                                   "an allocation might be buried "+
                                   "in a different scope than some use-site")
@@ -1078,7 +1096,7 @@ class _FissionLoops:
                                self.n_lifts > 0)
             if fission_body:
                 self.n_lifts -= 1
-                self.alloc_check(pre)
+                self.alloc_check(pre, post)
                 pre         = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
                 post        = LoopIR.If(s.cond, post, s.orelse, None, s.srcinfo)
                 return ([pre],[post])
@@ -1091,7 +1109,7 @@ class _FissionLoops:
                                self.n_lifts > 0)
             if fission_orelse:
                 self.n_lifts -= 1
-                self.alloc_check(pre)
+                self.alloc_check(pre, post)
                 pre         = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
                 post        = LoopIR.If(s.cond, [], post, None, s.srcinfo)
                 return ([pre],[post])
@@ -1110,7 +1128,7 @@ class _FissionLoops:
                                self.n_lifts > 0)
             if do_fission:
                 self.n_lifts -= 1
-                self.alloc_check(pre)
+                self.alloc_check(pre, post)
 
                 # we can skip the loop iteration if the
                 # body doesn't depend on the loop

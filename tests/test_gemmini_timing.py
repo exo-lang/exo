@@ -322,6 +322,9 @@ def test_matmul_gemmini():
   matmul = matmul.split('k',16,['k','k_in'], cut_tail=True)
   matmul = matmul.lift_alloc('a : _', n_lifts=1)
   matmul = matmul.lift_alloc('b : _', n_lifts=1)
+
+  matmul = matmul.fission_after('a[_] = _', n_lifts=3)
+  matmul = matmul.fission_after('b[_] = _', n_lifts=3)
 #  matmul = matmul.lift_alloc('tmp_res1 : _', n_lifts=2)
 #  matmul = matmul.lift_alloc('tmp_res2 : _', n_lifts=2)
 #  matmul = matmul.lift_alloc('tmp_a : _', n_lifts=2)
