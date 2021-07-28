@@ -685,14 +685,13 @@ class _Alloc_Dependencies(LoopIR_Do):
         new     = list(depends)
         done    = []
         while True:
+            if len(new) == 0:
+                break
             sym = new.pop()
             done.append(sym)
             d = self._depends[sym]
             depends.update(d)
             [ new.append(s) for s in d if s not in done ]
-
-            if len(new) == 0:
-                break
 
         return depends
 
@@ -948,7 +947,9 @@ class _LiftAlloc(LoopIR_Rewrite):
 # --------------------------------------------------------------------------- #
 # Fissioning at a Statement scheduling directive
 
-class _Is_Alloc_Free(LoopIR_Do):
+# Just scanning the top-level statements is fine, because we know that
+# alloc will be freed when going out-of-scope
+class _Is_Alloc_Free():
     def __init__(self, stmts):
         self._is_alloc_free = True
 
@@ -957,14 +958,13 @@ class _Is_Alloc_Free(LoopIR_Do):
     def result(self):
         return self._is_alloc_free
 
+    def do_stmts(self, stmts):
+        for s in stmts:
+            self.do_s(s)
+
     def do_s(self, s):
         if type(s) is LoopIR.Alloc:
             self._is_alloc_free = False
-
-        super().do_s(s)
-
-    def do_e(self, e):
-        pass
 
 def _is_alloc_free(stmts):
     return _Is_Alloc_Free(stmts).result()
