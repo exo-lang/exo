@@ -229,7 +229,7 @@ class Procedure:
         return call_stmt
 
     def split(self, split_var, split_const, out_vars,
-              cut_tail=False, perfect=False):
+              tail='guard', perfect=False):
         if type(split_var) is not str:
             raise TypeError("expected first arg to be a string")
         elif not is_pos_int(split_const):
@@ -251,7 +251,7 @@ class Procedure:
         for s in stmts:
             loopir  = Schedules.DoSplit(loopir, s, quot=split_const,
                                         hi=out_vars[0], lo=out_vars[1],
-                                        cut_tail=cut_tail,
+                                        tail=tail,
                                         perfect=perfect).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 

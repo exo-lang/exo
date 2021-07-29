@@ -125,7 +125,7 @@ class _Reorder(LoopIR_Rewrite):
 
 class _Split(LoopIR_Rewrite):
     def __init__(self, proc, split_loop, quot, hi, lo,
-                 cut_tail=False, perfect=False):
+                 tail='guard', perfect=False):
         self.split_loop     = split_loop
         self.split_var      = split_loop.iter
         self.quot = quot
@@ -135,7 +135,8 @@ class _Split(LoopIR_Rewrite):
 
         assert quot > 1
 
-        self._tail_strategy = 'cut' if cut_tail else 'guard'
+        # Tail strategies are 'cut', 'guard', and 'cut_and_guard'
+        self._tail_strategy = tail
         if perfect:
             self._tail_strategy = 'perfect'
         self._in_cut_tail = False
@@ -267,7 +268,8 @@ class _Split(LoopIR_Rewrite):
                                 inner_eff, s.srcinfo)],
                             s.eff, s.srcinfo)]
 
-            else: assert False, f"bad tail strategy"
+            else:
+                assert False, f"bad tail strategy: {self._tail_strategy}"
 
         # fall-through
         return super().map_s(s)

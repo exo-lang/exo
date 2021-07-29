@@ -65,11 +65,11 @@ def test_im2col():
     tiled_matmul =      (matmul.rename('tiled_matmul')
                          # split the loops we want to tile together
                          .reorder('r','i')
-                         .split('k',8,['khi','klo'], cut_tail=True)
+                         .split('k',8,['khi','klo'], tail='cut')
                          .reorder('klo #1','c').reorder('klo #1','i')
-                         .split('c #1',8,['chi','clo'], cut_tail=True)
+                         .split('c #1',8,['chi','clo'], tail='cut')
                          .reorder('clo #1','i').reorder('clo #1','klo')
-                         .split('i #1', 8, ['ihi','ilo'], cut_tail=True)
+                         .split('i #1', 8, ['ihi','ilo'], tail='cut')
                          .reorder('ilo #1','klo').reorder('ilo #1','clo'))
 
     # We can invoke another scheduling directive

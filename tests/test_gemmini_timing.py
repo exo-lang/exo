@@ -308,9 +308,9 @@ def test_matmul_gemmini():
 
   T.add_proc(matmul_on_cpu)
   matmul = matmul_on_cpu
-  matmul = matmul.split('i',16,['i','i_in'], cut_tail=True)
+  matmul = matmul.split('i',16,['i','i_in'], tail='cut')
   matmul = matmul.reorder('i_in','j')
-  matmul = matmul.split('j',16,['j','j_in'], cut_tail=True)
+  matmul = matmul.split('j',16,['j','j_in'], tail='cut')
   matmul = matmul.lift_alloc('res : _', n_lifts=2)
   matmul = matmul.fission_after('res[_] = 0.0', n_lifts=2)
 
@@ -319,7 +319,7 @@ def test_matmul_gemmini():
   matmul = matmul.reorder('j_in','k')
   matmul = matmul.lift_alloc('a : i32', n_lifts=2)
   matmul = matmul.lift_alloc('b : i32', n_lifts=2)
-  matmul = matmul.split('k',16,['k','k_in'], cut_tail=True)
+  matmul = matmul.split('k',16,['k','k_in'], tail='cut')
   matmul = matmul.lift_alloc('a : _', n_lifts=1)
   matmul = matmul.lift_alloc('b : _', n_lifts=1)
 
