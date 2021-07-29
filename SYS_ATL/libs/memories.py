@@ -175,3 +175,27 @@ GEMM_ACCUM = Memory(
     write=False,
     red=False,
 )
+
+
+# ----------- AVX2 registers ----------------
+
+def _avx2_alloc(new_name, prim_type, shape, srcinfo):
+    if not (len(shape) == 1 and _is_const_size(shape[0], 8) and prim_type == 'float'):
+        raise MemGenError(f'{srcinfo}: AVX2 only supports 8-wide vectors of floats right now')
+    return f'{prim_type} {new_name}[8];'
+
+
+def _avx2_free(new_name, prim_type, shape, srcinfo):
+    return ''
+
+
+AVX2 = Memory(
+    'AVX2',
+    globl='#include <immintrin.h>',
+    alloc=_avx2_alloc,
+    free=_avx2_free,
+    window=None,
+    read=False,
+    write=False,
+    red=False
+)
