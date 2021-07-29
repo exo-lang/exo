@@ -319,7 +319,7 @@ def test_matmul_gemmini():
   matmul = matmul.reorder('j_in','k')
   matmul = matmul.lift_alloc('a : i32', n_lifts=2)
   matmul = matmul.lift_alloc('b : i32', n_lifts=2)
-  matmul = matmul.split('k',16,['k','k_in'], tail='cut')
+  matmul = matmul.split('k',16,['k','k_in'], tail='cut_and_guard')
   matmul = matmul.lift_alloc('a : _', n_lifts=1)
   matmul = matmul.lift_alloc('b : _', n_lifts=1)
 

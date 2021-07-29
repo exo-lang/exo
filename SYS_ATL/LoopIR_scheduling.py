@@ -203,7 +203,8 @@ class _Split(LoopIR_Rewrite):
 
             # an alternate scheme is to split the loop in two
             # by cutting off the tail into a second loop
-            elif self._tail_strategy == 'cut':
+            elif (self._tail_strategy == 'cut' or
+                    self._tail_strategy == 'cut_and_guard'):
                 # if N == s.hi and Q == self.quot, then
                 #   we want Ncut == (N-Q+1)/Q
                 Q       = cnst(self.quot)
@@ -230,14 +231,30 @@ class _Split(LoopIR_Rewrite):
                 hi_eff      = do_bind(self.hi_i, Ncut, lo_eff)
                 tail_eff    = do_bind(self.cut_i, Ntail, tail_eff)
 
-                loops = [LoopIR.ForAll(self.hi_i, Ncut,
-                            [LoopIR.ForAll(self.lo_i, Q,
-                                main_body,
-                                lo_eff, s.srcinfo)],
-                            hi_eff, s.srcinfo),
-                         LoopIR.ForAll(self.cut_i, Ntail,
+                if self._tail_strategy == 'cut_and_guard':
+                    body = [LoopIR.ForAll(self.cut_i, Ntail,
                             tail_body,
                             tail_eff, s.srcinfo)]
+                    body_eff= get_effect_of_stmts(body)
+                    cond = boolop(">", Ntail, LoopIR.Const(0, T.int, s.srcinfo))
+                    body_eff= eff_filter(lift_to_eff_expr(cond), body_eff)
+
+                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
+                                [LoopIR.ForAll(self.lo_i, Q,
+                                    main_body,
+                                    lo_eff, s.srcinfo)],
+                                hi_eff, s.srcinfo),
+                             LoopIR.If(cond, body, [], body_eff, s.srcinfo)]
+
+                else:
+                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
+                                [LoopIR.ForAll(self.lo_i, Q,
+                                    main_body,
+                                    lo_eff, s.srcinfo)],
+                                hi_eff, s.srcinfo),
+                             LoopIR.ForAll(self.cut_i, Ntail,
+                                tail_body,
+                                tail_eff, s.srcinfo)]
 
                 return loops
 
