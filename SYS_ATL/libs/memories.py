@@ -1,4 +1,5 @@
 from SYS_ATL import Memory
+from SYS_ATL.memory import MemGenError
 import os
 
 
