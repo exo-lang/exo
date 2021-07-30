@@ -2745,6 +2745,10 @@ static void tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
         printf("We don't know how to handle weightA\n");
         exit(1);
     }
+    if (transpose_A == true || transpose_B == true) {
+        printf("We can't transpose!\n");
+        exit(1);
+    }
     if (tiled_matmul_type != WS) {
         printf("Calling original tiled matmul auto\n");
         orig_tiled_matmul_auto(dim_I, dim_J, dim_K, A, B, D, C, stride_A, stride_B, stride_D, stride_C,

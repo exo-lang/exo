@@ -802,7 +802,7 @@ class _Alloc_Dependencies(LoopIR_Do):
         pass
 
 class _LiftAlloc(LoopIR_Rewrite):
-    def __init__(self, proc, alloc_stmt, n_lifts):
+    def __init__(self, proc, alloc_stmt, n_lifts, mode, size):
         assert type(alloc_stmt) is LoopIR.Alloc
         assert is_pos_int(n_lifts)
         self.orig_proc      = proc
@@ -810,6 +810,8 @@ class _LiftAlloc(LoopIR_Rewrite):
         self.alloc_sym      = alloc_stmt.name
         self.alloc_deps     = _Alloc_Dependencies(self.alloc_sym,
                                                   proc.body).result()
+        self.lift_mode      = mode
+        self.lift_size      = size
 
         self.n_lifts        = n_lifts
 
@@ -826,6 +828,15 @@ class _LiftAlloc(LoopIR_Rewrite):
         # repair effects...
         self.proc = InferEffects(self.proc).result()
 
+    def idx_mode(self, access, orig):
+        if self.lift_mode == 'row':
+            return access + orig
+        elif self.lift_mode == 'col':
+            return orig + access
+        else:
+            raise SchedulingError(f"Unknown lift mode {self.lift_mode},"+
+                                   "should be 'row' or 'col'")
+
     def map_s(self, s):
         if s == self.alloc_stmt:
             # mark the point we want to lift this alloc-stmt to
@@ -839,7 +850,14 @@ class _LiftAlloc(LoopIR_Rewrite):
             # the new allocation statement
             new_typ = s.type
             if type(new_typ) is T.Tensor:
-                rngs += new_typ.shape()
+                if self.lift_mode == 'row':
+                    rngs += new_typ.shape()
+                elif self.lift_mode == 'col':
+                    rngs = new_typ.shape() + rngs
+                else:
+                    raise SchedulingError(f"Unknown lift mode {self.lift_mode},"+
+                                           "should be 'row' or 'col'")
+
                 new_typ = new_typ.basetype()
             if len(rngs) > 0:
                 new_typ = T.Tensor(rngs, False, new_typ)
@@ -870,8 +888,9 @@ class _LiftAlloc(LoopIR_Rewrite):
             # buffer name on the lhs of the assignment/reduction
             if s.name == self.alloc_sym:
                 assert self.access_idxs is not None
-                idx = [ LoopIR.Read(i, [], T.index, s.srcinfo)
-                        for i in self.access_idxs ] + s.idx
+                idx = self.idx_mode(
+                        [ LoopIR.Read(i, [], T.index, s.srcinfo)
+                        for i in self.access_idxs ] , s.idx)
                 rhs = self.map_e(s.rhs)
                 # return allocation or reduction...
                 return [ type(s)( s.name, s.type, s.cast,
@@ -896,20 +915,22 @@ class _LiftAlloc(LoopIR_Rewrite):
 
             #if self._in_call_arg:
             if e.type.is_real_scalar():
-                idx = [ LoopIR.Read(i, [], T.index, e.srcinfo)
-                        for i in self.access_idxs ] + e.idx
+                idx = self.idx_mode(
+                        [ LoopIR.Read(i, [], T.index, e.srcinfo)
+                        for i in self.access_idxs ] , e.idx)
                 return LoopIR.Read( e.name, idx, e.type, e.srcinfo )
             else:
                 assert self._in_call_arg
                 assert len(e.idx) == 0
                 # then we need to replace this read with a
                 # windowing expression
-                idx = ([ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
+                idx = self.idx_mode(
+                        [ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
                                      e.srcinfo)
-                        for i in self.access_idxs ] +
-                       [ LoopIR.Interval(LoopIR.Const(0,T.int,e.srcinfo),
+                             for i in self.access_idxs ] ,
+                        [ LoopIR.Interval(LoopIR.Const(0,T.int,e.srcinfo),
                                          hi, e.srcinfo)
-                         for hi in e.type.shape() ])
+                             for hi in e.type.shape() ])
                 tensor_type = (e.type.as_tensor if type(e.type) is T.Window
                                else e.type)
                 win_typ     = T.Window( self.alloc_type, tensor_type,
@@ -922,9 +943,10 @@ class _LiftAlloc(LoopIR_Rewrite):
                 return e
             # otherwise, extend windowing with accesses...
 
-            idx = [ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
+            idx = self.idx_mode(
+                    [ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
                                  e.srcinfo)
-                    for i in self.access_idxs ] + e.idx
+                    for i in self.access_idxs ] , e.idx)
             win_typ     = T.Window( self.alloc_type, e.type.as_tensor,
                                     e.name, idx )
             return LoopIR.WindowExpr( e.name, idx, win_typ, e.srcinfo )
@@ -949,14 +971,33 @@ class _LiftAlloc(LoopIR_Rewrite):
                     if type(s.hi) == LoopIR.Read:
                         assert s.hi.type == T.size
                         assert len(s.hi.idx) == 0
-                        rngs.append(s.hi)
                     elif type(s.hi) == LoopIR.Const:
                         assert s.hi.type == T.int
-                        rngs.append(s.hi)
+                    elif type(s.hi) == LoopIR.BinOp:
+                        assert s.hi.type == T.int or s.hi.type == T.size
                     else:
-                        raise SchedulingError("Can only lift through loops "+
-                                              "with simple range bounds, "+
-                                              "i.e. a variable or constant")
+                        assert False, "bad case"
+
+                    if self.lift_size != None:
+                        assert type(self.lift_size) is int
+                        # TODO: More robust checking of
+                        # self.lift_size > s.hi
+                        if type(s.hi) == LoopIR.Const:
+                            if s.hi.val > self.lift_size:
+                                raise SchedulingError(f"Lift size cannot "+
+                                      f"be less than for-loop bound {s.hi.val}")
+                        elif (type(s.hi) == LoopIR.BinOp and
+                                s.hi.op == '%'):
+                            assert type(s.hi.rhs) is LoopIR.Const
+                            if s.hi.rhs.val > self.lift_size:
+                                raise SchedulingError(f"Lift size cannot "+
+                                      f"be less than for-loop bound {s.hi}")
+                        else:
+                            raise NotImplementedError
+
+                        rngs.append(LoopIR.Const(self.lift_size, T.int, s.srcinfo))
+                    else:
+                        rngs.append(s.hi)
             else: assert False, "bad case"
 
         return (idxs, rngs)

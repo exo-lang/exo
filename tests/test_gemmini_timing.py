@@ -284,16 +284,20 @@ def test_matmul_gemmini():
                 tmp_a : f32
                 tmp_a = A[i,k]
                 tmp_a = tmp_a * a_scale
-                a : i32
+                a : i8
                 a = tmp_a
 
                 tmp_b : f32
                 tmp_b = B[k,j]
                 tmp_b = tmp_b * b_scale
-                b : i32
+                b : i8
                 b = tmp_b
 
-                res += a*b
+                a2 : i32
+                b2 : i32
+                a2 = a
+                b2 = b
+                res += a2*b2
 
             if acc == True:
                 res = relu(res)
@@ -317,14 +321,21 @@ def test_matmul_gemmini():
   matmul = matmul.fission_after('for k in _:_', n_lifts=2)
   matmul = matmul.reorder('i_in','k')
   matmul = matmul.reorder('j_in','k')
-  matmul = matmul.lift_alloc('a : i32', n_lifts=2)
-  matmul = matmul.lift_alloc('b : i32', n_lifts=2)
+  matmul = matmul.lift_alloc('a : i8', n_lifts=2)
+  matmul = matmul.lift_alloc('b : i8', n_lifts=2)
   matmul = matmul.split('k',16,['k','k_in'], tail='cut_and_guard')
-  matmul = matmul.lift_alloc('a : _', n_lifts=1)
+  matmul = matmul.lift_alloc('a : _', n_lifts=1, mode='col')
   matmul = matmul.lift_alloc('b : _', n_lifts=1)
 
   matmul = matmul.fission_after('a[_] = _', n_lifts=3)
   matmul = matmul.fission_after('b[_] = _', n_lifts=3)
+
+  matmul = matmul.lift_alloc('a : i8[_] #1', n_lifts=1, mode='col', size=16)
+  matmul = matmul.lift_alloc('b : i8[_] #1', n_lifts=1)
+  matmul = matmul.fission_after('a[_] = _ #1', n_lifts=3)
+  matmul = matmul.fission_after('b[_] = _ #1', n_lifts=3)
+
+#  matmul = matmul.lift_alloc('b : i8', n_lifts=2)
 #  matmul = matmul.lift_alloc('tmp_res1 : _', n_lifts=2)
 #  matmul = matmul.lift_alloc('tmp_res2 : _', n_lifts=2)
 #  matmul = matmul.lift_alloc('tmp_a : _', n_lifts=2)

@@ -40,6 +40,18 @@ def test_fission2():
 
         bar = bar.fission_after('x = _', n_lifts=2)
 
+def test_lift():
+    @proc
+    def bar(A : i8[16, 10]):
+        for i in par(0, 10):
+            a : i8[16]
+            for k in par(0, 16):
+                a[k] = A[k,i]
+
+    bar = bar.lift_alloc('a: i8[_]', n_lifts=1, mode='col', size=20)
+    print(bar)
+
+
 @pytest.mark.skip
 def test_unify1():
     @proc

@@ -340,10 +340,16 @@ class Procedure:
         loopir      = Schedules.DoBindExpr(loopir, new_name, expr).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def lift_alloc(self, alloc_site_pattern, n_lifts=1):
+    def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "+
                             "a positive integer")
+        if type(mode) is not str:
+            raise TypeError("expected third argument 'mode' to be "+
+                            "'row' or 'col'")
+        if size and type(size) is not int:
+            raise TypeError("expected fourth argument 'size' to be "+
+                            "an integer")
 
         alloc_stmt  = self._find_stmt(alloc_site_pattern)
         if type(alloc_stmt) is not LoopIR.Alloc:
@@ -351,7 +357,7 @@ class Procedure:
 
         loopir      = self._loopir_proc
         loopir      = Schedules.DoLiftAlloc(loopir, alloc_stmt,
-                                                    n_lifts).result()
+                                            n_lifts, mode, size).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def fission_after(self, stmt_pattern, n_lifts=1):
