@@ -351,13 +351,15 @@ class Procedure:
             raise TypeError("expected fourth argument 'size' to be "+
                             "an integer")
 
-        alloc_stmt  = self._find_stmt(alloc_site_pattern)
-        if type(alloc_stmt) is not LoopIR.Alloc:
-            raise TypeError("pattern did not describe an alloc statement")
-
+        alloc_stmts  = self._find_stmt(alloc_site_pattern, default_match_no=None)
         loopir      = self._loopir_proc
-        loopir      = Schedules.DoLiftAlloc(loopir, alloc_stmt,
-                                            n_lifts, mode, size).result()
+        for s in alloc_stmts:
+            if type(s) is not LoopIR.Alloc:
+                raise TypeError("pattern did not describe an alloc statement")
+
+            loopir      = Schedules.DoLiftAlloc(loopir, s,
+                                                n_lifts, mode, size).result()
+
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def fission_after(self, stmt_pattern, n_lifts=1):
@@ -365,11 +367,11 @@ class Procedure:
             raise TypeError("expected second argument 'n_lifts' to be "+
                             "a positive integer")
 
-        stmt        = self._find_stmt(stmt_pattern)
-
+        stmts        = self._find_stmt(stmt_pattern, default_match_no=None)
         loopir      = self._loopir_proc
-        loopir      = Schedules.DoFissionLoops(loopir, stmt,
-                                                       n_lifts).result()
+        for s in stmts:
+            loopir      = Schedules.DoFissionLoops(loopir, s,
+                                                   n_lifts).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def factor_out_stmt(self, name, stmt_pattern):
