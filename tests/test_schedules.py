@@ -52,7 +52,7 @@ def test_lift():
     print(bar)
 
 
-@pytest.mark.skip
+#@pytest.mark.skip
 def test_unify1():
     @proc
     def bar(n : size, src : R[n,n], dst : R[n,n]):

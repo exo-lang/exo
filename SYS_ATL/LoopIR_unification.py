@@ -102,14 +102,16 @@ class DoReplace(LoopIR_Rewrite):
         if match_i is None:
             return super().map_stmts(stmts)
         else: # process the match
-            prefix_stmts = super().map_stmts(stmts[ : match_i])
-
+            prefix_stmts    = super().map_stmts(stmts[ : match_i])
+            suffix_stmts    = stmts[match_i+n_stmts : ]
+            stmts           = stmts[match_i : match_i+n_stmts]
             new_args = Unification(self.subproc, stmts,
                                    self.live_vars).result()
 
-            new_call = LoopIR.Call(self.subproc, new_args, None, stmt.srcinfo)
+            new_call = LoopIR.Call(self.subproc, new_args,
+                                   None, stmts[0].srcinfo)
 
-            return prefix_stmts + [new_call] + stmts[match_i+n_stmts : ]
+            return prefix_stmts + [new_call] + suffix_stmts
 
     # make this more efficient by not rewriting
     # most of the sub-trees
@@ -285,9 +287,10 @@ def solve(prob):
     else:
         solutions = dict()
         for x in prob.holes:
-            x_syms  = get_var(x)
-            x_vals  = solver.get_py_values(x_syms)
-            expr    = None
+            x_syms      = get_var(x)
+            x_val_dict  = solver.get_py_values(x_syms)
+            x_vals      = [ x_val_dict[x_sym] for x_sym in x_syms ]
+            expr        = None
             for x,v in zip(known_list, x_vals):
                 v = int(v)
                 if v == 0:
@@ -461,13 +464,22 @@ class BufVar:
             return xs
 
     def get_solution(self, UObj, ueq_solutions, srcinfo):
+        buf     = self.solution_buf
+        buf_typ = UObj.FV[buf]
         if not self.case_var:
-            return LoopIR.Read(self.solution_buf, [], self.typ, srcinfo)
+            return LoopIR.Read(buf, [], buf_typ, srcinfo)
         else:
             which_case  = ueq_solutions[self.case_var]
             case        = self.cases[which_case]
 
+            def subtract(hi,lo):
+                if type(lo) is LoopIR.Const and lo.val == 0:
+                    return hi
+                else:
+                    return LoopIR.BinOp('-', hi, lo, T.index, hi.srcinfo)
+
             idx         = []
+            win_shape   = []
             for w in case:
                 if type(w) is Sym:
                     pt = UObj.from_ueq( ueq_solutions[w] )
@@ -476,9 +488,10 @@ class BufVar:
                     lo = UObj.from_ueq( ueq_solutions[w[0]] )
                     hi = UObj.from_ueq( ueq_solutions[w[1]] )
                     idx.append(LoopIR.Interval(lo, hi, srcinfo))
+                    win_shape.append(subtract(hi,lo))
 
-            buf         = self.solution_buf
-            w_typ       = T.Window(UObj.FV[buf], self.typ, buf, idx)
+            as_tensor   = T.Tensor(window_shape, True, buf_typ.type)
+            w_typ       = T.Window(buf_typ, self.typ, buf, idx)
             return LoopIR.WindowExpr(buf, idx, w_typ, srcinfo)
 
 
@@ -547,7 +560,7 @@ class Unification:
         #self.node_syms  = None
         #self.sym_nodes  = None
         self.node_syms, self.sym_nodes = _Find_Mod_Div_Symbols(stmt_block,
-                                                               self.FV)
+                                                        self.FV).result()
 
         # TODO: Asserts
         # We don't have inequality in EQs IR
@@ -568,7 +581,7 @@ class Unification:
         holes       = (self.index_holes +
                        [ x for nm in self.buf_holes
                            for x in self.buf_holes[nm].all_syms() ])
-        knowns      = [ nm for nm in self.FV ]
+        knowns      = [ nm for nm in self.FV if self.FV[nm].is_indexable() ]
         ueq_prob    = UEq.problem(holes, knowns, self.equations)
 
         # solve the problem
@@ -583,18 +596,17 @@ class Unification:
                 return self.from_ueq(solutions[fa.name])
             else:
                 assert fa.type.is_numeric()
-                bufvar = self.buf_holes[fa.name]
+                bufvar  = self.buf_holes[fa.name]
                 return bufvar.get_solution(self, solutions,
                                            stmt_block[0].srcinfo)
-        new_args    = [ get_arg(fa) for fa in subproc.args ]
-        return new_args
+        self.new_args   = [ get_arg(fa) for fa in subproc.args ]
 
 
     def err(self):
         raise TypeError("subproc and pattern don't match")
 
     def result(self):
-        return Equations.system(self.equations)
+        return self.new_args
 
 
     # ----------
@@ -660,8 +672,8 @@ class Unification:
     # ----------
 
     def unify_affine_e(self, pa, ba):
-        self.equations.push(UEq.Eq( self.to_ueq(pa,in_subproc=True),
-                                    self.to_ueq(ba) ))
+        self.equations.append(UEq.Eq( self.to_ueq(pa,in_subproc=True),
+                                      self.to_ueq(ba) ))
 
     def unify_stmts(self, proc_s, block_s):
         if len(proc_s) != len(block_s):
@@ -694,7 +706,7 @@ class Unification:
             self.unify_stmts(ps.orelse, bs.orelse)
         elif type(ps) is LoopIR.ForAll:
             # BINDING
-            self.equations.push(UEq.Eq( UEq.Var(ps.iter), UEq.Var(bs.iter) ))
+            self.equations.append(UEq.Eq( UEq.Var(ps.iter), UEq.Var(bs.iter) ))
             self.unify_e(ps.hi, bs.hi)
             self.unify_stmts(ps.body, bs.body)
         elif type(ps) is LoopIR.Alloc:
@@ -705,7 +717,7 @@ class Unification:
             pvar.set_buf_solution(bs.name)
             self.buf_unknowns[ps.name] = pvar
             self.bbuf_types[bs.name] = bs.type
-            self.unify_types(ps.type, bs.type)
+            self.unify_types(ps.type, bs.type, ps,bs)
         elif type(ps) is LoopIR.Call:
             if ps.f != bs.f:
                 raise UnificationError(f""+
@@ -768,7 +780,7 @@ class Unification:
                     f"with buffer '{bbuf}' (@{bnode.srcinfo})")
             else:
                 assert len(pidx) == 0
-                self.unify_types(pnode.type, bnode.type)
+                self.unify_types(pnode.type, bnode.type, pnode,bnode)
                 self.unify_buf_name_no_win(pbuf,bbuf)
                 return
         elif type(pnode) is LoopIR.Read and len(pnode.type.shape()) > 0:
@@ -798,7 +810,7 @@ class Unification:
             # with the index gap closed...
             for pi,bi in zip(pidx,bidx):
                 self.unify_affine_e(pi,bi)
-            self.unify_types(pvar.typ, self.bbuf_types[bbuf])
+            self.unify_types(pvar.typ, self.bbuf_types[bbuf], pnode,bnode)
             self.unify_buf_name_no_win(pbuf,bbuf)
 
         # Otherwise, how to unify accesses WITH windowing in the way
@@ -872,6 +884,7 @@ class Unification:
         elif pe.type.is_indexable():
             # convert to an equality
             self.unify_affine_e(pe, be)
+            return
 
         if type(pe) != type(be):
             raise UnificationError(f""+
@@ -906,7 +919,7 @@ class Unification:
 
             # unify the two buffers
             self.unify_buf_name_no_win(pe.name,be.name)
-            self.unify_types(pvar.typ, self.bbuf_types[bbuf])
+            self.unify_types(pvar.typ, self.bbuf_types[bbuf],pe,be)
 
             # unify the two windowing expressions
             if len(pe.idx) != len(be.idx):
