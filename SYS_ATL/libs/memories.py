@@ -182,7 +182,7 @@ GEMM_ACCUM = Memory(
 def _avx2_alloc(new_name, prim_type, shape, srcinfo):
     if not (len(shape) == 1 and _is_const_size(shape[0], 8) and prim_type == 'float'):
         raise MemGenError(f'{srcinfo}: AVX2 only supports 8-wide vectors of floats right now')
-    return f'{prim_type} {new_name}[8];'
+    return f'__m256 {new_name};'
 
 
 def _avx2_free(new_name, prim_type, shape, srcinfo):

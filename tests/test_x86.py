@@ -14,10 +14,15 @@ from .helper import *
 def test_avx2_memcpy():
     @proc
     def memcpy_avx2(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):  # pragma: no cover
-        for i in par(0, n / 8):
-            tmp: f32[8] @ AVX2
-            loadu(tmp, src[8 * i:8 * i + 8])
-            storeu(dst[8 * i:8 * i + 8], tmp)
+        for i in par(0, (n + 7) / 8):
+            if n - 8 * i >= 8:
+                tmp: f32[8] @ AVX2
+                loadu(tmp, src[8 * i:8 * i + 8])
+                storeu(dst[8 * i:8 * i + 8], tmp)
+            else:
+                for j in par(0, 8):
+                    if j < n - 8 * i:
+                        dst[8 * i + j] = src[8 * i + j]
 
     assert type(memcpy_avx2) is Procedure
     basename = test_avx2_memcpy.__name__
