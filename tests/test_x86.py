@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 
+import numpy as np
+
 sys.path.append(sys.path[0] + "/..")
 from SYS_ATL import DRAM
 from SYS_ATL.libs.memories import AVX2
@@ -31,3 +33,11 @@ def test_avx2_memcpy():
         f.write(str(memcpy_avx2))
 
     memcpy_avx2.compile_c(TMP_DIR, basename)
+    library = generate_lib(basename)
+
+    n = 35
+    inp = nparray([float(i) for i in range(n)])
+    out = nparray([float(0) for _ in range(n)])
+    library.memcpy_avx2(n, cvt_c(out), cvt_c(inp))
+
+    assert np.array_equal(inp, out)
