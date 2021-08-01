@@ -644,8 +644,90 @@ class LoopIR_Do:
             self.do_eff_e(e.rhs)
 
 
-#class FreeVars(LoopIR_Do):
+class FreeVars(LoopIR_Do):
+    def __init__(self, node):
+        assert isinstance(node, list)
+        self.env    = ChainMap()
+        self.fv     = set()
 
+        for n in node:
+            if isinstance(n, LoopIR.stmt):
+                self.do_s(n)
+            elif isinstance(n, LoopIR.expr):
+                self.do_e(n)
+            elif isinstance(n, E.effect):
+                self.do_eff(n)
+            else: assert False, "expected stmt, expr, or effect"
+
+    def result(self):
+        return self.fv
+
+    def push(self):
+        self.env = self.env.new_child()
+    def pop(self):
+        self.env = self.env.parents
+
+    def do_s(self, s):
+        styp = type(s)
+        if styp is LoopIR.Assign or styp is LoopIR.Reduce:
+            if s.name not in self.env:
+                self.fv.add(s.name)
+        elif styp is LoopIR.WindowStmt:
+            self.env[s.lhs] = True
+        elif styp is LoopIR.If:
+            self.do_e(s.cond)
+            self.push()
+            self.do_stmts(s.body)
+            self.do_stmts(s.orelse)
+            self.pop()
+            self.do_eff(s.eff)
+            return
+        elif styp is LoopIR.ForAll:
+            self.do_e(s.hi)
+            self.push()
+            self.env[s.iter] = True
+            self.do_stmts(s.body)
+            self.pop()
+            self.do_eff(s.eff)
+            return
+        elif styp is LoopIR.Alloc:
+            self.env[s.iter] = True
+
+        super().do_s(s)
+
+    def do_e(self, e):
+        etyp = type(e)
+        if (etyp is LoopIR.Read or
+            etyp is LoopIR.WindowExpr or
+            etyp is LoopIR.StrideAssert):
+            if e.name not in self.env:
+                self.fv.add(e.name)
+
+        super().do_e(e)
+
+    def do_t(self, t):
+        if type(t) is T.Window:
+            if t.name not in self.env:
+                self.fv.add(t.name)
+
+        super().do_t(t)
+
+    def do_eff_es(self, es):
+        if es.buffer not in self.env:
+            self.fv.add(es.buffer)
+
+        self.push()
+        for x in es.names:
+            self.env[x] = True
+                
+        super().do_eff_es(es)
+        self.pop()
+
+    def do_eff_e(self, e):
+        if type(e) is E.Var and e.name not in self.env:
+            self.fv.add(e.name)
+
+        super().do_eff_e(e)
 
 class Alpha_Rename(LoopIR_Rewrite):
     def __init__(self, node):
