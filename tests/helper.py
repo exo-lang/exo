@@ -56,6 +56,8 @@ def generate_lib(filename):
     so_file = os.path.join(TMP_DIR, filename + '.so')
     compiler = os.getenv('CC', default='clang')
     cflags = os.getenv('CFLAGS', default='-Wall')
+    # TODO: -march=native here is a hack. Such flags should either be injected by a Memory object,
+    #       selected by the user, or both.
     compile_so_cmd = f"{compiler} {cflags} -fPIC -O3 -shared -march=native {c_file} -o {so_file}"
     subprocess.run(compile_so_cmd, check=True, shell=True)
     return ctypes.CDLL(so_file)
