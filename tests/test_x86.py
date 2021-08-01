@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import sys
 
-import numpy as np
-
 sys.path.append(sys.path[0] + "/..")
 from SYS_ATL import DRAM
 from SYS_ATL.libs.memories import AVX2
@@ -22,9 +20,8 @@ def test_avx2_memcpy():
                 loadu(tmp, src[8 * i:8 * i + 8])
                 storeu(dst[8 * i:8 * i + 8], tmp)
             else:
-                for j in par(0, 8):
-                    if j < n - 8 * i:
-                        dst[8 * i + j] = src[8 * i + j]
+                for j in par(0, n - 8 * i):
+                    dst[8 * i + j] = src[8 * i + j]
 
     assert type(memcpy_avx2) is Procedure
     basename = test_avx2_memcpy.__name__
