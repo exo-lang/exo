@@ -56,8 +56,7 @@ def storeu(
     src: f32[8] @ AVX2
 ):
     assert stride(src, 0) == 1
-    # TODO: why does this throw an error?
-    # assert stride(dst, 0) == 1
+    assert stride(dst, 0) == 1
 
     for i in par(0, 8):
         dst[i] = src[i]
