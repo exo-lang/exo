@@ -880,7 +880,7 @@ class CheckEffects:
         if not self.solver.is_valid(e_nn):
             eg = self.counter_example()
             self.err(expr, "expected expression to always be non-negative. "+
-                           f"It can be non-negative when: {eg}.")
+                           f"It can be negative when: {eg}.")
 
     def check_call_shape_eqv(self, argshp, sigshp, node):
         assert len(argshp) == len(sigshp)
