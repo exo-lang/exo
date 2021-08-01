@@ -37,9 +37,9 @@ def test_avx2_memcpy():
     #       Then we can say that e.g. Skylake-X has AVX2, AVX512, etc.
     library = generate_lib(basename, extra_flags="-march=native")
 
-    n = 35
-    inp = nparray([float(i) for i in range(n)])
-    out = nparray([float(0) for _ in range(n)])
-    library.memcpy_avx2(n, cvt_c(out), cvt_c(inp))
+    for n in (7, 8, 9, 31, 32, 33, 127, 128, 129):
+        inp = nparray([float(i) for i in range(n)])
+        out = nparray([float(0) for _ in range(n)])
+        library.memcpy_avx2(n, cvt_c(out), cvt_c(inp))
 
-    assert np.array_equal(inp, out)
+        assert np.array_equal(inp, out)
