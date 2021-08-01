@@ -39,6 +39,8 @@ def negate_expr(e):
     assert e.type == T.bool, "can only negate predicates"
     if type(e) is E.Const:
         return E.Const( not e.val, e.type, e.srcinfo )
+    elif type(e) is E.Var:
+        return E.Neg( e.name, e.type, e.srcinfo )
     elif type(e) is E.BinOp:
         def change_op(op,lhs=e.lhs,rhs=e.rhs):
             return E.BinOp(op, lhs, rhs, e.type, e.srcinfo)
@@ -56,8 +58,14 @@ def negate_expr(e):
         elif e.op == "<=":
             return change_op(">")
         elif e.op == "==":
-            return E.BinOp("or", change_op("<"), change_op(">"),
-                           T.bool, e.srcinfo)
+            if e.lhs.type is T.bool and e.rhs.type is T.bool:
+                l = E.BinOp("and", e.lhs, negate_expr(e.rhs), T.bool, e.srcinfo)
+                r = E.BinOp("and", negate_expr(e.lhs), e.rhs, T.bool, e.srcinfo)
+
+                return E.BinOp("or", l, r, T.bool, e.srcinfo)
+            else:
+                return E.BinOp("or", change_op("<"), change_op(">"),
+                               T.bool, e.srcinfo)
     assert False, "bad case"
 
 
@@ -184,7 +192,7 @@ class InferEffects:
                         pass # handle below
                     else:
                         subst[sig.name] = arg.name
-                elif sig.type.is_indexable():
+                elif sig.type.is_indexable() or sig.type is T.bool:
                     # in this case we have a LoopIR expression...
                     subst[sig.name] = lift_expr(arg)
                 else: assert False, "bad case"
@@ -327,7 +335,7 @@ class CheckStrideAsserts:
             if type(p) is LoopIR.StrideAssert:
                 assert p.name in local_env
 
-                if arg.type.is_win():
+                if local_env[p.name].is_win():
                     self.assume_stride(p)
                 else:
                     self.check_stride(p, proc)
@@ -646,6 +654,8 @@ class CheckEffects:
             else: assert False, "unrecognized const type: {type(expr.val)}"
         elif type(expr) is E.Var:
             return self.sym_to_smt(expr.name, expr.type)
+        elif type(expr) is E.Neg:
+            return SMT.Not(self.sym_to_smt(expr.name, expr.type))
         elif type(expr) is E.BinOp:
             lhs = self.expr_to_smt(expr.lhs)
             rhs = self.expr_to_smt(expr.rhs)
@@ -865,6 +875,13 @@ class CheckEffects:
             self.err(expr, "expected expression to always be positive. "+
                            f"It can be non positive when: {eg}.")
 
+    def check_non_negative(self, expr):
+        e_nn = SMT.LE( SMT.Int(0), self.expr_to_smt(expr) )
+        if not self.solver.is_valid(e_nn):
+            eg = self.counter_example()
+            self.err(expr, "expected expression to always be non-negative. "+
+                           f"It can be non-negative when: {eg}.")
+
     def check_call_shape_eqv(self, argshp, sigshp, node):
         assert len(argshp) == len(sigshp)
         eqv_dim = SMT.Bool(True)
@@ -899,6 +916,10 @@ class CheckEffects:
                                 E.BinOp("<=", zero, x, T.bool, srcinfo),
                                 E.BinOp("<",  x,   hi, T.bool, srcinfo),
                             T.bool, srcinfo)
+
+                # Check if for-loop bound is non-negative
+                # with the context, before adding assertion
+                self.check_non_negative(lift_expr(stmt.hi))
 
                 self.solver.add_assertion(
                     self.expr_to_smt(bd_pred(stmt.iter, stmt.hi,
@@ -954,7 +975,7 @@ class CheckEffects:
                         sig_shape = [ s.subst(subst) for s in sig_shape ]
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
-                    elif sig.type.is_indexable():
+                    elif sig.type.is_indexable() or sig.type is T.bool:
                         # in this case we have a LoopIR expression...
                         e_arg           = lift_expr(arg)
                         subst[sig.name] = e_arg

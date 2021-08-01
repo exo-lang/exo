@@ -229,7 +229,7 @@ class Procedure:
         return call_stmt
 
     def split(self, split_var, split_const, out_vars,
-              cut_tail=False, perfect=False):
+              tail='guard', perfect=False):
         if type(split_var) is not str:
             raise TypeError("expected first arg to be a string")
         elif not is_pos_int(split_const):
@@ -251,7 +251,7 @@ class Procedure:
         for s in stmts:
             loopir  = Schedules.DoSplit(loopir, s, quot=split_const,
                                         hi=out_vars[0], lo=out_vars[1],
-                                        cut_tail=cut_tail,
+                                        tail=tail,
                                         perfect=perfect).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
@@ -340,18 +340,26 @@ class Procedure:
         loopir      = Schedules.DoBindExpr(loopir, new_name, expr).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def lift_alloc(self, alloc_site_pattern, n_lifts=1):
+    def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "+
                             "a positive integer")
+        if type(mode) is not str:
+            raise TypeError("expected third argument 'mode' to be "+
+                            "'row' or 'col'")
+        if size and type(size) is not int:
+            raise TypeError("expected fourth argument 'size' to be "+
+                            "an integer")
 
-        alloc_stmt  = self._find_stmt(alloc_site_pattern)
-        if type(alloc_stmt) is not LoopIR.Alloc:
-            raise TypeError("pattern did not describe an alloc statement")
-
+        alloc_stmts  = self._find_stmt(alloc_site_pattern, default_match_no=None)
         loopir      = self._loopir_proc
-        loopir      = Schedules.DoLiftAlloc(loopir, alloc_stmt,
-                                                    n_lifts).result()
+        for s in alloc_stmts:
+            if type(s) is not LoopIR.Alloc:
+                raise TypeError("pattern did not describe an alloc statement")
+
+            loopir      = Schedules.DoLiftAlloc(loopir, s,
+                                                n_lifts, mode, size).result()
+
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def fission_after(self, stmt_pattern, n_lifts=1):
@@ -359,11 +367,11 @@ class Procedure:
             raise TypeError("expected second argument 'n_lifts' to be "+
                             "a positive integer")
 
-        stmt        = self._find_stmt(stmt_pattern)
-
+        stmts        = self._find_stmt(stmt_pattern, default_match_no=None)
         loopir      = self._loopir_proc
-        loopir      = Schedules.DoFissionLoops(loopir, stmt,
-                                                       n_lifts).result()
+        for s in stmts:
+            loopir      = Schedules.DoFissionLoops(loopir, s,
+                                                   n_lifts).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def factor_out_stmt(self, name, stmt_pattern):

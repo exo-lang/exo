@@ -352,12 +352,19 @@ def test_unary_neg():
 
 def test_bool1():
     @proc
+    def foo(x : bool):
+        pass
+
+    @proc
     def bool1(a : bool, b : bool):
         assert b == True
 
+        foo(False)
         x : f32
         if b == True:
             x = 0.0
+        else:
+            x = 1.0
 
         if a == b:
             x = 0.0
@@ -425,6 +432,31 @@ def test_relu1():
     res_c = np.ctypeslib.as_array(inp1, shape=(1,))
 
     relu1.interpret(x=inp1)
+
+    np.testing.assert_almost_equal(inp1, res_c)
+
+
+def test_select1():
+    @proc
+    def select1(x : f32):
+        zero : f32
+        zero = 0.0
+        x = select(x, zero, zero, x)
+
+    assert type(select1) is Procedure
+    filename = test_select1.__name__
+
+    with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
+        f.write(str(select1))
+
+    select1.compile_c(TMP_DIR, filename)
+
+    inp1 = nparray([-4.0])
+    test_lib = generate_lib(filename)
+    test_lib.select1(cvt_c(inp1))
+    res_c = np.ctypeslib.as_array(inp1, shape=(1,))
+
+    select1.interpret(x=inp1)
 
     np.testing.assert_almost_equal(inp1, res_c)
 

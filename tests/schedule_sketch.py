@@ -1,4 +1,53 @@
 
+
+    for i in par(0, N / 16):
+        for j in par(0, M / 16):
+            for j_in in par(0, 16):
+                for i_in in par(0, 16):
+                    res: i32 @ DRAM
+                    res = 0.0
+                    ...
+
+->
+    for i in par(0, N / 16):
+        for j in par(0, M / 16):
+            for j_in in par(0, 16):
+                res: i32[16] @ DRAM
+                for l in par(0, 16):
+                    res[l] = 0.0
+                for i_in in par(0, 16):
+                    ...
+->
+    for i in par(0, N / 16):
+        for j in par(0, M / 16):
+            res: i32[16,16] @ DRAM
+            for l in par(0, 16):
+                for m in par(0, 16):
+                    res[l,m] = 0.0
+            for j_in in par(0, 16):
+                for i_in in par(0, 16):
+                    ...
+
+
+
+x : f32
+y : i8
+y = x
+
+when storing i8
+clamping
+y = x 
+if x < 127 and x > -128:
+    x
+elif x > 127:
+    127
+elif x < -128:
+    -128
+
+relu implementation
+just checking the sig 
+
+
 # TODO THINK:
 # Effects?
 # Sanity check on the backend
@@ -13,6 +62,7 @@ def extended_load_config(
         c : bool,
         d : bool
         ):
+    assert gemmini.stride == stride(src, 0)
 
     new  : bool
     _new_ : int
@@ -23,6 +73,7 @@ def extended_load_config(
     # 
     GEMMINI.d = d
     GEMMINI.e = ...
+    GEMMINI.strides = src.strides[0]
     .....
 
 

@@ -108,10 +108,10 @@ def test_blur():
     # Alternatively, we can tell .split(...) to
     # ensure safety via a different "tail-strategy"
     split_blur = blur.rename('split_blur')
-    split_blur = split_blur.split('x #2', 8, ['xhi','xlo'], cut_tail=True)
+    split_blur = split_blur.split('x #2', 8, ['xhi','xlo'], tail='cut')
 
     # Then, we can similarly split the inner y-loop
-    split_blur = split_blur.split('y #2', 8, ['yhi','ylo'], cut_tail=True)
+    split_blur = split_blur.split('y #2', 8, ['yhi','ylo'], tail='cut')
 
     # In order to accomplish tiling, we need to
     # wrap the two different split y loops in two
@@ -146,8 +146,8 @@ def test_blur():
 
         test_blur = (blur.rename('test_blur')
                          # split the loops we want to tile together
-                         .split('x #2', n_x, ['xhi','xlo'], cut_tail=True)
-                         .split('y #2', n_y, ['yhi','ylo'], cut_tail=True)
+                         .split('x #2', n_x, ['xhi','xlo'], tail='cut')
+                         .split('y #2', n_y, ['yhi','ylo'], tail='cut')
                          # push the `for xlo in _` loop down over the y-loop split
                          .fission_after("for yhi in _: _")
                          # complete the tiling by moving both lower-order loops

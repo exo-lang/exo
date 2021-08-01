@@ -22,7 +22,6 @@ import pytest
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #
 
-
 def test_ldst_i8_16():
   T = GemmTestBuilder('ldst_i8_16')
   T.add_body(['gemm_init_mem();',
@@ -34,10 +33,8 @@ def test_ldst_i8_16():
     tmp : i8[16,16] @ GEMM_SCRATCH
     scale : f32
     scale = 1.0
-    acc   : i8
-    acc   = 1.0
     ld_i8(16,16, scale, x, tmp)
-    st_i8(16,16, scale, acc, tmp, y)
+    st_i8(16,16, tmp, y)
   T.add_proc(ldst_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
@@ -73,10 +70,8 @@ def test_ldst_acc_i8_16():
     tmp : i32[16,16] @ GEMM_ACCUM
     scale : f32
     scale = 1.0
-    acc   : i8
-    acc   = 1.0
     ld_acc_i8(16,16, scale, x, tmp)
-    st_acc_i8(16,16, scale, acc, tmp, y)
+    st_acc_i8(16,16, scale, False, tmp, y)
   T.add_proc(ldst_acc_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
@@ -112,10 +107,8 @@ def test_ldst_i8_odd():
     tmp : i8[15,16] @ GEMM_SCRATCH
     scale : f32
     scale = 1.0
-    acc   : i8
-    acc   = 1.0
     ld_i8(15,7, scale, x, tmp)
-    st_i8(15,7, scale, acc, tmp, y)
+    st_i8(15,7, tmp, y)
   T.add_proc(ldst_i8_odd)
 
   T.alloc_dram_2i8('x', 15, 7, 'i+j')
@@ -151,10 +144,8 @@ def test_ldst_acc_i8_acc():
     tmp : i32[7,16] @ GEMM_ACCUM
     scale : f32
     scale = 1.0
-    acc   : i8
-    acc   = 1.0
     ld_acc_i8(7,13, scale, x, tmp)
-    st_acc_i8(7,13, scale, acc, tmp, y)
+    st_acc_i8(7,13, scale, False, tmp, y)
   T.add_proc(ldst_acc_i8_acc)
 
   T.alloc_dram_2i8('x', 7, 13, 'i+j')
@@ -190,11 +181,9 @@ def test_ldzerost_i8_16():
     tmp : i8[16,16] @ GEMM_SCRATCH
     scale : f32
     scale = 1.0
-    acc   : i8
-    acc   = 1.0
     ld_i8(16,16, scale, x, tmp)
     zero_i8(8,8, tmp[4:12,:])
-    st_i8(16,16, scale, acc, tmp, y)
+    st_i8(16,16, tmp, y)
   T.add_proc(ldzerost_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
@@ -236,11 +225,9 @@ def test_ldzerost_acc_i8_16():
     tmp : i32[16,16] @ GEMM_ACCUM
     scale : f32
     scale = 1.0
-    acc   : i8
-    acc   = 1.0
     ld_acc_i8(16,16, scale, x, tmp)
     zero_acc_i32(8,8, tmp[4:12,:])
-    st_acc_i8(16,16, scale, acc, tmp, y)
+    st_acc_i8(16,16, scale, False, tmp, y)
   T.add_proc(ldzerost_acc_i8_16)
 
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
@@ -304,15 +291,9 @@ def test_matmul_i8_ones_16():
     ld_i8(16,16, scale, y, B)
     zero_acc_i32(16,16, C)
 
-    trans_a : i8
-    trans_b : i8
-    trans_a = 0.0
-    trans_b = 0.0
-    matmul_i8(16,16,16, trans_a, trans_b, A, B, C)
+    matmul_i8(16,16,16, False, False, A, B, C)
 
-    act : i8
-    act = 0.0
-    st_acc_i8(16,16, scale, act, C, res)
+    st_acc_i8(16,16, scale, False, C, res)
   T.add_proc(matmul_i8_ones_16)
 
 
@@ -363,15 +344,9 @@ def test_matmul_i8_ones_odd():
     ld_i8(9,13, scale, y, B)
     zero_acc_i32(15,13, C)
 
-    trans_a : i8
-    trans_b : i8
-    trans_a = 0.0
-    trans_b = 0.0
-    matmul_i8(15,13,9, trans_a, trans_b, A, B, C)
+    matmul_i8(15,13,9, False, False, A, B, C)
 
-    act : i8
-    act = 0.0
-    st_acc_i8(15,13, scale, act, C, res)
+    st_acc_i8(15,13, scale, False, C, res)
   T.add_proc(matmul_i8_ones_odd)
 
 
@@ -393,39 +368,37 @@ def test_matmul_i8_ones_odd():
 
   T.compile().run()
 
-def test_ldst_acc_i32_16():
-  T = GemmTestBuilder('ldst_acc_i32_16')
+def test_ldst_acc_i32_15():
+  T = GemmTestBuilder('ldst_acc_i32_15')
   T.add_body(['gemm_acc_init_mem();',
               'gemmini_flush(0);',
               ''])
 
   @proc
-  def ldst_acc_i32_16( x : i32[16,16] @ DRAM, y : i32[16,16] @ DRAM ):
-    tmp : i32[16,16] @ GEMM_ACCUM
+  def ldst_acc_i32_15( x : i32[15,15] @ DRAM, y : i32[15,15] @ DRAM ):
+    tmp : i32[15,16] @ GEMM_ACCUM
     scale : f32
     scale = 4.0
-    ld_acc_i32(16,16, scale, x, tmp)
-    act : i8
-    act = 0.0
-    st_acc_i32(16,16, act, tmp, y)
-  T.add_proc(ldst_acc_i32_16)
+    ld_acc_i32(15,15, scale, x, tmp)
+    st_acc_i32(15,15, tmp, y)
+  T.add_proc(ldst_acc_i32_15)
 
-  T.alloc_dram_2i32('x', 16, 16, '1')
-  T.alloc_dram_2i32('y', 16, 16, '0')
-  T.alloc_dram_2i32('res', 16, 16, '4')
+  T.alloc_dram_2i32('x', 15, 15, '1')
+  T.alloc_dram_2i32('y', 15, 15, '0')
+  T.alloc_dram_2i32('res', 15, 15, '4')
 
-  T.add_body(['ldst_acc_i32_16(x, y);',
+  T.add_body(['ldst_acc_i32_15(x, y);',
               '',
               'gemmini_fence();',
               '',
-              'if(check_eq_2i32(16,16, y, res)) {',
+              'if(check_eq_2i32(15,15, y, res)) {',
               '    printf("Correct\\n");',
               '} else {',
               '    printf("Results Don\'t Match\\n");',
               '    printf("Correct Result (res):\\n");',
-              '    print_2i32(16,16, res);',
+              '    print_2i32(15,15, res);',
               '    printf("Computed Roundtrip (y):\\n");',
-              '    print_2i32(16,16, y);',
+              '    print_2i32(15,15, y);',
               '    exit(1);',
               '}',
               ''])
@@ -462,15 +435,9 @@ def test_matmul_i8_ones_odd():
     ld_i8(9,13, scale, y, B)
     zero_acc_i32(15,13, C)
 
-    act : i8
-    trans_a : i8
-    trans_b : i8
-    act = 0.0
-    trans_a = 0.0
-    trans_b = 0.0
-    matmul_i8(15,13,9, trans_a, trans_b, A, B, C)
+    matmul_i8(15,13,9, False, False, A, B, C)
 
-    st_acc_i8(15,13, scale, act, C, res)
+    st_acc_i8(15,13, scale, False, C, res)
   T.add_proc(matmul_i8_ones_odd)
 
 

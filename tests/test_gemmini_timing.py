@@ -106,34 +106,6 @@ def test_matmul_demo():
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def pre_bake_stage_C(p, pattern, name_in, name='CG'):
   @proc
   def matmul2d(
@@ -243,8 +215,8 @@ def pre_bake_abstract_BC_and_mmul(p):
                 BG : i8[16,16] @ MDRAM
                 ld_i8(16, 16, scale, A[16*i:16*i+16, 16*k:16*k+16], AG)
                 ld_i8(16, 16, scale, B[16*k:16*k+16, 16*j:16*j+16], BG)
-                matmul_acc_i8(16,16,16, AG, BG, CG)
-            st_acc_i8(16,16, scale, CG, C[16*i:16*i+16, 16*j:16*j+16])
+                matmul_acc_i8(16,16,16, False, False, AG, BG, CG)
+            st_acc_i8(16,16, scale, False, CG, C[16*i:16*i+16, 16*j:16*j+16])
   return matmul2d
 
 
@@ -263,5 +235,127 @@ def do_init(T):
   def mdram_dummy():
     x : i8 @ MDRAM
   T.add_proc(mdram_dummy)
+
+
+
+def test_matmul_gemmini():
+  T = GemmTestBuilder('matmul_gemmini')
+  T.add_body(['gemm_init_mem();',
+              'init_mem();',
+              'gemmini_flush(0);',
+              ''])
+
+  NN = 60
+  MM = 70
+  KK = 120
+
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
+  T.alloc_dram_f32('a_scale', '3.0f')
+  T.alloc_dram_f32('b_scale', '2.0f')
+  T.alloc_dram_f32('c_scale', '2.0f')
+  T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
+  T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
+
+  @proc
+  def matmul_on_cpu(
+    N : size,
+    M : size,
+    K : size,
+    a_scale : f32,
+    b_scale : f32,
+    c_scale : f32,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
+    A : [i8][N,K] @ MDRAM,
+    B : [i8][K,M] @ MDRAM,
+    C : [i8][N,M] @ MDRAM,
+  ):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    for i in par(0,N):
+        for j in par(0,M):
+            res : i32
+            res = 0.0
+            for k in par(0,K):
+                tmp_a : f32
+                tmp_a = A[i,k]
+                tmp_a = tmp_a * a_scale
+                a : i8
+                a = tmp_a
+
+                tmp_b : f32
+                tmp_b = B[k,j]
+                tmp_b = tmp_b * b_scale
+                b : i8
+                b = tmp_b
+
+                a2 : i32
+                b2 : i32
+                a2 = a
+                b2 = b
+                res += a2*b2
+
+            if acc == True:
+                res = relu(res)
+
+            tmp_res1 : f32
+            tmp_res1 = res
+            tmp_res1 = tmp_res1 * c_scale
+
+            tmp_res2 : i8
+            clamp(tmp_res1, tmp_res2)
+            C[i,j] = tmp_res2
+
+  T.add_proc(matmul_on_cpu)
+  matmul = matmul_on_cpu
+  matmul = matmul.split('i',16,['i','i_in'], tail='cut_and_guard')
+  matmul = matmul.reorder('i_in','j')
+  matmul = matmul.split('j',16,['j','j_in'], tail='cut_and_guard')
+
+  matmul = matmul.lift_alloc('res : _ #0', n_lifts=2)
+  matmul = matmul.fission_after('res[_] = 0.0 #0', n_lifts=2)
+  matmul = matmul.lift_alloc('res : _ #1', n_lifts=1)
+  matmul = matmul.lift_alloc('res : _ #1', n_lifts=1, mode='col', size=16)
+  matmul = matmul.fission_after('res[_] = 0.0 #1', n_lifts=2)
+  matmul = matmul.lift_alloc('res : _ #2', n_lifts=1)
+  matmul = matmul.lift_alloc('res : _ #2', n_lifts=1, mode='col', size=16)
+  matmul = matmul.fission_after('res[_] = 0.0 #2', n_lifts=2)
+  matmul = matmul.lift_alloc('res : _ #3', n_lifts=1)
+  matmul = matmul.lift_alloc('res : _ #3', n_lifts=1, mode='col', size=16)
+  matmul = matmul.fission_after('res[_] = 0.0 #3', n_lifts=2)
+
+  matmul = matmul.fission_after('for k in _:_', n_lifts=2)
+
+  matmul = matmul.reorder('i_in','k')
+  matmul = matmul.reorder('j_in','k')
+
+  matmul = matmul.lift_alloc('a : i8', n_lifts=2)
+  matmul = matmul.lift_alloc('b : i8 #0', n_lifts=2)
+  matmul = matmul.lift_alloc('b : i8 #1', n_lifts=2, size=16)
+  matmul = matmul.lift_alloc('b : i8 #2', n_lifts=2)
+  matmul = matmul.lift_alloc('b : i8 #3', n_lifts=2, size=16)
+
+  matmul = matmul.split('k',16,['k','k_in'], tail='cut_and_guard')
+
+  matmul = matmul.lift_alloc('a : _ #0', n_lifts=1, mode='col')
+  matmul = matmul.lift_alloc('a : i8[_] #1', n_lifts=1, mode='col', size=16)
+  matmul = matmul.lift_alloc('a : _ #2', n_lifts=1, mode='col')
+  matmul = matmul.lift_alloc('a : i8[_] #3', n_lifts=1, mode='col', size=16)
+  matmul = matmul.lift_alloc('a : _ #4', n_lifts=1, mode='col')
+  matmul = matmul.lift_alloc('a : i8[_] #5', n_lifts=1, mode='col', size=16)
+  matmul = matmul.lift_alloc('a : _ #6', n_lifts=1, mode='col')
+  matmul = matmul.lift_alloc('a : i8[_] #7', n_lifts=1, mode='col', size=16)
+
+  matmul = matmul.lift_alloc('b : _', n_lifts=1)
+
+  matmul = matmul.fission_after('a[_] = _', n_lifts=3)
+  matmul = matmul.fission_after('b[_] = _', n_lifts=3)
+
+  print(matmul)
+
 
 

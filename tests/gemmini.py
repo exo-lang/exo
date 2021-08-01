@@ -29,13 +29,14 @@ def ld_i8(
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
+    #assert gemmini.stride == stride(src, 0)
 
     for i in par(0, n):
         for j in par(0, m):
             tmp : f32
             tmp      = src[i,j]
             tmp      = tmp * scale
-            dst[i,j] = tmp
+            dst[i,j] = tmp #no clamping
 
 # in order to load i8 values into the i32 accumulator memory,
 # we must specify `shrunk=1` (3rd param of ..._config_ld)
@@ -74,7 +75,6 @@ def ld_acc_i32(
             tmp      = tmp * scale
             dst[i,j] = tmp
 
-
 _gemm_st_i8   = ("gemmini_config_st({dst}.strides[0]*1);\n"+
                  "gemmini_extended_mvout( "+
                       "((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
@@ -82,8 +82,6 @@ _gemm_st_i8   = ("gemmini_config_st({dst}.strides[0]*1);\n"+
 def st_i8(
     n     : size,
     m     : size,
-    scale : f32,
-    act   : i8,
     src   : [i8][n, 16] @ GEMM_SCRATCH,
     dst   : [i8][n, m]  @ DRAM
 ):
@@ -95,19 +93,49 @@ def st_i8(
 
     for i in par(0, n):
         for j in par(0, m):
-            tmp : f32
-            tmp = src[i,j]
-            tmp = tmp * scale
+            dst[i, j] = src[i, j]
+
+
+@proc
+def clamp(src : f32, dst : i8):
+    l : f32
+    h : f32
+    l = -128.0
+    h = 127.0
+    dst = select(h, src, h, src)
+    dst = select(src, l, l, dst)
+
+_gemm_st_acc_i8 = ("gemmini_extended_config_ex(WS, {act}, 0, {scale}[0], 0, 1, 0, 0);\n"+ _gemm_st_i8)
+@instr(_gemm_st_acc_i8)
+def st_acc_i8(
+    n     : size,
+    m     : size,
+    scale : f32,
+    act   : bool,
+    src   : [i32][n, 16] @ GEMM_ACCUM,
+    dst   : [i8][n, m]  @ DRAM
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(dst, 1) == 1
+    assert stride(src, 0) == 16
+    assert stride(src, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : i8
+            if act == True:
+                tmp = relu(src[i,j])
+            else:
+                tmp = src[i,j]
+            tmp2 : f32
+            tmp2 = tmp
+            tmp2  = tmp2 * scale
+            clamp(tmp2, tmp)
             dst[i, j] = tmp
 
-_gemm_st_acc_i8 = ("gemmini_extended_config_ex(WS, (int){act}[0], 0, {scale}[0], 0, 1, 0, 0);\n"+ _gemm_st_i8)
-st_acc_i8 = (st_i8.rename('st_acc_i8')
-                  .set_precision('src', 'i32')
-                  .set_memory('src', GEMM_ACCUM)
-                  .make_instr(_gemm_st_acc_i8))
 
-
-_gemm_st_acc_i32 = ("gemmini_extended_config_ex(WS, (int){act}[0], 0, 1.0f, 0, 1, 0, 0);\n"+
+_gemm_st_acc_i32 = ("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);\n"+
                     "gemmini_config_st({dst}.strides[0]*4);\n"+
                     "gemmini_extended_mvout( ((uint64_t) {dst}.data), "+
                     "((uint32_t) {src}.data | 0x20000000), {m}, {n} );")
@@ -115,7 +143,6 @@ _gemm_st_acc_i32 = ("gemmini_extended_config_ex(WS, (int){act}[0], 0, 1.0f, 0, 1
 def st_acc_i32(
     n     : size,
     m     : size,
-    act   : i8,
     src   : [i32][n, 16] @ GEMM_ACCUM,
     dst   : [i32][n, m]  @ DRAM
 ):
@@ -154,8 +181,9 @@ zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
                        .set_memory('dst', GEMM_ACCUM)
                        .make_instr(_gemm_zero_i8))
 
-# TODO: algorithm is wrong
-@instr("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, (bool){trans_a}[0], (bool){trans_b}[0]);\n"+
+
+
+@instr("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, {trans_a}, {trans_b});\n"+
        "gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data), "+
             "{M}, {K}, "+
@@ -170,8 +198,8 @@ def matmul_i8(
     N : size,
     M : size,
     K : size,
-    trans_a : i8,
-    trans_b : i8,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N, 16] @ GEMM_SCRATCH,
     B : [i8][K, 16] @ GEMM_SCRATCH,
     C : [i32][N, 16] @ GEMM_ACCUM,
@@ -180,19 +208,48 @@ def matmul_i8(
     assert M <= 16
     assert K <= 16
 
+    tmp_A : i8[16,16] @ GEMM_SCRATCH
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,16):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ GEMM_SCRATCH
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,16):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
         for j in par(0,M):
             C[i,j] = 0.0
             for k in par(0,K):
                 a : i32
                 b : i32
-                a = A[i,k]
-                b = B[k,j]
+
+                a = tmp_A[i,k]
+                b = tmp_B[k,j]
+
                 C[i, j] += a * b
 
-# TODO: algorithm is wrong
-# Need to have a branch on bool and builtin act funciton
-@instr("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, (bool){trans_a}[0], (bool){trans_b}[0]);\n"+
+
+@instr("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, {trans_a}, {trans_b});\n"+
        "gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data) | 0x40000000, "+
             "{M}, {K}, "+
@@ -207,8 +264,8 @@ def matmul_acc_i8(
     N : size,
     M : size,
     K : size,
-    trans_a : i8,
-    trans_b : i8,
+    trans_a : bool,
+    trans_b : bool,
     A : [i8][N, 16] @ GEMM_SCRATCH,
     B : [i8][K, 16] @ GEMM_SCRATCH,
     C : [i32][N, 16] @ GEMM_ACCUM,
@@ -217,13 +274,43 @@ def matmul_acc_i8(
     assert M <= 16
     assert K <= 16
 
+    tmp_A : i8[16,16] @ GEMM_SCRATCH
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_A[i,j] = 0.0
+    if trans_a:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < N:
+                    tmp_A[i,j] = A[j,i]
+    else:
+        for i in par(0,N):
+            for j in par(0,16):
+                tmp_A[i,j] = A[i,j]
+
+    tmp_B : i8[16,16] @ GEMM_SCRATCH
+    for i in par(0,16):
+        for j in par(0,16):
+            tmp_B[i,j] = 0.0
+    if trans_b:
+        for i in par(0,16):
+            for j in par(0,16):
+                if j < K:
+                    tmp_B[i,j] = B[j,i]
+    else:
+        for i in par(0,K):
+            for j in par(0,16):
+                tmp_B[i,j] = B[i,j]
+
     for i in par(0,N):
         for j in par(0,M):
             for k in par(0,K):
                 a : i32
                 b : i32
-                a = A[i,k]
-                b = B[k,j]
+
+                a = tmp_A[i,k]
+                b = tmp_B[k,j]
+
                 C[i, j] += a * b
 
 # --------------------------------------------------------------------------- #

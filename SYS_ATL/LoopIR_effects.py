@@ -44,6 +44,7 @@ module Effects {
                 srcinfo     srcinfo )
 
     expr    = Var( sym name )
+            | Neg( sym name )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
             attributes( type type, srcinfo srcinfo )
@@ -197,6 +198,8 @@ def eff_subst(env, eff):
                               pred,
                               eff.srcinfo)
     elif type(eff) is Effects.Var:
+        return env[eff.name] if eff.name in env else eff
+    elif type(eff) is Effects.Neg:
         return env[eff.name] if eff.name in env else eff
     elif type(eff) is Effects.Const:
         return eff

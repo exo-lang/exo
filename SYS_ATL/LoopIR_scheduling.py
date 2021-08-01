@@ -125,7 +125,7 @@ class _Reorder(LoopIR_Rewrite):
 
 class _Split(LoopIR_Rewrite):
     def __init__(self, proc, split_loop, quot, hi, lo,
-                 cut_tail=False, perfect=False):
+                 tail='guard', perfect=False):
         self.split_loop     = split_loop
         self.split_var      = split_loop.iter
         self.quot = quot
@@ -135,7 +135,8 @@ class _Split(LoopIR_Rewrite):
 
         assert quot > 1
 
-        self._tail_strategy = 'cut' if cut_tail else 'guard'
+        # Tail strategies are 'cut', 'guard', and 'cut_and_guard'
+        self._tail_strategy = tail
         if perfect:
             self._tail_strategy = 'perfect'
         self._in_cut_tail = False
@@ -202,7 +203,8 @@ class _Split(LoopIR_Rewrite):
 
             # an alternate scheme is to split the loop in two
             # by cutting off the tail into a second loop
-            elif self._tail_strategy == 'cut':
+            elif (self._tail_strategy == 'cut' or
+                    self._tail_strategy == 'cut_and_guard'):
                 # if N == s.hi and Q == self.quot, then
                 #   we want Ncut == (N-Q+1)/Q
                 Q       = cnst(self.quot)
@@ -229,14 +231,30 @@ class _Split(LoopIR_Rewrite):
                 hi_eff      = do_bind(self.hi_i, Ncut, lo_eff)
                 tail_eff    = do_bind(self.cut_i, Ntail, tail_eff)
 
-                loops = [LoopIR.ForAll(self.hi_i, Ncut,
-                            [LoopIR.ForAll(self.lo_i, Q,
-                                main_body,
-                                lo_eff, s.srcinfo)],
-                            hi_eff, s.srcinfo),
-                         LoopIR.ForAll(self.cut_i, Ntail,
+                if self._tail_strategy == 'cut_and_guard':
+                    body = [LoopIR.ForAll(self.cut_i, Ntail,
                             tail_body,
                             tail_eff, s.srcinfo)]
+                    body_eff= get_effect_of_stmts(body)
+                    cond = boolop(">", Ntail, LoopIR.Const(0, T.int, s.srcinfo))
+                    body_eff= eff_filter(lift_to_eff_expr(cond), body_eff)
+
+                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
+                                [LoopIR.ForAll(self.lo_i, Q,
+                                    main_body,
+                                    lo_eff, s.srcinfo)],
+                                hi_eff, s.srcinfo),
+                             LoopIR.If(cond, body, [], body_eff, s.srcinfo)]
+
+                else:
+                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
+                                [LoopIR.ForAll(self.lo_i, Q,
+                                    main_body,
+                                    lo_eff, s.srcinfo)],
+                                hi_eff, s.srcinfo),
+                             LoopIR.ForAll(self.cut_i, Ntail,
+                                tail_body,
+                                tail_eff, s.srcinfo)]
 
                 return loops
 
@@ -267,7 +285,8 @@ class _Split(LoopIR_Rewrite):
                                 inner_eff, s.srcinfo)],
                             s.eff, s.srcinfo)]
 
-            else: assert False, f"bad tail strategy"
+            else:
+                assert False, f"bad tail strategy: {self._tail_strategy}"
 
         # fall-through
         return super().map_s(s)
@@ -681,7 +700,19 @@ class _Alloc_Dependencies(LoopIR_Do):
         self.do_stmts(stmts)
 
     def result(self):
-        return self._depends[self._buf_sym]
+        depends = self._depends[self._buf_sym]
+        new     = list(depends)
+        done    = []
+        while True:
+            if len(new) == 0:
+                break
+            sym = new.pop()
+            done.append(sym)
+            d = self._depends[sym]
+            depends.update(d)
+            [ new.append(s) for s in d if s not in done ]
+
+        return depends
 
     def do_s(self, s):
         if type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
@@ -771,7 +802,7 @@ class _Alloc_Dependencies(LoopIR_Do):
         pass
 
 class _LiftAlloc(LoopIR_Rewrite):
-    def __init__(self, proc, alloc_stmt, n_lifts):
+    def __init__(self, proc, alloc_stmt, n_lifts, mode, size):
         assert type(alloc_stmt) is LoopIR.Alloc
         assert is_pos_int(n_lifts)
         self.orig_proc      = proc
@@ -779,6 +810,8 @@ class _LiftAlloc(LoopIR_Rewrite):
         self.alloc_sym      = alloc_stmt.name
         self.alloc_deps     = _Alloc_Dependencies(self.alloc_sym,
                                                   proc.body).result()
+        self.lift_mode      = mode
+        self.lift_size      = size
 
         self.n_lifts        = n_lifts
 
@@ -795,6 +828,15 @@ class _LiftAlloc(LoopIR_Rewrite):
         # repair effects...
         self.proc = InferEffects(self.proc).result()
 
+    def idx_mode(self, access, orig):
+        if self.lift_mode == 'row':
+            return access + orig
+        elif self.lift_mode == 'col':
+            return orig + access
+        else:
+            raise SchedulingError(f"Unknown lift mode {self.lift_mode},"+
+                                   "should be 'row' or 'col'")
+
     def map_s(self, s):
         if s == self.alloc_stmt:
             # mark the point we want to lift this alloc-stmt to
@@ -808,7 +850,14 @@ class _LiftAlloc(LoopIR_Rewrite):
             # the new allocation statement
             new_typ = s.type
             if type(new_typ) is T.Tensor:
-                rngs += new_typ.shape()
+                if self.lift_mode == 'row':
+                    rngs += new_typ.shape()
+                elif self.lift_mode == 'col':
+                    rngs = new_typ.shape() + rngs
+                else:
+                    raise SchedulingError(f"Unknown lift mode {self.lift_mode},"+
+                                           "should be 'row' or 'col'")
+
                 new_typ = new_typ.basetype()
             if len(rngs) > 0:
                 new_typ = T.Tensor(rngs, False, new_typ)
@@ -839,8 +888,9 @@ class _LiftAlloc(LoopIR_Rewrite):
             # buffer name on the lhs of the assignment/reduction
             if s.name == self.alloc_sym:
                 assert self.access_idxs is not None
-                idx = [ LoopIR.Read(i, [], T.index, s.srcinfo)
-                        for i in self.access_idxs ] + s.idx
+                idx = self.idx_mode(
+                        [ LoopIR.Read(i, [], T.index, s.srcinfo)
+                        for i in self.access_idxs ] , s.idx)
                 rhs = self.map_e(s.rhs)
                 # return allocation or reduction...
                 return [ type(s)( s.name, s.type, s.cast,
@@ -865,20 +915,22 @@ class _LiftAlloc(LoopIR_Rewrite):
 
             #if self._in_call_arg:
             if e.type.is_real_scalar():
-                idx = [ LoopIR.Read(i, [], T.index, e.srcinfo)
-                        for i in self.access_idxs ] + e.idx
+                idx = self.idx_mode(
+                        [ LoopIR.Read(i, [], T.index, e.srcinfo)
+                        for i in self.access_idxs ] , e.idx)
                 return LoopIR.Read( e.name, idx, e.type, e.srcinfo )
             else:
                 assert self._in_call_arg
                 assert len(e.idx) == 0
                 # then we need to replace this read with a
                 # windowing expression
-                idx = ([ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
+                idx = self.idx_mode(
+                        [ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
                                      e.srcinfo)
-                        for i in self.access_idxs ] +
-                       [ LoopIR.Interval(LoopIR.Const(0,T.int,e.srcinfo),
+                             for i in self.access_idxs ] ,
+                        [ LoopIR.Interval(LoopIR.Const(0,T.int,e.srcinfo),
                                          hi, e.srcinfo)
-                         for hi in e.type.shape() ])
+                             for hi in e.type.shape() ])
                 tensor_type = (e.type.as_tensor if type(e.type) is T.Window
                                else e.type)
                 win_typ     = T.Window( self.alloc_type, tensor_type,
@@ -891,9 +943,10 @@ class _LiftAlloc(LoopIR_Rewrite):
                 return e
             # otherwise, extend windowing with accesses...
 
-            idx = [ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
+            idx = self.idx_mode(
+                    [ LoopIR.Point(LoopIR.Read(i, [], T.index, e.srcinfo),
                                  e.srcinfo)
-                    for i in self.access_idxs ] + e.idx
+                    for i in self.access_idxs ] , e.idx)
             win_typ     = T.Window( self.alloc_type, e.type.as_tensor,
                                     e.name, idx )
             return LoopIR.WindowExpr( e.name, idx, win_typ, e.srcinfo )
@@ -918,14 +971,33 @@ class _LiftAlloc(LoopIR_Rewrite):
                     if type(s.hi) == LoopIR.Read:
                         assert s.hi.type == T.size
                         assert len(s.hi.idx) == 0
-                        rngs.append(s.hi)
                     elif type(s.hi) == LoopIR.Const:
                         assert s.hi.type == T.int
-                        rngs.append(s.hi)
+                    elif type(s.hi) == LoopIR.BinOp:
+                        assert s.hi.type == T.int or s.hi.type == T.size
                     else:
-                        raise SchedulingError("Can only lift through loops "+
-                                              "with simple range bounds, "+
-                                              "i.e. a variable or constant")
+                        assert False, "bad case"
+
+                    if self.lift_size != None:
+                        assert type(self.lift_size) is int
+                        # TODO: More robust checking of
+                        # self.lift_size > s.hi
+                        if type(s.hi) == LoopIR.Const:
+                            if s.hi.val > self.lift_size:
+                                raise SchedulingError(f"Lift size cannot "+
+                                      f"be less than for-loop bound {s.hi.val}")
+                        elif (type(s.hi) == LoopIR.BinOp and
+                                s.hi.op == '%'):
+                            assert type(s.hi.rhs) is LoopIR.Const
+                            if s.hi.rhs.val > self.lift_size:
+                                raise SchedulingError(f"Lift size cannot "+
+                                      f"be less than for-loop bound {s.hi}")
+                        else:
+                            raise NotImplementedError
+
+                        rngs.append(LoopIR.Const(self.lift_size, T.int, s.srcinfo))
+                    else:
+                        rngs.append(s.hi)
             else: assert False, "bad case"
 
         return (idxs, rngs)
@@ -935,26 +1007,45 @@ class _LiftAlloc(LoopIR_Rewrite):
 # --------------------------------------------------------------------------- #
 # Fissioning at a Statement scheduling directive
 
-class _Is_Alloc_Free(LoopIR_Do):
-    def __init__(self, stmts):
-        self._is_alloc_free = True
+def check_used(variables, eff):
+    for e in eff:
+        if e.buffer in variables:
+            return True
+    return False
 
-        self.do_stmts(stmts)
+class _Is_Alloc_Free(LoopIR_Do):
+    def __init__(self, pre, post):
+        self._is_alloc_free = True
+        self._alloc_var = []
+
+        self.do_stmts(pre)
+
+        # make sure all of _alloc_vars are not used in any of the
+        # post statement
+        for s in post:
+            if s.eff is None:
+                continue
+            if check_used(self._alloc_var, s.eff.reads):
+                self._is_alloc_free = False
+                break
+            if check_used(self._alloc_var, s.eff.writes):
+                self._is_alloc_free = False
+                break
+            if check_used(self._alloc_var, s.eff.reduces):
+                self._is_alloc_free = False
+                break
 
     def result(self):
         return self._is_alloc_free
 
     def do_s(self, s):
         if type(s) is LoopIR.Alloc:
-            self._is_alloc_free = False
+            self._alloc_var.append(s.name)
 
         super().do_s(s)
 
-    def do_e(self, e):
-        pass
-
-def _is_alloc_free(stmts):
-    return _Is_Alloc_Free(stmts).result()
+def _is_alloc_free(pre, post):
+    return _Is_Alloc_Free(pre, post).result()
 
 
 # which variable symbols are free
@@ -1029,8 +1120,8 @@ class _FissionLoops:
     def result(self):
         return self.proc
 
-    def alloc_check(self, stmts):
-        if not _is_alloc_free(stmts):
+    def alloc_check(self, pre, post):
+        if not _is_alloc_free(pre, post):
             raise SchedulingError("Will not fission here, because "+
                                   "an allocation might be buried "+
                                   "in a different scope than some use-site")
@@ -1065,7 +1156,7 @@ class _FissionLoops:
                                self.n_lifts > 0)
             if fission_body:
                 self.n_lifts -= 1
-                self.alloc_check(pre)
+                self.alloc_check(pre, post)
                 pre         = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
                 post        = LoopIR.If(s.cond, post, s.orelse, None, s.srcinfo)
                 return ([pre],[post])
@@ -1078,7 +1169,7 @@ class _FissionLoops:
                                self.n_lifts > 0)
             if fission_orelse:
                 self.n_lifts -= 1
-                self.alloc_check(pre)
+                self.alloc_check(pre, post)
                 pre         = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
                 post        = LoopIR.If(s.cond, [], post, None, s.srcinfo)
                 return ([pre],[post])
@@ -1097,7 +1188,7 @@ class _FissionLoops:
                                self.n_lifts > 0)
             if do_fission:
                 self.n_lifts -= 1
-                self.alloc_check(pre)
+                self.alloc_check(pre, post)
 
                 # we can skip the loop iteration if the
                 # body doesn't depend on the loop

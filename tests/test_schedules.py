@@ -13,6 +13,45 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
+def test_fission():
+    @proc
+    def bar(n : size, m : size):
+        for i in par(0,n):
+            for j in par(0,m):
+                x : f32
+                x = 0.0
+                y : f32
+                y = 1.1
+
+    bar = bar.fission_after('x = _', n_lifts=2)
+
+def test_fission2():
+    with pytest.raises(Exception,
+                       match='Will not fission here'):
+        @proc
+        def bar(n : size, m : size):
+            for i in par(0,n):
+                for j in par(0,m):
+                    x : f32
+                    x = 0.0
+                    y : f32
+                    y = 1.1
+                    y = x
+
+        bar = bar.fission_after('x = _', n_lifts=2)
+
+def test_lift():
+    @proc
+    def bar(A : i8[16, 10]):
+        for i in par(0, 10):
+            a : i8[16]
+            for k in par(0, 16):
+                a[k] = A[k,i]
+
+    bar = bar.lift_alloc('a: i8[_]', n_lifts=1, mode='col', size=20)
+    print(bar)
+
+
 @pytest.mark.skip
 def test_unify1():
     @proc

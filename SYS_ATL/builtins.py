@@ -96,6 +96,58 @@ class _Relu(BuiltIn):
 relu = _Relu()
 
 
+class _Select(BuiltIn):
+    def __init__(self):
+        super().__init__('select')
+
+    def typecheck(self, args):
+        if len(args) != 4:
+            raise _BErr(f"expected 4 arguments, got {len(args)}")
+
+        atyp    = args[0].type
+        if not atyp.is_real_scalar():
+            raise _BErr(f"expected argument 1 to be a real scalar value, but "+
+                        f"got type {atyp}")
+
+        atyp    = args[1].type
+        if not atyp.is_real_scalar():
+            raise _BErr(f"expected argument 2 to be a real scalar value, but "+
+                        f"got type {atyp}")
+
+        atyp    = args[2].type
+        if not atyp.is_real_scalar():
+            raise _BErr(f"expected argument 3 to be a real scalar value, but "+
+                        f"got type {atyp}")
+
+        atyp    = args[3].type
+        if not atyp.is_real_scalar():
+            raise _BErr(f"expected argument 4 to be a real scalar value, but "+
+                        f"got type {atyp}")
+        return atyp
+
+    def globl(self):
+        s =  ("double _select_(double x, double v, double y, double z) {\n"+
+              "    if (x < v) return y;\n"+
+              "    else return z;\n"+
+              "}\n")
+        return s
+
+    def interpret(self, args):
+        x = args[0]
+        v = args[1]
+        y = args[2]
+        z = args[3]
+        if x < v:
+            return y
+        else:
+            return z
+
+    def compile(self, args):
+        return f"_select_((double)*{args[0]}, (double)*{args[1]}, (double)*{args[2]}, (double)*{args[3]})"
+
+select = _Select()
+
+
 
 
 
