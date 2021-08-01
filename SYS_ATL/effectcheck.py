@@ -875,6 +875,13 @@ class CheckEffects:
             self.err(expr, "expected expression to always be positive. "+
                            f"It can be non positive when: {eg}.")
 
+    def check_non_negative(self, expr):
+        e_nn = SMT.LE( SMT.Int(0), self.expr_to_smt(expr) )
+        if not self.solver.is_valid(e_nn):
+            eg = self.counter_example()
+            self.err(expr, "expected expression to always be non-negative. "+
+                           f"It can be non-negative when: {eg}.")
+
     def check_call_shape_eqv(self, argshp, sigshp, node):
         assert len(argshp) == len(sigshp)
         eqv_dim = SMT.Bool(True)
@@ -909,6 +916,10 @@ class CheckEffects:
                                 E.BinOp("<=", zero, x, T.bool, srcinfo),
                                 E.BinOp("<",  x,   hi, T.bool, srcinfo),
                             T.bool, srcinfo)
+
+                # Check if for-loop bound is non-negative
+                # with the context, before adding assertion
+                self.check_non_negative(lift_expr(stmt.hi))
 
                 self.solver.add_assertion(
                     self.expr_to_smt(bd_pred(stmt.iter, stmt.hi,

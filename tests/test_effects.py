@@ -14,6 +14,57 @@ sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
 # ------- Effect check tests ---------
+
+# For-loop bound non-negative check tests
+@proc
+def test_good_bound1(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
+    for i in par(0, (n + 7) / 8):
+        if n - 8 * i >= 8:
+            pass
+        else:
+            for j in par(0, n - 8 * i):
+                dst[8 * i + j] = src[8 * i + j]
+
+def test_bad_bound1():
+    with pytest.raises(TypeError,
+                       match='Errors occurred during effect checking'):
+        @proc
+        def bar():
+            for i in par(0, -2):
+                pass
+
+def test_bad_bound2():
+    with pytest.raises(TypeError,
+                       match='Errors occurred during effect checking'):
+        @proc
+        def bar(n : size):
+            for i in par(0, n):
+                for j in par(0, i-1):
+                    pass
+
+def test_bad_bound3():
+    with pytest.raises(TypeError,
+                       match='Errors occurred during effect checking'):
+        @proc
+        def bar(n : size):
+            for i in par(0, n):
+                for j in par(0, i-n):
+                    pass
+
+def test_bad_bound4():
+    with pytest.raises(TypeError,
+                       match='Errors occurred during effect checking'):
+        @proc
+        def bar(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
+            for i in par(0, (n + 7) / 8):
+                if n - 8 * i >= 8:
+                    pass
+                else:
+                    for j in par(0, n - 9 * i):
+                        dst[8 * i + j] = src[8 * i + j]
+
+
+
 def test_bad_access1():
     with pytest.raises(TypeError,
                        match='Errors occurred during effect checking'):

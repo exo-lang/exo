@@ -142,7 +142,7 @@ def test_par1():
 
 def test_par2():
     with pytest.raises(TypeError,
-                       match='expected loop bound of type \'int\' or type \'size\''):
+                       match='expected loop bound to be indexable'):
         @proc
         def hoge(x : R):
             for i in par(0, x):

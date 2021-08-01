@@ -196,9 +196,8 @@ class TypeChecker:
                 self.err(stmt.cond, parerr)
 
             hi = self.check_e(stmt.cond.hi)
-            if hi.type != T.err and not hi.type.is_sizeable():
-                self.err(hi, "expected loop bound of type 'int' or "
-                             "type 'size'")
+            if hi.type != T.err and not hi.type.is_indexable():
+                self.err(hi, "expected loop bound to be indexable.")
 
             body = self.check_stmts(stmt.body)
             return [LoopIR.ForAll(stmt.iter, hi, body, None, stmt.srcinfo)]

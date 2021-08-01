@@ -22,7 +22,6 @@ import pytest
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #
 
-
 def test_ldst_i8_16():
   T = GemmTestBuilder('ldst_i8_16')
   T.add_body(['gemm_init_mem();',
