@@ -30,7 +30,12 @@ def test_avx2_memcpy():
         f.write(str(memcpy_avx2))
 
     memcpy_avx2.compile_c(TMP_DIR, basename)
-    library = generate_lib(basename)
+
+    # TODO: -march=native here is a hack. Such flags should be somehow handled automatically.
+    #       Maybe this should be inferred by the use of AVX2, but "native" isn't right anyway.
+    #       We might need a first-class notion of a Target, which has certain memories available.
+    #       Then we can say that e.g. Skylake-X has AVX2, AVX512, etc.
+    library = generate_lib(basename, extra_flags="-march=native")
 
     n = 35
     inp = nparray([float(i) for i in range(n)])
