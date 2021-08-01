@@ -335,7 +335,7 @@ class CheckStrideAsserts:
             if type(p) is LoopIR.StrideAssert:
                 assert p.name in local_env
 
-                if arg.type.is_win():
+                if local_env[p.name].is_win():
                     self.assume_stride(p)
                 else:
                     self.check_stride(p, proc)

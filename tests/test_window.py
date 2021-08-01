@@ -14,6 +14,66 @@ from .helper import *
 
 # ------- Window related tests ---------
 
+def test_input1():
+    @proc
+    def foo(
+        dst1: f32[8] @ DRAM,
+        src1: [f32][8] @ DRAM
+    ):
+        assert stride(src1, 0) == 1
+        assert stride(dst1, 0) == 1
+
+        for i in par(0, 8):
+            dst1[i] = src1[i]
+
+def test_input2():
+    @proc
+    def foo(
+        dst2: [f32][8] @ DRAM,
+        src2: f32[8] @ DRAM
+    ):
+        assert stride(src2, 0) == 1
+        assert stride(dst2, 0) == 1
+
+        for i in par(0, 8):
+            dst2[i] = src2[i]
+
+def test_input3():
+    with pytest.raises(TypeError,
+                       match='stride assert checking'):
+        @proc
+        def foo(
+            dst2: [f32][8] @ DRAM,
+            src2: f32[8] @ DRAM
+        ):
+            assert stride(src2, 0) == 1
+            assert stride(dst2, 0) == 1
+
+            for i in par(0, 8):
+                dst2[i] = src2[i]
+
+        @proc
+        def bar(x : [f32][8]):
+            foo(x, x)
+
+def test_input4():
+    @proc
+    def foo(
+        dst2: [f32][8] @ DRAM,
+        src2: f32[8] @ DRAM
+    ):
+        assert stride(src2, 0) == 1
+        assert stride(dst2, 0) == 1
+
+        for i in par(0, 8):
+            dst2[i] = src2[i]
+
+    @proc
+    def bar(x : [f32][8]):
+        assert stride(x, 0) == 1
+        foo(x, x)
+
+
 def test_window():
     @proc
     def window(
