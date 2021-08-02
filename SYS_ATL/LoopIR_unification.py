@@ -142,7 +142,7 @@ module UEq {
             | Disj( pred* preds )
             | Cases( sym case_var, pred* cases )
             | Eq( expr lhs, expr rhs )
-    
+
     -- affine expressions
     expr  =  Const(int val)
           |  Var( sym name )
@@ -342,7 +342,7 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
 
     def do_e(self, e):
         if ( type(e) is LoopIR.BinOp and
-             (e.op == '%' or e.op == '/') and 
+             (e.op == '%' or e.op == '/') and
              e.type.is_indexable() ):
             # found a mod-div site
             tuple_node = self.tupleify(e)
@@ -441,12 +441,13 @@ class BufVar:
 
     def get_sz_eq(self, UObj):
         assert self.win_dim is not None
-        interval_cases = [ e for e in self.cases if type(e) is not Sym ]
-        assert len(interval_cases) == self.n_dim
         results = []
-        for (lo,hi),sz in zip(interval_cases, self.typ.shape()):
-            diff    = UEq.Add( UEq.Var(hi), UEq.Scale(-1, UEq.Var(lo)) )
-            results += [UEq.Eq( diff, UObj.to_ueq(sz) )]
+        for c in self.cases:
+            intervals = [ i for i in c if type(i) is not Sym ]
+            assert len(intervals) == self.n_dim
+            for (lo,hi),sz in zip(intervals, self.typ.shape()):
+                diff    = UEq.Add( UEq.Var(hi), UEq.Scale(-1, UEq.Var(lo)) )
+                results += [UEq.Eq( diff, UObj.to_ueq(sz) )]
         return results
 
     def all_syms(self):
@@ -829,25 +830,27 @@ class Unification:
             # the resulting window's size-type expressions
             # Guard this to prevent redundant imposition of sizing equations
             if pvar.win_dim is None:
+                pvar.set_buf_solution(bbuf)
                 pvar.set_window_dim(idx_gap)
                 self.equations += pvar.get_sz_eq(self)
 
             # now construct the equations relating the indexing on
             # the two sides of this access in all possible cases
             def case_conj(case_idxs):
-                eqs     = []
-                pidx    = pidx.copy()
+                eqs         = []
+                tmp_pidx    = pidx.copy()
+                assert len(bidx) == len(case_idxs)
                 for bi, wi in zip(bidx,case_idxs):
-                    be  = self.to_ueq(bi)
-                    pe  = None
+                    be      = self.to_ueq(bi)
+                    pe      = None
                     if type(wi) == Sym: # point access from window
                         pe  = UEq.Var(wi)
                     else: # interval access
                         pe  = UEq.Add(UEq.Var(wi[0]),
-                                      self.to_ueq(pidx.pop(0)))
+                                      self.to_ueq(tmp_pidx.pop(0)))
                     eqs.append(UEq.Eq(pe, be))
 
-                assert len(pidx) == 0
+                assert len(tmp_pidx) == 0
                 return UEq.Conj(eqs)
 
             cases = UEq.Cases(pvar.case_var,
@@ -944,8 +947,3 @@ class Unification:
                     self.unify_affine_e(pw.lo, bw.lo)
                     self.unify_affine_e(pw.hi, bw.hi)
         else: assert False, "bad case"
-
-
-
-
-
