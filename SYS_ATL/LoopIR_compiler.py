@@ -623,8 +623,7 @@ class Compiler:
                 idx_expr    = self.get_idx_offset(base, basetyp, idxs)
                 dataptr     = f"{baseptr} + {idx_expr}"
 
-
-            struct_str = f"(struct {win_struct}){{ {dataptr}, {','.join(strides)} }}"
+            struct_str = f"(struct {win_struct}){{ {dataptr}, {{ {','.join(strides)} }} }}"
 
             return struct_str
         elif etyp is LoopIR.Const:
