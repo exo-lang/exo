@@ -355,6 +355,8 @@ def test_matmul_gemmini():
   matmul = matmul.fission_after('a[_] = _', n_lifts=3)
   matmul = matmul.fission_after('b[_] = _', n_lifts=3)
 
+#  matmul = matmul.replace(zero_acc_i32, "for j_in in _:_")
+
   print(matmul)
 
 

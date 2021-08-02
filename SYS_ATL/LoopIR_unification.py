@@ -828,7 +828,7 @@ class Unification:
             # equations relating windowing lo/hi expressions to
             # the resulting window's size-type expressions
             # Guard this to prevent redundant imposition of sizing equations
-            if pvar.wind_dim is None:
+            if pvar.win_dim is None:
                 pvar.set_window_dim(idx_gap)
                 self.equations += pvar.get_sz_eq(self)
 
