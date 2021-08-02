@@ -5,7 +5,7 @@ import sys
 sys.path.append(sys.path[0] + "/..")
 from SYS_ATL import DRAM
 from SYS_ATL.libs.memories import AVX2
-from .x86 import loadu, storeu
+from .x86 import loadu, storeu, mul
 
 sys.path.append(sys.path[0] + "/.")
 from .helper import *
@@ -43,3 +43,38 @@ def test_avx2_memcpy():
         library.memcpy_avx2(n, cvt_c(out), cvt_c(inp))
 
         assert np.array_equal(inp, out)
+
+
+def test_avx2_simple_math():
+    """
+    Compute x = x * y^2
+    """
+
+    @proc
+    def simple_math_avx2(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
+        assert n % 8 == 0
+        for i in par(0, n / 8):
+            xVec: f32[8] @ AVX2
+            yVec: f32[8] @ AVX2
+            loadu(xVec, x[8 * i:8 * i + 8])
+            loadu(yVec, y[8 * i:8 * i + 8])
+            mul(xVec, xVec, yVec)
+            mul(xVec, xVec, yVec)
+            storeu(x[8 * i:8 * i + 8], xVec)
+
+    assert type(simple_math_avx2) is Procedure
+    basename = test_avx2_simple_math.__name__
+
+    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
+        f.write(str(simple_math_avx2))
+
+    simple_math_avx2.compile_c(TMP_DIR, basename)
+    library = generate_lib(basename, extra_flags="-march=native")
+
+    for n in (8, 16, 24, 32, 64, 128):
+        x = nparray([float(i) for i in range(n)])
+        y = nparray([float(3 * i) for i in range(n)])
+        expected = x * y * y
+
+        library.simple_math_avx2(n, cvt_c(x), cvt_c(y))
+        assert np.allclose(x, expected)
