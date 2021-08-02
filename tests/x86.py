@@ -60,3 +60,17 @@ def storeu(
 
     for i in par(0, 8):
         dst[i] = src[i]
+
+
+@instr('{out} = _mm256_mul_ps({x}, {y});')
+def mul(
+    out: f32[8] @ AVX2,
+    x: f32[8] @ AVX2,
+    y: f32[8] @ AVX2
+):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+
+    for i in par(0, 8):
+        out[i] = x[i] * y[i]
