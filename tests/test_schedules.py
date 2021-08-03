@@ -70,7 +70,7 @@ def test_unify1():
     # should be bar(5, y, x)
     print(foo)
 
-@pytest.mark.skip
+#@pytest.mark.skip
 def test_unify2():
     @proc
     def bar(n : size, src : [R][n,n], dst : [R][n,n]):

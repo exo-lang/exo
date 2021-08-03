@@ -49,7 +49,18 @@ class DoReplace(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
         # and then check that all effect-check conditions are
         # still satisfied...
-        CheckEffects(self.proc)
+        try:
+            CheckEffects(self.proc)
+        except TypeError as te:
+            errmsg = te.args[0]
+            premsg = ("After performing a `replace()` operation, the "+
+                      "resulting procedure was not safe, failing an effect-"+
+                      "check.  This may be due to current limitations with "+
+                      "`replace()` or due to an internal compiler bug.  "+
+                      "Regardless, here is the text of the procedure "+
+                      "failing the effect-check:\n"+
+                      str(self.proc)+"\n"+errmsg)
+            raise TypeError(premsg)
 
     def push(self):
         self.live_vars = self.live_vars.new_child()
@@ -257,7 +268,7 @@ def solve(prob):
             return [ SMT.Plus(x,y) for x,y in zip(lhs,rhs) ]
         elif type(e) is UEq.Scale:
             arg = lower_e(e.e)
-            return [ SMT.Times(e.coeff, a) for a in arg ]
+            return [ SMT.Times(SMT.Int(e.coeff), a) for a in arg ]
         else: assert False, "bad case"
 
     def lower_p(p):
@@ -483,16 +494,16 @@ class BufVar:
             win_shape   = []
             for w in case:
                 if type(w) is Sym:
-                    pt = UObj.from_ueq( ueq_solutions[w] )
+                    pt = UObj.from_ueq( ueq_solutions[w], srcinfo )
                     idx.append(LoopIR.Point(pt, srcinfo))
                 else:
-                    lo = UObj.from_ueq( ueq_solutions[w[0]] )
-                    hi = UObj.from_ueq( ueq_solutions[w[1]] )
+                    lo = UObj.from_ueq( ueq_solutions[w[0]], srcinfo )
+                    hi = UObj.from_ueq( ueq_solutions[w[1]], srcinfo )
                     idx.append(LoopIR.Interval(lo, hi, srcinfo))
                     win_shape.append(subtract(hi,lo))
 
-            as_tensor   = T.Tensor(window_shape, True, buf_typ.type)
-            w_typ       = T.Window(buf_typ, self.typ, buf, idx)
+            as_tensor   = T.Tensor(win_shape, True, buf_typ.type)
+            w_typ       = T.Window(buf_typ, as_tensor, buf, idx)
             return LoopIR.WindowExpr(buf, idx, w_typ, srcinfo)
 
 
@@ -594,7 +605,8 @@ class Unification:
         # construct the solution arguments
         def get_arg(fa):
             if fa.type.is_indexable():
-                return self.from_ueq(solutions[fa.name])
+                return self.from_ueq(solutions[fa.name],
+                                     stmt_block[0].srcinfo)
             else:
                 assert fa.type.is_numeric()
                 bufvar  = self.buf_holes[fa.name]
