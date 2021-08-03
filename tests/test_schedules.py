@@ -52,7 +52,6 @@ def test_lift():
     print(bar)
 
 
-#@pytest.mark.skip
 def test_unify1():
     @proc
     def bar(n : size, src : R[n,n], dst : R[n,n]):
@@ -70,7 +69,6 @@ def test_unify1():
     # should be bar(5, y, x)
     print(foo)
 
-#@pytest.mark.skip
 def test_unify2():
     @proc
     def bar(n : size, src : [R][n,n], dst : [R][n,n]):
@@ -88,7 +86,6 @@ def test_unify2():
     # should be bar(5, y[5:10,2:7], x[3:8,1:6])
     print(foo)
 
-@pytest.mark.skip
 def test_unify3():
     @proc
     def simd_add4(dst : [R][4], a : [R][4], b : [R][4]):
@@ -103,23 +100,22 @@ def test_unify3():
             for j in par(0,4):
                 z[4*i + j] = x[4*i + j] + y[4*i + j]
 
-    foo = foo.replace(bar, "for j in _ : _")
-    # should be simd_add4(z[i:i+4], x[i:i+4], y[i:i+4])
+    foo = foo.replace(simd_add4, "for j in _ : _")
+    # should be simd_add4(z[4*i:4*i+4], x[4*i:4*i+4], y[4*i:4*i+4])
     print(foo)
 
-@pytest.mark.skip
 def test_unify4():
     @proc
-    def bar(n : size, src : [R][n]):
+    def bar(n : size, src : [R][n], dst : [R][n]):
         for i in par(0,n):
             if i < n-2:
-                kurage(src[i:i+2])
+                dst[i] = src[i] + src[i+1]
 
     @proc
-    def foo(x : R[50, 1]):
+    def foo(x : R[50, 2]):
         for j in par(0,50):
             if j < 48:
-                kurage(x[j:j+2, 0])
+                x[j,1] = x[j,0] + x[j+1,0]
 
     foo = foo.replace(bar, "for j in _ : _")
     # should be bar(50, x[:, 0])
