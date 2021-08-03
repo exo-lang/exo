@@ -707,8 +707,8 @@ class FreeVars(LoopIR_Do):
 
     def do_t(self, t):
         if type(t) is T.Window:
-            if t.name not in self.env:
-                self.fv.add(t.name)
+            if t.src_buf not in self.env:
+                self.fv.add(t.src_buf)
 
         super().do_t(t)
 
