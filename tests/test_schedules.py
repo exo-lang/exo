@@ -124,3 +124,61 @@ def test_unify4():
     foo = foo.replace(bar, "for j in _ : _")
     # should be bar(50, x[:, 0])
     print(foo)
+
+def test_unify5():
+    @proc
+    def bar(n : size, src : R[n,n], dst : R[n,n]):
+        for i in par(0,n):
+            for j in par(0,n):
+                tmp : f32
+                tmp = src[i,j]
+                dst[i,j] = tmp
+
+    @proc
+    def foo(x : R[5,5], y : R[5,5]):
+        for i in par(0,5):
+            for j in par(0,5):
+                c : f32
+                c = y[i,j]
+                x[i,j] = c
+
+    foo = foo.replace(bar, "for i in _ : _")
+    # should be bar(5, y, x)
+    print(foo)
+
+
+# TODO: failing due to effect check error!
+# This code gets unified to two versions
+# load(16, 16, A[16 * k + 0:16 * k + 16, 0:16], a[16 * k + 0:16 * k + 16, -16 * k + 0:-16 * k + 16])
+# load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])
+@pytest.mark.skip()
+def test_unify6():
+    @proc
+    def load(
+        n     : size,
+        m     : size,
+        src   : [i8][n, m],
+        dst   : [i8][n, 16],
+    ):
+        assert n <= 16
+        assert m <= 16
+
+        for i in par(0, n):
+            for j in par(0, m):
+                dst[i,j] = src[i,j]
+
+    @proc
+    def bar(K: size, A: [i8][16, K] @ DRAM):
+
+        for k in par(0, K / 16):
+            a: i8[16, 16] @ DRAM
+            for k_in in par(0, 16):
+                for i in par(0, 16):
+                    a[i, k_in] = A[i, 16 * k + k_in]
+
+    bar = bar.replace(load, "for k_in in _:_")
+    print(bar)
+
+
+
+

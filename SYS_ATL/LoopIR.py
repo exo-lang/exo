@@ -691,7 +691,7 @@ class FreeVars(LoopIR_Do):
             self.do_eff(s.eff)
             return
         elif styp is LoopIR.Alloc:
-            self.env[s.iter] = True
+            self.env[s.name] = True
 
         super().do_s(s)
 
