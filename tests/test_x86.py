@@ -12,6 +12,10 @@ from .helper import *
 
 
 def test_avx2_memcpy():
+    """
+    Compute dst = src
+    """
+
     @proc
     def memcpy_avx2(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, (n + 7) / 8):
@@ -23,7 +27,6 @@ def test_avx2_memcpy():
                 for j in par(0, n - 8 * i):
                     dst[8 * i + j] = src[8 * i + j]
 
-    assert type(memcpy_avx2) is Procedure
     basename = test_avx2_memcpy.__name__
 
     with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
@@ -62,7 +65,6 @@ def test_avx2_simple_math():
             mul(xVec, xVec, yVec)
             storeu(x[8 * i:8 * i + 8], xVec)
 
-    assert type(simple_math_avx2) is Procedure
     basename = test_avx2_simple_math.__name__
 
     with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
@@ -78,3 +80,32 @@ def test_avx2_simple_math():
 
         library.simple_math_avx2(n, cvt_c(x), cvt_c(y))
         assert np.allclose(x, expected)
+
+
+def test_avx2_sgemm_base():
+    """
+    compute C += A*B
+    """
+
+    @proc
+    def sgemm_base(
+        m: size,
+        n: size,
+        p: size,
+        A: f32[m, p] @ DRAM,
+        B: f32[p, n] @ DRAM,
+        C: f32[m, n] @ DRAM,
+    ):
+        for i in par(0, m):
+            for j in par(0, n):
+                for k in par(0, p):
+                    C[i, j] += A[i, k] * B[k, j]
+
+    basename = test_avx2_sgemm_base.__name__
+
+    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
+        code = str(sgemm_base)
+        print(f'\n\n{code}')
+        f.write(code)
+
+    sgemm_base.compile_c(TMP_DIR, basename)
