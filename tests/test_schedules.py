@@ -67,8 +67,8 @@ def test_unify1():
                 x[i,j] = y[i,j]
 
     foo = foo.replace(bar, "for i in _ : _")
-    # should be bar(5, y, x)
     print(foo)
+    assert 'bar(5, y, x)' in str(foo)
 
 #@pytest.mark.skip
 def test_unify2():
@@ -85,8 +85,8 @@ def test_unify2():
                 x[i+3,j+1] = y[i+5,j+2]
 
     foo = foo.replace(bar, "for i in _ : _")
-    # should be bar(5, y[5:10,2:7], x[3:8,1:6])
     print(foo)
+    assert 'bar(5, y[5:10, 2:7], x[3:8, 1:6])' in str(foo)
 
 @pytest.mark.skip
 def test_unify3():
@@ -103,7 +103,7 @@ def test_unify3():
             for j in par(0,4):
                 z[4*i + j] = x[4*i + j] + y[4*i + j]
 
-    foo = foo.replace(bar, "for j in _ : _")
+    foo = foo.replace(simd_add4, "for j in _ : _")
     # should be simd_add4(z[i:i+4], x[i:i+4], y[i:i+4])
     print(foo)
 
@@ -143,8 +143,8 @@ def test_unify5():
                 x[i,j] = c
 
     foo = foo.replace(bar, "for i in _ : _")
-    # should be bar(5, y, x)
     print(foo)
+    assert 'bar(5, y, x)' in str(foo)
 
 
 # TODO: failing due to effect check error!
@@ -178,7 +178,3 @@ def test_unify6():
 
     bar = bar.replace(load, "for k_in in _:_")
     print(bar)
-
-
-
-
