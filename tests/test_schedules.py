@@ -66,8 +66,8 @@ def test_unify1():
                 x[i,j] = y[i,j]
 
     foo = foo.replace(bar, "for i in _ : _")
-    # should be bar(5, y, x)
     print(foo)
+    assert 'bar(5, y, x)' in str(foo)
 
 def test_unify2():
     @proc
@@ -83,8 +83,8 @@ def test_unify2():
                 x[i+3,j+1] = y[i+5,j+2]
 
     foo = foo.replace(bar, "for i in _ : _")
-    # should be bar(5, y[5:10,2:7], x[3:8,1:6])
     print(foo)
+    assert 'bar(5, y[5:10, 2:7], x[3:8, 1:6])' in str(foo)
 
 def test_unify3():
     @proc
@@ -118,5 +118,56 @@ def test_unify4():
                 x[j,1] = x[j,0] + x[j+1,0]
 
     foo = foo.replace(bar, "for j in _ : _")
-    # should be bar(50, x[:, 0])
+    # should be bar(50, x[:, 0], x[:, 1])
     print(foo)
+
+def test_unify5():
+    @proc
+    def bar(n : size, src : R[n,n], dst : R[n,n]):
+        for i in par(0,n):
+            for j in par(0,n):
+                tmp : f32
+                tmp = src[i,j]
+                dst[i,j] = tmp
+
+    @proc
+    def foo(x : R[5,5], y : R[5,5]):
+        for i in par(0,5):
+            for j in par(0,5):
+                c : f32
+                c = y[i,j]
+                x[i,j] = c
+
+    foo = foo.replace(bar, "for i in _ : _")
+    print(foo)
+    assert 'bar(5, y, x)' in str(foo)
+
+
+#@pytest.mark.skip()
+def test_unify6():
+    @proc
+    def load(
+        n     : size,
+        m     : size,
+        src   : [i8][n, m],
+        dst   : [i8][n, 16],
+    ):
+        assert n <= 16
+        assert m <= 16
+
+        for i in par(0, n):
+            for j in par(0, m):
+                dst[i,j] = src[i,j]
+
+    @proc
+    def bar(K: size, A: [i8][16, K] @ DRAM):
+
+        for k in par(0, K / 16):
+            a: i8[16, 16] @ DRAM
+            for i in par(0, 16):
+                for k_in in par(0, 16):
+                    a[i, k_in] = A[i, 16 * k + k_in]
+
+    bar = bar.replace(load, "for i in _:_")
+    # should be load(16, 16, A[:, 16*k : 16*k + 16], a[:,:])
+    print(bar)

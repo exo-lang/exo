@@ -371,14 +371,14 @@ def solve(prob):
             x_val_dict  = solver.get_py_values(x_syms)
             x_vals      = [ x_val_dict[x_sym] for x_sym in x_syms ]
             expr        = None
-            for x,v in zip(known_list, x_vals):
+            for xx,v in zip(known_list, x_vals):
                 v = int(v)
                 if v == 0:
                     continue
                 elif v == 1:
-                    term = UEq.Var(x)
+                    term = UEq.Var(xx)
                 else:
-                    term = UEq.Scale(v, UEq.Var(x))
+                    term = UEq.Scale(v, UEq.Var(xx))
 
                 expr = term if expr is None else UEq.Add(expr, term)
 
