@@ -313,7 +313,8 @@ def test_matmul_gemmini():
   matmul = matmul.reorder('i_in','j')
   matmul = matmul.split('j',16,['j','j_in'], tail='cut_and_guard')
 
-  matmul = matmul.lift_alloc('res : _ #0', n_lifts=2)
+  matmul = matmul.lift_alloc('res : _ #0', n_lifts=1)
+  matmul = matmul.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16)
   matmul = matmul.fission_after('res[_] = 0.0 #0', n_lifts=2)
   matmul = matmul.lift_alloc('res : _ #1', n_lifts=1)
   matmul = matmul.lift_alloc('res : _ #1', n_lifts=1, mode='col', size=16)
@@ -352,14 +353,15 @@ def test_matmul_gemmini():
   matmul = matmul.fission_after('a[_] = _', n_lifts=3)
   matmul = matmul.fission_after('b[_] = _', n_lifts=3)
 
-  matmul = matmul.replace(zero_acc_i32, "for j_in in _:_ #0")
+  matmul = matmul.reorder('j_in','i_in')
+  matmul = matmul.replace(zero_acc_i32, "for i_in in _:_ #0")
   matmul = matmul.reorder('k_in','i_in')
   matmul = matmul.replace(ld_i8, "for i_in in _:_ #0")
   matmul = matmul.replace(ld_i8, "for k_in in _:_ #0")
-  matmul = matmul.reorder('j_in','i_in')
-  matmul = matmul.reorder('k_in','i_in')
   matmul = matmul.reorder('k_in','j_in')
-  matmul = matmul.replace(matmul_acc_i8, "for i_in in _:_")
+  matmul = matmul.replace(matmul_acc_i8, "for i_in in _:_ #0")
+
+  matmul = matmul.replace(ld_i8, "for i_in in _:_ #0")
 
   print(matmul)
 

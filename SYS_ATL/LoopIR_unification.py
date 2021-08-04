@@ -593,8 +593,8 @@ class Unification:
                                 BufVar(fa.name, fa.type, fa.type.is_win())
                                 for fa in subproc.args
                                 if fa.type.is_numeric() }
-        assert all( fa.type != T.bool for fa in subproc.args ), (""+
-                    "code needs extension to handle boolean variables")
+        self.bool_holes     = { fa.name : False for fa in subproc.args
+                                                if fa.type == T.bool }
 
         # keep track of all buffer names we might need to unify,
         # not just the unknown arguments, but also temporary allocated bufs
@@ -679,6 +679,12 @@ class Unification:
             if fa.type.is_indexable():
                 return self.from_ueq(solutions[fa.name],
                                      stmt_block[0].srcinfo)
+            elif fa.type == T.bool:
+                if fa.name in self.bool_holes:
+                    return self.bool_holes[fa.name]
+                else:
+                    # doesn't matter; argument un-used
+                    return LoopIR.Const(True, T.bool, stmt_block[0].srcinfo)
             else:
                 assert fa.type.is_numeric()
                 bufvar  = self.buf_holes[fa.name]
@@ -692,7 +698,6 @@ class Unification:
 
     def result(self):
         return self.new_args
-
 
     # ----------
 
@@ -758,9 +763,67 @@ class Unification:
 
     # ----------
 
+    def all_bound_e(self, be):
+        if type(be) is LoopIR.Read:
+            if be.name not in self.FV:
+                return False
+            return all( self.all_bound_e(i) for i in e.idx )
+        elif type(be) is LoopIR.Const:
+            return True
+        elif type(be) is LoopIR.USub:
+            return self.all_bound_e(e.arg)
+        elif type(be) is LoopIR.BinOp:
+            return self.all_bound_e(e.lhs) and self.all_bound_e(e.rhs)
+        elif type(be) is LoopIR.BuiltIn:
+            return all( self.all_bound_e(a) for a in e.args )
+        else: assert False, "unsupported case"
+
+    def is_exact_e(self, e0, e1):
+        if type(e0) != type(e1):
+            return False
+        elif type(e0) is LoopIR.Read:
+            return (e0.name == e1.name and
+                    all( self.is_exact_e(i0, i1)
+                         for i0,i1 in zip(e0.idx,e1.idx) ))
+        elif type(e0) is LoopIR.Const:
+            return e0.val == e1.val
+        elif type(e0) is LoopIR.USub:
+            return self.is_exact_e(e0.arg, e1.arg)
+        elif type(e0) is LoopIR.BinOp:
+            return (e0.op == e1.op and
+                    self.is_exact_e(e0.lhs, e1.lhs) and
+                    self.is_exact_e(e0.rhs, e1.rhs))
+        elif type(e0) is LoopIR.BuiltIn:
+            return (e0.f == e1.f and
+                    all( self.is_exact_e(a0, a1)
+                         for a0,a1 in zip(e0.args,e1.args) ))
+        else: assert False, "unsupported case"
+
+    # ----------
+
     def unify_affine_e(self, pa, ba):
         self.equations.append(UEq.Eq( self.to_ueq(pa,in_subproc=True),
                                       self.to_ueq(ba) ))
+
+    def unify_bool_hole(self, pe, be):
+        assert pe.type == be.type == T.bool
+        assert type(pe) is LoopIR.Read and pe.name in self.bool_holes
+
+        if not self.all_bound_e(be):
+            raise UnificationError(f""+
+                f"Cannot unify expression {be} (@{be.srcinfo}) with the "+
+                f"boolean argument {pe.name} because it contains "+
+                f"variables that are not free in the code being replaced")
+
+        # if we haven't yet unified this name with an expression
+        lookup = self.bool_holes[pe.name]
+        if lookup is False:
+            self.bool_holes[pe.name] = be
+        elif not self.is_exact_e(be, lookup):
+            raise UnificationError(f""+
+                f"Cannot unify the boolean argument {pe.name} with two "+
+                f"seemingly inequivalent expressions "+
+                f"{be} (@{be.srcinfo}) and {lookup} (@{lookup.srcinfo})")
 
     def unify_stmts(self, proc_s, block_s):
         if len(proc_s) != len(block_s):
@@ -966,13 +1029,19 @@ class Unification:
                 f"type {bt} (@{bnode.srcinfo})")
 
     def unify_e(self, pe, be):
-        if pe.type.is_indexable() != be.type.is_indexable():
+        if (pe.type.is_indexable() != be.type.is_indexable() or
+            (pe.type == T.bool) != (be.type == T.bool)):
             raise UnificationError(f""+
-                f"expected expressions (@{pe.srcinfo} vs. @{be.srcinfo}) "+
+                f"expected expressions "+
+                f"({pe} @{pe.srcinfo} vs. {be} @{be.srcinfo}) "+
                 f"to have similar types")
         elif pe.type.is_indexable():
             # convert to an equality
             self.unify_affine_e(pe, be)
+            return
+        elif (pe.type == T.bool and type(pe) is LoopIR.Read
+                                and pe.name in self.bool_holes):
+            self.unify_bool_hole(pe, be)
             return
 
         if type(pe) != type(be):
