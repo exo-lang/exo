@@ -98,11 +98,12 @@ class _Reorder(LoopIR_Rewrite):
             body_eff    = get_effect_of_stmts(body)
             # blah
             inner_eff   = do_bind(s.iter, s.hi, body_eff)
+            outer_eff   = do_bind(s.body[0].iter, s.body[0].hi, inner_eff)
             return [LoopIR.ForAll(s.body[0].iter, s.body[0].hi,
                         [LoopIR.ForAll(s.iter, s.hi,
                             body,
                             inner_eff, s.srcinfo)],
-                        s.body[0].eff, s.body[0].srcinfo)]
+                        outer_eff, s.body[0].srcinfo)]
 
         # fall-through
         return super().map_s(s)
