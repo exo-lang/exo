@@ -274,42 +274,14 @@ def matmul_acc_i8(
     assert M <= 16
     assert K <= 16
 
-    tmp_A : i8[16,16] @ GEMM_SCRATCH
-    for i in par(0,16):
-        for j in par(0,16):
-            tmp_A[i,j] = 0.0
-    if trans_a:
-        for i in par(0,16):
-            for j in par(0,16):
-                if j < N:
-                    tmp_A[i,j] = A[j,i]
-    else:
-        for i in par(0,N):
-            for j in par(0,16):
-                tmp_A[i,j] = A[i,j]
-
-    tmp_B : i8[16,16] @ GEMM_SCRATCH
-    for i in par(0,16):
-        for j in par(0,16):
-            tmp_B[i,j] = 0.0
-    if trans_b:
-        for i in par(0,16):
-            for j in par(0,16):
-                if j < K:
-                    tmp_B[i,j] = B[j,i]
-    else:
-        for i in par(0,K):
-            for j in par(0,16):
-                tmp_B[i,j] = B[i,j]
-
     for i in par(0,N):
         for j in par(0,M):
             for k in par(0,K):
                 a : i32
                 b : i32
 
-                a = tmp_A[i,k]
-                b = tmp_B[k,j]
+                a = A[i,k]
+                b = B[k,j]
 
                 C[i, j] += a * b
 

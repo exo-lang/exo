@@ -355,6 +355,11 @@ def test_matmul_gemmini():
   matmul = matmul.replace(zero_acc_i32, "for j_in in _:_ #0")
   matmul = matmul.reorder('k_in','i_in')
   matmul = matmul.replace(ld_i8, "for i_in in _:_ #0")
+  matmul = matmul.replace(ld_i8, "for k_in in _:_ #0")
+  matmul = matmul.reorder('j_in','i_in')
+  matmul = matmul.reorder('k_in','i_in')
+  matmul = matmul.reorder('k_in','j_in')
+  matmul = matmul.replace(matmul_acc_i8, "for i_in in _:_")
 
   print(matmul)
 
