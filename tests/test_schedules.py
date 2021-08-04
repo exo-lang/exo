@@ -52,7 +52,6 @@ def test_lift():
     print(bar)
 
 
-#@pytest.mark.skip
 def test_unify1():
     @proc
     def bar(n : size, src : R[n,n], dst : R[n,n]):
@@ -70,7 +69,6 @@ def test_unify1():
     print(foo)
     assert 'bar(5, y, x)' in str(foo)
 
-#@pytest.mark.skip
 def test_unify2():
     @proc
     def bar(n : size, src : [R][n,n], dst : [R][n,n]):
@@ -88,7 +86,6 @@ def test_unify2():
     print(foo)
     assert 'bar(5, y[5:10, 2:7], x[3:8, 1:6])' in str(foo)
 
-@pytest.mark.skip
 def test_unify3():
     @proc
     def simd_add4(dst : [R][4], a : [R][4], b : [R][4]):
@@ -104,25 +101,24 @@ def test_unify3():
                 z[4*i + j] = x[4*i + j] + y[4*i + j]
 
     foo = foo.replace(simd_add4, "for j in _ : _")
-    # should be simd_add4(z[i:i+4], x[i:i+4], y[i:i+4])
+    # should be simd_add4(z[4*i:4*i+4], x[4*i:4*i+4], y[4*i:4*i+4])
     print(foo)
 
-@pytest.mark.skip
 def test_unify4():
     @proc
-    def bar(n : size, src : [R][n]):
+    def bar(n : size, src : [R][n], dst : [R][n]):
         for i in par(0,n):
             if i < n-2:
-                kurage(src[i:i+2])
+                dst[i] = src[i] + src[i+1]
 
     @proc
-    def foo(x : R[50, 1]):
+    def foo(x : R[50, 2]):
         for j in par(0,50):
             if j < 48:
-                kurage(x[j:j+2, 0])
+                x[j,1] = x[j,0] + x[j+1,0]
 
     foo = foo.replace(bar, "for j in _ : _")
-    # should be bar(50, x[:, 0])
+    # should be bar(50, x[:, 0], x[:, 1])
     print(foo)
 
 def test_unify5():
@@ -147,11 +143,7 @@ def test_unify5():
     assert 'bar(5, y, x)' in str(foo)
 
 
-# TODO: failing due to effect check error!
-# This code gets unified to two versions
-# load(16, 16, A[16 * k + 0:16 * k + 16, 0:16], a[16 * k + 0:16 * k + 16, -16 * k + 0:-16 * k + 16])
-# load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])
-@pytest.mark.skip()
+#@pytest.mark.skip()
 def test_unify6():
     @proc
     def load(
@@ -172,9 +164,10 @@ def test_unify6():
 
         for k in par(0, K / 16):
             a: i8[16, 16] @ DRAM
-            for k_in in par(0, 16):
-                for i in par(0, 16):
+            for i in par(0, 16):
+                for k_in in par(0, 16):
                     a[i, k_in] = A[i, 16 * k + k_in]
 
-    bar = bar.replace(load, "for k_in in _:_")
+    bar = bar.replace(load, "for i in _:_")
+    # should be load(16, 16, A[:, 16*k : 16*k + 16], a[:,:])
     print(bar)

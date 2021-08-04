@@ -1,3 +1,31 @@
+static void tiled_conv_A_stride_auto(
+        int batch_size, int in_dim, int in_channels,
+        int out_channels, int out_dim,
+        int stride,
+        //int input_dilation, == 1??
+        //int kernel_dilation, == 1
+        int padding,
+        int kernel_dim,
+        //bool wrot180,
+        //bool trans_output_1203,
+        //bool trans_input_3120,
+        //bool trans_weight_1203,
+        //bool trans_weight_0132,
+
+        const elem_t * input,
+        const elem_t * weights,
+        const acc_t * bias,
+        elem_t * output,
+
+        int act, 
+        acc_scale_t scale, // output
+        //size_t relu6_shift, == 0
+        int pool_size, // pool window
+        int pool_stride,
+        int pool_padding,
+
+        enum tiled_matmul_type_t tiled_conv_type) {
+                }
 
 
     for i in par(0, N / 16):

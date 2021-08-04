@@ -171,6 +171,7 @@ int main() {
       exit(1);
     }
 #endif
+    gemmini_flush(0);
 
   exit(0);
 }

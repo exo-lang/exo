@@ -207,6 +207,7 @@ def _str_upred(p, prec=0):
     else: assert False, "bad case"
 
 @extclass(UEq.Conj)
+@extclass(UEq.Cases)
 @extclass(UEq.Disj)
 @extclass(UEq.Eq)
 def __str__(self):
@@ -225,12 +226,73 @@ del __str__
 # -------------------------------------- #
 # How to solve this system of equations
 
+@extclass(UEq.expr)
+def normalize(orig_e):
+    def to_nform(e):
+        if type(e) is UEq.Const:
+            return [], e.val
+        elif type(e) is UEq.Var:
+            return [(1,e.name)], 0
+        elif type(e) is UEq.Add:
+            xcs, xoff = to_nform(e.lhs)
+            ycs, yoff = to_nform(e.rhs)
+            def merge(xcs=xcs,ycs=ycs):
+                xi, yi  = 0,0
+                res     = []
+                while xi<len(xcs) and yi<len(ycs):
+                    (xc,xv), (yc,yv) = xcs[xi], ycs[yi]
+                    if xv < yv:
+                        res.append( (xc,xv) )
+                        xi += 1
+                    elif yv < xv:
+                        res.append( (yc,yv) )
+                        yi += 1
+                    else:
+                        if xc + yc != 0:
+                            res.append( (xc + yc, xv) )
+                        xi += 1
+                        yi += 1
+                if xi == len(xcs):
+                    res += ycs[yi:]
+                elif yi == len(ycs):
+                    res += xcs[xi:]
+                else: assert False, "bad iteration"
+                return res
+            return merge(), xoff + yoff
+        elif type(e) is UEq.Scale:
+            if e.coeff == 0:
+                return [], 0
+            cs, off = to_nform(e.e)
+            return [ (e.coeff * c, v) for (c,v) in cs ], e.coeff*off
+        else: assert False, "bad case"
+    def from_nform(cs, off):
+        e = None
+        for (c,v) in cs:
+            assert c != 0
+            t = UEq.Var(v)
+            t = t if c == 1 else UEq.Scale(c,t)
+            e = t if e is None else UEq.Add(e,t)
+        if e is None:
+            return UEq.Const(off)
+        elif off == 0:
+            return e
+        else:
+            return UEq.Add(e, UEq.Const(off))
+
+    cs, off = to_nform(orig_e)
+    return from_nform(cs, off)
+
+@extclass(UEq.expr)
+def sub(x,y):
+    return UEq.Add(x, UEq.Scale(-1,y))
+
 @extclass(UEq.problem)
 def solve(prob):
     solver      = _get_smt_solver()
 
     known_list  = prob.knowns
     known_idx   = { k : i for i,k in enumerate(known_list) }
+    hole_idx    = { k : i for i,k in enumerate(prob.holes) }
     Nk          = len(known_list)
 
     var_set     = dict()
@@ -260,8 +322,12 @@ def solve(prob):
                 one_hot = [SMT.Int(0)] * (Nk+1)
                 one_hot[known_idx[e.name]] = SMT.Int(1)
                 return one_hot
-            else:
+            elif e.name in hole_idx:
                 return get_var(e.name)
+            else:
+                raise UnificationError(f""+
+                    f"Unable to cancel variable '{e.name}' from both sides "+
+                    f"of a unification equation")
         elif type(e) is UEq.Add:
             lhs = lower_e(e.lhs)
             rhs = lower_e(e.rhs)
@@ -273,9 +339,12 @@ def solve(prob):
 
     def lower_p(p):
         if type(p) is UEq.Eq:
-            lhs = lower_e(p.lhs)
-            rhs = lower_e(p.rhs)
-            return SMT.And(*[ SMT.Equals(x,y) for x,y in zip(lhs,rhs) ])
+            diff    = p.lhs.sub(p.rhs).normalize()
+            try:
+                es      = lower_e(diff)
+                return SMT.And(*[ SMT.Equals(x,SMT.Int(0)) for x in es ])
+            except UnificationError:
+                return SMT.FALSE()
         elif type(p) is UEq.Conj:
             return SMT.And(*[ lower_p(pp) for pp in p.preds ])
         elif type(p) is UEq.Disj:
@@ -297,8 +366,8 @@ def solve(prob):
         return None
     else:
         solutions = dict()
-        for x in prob.holes:
-            x_syms      = get_var(x)
+        for hole_var in prob.holes:
+            x_syms      = get_var(hole_var)
             x_val_dict  = solver.get_py_values(x_syms)
             x_vals      = [ x_val_dict[x_sym] for x_sym in x_syms ]
             expr        = None
@@ -317,7 +386,7 @@ def solve(prob):
             off     = UEq.Const(int(x_vals[-1]))
             expr    = off if expr is None else UEq.Add(expr, off)
 
-            solutions[x] = expr
+            solutions[hole_var] = expr
 
         # report on case decisions
         for x in case_set:
@@ -574,6 +643,9 @@ class Unification:
         self.node_syms, self.sym_nodes = _Find_Mod_Div_Symbols(stmt_block,
                                                         self.FV).result()
 
+        # substitutions to do of intermediate indexing variables
+        self.idx_subst      = dict()
+
         # TODO: Asserts
         # We don't have inequality in EQs IR
 
@@ -628,7 +700,9 @@ class Unification:
         insp = in_subproc
         if type(e) is LoopIR.Read:
             assert len(e.idx) == 0
-            return UEq.Var(e.name)
+            name = (self.idx_subst[e.name] if e.name in self.idx_subst else
+                    e.name)
+            return UEq.Var(name)
         elif type(e) is LoopIR.Const:
             return UEq.Const(e.val)
         elif type(e) is LoopIR.USub:
@@ -719,7 +793,7 @@ class Unification:
             self.unify_stmts(ps.orelse, bs.orelse)
         elif type(ps) is LoopIR.ForAll:
             # BINDING
-            self.equations.append(UEq.Eq( UEq.Var(ps.iter), UEq.Var(bs.iter) ))
+            self.idx_subst[ps.iter] = bs.iter
             self.unify_e(ps.hi, bs.hi)
             self.unify_stmts(ps.body, bs.body)
         elif type(ps) is LoopIR.Alloc:
