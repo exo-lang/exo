@@ -352,8 +352,9 @@ def test_matmul_gemmini():
   matmul = matmul.fission_after('a[_] = _', n_lifts=3)
   matmul = matmul.fission_after('b[_] = _', n_lifts=3)
 
-  #matmul = matmul.replace(zero_acc_i32, "for j_in in _:_")
-  #matmul = matmul.replace(ld_i8, "for k_in in _:_")
+  matmul = matmul.replace(zero_acc_i32, "for j_in in _:_ #0")
+  matmul = matmul.reorder('k_in','i_in')
+  matmul = matmul.replace(ld_i8, "for i_in in _:_ #0")
 
   print(matmul)
 
