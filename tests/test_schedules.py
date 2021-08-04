@@ -13,6 +13,7 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
+
 def test_fission():
     @proc
     def bar(n : size, m : size):
@@ -24,6 +25,7 @@ def test_fission():
                 y = 1.1
 
     bar = bar.fission_after('x = _', n_lifts=2)
+
 
 def test_fission2():
     with pytest.raises(Exception,
@@ -39,6 +41,7 @@ def test_fission2():
                     y = x
 
         bar = bar.fission_after('x = _', n_lifts=2)
+
 
 def test_lift():
     @proc
@@ -69,6 +72,7 @@ def test_unify1():
     print(foo)
     assert 'bar(5, y, x)' in str(foo)
 
+
 def test_unify2():
     @proc
     def bar(n : size, src : [R][n,n], dst : [R][n,n]):
@@ -86,6 +90,7 @@ def test_unify2():
     print(foo)
     assert 'bar(5, y[5:10, 2:7], x[3:8, 1:6])' in str(foo)
 
+
 def test_unify3():
     @proc
     def simd_add4(dst : [R][4], a : [R][4], b : [R][4]):
@@ -101,8 +106,14 @@ def test_unify3():
                 z[4*i + j] = x[4*i + j] + y[4*i + j]
 
     foo = foo.replace(simd_add4, "for j in _ : _")
-    # should be simd_add4(z[4*i:4*i+4], x[4*i:4*i+4], y[4*i:4*i+4])
     print(foo)
+
+    expected = '''
+        simd_add4(z[4 * i + 0:4 * i + 4], x[4 * i + 0:4 * i + 4],
+                  y[4 * i + 0:4 * i + 4])
+'''
+    assert expected in str(foo)
+
 
 def test_unify4():
     @proc
@@ -118,8 +129,9 @@ def test_unify4():
                 x[j,1] = x[j,0] + x[j+1,0]
 
     foo = foo.replace(bar, "for j in _ : _")
-    # should be bar(50, x[:, 0], x[:, 1])
     print(foo)
+    assert 'bar(50, x[0:50, 0], x[0:50, 1])' in str(foo)
+
 
 def test_unify5():
     @proc
@@ -143,7 +155,6 @@ def test_unify5():
     assert 'bar(5, y, x)' in str(foo)
 
 
-#@pytest.mark.skip()
 def test_unify6():
     @proc
     def load(
@@ -169,5 +180,5 @@ def test_unify6():
                     a[i, k_in] = A[i, 16 * k + k_in]
 
     bar = bar.replace(load, "for i in _:_")
-    # should be load(16, 16, A[:, 16*k : 16*k + 16], a[:,:])
     print(bar)
+    assert 'load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])' in str(bar)
