@@ -90,6 +90,7 @@ def test_avx2_simple_math_scheduling():
     @proc
     def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, n):
+            # TODO: replace this with x[i] = x[i] * y[i] * y[i] and then use bind_expr
             x[i] = x[i] * y[i]
             x[i] = x[i] * y[i]
 
@@ -119,11 +120,17 @@ def test_avx2_simple_math_scheduling():
     simple_math_avx2_scheduling = simple_math_avx2_scheduling.split('i', 8, ['io', 'ii'], tail='cut_and_guard')
     simple_math_avx2_scheduling = simple_math_avx2_scheduling.fission_after('x[_] = _ #0')
 
+    print()
+    print()
+    print(simple_math_avx2_scheduling)
+    print()
+
     # TODO: need a scheduling directive that stages memory.
     simple_math_avx2_scheduling = pre_bake_staged_memory(simple_math_avx2_scheduling)
 
     simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('xVec', AVX2)
     simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('yVec', AVX2)
+    # TODO: add "replace all" or "replace many" directive
     simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace(loadu, 'for ii in _: _ #0')
     simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace(loadu, 'for ii in _: _ #0')
     simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace(mul, 'for ii in _: _ #0')
