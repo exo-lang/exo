@@ -20,7 +20,7 @@ def _get_smt_solver():
     return pysmt.shortcuts.Solver(name=next(iter(slvs)))
 
 def sanitize_str(s):
-    return re.sub(r'\w','_',s)
+    return re.sub(r'\W','_',s)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -417,8 +417,8 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
         return self.node_to_sym, self.sym_to_node
 
     @functools.lru_cache(maxsize=None)
-    def tuple_memo(*args):
-        return tuple(*args)
+    def tuple_memo(self, *args):
+        return tuple(args)
 
     def do_e(self, e):
         if ( type(e) is LoopIR.BinOp and
@@ -444,7 +444,7 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
 
             # regardless, record which symbol we've assigned to
             # this specific AST node sub-tree
-            self.node_to_sym[e] = sym
+            self.node_to_sym[id(e)] = sym
 
         else:
             super().do_e(e)
@@ -665,7 +665,8 @@ class Unification:
         holes       = (self.index_holes +
                        [ x for nm in self.buf_holes
                            for x in self.buf_holes[nm].all_syms() ])
-        knowns      = [ nm for nm in self.FV if self.FV[nm].is_indexable() ]
+        knowns      = ([ nm for nm in self.sym_nodes ]+
+                       [ nm for nm in self.FV if self.FV[nm].is_indexable() ])
         ueq_prob    = UEq.problem(holes, knowns, self.equations)
 
         # solve the problem
@@ -732,7 +733,7 @@ class Unification:
                         f"unification with sub-procedures making use of "
                         f"'%' or '/' operations is not currently supported")
                 else:
-                    name = self.node_syms[e]
+                    name = self.node_syms[id(e)]
                     return UEq.Var(name)
             else: assert False, f"bad op case: {e.op}"
         else: assert False, "unexpected affine expression case"
