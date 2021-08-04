@@ -82,6 +82,73 @@ def test_avx2_simple_math():
         assert np.allclose(x, expected)
 
 
+def test_avx2_simple_math_scheduling():
+    """
+    Compute x = x * y^2
+    """
+
+    @proc
+    def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
+        for i in par(0, n):
+            x[i] = x[i] * y[i]
+            x[i] = x[i] * y[i]
+
+    def pre_bake_staged_memory(_):
+        @proc
+        def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):
+            for io in par(0, n / 8):
+                yVec: f32[8] @ DRAM
+                xVec: f32[8] @ DRAM
+                for ii in par(0, 8):
+                    yVec[ii] = y[8 * io + ii]
+                for ii in par(0, 8):
+                    xVec[ii] = x[8 * io + ii]
+                for ii in par(0, 8):
+                    xVec[ii] = xVec[ii] * yVec[ii]
+                for ii_1 in par(0, 8):
+                    xVec[ii_1] = xVec[ii_1] * yVec[ii_1]
+                for ii in par(0, 8):
+                    x[8 * io + ii] = xVec[ii]
+            if n % 8 > 0:
+                for ii_2 in par(0, n % 8):
+                    x[ii_2 + n / 8 * 8] = x[ii_2 + n / 8 * 8] * y[ii_2 + n / 8 * 8]
+                    x[ii_2 + n / 8 * 8] = x[ii_2 + n / 8 * 8] * y[ii_2 + n / 8 * 8]
+
+        return simple_math_avx2_scheduling
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.split('i', 8, ['io', 'ii'], tail='cut_and_guard')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.fission_after('x[_] = _ #0')
+
+    # TODO: need a scheduling directive that stages memory.
+    simple_math_avx2_scheduling = pre_bake_staged_memory(simple_math_avx2_scheduling)
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('xVec', AVX2)
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('yVec', AVX2)
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace(loadu, 'for ii in _: _ #0')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace(loadu, 'for ii in _: _ #0')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace(mul, 'for ii in _: _ #0')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace(mul, 'for ii_1 in _: _ #0')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace(storeu, 'for ii in _: _ #0')
+
+    print(simple_math_avx2_scheduling)
+
+    basename = test_avx2_simple_math_scheduling.__name__
+
+    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
+        f.write(str(simple_math_avx2_scheduling))
+
+    simple_math_avx2_scheduling.compile_c(TMP_DIR, basename)
+    library = generate_lib(basename, extra_flags="-march=native")
+
+    for n in (8, 16, 24, 32, 64, 128):
+        x = nparray([float(i) for i in range(n)])
+        y = nparray([float(3 * i) for i in range(n)])
+        expected = x * y * y
+
+        library.simple_math_avx2_scheduling(n, cvt_c(x), cvt_c(y))
+        assert np.allclose(x, expected)
+
+
 def test_avx2_sgemm_base():
     """
     compute C += A*B
