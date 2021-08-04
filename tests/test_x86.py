@@ -34,11 +34,11 @@ def test_avx2_memcpy():
 
     memcpy_avx2.compile_c(TMP_DIR, basename)
 
-    # TODO: -march=native here is a hack. Such flags should be somehow handled automatically.
-    #       Maybe this should be inferred by the use of AVX2, but "native" isn't right anyway.
+    # TODO: -march=skylake here is a hack. Such flags should be somehow handled automatically.
+    #       Maybe this should be inferred by the use of AVX2, but "skylake" isn't right anyway.
     #       We might need a first-class notion of a Target, which has certain memories available.
     #       Then we can say that e.g. Skylake-X has AVX2, AVX512, etc.
-    library = generate_lib(basename, extra_flags="-march=native")
+    library = generate_lib(basename, extra_flags="-march=skylake")
 
     for n in (7, 8, 9, 31, 32, 33, 127, 128, 129):
         inp = nparray([float(i) for i in range(n)])
@@ -71,7 +71,7 @@ def test_avx2_simple_math():
         f.write(str(simple_math_avx2))
 
     simple_math_avx2.compile_c(TMP_DIR, basename)
-    library = generate_lib(basename, extra_flags="-march=native")
+    library = generate_lib(basename, extra_flags="-march=skylake")
 
     for n in (8, 16, 24, 32, 64, 128):
         x = nparray([float(i) for i in range(n)])
@@ -138,7 +138,7 @@ def test_avx2_simple_math_scheduling():
         f.write(str(simple_math_avx2_scheduling))
 
     simple_math_avx2_scheduling.compile_c(TMP_DIR, basename)
-    library = generate_lib(basename, extra_flags="-march=native")
+    library = generate_lib(basename, extra_flags="-march=skylake")
 
     for n in (8, 16, 24, 32, 64, 128):
         x = nparray([float(i) for i in range(n)])
