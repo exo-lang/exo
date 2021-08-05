@@ -803,7 +803,7 @@ class _Alloc_Dependencies(LoopIR_Do):
         pass
 
 class _LiftAlloc(LoopIR_Rewrite):
-    def __init__(self, proc, alloc_stmt, n_lifts, mode, size, over):
+    def __init__(self, proc, alloc_stmt, n_lifts, mode, size):
         assert type(alloc_stmt) is LoopIR.Alloc
         assert is_pos_int(n_lifts)
         self.orig_proc      = proc
@@ -813,7 +813,6 @@ class _LiftAlloc(LoopIR_Rewrite):
                                                   proc.body).result()
         self.lift_mode      = mode
         self.lift_size      = size
-        self.lift_over      = over
 
         self.n_lifts        = n_lifts
 
@@ -851,23 +850,31 @@ class _LiftAlloc(LoopIR_Rewrite):
             # compute the lifted allocation buffer type, and
             # the new allocation statement
             new_typ = s.type
-            if self.lift_over == True:
-                rngs = [ LoopIR.BinOp("+", s,
-                            LoopIR.Const(1, T.int, s.srcinfo),
-                            T.index, s.srcinfo) for s in rngs ]
+            new_rngs = []
+            for r in rngs:
+                if type(r) is LoopIR.Const:
+                    if r.val > 0:
+                        new_rngs.append(r)
+                    else:
+                        assert False, "why loop bound is negative?"
+                else:
+                    new_rngs.append(
+                            LoopIR.BinOp("+", r,
+                                LoopIR.Const(1, T.int, r.srcinfo),
+                                T.index, r.srcinfo) )
 
             if type(new_typ) is T.Tensor:
                 if self.lift_mode == 'row':
-                    rngs += new_typ.shape()
+                    new_rngs += new_typ.shape()
                 elif self.lift_mode == 'col':
-                    rngs = new_typ.shape() + rngs
+                    new_rngs = new_typ.shape() + new_rngs
                 else:
                     raise SchedulingError(f"Unknown lift mode {self.lift_mode},"+
                                            "should be 'row' or 'col'")
 
                 new_typ = new_typ.basetype()
-            if len(rngs) > 0:
-                new_typ = T.Tensor(rngs, False, new_typ)
+            if len(new_rngs) > 0:
+                new_typ = T.Tensor(new_rngs, False, new_typ)
 
             # effect remains null
             self.lifted_stmt = LoopIR.Alloc( s.name, new_typ, s.mem,
@@ -988,7 +995,7 @@ class _LiftAlloc(LoopIR_Rewrite):
                     if self.lift_size != None:
                         assert type(self.lift_size) is int
                         # TODO: More robust checking of
-                        # self.lift_size > s.hi
+                        # self.lift_size >= s.hi
                         if type(s.hi) == LoopIR.Const:
                             if s.hi.val > self.lift_size:
                                 raise SchedulingError(f"Lift size cannot "+

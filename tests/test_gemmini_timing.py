@@ -311,26 +311,32 @@ def test_matmul_c_i8():
             C[i,j] = tmp_res
 
 
+#  matmul_c_i8 = matmul_c_i8.split('i',16,['i','i_out'], tail='cut_and_guard')
+#  matmul_c_i8 = matmul_c_i8.reorder('i','i_out')
+#  matmul_c_i8 = matmul_c_i8.split('j',16,['j','j_out'], tail='cut_and_guard')
+#  matmul_c_i8 = matmul_c_i8.reorder('j','j_out')
+#  matmul_c_i8 = matmul_c_i8.fission_after('if M%16>0:_', n_lifts=1)
+
   matmul_c_i8 = matmul_c_i8.split('i',16,['i','i_in'], tail='cut_and_guard')
   matmul_c_i8 = matmul_c_i8.reorder('i_in','j')
   matmul_c_i8 = matmul_c_i8.split('j',16,['j','j_in'], tail='cut_and_guard')
 
   matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #0', n_lifts=1)
   matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16)
-  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #0', n_lifts=2, over=True)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #0', n_lifts=2)
   matmul_c_i8 = matmul_c_i8.fission_after('res[_] = 0.0 #0', n_lifts=2)
 
   matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #1', n_lifts=1)
   matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #1', n_lifts=1, mode='col', size=16)
-  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #1', n_lifts=2, over=True)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #1', n_lifts=2)
   matmul_c_i8 = matmul_c_i8.fission_after('res[_] = 0.0 #1', n_lifts=2)
 
-  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #2', n_lifts=1, over=True)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #2', n_lifts=1)
   matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #2', n_lifts=1, mode='col', size=16)
   matmul_c_i8 = matmul_c_i8.fission_after('res[_] = 0.0 #2', n_lifts=2)
-  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #2', n_lifts=2, over=True)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #2', n_lifts=2)
 
-  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #3', n_lifts=1, over=True)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #3', n_lifts=1)
   matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #3', n_lifts=1, mode='col', size=16)
   matmul_c_i8 = matmul_c_i8.fission_after('res[_] = 0.0 #3', n_lifts=2)
   matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #3', n_lifts=2)

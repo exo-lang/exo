@@ -340,7 +340,7 @@ class Procedure:
         loopir      = Schedules.DoBindExpr(loopir, new_name, expr).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None, over=False):
+    def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "+
                             "a positive integer")
@@ -350,9 +350,6 @@ class Procedure:
         if size and type(size) is not int:
             raise TypeError("expected fourth argument 'size' to be "+
                             "an integer")
-        if type(over) is not bool:
-            raise TypeError("expected third argument 'over' to be "+
-                            "boolean")
 
         alloc_stmts  = self._find_stmt(alloc_site_pattern, default_match_no=None)
         loopir      = self._loopir_proc
@@ -361,7 +358,7 @@ class Procedure:
                 raise TypeError("pattern did not describe an alloc statement")
 
             loopir      = Schedules.DoLiftAlloc(loopir, s,
-                                                n_lifts, mode, size, over).result()
+                                                n_lifts, mode, size).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
