@@ -141,7 +141,9 @@ class TypeChecker:
                 return []
             elif rhs.type.is_real_scalar():
                 self.env[stmt.name] = T.R
-                return [ LoopIR.Alloc(stmt.name, T.R,
+                # TODO: Fix! FreshAssign doesn't have mem???
+                # This code was probably never tested
+                return [ LoopIR.Alloc(stmt.name, T.R, DRAM,
                                       None, stmt.srcinfo),
                          LoopIR.Assign(stmt.name, T.R, None, [], rhs,
                                        None, stmt.srcinfo) ]

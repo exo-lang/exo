@@ -803,7 +803,7 @@ class _Alloc_Dependencies(LoopIR_Do):
         pass
 
 class _LiftAlloc(LoopIR_Rewrite):
-    def __init__(self, proc, alloc_stmt, n_lifts, mode, size):
+    def __init__(self, proc, alloc_stmt, n_lifts, mode, size, over):
         assert type(alloc_stmt) is LoopIR.Alloc
         assert is_pos_int(n_lifts)
         self.orig_proc      = proc
@@ -813,6 +813,7 @@ class _LiftAlloc(LoopIR_Rewrite):
                                                   proc.body).result()
         self.lift_mode      = mode
         self.lift_size      = size
+        self.lift_over      = over
 
         self.n_lifts        = n_lifts
 
@@ -850,6 +851,11 @@ class _LiftAlloc(LoopIR_Rewrite):
             # compute the lifted allocation buffer type, and
             # the new allocation statement
             new_typ = s.type
+            if self.lift_over == True:
+                rngs = [ LoopIR.BinOp("+", s,
+                            LoopIR.Const(1, T.int, s.srcinfo),
+                            T.index, s.srcinfo) for s in rngs ]
+
             if type(new_typ) is T.Tensor:
                 if self.lift_mode == 'row':
                     rngs += new_typ.shape()
