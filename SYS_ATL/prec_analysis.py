@@ -78,9 +78,9 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         typ = a.type
         if typ.is_numeric() and typ.basetype() == T.R:
             typ = self.splice_type(typ, self.default)
-        
+
         self.set_type(a.name, typ)
-            
+
         return LoopIR.fnarg(a.name, typ, a.mem, a.srcinfo)
 
     def map_s(self, s):
@@ -102,7 +102,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 st  = self.default if st == T.R else st
                 if st.is_numeric() and st != ct:
                     self.err(call_a, f"expected precision {st}, but got {ct}")
-            
+
         elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
             rtyp = result[0].rhs.type
             ltyp = self.get_type(s.name).basetype()
@@ -110,7 +110,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
 
             # update the type annotation here if needed
             result[0].type = ltyp
-            
+
             # potentially coerce the entire right-hand-side
             if rtyp != T.err:
                 # potentially coerce the entire right-hand-side
@@ -122,6 +122,17 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 if ltyp != rtyp:
                     # then we have an implicit cast at this point
                     result[0].cast = "yup, cast!"
+
+        elif styp is LoopIR.WriteConfig:
+            rtyp = result[0].rhs.type
+            ltyp = s.config.lookup(s.field)[1]
+            assert ltyp != T.err and ltyp != T.R
+
+            # potentially coerce the entire right-hand-side
+            if rtyp != T.err:
+                if rtyp == T.R:
+                    result[0].rhs = self.coerce_e(result[0].rhs, ltyp)
+                    rtyp = ltyp
 
         elif styp is LoopIR.WindowStmt:
             # update the type binding for this symbol...
@@ -166,7 +177,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             # and booleans out of the way
             if not e.type.is_numeric():
                 return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
-            
+
             assert ((lhs.type == T.err or lhs.type.is_real_scalar()) and
                     (rhs.type == T.err or rhs.type.is_real_scalar()))
             if lhs.type == T.err or rhs.type == T.err:
@@ -212,7 +223,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 rhs = self.coerce_e(rhs, btyp)
             assert lhs.type == btyp
             assert rhs.type == btyp
-            
+
             return LoopIR.BinOp(e.op, lhs, rhs, btyp, e.srcinfo)
         else:
             assert False, f"Should not be coercing a {type(e)} Node"

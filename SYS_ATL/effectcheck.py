@@ -64,8 +64,10 @@ def negate_expr(e):
             return change_op(">")
         elif e.op == "==":
             if e.lhs.type is T.bool and e.rhs.type is T.bool:
-                l = E.BinOp("and", e.lhs, negate_expr(e.rhs), T.bool, e.srcinfo)
-                r = E.BinOp("and", negate_expr(e.lhs), e.rhs, T.bool, e.srcinfo)
+                l = E.BinOp("and", e.lhs, negate_expr(e.rhs),
+                                   T.bool, e.srcinfo)
+                r = E.BinOp("and", negate_expr(e.lhs), e.rhs,
+                                   T.bool, e.srcinfo)
 
                 return E.BinOp("or", l, r, T.bool, e.srcinfo)
             else:
@@ -154,6 +156,12 @@ class InferEffects:
             return styp(stmt.name, stmt.type, stmt.cast,
                         stmt.idx, stmt.rhs,
                         effects, stmt.srcinfo)
+
+        #TODO!: This is wrong, think about config effects
+        elif type(stmt) is LoopIR.WriteConfig:
+            rhs_eff = self.eff_e(stmt.rhs)
+            return LoopIR.WriteConfig(stmt.config, stmt.field, stmt.rhs,
+                                      rhs_eff, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.If:
             cond = lift_expr(stmt.cond)
@@ -259,6 +267,9 @@ class InferEffects:
             return eff_null(e.srcinfo)
         elif type(e) is LoopIR.StrideExpr:
             return eff_null(e.srcinfo)
+        elif type(stmt) is LoopIR.ReadConfig:
+            # TODO: Have actual read effect for config
+            return eff_null(e.srcinfo)
         else:
             assert False, "bad case"
 
@@ -357,8 +368,8 @@ class CheckStrideAsserts:
 
         # do error checking here
         if len(self.errors) > 0:
-            raise TypeError("Errors occurred during stride assert checking:\n" +
-                            "\n".join(self.errors))
+            raise TypeError("Errors occurred during stride assert "+
+                            "checking:\n" + "\n".join(self.errors))
 
     def push(self):
         self.strides = self.strides.new_child()
@@ -403,12 +414,12 @@ class CheckStrideAsserts:
         if s != p.val:
             self.err(f, f"Could not verify stride assert in "+
                         f"{f.name} at {p.srcinfo}.")
-    
+
     def assume_stride(self, p):
         assert type(p) is LoopIR.StrideAssert
         assert p.name in self.strides
         assert len(self.strides[p.name]) > p.idx
-        
+
         self.strides[p.name][p.idx] = p.val
 
     def map_stmts(self, body, orig_f):
@@ -418,7 +429,7 @@ class CheckStrideAsserts:
 
             return [ s for s, idx in zip(self.strides[expr.name], expr.idx)
                              if type(idx) is LoopIR.Interval ]
-            
+
         for stmt in body:
             if type(stmt) is LoopIR.WindowStmt:
                 # compute new stride
@@ -429,7 +440,8 @@ class CheckStrideAsserts:
             elif type(stmt) is LoopIR.Alloc:
                 # add new stride here
                 if stmt.type.is_tensor_or_window():
-                    self.get_stride(stmt.name, stmt.type.shape(), stmt.type.is_win())
+                    self.get_stride(stmt.name, stmt.type.shape(),
+                                               stmt.type.is_win())
 
             elif type(stmt) is LoopIR.ForAll:
                 self.push()
@@ -453,11 +465,11 @@ class CheckStrideAsserts:
                 for sig,arg in zip(stmt.f.args, stmt.args):
                     if arg.type.is_tensor_or_window():
                         if type(arg) is LoopIR.WindowExpr:
-                            self.strides[sig.name] = stride_from_windowexpr(arg)
+                          self.strides[sig.name] =stride_from_windowexpr(arg)
                         elif type(arg) is LoopIR.Read:
-                            self.strides[sig.name] = self.strides[arg.name]
+                          self.strides[sig.name] = self.strides[arg.name]
                         else:
-                            assert False, "bad case"
+                          assert False, "bad case"
 
                 for p in stmt.f.preds:
                     if type(p) is LoopIR.StrideAssert:
@@ -634,7 +646,8 @@ class CheckEffects:
                             "\n".join(self.errors))
 
     def counter_example(self):
-        smt_syms = [ smt for sym,smt in self.env.items() if smt.get_type() == SMT.INT ]
+        smt_syms = [ smt for sym,smt in self.env.items()
+                         if smt.get_type() == SMT.INT ]
         val_map = self.solver.get_py_values(smt_syms)
 
         mapping = []
@@ -659,7 +672,7 @@ class CheckEffects:
         if type(e) is LoopIR.Read:
             assert not e.type.is_numeric()
             return subst[e.name] if e.name in subst else e
-        elif type(e) is LoopIR.Const:
+        elif type(e) is LoopIR.Const or type(e) is LoopIR.ReadConfigs:
             return e
         elif type(e) is LoopIR.USub:
             return LoopIR.USub( self.loopir_subst(e.arg, subst),
@@ -1074,7 +1087,8 @@ class CheckEffects:
                 self.pop()
 
                 # Parallelism checking here
-                self.check_commutes(stmt.iter, lift_expr(stmt.hi), sub_body_eff)
+                self.check_commutes(stmt.iter, lift_expr(stmt.hi),
+                                               sub_body_eff)
 
                 body_eff = eff_union(body_eff, stmt.eff)
 

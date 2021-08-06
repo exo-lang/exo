@@ -171,6 +171,37 @@ class TypeChecker:
                        LoopIR.Reduce)
             return [IRnode(stmt.name, typ, None, idx, rhs, None, stmt.srcinfo)]
 
+        elif type(stmt) is UAST.WriteConfig:
+            # Check that field is in config
+            if not stmt.config.has_field(stmt.field):
+                self.err(stmt.field, f"expected '{stmt.field}'  to be a field "+
+                                     f"in config '{stmt.config.name()}'")
+
+            ftyp    = stmt.config.lookup(field)[1]
+            rhs     = self.check_e(stmt.rhs)
+
+            if rhs.type != T.err:
+                if ftyp.is_real_scalar():
+                    if not rhs.type.is_real_scalar():
+                        self.err(rhs, f"expected a real scalar value, but "+
+                                      f"got an expression of type {rhs.type}")
+                elif ftyp.is_indexable():
+                    if not rhs.type.is_indexable():
+                        self.err(rhs, f"expected an index or size type "+
+                                      f"expression, but got type {rhs.type}")
+                elif ftyp == T.bool:
+                    if rhs.type != T.bool:
+                        self.err(rhs, f"expected a bool expression, "+
+                                      f"but got type {rhs.type}")
+                elif ftyp.is_stridable():
+                    if not rhs.type.is_stridable():
+                        self.err(rhs, f"expected a stride type expression, "+
+                                      f"but got type {rhs.type}"))
+                else:
+                    assert False, "bad case"
+
+            return [LoopIR.WriteConfig(stmt.config, stmt.field,
+                                       rhs, None, stmt.srcinfo)]
         elif type(stmt) is UAST.Pass:
             return [LoopIR.Pass(None, stmt.srcinfo)]
 
@@ -253,7 +284,6 @@ class TypeChecker:
                 else: assert False, "bad argument type case"
 
             return [LoopIR.Call(stmt.f, args, None, stmt.srcinfo)]
-
         else:
             assert False, "not a loopir in check_stmts"
 
@@ -492,6 +522,14 @@ class TypeChecker:
         elif type(e) is UAST.ParRange:
             assert False, ("parser should not place ParRange anywhere "+
                            "outside of a for-loop condition")
+        elif type(e) is UAST.ReadConfig:
+            if not e.config.has_field(e.field):
+                self.err(e.field, f"'{e.field}' has to be a field in config "+
+                                  f"'{e.config.name()}'")
+
+            ftyp = e.config.lookup(e.field)[1]
+            return LoopIR.ReadConfig(e.config, e.field,
+                                     ftyp, e.srcinfo)
         else:
             assert False, "not a LoopIR in check_e"
 

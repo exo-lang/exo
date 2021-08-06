@@ -423,7 +423,29 @@ class Parser:
                     if len(s.targets) > 1:
                         self.err(s, "expected only one expression " +
                                     "on the left of an assignment")
-                    name_node, idxs, is_window = self.parse_lvalue(s.targets[0])
+                    node = s.targets[0]
+                    # handle WriteConfigs
+                    if type(node) is pyast.Attribute:
+                        if type(node.value) is not pyast.Name:
+                            self.err(tgt, "expected configuration writes "+
+                                          "of the form 'config.field = ...'")
+                        assert type(node.attr) is str
+
+                        # lookup config and early-exit
+                        config_obj  = self.eval_expr(node.value)
+                        if not isinstance(config_obj, Config):
+                            self.err(node.value, "expected indexed object "+
+                                                 "to be a Config")
+
+                        # early-exit in this case
+                        field_name  = node.attr
+                        rstmts.append(UAST.WriteConfig(config_obj, field_name,
+                                                     rhs, self.getsrcinfo(s)))
+                        continue
+                    # handle all other lvalue cases
+                    else:
+                        lvalue_tmp = self.parse_lvalue(node)
+                        name_node, idxs, s_window = lvalue_tmp
                     lhs = s.targets[0]
                 else:
                     name_node, idxs, is_window = self.parse_lvalue(s.target)
@@ -514,7 +536,7 @@ class Parser:
                   type(s.value) is pyast.Call):
                 f = self.eval_expr(s.value.func)
                 if not isinstance(f, Procedure):
-                    self.err(s.value.func, f"expected '{fname}' "+
+                    self.err(s.value.func, f"expected called object "+
                                             "to be a procedure")
 
                 if len(s.value.keywords) > 0:
@@ -556,7 +578,7 @@ class Parser:
     # parse the left-hand-side of an assignment
     def parse_lvalue(self, node):
         if type(node) is not pyast.Name and type(node) is not pyast.Subscript:
-            self.err(tgt, "expected lhs of form 'x' or 'x[...]'")
+            self.err(node, "expected lhs of form 'x' or 'x[...]'")
         else:
             return self.parse_array_indexing(node)
 
@@ -625,7 +647,7 @@ class Parser:
                 nm = self.globals[nm_node.id]
             else:
                 nm = None
-            
+
             if type(nm) is SizeStub:
                 nm = nm.nm
             elif type(nm) is Sym:
@@ -785,7 +807,7 @@ class Parser:
                 fname = e.func.id
 
                 if not isinstance(f, BuiltIn):
-                    self.err(e.func, f"expected '{fname}' "+
+                    self.err(e.func, f"expected called object "+
                                       "to be a builtin function")
 
                 if len(e.keywords) > 0:

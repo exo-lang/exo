@@ -7,6 +7,7 @@ from .LoopIR_effects import Effects as E
 
 from .memory import Memory
 from .builtins import BuiltIn
+from .configs import Config
 
 from collections import ChainMap
 
@@ -47,6 +48,7 @@ module UAST {
 
     stmt    = Assign  ( sym name, expr* idx, expr rhs )
             | Reduce  ( sym name, expr* idx, expr rhs )
+            | WriteConfig ( config config, str field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
             | If      ( expr cond, stmt* body,  stmt* orelse )
@@ -63,6 +65,7 @@ module UAST {
             | WindowExpr( sym name, w_access* idx )
             | StrideExpr( sym name, int dim )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
+            | ReadConfig( config config, str field )
             attributes( srcinfo srcinfo )
 
     w_access= Interval( expr? lo, expr? hi )
@@ -84,7 +87,8 @@ module UAST {
     'name':         is_valid_name,
     'sym':          lambda x: type(x) is Sym,
     'mem':          lambda x: isinstance(x, Memory),
-    'builtin':  lambda x: isinstance(x, BuiltIn),
+    'builtin':      lambda x: isinstance(x, BuiltIn),
+    'config':       lambda x: isinstance(x, Config),
     'loopir_proc':  lambda x: type(x) is LoopIR.proc,
     'op':           lambda x: x in front_ops,
     'srcinfo':      lambda x: type(x) is SrcInfo
@@ -182,6 +186,7 @@ module LoopIR {
 
     stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
             | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
+            | WriteConfig ( config config, str field, expr rhs )
             | Pass   ()
             | If     ( expr cond, stmt* body, stmt* orelse )
             | ForAll ( sym iter, expr hi, stmt* body )
@@ -198,6 +203,7 @@ module LoopIR {
             | BuiltIn( builtin f, expr* args )
             | WindowExpr( sym name, w_access* idx )
             | StrideExpr( sym name, int dim )
+            | ReadConfig( config config, str field )
             attributes( type type, srcinfo srcinfo )
 
     -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
@@ -231,6 +237,7 @@ module LoopIR {
     'effect':   lambda x: type(x) is E.effect,
     'mem':      lambda x: isinstance(x, Memory),
     'builtin':  lambda x: isinstance(x, BuiltIn),
+    'config':   lambda x: isinstance(x, Config),
     'binop':    lambda x: x in bin_ops,
     'srcinfo':  lambda x: type(x) is SrcInfo,
 })
@@ -305,9 +312,14 @@ del shape
 @extclass(T.F64)
 @extclass(T.INT8)
 @extclass(T.INT32)
+@extclass(T.Bool)
+@extclass(T.Int)
+@extclass(T.Index)
+@extclass(T.Size)
+@extclass(T.Stride)
 def ctype(t):
     if type(t) is T.Num:
-        return "float"
+        assert False, "Don't ask for ctype of Num"
     elif type(t) is T.F32:
         return "float"
     elif type(t) is T.F64:
@@ -316,6 +328,11 @@ def ctype(t):
         return "int8_t"
     elif type(t) is T.INT32:
         return "int32_t"
+    elif type(t) is T.Bool:
+        return "bool"
+    elif (type(t) is T.Int or type(t) is T.Index or
+          type(t) is T.Size or type(t) is T.Stride):
+        return "int"
 del ctype
 
 @extclass(LoopIR.type)
@@ -392,7 +409,9 @@ def lift_to_eff_expr(e):
                         lift_to_eff_expr(e.rhs),
                         e.type, e.srcinfo )
     elif isinstance(e, LoopIR.USub):
-        return E.BinOp('-', E.Const(0, e.type, e.srcinfo), lift_to_eff_expr(e.arg), e.type, e.srcinfo)
+        return E.BinOp('-', E.Const(0, e.type, e.srcinfo),
+                            lift_to_eff_expr(e.arg),
+                            e.type, e.srcinfo)
 
     else: assert False, "bad case, e is " + str(type(e))
 
@@ -435,6 +454,9 @@ class LoopIR_Rewrite:
             return [styp( s.name, self.map_t(s.type), s.cast,
                         [ self.map_e(a) for a in s.idx ],
                           self.map_e(s.rhs), self.map_eff(s.eff), s.srcinfo )]
+        elif styp is LoopIR.WriteConfig:
+            return [LoopIR.WriteConfig( s.config, s.field, self.map_e(s.rhs),
+                                        self.map_eff(s.eff), s.srcinfo )]
         elif styp is LoopIR.WindowStmt:
             return [LoopIR.WindowStmt( s.lhs, self.map_e(s.rhs),
                                        self.map_eff(s.eff), s.srcinfo )]
@@ -472,7 +494,9 @@ class LoopIR_Rewrite:
             return LoopIR.WindowExpr(e.name,
                                      [ self.map_w_access(w) for w in e.idx ],
                                      self.map_t(e.type), e.srcinfo)
-
+        elif etyp is LoopIR.ReadConfig:
+            return LoopIR.ReadConfig(e.config, e.field,
+                                     self.map_t(e.type), e.srcinfo)
         else:
             # constant case cannot have variable-size tensor type
             # stride expr case has stride type
@@ -542,6 +566,8 @@ class LoopIR_Do:
                 self.do_e(e)
             self.do_e(s.rhs)
             self.do_t(s.type)
+        elif styp is LoopIR.WriteConfig:
+            self.do_e(s.rhs)
         elif styp is LoopIR.WindowStmt:
             self.do_e(s.rhs)
         elif styp is LoopIR.If:

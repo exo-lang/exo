@@ -108,7 +108,7 @@ class UAST_PPrinter:
             isinstance(self._node, UAST.w_access)):
             assert len(self._lines) == 1
             return self._lines[0]
-            
+
         fmtstr, linted = FormatCode("\n".join(self._lines))
         if isinstance(self._node, LoopIR.proc):
             assert linted, "generated unlinted code..."
@@ -192,6 +192,10 @@ class UAST_PPrinter:
                     lhs = self.get_name(stmt.name)
 
                 self.addline(f"{lhs} {op} {rhs}")
+            elif type(stmt) is LoopIR.WriteConfig:
+                cname   = stmt.config.name()
+                rhs     = self.pexpr(stmt.rhs)
+                self.addline(f"{cname}.{stmt.field} = {rhs}")
             elif type(stmt) is UAST.FreshAssign:
                 rhs = self.pexpr(stmt.rhs)
                 self.addline(f"{self.new_name(stmt.name)} = {rhs}")
@@ -263,6 +267,9 @@ class UAST_PPrinter:
             pname   = e.f.name() or "_anon_"
             args    = [ self.pexpr(a) for a in e.args ]
             return f"{pname}({','.join(args)})"
+        elif type(e) is LoopIR.ReadConfig:
+            cname   = e.config.name()
+            return f"{cname}.{e.field}"
         else:
             assert False, "unrecognized expr type"
 
@@ -430,6 +437,10 @@ class LoopIR_PPrinter:
                 lhs = self.get_name(stmt.name)
 
             self.addline(f"{lhs} {op} {rhs}")
+        elif type(stmt) is LoopIR.WriteConfig:
+            cname   = stmt.config.name()
+            rhs     = self.pexpr(stmt.rhs)
+            self.addline(f"{cname}.{stmt.field} = {rhs}")
         elif type(stmt) is LoopIR.WindowStmt:
             rhs = self.pexpr(stmt.rhs)
             self.addline(f"{self.new_name(stmt.lhs)} = {rhs}")
@@ -498,6 +509,9 @@ class LoopIR_PPrinter:
             pname   = e.f.name() or "_anon_"
             args    = [ self.pexpr(a) for a in e.args ]
             return f"{pname}({','.join(args)})"
+        elif type(e) is LoopIR.ReadConfig:
+            cname   = e.config.name()
+            return f"{cname}.{e.field}"
         else:
             assert False, f"unrecognized expr: {type(e)}"
 
