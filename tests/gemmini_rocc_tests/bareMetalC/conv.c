@@ -28,20 +28,20 @@
 
 #else
 
-#define IN_DIM 17
-#define IN_CHANNELS 18
-#define OUT_CHANNELS 19
+#define IN_DIM 31
+#define IN_CHANNELS 16
+#define OUT_CHANNELS 16
 
 #endif
 
-#define BATCH_SIZE 2
-#define KERNEL_DIM 3
+#define BATCH_SIZE 1
+#define KERNEL_DIM 1
 #define PADDING 1
-#define STRIDE 2
+#define STRIDE 1
 
 #endif
 
-#define NO_BIAS false
+#define NO_BIAS true
 
 #define OUT_DIM ((IN_DIM + 2*PADDING - KERNEL_DIM) / STRIDE + 1)
 #define PATCH_SIZE (KERNEL_DIM * KERNEL_DIM * IN_CHANNELS)

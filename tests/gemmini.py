@@ -38,6 +38,34 @@ def ld_i8(
             tmp      = tmp * scale
             dst[i,j] = tmp #no clamping
 
+
+
+_gemm_ld_i8_stride_2 = ("gemmini_extended3_config_ld({src}.strides[0]*2, "+
+                        "{scale}[0], 0, 0);\n"+
+                        "gemmini_extended_mvin( {src}.data, "+
+                              "((uint64_t) {dst}.data), {m}, {n} );")
+@instr(_gemm_ld_i8_stride_2)
+def ld_i8_stride_2(
+    n     : size,
+    m     : size,
+    scale : f32,
+    src   : [i8][n*2, m] @ DRAM,
+    dst   : [i8][n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : f32
+            tmp      = src[i*2,j]
+            tmp      = tmp * scale
+            dst[i,j] = tmp #no clamping
+
+
 # in order to load i8 values into the i32 accumulator memory,
 # we must specify `shrunk=1` (3rd param of ..._config_ld)
 _gemm_ld_acc_i8 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
