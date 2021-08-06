@@ -195,6 +195,8 @@ class InferEffects:
                 elif sig.type.is_indexable() or sig.type is T.bool:
                     # in this case we have a LoopIR expression...
                     subst[sig.name] = lift_expr(arg)
+                elif sig.type.is_stridable():
+                    pass
                 else: assert False, "bad case"
 
             eff = stmt.f.eff
@@ -667,7 +669,7 @@ class CheckEffects:
     # symbols from the right place.
     def sym_to_smt(self, sym, typ=T.index):
         if sym not in self.env:
-            if typ.is_indexable():
+            if typ.is_indexable() or typ.is_stridable():
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
             elif typ is T.bool:
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
@@ -685,10 +687,12 @@ class CheckEffects:
             elif pred.op == '==':
                 if pred.lhs.type == T.stride or pred.rhs.type == T.stride:
                     def lower_stride(e):
+                        if type(e) is LoopIR.Read:
+                            e = (e if subst is None else
+                                 self.loopir_subst(e, subst))
+
                         if type(e) is LoopIR.Read or type(e) is LoopIR.Const:
-                            ee = (e if subst is None else
-                                  self.loopir_subst(e, subst))
-                            return self.expr_to_smt(lift_expr(ee))
+                            return self.expr_to_smt(lift_expr(e))
                         elif type(e) is LoopIR.StrideExpr:
                             # work out whether we're aliasing the
                             # name and dimension of the stride
@@ -1119,8 +1123,8 @@ class CheckEffects:
                            sig.type == T.bool or sig.type.is_stridable() ):
                         # in this case we have a LoopIR expression...
                         subst[sig.name] = arg
-                        e_arg           = lift_expr(arg)
                         if sig.type == T.size:
+                            e_arg       = lift_expr(arg)
                             self.check_pos_size(e_arg)
 
                     else: assert False, "bad case"

@@ -285,6 +285,7 @@ class Parser:
         is_size     = lambda x: type(x) is pyast.Name and x.id == "size"
         is_index    = lambda x: type(x) is pyast.Name and x.id == "index"
         is_bool     = lambda x: type(x) is pyast.Name and x.id == "bool"
+        is_stride   = lambda x: type(x) is pyast.Name and x.id == "stride"
 
         # parse each kind of type here
         if is_size(typ_node):
@@ -304,6 +305,12 @@ class Parser:
                 self.err(node, "size types should not be annotated with "+
                                "memory locations")
             return UAST.Bool(), None
+
+        elif is_stride(typ_node):
+            if mem_node is not None:
+                self.err(node, "stride types should not be annotated with "+
+                               "memory locations")
+            return UAST.Stride(), None
 
         else:
             typ = self.parse_num_type(typ_node, is_arg=True)

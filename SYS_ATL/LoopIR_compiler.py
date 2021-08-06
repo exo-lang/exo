@@ -314,6 +314,9 @@ class Compiler:
             elif a.type == T.bool:
                 arg_strs.append(f"bool {name_arg}")
                 typ_comments.append(f"{name_arg} : bool")
+            elif a.type == T.stride:
+                arg_strs.append(f"int {name_arg}")
+                typ_comments.append(f"{name_arg} : stride")
             # setup, arguments
             else:
                 assert a.type.is_numeric()
@@ -570,6 +573,8 @@ class Compiler:
                     return self.env[e.name]
                 elif rtyp is T.bool:
                     return self.env[e.name]
+                elif rtyp is T.stride:
+                    return self.env[e.name]
                 elif e.name in self._scalar_refs:
                     return self.env[e.name]
                 elif rtyp.is_tensor_or_window():
@@ -578,7 +583,7 @@ class Compiler:
                     assert rtyp.is_real_scalar()
                     return f"&{self.env[e.name]}"
             else:
-                if rtyp.is_indexable() or rtyp is T.bool:
+                if rtyp.is_indexable() or rtyp is T.bool or rtyp == T.stride:
                     return self.env[e.name]
 
                 mem = self.mems[e.name]
@@ -662,6 +667,10 @@ class Compiler:
         elif etyp is LoopIR.BuiltIn:
             args    = [ self.comp_e(a, call_arg=True) for a in e.args ]
             return e.f.compile(args)
+
+        elif etyp is LoopIR.StrideExpr:
+            raise NotImplementedError("TODO: note difference between "+
+                                      "window and tensor cases...")
 
         else:
             assert False, "bad case"

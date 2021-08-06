@@ -10,6 +10,11 @@ from .x86 import loadu, storeu, mul
 sys.path.append(sys.path[0] + "/.")
 from .helper import *
 
+import platform
+import pytest
+if platform.system() == 'Darwin':
+    pytest.skip("skipping x86 tests on Apple machines for now",
+                allow_module_level=True)
 
 def test_avx2_memcpy():
     """

@@ -353,6 +353,28 @@ def test_stride_assert10():
 
         foo(30,10, x[0,:,:], y[3,1, 3:33,:])
 
+# Test stride arguments
+def test_stride_assert11():
+    @proc
+    def foo(
+        n   : size,
+        m   : size,
+        s   : stride,
+        src : [i8][n, m]  @ DRAM,
+        dst : [i8][n, 16] @ GEMM_SCRATCH,
+    ):
+        assert stride(src, 0) == s
+        assert stride(src, 1) == 1
+        assert stride(dst, 0) == 16
+        assert stride(dst, 1) == 1
+        pass
+    @proc
+    def bar():
+        x : i8[8,30,10] @ DRAM
+        y : i8[50, 4, 100,16] @ GEMM_SCRATCH
+
+        foo(30,10, stride(x,1), x[0,:,:], y[3,1, 3:33,:])
+
 
 # are we testing a case of an else branch?
 

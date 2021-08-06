@@ -9,7 +9,7 @@ from .LoopIR_scheduling import (name_plus_count,
                                 iter_name_to_pattern,
                                 nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace
-from .effectcheck import InferEffects, CheckEffects, CheckStrideAsserts
+from .effectcheck import InferEffects, CheckEffects
 
 from .memory import Memory
 
@@ -66,7 +66,6 @@ class Procedure:
                 self._loopir_proc = TypeChecker(proc).get_loopir()
                 self._loopir_proc = InferEffects(self._loopir_proc).result()
                 CheckEffects(self._loopir_proc)
-                #CheckStrideAsserts(self._loopir_proc)
 
         # find the root provenance
         parent = _provenance_eq_Procedure
