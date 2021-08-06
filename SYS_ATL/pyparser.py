@@ -252,18 +252,9 @@ class Parser:
                 self.err(a, "SYS_ATL procedure assertions should "+
                             "not have messages")
 
-            # stride-assert handling
+            # stride-expr handling
             a = a.test
-            if (type(a) is pyast.Compare and
-                len(a.ops) == 1 and
-                type(a.ops[0]) is pyast.Eq and
-                type(a.left) == pyast.Call and
-                type(a.left.func) == pyast.Name and
-                a.left.func.id == "stride"):
-
-                preds.append(self.parse_stride_assert(a))
-            else:
-                preds.append(self.parse_expr(a))
+            preds.append(self.parse_expr(a))
 
         # parse the procedure body
         body = self.parse_stmt_block(pyast_body)
@@ -273,34 +264,6 @@ class Parser:
                          body=body,
                          instr=instr,
                          srcinfo=self.getsrcinfo(fdef))
-
-    def parse_stride_assert(self, a):
-        # we assume that we have an assertion of the form:
-        #       assert stride(...) == ...
-        assert len(a.ops) == len(a.comparators)
-        rhs     = a.comparators[0]
-        args    = a.left.args
-
-        if type(rhs) is not pyast.Constant or not is_pos_int(rhs.value):
-            self.err(rhs, "Can only assert that the stride "+
-                          "is a positive integer")
-
-        if (len(args) != 2 or type(args[0]) is not pyast.Name
-                           or type(args[1]) is not pyast.Constant
-                           or type(args[1].value) is not int):
-            self.err(a.left, "expected stride(...) in assertion to "+
-                             "have exactly 2 arguments: the identifier for "+
-                             "the buffer we are talking about "+
-                             "and an integer specifying which dimension")
-
-        name    = args[0].id
-        if name not in self.locals:
-            self.err(args[0], f"variable '{name}' undefined")
-        name    = self.locals[name]
-
-        idx  = args[1].value
-
-        return UAST.StrideAssert(name, idx, rhs.value, self.getsrcinfo(a))
 
     def parse_arg_type(self, node):
         # Arg was of the form ` name : annotation `
@@ -541,17 +504,8 @@ class Parser:
 
             # ----- Sub-routine call parsing
             elif (type(s) is pyast.Expr and
-                  type(s.value) is pyast.Call): #and
-                  #type(s.value.func) is pyast.Name):
+                  type(s.value) is pyast.Call):
                 f = self.eval_expr(s.value.func)
-                #fname = s.value.func.id
-                #if fname in self.locals:
-                #    f = self.locals[fname]
-                #elif fname in self.globals:
-                #    f = self.globals[fname]
-                #else:
-                #    self.err(s.value.func, f"procedure '{fname}' "+
-                #                            "was undefined")
                 if not isinstance(f, Procedure):
                     self.err(s.value.func, f"expected '{fname}' "+
                                             "to be a procedure")
@@ -799,24 +753,44 @@ class Parser:
             return res
 
         elif type(e) is pyast.Call:
-            f     = self.eval_expr(e.func)
-            fname = e.func.id
+            # handle stride expression
+            if type(e.func) == pyast.Name and e.func.id == "stride":
+                if (len(e.keywords) > 0 or len(e.args) != 2 or
+                    type(e.args[0]) is not pyast.Name or
+                    type(e.args[1]) is not pyast.Constant or
+                    type(e.args[1].value) is not int):
+                    self.err(e, "expected stride(...) to "+
+                                "have exactly 2 arguments: the identifier "+
+                                "for the buffer we are talking about "+
+                                "and an integer specifying which dimension")
 
-            if not isinstance(f, BuiltIn):
-                self.err(e.func, f"expected '{fname}' "+
-                                  "to be a builtin function")
+                name    = e.args[0].id
+                if name not in self.locals:
+                    self.err(args[0], f"variable '{name}' undefined")
+                name    = self.locals[name]
+                dim     = e.args[1].value
 
-            if len(e.keywords) > 0:
-                self.err(s.value, "cannot call a builtin function "+
-                                  "with keyword arguments")
+                return UAST.StrideExpr(name, dim, self.getsrcinfo(e))
 
-            args = [ self.parse_expr(a) for a in e.args ]
+            # handle built-in functions
+            else:
+                f     = self.eval_expr(e.func)
+                fname = e.func.id
 
-            return UAST.BuiltIn( f, args, self.getsrcinfo(e) )
+                if not isinstance(f, BuiltIn):
+                    self.err(e.func, f"expected '{fname}' "+
+                                      "to be a builtin function")
+
+                if len(e.keywords) > 0:
+                    self.err(s.value, "cannot call a builtin function "+
+                                      "with keyword arguments")
+
+                args = [ self.parse_expr(a) for a in e.args ]
+
+                return UAST.BuiltIn( f, args, self.getsrcinfo(e) )
 
         else:
             self.err(e, "unsupported form of expression")
-
 
 
 # --------------------------------------------------------------------------- #

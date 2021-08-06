@@ -250,6 +250,8 @@ class InferEffects:
             return eff_null(e.srcinfo)
         elif type(e) is LoopIR.BuiltIn:
             return eff_null(e.srcinfo)
+        elif type(e) is LoopIR.StrideExpr:
+            return eff_null(e.srcinfo)
         else:
             assert False, "bad case"
 
@@ -307,6 +309,7 @@ class InferEffects:
 # 2. Stride assert check doesn't need SMT solver, nor depend on any of other
 #    code in EffectCheck.
 
+"""
 class CheckStrideAsserts:
     def __init__(self, proc):
         self.orig_proc  = proc
@@ -456,6 +459,7 @@ class CheckStrideAsserts:
                 self.map_stmts(stmt.f.body, stmt.f)
 
                 self.pop()
+"""
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -580,6 +584,8 @@ class CheckEffects:
         self.env        = ChainMap()
         self.errors     = []
 
+        self.stride_sym = dict()
+
         self.solver     = _get_smt_solver()
 
         self.push()
@@ -589,12 +595,20 @@ class CheckEffects:
             if type(arg.type) is T.Size:
                 pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
                 self.solver.add_assertion(pos_sz)
+            elif arg.type.is_tensor_or_window() and not arg.type.is_win():
+                self.assume_tensor_strides(arg, arg.name, arg.type.shape())
 
         for p in proc.preds:
-            # Handled in Stride assert check
-            if type(p) is not LoopIR.StrideAssert:
-                self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
+            # Check whether the assert is even potentially correct
+            smt_p = self.pred_to_smt(p)
+            if not self.solver.is_sat(smt_p):
+                self.err(p, f"The assertion {p} at {p.srcinfo} "+
+                            f"is always unsatisfiable.")
+            # independently, we will assume the assertion is
+            # true while checking the rest of this procedure body
+            self.solver.add_assertion(smt_p)
 
+        self.preprocess_stmts(self.orig_proc.body)
         body_eff = self.map_stmts(self.orig_proc.body)
 
         for arg in proc.args:
@@ -634,6 +648,21 @@ class CheckEffects:
     def err(self, node, msg):
         self.errors.append(f"{node.srcinfo}: {msg}")
 
+    def loopir_subst(self, e, subst):
+        if type(e) is LoopIR.Read:
+            assert not e.type.is_numeric()
+            return subst[e.name] if e.name in subst else e
+        elif type(e) is LoopIR.Const:
+            return e
+        elif type(e) is LoopIR.USub:
+            return LoopIR.USub( self.loopir_subst(e.arg, subst),
+                                e.type, e.srcinfo )
+        elif type(e) is LoopIR.BinOp:
+            return LoopIR.BinOp( e.op, self.loopir_subst(e.lhs, subst),
+                                       self.loopir_subst(e.rhs, subst),
+                                       e.type, e.srcinfo )
+        else: assert False, f"bad case: {type(e)}"
+
     # TODO: Add allow_allocation arg here, to check if we're introducing new
     # symbols from the right place.
     def sym_to_smt(self, sym, typ=T.index):
@@ -643,6 +672,63 @@ class CheckEffects:
             elif typ is T.bool:
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
         return self.env[sym]
+
+    def pred_to_smt(self, pred, subst=None):
+        assert pred.type == T.bool
+        if type(pred) is LoopIR.BinOp:
+            if pred.op == 'and':
+                return SMT.And( self.pred_to_smt(pred.lhs,subst),
+                                self.pred_to_smt(pred.rhs,subst) )
+            elif pred.op == 'or':
+                return SMT.Or( self.pred_to_smt(pred.lhs,subst),
+                               self.pred_to_smt(pred.rhs,subst) )
+            elif pred.op == '==':
+                if pred.lhs.type == T.stride or pred.rhs.type == T.stride:
+                    def lower_stride(e):
+                        if type(e) is LoopIR.Read or type(e) is LoopIR.Const:
+                            ee = (e if subst is None else
+                                  self.loopir_subst(e, subst))
+                            return self.expr_to_smt(lift_expr(ee))
+                        elif type(e) is LoopIR.StrideExpr:
+                            # work out whether we're aliasing the
+                            # name and dimension of the stride
+                            name    = e.name
+                            dim     = e.dim
+                            if subst and name in subst:
+                                arg = subst[name]
+                                assert isinstance(arg, LoopIR.expr)
+                                if type(arg) is LoopIR.Read:
+                                    name = arg.name
+                                elif type(arg) is LoopIR.WindowExpr:
+                                    name    = arg.name
+                                    # figure out how to remap the dimension...
+                                    count   = dim
+                                    for i,w in enumerate(arg.idx):
+                                        if type(w) is LoopIR.Interval:
+                                            if count == 0:
+                                                dim = i
+                                                break
+                                            else:
+                                                count = count-1
+                                else: assert False, f"bad case: {type(arg)}"
+
+                            # determine a symbol for this stride...
+                            keystr = f"{repr(name)}_dim_{dim}"
+                            if keystr in self.stride_sym:
+                                keysym = self.stride_sym[keystr]
+                            else:
+                                keysym = Sym(keystr)
+                                self.stride_sym[keystr] = keysym
+                            return self.sym_to_smt(keysym)
+
+                    return SMT.Equals(lower_stride(pred.lhs),
+                                      lower_stride(pred.rhs))
+
+        # fall-through
+        if subst is None:
+            return self.expr_to_smt(lift_expr(pred))
+        else:
+            return self.expr_to_smt(lift_expr(self.loopir_subst(pred, subst)))
 
     def expr_to_smt(self, expr):
         assert isinstance(expr, E.expr), "expected Effects.expr"
@@ -755,7 +841,8 @@ class CheckEffects:
             elif expr.op == "==":
                 if expr.lhs.type == T.bool and expr.rhs.type == T.bool:
                     return SMT.Iff(lhs, rhs)
-                elif expr.lhs.type.is_indexable() and expr.rhs.type.is_indexable():
+                elif (expr.lhs.type.is_indexable() and
+                      expr.rhs.type.is_indexable()):
                     return SMT.Equals(lhs, rhs)
                 else:
                     assert False, "bad case"
@@ -764,6 +851,27 @@ class CheckEffects:
             elif expr.op == "or":
                 return SMT.Or(lhs, rhs)
         else: assert False, "bad case"
+
+
+    def assume_tensor_strides(self, node, name, shape):
+        # compute statically knowable strides from the shape
+        strides = [None] * len(shape)
+        strides[-1] = 1
+        for i,sz in reversed(list(enumerate(shape))):
+            if i > 0:
+                if type(sz) is not LoopIR.Const:
+                    break
+                else:
+                    strides[i-1] = sz.val * strides[i]
+
+        # for all statically knowable strides, set the appropriate variable.
+        for dim,s in enumerate(strides):
+            if s is not None:
+                s_expr  = LoopIR.StrideExpr(name, dim, T.stride, node.srcinfo)
+                s_const = LoopIR.Const(s, T.int, node.srcinfo)
+                eq      = LoopIR.BinOp('==', s_expr, s_const,
+                                       T.bool, node.srcinfo)
+                self.solver.add_assertion(self.pred_to_smt(eq))
 
     def check_in_bounds(self, sym, shape, eff, eff_str):
         assert type(eff) is E.effset, "effset should be passed to in_bounds"
@@ -897,6 +1005,34 @@ class CheckEffects:
                            f"[{','.join(map(str,sigshp))}]."+
                            f" It could be non equal when: {eg}")
 
+    def preprocess_stmts(self, body):
+        for stmt in body:
+            if type(stmt) is LoopIR.If:
+                self.preprocess_stmts(stmt.body)
+                self.preprocess_stmts(stmt.orelse)
+            elif type(stmt) is LoopIR.ForAll:
+                self.preprocess_stmts(stmt.body)
+            elif type(stmt) is LoopIR.Alloc:
+                if stmt.type.is_tensor_or_window():
+                    self.assume_tensor_strides(stmt, stmt.name,
+                                                     stmt.type.shape())
+            elif type(stmt) is LoopIR.WindowStmt:
+                #src_shape   = stmt.rhs.type.src_type.shape()
+                w_idx       = stmt.rhs.type.idx
+                src_buf     = stmt.rhs.type.src_buf
+                dst_buf     = stmt.lhs
+                dst_dim     = 0
+                for src_dim, w in enumerate(w_idx):
+                    if type(w) is LoopIR.Interval:
+                        src = LoopIR.StrideExpr(src_buf, src_dim,
+                                                T.stride, stmt.srcinfo)
+                        dst = LoopIR.StrideExpr(dst_buf, dst_dim,
+                                                T.stride, stmt.srcinfo)
+                        eq  = LoopIR.BinOp('==',src,dst,T.bool,stmt.srcinfo)
+                        self.solver.add_assertion(self.pred_to_smt(eq))
+            else:
+                pass
+
     def map_stmts(self, body):
         """ Returns an effect for the argument `body`
             And also checks bounds/parallelism for any
@@ -971,29 +1107,32 @@ class CheckEffects:
                             self.check_pos_size(e)
                         # also, need to check that the argument shape
                         # is exactly the shape specified in the signature
-                        sig_shape = [ lift_expr(s) for s in sig.type.shape() ]
-                        sig_shape = [ s.subst(subst) for s in sig_shape ]
+                        sig_shape = [ lift_expr(self.loopir_subst(s, subst))
+                                      for s in sig.type.shape() ]
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
-                    elif sig.type.is_indexable() or sig.type is T.bool:
+                        # bind potential window-expression
+                        # Note this is NOT an E.expr
+                        subst[sig.name] = arg
+
+                    elif ( sig.type.is_indexable() or
+                           sig.type == T.bool or sig.type.is_stridable() ):
                         # in this case we have a LoopIR expression...
+                        subst[sig.name] = arg
                         e_arg           = lift_expr(arg)
-                        subst[sig.name] = e_arg
                         if sig.type == T.size:
                             self.check_pos_size(e_arg)
 
                     else: assert False, "bad case"
 
                 for p in stmt.f.preds:
-                    # Stride assert handled in separate check
-                    if type(p) is not LoopIR.StrideAssert:
-                        pred = lift_expr(p).subst(subst)
-                        # Check that asserts are correct
-                        if not self.solver.is_valid(self.expr_to_smt(pred)):
-                            eg = self.counter_example()
-                            self.err(stmt, f"Could not verify assertion in "+
-                                           f"{stmt.f.name} at {p.srcinfo}."+
-                                           f" Assertion is false when: {eg}")
+                    # Check that asserts are correct
+                    smt_pred = self.pred_to_smt(p,subst)
+                    if not self.solver.is_valid(smt_pred):
+                        eg = self.counter_example()
+                        self.err(stmt, f"Could not verify assertion in "+
+                                       f"{stmt.f.name} at {p.srcinfo}."+
+                                       f" Assertion is false when: {eg}")
 
                 body_eff = eff_union(body_eff, stmt.eff)
 

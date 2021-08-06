@@ -61,7 +61,7 @@ module UAST {
             | BinOp   ( op op, expr lhs, expr rhs )
             | BuiltIn( builtin f, expr* args )
             | WindowExpr( sym name, w_access* idx )
-            | StrideAssert( sym name, int idx, int val )
+            | StrideExpr( sym name, int dim )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
             attributes( srcinfo srcinfo )
 
@@ -78,6 +78,7 @@ module UAST {
             | Int   ()
             | Size  ()
             | Index ()
+            | Stride()
             | Tensor( expr *hi, bool is_window, type type )
 } """, {
     'name':         is_valid_name,
@@ -90,7 +91,7 @@ module UAST {
 })
 
 ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'INT32',
-               'Bool', 'Int', 'Size', 'Index'], {
+               'Bool', 'Int', 'Size', 'Index', 'Stride'], {
 })
 
 
@@ -196,8 +197,7 @@ module LoopIR {
             | BinOp( binop op, expr lhs, expr rhs )
             | BuiltIn( builtin f, expr* args )
             | WindowExpr( sym name, w_access* idx )
-            | StrideAssert( sym name, int idx, int val ) -- may only occur
-                                                         -- at proc.preds
+            | StrideExpr( sym name, int dim )
             attributes( type type, srcinfo srcinfo )
 
     -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
@@ -214,6 +214,7 @@ module LoopIR {
             | Int   ()
             | Index ()
             | Size  ()
+            | Stride()
             | Error ()
             | Tensor     ( expr* hi, bool is_window, type type )
             -- src          - type of the tensor
@@ -235,40 +236,13 @@ module LoopIR {
 })
 
 ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'INT32' 'Bool', 'Int', 'Index',
-                 'Size', 'Error'])
+                 'Size', 'Stride', 'Error'])
 
 # make proc be a hashable object
 @extclass(LoopIR.proc)
 def __hash__(self):
     return id(self)
 del __hash__
-
-
-"""
-TODO: Delete this once change verified
-# break recursion...
-@extclass(LoopIR.WindowType)
-def __hash__(self):
-    return hash([type(self), self.src, self.as_tensor, id(self.window)])
-del __hash__
-
-@extclass(LoopIR.WindowType)
-def __repr__(self):
-    return (f"WindowType(src={repr(self.src)},"+
-                       f"as_tensor={repr(self.as_tensor)},"+
-                       f"window=(name={repr(self.window.name)},"+
-                               f"idx={repr(self.window.idx)}))")
-del __repr__
-
-@extclass(LoopIR.WindowType)
-def __eq__(lhs,rhs):
-    return (type(lhs) == type(rhs) and lhs.src == rhs.src and
-            lhs.as_tensor == rhs.as_tensor and
-            id(lhs.window) == id(rhs.window))
-del __eq__
-"""
-
-
 
 
 # --------------------------------------------------------------------------- #
@@ -285,6 +259,7 @@ class T:
     Int     = LoopIR.Int
     Index   = LoopIR.Index
     Size    = LoopIR.Size
+    Stride  = LoopIR.Stride
     Error   = LoopIR.Error
     Tensor  = LoopIR.Tensor
     Window  = LoopIR.WindowType
@@ -299,6 +274,7 @@ class T:
     int     = Int()
     index   = Index()
     size    = Size()
+    stride  = Stride()
     err     = Error()
 
     def is_type(obj):
@@ -373,6 +349,10 @@ del is_indexable
 def is_sizeable(t):
     return type(t) is T.Int or type(t) is T.Size
 del is_sizeable
+
+@extclass(LoopIR.type)
+def is_stridable(t):
+    return type(t) is T.Int or type(t) is T.Stride
 
 @extclass(LoopIR.type)
 def basetype(t):
@@ -495,7 +475,7 @@ class LoopIR_Rewrite:
 
         else:
             # constant case cannot have variable-size tensor type
-            # stride assert case has bool type
+            # stride expr case has stride type
             return e
 
     def map_w_access(self, w):
@@ -699,7 +679,7 @@ class FreeVars(LoopIR_Do):
         etyp = type(e)
         if (etyp is LoopIR.Read or
             etyp is LoopIR.WindowExpr or
-            etyp is LoopIR.StrideAssert):
+            etyp is LoopIR.StrideExpr):
             if e.name not in self.env:
                 self.fv.add(e.name)
 
@@ -719,7 +699,7 @@ class FreeVars(LoopIR_Do):
         self.push()
         for x in es.names:
             self.env[x] = True
-                
+
         super().do_eff_es(es)
         self.pop()
 
@@ -799,9 +779,9 @@ class Alpha_Rename(LoopIR_Rewrite):
             nm = self.env[e.name] if e.name in self.env else e.name
             win_e.name = nm
             return win_e
-        elif etyp is LoopIR.StrideAssert:
+        elif etyp is LoopIR.StrideExpr:
             nm = self.env[e.name] if e.name in self.env else e.name
-            return LoopIR.StrideAssert(nm, e.idx, e.val, e.type, e.srcinfo)
+            return LoopIR.StrideAssert(nm, e.dim, e.type, e.srcinfo)
 
         return super().map_e(e)
 

@@ -215,7 +215,7 @@ def test_stride_assert1():
 # Both callee and caller has a window case
 def test_stride_assert2():
     with pytest.raises(TypeError,
-                       match='Could not verify stride assert'):
+                       match='Could not verify assertion'):
         @proc
         def foo(
             n   : size,
@@ -254,7 +254,7 @@ def test_stride_assert3():
 # this will be an error because we don't know anything about incoming stride
 def test_stride_assert4():
     with pytest.raises(TypeError,
-                       match='Could not verify stride assert'):
+                       match='Could not verify assertion'):
         @proc
         def foo(
             n   : size,
@@ -273,7 +273,7 @@ def test_stride_assert4():
 # Tensor with wrong size and stride
 def test_stride_assert5():
     with pytest.raises(TypeError,
-                       match='Could not verify stride assert'):
+                       match='is always unsatisfiable'):
         @proc
         def bar(x : i8[30,10] @ DRAM, y : i8[30,16] @ GEMM_SCRATCH):
             assert stride(x, 0) == 9
@@ -288,12 +288,13 @@ def test_stride_assert6():
 
 # Test Tensor having insufficient information (sizes)
 def test_stride_assert7():
-    with pytest.raises(TypeError,
-                       match='Could not verify stride assert'):
-        @proc
-        def bar(n : size, m : size, x : i8[n,m] @ DRAM):
-            assert stride(x, 0) == 10
-            pass
+    # with changes, this should not trigger an error
+    # since it might be true, even if it is highly unlikely
+    # i.e. this would have to be always called with m == 10
+    @proc
+    def bar(n : size, m : size, x : i8[n,m] @ DRAM):
+        assert stride(x, 0) == 10
+        pass
 
 # Test Windowstmt
 def test_stride_assert8():

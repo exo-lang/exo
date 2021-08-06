@@ -66,7 +66,7 @@ class Procedure:
                 self._loopir_proc = TypeChecker(proc).get_loopir()
                 self._loopir_proc = InferEffects(self._loopir_proc).result()
                 CheckEffects(self._loopir_proc)
-                CheckStrideAsserts(self._loopir_proc)
+                #CheckStrideAsserts(self._loopir_proc)
 
         # find the root provenance
         parent = _provenance_eq_Procedure

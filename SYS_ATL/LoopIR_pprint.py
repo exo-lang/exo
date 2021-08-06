@@ -257,8 +257,8 @@ class UAST_PPrinter:
                 else: assert False, "bad case"
             return (f"{self.get_name(e.name)}"+
                     f"[{', '.join([ pacc(w) for w in e.idx ])}]")
-        elif type(e) is UAST.StrideAssert:
-            return f"stride({self.get_name(e.name)}, {e.idx}) == {e.val}"
+        elif type(e) is UAST.StrideExpr:
+            return f"stride({self.get_name(e.name)}, {e.dim})"
         elif type(e) is UAST.BuiltIn:
             pname   = e.f.name() or "_anon_"
             args    = [ self.pexpr(a) for a in e.args ]
@@ -492,8 +492,8 @@ class LoopIR_PPrinter:
         elif type(e) is LoopIR.WindowExpr:
             return (f"{self.get_name(e.name)}"+
                     f"[{', '.join([ self.pwacc(w) for w in e.idx ])}]")
-        elif type(e) is LoopIR.StrideAssert:
-            return f"stride({self.get_name(e.name)}, {e.idx}) == {e.val}"
+        elif type(e) is LoopIR.StrideExpr:
+            return f"stride({self.get_name(e.name)}, {e.dim})"
         elif type(e) is LoopIR.BuiltIn:
             pname   = e.f.name() or "_anon_"
             args    = [ self.pexpr(a) for a in e.args ]
