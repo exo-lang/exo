@@ -238,10 +238,11 @@ def do_init(T):
 
 
 
-def test_matmul_gemmini():
-  T = GemmTestBuilder('matmul_gemmini')
+@pytest.mark.skip()
+def test_matmul_c_i8():
+  T = GemmTestBuilder('matmul_c_i8')
   T.add_body(['gemm_init_mem();',
-              'init_mem();',
+              'gemm_acc_init_mem();',
               'gemmini_flush(0);',
               ''])
 
@@ -258,7 +259,7 @@ def test_matmul_gemmini():
   T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
   @proc
-  def matmul_on_cpu(
+  def matmul_c_i8(
     N : size,
     M : size,
     K : size,
@@ -268,26 +269,26 @@ def test_matmul_gemmini():
     acc     : bool,
     trans_a : bool,
     trans_b : bool,
-    A : [i8][N,K] @ MDRAM,
-    B : [i8][K,M] @ MDRAM,
-    C : [i8][N,M] @ MDRAM,
+    A : [i8][N,K] @ DRAM,
+    B : [i8][K,M] @ DRAM,
+    C : [i8][N,M] @ DRAM,
   ):
 
     for i in par(0,N):
         for j in par(0,M):
-            res : i32
+            res : i32 @ GEMM_ACCUM
             res = 0.0
             for k in par(0,K):
                 tmp_a : f32
                 tmp_a = A[i,k]
                 tmp_a = tmp_a * a_scale
-                a : i8
+                a : i8 @ GEMM_SCRATCH
                 a = tmp_a
 
                 tmp_b : f32
                 tmp_b = B[k,j]
                 tmp_b = tmp_b * b_scale
-                b : i8
+                b : i8 @ GEMM_SCRATCH
                 b = tmp_b
 
                 a2 : i32
@@ -296,74 +297,292 @@ def test_matmul_gemmini():
                 b2 = b
                 res += a2*b2
 
+            tmp_res : i8
             if acc == True:
-                res = relu(res)
+                tmp_res = relu(res)
+            else:
+                tmp_res = res
 
-            tmp_res1 : f32
-            tmp_res1 = res
-            tmp_res1 = tmp_res1 * c_scale
+            tmp_res2 : f32
+            tmp_res2 = tmp_res
+            tmp_res2 = tmp_res2 * c_scale
+            clamp(tmp_res2, tmp_res)
+            C[i,j] = tmp_res
 
-            tmp_res2 : i8
-            clamp(tmp_res1, tmp_res2)
-            C[i,j] = tmp_res2
 
-  T.add_proc(matmul_on_cpu)
-  matmul = matmul_on_cpu
-  matmul = matmul.split('i',16,['i','i_in'], tail='cut_and_guard')
-  matmul = matmul.reorder('i_in','j')
-  matmul = matmul.split('j',16,['j','j_in'], tail='cut_and_guard')
+#  matmul_c_i8 = matmul_c_i8.split('i',16,['i','i_out'], tail='cut_and_guard')
+#  matmul_c_i8 = matmul_c_i8.reorder('i','i_out')
+#  matmul_c_i8 = matmul_c_i8.split('j',16,['j','j_out'], tail='cut_and_guard')
+#  matmul_c_i8 = matmul_c_i8.reorder('j','j_out')
+#  matmul_c_i8 = matmul_c_i8.fission_after('if M%16>0:_', n_lifts=1)
 
-  matmul = matmul.lift_alloc('res : _ #0', n_lifts=1)
-  matmul = matmul.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16)
-  matmul = matmul.fission_after('res[_] = 0.0 #0', n_lifts=2)
-  matmul = matmul.lift_alloc('res : _ #1', n_lifts=1)
-  matmul = matmul.lift_alloc('res : _ #1', n_lifts=1, mode='col', size=16)
-  matmul = matmul.fission_after('res[_] = 0.0 #1', n_lifts=2)
-  matmul = matmul.lift_alloc('res : _ #2', n_lifts=1)
-  matmul = matmul.lift_alloc('res : _ #2', n_lifts=1, mode='col', size=16)
-  matmul = matmul.fission_after('res[_] = 0.0 #2', n_lifts=2)
-  matmul = matmul.lift_alloc('res : _ #3', n_lifts=1)
-  matmul = matmul.lift_alloc('res : _ #3', n_lifts=1, mode='col', size=16)
-  matmul = matmul.fission_after('res[_] = 0.0 #3', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.split('i',16,['i','i_in'], tail='cut_and_guard')
+  matmul_c_i8 = matmul_c_i8.reorder('i_in','j')
+  matmul_c_i8 = matmul_c_i8.split('j',16,['j','j_in'], tail='cut_and_guard')
 
-  matmul = matmul.fission_after('for k in _:_', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #0', n_lifts=1)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #0', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.fission_after('res[_] = 0.0 #0', n_lifts=2)
 
-  matmul = matmul.reorder('i_in','k')
-  matmul = matmul.reorder('j_in','k')
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #1', n_lifts=1)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #1', n_lifts=1, mode='col', size=16)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #1', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.fission_after('res[_] = 0.0 #1', n_lifts=2)
 
-  matmul = matmul.lift_alloc('a : i8', n_lifts=2)
-  matmul = matmul.lift_alloc('b : i8 #0', n_lifts=2)
-  matmul = matmul.lift_alloc('b : i8 #1', n_lifts=2, size=16)
-  matmul = matmul.lift_alloc('b : i8 #2', n_lifts=2)
-  matmul = matmul.lift_alloc('b : i8 #3', n_lifts=2, size=16)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #2', n_lifts=1)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #2', n_lifts=1, mode='col', size=16)
+  matmul_c_i8 = matmul_c_i8.fission_after('res[_] = 0.0 #2', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #2', n_lifts=2)
 
-  matmul = matmul.split('k',16,['k','k_in'], tail='cut_and_guard')
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #3', n_lifts=1)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #3', n_lifts=1, mode='col', size=16)
+  matmul_c_i8 = matmul_c_i8.fission_after('res[_] = 0.0 #3', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('res : _ #3', n_lifts=2)
 
-  matmul = matmul.lift_alloc('a : _ #0', n_lifts=1, mode='col')
-  matmul = matmul.lift_alloc('a : i8[_] #1', n_lifts=1, mode='col', size=16)
-  matmul = matmul.lift_alloc('a : _ #2', n_lifts=1, mode='col')
-  matmul = matmul.lift_alloc('a : i8[_] #3', n_lifts=1, mode='col', size=16)
-  matmul = matmul.lift_alloc('a : _ #4', n_lifts=1, mode='col')
-  matmul = matmul.lift_alloc('a : i8[_] #5', n_lifts=1, mode='col', size=16)
-  matmul = matmul.lift_alloc('a : _ #6', n_lifts=1, mode='col')
-  matmul = matmul.lift_alloc('a : i8[_] #7', n_lifts=1, mode='col', size=16)
+  matmul_c_i8 = matmul_c_i8.fission_after('for k in _:_ #0', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.fission_after('for k in _:_ #1', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.fission_after('for k in _:_ #2', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.fission_after('for k in _:_ #3', n_lifts=2)
 
-  matmul = matmul.lift_alloc('b : _', n_lifts=1)
+  matmul_c_i8 = matmul_c_i8.reorder('i_in','k')
+  matmul_c_i8 = matmul_c_i8.reorder('j_in','k')
 
-  matmul = matmul.fission_after('a[_] = _', n_lifts=3)
-  matmul = matmul.fission_after('b[_] = _', n_lifts=3)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8 #0', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8 #1', n_lifts=2, size=16)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8 #2', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8 #3', n_lifts=2, size=16)
 
-  matmul = matmul.reorder('j_in','i_in')
-  matmul = matmul.replace(zero_acc_i32, "for i_in in _:_ #0")
-  matmul = matmul.reorder('k_in','i_in')
-  matmul = matmul.replace(ld_i8, "for i_in in _:_ #0")
-  matmul = matmul.replace(ld_i8, "for k_in in _:_ #0")
-  matmul = matmul.reorder('k_in','j_in')
-  matmul = matmul.replace(matmul_acc_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.split('k',16,['k','k_in'], tail='cut_and_guard')
 
-  matmul = matmul.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : _ #0', n_lifts=1, mode='col')
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8[_] #1', n_lifts=1, mode='col', size=16)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : _ #2', n_lifts=1, mode='col')
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8[_] #3', n_lifts=1, mode='col', size=16)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : _ #4', n_lifts=1, mode='col')
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8[_] #5', n_lifts=1, mode='col', size=16)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : _ #6', n_lifts=1, mode='col')
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8[_] #7', n_lifts=1, mode='col', size=16)
 
-  print(matmul)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('b : _', n_lifts=1)
 
+  matmul_c_i8 = matmul_c_i8.fission_after('a[_] = _', n_lifts=3)
+  matmul_c_i8 = matmul_c_i8.fission_after('b[_] = _', n_lifts=3)
+
+  matmul_c_i8 = matmul_c_i8.reorder('j_in','i_in')
+  matmul_c_i8 = matmul_c_i8.replace(zero_acc_i32, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.reorder('k_in','i_in')
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for k_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.reorder('k_in','j_in')
+  matmul_c_i8 = matmul_c_i8.replace(matmul_acc_i8, "for i_in in _:_ #0")
+
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(matmul_acc_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.reorder('j_in','k_in')
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for k_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(st_acc_i8, "for i_in in _:_ #0")
+
+  matmul_c_i8 = matmul_c_i8.replace(zero_acc_i32, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for k_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.reorder('k_in','j_in')
+  matmul_c_i8 = matmul_c_i8.replace(matmul_acc_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(matmul_acc_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.reorder('j_in','k_in')
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for k_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(st_acc_i8, "for i_in in _:_ #0")
+
+  matmul_c_i8 = matmul_c_i8.replace(zero_acc_i32, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for k_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.reorder('k_in','j_in')
+  matmul_c_i8 = matmul_c_i8.replace(matmul_acc_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(matmul_acc_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.reorder('j_in','k_in')
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for k_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(st_acc_i8, "for i_in in _:_ #0")
+
+  matmul_c_i8 = matmul_c_i8.replace(zero_acc_i32, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for k_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.reorder('k_in','j_in')
+  matmul_c_i8 = matmul_c_i8.replace(matmul_acc_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(matmul_acc_i8, "for i_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.reorder('j_in','k_in')
+  matmul_c_i8 = matmul_c_i8.replace(ld_i8, "for k_in in _:_ #0")
+  matmul_c_i8 = matmul_c_i8.replace(st_acc_i8, "for i_in in _:_ #0")
+
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : _', n_lifts=3)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('b : _', n_lifts=3)
+
+#  matmul_c_i8 = matmul_c_i8.split('i',16,['i','i_in'], tail='cut')
+#  matmul_c_i8 = matmul_c_i8.reorder('i_in','j')
+
+  T.add_proc(matmul_c_i8)
+
+  T.start_timer('gemmini')
+  T.add_body([f'matmul_c_i8({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }});',
+              f'gemmini_fence();'])
+  T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+
+  T.compile().run()
+
+  print(matmul_c_i8)
+
+
+
+def test_matmul_c_i8_perfect():
+  T = GemmTestBuilder('matmul_c_i8_perfect')
+  T.add_body(['gemm_init_mem();',
+              'gemm_acc_init_mem();',
+              'gemmini_flush(0);',
+              ''])
+
+  NN = 512
+  MM = 512
+  KK = 512
+
+  T.alloc_dram_2i8('x', NN, KK, '1')
+  T.alloc_dram_2i8('y', KK, MM, '1')
+  T.alloc_dram_f32('a_scale', '3.0f')
+  T.alloc_dram_f32('b_scale', '2.0f')
+  T.alloc_dram_f32('c_scale', '2.0f')
+  T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
+  T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
+
+  @proc
+  def matmul_c_i8_perfect(
+    N : size,
+    M : size,
+    K : size,
+    a_scale : f32,
+    b_scale : f32,
+    c_scale : f32,
+    acc     : bool,
+    trans_a : bool,
+    trans_b : bool,
+    A : i8[N,K] @ DRAM,
+    B : i8[K,M] @ DRAM,
+    C : i8[N,M] @ DRAM,
+  ):
+    assert N == 512
+    assert M == 512
+    assert K == 512
+
+    for i in par(0,512):
+        for j in par(0,512):
+            res : i32 @ GEMM_ACCUM
+            res = 0.0
+            for k in par(0,512):
+                tmp_a : f32
+                tmp_a = A[i,k]
+                tmp_a = tmp_a * a_scale
+                a : i8 @ GEMM_SCRATCH
+                a = tmp_a
+
+                tmp_b : f32
+                tmp_b = B[k,j]
+                tmp_b = tmp_b * b_scale
+                b : i8 @ GEMM_SCRATCH
+                b = tmp_b
+
+                a2 : i32
+                b2 : i32
+                a2 = a
+                b2 = b
+                res += a2*b2
+
+            tmp_res : i8
+            if acc == True:
+                tmp_res = relu(res)
+            else:
+                tmp_res = res
+
+            tmp_res2 : f32
+            tmp_res2 = tmp_res
+            tmp_res2 = tmp_res2 * c_scale
+            clamp(tmp_res2, tmp_res)
+            C[i,j] = tmp_res
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.split('i',128,['io','i'], perfect=True)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.split('j',128,['jo','j'], perfect=True)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i','jo')
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.split('i',16,['i','i_in'], perfect=True)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i_in','j')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.split('j',16,['j','j_in'], perfect=True)
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('res : _ #0', n_lifts=1)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('res : _ #0', n_lifts=2)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('res[_] = 0.0 #0', n_lifts=2)
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('for k in _:_ #0', n_lifts=2)
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i_in','k')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('j_in','k')
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : i8', n_lifts=2)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : i8', n_lifts=2)
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.split('k',16,['k','k_in'], perfect=True)
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : _ #0', n_lifts=1, mode='col')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : _', n_lifts=1)
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('a[_] = _', n_lifts=3)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('b[_] = _', n_lifts=3)
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('j_in','i_in')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.replace(zero_acc_i32, "for i_in in _:_ #0")
+  matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('k_in','i_in')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.replace(ld_i8, "for i_in in _:_ #0")
+  matmul_c_i8_perfect = matmul_c_i8_perfect.replace(ld_i8, "for k_in in _:_ #0")
+  matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('k_in','j_in')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.replace(matmul_acc_i8, "for i_in in _:_ #0")
+  matmul_c_i8_perfect = matmul_c_i8_perfect.replace(st_acc_i8, "for i_in in _:_ #0")
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : i8', n_lifts=3)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : i8', n_lifts=3)
+
+  # Real optimization
+  matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('zero_acc_i32(_)', n_lifts=2)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('for k in _:_', n_lifts=2)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('j','k')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i','k')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('ld_i8(_)', n_lifts=2)
+
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #1')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #2')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #1')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #1')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #1')
+
+
+  T.add_proc(matmul_c_i8_perfect)
+
+  T.start_timer('gemmini')
+  T.add_body([f'matmul_c_i8_perfect({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, x, y, z_cpu);',
+              f'gemmini_fence();'])
+  T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+
+  T.compile().run()
+
+  print(matmul_c_i8_perfect)
+"""
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('zero_acc_i32(_)', n_lifts=2)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('for k in _:_', n_lifts=2)
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #1')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #2')
+  matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('k')
+"""
 
 

@@ -30,10 +30,15 @@ def expr_subst(env, e):
             return E.Var(env[e.name], e.type, e.srcinfo)
         else:
             return e
+    elif type(e) is E.Neg:
+        if e.name in env:
+            return E.Neg(env[e.name], e.type, e.srcinfo)
+        else:
+            return e
     elif type(e) is E.BinOp:
         return E.BinOp(e.op, expr_subst(env, e.lhs), expr_subst(env, e.rhs),
                        e.type, e.srcinfo)
-    else: assert False, "bad case"
+    else: assert False, f"bad case: {type(e)}"
 
 def negate_expr(e):
     assert e.type == T.bool, "can only negate predicates"

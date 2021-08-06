@@ -618,7 +618,8 @@ class Unification:
                 elif type(e) is LoopIR.USub:
                     expand_e(e.arg)
                 elif type(e) is LoopIR.BinOp:
-                    expand_e(e.lhs, e.rhs)
+                    expand_e(e.lhs)
+                    expand_e(e.rhs)
 
             if type(typ) is T.Tensor:
                 for e in typ.hi:
@@ -768,15 +769,15 @@ class Unification:
         if type(be) is LoopIR.Read:
             if be.name not in self.FV:
                 return False
-            return all( self.all_bound_e(i) for i in e.idx )
+            return all( self.all_bound_e(i) for i in be.idx )
         elif type(be) is LoopIR.Const:
             return True
         elif type(be) is LoopIR.USub:
-            return self.all_bound_e(e.arg)
+            return self.all_bound_e(be.arg)
         elif type(be) is LoopIR.BinOp:
-            return self.all_bound_e(e.lhs) and self.all_bound_e(e.rhs)
+            return self.all_bound_e(be.lhs) and self.all_bound_e(be.rhs)
         elif type(be) is LoopIR.BuiltIn:
-            return all( self.all_bound_e(a) for a in e.args )
+            return all( self.all_bound_e(a) for a in be.args )
         else: assert False, "unsupported case"
 
     def is_exact_e(self, e0, e1):
