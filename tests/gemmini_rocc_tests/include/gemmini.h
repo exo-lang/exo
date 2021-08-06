@@ -4539,7 +4539,7 @@ static void tiled_conv_A_stride(
     }
 }
 
-static void tiled_conv_A_stride_auto(
+static void orig_tiled_conv_A_stride_auto(
         int batch_size, int in_dim, int in_channels,
         int out_channels, int out_dim,
         int stride, int input_dilation, int kernel_dilation, int padding, int kernel_dim,
@@ -4725,6 +4725,161 @@ static void tiled_conv_A_stride_auto(
         pool_size, no_pool ? 0 : pool_stride, pool_padding,
 
         tiled_conv_type);
+}
+
+
+double _select_(double x, double v, double y, double z) {
+    if (x < v) return y;
+    else return z;
+}
+
+double _relu_(double x) {
+    if (x > 0.0) return x;
+    else return 0.0;
+}
+
+void clamp( float* src, int8_t* dst ) {
+    float l;
+    float h;
+    l = -128.0;
+    h = 127.0;
+    *dst = (int8_t)(_select_((double)*&h, (double)*src, (double)*&h, (double)*src));
+    *dst = _select_((double)*src, (double)*&l, (double)*&l, (double)*dst);
+}
+
+
+void conv_on_cpu_stride_1( int batch_size, int out_dim, int out_channel, int kernel_dim, int in_channel, int in_dim, int padding, int8_t* output, int32_t* bias, int8_t* inp, int8_t* weights, bool act, float* scale ) {
+for (int b=0; b < batch_size; b++) {
+  for (int orow=0; orow < out_dim; orow++) {
+    for (int ocol=0; ocol < out_dim; ocol++) {
+      for (int och=0; och < out_channel; och++) {
+        int32_t res;
+        res = bias[(och) * (1)];
+        for (int krow=0; krow < kernel_dim; krow++) {
+          for (int kcol=0; kcol < kernel_dim; kcol++) {
+            for (int kch=0; kch < in_channel; kch++) {
+              if (orow + krow - padding < 0 || orow + krow - padding >= in_dim || ocol + kcol - padding < 0 || ocol + kcol - padding >= in_dim) {
+                ; // NO-OP
+              } else {
+                res += (int32_t)(weights[(krow) * (kernel_dim * in_channel * out_channel) + (kcol) * (in_channel * out_channel) + (kch) * (out_channel) + (och) * (1)] * inp[(b) * (in_dim * in_dim * in_channel) + (orow + krow - padding) * (in_dim * in_channel) + (ocol + kcol - padding) * (in_channel) + (kch) * (1)]);
+              }
+            }
+          }
+        }
+        if (act == true) {
+          res = _relu_((double)*&res);
+        }
+        float tmp_res1;
+        tmp_res1 = (float)(res);
+        tmp_res1 = tmp_res1 * *scale;
+        int8_t tmp_res2;
+        clamp(&tmp_res1,&tmp_res2);
+        output[(b) * (out_dim * out_dim * out_channel) + (orow) * (out_dim * out_channel) + (ocol) * (out_channel) + (och) * (1)] = tmp_res2;
+        
+        
+        
+      }
+    }
+  }
+}
+}
+void conv_on_cpu_stride_2( int batch_size, int out_dim, int out_channel, int kernel_dim, int in_channel, int in_dim, int padding, int8_t* output, int32_t* bias, int8_t* inp, int8_t* weights, bool act, float* scale ) {
+for (int b=0; b < batch_size; b++) {
+  for (int orow=0; orow < out_dim; orow++) {
+    for (int ocol=0; ocol < out_dim; ocol++) {
+      for (int och=0; och < out_channel; och++) {
+        int32_t res;
+        res = bias[(och) * (1)];
+        for (int krow=0; krow < kernel_dim; krow++) {
+          for (int kcol=0; kcol < kernel_dim; kcol++) {
+            for (int kch=0; kch < in_channel; kch++) {
+              if (orow * 2 + krow - padding < 0 || orow * 2 + krow - padding >= in_dim || ocol * 2 + kcol - padding < 0 || ocol * 2 + kcol - padding >= in_dim) {
+                ; // NO-OP
+              } else {
+                res += (int32_t)(weights[(krow) * (kernel_dim * in_channel * out_channel) + (kcol) * (in_channel * out_channel) + (kch) * (out_channel) + (och) * (1)] * inp[(b) * (in_dim * in_dim * in_channel) + (orow * 2 + krow - padding) * (in_dim * in_channel) + (ocol * 2 + kcol - padding) * (in_channel) + (kch) * (1)]);
+              }
+            }
+          }
+        }
+        if (act == true) {
+          res = _relu_((double)*&res);
+        }
+        float tmp_res1;
+        tmp_res1 = (float)(res);
+        tmp_res1 = tmp_res1 * *scale;
+        int8_t tmp_res2;
+        clamp(&tmp_res1,&tmp_res2);
+        output[(b) * (out_dim * out_dim * out_channel) + (orow) * (out_dim * out_channel) + (ocol) * (out_channel) + (och) * (1)] = tmp_res2;
+        
+        
+        
+      }
+    }
+  }
+}
+}
+
+
+static void tiled_conv_A_stride_auto(
+        int batch_size, int in_dim, int in_channels,
+        int out_channels, int out_dim,
+        int stride, int input_dilation, int kernel_dilation, int padding, int kernel_dim,
+        bool wrot180, bool trans_output_1203, bool trans_input_3120,
+        bool trans_weight_1203, bool trans_weight_0132,
+
+        const elem_t * input,
+        const elem_t * weights,
+        const acc_t * bias,
+        elem_t * output,
+
+        int act, acc_scale_t scale, size_t relu6_shift,
+        int pool_size, int pool_stride, int pool_padding,
+
+        enum tiled_matmul_type_t tiled_conv_type) {
+
+    if (tiled_conv_type != WS) {
+        printf("Calling original conv auto\n");
+        orig_tiled_conv_A_stride_auto(batch_size, in_dim, in_channels, out_channels,
+                out_dim, stride, input_dilation, kernel_dilation, padding, kernel_dim,
+                wrot180, trans_output_1203, trans_input_3120, trans_weight_1203, trans_weight_0132,
+                input, weights, bias, output, act, scale, relu6_shift, pool_size, pool_stride, pool_padding, tiled_conv_type);
+        return;
+    }
+    if (input_dilation != 1) {
+        printf("input_dilation should be 1\n");
+        exit(1);
+    }
+    if (kernel_dilation != 1) {
+        printf("kernel_dilation should be 1\n");
+        exit(1);
+    }
+    if (wrot180 || trans_output_1203 || trans_input_3120 || trans_weight_1203 || trans_weight_0132) {
+        printf("transpose should not happen in inference\n");
+        exit(1);
+    }
+    if (relu6_shift != 0) {
+        printf("relu6_shift is deprecated!\n");
+        exit(1);
+    }
+    //printf("pool_size: %d\n", pool_size);
+    //printf("pool_stride: %d\n", pool_stride);
+    //printf("pool_padding: %d\n", pool_padding);
+    //printf("act: %d\n", act);
+    //printf("scale: %d\n", (int)scale);
+
+    float c_scale = (float) scale;
+    bool act_    = (bool) act;
+
+    if (stride == 1) {
+        conv_on_cpu_stride_1(batch_size, out_dim, out_channels, kernel_dim, in_channels, in_dim,
+                             padding, output, bias, input, weights, act_, &c_scale);
+    } else if (stride == 2) {
+        conv_on_cpu_stride_2(batch_size, out_dim, out_channels, kernel_dim, in_channels, in_dim,
+                             padding, output, bias, input, weights, act_, &c_scale);
+    } else {
+        printf("Stride should be 1 or 2!\n");
+        exit(1);
+    }
 }
 
 // This function is for a convolution with kernel_dim=1, stride==2, padding=0, and no pooling
