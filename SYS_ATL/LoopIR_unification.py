@@ -1079,7 +1079,7 @@ class Unification:
 
             # unify the two buffers
             self.unify_buf_name_no_win(pe.name,be.name)
-            self.unify_types(pvar.typ, self.bbuf_types[bbuf],pe,be)
+            self.unify_types(pvar.typ, self.bbuf_types[be.name],pe,be)
 
             # unify the two windowing expressions
             if len(pe.idx) != len(be.idx):
