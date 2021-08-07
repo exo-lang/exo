@@ -78,7 +78,7 @@ def test_good_prec1():
     res_c = cvt_c(res, typ=np.float64)
 
     test_lib = generate_lib(filename)
-    test_lib.good_prec1(c_int(n_size), c_int(
+    test_lib.good_prec1(POINTER(c_int)(), c_int(n_size), c_int(
         m_size), cvt_c(x), cvt_c(y), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     good_prec1.interpret(n=n_size, m=m_size, x=x, y=y, res=res)
