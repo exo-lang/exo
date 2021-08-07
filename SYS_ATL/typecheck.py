@@ -249,7 +249,8 @@ class TypeChecker:
                 if call_a.type == T.err:
                     pass
                 elif sig_a.type is T.size:
-                    if not call_a.type.is_sizeable():
+                    #TODO: fix propoerly
+                    if not call_a.type.is_indexable():
                         self.err(call_a, "expected size arguments to have "+
                                          "'size' type")
                 elif sig_a.type is T.index:
@@ -553,7 +554,8 @@ class TypeChecker:
             hi          = [self.check_e(h) for h in typ.hi]
             sub_typ     = self.check_t(typ.type)
             for h in hi:
-                if not h.type.is_sizeable():
+                #TODO: fix propoerly
+                if not h.type.is_indexable():
                     self.err(h, "expected array size expression "+
                                  "to have type 'size'")
             return T.Tensor(hi, typ.is_window, sub_typ)
