@@ -672,7 +672,7 @@ class CheckEffects:
         if type(e) is LoopIR.Read:
             assert not e.type.is_numeric()
             return subst[e.name] if e.name in subst else e
-        elif type(e) is LoopIR.Const or type(e) is LoopIR.ReadConfigs:
+        elif type(e) is LoopIR.Const or type(e) is LoopIR.ReadConfig:
             return e
         elif type(e) is LoopIR.USub:
             return LoopIR.USub( self.loopir_subst(e.arg, subst),

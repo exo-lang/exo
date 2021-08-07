@@ -133,7 +133,7 @@ class LoopIR_FindBuiltIns(LoopIR_Do):
         if type(e) is LoopIR.BuiltIn:
             self._builtins.add(e.f)
         else:
-            super().do_e(s)
+            super().do_e(e)
 
     def do_eff(self,eff):
         pass
@@ -153,7 +153,7 @@ class LoopIR_FindConfigs(LoopIR_Do):
         if type(e) is LoopIR.ReadConfig:
             self._configs.add(e.config)
         else:
-            super().do_e(s)
+            super().do_e(e)
 
     def do_s(self, s):
         if type(s) is LoopIR.WriteConfig:
@@ -310,7 +310,7 @@ def compile_to_strings(lib_name, proc_list):
         else:
             ctxt_def += [f"// config '{c.name()}' not materialized",
                          ""]
-    ctxt_def    = [f"}} {ctxt_name};"]
+    ctxt_def  += [f"}} {ctxt_name};"]
     fwd_decls += ctxt_def
     fwd_decls.append("\n")
     # check that we don't have a name conflict on configs

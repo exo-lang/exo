@@ -196,7 +196,7 @@ class TypeChecker:
                 elif ftyp.is_stridable():
                     if not rhs.type.is_stridable():
                         self.err(rhs, f"expected a stride type expression, "+
-                                      f"but got type {rhs.type}"))
+                                      f"but got type {rhs.type}")
                 else:
                     assert False, "bad case"
 

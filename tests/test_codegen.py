@@ -61,7 +61,6 @@ def test_simple_blur():
     out = Image.fromarray(res_c)
     out.save(os.path.join(TMP_DIR, filename + '_out.png'))
 
-
 def test_simple_blur_split():
     @proc
     def simple_blur_split(n: size, m: size, k_size: size,
@@ -459,4 +458,3 @@ def test_select1():
     select1.interpret(x=inp1)
 
     np.testing.assert_almost_equal(inp1, res_c)
-

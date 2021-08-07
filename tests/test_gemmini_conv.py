@@ -22,6 +22,7 @@ def test_conv_stride_1_gemmini():
               'gemm_acc_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["conv_stride_1_gemmini_lib_Context *ctxt;"])
 
   batch_size = 1
   out_dim    = 16
@@ -138,13 +139,13 @@ def test_conv_stride_1_gemmini():
   T.add_proc(conv_on_cpu_stride_1_gemmini)
 
   T.start_timer('cpu')
-  T.add_body([f'conv_on_cpu_stride_1({batch_size}, {out_dim}, {out_channel}, {kernel_dim},',
+  T.add_body([f'conv_on_cpu_stride_1(ctxt, {batch_size}, {out_dim}, {out_channel}, {kernel_dim},',
               f'{in_channel}, {in_dim}, {padding}, output_cpu, bias, inp, weights, false, scale);',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'conv_on_cpu_stride_1_gemmini({batch_size}, {out_dim}, {out_channel}, {kernel_dim},',
+  T.add_body([f'conv_on_cpu_stride_1_gemmini(ctxt, {batch_size}, {out_dim}, {out_channel}, {kernel_dim},',
               f'{in_channel}, {in_dim}, {padding}, output_gemmini, bias, inp, weights, false, scale);',
               f'gemmini_fence();'])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
