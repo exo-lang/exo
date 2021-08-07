@@ -2621,9 +2621,9 @@ static void orig_tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
         break;
     }
 
-    printf("tile_I: %d\n", tile_I);
-    printf("tile_J: %d\n", tile_J);
-    printf("tile_K: %d\n\n", tile_K);
+    //printf("tile_I: %d\n", tile_I);
+    //printf("tile_J: %d\n", tile_J);
+    //printf("tile_K: %d\n\n", tile_K);
 
     /*
     const int spad_rows = tiled_matmul_total_spad_rows(tile_I, tile_J, tile_K);
