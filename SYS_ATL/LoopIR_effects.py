@@ -47,6 +47,7 @@ module Effects {
             | Neg( sym name )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
+            | Stride( sym name, int dim )
             attributes( type type, srcinfo srcinfo )
 
 } """, {
@@ -139,6 +140,8 @@ def effect_as_str(e):
                 return f"({lhs} {e.op} {rhs})"
             else:
                 return f"{lhs} {e.op} {rhs}"
+        elif type(e) is Effects.Stride:
+            return f"stride({e.name},{e.dim})"
 
     def esstr(es, tab="  "):
         lines = []

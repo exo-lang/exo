@@ -445,7 +445,7 @@ class Parser:
                     # handle all other lvalue cases
                     else:
                         lvalue_tmp = self.parse_lvalue(node)
-                        name_node, idxs, s_window = lvalue_tmp
+                        name_node, idxs, is_window = lvalue_tmp
                     lhs = s.targets[0]
                 else:
                     name_node, idxs, is_window = self.parse_lvalue(s.target)

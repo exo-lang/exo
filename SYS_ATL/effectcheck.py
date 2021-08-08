@@ -619,7 +619,7 @@ class CheckEffects:
 
         for p in proc.preds:
             # Check whether the assert is even potentially correct
-            smt_p = self.pred_to_smt(p)
+            smt_p = self.expr_to_smt(lift_expr(p))
             if not self.solver.is_sat(smt_p):
                 self.err(p, f"The assertion {p} at {p.srcinfo} "+
                             f"is always unsatisfiable.")
@@ -672,7 +672,7 @@ class CheckEffects:
         if type(e) is LoopIR.Read:
             assert not e.type.is_numeric()
             return subst[e.name] if e.name in subst else e
-        elif type(e) is LoopIR.Const or type(e) is LoopIR.ReadConfigs:
+        elif type(e) is LoopIR.Const or type(e) is LoopIR.ReadConfig:
             return e
         elif type(e) is LoopIR.USub:
             return LoopIR.USub( self.loopir_subst(e.arg, subst),
@@ -681,6 +681,23 @@ class CheckEffects:
             return LoopIR.BinOp( e.op, self.loopir_subst(e.lhs, subst),
                                        self.loopir_subst(e.rhs, subst),
                                        e.type, e.srcinfo )
+        elif type(e) is LoopIR.StrideExpr:
+            if e.name not in subst:
+                return e
+            lookup = subst[e.name]
+            if type(lookup) is LoopIR.Read:
+                assert len(lookup.idx) == 0
+                return LoopIR.StrideExpr(lookup.name, e.dim,
+                                         e.type, e.srcinfo)
+            elif type(lookup) is LoopIR.WindowExpr:
+                windowed_orig_dims  = [ d for d,w in enumerate(lookup.idx)
+                                          if type(w) is LoopIR.Interval ]
+                dim     = windowed_orig_dims[e.dim]
+                return LoopIR.StrideExpr(lookup.name, dim,
+                                         e.type, e.srcinfo)
+
+            else: assert False, f"bad case: {type(lookup)}"
+
         else: assert False, f"bad case: {type(e)}"
 
     # TODO: Add allow_allocation arg here, to check if we're introducing new
@@ -692,65 +709,6 @@ class CheckEffects:
             elif typ is T.bool:
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
         return self.env[sym]
-
-    def pred_to_smt(self, pred, subst=None):
-        assert pred.type == T.bool
-        if type(pred) is LoopIR.BinOp:
-            if pred.op == 'and':
-                return SMT.And( self.pred_to_smt(pred.lhs,subst),
-                                self.pred_to_smt(pred.rhs,subst) )
-            elif pred.op == 'or':
-                return SMT.Or( self.pred_to_smt(pred.lhs,subst),
-                               self.pred_to_smt(pred.rhs,subst) )
-            elif pred.op == '==':
-                if pred.lhs.type == T.stride or pred.rhs.type == T.stride:
-                    def lower_stride(e):
-                        if type(e) is LoopIR.Read:
-                            e = (e if subst is None else
-                                 self.loopir_subst(e, subst))
-
-                        if type(e) is LoopIR.Read or type(e) is LoopIR.Const:
-                            return self.expr_to_smt(lift_expr(e))
-                        elif type(e) is LoopIR.StrideExpr:
-                            # work out whether we're aliasing the
-                            # name and dimension of the stride
-                            name    = e.name
-                            dim     = e.dim
-                            if subst and name in subst:
-                                arg = subst[name]
-                                assert isinstance(arg, LoopIR.expr)
-                                if type(arg) is LoopIR.Read:
-                                    name = arg.name
-                                elif type(arg) is LoopIR.WindowExpr:
-                                    name    = arg.name
-                                    # figure out how to remap the dimension...
-                                    count   = dim
-                                    for i,w in enumerate(arg.idx):
-                                        if type(w) is LoopIR.Interval:
-                                            if count == 0:
-                                                dim = i
-                                                break
-                                            else:
-                                                count = count-1
-                                else: assert False, f"bad case: {type(arg)}"
-
-                            # determine a symbol for this stride...
-                            keystr = f"{repr(name)}_dim_{dim}"
-                            if keystr in self.stride_sym:
-                                keysym = self.stride_sym[keystr]
-                            else:
-                                keysym = Sym(keystr)
-                                self.stride_sym[keystr] = keysym
-                            return self.sym_to_smt(keysym)
-
-                    return SMT.Equals(lower_stride(pred.lhs),
-                                      lower_stride(pred.rhs))
-
-        # fall-through
-        if subst is None:
-            return self.expr_to_smt(lift_expr(pred))
-        else:
-            return self.expr_to_smt(lift_expr(self.loopir_subst(pred, subst)))
 
     def expr_to_smt(self, expr):
         assert isinstance(expr, E.expr), "expected Effects.expr"
@@ -764,6 +722,14 @@ class CheckEffects:
             return self.sym_to_smt(expr.name, expr.type)
         elif type(expr) is E.Neg:
             return SMT.Not(self.sym_to_smt(expr.name, expr.type))
+        elif type(expr) is E.Stride:
+            key = (expr.name,expr.dim)
+            if key in self.stride_sym:
+                stride_sym  = self.stride_sym[key]
+            else:
+                stride_sym  = Sym(f"{expr.name}_stride_{expr.dim}")
+                self.stride_sym[key] = stride_sym
+            return self.sym_to_smt(stride_sym)
         elif type(expr) is E.BinOp:
             lhs = self.expr_to_smt(expr.lhs)
             rhs = self.expr_to_smt(expr.rhs)
@@ -866,13 +832,16 @@ class CheckEffects:
                 elif (expr.lhs.type.is_indexable() and
                       expr.rhs.type.is_indexable()):
                     return SMT.Equals(lhs, rhs)
+                elif (expr.lhs.type.is_stridable() and
+                      expr.rhs.type.is_stridable()):
+                    return SMT.Equals(lhs, rhs)
                 else:
                     assert False, "bad case"
             elif expr.op == "and":
                 return SMT.And(lhs, rhs)
             elif expr.op == "or":
                 return SMT.Or(lhs, rhs)
-        else: assert False, "bad case"
+        else: assert False, f"bad case: {type(expr)}"
 
 
     def assume_tensor_strides(self, node, name, shape):
@@ -893,7 +862,7 @@ class CheckEffects:
                 s_const = LoopIR.Const(s, T.int, node.srcinfo)
                 eq      = LoopIR.BinOp('==', s_expr, s_const,
                                        T.bool, node.srcinfo)
-                self.solver.add_assertion(self.pred_to_smt(eq))
+                self.solver.add_assertion(self.expr_to_smt(lift_expr(eq)))
 
     def check_in_bounds(self, sym, shape, eff, eff_str):
         assert type(eff) is E.effset, "effset should be passed to in_bounds"
@@ -1043,15 +1012,16 @@ class CheckEffects:
                 w_idx       = stmt.rhs.type.idx
                 src_buf     = stmt.rhs.type.src_buf
                 dst_buf     = stmt.lhs
-                dst_dim     = 0
-                for src_dim, w in enumerate(w_idx):
-                    if type(w) is LoopIR.Interval:
-                        src = LoopIR.StrideExpr(src_buf, src_dim,
-                                                T.stride, stmt.srcinfo)
-                        dst = LoopIR.StrideExpr(dst_buf, dst_dim,
-                                                T.stride, stmt.srcinfo)
-                        eq  = LoopIR.BinOp('==',src,dst,T.bool,stmt.srcinfo)
-                        self.solver.add_assertion(self.pred_to_smt(eq))
+
+                src_dims    = [ d for d,w in enumerate(w_idx)
+                                  if type(w) is LoopIR.Interval ]
+                for dst_dim, src_dim in enumerate(src_dims):
+                    src = LoopIR.StrideExpr(src_buf, src_dim,
+                                            T.stride, stmt.srcinfo)
+                    dst = LoopIR.StrideExpr(dst_buf, dst_dim,
+                                            T.stride, stmt.srcinfo)
+                    eq  = LoopIR.BinOp('==',src,dst,T.bool,stmt.srcinfo)
+                    self.solver.add_assertion(self.expr_to_smt(lift_expr(eq)))
             else:
                 pass
 
@@ -1135,7 +1105,6 @@ class CheckEffects:
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
                         # bind potential window-expression
-                        # Note this is NOT an E.expr
                         subst[sig.name] = arg
 
                     elif ( sig.type.is_indexable() or
@@ -1150,7 +1119,8 @@ class CheckEffects:
 
                 for p in stmt.f.preds:
                     # Check that asserts are correct
-                    smt_pred = self.pred_to_smt(p,subst)
+                    p           = self.loopir_subst(p, subst)
+                    smt_pred    = self.expr_to_smt(lift_expr(p))
                     if not self.solver.is_valid(smt_pred):
                         eg = self.counter_example()
                         self.err(stmt, f"Could not verify assertion in "+

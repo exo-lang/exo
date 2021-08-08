@@ -408,11 +408,13 @@ def lift_to_eff_expr(e):
                         lift_to_eff_expr(e.lhs),
                         lift_to_eff_expr(e.rhs),
                         e.type, e.srcinfo )
-    elif isinstance(e, LoopIR.USub):
+    elif type(e) is LoopIR.USub:
         return E.BinOp('-', E.Const(0, e.type, e.srcinfo),
                             lift_to_eff_expr(e.arg),
                             e.type, e.srcinfo)
-
+    elif type(e) is LoopIR.StrideExpr:
+        return E.Stride(e.name, e.dim, e.type, e.srcinfo)
+    
     else: assert False, "bad case, e is " + str(type(e))
 
 # --------------------------------------------------------------------------- #
