@@ -36,8 +36,8 @@
 
 #define BATCH_SIZE 2
 #define KERNEL_DIM 3
-#define PADDING 0
-#define STRIDE 1
+#define PADDING 1
+#define STRIDE 2
 
 #endif
 
