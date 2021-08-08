@@ -21,23 +21,36 @@ def _get_smt_solver():
 # --------------------------------------------------------------------------- #
 # Helper Functions
 
-def expr_subst(env, e):
-    """ perform the substitutions specified by env in expression e """
-    if type(e) is E.Const:
+def loopir_subst(e, subst):
+    if type(e) is LoopIR.Read:
+        assert not e.type.is_numeric()
+        return subst[e.name] if e.name in subst else e
+    elif type(e) is LoopIR.Const or type(e) is LoopIR.ReadConfig:
         return e
-    elif type(e) is E.Var:
-        if e.name in env:
-            return E.Var(env[e.name], e.type, e.srcinfo)
-        else:
+    elif type(e) is LoopIR.USub:
+        return LoopIR.USub( self.loopir_subst(e.arg, subst),
+                            e.type, e.srcinfo )
+    elif type(e) is LoopIR.BinOp:
+        return LoopIR.BinOp( e.op, loopir_subst(e.lhs, subst),
+                                   loopir_subst(e.rhs, subst),
+                                   e.type, e.srcinfo )
+    elif type(e) is LoopIR.StrideExpr:
+        if e.name not in subst:
             return e
-    elif type(e) is E.Neg:
-        if e.name in env:
-            return E.Neg(env[e.name], e.type, e.srcinfo)
-        else:
-            return e
-    elif type(e) is E.BinOp:
-        return E.BinOp(e.op, expr_subst(env, e.lhs), expr_subst(env, e.rhs),
-                       e.type, e.srcinfo)
+        lookup = subst[e.name]
+        if type(lookup) is LoopIR.Read:
+            assert len(lookup.idx) == 0
+            return LoopIR.StrideExpr(lookup.name, e.dim,
+                                     e.type, e.srcinfo)
+        elif type(lookup) is LoopIR.WindowExpr:
+            windowed_orig_dims  = [ d for d,w in enumerate(lookup.idx)
+                                      if type(w) is LoopIR.Interval ]
+            dim     = windowed_orig_dims[e.dim]
+            return LoopIR.StrideExpr(lookup.name, dim,
+                                     e.type, e.srcinfo)
+
+        else: assert False, f"bad case: {type(lookup)}"
+
     else: assert False, f"bad case: {type(e)}"
 
 def negate_expr(e):
@@ -267,7 +280,7 @@ class InferEffects:
             return eff_null(e.srcinfo)
         elif type(e) is LoopIR.StrideExpr:
             return eff_null(e.srcinfo)
-        elif type(stmt) is LoopIR.ReadConfig:
+        elif type(e) is LoopIR.ReadConfig:
             # TODO: Have actual read effect for config
             return eff_null(e.srcinfo)
         else:
@@ -919,19 +932,23 @@ class CheckEffects:
                                 SMT.LT(iter2_smt, self.expr_to_smt(hi)))
             self.solver.add_assertion(iter_pred)
 
-            sub1    = { nm : nm.copy() for nm in e1.names }
-            sub1[iter] = iter1
-            sub2    = { nm : nm.copy() for nm in e2.names }
-            sub2[iter] = iter2
+            sub1    = { nm : E.Var(nm.copy(), T.index, null_srcinfo())
+                        for nm in e1.names }
+            sub1[iter] = E.Var(iter1, T.index, null_srcinfo())
+            sub2    = { nm : E.Var(nm.copy(), T.index, null_srcinfo())
+                        for nm in e2.names }
+            sub2[iter] = E.Var(iter2, T.index, null_srcinfo())
             if e1.pred is not None:
-                pred1   = expr_subst(sub1, e1.pred)
+                pred1   = e1.pred.subst(sub1)
                 self.solver.add_assertion(self.expr_to_smt(pred1))
             if e2.pred is not None:
-                pred2   = expr_subst(sub2, e2.pred)
+                pred2   = e2.pred.subst(sub2)
                 self.solver.add_assertion(self.expr_to_smt(pred2))
 
-            loc1    = [ self.expr_to_smt(expr_subst(sub1, i)) for i in e1.loc ]
-            loc2    = [ self.expr_to_smt(expr_subst(sub2, i)) for i in e2.loc ]
+            loc1    = [ self.expr_to_smt(i.subst(sub1))
+                        for i in e1.loc ]
+            loc2    = [ self.expr_to_smt(i.subst(sub2))
+                        for i in e2.loc ]
             loc_neq = SMT.Bool(False)
             for i1, i2 in zip(loc1,loc2):
                 loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
@@ -1100,7 +1117,7 @@ class CheckEffects:
                             self.check_pos_size(e)
                         # also, need to check that the argument shape
                         # is exactly the shape specified in the signature
-                        sig_shape = [ lift_expr(self.loopir_subst(s, subst))
+                        sig_shape = [ lift_expr(loopir_subst(s, subst))
                                       for s in sig.type.shape() ]
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
@@ -1119,7 +1136,7 @@ class CheckEffects:
 
                 for p in stmt.f.preds:
                     # Check that asserts are correct
-                    p           = self.loopir_subst(p, subst)
+                    p           = loopir_subst(p, subst)
                     smt_pred    = self.expr_to_smt(lift_expr(p))
                     if not self.solver.is_valid(smt_pred):
                         eg = self.counter_example()

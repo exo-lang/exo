@@ -382,17 +382,6 @@ def basetype(t):
         return t
 del basetype
 
-#@extclass(LoopIR.type)
-#def subst(t, lookup):
-#    raise NotImplementedError("TODO: fix 'range' to 'expr' change")
-#    if type(t) is T.Tensor:
-#        typ     = t.type.subst(lookup)
-#        hi      = t.hi if is_pos_int(t.hi) else lookup[t.hi]
-#        return T.Tensor(hi, typ)
-#    else:
-#        return t
-#del subst
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
@@ -414,7 +403,11 @@ def lift_to_eff_expr(e):
                             e.type, e.srcinfo)
     elif type(e) is LoopIR.StrideExpr:
         return E.Stride(e.name, e.dim, e.type, e.srcinfo)
-    
+    elif type(e) is LoopIR.ReadConfig:
+        # TODO: Need something else here!
+        return E.Var( Sym(f"{e.config.name()}_{e.field}"),
+                      e.config.lookup(e.field)[1], e.srcinfo )
+
     else: assert False, "bad case, e is " + str(type(e))
 
 # --------------------------------------------------------------------------- #

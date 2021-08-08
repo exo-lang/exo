@@ -210,6 +210,9 @@ def eff_subst(env, eff):
         return Effects.BinOp(eff.op, eff_subst(env, eff.lhs),
                                      eff_subst(env, eff.rhs),
                              eff.type, eff.srcinfo)
+    elif type(eff) is Effects.Stride:
+        assert eff.name not in env
+        return eff
     elif type(eff) is Effects.effect:
         return Effects.effect( [eff_subst(env, es) for es in eff.reads],
                                [eff_subst(env, es) for es in eff.writes],
