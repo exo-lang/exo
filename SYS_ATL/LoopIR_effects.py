@@ -47,6 +47,7 @@ module Effects {
             | Neg( sym name )
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
+            | Stride( sym name, int dim )
             attributes( type type, srcinfo srcinfo )
 
 } """, {
@@ -139,6 +140,8 @@ def effect_as_str(e):
                 return f"({lhs} {e.op} {rhs})"
             else:
                 return f"{lhs} {e.op} {rhs}"
+        elif type(e) is Effects.Stride:
+            return f"stride({e.name},{e.dim})"
 
     def esstr(es, tab="  "):
         lines = []
@@ -207,6 +210,9 @@ def eff_subst(env, eff):
         return Effects.BinOp(eff.op, eff_subst(env, eff.lhs),
                                      eff_subst(env, eff.rhs),
                              eff.type, eff.srcinfo)
+    elif type(eff) is Effects.Stride:
+        assert eff.name not in env
+        return eff
     elif type(eff) is Effects.effect:
         return Effects.effect( [eff_subst(env, es) for es in eff.reads],
                                [eff_subst(env, es) for es in eff.writes],
