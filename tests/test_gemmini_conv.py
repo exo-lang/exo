@@ -31,8 +31,7 @@ def test_conv_stride_1_gemmini():
   out_dim    = int(in_dim + 2*padding - kernel_dim + 1)
   assert out_dim == 31
   assert 0 <= padding < 16
-  assert padding < out_dim + kernel_dim
-  assert padding < in_dim - kernel_dim - 15
+  assert padding < out_dim
 
   T.alloc_dram_f32('scale', '1.0f')
   T.alloc_dram_2i32('bias', 1, out_channel, '0')
@@ -103,8 +102,7 @@ def test_conv_stride_1_gemmini():
       
       assert out_dim == in_dim + 2*padding - kernel_dim + 1
       assert 0 <= padding < 16
-      assert padding < out_dim + kernel_dim
-      assert padding < in_dim - kernel_dim - 15
+      assert padding < out_dim
       
       one : f32
       one = 1.0

@@ -2683,6 +2683,7 @@ static void tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
                                transpose_A, transpose_B, full_C, low_D, weightA, tiled_matmul_type);
         return;
     }
+    //printf("in tiled matmul_auto\n");
 
     float a_scale = (float) A_scale_factor;
     float b_scale = (float) B_scale_factor;
@@ -5118,8 +5119,8 @@ gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ output + (b) * (out
     }
   }
 }
-
 }
+
 void conv_on_cpu_stride_1( conv_on_cpu_stride_1_gemmini_lib_Context *ctxt, int batch_size, int out_dim, int out_channel, int kernel_dim, int in_channel, int in_dim, int padding, int8_t* output, int32_t* bias, int8_t* inp, int8_t* weights, bool act, float* scale ) {
 for (int b=0; b < batch_size; b++) {
   for (int orow=0; orow < out_dim; orow++) {
@@ -5205,18 +5206,15 @@ static void tiled_conv_A_stride_auto(
         printf("padding should be 0 to 15!\n");
         exit(1);
     }
-    if (padding >= out_dim + kernel_dim) {
-        printf("padding should be less than out_dim + kernel_dim!\n");
-        exit(1);
-    }
-    if (padding >= in_dim - kernel_dim - 15) {
-        printf("padding should be less than in_dim - kernel_dim - 15!\n");
+    if (padding >= out_dim) {
+        printf("padding should be less than out_dim!\n");
         exit(1);
     }
 
     float c_scale = (float) scale;
     bool act_    = (bool) act;
 
+    //printf("in tiled conv\n");
     conv_on_cpu_stride_1_gemmini_lib_Context *ctxt1;
     if (stride == 1) {
         conv_on_cpu_stride_1(ctxt1, batch_size, out_dim, out_channels, kernel_dim, in_channels, in_dim,
