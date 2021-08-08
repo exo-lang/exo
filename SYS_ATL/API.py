@@ -120,7 +120,7 @@ class Procedure:
         return MarkDownBlob("```c\n"+self.c_code_str()+"\n```")
 
     def c_code_str(self):
-        decls, defns = compile_to_strings([self._loopir_proc])
+        decls, defns = compile_to_strings("c_code_str", [self._loopir_proc])
         return defns
 
     def compile_c(self, directory, filename, malloc=False):
@@ -129,7 +129,7 @@ class Procedure:
 
     def jit_compile(self):
         if not hasattr(self, '_cached_c_jit'):
-            decls, defns = compile_to_strings([self._loopir_proc])
+            decls, defns = compile_to_strings("jit_compile", [self._loopir_proc])
             self._cached_c_jit = CJit_Func(self._loopir_proc, defns)
         return self._cached_c_jit
 
@@ -507,7 +507,7 @@ class CJit_Func:
                         if type(a) is np.ndarray else
                      a)
                     for a in argvals ]
-        self._c_func(*argvals)
+        self._c_func(POINTER(c_int)(), *argvals)
 
 
     def _check_arg(self, fa, a, env):

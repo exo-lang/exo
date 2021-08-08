@@ -48,7 +48,7 @@ def test_avx2_memcpy():
     for n in (7, 8, 9, 31, 32, 33, 127, 128, 129):
         inp = nparray([float(i) for i in range(n)])
         out = nparray([float(0) for _ in range(n)])
-        library.memcpy_avx2(n, cvt_c(out), cvt_c(inp))
+        library.memcpy_avx2(POINTER(c_int)(), n, cvt_c(out), cvt_c(inp))
 
         assert np.array_equal(inp, out)
 
@@ -83,7 +83,7 @@ def test_avx2_simple_math():
         y = nparray([float(3 * i) for i in range(n)])
         expected = x * y * y
 
-        library.simple_math_avx2(n, cvt_c(x), cvt_c(y))
+        library.simple_math_avx2(POINTER(c_int)(), n, cvt_c(x), cvt_c(y))
         assert np.allclose(x, expected)
 
 
@@ -157,7 +157,7 @@ def test_avx2_simple_math_scheduling():
         y = nparray([float(3 * i) for i in range(n)])
         expected = x * y * y
 
-        library.simple_math_avx2_scheduling(n, cvt_c(x), cvt_c(y))
+        library.simple_math_avx2_scheduling(POINTER(c_int)(), n, cvt_c(x), cvt_c(y))
         assert np.allclose(x, expected)
 
 

@@ -442,6 +442,7 @@ def test_matmul_c_i8_perfect():
               'gemm_acc_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["matmul_c_i8_perfect_lib_Context *ctxt;"])
 
   NN = 512
   MM = 512
@@ -567,7 +568,7 @@ def test_matmul_c_i8_perfect():
   T.add_proc(matmul_c_i8_perfect)
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_perfect({NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, x, y, z_cpu);',
+  T.add_body([f'matmul_c_i8_perfect(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, x, y, z_cpu);',
               f'gemmini_fence();'])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 

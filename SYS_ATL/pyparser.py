@@ -676,6 +676,21 @@ class Parser:
             else:
                 return UAST.Read(nm, idxs, self.getsrcinfo(e))
 
+        elif type(e) is pyast.Attribute:
+            if type(e.value) is not pyast.Name:
+                self.err(e, "expected configuration reads "+
+                             "of the form 'config.field'")
+
+            assert type(node.attr) is str
+
+            config_obj  = self.eval_expr(e.value)
+            if not isinstance(config_obj, Config):
+                self.err(e.value, "expected indexed object "+
+                                  "to be a Config")
+
+            return UAST.ReadConfig(config_obj, e.attr,
+                                           self.getsrcinfo(s))
+
         elif type(e) is pyast.Constant:
             return UAST.Const(e.value, self.getsrcinfo(e))
 
