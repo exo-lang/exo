@@ -222,7 +222,8 @@ class InferEffects:
                     # in this case we have a LoopIR expression...
                     subst[sig.name] = lift_expr(arg)
                 elif sig.type.is_stridable():
-                    pass
+                    subst[sig.name] = lift_expr(arg)
+                    #pass
                 else: assert False, "bad case"
 
             eff = stmt.f.eff
@@ -680,38 +681,6 @@ class CheckEffects:
 
     def err(self, node, msg):
         self.errors.append(f"{node.srcinfo}: {msg}")
-
-    def loopir_subst(self, e, subst):
-        if type(e) is LoopIR.Read:
-            assert not e.type.is_numeric()
-            return subst[e.name] if e.name in subst else e
-        elif type(e) is LoopIR.Const or type(e) is LoopIR.ReadConfig:
-            return e
-        elif type(e) is LoopIR.USub:
-            return LoopIR.USub( self.loopir_subst(e.arg, subst),
-                                e.type, e.srcinfo )
-        elif type(e) is LoopIR.BinOp:
-            return LoopIR.BinOp( e.op, self.loopir_subst(e.lhs, subst),
-                                       self.loopir_subst(e.rhs, subst),
-                                       e.type, e.srcinfo )
-        elif type(e) is LoopIR.StrideExpr:
-            if e.name not in subst:
-                return e
-            lookup = subst[e.name]
-            if type(lookup) is LoopIR.Read:
-                assert len(lookup.idx) == 0
-                return LoopIR.StrideExpr(lookup.name, e.dim,
-                                         e.type, e.srcinfo)
-            elif type(lookup) is LoopIR.WindowExpr:
-                windowed_orig_dims  = [ d for d,w in enumerate(lookup.idx)
-                                          if type(w) is LoopIR.Interval ]
-                dim     = windowed_orig_dims[e.dim]
-                return LoopIR.StrideExpr(lookup.name, dim,
-                                         e.type, e.srcinfo)
-
-            else: assert False, f"bad case: {type(lookup)}"
-
-        else: assert False, f"bad case: {type(e)}"
 
     # TODO: Add allow_allocation arg here, to check if we're introducing new
     # symbols from the right place.
