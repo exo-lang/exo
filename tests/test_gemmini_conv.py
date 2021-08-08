@@ -12,7 +12,7 @@ import pytest
 # --------------------------------------------------------------------------- #
 #   Basic Conv Test
 # --------------------------------------------------------------------------- #
-
+@pytest.mark.skip()
 def test_conv_stride_1_gemmini():
   T = GemmTestBuilder('conv_on_cpu_stride_1_gemmini')
   T.add_body(['gemm_init_mem();',
@@ -440,8 +440,7 @@ def test_conv_stride_2_gemmini():
   out_dim    = int((in_dim + 2*padding - kernel_dim)/2 + 1)
   assert out_dim == 16
   assert 0 <= padding < 16
-  assert padding < out_dim + kernel_dim
-  assert padding < in_dim - kernel_dim - 15
+  assert padding < out_dim
 
   T.alloc_dram_f32('scale', '1.0f')
   T.alloc_dram_2i32('bias', 1, out_channel, '0')
@@ -468,6 +467,8 @@ def test_conv_stride_2_gemmini():
       ):
       
       assert out_dim == (in_dim + 2*padding - kernel_dim)/2 + 1
+      assert 0 <= padding < 16
+      assert padding < out_dim
 
       for b in par(0, batch_size):
           for orow in par(0, out_dim):
@@ -512,8 +513,7 @@ def test_conv_stride_2_gemmini():
       
       assert out_dim == (in_dim + 2*padding - kernel_dim)/2 + 1
       assert 0 <= padding < 16
-      assert padding < out_dim + kernel_dim
-      assert padding < in_dim - kernel_dim - 15
+      assert padding < out_dim
       
       one : f32
       one = 1.0
@@ -535,7 +535,7 @@ def test_conv_stride_2_gemmini():
 
                                       if 16*(ocol)*2+kcol-padding < 0 and 16*(ocol+1)*2+kcol-padding <= in_dim:
                                           zero_i8(-(16*(ocol)*2+kcol-padding), 16, in_scratch[0:-(16*(ocol)*2+kcol-padding), :])
-                                          ld_i8_s2(16+(16*(ocol)+kcol-padding), 16, one, 
+                                          ld_i8_s2(16*(ocol+1)*2+kcol-padding, 16, one, 
                                               inp[ b, orow*2+krow-padding, 0:16*(ocol+1)*2+kcol-padding, 16*kch:16*(kch+1)],
                                               in_scratch[-(16*(ocol)*2+kcol-padding):, :])
                                       if 16*(ocol)*2+kcol-padding >= 0 and 16*(ocol+1)*2+kcol-padding > in_dim:
