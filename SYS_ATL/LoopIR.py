@@ -522,6 +522,8 @@ class LoopIR_Rewrite:
         return E.effect( [ self.map_eff_es(es) for es in eff.reads ],
                          [ self.map_eff_es(es) for es in eff.writes ],
                          [ self.map_eff_es(es) for es in eff.reduces ],
+                         [ self.map_eff_ce(ce) for ce in eff.config_reads ],
+                         [ self.map_eff_ce(ce) for ce in eff.config_writes ],
                          eff.srcinfo )
 
     def map_eff_es(self, es):
@@ -530,6 +532,13 @@ class LoopIR_Rewrite:
                          es.names,
                          self.map_eff_e(es.pred) if es.pred else None,
                          es.srcinfo )
+
+    def map_eff_ce(self, ce):
+        return E.config_eff( ce.config,
+                             ce.field,
+                             self.map_eff_e(ce.value) if ce.value else None,
+                             self.map_eff_e(ce.pred)  if ce.pred  else None,
+                             e.srcinfo )
 
     def map_eff_e(self, e):
         if type(e) is E.BinOp:

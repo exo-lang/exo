@@ -5,7 +5,7 @@ from .LoopIR import lift_to_eff_expr
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import get_effect_of_stmts
 from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
-                             eff_null, eff_remove_buf, effect_as_str)
+                             eff_null, eff_remove_buf)
 from .effectcheck import InferEffects
 import re
 
