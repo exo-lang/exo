@@ -231,14 +231,16 @@ class InferEffects:
         elif type(stmt) is LoopIR.ForAll:
             # pred is: 0 <= bound <= stmt.hi
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
-            lhs   = E.BinOp("<=", E.Const(0, T.int, stmt.srcinfo)
-                                , bound, T.bool, stmt.srcinfo)
-            rhs   = E.BinOp("<", bound, lift_expr(stmt.hi)
-                                       , T.bool, stmt.srcinfo)
+            hi    = lift_expr(stmt.hi)
+            zero  = E.Const(0, T.int, stmt.srcinfo)
+            lhs   = E.BinOp("<=", zero, bound, T.bool, stmt.srcinfo)
+            rhs   = E.BinOp("<",  bound, hi, T.bool, stmt.srcinfo)
             pred  = E.BinOp("and", lhs, rhs, T.bool, stmt.srcinfo)
+            config_pred = E.BinOp("<", zero, hi, T.bool, stmt.srcinfo)
 
             body, body_effect = self.map_stmts(stmt.body)
-            effects = eff_bind(stmt.iter, body_effect, pred=pred)
+            effects = eff_bind(stmt.iter, body_effect,
+                               pred=pred, config_pred=config_pred)
 
             return LoopIR.ForAll(stmt.iter, stmt.hi, body,
                                  effects, stmt.srcinfo)
@@ -319,7 +321,6 @@ class InferEffects:
         elif type(e) is LoopIR.StrideExpr:
             return eff_null(e.srcinfo)
         elif type(e) is LoopIR.ReadConfig:
-            # TODO: Have actual read effect for config
             return eff_config_read(e.config, e.field, e.srcinfo)
         else:
             assert False, "bad case"
@@ -647,6 +648,49 @@ class CheckStrideAsserts:
 #
 #
 
+
+
+#
+#   What is parallelism checking for Configuration Effects?
+#
+#   Recall that we want to check that
+#           forall i0,i1: 0 <= i0 < i1 < n ==> COMMUTES( [i |-> i0]e,
+#                                                        [i |-> i1]e )
+#
+#   Unlike for numeric buffers we need only be concerned with
+#       reads and writes: R & W
+#   If one loop iteration reads a configuration value set by another
+#       loop iteration, then we could have a problem.
+#   So as long as the reads and writes to configuration fields are
+#       disjoint, we should be fine.
+#
+#   Additionally, we've chosen to not handle quantification
+#       of loop iteration variables, so we need to show a lack of
+#       effect dependence on the loop iteration variables.
+#   As a consequence of this, two different loop iterations must have
+#       the same write effect, and so we may conclude that
+#       writes are guaranteed to commute with each other
+#
+#   First check that
+#       i \not\in FreeVars(cr0) U FreeVars(cw0)
+#
+#   Then, since there is no iteration variable dependence,
+#   we can simplify to
+#       COMMUTES( (cr, cw) ) = NOT_CONFLICTS( cr, cw )
+#
+#
+#       NOT_CONFLICTS( (c1,...), (c2,...) )         = TRUE
+#       NOT_CONFLICTS( (c1,f1,...), (c1,f2,...) )   = TRUE
+#       NOT_CONFLICTS( (c1,f1, _, pred1),
+#                      (c1,f1, _, pred2) ) = NOT pred1 or NOT pred2
+#
+#       (that is, there is no conflict when the predicates are disjoint)
+#
+#
+
+
+
+
 # Check if Alloc sizes and function arg sizes are actually larger than bounds
 class CheckEffects:
     def __init__(self, proc):
@@ -913,7 +957,7 @@ class CheckEffects:
             if not self.solver.is_valid(in_bds):
                 eg = self.counter_example()
                 self.err(eff, f"{sym} is {eff_str} out-of-bounds "+
-                              f"when: {eg}.")
+                              f"when:\n  {eg}.")
 
             self.pop()
 
@@ -970,7 +1014,26 @@ class CheckEffects:
                 eg = self.counter_example()
                 self.err(e1, f"data race conflict with statement on "+
                              f"{e2.srcinfo} while accessing {e1.buffer} "+
-                             f"in loop over {iter}, when: {eg}.")
+                             f"in loop over {iter}, when:\n  {eg}.")
+
+            self.pop()
+
+    def not_conflicts_config(self, e1, e2):
+        if e1.config == e2.config and e1.field == e2.field:
+            self.push()
+            pred1, pred2 = SMT.Bool(True), SMT.Bool(True)
+            if e1.pred:
+                pred1   = self.expr_to_smt(e1.pred)
+            if e2.pred:
+                pred2   = self.expr_to_smt(e2.pred)
+            disjoint    = SMT.Not(SMT.And(pred1, pred2))
+
+            if not self.solver.is_valid(disjoint):
+                eg = self.counter_example()
+                self.err(e1, f"conflict on configuration variable "+
+                             f"{e1.config.name()}.{e1.field} between "+
+                             f"access at {e1.srcinfo} and access at "+
+                             f"{e1.srcinfo}, occurs when:\n  {eg}.")
 
             self.pop()
 
@@ -978,6 +1041,7 @@ class CheckEffects:
 #       COMMUTES( i, n, (r, w, p) ) =
     def check_commutes(self, iter, hi, eff):
 
+        # for numeric buffers
 #           AND( NOT_CONFLICTS(i, n, r, w)
         for r in eff.reads:
             for w in eff.writes:
@@ -995,21 +1059,38 @@ class CheckEffects:
             for p in eff.reduces:
                 self.not_conflicts(iter, hi, w, p)
 
+        # for configuration variables
+        for r in eff.config_reads:
+            for w in eff.config_writes:
+                self.not_conflicts_config(r, w)
+
         return
+
+    def check_config_no_loop_depend(self, iter, eff):
+        for ce in eff.config_reads:
+            if ce.has_FV(iter):
+                self.err(ce, f"The read of config variable "+
+                             f"{ce.config.name()}.{ce.field} depends on "+
+                             f"the loop iteration variable {iter}")
+        for ce in eff.config_writes:
+            if ce.has_FV(iter):
+                self.err(ce, f"The value written to config variable "+
+                             f"{ce.config.name()}.{ce.field} depends on "+
+                             f"the loop iteration variable {iter}")
 
     def check_pos_size(self, expr):
         e_pos = SMT.LT( SMT.Int(0), self.expr_to_smt(expr) )
         if not self.solver.is_valid(e_pos):
             eg = self.counter_example()
             self.err(expr, "expected expression to always be positive. "+
-                           f"It can be non positive when: {eg}.")
+                           f"It can be non positive when:\n  {eg}.")
 
     def check_non_negative(self, expr):
         e_nn = SMT.LE( SMT.Int(0), self.expr_to_smt(expr) )
         if not self.solver.is_valid(e_nn):
             eg = self.counter_example()
             self.err(expr, "expected expression to always be non-negative. "+
-                           f"It can be negative when: {eg}.")
+                           f"It can be negative when:\n  {eg}.")
 
     def check_call_shape_eqv(self, argshp, sigshp, node):
         assert len(argshp) == len(sigshp)
@@ -1024,7 +1105,7 @@ class CheckEffects:
                            "the required type-shape: "+
                            f"[{','.join(map(str,argshp))}] vs. "+
                            f"[{','.join(map(str,sigshp))}]."+
-                           f" It could be non equal when: {eg}")
+                           f" It could be non equal when:\n  {eg}")
 
     def preprocess_stmts(self, body):
         for stmt in body:
@@ -1087,6 +1168,7 @@ class CheckEffects:
                 self.pop()
 
                 # Parallelism checking here
+                self.check_config_no_loop_depend(stmt.iter, sub_body_eff)
                 self.check_commutes(stmt.iter, lift_expr(stmt.hi),
                                                sub_body_eff)
 
@@ -1155,7 +1237,7 @@ class CheckEffects:
                         eg = self.counter_example()
                         self.err(stmt, f"Could not verify assertion in "+
                                        f"{stmt.f.name} at {p.srcinfo}."+
-                                       f" Assertion is false when: {eg}")
+                                       f" Assertion is false when:\n  {eg}")
 
                 body_eff = eff_union(stmt.eff, body_eff)
 

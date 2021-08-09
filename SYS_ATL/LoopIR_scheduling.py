@@ -91,7 +91,8 @@ class _Reorder(LoopIR_Rewrite):
                 return boolop("and", lhs, rhs)
             def do_bind(x, hi, eff):
                 cond    = lift_to_eff_expr( rng(rd(x),hi) )
-                return eff_bind(x, eff, pred=cond)
+                cond_nz = boolop("<", cnst(0), hi)
+                return eff_bind(x, eff, pred=cond, config_pred=cond_nz)
 
             # this is the actual body inside both for-loops
             body        = s.body[0].body
@@ -178,7 +179,8 @@ class _Split(LoopIR_Rewrite):
                 return boolop("and", lhs, rhs)
             def do_bind(x, hi, eff):
                 cond    = lift_to_eff_expr( rng(rd(x),hi) )
-                return eff_bind(x, eff, pred=cond)
+                cond_nz = boolop("<", cnst(0), hi)
+                return eff_bind(x, eff, pred=cond, config_pred=cond_nz)
 
             # in the simple case, wrap body in a guard
             if self._tail_strategy == 'guard':
