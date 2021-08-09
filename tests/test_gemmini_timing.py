@@ -662,8 +662,12 @@ def test_matmul_c_i8():
 
 
  # Optimization
-  matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8', n_lifts=3)
-  matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8', n_lifts=3)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8', n_lifts=2)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8 #0', n_lifts=1)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8 #0', n_lifts=1)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8 #1', n_lifts=1)
+  matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8 #1', n_lifts=1)
 
   print(matmul_c_i8)
   T.add_proc(matmul_c_i8)
@@ -681,7 +685,7 @@ def test_matmul_c_i8():
 
 
 
-
+@pytest.mark.skip()
 def test_matmul_c_i8_perfect():
   T = GemmTestBuilder('matmul_c_i8_perfect')
   T.add_body(['gemm_init_mem();',

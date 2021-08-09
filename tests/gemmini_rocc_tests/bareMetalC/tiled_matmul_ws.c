@@ -22,13 +22,13 @@ typedef elem_t ACC_T;
 #endif
 
 #ifndef BAREMETAL
-#define MAT_DIM_I 512
-#define MAT_DIM_K 512
-#define MAT_DIM_J 512
+#define MAT_DIM_I 530
+#define MAT_DIM_K 480
+#define MAT_DIM_J 509 
 #else
 #define MAT_DIM_I 530
-#define MAT_DIM_K 560
-#define MAT_DIM_J 500
+#define MAT_DIM_K 480
+#define MAT_DIM_J 509 
 #endif
 
 void print_tile(elem_t* in, int tile_dim) {
