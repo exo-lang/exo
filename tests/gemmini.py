@@ -45,7 +45,7 @@ _gemm_ld_i8_stride_2 = ("gemmini_extended3_config_ld({src}.strides[0]*2, "+
                         "gemmini_extended_mvin( {src}.data, "+
                               "((uint64_t) {dst}.data), {m}, {n} );")
 @instr(_gemm_ld_i8_stride_2)
-def ld_i8_stride_2(
+def ld_i8_s2(
     n     : size,
     m     : size,
     scale : f32,
