@@ -5,7 +5,7 @@ from .LoopIR import lift_to_eff_expr
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import get_effect_of_stmts
 from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
-                             eff_null, eff_remove_buf, effect_as_str)
+                             eff_null, eff_remove_buf)
 from .effectcheck import InferEffects
 import re
 
@@ -91,7 +91,8 @@ class _Reorder(LoopIR_Rewrite):
                 return boolop("and", lhs, rhs)
             def do_bind(x, hi, eff):
                 cond    = lift_to_eff_expr( rng(rd(x),hi) )
-                return eff_bind(x, eff, pred=cond)
+                cond_nz = boolop("<", cnst(0), hi)
+                return eff_bind(x, eff, pred=cond, config_pred=cond_nz)
 
             # this is the actual body inside both for-loops
             body        = s.body[0].body
@@ -178,7 +179,8 @@ class _Split(LoopIR_Rewrite):
                 return boolop("and", lhs, rhs)
             def do_bind(x, hi, eff):
                 cond    = lift_to_eff_expr( rng(rd(x),hi) )
-                return eff_bind(x, eff, pred=cond)
+                cond_nz = boolop("<", cnst(0), hi)
+                return eff_bind(x, eff, pred=cond, config_pred=cond_nz)
 
             # in the simple case, wrap body in a guard
             if self._tail_strategy == 'guard':
