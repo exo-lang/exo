@@ -8,7 +8,7 @@ from .LoopIR_scheduling import Schedules
 from .LoopIR_scheduling import (name_plus_count,
                                 iter_name_to_pattern,
                                 nested_iter_names_to_pattern)
-from .LoopIR_unification import DoReplace
+from .LoopIR_unification import DoReplace, UnificationError
 from .effectcheck import InferEffects, CheckEffects
 
 from .memory import Memory
@@ -302,15 +302,36 @@ class Procedure:
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def inline(self, call_site_pattern):
-        call_stmt   = self._find_callsite(call_site_pattern)
+    def replace_all(self, subproc, pattern):
+        # TODO: this is a bad implementation, but necessary due to issues in the
+        #       implementation of replace above: after a replacement, statements
+        #       can be moved in memory, so matches are invalidated. Matching and
+        #       replacing ought to be fused instead. This directive would reduce
+        #       to a flag on the find/replace.
+        if '#' in pattern:
+            raise TypeError("must not include statement instance in pattern")
 
-        loopir      = self._loopir_proc
-        loopir      = Schedules.DoInline(loopir, call_stmt).result()
+        proc = self
+        i = 0
+        while True:
+            try:
+                proc = proc.replace(subproc, f'{pattern} #{i}')
+            except TypeError as e:
+                if 'failed to find statement' in str(e):
+                    return proc
+                raise
+            except UnificationError:
+                i += 1
+
+    def inline(self, call_site_pattern):
+        call_stmt = self._find_callsite(call_site_pattern)
+
+        loopir = self._loopir_proc
+        loopir = Schedules.DoInline(loopir, call_stmt).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def call_eqv(self, other_Procedure, call_site_pattern):
-        call_stmt   = self._find_callsite(call_site_pattern)
+        call_stmt = self._find_callsite(call_site_pattern)
 
         old_proc    = call_stmt.f
         new_proc    = other_Procedure._loopir_proc

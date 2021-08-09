@@ -96,8 +96,7 @@ def test_avx2_simple_math_scheduling():
     def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, n):
             # TODO: replace this with x[i] = x[i] * y[i] * y[i] and then use bind_expr
-            x[i] = x[i] * y[i]
-            x[i] = x[i] * y[i]
+            x[i] += x[i] * y[i] * y[i]
 
     def pre_bake_staged_memory(_):
         @proc
@@ -122,11 +121,51 @@ def test_avx2_simple_math_scheduling():
 
         return simple_math_avx2_scheduling
 
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.split('i', 8, ['io', 'ii'], tail='cut_and_guard')
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.fission_after('x[_] = _ #0')
+    def pre_bake_cse(_):
+        @proc
+        def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):
+            for io in par(0, n / 8):
+                xy: R[8] @ AVX2
+                xVec: R[8] @ AVX2
+                loadu(xVec, x[8 * io + 0:8 * io + 8])
+                yVec: R[8] @ AVX2
+                loadu(yVec, y[8 * io + 0:8 * io + 8])
+                mul(xy, xVec, yVec)
+                for ii in par(0, 8):
+                    x[8 * io + ii] += xy[ii] * yVec[ii]
+            if n % 8 > 0:
+                for ii_1 in par(0, n % 8):
+                    x[ii_1 + n / 8 * 8] = x[ii_1 + n / 8 * 8] * y[ii_1 + n / 8 * 8] * y[ii_1 + n / 8 * 8]
+
+        return simple_math_avx2_scheduling
 
     print()
     print()
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.split('i', 8, ['io', 'ii'], tail='cut_and_guard')
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.bind_expr('xy', 'x[_] * y[_]')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.lift_alloc('xy : _ #0')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('xy', AVX2)
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.bind_expr('xVec', 'x[_]')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.lift_alloc('xVec : _ #0')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('xVec', AVX2)
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.fission_after('xVec[_] = _')
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.bind_expr('yVec', 'y[_]')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.lift_alloc('yVec : _ #0')
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('yVec', AVX2)
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.fission_after('yVec[_] = _')
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.fission_after('xy[_] = _')
+
+    simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace_all(loadu, 'for _ in _: _')
+
+    # simple_math_avx2_scheduling = pre_bake_cse(simple_math_avx2_scheduling)
+
     print(simple_math_avx2_scheduling)
     print()
 
