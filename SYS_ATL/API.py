@@ -96,6 +96,10 @@ class Procedure:
     #     introspection operations
     # -------------------------------- #
 
+    def check_effects(self):
+        self._loopir_proc = InferEffects(self._loopir_proc).result()
+        CheckEffects(self._loopir_proc)
+
     def name(self):
         return self._loopir_proc.name
 
