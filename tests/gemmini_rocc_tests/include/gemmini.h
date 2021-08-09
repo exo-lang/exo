@@ -2473,340 +2473,340 @@ typedef struct matmul_c_i8_lib_Context {
 } matmul_c_i8_lib_Context;
 
 
-void matmul_c_i8( matmul_c_i8_lib_Context *ctxt, int N, int M, int K, float* a_scale, float* b_scale, float* c_scale, bool acc, bool trans_a, bool trans_b, struct systl_win_2i8 A, struct systl_win_2i8 B, struct systl_win_2i8 C ) {
-    for (int io=0; io < _floor_div(N, 128); io++) {
-        for (int jo=0; jo < _floor_div(M, 128); jo++) {
-            int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 8 * 8 * sizeof(int32_t)));
-            for (int i=0; i < 8; i++) {
-                for (int j=0; j < 8; j++) {
-                    gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-                    gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i + 0) * (8 * 16 * 16) + (j + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
-                    for (int k=0; k < _floor_div(K, 16); k++) {
-                        int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                        int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * io + 16 * i + 0) * (A.strides[0]) + (16 * k + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                        gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * io + 16 * i + 0) * (A.strides[0]) + (16 * k + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k + 0) * (B.strides[0]) + (128 * jo + 16 * j + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                        gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k + 0) * (B.strides[0]) + (128 * jo + 16 * j + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i + 0) * (8 * 16 * 16) + (j + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (16));
-                        gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-                        gemm_free((uint64_t)(a));
-                        gemm_free((uint64_t)(b));
-                    }
-                    if (K % 16 > 0) {
-                        int8_t *a_1 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                        int8_t *b_1 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
-                        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * io + 16 * i + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                        gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * io + 16 * i + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
-                        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * jo + 16 * j + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                        gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * jo + 16 * j + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
-                        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i + 0) * (8 * 16 * 16) + (j + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (16));
-                        gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
-                        gemm_free((uint64_t)(a_1));
-                        gemm_free((uint64_t)(b_1));
-                    }
-                    gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
-                    gemmini_config_st(((struct systl_win_2i8){ C.data + (128 * io + 16 * i + 0) * (C.strides[0]) + (16 * j + 128 * jo + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
-                    gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (128 * io + 16 * i + 0) * (C.strides[0]) + (16 * j + 128 * jo + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i + 0) * (8 * 16 * 16) + (j + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (16) );
-                }
-            }
-            gemm_acc_free((uint32_t)(res));
-        }
-        int32_t *res_1 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * (_floor_div(M % 128, 16) + 1) * 8 * sizeof(int32_t)));
-        for (int i_1=0; i_1 < 8; i_1++) {
-            for (int j_1=0; j_1 < _floor_div(M % 128, 16); j_1++) {
-                gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-                gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((i_1 + 0) * ((_floor_div(M % 128, 16) + 1) * 16 * 16) + (j_1 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
-                for (int k_1=0; k_1 < _floor_div(K, 16); k_1++) {
-                    int8_t *a_2 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    int8_t *b_2 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * k_1 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * k_1 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_1 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_1 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                    gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                    gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((i_1 + 0) * ((_floor_div(M % 128, 16) + 1) * 16 * 16) + (j_1 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (16));
-                    gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-                    gemm_free((uint64_t)(a_2));
-                    gemm_free((uint64_t)(b_2));
-                }
-                if (K % 16 > 0) {
-                    int8_t *a_3 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    int8_t *b_3 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
-                    gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                    gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((i_1 + 0) * ((_floor_div(M % 128, 16) + 1) * 16 * 16) + (j_1 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (16));
-                    gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
-                    gemm_free((uint64_t)(a_3));
-                    gemm_free((uint64_t)(b_3));
-                }
-                gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
-                gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * i_1 + 128 * io + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
-                gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * i_1 + 128 * io + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((i_1 + 0) * ((_floor_div(M % 128, 16) + 1) * 16 * 16) + (j_1 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (16) );
-            }
-            if (M % 128 % 16 > 0) {
-                int32_t *res_2 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * sizeof(int32_t)));
-                gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-                gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(M % 128 % 16 + 0), (16) );
-                for (int k_2=0; k_2 < _floor_div(K, 16); k_2++) {
-                    int8_t *a_4 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    int8_t *b_4 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * k_2 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * k_2 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_4)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_2 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_2 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_4)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (16) );
-                    gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                    gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_4)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (16), (M % 128 % 16 + 0), (16));
-                    gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_4)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-                    gemm_free((uint64_t)(a_4));
-                    gemm_free((uint64_t)(b_4));
-                }
-                if (K % 16 > 0) {
-                    int8_t *a_5 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    int8_t *b_5 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (K % 16 + 0) );
-                    gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                    gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (K % 16 + 0), (M % 128 % 16 + 0), (16));
-                    gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
-                    gemm_free((uint64_t)(a_5));
-                    gemm_free((uint64_t)(b_5));
-                }
-                gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
-                gemmini_config_st(((struct systl_win_2i8){ C.data + (128 * io + 16 * i_1 + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
-                gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (128 * io + 16 * i_1 + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (M % 128 % 16 + 0), (16) );
-                gemm_acc_free((uint32_t)(res_2));
-            }
-        }
-        gemm_acc_free((uint32_t)(res_1));
-    }
-    for (int i_2=0; i_2 < _floor_div(N % 128, 16); i_2++) {
-        int32_t *res_3 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 8 * (_floor_div(M, 128) + 1) * sizeof(int32_t)));
-        for (int jo_1=0; jo_1 < _floor_div(M, 128); jo_1++) {
-            for (int j_2=0; j_2 < 8; j_2++) {
-                gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-                gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_3)) + ((jo_1 + 0) * (8 * 16 * 16) + (j_2 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
-                for (int k_3=0; k_3 < _floor_div(K, 16); k_3++) {
-                    int8_t *a_6 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    int8_t *b_6 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_3 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_3 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_3 + 0) * (B.strides[0]) + (128 * jo_1 + 16 * j_2 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_3 + 0) * (B.strides[0]) + (128 * jo_1 + 16 * j_2 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                    gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                    gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_3)) + ((jo_1 + 0) * (8 * 16 * 16) + (j_2 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (16));
-                    gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-                    gemm_free((uint64_t)(a_6));
-                    gemm_free((uint64_t)(b_6));
-                }
-                if (K % 16 > 0) {
-                    int8_t *a_7 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    int8_t *b_7 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * jo_1 + 16 * j_2 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * jo_1 + 16 * j_2 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
-                    gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                    gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_3)) + ((jo_1 + 0) * (8 * 16 * 16) + (j_2 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (16));
-                    gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
-                    gemm_free((uint64_t)(a_7));
-                    gemm_free((uint64_t)(b_7));
-                }
-                gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
-                gemmini_config_st(((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (128 * jo_1 + 16 * j_2 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
-                gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (128 * jo_1 + 16 * j_2 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_3)) + ((jo_1 + 0) * (8 * 16 * 16) + (j_2 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (16) );
-            }
-        }
-        int32_t *res_4 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * (_floor_div(M % 128, 16) + 1) * sizeof(int32_t)));
-        for (int j_3=0; j_3 < _floor_div(M % 128, 16); j_3++) {
-            gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-            gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_4)) + ((j_3 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
-            for (int k_4=0; k_4 < _floor_div(K, 16); k_4++) {
-                int8_t *a_8 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                int8_t *b_8 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_4 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_4 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_4 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_4 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_4)) + ((j_3 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (16));
-                gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-                gemm_free((uint64_t)(a_8));
-                gemm_free((uint64_t)(b_8));
-            }
-            if (K % 16 > 0) {
-                int8_t *a_9 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                int8_t *b_9 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_9)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_9)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
-                gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_9)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_4)) + ((j_3 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (16));
-                gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_9)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
-                gemm_free((uint64_t)(a_9));
-                gemm_free((uint64_t)(b_9));
-            }
-            gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
-            gemmini_config_st(((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
-            gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_4)) + ((j_3 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (16) );
-        }
-        if (M % 128 % 16 > 0) {
-            int32_t *res_5 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * sizeof(int32_t)));
-            gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-            gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(M % 128 % 16 + 0), (16) );
-            for (int k_5=0; k_5 < _floor_div(K, 16); k_5++) {
-                int8_t *a_10 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                int8_t *b_10 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_5 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_5 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_10)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_5 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_5 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_10)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (16) );
-                gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_10)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (16), (M % 128 % 16 + 0), (16));
-                gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_10)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-                gemm_free((uint64_t)(a_10));
-                gemm_free((uint64_t)(b_10));
-            }
-            if (K % 16 > 0) {
-                int8_t *a_11 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                int8_t *b_11 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_11)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_11)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (K % 16 + 0) );
-                gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_11)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (K % 16 + 0), (M % 128 % 16 + 0), (16));
-                gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_11)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
-                gemm_free((uint64_t)(a_11));
-                gemm_free((uint64_t)(b_11));
-            }
-            gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
-            gemmini_config_st(((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
-            gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (M % 128 % 16 + 0), (16) );
-            gemm_acc_free((uint32_t)(res_5));
-        }
-        gemm_acc_free((uint32_t)(res_3));
-        gemm_acc_free((uint32_t)(res_4));
-    }
-    if (N % 128 % 16 > 0) {
-        for (int jo_2=0; jo_2 < _floor_div(M, 128); jo_2++) {
-            for (int j_4=0; j_4 < 8; j_4++) {
-                int32_t *res_6 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * (N % 128 % 16 + 1) * sizeof(int32_t)));
-                gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-                gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (N % 128 % 16 + 0) );
-                for (int k_6=0; k_6 < _floor_div(K, 16); k_6++) {
-                    int8_t *a_12 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * sizeof(int8_t)));
-                    int8_t *b_12 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_6 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_6 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_12)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (N % 128 % 16 + 0) );
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_6 + 0) * (B.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_6 + 0) * (B.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_12)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                    gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                    gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_12)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (N % 128 % 16 + 0));
-                    gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_12)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (N % 128 % 16 + 0), 16, 16);
-                    gemm_free((uint64_t)(a_12));
-                    gemm_free((uint64_t)(b_12));
-                }
-                if (K % 16 > 0) {
-                    int8_t *a_13 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * sizeof(int8_t)));
-                    int8_t *b_13 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_13)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (N % 128 % 16 + 0) );
-                    gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                    gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_13)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
-                    gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                    gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_13)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (N % 128 % 16 + 0));
-                    gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_13)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (N % 128 % 16 + 0), 16, 16);
-                    gemm_free((uint64_t)(a_13));
-                    gemm_free((uint64_t)(b_13));
-                }
-                gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
-                gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
-                gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (N % 128 % 16 + 0) );
-                gemm_acc_free((uint32_t)(res_6));
-            }
-        }
-        for (int j_5=0; j_5 < _floor_div(M % 128, 16); j_5++) {
-            int32_t *res_7 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * (N % 128 % 16 + 1) * sizeof(int32_t)));
-            gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-            gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (N % 128 % 16 + 0) );
-            for (int k_7=0; k_7 < _floor_div(K, 16); k_7++) {
-                int8_t *a_14 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * sizeof(int8_t)));
-                int8_t *b_14 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_7 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_7 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_14)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (N % 128 % 16 + 0) );
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_7 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_7 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_14)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
-                gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_14)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (N % 128 % 16 + 0));
-                gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_14)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (N % 128 % 16 + 0), 16, 16);
-                gemm_free((uint64_t)(a_14));
-                gemm_free((uint64_t)(b_14));
-            }
-            if (K % 16 > 0) {
-                int8_t *a_15 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * sizeof(int8_t)));
-                int8_t *b_15 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_15)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (N % 128 % 16 + 0) );
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_15)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
-                gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_15)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (N % 128 % 16 + 0));
-                gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_15)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (N % 128 % 16 + 0), 16, 16);
-                gemm_free((uint64_t)(a_15));
-                gemm_free((uint64_t)(b_15));
-            }
-            gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
-            gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
-            gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (N % 128 % 16 + 0) );
-            gemm_acc_free((uint32_t)(res_7));
-        }
-        if (M % 128 % 16 > 0) {
-            int32_t *res_8 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * (N % 128 % 16 + 1) * sizeof(int32_t)));
-            gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-            gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(M % 128 % 16 + 0), (N % 128 % 16 + 0) );
-            for (int k_8=0; k_8 < _floor_div(K, 16); k_8++) {
-                int8_t *a_16 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * sizeof(int8_t)));
-                int8_t *b_16 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_8 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_8 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_16)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (N % 128 % 16 + 0) );
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_8 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_8 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_16)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (16) );
-                gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_16)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (16), (M % 128 % 16 + 0), (N % 128 % 16 + 0));
-                gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_16)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (N % 128 % 16 + 0), 16, 16);
-                gemm_free((uint64_t)(a_16));
-                gemm_free((uint64_t)(b_16));
-            }
-            if (K % 16 > 0) {
-                int8_t *a_17 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * sizeof(int8_t)));
-                int8_t *b_17 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_17)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (N % 128 % 16 + 0) );
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
-                gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_17)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (K % 16 + 0) );
-                gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
-                gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_17)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (K % 16 + 0), (M % 128 % 16 + 0), (N % 128 % 16 + 0));
-                gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_17)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (N % 128 % 16 + 0), 16, 16);
-                gemm_free((uint64_t)(a_17));
-                gemm_free((uint64_t)(b_17));
-            }
-            gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
-            gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
-            gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (M % 128 % 16 + 0), (N % 128 % 16 + 0) );
-            gemm_acc_free((uint32_t)(res_8));
-        }
-    }
-}
 
+void matmul_c_i8( matmul_c_i8_lib_Context *ctxt, int N, int M, int K, float* a_scale, float* b_scale, float* c_scale, bool acc, bool trans_a, bool trans_b, struct systl_win_2i8 A, struct systl_win_2i8 B, struct systl_win_2i8 C ) {
+for (int io=0; io < _floor_div(N, 128); io++) {
+  for (int jo=0; jo < _floor_div(M, 128); jo++) {
+    int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 8 * 8 * sizeof(int32_t)));
+    int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * 8 * sizeof(int8_t)));
+    int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * 8 * sizeof(int8_t)));
+    int8_t *a_1 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 8 * sizeof(int8_t)));
+    int8_t *b_1 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * 8 * sizeof(int8_t)));
+    for (int i=0; i < 8; i++) {
+      for (int j=0; j < 8; j++) {
+        gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i + 0) * (8 * 16 * 16) + (j + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
+        for (int k=0; k < _floor_div(K, 16); k++) {
+          gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i + 128 * io + 0) * (A.strides[0]) + (16 * k + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i + 128 * io + 0) * (A.strides[0]) + (16 * k + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+          gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k + 0) * (B.strides[0]) + (16 * j + 128 * jo + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k + 0) * (B.strides[0]) + (16 * j + 128 * jo + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+          gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i + 0) * (8 * 16 * 16) + (j + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
+        }
+        if (K % 16 > 0) {
+          gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_1)) + ((i) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
+          gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * j + 128 * jo + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * j + 128 * jo + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_1)) + ((j) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
+          gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_1)) + ((j) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i + 0) * (8 * 16 * 16) + (j + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_1)) + ((i) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
+        }
+        gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
+gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * i + 128 * io + 0) * (C.strides[0]) + (16 * j + 128 * jo + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * i + 128 * io + 0) * (C.strides[0]) + (16 * j + 128 * jo + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i + 0) * (8 * 16 * 16) + (j + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (16) );
+      }
+    }
+    gemm_acc_free((uint32_t)(res));
+    gemm_free((uint64_t)(a));
+    gemm_free((uint64_t)(b));
+    gemm_free((uint64_t)(a_1));
+    gemm_free((uint64_t)(b_1));
+  }
+  int32_t *res_1 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * (_floor_div(M % 128, 16) + 1) * 8 * sizeof(int32_t)));
+  for (int i_1=0; i_1 < 8; i_1++) {
+    int8_t *a_2 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+    int8_t *a_3 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
+    int8_t *b_2 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * (_floor_div(M % 128, 16) + 1) * sizeof(int8_t)));
+    int8_t *b_3 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * (_floor_div(M % 128, 16) + 1) * sizeof(int8_t)));
+    for (int j_1=0; j_1 < _floor_div(M % 128, 16); j_1++) {
+      gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((i_1 + 0) * ((_floor_div(M % 128, 16) + 1) * 16 * 16) + (j_1 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
+      for (int k_1=0; k_1 < _floor_div(K, 16); k_1++) {
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * k_1 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * k_1 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_2)) + ((k_1) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_1 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_1 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_2)) + ((j_1) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_1) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_2)) + ((j_1) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_1) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((i_1 + 0) * ((_floor_div(M % 128, 16) + 1) * 16 * 16) + (j_1 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_2)) + ((k_1) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
+      }
+      if (K % 16 > 0) {
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_3)) + ((j_1) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
+        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_3)) + ((j_1) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((i_1 + 0) * ((_floor_div(M % 128, 16) + 1) * 16 * 16) + (j_1 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
+      }
+      gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
+gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * i_1 + 128 * io + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * i_1 + 128 * io + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_1 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((i_1 + 0) * ((_floor_div(M % 128, 16) + 1) * 16 * 16) + (j_1 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (16) );
+    }
+    int8_t *a_4 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+    int8_t *a_5 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
+    int8_t *b_4 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+    int8_t *b_5 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
+    if (M % 128 % 16 > 0) {
+      int32_t *res_2 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * sizeof(int32_t)));
+      gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(M % 128 % 16 + 0), (16) );
+      for (int k_2=0; k_2 < _floor_div(K, 16); k_2++) {
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * k_2 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * k_2 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_4)) + ((k_2) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_2 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_2 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_4)) + ((k_2) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (16) );
+        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_4)) + ((k_2) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (16), (M % 128 % 16 + 0), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_4)) + ((k_2) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
+      }
+      if (K % 16 > 0) {
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * i_1 + 128 * io + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (K % 16 + 0) );
+        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (K % 16 + 0), (M % 128 % 16 + 0), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
+      }
+      gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
+gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * i_1 + 128 * io + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * i_1 + 128 * io + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (M % 128 % 16 + 0), (16) );
+      gemm_acc_free((uint32_t)(res_2));
+    }
+    gemm_free((uint64_t)(a_2));
+    gemm_free((uint64_t)(a_3));
+    gemm_free((uint64_t)(b_2));
+    gemm_free((uint64_t)(b_3));
+    gemm_free((uint64_t)(a_4));
+    gemm_free((uint64_t)(a_5));
+    gemm_free((uint64_t)(b_4));
+    gemm_free((uint64_t)(b_5));
+  }
+  gemm_acc_free((uint32_t)(res_1));
+}
+for (int i_2=0; i_2 < _floor_div(N % 128, 16); i_2++) {
+  int32_t *res_3 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 8 * (_floor_div(M, 128) + 1) * sizeof(int32_t)));
+  for (int jo_1=0; jo_1 < _floor_div(M, 128); jo_1++) {
+    int8_t *a_6 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+    int8_t *a_7 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
+    int8_t *b_6 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * 8 * sizeof(int8_t)));
+    int8_t *b_7 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * 8 * sizeof(int8_t)));
+    for (int j_2=0; j_2 < 8; j_2++) {
+      gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_3)) + ((jo_1 + 0) * (8 * 16 * 16) + (j_2 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
+      for (int k_3=0; k_3 < _floor_div(K, 16); k_3++) {
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_3 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_3 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_6)) + ((k_3) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_3 + 0) * (B.strides[0]) + (16 * j_2 + 128 * jo_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_3 + 0) * (B.strides[0]) + (16 * j_2 + 128 * jo_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_6)) + ((j_2) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_3) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_6)) + ((j_2) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_3) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_3)) + ((jo_1 + 0) * (8 * 16 * 16) + (j_2 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_6)) + ((k_3) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
+      }
+      if (K % 16 > 0) {
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * j_2 + 128 * jo_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * j_2 + 128 * jo_1 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_7)) + ((j_2) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
+        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_7)) + ((j_2) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_3)) + ((jo_1 + 0) * (8 * 16 * 16) + (j_2 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
+      }
+      gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
+gemmini_config_st(((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (16 * j_2 + 128 * jo_1 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (16 * j_2 + 128 * jo_1 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_3)) + ((jo_1 + 0) * (8 * 16 * 16) + (j_2 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (16) );
+    }
+    gemm_free((uint64_t)(a_6));
+    gemm_free((uint64_t)(a_7));
+    gemm_free((uint64_t)(b_6));
+    gemm_free((uint64_t)(b_7));
+  }
+  int32_t *res_4 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * (_floor_div(M % 128, 16) + 1) * sizeof(int32_t)));
+  int8_t *a_8 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+  int8_t *a_9 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
+  int8_t *b_8 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * (_floor_div(M % 128, 16) + 1) * sizeof(int8_t)));
+  int8_t *b_9 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * (_floor_div(M % 128, 16) + 1) * sizeof(int8_t)));
+  for (int j_3=0; j_3 < _floor_div(M % 128, 16); j_3++) {
+    gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_4)) + ((j_3 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
+    for (int k_4=0; k_4 < _floor_div(K, 16); k_4++) {
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_4 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_4 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_8)) + ((k_4) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_4 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_4 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_8)) + ((j_3) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_4) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+      gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_8)) + ((j_3) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_4) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_4)) + ((j_3 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_8)) + ((k_4) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
+    }
+    if (K % 16 > 0) {
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_9)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_9)) + ((j_3) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
+      gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_9)) + ((j_3) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_4)) + ((j_3 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_9)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
+    }
+    gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
+gemmini_config_st(((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_3 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_4)) + ((j_3 + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (16) );
+  }
+  int8_t *a_10 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+  int8_t *a_11 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
+  int8_t *b_10 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+  int8_t *b_11 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
+  if (M % 128 % 16 > 0) {
+    int32_t *res_5 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * sizeof(int32_t)));
+    gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(M % 128 % 16 + 0), (16) );
+    for (int k_5=0; k_5 < _floor_div(K, 16); k_5++) {
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_5 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * k_5 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_10)) + ((k_5) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_5 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_5 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_10)) + ((k_5) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (16) );
+      gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_10)) + ((k_5) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (16), (M % 128 % 16 + 0), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_10)) + ((k_5) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
+    }
+    if (K % 16 > 0) {
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_11)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (16) );
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_11)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (K % 16 + 0) );
+      gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_11)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (K % 16 + 0), (M % 128 % 16 + 0), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_11)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (16), 16, 16);
+    }
+    gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
+gemmini_config_st(((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (128 * _floor_div(N, 128) + 16 * i_2 + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_5)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (M % 128 % 16 + 0), (16) );
+    gemm_acc_free((uint32_t)(res_5));
+  }
+  gemm_acc_free((uint32_t)(res_3));
+  gemm_acc_free((uint32_t)(res_4));
+  gemm_free((uint64_t)(a_8));
+  gemm_free((uint64_t)(a_9));
+  gemm_free((uint64_t)(b_8));
+  gemm_free((uint64_t)(b_9));
+  gemm_free((uint64_t)(a_10));
+  gemm_free((uint64_t)(a_11));
+  gemm_free((uint64_t)(b_10));
+  gemm_free((uint64_t)(b_11));
+}
+if (N % 128 % 16 > 0) {
+  for (int jo_2=0; jo_2 < _floor_div(M, 128); jo_2++) {
+    int8_t *a_12 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+    int8_t *a_13 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * sizeof(int8_t)));
+    int8_t *b_12 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * 8 * sizeof(int8_t)));
+    int8_t *b_13 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * 8 * sizeof(int8_t)));
+    for (int j_4=0; j_4 < 8; j_4++) {
+      int32_t *res_6 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * (N % 128 % 16 + 1) * sizeof(int32_t)));
+      gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (N % 128 % 16 + 0) );
+      for (int k_6=0; k_6 < _floor_div(K, 16); k_6++) {
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_6 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_6 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_12)) + ((k_6) * ((N % 128 % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (N % 128 % 16 + 0) );
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_6 + 0) * (B.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_6 + 0) * (B.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_12)) + ((j_4) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_6) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_12)) + ((j_4) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_6) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (N % 128 % 16 + 0));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_12)) + ((k_6) * ((N % 128 % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (N % 128 % 16 + 0), 16, 16);
+      }
+      if (K % 16 > 0) {
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_13)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (N % 128 % 16 + 0) );
+        gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_13)) + ((j_4) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
+        gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_13)) + ((j_4) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (N % 128 % 16 + 0));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_13)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (N % 128 % 16 + 0), 16, 16);
+      }
+      gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
+gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (128 * jo_2 + 16 * j_4 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_6)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (N % 128 % 16 + 0) );
+      gemm_acc_free((uint32_t)(res_6));
+    }
+    gemm_free((uint64_t)(a_12));
+    gemm_free((uint64_t)(a_13));
+    gemm_free((uint64_t)(b_12));
+    gemm_free((uint64_t)(b_13));
+  }
+  int8_t *a_14 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+  int8_t *a_15 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * sizeof(int8_t)));
+  int8_t *b_14 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * (_floor_div(M % 128, 16) + 1) * sizeof(int8_t)));
+  int8_t *b_15 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * (_floor_div(M % 128, 16) + 1) * sizeof(int8_t)));
+  for (int j_5=0; j_5 < _floor_div(M % 128, 16); j_5++) {
+    int32_t *res_7 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * (N % 128 % 16 + 1) * sizeof(int32_t)));
+    gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (N % 128 % 16 + 0) );
+    for (int k_7=0; k_7 < _floor_div(K, 16); k_7++) {
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_7 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_7 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_14)) + ((k_7) * ((N % 128 % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (N % 128 % 16 + 0) );
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_7 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_7 + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_14)) + ((j_5) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_7) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+      gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_14)) + ((j_5) * ((_floor_div(K, 16) + 1) * 16 * 16) + (k_7) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (N % 128 % 16 + 0));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_14)) + ((k_7) * ((N % 128 % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (N % 128 % 16 + 0), 16, 16);
+    }
+    if (K % 16 > 0) {
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_15)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (N % 128 % 16 + 0) );
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_15)) + ((j_5) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (K % 16 + 0) );
+      gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_15)) + ((j_5) * ((K % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (K % 16 + 0), (16), (N % 128 % 16 + 0));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_15)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (N % 128 % 16 + 0), 16, 16);
+    }
+    gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
+gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (128 * _floor_div(M, 128) + 16 * j_5 + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_7)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (N % 128 % 16 + 0) );
+    gemm_acc_free((uint32_t)(res_7));
+  }
+  int8_t *a_16 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+  int8_t *a_17 = (int8_t*) ((uint64_t)gemm_malloc (16 * (N % 128 % 16 + 1) * sizeof(int8_t)));
+  int8_t *b_16 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * (_floor_div(K, 16) + 1) * sizeof(int8_t)));
+  int8_t *b_17 = (int8_t*) ((uint64_t)gemm_malloc (16 * (K % 16 + 1) * sizeof(int8_t)));
+  if (M % 128 % 16 > 0) {
+    int32_t *res_8 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * (N % 128 % 16 + 1) * sizeof(int32_t)));
+    gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(M % 128 % 16 + 0), (N % 128 % 16 + 0) );
+    for (int k_8=0; k_8 < _floor_div(K, 16); k_8++) {
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_8 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * k_8 + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_16)) + ((k_8) * ((N % 128 % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (N % 128 % 16 + 0) );
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * k_8 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * k_8 + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_16)) + ((k_8) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (16) );
+      gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_16)) + ((k_8) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (16), (M % 128 % 16 + 0), (N % 128 % 16 + 0));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_16)) + ((k_8) * ((N % 128 % 16 + 1) * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (N % 128 % 16 + 0), 16, 16);
+    }
+    if (K % 16 > 0) {
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).strides[0]*1, (a_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ A.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (A.strides[0]) + (16 * _floor_div(K, 16) + 0) * (A.strides[1]), { A.strides[0],A.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_17)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (K % 16 + 0), (N % 128 % 16 + 0) );
+      gemmini_extended3_config_ld(((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).strides[0]*1, (b_scale)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ B.data + (16 * _floor_div(K, 16) + 0) * (B.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (B.strides[1]), { B.strides[0],B.strides[1] } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_17)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (M % 128 % 16 + 0), (K % 16 + 0) );
+      gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b_17)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (M % 128 % 16 + 0), (K % 16 + 0), (M % 128 % 16 + 0), (N % 128 % 16 + 0));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a_17)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (K % 16 + 0), (N % 128 % 16 + 0), 16, 16);
+    }
+    gemmini_extended_config_ex(WS, (acc), 0, (c_scale)[0], 0, 1, 0, 0);
+gemmini_config_st(((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).strides[0]*1);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ C.data + (16 * _floor_div(N % 128, 16) + 128 * _floor_div(N, 128) + 0) * (C.strides[0]) + (16 * _floor_div(M % 128, 16) + 128 * _floor_div(M, 128) + 0) * (C.strides[1]), { C.strides[0],C.strides[1] } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_8)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (M % 128 % 16 + 0), (N % 128 % 16 + 0) );
+    gemm_acc_free((uint32_t)(res_8));
+  }
+  gemm_free((uint64_t)(a_14));
+  gemm_free((uint64_t)(a_15));
+  gemm_free((uint64_t)(b_14));
+  gemm_free((uint64_t)(b_15));
+  gemm_free((uint64_t)(a_16));
+  gemm_free((uint64_t)(a_17));
+  gemm_free((uint64_t)(b_16));
+  gemm_free((uint64_t)(b_17));
+}
+}
 
 // This function runs a tiled matrix multiplication, with automatically
 // calculated tiling factors
@@ -2838,7 +2838,8 @@ static void orig_tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
     const size_t dim_J_padded = (dim_J / DIM + (dim_J % DIM != 0)) * DIM;
     const size_t dim_K_padded = (dim_K / DIM + (dim_K % DIM != 0)) * DIM;
 
-    const bool double_buffered = false;
+    //const bool double_buffered = false;
+    const bool double_buffered = tiled_matmul_type == WS;
 
     const size_t max_spad_rows = double_buffered ? BANK_NUM * BANK_ROWS / 2 :
       BANK_NUM * BANK_ROWS;

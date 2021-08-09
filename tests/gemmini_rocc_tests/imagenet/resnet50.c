@@ -52,7 +52,6 @@ int main (int argc, char * argv[]) {
         printf("usage: %s [-h] matmul_option [check] [conv]\n  matmul_option may be 'os', 'ws', or cpu'\n", argv[0]);
         exit(1);
     }
-    conv = false;
 
     bool check = false;
 
