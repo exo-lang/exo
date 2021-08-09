@@ -40,7 +40,7 @@ def test_input2():
 
 def test_input3():
     with pytest.raises(TypeError,
-                       match='stride assert checking'):
+                       match='Could not verify assertion'):
         @proc
         def foo(
             dst2: [f32][8] @ DRAM,

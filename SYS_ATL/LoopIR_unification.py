@@ -46,21 +46,21 @@ class DoReplace(LoopIR_Rewrite):
 
         super().__init__(proc)
         # fix up effects post-hoc
-        self.proc = InferEffects(self.proc).result()
+        #self.proc = InferEffects(self.proc).result()
         # and then check that all effect-check conditions are
         # still satisfied...
-        try:
-            CheckEffects(self.proc)
-        except TypeError as te:
-            errmsg = te.args[0]
-            premsg = ("After performing a `replace()` operation, the "+
-                      "resulting procedure was not safe, failing an effect-"+
-                      "check.  This may be due to current limitations with "+
-                      "`replace()` or due to an internal compiler bug.  "+
-                      "Regardless, here is the text of the procedure "+
-                      "failing the effect-check:\n"+
-                      str(self.proc)+"\n"+errmsg)
-            raise TypeError(premsg)
+        #try:
+        #    CheckEffects(self.proc)
+        #except TypeError as te:
+        #    errmsg = te.args[0]
+        #    premsg = ("After performing a `replace()` operation, the "+
+        #              "resulting procedure was not safe, failing an effect-"+
+        #              "check.  This may be due to current limitations with "+
+        #              "`replace()` or due to an internal compiler bug.  "+
+        #              "Regardless, here is the text of the procedure "+
+        #              "failing the effect-check:\n"+
+        #              str(self.proc)+"\n"+errmsg)
+        #    raise TypeError(premsg)
 
     def push(self):
         self.live_vars = self.live_vars.new_child()

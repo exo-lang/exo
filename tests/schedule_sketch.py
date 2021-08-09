@@ -1,3 +1,25 @@
+
+
+@proc
+ld_config(...):
+    CONFIG.stride_0 = stride_0
+    CONFIG.scale    = scale
+
+@proc
+tiled_matmul(...):
+    for i in par(0,N/16):
+        for j in par(0,M/16):
+            for k in par(0,K/16):
+                Ablock : i8[16,16] @ GEMM_SCRATCH
+                Bblock : i8[16,16] @ GEMM_SCRATCH
+                if CONFIG.stride_0 != None and CONFIG.scale != None:
+                    ld_i8(16,16, a_scale, A[ 16*i:16*(i+1), 16*k:16*(k+1) ], Ablock)
+                    ld_i8(16,16, b_scale, B[ 16*k:16*(k+1), 16*j:16*(j+1) ], Bblock)
+          
+
+
+
+
 static void tiled_conv_A_stride_auto(
         int batch_size, int in_dim, int in_channels,
         int out_channels, int out_dim,

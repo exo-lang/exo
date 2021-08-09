@@ -9,7 +9,7 @@ from .LoopIR_scheduling import (name_plus_count,
                                 iter_name_to_pattern,
                                 nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace
-from .effectcheck import InferEffects, CheckEffects, CheckStrideAsserts
+from .effectcheck import InferEffects, CheckEffects
 
 from .memory import Memory
 
@@ -66,7 +66,6 @@ class Procedure:
                 self._loopir_proc = TypeChecker(proc).get_loopir()
                 self._loopir_proc = InferEffects(self._loopir_proc).result()
                 CheckEffects(self._loopir_proc)
-                CheckStrideAsserts(self._loopir_proc)
 
         # find the root provenance
         parent = _provenance_eq_Procedure
@@ -97,6 +96,10 @@ class Procedure:
     #     introspection operations
     # -------------------------------- #
 
+    def check_effects(self):
+        self._loopir_proc = InferEffects(self._loopir_proc).result()
+        CheckEffects(self._loopir_proc)
+
     def name(self):
         return self._loopir_proc.name
 
@@ -121,7 +124,7 @@ class Procedure:
         return MarkDownBlob("```c\n"+self.c_code_str()+"\n```")
 
     def c_code_str(self):
-        decls, defns = compile_to_strings([self._loopir_proc])
+        decls, defns = compile_to_strings("c_code_str", [self._loopir_proc])
         return defns
 
     def compile_c(self, directory, filename, malloc=False):
@@ -130,7 +133,7 @@ class Procedure:
 
     def jit_compile(self):
         if not hasattr(self, '_cached_c_jit'):
-            decls, defns = compile_to_strings([self._loopir_proc])
+            decls, defns = compile_to_strings("jit_compile", [self._loopir_proc])
             self._cached_c_jit = CJit_Func(self._loopir_proc, defns)
         return self._cached_c_jit
 
@@ -508,7 +511,7 @@ class CJit_Func:
                         if type(a) is np.ndarray else
                      a)
                     for a in argvals ]
-        self._c_func(*argvals)
+        self._c_func(POINTER(c_int)(), *argvals)
 
 
     def _check_arg(self, fa, a, env):

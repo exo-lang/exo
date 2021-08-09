@@ -54,13 +54,12 @@ def test_simple_blur():
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
-    test_lib.blur(c_int(n_size), c_int(m_size), c_int(
+    test_lib.blur(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
         k_size), cvt_c(image), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
     out = Image.fromarray(res_c)
     out.save(os.path.join(TMP_DIR, filename + '_out.png'))
-
 
 def test_simple_blur_split():
     @proc
@@ -89,7 +88,7 @@ def test_simple_blur_split():
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
-    test_lib.simple_blur_split(c_int(n_size), c_int(m_size), c_int(
+    test_lib.simple_blur_split(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
         k_size), cvt_c(image), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
@@ -119,7 +118,7 @@ def test_split_blur():
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
-    test_lib.blur(c_int(n_size), c_int(m_size), c_int(
+    test_lib.blur(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
         k_size), cvt_c(image), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
@@ -151,7 +150,7 @@ def test_reorder_blur():
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
-    test_lib.blur(c_int(n_size), c_int(m_size), c_int(
+    test_lib.blur(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
         k_size), cvt_c(image), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
@@ -182,7 +181,7 @@ def test_unroll_blur():
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
-    test_lib.blur(c_int(n_size), c_int(m_size), c_int(
+    test_lib.blur(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
         k_size), cvt_c(image), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
@@ -216,7 +215,7 @@ def test_conv1d():
     res = nprand(size=(r_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
-    test_lib.conv1d(c_int(n_size), c_int(m_size),
+    test_lib.conv1d(POINTER(c_int)(), c_int(n_size), c_int(m_size),
                     c_int(r_size), cvt_c(x), cvt_c(w), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(r_size,))
     np.testing.assert_almost_equal(res_c, nparray(
@@ -265,7 +264,7 @@ def test_alloc_nest():
     res_c = cvt_c(res)
 
     test_lib = generate_lib(filename)
-    test_lib.alloc_nest(c_int(n_size), c_int(
+    test_lib.alloc_nest(POINTER(c_int)(), c_int(n_size), c_int(
         m_size), cvt_c(x), cvt_c(y), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     alloc_nest.interpret(n=n_size, m=m_size, x=x, y=y, res=res)
@@ -315,7 +314,7 @@ def test_alloc_nest_malloc():
     test_lib = generate_lib(filename)
     # Initialize custom malloc here
     test_lib.init_mem()
-    test_lib.alloc_nest_malloc(c_int(n_size), c_int(
+    test_lib.alloc_nest_malloc(POINTER(c_int)(), c_int(n_size), c_int(
         m_size), cvt_c(x), cvt_c(y), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     alloc_nest_malloc.interpret(n=n_size, m=m_size, x=x, y=y, res=res)
@@ -344,7 +343,7 @@ def test_unary_neg():
     res_c = cvt_c(res)
 
     test_lib = generate_lib(filename)
-    test_lib.negate_array(c_int(n_size), cvt_c(x),  res_c)
+    test_lib.negate_array(POINTER(c_int)(), c_int(n_size), cvt_c(x),  res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size,))
     negate_array.interpret(n=n_size, x=x, res=res)
     np.testing.assert_almost_equal(res, res_c)
@@ -387,7 +386,7 @@ def test_bool1():
     inp1 = True
     inp2 = False
     test_lib = generate_lib(filename)
-    test_lib.bool1(c_bool(inp1), c_bool(inp2))
+    test_lib.bool1(POINTER(c_int)(), c_bool(inp1), c_bool(inp2))
     bool1.interpret(a=inp1, b=inp2)
 
 def test_sin1():
@@ -405,7 +404,7 @@ def test_sin1():
 
     inp1 = nparray([4.0])
     test_lib = generate_lib(filename)
-    test_lib.sin1(cvt_c(inp1))
+    test_lib.sin1(POINTER(c_int)(), cvt_c(inp1))
     res_c = np.ctypeslib.as_array(inp1, shape=(1,))
 
     sin1.interpret(x=inp1)
@@ -428,7 +427,7 @@ def test_relu1():
 
     inp1 = nparray([-4.0])
     test_lib = generate_lib(filename)
-    test_lib.relu1(cvt_c(inp1))
+    test_lib.relu1(POINTER(c_int)(), cvt_c(inp1))
     res_c = np.ctypeslib.as_array(inp1, shape=(1,))
 
     relu1.interpret(x=inp1)
@@ -453,10 +452,9 @@ def test_select1():
 
     inp1 = nparray([-4.0])
     test_lib = generate_lib(filename)
-    test_lib.select1(cvt_c(inp1))
+    test_lib.select1(POINTER(c_int)(), cvt_c(inp1))
     res_c = np.ctypeslib.as_array(inp1, shape=(1,))
 
     select1.interpret(x=inp1)
 
     np.testing.assert_almost_equal(inp1, res_c)
-

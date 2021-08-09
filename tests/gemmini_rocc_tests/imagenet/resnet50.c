@@ -52,6 +52,7 @@ int main (int argc, char * argv[]) {
         printf("usage: %s [-h] matmul_option [check] [conv]\n  matmul_option may be 'os', 'ws', or cpu'\n", argv[0]);
         exit(1);
     }
+    conv = false;
 
     bool check = false;
 
@@ -101,7 +102,7 @@ int main (int argc, char * argv[]) {
     } else {
         start = read_cycles();
 
-        tiled_conv_A_stride_auto(
+        orig_tiled_conv_A_stride_auto(
             conv_1_params.batch_size, conv_1_params.in_dim, conv_1_params.in_channels,
             conv_1_params.out_channels, conv_1_params.out_dim,
             conv_1_params.stride, 1, 1, conv_1_params.padding, conv_1_params.kernel_size,
@@ -112,7 +113,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_1_params.output_scale, 0,
             conv_1_params.pool_size, conv_1_params.pool_stride, conv_1_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -188,7 +189,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_3_params.output_scale, 0,
             conv_3_params.pool_size, 0, conv_3_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -331,7 +332,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_7_params.output_scale, 0,
             conv_7_params.pool_size, 0, conv_7_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -439,7 +440,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_10_params.output_scale, 0,
             conv_10_params.pool_size, 0, conv_10_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -536,7 +537,7 @@ int main (int argc, char * argv[]) {
     } else {
         start = read_cycles();
 
-        tiled_conv_A_stride_auto(
+        orig_tiled_conv_A_stride_auto(
             conv_13_params.batch_size, conv_13_params.in_dim, conv_13_params.in_channels,
             conv_13_params.out_channels, conv_13_params.out_dim,
             conv_13_params.stride, 1, 1, conv_13_params.padding, conv_13_params.kernel_size,
@@ -547,7 +548,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_13_params.output_scale, 0,
             conv_13_params.pool_size, 0, conv_13_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -616,7 +617,7 @@ int main (int argc, char * argv[]) {
             NO_ACTIVATION, conv_15_params.output_scale, 0,
             // conv_15_params.pool_size, 0, conv_15_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -699,7 +700,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_17_params.output_scale, 0,
             conv_17_params.pool_size, 0, conv_17_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -807,7 +808,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_20_params.output_scale, 0,
             conv_20_params.pool_size, 0, conv_20_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -915,7 +916,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_23_params.output_scale, 0,
             conv_23_params.pool_size, 0, conv_23_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1012,7 +1013,7 @@ int main (int argc, char * argv[]) {
     } else {
         start = read_cycles();
 
-        tiled_conv_A_stride_auto(
+        orig_tiled_conv_A_stride_auto(
             conv_26_params.batch_size, conv_26_params.in_dim, conv_26_params.in_channels,
             conv_26_params.out_channels, conv_26_params.out_dim,
             conv_26_params.stride, 1, 1, conv_26_params.padding, conv_26_params.kernel_size,
@@ -1023,7 +1024,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_26_params.output_scale, 0,
             conv_26_params.pool_size, 0, conv_26_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1092,7 +1093,7 @@ int main (int argc, char * argv[]) {
             NO_ACTIVATION, conv_28_params.output_scale, 0,
             // conv_28_params.pool_size, 0, conv_28_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1175,7 +1176,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_30_params.output_scale, 0,
             conv_30_params.pool_size, 0, conv_30_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1283,7 +1284,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_33_params.output_scale, 0,
             conv_33_params.pool_size, 0, conv_33_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1391,7 +1392,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_36_params.output_scale, 0,
             conv_36_params.pool_size, 0, conv_36_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1499,7 +1500,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_39_params.output_scale, 0,
             conv_39_params.pool_size, 0, conv_39_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1607,7 +1608,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_42_params.output_scale, 0,
             conv_42_params.pool_size, 0, conv_42_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1704,7 +1705,7 @@ int main (int argc, char * argv[]) {
     } else {
         start = read_cycles();
 
-        tiled_conv_A_stride_auto(
+        orig_tiled_conv_A_stride_auto(
             conv_45_params.batch_size, conv_45_params.in_dim, conv_45_params.in_channels,
             conv_45_params.out_channels, conv_45_params.out_dim,
             conv_45_params.stride, 1, 1, conv_45_params.padding, conv_45_params.kernel_size,
@@ -1715,7 +1716,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_45_params.output_scale, 0,
             conv_45_params.pool_size, 0, conv_45_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1772,7 +1773,7 @@ int main (int argc, char * argv[]) {
     } else {
         start = read_cycles();
 
-        tiled_conv_A_stride_auto(
+        orig_tiled_conv_A_stride_auto(
             conv_47_params.batch_size, conv_47_params.in_dim, conv_47_params.in_channels,
             conv_47_params.out_channels, conv_47_params.out_dim,
             conv_47_params.stride, 1, 1, conv_47_params.padding, conv_47_params.kernel_size,
@@ -1783,7 +1784,7 @@ int main (int argc, char * argv[]) {
             NO_ACTIVATION, conv_47_params.output_scale, 0,
             conv_47_params.pool_size, 0, conv_47_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1866,7 +1867,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_49_params.output_scale, 0,
             conv_49_params.pool_size, 0, conv_49_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;
@@ -1974,7 +1975,7 @@ int main (int argc, char * argv[]) {
             RELU, conv_52_params.output_scale, 0,
             conv_52_params.pool_size, 0, conv_52_params.pool_padding,
 
-            tiled_matmul_type);
+            WS);
 
         end = read_cycles();
         conv_cycles += end - start;

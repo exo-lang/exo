@@ -215,7 +215,7 @@ def test_stride_assert1():
 # Both callee and caller has a window case
 def test_stride_assert2():
     with pytest.raises(TypeError,
-                       match='Could not verify stride assert'):
+                       match='Could not verify assertion'):
         @proc
         def foo(
             n   : size,
@@ -254,7 +254,7 @@ def test_stride_assert3():
 # this will be an error because we don't know anything about incoming stride
 def test_stride_assert4():
     with pytest.raises(TypeError,
-                       match='Could not verify stride assert'):
+                       match='Could not verify assertion'):
         @proc
         def foo(
             n   : size,
@@ -273,7 +273,7 @@ def test_stride_assert4():
 # Tensor with wrong size and stride
 def test_stride_assert5():
     with pytest.raises(TypeError,
-                       match='Could not verify stride assert'):
+                       match='is always unsatisfiable'):
         @proc
         def bar(x : i8[30,10] @ DRAM, y : i8[30,16] @ GEMM_SCRATCH):
             assert stride(x, 0) == 9
@@ -288,12 +288,13 @@ def test_stride_assert6():
 
 # Test Tensor having insufficient information (sizes)
 def test_stride_assert7():
-    with pytest.raises(TypeError,
-                       match='Could not verify stride assert'):
-        @proc
-        def bar(n : size, m : size, x : i8[n,m] @ DRAM):
-            assert stride(x, 0) == 10
-            pass
+    # with changes, this should not trigger an error
+    # since it might be true, even if it is highly unlikely
+    # i.e. this would have to be always called with m == 10
+    @proc
+    def bar(n : size, m : size, x : i8[n,m] @ DRAM):
+        assert stride(x, 0) == 10
+        pass
 
 # Test Windowstmt
 def test_stride_assert8():
@@ -351,6 +352,28 @@ def test_stride_assert10():
         y : i8[50, 4, 100,16] @ GEMM_SCRATCH
 
         foo(30,10, x[0,:,:], y[3,1, 3:33,:])
+
+# Test stride arguments
+def test_stride_assert11():
+    @proc
+    def foo(
+        n   : size,
+        m   : size,
+        s   : stride,
+        src : [i8][n, m]  @ DRAM,
+        dst : [i8][n, 16] @ GEMM_SCRATCH,
+    ):
+        assert stride(src, 0) == s
+        assert stride(src, 1) == 1
+        assert stride(dst, 0) == 16
+        assert stride(dst, 1) == 1
+        pass
+    @proc
+    def bar():
+        x : i8[8,30,10] @ DRAM
+        y : i8[50, 4, 100,16] @ GEMM_SCRATCH
+
+        foo(30,10, stride(x,1), x[0,:,:], y[3,1, 3:33,:])
 
 
 # are we testing a case of an else branch?

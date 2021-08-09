@@ -14,10 +14,13 @@ from .mem_analysis import MemoryAnalysis
 from .prec_analysis import PrecisionAnalysis
 from .win_analysis import WindowAnalysis
 from .memory import MemGenError
+from .configs import ConfigError
 
 import numpy as np
 import os
 
+def sanitize_str(s):
+    return re.sub(r'\W','_',s)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -112,21 +115,55 @@ class LoopIR_FindMems(LoopIR_Do):
         else:
             super().do_s(s)
 
+    def do_eff(self,eff):
+        pass
+    def do_t(self,t):
+        pass
+
 class LoopIR_FindBuiltIns(LoopIR_Do):
     def __init__(self, proc):
-        self._bultins = set()
+        self._builtins = set()
         super().__init__(proc)
 
     def result(self):
-        return self._bultins
+        return self._builtins
 
     # to improve efficiency
     def do_e(self,e):
         if type(e) is LoopIR.BuiltIn:
-            self._bultins.add(e.f)
+            self._builtins.add(e.f)
+        else:
+            super().do_e(e)
+
+    def do_eff(self,eff):
+        pass
+    def do_t(self,t):
+        pass
+
+class LoopIR_FindConfigs(LoopIR_Do):
+    def __init__(self, proc):
+        self._configs = set()
+        super().__init__(proc)
+
+    def result(self):
+        return self._configs
+
+    # to improve efficiency
+    def do_e(self,e):
+        if type(e) is LoopIR.ReadConfig:
+            self._configs.add(e.config)
+        else:
+            super().do_e(e)
 
     def do_s(self, s):
+        if type(s) is LoopIR.WriteConfig:
+            self._configs.add(s.config)
         super().do_s(s)
+
+    def do_eff(self,eff):
+        pass
+    def do_t(self,t):
+        pass
 
 def find_all_mems(proc_list):
     mems = set()
@@ -141,6 +178,13 @@ def find_all_builtins(proc_list):
         builtins.update( LoopIR_FindBuiltIns(p).result() )
 
     return [ b for b in builtins ]
+
+def find_all_configs(proc_list):
+    configs = set()
+    for p in proc_list:
+        configs.update( LoopIR_FindConfigs(p).result() )
+
+    return list(configs)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -172,8 +216,12 @@ def window_struct(basetyp, n_dims):
 
 
 def run_compile(proc_list, path, c_file, h_file, malloc=False):
-
-    fwd_decls, body = compile_to_strings(proc_list)
+    file_stem = re.match(r'^([^\.]+)\.[^\.]+$', c_file)
+    if not file_stem:
+        raise ValueError("Expected file name to end "+
+                         "with extension: e.g. ___.__ ")
+    lib_name = sanitize_str(file_stem[1])
+    fwd_decls, body = compile_to_strings(lib_name, proc_list)
 
     #includes = "#include <stdio.h>\n" + "#include <stdlib.h>\n"
     includes = "#include <stdint.h>\n" + "#include <stdbool.h>\n"
@@ -206,13 +254,14 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
         f_cpp.write(body)
 
 
-def compile_to_strings(proc_list):
+def compile_to_strings(lib_name, proc_list):
 
     # get transitive closure of call-graph
     orig_procs  = [ id(p) for p in proc_list ]
     proc_list   = find_all_subprocs(proc_list)
     mem_list    = find_all_mems(proc_list)
     builtin_list= find_all_builtins(proc_list)
+    config_list = find_all_configs(proc_list)
 
     # check for name conflicts between procs
     used_names  = set()
@@ -234,6 +283,9 @@ def compile_to_strings(proc_list):
             "}",
             "",]
 
+    fwd_decls = []
+    struct_defns = set()
+
     for m in mem_list:
         if m._global:
             body.append(m._global)
@@ -245,8 +297,27 @@ def compile_to_strings(proc_list):
             body.append(glb)
             body.append("\n")
 
-    fwd_decls = []
-    struct_defns = set()
+    # Build Context Struct
+    ctxt_name   = f"{lib_name}_Context"
+    ctxt_def    = [f"typedef struct {ctxt_name} {{ ",
+                   f""]
+    for c in config_list:
+        if c.is_allow_rw():
+            sdef_lines  = c.c_struct_def()
+            sdef_lines  = [ f"    {line}" for line in sdef_lines ]
+            ctxt_def   += sdef_lines
+            ctxt_def   += [""]
+        else:
+            ctxt_def += [f"// config '{c.name()}' not materialized",
+                         ""]
+    ctxt_def  += [f"}} {ctxt_name};"]
+    fwd_decls += ctxt_def
+    fwd_decls.append("\n")
+    # check that we don't have a name conflict on configs
+    config_names = { c.name() for c in config_list }
+    if len(config_names) != len(config_list):
+        raise TypeError("Cannot compile while using two configs "+
+                        "with the same name")
 
     for p in proc_list:
         # don't compile instruction procedures, but add a comment?
@@ -261,7 +332,7 @@ def compile_to_strings(proc_list):
             p       = PrecisionAnalysis(p).result()
             p       = WindowAnalysis(p).result()
             p       = MemoryAnalysis(p).result()
-            comp    = Compiler(p)
+            comp    = Compiler(p, ctxt_name)
             d, b    = comp.comp_top()
             struct_defns = struct_defns.union(comp.struct_defns())
             # only dump .h-file forward declarations for requested procedures
@@ -280,10 +351,11 @@ def compile_to_strings(proc_list):
 # Loop IR Compiler
 
 class Compiler:
-    def __init__(self, proc, **kwargs):
+    def __init__(self, proc, ctxt_name, **kwargs):
         assert type(proc) is LoopIR.proc
 
         self.proc   = proc
+        self.ctxt_name = ctxt_name
         self.env    = ChainMap()
         self.names  = ChainMap()
         self.envtyp = dict()
@@ -300,6 +372,10 @@ class Compiler:
         arg_strs        = []
         typ_comments    = []
 
+        # reserve the first "ctxt" argument
+        self.new_varname(Sym('ctxt'), None)
+        arg_strs.append(f"{ctxt_name} *ctxt")
+
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
             name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
@@ -314,6 +390,9 @@ class Compiler:
             elif a.type == T.bool:
                 arg_strs.append(f"bool {name_arg}")
                 typ_comments.append(f"{name_arg} : bool")
+            elif a.type == T.stride:
+                arg_strs.append(f"int {name_arg}")
+                typ_comments.append(f"{name_arg} : stride")
             # setup, arguments
             else:
                 assert a.type.is_numeric()
@@ -492,6 +571,29 @@ class Compiler:
                     raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "+
                                       f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} += {rhs};")
+
+        elif styp is LoopIR.WriteConfig:
+            if not s.config.is_allow_rw():
+                raise ConfigError(f"{s.srcinfo}: cannot write to config "+
+                                  f"'{s.config.name()}'")
+
+            nm      = s.config.name()
+            rhs     = self.comp_e(s.rhs)
+
+            # possibly cast!
+            ltyp    = s.config.lookup(s.field)[1]
+            rtyp    = s.rhs.type
+            if ltyp != rtyp:
+                assert ltyp.is_real_scalar()
+                assert rtyp.is_real_scalar()
+
+                if ltyp == T.i8 and rtyp == T.i32:
+                    rhs = f"_clamp_32to8({rhs})"
+                else:
+                    rhs = f"({ltyp.ctype()})({rhs})"
+
+            self.add_line(f"ctxt->{nm}.{s.field} = {rhs};")
+
         elif styp is LoopIR.WindowStmt:
             win_struct  = self.get_window_type(s.rhs.type)
             rhs         = self.comp_e(s.rhs)
@@ -555,6 +657,7 @@ class Compiler:
                 self.add_line(f"{s.f.instr.format(**d)}")
             else:
                 fname   = s.f.name
+                args    = ["ctxt"] + args
                 self.add_line(f"{fname}({','.join(args)});")
         else:
             assert False, "bad case"
@@ -570,6 +673,8 @@ class Compiler:
                     return self.env[e.name]
                 elif rtyp is T.bool:
                     return self.env[e.name]
+                elif rtyp is T.stride:
+                    return self.env[e.name]
                 elif e.name in self._scalar_refs:
                     return self.env[e.name]
                 elif rtyp.is_tensor_or_window():
@@ -578,7 +683,7 @@ class Compiler:
                     assert rtyp.is_real_scalar()
                     return f"&{self.env[e.name]}"
             else:
-                if rtyp.is_indexable() or rtyp is T.bool:
+                if rtyp.is_indexable() or rtyp is T.bool or rtyp == T.stride:
                     return self.env[e.name]
 
                 mem = self.mems[e.name]
@@ -623,7 +728,8 @@ class Compiler:
                 idx_expr    = self.get_idx_offset(base, basetyp, idxs)
                 dataptr     = f"{baseptr} + {idx_expr}"
 
-            struct_str = f"(struct {win_struct}){{ {dataptr}, {{ {','.join(strides)} }} }}"
+            struct_str = (f"(struct {win_struct}){{ {dataptr},"+
+                                            f" {{ {','.join(strides)} }} }}")
 
             return struct_str
         elif etyp is LoopIR.Const:
@@ -662,6 +768,15 @@ class Compiler:
         elif etyp is LoopIR.BuiltIn:
             args    = [ self.comp_e(a, call_arg=True) for a in e.args ]
             return e.f.compile(args)
+
+        elif etyp is LoopIR.StrideExpr:
+            raise NotImplementedError("TODO: note difference between "+
+                                      "window and tensor cases...")
+        elif etyp is LoopIR.ReadConfig:
+            if not e.config.is_allow_rw():
+                raise ConfigError(f"{e.srcinfo}: cannot read from config "+
+                                  f"'{e.config.name()}'")
+            return f"ctxt->{e.config.name()}.{e.field}"
 
         else:
             assert False, "bad case"

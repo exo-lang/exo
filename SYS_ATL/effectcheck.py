@@ -3,8 +3,10 @@ from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
 from .LoopIR import lift_to_eff_expr as lift_expr
 from .LoopIR import T
 from .LoopIR_effects import Effects as E
-from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
-                             eff_null, eff_remove_buf, effect_as_str)
+from .LoopIR_effects import (eff_null, eff_read, eff_write, eff_reduce,
+                             eff_config_read, eff_config_write,
+                             eff_concat, eff_union, eff_remove_buf,
+                             eff_filter, eff_bind)
 
 from collections import ChainMap
 
@@ -21,57 +23,106 @@ def _get_smt_solver():
 # --------------------------------------------------------------------------- #
 # Helper Functions
 
-def expr_subst(env, e):
-    """ perform the substitutions specified by env in expression e """
-    if type(e) is E.Const:
+def loopir_subst(e, subst):
+    if type(e) is LoopIR.Read:
+        assert not e.type.is_numeric()
+        return subst[e.name] if e.name in subst else e
+    elif type(e) is LoopIR.Const or type(e) is LoopIR.ReadConfig:
         return e
-    elif type(e) is E.Var:
-        if e.name in env:
-            return E.Var(env[e.name], e.type, e.srcinfo)
-        else:
+    elif type(e) is LoopIR.USub:
+        return LoopIR.USub( self.loopir_subst(e.arg, subst),
+                            e.type, e.srcinfo )
+    elif type(e) is LoopIR.BinOp:
+        return LoopIR.BinOp( e.op, loopir_subst(e.lhs, subst),
+                                   loopir_subst(e.rhs, subst),
+                                   e.type, e.srcinfo )
+    elif type(e) is LoopIR.StrideExpr:
+        if e.name not in subst:
             return e
-    elif type(e) is E.Neg:
-        if e.name in env:
-            return E.Neg(env[e.name], e.type, e.srcinfo)
-        else:
-            return e
-    elif type(e) is E.BinOp:
-        return E.BinOp(e.op, expr_subst(env, e.lhs), expr_subst(env, e.rhs),
-                       e.type, e.srcinfo)
+        lookup = subst[e.name]
+        if type(lookup) is LoopIR.Read:
+            assert len(lookup.idx) == 0
+            return LoopIR.StrideExpr(lookup.name, e.dim,
+                                     e.type, e.srcinfo)
+        elif type(lookup) is LoopIR.WindowExpr:
+            windowed_orig_dims  = [ d for d,w in enumerate(lookup.idx)
+                                      if type(w) is LoopIR.Interval ]
+            dim     = windowed_orig_dims[e.dim]
+            return LoopIR.StrideExpr(lookup.name, dim,
+                                     e.type, e.srcinfo)
+
+        else: assert False, f"bad case: {type(lookup)}"
+
     else: assert False, f"bad case: {type(e)}"
 
-def negate_expr(e):
-    assert e.type == T.bool, "can only negate predicates"
-    if type(e) is E.Const:
-        return E.Const( not e.val, e.type, e.srcinfo )
-    elif type(e) is E.Var:
-        return E.Neg( e.name, e.type, e.srcinfo )
-    elif type(e) is E.BinOp:
-        def change_op(op,lhs=e.lhs,rhs=e.rhs):
-            return E.BinOp(op, lhs, rhs, e.type, e.srcinfo)
 
-        if e.op == "and":
-            return change_op("or", negate_expr(e.lhs), negate_expr(e.rhs))
-        elif e.op == "or":
-            return change_op("and", negate_expr(e.lhs), negate_expr(e.rhs))
-        elif e.op == ">":
-            return change_op("<=")
-        elif e.op == "<":
-            return change_op(">=")
-        elif e.op == ">=":
-            return change_op("<")
-        elif e.op == "<=":
-            return change_op(">")
-        elif e.op == "==":
-            if e.lhs.type is T.bool and e.rhs.type is T.bool:
-                l = E.BinOp("and", e.lhs, negate_expr(e.rhs), T.bool, e.srcinfo)
-                r = E.BinOp("and", negate_expr(e.lhs), e.rhs, T.bool, e.srcinfo)
 
-                return E.BinOp("or", l, r, T.bool, e.srcinfo)
-            else:
-                return E.BinOp("or", change_op("<"), change_op(">"),
-                               T.bool, e.srcinfo)
-    assert False, "bad case"
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Data-Flow analysis for Config and Strides
+
+# the result is a dictionary that will allow
+# for looking up results on a per-program-point basis
+
+"""
+
+class _LoopIR_FindConfigs(LoopIR_Do):
+    def __init__(self, proc):
+        self._configs = set()
+        self._cache_subproc = set()
+        super().__init__(proc)
+
+    def result(self):
+        return self._configs
+
+    # to improve efficiency
+    def do_e(self,e):
+        if type(e) is LoopIR.ReadConfig:
+            self._configs.add(e.config)
+        else:
+            super().do_e(e)
+
+    def do_s(self, s):
+        if type(s) is LoopIR.WriteConfig:
+            self._configs.add(s.config)
+        elif type(s) is LoopIR.Call:
+            if s.f not in self._cache_subproc:
+                self._cache_subproc[s.f] = True
+                subproc_cfgs = _LoopIR_FindConfigs(s.f).result()
+                self._configs.update(subproc_cfgs)
+        super().do_s(s)
+
+
+class ConfigFlow(LoopIR_Do):
+    def __init__(self, proc, init_cfg_vars, init_strides):
+        # ProgramPoint --> ( Config.Field --> E.expr )
+        self.config_states  = dict()
+        # Buffer_Symbol --> Strides
+        self.buf_strides    = init_strides.copy()
+
+        # set up the initial configuration
+        self.curr_config = init_cfg_vars.copy()
+        # all used configs must have values supplied
+        all_configs = _LoopIR_FindConfigs(proc).result()
+        for cfg in all_configs:
+            for (field,typ) in cfg.fields():
+                assert (cfg,field) in self.curr_config, (""+
+                    f"expected initial value for {cfg.name()}.{field}")
+
+        # set up the initial strides
+        for 
+
+
+        # kick off the structural recursion
+        super().__init__(proc)
+
+    def config_exprs(self, prog_point):
+        return self.config_states[prog_point]
+
+    def do_s(self, stmt):
+
+"""
+
 
 
 # --------------------------------------------------------------------------- #
@@ -134,8 +185,8 @@ class InferEffects:
             if type(new_s) is LoopIR.Alloc:
                 eff = eff_remove_buf(new_s.name, eff)
             else:
-                eff = eff_union(eff, new_s.eff)
-        return ([s for s in reversed(stmts)], eff)
+                eff = eff_concat(new_s.eff, eff)
+        return (list(reversed(stmts)), eff)
 
     def map_s(self, stmt):
         if type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
@@ -143,17 +194,24 @@ class InferEffects:
             buf = stmt.name
             loc = [ lift_expr(idx) for idx in stmt.idx ]
             rhs_eff = self.eff_e(stmt.rhs)
-            effset  = E.effset(buf, loc, [], None, stmt.srcinfo)
             if styp is LoopIR.Assign:
-                effects = E.effect([], [effset], [], stmt.srcinfo)
+                effects = eff_write(buf, loc, stmt.srcinfo)
             else: # Reduce
-                effects = E.effect([], [], [effset], stmt.srcinfo)
+                effects = eff_reduce(buf, loc, stmt.srcinfo)
 
             effects = eff_union(rhs_eff, effects)
 
             return styp(stmt.name, stmt.type, stmt.cast,
                         stmt.idx, stmt.rhs,
                         effects, stmt.srcinfo)
+
+        elif type(stmt) is LoopIR.WriteConfig:
+            rhs_eff = self.eff_e(stmt.rhs)
+            cw_eff  = eff_config_write(stmt.config, stmt.field,
+                                       lift_expr(stmt.rhs), stmt.srcinfo)
+            eff     = eff_union(rhs_eff, cw_eff)
+            return LoopIR.WriteConfig(stmt.config, stmt.field, stmt.rhs,
+                                      eff, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.If:
             cond = lift_expr(stmt.cond)
@@ -163,7 +221,8 @@ class InferEffects:
             orelse = stmt.orelse
             if len(stmt.orelse) > 0:
                 orelse, orelse_effects = self.map_stmts(stmt.orelse)
-                orelse_effects = eff_filter(negate_expr(cond), orelse_effects)
+                orelse_effects = eff_filter(cond.negate(), orelse_effects)
+            # union is appropriate because guards on effects are disjoint
             effects = eff_union(body_effects, orelse_effects)
 
             return LoopIR.If(stmt.cond, body, orelse,
@@ -172,14 +231,16 @@ class InferEffects:
         elif type(stmt) is LoopIR.ForAll:
             # pred is: 0 <= bound <= stmt.hi
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
-            lhs   = E.BinOp("<=", E.Const(0, T.int, stmt.srcinfo)
-                                , bound, T.bool, stmt.srcinfo)
-            rhs   = E.BinOp("<", bound, lift_expr(stmt.hi)
-                                       , T.bool, stmt.srcinfo)
+            hi    = lift_expr(stmt.hi)
+            zero  = E.Const(0, T.int, stmt.srcinfo)
+            lhs   = E.BinOp("<=", zero, bound, T.bool, stmt.srcinfo)
+            rhs   = E.BinOp("<",  bound, hi, T.bool, stmt.srcinfo)
             pred  = E.BinOp("and", lhs, rhs, T.bool, stmt.srcinfo)
+            config_pred = E.BinOp("<", zero, hi, T.bool, stmt.srcinfo)
 
             body, body_effect = self.map_stmts(stmt.body)
-            effects = eff_bind(stmt.iter, body_effect, pred=pred)
+            effects = eff_bind(stmt.iter, body_effect,
+                               pred=pred, config_pred=config_pred)
 
             return LoopIR.ForAll(stmt.iter, stmt.hi, body,
                                  effects, stmt.srcinfo)
@@ -200,6 +261,9 @@ class InferEffects:
                 elif sig.type.is_indexable() or sig.type is T.bool:
                     # in this case we have a LoopIR expression...
                     subst[sig.name] = lift_expr(arg)
+                elif sig.type.is_stridable():
+                    subst[sig.name] = lift_expr(arg)
+                    #pass
                 else: assert False, "bad case"
 
             eff = stmt.f.eff
@@ -233,8 +297,7 @@ class InferEffects:
                 # we may assume that we're not in a call-argument position
                 assert e.type.is_real_scalar()
                 loc = [ lift_expr(idx) for idx in e.idx ]
-                eff = E.effect([E.effset(e.name, loc, [], None, e.srcinfo)],
-                               [] ,[] , e.srcinfo)
+                eff = eff_read(e.name, loc, e.srcinfo)
 
                 # x[...], x
                 buf_typ = self._types[e.name]
@@ -255,6 +318,10 @@ class InferEffects:
             return eff_null(e.srcinfo)
         elif type(e) is LoopIR.BuiltIn:
             return eff_null(e.srcinfo)
+        elif type(e) is LoopIR.StrideExpr:
+            return eff_null(e.srcinfo)
+        elif type(e) is LoopIR.ReadConfig:
+            return eff_config_read(e.config, e.field, e.srcinfo)
         else:
             assert False, "bad case"
 
@@ -299,6 +366,8 @@ class InferEffects:
         return E.effect([ translate_set(es) for es in eff.reads ],
                         [ translate_set(es) for es in eff.writes ],
                         [ translate_set(es) for es in eff.reduces ],
+                        eff.config_reads,
+                        eff.config_writes,
                         eff.srcinfo)
 
 
@@ -312,6 +381,7 @@ class InferEffects:
 # 2. Stride assert check doesn't need SMT solver, nor depend on any of other
 #    code in EffectCheck.
 
+"""
 class CheckStrideAsserts:
     def __init__(self, proc):
         self.orig_proc  = proc
@@ -352,8 +422,8 @@ class CheckStrideAsserts:
 
         # do error checking here
         if len(self.errors) > 0:
-            raise TypeError("Errors occurred during stride assert checking:\n" +
-                            "\n".join(self.errors))
+            raise TypeError("Errors occurred during stride assert "+
+                            "checking:\n" + "\n".join(self.errors))
 
     def push(self):
         self.strides = self.strides.new_child()
@@ -398,12 +468,12 @@ class CheckStrideAsserts:
         if s != p.val:
             self.err(f, f"Could not verify stride assert in "+
                         f"{f.name} at {p.srcinfo}.")
-    
+
     def assume_stride(self, p):
         assert type(p) is LoopIR.StrideAssert
         assert p.name in self.strides
         assert len(self.strides[p.name]) > p.idx
-        
+
         self.strides[p.name][p.idx] = p.val
 
     def map_stmts(self, body, orig_f):
@@ -413,7 +483,7 @@ class CheckStrideAsserts:
 
             return [ s for s, idx in zip(self.strides[expr.name], expr.idx)
                              if type(idx) is LoopIR.Interval ]
-            
+
         for stmt in body:
             if type(stmt) is LoopIR.WindowStmt:
                 # compute new stride
@@ -424,7 +494,8 @@ class CheckStrideAsserts:
             elif type(stmt) is LoopIR.Alloc:
                 # add new stride here
                 if stmt.type.is_tensor_or_window():
-                    self.get_stride(stmt.name, stmt.type.shape(), stmt.type.is_win())
+                    self.get_stride(stmt.name, stmt.type.shape(),
+                                               stmt.type.is_win())
 
             elif type(stmt) is LoopIR.ForAll:
                 self.push()
@@ -448,11 +519,11 @@ class CheckStrideAsserts:
                 for sig,arg in zip(stmt.f.args, stmt.args):
                     if arg.type.is_tensor_or_window():
                         if type(arg) is LoopIR.WindowExpr:
-                            self.strides[sig.name] = stride_from_windowexpr(arg)
+                          self.strides[sig.name] =stride_from_windowexpr(arg)
                         elif type(arg) is LoopIR.Read:
-                            self.strides[sig.name] = self.strides[arg.name]
+                          self.strides[sig.name] = self.strides[arg.name]
                         else:
-                            assert False, "bad case"
+                          assert False, "bad case"
 
                 for p in stmt.f.preds:
                     if type(p) is LoopIR.StrideAssert:
@@ -461,6 +532,7 @@ class CheckStrideAsserts:
                 self.map_stmts(stmt.f.body, stmt.f)
 
                 self.pop()
+"""
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -576,6 +648,49 @@ class CheckStrideAsserts:
 #
 #
 
+
+
+#
+#   What is parallelism checking for Configuration Effects?
+#
+#   Recall that we want to check that
+#           forall i0,i1: 0 <= i0 < i1 < n ==> COMMUTES( [i |-> i0]e,
+#                                                        [i |-> i1]e )
+#
+#   Unlike for numeric buffers we need only be concerned with
+#       reads and writes: R & W
+#   If one loop iteration reads a configuration value set by another
+#       loop iteration, then we could have a problem.
+#   So as long as the reads and writes to configuration fields are
+#       disjoint, we should be fine.
+#
+#   Additionally, we've chosen to not handle quantification
+#       of loop iteration variables, so we need to show a lack of
+#       effect dependence on the loop iteration variables.
+#   As a consequence of this, two different loop iterations must have
+#       the same write effect, and so we may conclude that
+#       writes are guaranteed to commute with each other
+#
+#   First check that
+#       i \not\in FreeVars(cr0) U FreeVars(cw0)
+#
+#   Then, since there is no iteration variable dependence,
+#   we can simplify to
+#       COMMUTES( (cr, cw) ) = NOT_CONFLICTS( cr, cw )
+#
+#
+#       NOT_CONFLICTS( (c1,...), (c2,...) )         = TRUE
+#       NOT_CONFLICTS( (c1,f1,...), (c1,f2,...) )   = TRUE
+#       NOT_CONFLICTS( (c1,f1, _, pred1),
+#                      (c1,f1, _, pred2) ) = NOT pred1 or NOT pred2
+#
+#       (that is, there is no conflict when the predicates are disjoint)
+#
+#
+
+
+
+
 # Check if Alloc sizes and function arg sizes are actually larger than bounds
 class CheckEffects:
     def __init__(self, proc):
@@ -584,6 +699,8 @@ class CheckEffects:
         # Map sym to z3 variable
         self.env        = ChainMap()
         self.errors     = []
+
+        self.stride_sym = dict()
 
         self.solver     = _get_smt_solver()
 
@@ -594,12 +711,20 @@ class CheckEffects:
             if type(arg.type) is T.Size:
                 pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
                 self.solver.add_assertion(pos_sz)
+            elif arg.type.is_tensor_or_window() and not arg.type.is_win():
+                self.assume_tensor_strides(arg, arg.name, arg.type.shape())
 
         for p in proc.preds:
-            # Handled in Stride assert check
-            if type(p) is not LoopIR.StrideAssert:
-                self.solver.add_assertion(self.expr_to_smt(lift_expr(p)))
+            # Check whether the assert is even potentially correct
+            smt_p = self.expr_to_smt(lift_expr(p))
+            if not self.solver.is_sat(smt_p):
+                self.err(p, f"The assertion {p} at {p.srcinfo} "+
+                            f"is always unsatisfiable.")
+            # independently, we will assume the assertion is
+            # true while checking the rest of this procedure body
+            self.solver.add_assertion(smt_p)
 
+        self.preprocess_stmts(self.orig_proc.body)
         body_eff = self.map_stmts(self.orig_proc.body)
 
         for arg in proc.args:
@@ -618,7 +743,8 @@ class CheckEffects:
                             "\n".join(self.errors))
 
     def counter_example(self):
-        smt_syms = [ smt for sym,smt in self.env.items() if smt.get_type() == SMT.INT ]
+        smt_syms = [ smt for sym,smt in self.env.items()
+                         if smt.get_type() == SMT.INT ]
         val_map = self.solver.get_py_values(smt_syms)
 
         mapping = []
@@ -643,7 +769,7 @@ class CheckEffects:
     # symbols from the right place.
     def sym_to_smt(self, sym, typ=T.index):
         if sym not in self.env:
-            if typ.is_indexable():
+            if typ.is_indexable() or typ.is_stridable():
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
             elif typ is T.bool:
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
@@ -661,6 +787,19 @@ class CheckEffects:
             return self.sym_to_smt(expr.name, expr.type)
         elif type(expr) is E.Neg:
             return SMT.Not(self.sym_to_smt(expr.name, expr.type))
+        elif type(expr) is E.Stride:
+            key = (expr.name,expr.dim)
+            if key in self.stride_sym:
+                stride_sym  = self.stride_sym[key]
+            else:
+                stride_sym  = Sym(f"{expr.name}_stride_{expr.dim}")
+                self.stride_sym[key] = stride_sym
+            return self.sym_to_smt(stride_sym)
+        elif type(expr) is E.Select:
+            cond    = self.expr_to_smt(expr.cond)
+            tcase   = self.expr_to_smt(expr.tcase)
+            fcase   = self.expr_to_smt(expr.fcase)
+            return SMT.Ite(cond, tcase, fcase)
         elif type(expr) is E.BinOp:
             lhs = self.expr_to_smt(expr.lhs)
             rhs = self.expr_to_smt(expr.rhs)
@@ -760,7 +899,11 @@ class CheckEffects:
             elif expr.op == "==":
                 if expr.lhs.type == T.bool and expr.rhs.type == T.bool:
                     return SMT.Iff(lhs, rhs)
-                elif expr.lhs.type.is_indexable() and expr.rhs.type.is_indexable():
+                elif (expr.lhs.type.is_indexable() and
+                      expr.rhs.type.is_indexable()):
+                    return SMT.Equals(lhs, rhs)
+                elif (expr.lhs.type.is_stridable() and
+                      expr.rhs.type.is_stridable()):
                     return SMT.Equals(lhs, rhs)
                 else:
                     assert False, "bad case"
@@ -768,7 +911,28 @@ class CheckEffects:
                 return SMT.And(lhs, rhs)
             elif expr.op == "or":
                 return SMT.Or(lhs, rhs)
-        else: assert False, "bad case"
+        else: assert False, f"bad case: {type(expr)}"
+
+
+    def assume_tensor_strides(self, node, name, shape):
+        # compute statically knowable strides from the shape
+        strides = [None] * len(shape)
+        strides[-1] = 1
+        for i,sz in reversed(list(enumerate(shape))):
+            if i > 0:
+                if type(sz) is not LoopIR.Const:
+                    break
+                else:
+                    strides[i-1] = sz.val * strides[i]
+
+        # for all statically knowable strides, set the appropriate variable.
+        for dim,s in enumerate(strides):
+            if s is not None:
+                s_expr  = LoopIR.StrideExpr(name, dim, T.stride, node.srcinfo)
+                s_const = LoopIR.Const(s, T.int, node.srcinfo)
+                eq      = LoopIR.BinOp('==', s_expr, s_const,
+                                       T.bool, node.srcinfo)
+                self.solver.add_assertion(self.expr_to_smt(lift_expr(eq)))
 
     def check_in_bounds(self, sym, shape, eff, eff_str):
         assert type(eff) is E.effset, "effset should be passed to in_bounds"
@@ -793,7 +957,7 @@ class CheckEffects:
             if not self.solver.is_valid(in_bds):
                 eg = self.counter_example()
                 self.err(eff, f"{sym} is {eff_str} out-of-bounds "+
-                              f"when: {eg}.")
+                              f"when:\n  {eg}.")
 
             self.pop()
 
@@ -825,19 +989,23 @@ class CheckEffects:
                                 SMT.LT(iter2_smt, self.expr_to_smt(hi)))
             self.solver.add_assertion(iter_pred)
 
-            sub1    = { nm : nm.copy() for nm in e1.names }
-            sub1[iter] = iter1
-            sub2    = { nm : nm.copy() for nm in e2.names }
-            sub2[iter] = iter2
+            sub1    = { nm : E.Var(nm.copy(), T.index, null_srcinfo())
+                        for nm in e1.names }
+            sub1[iter] = E.Var(iter1, T.index, null_srcinfo())
+            sub2    = { nm : E.Var(nm.copy(), T.index, null_srcinfo())
+                        for nm in e2.names }
+            sub2[iter] = E.Var(iter2, T.index, null_srcinfo())
             if e1.pred is not None:
-                pred1   = expr_subst(sub1, e1.pred)
+                pred1   = e1.pred.subst(sub1)
                 self.solver.add_assertion(self.expr_to_smt(pred1))
             if e2.pred is not None:
-                pred2   = expr_subst(sub2, e2.pred)
+                pred2   = e2.pred.subst(sub2)
                 self.solver.add_assertion(self.expr_to_smt(pred2))
 
-            loc1    = [ self.expr_to_smt(expr_subst(sub1, i)) for i in e1.loc ]
-            loc2    = [ self.expr_to_smt(expr_subst(sub2, i)) for i in e2.loc ]
+            loc1    = [ self.expr_to_smt(i.subst(sub1))
+                        for i in e1.loc ]
+            loc2    = [ self.expr_to_smt(i.subst(sub2))
+                        for i in e2.loc ]
             loc_neq = SMT.Bool(False)
             for i1, i2 in zip(loc1,loc2):
                 loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
@@ -846,7 +1014,26 @@ class CheckEffects:
                 eg = self.counter_example()
                 self.err(e1, f"data race conflict with statement on "+
                              f"{e2.srcinfo} while accessing {e1.buffer} "+
-                             f"in loop over {iter}, when: {eg}.")
+                             f"in loop over {iter}, when:\n  {eg}.")
+
+            self.pop()
+
+    def not_conflicts_config(self, e1, e2):
+        if e1.config == e2.config and e1.field == e2.field:
+            self.push()
+            pred1, pred2 = SMT.Bool(True), SMT.Bool(True)
+            if e1.pred:
+                pred1   = self.expr_to_smt(e1.pred)
+            if e2.pred:
+                pred2   = self.expr_to_smt(e2.pred)
+            disjoint    = SMT.Not(SMT.And(pred1, pred2))
+
+            if not self.solver.is_valid(disjoint):
+                eg = self.counter_example()
+                self.err(e1, f"conflict on configuration variable "+
+                             f"{e1.config.name()}.{e1.field} between "+
+                             f"access at {e1.srcinfo} and access at "+
+                             f"{e1.srcinfo}, occurs when:\n  {eg}.")
 
             self.pop()
 
@@ -854,6 +1041,7 @@ class CheckEffects:
 #       COMMUTES( i, n, (r, w, p) ) =
     def check_commutes(self, iter, hi, eff):
 
+        # for numeric buffers
 #           AND( NOT_CONFLICTS(i, n, r, w)
         for r in eff.reads:
             for w in eff.writes:
@@ -871,21 +1059,38 @@ class CheckEffects:
             for p in eff.reduces:
                 self.not_conflicts(iter, hi, w, p)
 
+        # for configuration variables
+        for r in eff.config_reads:
+            for w in eff.config_writes:
+                self.not_conflicts_config(r, w)
+
         return
+
+    def check_config_no_loop_depend(self, iter, eff):
+        for ce in eff.config_reads:
+            if ce.has_FV(iter):
+                self.err(ce, f"The read of config variable "+
+                             f"{ce.config.name()}.{ce.field} depends on "+
+                             f"the loop iteration variable {iter}")
+        for ce in eff.config_writes:
+            if ce.has_FV(iter):
+                self.err(ce, f"The value written to config variable "+
+                             f"{ce.config.name()}.{ce.field} depends on "+
+                             f"the loop iteration variable {iter}")
 
     def check_pos_size(self, expr):
         e_pos = SMT.LT( SMT.Int(0), self.expr_to_smt(expr) )
         if not self.solver.is_valid(e_pos):
             eg = self.counter_example()
             self.err(expr, "expected expression to always be positive. "+
-                           f"It can be non positive when: {eg}.")
+                           f"It can be non positive when:\n  {eg}.")
 
     def check_non_negative(self, expr):
         e_nn = SMT.LE( SMT.Int(0), self.expr_to_smt(expr) )
         if not self.solver.is_valid(e_nn):
             eg = self.counter_example()
             self.err(expr, "expected expression to always be non-negative. "+
-                           f"It can be negative when: {eg}.")
+                           f"It can be negative when:\n  {eg}.")
 
     def check_call_shape_eqv(self, argshp, sigshp, node):
         assert len(argshp) == len(sigshp)
@@ -900,7 +1105,36 @@ class CheckEffects:
                            "the required type-shape: "+
                            f"[{','.join(map(str,argshp))}] vs. "+
                            f"[{','.join(map(str,sigshp))}]."+
-                           f" It could be non equal when: {eg}")
+                           f" It could be non equal when:\n  {eg}")
+
+    def preprocess_stmts(self, body):
+        for stmt in body:
+            if type(stmt) is LoopIR.If:
+                self.preprocess_stmts(stmt.body)
+                self.preprocess_stmts(stmt.orelse)
+            elif type(stmt) is LoopIR.ForAll:
+                self.preprocess_stmts(stmt.body)
+            elif type(stmt) is LoopIR.Alloc:
+                if stmt.type.is_tensor_or_window():
+                    self.assume_tensor_strides(stmt, stmt.name,
+                                                     stmt.type.shape())
+            elif type(stmt) is LoopIR.WindowStmt:
+                #src_shape   = stmt.rhs.type.src_type.shape()
+                w_idx       = stmt.rhs.type.idx
+                src_buf     = stmt.rhs.type.src_buf
+                dst_buf     = stmt.lhs
+
+                src_dims    = [ d for d,w in enumerate(w_idx)
+                                  if type(w) is LoopIR.Interval ]
+                for dst_dim, src_dim in enumerate(src_dims):
+                    src = LoopIR.StrideExpr(src_buf, src_dim,
+                                            T.stride, stmt.srcinfo)
+                    dst = LoopIR.StrideExpr(dst_buf, dst_dim,
+                                            T.stride, stmt.srcinfo)
+                    eq  = LoopIR.BinOp('==',src,dst,T.bool,stmt.srcinfo)
+                    self.solver.add_assertion(self.expr_to_smt(lift_expr(eq)))
+            else:
+                pass
 
     def map_stmts(self, body):
         """ Returns an effect for the argument `body`
@@ -934,9 +1168,11 @@ class CheckEffects:
                 self.pop()
 
                 # Parallelism checking here
-                self.check_commutes(stmt.iter, lift_expr(stmt.hi), sub_body_eff)
+                self.check_config_no_loop_depend(stmt.iter, sub_body_eff)
+                self.check_commutes(stmt.iter, lift_expr(stmt.hi),
+                                               sub_body_eff)
 
-                body_eff = eff_union(body_eff, stmt.eff)
+                body_eff = eff_concat(stmt.eff, body_eff)
 
             if type(stmt) is LoopIR.If:
                 # first, do the if-branch
@@ -949,12 +1185,12 @@ class CheckEffects:
                 # then the else-branch
                 if len(stmt.orelse) > 0:
                     self.push()
-                    neg_cond = negate_expr( lift_expr(stmt.cond) )
+                    neg_cond = lift_expr(stmt.cond).negate()
                     self.solver.add_assertion(self.expr_to_smt(neg_cond))
                     self.map_stmts(stmt.orelse)
                     self.pop()
 
-                body_eff = eff_union(body_eff, stmt.eff)
+                body_eff = eff_union(stmt.eff, body_eff)
 
             elif type(stmt) is LoopIR.Alloc:
                 shape = [ lift_expr(s) for s in stmt.type.shape() ]
@@ -976,34 +1212,37 @@ class CheckEffects:
                             self.check_pos_size(e)
                         # also, need to check that the argument shape
                         # is exactly the shape specified in the signature
-                        sig_shape = [ lift_expr(s) for s in sig.type.shape() ]
-                        sig_shape = [ s.subst(subst) for s in sig_shape ]
+                        sig_shape = [ lift_expr(loopir_subst(s, subst))
+                                      for s in sig.type.shape() ]
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
-                    elif sig.type.is_indexable() or sig.type is T.bool:
+                        # bind potential window-expression
+                        subst[sig.name] = arg
+
+                    elif ( sig.type.is_indexable() or
+                           sig.type == T.bool or sig.type.is_stridable() ):
                         # in this case we have a LoopIR expression...
-                        e_arg           = lift_expr(arg)
-                        subst[sig.name] = e_arg
+                        subst[sig.name] = arg
                         if sig.type == T.size:
+                            e_arg       = lift_expr(arg)
                             self.check_pos_size(e_arg)
 
                     else: assert False, "bad case"
 
                 for p in stmt.f.preds:
-                    # Stride assert handled in separate check
-                    if type(p) is not LoopIR.StrideAssert:
-                        pred = lift_expr(p).subst(subst)
-                        # Check that asserts are correct
-                        if not self.solver.is_valid(self.expr_to_smt(pred)):
-                            eg = self.counter_example()
-                            self.err(stmt, f"Could not verify assertion in "+
-                                           f"{stmt.f.name} at {p.srcinfo}."+
-                                           f" Assertion is false when: {eg}")
+                    # Check that asserts are correct
+                    p           = loopir_subst(p, subst)
+                    smt_pred    = self.expr_to_smt(lift_expr(p))
+                    if not self.solver.is_valid(smt_pred):
+                        eg = self.counter_example()
+                        self.err(stmt, f"Could not verify assertion in "+
+                                       f"{stmt.f.name} at {p.srcinfo}."+
+                                       f" Assertion is false when:\n  {eg}")
 
-                body_eff = eff_union(body_eff, stmt.eff)
+                body_eff = eff_union(stmt.eff, body_eff)
 
             else:
-                body_eff = eff_union(body_eff, stmt.eff)
+                body_eff = eff_union(stmt.eff, body_eff)
 
 
         return body_eff # Returns union of all effects

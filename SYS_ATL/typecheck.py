@@ -49,10 +49,7 @@ class TypeChecker:
 
         preds = []
         for p in proc.preds:
-            if type(p) is UAST.StrideAssert:
-                pred = self.check_stride_assert(p)
-            else:
-                pred = self.check_e(p)
+            pred = self.check_e(p)
             if pred.type != T.err and pred.type != T.bool:
                 self.err(pred, f"expected a bool expression")
             preds.append(pred)
@@ -121,6 +118,8 @@ class TypeChecker:
             self.err(node, f"cannot assign/reduce to '{nm}', " +
                            f"a non-numeric variable of type '{typ}'")
             typ = T.err
+        elif len(idx) > 0:
+            self.err(node, f"cannot index a variable of type '{typ}'")
 
         return idx, typ
 
@@ -172,6 +171,37 @@ class TypeChecker:
                        LoopIR.Reduce)
             return [IRnode(stmt.name, typ, None, idx, rhs, None, stmt.srcinfo)]
 
+        elif type(stmt) is UAST.WriteConfig:
+            # Check that field is in config
+            if not stmt.config.has_field(stmt.field):
+                self.err(stmt.field, f"expected '{stmt.field}'  to be a field "+
+                                     f"in config '{stmt.config.name()}'")
+
+            ftyp    = stmt.config.lookup(field)[1]
+            rhs     = self.check_e(stmt.rhs)
+
+            if rhs.type != T.err:
+                if ftyp.is_real_scalar():
+                    if not rhs.type.is_real_scalar():
+                        self.err(rhs, f"expected a real scalar value, but "+
+                                      f"got an expression of type {rhs.type}")
+                elif ftyp.is_indexable():
+                    if not rhs.type.is_indexable():
+                        self.err(rhs, f"expected an index or size type "+
+                                      f"expression, but got type {rhs.type}")
+                elif ftyp == T.bool:
+                    if rhs.type != T.bool:
+                        self.err(rhs, f"expected a bool expression, "+
+                                      f"but got type {rhs.type}")
+                elif ftyp.is_stridable():
+                    if not rhs.type.is_stridable():
+                        self.err(rhs, f"expected a stride type expression, "+
+                                      f"but got type {rhs.type}")
+                else:
+                    assert False, "bad case"
+
+            return [LoopIR.WriteConfig(stmt.config, stmt.field,
+                                       rhs, None, stmt.srcinfo)]
         elif type(stmt) is UAST.Pass:
             return [LoopIR.Pass(None, stmt.srcinfo)]
 
@@ -219,7 +249,8 @@ class TypeChecker:
                 if call_a.type == T.err:
                     pass
                 elif sig_a.type is T.size:
-                    if not call_a.type.is_sizeable():
+                    #TODO: fix propoerly
+                    if not call_a.type.is_indexable():
                         self.err(call_a, "expected size arguments to have "+
                                          "'size' type")
                 elif sig_a.type is T.index:
@@ -230,6 +261,11 @@ class TypeChecker:
                 elif sig_a.type is T.bool:
                     if not call_a.type is T.bool:
                         self.err(call_a, "expected bool-type variable, "+
+                                        f"but got type {call_a.type}")
+
+                elif sig_a.type is T.stride:
+                    if not call_a.type.is_stridable():
+                        self.err(call_a, "expected stride-type variable, "+
                                         f"but got type {call_a.type}")
 
                 elif sig_a.type.is_numeric():
@@ -249,7 +285,6 @@ class TypeChecker:
                 else: assert False, "bad argument type case"
 
             return [LoopIR.Call(stmt.f, args, None, stmt.srcinfo)]
-
         else:
             assert False, "not a loopir in check_stmts"
 
@@ -373,6 +408,10 @@ class TypeChecker:
                 typ = T.bool
             elif e.op == "==" and lhs.type == T.bool and rhs.type == T.bool:
                 typ = T.bool
+            elif (e.op == "==" and lhs.type.is_stridable() and
+                                   rhs.type.is_stridable() and
+                                   (lhs.type != T.int or rhs.type != T.int)):
+                typ = T.bool
             elif (e.op == "<" or e.op == "<=" or e.op == "==" or
                   e.op == ">" or e.op == ">="):
                 if not lhs.type.is_indexable():
@@ -406,7 +445,13 @@ class TypeChecker:
                     self.err(lhs, "expected scalar type")
                 elif lhs.type == T.bool or rhs.type == T.bool:
                     node = lhs if lhs.type == T.bool else rhs
-                    self.err(node, "cannot perform arithmetic on 'bool' values")
+                    self.err(node, "cannot perform arithmetic on "+
+                                   "'bool' values")
+                    typ = T.err
+                elif lhs.type == T.stride or rhs.type == T.stride:
+                    node = lhs if lhs.type == T.bool else rhs
+                    self.err(node, "cannot perform arithmetic on "+
+                                   "'stride' values")
                     typ = T.err
                 elif ( lhs.type.is_tensor_or_window() or
                        rhs.type.is_tensor_or_window() ):
@@ -460,31 +505,34 @@ class TypeChecker:
 
             return LoopIR.BuiltIn( e.f, args, typ, e.srcinfo)
 
+        elif type(e) is UAST.StrideExpr:
+            idx, typ = self.check_access(e, e.name, [], lvalue=False)
+            assert len(idx) == 0
+            if typ == T.err:
+                pass
+            elif not typ.is_tensor_or_window():
+                self.err(e, f"expected {e.name} to be a tensor or window")
+            else:
+                shape = typ.shape()
+                if not (0 <= e.dim < len(shape)):
+                    self.err(p, f"expected {e.dim} to be in-bounds "+
+                                f"(i.e. 0 <= {p.dim} < {len(shape)})")
+
+            return LoopIR.StrideExpr(e.name, e.dim, T.stride, e.srcinfo)
+
         elif type(e) is UAST.ParRange:
             assert False, ("parser should not place ParRange anywhere "+
                            "outside of a for-loop condition")
-        elif type(e) is UAST.StrideAssert:
-            assert False, ("parser should not place StrideAssert anywhere "+
-                           "beyond the beginning of a proc")
+        elif type(e) is UAST.ReadConfig:
+            if not e.config.has_field(e.field):
+                self.err(e.field, f"'{e.field}' has to be a field in config "+
+                                  f"'{e.config.name()}'")
+
+            ftyp = e.config.lookup(e.field)[1]
+            return LoopIR.ReadConfig(e.config, e.field,
+                                     ftyp, e.srcinfo)
         else:
             assert False, "not a LoopIR in check_e"
-
-    def check_stride_assert(self, p):
-        idx, typ = self.check_access(p, p.name, [], lvalue=False)
-        assert len(idx) == 0
-        if typ == T.err:
-            pass
-        elif not typ.is_tensor_or_window():
-            self.err(p, f"expected {p.name} to be a tensor or window")
-        else:
-            shape = typ.shape()
-            if not (0 <= p.idx < len(shape)):
-                self.err(p, f"expected index {p.idx} to be in-bounds "+
-                            f"(i.e. 0 <= {p.idx} < {len(shape)})")
-            if not is_pos_int(p.val):
-                self.err(p, f"expected positive integer stride, got {p.val}")
-
-        return LoopIR.StrideAssert(p.name, p.idx, p.val, T.bool, p.srcinfo)
 
     _typ_table = {
         UAST.Num    : T.R,
@@ -496,6 +544,7 @@ class TypeChecker:
         UAST.Int    : T.int,
         UAST.Size   : T.size,
         UAST.Index  : T.index,
+        UAST.Stride : T.stride,
     }
 
     def check_t(self, typ):
@@ -505,7 +554,8 @@ class TypeChecker:
             hi          = [self.check_e(h) for h in typ.hi]
             sub_typ     = self.check_t(typ.type)
             for h in hi:
-                if not h.type.is_sizeable():
+                #TODO: fix propoerly
+                if not h.type.is_indexable():
                     self.err(h, "expected array size expression "+
                                  "to have type 'size'")
             return T.Tensor(hi, typ.is_window, sub_typ)

@@ -3,6 +3,7 @@ from PIL import Image                     # standard image library
 import numpy as np                        # standard array library
 import time                               # timers
 import sys                                # add DSL library to the Python path
+import pytest
 import os
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc                  # import the SYS-ATL DSL
@@ -59,6 +60,7 @@ def gen_blur():
 
     return blur
 
+@pytest.mark.skip()
 def test_blur():
     blur = gen_blur()
 

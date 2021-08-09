@@ -27,6 +27,7 @@ def test_ldst_i8_16():
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["ldst_i8_16_lib_Context *ctxt;"])
 
   @proc
   def ldst_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
@@ -40,7 +41,7 @@ def test_ldst_i8_16():
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
   T.alloc_dram_2i8('y', 16, 16, '0')
 
-  T.add_body(['ldst_i8_16(x, y);',
+  T.add_body(['ldst_i8_16(ctxt, x, y);',
               '',
               'gemmini_fence();',
               '',
@@ -64,6 +65,7 @@ def test_ldst_acc_i8_16():
   T.add_body(['gemm_acc_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["ldst_acc_i8_16_lib_Context *ctxt;"])
 
   @proc
   def ldst_acc_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
@@ -77,7 +79,7 @@ def test_ldst_acc_i8_16():
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
   T.alloc_dram_2i8('y', 16, 16, '0')
 
-  T.add_body(['ldst_acc_i8_16(x, y);',
+  T.add_body(['ldst_acc_i8_16(ctxt, x, y);',
               '',
               'gemmini_fence();',
               '',
@@ -101,6 +103,7 @@ def test_ldst_i8_odd():
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["ldst_i8_odd_lib_Context *ctxt;"])
 
   @proc
   def ldst_i8_odd( x : i8[15,7] @ DRAM, y : i8[15,7] @ DRAM ):
@@ -114,7 +117,7 @@ def test_ldst_i8_odd():
   T.alloc_dram_2i8('x', 15, 7, 'i+j')
   T.alloc_dram_2i8('y', 15, 7, '0')
 
-  T.add_body(['ldst_i8_odd(x, y);',
+  T.add_body(['ldst_i8_odd(ctxt, x, y);',
               '',
               'gemmini_fence();',
               '',
@@ -138,6 +141,7 @@ def test_ldst_acc_i8_acc():
   T.add_body(['gemm_acc_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["ldst_acc_i8_acc_lib_Context *ctxt;"])
 
   @proc
   def ldst_acc_i8_acc( x : i8[7,13] @ DRAM, y : i8[7,13] @ DRAM ):
@@ -151,7 +155,7 @@ def test_ldst_acc_i8_acc():
   T.alloc_dram_2i8('x', 7, 13, 'i+j')
   T.alloc_dram_2i8('y', 7, 13, '0')
 
-  T.add_body(['ldst_acc_i8_acc(x, y);',
+  T.add_body(['ldst_acc_i8_acc(ctxt, x, y);',
               '',
               'gemmini_fence();',
               '',
@@ -175,6 +179,7 @@ def test_ldzerost_i8_16():
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["ldzerost_i8_16_lib_Context *ctxt;"])
 
   @proc
   def ldzerost_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
@@ -189,7 +194,7 @@ def test_ldzerost_i8_16():
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
   T.alloc_dram_2i8('y', 16, 16, '0')
 
-  T.add_body(['ldzerost_i8_16(x, y);',
+  T.add_body(['ldzerost_i8_16(ctxt, x, y);',
               '',
               'gemmini_fence();',
               '',
@@ -219,6 +224,7 @@ def test_ldzerost_acc_i8_16():
   T.add_body(['gemm_acc_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["ldzerost_acc_i8_16_lib_Context *ctxt;"])
 
   @proc
   def ldzerost_acc_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
@@ -233,7 +239,7 @@ def test_ldzerost_acc_i8_16():
   T.alloc_dram_2i8('x', 16, 16, 'i+j')
   T.alloc_dram_2i8('y', 16, 16, '0')
 
-  T.add_body(['ldzerost_acc_i8_16(x, y);',
+  T.add_body(['ldzerost_acc_i8_16(ctxt, x, y);',
               '',
               'gemmini_fence();',
               '',
@@ -269,6 +275,7 @@ def test_matmul_i8_ones_16():
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["matmul_i8_ones_16_lib_Context *ctxt;"])
 
 
   T.alloc_dram_2i8('x', 16, 16, '1')
@@ -297,7 +304,7 @@ def test_matmul_i8_ones_16():
   T.add_proc(matmul_i8_ones_16)
 
 
-  T.add_body(['matmul_i8_ones_16(x, y, res);',
+  T.add_body(['matmul_i8_ones_16(ctxt, x, y, res);',
               '',
               'gemmini_fence();',
               '',
@@ -321,6 +328,7 @@ def test_matmul_i8_ones_odd():
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["malloc_i8_ones_odd_lib_Context *ctxt;"])
 
 
   # 15 x 9 x 13
@@ -350,7 +358,7 @@ def test_matmul_i8_ones_odd():
   T.add_proc(matmul_i8_ones_odd)
 
 
-  T.add_body(['matmul_i8_ones_odd(x, y, res);',
+  T.add_body(['matmul_i8_ones_odd(ctxt, x, y, res);',
               '',
               'gemmini_fence();',
               '',
@@ -373,6 +381,7 @@ def test_ldst_acc_i32_15():
   T.add_body(['gemm_acc_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["ldst_acc_i32_15_lib_Context *ctxt;"])
 
   @proc
   def ldst_acc_i32_15( x : i32[15,15] @ DRAM, y : i32[15,15] @ DRAM ):
@@ -387,7 +396,7 @@ def test_ldst_acc_i32_15():
   T.alloc_dram_2i32('y', 15, 15, '0')
   T.alloc_dram_2i32('res', 15, 15, '4')
 
-  T.add_body(['ldst_acc_i32_15(x, y);',
+  T.add_body(['ldst_acc_i32_15(ctxt, x, y);',
               '',
               'gemmini_fence();',
               '',
@@ -412,6 +421,7 @@ def test_matmul_i8_ones_odd():
   T.add_body(['gemm_init_mem();',
               'gemmini_flush(0);',
               ''])
+  T.add_body(["matmul_i8_ones_odd_lib_Context *ctxt;"])
 
 
   # 15 x 9 x 13
@@ -441,7 +451,7 @@ def test_matmul_i8_ones_odd():
   T.add_proc(matmul_i8_ones_odd)
 
 
-  T.add_body(['matmul_i8_ones_odd(x, y, res);',
+  T.add_body(['matmul_i8_ones_odd(ctxt, x, y, res);',
               '',
               'gemmini_fence();',
               '',
