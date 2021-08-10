@@ -13,6 +13,21 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
+@pytest.mark.skip()
+def test_partition():
+    @proc
+    def bar(n : size, A : i8[n], pad : size):
+        assert n > pad
+        for i in par(0,n):
+            tmp = A[i]
+
+        for i in par(0,pad):
+            tmp = A[i]
+        for i in par(pad,n-pad):
+            tmp = A[i]
+        for i in par(n-pad,n):
+            tmp = A[i]
+
 
 def test_fission():
     @proc
