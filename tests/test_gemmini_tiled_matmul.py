@@ -445,7 +445,6 @@ def test_matmul_c_i8():
   matmul_c_i8 = matmul_c_i8.replace(matmul_acc_i8, "for i_in in _:_ #0")
   matmul_c_i8 = matmul_c_i8.replace(st_acc_i8, "for i_in in _:_ #0")
 
-
  # Optimization
   matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8', n_lifts=2)
   matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8', n_lifts=2)
@@ -461,10 +460,10 @@ def test_matmul_c_i8():
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
   T.compile().run()
 
+  print(matmul_c_i8)
   # TODO: fix
   #matmul_c_i8.check_effects()
 
-  print(matmul_c_i8)
 
 
 

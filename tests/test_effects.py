@@ -15,6 +15,33 @@ from .helper import *
 
 # ------- Effect check tests ---------
 
+# Effects + schedule tests
+@pytest.mark.skip()
+def test_different_id1():
+    @proc
+    def foo(n : size, A : i8[n]):
+        a : i8
+        for i in par(0, n):
+            a = 0.0
+
+    print(foo)
+    foo.check_effects()
+
+@pytest.mark.skip()
+def test_different_id2():
+    @proc
+    def foo(n : size):
+        for ihi in par(0, n):
+            a: i8 @ DRAM
+            for ilo in par(0, 16):
+                a = 0.0
+        if False:
+            b: i8 @ DRAM
+            b = 0.0
+
+    print(foo)
+    foo.check_effects()
+
 # For-loop bound non-negative check tests
 @proc
 def test_good_bound1(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
