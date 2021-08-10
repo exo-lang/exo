@@ -66,11 +66,11 @@ def test_im2col():
                          # split the loops we want to tile together
                          .reorder('r','i')
                          .split('k',8,['khi','klo'], tail='cut')
-                         .reorder('klo #1','c').reorder('klo #1','i')
-                         .split('c #1',8,['chi','clo'], tail='cut')
-                         .reorder('clo #1','i').reorder('clo #1','klo')
-                         .split('i #1', 8, ['ihi','ilo'], tail='cut')
-                         .reorder('ilo #1','klo').reorder('ilo #1','clo'))
+                         .reorder('klo #0','c').reorder('klo #0','i')
+                         .split('c #0',8,['chi','clo'], tail='cut')
+                         .reorder('clo #0','i').reorder('clo #0','klo')
+                         .split('i #0', 8, ['ihi','ilo'], tail='cut')
+                         .reorder('ilo #0','klo').reorder('ilo #0','clo'))
 
     # We can invoke another scheduling directive
     # to change which version of the matmul gets scheduled

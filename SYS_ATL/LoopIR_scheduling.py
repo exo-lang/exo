@@ -39,7 +39,7 @@ def name_plus_count(namestr):
 def iter_name_to_pattern(namestr):
     name, count = name_plus_count(namestr)
     if count is not None:
-        count   = f" #{count-1}"
+        count   = f" #{count}"
     else:
         count   = ""
 
@@ -50,7 +50,7 @@ def iter_name_to_pattern(namestr):
 def nested_iter_names_to_pattern(namestr, inner):
     name, count = name_plus_count(namestr)
     if count is not None:
-        count   = f" #{count-1}"
+        count   = f" #{count}"
     else:
         count   = ""
     assert is_valid_name(inner)
