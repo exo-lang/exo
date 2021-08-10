@@ -129,23 +129,13 @@ class TypeChecker:
 
             # We see a statement of the form
             #   nm = ...
-            # where `nm` is not currently bound.
-            # Either this is syntax sugar for
-            #   nm : R
-            #   nm = ...
-            # or we have a windowing statement
+            # we have a windowing statement
             #   nm = x[...]
+            # It doesn't make sense to have a general freshassign,
+            # when we don't know which memory to allocate.
             if rhs.type == T.err:
                 self.env[stmt.name] = T.err
                 return []
-            elif rhs.type.is_real_scalar():
-                self.env[stmt.name] = T.R
-                # TODO: Fix! FreshAssign doesn't have mem???
-                # This code was probably never tested
-                return [ LoopIR.Alloc(stmt.name, T.R, DRAM,
-                                      None, stmt.srcinfo),
-                         LoopIR.Assign(stmt.name, T.R, None, [], rhs,
-                                       None, stmt.srcinfo) ]
             elif type(rhs.type) is T.Window:
                 assert type(rhs) is LoopIR.WindowExpr
                 self.env[stmt.name] = rhs.type

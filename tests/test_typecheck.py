@@ -9,10 +9,29 @@ import scipy.stats as st
 import pytest
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure, DRAM
+from SYS_ATL.libs.memories import GEMM_SCRATCH
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
 # --- Typechecking tests ---
+
+def test_fresh1():
+    with pytest.raises(TypeError,
+                       match='unable to disambiguate assignment to undefined variable'):
+        @proc
+        def foo(n : size, A : R[n] @ GEMM_SCRATCH):
+            for i in par(0, n):
+                tmp = A[i]
+                A[i] = tmp
+
+def test_fresh2():
+    with pytest.raises(TypeError,
+                       match='unable to disambiguate assignment to undefined variable'):
+        @proc
+        def foo(n : size, A : R[n] @ GEMM_SCRATCH):
+            for i in par(0, n):
+                tmp = 0.0
+                A[i] = tmp
 
 def test_sin1():
     @proc
