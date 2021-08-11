@@ -15,6 +15,46 @@ from .helper import *
 
 # ------- Effect check tests ---------
 
+def test_index1():
+    with pytest.raises(TypeError,
+                       match='expected expression to always be non-negative'):
+        @proc
+        def foo(n : index, m : index, A : i8[n,m]):
+            assert n > 0 and m > 0
+            for i in par(0, n):
+                for j in par(0, m):
+                    for k in par(0, i-j):
+                        a : i8
+                        a = 0.0
+
+def test_index2():
+    with pytest.raises(TypeError,
+                       match='A is read out-of-bounds'):
+        @proc
+        def foo(n : index, m : index, A : i8[n,m]):
+            assert n > 0 and m > 0
+            for i in par(0, n):
+                for j in par(0, m):
+                    a : i8
+                    a = A[i,j-1]
+
+def test_index3():
+    @proc
+    def foo():
+        for i in par(0, 0):
+            a : i8
+            a = 0.0
+
+def test_index4():
+    with pytest.raises(TypeError,
+                       match='expected expression to always be non-negative'):
+        @proc
+        def foo(n : index):
+            for i in par(0, n):
+                a : i8
+                a = 0.0
+
+
 # Effects + schedule tests
 # Handle false dependency.
 def test_different_id1():
