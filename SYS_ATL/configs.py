@@ -12,7 +12,7 @@ class ConfigError(Exception):
     def __init__(self, msg):
         super().__init__(msg)
 
-
+"""
 # Configuration objects should work like structs
 # for the time being, we will skip over implementing a
 # nice front-end syntax for these using pyparser-style hijacking
@@ -47,6 +47,7 @@ def new_config(name, fields, disable_rw=False):
 
     type_fields = [ (nm, str_to_type[t]) for nm,t in fields ]
     return Config(name, type_fields, disable_rw)
+"""
 
 class Config:
     def __init__(self, name, fields, disable_rw):
@@ -54,7 +55,19 @@ class Config:
         self._fields    = fields
         self._rw_ok     = not disable_rw
 
-        self._lookup    = { nm : (i,typ) for nm,typ in fields }
+        uast_to_type = {
+            LoopIR.UAST.Size()      : LoopIR.T.size,
+            LoopIR.UAST.Bool()      : LoopIR.T.bool,
+            LoopIR.UAST.Index()     : LoopIR.T.index,
+            LoopIR.UAST.Stride()    : LoopIR.T.stride,
+            LoopIR.UAST.F32()       : LoopIR.T.f32,
+            LoopIR.UAST.F64()       : LoopIR.T.f64,
+            LoopIR.UAST.INT8()      : LoopIR.T.i8,
+            LoopIR.UAST.INT32()     : LoopIR.T.i32,
+        }
+
+        self._lookup    = { nm : (i,uast_to_type[typ])
+                            for i,(nm,typ) in enumerate(fields) }
 
     def name(self):
         return self._name

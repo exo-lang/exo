@@ -177,7 +177,7 @@ class TypeChecker:
                 self.err(stmt.field, f"expected '{stmt.field}'  to be a field "+
                                      f"in config '{stmt.config.name()}'")
 
-            ftyp    = stmt.config.lookup(field)[1]
+            ftyp    = stmt.config.lookup(stmt.field)[1]
             rhs     = self.check_e(stmt.rhs)
 
             if rhs.type != T.err:

@@ -12,6 +12,7 @@ from .prelude import *
 from .LoopIR import UAST, front_ops, PAST
 #from .LoopIR import T
 from .builtins import *
+from .configs import Config
 
 from collections import ChainMap
 
@@ -104,6 +105,57 @@ def proc(f, _instr=None,_testing=None):
 
     return Procedure(parser.result(), _testing=_testing)
 
+def config(_cls=None, *, readwrite=True):
+    def parse_config(cls):
+        if not inspect.isclass(cls):
+            raise TypeError("@config decorator must be applied to a class")
+
+        # note that we must dedent in case the function is defined
+        # inside of a local scope
+        rawsrc = inspect.getsource(cls)
+        src = textwrap.dedent(rawsrc)
+        n_dedent = (len(re.match('^(.*)', rawsrc).group()) -
+                    len(re.match('^(.*)', src).group()))
+        srcfilename = inspect.getsourcefile(cls)
+        _, srclineno = inspect.getsourcelines(cls)
+        srclineno -= 1  # adjust for decorator line
+
+        # convert into AST nodes; which should be a module with a single
+        # FunctionDef node
+        module = pyast.parse(src)
+        assert len(module.body) == 1
+        assert type(module.body[0]) == pyast.ClassDef
+
+        # get global and local environments for context capture purposes
+        func_globals = dict()#cls.__globals__
+        stack_frames = inspect.stack()
+        assert(len(stack_frames) >= 1)
+        assert(type(stack_frames[1]) == inspect.FrameInfo)
+        func_locals = stack_frames[1].frame.f_locals
+        assert(type(func_locals) == dict)
+        srclocals = ChainMap(func_locals)
+
+        # create way to query for src-code information
+        def getsrcinfo(node):
+            return SrcInfo(filename=srcfilename,
+                           lineno=node.lineno+srclineno,
+                           col_offset=node.col_offset+n_dedent,
+                           end_lineno=(None if node.end_lineno is None
+                                       else node.end_lineno+srclineno),
+                           end_col_offset=(None if node.end_col_offset is None
+                                           else node.end_col_offset+n_dedent))
+
+        parser = Parser(module.body[0], func_globals,
+                        srclocals, getsrcinfo,
+                        as_config = True)
+
+        name, fields = parser.result()
+        return Config(name, fields, not readwrite)
+
+    if _cls is None:
+        return parse_config
+    else:
+        return parse_config(_cls)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -145,15 +197,12 @@ def pattern(s, filename=None, lineno=None):
 
 class Parser:
     def __init__(self, module_ast, func_globals, srclocals, getsrcinfo,
-                 as_func=False, as_macro=False,
-                 as_quote=False, as_index=False, instr=None):
+                 as_func=False, as_config=False, instr=None):
 
         self.module_ast = module_ast
         self.globals = func_globals
         self.locals = srclocals
         self.getsrcinfo = getsrcinfo
-
-        self.as_index = as_index
 
         self.push()
         # add builtins
@@ -163,6 +212,8 @@ class Parser:
 
         if as_func:
             self._cached_result = self.parse_fdef(module_ast, instr=instr)
+        elif as_config:
+            self._cached_result = self.parse_cls(module_ast)
         # elif as_macro:
         #  self._cached_result = self.parse_fdef(module_ast)
         # elif as_quote:
@@ -264,6 +315,49 @@ class Parser:
                          body=body,
                          instr=instr,
                          srcinfo=self.getsrcinfo(fdef))
+
+    def parse_cls(self, cls):
+        assert type(cls) is pyast.ClassDef
+
+        name = cls.name
+        if len(cls.bases) > 0:
+            self.err(cls, f"expected no base classes in a config definition")
+        # ignore cls.keywords and cls.decorator_list
+
+        fields = [ self.parse_config_field(stmt) for stmt in cls.body ]
+
+        return (name, fields)
+
+    def parse_config_field(self, stmt):
+        basic_err = ("expected config field definition of the form: "+
+                     "name : type")
+        if type(stmt) is pyast.AnnAssign:
+            if stmt.value:
+                self.err(stmt, basic_err)
+            elif type(stmt.target) is not pyast.Name:
+                self.err(stmt, basic_err)
+            name    = stmt.target.id
+
+            typ_list = {
+                'bool'  : UAST.Bool(),
+                'size'  : UAST.Size(),
+                'index' : UAST.Index(),
+                'stride': UAST.Stride(),
+            }
+            for k in Parser._prim_types:
+                typ_list[k] = Parser._prim_types[k]
+            del typ_list['R']
+
+            if (type(stmt.annotation) is pyast.Name and
+                stmt.annotation.id in typ_list):
+                typ = typ_list[stmt.annotation.id]
+            else:
+                self.err(stmt.annotation, "expected one of the following "+
+                    "types: "+', '.join(list(typ_list.keys())))
+
+            return (name,typ)
+        else:
+            self.err(stmt, basic_err)
 
     def parse_arg_type(self, node):
         # Arg was of the form ` name : annotation `
@@ -440,7 +534,8 @@ class Parser:
                         # early-exit in this case
                         field_name  = node.attr
                         rstmts.append(UAST.WriteConfig(config_obj, field_name,
-                                                     rhs, self.getsrcinfo(s)))
+                                                       rhs,
+                                                       self.getsrcinfo(s)))
                         continue
                     # handle all other lvalue cases
                     else:
@@ -681,15 +776,14 @@ class Parser:
                 self.err(e, "expected configuration reads "+
                              "of the form 'config.field'")
 
-            assert type(node.attr) is str
+            assert type(e.attr) is str
 
             config_obj  = self.eval_expr(e.value)
             if not isinstance(config_obj, Config):
                 self.err(e.value, "expected indexed object "+
                                   "to be a Config")
 
-            return UAST.ReadConfig(config_obj, e.attr,
-                                           self.getsrcinfo(s))
+            return UAST.ReadConfig(config_obj, e.attr, self.getsrcinfo(e))
 
         elif type(e) is pyast.Constant:
             return UAST.Const(e.value, self.getsrcinfo(e))

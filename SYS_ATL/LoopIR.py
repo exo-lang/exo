@@ -48,7 +48,7 @@ module UAST {
 
     stmt    = Assign  ( sym name, expr* idx, expr rhs )
             | Reduce  ( sym name, expr* idx, expr rhs )
-            | WriteConfig ( config config, str field, expr rhs )
+            | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
             | If      ( expr cond, stmt* body,  stmt* orelse )
@@ -65,7 +65,7 @@ module UAST {
             | WindowExpr( sym name, w_access* idx )
             | StrideExpr( sym name, int dim )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
-            | ReadConfig( config config, str field )
+            | ReadConfig( config config, string field )
             attributes( srcinfo srcinfo )
 
     w_access= Interval( expr? lo, expr? hi )
@@ -186,7 +186,7 @@ module LoopIR {
 
     stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
             | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
-            | WriteConfig ( config config, str field, expr rhs )
+            | WriteConfig ( config config, string field, expr rhs )
             | Pass   ()
             | If     ( expr cond, stmt* body, stmt* orelse )
             | ForAll ( sym iter, expr hi, stmt* body )
@@ -203,7 +203,7 @@ module LoopIR {
             | BuiltIn( builtin f, expr* args )
             | WindowExpr( sym name, w_access* idx )
             | StrideExpr( sym name, int dim )
-            | ReadConfig( config config, str field )
+            | ReadConfig( config config, string field )
             attributes( type type, srcinfo srcinfo )
 
     -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])

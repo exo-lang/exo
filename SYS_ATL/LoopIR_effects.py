@@ -46,8 +46,8 @@ module Effects {
                     expr?       pred,
                     srcinfo     srcinfo )
 
-    config_eff  = ( config      config,
-                    str         field,
+    config_eff  = ( config      config, -- blah
+                    string      field,
                     expr?       value, -- need not be supplied for reads
                     expr?       pred,
                     srcinfo     srcinfo )
@@ -58,14 +58,14 @@ module Effects {
                 | BinOp( binop op, expr lhs, expr rhs )
                 | Stride( sym name, int dim )
                 | Select( expr cond, expr tcase, expr fcase )
-                | ConfigField( config config, str field )
+                | ConfigField( config config, string field )
                 attributes( type type, srcinfo srcinfo )
 
 } """, {
     'sym':          lambda x: type(x) is Sym,
     'type':         lambda x: LoopIR.T.is_type(x),
     'binop':        lambda x: x in front_ops,
-    'config':       lambda x: isinstance(x, Config),
+    'config':      lambda x: isinstance(x, Config),
     'srcinfo':      lambda x: type(x) is SrcInfo,
 })
 
