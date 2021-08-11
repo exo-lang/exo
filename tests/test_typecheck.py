@@ -9,10 +9,31 @@ import scipy.stats as st
 import pytest
 sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure, DRAM
+from SYS_ATL.libs.memories import GEMM_SCRATCH
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
 # --- Typechecking tests ---
+
+def test_fresh1():
+    with pytest.raises(TypeError,
+                       match='unable to disambiguate assignment to undefined variable'):
+        @proc
+        def foo(n : index, A : R[n] @ GEMM_SCRATCH):
+            assert n > 0
+            for i in par(0, n):
+                tmp = A[i]
+                A[i] = tmp
+
+def test_fresh2():
+    with pytest.raises(TypeError,
+                       match='unable to disambiguate assignment to undefined variable'):
+        @proc
+        def foo(n : index, A : R[n] @ GEMM_SCRATCH):
+            assert n > 0
+            for i in par(0, n):
+                tmp = 0.0
+                A[i] = tmp
 
 def test_sin1():
     @proc
@@ -65,7 +86,8 @@ def test_badpred():
     with pytest.raises(TypeError,
                        match='Errors occurred during typechecking'):
         @proc
-        def badpred(m: size):
+        def badpred(m: index):
+            assert m > 0
             assert m + 1
             assert 10
             tmp : R[m]
@@ -74,7 +96,8 @@ def test_badaccess():
     with pytest.raises(TypeError,
                        match='expected access of variable'):
         @proc
-        def badaccess(m : size, x : R[m]):
+        def badaccess(m : index, x : R[m]):
+            assert m > 0
             res : R[m]
             for i in par(0, m):
                 res[i] = x[i, 3]
@@ -83,16 +106,18 @@ def test_badaccess2():
     with pytest.raises(TypeError,
                        match='expected lvalue access of variable'):
         @proc
-        def badaccess2(m : size, x : R[m]):
+        def badaccess2(m : index, x : R[m]):
+            assert m > 0
             res : R[m,m]
             for i in par(0, m):
                 res[i] = x[i]
 
 def test_badaccess3():
-    with pytest.raises(TypeError,
-                       match='cannot assign/reduce to'):
+    with pytest.raises(Exception,
+                       match='cannot write to index variable'):
         @proc
-        def badaccess3(m : size, n : index, x : R):
+        def badaccess3(m : index, n : index, x : R):
+            assert m > 0
             n = x
 
 def test_badaccess4():
@@ -163,9 +188,10 @@ def test_call_pass1():
 
 def test_call_read_size1():
     with pytest.raises(TypeError,
-                       match='expected size arguments to have'):
+                       match='expected index-type expression, but got type R'):
         @proc
-        def hoge(y : size):
+        def hoge(y : index):
+            assert y > 0
             pass
         @proc
         def foo(x : R):
@@ -186,10 +212,12 @@ def test_call_tensor1_read1():
     with pytest.raises(TypeError,
                        match='expected argument of type '):
         @proc
-        def hoge(n : size, m : size, y : f64[n,m]):
+        def hoge(n : index, m : index, y : f64[n,m]):
+            assert n > 0 and m > 0
             pass
         @proc
-        def foo(n : size, m : size, x : R[m, n, 10]):
+        def foo(n : index, m : index, x : R[m, n, 10]):
+            assert n > 0 and m > 0
             hoge(n, m, x)
 
 def test_call_tensor2_read1():
@@ -257,7 +285,7 @@ def test_binop4():
 
 def test_binop5():
     with pytest.raises(TypeError,
-                       match='expected \'index\' or \'size\' argument to comparison op'):
+                       match='expected \'index\' or \'int\' argument to comparison op'):
         @proc
         def hoge():
             if (1 < (1 == 1)):
@@ -265,7 +293,7 @@ def test_binop5():
 
 def test_binop6():
     with pytest.raises(TypeError,
-                       match='expected \'index\' or \'size\' argument to comparison op'):
+                       match='expected \'index\' or \'int\' argument to comparison op'):
         @proc
         def hoge():
             if ((1 == 1) < 0):
@@ -306,7 +334,8 @@ def test_binop12():
     with pytest.raises(TypeError,
                        match='cannot divide or modulo by a non-constant value'):
         @proc
-        def hoge(x : size, y : size):
+        def hoge(x : index, y : index):
+            assert x > 0 and y > 0
             if ((x / y) > 0):
                 pass
 
@@ -314,20 +343,23 @@ def test_binop13():
     with pytest.raises(TypeError,
                        match='cannot divide or modulo by zero or a negative value'):
         @proc
-        def hoge(x : size, y : size):
+        def hoge(x : index, y : index):
+            assert x > 0 and y > 0
             if ((x / -3) > 0):
                 pass
 def test_binop13_2():
     with pytest.raises(TypeError,
                        match='cannot divide or modulo by zero or a negative value'):
         @proc
-        def hoge(x : size, y : size):
+        def hoge(x : index, y : index):
+            assert x > 0 and y > 0
             if ((x / 0) > 0):
                 pass
 
 def test_binop14():
     @proc
-    def hoge(x : size, y : size):
+    def hoge(x : index, y : index):
+        assert x > 0 and y > 0
         if ((4 * x) > 0):
             pass
 
@@ -335,7 +367,8 @@ def test_binop15():
     with pytest.raises(TypeError,
                        match='cannot multiply two non-constant indexing/sizing expressions'):
         @proc
-        def hoge(x : size, y : size):
+        def hoge(x : index, y : index):
+            assert x > 0 and y > 0
             if ((y * x) > 0):
                 pass
 
@@ -343,9 +376,11 @@ def test_proj_bad():
     with pytest.raises(TypeError,
                        match='type-shape of calling argument may not equal the required type-shape'):
         @proc
-        def dot(m: size, x : R[1,1] , y : R[m] ):
+        def dot(m: index, x : R[1,1] , y : R[m] ):
+            assert m > 0
             huga : R
             pass
         @proc
-        def proj(n : size, x : R[100, 10, 1], y : R[10, n]):
+        def proj(n : index, x : R[100, 10, 1], y : R[10, n]):
+            assert n > 0
             dot(n, x[1], y[0])

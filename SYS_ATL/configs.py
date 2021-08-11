@@ -19,7 +19,6 @@ class ConfigError(Exception):
 # Instead, we will specify a creation/factory function here
 def new_config(name, fields, disable_rw=False):
     str_to_type = {
-        'size'      : LoopIR.T.size,
         'bool'      : LoopIR.T.bool,
         'index'     : LoopIR.T.index,
         'stride'    : LoopIR.T.stride,
@@ -42,7 +41,7 @@ def new_config(name, fields, disable_rw=False):
                         "  ..."+
                         "])\n"+
                         "where types are either: "+
-                        "'size', 'index', 'bool', 'stride', or some "+
+                        "'index', 'bool', 'stride', or some "+
                         "real scalar type with a given precision")
 
     type_fields = [ (nm, str_to_type[t]) for nm,t in fields ]

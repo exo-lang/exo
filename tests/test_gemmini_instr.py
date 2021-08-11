@@ -298,7 +298,7 @@ def test_matmul_i8_ones_16():
     ld_i8(16,16, scale, y, B)
     zero_acc_i32(16,16, C)
 
-    matmul_i8(16,16,16, False, False, A, B, C)
+    matmul_i8(16,16,16, A, B, C)
 
     st_acc_i8(16,16, scale, False, C, res)
   T.add_proc(matmul_i8_ones_16)
@@ -352,7 +352,7 @@ def test_matmul_i8_ones_odd():
     ld_i8(9,13, scale, y, B)
     zero_acc_i32(15,13, C)
 
-    matmul_i8(15,13,9, False, False, A, B, C)
+    matmul_i8(15,13,9, A, B, C)
 
     st_acc_i8(15,13, scale, False, C, res)
   T.add_proc(matmul_i8_ones_odd)
@@ -445,7 +445,7 @@ def test_matmul_i8_ones_odd():
     ld_i8(9,13, scale, y, B)
     zero_acc_i32(15,13, C)
 
-    matmul_i8(15,13,9, False, False, A, B, C)
+    matmul_i8(15,13,9, A, B, C)
 
     st_acc_i8(15,13, scale, False, C, res)
   T.add_proc(matmul_i8_ones_odd)

@@ -229,7 +229,7 @@ class InferEffects:
                              effects, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.ForAll:
-            # pred is: 0 <= bound <= stmt.hi
+            # pred is: 0 <= bound < stmt.hi
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
             hi    = lift_expr(stmt.hi)
             zero  = E.Const(0, T.int, stmt.srcinfo)
@@ -708,10 +708,7 @@ class CheckEffects:
 
         # Add assertions
         for arg in proc.args:
-            if type(arg.type) is T.Size:
-                pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
-                self.solver.add_assertion(pos_sz)
-            elif arg.type.is_tensor_or_window() and not arg.type.is_win():
+            if arg.type.is_tensor_or_window() and not arg.type.is_win():
                 self.assume_tensor_strides(arg, arg.name, arg.type.shape())
 
         for p in proc.preds:
@@ -727,10 +724,11 @@ class CheckEffects:
         self.preprocess_stmts(self.orig_proc.body)
         body_eff = self.map_stmts(self.orig_proc.body)
 
+        # Check buffer
         for arg in proc.args:
             if arg.type.is_numeric():
                 shape = [ lift_expr(s) for s in arg.type.shape() ]
-                # check that all sizes are positive
+                # check that all buffer sizes are positive
                 for s in shape:
                     self.check_pos_size(s)
                 # check the bounds
@@ -948,7 +946,7 @@ class CheckEffects:
 
             assert len(eff.loc) == len(shape)
             for e, hi in zip(eff.loc, shape):
-                # 1 <= loc[i] < shape[i]
+                # 0 <= loc[i] < shape[i]
                 e   = self.expr_to_smt(e)
                 lhs = SMT.LE(SMT.Int(0), e)
                 rhs = SMT.LT(e, self.expr_to_smt(hi))
@@ -977,46 +975,65 @@ class CheckEffects:
 #                   [sub i0,nms0]pred0 AND [sub i1,nms1]pred1 ==>
 #                   [sub i0,nms0]loc0 != [sub i1,nms1]loc1
     def not_conflicts(self, iter, hi, e1, e2):
-        if e1.buffer == e2.buffer:
-            self.push()
-            # determine name substitutions
-            iter1   = iter.copy()
-            iter2   = iter.copy()
-            iter1_smt = self.sym_to_smt(iter1)
-            iter2_smt = self.sym_to_smt(iter2)
-            iter_pred = SMT.And(SMT.And(SMT.LE(SMT.Int(0), iter1_smt),
-                                SMT.LT(iter1_smt, iter2_smt)),
-                                SMT.LT(iter2_smt, self.expr_to_smt(hi)))
-            self.solver.add_assertion(iter_pred)
+        if e1.buffer != e2.buffer:
+            return
 
-            sub1    = { nm : E.Var(nm.copy(), T.index, null_srcinfo())
-                        for nm in e1.names }
-            sub1[iter] = E.Var(iter1, T.index, null_srcinfo())
-            sub2    = { nm : E.Var(nm.copy(), T.index, null_srcinfo())
-                        for nm in e2.names }
-            sub2[iter] = E.Var(iter2, T.index, null_srcinfo())
-            if e1.pred is not None:
-                pred1   = e1.pred.subst(sub1)
-                self.solver.add_assertion(self.expr_to_smt(pred1))
-            if e2.pred is not None:
-                pred2   = e2.pred.subst(sub2)
-                self.solver.add_assertion(self.expr_to_smt(pred2))
+        assert len(e1.loc) == len(e1.loc)
+        def search_eff(eff):
+            if type(eff) is E.Var or type(eff) is E.Neg:
+                return [eff.name]
+            elif type(eff) is E.BinOp:
+                return [search_eff(eff.lhs)] + [search_eff(eff.rhs)]
+            else:
+                return []
+        used_locs = []
+        for l1,l2 in zip(e1.loc, e2.loc):
+            used_locs += search_eff(l1)
+            used_locs += search_eff(l2)
+        # Don't check parallelism if this buffer is a loop-invariant.
+        if iter not in used_locs:
+            return
 
-            loc1    = [ self.expr_to_smt(i.subst(sub1))
-                        for i in e1.loc ]
-            loc2    = [ self.expr_to_smt(i.subst(sub2))
-                        for i in e2.loc ]
-            loc_neq = SMT.Bool(False)
-            for i1, i2 in zip(loc1,loc2):
-                loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
 
-            if not self.solver.is_valid(loc_neq):
-                eg = self.counter_example()
-                self.err(e1, f"data race conflict with statement on "+
-                             f"{e2.srcinfo} while accessing {e1.buffer} "+
-                             f"in loop over {iter}, when:\n  {eg}.")
+        self.push()
+        # determine name substitutions
+        iter1   = iter.copy()
+        iter2   = iter.copy()
+        iter1_smt = self.sym_to_smt(iter1)
+        iter2_smt = self.sym_to_smt(iter2)
+        iter_pred = SMT.And(SMT.And(SMT.LE(SMT.Int(0), iter1_smt),
+                            SMT.LT(iter1_smt, iter2_smt)),
+                            SMT.LT(iter2_smt, self.expr_to_smt(hi)))
+        self.solver.add_assertion(iter_pred)
 
-            self.pop()
+        sub1    = { nm : E.Var(nm.copy(), T.index, null_srcinfo())
+                    for nm in e1.names }
+        sub1[iter] = E.Var(iter1, T.index, null_srcinfo())
+        sub2    = { nm : E.Var(nm.copy(), T.index, null_srcinfo())
+                    for nm in e2.names }
+        sub2[iter] = E.Var(iter2, T.index, null_srcinfo())
+        if e1.pred is not None:
+            pred1   = e1.pred.subst(sub1)
+            self.solver.add_assertion(self.expr_to_smt(pred1))
+        if e2.pred is not None:
+            pred2   = e2.pred.subst(sub2)
+            self.solver.add_assertion(self.expr_to_smt(pred2))
+
+        loc1    = [ self.expr_to_smt(i.subst(sub1))
+                    for i in e1.loc ]
+        loc2    = [ self.expr_to_smt(i.subst(sub2))
+                    for i in e2.loc ]
+        loc_neq = SMT.Bool(False)
+        for i1, i2 in zip(loc1,loc2):
+            loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
+
+        if not self.solver.is_valid(loc_neq):
+            eg = self.counter_example()
+            self.err(e1, f"data race conflict with statement on "+
+                         f"{e2.srcinfo} while accessing {e1.buffer} "+
+                         f"in loop over {iter}, when:\n  {eg}.")
+
+        self.pop()
 
     def not_conflicts_config(self, e1, e2):
         if e1.config == e2.config and e1.field == e2.field:
@@ -1194,7 +1211,7 @@ class CheckEffects:
 
             elif type(stmt) is LoopIR.Alloc:
                 shape = [ lift_expr(s) for s in stmt.type.shape() ]
-                # check that all sizes are positive
+                # check that all buffer sizes are positive
                 for s in shape:
                     self.check_pos_size(s)
                 # check that all accesses are in bounds
@@ -1223,9 +1240,6 @@ class CheckEffects:
                            sig.type == T.bool or sig.type.is_stridable() ):
                         # in this case we have a LoopIR expression...
                         subst[sig.name] = arg
-                        if sig.type == T.size:
-                            e_arg       = lift_expr(arg)
-                            self.check_pos_size(e_arg)
 
                     else: assert False, "bad case"
 

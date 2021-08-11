@@ -13,6 +13,127 @@ import pytest
 #   Basic Conv Test
 # --------------------------------------------------------------------------- #
 
+@pytest.mark.skip()
+def test_conv_specialize():
+  T = GemmTestBuilder('conv_specialize')
+  T.add_body(['gemm_init_mem();',
+#              'init_mem();',
+#              'gemm_acc_init_mem();',
+              'gemmini_flush(0);',
+              ''])
+  T.add_body(["conv_specialize_lib_Context *ctxt;"])
+
+  kernel_dim = 3
+  padding    = 1
+  stride     = 1
+
+  batch_size = 1
+  out_channel= 31
+  in_channel = 9
+  in_dim     = 25
+  out_dim    = in_dim
+
+  T.alloc_dram_f32('scale', '1.0f')
+  T.alloc_dram_2i32('bias', 1, out_channel, '0')
+  T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
+  T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
+  T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, '1')
+  T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, '1')
+
+  @proc
+  def conv_specialize(
+      batch_size : index,
+      out_dim    : index,
+      out_channel: index,
+      kernel_dim : index,
+      in_channel : index,
+      in_dim     : index,
+      padding    : index,
+      stride     : index,
+      output     : i8[batch_size, out_dim, out_dim, out_channel],
+      bias       : i32[1,out_channel],
+      inp        : i8[batch_size, in_dim, in_dim, in_channel],
+      weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+      act        : bool,
+      scale      : f32
+      ):
+      assert batch_size > 0
+      assert out_dim > 0
+      assert out_channel > 0
+      assert kernel_dim > 0
+      assert in_channel > 0
+      assert in_dim > 0
+      assert padding > 0
+      assert stride > 0
+      
+      assert kernel_dim == 3
+      assert padding == 1
+      assert stride == 1
+      assert out_dim == in_dim
+
+      for b in par(0, batch_size):
+          for orow in par(0, out_dim):
+              for ocol in par(0, out_dim):
+                  for och in par(0, out_channel):
+
+                      res : i32 @GEMM_ACCUM
+                      res = bias[0,och]
+                      for krow in par(0, 3):
+                          if (0 <= orow+krow-1  and orow+krow-1 < in_dim):
+                              for kcol in par(0, 3):
+                                  if (ocol == 0 and kcol == 0):
+                                      pass
+                                  else:
+                                      if (ocol == in_dim and kcol == 2):
+                                          pass
+                                      else:
+                                          for kch in par(0, in_channel):
+                                              wei : i8 @ GEMM_SCRATCH
+                                              wei = weights[krow,kcol,kch,och]
+
+                                              inpt : i8 @ GEMM_SCRATCH
+                                              inpt = inp[b,orow+krow-1,ocol+kcol-1,kch]
+
+                                              a2 : i32
+                                              b2 : i32
+                                              a2 = wei
+                                              b2 = inpt
+                                              res += a2*b2
+
+                      if act == True:
+                          res = relu(res)
+                      
+                      tmp_res1 : f32
+                      tmp_res1 = res
+                      tmp_res1 = tmp_res1 * scale
+                      tmp_res2 : i8
+                      clamp(tmp_res1, tmp_res2)
+                      output[b,orow,ocol,och] = tmp_res2
+
+#  conv_specialize = conv_specialize.reorder('kcol', 'kch')
+#  conv_specialize = conv_specialize.reorder('krow', 'kch')
+#  conv_specialize = conv_specialize.lift_alloc('res : _', n_lifts=3)
+#  conv_specialize = conv_specialize.fission_after('res[_] = _', n_lifts=3)
+ # conv_specialize = conv_specialize.fission_after('for kch in _:_', n_lifts=3)
+  #conv_specialize = conv_specialize.split('ocol', 16, ['ocol', 'ocol_in'], tail='cut_and_guard')
+
+  print(conv_specialize)
+  conv_specialize.check_effects()
+
+
+  T.add_proc(conv_specialize)
+
+  T.start_timer('cpu')
+  T.add_body([f'conv_specialize(ctxt, {batch_size}, {out_dim}, {out_channel}, {kernel_dim},',
+              f'{in_channel}, {in_dim}, {padding}, {stride}, output_cpu, bias, inp, weights, false, scale);',
+              f'gemmini_fence();'])
+  T.stop_timer('cpu', 'Cycles for CPU version')
+
+  T.compile().run()
+
+
+
+
 # Padding = 0
 def test_conv_stride_1_padding_0_gemmini():
   T = GemmTestBuilder('conv_on_cpu_stride_1_padding_0_gemmini')
@@ -40,12 +161,12 @@ def test_conv_stride_1_padding_0_gemmini():
 
   @proc
   def conv_on_cpu_stride_1_padding_0(
-      batch_size : size,
-      out_dim    : size,
-      out_channel: size,
-      kernel_dim : size,
-      in_channel : size,
-      in_dim     : size,
+      batch_size : index,
+      out_dim    : index,
+      out_channel: index,
+      kernel_dim : index,
+      in_channel : index,
+      in_dim     : index,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1,out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -53,6 +174,12 @@ def test_conv_stride_1_padding_0_gemmini():
       act        : bool,
       scale      : f32
       ):
+      assert batch_size > 0
+      assert out_dim > 0
+      assert out_channel > 0
+      assert kernel_dim > 0
+      assert in_channel > 0
+      assert in_dim > 0
       
       assert out_dim == in_dim - kernel_dim + 1
 
@@ -80,12 +207,12 @@ def test_conv_stride_1_padding_0_gemmini():
 
   @proc
   def conv_on_cpu_stride_1_padding_0_gemmini(
-      batch_size : size,
-      out_dim    : size,
-      out_channel: size,
-      kernel_dim : size,
-      in_channel : size,
-      in_dim     : size,
+      batch_size : index,
+      out_dim    : index,
+      out_channel: index,
+      kernel_dim : index,
+      in_channel : index,
+      in_dim     : index,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1, out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -94,6 +221,12 @@ def test_conv_stride_1_padding_0_gemmini():
       scale      : f32
       ):
       
+      assert batch_size > 0
+      assert out_dim > 0
+      assert out_channel > 0
+      assert kernel_dim > 0
+      assert in_channel > 0
+      assert in_dim > 0
       assert in_dim == out_dim + kernel_dim - 1
       
       one : f32
@@ -305,13 +438,13 @@ def test_conv_stride_1_gemmini():
 
   @proc
   def conv_on_cpu_stride_1(
-      batch_size : size,
-      out_dim    : size,
-      out_channel: size,
-      kernel_dim : size,
-      in_channel : size,
-      in_dim     : size,
-      padding    : size,
+      batch_size : index,
+      out_dim    : index,
+      out_channel: index,
+      kernel_dim : index,
+      in_channel : index,
+      in_dim     : index,
+      padding    : index,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1,out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -320,6 +453,12 @@ def test_conv_stride_1_gemmini():
       scale      : f32
       ):
       
+      assert batch_size > 0
+      assert out_dim > 0
+      assert out_channel > 0
+      assert kernel_dim > 0
+      assert in_channel > 0
+      assert in_dim > 0
       assert out_dim == in_dim + 2*padding - kernel_dim + 1
 
       for b in par(0, batch_size):
@@ -348,13 +487,13 @@ def test_conv_stride_1_gemmini():
 
   @proc
   def conv_on_cpu_stride_1_gemmini(
-      batch_size : size,
-      out_dim    : size,
-      out_channel: size,
-      kernel_dim : size,
-      in_channel : size,
-      in_dim     : size,
-      padding    : size,
+      batch_size : index,
+      out_dim    : index,
+      out_channel: index,
+      kernel_dim : index,
+      in_channel : index,
+      in_dim     : index,
+      padding    : index,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1, out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -362,6 +501,13 @@ def test_conv_stride_1_gemmini():
       act        : bool,
       scale      : f32
       ):
+      assert batch_size > 0
+      assert out_dim > 0
+      assert out_channel > 0
+      assert kernel_dim > 0
+      assert in_channel > 0
+      assert in_dim > 0
+      assert padding > 0
       
       assert out_dim == in_dim + 2*padding - kernel_dim + 1
       assert 0 <= padding < 16
@@ -683,7 +829,6 @@ def test_conv_stride_1_gemmini():
 
 
 
-"""
 @pytest.mark.skip()
 def test_conv_stride_2_gemmini():
   T = GemmTestBuilder('conv_on_cpu_stride_2_gemmini')
@@ -714,13 +859,13 @@ def test_conv_stride_2_gemmini():
 
   @proc
   def conv_on_cpu_stride_2(
-      batch_size : size,
-      out_dim    : size,
-      out_channel: size,
-      kernel_dim : size,
-      in_channel : size,
-      in_dim     : size,
-      padding    : size,
+      batch_size : index,
+      out_dim    : index,
+      out_channel: index,
+      kernel_dim : index,
+      in_channel : index,
+      in_dim     : index,
+      padding    : index,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1,out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -759,13 +904,13 @@ def test_conv_stride_2_gemmini():
 
   @proc
   def conv_on_cpu_stride_2_gemmini(
-      batch_size : size,
-      out_dim    : size,
-      out_channel: size,
-      kernel_dim : size,
-      in_channel : size,
-      in_dim     : size,
-      padding    : size,
+      batch_size : index,
+      out_dim    : index,
+      out_channel: index,
+      kernel_dim : index,
+      in_channel : index,
+      in_dim     : index,
+      padding    : index,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1, out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -853,4 +998,3 @@ def test_conv_stride_2_gemmini():
                ''])
   
   T.compile().run()
-"""

@@ -18,11 +18,12 @@ from .helper import *
 # R - width of the filter kernel
 def gen_conv1d():
     @proc
-    def conv1d(K : size, C : size, W : size, R : size,
+    def conv1d(K : index, C : index, W : index, R : index,
                w : R[K,C,R],
                x : R[C,W],
                res : R[K,W],
               ):
+        assert K > 0 and C > 0 and W > 0 and R > 0
         # zero out the result memory
         for k_init in par(0,K):
             for i_init in par(0,W):
@@ -66,11 +67,11 @@ def test_im2col():
                          # split the loops we want to tile together
                          .reorder('r','i')
                          .split('k',8,['khi','klo'], tail='cut')
-                         .reorder('klo #1','c').reorder('klo #1','i')
-                         .split('c #1',8,['chi','clo'], tail='cut')
-                         .reorder('clo #1','i').reorder('clo #1','klo')
-                         .split('i #1', 8, ['ihi','ilo'], tail='cut')
-                         .reorder('ilo #1','klo').reorder('ilo #1','clo'))
+                         .reorder('klo #0','c').reorder('klo #0','i')
+                         .split('c #0',8,['chi','clo'], tail='cut')
+                         .reorder('clo #0','i').reorder('clo #0','klo')
+                         .split('i #0', 8, ['ihi','ilo'], tail='cut')
+                         .reorder('ilo #0','klo').reorder('ilo #0','clo'))
 
     # We can invoke another scheduling directive
     # to change which version of the matmul gets scheduled
