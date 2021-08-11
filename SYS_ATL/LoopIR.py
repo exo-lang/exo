@@ -79,7 +79,6 @@ module UAST {
             | INT32 ()
             | Bool  ()
             | Int   ()
-            | Size  ()
             | Index ()
             | Stride()
             | Tensor( expr *hi, bool is_window, type type )
@@ -95,7 +94,7 @@ module UAST {
 })
 
 ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'INT32',
-               'Bool', 'Int', 'Size', 'Index', 'Stride'], {
+               'Bool', 'Int', 'Index', 'Stride'], {
 })
 
 
@@ -219,7 +218,6 @@ module LoopIR {
             | Bool  ()
             | Int   ()
             | Index ()
-            | Size  ()
             | Stride()
             | Error ()
             | Tensor     ( expr* hi, bool is_window, type type )
@@ -243,7 +241,7 @@ module LoopIR {
 })
 
 ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'INT32' 'Bool', 'Int', 'Index',
-                 'Size', 'Stride', 'Error'])
+                 'Stride', 'Error'])
 
 # make proc be a hashable object
 @extclass(LoopIR.proc)
@@ -265,7 +263,6 @@ class T:
     Bool    = LoopIR.Bool
     Int     = LoopIR.Int
     Index   = LoopIR.Index
-    Size    = LoopIR.Size
     Stride  = LoopIR.Stride
     Error   = LoopIR.Error
     Tensor  = LoopIR.Tensor
@@ -280,7 +277,6 @@ class T:
     bool    = Bool()    # note: accessed as T.bool outside this module
     int     = Int()
     index   = Index()
-    size    = Size()
     stride  = Stride()
     err     = Error()
 
@@ -315,7 +311,6 @@ del shape
 @extclass(T.Bool)
 @extclass(T.Int)
 @extclass(T.Index)
-@extclass(T.Size)
 @extclass(T.Stride)
 def ctype(t):
     if type(t) is T.Num:
@@ -331,7 +326,7 @@ def ctype(t):
     elif type(t) is T.Bool:
         return "bool"
     elif (type(t) is T.Int or type(t) is T.Index or
-          type(t) is T.Size or type(t) is T.Stride):
+          type(t) is T.Stride):
         return "int"
 del ctype
 
@@ -359,13 +354,8 @@ del is_numeric
 
 @extclass(LoopIR.type)
 def is_indexable(t):
-    return type(t) is T.Int or type(t) is T.Index or type(t) is T.Size
+    return type(t) is T.Int or type(t) is T.Index
 del is_indexable
-
-@extclass(LoopIR.type)
-def is_sizeable(t):
-    return type(t) is T.Int or type(t) is T.Size
-del is_sizeable
 
 @extclass(LoopIR.type)
 def is_stridable(t):

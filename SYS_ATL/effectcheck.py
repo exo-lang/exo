@@ -229,7 +229,7 @@ class InferEffects:
                              effects, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.ForAll:
-            # pred is: 0 <= bound <= stmt.hi
+            # pred is: 0 <= bound < stmt.hi
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
             hi    = lift_expr(stmt.hi)
             zero  = E.Const(0, T.int, stmt.srcinfo)
@@ -708,10 +708,7 @@ class CheckEffects:
 
         # Add assertions
         for arg in proc.args:
-            if type(arg.type) is T.Size:
-                pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
-                self.solver.add_assertion(pos_sz)
-            elif arg.type.is_tensor_or_window() and not arg.type.is_win():
+            if arg.type.is_tensor_or_window() and not arg.type.is_win():
                 self.assume_tensor_strides(arg, arg.name, arg.type.shape())
 
         for p in proc.preds:
@@ -727,10 +724,11 @@ class CheckEffects:
         self.preprocess_stmts(self.orig_proc.body)
         body_eff = self.map_stmts(self.orig_proc.body)
 
+        # Check buffer
         for arg in proc.args:
             if arg.type.is_numeric():
                 shape = [ lift_expr(s) for s in arg.type.shape() ]
-                # check that all sizes are positive
+                # check that all buffer sizes are positive
                 for s in shape:
                     self.check_pos_size(s)
                 # check the bounds
@@ -948,7 +946,7 @@ class CheckEffects:
 
             assert len(eff.loc) == len(shape)
             for e, hi in zip(eff.loc, shape):
-                # 1 <= loc[i] < shape[i]
+                # 0 <= loc[i] < shape[i]
                 e   = self.expr_to_smt(e)
                 lhs = SMT.LE(SMT.Int(0), e)
                 rhs = SMT.LT(e, self.expr_to_smt(hi))
@@ -1213,7 +1211,7 @@ class CheckEffects:
 
             elif type(stmt) is LoopIR.Alloc:
                 shape = [ lift_expr(s) for s in stmt.type.shape() ]
-                # check that all sizes are positive
+                # check that all buffer sizes are positive
                 for s in shape:
                     self.check_pos_size(s)
                 # check that all accesses are in bounds
@@ -1242,9 +1240,6 @@ class CheckEffects:
                            sig.type == T.bool or sig.type.is_stridable() ):
                         # in this case we have a LoopIR expression...
                         subst[sig.name] = arg
-                        if sig.type == T.size:
-                            e_arg       = lift_expr(arg)
-                            self.check_pos_size(e_arg)
 
                     else: assert False, "bad case"
 

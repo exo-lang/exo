@@ -379,12 +379,8 @@ class Compiler:
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
             name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
-            # setup, size argument binding
-            if a.type == T.size:
-                arg_strs.append(f"int {name_arg}")
-                typ_comments.append(f"{name_arg} : size")
             # setup, index argument binding
-            elif a.type == T.index:
+            if a.type == T.index:
                 arg_strs.append(f"int {name_arg}")
                 typ_comments.append(f"{name_arg} : index")
             elif a.type == T.bool:

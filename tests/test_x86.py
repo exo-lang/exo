@@ -22,7 +22,8 @@ def test_avx2_memcpy():
     """
 
     @proc
-    def memcpy_avx2(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):  # pragma: no cover
+    def memcpy_avx2(n: index, dst: R[n] @ DRAM, src: R[n] @ DRAM):  # pragma: no cover
+        assert n > 0
         for i in par(0, (n + 7) / 8):
             if n - 8 * i >= 8:
                 tmp: f32[8] @ AVX2
@@ -59,7 +60,8 @@ def test_avx2_simple_math():
     """
 
     @proc
-    def simple_math_avx2(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
+    def simple_math_avx2(n: index, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
+        assert n > 0
         assert n % 8 == 0
         for i in par(0, n / 8):
             xVec: f32[8] @ AVX2
@@ -93,14 +95,16 @@ def test_avx2_simple_math_scheduling():
     """
 
     @proc
-    def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
+    def simple_math_avx2_scheduling(n: index, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
+        assert n > 0
         for i in par(0, n):
             # TODO: replace this with x[i] = x[i] * y[i] * y[i] and then use bind_expr
             x[i] += x[i] * y[i] * y[i]
 
     def pre_bake_staged_memory(_):
         @proc
-        def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):
+        def simple_math_avx2_scheduling(n: index, x: R[n] @ DRAM, y: R[n] @ DRAM):
+            assert n > 0
             for io in par(0, n / 8):
                 yVec: f32[8] @ DRAM
                 xVec: f32[8] @ DRAM
@@ -123,7 +127,8 @@ def test_avx2_simple_math_scheduling():
 
     def pre_bake_cse(_):
         @proc
-        def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):
+        def simple_math_avx2_scheduling(n: index, x: R[n] @ DRAM, y: R[n] @ DRAM):
+            assert n > 0
             for io in par(0, n / 8):
                 xy: R[8] @ AVX2
                 xVec: R[8] @ AVX2
@@ -207,13 +212,14 @@ def test_avx2_sgemm_base():
 
     @proc
     def sgemm_base(
-        m: size,
-        n: size,
-        p: size,
+        m: index,
+        n: index,
+        p: index,
         A: f32[m, p] @ DRAM,
         B: f32[p, n] @ DRAM,
         C: f32[m, n] @ DRAM,
     ):
+        assert n > 0 and m > 0 and p > 0
         for i in par(0, m):
             for j in par(0, n):
                 for k in par(0, p):

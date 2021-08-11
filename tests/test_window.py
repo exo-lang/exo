@@ -77,13 +77,13 @@ def test_input4():
 def test_window():
     @proc
     def window(
-        n   : size,
-        m   : size,
+        n   : index,
+        m   : index,
         src : [i8][n, m] @ DRAM,
         dst : [i8][n, 16] @ DRAM,
     ):
-        assert n <= 16
-        assert m <= 16
+        assert 0 < n <= 16
+        assert 0 < m <= 16
 
         for i in par(0, n):
             for j in par(0, m):
@@ -97,11 +97,12 @@ def test_window():
 def test_stride_assert():
     @proc
     def stride_assert(
-        n   : size,
-        m   : size,
+        n   : index,
+        m   : index,
         src : [i8][n, m] @ DRAM,
         dst : [i8][n, 16] @ DRAM,
     ):
+        assert n > 0 and m > 0
         assert n <= 16
         assert m <= 16
         assert stride(src, 1) == 1
@@ -119,7 +120,8 @@ def test_stride_assert():
 
 def test_window_stmt():
     @proc
-    def window_stmt(n : size, m : size, x : f32[n, m]):
+    def window_stmt(n : index, m : index, x : f32[n, m]):
+        assert n > 0 and m > 0
         y = x[:, 0]
         z : f32[n]
         for i in par(0, n):
@@ -132,13 +134,15 @@ def test_window_stmt():
 
 def test_normalize():
     @proc
-    def dot(m: size, x : [f32][m] , y : [f32][m] , r : f32 ):
+    def dot(m: index, x : [f32][m] , y : [f32][m] , r : f32 ):
+        assert m > 0
         r = 0.0
         for i in par(0, m):
             r += x[i]*y[i]
 
     @proc
-    def proj(n : size, m : size, x : f32[n,m], y : f32[m,n]):
+    def proj(n : index, m : index, x : f32[n,m], y : f32[m,n]):
+        assert n > 0 and m > 0
         assert n > 4
         assert m > 4
         xy : f32

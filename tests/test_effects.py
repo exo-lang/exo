@@ -19,7 +19,8 @@ from .helper import *
 # Handle false dependency.
 def test_different_id1():
     @proc
-    def foo(n : size, A : i8[n]):
+    def foo(n : index, A : i8[n]):
+        assert n > 0
         a : i8
         for i in par(0, n):
             a = 0.0
@@ -28,7 +29,8 @@ def test_different_id1():
 
 def test_different_id2():
     @proc
-    def foo(n : size):
+    def foo(n : index):
+        assert n > 0
         for ihi in par(0, n):
             a: i8 @ DRAM
             for ilo in par(0, 16):
@@ -41,7 +43,8 @@ def test_different_id2():
 
 # For-loop bound non-negative check tests
 @proc
-def test_good_bound1(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
+def test_good_bound1(n: index, dst: R[n] @ DRAM, src: R[n] @ DRAM):
+    assert n > 0
     for i in par(0, (n + 7) / 8):
         if n - 8 * i >= 8:
             pass
@@ -61,7 +64,8 @@ def test_bad_bound2():
     with pytest.raises(TypeError,
                        match='Errors occurred during effect checking'):
         @proc
-        def bar(n : size):
+        def bar(n : index):
+            assert n > 0
             for i in par(0, n):
                 for j in par(0, i-1):
                     pass
@@ -70,7 +74,8 @@ def test_bad_bound3():
     with pytest.raises(TypeError,
                        match='Errors occurred during effect checking'):
         @proc
-        def bar(n : size):
+        def bar(n : index):
+            assert n > 0
             for i in par(0, n):
                 for j in par(0, i-n):
                     pass
@@ -79,7 +84,8 @@ def test_bad_bound4():
     with pytest.raises(TypeError,
                        match='Errors occurred during effect checking'):
         @proc
-        def bar(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
+        def bar(n: index, dst: R[n] @ DRAM, src: R[n] @ DRAM):
+            assert n > 0
             for i in par(0, (n + 7) / 8):
                 if n - 8 * i >= 8:
                     pass
@@ -93,8 +99,10 @@ def test_bad_access1():
     with pytest.raises(TypeError,
                        match='Errors occurred during effect checking'):
         @proc
-        def bad_access1(n : size, m : size,
+        def bad_access1(n : index, m : index,
                         x : R[n,m], y: R[n,m], res : R[n,m]):
+            assert n > 0
+            assert m > 0
             rloc : R[m]
             for i in par(0,m):
                 xloc : R[m]
@@ -112,8 +120,10 @@ def test_bad_access2():
     with pytest.raises(TypeError,
                        match='Errors occurred during effect checking'):
         @proc
-        def bad_access2(n : size, m : size,
+        def bad_access2(n : index, m : index,
                        x : R[n,m], y: R[n,m] @ DRAM, res : R[n,m] @ DRAM):
+            assert n > 0
+            assert m > 0
             rloc : R[m]
             for i in par(0,n):
                 xloc : R[m]
@@ -140,7 +150,7 @@ def test_assert1():
     with pytest.raises(TypeError,
                        match='Could not verify assertion'):
         @proc
-        def foo(n :size, x : i8[n,n]):
+        def foo(n :index, x : i8[n,n]):
             assert n == 1
             pass
         @proc
@@ -164,7 +174,8 @@ def test_race1():
     with pytest.raises(TypeError,
                        match='data race conflict with statement'):
         @proc
-        def foo(n : size, x : R[n,n]):
+        def foo(n : index, x : R[n,n]):
+            assert n > 0
             for i in par(0,n):
                 if i+1 < n:
                     x[i,i] = x[i+1,i+1]
@@ -172,7 +183,8 @@ def test_race1():
 # Data Race? No
 def test_race2():
     @proc
-    def foo(n : size, x : R[n,n]):
+    def foo(n : index, x : R[n,n]):
+        assert n > 0
         for i in par(0,n):
             if i+1 < n:
                 x[i,i] = x[i+1,i]
@@ -180,7 +192,8 @@ def test_race2():
 # Data Race? No
 def test_race3():
     @proc
-    def foo(n : size, x : R[n,n]):
+    def foo(n : index, x : R[n,n]):
+        assert n > 0
         y = x[1:,:]
         for i in par(0,n):
             if i+1 < n:
@@ -190,18 +203,20 @@ def test_race3():
 # TODO: Think about this behaviour
 def test_race4():
     @proc
-    def foo(n : size, x : [R][n,n], y : [R][n,n]):
+    def foo(n : index, x : [R][n,n], y : [R][n,n]):
+        assert n > 0
         for i in par(0,n):
             if i+1 < n:
                 x[i,i] = y[i,i]
                 
     @proc
-    def bar(n : size, z : R[n,n]):
+    def bar(n : index, z : R[n,n]):
+        assert n > 0
         foo(n, z, z)
 
 def test_div1():
     @proc
-    def foo(n : size):
+    def foo(n : index):
         assert n == 3
         pass
 
@@ -211,7 +226,7 @@ def test_div1():
 
 def test_mod1():
     @proc
-    def foo(n : size):
+    def foo(n : index):
         assert n == 1
         pass
 
@@ -223,11 +238,13 @@ def test_mod1():
 def test_stride_assert1():
     @proc
     def foo(
-        n   : size,
-        m   : size,
+        n   : index,
+        m   : index,
         src : [i8][n, m]  @ DRAM,
         dst : [i8][n, 16] @ GEMM_SCRATCH,
     ):
+        assert n > 0
+        assert m > 0
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
@@ -242,11 +259,13 @@ def test_stride_assert2():
                        match='Could not verify assertion'):
         @proc
         def foo(
-            n   : size,
-            m   : size,
+            n   : index,
+            m   : index,
             src : [i8][n, m]  @ DRAM,
             dst : [i8][n, 16] @ GEMM_SCRATCH,
         ):
+            assert n > 0
+            assert m > 0
             assert stride(src, 1) == 1
             assert stride(dst, 0) == 16
             assert stride(dst, 1) == 1
@@ -259,11 +278,13 @@ def test_stride_assert2():
 def test_stride_assert3():
     @proc
     def foo(
-        n   : size,
-        m   : size,
+        n   : index,
+        m   : index,
         src : [i8][n, m]  @ DRAM,
         dst : [i8][n, 16] @ GEMM_SCRATCH,
     ):
+        assert n > 0
+        assert m > 0
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
@@ -281,11 +302,13 @@ def test_stride_assert4():
                        match='Could not verify assertion'):
         @proc
         def foo(
-            n   : size,
-            m   : size,
+            n   : index,
+            m   : index,
             src : i8[n, m]  @ DRAM,
             dst : i8[n, 16] @ GEMM_SCRATCH,
         ):
+            assert n > 0
+            assert m > 0
             assert stride(src, 1) == 1
             assert stride(dst, 0) == 16
             assert stride(dst, 1) == 1
@@ -306,7 +329,9 @@ def test_stride_assert5():
 # Tensor asserting last dimension is fine
 def test_stride_assert6():
     @proc
-    def bar(n : size, m : size, x : i8[n,m] @ DRAM):
+    def bar(n : index, m : index, x : i8[n,m] @ DRAM):
+        assert n > 0
+        assert m > 0
         assert stride(x, 1) == 1
         pass
 
@@ -316,7 +341,9 @@ def test_stride_assert7():
     # since it might be true, even if it is highly unlikely
     # i.e. this would have to be always called with m == 10
     @proc
-    def bar(n : size, m : size, x : i8[n,m] @ DRAM):
+    def bar(n : index, m : index, x : i8[n,m] @ DRAM):
+        assert n > 0
+        assert m > 0
         assert stride(x, 0) == 10
         pass
 
@@ -324,11 +351,13 @@ def test_stride_assert7():
 def test_stride_assert8():
     @proc
     def foo(
-        n   : size,
-        m   : size,
+        n   : index,
+        m   : index,
         src : [i8][n, m]  @ DRAM,
         dst : [i8][n, 16] @ GEMM_SCRATCH,
     ):
+        assert n > 0
+        assert m > 0
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
@@ -344,11 +373,13 @@ def test_stride_assert8():
 def test_stride_assert9():
     @proc
     def foo(
-        n   : size,
-        m   : size,
+        n   : index,
+        m   : index,
         src : [i8][n, m]  @ DRAM,
         dst : [i8][n, 16] @ GEMM_SCRATCH,
     ):
+        assert n > 0
+        assert m > 0
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
@@ -361,11 +392,13 @@ def test_stride_assert9():
 def test_stride_assert10():
     @proc
     def foo(
-        n   : size,
-        m   : size,
+        n   : index,
+        m   : index,
         src : [i8][n, m]  @ DRAM,
         dst : [i8][n, 16] @ GEMM_SCRATCH,
     ):
+        assert n > 0
+        assert m > 0
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
@@ -381,12 +414,14 @@ def test_stride_assert10():
 def test_stride_assert11():
     @proc
     def foo(
-        n   : size,
-        m   : size,
+        n   : index,
+        m   : index,
         s   : stride,
         src : [i8][n, m]  @ DRAM,
         dst : [i8][n, 16] @ GEMM_SCRATCH,
     ):
+        assert n > 0
+        assert m > 0
         assert stride(src, 0) == s
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16

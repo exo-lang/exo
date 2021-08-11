@@ -177,7 +177,7 @@ class TypeChecker:
                                       f"got an expression of type {rhs.type}")
                 elif ftyp.is_indexable():
                     if not rhs.type.is_indexable():
-                        self.err(rhs, f"expected an index or size type "+
+                        self.err(rhs, f"expected an index type "+
                                       f"expression, but got type {rhs.type}")
                 elif ftyp == T.bool:
                     if rhs.type != T.bool:
@@ -238,11 +238,6 @@ class TypeChecker:
             for call_a,sig_a in zip(args, stmt.f.args):
                 if call_a.type == T.err:
                     pass
-                elif sig_a.type is T.size:
-                    #TODO: fix propoerly
-                    if not call_a.type.is_indexable():
-                        self.err(call_a, "expected size arguments to have "+
-                                         "'size' type")
                 elif sig_a.type is T.index:
                     if not call_a.type.is_indexable():
                         self.err(call_a, "expected index-type expression, "+
@@ -405,10 +400,10 @@ class TypeChecker:
             elif (e.op == "<" or e.op == "<=" or e.op == "==" or
                   e.op == ">" or e.op == ">="):
                 if not lhs.type.is_indexable():
-                    self.err(lhs, f"expected 'index' or 'size' argument to "+
+                    self.err(lhs, f"expected 'index' or 'int' argument to "+
                                   f"comparison op: {e.op}")
                 if not rhs.type.is_indexable():
-                    self.err(rhs, f"expected 'index' or 'size' argument to "+
+                    self.err(rhs, f"expected 'index' or 'int' argument to "+
                                   f"comparison op: {e.op}")
                 typ = T.bool
             elif (e.op == "+" or e.op == "-" or e.op == "*" or
@@ -474,8 +469,6 @@ class TypeChecker:
                     else: # + or -
                         if lhs.type == T.index or rhs.type == T.index:
                             typ = T.index
-                        elif lhs.type == T.size or rhs.type == T.size:
-                            typ = T.size
                         else:
                             typ = T.int
 
@@ -532,7 +525,6 @@ class TypeChecker:
         UAST.INT32  : T.int32,
         UAST.Bool   : T.bool,
         UAST.Int    : T.int,
-        UAST.Size   : T.size,
         UAST.Index  : T.index,
         UAST.Stride : T.stride,
     }
@@ -544,10 +536,9 @@ class TypeChecker:
             hi          = [self.check_e(h) for h in typ.hi]
             sub_typ     = self.check_t(typ.type)
             for h in hi:
-                #TODO: fix propoerly
                 if not h.type.is_indexable():
-                    self.err(h, "expected array size expression "+
-                                 "to have type 'size'")
+                    self.err(h, "expected for-loop bound "+
+                                 "to have type 'index' or 'int'")
             return T.Tensor(hi, typ.is_window, sub_typ)
         else:
             assert False, "bad case"
