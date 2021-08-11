@@ -16,7 +16,7 @@ from .helper import *
 # ------- Effect check tests ---------
 
 # Effects + schedule tests
-@pytest.mark.skip()
+# Handle false dependency.
 def test_different_id1():
     @proc
     def foo(n : size, A : i8[n]):
@@ -24,10 +24,8 @@ def test_different_id1():
         for i in par(0, n):
             a = 0.0
 
-    print(foo)
     foo.check_effects()
 
-@pytest.mark.skip()
 def test_different_id2():
     @proc
     def foo(n : size):
@@ -39,7 +37,6 @@ def test_different_id2():
             b: i8 @ DRAM
             b = 0.0
 
-    print(foo)
     foo.check_effects()
 
 # For-loop bound non-negative check tests

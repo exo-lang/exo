@@ -461,8 +461,7 @@ def test_matmul_c_i8():
   T.compile().run()
 
   print(matmul_c_i8)
-  # TODO: fix
-  #matmul_c_i8.check_effects()
+  matmul_c_i8.check_effects()
 
 
 
