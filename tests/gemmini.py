@@ -211,7 +211,7 @@ zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
 
 
 
-@instr("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, {trans_a}, {trans_b});\n"+
+@instr("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);\n"+
        "gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data), "+
             "{M}, {K}, "+
@@ -226,8 +226,6 @@ def matmul_i8(
     N : index,
     M : index,
     K : index,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N, 16] @ GEMM_SCRATCH,
     B : [i8][K, 16] @ GEMM_SCRATCH,
     C : [i32][N, 16] @ GEMM_ACCUM,
@@ -236,34 +234,6 @@ def matmul_i8(
     assert 0 < M <= 16
     assert 0 < K <= 16
 
-    tmp_A : i8[16,16] @ GEMM_SCRATCH
-    for i in par(0,16):
-        for j in par(0,16):
-            tmp_A[i,j] = 0.0
-    if trans_a:
-        for i in par(0,16):
-            for j in par(0,16):
-                if j < N:
-                    tmp_A[i,j] = A[j,i]
-    else:
-        for i in par(0,N):
-            for j in par(0,16):
-                tmp_A[i,j] = A[i,j]
-
-    tmp_B : i8[16,16] @ GEMM_SCRATCH
-    for i in par(0,16):
-        for j in par(0,16):
-            tmp_B[i,j] = 0.0
-    if trans_b:
-        for i in par(0,16):
-            for j in par(0,16):
-                if j < K:
-                    tmp_B[i,j] = B[j,i]
-    else:
-        for i in par(0,K):
-            for j in par(0,16):
-                tmp_B[i,j] = B[i,j]
-
     for i in par(0,N):
         for j in par(0,M):
             C[i,j] = 0.0
@@ -271,8 +241,8 @@ def matmul_i8(
                 a : i32
                 b : i32
 
-                a = tmp_A[i,k]
-                b = tmp_B[k,j]
+                a = A[i,k]
+                b = B[k,j]
 
                 C[i, j] += a * b
 

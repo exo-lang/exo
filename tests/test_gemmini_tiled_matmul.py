@@ -53,8 +53,6 @@ def test_matmul_c_i8():
     b_scale : f32,
     c_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
@@ -456,7 +454,7 @@ def test_matmul_c_i8():
 
   T.add_proc(matmul_c_i8)
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i8(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
   T.compile().run()
@@ -496,8 +494,6 @@ def test_matmul_c_i8_perfect():
     b_scale : f32,
     c_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : i8[N,K] @ DRAM,
     B : i8[K,M] @ DRAM,
     C : i8[N,M] @ DRAM,
@@ -599,7 +595,7 @@ def test_matmul_c_i8_perfect():
   T.add_proc(matmul_c_i8_perfect)
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_perfect(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, x, y, z_cpu);',
+  T.add_body([f'matmul_c_i8_perfect(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, x, y, z_cpu);',
               f'gemmini_fence();'])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 

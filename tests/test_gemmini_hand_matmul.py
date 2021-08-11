@@ -40,7 +40,6 @@ def test_matmul_c_i8():
   T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
   T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-  # TODO: transpose is broken!!
   @proc
   def matmul_on_cpu(
     N : index,
@@ -50,8 +49,6 @@ def test_matmul_c_i8():
     b_scale : f32,
     c_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i8][N,M] @ MDRAM,
@@ -97,8 +94,6 @@ def test_matmul_c_i8():
     b_scale : f32,
     c_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
@@ -203,12 +198,12 @@ def test_matmul_c_i8():
   T.add_proc(matmul_c_i8)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, true, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i8(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -256,8 +251,6 @@ def test_matmul_c_i32():
     K : index,
     a_scale : f32,
     b_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i32][N,M] @ MDRAM,
@@ -292,8 +285,6 @@ def test_matmul_c_i32():
     K : index,
     a_scale : f32,
     b_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
@@ -398,12 +389,12 @@ def test_matmul_c_i32():
   T.add_proc(matmul_c_i32)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i32(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -456,8 +447,6 @@ def test_matmul_c_i8_d_i8():
     c_scale : f32,
     d_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i8][N,M] @ MDRAM,
@@ -508,8 +497,6 @@ def test_matmul_c_i8_d_i8():
     c_scale : f32,
     d_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
@@ -616,12 +603,12 @@ def test_matmul_c_i8_d_i8():
   T.add_proc(matmul_c_i8_d_i8)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_d_i8(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i8_d_i8(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -675,8 +662,6 @@ def test_matmul_c_i8_d_i8_rep():
     c_scale : f32,
     d_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i8][N,M] @ MDRAM,
@@ -727,8 +712,6 @@ def test_matmul_c_i8_d_i8_rep():
     c_scale : f32,
     d_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
@@ -839,12 +822,12 @@ def test_matmul_c_i8_d_i8_rep():
   T.add_proc(matmul_c_i8_d_i8_rep)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_d_i8_rep(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
+  T.add_body([f'matmul_c_i8_d_i8_rep(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -898,8 +881,6 @@ def test_matmul_c_i8_d_i32():
     c_scale : f32,
     d_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i8][N,M] @ MDRAM,
@@ -950,8 +931,6 @@ def test_matmul_c_i8_d_i32():
     c_scale : f32,
     d_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
@@ -1058,12 +1037,12 @@ def test_matmul_c_i8_d_i32():
   T.add_proc(matmul_c_i8_d_i32)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_d_i32(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i8_d_i32(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -1117,8 +1096,6 @@ def test_matmul_c_i8_d_i32_rep():
     c_scale : f32,
     d_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i8][N,M] @ MDRAM,
@@ -1169,8 +1146,6 @@ def test_matmul_c_i8_d_i32_rep():
     c_scale : f32,
     d_scale : f32,
     acc     : bool,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
@@ -1281,12 +1256,12 @@ def test_matmul_c_i8_d_i32_rep():
   T.add_proc(matmul_c_i8_d_i32_rep)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i8_d_i32_rep(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
+  T.add_body([f'matmul_c_i8_d_i32_rep(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, d_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -1337,8 +1312,6 @@ def test_matmul_c_i32_d_i8():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i32][N,M] @ MDRAM,
@@ -1378,8 +1351,6 @@ def test_matmul_c_i32_d_i8():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
@@ -1486,12 +1457,12 @@ def test_matmul_c_i32_d_i8():
   T.add_proc(matmul_c_i32_d_i8)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32_d_i8(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i32_d_i8(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -1541,8 +1512,6 @@ def test_matmul_c_i32_d_i8_rep():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i32][N,M] @ MDRAM,
@@ -1582,8 +1551,6 @@ def test_matmul_c_i32_d_i8_rep():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
@@ -1694,12 +1661,12 @@ def test_matmul_c_i32_d_i8_rep():
   T.add_proc(matmul_c_i32_d_i8_rep)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32_d_i8_rep(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
+  T.add_body([f'matmul_c_i32_d_i8_rep(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i8){{ d, 1, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -1750,8 +1717,6 @@ def test_matmul_c_i32_d_i32():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i32][N,M] @ MDRAM,
@@ -1791,8 +1756,6 @@ def test_matmul_c_i32_d_i32():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
@@ -1899,12 +1862,12 @@ def test_matmul_c_i32_d_i32():
   T.add_proc(matmul_c_i32_d_i32)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32_d_i32(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
+  T.add_body([f'matmul_c_i32_d_i32(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, {NN}, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
@@ -1954,8 +1917,6 @@ def test_matmul_c_i32_d_i32_rep():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ MDRAM,
     B : [i8][K,M] @ MDRAM,
     C : [i32][N,M] @ MDRAM,
@@ -1995,8 +1956,6 @@ def test_matmul_c_i32_d_i32_rep():
     a_scale : f32,
     b_scale : f32,
     d_scale : f32,
-    trans_a : bool,
-    trans_b : bool,
     A : [i8][N,K] @ DRAM,
     B : [i8][K,M] @ DRAM,
     C : [i32][N,M] @ DRAM,
@@ -2107,12 +2066,12 @@ def test_matmul_c_i32_d_i32_rep():
   T.add_proc(matmul_c_i32_d_i32_rep)
 
   T.start_timer('cpu')
-  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
+  T.add_body([f'matmul_on_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_cpu, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
               f'gemmini_fence();'])
   T.stop_timer('cpu', 'Cycles for CPU version')
 
   T.start_timer('gemmini')
-  T.add_body([f'matmul_c_i32_d_i32_rep(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, false, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
+  T.add_body([f'matmul_c_i32_d_i32_rep(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, d_scale, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i32){{ z_gemmini, {NN}, 1 }}, (struct systl_win_2i32){{ d, 1, 1 }});',
               f'gemmini_fence();',
               f''])
   T.stop_timer('gemmini', 'Cycles for GEMMINI version')
