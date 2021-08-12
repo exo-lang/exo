@@ -540,10 +540,9 @@ class TypeChecker:
             hi          = [self.check_e(h) for h in typ.hi]
             sub_typ     = self.check_t(typ.type)
             for h in hi:
-                #TODO: fix propoerly
                 if not h.type.is_indexable():
                     self.err(h, "expected array size expression "+
-                                 "to have type 'size'")
+                                 "to have type 'size' or type 'index'")
             return T.Tensor(hi, typ.is_window, sub_typ)
         else:
             assert False, "bad case"

@@ -77,7 +77,7 @@ class Config:
 
     def has_field(self, fname):
         return fname in self._lookup
-        
+
     def lookup(self, fname):
         return self._lookup[fname]
 

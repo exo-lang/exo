@@ -99,7 +99,7 @@ module Effects {
 
 op_prec = {
     "ternary": 5,
-    # 
+    #
     "or":     10,
     #
     "and":    20,
@@ -606,4 +606,3 @@ def eff_bind(bind_name, e, pred=None, config_pred=None):
                            [ filter_ce(ce) for ce in e.config_reads ],
                            [ filter_ce(ce) for ce in e.config_writes ],
                            e.srcinfo )
-

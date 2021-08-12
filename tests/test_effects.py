@@ -234,7 +234,7 @@ def test_race4():
         for i in par(0,n):
             if i+1 < n:
                 x[i,i] = y[i,i]
-                
+
     @proc
     def bar(n : size, z : R[n,n]):
         foo(n, z, z)
@@ -473,4 +473,3 @@ def test_stride_assert11():
 # red black gauss seidel
 # https://www.cs.cornell.edu/~bindel/class/cs5220-s10/slides/lec14.pdf
 # wavefront parallel
-

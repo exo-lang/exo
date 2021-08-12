@@ -110,7 +110,7 @@ class ConfigFlow(LoopIR_Do):
                     f"expected initial value for {cfg.name()}.{field}")
 
         # set up the initial strides
-        for 
+        for
 
 
         # kick off the structural recursion

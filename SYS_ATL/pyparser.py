@@ -1104,10 +1104,10 @@ class PatternParser:
                             type(node.slice) is pyast.BinOp)
                     dims = [node.slice]
             else:
-               if (type(node.slice) is pyast.Slice or
-                    type(node.slice) is pyast.ExtSlice):
+                if (type(node.slice) is pyast.Slice or
+                     type(node.slice) is pyast.ExtSlice):
                     self.err(node, "index-slicing not allowed")
-               else:
+                else:
                     assert type(node.slice) is pyast.Index
                     if type(node.slice.value) is pyast.Tuple:
                         dims = node.slice.value.elts

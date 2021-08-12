@@ -80,7 +80,7 @@ class MemoryAnalysis:
             mem = self.get_e_mem(s.rhs)
             self.mem_env[s.lhs] = mem
             return s
-            
+
         elif styp is LoopIR.Call:
             # check memory consistency at call boundaries
             for ca, sa in zip(s.args, s.f.args):

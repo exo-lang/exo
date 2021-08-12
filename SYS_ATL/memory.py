@@ -95,7 +95,7 @@ def _dram_alloc(new_name, prim_type, shape, srcinfo):
 
 def _dram_free(new_name, prim_type, shape, srcinfo):
     if len(shape) == 0:
-            return ""
+        return ""
     else:
         return f"free({new_name});"
 

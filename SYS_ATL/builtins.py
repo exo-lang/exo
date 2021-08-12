@@ -146,13 +146,3 @@ class _Select(BuiltIn):
         return f"_select_((double)*{args[0]}, (double)*{args[1]}, (double)*{args[2]}, (double)*{args[3]})"
 
 select = _Select()
-
-
-
-
-
-
-
-
-
-

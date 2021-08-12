@@ -16,20 +16,20 @@ from .helper import *
 # ------- Configuration tests ---------
 
 def new_config_f32():
-  @config
-  class ConfigAB:
-    a : f32
-    b : f32
+    @config
+    class ConfigAB:
+        a : f32
+        b : f32
 
-  return ConfigAB
+    return ConfigAB
 
 def test_basic_config():
-  ConfigAB = new_config_f32()
+    ConfigAB = new_config_f32()
 
-  @proc
-  def foo(x : f32):
-    ConfigAB.a  = 32.0
-    x           = ConfigAB.a
+    @proc
+    def foo(x : f32):
+        ConfigAB.a  = 32.0
+        x           = ConfigAB.a
 
 
 """
@@ -135,19 +135,19 @@ def ld_i8_v2(
 
 @instr("write_config({a}, {b})")
 def set_real_config( a : f32, b : f32):
-    REAL_CONFIG.a = a 
-    REAL_CONFIG.b = b 
+    REAL_CONFIG.a = a
+    REAL_CONFIG.b = b
 
 # st_config_ex
 @proc
 def set_config_a( a : f32 ):
-    DUMMY_CONFIG.a = a 
+    DUMMY_CONFIG.a = a
     set_real_config(DUMMY_CONFIG.a, DUMMY_CONFIG.b )
 
 # matmul_config_ex
 @proc
 def set_config_b( b : f32 ):
-    DUMMY_CONFIG.b = b 
+    DUMMY_CONFIG.b = b
     set_real_config(DUMMY_CONFIG.a, DUMMY_CONFIG.b )
 
 @instr("mvin...")
@@ -155,4 +155,3 @@ def st_i8_v2( ..., stride : stride, ...)
     set_config_a(stride)
     do_st_i8(...)
 """
-

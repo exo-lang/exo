@@ -342,25 +342,25 @@ class _Unroll(LoopIR_Rewrite):
         #if type(s) is LoopIR.ForAll:
         #    # unroll this to loops!!
         #    if s.iter is self.unroll_var:
-                if type(s.hi) is not LoopIR.Const:
-                    raise SchedulingError(f"expected loop '{s.iter}' "+
-                                          f"to have constant bounds")
-                #if len(s.body) != 1:
-                #    raise SchedulingError(f"expected loop '{s.iter}' "+
-                #                          f"to have only one body")
-                hi      = s.hi.val
-                assert hi > 0
-                orig_body = s.body
+            if type(s.hi) is not LoopIR.Const:
+                raise SchedulingError(f"expected loop '{s.iter}' "+
+                                      f"to have constant bounds")
+            #if len(s.body) != 1:
+            #    raise SchedulingError(f"expected loop '{s.iter}' "+
+            #                          f"to have only one body")
+            hi      = s.hi.val
+            assert hi > 0
+            orig_body = s.body
 
-                self.unroll_itr = 0
+            self.unroll_itr = 0
 
-                body    = Alpha_Rename(self.map_stmts(orig_body)).result()
-                for i in range(1,hi):
-                    self.unroll_itr = i
-                    nxtbody = Alpha_Rename(self.map_stmts(orig_body)).result()
-                    body   += nxtbody
+            body    = Alpha_Rename(self.map_stmts(orig_body)).result()
+            for i in range(1,hi):
+                self.unroll_itr = i
+                nxtbody = Alpha_Rename(self.map_stmts(orig_body)).result()
+                body   += nxtbody
 
-                return body
+            return body
 
         # fall-through
         return super().map_s(s)
@@ -368,7 +368,7 @@ class _Unroll(LoopIR_Rewrite):
     def map_e(self, e):
         if type(e) is LoopIR.Read:
             if e.type is T.index:
-                # This is an unrolled variable, substitute it!
+            # This is an unrolled variable, substitute it!
                 if e.name is self.unroll_var:
                     return LoopIR.Const(self.unroll_itr, T.index, e.srcinfo)
 
@@ -744,14 +744,14 @@ class _Alloc_Dependencies(LoopIR_Do):
                     maybe_write = self.analyze_eff(s.f.eff, fa.name,
                                                    write=True)
                     if maybe_write:
-                      self._lhs = name
-                      for faa, aa in zip(s.f.args, s.args):
-                        if faa.type.is_numeric():
-                          maybe_read  = self.analyze_eff(s.f.eff, faa.name,
-                                                         read=True)
-                          if maybe_read:
-                            self.do_e(aa)
-                      self._lhs = None
+                        self._lhs = name
+                        for faa, aa in zip(s.f.args, s.args):
+                            if faa.type.is_numeric():
+                                maybe_read  = self.analyze_eff(s.f.eff, faa.name,
+                                                               read=True)
+                                if maybe_read:
+                                    self.do_e(aa)
+                        self._lhs = None
 
             # already handled all sub-terms above
             # don't do the usual statement processing
