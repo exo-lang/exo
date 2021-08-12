@@ -46,9 +46,9 @@ def test_matmul_c_i8():
 
   @proc
   def matmul_c_i8(
-    N : index,
-    M : index,
-    K : index,
+    N : size,
+    M : size,
+    K : size,
     a_scale : f32,
     b_scale : f32,
     c_scale : f32,
@@ -57,7 +57,6 @@ def test_matmul_c_i8():
     B : [i8][K,M] @ DRAM,
     C : [i8][N,M] @ DRAM,
   ):
-    assert N > 0 and M > 0 and K > 0
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
     assert stride(C, 1) == 1
@@ -487,9 +486,9 @@ def test_matmul_c_i8_perfect():
 
   @proc
   def matmul_c_i8_perfect(
-    N : index,
-    M : index,
-    K : index,
+    N : size,
+    M : size,
+    K : size,
     a_scale : f32,
     b_scale : f32,
     c_scale : f32,

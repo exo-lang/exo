@@ -9,9 +9,8 @@ from .helper import *
 # Test 1 is Full 1D convolution
 def gen_conv1d():
     @proc
-    def conv1d(n : index, m : index, r: index, x : R[n],
+    def conv1d(n : size, m : size, r: size, x : R[n],
                w : R[m] , res : R[r]):
-       assert n > 0 and m > 0 and r > 0
        for i in par(0, r):
            res[i] = 0.0
        for i in par(0,r):
@@ -36,8 +35,7 @@ def test_conv1d():
 # add vector test
 def gen_add_vec():
     @proc
-    def add_vec( n : index, x : R[n], y : R[n], res : R[n]):
-       assert n > 0
+    def add_vec( n : size, x : R[n], y : R[n], res : R[n]):
        for i in par(0, n):
            res[i] = x[i] + y[i]
 
@@ -55,12 +53,11 @@ def test_add_vec():
 #   C = A * B
 def gen_gemm():
     @proc
-    def gemm( n : index, m : index, p : index,
+    def gemm( n : size, m : size, p : size,
          C : R[n,m],
          A : R[n,p],
          B : R[p,m],
        ):
-       assert n > 0 and m > 0 and p > 0
        for i in par(0,n):
            for j in par(0,m):
                C[i,j] = 0.0

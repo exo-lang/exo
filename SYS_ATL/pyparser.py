@@ -27,7 +27,7 @@ class ParseError(Exception):
     pass
 
 
-class IndexStub:
+class SizeStub:
     def __init__(self, nm):
         assert type(nm) is Sym
         self.nm = nm
@@ -276,9 +276,10 @@ class Parser:
                 self.err(a, f"repeated argument name: '{a.arg}'")
             names.add(a.arg)
             nm = Sym(a.arg)
-            if type(typ) == UAST.Index:
-                self.locals[a.arg] = IndexStub(nm)
+            if type(typ) == UAST.Size:
+                self.locals[a.arg] = SizeStub(nm)
             else:
+                # note we don't need to stub the index variables
                 self.locals[a.arg] = nm
             args.append(UAST.fnarg(nm, typ, mem, self.getsrcinfo(a)))
 
@@ -382,11 +383,14 @@ class Parser:
 
         # parse each kind of type here
         if is_size(typ_node):
-            self.err(node, "size is deprecated! Please use index.")
+            if mem_node is not None:
+                self.err(node, "size types should not be annotated with "+
+                               "memory locations")
+            return UAST.Size(), None
 
         elif is_index(typ_node):
             if mem_node is not None:
-                self.err(node, "index types should not be annotated with "+
+                self.err(node, "size types should not be annotated with "+
                                "memory locations")
             return UAST.Index(), None
 
@@ -572,9 +576,9 @@ class Parser:
                         self.err(
                             name_node, f"variable '{name_node.id}' undefined")
                     nm = self.locals[name_node.id]
-                    if type(nm) is IndexStub:
+                    if type(nm) is SizeStub:
                         self.err(name_node, f"cannot write to " +
-                                            f"index variable '{name_node.id}'")
+                                            f"size variable '{name_node.id}'")
                     elif type(nm) is not Sym:
                         self.err(name_node, f"expected '{name_node.id}' to "+
                                             f"refer to a local variable")
@@ -739,7 +743,7 @@ class Parser:
             else:
                 nm = None
 
-            if type(nm) is IndexStub:
+            if type(nm) is SizeStub:
                 nm = nm.nm
             elif type(nm) is Sym:
                 pass # nm is already set correctly

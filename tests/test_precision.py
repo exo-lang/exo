@@ -19,9 +19,8 @@ import pytest
 
 def gen_good_prec1():
     @proc
-    def good_prec1(n : index, m : index,
+    def good_prec1(n : size, m : size,
                    x : f32[n,m], y: f32[n,m], res : f64[n,m]):
-        assert n > 0 and m > 0
         for i in par(0,n):
             rloc : f64[m]
             xloc : f32[m]
@@ -40,9 +39,8 @@ def gen_good_prec1():
 # Binop on different precision
 def gen_bad_prec1():
     @proc
-    def bad_prec1(n : index, m : index,
+    def bad_prec1(n : size, m : size,
                   x : f32[n,m], y: i8[n,m], res : f64[n,m]):
-        assert n > 0 and m > 0
         for i in par(0,n):
             rloc : f64[m]
             xloc : f32[m]
@@ -91,8 +89,7 @@ def test_good_prec1():
 
 def gen_dot():
     @proc
-    def dot(m: index, x : f32[m] , y : f32[m] , r : f32 ):
-        assert m > 0
+    def dot(m: size, x : f32[m] , y : f32[m] , r : f32 ):
         r = 0.0
         for i in par(0, m):
             r += x[i]*y[i]
@@ -101,8 +98,7 @@ def gen_dot():
 
 def gen_good_prec2(dot):
     @proc
-    def hoge(n : index, x : f32[n], y : f32[n]):
-        assert n > 0
+    def hoge(n : size, x : f32[n], y : f32[n]):
         xy : f32
         dot(n, x, y, xy)
 
@@ -110,8 +106,7 @@ def gen_good_prec2(dot):
 
 def gen_bad_prec2(dot):
     @proc
-    def hoge(n : index, x : i8[n], y : i8[n]):
-        assert n > 0
+    def hoge(n : size, x : i8[n], y : i8[n]):
         xy : f32
         dot(n, x, y, xy)
 

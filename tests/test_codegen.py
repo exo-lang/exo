@@ -18,11 +18,8 @@ import pytest
 
 def gen_blur():
     @proc
-    def blur(n: index, m: index, k_size: index,
+    def blur(n: size, m: size, k_size: size,
              image: R[n, m], kernel: R[k_size, k_size], res: R[n, m]):
-        assert n > 0
-        assert m > 0
-        assert k_size > 0
         for i in par(0, n):
             for j in par(0, m):
                 res[i, j] = 0.0
@@ -66,11 +63,8 @@ def test_simple_blur():
 
 def test_simple_blur_split():
     @proc
-    def simple_blur_split(n: index, m: index, k_size: index,
+    def simple_blur_split(n: size, m: size, k_size: size,
              image: R[n, m], kernel: R[k_size, k_size], res: R[n, m]):
-        assert n > 0
-        assert m > 0
-        assert k_size > 0
         for i in par(0, n):
             for j1 in par(0, m/2):
                 for j2 in par(0,2):
@@ -200,11 +194,8 @@ def test_unroll_blur():
 # --- conv1d test ---
 def test_conv1d():
     @proc
-    def conv1d(n: index, m: index, r: index,
+    def conv1d(n: size, m: size, r: size,
                x: R[n], w: R[m], res: R[r]):
-        assert n > 0
-        assert m > 0
-        assert r > 0
         for i in par(0, r):
             res[i] = 0.0
         for i in par(0, r):
@@ -234,10 +225,8 @@ def test_conv1d():
 
 def test_alloc_nest():
     @proc
-    def alloc_nest(n : index, m : index,
+    def alloc_nest(n : size, m : size,
                    x : R[n,m], y: R[n,m] @ DRAM, res : R[n,m] @ DRAM):
-        assert n > 0
-        assert m > 0
         for i in par(0,n):
             rloc : R[m] @DRAM
             xloc : R[m] @DRAM
@@ -289,10 +278,8 @@ def test_alloc_nest():
 
 def test_alloc_nest_malloc():
     @proc
-    def alloc_nest_malloc(n : index, m : index,
+    def alloc_nest_malloc(n : size, m : size,
                    x : R[n,m] @ MDRAM, y: R[n,m] @ MDRAM, res : R[n,m] @ MDRAM):
-        assert n > 0
-        assert m > 0
         for i in par(0,n):
             rloc : R[m] @MDRAM
             xloc : R[m] @MDRAM
@@ -338,8 +325,7 @@ def test_alloc_nest_malloc():
 
 def test_unary_neg():
     @proc
-    def negate_array(n: index, x: R[n], res: R[n] @ DRAM):  # pragma: no cover
-        assert n > 0
+    def negate_array(n: size, x: R[n], res: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, n):
             res[i] = -x[i] + -(x[i]) - -(x[i] + 0.0)
 

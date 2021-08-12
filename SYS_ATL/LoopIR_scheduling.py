@@ -985,12 +985,12 @@ class _LiftAlloc(LoopIR_Rewrite):
                 if s.iter in self.alloc_deps:
                     idxs.append(s.iter)
                     if type(s.hi) == LoopIR.Read:
-                        assert s.hi.type == T.index
+                        assert s.hi.type == T.size
                         assert len(s.hi.idx) == 0
                     elif type(s.hi) == LoopIR.Const:
                         assert s.hi.type == T.int
                     elif type(s.hi) == LoopIR.BinOp:
-                        assert s.hi.type == T.int or s.hi.type == T.index
+                        assert s.hi.type == T.int or s.hi.type == T.size
                     else:
                         assert False, "bad case"
 
@@ -1247,25 +1247,27 @@ def _make_closure(name, stmts, var_types):
 
     # first, scan over all the arguments and convert them.
     # accumulate all size symbols separately
-    buf_sizes   = set()
+    sizes   = set()
     for v in FVs:
         typ = var_types[v]
-        if typ is T.index:
+        if typ is T.size:
+            sizes.add(v)
+        elif typ is T.index:
             args.append(LoopIR.Read(v, [], typ, info))
             fnargs.append(LoopIR.fnarg(v, typ, None, info))
         else:
-            # add buf_sizes (that this arg depends on) to the signature
+            # add sizes (that this arg depends on) to the signature
             for sz in typ.shape():
                 if type(sz) is Sym:
-                    buf_sizes.add(sz)
+                    sizes.add(sz)
             args.append(LoopIR.Read(v, [], typ, info))
             fnargs.append(LoopIR.fnarg(v, typ, None, info))
 
-    # now prepend all buf_sizes to the argument list
-    buf_sizes   = list(buf_sizes)
-    args    = [ LoopIR.Read(sz, [], T.index, info) for sz in buf_sizes ] + args
-    fnargs  = [ LoopIR.fnarg(sz, T.index, None, info)
-                for sz in buf_sizes ] + fnargs
+    # now prepend all sizes to the argument list
+    sizes   = list(sizes)
+    args    = [ LoopIR.Read(sz, [], T.size, info) for sz in sizes ] + args
+    fnargs  = [ LoopIR.fnarg(sz, T.size, None, info)
+                for sz in sizes ] + fnargs
 
     eff     = None
     # TODO: raise NotImplementedError("need to figure out effect of new closure")

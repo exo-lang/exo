@@ -754,6 +754,7 @@ class Unification:
             rhs = self.from_ueq(e.rhs, srcinfo)
             typ = (lhs.type if rhs.type == T.int else
                    rhs.type if lhs.type == T.int else
+                   lhs.type if rhs.type == T.size else
                    rhs.type)
             return LoopIR.BinOp('+', lhs, rhs, typ, srcinfo)
         elif type(e) is UEq.Scale:

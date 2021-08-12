@@ -7,9 +7,8 @@ sys.path.append(sys.path[0]+"/..")
 
 def gen_conv1d():
     @instr("TEST", _testing="UAST")
-    def conv1d(n : index, m : index, r: index,
+    def conv1d(n : size, m : size, r: size,
                x : R[n], w : R[m], res : R[r] ):
-        assert n > 0 and m > 0 and r > 0
         for i in par(0,r):
             res[i] = 0.0
         for i in par(0,r):
@@ -27,8 +26,7 @@ def test_conv1d():
 
 def test_unary_neg():
     @instr("TEST", _testing="UAST")
-    def negate_array(n: index, x: R[n], res: R[n] @ DRAM):  # pragma: no cover
-        assert n > 0
+    def negate_array(n: size, x: R[n], res: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, n):
             res[i] = -x[i] + -(x[i]) - -(x[i] + 0.0)
 
@@ -40,9 +38,8 @@ def test_unary_neg():
 
 def gen_alloc_nest():
     @instr("TEST", _testing="UAST")
-    def alloc_nest(n : index, m : index,
+    def alloc_nest(n : size, m : size,
                    x : R[n,m], y: R[n,m] @ DRAM, res : R[n,m] @ DRAM):
-        assert n > 0 and m > 0
         for i in par(0,n):
             rloc : R[m] @DRAM
             xloc : R[m] @DRAM

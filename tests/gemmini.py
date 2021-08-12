@@ -18,14 +18,14 @@ _gemm_ld_i8   = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                               "((uint64_t) {dst}.data), {m}, {n} );")
 @instr(_gemm_ld_i8)
 def ld_i8(
-    n     : index,
-    m     : index,
+    n     : size,
+    m     : size,
     scale : f32,
     src   : [i8][n, m] @ DRAM,
     dst   : [i8][n, 16] @ GEMM_SCRATCH,
 ):
-    assert 0 < n <= 16
-    assert 0 < m <= 16
+    assert n <= 16
+    assert m <= 16
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
@@ -46,14 +46,14 @@ _gemm_ld_i8_stride_2 = ("gemmini_extended3_config_ld({src}.strides[0]*2, "+
                               "((uint64_t) {dst}.data), {m}, {n} );")
 @instr(_gemm_ld_i8_stride_2)
 def ld_i8_s2(
-    n     : index,
-    m     : index,
+    n     : size,
+    m     : size,
     scale : f32,
     src   : [i8][n*2, m] @ DRAM,
     dst   : [i8][n, 16] @ GEMM_SCRATCH,
 ):
-    assert 0 < n <= 16
-    assert 0 < m <= 16
+    assert n <= 16
+    assert m <= 16
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
@@ -84,14 +84,14 @@ _gemm_ld_acc_i32   = ("gemmini_extended3_config_ld({src}.strides[0]*4, "+
                                "((uint32_t) {dst}.data), {m}, {n} );")
 @instr(_gemm_ld_acc_i32)
 def ld_acc_i32(
-    n     : index,
-    m     : index,
+    n     : size,
+    m     : size,
     scale : f32,
     src   : [i32][n, m] @ DRAM,
     dst   : [i32][n, 16] @ GEMM_ACCUM,
 ):
-    assert 0 < n <= 16
-    assert 0 < m <= 16
+    assert n <= 16
+    assert m <= 16
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
@@ -108,13 +108,13 @@ _gemm_st_i8   = ("gemmini_config_st({dst}.strides[0]*1);\n"+
                       "((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
 @instr(_gemm_st_i8)
 def st_i8(
-    n     : index,
-    m     : index,
+    n     : size,
+    m     : size,
     src   : [i8][n, 16] @ GEMM_SCRATCH,
     dst   : [i8][n, m]  @ DRAM
 ):
-    assert 0 < n <= 16
-    assert 0 < m <= 16
+    assert n <= 16
+    assert m <= 16
     assert stride(dst, 1) == 1
     assert stride(src, 0) == 16
     assert stride(src, 1) == 1
@@ -136,15 +136,15 @@ def clamp(src : f32, dst : i8):
 _gemm_st_acc_i8 = ("gemmini_extended_config_ex(WS, {act}, 0, {scale}[0], 0, 1, 0, 0);\n"+ _gemm_st_i8)
 @instr(_gemm_st_acc_i8)
 def st_acc_i8(
-    n     : index,
-    m     : index,
+    n     : size,
+    m     : size,
     scale : f32,
     act   : bool,
     src   : [i32][n, 16] @ GEMM_ACCUM,
     dst   : [i8][n, m]  @ DRAM
 ):
-    assert 0 < n <= 16
-    assert 0 < m <= 16
+    assert n <= 16
+    assert m <= 16
     assert stride(dst, 1) == 1
     assert stride(src, 0) == 16
     assert stride(src, 1) == 1
@@ -169,13 +169,13 @@ _gemm_st_acc_i32 = ("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);\n"+
                     "((uint32_t) {src}.data | 0x20000000), {m}, {n} );")
 @instr(_gemm_st_acc_i32)
 def st_acc_i32(
-    n     : index,
-    m     : index,
+    n     : size,
+    m     : size,
     src   : [i32][n, 16] @ GEMM_ACCUM,
     dst   : [i32][n, m]  @ DRAM
 ):
-    assert 0 < n <= 16
-    assert 0 < m <= 16
+    assert n <= 16
+    assert m <= 16
     assert stride(dst, 1) == 1
     assert stride(src, 0) == 16
     assert stride(src, 1) == 1
@@ -191,12 +191,12 @@ _gemm_zero_i8 = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
                                        "{m}, {n} );")
 @instr(_gemm_zero_i8)
 def zero_i8(
-    n   : index,
-    m   : index,
+    n   : size,
+    m   : size,
     dst : [i8][n, 16] @ GEMM_SCRATCH,
 ):
-    assert 0 < n <= 16
-    assert 0 < m <= 16
+    assert n <= 16
+    assert m <= 16
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
@@ -223,16 +223,16 @@ zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
             "16, 16"+
        ");")
 def matmul_i8(
-    N : index,
-    M : index,
-    K : index,
+    N : size,
+    M : size,
+    K : size,
     A : [i8][N, 16] @ GEMM_SCRATCH,
     B : [i8][K, 16] @ GEMM_SCRATCH,
     C : [i32][N, 16] @ GEMM_ACCUM,
 ):
-    assert 0 < N <= 16
-    assert 0 < M <= 16
-    assert 0 < K <= 16
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
 
     for i in par(0,N):
         for j in par(0,M):
@@ -259,16 +259,16 @@ def matmul_i8(
             "16, 16"+
        ");")
 def matmul_acc_i8(
-    N : index,
-    M : index,
-    K : index,
+    N : size,
+    M : size,
+    K : size,
     A : [i8][N, 16] @ GEMM_SCRATCH,
     B : [i8][K, 16] @ GEMM_SCRATCH,
     C : [i32][N, 16] @ GEMM_ACCUM,
 ):
-    assert 0 < N <= 16
-    assert 0 < M <= 16
-    assert 0 < K <= 16
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
 
     for i in par(0,N):
         for j in par(0,M):

@@ -351,7 +351,7 @@ class Procedure:
             expr = expr_list[0]
 
         if not expr.type.is_numeric():
-            raise TypeError("only numeric (not index) expressions "+
+            raise TypeError("only numeric (not index or size) expressions "+
                             "can be targeted by bind_expr()")
 
         loopir      = self._loopir_proc

@@ -16,8 +16,7 @@ from .helper import *
 @pytest.mark.skip()
 def test_partition():
     @proc
-    def bar(n : index, A : i8[n], pad : index):
-        assert n > 0 and pad > 0
+    def bar(n : size, A : i8[n], pad : size):
         assert n > pad
         for i in par(0,n):
             tmp = A[i]
@@ -32,8 +31,7 @@ def test_partition():
 
 def test_fission():
     @proc
-    def bar(n : index, m : index):
-        assert n > 0 and m > 0
+    def bar(n : size, m : size):
         for i in par(0,n):
             for j in par(0,m):
                 x : f32
@@ -48,8 +46,7 @@ def test_fission2():
     with pytest.raises(Exception,
                        match='Will not fission here'):
         @proc
-        def bar(n : index, m : index):
-            assert n > 0 and m > 0
+        def bar(n : size, m : size):
             for i in par(0,n):
                 for j in par(0,m):
                     x : f32
@@ -75,8 +72,7 @@ def test_lift():
 
 def test_unify1():
     @proc
-    def bar(n : index, src : R[n,n], dst : R[n,n]):
-        assert n > 0
+    def bar(n : size, src : R[n,n], dst : R[n,n]):
         for i in par(0,n):
             for j in par(0,n):
                 dst[i,j] = src[i,j]
@@ -94,8 +90,7 @@ def test_unify1():
 
 def test_unify2():
     @proc
-    def bar(n : index, src : [R][n,n], dst : [R][n,n]):
-        assert n > 0
+    def bar(n : size, src : [R][n,n], dst : [R][n,n]):
         for i in par(0,n):
             for j in par(0,n):
                 dst[i,j] = src[i,j]
@@ -118,8 +113,7 @@ def test_unify3():
             dst[i] = a[i] + b[i]
 
     @proc
-    def foo(n : index, z : R[n], x : R[n], y : R[n]):
-        assert n > 0
+    def foo(n : size, z : R[n], x : R[n], y : R[n]):
         assert n % 4 == 0
 
         for i in par(0,n/4):
@@ -138,8 +132,7 @@ def test_unify3():
 
 def test_unify4():
     @proc
-    def bar(n : index, src : [R][n], dst : [R][n]):
-        assert n > 0
+    def bar(n : size, src : [R][n], dst : [R][n]):
         for i in par(0,n):
             if i < n-2:
                 dst[i] = src[i] + src[i+1]
@@ -157,8 +150,7 @@ def test_unify4():
 
 def test_unify5():
     @proc
-    def bar(n : index, src : R[n,n], dst : R[n,n]):
-        assert n > 0
+    def bar(n : size, src : R[n,n], dst : R[n,n]):
         for i in par(0,n):
             for j in par(0,n):
                 tmp : f32
@@ -181,21 +173,20 @@ def test_unify5():
 def test_unify6():
     @proc
     def load(
-        n     : index,
-        m     : index,
+        n     : size,
+        m     : size,
         src   : [i8][n, m],
         dst   : [i8][n, 16],
     ):
-        assert 0 < n <= 16
-        assert 0 < m <= 16
+        assert n <= 16
+        assert m <= 16
 
         for i in par(0, n):
             for j in par(0, m):
                 dst[i,j] = src[i,j]
 
     @proc
-    def bar(K: index, A: [i8][16, K] @ DRAM):
-        assert 0 < K
+    def bar(K: size, A: [i8][16, K] @ DRAM):
 
         for k in par(0, K / 16):
             a: i8[16, 16] @ DRAM

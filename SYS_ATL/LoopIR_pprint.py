@@ -290,6 +290,8 @@ class UAST_PPrinter:
             return "int"
         elif type(t) is UAST.Index:
             return "index"
+        elif type(t) is UAST.Size:
+            return "size"
         elif type(t) is UAST.Tensor:
             base = str(t.basetype())
             if t.is_window:
@@ -414,7 +416,9 @@ class LoopIR_PPrinter:
         self.pop()
 
     def pfnarg(self, a):
-        if a.type == T.index:
+        if a.type == T.size:
+            return f"{self.new_name(a.name)} : size"
+        elif a.type == T.index:
             return f"{self.new_name(a.name)} : index"
         else:
             mem = f" @{a.mem.name()}" if a.mem else ""
@@ -537,6 +541,8 @@ class LoopIR_PPrinter:
             return "int"
         elif type(t) is T.Index:
             return "index"
+        elif type(t) is T.Size:
+            return "size"
         elif type(t) is T.Error:
             return "err"
         elif type(t) is T.Tensor:

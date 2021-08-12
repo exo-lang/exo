@@ -42,14 +42,14 @@ def test_conv_specialize():
 
   @proc
   def conv_specialize(
-      batch_size : index,
-      out_dim    : index,
-      out_channel: index,
-      kernel_dim : index,
-      in_channel : index,
-      in_dim     : index,
-      padding    : index,
-      stride     : index,
+      batch_size : size,
+      out_dim    : size,
+      out_channel: size,
+      kernel_dim : size,
+      in_channel : size,
+      in_dim     : size,
+      padding    : size,
+      stride     : size,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1,out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -57,14 +57,6 @@ def test_conv_specialize():
       act        : bool,
       scale      : f32
       ):
-      assert batch_size > 0
-      assert out_dim > 0
-      assert out_channel > 0
-      assert kernel_dim > 0
-      assert in_channel > 0
-      assert in_dim > 0
-      assert padding > 0
-      assert stride > 0
       
       assert kernel_dim == 3
       assert padding == 1
@@ -161,12 +153,12 @@ def test_conv_stride_1_padding_0_gemmini():
 
   @proc
   def conv_on_cpu_stride_1_padding_0(
-      batch_size : index,
-      out_dim    : index,
-      out_channel: index,
-      kernel_dim : index,
-      in_channel : index,
-      in_dim     : index,
+      batch_size : size,
+      out_dim    : size,
+      out_channel: size,
+      kernel_dim : size,
+      in_channel : size,
+      in_dim     : size,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1,out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -174,12 +166,6 @@ def test_conv_stride_1_padding_0_gemmini():
       act        : bool,
       scale      : f32
       ):
-      assert batch_size > 0
-      assert out_dim > 0
-      assert out_channel > 0
-      assert kernel_dim > 0
-      assert in_channel > 0
-      assert in_dim > 0
       
       assert out_dim == in_dim - kernel_dim + 1
 
@@ -207,12 +193,12 @@ def test_conv_stride_1_padding_0_gemmini():
 
   @proc
   def conv_on_cpu_stride_1_padding_0_gemmini(
-      batch_size : index,
-      out_dim    : index,
-      out_channel: index,
-      kernel_dim : index,
-      in_channel : index,
-      in_dim     : index,
+      batch_size : size,
+      out_dim    : size,
+      out_channel: size,
+      kernel_dim : size,
+      in_channel : size,
+      in_dim     : size,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1, out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -221,12 +207,6 @@ def test_conv_stride_1_padding_0_gemmini():
       scale      : f32
       ):
       
-      assert batch_size > 0
-      assert out_dim > 0
-      assert out_channel > 0
-      assert kernel_dim > 0
-      assert in_channel > 0
-      assert in_dim > 0
       assert in_dim == out_dim + kernel_dim - 1
       
       one : f32
@@ -438,13 +418,13 @@ def test_conv_stride_1_gemmini():
 
   @proc
   def conv_on_cpu_stride_1(
-      batch_size : index,
-      out_dim    : index,
-      out_channel: index,
-      kernel_dim : index,
-      in_channel : index,
-      in_dim     : index,
-      padding    : index,
+      batch_size : size,
+      out_dim    : size,
+      out_channel: size,
+      kernel_dim : size,
+      in_channel : size,
+      in_dim     : size,
+      padding    : size,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1,out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -453,12 +433,6 @@ def test_conv_stride_1_gemmini():
       scale      : f32
       ):
       
-      assert batch_size > 0
-      assert out_dim > 0
-      assert out_channel > 0
-      assert kernel_dim > 0
-      assert in_channel > 0
-      assert in_dim > 0
       assert out_dim == in_dim + 2*padding - kernel_dim + 1
 
       for b in par(0, batch_size):
@@ -487,13 +461,13 @@ def test_conv_stride_1_gemmini():
 
   @proc
   def conv_on_cpu_stride_1_gemmini(
-      batch_size : index,
-      out_dim    : index,
-      out_channel: index,
-      kernel_dim : index,
-      in_channel : index,
-      in_dim     : index,
-      padding    : index,
+      batch_size : size,
+      out_dim    : size,
+      out_channel: size,
+      kernel_dim : size,
+      in_channel : size,
+      in_dim     : size,
+      padding    : size,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1, out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -501,13 +475,6 @@ def test_conv_stride_1_gemmini():
       act        : bool,
       scale      : f32
       ):
-      assert batch_size > 0
-      assert out_dim > 0
-      assert out_channel > 0
-      assert kernel_dim > 0
-      assert in_channel > 0
-      assert in_dim > 0
-      assert padding > 0
       
       assert out_dim == in_dim + 2*padding - kernel_dim + 1
       assert 0 <= padding < 16
@@ -859,13 +826,13 @@ def test_conv_stride_2_gemmini():
 
   @proc
   def conv_on_cpu_stride_2(
-      batch_size : index,
-      out_dim    : index,
-      out_channel: index,
-      kernel_dim : index,
-      in_channel : index,
-      in_dim     : index,
-      padding    : index,
+      batch_size : size,
+      out_dim    : size,
+      out_channel: size,
+      kernel_dim : size,
+      in_channel : size,
+      in_dim     : size,
+      padding    : size,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1,out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -904,13 +871,13 @@ def test_conv_stride_2_gemmini():
 
   @proc
   def conv_on_cpu_stride_2_gemmini(
-      batch_size : index,
-      out_dim    : index,
-      out_channel: index,
-      kernel_dim : index,
-      in_channel : index,
-      in_dim     : index,
-      padding    : index,
+      batch_size : size,
+      out_dim    : size,
+      out_channel: size,
+      kernel_dim : size,
+      in_channel : size,
+      in_dim     : size,
+      padding    : size,
       output     : i8[batch_size, out_dim, out_dim, out_channel],
       bias       : i32[1, out_channel],
       inp        : i8[batch_size, in_dim, in_dim, in_channel],

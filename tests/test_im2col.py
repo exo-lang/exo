@@ -18,12 +18,11 @@ from .helper import *
 # R - width of the filter kernel
 def gen_conv1d():
     @proc
-    def conv1d(K : index, C : index, W : index, R : index,
+    def conv1d(K : size, C : size, W : size, R : size,
                w : R[K,C,R],
                x : R[C,W],
                res : R[K,W],
               ):
-        assert K > 0 and C > 0 and W > 0 and R > 0
         # zero out the result memory
         for k_init in par(0,K):
             for i_init in par(0,W):
