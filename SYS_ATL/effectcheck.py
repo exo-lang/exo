@@ -730,7 +730,7 @@ class CheckEffects:
         for arg in proc.args:
             if arg.type.is_numeric():
                 shape = [ lift_expr(s) for s in arg.type.shape() ]
-                # check that all sizes are positive
+                # check that all sizes/indices are positive
                 for s in shape:
                     self.check_pos_size(s)
                 # check the bounds

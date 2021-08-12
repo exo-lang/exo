@@ -985,12 +985,12 @@ class _LiftAlloc(LoopIR_Rewrite):
                 if s.iter in self.alloc_deps:
                     idxs.append(s.iter)
                     if type(s.hi) == LoopIR.Read:
-                        assert s.hi.type == T.size
+                        assert s.hi.type.is_indexable()
                         assert len(s.hi.idx) == 0
                     elif type(s.hi) == LoopIR.Const:
                         assert s.hi.type == T.int
                     elif type(s.hi) == LoopIR.BinOp:
-                        assert s.hi.type == T.int or s.hi.type == T.size
+                        assert s.hi.type.is_indexable()
                     else:
                         assert False, "bad case"
 

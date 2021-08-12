@@ -238,14 +238,10 @@ class TypeChecker:
             for call_a,sig_a in zip(args, stmt.f.args):
                 if call_a.type == T.err:
                     pass
-                elif sig_a.type is T.size:
-                    #TODO: fix propoerly
+                elif sig_a.type is T.size or sig_a.type is T.index:
                     if not call_a.type.is_indexable():
-                        self.err(call_a, "expected size arguments to have "+
-                                         "'size' type")
-                elif sig_a.type is T.index:
-                    if not call_a.type.is_indexable():
-                        self.err(call_a, "expected index-type expression, "+
+                        self.err(call_a, "expected size or index type "+
+                                         "expression, "+
                                          f"but got type {call_a.type}")
 
                 elif sig_a.type is T.bool:

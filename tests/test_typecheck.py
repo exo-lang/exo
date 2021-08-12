@@ -182,7 +182,7 @@ def test_call_pass1():
 
 def test_call_read_size1():
     with pytest.raises(TypeError,
-                       match='expected size arguments to have'):
+                       match='expected size or index type expression'):
         @proc
         def hoge(y : size):
             pass
@@ -192,7 +192,7 @@ def test_call_read_size1():
 
 def test_call_index_read1():
     with pytest.raises(TypeError,
-                       match='expected index-type expression, but got type'):
+                       match='expected size or index type expression'):
         @proc
         def hoge(y : index):
             pass
