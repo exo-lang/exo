@@ -2,6 +2,7 @@ from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
 from .LoopIR import lift_to_eff_expr as lift_expr
 from .LoopIR import T
+from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (eff_null, eff_read, eff_write, eff_reduce,
                              eff_config_read, eff_config_write,
@@ -980,23 +981,6 @@ class CheckEffects:
         if e1.buffer != e2.buffer:
             return
 
-        assert len(e1.loc) == len(e1.loc)
-        def search_eff(eff):
-            if type(eff) is E.Var or type(eff) is E.Neg:
-                return [eff.name]
-            elif type(eff) is E.BinOp:
-                return [search_eff(eff.lhs)] + [search_eff(eff.rhs)]
-            else:
-                return []
-        used_locs = []
-        for l1,l2 in zip(e1.loc, e2.loc):
-            used_locs += search_eff(l1)
-            used_locs += search_eff(l2)
-        # Don't check parallelism if this buffer is a loop-invariant.
-        if iter not in used_locs:
-            return
-
-
         self.push()
         # determine name substitutions
         iter1   = iter.copy()
@@ -1014,6 +998,7 @@ class CheckEffects:
         sub2    = { nm : E.Var(nm.copy(), T.index, null_srcinfo())
                     for nm in e2.names }
         sub2[iter] = E.Var(iter2, T.index, null_srcinfo())
+        
         if e1.pred is not None:
             pred1   = e1.pred.subst(sub1)
             self.solver.add_assertion(self.expr_to_smt(pred1))
@@ -1056,14 +1041,26 @@ class CheckEffects:
 
             self.pop()
 
+    def check_order(self, w, r, body):
+        for s in body:
+            if w in s.eff.writes:
+                return True
+            if r in s.eff.reads:
+                return False
 
 #       COMMUTES( i, n, (r, w, p) ) =
-    def check_commutes(self, iter, hi, eff):
+    def check_commutes(self, iter, hi, eff, body):
 
         # for numeric buffers
 #           AND( NOT_CONFLICTS(i, n, r, w)
         for r in eff.reads:
             for w in eff.writes:
+                if r.buffer == w.buffer:
+                    # If write is shadowing read, it's safe
+                    if (iter not in LoopIR_Dependencies(r.buffer, body).result()
+                            and self.check_order(w, r, body)):
+                        continue
+
                 self.not_conflicts(iter, hi, r, w)
 #                NOT_CONFLICTS(i, n, r, p)
         for r in eff.reads:
@@ -1072,7 +1069,14 @@ class CheckEffects:
 #                NOT_CONFLICTS(i, n, w, w)
         for w1 in eff.writes:
             for w2 in eff.writes:
+                if w1.buffer == w2.buffer:
+                    # If we're writing a loop invariant value to
+                    # the same buffer, that is safe
+                    if iter not in LoopIR_Dependencies(w1.buffer, body).result():
+                        continue
+
                 self.not_conflicts(iter, hi, w1, w2)
+
 #                NOT_CONFLICTS(i, n, w, p) )
         for w in eff.writes:
             for p in eff.reduces:
@@ -1189,7 +1193,7 @@ class CheckEffects:
                 # Parallelism checking here
                 self.check_config_no_loop_depend(stmt.iter, sub_body_eff)
                 self.check_commutes(stmt.iter, lift_expr(stmt.hi),
-                                               sub_body_eff)
+                                               sub_body_eff, stmt.body)
 
                 body_eff = eff_concat(stmt.eff, body_eff)
 

@@ -15,6 +15,94 @@ from .helper import *
 
 # ------- Effect check tests ---------
 
+# Should be an error!
+def test_write_write1():
+    with pytest.raises(TypeError,
+                       match='data race conflict with statement'):
+        @proc
+        def foo(n : size, A : i8[n]):
+            a : i8
+            for i in par(0, n):
+                a    = A[i]
+
+        foo.check_effects()
+
+def test_write_write2():
+    with pytest.raises(TypeError,
+                       match='data race conflict with statement'):
+        @proc
+        def foo(n : size, A : i8[n]):
+            a : i8
+            for i in par(0, n):
+                tmp_a : i8
+                tmp_a = A[i]
+                a    = tmp_a
+
+        foo.check_effects()
+
+def test_write_write3():
+    @proc
+    def foo(n : size, A : i8[n]):
+        a : i8
+        for i in par(0, n):
+            a    = 3.0
+
+    foo.check_effects()
+
+# Should be an error!
+def test_read_write1():
+    with pytest.raises(TypeError,
+                       match='data race conflict with statement'):
+        @proc
+        def foo(n : size, A : i8[n]):
+            a : i8
+            a = 4.0
+            for i in par(0, n):
+                A[i] = a
+                a    = 0.0
+
+        foo.check_effects()
+
+# This is fine
+def test_read_write2():
+    @proc
+    def foo(n : size, A : i8[n]):
+        a : i8
+        a = 4.0
+        for i in par(0, n):
+            a    = 0.0
+            A[i] = a
+
+    foo.check_effects()
+
+"""
+# This is fine
+def test_reduce_write1():
+    @proc
+    def foo(n : size, A : i8[n]):
+        a : i8
+        a = 4.0
+        for i in par(0, n):
+            a   += A[i]
+            a    = 0.0
+
+    foo.check_effects()
+
+# This is fine
+def test_reduce_write2():
+    @proc
+    def foo(n : size, A : i8[n]):
+        a : i8
+        a = 4.0
+        for i in par(0, n):
+            a    = 0.0
+            a   += A[i]
+
+    foo.check_effects()
+"""
+
+
+
 def test_index1():
     with pytest.raises(TypeError,
                        match='expected expression to always be non-negative'):

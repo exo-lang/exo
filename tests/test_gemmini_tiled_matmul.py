@@ -463,7 +463,6 @@ def test_matmul_c_i8():
 
 
 
-
 def test_matmul_c_i8_perfect():
     T = GemmTestBuilder('matmul_c_i8_perfect')
     T.add_body(['gemm_init_mem();',
