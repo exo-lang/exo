@@ -522,6 +522,7 @@ def eff_concat(e1, e2, srcinfo=None):
             else:
                 pred    = _or_preds(w1.pred, w2.pred)
                 val     = Effects.Select(w2.pred, w2.value, w1.value)
+                # TODO: Isn't this broken?
 
         return ([ cws1[w] for w in cws1 if w not in overlap ]+
                 [ cws2[w] for w in cws2 if w not in overlap ]+

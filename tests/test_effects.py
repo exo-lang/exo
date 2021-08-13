@@ -87,8 +87,9 @@ def test_read_write2():
 
     foo.check_effects()
 
-"""
+
 # This is fine
+@pytest.mark.skip()
 def test_reduce_write1():
     @proc
     def foo(n : size, A : i8[n]):
@@ -101,6 +102,7 @@ def test_reduce_write1():
     foo.check_effects()
 
 # This is fine
+@pytest.mark.skip()
 def test_reduce_write2():
     @proc
     def foo(n : size, A : i8[n]):
@@ -111,8 +113,6 @@ def test_reduce_write2():
             a   += A[i]
 
     foo.check_effects()
-"""
-
 
 
 def test_index1():

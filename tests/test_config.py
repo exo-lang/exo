@@ -43,14 +43,56 @@ def test_config_write2():
     ConfigAB = new_config_f32()
     with pytest.raises(TypeError,
                        match='data race conflict with statement'):
-        # TODO: directly assigining A[i] here is an error, because
-        # config value cannot be Read...
         @proc
         def foo(n : size, A : f32[n]):
             a : f32
             for i in par(0, n):
                 a = A[i]
                 ConfigAB.a = a
+
+@pytest.mark.skip()
+def test_config_write3():
+    ConfigAB = new_config_f32()
+
+    # TODO: directly assigining A[i] here is an error, because
+    # config value cannot be Read...
+    @proc
+    def foo(n : size, A : f32[n]):
+        a : f32
+        for i in par(0, n):
+            a = A[i]
+            ConfigAB.a = a
+
+def test_config_write4():
+    ConfigAB = new_config_f32()
+
+    with pytest.raises(TypeError,
+                       match="expected 'index' or 'size'"):
+        @proc
+        def foo():
+            assert ConfigAB.a == 0
+            pass
+                
+def test_config_write5():
+    ConfigAB = new_config_f32()
+
+    @proc
+    def foo(n : size):
+        a : f32
+        for i in par(0, n):
+            a = ConfigAB.a
+
+@pytest.mark.skip() # This should work
+def test_config_write6():
+    ConfigAB = new_config_f32()
+
+    @proc
+    def foo(n : size):
+        a : f32
+        for i in par(0, n):
+            ConfigAB.a = 3.0
+            a = ConfigAB.a
+
 
 def new_config_ld():
     @config
@@ -75,6 +117,8 @@ def test_ld():
         ConfigLoad.src_stride = src_stride
 
 
+    # TODO: How to readon that this ConfigLoad.scale is same as scale in
+    # ld_i8?? We need to be able to unify those..
     _gemm_do_ld_i8   = ("gemmini_extended_mvin( {src}.data, "+
                                   "((uint64_t) {dst}.data), {m}, {n} );")
     @instr(_gemm_do_ld_i8)
