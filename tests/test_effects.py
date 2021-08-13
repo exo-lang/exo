@@ -15,6 +15,18 @@ from .helper import *
 
 # ------- Effect check tests ---------
 
+def test_new_stride1():
+    @proc
+    def foo(s : stride, scale : f32):
+        assert s == 1
+        pass
+
+    @proc
+    def bar(n : size, A : i8[n]):
+        scale : f32
+        scale = 0.0
+        foo(stride(A, 0), scale)
+
 # Should be an error!
 def test_write_write1():
     with pytest.raises(TypeError,

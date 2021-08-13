@@ -65,7 +65,7 @@ module Effects {
     'sym':          lambda x: type(x) is Sym,
     'type':         lambda x: LoopIR.T.is_type(x),
     'binop':        lambda x: x in front_ops,
-    'config':      lambda x: isinstance(x, Config),
+    'config':       lambda x: isinstance(x, Config),
     'srcinfo':      lambda x: type(x) is SrcInfo,
 })
 
@@ -297,6 +297,9 @@ def eff_subst(env, eff):
     elif type(eff) is Effects.config_eff:
         value   = eff_subst(env, eff.value) if eff.value else None
         pred    = eff_subst(env, eff.pred) if eff.pred else None
+        # TODO: Fix!!
+        if type(value) is Sym:
+            value = Effects.Var(value, eff.value.type, eff.value.srcinfo)
         return Effects.config_eff(eff.config, eff.field,
                                   value, pred, eff.srcinfo)
     elif type(eff) is Effects.Var:
@@ -386,6 +389,7 @@ def _subcfg(env, eff):
 
 @extclass(Effects.effect)
 @extclass(Effects.effset)
+@extclass(Effects.config_eff)
 @extclass(Effects.expr)
 def has_FV(self, x):
     return _is_FV(x, self)
@@ -496,8 +500,9 @@ def eff_concat(e1, e2, srcinfo=None):
         if not ce.pred:
             return ce.value
         else:
-            old_val = Effects.ConfigField( ce.config, ce.field )
-            return Effects.Select(ce.pred, ce.value, old_val)
+            # TODO: Fix! I'm not sure what is the intent here..
+            old_val = Effects.ConfigField( ce.config, ce.field, LoopIR.T.bool, srcinfo )
+            return Effects.Select(ce.pred, ce.value, old_val, LoopIR.T.bool, srcinfo )
 
     # substitute on the basis of writes in the first effect
     env = { (ce.config,ce.field) : write_val(ce)
@@ -537,7 +542,8 @@ def eff_concat(e1, e2, srcinfo=None):
                     break
 
             # handle the shadowing
-            if write.pred is None:
+            # TODO: is this correct?
+            if write is None or write.pred is None:
                 # unconditional write, so remove the read
                 pass
             else:
@@ -597,7 +603,7 @@ def eff_bind(bind_name, e, pred=None, config_pred=None):
                               _and_preds(pred,es.pred), es.srcinfo)
     def filter_ce(ce):
         return Effects.config_eff(ce.config, ce.field,
-                                  ce.value, _and_preds(pred,ce.config_pred),
+                                  ce.value, _and_preds(pred, config_pred),
                                   ce.srcinfo)
 
     return Effects.effect( [ bind_es(es) for es in e.reads ],

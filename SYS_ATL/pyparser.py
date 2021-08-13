@@ -76,6 +76,15 @@ def proc(f, _instr=None,_testing=None):
     assert(len(stack_frames) >= 1)
     assert(type(stack_frames[1]) == inspect.FrameInfo)
     func_locals = stack_frames[1].frame.f_locals
+    if _instr is not None:
+        assert(len(stack_frames) >= 2)
+        assert(type(stack_frames[2]) == inspect.FrameInfo)
+        func_locals = stack_frames[2].frame.f_locals
+    else:
+        assert(len(stack_frames) >= 1)
+        assert(type(stack_frames[1]) == inspect.FrameInfo)
+        func_locals = stack_frames[1].frame.f_locals
+
     assert(type(func_locals) == dict)
     srclocals = ChainMap(func_locals)
 
