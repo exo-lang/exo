@@ -358,6 +358,25 @@ class Procedure:
         loopir      = Schedules.DoBindExpr(loopir, new_name, expr).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def stage_assn(self, new_name, stmt_pattern):
+        if not is_valid_name(new_name):
+            raise TypeError("expected first argument to be a valid name")
+
+        ir = self._loopir_proc
+        matches = match_pattern(ir.body, stmt_pattern, call_depth=1,
+                                default_match_no=0)
+        if not matches:
+            raise ValueError("failed to find Assign or Reduce")
+
+        for match in matches:
+            if isinstance(match, list) and len(match) == 1:
+                match = match[0]
+            if not isinstance(match, (LoopIR.Assign, LoopIR.Reduce)):
+                raise ValueError(f"expected Assign or Reduce, got {match}")
+            ir = Schedules.DoStageAssn(ir, new_name, match).result()
+
+        return Procedure(ir, _provenance_eq_Procedure=self)
+
     def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "+

@@ -5,7 +5,7 @@ import sys
 sys.path.append(sys.path[0] + "/..")
 from SYS_ATL import DRAM
 from SYS_ATL.libs.memories import AVX2
-from .x86 import loadu, storeu, mul
+from .x86 import loadu, storeu, mul, fma
 
 sys.path.append(sys.path[0] + "/.")
 from .helper import *
@@ -132,27 +132,23 @@ def test_avx2_simple_math_scheduling():
     print()
     print()
 
-    simple_math_avx2_sched = simple_math_avx2_sched.split(
-        'i', 8, ['io', 'ii'], tail='cut_and_guard')
-
-    simple_math_avx2_sched = simple_math_avx2_sched.bind_expr('xy',
-                                                              'x[_] * y[_]')
-    simple_math_avx2_sched = simple_math_avx2_sched.lift_alloc('xy : _')
-    simple_math_avx2_sched = simple_math_avx2_sched.set_memory('xy', AVX2)
-
-    simple_math_avx2_sched = simple_math_avx2_sched.bind_expr('xVec', 'x[_]')
-    simple_math_avx2_sched = simple_math_avx2_sched.lift_alloc('xVec : _')
-    simple_math_avx2_sched = simple_math_avx2_sched.set_memory('xVec', AVX2)
-
-    simple_math_avx2_sched = simple_math_avx2_sched.fission_after('xVec[_] = _')
-
-    simple_math_avx2_sched = simple_math_avx2_sched.bind_expr('yVec', 'y[_]')
-    simple_math_avx2_sched = simple_math_avx2_sched.lift_alloc('yVec : _')
-    simple_math_avx2_sched = simple_math_avx2_sched.set_memory('yVec', AVX2)
-
-    simple_math_avx2_sched = simple_math_avx2_sched.fission_after('yVec[_] = _')
-
-    simple_math_avx2_sched = simple_math_avx2_sched.fission_after('xy[_] = _')
+    simple_math_avx2_sched = (
+        simple_math_avx2_sched
+            .split('i', 8, ['io', 'ii'], tail='cut_and_guard')
+            .stage_assn('xVec', 'x[_] += _ #0')
+            .lift_alloc('xVec: _')
+            .fission_after('xVec[_] = _')
+            .fission_after('xVec[_] += _')
+            .bind_expr('xy', 'x[_] * y[_]')
+            .lift_alloc('xy: _')
+            .fission_after('xy[_] = _')
+            .set_memory('xVec', AVX2)
+            .set_memory('xy', AVX2)
+            .replace_all(loadu, 'for _ in _: _')
+            .replace_all(mul, 'for _ in _: _')
+            .replace_all(fma, 'for _ in _: _')
+            .replace_all(storeu, 'for _ in _: _')
+    )
 
     print(simple_math_avx2_sched)
     print()

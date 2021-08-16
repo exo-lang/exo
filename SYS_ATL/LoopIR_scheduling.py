@@ -689,6 +689,32 @@ class _BindExpr(LoopIR_Rewrite):
             return super().map_e(e)
 
 
+class _DoStageAssn(LoopIR_Rewrite):
+    def __init__(self, proc, new_name, assn):
+        assert isinstance(assn, (LoopIR.Assign, LoopIR.Reduce))
+        self.assn = assn
+        self.new_name = Sym(new_name)
+        super().__init__(proc)
+
+    def map_s(self, s):
+        name = self.new_name
+        if s is self.assn and isinstance(s, LoopIR.Assign):
+            raise NotImplementedError()
+        elif s is self.assn and isinstance(s, LoopIR.Reduce):
+            # TODO: fill in effects
+            rdbuf = LoopIR.Read(s.name, s.idx, s.type, s.srcinfo)
+            rdtmp = LoopIR.Read(name, [], s.type, s.srcinfo)
+            return [
+                LoopIR.Alloc(name, T.R, None, None, s.srcinfo),
+                LoopIR.Assign(name, s.type, None, [], rdbuf, None, s.srcinfo),
+                LoopIR.Reduce(name, s.type, None, [], s.rhs, None, s.srcinfo),
+                LoopIR.Assign(s.name, s.type, None, s.idx, rdtmp, None,
+                              s.srcinfo)
+            ]
+
+        return super().map_s(s)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
@@ -918,6 +944,7 @@ def check_used(variables, eff):
             return True
     return False
 
+
 class _Is_Alloc_Free(LoopIR_Do):
     def __init__(self, pre, post):
         self._is_alloc_free = True
@@ -948,6 +975,7 @@ class _Is_Alloc_Free(LoopIR_Do):
             self._alloc_var.append(s.name)
 
         super().do_s(s)
+
 
 def _is_alloc_free(pre, post):
     return _Is_Alloc_Free(pre, post).result()
@@ -982,8 +1010,10 @@ class _FreeVars(LoopIR_Do):
 
         super().do_e(e)
 
+
 def _FV(stmts):
     return _FreeVars(stmts).result()
+
 
 def _is_idempotent(stmts):
     def _stmt(s):
@@ -1164,6 +1194,7 @@ def _make_closure(name, stmts, var_types):
 
     return closure, args
 
+
 class _DoFactorOut(LoopIR_Rewrite):
     def __init__(self, proc, name, stmt):
         assert isinstance(stmt, LoopIR.stmt)
@@ -1236,6 +1267,7 @@ class Schedules:
     SetTypAndMem        = _SetTypAndMem
     DoCallSwap          = _CallSwap
     DoBindExpr          = _BindExpr
+    DoStageAssn         = _DoStageAssn
     DoLiftAlloc         = _LiftAlloc
     DoFissionLoops      = _FissionLoops
     DoFactorOut         = _DoFactorOut
