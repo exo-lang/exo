@@ -658,15 +658,17 @@ class _CallSwap(LoopIR_Rewrite):
 
 
 class _BindExpr(LoopIR_Rewrite):
-    def __init__(self, proc, new_name, expr, cse=False):
-        assert isinstance(expr, LoopIR.expr)
-        assert expr.type == T.R
-        assert not cse  # TODO: enable CSE
+    def __init__(self, proc, new_name, exprs, cse=False):
+        assert all(isinstance(expr, LoopIR.expr) for expr in exprs)
+        assert all(expr.type == T.R for expr in exprs)
+        assert exprs
+
         self.orig_proc = proc
         self.new_name = Sym(new_name)
-        self.expr = expr
-        self.found_expr = False
+        self.exprs = exprs if cse else [exprs[0]]
+        self.found_expr = None
         self.cse = cse
+        self.placed_alloc = False
         self.sub_over = False
 
         super().__init__(proc)
@@ -678,21 +680,30 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, LoopIR.ForAll):
             body = []
-            # TODO: check for occurrence in s.hi?
+
+            is_alloc_block = False
             for stmt in s.body:
                 stmt = self.map_s(stmt)
-                if self.found_expr and (self.cse or not self.sub_over):
-                    self.found_expr = False
-                    self.sub_over = True
+
+                if self.found_expr and not self.placed_alloc:
+                    self.placed_alloc = True
+                    is_alloc_block = True
                     body.append(
                         LoopIR.Alloc(self.new_name, T.R, None, None, s.srcinfo)
                     )
                     body.append(
                         # TODO Fix Assign, probably wrong
                         LoopIR.Assign(self.new_name, T.R, None, [],
-                                      self.expr, None, self.expr.srcinfo)
+                                      self.found_expr, None,
+                                      self.found_expr.srcinfo)
                     )
+
                 body.extend(stmt)
+
+            # If this is the block containing the new alloc, stop substituting
+            if is_alloc_block:
+                self.sub_over = True
+
             return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
 
         # TODO: handle LoopIR.If
@@ -700,8 +711,11 @@ class _BindExpr(LoopIR_Rewrite):
         return super().map_s(s)
 
     def map_e(self, e):
-        if e is self.expr and not self.sub_over:
-            self.found_expr = True
+        if e in self.exprs and not self.sub_over:
+            if not self.found_expr:
+                # TODO: dirty hack. need real CSE-equality (i.e. modulo srcinfo)
+                self.exprs = [x for x in self.exprs if str(e) == str(x)]
+            self.found_expr = e
             return LoopIR.Read(self.new_name, [], e.type, e.srcinfo)
         else:
             return super().map_e(e)

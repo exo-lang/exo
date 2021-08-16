@@ -337,25 +337,24 @@ class Procedure:
                                                    new_proc).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def bind_expr(self, new_name, expr_pattern):
+    def bind_expr(self, new_name, expr_pattern, cse=False):
         if not is_valid_name(new_name):
             raise TypeError("expected first argument to be a valid name")
-        body        = self._loopir_proc.body
-        expr_list   = match_pattern(body, expr_pattern,
-                                    call_depth=1, default_match_no=0)
-        if len(expr_list) == 0:
-            raise TypeError("failed to find expression")
-        elif not isinstance(expr_list[0], LoopIR.expr):
-            raise TypeError("pattern matched, but not to an expression")
-        else:
-            expr = expr_list[0]
+        body    = self._loopir_proc.body
+        matches = match_pattern(body, expr_pattern, call_depth=1)
 
-        if not expr.type.is_numeric():
+        if not matches:
+            raise TypeError("failed to find expression")
+
+        if any(not isinstance(m, LoopIR.expr) for m in matches):
+            raise TypeError("pattern matched, but not to an expression")
+
+        if any(not m.type.is_numeric() for m in matches):
             raise TypeError("only numeric (not index or size) expressions "+
                             "can be targeted by bind_expr()")
 
-        loopir      = self._loopir_proc
-        loopir      = Schedules.DoBindExpr(loopir, new_name, expr).result()
+        loopir = self._loopir_proc
+        loopir = Schedules.DoBindExpr(loopir, new_name, matches, cse).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def stage_assn(self, new_name, stmt_pattern):
