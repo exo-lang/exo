@@ -673,6 +673,9 @@ class _BindExpr(LoopIR_Rewrite):
 
         super().__init__(proc)
 
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
     def process_block(self, block):
         if self.sub_over:
             return block
@@ -745,7 +748,11 @@ class _DoStageAssn(LoopIR_Rewrite):
         assert isinstance(assn, (LoopIR.Assign, LoopIR.Reduce))
         self.assn = assn
         self.new_name = Sym(new_name)
+
         super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
         name = self.new_name
