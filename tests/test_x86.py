@@ -12,9 +12,11 @@ from .helper import *
 
 import platform
 import pytest
+
 if platform.system() == 'Darwin':
     pytest.skip("skipping x86 tests on Apple machines for now",
                 allow_module_level=True)
+
 
 def test_avx2_memcpy():
     """
@@ -22,7 +24,8 @@ def test_avx2_memcpy():
     """
 
     @proc
-    def memcpy_avx2(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):  # pragma: no cover
+    def memcpy_avx2(n: size, dst: R[n] @ DRAM,
+                    src: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, (n + 7) / 8):
             if n - 8 * i >= 8:
                 tmp: f32[8] @ AVX2
@@ -39,10 +42,11 @@ def test_avx2_memcpy():
 
     memcpy_avx2.compile_c(TMP_DIR, basename)
 
-    # TODO: -march=skylake here is a hack. Such flags should be somehow handled automatically.
-    #       Maybe this should be inferred by the use of AVX2, but "skylake" isn't right anyway.
-    #       We might need a first-class notion of a Target, which has certain memories available.
-    #       Then we can say that e.g. Skylake-X has AVX2, AVX512, etc.
+    # TODO: -march=skylake here is a hack. Such flags should be somehow handled
+    #   automatically. Maybe this should be inferred by the use of AVX2, but
+    #   "skylake" isn't right anyway. We might need a first-class notion of
+    #   a Target, which has certain memories available. Then we can say that
+    #   e.g. Skylake-X has AVX2, AVX512, etc.
     library = generate_lib(basename, extra_flags="-march=skylake")
 
     for n in (7, 8, 9, 31, 32, 33, 127, 128, 129):
@@ -59,7 +63,8 @@ def test_avx2_simple_math():
     """
 
     @proc
-    def simple_math_avx2(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
+    def simple_math_avx2(n: size, x: R[n] @ DRAM,
+                         y: R[n] @ DRAM):  # pragma: no cover
         assert n % 8 == 0
         for i in par(0, n / 8):
             xVec: f32[8] @ AVX2
@@ -93,14 +98,17 @@ def test_avx2_simple_math_scheduling():
     """
 
     @proc
-    def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
+    def simple_math_avx2_sched(n: size, x: R[n] @ DRAM,
+                               y: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, n):
-            # TODO: replace this with x[i] = x[i] * y[i] * y[i] and then use bind_expr
+            # TODO: replace this with x[i] = x[i] * y[i] * y[i] and then use
+            #  bind_expr
             x[i] += x[i] * y[i] * y[i]
 
     def pre_bake_staged_memory(_):
         @proc
-        def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):
+        def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM,
+                                        y: R[n] @ DRAM):
             for io in par(0, n / 8):
                 yVec: f32[8] @ AVX2
                 xVec: f32[8] @ AVX2
@@ -116,51 +124,57 @@ def test_avx2_simple_math_scheduling():
                     x[8 * io + ii] = xVec[ii]
             if n % 8 > 0:
                 for ii_2 in par(0, n % 8):
-                    x[ii_2 + n / 8 * 8] = x[ii_2 + n / 8 * 8] * y[ii_2 + n / 8 * 8]
+                    x[ii_2 + n / 8 * 8] = x[ii_2 + n / 8 * 8] * y[
+                        ii_2 + n / 8 * 8]
 
         return simple_math_avx2_scheduling
 
     print()
     print()
 
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.split('i', 8, ['io', 'ii'], tail='cut_and_guard')
+    simple_math_avx2_sched = simple_math_avx2_sched.split(
+        'i', 8, ['io', 'ii'], tail='cut_and_guard')
 
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.bind_expr('xy', 'x[_] * y[_]')
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.lift_alloc('xy : _')
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('xy', AVX2)
+    simple_math_avx2_sched = simple_math_avx2_sched.bind_expr('xy',
+                                                              'x[_] * y[_]')
+    simple_math_avx2_sched = simple_math_avx2_sched.lift_alloc('xy : _')
+    simple_math_avx2_sched = simple_math_avx2_sched.set_memory('xy', AVX2)
 
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.bind_expr('xVec', 'x[_]')
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.lift_alloc('xVec : _')
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('xVec', AVX2)
+    simple_math_avx2_sched = simple_math_avx2_sched.bind_expr('xVec', 'x[_]')
+    simple_math_avx2_sched = simple_math_avx2_sched.lift_alloc('xVec : _')
+    simple_math_avx2_sched = simple_math_avx2_sched.set_memory('xVec', AVX2)
 
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.fission_after('xVec[_] = _')
+    simple_math_avx2_sched = simple_math_avx2_sched.fission_after('xVec[_] = _')
 
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.bind_expr('yVec', 'y[_]')
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.lift_alloc('yVec : _')
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.set_memory('yVec', AVX2)
+    simple_math_avx2_sched = simple_math_avx2_sched.bind_expr('yVec', 'y[_]')
+    simple_math_avx2_sched = simple_math_avx2_sched.lift_alloc('yVec : _')
+    simple_math_avx2_sched = simple_math_avx2_sched.set_memory('yVec', AVX2)
 
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.fission_after('yVec[_] = _')
+    simple_math_avx2_sched = simple_math_avx2_sched.fission_after('yVec[_] = _')
 
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.fission_after('xy[_] = _')
+    simple_math_avx2_sched = simple_math_avx2_sched.fission_after('xy[_] = _')
 
-    print(simple_math_avx2_scheduling)
+    print(simple_math_avx2_sched)
     print()
 
     # TODO: need a scheduling directive that stages memory.
-    simple_math_avx2_scheduling = pre_bake_staged_memory(simple_math_avx2_scheduling)
+    simple_math_avx2_sched = pre_bake_staged_memory(simple_math_avx2_sched)
 
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace_all(loadu, 'for _ in _: _')
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace_all(mul, 'for _ in _: _')
-    simple_math_avx2_scheduling = simple_math_avx2_scheduling.replace_all(storeu, 'for _ in _: _')
+    simple_math_avx2_sched = simple_math_avx2_sched.replace_all(
+        loadu, 'for _ in _: _')
+    simple_math_avx2_sched = simple_math_avx2_sched.replace_all(
+        mul, 'for _ in _: _')
+    simple_math_avx2_sched = simple_math_avx2_sched.replace_all(
+        storeu, 'for _ in _: _')
 
-    print(simple_math_avx2_scheduling)
+    print(simple_math_avx2_sched)
 
     basename = test_avx2_simple_math_scheduling.__name__
 
     with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
-        f.write(str(simple_math_avx2_scheduling))
+        f.write(str(simple_math_avx2_sched))
 
-    simple_math_avx2_scheduling.compile_c(TMP_DIR, basename)
+    simple_math_avx2_sched.compile_c(TMP_DIR, basename)
     library = generate_lib(basename, extra_flags="-march=skylake")
 
     for n in (8, 16, 24, 32, 64, 128):
@@ -168,7 +182,8 @@ def test_avx2_simple_math_scheduling():
         y = nparray([float(3 * i) for i in range(n)])
         expected = x * y * y
 
-        library.simple_math_avx2_scheduling(POINTER(c_int)(), n, cvt_c(x), cvt_c(y))
+        int_ptr = POINTER(c_int)()
+        library.simple_math_avx2_scheduling(int_ptr, n, cvt_c(x), cvt_c(y))
         assert np.allclose(x, expected)
 
 
@@ -179,12 +194,12 @@ def test_avx2_sgemm_base():
 
     @proc
     def sgemm_base(
-        m: size,
-        n: size,
-        p: size,
-        A: f32[m, p] @ DRAM,
-        B: f32[p, n] @ DRAM,
-        C: f32[m, n] @ DRAM,
+            m: size,
+            n: size,
+            p: size,
+            A: f32[m, p] @ DRAM,
+            B: f32[p, n] @ DRAM,
+            C: f32[m, n] @ DRAM,
     ):
         for i in par(0, m):
             for j in par(0, n):
