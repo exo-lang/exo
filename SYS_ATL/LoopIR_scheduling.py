@@ -731,7 +731,14 @@ class _DoStageAssn(LoopIR_Rewrite):
     def map_s(self, s):
         name = self.new_name
         if s is self.assn and isinstance(s, LoopIR.Assign):
-            raise NotImplementedError()
+            # TODO: fill in effects
+            rdtmp = LoopIR.Read(name, [], s.type, s.srcinfo)
+            return [
+                LoopIR.Alloc(name, T.R, None, None, s.srcinfo),
+                LoopIR.Assign(name, s.type, None, [], s.rhs, None, s.srcinfo),
+                LoopIR.Assign(s.name, s.type, None, s.idx, rdtmp, None,
+                              s.srcinfo)
+            ]
         elif s is self.assn and isinstance(s, LoopIR.Reduce):
             # TODO: fill in effects
             rdbuf = LoopIR.Read(s.name, s.idx, s.type, s.srcinfo)
