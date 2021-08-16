@@ -755,24 +755,29 @@ class _DoStageAssn(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        name = self.new_name
+        tmp = self.new_name
         if s is self.assn and isinstance(s, LoopIR.Assign):
-            # TODO: fill in effects
-            rdtmp = LoopIR.Read(name, [], s.type, s.srcinfo)
+            rdtmp = LoopIR.Read(tmp, [], s.type, s.srcinfo)
             return [
-                LoopIR.Alloc(name, T.R, None, None, s.srcinfo),
-                LoopIR.Assign(name, s.type, None, [], s.rhs, None, s.srcinfo),
+                # tmp : R
+                LoopIR.Alloc(tmp, T.R, None, None, s.srcinfo),
+                # tmp = rhs
+                LoopIR.Assign(tmp, s.type, None, [], s.rhs, None, s.srcinfo),
+                # lhs = tmp
                 LoopIR.Assign(s.name, s.type, None, s.idx, rdtmp, None,
                               s.srcinfo)
             ]
         elif s is self.assn and isinstance(s, LoopIR.Reduce):
-            # TODO: fill in effects
             rdbuf = LoopIR.Read(s.name, s.idx, s.type, s.srcinfo)
-            rdtmp = LoopIR.Read(name, [], s.type, s.srcinfo)
+            rdtmp = LoopIR.Read(tmp, [], s.type, s.srcinfo)
             return [
-                LoopIR.Alloc(name, T.R, None, None, s.srcinfo),
-                LoopIR.Assign(name, s.type, None, [], rdbuf, None, s.srcinfo),
-                LoopIR.Reduce(name, s.type, None, [], s.rhs, None, s.srcinfo),
+                # tmp : R
+                LoopIR.Alloc(tmp, T.R, None, None, s.srcinfo),
+                # tmp = lhs
+                LoopIR.Assign(tmp, s.type, None, [], rdbuf, None, s.srcinfo),
+                # tmp += rhs
+                LoopIR.Reduce(tmp, s.type, None, [], s.rhs, None, s.srcinfo),
+                # lhs = tmp
                 LoopIR.Assign(s.name, s.type, None, s.idx, rdtmp, None,
                               s.srcinfo)
             ]
