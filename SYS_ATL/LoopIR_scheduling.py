@@ -658,31 +658,49 @@ class _CallSwap(LoopIR_Rewrite):
 
 
 class _BindExpr(LoopIR_Rewrite):
-    def __init__(self, proc, new_name, expr):
+    def __init__(self, proc, new_name, expr, cse=False):
         assert isinstance(expr, LoopIR.expr)
         assert expr.type == T.R
-        self.orig_proc  = proc
-        self.new_name   = Sym(new_name)
-        self.expr       = expr
+        assert not cse  # TODO: enable CSE
+        self.orig_proc = proc
+        self.new_name = Sym(new_name)
+        self.expr = expr
         self.found_expr = False
+        self.cse = cse
+        self.sub_over = False
 
         super().__init__(proc)
 
+    # TODO: fix up effects
     def map_s(self, s):
-        # handle recursive part of pass at this statement
-        stmts = super().map_s(s)
-        if self.found_expr:
-            # TODO Fix Assign, probably wrong
-            stmts = [ LoopIR.Alloc(self.new_name, T.R, None, None, s.srcinfo),
-                      LoopIR.Assign(self.new_name, s.type, s.cast, [],
-                                    self.expr, None, self.expr.srcinfo )
-                    ] + stmts
-            self.found_expr = False
+        if self.sub_over:
+            return super().map_s(s)
 
-        return stmts
+        if isinstance(s, LoopIR.ForAll):
+            body = []
+            # TODO: check for occurrence in s.hi?
+            for stmt in s.body:
+                stmt = self.map_s(stmt)
+                if self.found_expr and (self.cse or not self.sub_over):
+                    self.found_expr = False
+                    self.sub_over = True
+                    body.append(
+                        LoopIR.Alloc(self.new_name, T.R, None, None, s.srcinfo)
+                    )
+                    body.append(
+                        # TODO Fix Assign, probably wrong
+                        LoopIR.Assign(self.new_name, T.R, None, [],
+                                      self.expr, None, self.expr.srcinfo)
+                    )
+                body.extend(stmt)
+            return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
+
+        # TODO: handle LoopIR.If
+
+        return super().map_s(s)
 
     def map_e(self, e):
-        if e is self.expr:
+        if e is self.expr and not self.sub_over:
             self.found_expr = True
             return LoopIR.Read(self.new_name, [], e.type, e.srcinfo)
         else:
