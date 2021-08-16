@@ -101,9 +101,7 @@ def test_avx2_simple_math_scheduling():
     def simple_math_avx2_sched(n: size, x: R[n] @ DRAM,
                                y: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, n):
-            # TODO: replace this with x[i] = x[i] * y[i] * y[i] and then use
-            #  bind_expr
-            x[i] += x[i] * y[i] * y[i]
+            x[i] = x[i] * y[i] * y[i]
 
     def pre_bake_staged_memory(_):
         @proc
@@ -135,34 +133,32 @@ def test_avx2_simple_math_scheduling():
     simple_math_avx2_sched = (
         simple_math_avx2_sched
             .split('i', 8, ['io', 'ii'], tail='cut_and_guard')
-            .stage_assn('xVec', 'x[_] += _ #0')
+            .stage_assn('xyy', 'x[_] = _ #0')
+            .lift_alloc('xyy: _')
+            .set_memory('xyy', AVX2)
+            .fission_after('xyy[_] = _')
+
+            .replace_all(storeu, 'for _ in _: _')
+
+            .bind_expr('xVec', 'x[_]')
             .lift_alloc('xVec: _')
+            .set_memory('xVec', AVX2)
             .fission_after('xVec[_] = _')
-            .fission_after('xVec[_] += _')
+
             .bind_expr('yVec', 'y[_]', cse=True)
-        # .bind_expr('xy', 'x[_] * y[_]')
-        # .lift_alloc('xy: _')
-        # .fission_after('xy[_] = _')
-        # .set_memory('xVec', AVX2)
-        # .set_memory('xy', AVX2)
-        # .replace_all(loadu, 'for _ in _: _')
-        # .replace_all(mul, 'for _ in _: _')
-        # .replace_all(fma, 'for _ in _: _')
-        # .replace_all(storeu, 'for _ in _: _')
+            .lift_alloc('yVec: _')
+            .set_memory('yVec', AVX2)
+            .fission_after('yVec[_] = _')
+
+            .replace_all(loadu, 'for _ in _: _')
+
+            .bind_expr('xy', 'xVec[_] * yVec[_]')
+            .lift_alloc('xy: _')
+            .set_memory('xy', AVX2)
+            .fission_after('xy[_] = _')
+
+            .replace_all(mul, 'for _ in _: _')
     )
-
-    print(simple_math_avx2_sched)
-    print()
-
-    # TODO: need a scheduling directive that stages memory.
-    simple_math_avx2_sched = pre_bake_staged_memory(simple_math_avx2_sched)
-
-    simple_math_avx2_sched = simple_math_avx2_sched.replace_all(
-        loadu, 'for _ in _: _')
-    simple_math_avx2_sched = simple_math_avx2_sched.replace_all(
-        mul, 'for _ in _: _')
-    simple_math_avx2_sched = simple_math_avx2_sched.replace_all(
-        storeu, 'for _ in _: _')
 
     print(simple_math_avx2_sched)
 
@@ -180,7 +176,7 @@ def test_avx2_simple_math_scheduling():
         expected = x * y * y
 
         int_ptr = POINTER(c_int)()
-        library.simple_math_avx2_scheduling(int_ptr, n, cvt_c(x), cvt_c(y))
+        library.simple_math_avx2_sched(int_ptr, n, cvt_c(x), cvt_c(y))
         assert np.allclose(x, expected)
 
 
