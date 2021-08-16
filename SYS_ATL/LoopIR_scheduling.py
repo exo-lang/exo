@@ -673,40 +673,59 @@ class _BindExpr(LoopIR_Rewrite):
 
         super().__init__(proc)
 
+    def process_block(self, block):
+        if self.sub_over:
+            return block
+
+        new_block = []
+        is_alloc_block = False
+
+        for stmt in block:
+            stmt = self.map_s(stmt)
+
+            if self.found_expr and not self.placed_alloc:
+                self.placed_alloc = True
+                is_alloc_block = True
+                alloc = LoopIR.Alloc(self.new_name, T.R, None, None,
+                                     self.found_expr.srcinfo)
+                # TODO Fix Assign, probably wrong
+                assign = LoopIR.Assign(self.new_name, T.R, None, [],
+                                       self.found_expr, None,
+                                       self.found_expr.srcinfo)
+                new_block.extend([alloc, assign])
+
+            new_block.extend(stmt)
+
+        # If this is the block containing the new alloc, stop substituting
+        if is_alloc_block:
+            self.sub_over = True
+
+        return new_block
+
     # TODO: fix up effects
     def map_s(self, s):
         if self.sub_over:
             return super().map_s(s)
 
         if isinstance(s, LoopIR.ForAll):
-            body = []
-
-            is_alloc_block = False
-            for stmt in s.body:
-                stmt = self.map_s(stmt)
-
-                if self.found_expr and not self.placed_alloc:
-                    self.placed_alloc = True
-                    is_alloc_block = True
-                    body.append(
-                        LoopIR.Alloc(self.new_name, T.R, None, None, s.srcinfo)
-                    )
-                    body.append(
-                        # TODO Fix Assign, probably wrong
-                        LoopIR.Assign(self.new_name, T.R, None, [],
-                                      self.found_expr, None,
-                                      self.found_expr.srcinfo)
-                    )
-
-                body.extend(stmt)
-
-            # If this is the block containing the new alloc, stop substituting
-            if is_alloc_block:
-                self.sub_over = True
-
+            body = self.process_block(s.body)
             return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
 
-        # TODO: handle LoopIR.If
+        if isinstance(s, LoopIR.If):
+            # TODO: our CSE here is very conservative. It won't look for
+            #  matches between the then and else branches; in other words,
+            #  it is restricted to a single basic block.
+            if_then = self.process_block(s.body)
+            if_else = self.process_block(s.orelse)
+            return [LoopIR.If(s.cond, if_then, if_else, s.eff, s.srcinfo)]
+
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            stmts = super().map_s(s)
+            # TODO: kill the search if we update any of the buffers referred
+            #  to by self.found_expr (unfortunately, read effects aren't
+            #  tracked in LoopIR.expr instances, so more ad-hoc logic will be
+            #  needed).
+            return stmts
 
         return super().map_s(s)
 
