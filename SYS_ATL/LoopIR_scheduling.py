@@ -705,7 +705,6 @@ class _BindExpr(LoopIR_Rewrite):
 
         return new_block
 
-    # TODO: fix up effects
     def map_s(self, s):
         if self.sub_over:
             return super().map_s(s)
