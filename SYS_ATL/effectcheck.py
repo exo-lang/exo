@@ -208,8 +208,13 @@ class InferEffects:
 
         elif type(stmt) is LoopIR.WriteConfig:
             rhs_eff = self.eff_e(stmt.rhs)
+            if stmt.rhs.type.is_numeric():
+                rhs = E.Var(Sym("opaque_rhs"), stmt.rhs.type,
+                                               stmt.rhs.srcinfo)
+            else:
+                rhs = lift_expr(stmt.rhs)
             cw_eff  = eff_config_write(stmt.config, stmt.field,
-                                       lift_expr(stmt.rhs), stmt.srcinfo)
+                                       rhs, stmt.srcinfo)
             eff     = eff_union(rhs_eff, cw_eff)
             return LoopIR.WriteConfig(stmt.config, stmt.field, stmt.rhs,
                                       eff, stmt.srcinfo)

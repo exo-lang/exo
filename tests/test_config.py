@@ -23,6 +23,15 @@ def new_config_f32():
 
     return ConfigAB
 
+def new_control_config():
+    @config
+    class ConfigControl:
+        i : index
+        s : stride
+        b : bool
+
+    return ConfigControl
+
 def test_basic_config():
     ConfigAB = new_config_f32()
 
@@ -31,7 +40,7 @@ def test_basic_config():
         ConfigAB.a  = 32.0
         x           = ConfigAB.a
 
-def test_config_write1():
+def test_write_loop_const_number():
     ConfigAB = new_config_f32()
 
     @proc
@@ -39,51 +48,92 @@ def test_config_write1():
         for i in par(0, n):
             ConfigAB.a = 0.0
 
-def test_config_write2():
-    ConfigAB = new_config_f32()
-    with pytest.raises(TypeError,
-                       match='data race conflict with statement'):
-        @proc
-        def foo(n : size, A : f32[n]):
-            a : f32
-            for i in par(0, n):
-                a = A[i]
-                ConfigAB.a = a
-
-@pytest.mark.skip()
-def test_config_write3():
-    ConfigAB = new_config_f32()
-
-    # TODO: directly assigining A[i] here is an error, because
-    # config value cannot be Read...
-    @proc
-    def foo(n : size, A : f32[n]):
-        a : f32
-        for i in par(0, n):
-            a = A[i]
-            ConfigAB.a = a
-
-def test_config_write4():
-    ConfigAB = new_config_f32()
-
-    with pytest.raises(TypeError,
-                       match="expected 'index' or 'size'"):
-        @proc
-        def foo():
-            assert ConfigAB.a == 0
-            pass
-                
-def test_config_write5():
+def test_write_loop_builtin():
     ConfigAB = new_config_f32()
 
     @proc
     def foo(n : size):
-        a : f32
         for i in par(0, n):
-            a = ConfigAB.a
+            ConfigAB.a = sin(1.0)
 
+def test_write_loop_varying():
+    ConfigAB = new_config_f32()
+    with pytest.raises(TypeError,
+                       match='TODO: no or wrong error currently'):
+        @proc
+        def foo(n : size, A : f32[n]):
+            for i in par(0, n):
+                ConfigAB.a = A[i]
+
+# Need to fix effects so that
+# this pattern of reading and writing the buffer `a` is ok
+# before it makes any sense to run this particular test
+#@pytest.mark.skip()
+def test_write_loop_varying_indirect():
+    ConfigAB = new_config_f32()
+    with pytest.raises(TypeError,
+                       match='TODO: no or wrong error currently'):
+        @proc
+        def foo(n : size, A : f32[n]):
+            for i in par(0, n):
+                a : f32
+                a = A[i]
+                ConfigAB.a = a
+
+def test_write_all_control():
+    CTRL = new_control_config()
+
+    @proc
+    def set_all(i : index, s : stride, b : bool):
+        CTRL.i  = i 
+        CTRL.s  = s
+        CTRL.b  = b
+
+# NOTE: The following test documents current behavior
+#       but it would be very reasonable to make this test
+#       non-failing
+def test_write_loop_syntax_check_fail():
+    CTRL = new_control_config()
+
+    with pytest.raises(TypeError,
+                       match='depends on the loop iteration variable'):
+        @proc
+        def foo(n : size):
+            for i in par(0, n):
+                CTRL.i = i - i
+
+# Should the following succeed or fail?
+# I think it probably should succeed
+def test_loop_complex_guards():
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n : size):
+        for i in par(0, n):
+            if CTRL.i == 3:
+                CTRL.i = 4
+            if n == n - 1:
+                CTRL.i = 3
+
+def test_loop_circular_guards():
+    CTRL = new_control_config()
+
+    with pytest.raises(TypeError,
+                       match='TODO: Need to determine which error'):
+        @proc
+        def foo(n : size):
+            for i in par(0, n):
+                if CTRL.i == 3:
+                    CTRL.i = 4
+                if CTRL.i == 4:
+                    CTRL.i = 3
+
+
+
+
+# NOTE: I don't think this should work necessarily
 @pytest.mark.skip() # This should work
-def test_config_write6():
+def test_config_write7():
     ConfigAB = new_config_f32()
 
     @proc

@@ -297,9 +297,6 @@ def eff_subst(env, eff):
     elif type(eff) is Effects.config_eff:
         value   = eff_subst(env, eff.value) if eff.value else None
         pred    = eff_subst(env, eff.pred) if eff.pred else None
-        # TODO: Fix!!
-        if type(value) is Sym:
-            value = Effects.Var(value, eff.value.type, eff.value.srcinfo)
         return Effects.config_eff(eff.config, eff.field,
                                   value, pred, eff.srcinfo)
     elif type(eff) is Effects.Var:
@@ -520,9 +517,15 @@ def eff_concat(e1, e2, srcinfo=None):
             if w2.pred is None:
                 return w2
             else:
+                typ = w1.config.lookup(w1.field)[1]
+                assert typ == w2.config.lookup(w2.field)[1]
+
                 pred    = _or_preds(w1.pred, w2.pred)
-                val     = Effects.Select(w2.pred, w2.value, w1.value)
-                # TODO: Isn't this broken?
+                val     = Effects.Select(w2.pred, w2.value, w1.value,
+                                         typ, w2.srcinfo)
+
+                return Effects.config_eff(w1.config, w1.field,
+                                          val, pred, w2.srcinfo)
 
         return ([ cws1[w] for w in cws1 if w not in overlap ]+
                 [ cws2[w] for w in cws2 if w not in overlap ]+
@@ -555,10 +558,6 @@ def eff_concat(e1, e2, srcinfo=None):
 
         return results
 
-    #def sub_ess(env, ess):
-    #    return [ es.config_subst(env) for es in ]
-    #def sub_ces(env, ces):
-    #    return [ ce.config_subst(env) for ce in ces ]
     config_reads    = (e1.config_reads +
                        shadow_reads(e1.config_writes, e2.config_reads))
     config_writes   = merge_writes(e1.config_writes, e2.config_writes)
