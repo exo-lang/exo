@@ -37,7 +37,6 @@ def test_write_write1():
             for i in par(0, n):
                 a    = A[i]
 
-        foo.check_effects()
 
 def test_write_write2():
     with pytest.raises(TypeError,
@@ -50,7 +49,6 @@ def test_write_write2():
                 tmp_a = A[i]
                 a    = tmp_a
 
-        foo.check_effects()
 
 def test_write_write3():
     @proc
@@ -59,7 +57,6 @@ def test_write_write3():
         for i in par(0, n):
             a    = 3.0
 
-    foo.check_effects()
 
 # Should be an error!
 def test_read_write1():
@@ -73,7 +70,6 @@ def test_read_write1():
                 A[i] = a
                 a    = 0.0
 
-        foo.check_effects()
 
 # This is fine
 def test_read_write2():
@@ -85,7 +81,18 @@ def test_read_write2():
             a    = 0.0
             A[i] = a
 
-    foo.check_effects()
+
+# This is not safe
+def test_read_write3():
+    with pytest.raises(TypeError,
+                       match='data race conflict with statement'):
+        @proc
+        def foo(n : size, A : i8[n]):
+            a : i8
+            a = 4.0
+            for i in par(0, n):
+                a    = a + 1.0 # write, read
+                A[i] = a
 
 
 # This is fine
@@ -99,7 +106,6 @@ def test_reduce_write1():
             a   += A[i]
             a    = 0.0
 
-    foo.check_effects()
 
 # This is fine
 @pytest.mark.skip()
@@ -112,7 +118,6 @@ def test_reduce_write2():
             a    = 0.0
             a   += A[i]
 
-    foo.check_effects()
 
 
 def test_index1():
@@ -164,7 +169,6 @@ def test_different_id1():
         for i in par(0, n):
             a = 0.0
 
-    foo.check_effects()
 
 def test_different_id2():
     @proc
@@ -177,7 +181,6 @@ def test_different_id2():
             b: i8 @ DRAM
             b = 0.0
 
-    foo.check_effects()
 
 # For-loop bound non-negative check tests
 @proc

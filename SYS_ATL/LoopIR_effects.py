@@ -533,7 +533,7 @@ def eff_concat(e1, e2, srcinfo=None):
 
     # Step 3: filter out config reads in e2 if they are just
     #         reading the config value written in e1
-    def shadow_reads(config_writes, config_reads):
+    def shadow_config_reads(config_writes, config_reads):
         results = []
         for read in config_reads:
             assert read.value is None
@@ -546,8 +546,9 @@ def eff_concat(e1, e2, srcinfo=None):
                     break
 
             # handle the shadowing
-            # TODO: is this correct?
-            if write is None or write.pred is None:
+            if write is None:
+                results.append(read)
+            elif write.pred is None:
                 # unconditional write, so remove the read
                 pass
             else:
@@ -558,11 +559,42 @@ def eff_concat(e1, e2, srcinfo=None):
 
         return results
 
+
+    def shadow_reads(writes, reads):
+        results = []
+        for read in reads:
+            write = None
+            for w in writes:
+                # find that the write
+                if w.buffer == read.buffer:
+                    # Check loc
+                    flag = True
+                    for l1, l2 in zip(w.loc, read.loc):
+                        if l1 != l2:
+                            flag = False
+                    
+                    if flag:
+                        write = w
+
+            if write is None:
+                results.append(read)
+            elif write.pred is None:
+                pass
+            else:
+                # conditional write, so guard the read
+                pred = _and_preds(read.pred, write.pred.negate())
+                results.append(Effects.effset(read.buffer, read.loc,
+                                              read.names, pred, read.srcinfo))
+
+        return results
+
     config_reads    = (e1.config_reads +
-                       shadow_reads(e1.config_writes, e2.config_reads))
+                       shadow_config_reads(e1.config_writes, e2.config_reads))
     config_writes   = merge_writes(e1.config_writes, e2.config_writes)
 
-    return Effects.effect( e1.reads + e2.reads,
+    reads           = (e1.reads + shadow_reads(e1.writes, e2.reads))
+
+    return Effects.effect( reads,
                            e1.writes + e2.writes,
                            e1.reduces + e2.reduces,
                            config_reads,

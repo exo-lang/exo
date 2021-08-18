@@ -1046,13 +1046,6 @@ class CheckEffects:
 
             self.pop()
 
-    def check_order(self, w, r, body):
-        for s in body:
-            if w in s.eff.writes:
-                return True
-            if r in s.eff.reads:
-                return False
-
 #       COMMUTES( i, n, (r, w, p) ) =
     def check_commutes(self, iter, hi, eff, body):
 
@@ -1060,12 +1053,6 @@ class CheckEffects:
 #           AND( NOT_CONFLICTS(i, n, r, w)
         for r in eff.reads:
             for w in eff.writes:
-                if r.buffer == w.buffer:
-                    # If write is shadowing read, it's safe
-                    if (iter not in LoopIR_Dependencies(r.buffer, body).result()
-                            and self.check_order(w, r, body)):
-                        continue
-
                 self.not_conflicts(iter, hi, r, w)
 #                NOT_CONFLICTS(i, n, r, p)
         for r in eff.reads:
@@ -1270,7 +1257,7 @@ class CheckEffects:
                 body_eff = eff_union(stmt.eff, body_eff)
 
             else:
-                body_eff = eff_union(stmt.eff, body_eff)
+                body_eff = eff_concat(stmt.eff, body_eff)
 
 
         return body_eff # Returns union of all effects
