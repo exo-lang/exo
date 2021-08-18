@@ -201,6 +201,7 @@ class LoopIR_Dependencies(LoopIR_Do):
                     name = self._alias.get(a.name, a.name)
                     self._lhs = name
                     self._depends[name].add(name)
+                    self._depends[name].update(self._context)
                     process_reads()
                     self._lhs = None
 
@@ -210,6 +211,7 @@ class LoopIR_Dependencies(LoopIR_Do):
                 name    = (ce.config, ce.field)
                 self._lhs = name
                 self._depends[name].add(name)
+                self._depends[name].update(self._context)
                 process_reads()
                 self._lhs = None
 
