@@ -200,7 +200,7 @@ class InferEffects:
             else: # Reduce
                 effects = eff_reduce(buf, loc, stmt.srcinfo)
 
-            effects = eff_union(rhs_eff, effects)
+            effects = eff_concat(rhs_eff, effects)
 
             return styp(stmt.name, stmt.type, stmt.cast,
                         stmt.idx, stmt.rhs,
@@ -215,7 +215,7 @@ class InferEffects:
                 rhs = lift_expr(stmt.rhs)
             cw_eff  = eff_config_write(stmt.config, stmt.field,
                                        rhs, stmt.srcinfo)
-            eff     = eff_union(rhs_eff, cw_eff)
+            eff     = eff_concat(rhs_eff, cw_eff)
             return LoopIR.WriteConfig(stmt.config, stmt.field, stmt.rhs,
                                       eff, stmt.srcinfo)
 
@@ -314,7 +314,7 @@ class InferEffects:
             else:
                 return eff_null(e.srcinfo)
         elif type(e) is LoopIR.BinOp:
-            return eff_union(self.eff_e(e.lhs), self.eff_e(e.rhs),
+            return eff_concat(self.eff_e(e.lhs), self.eff_e(e.rhs),
                              srcinfo=e.srcinfo)
         elif type(e) is LoopIR.USub:
             return self.eff_e(e.arg)
@@ -1046,13 +1046,6 @@ class CheckEffects:
 
             self.pop()
 
-    def check_order(self, w, r, body):
-        for s in body:
-            if w in s.eff.writes:
-                return True
-            if r in s.eff.reads:
-                return False
-
 #       COMMUTES( i, n, (r, w, p) ) =
     def check_commutes(self, iter, hi, eff, body):
 
@@ -1060,12 +1053,6 @@ class CheckEffects:
 #           AND( NOT_CONFLICTS(i, n, r, w)
         for r in eff.reads:
             for w in eff.writes:
-                if r.buffer == w.buffer:
-                    # If write is shadowing read, it's safe
-                    if (iter not in LoopIR_Dependencies(r.buffer, body).result()
-                            and self.check_order(w, r, body)):
-                        continue
-
                 self.not_conflicts(iter, hi, r, w)
 #                NOT_CONFLICTS(i, n, r, p)
         for r in eff.reads:
@@ -1218,7 +1205,7 @@ class CheckEffects:
                     self.map_stmts(stmt.orelse)
                     self.pop()
 
-                body_eff = eff_union(stmt.eff, body_eff)
+                body_eff = eff_concat(stmt.eff, body_eff)
 
             elif type(stmt) is LoopIR.Alloc:
                 shape = [ lift_expr(s) for s in stmt.type.shape() ]
@@ -1267,10 +1254,10 @@ class CheckEffects:
                                        f"{stmt.f.name} at {p.srcinfo}."+
                                        f" Assertion is false when:\n  {eg}")
 
-                body_eff = eff_union(stmt.eff, body_eff)
+                body_eff = eff_concat(stmt.eff, body_eff)
 
             else:
-                body_eff = eff_union(stmt.eff, body_eff)
+                body_eff = eff_concat(stmt.eff, body_eff)
 
 
         return body_eff # Returns union of all effects

@@ -15,6 +15,13 @@ from .helper import *
 
 # --- Typechecking tests ---
 
+def test_loop1():
+    @proc
+    def foo():
+        for i in par(0, 10):
+            for j in par(0, i):
+                pass
+
 def test_fresh1():
     with pytest.raises(TypeError,
                        match='unable to disambiguate assignment to undefined variable'):
