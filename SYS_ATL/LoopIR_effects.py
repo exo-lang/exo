@@ -561,32 +561,49 @@ def eff_concat(e1, e2, srcinfo=None):
 
 
     def shadow_reads(writes, reads):
-        results = []
-        for read in reads:
-            write = None
+
+        def shadow_read_by_write(write, read):
+            def boolop(op, lhs, rhs):
+                return Effects.BinOp(op, lhs, rhs, LoopIR.T.bool, write.srcinfo)
+
+            loc = []
+            for l1,l2 in zip(write.loc, read.loc):
+                loc += [boolop("==", l1, l2).negate()]
+
+            # construct loc predicate
+            if loc == []:
+                loc_e = Effects.Const(False, LoopIR.T.bool, write.srcinfo)
+            else:
+                loc_e = loc[0]
+            for l in loc[1:]:
+                loc_e = boolop("or", loc_e, l)
+                
+            # loc_e /\ not write.pred
+            if write.pred is None:
+                pred = loc_e
+            else:
+                pred = boolop("or", loc_e, write.pred.negate())
+
+            pred = _and_preds(read.pred, pred)
+
+            read = Effects.effset(read.buffer, read.loc,
+                                  read.names + write.names,
+                                  pred, read.srcinfo)
+
+            return read
+
+        def shadow_read_by_writes(writes, read):
             for w in writes:
                 # find that the write
                 if w.buffer == read.buffer:
-                    # Check loc
-                    flag = True
-                    for l1, l2 in zip(w.loc, read.loc):
-                        if l1 != l2:
-                            flag = False
-                    
-                    if flag:
-                        write = w
+                    read = shadow_read_by_write(w, read)
 
-            if write is None:
-                results.append(read)
-            elif write.pred is None:
-                pass
-            else:
-                # conditional write, so guard the read
-                pred = _and_preds(read.pred, write.pred.negate())
-                results.append(Effects.effset(read.buffer, read.loc,
-                                              read.names, pred, read.srcinfo))
+            return read
 
-        return results
+        return [ shadow_read_by_writes(writes, r) for r in reads ]
+
+
+
 
     config_reads    = (e1.config_reads +
                        shadow_config_reads(e1.config_writes, e2.config_reads))

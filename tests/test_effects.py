@@ -15,6 +15,19 @@ from .helper import *
 
 # ------- Effect check tests ---------
 
+# This should work!
+def test_nest_loop1():
+    @proc
+    def foo(n : size, m : size, A : i8[n]):
+        a : i8
+        a = 4.0
+        b : i8
+        for i in par(0, n):
+            for j in par(0, m):
+                a    = 0.0
+            b = a
+
+
 def test_new_stride1():
     @proc
     def foo(s : stride, scale : f32):
