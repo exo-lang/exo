@@ -3,15 +3,100 @@ from .LoopIR import LoopIR, LoopIR_Do
 
 from collections import defaultdict, ChainMap
 
+from weakref import WeakKeyDictionary
+
+
+_WC_Leaf = {} # unique object to use as key....
+class WeakCache(WeakKeyDictionary):
+    def __init__(self):
+        self._tuple_dict    = WeakKeyDictionary()
+        self._dict          = WeakKeyDictionary()
+
+    def __contains__(self, key):
+        if type(key) is tuple or type(key) is list:
+            lookup = self._tuple_dict
+            for k in key:
+                if k not in lookup:
+                    return False
+                else:
+                    lookup = lookup[k]
+            return _WC_Leaf in lookup
+        else:
+            return key in self._dict
+
+    def __getitem__(self, key):
+        if type(key) is tuple or type(key) is list:
+            lookup = self._tuple_dict
+            for k in key:
+                lookup  = lookup[k]
+            return lookup[_WC_Leaf]
+        else:
+            return self._dict[key]
+
+    def __setitem__(self, key, value):
+        if type(key) is tuple or type(key) is list:
+            lookup = self._tuple_dict
+            for k in key:
+                if k not in lookup:
+                    lookup[k] = WeakKeyDictionary()
+                lookup = lookup[k]
+            lookup[_WC_Leaf] = value
+        else:
+            self._dict[key] = value
+
+
+#
+# So, what is dependency analysis?
+# Or to put it another way, what extensional property(s)
+# does dependency analysis guarantee?
+#
+# Let B be a block of statements,
+#     s be a store, and
+#     x, y, … be names/symbols.
+# Let FV(B) be the set of names that are free in B
+#
+# Then, first observe that the "meaning" of B is
+#
+#   Exec[[B]] : (FV(B) -> Value) -> Store -> Store
+# 
+# (note that (FV(B) -> Value) is a valuation/mapping specifying the values
+#       of all free variables)
+# (further note that Store = (Name -> Maybe Value) is a valuation/mapping
+#       of variables that models the heap/store)
+# 
+# Then, (not x DependsOn y in B) for some y in FV(B) implies that
+#
+#   (Exec[[B]] (env[ y := v1 ]) s)[x] =
+#   (Exec[[B]] (env[ y := v2 ]) s)[x]
+#
+# for all v1, v2
+#
+# Or in other words, the meaning of B
+# w.r.t. its effect on x
+# is invariant to the value of y
+# when x does not depend on y in B
+#
 
 
 # data-flow dependencies between variable names
 class LoopIR_Dependencies(LoopIR_Do):
     def __init__(self, buf_sym, stmts):
-        self._buf_sym = buf_sym
-        self._lhs     = None
-        self._depends = defaultdict(lambda: set())
-        self._alias   = defaultdict(lambda: None)
+        self._buf_sym   = buf_sym
+        self._lhs       = None
+        self._depends   = defaultdict(set)
+        self._alias     = dict()
+
+        # If `lhs` is not None, then `lhs` will become dependent
+        # on anything read.
+        self._lhs       = None
+
+        # variables that affect whether or not the
+        # currently examined code is even running
+        self._context   = set()
+
+        # If `control` is True, then anything read will be added
+        # to `context`.
+        self._control   = False
 
         self.do_stmts(stmts)
 
@@ -32,46 +117,106 @@ class LoopIR_Dependencies(LoopIR_Do):
 
     def do_s(self, s):
         if type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
-            lhs         = self._alias[s.name] or s.name
+            lhs         = self._alias.get(s.name, s.name)
             self._lhs   = lhs
             self._depends[lhs].add(lhs)
+            self._depends[lhs].update(self._context)
+            for i in s.idx:
+                self.do_e(i)
+            self.do_e(s.rhs)
+            self._lhs   = None
+        elif type(s) is LoopIR.WriteConfig:
+            lhs         = (s.config, s.field)
+            self._lhs   = lhs
+            self._depends[lhs].add(lhs)
+            self._depends[lhs].update(self._context)
+            self.do_e(s.rhs)
+            self._lhs   = None
         elif type(s) is LoopIR.WindowStmt:
-            rhs_buf     = self._alias[s.rhs.name] or s.rhs.name
+            rhs_buf     = self._alias.get(s.rhs.name, s.rhs.name)
             self._alias[s.lhs] = rhs_buf
             self._lhs   = rhs_buf
             self._depends[rhs_buf].add(rhs_buf)
+            self.do_e(s.rhs)
+            self._lhs   = None
+
+        elif type(s) is LoopIR.If:
+            old_context     = self._context
+            self._context   = old_context.copy()
+
+            self._control   = True
+            self.do_e(s.cond)
+            self._control   = False
+
+            self.do_stmts(s.body)
+            self.do_stmts(s.orelse)
+
+            self._context   = old_context
+
+        elif type(s) is LoopIR.ForAll:
+            old_context     = self._context
+            self._context   = old_context.copy()
+
+            self._control   = True
+            self._lhs       = s.iter
+            self._depends[s.iter].add(s.iter)
+            self.do_e(s.hi)
+            self._lhs       = None
+            self._control   = False
+
+            self.do_stmts(s.body)
+
+            self._context   = old_context
+
         elif type(s) is LoopIR.Call:
-            # internal dependencies of each argument
-            for a in s.args:
-                self.do_e(a)
-            # giant cross-bar of dependencies on the arguments
+
+            def process_reads():
+                # now handle dependencies on buffers that might
+                # be read from in the sub-procedure
+                # and dependencies on other arguments
+                for faa, aa in zip(s.f.args, s.args):
+                    if faa.type.is_numeric():
+                        maybe_read = self.analyze_eff(s.f.eff, faa.name,
+                                                      read = True)
+                    else:
+                        maybe_read = True
+
+                    if maybe_read:
+                        self.do_e(aa)
+
+                # additionally, we need to handle dependencies
+                # on configuration fields
+                for ce in s.f.eff.config_reads:
+                    name    = (ce.config, ce.field)
+                    if self._lhs:
+                        self._depends[self._lhs].add(name)
+
+            # for every argument that represents a buffer being
+            # written to
             for fa, a in zip(s.f.args, s.args):
-                if fa.type.is_numeric():
-                    name = self._alias[a.name] or a.name
-                    # handle any potential indexing of this variable
-                    for aa in s.args:
-                        if aa.type.is_indexable():
-                            self.do_e(aa)
-                    # if this buffer is being written,
-                    # then handle dependencies on other buffers
-                    maybe_write = self.analyze_eff(s.f.eff, fa.name,
-                                                   write=True)
-                    if maybe_write:
-                        self._lhs = name
-                        for faa, aa in zip(s.f.args, s.args):
-                            if faa.type.is_numeric():
-                                maybe_read  = self.analyze_eff(s.f.eff, faa.name,
-                                                               read=True)
-                                if maybe_read:
-                                    self.do_e(aa)
-                        self._lhs = None
+                maybe_write = ( fa.type.is_numeric() and
+                                self.analyze_eff(s.f.eff, fa.name,
+                                                 write=True) )
+                if maybe_write:
+                    name = self._alias.get(a.name, a.name)
+                    self._lhs = name
+                    self._depends[name].add(name)
+                    process_reads()
+                    self._lhs = None
 
-            # already handled all sub-terms above
-            # don't do the usual statement processing
-            return
+            # secondly, for every configuration field being written to
+            # by this sub-procedure, we need to determine dependencies
+            for ce in s.f.eff.config_writes:
+                name    = (ce.config, ce.field)
+                self._lhs = name
+                self._depends[name].add(name)
+                process_reads()
+                self._lhs = None
 
-        super().do_s(s)
-        self._lhs = None
+        elif type(s) is LoopIR.Pass or type(s) is LoopIR.Alloc:
+            pass
+        else:
+            assert False, "bad case"
 
     def analyze_eff(self, eff, buf, write=False, read=False):
         if read:
@@ -87,7 +232,7 @@ class LoopIR_Dependencies(LoopIR_Do):
         return False
 
     def do_e(self, e):
-        if type(e) is LoopIR.Read or type(e) is LoopIR.WindowExpr:
+        if ( type(e) is LoopIR.Read or type(e) is LoopIR.WindowExpr ):
             def visit_idx(e):
                 if type(e) is LoopIR.Read:
                     for i in e.idx:
@@ -100,14 +245,20 @@ class LoopIR_Dependencies(LoopIR_Do):
                         else:
                             self.do_e(w.pt)
 
-            lhs     = self._lhs
-            name    = self._alias[e.name] or e.name
-            self._lhs = name
-            if lhs:
-                self._depends[lhs].add(name)
+            name    = self._alias.get(e.name, e.name)
+            if self._lhs:
+                self._depends[self._lhs].add(name)
+            if self._control:
+                self._context.add(name)
+
             visit_idx(e)
-            self._lhs = lhs
-            visit_idx(e)
+
+        elif type(e) is LoopIR.ReadConfig:
+            name    = (e.config, e.field)
+            if self._lhs:
+                self._depends[self._lhs].add(name)
+            if self._control:
+                self._context.add(name)
 
         else:
             super().do_e(e)
@@ -116,4 +267,6 @@ class LoopIR_Dependencies(LoopIR_Do):
         pass
     def do_eff(self, eff):
         pass
+
+
 

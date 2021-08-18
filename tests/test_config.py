@@ -125,7 +125,7 @@ def test_loop_circular_guards():
             for i in par(0, n):
                 if CTRL.i == 3:
                     CTRL.i = 4
-                if CTRL.i == 4:
+                elif CTRL.i == 4:
                     CTRL.i = 3
 
 
