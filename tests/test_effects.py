@@ -15,6 +15,13 @@ from .helper import *
 
 # ------- Effect check tests ---------
 
+def test_seq_write1():
+    @proc
+    def foo(n : size, A : i8[n]):
+        a : i8
+        for i in seq(0, n):
+            a    = A[i]
+
 # This should work!
 def test_nest_loop1():
     @proc

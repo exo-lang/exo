@@ -209,12 +209,14 @@ class TypeChecker:
             self.env[stmt.iter] = T.index
 
             # handle standard ParRanges
-            parerr = ("currently only supporting for-loops of the form:\n" +
-                      "  for _ in par(0, affine_expression):")
+            parerr = ("currently supporting for-loops of the form:\n" +
+                      "  'for _ in par(0, affine_expression):' and "+
+                      "'for _ in seq(0, affine_expression):'")
 
-            if (type(stmt.cond) is not UAST.ParRange or
-                    type(stmt.cond.lo) is not UAST.Const or
-                    stmt.cond.lo.val != 0):
+            if ((type(stmt.cond) is not UAST.ParRange and
+                    type(stmt.cond) is not UAST.SeqRange) or
+                        type(stmt.cond.lo) is not UAST.Const or
+                            stmt.cond.lo.val != 0):
                 self.err(stmt.cond, parerr)
 
             hi = self.check_e(stmt.cond.hi)
@@ -222,7 +224,12 @@ class TypeChecker:
                 self.err(hi, "expected loop bound to be indexable.")
 
             body = self.check_stmts(stmt.body)
-            return [LoopIR.ForAll(stmt.iter, hi, body, None, stmt.srcinfo)]
+            if type(stmt.cond) is UAST.ParRange:
+                return [LoopIR.ForAll(stmt.iter, hi, body, None, stmt.srcinfo)]
+            elif type(stmt.cond) is UAST.SeqRange:
+                return [LoopIR.Seq(stmt.iter, hi, body, None, stmt.srcinfo)]
+            else:
+                assert False, "bad case"
 
         elif type(stmt) is UAST.Alloc:
             typ = self.check_t(stmt.type)

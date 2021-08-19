@@ -65,6 +65,7 @@ module UAST {
             | WindowExpr( sym name, w_access* idx )
             | StrideExpr( sym name, int dim )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
+            | SeqRange( expr lo, expr hi ) -- only use for loop cond
             | ReadConfig( config config, string field )
             attributes( srcinfo srcinfo )
 
@@ -130,6 +131,7 @@ module PAST {
             | Pass    ()
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | ForAll  ( name iter, expr hi,     stmt* body )
+            | Seq     ( name iter, expr hi,     stmt* body )
             | Alloc   ( name name ) -- may want to add type & mem back in?
             | Call    ( name f, expr* args )
             | S_Hole  ()
@@ -190,6 +192,7 @@ module LoopIR {
             | Pass   ()
             | If     ( expr cond, stmt* body, stmt* orelse )
             | ForAll ( sym iter, expr hi, stmt* body )
+            | Seq    ( sym iter, expr hi, stmt* body )
             | Alloc  ( sym name, type type, mem? mem )
             | Free   ( sym name, type type, mem? mem )
             | Call   ( proc f, expr* args )
@@ -458,6 +461,10 @@ class LoopIR_Rewrite:
             return [LoopIR.ForAll( s.iter, self.map_e(s.hi),
                                    self.map_stmts(s.body),
                                    self.map_eff(s.eff), s.srcinfo )]
+        elif styp is LoopIR.Seq:
+            return [LoopIR.Seq( s.iter, self.map_e(s.hi),
+                                self.map_stmts(s.body),
+                                self.map_eff(s.eff), s.srcinfo )]
         elif styp is LoopIR.Call:
             return [LoopIR.Call( s.f, [ self.map_e(a) for a in s.args ],
                                  self.map_eff(s.eff), s.srcinfo )]
@@ -573,7 +580,7 @@ class LoopIR_Do:
             self.do_e(s.cond)
             self.do_stmts(s.body)
             self.do_stmts(s.orelse)
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             self.do_e(s.hi)
             self.do_stmts(s.body)
         elif styp is LoopIR.Call:
@@ -687,7 +694,7 @@ class FreeVars(LoopIR_Do):
             self.pop()
             self.do_eff(s.eff)
             return
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             self.do_e(s.hi)
             self.push()
             self.env[s.iter] = True
@@ -775,14 +782,14 @@ class Alpha_Rename(LoopIR_Rewrite):
             self.pop()
             return stmts
 
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             hi  = self.map_e(s.hi)
             eff = self.map_eff(s.eff)
             self.push()
             itr = s.iter.copy()
             self.env[s.iter] = itr
-            stmts = [LoopIR.ForAll( itr, hi, self.map_stmts(s.body),
-                                    eff, s.srcinfo )]
+            stmts = [styp( itr, hi, self.map_stmts(s.body),
+                                eff, s.srcinfo )]
             self.pop()
             return stmts
         elif styp is LoopIR.Alloc:

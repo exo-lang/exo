@@ -666,16 +666,23 @@ class Parser:
 
     def parse_loop_cond(self, cond):
         if type(cond) is pyast.Call:
-            if type(cond.func) is pyast.Name and cond.func.id == "par":
+            if type(cond.func) is pyast.Name and (cond.func.id == "par" or
+                    cond.func.id == "seq"):
                 if len(cond.keywords) > 0:
-                    self.err(cond, "par() does not support named arguments")
+                    self.err(cond, "par() and seq() does not support"+
+                                   " named arguments")
                 elif len(cond.args) != 2:
-                    self.err(cond, "par() expects exactly 2 arguments")
+                    self.err(cond, "par() and seq() expects exactly"+
+                                   " 2 arguments")
                 lo = self.parse_expr(cond.args[0])
                 hi = self.parse_expr(cond.args[1])
-                return UAST.ParRange(lo, hi, self.getsrcinfo(cond))
+                if cond.func.id == "par":
+                    return UAST.ParRange(lo, hi, self.getsrcinfo(cond))
+                else:
+                    return UAST.SeqRange(lo, hi, self.getsrcinfo(cond))
             else:
-                self.err(cond, "expected 'par(..., ...)' or a predicate")
+                self.err(cond, "expected for loop condition to be in the form "+
+                               "'par(...,...)' or 'seq(...,...)'")
         else:
             return self.parse_expr(cond)
 
@@ -1134,18 +1141,19 @@ class PatternParser:
         if type(cond) is pyast.Name and cond.id == '_':
             return self.parse_expr(cond)
         if type(cond) is pyast.Call:
-            if type(cond.func) is pyast.Name and cond.func.id == "par":
+            if type(cond.func) is pyast.Name and (cond.func.id == "par" or
+                    cond.func.id == "seq"):
                 if len(cond.keywords) > 0:
-                    self.err(cond, "par() does not support named arguments")
+                    self.err(cond, "par() or seq() does not support named arguments")
                 elif len(cond.args) != 2:
-                    self.err(cond, "par() expects exactly 2 arguments")
+                    self.err(cond, "par() or seq() expects exactly 2 arguments")
                 lo = self.parse_expr(cond.args[0])
                 hi = self.parse_expr(cond.args[1])
                 if type(lo) is not UAST.Const or lo.val != 0:
-                    self.err(cond ,"expected par(0, ...)")
+                    self.err(cond ,"expected par(0, ...) or seq(0, ...)")
                 return hi
         # fall-through error
-        self.err(cond, "expected 'par(..., ...)'")
+        self.err(cond, "expected 'par(..., ...)' or 'seq(..., ...)'")
 
     def parse_expr(self, e):
         if type(e) is pyast.Name or type(e) is pyast.Subscript:

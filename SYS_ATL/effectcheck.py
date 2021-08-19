@@ -167,7 +167,7 @@ class InferEffects:
             self.rec_stmts_types(stmt.body)
             if len(stmt.orelse) > 0:
                 self.rec_stmts_types(stmt.orelse)
-        elif type(stmt) is LoopIR.ForAll:
+        elif type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
             self.rec_stmts_types(stmt.body)
         elif type(stmt) is LoopIR.Alloc:
             self._types[stmt.name] = stmt.type
@@ -234,8 +234,9 @@ class InferEffects:
             return LoopIR.If(stmt.cond, body, orelse,
                              effects, stmt.srcinfo)
 
-        elif type(stmt) is LoopIR.ForAll:
-            # pred is: 0 <= bound <= stmt.hi
+        elif type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
+            styp = type(stmt)
+            # pred is: 0 <= bound < stmt.hi
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
             hi    = lift_expr(stmt.hi)
             zero  = E.Const(0, T.int, stmt.srcinfo)
@@ -248,8 +249,8 @@ class InferEffects:
             effects = eff_bind(stmt.iter, body_effect,
                                pred=pred, config_pred=config_pred)
 
-            return LoopIR.ForAll(stmt.iter, stmt.hi, body,
-                                 effects, stmt.srcinfo)
+            return styp(stmt.iter, stmt.hi, body,
+                                   effects, stmt.srcinfo)
 
         elif type(stmt) is LoopIR.Call:
             assert stmt.f.eff is not None
@@ -503,7 +504,7 @@ class CheckStrideAsserts:
                     self.get_stride(stmt.name, stmt.type.shape(),
                                                stmt.type.is_win())
 
-            elif type(stmt) is LoopIR.ForAll:
+            elif type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
                 self.push()
                 self.map_stmts(stmt.body, orig_f)
                 self.pop()
@@ -1127,7 +1128,7 @@ class CheckEffects:
             if type(stmt) is LoopIR.If:
                 self.preprocess_stmts(stmt.body)
                 self.preprocess_stmts(stmt.orelse)
-            elif type(stmt) is LoopIR.ForAll:
+            elif type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
                 self.preprocess_stmts(stmt.body)
             elif type(stmt) is LoopIR.Alloc:
                 if stmt.type.is_tensor_or_window():
@@ -1160,7 +1161,7 @@ class CheckEffects:
         body_eff = eff_null(body[-1].srcinfo)
 
         for stmt in reversed(body):
-            if type(stmt) is LoopIR.ForAll:
+            if type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
                 self.push()
                 def bd_pred(x,hi,srcinfo):
                     zero    = E.Const(0, T.int, srcinfo)
@@ -1182,10 +1183,12 @@ class CheckEffects:
                 sub_body_eff = self.map_stmts(stmt.body)
                 self.pop()
 
-                # Parallelism checking here
                 self.check_config_no_loop_depend(stmt.iter, sub_body_eff)
-                self.check_commutes(stmt.iter, lift_expr(stmt.hi),
-                                               sub_body_eff, stmt.body)
+                # Parallelism checking here
+                # Don't check parallelism is it's a seq loop
+                if type(stmt) is LoopIR.ForAll:
+                    self.check_commutes(stmt.iter, lift_expr(stmt.hi),
+                                                   sub_body_eff, stmt.body)
 
                 body_eff = eff_concat(stmt.eff, body_eff)
 

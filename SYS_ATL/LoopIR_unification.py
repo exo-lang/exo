@@ -90,13 +90,13 @@ class DoReplace(LoopIR_Rewrite):
 
             return [LoopIR.If( s.cond, body, orelse, s.eff, s.srcinfo )]
 
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             self.push()
             self.live_vars[s.iter] = T.index
             body = self.map_stmts(s.body)
             self.pop()
 
-            return [LoopIR.ForAll( s.iter, s.hi, body, s.eff, s.srcinfo )]
+            return [styp( s.iter, s.hi, body, s.eff, s.srcinfo )]
 
         return [s]
 
@@ -856,7 +856,7 @@ class Unification:
             self.unify_e(ps.cond, bs.cond)
             self.unify_stmts(ps.body, bs.body)
             self.unify_stmts(ps.orelse, bs.orelse)
-        elif type(ps) is LoopIR.ForAll:
+        elif type(ps) is LoopIR.ForAll or type(ps) is LoopIR.Seq:
             # BINDING
             self.idx_subst[ps.iter] = bs.iter
             self.unify_e(ps.hi, bs.hi)

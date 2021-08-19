@@ -614,7 +614,7 @@ class Compiler:
                 self.pop()
             self.add_line("}")
 
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             hi = self.comp_e(s.hi)
             self.push(only='env')
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string

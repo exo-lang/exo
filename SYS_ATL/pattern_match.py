@@ -61,6 +61,7 @@ _PAST_to_LoopIR = {
   PAST.Pass:          LoopIR.Pass,
   PAST.If:            LoopIR.If,
   PAST.ForAll:        LoopIR.ForAll,
+  PAST.Seq   :        LoopIR.Seq,
   PAST.Alloc:         LoopIR.Alloc,
   PAST.Call:          LoopIR.Call,
   PAST.S_Hole:        None,
@@ -116,7 +117,7 @@ class PatternMatch:
             self.find_e_in_e(pat, stmt.cond)
             self.find_e_in_stmts(pat, stmt.body)
             self.find_e_in_stmts(pat, stmt.orelse)
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             self.find_e_in_e(pat, stmt.hi)
             self.find_e_in_stmts(pat, stmt.body)
         elif styp is LoopIR.Call:
@@ -177,7 +178,7 @@ class PatternMatch:
         if  styp is LoopIR.If:
             self.find_stmts_in_stmts(pat, stmts[0].body)
             self.find_stmts_in_stmts(pat, stmts[0].orelse)
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             self.find_stmts_in_stmts(pat, stmts[0].body)
         else: pass # other forms of statement do not contain stmt blocks
 
@@ -256,7 +257,7 @@ class PatternMatch:
             return ( self.match_e(pat.cond, stmt.cond) and
                      self.match_stmts(pat.body, stmt.body) and
                      self.match_stmts(pat.orelse, stmt.orelse) )
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             return ( self.match_name(pat.iter, stmt.iter) and
                      self.match_e(pat.hi, stmt.hi) and
                      self.match_stmts(pat.body, stmt.body) )

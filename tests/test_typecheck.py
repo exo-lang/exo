@@ -15,6 +15,12 @@ from .helper import *
 
 # --- Typechecking tests ---
 
+def test_seq1():
+    @proc
+    def foo():
+        for i in seq(0, 10):
+            pass
+
 def test_loop1():
     @proc
     def foo():
@@ -157,14 +163,6 @@ def test_if2():
         else:
             x : R
             pass
-
-def test_par1():
-    with pytest.raises(TypeError,
-                       match='currently only supporting for-loops of the form'):
-        @proc
-        def hoge():
-            for i in par(1, 2):
-                pass
 
 def test_par2():
     with pytest.raises(TypeError,

@@ -98,9 +98,9 @@ class MemoryAnalysis:
             body    = self.mem_stmts(s.body)
             ebody   = self.mem_stmts(s.orelse)
             return LoopIR.If(s.cond, body, ebody, None, s.srcinfo)
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             body = self.mem_stmts(s.body)
-            return LoopIR.ForAll(s.iter, s.hi, body, None, s.srcinfo)
+            return styp(s.iter, s.hi, body, None, s.srcinfo)
         elif styp is LoopIR.Alloc:
             mem = s.mem if s.mem else DRAM
             self.mem_env[s.name] = mem

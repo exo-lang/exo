@@ -153,7 +153,7 @@ class LoopIR_Dependencies(LoopIR_Do):
 
             self._context   = old_context
 
-        elif type(s) is LoopIR.ForAll:
+        elif type(s) is LoopIR.ForAll or type(s) is LoopIR.Seq:
             old_context     = self._context
             self._context   = old_context.copy()
 

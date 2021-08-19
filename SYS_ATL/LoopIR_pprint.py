@@ -250,6 +250,8 @@ class UAST_PPrinter:
             return f"-{self.pexpr(e.arg,prec=op_prec['~'])}"
         elif type(e) is UAST.ParRange:
             return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
+        elif type(e) is UAST.SeqRange:
+            return f"seq({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
         elif type(e) is UAST.WindowExpr:
             def pacc(w):
                 if type(w) is UAST.Point:
@@ -470,10 +472,13 @@ class LoopIR_PPrinter:
                     self.pstmt(p)
                 self.pop()
 
-        elif type(stmt) is LoopIR.ForAll:
+        elif type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
             hi = self.pexpr(stmt.hi)
             self.push(only='env')
-            self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}):")
+            if type(stmt) is LoopIR.ForAll:
+                self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}):")
+            else:
+                self.addline(f"for {self.new_name(stmt.iter)} in seq(0, {hi}):")
             self.push(only='tab')
             for p in stmt.body:
                 self.pstmt(p)
