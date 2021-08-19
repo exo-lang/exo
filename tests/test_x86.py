@@ -202,8 +202,6 @@ def test_avx2_sgemm_6x16():
             .fission_after('b_vec[_] = _')
             .replace_all(loadu)
             .replace_all(fma)
-            .unroll('jo')
-            .unroll('i')
     )
 
     print(avx2_sgemm_6x16)
