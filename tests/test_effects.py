@@ -22,18 +22,6 @@ def test_seq_write1():
         for i in seq(0, n):
             a    = A[i]
 
-# This should work!
-def test_nest_loop1():
-    @proc
-    def foo(n : size, m : size, A : i8[n]):
-        a : i8
-        a = 4.0
-        b : i8
-        for i in par(0, n):
-            for j in par(0, m):
-                a    = 0.0
-            b = a
-
 
 def test_new_stride1():
     @proc
@@ -70,13 +58,6 @@ def test_write_write2():
                 a    = tmp_a
 
 
-def test_write_write3():
-    @proc
-    def foo(n : size, A : i8[n]):
-        a : i8
-        for i in par(0, n):
-            a    = 3.0
-
 
 # Should be an error!
 def test_read_write1():
@@ -89,17 +70,6 @@ def test_read_write1():
             for i in par(0, n):
                 A[i] = a
                 a    = 0.0
-
-
-# This is fine
-def test_read_write2():
-    @proc
-    def foo(n : size, A : i8[n]):
-        a : i8
-        a = 4.0
-        for i in par(0, n):
-            a    = 0.0
-            A[i] = a
 
 
 # This is not safe
@@ -178,28 +148,6 @@ def test_index4():
             for i in par(0, n):
                 a : i8
                 a = 0.0
-
-
-# Effects + schedule tests
-# Handle false dependency.
-def test_different_id1():
-    @proc
-    def foo(n : size, A : i8[n]):
-        a : i8
-        for i in par(0, n):
-            a = 0.0
-
-
-def test_different_id2():
-    @proc
-    def foo(n : size):
-        for ihi in par(0, n):
-            a: i8 @ DRAM
-            for ilo in par(0, 16):
-                a = 0.0
-        if False:
-            b: i8 @ DRAM
-            b = 0.0
 
 
 # For-loop bound non-negative check tests
@@ -596,3 +544,61 @@ def test_stride_assert11():
 # red black gauss seidel
 # https://www.cs.cornell.edu/~bindel/class/cs5220-s10/slides/lec14.pdf
 # wavefront parallel
+"""
+# These are write-write commute and write shadow read tests
+
+# This should work!
+def test_nest_loop1():
+    @proc
+    def foo(n : size, m : size, A : i8[n]):
+        a : i8
+        a = 4.0
+        b : i8
+        for i in par(0, n):
+            for j in par(0, m):
+                a    = 0.0
+            b = a
+
+def test_write_write3():
+    @proc
+    def foo(n : size, A : i8[n]):
+        a : i8
+        for i in par(0, n):
+            a    = 3.0
+
+# This is fine
+def test_read_write2():
+    @proc
+    def foo(n : size, A : i8[n]):
+        a : i8
+        a = 4.0
+        for i in par(0, n):
+            a    = 0.0
+            A[i] = a
+
+# Effects + schedule tests
+# Handle false dependency.
+def test_different_id1():
+    @proc
+    def foo(n : size, A : i8[n]):
+        a : i8
+        for i in par(0, n):
+            a = 0.0
+
+
+def test_different_id2():
+    @proc
+    def foo(n : size):
+        for ihi in par(0, n):
+            a: i8 @ DRAM
+            for ilo in par(0, 16):
+                a = 0.0
+        if False:
+            b: i8 @ DRAM
+            b = 0.0
+
+
+
+
+
+"""

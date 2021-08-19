@@ -376,6 +376,18 @@ class Procedure:
 
         return Procedure(ir, _provenance_eq_Procedure=self)
 
+    def par_to_seq(self, par_pattern):
+        par_stmts = self._find_stmt(par_pattern, default_match_no=None)
+        loopir   = self._loopir_proc
+        for s in par_stmts:
+            if type(s) is not LoopIR.ForAll:
+                raise TypeError("pattern did not describe a par loop")
+
+            loopir  = Schedules.DoParToSeq(loopir, s).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
     def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None,
                    keep_dims=False):
         if not is_pos_int(n_lifts):
