@@ -76,7 +76,7 @@ def mul(
         out[i] = x[i] * y[i]
 
 
-@instr('{out} = _mm256_broadcast_ss({x}, {y});')
+@instr('{out} = _mm256_broadcast_ss({val});')
 def broadcast(
     out: f32[8] @ AVX2,
     val: f32,
