@@ -202,6 +202,8 @@ def test_avx2_sgemm_6x16():
             .fission_after('b_vec[_] = _')
             .replace_all(loadu)
             .replace_all(fma)
+        # .lift_alloc('C_mem: _', n_lifts=3, keep_dims=False)
+        # .fission_after('loadu(_)')
     )
 
     print(avx2_sgemm_6x16)
