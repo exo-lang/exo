@@ -784,6 +784,21 @@ class _DoStageAssn(LoopIR_Rewrite):
         return super().map_s(s)
 
 
+class _DoParToSeq(LoopIR_Rewrite):
+    def __init__(self, proc, par_stmt):
+        assert type(par_stmt) is LoopIR.ForAll
+
+        self.par_stmt = par_stmt
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s == self.par_stmt:
+            body = self.map_stmts(s.body)
+            return [LoopIR.Seq(s.iter, s.hi, body, s.eff, s.srcinfo)]
+        else:
+            return super().map_s(s)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
@@ -874,7 +889,8 @@ class _LiftAlloc(LoopIR_Rewrite):
             # erase the statement from this location
             return []
 
-        elif type(s) is LoopIR.If or type(s) is LoopIR.ForAll:
+        elif (type(s) is LoopIR.If or type(s) is LoopIR.ForAll or
+                type(s) is LoopIR.Seq):
             # handle recursive part of pass at this statement
             self.ctrl_ctxt.append(s)
             stmts = super().map_s(s)
@@ -967,7 +983,7 @@ class _LiftAlloc(LoopIR_Rewrite):
                 # shrink the allocation by being aware of
                 # guards; oh well.
                 continue
-            elif type(s) is LoopIR.ForAll:
+            elif type(s) is LoopIR.ForAll or type(s) is LoopIR.Seq:
                 # note, do not accrue false dependencies
                 if s.iter in self.alloc_deps or self.keep_dims:
                     idxs.append(s.iter)
@@ -1342,3 +1358,4 @@ class Schedules:
     DoLiftAlloc         = _LiftAlloc
     DoFissionLoops      = _FissionLoops
     DoFactorOut         = _DoFactorOut
+    DoParToSeq          = _DoParToSeq

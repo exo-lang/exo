@@ -444,6 +444,9 @@ def test_matmul_c_i8():
     matmul_c_i8 = matmul_c_i8.replace(st_acc_i8, "for i_in in _:_ #0")
 
    # Optimization
+    matmul_c_i8 = matmul_c_i8.par_to_seq("for k in _:_")
+    matmul_c_i8 = matmul_c_i8.par_to_seq("for i in _:_")
+    matmul_c_i8 = matmul_c_i8.par_to_seq("for j in _:_")
     matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8', n_lifts=2)
     matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8', n_lifts=2)
     matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8 #0', n_lifts=1)
@@ -451,16 +454,15 @@ def test_matmul_c_i8():
     matmul_c_i8 = matmul_c_i8.lift_alloc('a : i8 #1', n_lifts=1)
     matmul_c_i8 = matmul_c_i8.lift_alloc('b : i8 #1', n_lifts=1)
 
+    print(matmul_c_i8)
+    matmul_c_i8.check_effects()
+
     T.add_proc(matmul_c_i8)
     T.start_timer('gemmini')
     T.add_body([f'matmul_c_i8(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, (struct systl_win_2i8){{ x, {NN}, 1 }}, (struct systl_win_2i8){{ y, {KK}, 1 }}, (struct systl_win_2i8){{ z_cpu, {NN}, 1 }});',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
     T.compile().run()
-
-    print(matmul_c_i8)
-    matmul_c_i8.check_effects()
-
 
 
 def test_matmul_c_i8_perfect():
