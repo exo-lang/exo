@@ -5,7 +5,7 @@ import sys
 sys.path.append(sys.path[0] + "/..")
 from SYS_ATL import DRAM
 from SYS_ATL.libs.memories import AVX2
-from .x86 import loadu, storeu, mul, fma
+from .x86 import loadu, storeu, mul, fma, broadcast
 
 sys.path.append(sys.path[0] + "/.")
 from .helper import *
@@ -114,7 +114,7 @@ def test_avx2_simple_math_scheduling():
             .set_memory('xyy', AVX2)
             .fission_after('xyy[_] = _')
 
-            .replace_all(storeu, 'for _ in _: _')
+            .replace_all(storeu)
 
             .bind_expr('xVec', 'x[_]')
             .lift_alloc('xVec: _')
@@ -126,14 +126,14 @@ def test_avx2_simple_math_scheduling():
             .set_memory('yVec', AVX2)
             .fission_after('yVec[_] = _')
 
-            .replace_all(loadu, 'for _ in _: _')
+            .replace_all(loadu)
 
             .bind_expr('xy', 'xVec[_] * yVec[_]')
             .lift_alloc('xy: _')
             .set_memory('xy', AVX2)
             .fission_after('xy[_] = _')
 
-            .replace_all(mul, 'for _ in _: _')
+            .replace_all(mul)
     )
 
     print(simple_math_avx2_sched)
@@ -156,7 +156,6 @@ def test_avx2_simple_math_scheduling():
         assert np.allclose(x, expected)
 
 
-@pytest.mark.skip
 def test_avx2_sgemm_6x16():
     @proc
     def avx2_sgemm_6x16(
@@ -184,11 +183,12 @@ def test_avx2_sgemm_6x16():
             .lift_alloc('C_mem: _')
             .fission_after('C_mem[_] = C[_]')
             .fission_after('C_mem[_] += A[_] * B[_]')
-            .replace_all(loadu, 'for _ in _: _')
-            .replace_all(storeu, 'for _ in _: _')
+            .replace_all(loadu)
+            .replace_all(storeu)
             .bind_expr('a_vec', 'A[i, k]')
             .lift_alloc('a_vec: _', keep_dims=True)
-            # .fission_after('a_vec = _')
+            .fission_after('a_vec = _')
+            # .replace(broadcast, 'for ji in _: _')
     )
 
     print(avx2_sgemm_6x16)

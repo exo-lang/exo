@@ -296,14 +296,31 @@ class Procedure:
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def replace_all(self, subproc, pattern):
+    def replace_all(self, subproc):
         # TODO: this is a bad implementation, but necessary due to issues in the
         #       implementation of replace above: after a replacement, statements
         #       can be moved in memory, so matches are invalidated. Matching and
         #       replacing ought to be fused instead. This directive would reduce
         #       to a flag on the find/replace.
-        if '#' in pattern:
-            raise TypeError("must not include statement instance in pattern")
+        assert isinstance(subproc, Procedure)
+        assert len(subproc._loopir_proc.body) == 1, \
+            "Compound statements not supported"
+
+        patterns = {
+            LoopIR.Assign     : '_ = _',
+            LoopIR.Reduce     : '_ += _',
+            LoopIR.WriteConfig: 'TODO',
+            LoopIR.Pass       : 'TODO',
+            LoopIR.If         : 'TODO',
+            LoopIR.ForAll     : 'for _ in _: _',
+            LoopIR.Seq        : 'TODO',
+            LoopIR.Alloc      : 'TODO',
+            LoopIR.Free       : 'TODO',
+            LoopIR.Call       : 'TODO',
+            LoopIR.WindowStmt : 'TODO',
+        }
+
+        pattern = patterns[type(subproc._loopir_proc.body[0])]
 
         proc = self
         i = 0
