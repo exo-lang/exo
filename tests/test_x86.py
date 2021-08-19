@@ -103,30 +103,6 @@ def test_avx2_simple_math_scheduling():
         for i in par(0, n):
             x[i] = x[i] * y[i] * y[i]
 
-    def pre_bake_staged_memory(_):
-        @proc
-        def simple_math_avx2_scheduling(n: size, x: R[n] @ DRAM,
-                                        y: R[n] @ DRAM):
-            for io in par(0, n / 8):
-                yVec: f32[8] @ AVX2
-                xVec: f32[8] @ AVX2
-                for ii in par(0, 8):
-                    yVec[ii] = y[8 * io + ii]
-                for ii in par(0, 8):
-                    xVec[ii] = x[8 * io + ii]
-                for ii in par(0, 8):
-                    xVec[ii] = xVec[ii] * yVec[ii]
-                for ii_1 in par(0, 8):
-                    xVec[ii_1] = xVec[ii_1] * yVec[ii_1]
-                for ii in par(0, 8):
-                    x[8 * io + ii] = xVec[ii]
-            if n % 8 > 0:
-                for ii_2 in par(0, n % 8):
-                    x[ii_2 + n / 8 * 8] = x[ii_2 + n / 8 * 8] * y[
-                        ii_2 + n / 8 * 8]
-
-        return simple_math_avx2_scheduling
-
     print()
     print()
 
@@ -180,30 +156,57 @@ def test_avx2_simple_math_scheduling():
         assert np.allclose(x, expected)
 
 
-def test_avx2_sgemm_base():
-    """
-    compute C += A*B
-    """
-
+def test_avx2_sgemm_6x16():
     @proc
-    def sgemm_base(
-            m: size,
-            n: size,
-            p: size,
-            A: f32[m, p] @ DRAM,
-            B: f32[p, n] @ DRAM,
-            C: f32[m, n] @ DRAM,
+    def avx2_sgemm_6x16(
+            K: size,
+            C: f32[6, 16] @ DRAM,
+            A: f32[6, K] @ DRAM,
+            B: f32[K, 16] @ DRAM,
     ):
-        for i in par(0, m):
-            for j in par(0, n):
-                for k in par(0, p):
+        for i in par(0, 6):
+            for j in par(0, 16):
+                for k in par(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
-    basename = test_avx2_sgemm_base.__name__
+    """
+    compute C += A*B (for m x n = 6 x 16)
+    """
+
+    avx2_sgemm_6x16 = (
+        avx2_sgemm_6x16
+            .reorder('j', 'k')
+            .reorder('i', 'k')
+            .stage_assn('C_mem', 'C[_] += _')
+            .set_memory('C_mem', AVX2)
+            .split('j', 8, ['jo', 'ji'], perfect=True)
+            .lift_alloc('C_mem: _')
+            .fission_after('C_mem[_] = C[_]')
+            .fission_after('C_mem[_] += A[_] * B[_]')
+            .replace_all(loadu, 'for _ in _: _')
+            .replace_all(storeu, 'for _ in _: _')
+            .bind_expr('a_vec', 'A[i, k]')
+            .lift_alloc('a_vec: _')
+            # .fission_after('a_vec = _')
+    )
+
+    print(avx2_sgemm_6x16)
+
+    basename = test_avx2_sgemm_6x16.__name__
 
     with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
-        code = str(sgemm_base)
-        print(f'\n\n{code}')
-        f.write(code)
+        f.write(str(avx2_sgemm_6x16))
 
-    sgemm_base.compile_c(TMP_DIR, basename)
+    avx2_sgemm_6x16.compile_c(TMP_DIR, basename)
+    library = generate_lib(basename, extra_flags="-march=skylake")
+
+    for K in (1, 2, 3, 4, 8, 12, 16, 31, 32, 33, 63, 64, 65, 47, 48, 49):
+        A = np.random.rand(6, K).astype(np.float32)
+        B = np.random.rand(K, 16).astype(np.float32)
+        C = A @ B
+
+        C_out = 0 * C
+
+        ctxt = POINTER(c_int)()
+        library.avx2_sgemm_6x16(ctxt, K, cvt_c(C_out), cvt_c(A), cvt_c(B))
+        assert np.allclose(C, C_out)

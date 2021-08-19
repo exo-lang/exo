@@ -660,7 +660,7 @@ class _CallSwap(LoopIR_Rewrite):
 class _BindExpr(LoopIR_Rewrite):
     def __init__(self, proc, new_name, exprs, cse=False):
         assert all(isinstance(expr, LoopIR.expr) for expr in exprs)
-        assert all(expr.type == T.R for expr in exprs)
+        assert all(expr.type.is_numeric() for expr in exprs)
         assert exprs
 
         self.orig_proc = proc

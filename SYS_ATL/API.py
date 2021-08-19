@@ -387,14 +387,14 @@ class Procedure:
             raise TypeError("expected fourth argument 'size' to be "+
                             "an integer")
 
-        alloc_stmts  = self._find_stmt(alloc_site_pattern, default_match_no=None)
+        alloc_stmts = self._find_stmt(alloc_site_pattern, default_match_no=None)
         loopir      = self._loopir_proc
         for s in alloc_stmts:
             if type(s) is not LoopIR.Alloc:
                 raise TypeError("pattern did not describe an alloc statement")
 
-            loopir      = Schedules.DoLiftAlloc(loopir, s,
-                                                n_lifts, mode, size).result()
+            loopir  = Schedules.DoLiftAlloc(
+                loopir, s, n_lifts, mode, size).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
