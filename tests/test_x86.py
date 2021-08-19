@@ -187,7 +187,7 @@ def test_avx2_sgemm_6x16():
             .replace_all(loadu, 'for _ in _: _')
             .replace_all(storeu, 'for _ in _: _')
             .bind_expr('a_vec', 'A[i, k]')
-            .lift_alloc('a_vec: _')
+            .lift_alloc('a_vec: _', keep_dims=True)
             # .fission_after('a_vec = _')
     )
 

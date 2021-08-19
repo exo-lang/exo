@@ -376,7 +376,8 @@ class Procedure:
 
         return Procedure(ir, _provenance_eq_Procedure=self)
 
-    def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None):
+    def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None,
+                   keep_dims=False):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "+
                             "a positive integer")
@@ -394,7 +395,7 @@ class Procedure:
                 raise TypeError("pattern did not describe an alloc statement")
 
             loopir  = Schedules.DoLiftAlloc(
-                loopir, s, n_lifts, mode, size).result()
+                loopir, s, n_lifts, mode, size, keep_dims).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 

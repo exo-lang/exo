@@ -789,7 +789,7 @@ class _DoStageAssn(LoopIR_Rewrite):
 # Lift Allocation scheduling directive
 
 class _LiftAlloc(LoopIR_Rewrite):
-    def __init__(self, proc, alloc_stmt, n_lifts, mode, size):
+    def __init__(self, proc, alloc_stmt, n_lifts, mode, size, keep_dims):
         assert type(alloc_stmt) is LoopIR.Alloc
         assert is_pos_int(n_lifts)
 
@@ -804,6 +804,7 @@ class _LiftAlloc(LoopIR_Rewrite):
                                                 proc.body).result()
         self.lift_mode    = mode
         self.lift_size    = size
+        self.keep_dims    = keep_dims
 
         self.n_lifts      = n_lifts
 
@@ -968,7 +969,7 @@ class _LiftAlloc(LoopIR_Rewrite):
                 continue
             elif type(s) is LoopIR.ForAll:
                 # note, do not accrue false dependencies
-                if s.iter in self.alloc_deps:
+                if s.iter in self.alloc_deps or self.keep_dims:
                     idxs.append(s.iter)
                     if type(s.hi) == LoopIR.Read:
                         assert s.hi.type.is_indexable()
