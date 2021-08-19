@@ -156,6 +156,7 @@ def test_avx2_simple_math_scheduling():
         assert np.allclose(x, expected)
 
 
+@pytest.mark.skip
 def test_avx2_sgemm_6x16():
     @proc
     def avx2_sgemm_6x16(
