@@ -325,8 +325,8 @@ def solve(prob):
             elif e.name in hole_idx:
                 return get_var(e.name)
             else:
-                raise UnificationError(f""+
-                    f"Unable to cancel variable '{e.name}' from both sides "+
+                raise UnificationError(
+                    f"Unable to cancel variable '{e.name}' from both sides "
                     f"of a unification equation")
         elif type(e) is UEq.Add:
             lhs = lower_e(e.lhs)
@@ -659,8 +659,8 @@ class Unification:
         # setup the problem
         for nm in self.buf_holes:
             if self.buf_holes[nm].solution_buf is None:
-                raise UnificationError(f""+
-                    f"Cannot perform unification due to an un-unused "+
+                raise UnificationError(
+                    f"Cannot perform unification due to an un-unused "
                     f"argument: {nm}")
 
         holes       = (self.index_holes +
@@ -673,7 +673,7 @@ class Unification:
         # solve the problem
         solutions   = ueq_prob.solve()
         if solutions is None:
-            raise UnificationError(f""+
+            raise UnificationError(
                 f"Unification of various index expressions failed")
 
         # construct the solution arguments
@@ -726,11 +726,12 @@ class Unification:
                     return UEq.Scale( e.lhs.val, self.to_ueq(e.rhs,insp) )
                 elif type(e.rhs) is LoopIR.Const:
                     return UEq.Scale( e.rhs.val, self.to_ueq(e.lhs,insp) )
-                else: assert False, ("unexpected multiplication; "+
-                                     "improve the code here")
+                else:
+                    assert False, (
+                        "unexpected multiplication; improve the code here")
             elif e.op == '/' or e.op == '%':
                 if in_subproc:
-                    raise UnificationError(f""+
+                    raise UnificationError(
                         f"unification with sub-procedures making use of "
                         f"'%' or '/' operations is not currently supported")
                 else:
@@ -812,9 +813,9 @@ class Unification:
         assert type(pe) is LoopIR.Read and pe.name in self.bool_holes
 
         if not self.all_bound_e(be):
-            raise UnificationError(f""+
-                f"Cannot unify expression {be} (@{be.srcinfo}) with the "+
-                f"boolean argument {pe.name} because it contains "+
+            raise UnificationError(
+                f"Cannot unify expression {be} (@{be.srcinfo}) with the "
+                f"boolean argument {pe.name} because it contains "
                 f"variables that are not free in the code being replaced")
 
         # if we haven't yet unified this name with an expression
@@ -822,9 +823,9 @@ class Unification:
         if lookup is False:
             self.bool_holes[pe.name] = be
         elif not self.is_exact_e(be, lookup):
-            raise UnificationError(f""+
-                f"Cannot unify the boolean argument {pe.name} with two "+
-                f"seemingly inequivalent expressions "+
+            raise UnificationError(
+                f"Cannot unify the boolean argument {pe.name} with two "
+                f"seemingly inequivalent expressions "
                 f"{be} (@{be.srcinfo}) and {lookup} (@{lookup.srcinfo})")
 
     def unify_stmts(self, proc_s, block_s):
@@ -834,8 +835,8 @@ class Unification:
                 ploc = f" (@{proc_s[0].srcinfo})"
             if len(block_s) > 0:
                 bloc = f" (@{block_s[0].srcinfo})"
-            raise UnificationError(f""+
-                f"cannot unify {len(proc_s)} statement(s){ploc} with "+
+            raise UnificationError(
+                f"cannot unify {len(proc_s)} statement(s){ploc} with "
                 f"{len(block_s)} statement(s){bloc}")
         elif len(proc_s) == 0:
             return
@@ -844,8 +845,8 @@ class Unification:
         bs, block_s = block_s[0], block_s[1:]
 
         if type(ps) is not type(bs):
-            raise UnificationError(f""+
-                f"cannot unify a {type(ps)} statement (@{ps.srcinfo}) with "+
+            raise UnificationError(
+                f"cannot unify a {type(ps)} statement (@{ps.srcinfo}) with "
                 f"a {type(bs)} statement (@{bs.srcinfo})")
         elif type(ps) is LoopIR.Assign or type(ps) is LoopIR.Reduce:
             self.unify_e(ps.rhs, bs.rhs)
@@ -872,8 +873,8 @@ class Unification:
             self.unify_types(ps.type, bs.type, ps,bs)
         elif type(ps) is LoopIR.Call:
             if ps.f != bs.f:
-                raise UnificationError(f""+
-                    f"cannot unify a call to '{ps.f.name()}' (@{ps.srcinfo}) "+
+                raise UnificationError(
+                    f"cannot unify a call to '{ps.f.name()}' (@{ps.srcinfo}) "
                     f"with a call to {bs.f.name()} (@{bs.srcinfo})")
             for pe, be in zip(ps.args, bs.args):
                 self.unify_e(pe, be)
@@ -893,14 +894,14 @@ class Unification:
         pvar = self.buf_unknowns[pname]
 
         if pvar.use_win:
-            raise UnificationError(f""+
-                f"Cannot unify the windowed buffer '{pname}' "+
-                f"with the buffer '{bname}' because '{bname}' is used "+
+            raise UnificationError(
+                f"Cannot unify the windowed buffer '{pname}' "
+                f"with the buffer '{bname}' because '{bname}' is used "
                 f"in a position where windowing is not currently supported")
 
         if pvar.solution_buf and pvar.solution_buf != bname:
-            raise UnificationError(f""+
-                f"The buffer {pname} cannot be unified to both "+
+            raise UnificationError(
+                f"The buffer {pname} cannot be unified to both "
                 f"the buffer {pvar.solution_buf}, and the buffer {bname}")
         else:
             pvar.set_buf_solution(bname)
@@ -914,11 +915,10 @@ class Unification:
         # first, reject any numbers of indices that absolutely
         # cannot be made to work
         if idx_gap < 0:
-            raise UnificationError(f""+
-                f"the access to '{pbuf}' (@{pnode.srcinfo}) "+
-                f"has too many indices "+
-                f"({len(pidx)}, compared to {len(bidx)}) "+
-                f"to unify with the access to '{bbuf}' (@{bnode.srcinfo})")
+            raise UnificationError(
+                f"the access to '{pbuf}' (@{pnode.srcinfo}) has too many "
+                f"indices ({len(pidx)}, compared to {len(bidx)}) to unify with "
+                f"the access to '{bbuf}' (@{bnode.srcinfo})")
 
         # handle special case of unindexed buffers used in
         # call-argument position
@@ -927,8 +927,8 @@ class Unification:
             # we now know that bnode looks something like `x` where
             # `x` is not a scalar
             if len(pnode.type.shape()) == 0:
-                raise UnificationError(f""+
-                    f"Could not unify buffer '{pbuf}' (@{pnode.srcinfo}) "+
+                raise UnificationError(
+                    f"Could not unify buffer '{pbuf}' (@{pnode.srcinfo}) "
                     f"with buffer '{bbuf}' (@{bnode.srcinfo})")
             else:
                 assert len(pidx) == 0
@@ -937,43 +937,42 @@ class Unification:
                 return
         elif type(pnode) is LoopIR.Read and len(pnode.type.shape()) > 0:
             # NOTE: bnode is not trivial b/c of the elif
-            raise UnificationError(f""+
-                f"Unification of the simple call argument "+
-                f"'{pbuf}' (@{pnode.srcinfo}) "+
-                f"with a non-simple call argument "+
-                f"'{bbuf}' (@{bnode.srcinfo}) "+
+            raise UnificationError(
+                f"Unification of the simple call argument "
+                f"'{pbuf}' (@{pnode.srcinfo}) "
+                f"with a non-simple call argument "
+                f"'{bbuf}' (@{bnode.srcinfo}) "
                 f"is currently unsupported")
 
         # otherwise, we can be sure that everything has been
         # accessed all the way down to a particular scalar value
         assert pnode.type.is_real_scalar() and bnode.type.is_real_scalar()
 
-
         # How to unify accesses when there is no intermediate windowing
         if not pvar.use_win:
-            if idx_gap != 0:
-                raise UnificationError(f""+
-                    f"cannot unify "+
-                    f"the access to '{pbuf}' (@{pnode.srcinfo}) "+
-                    f"using {len(pidx)} indices "+
-                    f"with the access to '{bbuf}' (@{bnode.srcinfo}) "+
-                    f"using {len(bidx)} indices.")
-
-            # with the index gap closed...
-            for pi,bi in zip(pidx,bidx):
-                self.unify_affine_e(pi,bi)
-            self.unify_types(pvar.typ, self.bbuf_types[bbuf], pnode,bnode)
-            self.unify_buf_name_no_win(pbuf,bbuf)
+            if idx_gap == 0:
+                # with the index gap closed...
+                for pi, bi in zip(pidx, bidx):
+                    self.unify_affine_e(pi, bi)
+                self.unify_types(pvar.typ, self.bbuf_types[bbuf], pnode, bnode)
+                self.unify_buf_name_no_win(pbuf, bbuf)
+            elif len(pidx) == 0 and self.is_proc_constant(bnode):
+                raise NotImplementedError('Unify buffer access with constant')
+            else:
+                raise UnificationError(
+                    f"cannot unify the access to '{pbuf}' (@{pnode.srcinfo}) "
+                    f"using {len(pidx)} indices with the access to "
+                    f"'{bbuf}' (@{bnode.srcinfo}) using {len(bidx)} indices.")
 
         # Otherwise, how to unify accesses WITH windowing in the way
         else:
             if pvar.win_dim is not None and pvar.win_dim != idx_gap:
-                raise UnificationError(f""+
-                    f"cannot unify '{pbuf}' (@{pnode.srcinfo}) "+
-                    f"with '{bbuf}' (@{bnode.srcinfo}) "+
-                    f"because '{pbuf}' is already being windowed down "+
-                    f"from a {pvar.n_dim + pvar.win_dim} dimension tensor, "+
-                    f"but is required to be windowed down from a "+
+                raise UnificationError(
+                    f"cannot unify '{pbuf}' (@{pnode.srcinfo}) "
+                    f"with '{bbuf}' (@{bnode.srcinfo}) "
+                    f"because '{pbuf}' is already being windowed down "
+                    f"from a {pvar.n_dim + pvar.win_dim} dimension tensor, "
+                    f"but is required to be windowed down from a "
                     f"{len(bidx)} dimension tensor here")
 
             # set up all the case variables and the
@@ -1018,24 +1017,24 @@ class Unification:
             return # success
         elif pt.is_tensor_or_window() and bt.is_tensor_or_window():
             if len(pt.shape()) != len(bt.shape()):
-                raise UnificationError(f""+
-                    f"cannot unify a tensor-type of "+
-                    f"{len(pt.shape())} dimensions (@{pnode.srcinfo}) with "+
-                    f"a tensor-type of {len(bt.shape())} dimensions "+
+                raise UnificationError(
+                    f"cannot unify a tensor-type of "
+                    f"{len(pt.shape())} dimensions (@{pnode.srcinfo}) with "
+                    f"a tensor-type of {len(bt.shape())} dimensions "
                     f"(@{bnode.srcinfo})")
             for psz,bsz in zip(pt.shape(),bt.shape()):
                 self.unify_affine_e(psz,bsz)
         else:
-            raise UnificationError(f""+
-                f"cannot unify type {pt} (@{pnode.srcinfo}) with "+
+            raise UnificationError(
+                f"cannot unify type {pt} (@{pnode.srcinfo}) with "
                 f"type {bt} (@{bnode.srcinfo})")
 
     def unify_e(self, pe, be):
         if (pe.type.is_indexable() != be.type.is_indexable() or
             (pe.type == T.bool) != (be.type == T.bool)):
-            raise UnificationError(f""+
-                f"expected expressions "+
-                f"({pe} @{pe.srcinfo} vs. {be} @{be.srcinfo}) "+
+            raise UnificationError(
+                f"expected expressions "
+                f"({pe} @{pe.srcinfo} vs. {be} @{be.srcinfo}) "
                 f"to have similar types")
         elif pe.type.is_indexable():
             # convert to an equality
@@ -1047,30 +1046,30 @@ class Unification:
             return
 
         if type(pe) != type(be):
-            raise UnificationError(f""+
-                f"cannot unify a {type(pe)} expression (@{pe.srcinfo}) with "+
+            raise UnificationError(
+                f"cannot unify a {type(pe)} expression (@{pe.srcinfo}) with "
                 f"a {type(be)} expression (@{be.srcinfo})")
         elif type(pe) is LoopIR.Read:
             assert pe.type.is_numeric(), "unhandled expression type...?"
             self.unify_accesses(pe, be)
         elif type(pe) is LoopIR.Const:
             if pe.val != be.val:
-                raise UnificationError(f""+
-                    f"cannot unify {pe.val} (@{pe.srcinfo}) with "+
+                raise UnificationError(
+                    f"cannot unify {pe.val} (@{pe.srcinfo}) with "
                     f"{be.val} (@{be.srcinfo})")
         elif type(pe) is LoopIR.USub:
             self.unify_e(pe.arg, be.arg)
         elif type(pe) is LoopIR.BinOp:
             if pe.op != be.op:
-                raise UnificationError(f""+
-                    f"cannot unify a '{pe.op}' (@{pe.srcinfo}) with "+
+                raise UnificationError(
+                    f"cannot unify a '{pe.op}' (@{pe.srcinfo}) with "
                     f"a '{be.op}'' (@{be.srcinfo})")
             self.unify_e(pe.lhs, be.lhs)
             self.unify_e(pe.rhs, be.rhs)
         elif type(pe) is LoopIR.BuiltIn:
             if pe.f != be.f:
-                raise UnificationError(f""+
-                    f"cannot unify builtin '{pe.f.name()}' (@{pe.srcinfo}) "+
+                raise UnificationError(
+                    f"cannot unify builtin '{pe.f.name()}' (@{pe.srcinfo}) "
                     f"with builtin '{be.f.name()}'' (@{be.srcinfo})")
             for pa,ba in zip(pe.args,be.args):
                 self.unify_e(pa,ba)
@@ -1083,24 +1082,29 @@ class Unification:
 
             # unify the two windowing expressions
             if len(pe.idx) != len(be.idx):
-                raise UnificationError(f""+
-                    f"cannot unify the windowing of "+
-                    f"{pe.name} (@{pe.srcinfo}) "+
-                    f"using {len(pe.idx)} indices "+
-                    f"with the windowing of {be.name} (@{be.srcinfo}) "+
-                    f"using {len(be.idx)}")
+                raise UnificationError(
+                    f"cannot unify the windowing of {pe.name} (@{pe.srcinfo}) "
+                    f"using {len(pe.idx)} indices with the windowing of "
+                    f"{be.name} (@{be.srcinfo}) using {len(be.idx)}")
 
             for i,(pw,bw) in enumerate(zip(pe.idx,be.idx)):
                 if type(pw) != type(bw):
-                    raise UnificationError(f""+
-                        f"cannot unify the windowing of "+
-                        f"{pe.name} (@{pe.srcinfo}) "+
-                        f"with the windowing of {be.name} (@{be.srcinfo}) "+
-                        f"because one evaluates to a point at index {i}, "+
-                        f"while the other evaluates to an interval")
+                    raise UnificationError(
+                        f"cannot unify the windowing of "
+                        f"{pe.name} (@{pe.srcinfo}) with the windowing of "
+                        f"{be.name} (@{be.srcinfo}) because one evaluates to a "
+                        f"point at index {i}, while the other evaluates to an "
+                        f"interval")
                 elif type(pw) == LoopIR.Point:
                     self.unify_affine_e(pw.pt, bw.pt)
                 else:
                     self.unify_affine_e(pw.lo, bw.lo)
                     self.unify_affine_e(pw.hi, bw.hi)
-        else: assert False, "bad case"
+        else:
+            assert False, "bad case"
+
+    def is_proc_constant(self, bnode):
+        return (
+            isinstance(bnode, LoopIR.Read)
+            and all(dep in self.FV for dep in FreeVars(bnode.idx).result())
+        )
