@@ -1,3 +1,4 @@
+from .LoopIR_dataflow import LoopIR_Dependencies
 from .asdl.adt import ADT
 from .asdl.adt import memo as ADTmemo
 
@@ -578,7 +579,8 @@ class BufVar:
 
 class Unification:
     def __init__(self, subproc, stmt_block, live_vars):
-        self.equations  = []
+        self.equations = []
+        self.stmt_block = stmt_block
 
         # variables for the UEq system
         #self.holes      = []
@@ -956,7 +958,7 @@ class Unification:
                     self.unify_affine_e(pi, bi)
                 self.unify_types(pvar.typ, self.bbuf_types[bbuf], pnode, bnode)
                 self.unify_buf_name_no_win(pbuf, bbuf)
-            elif len(pidx) == 0 and self.is_proc_constant(bnode):
+            elif len(pidx) == 0 and self.is_proc_constant(bbuf):
                 raise NotImplementedError('Unify buffer access with constant')
             else:
                 raise UnificationError(
@@ -1103,8 +1105,6 @@ class Unification:
         else:
             assert False, "bad case"
 
-    def is_proc_constant(self, bnode):
-        return (
-            isinstance(bnode, LoopIR.Read)
-            and all(dep in self.FV for dep in FreeVars(bnode.idx).result())
-        )
+    def is_proc_constant(self, bbuf):
+        deps = LoopIR_Dependencies(bbuf, self.stmt_block).result()
+        return all(dep in self.FV for dep in deps)
