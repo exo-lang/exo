@@ -195,6 +195,8 @@ def test_avx2_sgemm_6x16():
             .set_memory('aik', DRAM)
             .fission_after('aik = _')
             .replace_all(broadcast)
+            # with this:
+            # .replace(broadcast, 'for ji in _: _ #0')
             # end
             .bind_expr('b_vec', 'B[_]')
             .lift_alloc('b_vec: _')
