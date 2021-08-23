@@ -159,10 +159,10 @@ def test_avx2_simple_math_scheduling():
 def test_avx2_sgemm_6x16():
     @proc
     def avx2_sgemm_6x16(
-            K: size,
-            C: f32[6, 16] @ DRAM,
-            A: f32[6, K] @ DRAM,
-            B: f32[K, 16] @ DRAM,
+        K: size,
+        C: f32[6, 16] @ DRAM,
+        A: f32[6, K] @ DRAM,
+        B: f32[K, 16] @ DRAM,
     ):
         for i in par(0, 6):
             for j in par(0, 16):
