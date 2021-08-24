@@ -79,7 +79,7 @@ class TypeChecker:
         self.errors.append(f"{node.srcinfo}: {msg}")
 
     def check_stmts(self, body):
-        assert len(body) > 0
+        assert len(body) > 0 or self.uast_proc.instr
         stmts = []
         for s in body:
             stmts += self.check_single_stmt(s)

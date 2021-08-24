@@ -178,6 +178,10 @@ def test_avx2_sgemm_6x16():
         A: f32[6, K] @ DRAM,
         B: f32[K, 16] @ DRAM,
     ):
+        # assert K > 0
+        if K < 1:
+            unreachable()
+
         C_reg: f32[6, 2, 8] @ AVX2
         for i in par(0, 6):
             for jo in par(0, 2):
@@ -230,7 +234,7 @@ def test_avx2_sgemm_6x16():
     avx2_sgemm_6x16.compile_c(TMP_DIR, basename)
     library = generate_lib(basename, extra_flags="-march=skylake")
 
-    for K in (1, 2, 3, 4, 8, 12, 16, 31, 32, 33, 63, 64, 65, 47, 48, 49):
+    for K in range(1, 512):
         A = np.random.rand(6, K).astype(np.float32)
         B = np.random.rand(K, 16).astype(np.float32)
         C = A @ B
@@ -239,4 +243,4 @@ def test_avx2_sgemm_6x16():
 
         ctxt = POINTER(c_int)()
         library.avx2_sgemm_6x16(ctxt, K, cvt_c(C_out), cvt_c(A), cvt_c(B))
-        assert np.allclose(C, C_out)
+        assert np.allclose(C, C_out), f"failed to match for k={K}"

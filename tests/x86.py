@@ -31,9 +31,10 @@ def fma(
 {{
   __m256 ones = {{ 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f }};
   __m256 dst = _mm256_loadu_ps({dst}.data);
-  *(__m256*){val}.data = 
-    _mm256_fmadd_ps(ones, dst, *(__m256*){val}.data);
-  _mm256_storeu_ps({dst}.data, *(__m256*){val}.data);
+  _mm256_storeu_ps(
+    {dst}.data,
+    _mm256_fmadd_ps(ones, dst, *(__m256*){val}.data)
+  );
 }}
 ''')
 def mem_accum(
@@ -116,3 +117,8 @@ def clear_reg(
 
     for i in par(0, 8):
         out[i] = 0.0
+
+
+@instr('__builtin_unreachable();')
+def unreachable():
+    pass
