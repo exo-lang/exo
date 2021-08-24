@@ -76,12 +76,12 @@ def mul(
         out[i] = x[i] * y[i]
 
 
-@instr('{out} = _mm256_broadcast_ss({val});')
+@instr('{out} = _mm256_broadcast_ss({val}.data);')
 def broadcast(
     out: f32[8] @ AVX2,
-    val: f32,
+    val: [f32][1],
 ):
     assert stride(out, 0) == 1
 
     for i in par(0, 8):
-        out[i] = val
+        out[i] = val[0]

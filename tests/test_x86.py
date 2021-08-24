@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 
+import numpy as np
+
 sys.path.append(sys.path[0] + "/..")
 from SYS_ATL import DRAM
 from SYS_ATL.libs.memories import AVX2
@@ -189,25 +191,20 @@ def test_avx2_sgemm_6x16():
             .set_memory('a_vec', AVX2)
             .lift_alloc('a_vec: _', keep_dims=True)
             .fission_after('a_vec = _')
-            # TODO: unification should be able to handle this sequence
-            .bind_expr('aik', 'A[i, k]')
-            .lift_alloc('aik: _')
-            .set_memory('aik', DRAM)
-            .fission_after('aik = _')
-            .replace_all(broadcast)
-            # with this:
-            # .replace(broadcast, 'for ji in _: _ #0')
-            # end
+            # TODO: broadcast uses windowing unnecessarily... scalar calling
+            #  convention needs re-thinking.
+            .replace(broadcast, 'for ji in _: _ #0')
             .bind_expr('b_vec', 'B[_]')
             .lift_alloc('b_vec: _')
             .set_memory('b_vec', AVX2)
             .fission_after('b_vec[_] = _')
             .replace_all(loadu)
             .replace_all(fma)
-        # .lift_alloc('C_mem: _', n_lifts=3, keep_dims=False)
-        # .fission_after('loadu(_)')
+            # .lift_alloc('C_mem: _', n_lifts=3, keep_dims=False)
+            # .fission_after('loadu(_)')
     )
 
+    print()
     print(avx2_sgemm_6x16)
 
     basename = test_avx2_sgemm_6x16.__name__
@@ -223,7 +220,7 @@ def test_avx2_sgemm_6x16():
         B = np.random.rand(K, 16).astype(np.float32)
         C = A @ B
 
-        C_out = 0 * C
+        C_out = np.zeros_like(C)
 
         ctxt = POINTER(c_int)()
         library.avx2_sgemm_6x16(ctxt, K, cvt_c(C_out), cvt_c(A), cvt_c(B))
