@@ -7,7 +7,7 @@ import numpy as np
 sys.path.append(sys.path[0] + "/..")
 from SYS_ATL import DRAM
 from SYS_ATL.libs.memories import AVX2
-from .x86 import loadu, storeu, mul, fma, broadcast
+from .x86 import *
 
 sys.path.append(sys.path[0] + "/.")
 from .helper import *
@@ -160,7 +160,7 @@ def test_avx2_simple_math_scheduling():
 
 def test_avx2_sgemm_6x16():
     @proc
-    def avx2_sgemm_6x16(
+    def avx2_sgemm_6x16_orig(
         K: size,
         C: f32[6, 16] @ DRAM,
         A: f32[6, K] @ DRAM,
@@ -171,37 +171,52 @@ def test_avx2_sgemm_6x16():
                 for k in par(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
+    @proc
+    def avx2_sgemm_6x16(
+        K: size,
+        C: f32[6, 16] @ DRAM,
+        A: f32[6, K] @ DRAM,
+        B: f32[K, 16] @ DRAM,
+    ):
+        C_reg: f32[6, 2, 8] @ AVX2
+        for i in par(0, 6):
+            for jo in par(0, 2):
+                for ji in par(0, 8):
+                    C_reg[i, jo, ji] = 0.0
+        for k in par(0, K):
+            for i in par(0, 6):
+                for jo in par(0, 2):
+                    for ji in par(0, 8):
+                        C_reg[i, jo, ji] += A[i, k] * B[k, jo * 8 + ji]
+        for i in par(0, 6):
+            for jo in par(0, 2):
+                for ji in par(0, 8):
+                    C[i, jo * 8 + ji] += C_reg[i, jo, ji]
+
     """
     compute C += A*B (for m x n = 6 x 16)
     """
 
     avx2_sgemm_6x16 = (
         avx2_sgemm_6x16
-            .reorder('j', 'k')
-            .reorder('i', 'k')
-            .stage_assn('C_mem', 'C[_] += _')
-            .set_memory('C_mem', AVX2)
-            .split('j', 8, ['jo', 'ji'], perfect=True)
-            .lift_alloc('C_mem: _')
-            .fission_after('C_mem[_] = C[_]')
-            .fission_after('C_mem[_] += A[_] * B[_]')
-            .replace_all(loadu)
-            .replace_all(storeu)
             .bind_expr('a_vec', 'A[i, k]')
             .set_memory('a_vec', AVX2)
-            .lift_alloc('a_vec: _', keep_dims=True)
-            .fission_after('a_vec = _')
-            # TODO: broadcast uses windowing unnecessarily... scalar calling
-            #  convention needs re-thinking.
-            .replace(broadcast, 'for ji in _: _ #0')
-            .bind_expr('b_vec', 'B[_]')
-            .lift_alloc('b_vec: _')
+            .lift_alloc('a_vec:_', keep_dims=True)
+            .fission_after('a_vec[_] = _')
+            #
+            .bind_expr('b_vec', 'B[k, _]')
             .set_memory('b_vec', AVX2)
+            .lift_alloc('b_vec:_', keep_dims=True)
             .fission_after('b_vec[_] = _')
+            #
+            .replace_all(clear_reg)
+            .replace_all(broadcast)
             .replace_all(loadu)
             .replace_all(fma)
-            # .lift_alloc('C_mem: _', n_lifts=3, keep_dims=False)
-            # .fission_after('loadu(_)')
+            .replace_all(mem_accum)
+            #
+            .unroll('jo')
+            .unroll('i')
     )
 
     print()
