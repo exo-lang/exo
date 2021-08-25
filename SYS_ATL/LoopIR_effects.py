@@ -609,7 +609,9 @@ def eff_concat(e1, e2, srcinfo=None):
                        shadow_config_reads(e1.config_writes, e2.config_reads))
     config_writes   = merge_writes(e1.config_writes, e2.config_writes)
 
-    reads           = (e1.reads + shadow_reads(e1.writes, e2.reads))
+    # Fix shadow_reads by introducing Exists
+    #reads           = (e1.reads + shadow_reads(e1.writes, e2.reads))
+    reads = e1.reads + e2.reads
 
     return Effects.effect( reads,
                            e1.writes + e2.writes,
