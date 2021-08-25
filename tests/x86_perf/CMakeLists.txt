@@ -5,10 +5,9 @@ include(FetchContent)
 
 ##########################################################
 # Locate BLIS
-#set(BLA_VENDOR FLAME)
-#find_package(BLAS REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(blis REQUIRED IMPORTED_TARGET blis)
+
 
 ##########################################################
 # Download Google Benchmark
@@ -46,4 +45,5 @@ target_include_directories(
 add_executable(run benchmark.cpp)
 target_link_libraries(
     run PRIVATE avx2_sgemm_6x16 PkgConfig::blis benchmark::benchmark)
-target_compile_options(run PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-march=skylake>)
+target_compile_options(
+    run PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-march=skylake>)
