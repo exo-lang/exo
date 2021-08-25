@@ -53,7 +53,7 @@ module Effects {
                     srcinfo     srcinfo )
 
     expr        = Var( sym name )
-                | Neg( sym name )
+                | Not( expr arg )
                 | Const( object val )
                 | BinOp( binop op, expr lhs, expr rhs )
                 | Stride( sym name, int dim )
@@ -121,7 +121,7 @@ op_prec = {
 }
 
 @extclass(Effects.Var)
-@extclass(Effects.Neg)
+@extclass(Effects.Not)
 @extclass(Effects.Const)
 @extclass(Effects.BinOp)
 @extclass(Effects.Stride)
@@ -133,8 +133,8 @@ del __str__
 def _exprstr(e, prec=0):
     if type(e) is Effects.Var:
         return str(e.name)
-    elif type(e) is Effects.Neg:
-        return f"(not {e.name})"
+    elif type(e) is Effects.Not:
+        return f"(not {e.arg})"
     elif type(e) is Effects.Const:
         return str(e.val)
     elif type(e) is Effects.BinOp:
@@ -238,9 +238,9 @@ def negate_expr(e):
     if type(e) is Effects.Const:
         return Effects.Const( not e.val, e.type, e.srcinfo )
     elif type(e) is Effects.Var:
-        return Effects.Neg( e.name, e.type, e.srcinfo )
-    elif type(e) is Effects.Neg:
-        return Effects.Var( e.name, e.type, e.srcinfo )
+        return Effects.Not( e, e.type, e.srcinfo )
+    elif type(e) is Effects.Not:
+        return e.arg
     elif type(e) is Effects.BinOp:
         def change_op(op,lhs=e.lhs,rhs=e.rhs):
             return Effects.BinOp(op, lhs, rhs, e.type, e.srcinfo)
@@ -301,8 +301,8 @@ def eff_subst(env, eff):
                                   value, pred, eff.srcinfo)
     elif type(eff) is Effects.Var:
         return env[eff.name] if eff.name in env else eff
-    elif type(eff) is Effects.Neg:
-        return env[eff.name].negate() if eff.name in env else eff
+    elif type(eff) is Effects.Not:
+        return Effects.Not( eff_subst(env, eff.arg ), eff.type, eff.srcinfo )
     elif type(eff) is Effects.Const:
         return eff
     elif type(eff) is Effects.BinOp:
@@ -350,9 +350,10 @@ def _subcfg(env, eff):
         pred    = _subcfg(env, eff.pred) if eff.pred else None
         return Effects.config_eff(eff.config, eff.field,
                                   value, pred, eff.srcinfo)
-    elif (type(eff) is Effects.Var or type(eff) is Effects.Neg
-                                   or type(eff) is Effects.Const):
+    elif (type(eff) is Effects.Var or type(eff) is Effects.Const):
         return eff
+    elif type(eff) is Effects.Not:
+        return Effects.Not( _subcfg(env, eff.arg), eff.type, eff.srcinfo )
     elif type(eff) is Effects.BinOp:
         return Effects.BinOp(eff.op, _subcfg(env, eff.lhs),
                                      _subcfg(env, eff.rhs),
@@ -401,10 +402,12 @@ def _is_FV(x, eff):
     elif type(eff) is Effects.config_eff:
         return ( (eff.value is not None and _is_FV(x, eff.value)) or
                  (eff.pred  is not None and _is_FV(x, eff.pred)) )
-    elif (type(eff) is Effects.Var or type(eff) is Effects.Neg):
+    elif type(eff) is Effects.Var:
         return x == eff.name
     elif type(eff) is Effects.Const:
         return False
+    elif type(eff) is Effects.Not:
+        return _is_FV(x, eff.arg)
     elif type(eff) is Effects.BinOp:
         return _is_FV(x, eff.lhs) or _is_FV(x, eff.rhs)
     elif type(eff) is Effects.Stride:
@@ -609,7 +612,7 @@ def eff_concat(e1, e2, srcinfo=None):
                        shadow_config_reads(e1.config_writes, e2.config_reads))
     config_writes   = merge_writes(e1.config_writes, e2.config_writes)
 
-    # Fix shadow_reads by introducing Exists
+    # TODO: Fix shadow_reads by introducing Exists
     #reads           = (e1.reads + shadow_reads(e1.writes, e2.reads))
     reads = e1.reads + e2.reads
 

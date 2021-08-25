@@ -792,8 +792,9 @@ class CheckEffects:
             else: assert False, "unrecognized const type: {type(expr.val)}"
         elif type(expr) is E.Var:
             return self.sym_to_smt(expr.name, expr.type)
-        elif type(expr) is E.Neg:
-            return SMT.Not(self.sym_to_smt(expr.name, expr.type))
+        elif type(expr) is E.Not:
+            arg = self.expr_to_smt(expr.arg)
+            return SMT.Not(arg)
         elif type(expr) is E.Stride:
             key = (expr.name,expr.dim)
             if key in self.stride_sym:
