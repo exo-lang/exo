@@ -233,24 +233,30 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
         with open(os.path.dirname(os.path.realpath(__file__)) +
                                   "/malloc.c", "r") as f_malloc:
             m_lines = f_malloc.readlines()
-            m_lines[0] = m_lines[0].format(heap_size = 100000)
+            m_lines[0] = m_lines[0].format(heap_size=100000)
             body = "".join(m_lines) + body
 
-    fwd_decls = includes + "\n"+ fwd_decls
+    fwd_decls = f"{includes}\n{fwd_decls}"
 
     H_FILE_CONST = re.sub(r'\W', '_', h_file).upper()
-    fwd_decls = (f"#ifndef _{H_FILE_CONST}_\n"+
-                 f"#define _{H_FILE_CONST}_\n"+
-                 fwd_decls+
+    fwd_decls = (f"#ifndef _{H_FILE_CONST}_\n"
+                 f"#define _{H_FILE_CONST}_\n"
+                 "#ifdef __cplusplus\n"
+                 "extern \"C\" {\n"
+                 "#endif\n" +
+                 fwd_decls +
+                 "#ifdef __cplusplus\n"
+                 "}\n"
+                 "#endif\n"
                  f"#endif //_{H_FILE_CONST}_\n")
 
     with open(os.path.join(path, h_file), "w") as f_header:
         f_header.write(fwd_decls)
 
     with open(os.path.join(path, c_file), "w") as f_cpp:
-        f_cpp.write(f'#include "{h_file}"\n'+
-                    f'#include <stdint.h>\n'+
-                    f'\n');
+        f_cpp.write(f'#include "{h_file}"\n'
+                    f'#include <stdint.h>\n'
+                    f'\n')
         f_cpp.write(body)
 
 

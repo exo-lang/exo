@@ -57,6 +57,7 @@ def generate_lib(filename, *, extra_flags=""):
     so_file = os.path.join(TMP_DIR, filename + '.so')
     compiler = os.getenv('CC', default='clang')
     cflags = os.getenv('CFLAGS', default='-Wall')
-    compile_so_cmd = f"{compiler} {cflags} {extra_flags} -O3 -fPIC -shared {c_file} -I {h_file} -o {so_file}"
+    compile_so_cmd = f"{compiler} {cflags} {extra_flags} -O3 -fPIC " \
+                     f"-shared {c_file} -I {h_file} -o {so_file}"
     subprocess.run(compile_so_cmd, check=True, shell=True)
     return ctypes.CDLL(so_file)
