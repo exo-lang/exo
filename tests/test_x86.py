@@ -212,9 +212,6 @@ def gen_sgemm_6x16_avx():
                     C[i, jo * 8 + ji] += C_reg[i, jo, ji]
 
     rank_k_reduce_6x16.unsafe_assert_eq(avx2_sgemm_6x16)
-    """
-    compute C += A*B (for m x n = 6 x 16)
-    """
 
     avx2_sgemm_6x16 = (
         avx2_sgemm_6x16
@@ -239,6 +236,12 @@ def gen_sgemm_6x16_avx():
     )
 
     return rank_k_reduce_6x16, avx2_sgemm_6x16
+
+
+def test_print_avx2_sgemm_kernel():
+    _, avx2_sgemm_kernel = gen_sgemm_6x16_avx()
+    print()
+    print(avx2_sgemm_kernel)
 
 
 def test_avx2_sgemm_full():
