@@ -3,6 +3,11 @@
 #include <benchmark/benchmark.h>
 #include <test_avx2_sgemm_6x16.h>
 
+// TODO: FIX THIS
+#define systl_win_2f32 ayy_lmao
+#include <test_avx2_sgemm_full.h>
+#undef systl_win_2f32
+
 #define restrict __restrict // good old BLIS uses the C keyword...
 #include <blis.h>
 
@@ -37,7 +42,7 @@ BENCHMARK(benchmark_blis)
     ->DenseRange(1536, 4096, 512)
     ->ReportAggregatesOnly();
 
-static void benchmark_sys_atl(benchmark::State &state) {
+static void benchmark_sys_atl_kernel(benchmark::State &state) {
   size_t k = state.range(0);
   float alpha = 1.0f;
   float beta = 1.0f;
@@ -51,7 +56,7 @@ static void benchmark_sys_atl(benchmark::State &state) {
   float *c = c_vec.data();
 
   for (auto _ : state) {
-    avx2_sgemm_6x16(nullptr, k, c, a, b);
+    avx2_sgemm_6x16_wrapper(nullptr, 6, 16, k, c, a, b);
   }
 
   state.counters["flops"] = benchmark::Counter(
@@ -59,10 +64,36 @@ static void benchmark_sys_atl(benchmark::State &state) {
       benchmark::Counter::kIsRate, benchmark::Counter::kIs1000);
 }
 
-BENCHMARK(benchmark_sys_atl)
+BENCHMARK(benchmark_sys_atl_kernel)
     // ->DenseRange(1, 16)
     // ->DenseRange(32, 1024, 32)
     ->DenseRange(1536, 4096, 512)
+    ->ReportAggregatesOnly();
+
+static void benchmark_sys_atl_full(benchmark::State &state) {
+  size_t n = state.range(0);
+  size_t m = state.range(0);
+  size_t k = state.range(0);
+
+  std::vector<float> a_vec(n * k);
+  std::vector<float> b_vec(k * m);
+  std::vector<float> c_vec(n * m);
+
+  float *a = a_vec.data();
+  float *b = b_vec.data();
+  float *c = c_vec.data();
+
+  for (auto _ : state) {
+    avx_sgemm_full(nullptr, n, m, k, c, a, b);
+  }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations() * 2 * n * m * k),
+      benchmark::Counter::kIsRate, benchmark::Counter::kIs1000);
+}
+
+BENCHMARK(benchmark_sys_atl_full)
+    ->DenseRange(32, 1024, 32)
     ->ReportAggregatesOnly();
 
 BENCHMARK_MAIN();

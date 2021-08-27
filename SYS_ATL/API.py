@@ -34,6 +34,17 @@ def _proc_prov_eq(lhs, rhs):
     return lhs is rhs
 
 
+# TODO: This is a terrible hack that should be replaced by
+#       an actual Union Find data structure in the future
+def _proc_prov_unify(lhs, rhs):
+    # choose arbitrarily to reset the rhs root to refer to the lhs
+    roots = _proc_root.copy()
+    for p, p_root in roots.items():
+        if p_root is rhs:
+            _proc_root[p] = lhs
+    _proc_root[rhs] = lhs
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   iPython Display Object
@@ -157,6 +168,12 @@ class Procedure:
         p = LoopIR.proc(p.name, p.args, p.preds, p.body,
                         instr, p.eff, p.srcinfo)
         return Procedure(p, _provenance_eq_Procedure=self)
+
+    def unsafe_assert_eq(self, other_proc):
+        if type(other_proc) is not Procedure:
+            raise TypeError("expected a procedure as argument")
+        _proc_prov_unify(self, other_proc)
+        return self
 
     def partial_eval(self, *args):
         p = self._loopir_proc

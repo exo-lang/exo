@@ -176,9 +176,9 @@ def gen_sgemm_6x16_avx():
     @proc
     def rank_k_reduce_6x16(
         K: size,
-        C: f32[6, 16] @ DRAM,
-        A: f32[6, K] @ DRAM,
-        B: f32[K, 16] @ DRAM,
+        C: [f32][6, 16] @ DRAM,
+        A: [f32][6, K] @ DRAM,
+        B: [f32][K, 16] @ DRAM,
     ):
         for i in par(0, 6):
             for j in par(0, 16):
@@ -188,9 +188,9 @@ def gen_sgemm_6x16_avx():
     @proc
     def avx2_sgemm_6x16(
         K: size,
-        C: f32[6, 16] @ DRAM,
-        A: f32[6, K] @ DRAM,
-        B: f32[K, 16] @ DRAM,
+        C: [f32][6, 16] @ DRAM,
+        A: [f32][6, K] @ DRAM,
+        B: [f32][K, 16] @ DRAM,
     ):
         assert K > 0
         if K < 1:
@@ -211,6 +211,7 @@ def gen_sgemm_6x16_avx():
                 for ji in par(0, 8):
                     C[i, jo * 8 + ji] += C_reg[i, jo, ji]
 
+    rank_k_reduce_6x16.unsafe_assert_eq(avx2_sgemm_6x16)
     """
     compute C += A*B (for m x n = 6 x 16)
     """
@@ -274,9 +275,9 @@ def test_avx2_sgemm_full():
     library = generate_lib(basename, extra_flags="-march=skylake")
 
     sgemm_test_cases(library.avx_sgemm_full,
-                     M=[6],
-                     N=[16],
-                     K=range(1, 512))
+                     M=range(10, 600, 200),
+                     N=range(20, 400, 120),
+                     K=range(1, 512, 160))
 
 
 def test_avx2_sgemm_6x16():
@@ -284,6 +285,17 @@ def test_avx2_sgemm_6x16():
 
     print()
     print(avx2_sgemm_6x16)
+
+    @proc
+    def avx2_sgemm_6x16_wrapper(
+        M: size,
+        N: size,
+        K: size,
+        C: f32[6, 16] @ DRAM,
+        A: f32[6, K] @ DRAM,
+        B: f32[K, 16] @ DRAM,
+    ):
+        avx2_sgemm_6x16(K, C, A, B)
 
     basename = test_avx2_sgemm_6x16.__name__
 
