@@ -56,6 +56,7 @@ def test_write_loop_builtin():
         for i in par(0, n):
             ConfigAB.a = sin(1.0)
 
+@pytest.mark.skip()
 def test_write_loop_varying():
     ConfigAB = new_config_f32()
     with pytest.raises(TypeError,
@@ -68,7 +69,7 @@ def test_write_loop_varying():
 # Need to fix effects so that
 # this pattern of reading and writing the buffer `a` is ok
 # before it makes any sense to run this particular test
-#@pytest.mark.skip()
+@pytest.mark.skip()
 def test_write_loop_varying_indirect():
     ConfigAB = new_config_f32()
     with pytest.raises(TypeError,
@@ -115,6 +116,7 @@ def test_loop_complex_guards():
             if n == n - 1:
                 CTRL.i = 3
 
+@pytest.mark.skip()
 def test_loop_circular_guards():
     CTRL = new_control_config()
 

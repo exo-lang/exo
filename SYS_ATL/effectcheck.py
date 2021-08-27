@@ -2,6 +2,7 @@ from .prelude import *
 from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
 from .LoopIR import lift_to_eff_expr as lift_expr
 from .LoopIR import T
+from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (eff_null, eff_read, eff_write, eff_reduce,
                              eff_config_read, eff_config_write,
@@ -791,8 +792,9 @@ class CheckEffects:
             else: assert False, "unrecognized const type: {type(expr.val)}"
         elif type(expr) is E.Var:
             return self.sym_to_smt(expr.name, expr.type)
-        elif type(expr) is E.Neg:
-            return SMT.Not(self.sym_to_smt(expr.name, expr.type))
+        elif type(expr) is E.Not:
+            arg = self.expr_to_smt(expr.arg)
+            return SMT.Not(arg)
         elif type(expr) is E.Stride:
             key = (expr.name,expr.dim)
             if key in self.stride_sym:
@@ -1061,7 +1063,14 @@ class CheckEffects:
 #                NOT_CONFLICTS(i, n, w, w)
         for w1 in eff.writes:
             for w2 in eff.writes:
+                if w1.buffer == w2.buffer:
+                    # If we're writing a loop invariant value to
+                    # the same buffer, that is safe
+                    if iter not in LoopIR_Dependencies(w1.buffer, body).result():
+                        continue
+
                 self.not_conflicts(iter, hi, w1, w2)
+
 #                NOT_CONFLICTS(i, n, w, p) )
         for w in eff.writes:
             for p in eff.reduces:
