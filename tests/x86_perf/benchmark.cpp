@@ -98,4 +98,34 @@ BENCHMARK(benchmark_sys_atl_full)
     ->DenseRange(48, 1024, 48*2)
     ->ReportAggregatesOnly();
 
+static void benchmark_blis_full(benchmark::State &state) {
+  size_t n = state.range(0);
+  size_t m = state.range(0);
+  size_t k = state.range(0);
+
+  float alpha = 1.0f;
+  float beta = 1.0f;
+
+  std::vector<float> a_vec(n * k);
+  std::vector<float> b_vec(k * m);
+  std::vector<float> c_vec(n * m);
+
+  float *a = a_vec.data();
+  float *b = b_vec.data();
+  float *c = c_vec.data();
+
+  for (auto _ : state) {
+    bli_sgemm(BLIS_NO_TRANSPOSE, BLIS_NO_TRANSPOSE, n, m, k, &alpha, a, k, 1,
+              b, m, 1, &beta, c, m, 1);
+  }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations() * 2 * n * m * k),
+      benchmark::Counter::kIsRate, benchmark::Counter::kIs1000);
+}
+
+BENCHMARK(benchmark_blis_full)
+    ->DenseRange(48, 1024, 48*2)
+    ->ReportAggregatesOnly();
+
 BENCHMARK_MAIN();
