@@ -121,4 +121,5 @@ def clear_reg(
 
 @instr('__builtin_unreachable();')
 def unreachable():
+    # assert False
     pass

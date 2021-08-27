@@ -25,12 +25,14 @@ from weakref import WeakKeyDictionary
 # or there is some other LoopIR.proc which is its root
 _proc_root = WeakKeyDictionary()
 
+
 def _proc_prov_eq(lhs, rhs):
     """ test whether two procs have the same provenance """
     lhs = lhs if lhs not in _proc_root else _proc_root[lhs]
     rhs = rhs if rhs not in _proc_root else _proc_root[rhs]
     assert lhs not in _proc_root and rhs not in _proc_root
     return lhs is rhs
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -148,18 +150,18 @@ class Procedure:
 
     def make_instr(self, instr):
         if type(instr) is not str:
-            raise TypeError("expected an instruction macro "+
-                            "(Python string with {} escapes "+
+            raise TypeError("expected an instruction macro "
+                            "(Python string with {} escapes "
                             "as an argument")
         p = self._loopir_proc
-        p = LoopIR.proc( p.name, p.args, p.preds, p.body,
-                         instr, p.eff, p.srcinfo )
+        p = LoopIR.proc(p.name, p.args, p.preds, p.body,
+                        instr, p.eff, p.srcinfo)
         return Procedure(p, _provenance_eq_Procedure=self)
 
     def partial_eval(self, *args):
         p = self._loopir_proc
         if len(args) > len(p.args):
-            raise TypeError(f"expected no more than {len(p.args)} "+
+            raise TypeError(f"expected no more than {len(p.args)} "
                             f"arguments, but got {len(args)}")
         p = Schedules.DoPartialEval(p, args).result()
         return Procedure(p)
@@ -176,7 +178,7 @@ class Procedure:
         if typ_abbreviation in _shorthand:
             typ = _shorthand[typ_abbreviation]
         else:
-            raise TypeError("expected second argument to set_precision() "+
+            raise TypeError("expected second argument to set_precision() "
                             "to be a valid primitive type abbreviation")
 
         loopir = self._loopir_proc
@@ -187,7 +189,7 @@ class Procedure:
     def set_window(self, name, is_window):
         name, count = name_plus_count(name)
         if type(is_window) is not bool:
-            raise TypeError("expected second argument to set_window() to "+
+            raise TypeError("expected second argument to set_window() to "
                             "be a boolean")
 
         loopir = self._loopir_proc
@@ -198,7 +200,7 @@ class Procedure:
     def set_memory(self, name, memory_obj):
         name, count = name_plus_count(name)
         if type(memory_obj) is not Memory:
-            raise TypeError("expected second argument to set_memory() to "+
+            raise TypeError("expected second argument to set_memory() to "
                             "be a Memory object")
 
         loopir = self._loopir_proc
@@ -408,13 +410,13 @@ class Procedure:
     def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None,
                    keep_dims=False):
         if not is_pos_int(n_lifts):
-            raise TypeError("expected second argument 'n_lifts' to be "+
+            raise TypeError("expected second argument 'n_lifts' to be "
                             "a positive integer")
         if type(mode) is not str:
-            raise TypeError("expected third argument 'mode' to be "+
+            raise TypeError("expected third argument 'mode' to be "
                             "'row' or 'col'")
         if size and type(size) is not int:
-            raise TypeError("expected fourth argument 'size' to be "+
+            raise TypeError("expected fourth argument 'size' to be "
                             "an integer")
 
         alloc_stmts = self._find_stmt(alloc_site_pattern, default_match_no=None)
@@ -430,7 +432,7 @@ class Procedure:
 
     def fission_after(self, stmt_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):
-            raise TypeError("expected second argument 'n_lifts' to be "+
+            raise TypeError("expected second argument 'n_lifts' to be "
                             "a positive integer")
 
         stmts        = self._find_stmt(stmt_pattern, default_match_no=None)

@@ -269,6 +269,3 @@ class LoopIR_Dependencies(LoopIR_Do):
         pass
     def do_eff(self, eff):
         pass
-
-
-

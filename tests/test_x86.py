@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import sys
 
 import numpy as np
@@ -158,9 +159,22 @@ def test_avx2_simple_math_scheduling():
         assert np.allclose(x, expected)
 
 
-def test_avx2_sgemm_6x16():
+def sgemm_test_cases(proc, M, N, K):
+    for m, n, k in itertools.product(M, N, K):
+        A = np.random.rand(m, k).astype(np.float32)
+        B = np.random.rand(k, n).astype(np.float32)
+        C = A @ B
+
+        C_out = np.zeros_like(C)
+
+        ctxt = POINTER(c_int)()
+        proc(ctxt, m, n, k, cvt_c(C_out), cvt_c(A), cvt_c(B))
+        assert np.allclose(C, C_out), f"sgemm failed for m={m} n={n} k={k}"
+
+
+def gen_sgemm_6x16_avx():
     @proc
-    def avx2_sgemm_6x16_orig(
+    def rank_k_reduce_6x16(
         K: size,
         C: f32[6, 16] @ DRAM,
         A: f32[6, K] @ DRAM,
@@ -178,7 +192,7 @@ def test_avx2_sgemm_6x16():
         A: f32[6, K] @ DRAM,
         B: f32[K, 16] @ DRAM,
     ):
-        # assert K > 0
+        assert K > 0
         if K < 1:
             unreachable()
 
@@ -223,24 +237,58 @@ def test_avx2_sgemm_6x16():
             .unroll('i')
     )
 
+    return rank_k_reduce_6x16, avx2_sgemm_6x16
+
+
+def test_avx2_sgemm_full():
+    sgemm_6x16, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
+
+    @proc
+    def sgemm_full(
+        N: size,
+        M: size,
+        K: size,
+        C: f32[N, M] @ DRAM,
+        A: f32[N, K] @ DRAM,
+        B: f32[K, M] @ DRAM,
+    ):
+        for i in par(0, N):
+            for j in par(0, M):
+                for k in par(0, K):
+                    C[i, j] += A[i, k] * B[k, j]
+
+    avx_sgemm_full = (
+        sgemm_full.rename('avx_sgemm_full')
+            .split('i', 6, ['io', 'ii'], tail='cut')
+            .reorder('ii #0', 'j')
+            .split('j #0', 16, ['jo', 'ji'], tail='cut')
+            .reorder('ji', 'ii')
+            .replace(sgemm_6x16, 'for ii in _: _ #0')
+    )
+    print()
+    print(avx_sgemm_full)
+
+    basename = test_avx2_sgemm_full.__name__
+
+    avx_sgemm_full.compile_c(TMP_DIR, basename)
+    library = generate_lib(basename, extra_flags="-march=skylake")
+
+    sgemm_test_cases(library.avx_sgemm_full,
+                     M=[6],
+                     N=[16],
+                     K=range(1, 512))
+
+
+def test_avx2_sgemm_6x16():
+    _, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
+
     print()
     print(avx2_sgemm_6x16)
 
     basename = test_avx2_sgemm_6x16.__name__
 
-    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
-        f.write(str(avx2_sgemm_6x16))
-
-    avx2_sgemm_6x16.compile_c(TMP_DIR, basename)
+    avx2_sgemm_6x16_wrapper.compile_c(TMP_DIR, basename)
     library = generate_lib(basename, extra_flags="-march=skylake")
 
-    for K in range(1, 512):
-        A = np.random.rand(6, K).astype(np.float32)
-        B = np.random.rand(K, 16).astype(np.float32)
-        C = A @ B
-
-        C_out = np.zeros_like(C)
-
-        ctxt = POINTER(c_int)()
-        library.avx2_sgemm_6x16(ctxt, K, cvt_c(C_out), cvt_c(A), cvt_c(B))
-        assert np.allclose(C, C_out), f"failed to match for k={K}"
+    sgemm_test_cases(library.avx2_sgemm_6x16_wrapper, M=[6], N=[16],
+                     K=range(1, 512))
