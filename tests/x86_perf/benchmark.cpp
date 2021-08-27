@@ -13,7 +13,7 @@
 #define restrict __restrict // good old BLIS uses the C keyword...
 #include <blis.h>
 
-static void benchmark_blis(benchmark::State &state) {
+static void benchmark_blis_kernel(benchmark::State &state) {
   size_t k = state.range(0);
   float alpha = 1.0f;
   float beta = 1.0f;
@@ -38,7 +38,7 @@ static void benchmark_blis(benchmark::State &state) {
       benchmark::Counter::kIsRate, benchmark::Counter::kIs1000);
 }
 
-BENCHMARK(benchmark_blis)
+BENCHMARK(benchmark_blis_kernel)
     // ->DenseRange(1, 16)
     // ->DenseRange(32, 1024, 32)
     ->DenseRange(1536, 4096, 512)
