@@ -258,14 +258,37 @@ def test_avx2_sgemm_full():
                 for k in par(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
+    cache_i = 16
+    cache_j = 4
+    cache_k = 2
+
     avx_sgemm_full = (
         sgemm_full.rename('avx_sgemm_full')
+            # initial i,j tiling
             .split('i', 6, ['io', 'ii'], tail='cut')
             .reorder('ii #0', 'j')
             .split('j #0', 16, ['jo', 'ji'], tail='cut')
             .reorder('ji', 'ii')
-            .replace(sgemm_6x16, 'for ii in _: _ #0')
-            .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_,_,_,_)')
+            # breaking off the main loop
+            .fission_after('for jo in _: _')
+            # introduce k-tiling for later
+            .split('k #0', cache_k * 16, ['ko', 'ki'], tail='cut')
+            .fission_after('for ko in _: _', n_lifts=2)
+            .reorder('ji', 'ko')
+            .reorder('ii', 'ko')
+            # insert uses of micro-kernel now
+            .replace_all(sgemm_6x16)
+            .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
+            .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
+            # do outer tiling for cache-locality
+            .split('io #0', cache_i, ['io', 'im'], tail='cut')
+            .reorder('im', 'jo')
+            .split('jo', cache_j, ['jo', 'jm'], tail='cut')
+            .reorder('jm', 'im')
+            # move the ko loop up and out
+            .fission_after('for ko in _: _', n_lifts=2)
+            .reorder('jm # 0', 'ko')
+            .reorder('im # 0', 'ko')
     )
     print()
     print(avx_sgemm_full)
