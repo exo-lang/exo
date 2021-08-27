@@ -4,8 +4,10 @@
 #include <test_avx2_sgemm_6x16.h>
 
 // TODO: FIX THIS
-#define systl_win_2f32 ayy_lmao
+#define systl_win_1f32 ayy_lmao
+#define systl_win_2f32 ayy_lmao2
 #include <test_avx2_sgemm_full.h>
+#undef systl_win_1f32
 #undef systl_win_2f32
 
 #define restrict __restrict // good old BLIS uses the C keyword...
@@ -93,7 +95,7 @@ static void benchmark_sys_atl_full(benchmark::State &state) {
 }
 
 BENCHMARK(benchmark_sys_atl_full)
-    ->DenseRange(32, 1024, 32)
+    ->DenseRange(48, 1024, 48*2)
     ->ReportAggregatesOnly();
 
 BENCHMARK_MAIN();

@@ -265,6 +265,7 @@ def test_avx2_sgemm_full():
             .split('j #0', 16, ['jo', 'ji'], tail='cut')
             .reorder('ji', 'ii')
             .replace(sgemm_6x16, 'for ii in _: _ #0')
+            .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_,_,_,_)')
     )
     print()
     print(avx_sgemm_full)

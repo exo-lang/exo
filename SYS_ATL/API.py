@@ -15,7 +15,9 @@ from .memory import Memory
 
 from .pattern_match import match_pattern
 
+import weakref
 from weakref import WeakKeyDictionary
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -38,12 +40,12 @@ def _proc_prov_eq(lhs, rhs):
 #       an actual Union Find data structure in the future
 def _proc_prov_unify(lhs, rhs):
     # choose arbitrarily to reset the rhs root to refer to the lhs
-    roots = _proc_root.copy()
-    for p, p_root in roots.items():
-        if p_root is rhs:
-            _proc_root[p] = lhs
+    overwrite_set = [p() for p in _proc_root.keyrefs()]
+    overwrite_set = [p for p in overwrite_set
+                     if p and _proc_root[p] is rhs]
+    for p in overwrite_set:
+        _proc_root[p] = lhs
     _proc_root[rhs] = lhs
-
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -172,7 +174,7 @@ class Procedure:
     def unsafe_assert_eq(self, other_proc):
         if type(other_proc) is not Procedure:
             raise TypeError("expected a procedure as argument")
-        _proc_prov_unify(self, other_proc)
+        _proc_prov_unify(self._loopir_proc, other_proc._loopir_proc)
         return self
 
     def partial_eval(self, *args):
