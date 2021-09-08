@@ -380,54 +380,6 @@ def _subcfg(env, eff):
     else:
         assert False, f"bad case: {type(eff)}"
 
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Free Variable check
-
-@extclass(Effects.effect)
-@extclass(Effects.effset)
-@extclass(Effects.config_eff)
-@extclass(Effects.expr)
-def has_FV(self, x):
-    return _is_FV(x, self)
-del has_FV
-
-def _is_FV(x, eff):
-    if type(eff) is Effects.effset:
-        if x in eff.names:
-            return False
-        return ( any( _is_FV(x, e) for e in eff.loc ) or
-                 (eff.pred is not None and is_FV(x, eff.pred)) )
-    elif type(eff) is Effects.config_eff:
-        return ( (eff.value is not None and _is_FV(x, eff.value)) or
-                 (eff.pred  is not None and _is_FV(x, eff.pred)) )
-    elif type(eff) is Effects.Var:
-        return x == eff.name
-    elif type(eff) is Effects.Const:
-        return False
-    elif type(eff) is Effects.Not:
-        return _is_FV(x, eff.arg)
-    elif type(eff) is Effects.BinOp:
-        return _is_FV(x, eff.lhs) or _is_FV(x, eff.rhs)
-    elif type(eff) is Effects.Stride:
-        return False
-    elif type(eff) is Effects.Select:
-        return (_is_FV(x, eff.cond) or
-                _is_FV(x, eff.tcase) or
-                _is_FV(x, eff.fcase))
-    elif type(eff) is Effects.ConfigField:
-        return False
-    elif type(eff) is Effects.effect:
-        return ( any( _is_FV(x, es) for es in eff.reads ) or
-                 any( _is_FV(x, es) for es in eff.writes ) or
-                 any( _is_FV(x, es) for es in eff.reduces ) or
-                 any( _is_FV(x, ce) for ce in eff.config_reads ) or
-                 any( _is_FV(x, ce) for ce in eff.config_writes ) )
-    else:
-        assert False, f"bad case: {type(eff)}"
-
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Querying of the effect of a block of already annotated statements
@@ -666,3 +618,52 @@ def eff_bind(bind_name, e, pred=None, config_pred=None):
                            [ filter_ce(ce) for ce in e.config_reads ],
                            [ filter_ce(ce) for ce in e.config_writes ],
                            e.srcinfo )
+
+"""
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Free Variable check
+
+@extclass(Effects.effect)
+@extclass(Effects.effset)
+@extclass(Effects.config_eff)
+@extclass(Effects.expr)
+def has_FV(self, x):
+    return _is_FV(x, self)
+del has_FV
+
+def _is_FV(x, eff):
+    if type(eff) is Effects.effset:
+        if x in eff.names:
+            return False
+        return ( any( _is_FV(x, e) for e in eff.loc ) or
+                 (eff.pred is not None and is_FV(x, eff.pred)) )
+    elif type(eff) is Effects.config_eff:
+        return ( (eff.value is not None and _is_FV(x, eff.value)) or
+                 (eff.pred  is not None and _is_FV(x, eff.pred)) )
+    elif type(eff) is Effects.Var:
+        return x == eff.name
+    elif type(eff) is Effects.Const:
+        return False
+    elif type(eff) is Effects.Not:
+        return _is_FV(x, eff.arg)
+    elif type(eff) is Effects.BinOp:
+        return _is_FV(x, eff.lhs) or _is_FV(x, eff.rhs)
+    elif type(eff) is Effects.Stride:
+        return False
+    elif type(eff) is Effects.Select:
+        return (_is_FV(x, eff.cond) or
+                _is_FV(x, eff.tcase) or
+                _is_FV(x, eff.fcase))
+    elif type(eff) is Effects.ConfigField:
+        return False
+    elif type(eff) is Effects.effect:
+        return ( any( _is_FV(x, es) for es in eff.reads ) or
+                 any( _is_FV(x, es) for es in eff.writes ) or
+                 any( _is_FV(x, es) for es in eff.reduces ) or
+                 any( _is_FV(x, ce) for ce in eff.config_reads ) or
+                 any( _is_FV(x, ce) for ce in eff.config_writes ) )
+    else:
+        assert False, f"bad case: {type(eff)}"
+"""
+

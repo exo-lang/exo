@@ -851,14 +851,14 @@ class CheckEffects:
 
         return
 
-    def check_config_no_loop_depend(self, iter, eff):
+    def check_config_no_loop_depend(self, iter, eff, body):
         for ce in eff.config_reads:
-            if ce.has_FV(iter):
+            if iter in LoopIR_Dependencies((ce.config, ce.field), body).result():
                 self.err(ce, f"The read of config variable "+
                              f"{ce.config.name()}.{ce.field} depends on "+
                              f"the loop iteration variable {iter}")
         for ce in eff.config_writes:
-            if ce.has_FV(iter):
+            if iter in LoopIR_Dependencies((ce.config, ce.field), body).result():
                 self.err(ce, f"The value written to config variable "+
                              f"{ce.config.name()}.{ce.field} depends on "+
                              f"the loop iteration variable {iter}")
@@ -952,7 +952,7 @@ class CheckEffects:
                 sub_body_eff = self.map_stmts(stmt.body)
                 self.pop()
 
-                self.check_config_no_loop_depend(stmt.iter, sub_body_eff)
+                self.check_config_no_loop_depend(stmt.iter, sub_body_eff, stmt.body)
                 # Parallelism checking here
                 # Don't check parallelism is it's a seq loop
                 if type(stmt) is LoopIR.ForAll:

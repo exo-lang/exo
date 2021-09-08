@@ -56,24 +56,20 @@ def test_write_loop_builtin():
         for i in par(0, n):
             ConfigAB.a = sin(1.0)
 
-@pytest.mark.skip()
+# Config loop dependency tests
 def test_write_loop_varying():
     ConfigAB = new_config_f32()
     with pytest.raises(TypeError,
-                       match='TODO: no or wrong error currently'):
+                       match='The value written to config variable'):
         @proc
         def foo(n : size, A : f32[n]):
             for i in par(0, n):
                 ConfigAB.a = A[i]
 
-# Need to fix effects so that
-# this pattern of reading and writing the buffer `a` is ok
-# before it makes any sense to run this particular test
-@pytest.mark.skip()
 def test_write_loop_varying_indirect():
     ConfigAB = new_config_f32()
     with pytest.raises(TypeError,
-                       match='TODO: no or wrong error currently'):
+                       match='The value written to config variable'):
         @proc
         def foo(n : size, A : f32[n]):
             for i in par(0, n):
@@ -81,18 +77,10 @@ def test_write_loop_varying_indirect():
                 a = A[i]
                 ConfigAB.a = a
 
-def test_write_all_control():
-    CTRL = new_control_config()
-
-    @proc
-    def set_all(i : index, s : stride, b : bool):
-        CTRL.i  = i 
-        CTRL.s  = s
-        CTRL.b  = b
-
 # NOTE: The following test documents current behavior
 #       but it would be very reasonable to make this test
 #       non-failing
+# Fix is to improve the dependency analysis
 def test_write_loop_syntax_check_fail():
     CTRL = new_control_config()
 
@@ -102,6 +90,16 @@ def test_write_loop_syntax_check_fail():
         def foo(n : size):
             for i in par(0, n):
                 CTRL.i = i - i
+
+
+def test_write_all_control():
+    CTRL = new_control_config()
+
+    @proc
+    def set_all(i : index, s : stride, b : bool):
+        CTRL.i  = i 
+        CTRL.s  = s
+        CTRL.b  = b
 
 # Should the following succeed or fail?
 # I think it probably should succeed
