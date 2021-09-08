@@ -13,6 +13,116 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH
 sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
+
+def test_simple_split():
+    @proc
+    def bar(n : size, A : i8[n]):
+        tmp : i8[n]
+        for i in par(0, n):
+            tmp[i] = A[i]
+
+    print("old\n", bar)
+    bar = bar.split('i', 4, ['io', 'ii'], tail='guard')
+    print("new\n", bar)
+
+def test_simple_reorder():
+    @proc
+    def bar(n : size, m : size, A : i8[n, m]):
+        tmp : i8[n, m]
+        for i in par(0, n):
+            for j in par(0, m):
+                tmp[i,j] = A[i,j]
+
+    print("old\n", bar)
+    bar = bar.reorder('i', 'j')
+    print("new\n", bar)
+
+def test_simple_unroll():
+    @proc
+    def bar(A : i8[10]):
+        tmp : i8[10]
+        for i in par(0, 10):
+            tmp[i] = A[i]
+
+    print("old\n", bar)
+    bar = bar.unroll('i')
+    print("new\n", bar)
+
+def test_simple_inline():
+    @proc
+    def foo(x : i8, y : i8, z : i8):
+        z = x + y
+
+    @proc
+    def bar(n : size, src : i8[n], dst : i8[n]):
+        for i in par(0, n):
+            tmp_src : i8
+            tmp_dst : i8
+            tmp_src = src[i]
+            tmp_dst = dst[i]
+            foo(tmp_src, tmp_src, tmp_dst)
+
+    print("old\n", bar)
+    bar = bar.inline('foo(_, _, _)')
+    print("new\n", bar)
+
+def test_simple_partial_eval():
+    @proc
+    def bar(n : size, A : i8[n]):
+        tmp : i8[n]
+        for i in par(0, n):
+            tmp[i] = A[i]
+
+    print("old\n", bar)
+    N = 10
+    bar = bar.partial_eval(N)
+    print("new\n", bar)
+
+def test_simple_typ_and_mem():
+    @proc
+    def bar(n : size, A : R[n]):
+        pass
+
+    print("old\n", bar)
+    bar = (bar.set_precision('A', 'i32')
+              .set_memory('A', GEMM_SCRATCH))
+    print("new\n", bar)
+
+def test_simple_bind_expr():
+    @proc
+    def bar(n : size, x : i8[n], y : i8[n], z : i8[n]):
+        for i in par(0, n):
+            z[i] = x[i] + y[i]
+
+    print("old\n", bar)
+    bar = bar.bind_expr('z_tmp', 'x[_] + y[_]')
+    print("new\n", bar)
+
+def test_simple_lift_alloc():
+    @proc
+    def bar(n : size, A : i8[n]):
+        for i in par(0, n):
+            tmp_a : i8
+            tmp_a = A[i]
+
+    print("old\n", bar)
+    bar = bar.lift_alloc('tmp_a : _', n_lifts=1)
+    print("new\n", bar)
+
+def test_simple_fission():
+    @proc
+    def bar(n : size, A : i8[n], B : i8[n], C : i8[n]):
+        for i in par(0, n):
+            C[i] += A[i]
+            C[i] += B[i]
+
+    print("old\n", bar)
+    bar = bar.fission_after('C[_] += A[_]')
+    print("new\n", bar)
+
+
+
+
 @pytest.mark.skip()
 def test_partition():
     @proc
@@ -67,7 +177,6 @@ def test_lift():
                 a[k] = A[k,i]
 
     bar = bar.lift_alloc('a: i8[_]', n_lifts=1, mode='col', size=20)
-    print(bar)
 
 
 def test_unify1():
@@ -84,7 +193,6 @@ def test_unify1():
                 x[i,j] = y[i,j]
 
     foo = foo.replace(bar, "for i in _ : _")
-    print(foo)
     assert 'bar(5, y, x)' in str(foo)
 
 
@@ -102,7 +210,6 @@ def test_unify2():
                 x[i+3,j+1] = y[i+5,j+2]
 
     foo = foo.replace(bar, "for i in _ : _")
-    print(foo)
     assert 'bar(5, y[5:10, 2:7], x[3:8, 1:6])' in str(foo)
 
 
@@ -121,7 +228,6 @@ def test_unify3():
                 z[4*i + j] = x[4*i + j] + y[4*i + j]
 
     foo = foo.replace(simd_add4, "for j in _ : _")
-    print(foo)
 
     expected = '''
         simd_add4(z[4 * i + 0:4 * i + 4], x[4 * i + 0:4 * i + 4],
@@ -144,7 +250,6 @@ def test_unify4():
                 x[j,1] = x[j,0] + x[j+1,0]
 
     foo = foo.replace(bar, "for j in _ : _")
-    print(foo)
     assert 'bar(50, x[0:50, 0], x[0:50, 1])' in str(foo)
 
 
@@ -166,7 +271,6 @@ def test_unify5():
                 x[i,j] = c
 
     foo = foo.replace(bar, "for i in _ : _")
-    print(foo)
     assert 'bar(5, y, x)' in str(foo)
 
 
@@ -195,5 +299,4 @@ def test_unify6():
                     a[i, k_in] = A[i, 16 * k + k_in]
 
     bar = bar.replace(load, "for i in _:_")
-    print(bar)
     assert 'load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])' in str(bar)
