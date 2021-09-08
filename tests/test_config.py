@@ -231,7 +231,7 @@ def test_ld():
                 tmp : f32
                 tmp      = src[i,j]
                 tmp      = tmp * scale
-                dst[i,j] = tmp #no clamping
+                dst[i,j] = tmp
 
     @proc
     def ld_i8_v2(
@@ -251,6 +251,11 @@ def test_ld():
         do_ld_i8(n, m, src, dst)
 
 
+    new = (ld_i8.rename("new")
+                .replace(ld_i8, "for i in _:_")
+                )
+                #.call_eqv(ld_i8_v2, "ld_i8(_, _, _, _, _)"))
+    print(new)
 
 
 
