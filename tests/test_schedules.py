@@ -63,6 +63,10 @@ def test_simple_inline():
             foo(tmp_src, tmp_src, tmp_dst)
 
     print("old\n", bar)
+    # TODO: This should fail
+    # bar = bar.inline('foo(_)')
+    # TODO: This should fail
+    # bar = bar.inline('foo(io, i1, i2)')
     bar = bar.inline('foo(_, _, _)')
     print("new\n", bar)
 
