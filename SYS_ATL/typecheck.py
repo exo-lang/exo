@@ -508,8 +508,8 @@ class TypeChecker:
             else:
                 shape = typ.shape()
                 if not (0 <= e.dim < len(shape)):
-                    self.err(p, f"expected {e.dim} to be in-bounds "+
-                                f"(i.e. 0 <= {p.dim} < {len(shape)})")
+                    self.err(e, f"expected {e.dim} to be in-bounds "+
+                                f"(i.e. 0 <= {e.dim} < {len(shape)})")
 
             return LoopIR.StrideExpr(e.name, e.dim, T.stride, e.srcinfo)
 

@@ -152,7 +152,25 @@ def new_config_ld():
 
     return ConfigLoad
 
+# TODO: This doesn't work because ConfigLoads in bar and foo
+#       are treated as different symbol in effectcheck.
+#       Should configs be arguments? Probably not..
 @pytest.mark.skip()
+def test_stride_with_config():
+    ConfigLoad = new_config_ld()
+
+    @proc
+    def bar(n : size, src : [i8][n]):
+        assert stride(src, 0) == ConfigLoad.src_stride
+        pass
+
+    @proc
+    def foo(n : size, src : [i8][n]):
+        assert stride(src, 0) == ConfigLoad.src_stride
+        bar(n, src)
+
+
+
 def test_ld():
     ConfigLoad = new_config_ld()
 
@@ -167,8 +185,6 @@ def test_ld():
         ConfigLoad.src_stride = src_stride
 
 
-    # TODO: How to readon that this ConfigLoad.scale is same as scale in
-    # ld_i8?? We need to be able to unify those..
     _gemm_do_ld_i8   = ("gemmini_extended_mvin( {src}.data, "+
                                   "((uint64_t) {dst}.data), {m}, {n} );")
     @instr(_gemm_do_ld_i8)
@@ -181,7 +197,6 @@ def test_ld():
         assert n <= 16
         assert m <= 16
         assert stride(src, 1) == 1
-        assert stride(src, 0) == ConfigLoad.src_stride
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
 
@@ -190,7 +205,7 @@ def test_ld():
                 tmp : f32
                 tmp      = src[i,j]
                 tmp      = tmp * ConfigLoad.scale
-                dst[i,j] = tmp #no clamping
+                dst[i,j] = tmp
 
 
     _gemm_ld_i8   = ("gemmini_extended3_config_ld({stride(src, 0)}, "+
@@ -231,8 +246,6 @@ def test_ld():
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
-        # TODO: This assert is not assumed??
-        #assert stride(src, 0) == ConfigLoad.src_stride
 
         config_ld_i8(scale, stride(src, 0))
         do_ld_i8(n, m, src, dst)
