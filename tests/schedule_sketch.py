@@ -1310,3 +1310,82 @@ def foo(...):
 
     for j in par(0,m):
         y[(p-m)+j] = y[(p-m)+j] + 1
+
+
+"""
+
+
+
+
+def test_matmul():
+    #sgemm_6x16, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
+
+    print()
+
+    @proc
+    def gemm(
+        N: size,
+        M: size,
+        K: size,
+        C: f32[N, M] @ DRAM,
+        A: f32[N, K] @ DRAM,
+        B: f32[K, M] @ DRAM,
+    ):
+        for i in par(0, N):
+            for j in par(0, M):
+                for k in par(0, K):
+                    C[i, j] += A[i, k] * B[k, j]
+
+    print(gemm)
+
+    def tile_2d(proc, orig_iters, factors, new_iters=None):
+      assert len(orig_iters) == len(factors) == 2
+
+      if new_iters is None:
+        new_iters = []
+        for i in orig_iters:
+          new_iters.append(i+'o')
+          new_iters.append(i+'i')
+
+      proc = (proc
+        .split(orig_iters[0]+" #0", factors[0], new_iters[0:2], tail='cut')
+        .reorder(new_iters[1]+" #0", orig_iters[1])
+        .split(orig_iters[1]+" #0", factors[1], new_iters[2:4], tail='cut')
+        .reorder(new_iters[3]+" #0", new_iters[1])
+      )
+
+      return proc
+
+
+
+    def tile_nd(proc, orig_iters, factors, new_iters=None):
+      raise NotImplementedError()
+
+    def tile_nd_multilevel(proc, orig_iters, factors, new_iters=None):
+      raise NotImplementedError()
+
+    def autotune_tile_2d(proc, orig_iters, new_iters=None):
+      assert len(orig_iters) == 2
+
+      if new_iters is None:
+        new_iters = []
+        for i in orig_iters:
+          new_iters.append(i+'o')
+          new_iters.append(i+'i')
+
+      # do computation to produce factors
+      factors = [6,16]
+
+      return factors
+
+    gemm_tiled = gemm.rename('gemm_tiled')
+    factors    = autotune_tile_2d(gemm_tiled, ['i','j'])
+    print(factors)
+    gemm_tiled = tile_2d(gemm_tiled, ['i','j'], factors)
+
+    #gemm_tiled = tile_nd(gemm.rename('gemm_tiled'),
+    #                     ['i','j','k'], [6,16,14])
+    #gemm_tiled = (gemm_tiled
+    #                .reorder())
+
+    print(gemm_tiled)
