@@ -244,9 +244,10 @@ def test_ld():
 
     ld_i8 = ld_i8.bind_config('scale', ConfigLoad, 'scale')
     print(ld_i8)
+    ld_i8 = ld_i8.reorder_stmts('tmp = src[_]', 'ConfigLoad.scale = _')
+    print(ld_i8)
 
 """
-    ld_i8.reorder_stmts('tmp = _', 'ConfigLoad.scale = _')
     ld_i8.fission_after(ConfigLoad.scale, n_lifts=3)
 
     @proc

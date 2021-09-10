@@ -134,6 +134,7 @@ module PAST {
             | Seq     ( name iter, expr hi,     stmt* body )
             | Alloc   ( name name ) -- may want to add type & mem back in?
             | Call    ( name f, expr* args )
+            | WriteConfig ( name config, name field )
             | S_Hole  ()
             attributes( srcinfo srcinfo )
 

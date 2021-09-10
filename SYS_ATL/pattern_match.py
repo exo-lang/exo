@@ -64,6 +64,7 @@ _PAST_to_LoopIR = {
   PAST.Seq   :        LoopIR.Seq,
   PAST.Alloc:         LoopIR.Alloc,
   PAST.Call:          LoopIR.Call,
+  PAST.WriteConfig:   LoopIR.WriteConfig,
   PAST.S_Hole:        None,
   #
   PAST.Read:          LoopIR.Read,
@@ -265,6 +266,9 @@ class PatternMatch:
             return ( self.match_name(pat.name, stmt.name) )
         elif styp is LoopIR.Call:
             return ( self.match_name(pat.f, stmt.f.name) )
+        elif styp is LoopIR.WriteConfig:
+            return ( self.match_name( stmt.config.name(), pat.config ) and
+                     self.match_name( stmt.field, pat.field ) )
         else: assert False, f"bad case: {styp}"
 
 

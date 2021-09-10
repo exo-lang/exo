@@ -1021,7 +1021,20 @@ class PatternParser:
                     if len(s.targets) > 1:
                         self.err(s, "expected only one expression " +
                                     "on the left of an assignment")
-                    name_node, idxs = self.parse_lvalue(s.targets[0])
+                    node = s.targets[0]
+                    # WriteConfigs
+                    if type(node) is pyast.Attribute:
+                        if type(node.value) is not pyast.Name:
+                            self.err(tgt, "expected configuration writes "+
+                                          "of the form 'config.field = ...'")
+                        assert type(node.attr) is str
+                        assert type(node.value.id) is str
+
+                        rstmts.append(PAST.WriteConfig(node.value.id, node.attr,
+                                                       self.getsrcinfo(s)))
+                        continue
+                    else:
+                        name_node, idxs = self.parse_lvalue(s.targets[0])
                 else:
                     name_node, idxs = self.parse_lvalue(s.target)
 

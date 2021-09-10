@@ -305,6 +305,14 @@ class Procedure:
                                         perfect=perfect).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def reorder_stmts(self, first_pat, second_pat):
+        first_stmt = self._find_stmt(first_pat)
+        second_stmt = self._find_stmt(second_pat)
+        print(first_stmt)
+        print(second_stmt)
+        return "hoge"
+        
+
     def reorder(self, out_var, in_var):
         if type(out_var) is not str:
             raise TypeError("expected first arg to be a string")
