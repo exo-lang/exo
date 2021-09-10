@@ -305,12 +305,26 @@ class Procedure:
                                         perfect=perfect).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+
     def reorder_stmts(self, first_pat, second_pat):
-        first_stmt = self._find_stmt(first_pat)
-        second_stmt = self._find_stmt(second_pat)
-        print(first_stmt)
-        print(second_stmt)
-        return "hoge"
+        if type(first_pat) is not str:
+            raise TypeError("expected first arg to be a pattern in string")
+        if type(second_pat) is not str:
+            raise TypeError("expected second arg to be a pattern in string")
+
+        first_stmt = self._find_stmt(first_pat, default_match_no=None)
+        second_stmt = self._find_stmt(second_pat, default_match_no=None)
+
+        if not first_stmt or not second_stmt:
+            raise TypeError("failed to find stmt")
+        if len(first_stmt) != 1 or len(second_stmt) != 1:
+            raise TypeError("expected stmt patterns to be specified s.t. it has "+
+                            "only one matching")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.DoReorderStmt(loopir, first_stmt[0], second_stmt[0]).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
         
 
     def reorder(self, out_var, in_var):

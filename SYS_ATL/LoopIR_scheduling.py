@@ -65,6 +65,83 @@ def nested_iter_names_to_pattern(namestr, inner):
 # Reorder scheduling directive
 
 
+# Take a conservative approach and allow stmt reordering only when they are
+# writing to different buffers
+# TODO: Do effectcheck's check_commutes-ish thing using SMT here
+class _DoReorderStmt(LoopIR_Rewrite):
+    def __init__(self, proc, f_stmt, s_stmt):
+        self.f_stmt = f_stmt
+        self.s_stmt = s_stmt
+        self.found_first = False
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def not_conflicts(self, e1, e2):
+        if e1.buffer == e2.buffer:
+            raise SchedulingError("Cannot reorder stmts using the same "+
+                                  "buffer or config")
+
+    def check_commutes(self, f_eff, s_eff):
+        for r in f_eff.reads:
+            for w in s_eff.writes:
+                self.not_conflicts(r, w)
+        for w in f_eff.writes:
+            for r in s_eff.reads:
+                self.not_conflicts(r, w)
+
+        for r in f_eff.reads:
+            for p in s_eff.reduces:
+                self.not_conflicts(r, p)
+        for p in f_eff.reduces:
+            for r in s_eff.reads:
+                self.not_conflicts(r, p)
+
+        for w1 in f_eff.writes:
+            for w2 in s_eff.writes:
+                self.not_conflicts(w1, w2)
+
+        for w in f_eff.writes:
+            for p in s_eff.reduces:
+                self.not_conflicts(w, p)
+        for p in f_eff.reduces:
+            for w in s_eff.writes:
+                self.not_conflicts(w, p)
+
+        # for configuration variables
+        for r in f_eff.config_reads:
+            for w in s_eff.config_writes:
+                self.not_conflicts_config(r, w)
+        for w in f_eff.config_writes:
+            for r in s_eff.config_reads:
+                self.not_conflicts_config(r, w)
+
+
+    def map_stmts(self, stmts):
+        new_stmts = []
+
+        for b in stmts:
+            for s in self.map_s(b):
+                if self.found_first:
+                    if s != self.s_stmt:
+                        raise SchedulingError("expected the second stmt to be "+
+                                              "directly inside the first stmt")
+                    self.found_first = False
+                    continue #skip the second stmt because it's already reordered
+
+                if s == self.f_stmt:
+                    self.found_first = True
+                    self.check_commutes(self.f_stmt.eff, self.s_stmt.eff)
+
+                    new_stmts.append(self.s_stmt)
+                    new_stmts.append(self.f_stmt)
+                else:
+                    new_stmts.append(s)
+
+        return new_stmts
+
+
 class _Reorder(LoopIR_Rewrite):
     def __init__(self, proc, loop_stmt):
         self.stmt    = loop_stmt
@@ -1427,3 +1504,4 @@ class Schedules:
     DoFissionLoops      = _FissionLoops
     DoFactorOut         = _DoFactorOut
     DoParToSeq          = _DoParToSeq
+    DoReorderStmt       = _DoReorderStmt

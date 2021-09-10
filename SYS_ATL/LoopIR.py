@@ -540,7 +540,7 @@ class LoopIR_Rewrite:
                              ce.field,
                              self.map_eff_e(ce.value) if ce.value else None,
                              self.map_eff_e(ce.pred)  if ce.pred  else None,
-                             e.srcinfo )
+                             ce.srcinfo )
 
     def map_eff_e(self, e):
         if type(e) is E.BinOp:

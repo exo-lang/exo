@@ -180,6 +180,22 @@ def test_config_bind():
     print(foo)
 
 
+def test_config_fission():
+    ConfigLoad = new_config_ld()
+
+    @proc
+    def foo( scale : f32, n : size, m : size, A : f32[n,m]):
+        for i in par(0, n):
+            for j in par(0, m):
+                ConfigLoad.scale = scale
+                tmp : f32
+                tmp      = A[i,j]
+                tmp      = tmp * ConfigLoad.scale
+
+    foo = foo.fission_after('ConfigLoad.scale = _', n_lifts=2)
+    print(foo)
+
+
 def test_ld():
     ConfigLoad = new_config_ld()
 
@@ -243,12 +259,13 @@ def test_ld():
                 dst[i,j] = tmp
 
     ld_i8 = ld_i8.bind_config('scale', ConfigLoad, 'scale')
-    print(ld_i8)
     ld_i8 = ld_i8.reorder_stmts('tmp = src[_]', 'ConfigLoad.scale = _')
+    ld_i8 = ld_i8.reorder_stmts('tmp : _', 'ConfigLoad.scale = _')
+    ld_i8 = ld_i8.fission_after('ConfigLoad.scale = _', n_lifts=3)
+
     print(ld_i8)
 
 """
-    ld_i8.fission_after(ConfigLoad.scale, n_lifts=3)
 
     @proc
     def ld_i8_v1_5(
