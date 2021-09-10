@@ -166,9 +166,20 @@ def test_stride_with_config():
         assert stride(src, 0) == ConfigLoad.src_stride
         bar(n, src)
 
+def test_config_bind():
+    ConfigLoad = new_config_ld()
+
+    @proc
+    def foo( scale : f32 ):
+        for i in par(0, 10):
+            tmp : f32
+            tmp      = 0.0
+            tmp      = tmp * scale
+
+    foo = foo.bind_config('scale', ConfigLoad, 'scale')
+    print(foo)
 
 
-@pytest.mark.skip()
 def test_ld():
     ConfigLoad = new_config_ld()
 
@@ -231,7 +242,10 @@ def test_ld():
                 tmp      = tmp * scale
                 dst[i,j] = tmp
 
-    ld_i8.bind_config('scale', ConfigLoad.scale)
+    ld_i8 = ld_i8.bind_config('scale', ConfigLoad, 'scale')
+    print(ld_i8)
+
+"""
     ld_i8.reorder_stmts('tmp = _', 'ConfigLoad.scale = _')
     ld_i8.fission_after(ConfigLoad.scale, n_lifts=3)
 
@@ -250,7 +264,7 @@ def test_ld():
         assert stride(dst, 1) == 1
 
         ConfigLoad.scale = scale
-        ConfigLoad.src_stride = src_stride
+        ConfigLoad.src_stride = stride(src, 0)
 
         for i in par(0, n):
             for j in par(0, m):
@@ -284,7 +298,6 @@ def test_ld():
 
 
 
-"""
 
 def test_config_write3():
     ConfigAB = new_config_f32()

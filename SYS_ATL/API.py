@@ -12,6 +12,7 @@ from .LoopIR_unification import DoReplace, UnificationError
 from .effectcheck import InferEffects, CheckEffects
 
 from .memory import Memory
+from .configs import Config
 
 from .pattern_match import match_pattern
 
@@ -245,6 +246,37 @@ class Procedure:
             raise TypeError("pattern did not describe a call-site")
 
         return call_stmt
+
+
+    def bind_config(self, var_pattern, config, field):
+        # Check if config and field are valid here
+        if type(config) is not Config:
+            raise TypeError("Did not pass a config object")
+        if type(field) is not str:
+            raise TypeError("Did not pass a config field string")
+        if not config.has_field(field):
+            raise TypeError(f"expected '{field}' to be a field "+
+                            f"in config '{config.name()}'")
+
+        body    = self._loopir_proc.body
+        matches = match_pattern(body, var_pattern, call_depth=1)
+
+        if not matches:
+            raise TypeError("failed to find expression")
+        # Can only bind single read atm. How to reason about scoping?
+        if len(matches) != 1 or type(matches[0]) is not LoopIR.Read:
+            raise TypeError(f"expected a single Read")
+
+        # Check that the type of config field and read are the same
+        if matches[0].type != config.lookup(field)[1]:
+            raise TypeError(f"types of config and a read variable does"+
+                             " not match")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.DoBindConfig(loopir, config, field, matches[0]).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
 
     def split(self, split_var, split_const, out_vars,
               tail='guard', perfect=False):

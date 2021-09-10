@@ -656,6 +656,73 @@ class _CallSwap(LoopIR_Rewrite):
 # --------------------------------------------------------------------------- #
 # Bind Expression scheduling directive
 
+class _BindConfig(LoopIR_Rewrite):
+    def __init__(self, proc, config, field, expr):
+        assert type(expr) is LoopIR.Read
+
+        self.orig_proc = proc
+        self.config    = config
+        self.field     = field
+        self.expr      = expr
+        self.found_expr= False
+        self.placed_writeconfig = False
+        self.sub_over  = False
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    def process_block(self, block):
+        if self.sub_over:
+            return block
+
+        new_block = []
+        is_writeconfig_block = False
+
+        for stmt in block:
+            stmt = self.map_s(stmt)
+
+            if self.found_expr and not self.placed_writeconfig:
+                self.placed_writeconfig = True
+                is_writeconfig_block    = True
+                wc = LoopIR.WriteConfig( self.config, self.field,
+                                         self.expr, None,
+                                         self.expr.srcinfo )
+                new_block.extend([wc])
+
+            new_block.extend(stmt)
+
+        if is_writeconfig_block:
+            self.sub_over = True
+
+        return new_block
+
+    def map_s(self, s):
+        if self.sub_over:
+            return super().map_s(s)
+
+        if isinstance(s, LoopIR.ForAll):
+            body = self.process_block(s.body)
+            return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
+
+        if isinstance(s, LoopIR.If):
+            if_then = self.process_block(s.body)
+            if_else = self.process_block(s.orelse)
+            return [LoopIR.If(s.cond, if_then, if_else, s.eff, s.srcinfo)]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        if e is self.expr and not self.sub_over:
+            assert not self.found_expr
+            self.found_expr = True
+
+            return LoopIR.ReadConfig( self.config, self.field, e.type, e.srcinfo)
+        else:
+            return super().map_e(e)
+
+
 
 class _BindExpr(LoopIR_Rewrite):
     def __init__(self, proc, new_name, exprs, cse=False):
@@ -1354,6 +1421,7 @@ class Schedules:
     SetTypAndMem        = _SetTypAndMem
     DoCallSwap          = _CallSwap
     DoBindExpr          = _BindExpr
+    DoBindConfig        = _BindConfig
     DoStageAssn         = _DoStageAssn
     DoLiftAlloc         = _LiftAlloc
     DoFissionLoops      = _FissionLoops
