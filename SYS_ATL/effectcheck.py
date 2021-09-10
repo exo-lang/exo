@@ -473,6 +473,7 @@ class CheckEffects:
 
         # Map sym to z3 variable
         self.env        = ChainMap()
+        self.config_env = ChainMap()
         self.errors     = []
 
         self.stride_sym = dict()
@@ -532,9 +533,11 @@ class CheckEffects:
     def push(self):
         self.solver.push()
         self.env = self.env.new_child()
+        self.config_env = self.config_env.new_child()
 
     def pop(self):
         self.env = self.env.parents
+        self.config_env = self.config_env.parents
         self.solver.pop()
 
     def err(self, node, msg):
@@ -549,6 +552,19 @@ class CheckEffects:
             elif typ is T.bool:
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
         return self.env[sym]
+
+    def config_to_smt(self, config, field, typ):
+        c = (config, field)
+        if c not in self.config_env:
+            if typ.is_indexable() or typ.is_stridable():
+                self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.INT)
+            elif typ.is_scalar():
+                self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.REAL)
+            elif typ is T.bool:
+                self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.BOOL)
+            else:
+                assert False, "bad case!"
+        return self.config_env[c]
 
     def expr_to_smt(self, expr):
         assert isinstance(expr, E.expr), "expected Effects.expr"
@@ -576,6 +592,8 @@ class CheckEffects:
             tcase   = self.expr_to_smt(expr.tcase)
             fcase   = self.expr_to_smt(expr.fcase)
             return SMT.Ite(cond, tcase, fcase)
+        elif type(expr) is E.ConfigField:
+            return self.config_to_smt(expr.config, expr.field, expr.type)
         elif type(expr) is E.BinOp:
             lhs = self.expr_to_smt(expr.lhs)
             rhs = self.expr_to_smt(expr.rhs)

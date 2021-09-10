@@ -152,10 +152,7 @@ def new_config_ld():
 
     return ConfigLoad
 
-# TODO: This doesn't work because ConfigLoads in bar and foo
-#       are treated as different symbol in effectcheck.
-#       Should configs be arguments? Probably not..
-@pytest.mark.skip()
+
 def test_stride_with_config():
     ConfigLoad = new_config_ld()
 
@@ -171,6 +168,7 @@ def test_stride_with_config():
 
 
 
+@pytest.mark.skip()
 def test_ld():
     ConfigLoad = new_config_ld()
 
@@ -233,6 +231,34 @@ def test_ld():
                 tmp      = tmp * scale
                 dst[i,j] = tmp
 
+    ld_i8.bind_config('scale', ConfigLoad.scale)
+    ld_i8.reorder_stmts('tmp = _', 'ConfigLoad.scale = _')
+    ld_i8.fission_after(ConfigLoad.scale, n_lifts=3)
+
+    @proc
+    def ld_i8_v1_5(
+        n     : size,
+        m     : size,
+        scale : f32,
+        src   : [i8][n, m] @ DRAM,
+        dst   : [i8][n, 16] @ GEMM_SCRATCH,
+    ):
+        assert n <= 16
+        assert m <= 16
+        assert stride(src, 1) == 1
+        assert stride(dst, 0) == 16
+        assert stride(dst, 1) == 1
+
+        ConfigLoad.scale = scale
+        ConfigLoad.src_stride = src_stride
+
+        for i in par(0, n):
+            for j in par(0, m):
+                tmp : f32
+                tmp      = src[i,j]
+                tmp      = tmp * ConfigLoad.scale
+                dst[i,j] = tmp
+
     @proc
     def ld_i8_v2(
         n     : size,
@@ -253,8 +279,7 @@ def test_ld():
 
     new = (ld_i8.rename("new")
                 .replace(ld_i8, "for i in _:_")
-                )
-                #.call_eqv(ld_i8_v2, "ld_i8(_, _, _, _, _)"))
+                .call_eqv(ld_i8_v2, "ld_i8(_, _, _, _, _)"))
     print(new)
 
 
