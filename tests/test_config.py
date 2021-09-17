@@ -224,6 +224,7 @@ def test_ld():
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
+        assert stride(src, 0) == ConfigLoad.src_stride
 
         for i in par(0, n):
             for j in par(0, m):
@@ -263,7 +264,9 @@ def test_ld():
     ld_i8 = ld_i8.reorder_stmts('tmp : _', 'ConfigLoad.scale = _')
     ld_i8 = ld_i8.fission_after('ConfigLoad.scale = _', n_lifts=3)
 
+    ld_i8 = ld_i8.configwrite_after('ConfigLoad.scale = _', ConfigLoad, 'src_stride', 'stride(src, 0)')
     print(ld_i8)
+
 
 """
 
@@ -280,6 +283,7 @@ def test_ld():
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
+        assert stride(src, 0) == ConfigLoad.src_stride
 
         ConfigLoad.scale = scale
         ConfigLoad.src_stride = stride(src, 0)
@@ -304,6 +308,7 @@ def test_ld():
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
+        assert stride(src, 0) == ConfigLoad.src_stride
 
         config_ld_i8(scale, stride(src, 0))
         do_ld_i8(n, m, src, dst)

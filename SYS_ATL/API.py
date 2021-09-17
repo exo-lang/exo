@@ -276,6 +276,42 @@ class Procedure:
         loopir = Schedules.DoBindConfig(loopir, config, field, matches[0]).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
+    
+    # TODO: Currently, configwrite_after will textually insert
+    # config.field = var_string after stmt_pattern and call frontend pyparser.
+    # TODO: Add check here and bindconfig above about that config field we're
+    # writing does not affect any buffer
+    def configwrite_after(self, stmt_pattern, config, field, var_pattern):
+        if type(config) is not Config:
+            raise TypeError("Did not pass a config object")
+        if type(field) is not str:
+            raise TypeError("Did not pass a config field string")
+        if not config.has_field(field):
+            raise TypeError(f"expected '{field}' to be a field "+
+                            f"in config '{config.name()}'")
+
+        if type(var_pattern) is not str:
+            raise TypeError("expected second argument to be a string var")
+
+        stmt        = self._find_stmt(stmt_pattern)
+        loopir      = self._loopir_proc
+
+        # Convert loopir to string and pass to pyparser
+        #configwrite_str = f"{config.name()}.{field} = {var_pattern}"
+        #proc_str = LoopIR_PPrinter(loopir, stmt, configwrite_str).str()
+        # supply a table of configs from existing context
+        #eval(proc_str, _global=..., _local=...)
+
+        #module = pyast.parse(proc_str)
+        #assert len(module.body) == 1
+        #assert type(module.body[0]) == pyast.FunctionDef
+
+        #parser = pyparser.Parser(module.body[0], self.func_globals,
+        #                    self.srclocals, self.getsrcinfo,
+        #                    instr   = loopir.instr,
+        #                    as_func =True)
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
 
     def split(self, split_var, split_const, out_vars,
