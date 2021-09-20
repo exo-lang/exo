@@ -103,7 +103,7 @@ def ld_acc_i32(
             tmp      = tmp * scale
             dst[i,j] = tmp
 
-_gemm_st_i8   = ("gemmini_config_st({dst}.strides[0]*1);\n"+
+_gemm_st_i8   = ("gemmini_extended_config_st({dst}.strides[0]*1, 0, 1.0f);\n"+
                  "gemmini_extended_mvout( "+
                       "((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
 @instr(_gemm_st_i8)
@@ -133,7 +133,8 @@ def clamp(src : f32, dst : i8):
     dst = select(h, src, h, src)
     dst = select(src, l, l, dst)
 
-_gemm_st_acc_i8 = ("gemmini_extended_config_ex(WS, {act}, 0, {scale}[0], 0, 1, 0, 0);\n"+ _gemm_st_i8)
+_gemm_st_acc_i8   = ("gemmini_extended_config_st({dst}.strides[0]*1, {act}, {scale}[0]);\n"+
+                     "gemmini_extended_mvout( ((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
 @instr(_gemm_st_acc_i8)
 def st_acc_i8(
     n     : size,
@@ -163,8 +164,7 @@ def st_acc_i8(
             dst[i, j] = tmp
 
 
-_gemm_st_acc_i32 = ("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);\n"+
-                    "gemmini_config_st({dst}.strides[0]*4);\n"+
+_gemm_st_acc_i32 = ("gemmini_extended_config_st({dst}.strides[0]*4, 0, 1.0f);\n"+
                     "gemmini_extended_mvout( ((uint64_t) {dst}.data), "+
                     "((uint32_t) {src}.data | 0x20000000), {m}, {n} );")
 @instr(_gemm_st_acc_i32)
@@ -211,7 +211,7 @@ zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
 
 
 
-@instr("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);\n"+
+@instr("gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);\n"+
        "gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data), "+
             "{M}, {K}, "+
@@ -247,7 +247,7 @@ def matmul_i8(
                 C[i, j] += a * b
 
 
-@instr("gemmini_extended_config_ex(WS, 0, 0, 1.0f, 0, 1, 0, 0);\n"+
+@instr("gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);\n"+
        "gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data) | 0x40000000, "+
             "{M}, {K}, "+
