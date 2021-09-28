@@ -560,5 +560,7 @@ class LoopIR_PPrinter:
             return (f"Window(src_type={t.src_type},as_tensor={t.as_tensor},"+
                     f"src_buf={t.src_buf},"+
                     f"idx=[{', '.join([ self.pwacc(w) for w in t.idx ])}])")
+        elif type(t) is T.Stride:
+            return "stride"
         else:
-            assert False, "impossible type case"
+            assert False, f"impossible type {type(t)}"

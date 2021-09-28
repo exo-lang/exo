@@ -853,6 +853,12 @@ class Unification:
         elif type(ps) is LoopIR.Assign or type(ps) is LoopIR.Reduce:
             self.unify_e(ps.rhs, bs.rhs)
             self.unify_accesses(ps, bs)
+        elif type(ps) is LoopIR.WriteConfig:
+            if ps.config != bs.config or ps.field != bs.field:
+                raise UnificationError(
+                    f"cannot unify Writeconfig '{pe.config.name()}.{pe.field}' "
+                    f"with Writeconfig '{be.config.name()}.{be.field}'")
+            self.unify_e(ps.rhs, bs.rhs)
         elif type(ps) is LoopIR.Pass:
             pass
         elif type(ps) is LoopIR.If:
@@ -1075,6 +1081,12 @@ class Unification:
                     f"with builtin '{be.f.name()}'' (@{be.srcinfo})")
             for pa,ba in zip(pe.args,be.args):
                 self.unify_e(pa,ba)
+        elif type(pe) is LoopIR.ReadConfig:
+            if (pe.config != be.config or
+                    pe.field != be.field):
+                raise UnificationError(
+                    f"cannot unify readconfig '{pe.config.name()}.{pe.field}' "
+                    f"with readconfig '{be.config.name()}.{be.field}'")
         elif type(pe) is LoopIR.WindowExpr:
             pvar = self.buf_unknowns[pe.name]
 
@@ -1103,7 +1115,7 @@ class Unification:
                     self.unify_affine_e(pw.lo, bw.lo)
                     self.unify_affine_e(pw.hi, bw.hi)
         else:
-            assert False, "bad case"
+            assert False, f"bad case of {type(pe)}"
 
     def is_proc_constant(self, bbuf):
         deps = LoopIR_Dependencies(bbuf, self.stmt_block).result()

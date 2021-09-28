@@ -263,8 +263,10 @@ def test_ld():
     ld_i8 = ld_i8.reorder_stmts('tmp = src[_]', 'ConfigLoad.scale = _')
     ld_i8 = ld_i8.reorder_stmts('tmp : _', 'ConfigLoad.scale = _')
     ld_i8 = ld_i8.fission_after('ConfigLoad.scale = _', n_lifts=3)
-
     ld_i8 = ld_i8.configwrite_after('ConfigLoad.scale = _', ConfigLoad, 'src_stride', 'stride(src, 0)')
+    ld_i8 = ld_i8.replace(do_ld_i8, 'for i in _:_')
+    #ld_i8 = ld_i8.replace(config_ld_i8, 'ConfigLoad.scale = scale')
+    print(config_ld_i8)
     print(ld_i8)
 
 
