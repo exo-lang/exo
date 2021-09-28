@@ -729,6 +729,34 @@ class _CallSwap(LoopIR_Rewrite):
         return eff
 
 
+class _ConfigWriteAfter(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, config, field, expr):
+        assert (type(expr) is LoopIR.Read
+                or type(expr) is LoopIR.StrideExpr)
+
+        self.orig_proc = proc
+        self.stmt      = stmt
+        self.config    = config
+        self.field     = field
+        self.expr      = expr
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        body = []
+        for b in stmts:
+            for s in self.map_s(b):
+                body.append(s)
+                if s == self.stmt:
+                    c_str = LoopIR.WriteConfig(self.config, self.field, self.expr,
+                                               None, s.srcinfo)
+                    body.append(c_str)
+
+        return body
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Bind Expression scheduling directive
@@ -1505,3 +1533,4 @@ class Schedules:
     DoFactorOut         = _DoFactorOut
     DoParToSeq          = _DoParToSeq
     DoReorderStmt       = _DoReorderStmt
+    DoConfigWriteAfter  = _ConfigWriteAfter

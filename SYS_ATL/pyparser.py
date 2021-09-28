@@ -1086,16 +1086,31 @@ class PatternParser:
             elif (type(s) is pyast.Expr and
                   type(s.value) is pyast.Call and
                   type(s.value.func) is pyast.Name):
-                fname = s.value.func.id
 
-                if len(s.value.keywords) > 0:
-                    self.err(s.value, "cannot call procedure() "+
-                                      "with keyword arguments")
+                # handle stride expression
+                if s.value.func.id == "stride":
+                    if (len(s.value.keywords) > 0 or len(s.value.args) != 2 or
+                        type(s.value.args[0]) is not pyast.Name or
+                        type(s.value.args[1]) is not pyast.Constant or
+                        type(s.value.args[1].value) is not int):
+                        self.err(s.value, "expected stride(...) to "+
+                                    "have exactly 2 arguments: the identifier "+
+                                    "for the buffer we are talking about "+
+                                    "and an integer specifying which dimension")
 
-                args = [ self.parse_expr(a) for a in s.value.args ]
+                    name    = s.value.args[0].id
+                    dim     = s.value.args[1].value
 
-                rstmts.append(PAST.Call(fname, args,
-                                        self.getsrcinfo(s.value)))
+                    rstmts.append(PAST.StrideExpr(name, dim, self.getsrcinfo(s.value)))
+                else:
+                    if len(s.value.keywords) > 0:
+                        self.err(s.value, "cannot call procedure() "+
+                                          "with keyword arguments")
+
+                    args = [ self.parse_expr(a) for a in s.value.args ]
+
+                    rstmts.append(PAST.Call(fname, args,
+                                            self.getsrcinfo(s.value)))
 
             # ----- Stmt Hole parsing
             elif (type(s) is pyast.Expr and
