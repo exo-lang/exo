@@ -1109,7 +1109,7 @@ class PatternParser:
 
                     args = [ self.parse_expr(a) for a in s.value.args ]
 
-                    rstmts.append(PAST.Call(fname, args,
+                    rstmts.append(PAST.Call(s.value.func.id, args,
                                             self.getsrcinfo(s.value)))
 
             # ----- Stmt Hole parsing
