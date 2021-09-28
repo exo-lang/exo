@@ -17,7 +17,7 @@ Depending on your setup, getting PySMT to work correctly may be difficult.  You 
 ### Submodules
 If you have an ssh key uploaded to GitHub, you should be able to simply run the "it handles everything" command
 ```
-git submodule --init --recursive
+git submodule update --init --recursive
 ```
 
 If you do not have an ssh key uploaded and want to change the submodule URL to use (e.g.) HTTPS, then try the [following scheme](https://stackoverflow.com/questions/42028437/how-to-change-git-submodules-url-locally/42035018#:~:text=If%20you%20want%20to%20modify,that%20you%20want%20to%20push.&text=Then%20modify%20the%20.,the%20submodule%20URL%20as%20usual.)
@@ -31,7 +31,7 @@ Then go to `.git/config` (NOT `.gitmodules`) and edit the URL (for the submodule
 
 Finally run
 ```
-git submodule update --recursive --remote
+git submodule update --recursive
 ```
 to pull through the new URL and establish the link.
 
