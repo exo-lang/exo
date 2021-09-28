@@ -598,6 +598,10 @@ class Unification:
         self.bool_holes     = { fa.name : False for fa in subproc.args
                                                 if fa.type == T.bool }
 
+        self.stride_holes   = { fa.name : False for fa in subproc.args
+                                                if fa.type == T.stride }
+        
+
         # keep track of all buffer names we might need to unify,
         # not just the unknown arguments, but also temporary allocated bufs
         # these variables should ONLY occur on the sub-procedure side
@@ -689,6 +693,12 @@ class Unification:
                 else:
                     # doesn't matter; argument un-used
                     return LoopIR.Const(True, T.bool, stmt_block[0].srcinfo)
+            elif fa.type == T.stride:
+                if fa.name in self.stride_holes:
+                    return self.stride_holes[fa.name]
+                else:
+                    raise UnificationError(f"stride argument {fa.name}"
+                                           +" unused")
             else:
                 assert fa.type.is_numeric()
                 bufvar  = self.buf_holes[fa.name]
@@ -829,6 +839,15 @@ class Unification:
                 f"Cannot unify the boolean argument {pe.name} with two "
                 f"seemingly inequivalent expressions "
                 f"{be} (@{be.srcinfo}) and {lookup} (@{lookup.srcinfo})")
+
+    def unify_stride_hole(self, pe, be):
+        assert pe.type == be.type == T.stride
+        assert type(pe) is LoopIR.Read and pe.name in self.stride_holes
+
+        # TODO: Add checks here??
+        lookup = self.stride_holes[pe.name]
+        if lookup is False:
+            self.stride_holes[pe.name] = be
 
     def unify_stmts(self, proc_s, block_s):
         if len(proc_s) != len(block_s):
@@ -1051,6 +1070,10 @@ class Unification:
         elif (pe.type == T.bool and type(pe) is LoopIR.Read
                                 and pe.name in self.bool_holes):
             self.unify_bool_hole(pe, be)
+            return
+        elif (pe.type == T.stride and type(pe) is LoopIR.Read
+                                  and pe.name in self.stride_holes):
+            self.unify_stride_hole(pe, be)
             return
 
         if type(pe) != type(be):
