@@ -216,8 +216,8 @@ def test_ld():
     def do_ld_i8(
         n     : size,
         m     : size,
-        src   : [i8][n, m] @ DRAM,
-        dst   : [i8][n, 16] @ GEMM_SCRATCH,
+        src   : i8[n, m] @ DRAM,
+        dst   : i8[n, 16] @ GEMM_SCRATCH,
     ):
         assert n <= 16
         assert m <= 16
@@ -243,8 +243,8 @@ def test_ld():
         n     : size,
         m     : size,
         scale : f32,
-        src   : [i8][n, m] @ DRAM,
-        dst   : [i8][n, 16] @ GEMM_SCRATCH,
+        src   : i8[n, m] @ DRAM,
+        dst   : i8[n, 16] @ GEMM_SCRATCH,
     ):
         assert n <= 16
         assert m <= 16

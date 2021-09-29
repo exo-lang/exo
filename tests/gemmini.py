@@ -5,12 +5,57 @@ sys.path.append(sys.path[0]+"/..")
 sys.path.append(sys.path[0]+"/.")
 
 
-from SYS_ATL import proc, instr, Procedure, DRAM, compile_procs
+from SYS_ATL import proc, instr, Procedure, DRAM, compile_procs, config
 from SYS_ATL.libs.memories import GEMM_SCRATCH, GEMM_ACCUM, MDRAM
 
 # --------------------------------------------------------------------------- #
 #   Instructions
 # --------------------------------------------------------------------------- #
+
+def new_config_ld():
+    @config
+    class ConfigLoad:
+        scale : f32
+        src_stride : stride
+
+    return ConfigLoad
+
+ConfigLoad = new_config_ld()
+
+_gemm_config_ld_i8   = ("gemmini_extended3_config_ld({src_stride}, "+
+                        "{scale}[0], 0, 0);\n")
+@instr(_gemm_config_ld_i8)
+def config_ld_i8(
+    scale : f32,
+    src_stride : stride
+):
+    ConfigLoad.scale = scale
+    ConfigLoad.src_stride = src_stride
+
+
+_gemm_do_ld_i8   = ("gemmini_extended_mvin( {src}.data, "+
+                              "((uint64_t) {dst}.data), {m}, {n} );")
+@instr(_gemm_do_ld_i8)
+def do_ld_i8(
+    n     : size,
+    m     : size,
+    src   : [i8][n, m] @ DRAM,
+    dst   : [i8][n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+    assert stride(src, 0) == ConfigLoad.src_stride
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : f32
+            tmp      = src[i,j]
+            tmp      = tmp * ConfigLoad.scale
+            dst[i,j] = tmp
+
 
 _gemm_ld_i8   = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                  "{scale}[0], 0, 0);\n"+
@@ -29,14 +74,22 @@ def ld_i8(
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
-    #assert gemmini.stride == stride(src, 0)
 
     for i in par(0, n):
         for j in par(0, m):
             tmp : f32
             tmp      = src[i,j]
             tmp      = tmp * scale
-            dst[i,j] = tmp #no clamping
+            dst[i,j] = tmp
+
+ld_i8_v2 = ld_i8.rename("ld_i8_v2").bind_config('scale', ConfigLoad, 'scale')
+ld_i8_v2 = ld_i8_v2.reorder_stmts('tmp = src[_]', 'ConfigLoad.scale = _')
+ld_i8_v2 = ld_i8_v2.reorder_stmts('tmp : _', 'ConfigLoad.scale = _')
+ld_i8_v2 = ld_i8_v2.fission_after('ConfigLoad.scale = _', n_lifts=3)
+ld_i8_v2 = ld_i8_v2.configwrite_after('ConfigLoad.scale = _', ConfigLoad, 'src_stride', 'stride(src, 0)')
+ld_i8_v2 = ld_i8_v2.replace(do_ld_i8, 'for i in _:_')
+ld_i8_v2 = ld_i8_v2.replace(config_ld_i8, 'ConfigLoad.scale = scale')
+
 
 
 

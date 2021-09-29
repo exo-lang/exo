@@ -814,7 +814,7 @@ class Alpha_Rename(LoopIR_Rewrite):
             return win_e
         elif etyp is LoopIR.StrideExpr:
             nm = self.env[e.name] if e.name in self.env else e.name
-            return LoopIR.StrideAssert(nm, e.dim, e.type, e.srcinfo)
+            return LoopIR.StrideExpr(nm, e.dim, e.type, e.srcinfo)
 
         return super().map_e(e)
 
