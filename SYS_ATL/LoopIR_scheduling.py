@@ -749,24 +749,56 @@ class _InlineWindow(LoopIR_Rewrite):
 
     def map_e(self, e):
         etyp    = type(e)
-        # TODO: FIX!!
+        assert type(self.win_stmt.rhs) is LoopIR.WindowExpr
+
+        # TODO: Add more safety check?
         if etyp is LoopIR.WindowExpr:
             if self.win_stmt.lhs == e.name:
-                return self.win_stmt.rhs
-                #return LoopIR.WindowExpr(e.name,
-                #                         [ self.map_w_access(w) for w in e.idx ],
-                #                         self.map_t(e.type), e.srcinfo)
-                #| WindowStmt( sym lhs, expr rhs )
-                #| WindowExpr( sym name, w_access* idx )
+                assert (len([ w for w in self.win_stmt.rhs.idx
+                                if type(w) is LoopIR.Interval ]) == len(e.idx))
+                idxs     = e.idx
+                new_idxs = []
+                for w in self.win_stmt.rhs.idx:
+                    if type(w) is LoopIR.Interval:
+                        if type(idxs[0]) is LoopIR.Interval:
+                            # window again, so
+                            # w.lo + idxs[0].lo : w.lo + idxs[0].hi
+                            lo  = LoopIR.BinOp("+", w.lo, idxs[0].lo,
+                                                    T.index, w.srcinfo)
+                            hi  = LoopIR.BinOp("+", w.lo, idxs[0].hi,
+                                                    T.index, w.srcinfo)
+                            ivl = LoopIR.Interval(lo, hi, w.srcinfo)
+                            new_idxs.append(ivl)
+                        else: # Point
+                            p = LoopIR.Point(LoopIR.BinOp("+", w.lo, idxs[0].pt,
+                                                           T.index, w.srcinfo))
+                            new_idxs.append(p)
+                        idxs.pop()
+                    else:
+                        new_idxs.append(w)
+
+                return LoopIR.WindowExpr( self.win_stmt.rhs.name,
+                                          new_idxs, e.type, e.srcinfo )
+
         elif etyp is LoopIR.Read:
-            pass
-            # TODO: lo + idx
-            #expr    = Read( sym name, expr* idx )
+            if self.win_stmt.lhs == e.name:
+                assert (len([ w for w in self.win_stmt.rhs.idx
+                                if type(w) is LoopIR.Interval ]) == len(e.idx))
+                idxs     = e.idx
+                new_idxs = []
+                for w in self.win_stmt.rhs.idx:
+                    if type(w) is LoopIR.Interval:
+                        new_idxs.append(LoopIR.BinOp("+", w.lo, idxs[0], T.index, w.srcinfo))
+                        idxs.pop()
+                    else:
+                        new_idxs.append(w.pt)
+
+                return LoopIR.Read( self.win_stmt.rhs.name,
+                                    new_idxs, e.type, e.srcinfo )
+
         elif etyp is LoopIR.StrideExpr:
             if self.win_stmt.lhs == e.name:
-                assert type(self.win_stmt.rhs) is LoopIR.WindowExpr
-                return LoopIR.Read( self.win_stmt.rhs.name, [], e.type, e.srcinfo )
-            #| StrideExpr( sym name, int dim )
+                return LoopIR.StrideExpr( self.win_stmt.rhs.name, e.dim, e.type, e.srcinfo )
 
         return super().map_e(e)
 

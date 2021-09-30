@@ -190,6 +190,8 @@ class InferEffects:
             # sig is a LoopIR.fnarg, arg is a LoopIR.expr
             subst       = {}
             for sig,arg in zip(stmt.f.args, stmt.args):
+                # TODO: Is this correct..?
+                self._types[sig.name] = sig.type
                 if sig.type.is_numeric():
                     assert (type(arg) is LoopIR.Read or
                             type(arg) is LoopIR.WindowExpr)
