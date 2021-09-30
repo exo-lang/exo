@@ -729,6 +729,48 @@ class _CallSwap(LoopIR_Rewrite):
         return eff
 
 
+class _InlineWindow(LoopIR_Rewrite):
+    def __init__(self, proc, stmt):
+        assert (type(stmt) is LoopIR.WindowStmt)
+
+        self.orig_proc = proc
+        self.win_stmt  = stmt
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s == self.win_stmt:
+            return []
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        etyp    = type(e)
+        # TODO: FIX!!
+        if etyp is LoopIR.WindowExpr:
+            if self.win_stmt.lhs == e.name:
+                return self.win_stmt.rhs
+                #return LoopIR.WindowExpr(e.name,
+                #                         [ self.map_w_access(w) for w in e.idx ],
+                #                         self.map_t(e.type), e.srcinfo)
+                #| WindowStmt( sym lhs, expr rhs )
+                #| WindowExpr( sym name, w_access* idx )
+        elif etyp is LoopIR.Read:
+            pass
+            # TODO: lo + idx
+            #expr    = Read( sym name, expr* idx )
+        elif etyp is LoopIR.StrideExpr:
+            if self.win_stmt.lhs == e.name:
+                assert type(self.win_stmt.rhs) is LoopIR.WindowExpr
+                return LoopIR.Read( self.win_stmt.rhs.name, [], e.type, e.srcinfo )
+            #| StrideExpr( sym name, int dim )
+
+        return super().map_e(e)
+
+
 class _ConfigWriteAfter(LoopIR_Rewrite):
     def __init__(self, proc, stmt, config, field, expr):
         assert (type(expr) is LoopIR.Read
@@ -1534,3 +1576,4 @@ class Schedules:
     DoParToSeq          = _DoParToSeq
     DoReorderStmt       = _DoReorderStmt
     DoConfigWriteAfter  = _ConfigWriteAfter
+    DoInlineWindow      = _InlineWindow

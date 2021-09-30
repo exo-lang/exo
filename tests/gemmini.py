@@ -186,6 +186,18 @@ def clamp(src : f32, dst : i8):
     dst = select(h, src, h, src)
     dst = select(src, l, l, dst)
 
+
+
+def new_config_st():
+    @config
+    class ConfigStore:
+        scale : f32
+        dst_stride : stride
+
+    return ConfigStore
+
+ConfigStore = new_config_st()
+
 _gemm_st_acc_i8   = ("gemmini_extended_config_st({dst}.strides[0]*1, {act}, {scale}[0]);\n"+
                      "gemmini_extended_mvout( ((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
 @instr(_gemm_st_acc_i8)
@@ -215,6 +227,54 @@ def st_acc_i8(
             tmp2  = tmp2 * scale
             clamp(tmp2, tmp)
             dst[i, j] = tmp
+
+_gemm_config_st_acc_i8   = ("gemmini_extended_config_st({dst}.strides[0]*1, {act}, {scale}[0]);\n")
+@instr(_gemm_config_st_acc_i8)
+def config_st_acc_i8(
+    scale : f32,
+    dst_stride : stride
+):
+    ConfigStore.scale = scale
+    ConfigStore.dst_stride = dst_stride
+
+_gemm_st_acc_i8   = ("gemmini_extended_mvout( ((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
+@instr(_gemm_st_acc_i8)
+def do_st_acc_i8(
+    n     : size,
+    m     : size,
+    act   : bool,
+    src   : [i32][n, 16] @ GEMM_ACCUM,
+    dst   : [i8][n, m]  @ DRAM
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(dst, 1) == 1
+    assert stride(src, 0) == 16
+    assert stride(src, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : i8
+            if act == True:
+                tmp = relu(src[i,j])
+            else:
+                tmp = src[i,j]
+            tmp2 : f32
+            tmp2 = tmp
+            tmp2  = tmp2 * ConfigStore.scale
+            clamp(tmp2, tmp)
+            dst[i, j] = tmp
+
+st_acc_i8_v2 = st_acc_i8.rename("st_acc_i8_v2").bind_config('scale', ConfigStore, 'scale')
+st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('tmp2 = tmp', 'ConfigStore.scale = _')
+st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('tmp2 : _', 'ConfigStore.scale = _')
+st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('if act == _:_', 'ConfigStore.scale = _')
+st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('tmp : _', 'ConfigStore.scale = _')
+st_acc_i8_v2 = st_acc_i8_v2.fission_after('ConfigStore.scale = _', n_lifts=2)
+st_acc_i8_v2 = st_acc_i8_v2.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 0)')
+st_acc_i8_v2 = st_acc_i8_v2.replace(do_st_acc_i8, 'for i in _:_')
+st_acc_i8_v2 = st_acc_i8_v2.replace(config_st_acc_i8, 'ConfigStore.scale = scale')
+
 
 
 _gemm_st_acc_i32 = ("gemmini_extended_config_st({dst}.strides[0]*4, 0, 1.0f);\n"+

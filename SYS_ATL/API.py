@@ -299,6 +299,16 @@ class Procedure:
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def inline_window(self, stmt_pattern):
+        if type(stmt_pattern) is not str:
+            raise TypeError("Did not pass a stmt string")
+
+        stmt   = self._find_stmt(stmt_pattern, default_match_no=None)
+        loopir = self._loopir_proc
+        loopir = Schedules.DoInlineWindow(loopir, stmt[0]).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
 
     def split(self, split_var, split_const, out_vars,
               tail='guard', perfect=False):

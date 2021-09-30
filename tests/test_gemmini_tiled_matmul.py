@@ -466,6 +466,9 @@ def test_matmul_c_i8():
     T.compile().run()
 
 
+
+
+
 def test_matmul_c_i8_perfect():
     T = GemmTestBuilder('matmul_c_i8_perfect')
     T.add_body(['gemm_init_mem();',
@@ -576,19 +579,26 @@ def test_matmul_c_i8_perfect():
     matmul_c_i8_perfect = matmul_c_i8_perfect.replace(matmul_acc_i8, "for i_in in _:_ #0")
     matmul_c_i8_perfect = matmul_c_i8_perfect.replace(st_acc_i8, "for i_in in _:_ #0")
 
-    matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : i8', n_lifts=3)
-    matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : i8', n_lifts=3)
-    matmul_c_i8_perfect = matmul_c_i8_perfect.call_eqv(ld_i8_v2, "ld_i8(_, _, _, _, _)")
     matmul_c_i8_perfect = matmul_c_i8_perfect.call_eqv(ld_i8_v2, "ld_i8(_, _, _, _, _)")
     matmul_c_i8_perfect = matmul_c_i8_perfect.inline("ld_i8_v2(_, _, _, _, _)")
-    matmul_c_i8_perfect = matmul_c_i8_perfect.inline("ld_i8_v2(_, _, _, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("src = A[_]")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("dst = a[_]")
     print(matmul_c_i8_perfect)
 """
 
-
     matmul_c_i8_perfect = matmul_c_i8_perfect.call_eqv(ld_i8_v2, "ld_i8(_, _, _, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline("ld_i8_v2(_, _, _, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("src = A[_]")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("dst = a[_]")
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.call_eqv(st_acc_i8_v2, "st_acc_i8(_, _, _, _, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline("st_acc_i8_v2(_, _, _, _, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("src = res[_]")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("dst = C[_]")
 
 
+    matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : i8', n_lifts=3)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : i8', n_lifts=3)
 
     # Real optimization
     matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('zero_acc_i32(_)', n_lifts=2)
@@ -612,7 +622,8 @@ def test_matmul_c_i8_perfect():
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
     T.compile().run()
+"""
 
-    print(matmul_c_i8_perfect)
-    matmul_c_i8_perfect.check_effects()
+"""
+    #matmul_c_i8_perfect.check_effects()
 """

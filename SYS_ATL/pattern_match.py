@@ -243,7 +243,9 @@ class PatternMatch:
         # first ensure that we the pattern and statement
         # are the same constructor
         styp = type(stmt)
-        if _PAST_to_LoopIR[type(pat)] is not styp:
+
+        if (_PAST_to_LoopIR[type(pat)] is not styp and
+                styp is not LoopIR.WindowStmt):
             return False
 
         # then handle each constructor as a structural case
@@ -252,6 +254,13 @@ class PatternMatch:
                      all( self.match_e(pi,si)
                           for pi,si in zip(pat.idx,stmt.idx) ) and
                      self.match_e(pat.rhs, stmt.rhs) )
+        elif styp is LoopIR.WindowStmt:
+            if type(pat) is PAST.Assign:
+                return ( self.match_name(pat.name, stmt.lhs) and
+                         pat.idx == [] and
+                         self.match_e( pat.rhs, stmt.rhs ) )
+            else:
+                return False
         elif styp is LoopIR.Pass:
             return True
         elif styp is LoopIR.If:
@@ -281,13 +290,22 @@ class PatternMatch:
         # first ensure that we the pattern and statement
         # are the same constructor
         etyp = type(e)
-        if _PAST_to_LoopIR[type(pat)] is not etyp:
+        if (_PAST_to_LoopIR[type(pat)] is not etyp and
+                etyp is not LoopIR.WindowExpr):
             return False
 
         if etyp is LoopIR.Read:
             return ( self.match_name(pat.name, e.name) and
                      all( self.match_e(pi,si)
                           for pi,si in zip(pat.idx,e.idx) ) )
+        elif etyp is LoopIR.WindowExpr:
+            if type(pat) is PAST.Read:
+                # TODO: Should we be able to handle window slicing matching? Nah..
+                if len(pat.idx) != 1 or type(pat.idx[0]) is not PAST.E_Hole:
+                    return False
+                return ( self.match_name(pat.name, e.name) )
+            else:
+                return False
         elif etyp is LoopIR.Const:
             return ( pat.val == e.val )
         elif etyp is LoopIR.BinOp:
