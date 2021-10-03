@@ -777,8 +777,16 @@ class _InlineWindow(LoopIR_Rewrite):
                     else:
                         new_idxs.append(w)
 
+                # repair window type..
+                old_typ = self.win_stmt.rhs.type
+                new_type = LoopIR.WindowType(old_typ.src_type,
+                                             old_typ.as_tensor,
+                                             self.win_stmt.rhs.name,
+                                             new_idxs)
+                            
+
                 return LoopIR.WindowExpr( self.win_stmt.rhs.name,
-                                          new_idxs, e.type, e.srcinfo )
+                                          new_idxs, new_type, e.srcinfo )
 
         elif etyp is LoopIR.Read:
             if self.win_stmt.lhs == e.name:
