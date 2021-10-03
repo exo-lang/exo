@@ -15,6 +15,70 @@ from .helper import *
 
 # ------- Configuration tests ---------
 
+@pytest.mark.skip()
+def test_config_size():
+    def new_config_ld():
+        @config
+        class ConfigLoad:
+            size : size
+
+        return ConfigLoad
+
+    ConfigLoad = new_config_ld()
+
+    @proc
+    def do_ld_i8( n : size ):
+        assert n == ConfigLoad.size
+        pass
+
+    #@proc
+    #def config_ld_i8(
+    #    config_n : size
+    #):
+    #    ConfigLoad.size = config_n
+
+    @proc
+    def foo(N : size):
+        #config_ld_i8(N)
+        ConfigLoad.size = N
+        do_ld_i8(N)
+
+    print(foo)
+
+@pytest.mark.skip()
+def test_config_stride():
+    def new_config_ld():
+        @config
+        class ConfigLoad:
+            src_stride : stride
+
+        return ConfigLoad
+
+    ConfigLoad = new_config_ld()
+
+    @proc
+    def do_ld_i8(
+        n     : size,
+        src   : [i8][n] @DRAM
+    ):
+        assert stride(src, 0) == ConfigLoad.src_stride
+        pass
+
+    @proc
+    def config_ld_i8(
+        src_stride : stride
+    ):
+        ConfigLoad.src_stride = src_stride
+
+    @proc
+    def foo(N : size, A : i8[N]):
+        config_ld_i8(stride(A, 0))
+        do_ld_i8()
+
+    print(foo)
+
+
+
 def new_config_f32():
     @config
     class ConfigAB:

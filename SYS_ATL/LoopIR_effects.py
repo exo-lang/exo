@@ -217,7 +217,7 @@ def _effect_as_str(e):
         eff_str += '\n'.join([cestr(ce) for ce in e.config_reads])
         eff_str += "\n"
     if len(e.config_writes) > 0:
-        eff_str += f"Config Reads:\n"
+        eff_str += f"Config Writes:\n"
         eff_str += '\n'.join([cestr(ce) for ce in e.config_writes])
         eff_str += "\n"
 
