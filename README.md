@@ -1,4 +1,3 @@
-
 ## Notes for Installation and Dependencies
 
 We make active use of newer Python 3.x features such as f-strings, so please use a more recent (I am writing this in Sept. 2020) version of Python if you're getting errors about unsupported features.
