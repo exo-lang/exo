@@ -299,7 +299,28 @@ def st_acc_i32(
         for j in par(0, m):
             dst[i, j] = src[i, j]
 
+_gemm_config_zero_i8   = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n")
+@instr(_gemm_config_zero_i8)
+def config_zero_i8():
+    ConfigLoad.scale = 1.0
+    ConfigLoad.src_stride = 0
 
+_gemm_do_zero_i8 = ("gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
+                                       "{m}, {n} );")
+@instr(_gemm_do_zero_i8)
+def do_zero_i8(
+    n   : size,
+    m   : size,
+    dst : [i8][n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            dst[i,j] = 0.0
 
 _gemm_zero_i8 = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
                  "gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
@@ -315,9 +336,19 @@ def zero_i8(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
+    pass
+
     for i in par(0, n):
         for j in par(0, m):
             dst[i,j] = 0.0
+
+zero_i8_v2 = zero_i8.rename("zero_i8_v2")
+zero_i8_v2 = zero_i8_v2.configwrite_after('pass', ConfigLoad, 'scale', '1.0')
+zero_i8_v2 = zero_i8_v2.configwrite_after('ConfigLoad.scale = _', ConfigLoad, 'src_stride', '0')
+zero_i8_v2 = zero_i8_v2.replace(do_zero_i8, 'for i in _:_')
+zero_i8_v2 = zero_i8_v2.replace(config_zero_i8, 'ConfigLoad.scale = 1.0')
+print(zero_i8_v2)
+
 
 zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
                        .set_precision('dst', 'i32')

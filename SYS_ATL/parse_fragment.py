@@ -27,9 +27,11 @@ def parse_fragment(proc, pattern_str, stmt, call_depth=0):
     p_ast         = pyparser.pattern(pattern_str,
                                      filename=caller.filename,
                                      lineno=caller.lineno)
-    assert len(p_ast) == 1
-
-    return ParseFragment(p_ast[0], proc, stmt).results()
+    if isinstance(p_ast, PAST.expr):
+        return ParseFragment(p_ast, proc, stmt).results()
+    else:
+        assert len(p_ast) == 1
+        return ParseFragment(p_ast[0], proc, stmt).results()
 
 
 _PAST_to_LoopIR = {
@@ -108,6 +110,16 @@ class ParseFragment:
         elif type(pat) is PAST.StrideExpr:
             nm = self.find_sym(pat.name, env)
             self._results = LoopIR.StrideExpr(nm, pat.dim, T.stride, stmt.srcinfo)
+        elif type(pat) is PAST.Const:
+            if type(pat.val) is float:
+                typ = T.R
+            elif type(pat.val) is int:
+                typ = T.int
+            elif type(pat.val) is bool:
+                typ = T.bool
+            else:
+                assert False, "bad type!"
+            self._results = LoopIR.Const(pat.val, typ, stmt.srcinfo)
 
     def find_sym(self, expr, env):
         for k in env.keys():

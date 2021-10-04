@@ -814,7 +814,8 @@ class _InlineWindow(LoopIR_Rewrite):
 class _ConfigWriteAfter(LoopIR_Rewrite):
     def __init__(self, proc, stmt, config, field, expr):
         assert (type(expr) is LoopIR.Read
-                or type(expr) is LoopIR.StrideExpr)
+                or type(expr) is LoopIR.StrideExpr
+                or type(expr) is LoopIR.Const)
 
         self.orig_proc = proc
         self.stmt      = stmt
