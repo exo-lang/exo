@@ -347,7 +347,8 @@ zero_i8_v2 = zero_i8_v2.configwrite_after('pass', ConfigLoad, 'scale', '1.0')
 zero_i8_v2 = zero_i8_v2.configwrite_after('ConfigLoad.scale = _', ConfigLoad, 'src_stride', '0')
 zero_i8_v2 = zero_i8_v2.replace(do_zero_i8, 'for i in _:_')
 zero_i8_v2 = zero_i8_v2.replace(config_zero_i8, 'ConfigLoad.scale = 1.0')
-print(zero_i8_v2)
+zero_i8 = zero_i8.delete_pass()
+zero_i8_v2 = zero_i8_v2.delete_pass()
 
 
 zero_acc_i32 = (zero_i8.rename('zero_acc_i32')

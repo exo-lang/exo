@@ -337,6 +337,11 @@ class Procedure:
                                         perfect=perfect).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def delete_pass(self):
+        loopir = self._loopir_proc
+        loopir = Schedules.DoDeletePass(loopir).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def reorder_stmts(self, first_pat, second_pat):
         if type(first_pat) is not str:

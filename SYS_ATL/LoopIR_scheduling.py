@@ -1536,6 +1536,13 @@ def _make_closure(name, stmts, var_types):
 
     return closure, args
 
+class _DoDeletePass(LoopIR_Rewrite):
+    def map_s(self, s):
+        if type(s) is LoopIR.Pass:
+            return []
+        else:
+            return super().map_s(s)
+
 
 class _DoFactorOut(LoopIR_Rewrite):
     def __init__(self, proc, name, stmt):
@@ -1618,3 +1625,4 @@ class Schedules:
     DoReorderStmt       = _DoReorderStmt
     DoConfigWriteAfter  = _ConfigWriteAfter
     DoInlineWindow      = _InlineWindow
+    DoDeletePass        = _DoDeletePass
