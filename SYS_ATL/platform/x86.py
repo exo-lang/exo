@@ -137,12 +137,11 @@ def mm512_mask_storeu_ps(
             dst[i] = src[i]
 
 
-@instr('*(__m512*){C}.data = '
-       '_mm512_fmadd_ps({A}, {B}, *(__m512*){C}.data);')
+@instr('{C} = _mm512_fmadd_ps({A}, {B}, {C});')
 def mm512_fmadd_ps(
     A: f32[16] @ AVX512,
     B: f32[16] @ AVX512,
-    C: [f32][16] @ AVX512,
+    C: f32[16] @ AVX512,
 ):
     assert stride(A, 0) == 1
     assert stride(B, 0) == 1
@@ -152,15 +151,15 @@ def mm512_fmadd_ps(
         C[i] += A[i] * B[i]
 
 
-@instr('{dst} = _mm512_set1_ps({src});')
+@instr('{dst} = _mm512_set1_ps(*{src}.data);')
 def mm512_set1_ps(
     dst: f32[16] @ AVX512,
-    src: f32,
+    src: [f32][1],
 ):
     assert stride(dst, 0) == 1
 
     for i in par(0, 16):
-        dst[i] = src
+        dst[i] = src[0]
 
 
 # --------------------------------------------------------------------------- #
