@@ -356,6 +356,10 @@ zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
                        .set_memory('dst', GEMM_ACCUM)
                        .make_instr(_gemm_zero_i8))
 
+zero_acc_i32_v2 = (zero_i8_v2.rename('zero_acc_i32_v2')
+                       .set_precision('dst', 'i32')
+                       .set_memory('dst', GEMM_ACCUM)
+                       .make_instr(_gemm_do_zero_i8))
 
 
 @instr("gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);\n"+

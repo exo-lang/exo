@@ -594,11 +594,20 @@ def test_matmul_c_i8_perfect():
     matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("src = res[_]")
     matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("dst = C[_]")
 
+    # TODO: fix zero_i8 -> zero_i32
+    matmul_c_i8_perfect = matmul_c_i8_perfect.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline("zero_acc_i32_v2(_, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("dst = res[_]")
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("for k in _:_", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_zero_i8(_, _, _)", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_zero_i8()", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_st_acc_i8(_, _)", n_lifts=2)
+
+
     print(matmul_c_i8_perfect)
     #matmul_c_i8_perfect.check_effects()
 """
-
-
     matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : i8', n_lifts=3)
     matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : i8', n_lifts=3)
 
