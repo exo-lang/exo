@@ -93,23 +93,6 @@ def mm512_loadu_ps(
         dst[i] = src[i]
 
 
-# @instr('{dst} = _mm512_maskz_loadu_ps({mask}, {src}.data);')
-# def mm512_maskz_loadu_ps(
-#     dst: f32[16] @ AVX512,
-#     src: [f32][16] @ DRAM,
-#     mask: i32
-# ):
-#     assert stride(src, 0) == 1
-#     assert stride(dst, 0) == 1
-#     assert 0 <= mask <= 0xFFFF
-#
-#     for i in par(0, 16):
-#         if mask & (1 << i) != 0:
-#             dst[i] = src[i]
-#         else:
-#             dst[i] = 0
-
-
 @instr('_mm512_storeu_ps({dst}.data, {src});')
 def mm512_storeu_ps(
     dst: [f32][16] @ DRAM,
@@ -122,19 +105,36 @@ def mm512_storeu_ps(
         dst[i] = src[i]
 
 
-# @instr('_mm512_mask_storeu_ps({dst}.data, {mask}, {src});')
-# def mm512_mask_storeu_ps(
-#     dst: [f32][16] @ DRAM,
-#     src: f32[16] @ AVX512,
-#     mask: i32
-# ):
-#     assert stride(src, 0) == 1
-#     assert stride(dst, 0) == 1
-#     assert 0 <= mask <= 0xFFFF
-#
-#     for i in par(0, 16):
-#         if mask & (1 << i) != 0:
-#             dst[i] = src[i]
+@instr('{dst} = _mm512_maskz_loadu_ps(((1 << {N}) - 1), {src}.data);')
+def mm512_maskz_loadu_ps(
+    N: size,
+    dst: f32[16] @ AVX512,
+    src: [f32][N] @ DRAM,
+):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+    assert N <= 16
+
+    for i in par(0, 16):
+        if i < N:
+            dst[i] = src[i]
+        else:
+            dst[i] = 0.0
+
+
+@instr('_mm512_mask_storeu_ps({dst}.data, ((1 << {N}) - 1), {src});')
+def mm512_mask_storeu_ps(
+    N: size,
+    dst: [f32][N] @ DRAM,
+    src: f32[16] @ AVX512
+):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+    assert N <= 16
+
+    for i in par(0, 16):
+        if i < N:
+            dst[i] = src[i]
 
 
 @instr('*(__m512*){C}.data = '
