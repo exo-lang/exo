@@ -3,12 +3,8 @@ from __future__ import annotations
 import itertools
 import sys
 
-import numpy as np
-
 sys.path.append(sys.path[0] + "/..")
-from SYS_ATL import DRAM
-from SYS_ATL.libs.memories import AVX2
-from .x86 import *
+from SYS_ATL.platform.x86 import *
 
 sys.path.append(sys.path[0] + "/.")
 from .helper import *
@@ -32,8 +28,8 @@ def test_avx2_memcpy():
         for i in par(0, (n + 7) / 8):
             if n - 8 * i >= 8:
                 tmp: f32[8] @ AVX2
-                loadu(tmp, src[8 * i:8 * i + 8])
-                storeu(dst[8 * i:8 * i + 8], tmp)
+                mm256_loadu_ps(tmp, src[8 * i:8 * i + 8])
+                mm256_storeu_ps(dst[8 * i:8 * i + 8], tmp)
             else:
                 for j in par(0, n - 8 * i):
                     dst[8 * i + j] = src[8 * i + j]
@@ -72,11 +68,11 @@ def test_avx2_simple_math():
         for i in par(0, n / 8):
             xVec: f32[8] @ AVX2
             yVec: f32[8] @ AVX2
-            loadu(xVec, x[8 * i:8 * i + 8])
-            loadu(yVec, y[8 * i:8 * i + 8])
-            mul(xVec, xVec, yVec)
-            mul(xVec, xVec, yVec)
-            storeu(x[8 * i:8 * i + 8], xVec)
+            mm256_loadu_ps(xVec, x[8 * i:8 * i + 8])
+            mm256_loadu_ps(yVec, y[8 * i:8 * i + 8])
+            mm256_mul_ps(xVec, xVec, yVec)
+            mm256_mul_ps(xVec, xVec, yVec)
+            mm256_storeu_ps(x[8 * i:8 * i + 8], xVec)
 
     basename = test_avx2_simple_math.__name__
 
@@ -117,7 +113,7 @@ def test_avx2_simple_math_scheduling():
             .set_memory('xyy', AVX2)
             .fission_after('xyy[_] = _')
 
-            .replace_all(storeu)
+            .replace_all(mm256_storeu_ps)
 
             .bind_expr('xVec', 'x[_]')
             .lift_alloc('xVec: _')
@@ -129,14 +125,14 @@ def test_avx2_simple_math_scheduling():
             .set_memory('yVec', AVX2)
             .fission_after('yVec[_] = _')
 
-            .replace_all(loadu)
+            .replace_all(mm256_loadu_ps)
 
             .bind_expr('xy', 'xVec[_] * yVec[_]')
             .lift_alloc('xy: _')
             .set_memory('xy', AVX2)
             .fission_after('xy[_] = _')
 
-            .replace_all(mul)
+            .replace_all(mm256_mul_ps)
     )
 
     print(simple_math_avx2_sched)
@@ -225,11 +221,11 @@ def gen_sgemm_6x16_avx():
             .lift_alloc('b_vec:_', keep_dims=True)
             .fission_after('b_vec[_] = _')
             #
-            .replace_all(clear_reg)
-            .replace_all(broadcast)
-            .replace_all(loadu)
-            .replace_all(fma)
-            .replace_all(mem_accum)
+            .replace_all(avx2_set0_ps)
+            .replace_all(mm256_broadcast_ss)
+            .replace_all(mm256_loadu_ps)
+            .replace_all(mm256_fmadd_ps)
+            .replace_all(avx2_fmadd_memu_ps)
             #
             .unroll('jo')
             .unroll('i')
@@ -331,3 +327,29 @@ def test_avx2_sgemm_6x16():
 
     sgemm_test_cases(library.avx2_sgemm_6x16_wrapper, M=[6], N=[16],
                      K=range(1, 512))
+
+
+def test_avx512_sgemm_full():
+    @proc
+    def sgemm_full(
+        N: size,
+        M: size,
+        K: size,
+        C: f32[N, M] @ DRAM,
+        A: f32[N, K] @ DRAM,
+        B: f32[K, M] @ DRAM,
+    ):
+        for i in par(0, N):
+            for j in par(0, M):
+                for k in par(0, K):
+                    C[i, j] += A[i, k] * B[k, j]
+
+    basename = test_avx2_sgemm_full.__name__
+
+    sgemm_full.compile_c(TMP_DIR, basename)
+    library = generate_lib(basename, extra_flags="-march=skylake-avx512")
+
+    sgemm_test_cases(library.sgemm_full,
+                     M=range(10, 600, 200),
+                     N=range(20, 400, 120),
+                     K=range(1, 512, 160))

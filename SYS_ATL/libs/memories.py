@@ -213,3 +213,40 @@ AVX2 = Memory(
     write=False,
     red=False
 )
+
+# ----------- AVX-512 registers ----------------
+
+def _avx512_alloc(new_name, prim_type, shape, srcinfo):
+    if not shape:
+        raise MemGenError(f'{srcinfo}: AVX512 vectors are not scalar values')
+    if not prim_type == 'float':
+        raise MemGenError(f'{srcinfo}: AVX512 vectors must be f32 (for now)')
+    if not _is_const_size(shape[-1], 16):
+        raise MemGenError(f'{srcinfo}: AVX512 vectors must be 16-wide')
+
+    shape = shape[:-1]
+    if shape:
+        return f'__m512 {new_name}[{"][".join(map(str, shape))}];'
+    else:
+        return f'__m512 {new_name};'
+
+
+def _avx512_free(new_name, prim_type, shape, srcinfo):
+    return ''
+
+
+def _avx512_window(prim_type, baseptr, indices, strides, srcinfo):
+    assert strides[-1] == '1'
+    return f'({prim_type}*)&{baseptr}[{"][".join(indices[:-1])}]'
+
+
+AVX512 = Memory(
+    'AVX512',
+    globl='#include <immintrin.h>',
+    alloc=_avx512_alloc,
+    free=_avx512_free,
+    window=_avx512_window,
+    read=False,
+    write=False,
+    red=False
+)
