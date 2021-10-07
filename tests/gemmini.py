@@ -189,7 +189,7 @@ def clamp(src : f32, dst : i8):
     dst = select(src, l, l, dst)
 
 
-
+# TODO: Add act!!!!
 def new_config_st():
     @config
     class ConfigStore:
@@ -230,7 +230,8 @@ def st_acc_i8(
             clamp(tmp2, tmp)
             dst[i, j] = tmp
 
-_gemm_config_st_acc_i8   = ("gemmini_extended_config_st({dst}.strides[0]*1, {act}, {scale}[0]);\n")
+# TODO: Add act!!!
+_gemm_config_st_acc_i8   = ("gemmini_extended_config_st({dst_stride}, 0, {scale}[0]);\n")
 @instr(_gemm_config_st_acc_i8)
 def config_st_acc_i8(
     scale : f32,
@@ -299,15 +300,19 @@ def st_acc_i32(
         for j in par(0, m):
             dst[i, j] = src[i, j]
 
-_gemm_config_zero_i8   = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n")
-@instr(_gemm_config_zero_i8)
-def config_zero_i8():
+
+
+
+
+_gemm_config_zero   = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n")
+@instr(_gemm_config_zero)
+def config_zero():
     ConfigLoad.scale = 1.0
     ConfigLoad.src_stride = 0
 
-_gemm_do_zero_i8 = ("gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
+_gemm_do_zero = ("gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
                                        "{m}, {n} );")
-@instr(_gemm_do_zero_i8)
+@instr(_gemm_do_zero)
 def do_zero_i8(
     n   : size,
     m   : size,
@@ -322,10 +327,10 @@ def do_zero_i8(
         for j in par(0, m):
             dst[i,j] = 0.0
 
-_gemm_zero_i8 = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
+_gemm_zero = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
                  "gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
                                        "{m}, {n} );")
-@instr(_gemm_zero_i8)
+@instr(_gemm_zero)
 def zero_i8(
     n   : size,
     m   : size,
@@ -346,24 +351,71 @@ zero_i8_v2 = zero_i8.rename("zero_i8_v2")
 zero_i8_v2 = zero_i8_v2.configwrite_after('pass', ConfigLoad, 'scale', '1.0')
 zero_i8_v2 = zero_i8_v2.configwrite_after('ConfigLoad.scale = _', ConfigLoad, 'src_stride', '0')
 zero_i8_v2 = zero_i8_v2.replace(do_zero_i8, 'for i in _:_')
-zero_i8_v2 = zero_i8_v2.replace(config_zero_i8, 'ConfigLoad.scale = 1.0')
+zero_i8_v2 = zero_i8_v2.replace(config_zero, 'ConfigLoad.scale = 1.0')
+
+do_zero_acc_i32 = (do_zero_i8.rename('do_zero_acc_i32')
+                             .set_precision('dst', 'i32')
+                             .set_memory('dst', GEMM_ACCUM)
+                             .make_instr(_gemm_do_zero))
+zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
+                          .set_precision('dst', 'i32')
+                          .set_memory('dst', GEMM_ACCUM)
+                          .make_instr(_gemm_zero))
+zero_acc_i32_v2 = zero_acc_i32.rename("zero_acc_i32_v2")
+zero_acc_i32_v2 = zero_acc_i32_v2.configwrite_after('pass', ConfigLoad, 'scale', '1.0')
+zero_acc_i32_v2 = zero_acc_i32_v2.configwrite_after('ConfigLoad.scale = _', ConfigLoad, 'src_stride', '0')
+zero_acc_i32_v2 = zero_acc_i32_v2.replace(do_zero_acc_i32, 'for i in _:_')
+zero_acc_i32_v2 = zero_acc_i32_v2.replace(config_zero, 'ConfigLoad.scale = 1.0')
+
 zero_i8 = zero_i8.delete_pass()
 zero_i8_v2 = zero_i8_v2.delete_pass()
+zero_acc_i32    = zero_acc_i32.delete_pass()
+zero_acc_i32_v2 = zero_acc_i32_v2.delete_pass()
 
 
-zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
-                       .set_precision('dst', 'i32')
-                       .set_memory('dst', GEMM_ACCUM)
-                       .make_instr(_gemm_zero_i8))
-
-zero_acc_i32_v2 = (zero_i8_v2.rename('zero_acc_i32_v2')
-                       .set_precision('dst', 'i32')
-                       .set_memory('dst', GEMM_ACCUM)
-                       .make_instr(_gemm_do_zero_i8))
 
 
-@instr("gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);\n"+
-       "gemmini_extended_preload("+
+
+def new_config_matmul():
+    @config
+    class ConfigMatmul:
+        done : bool
+
+    return ConfigMatmul
+
+ConfigMatmul = new_config_matmul()
+
+_gemm_config_matmul = "gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);\n"
+@instr(_gemm_config_matmul)
+def config_matmul():
+    ConfigMatmul.done = True
+
+@proc
+def matmul_i8(
+    N : size,
+    M : size,
+    K : size,
+    A : [i8][N, 16] @ GEMM_SCRATCH,
+    B : [i8][K, 16] @ GEMM_SCRATCH,
+    C : [i32][N, 16] @ GEMM_ACCUM,
+):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    pass
+    for i in par(0,N):
+        for j in par(0,M):
+            C[i,j] = 0.0
+            for k in par(0,K):
+                a : i32
+                b : i32
+
+                a = A[i,k]
+                b = B[k,j]
+
+                C[i, j] += a * b
+@instr("gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data), "+
             "{M}, {K}, "+
             "{M}, {N}"+
@@ -373,7 +425,7 @@ zero_acc_i32_v2 = (zero_i8_v2.rename('zero_acc_i32_v2')
             "{K}, {N}, "+
             "16, 16"+
        ");")
-def matmul_i8(
+def do_matmul_i8(
     N : size,
     M : size,
     K : size,
@@ -396,10 +448,41 @@ def matmul_i8(
                 b = B[k,j]
 
                 C[i, j] += a * b
+matmul_i8_v2 = matmul_i8.rename("matmul_i8_v2")
+matmul_i8_v2 = matmul_i8_v2.configwrite_after('pass', ConfigMatmul, 'done', 'True')
+matmul_i8_v2 = matmul_i8_v2.replace(do_matmul_i8, 'for i in _:_')
+matmul_i8_v2 = matmul_i8_v2.replace(config_matmul, 'ConfigMatmul.done = True')
+matmul_i8_v2 = matmul_i8_v2.delete_pass()
+matmul_i8    = matmul_i8.delete_pass()
 
 
-@instr("gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);\n"+
-       "gemmini_extended_preload("+
+
+
+@proc
+def matmul_acc_i8(
+    N : size,
+    M : size,
+    K : size,
+    A : [i8][N, 16] @ GEMM_SCRATCH,
+    B : [i8][K, 16] @ GEMM_SCRATCH,
+    C : [i32][N, 16] @ GEMM_ACCUM,
+):
+    assert N <= 16
+    assert M <= 16
+    assert K <= 16
+
+    pass
+    for i in par(0,N):
+        for j in par(0,M):
+            for k in par(0,K):
+                a : i32
+                b : i32
+
+                a = A[i,k]
+                b = B[k,j]
+
+                C[i, j] += a * b
+@instr("gemmini_extended_preload("+
             "(uint32_t)({B}.data), (uint32_t)({C}.data) | 0x40000000, "+
             "{M}, {K}, "+
             "{M}, {N}"+
@@ -409,7 +492,7 @@ def matmul_i8(
             "{K}, {N}, "+
             "16, 16"+
        ");")
-def matmul_acc_i8(
+def do_matmul_acc_i8(
     N : size,
     M : size,
     K : size,
@@ -431,6 +514,12 @@ def matmul_acc_i8(
                 b = B[k,j]
 
                 C[i, j] += a * b
+matmul_acc_i8_v2 = matmul_acc_i8.rename("matmul_acc_i8_v2")
+matmul_acc_i8_v2 = matmul_acc_i8_v2.configwrite_after('pass', ConfigMatmul, 'done', 'True')
+matmul_acc_i8_v2 = matmul_acc_i8_v2.replace(do_matmul_acc_i8, 'for i in _:_')
+matmul_acc_i8_v2 = matmul_acc_i8_v2.replace(config_matmul, 'ConfigMatmul.done = True')
+matmul_acc_i8_v2 = matmul_acc_i8_v2.delete_pass()
+matmul_acc_i8    = matmul_acc_i8.delete_pass()
 
 # --------------------------------------------------------------------------- #
 #
