@@ -608,7 +608,51 @@ def test_matmul_c_i8_perfect():
     matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("A = a[_]")
     matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("B = b[_]")
     matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("C = res[_]")
-    print(matmul_c_i8_perfect)
+
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("for k in _:_", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_zero_acc_i32(_, _, _)", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_zero()", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_st_acc_i8(_, _)", n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("res : _", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_st_acc_i8(_, _)", n_lifts=2)
+
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_ld_i8(_,_,_,_) #1", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_ld_i8(_,_) #1", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_ld_i8(_,_,_,_) #0", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_ld_i8(_,_) #0", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("b : _", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("a : _", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_matmul()", n_lifts=1)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_zero_acc_i32(_, _, _)", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_zero()", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_matmul()", n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("res : _", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_matmul()", n_lifts=2)
+
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : i8', n_lifts=3)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : i8', n_lifts=3)
+
+
+    # Real optimization
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_zero_acc_i32(_)', n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('for k in _:_', n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('j','k')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i','k')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #1', n_lifts=3)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #0', n_lifts=3)
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_zero(_)', n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_ld_i8(_)', n_lifts=2)
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("for k in _:_ #0", "config_ld_i8(_) #1")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i')
 
     T.add_proc(matmul_c_i8_perfect)
     T.add_proc(matmul_c_i8_cpu)
@@ -638,35 +682,7 @@ def test_matmul_c_i8_perfect():
 
     T.compile().run()
 
-
-    #matmul_c_i8_perfect.check_effects()
-"""
-
-    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("for k in _:_", "config_st_acc_i8(_, _)")
-    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_zero_i8(_, _, _)", "config_st_acc_i8(_, _)")
-    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_zero_i8()", "config_st_acc_i8(_, _)")
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_st_acc_i8(_, _)", n_lifts=2)
-
-
-    matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : i8', n_lifts=3)
-    matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : i8', n_lifts=3)
-
-    # Real optimization
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('zero_acc_i32(_)', n_lifts=2)
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('for k in _:_', n_lifts=2)
-    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('j','k')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i','k')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('ld_i8(_)', n_lifts=2)
-
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-
-
-"""
-
+    print(matmul_c_i8_perfect)
 """
     #matmul_c_i8_perfect.check_effects()
 """

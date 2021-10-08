@@ -83,6 +83,12 @@ class _DoReorderStmt(LoopIR_Rewrite):
             raise SchedulingError("Cannot reorder stmts using the same "+
                                   "buffer or config")
 
+    def not_conflicts_config(self, c1, c2):
+        if (c1.config.name() == c2.config.name() and
+            c1.field == c2.field):
+            raise SchedulingError("Cannot reorder stmts using the same "+
+                                  "config")
+
     def check_commutes(self, f_eff, s_eff):
         for r in f_eff.reads:
             for w in s_eff.writes:
@@ -170,7 +176,7 @@ class _Reorder(LoopIR_Rewrite):
             def do_bind(x, hi, eff):
                 cond    = lift_to_eff_expr( rng(rd(x),hi) )
                 cond_nz = boolop("<", cnst(0), hi)
-                return eff_bind(x, eff, pred=cond, config_pred=cond_nz)
+                return eff_bind(x, eff, pred=cond)#TODO: , config_pred=cond_nz)
 
             # this is the actual body inside both for-loops
             body        = s.body[0].body
