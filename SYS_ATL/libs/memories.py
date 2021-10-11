@@ -237,7 +237,8 @@ def _avx512_free(new_name, prim_type, shape, srcinfo):
 
 def _avx512_window(prim_type, baseptr, indices, strides, srcinfo):
     assert strides[-1] == '1'
-    return f'({prim_type}*)&{baseptr}[{"][".join(indices[:-1])}]'
+    idxs = indices[:-1] if len(indices) > 1 else ["0"]
+    return f'({prim_type}*)&{baseptr}[{"][".join(idxs)}]'
 
 
 AVX512 = Memory(

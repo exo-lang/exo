@@ -331,6 +331,72 @@ def test_avx2_sgemm_6x16():
 
 def test_avx512_sgemm_full():
     @proc
+    def sgemm_micro_kernel_staged(
+        M: size,
+        N: size,
+        K: size,
+        A: f32[M, K],
+        B: f32[K, 16 * ((N + 15) / 16)],
+        C: [f32][M, N],
+    ):
+        assert M >= 1
+        assert N >= 1
+        assert K >= 1
+        assert stride(A, 1) == 1
+        assert stride(B, 1) == 1
+        assert stride(C, 1) == 1
+
+        if K < 1:
+            unreachable()
+
+        C_reg: f32[M, ((N + 15) / 16), 16] @ AVX512
+        for i in par(0, M):
+            for j in par(0, N / 16):
+                mm512_loadu_ps(C_reg[i, j, :], C[i, 16 * j:16 * j + 16])
+            if N % 16 > 0:
+                mm512_maskz_loadu_ps(
+                    N % 16,
+                    C_reg[i, N / 16, :],
+                    C[i, 16 * (N / 16):16 * (N / 16) + N % 16]
+                )
+
+        for k in par(0, K):
+            for i in par(0, M):
+                a_vec: f32[16] @ AVX512
+                mm512_set1_ps(a_vec, A[i, k:k + 1])
+                for j in par(0, ((N + 15) / 16)):
+                    b_vec: f32[16] @ AVX512
+                    mm512_loadu_ps(b_vec, B[k, j * 16:j * 16 + 16])
+                    mm512_fmadd_ps(a_vec, b_vec, C_reg[i, j, :])
+
+        for i in par(0, M):
+            for j in par(0, N / 16):
+                mm512_storeu_ps(C[i, 16 * j:16 * j + 16], C_reg[i, j, :])
+            if N % 16 > 0:
+                mm512_mask_storeu_ps(
+                    N % 16,
+                    C[i, 16 * (N / 16):16 * (N / 16) + N % 16],
+                    C_reg[i, N / 16, :]
+                )
+
+    print("old")
+    print(sgemm_micro_kernel_staged)
+
+    spec_kernel = (
+        sgemm_micro_kernel_staged
+            .partial_eval(6, 64)
+            .simplify()
+            .unroll('j')
+            .unroll('i')
+            .simplify()
+    )
+
+    print("new")
+    print(spec_kernel)
+
+    spec_kernel.compile_c(TMP_DIR, 'spec_kernel')
+
+    @proc
     def sgemm_full(
         N: size,
         M: size,

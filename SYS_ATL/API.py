@@ -155,6 +155,15 @@ class Procedure:
     #     scheduling operations
     # ------------------------------- #
 
+    def simplify(self):
+        '''
+        Simplify the code in the procedure body. Currently only performs
+        constant folding
+        '''
+        p = self._loopir_proc
+        p = Schedules.DoSimplify(p).result()
+        return Procedure(p)
+
     def rename(self, name):
         if not is_valid_name(name):
             raise TypeError(f"'{name}' is not a valid name")

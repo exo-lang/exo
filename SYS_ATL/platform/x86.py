@@ -81,9 +81,9 @@ def mm256_mul_ps(
 #   AVX512 intrinsics
 # --------------------------------------------------------------------------- #
 
-@instr('{dst} = _mm512_loadu_ps({src}.data);')
+@instr('*(__m512*){dst}.data = _mm512_loadu_ps({src}.data);')
 def mm512_loadu_ps(
-    dst: f32[16] @ AVX512,
+    dst: [f32][16] @ AVX512,
     src: [f32][16] @ DRAM
 ):
     assert stride(src, 0) == 1
@@ -93,10 +93,10 @@ def mm512_loadu_ps(
         dst[i] = src[i]
 
 
-@instr('_mm512_storeu_ps({dst}.data, {src});')
+@instr('_mm512_storeu_ps({dst}.data, *(__m512*){src}.data);')
 def mm512_storeu_ps(
     dst: [f32][16] @ DRAM,
-    src: f32[16] @ AVX512
+    src: [f32][16] @ AVX512
 ):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
@@ -105,10 +105,11 @@ def mm512_storeu_ps(
         dst[i] = src[i]
 
 
-@instr('{dst} = _mm512_maskz_loadu_ps(((1 << {N}) - 1), {src}.data);')
+@instr('*(__m512*){dst}.data = '
+       '_mm512_maskz_loadu_ps(((1 << {N}) - 1), {src}.data);')
 def mm512_maskz_loadu_ps(
     N: size,
-    dst: f32[16] @ AVX512,
+    dst: [f32][16] @ AVX512,
     src: [f32][N] @ DRAM,
 ):
     assert stride(src, 0) == 1
@@ -122,11 +123,12 @@ def mm512_maskz_loadu_ps(
             dst[i] = 0.0
 
 
-@instr('_mm512_mask_storeu_ps({dst}.data, ((1 << {N}) - 1), {src});')
+@instr('_mm512_mask_storeu_ps({dst}.data, ((1 << {N}) - 1), '
+       '*(__m512*){src}.data);')
 def mm512_mask_storeu_ps(
     N: size,
     dst: [f32][N] @ DRAM,
-    src: f32[16] @ AVX512
+    src: [f32][16] @ AVX512
 ):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
@@ -137,11 +139,11 @@ def mm512_mask_storeu_ps(
             dst[i] = src[i]
 
 
-@instr('{C} = _mm512_fmadd_ps({A}, {B}, {C});')
+@instr('*(__m512*){C}.data = _mm512_fmadd_ps({A}, {B}, *(__m512*){C}.data);')
 def mm512_fmadd_ps(
     A: f32[16] @ AVX512,
     B: f32[16] @ AVX512,
-    C: f32[16] @ AVX512,
+    C: [f32][16] @ AVX512,
 ):
     assert stride(A, 0) == 1
     assert stride(B, 0) == 1

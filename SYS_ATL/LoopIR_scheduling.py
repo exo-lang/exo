@@ -1,16 +1,17 @@
-from .prelude import *
+import re
+from collections import ChainMap
+
 from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do, SubstArgs
 from .LoopIR import T
 from .LoopIR import lift_to_eff_expr
-from .LoopIR_effects import Effects as E
-from .LoopIR_effects import get_effect_of_stmts
-from .LoopIR_effects import (eff_union, eff_filter, eff_bind,
-                             eff_null, eff_remove_buf)
 from .LoopIR_dataflow import LoopIR_Dependencies
+from .LoopIR_effects import Effects as E
+from .LoopIR_effects import (eff_filter, eff_bind,
+                             eff_null)
+from .LoopIR_effects import get_effect_of_stmts
 from .effectcheck import InferEffects
-import re
+from .prelude import *
 
-from collections import defaultdict, ChainMap
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -1604,9 +1605,85 @@ class _DoFactorOut(LoopIR_Rewrite):
         return e
 
 
+class _DoSimplify(LoopIR_Rewrite):
+    def __init__(self, proc):
+        super().__init__(proc)
 
+    def cfold(self, op, lhs, rhs):
+        if op == '+':
+            return lhs.val + rhs.val
+        if op == '-':
+            return lhs.val - rhs.val
+        if op == '*':
+            return lhs.val * rhs.val
+        if op == '/':
+            if lhs.type == T.f64 or lhs.type == T.f32:
+                return lhs.val / rhs.val
+            else:
+                return lhs.val // rhs.val
+        if op == '%':
+            return lhs.val % rhs.val
+        if op == 'and':
+            return lhs.val and rhs.val
+        if op == 'or':
+            return lhs.val or rhs.val
+        if op == '<':
+            return lhs.val < rhs.val
+        if op == '>':
+            return lhs.val > rhs.val
+        if op == '<=':
+            return lhs.val <= rhs.val
+        if op == '>=':
+            return lhs.val >= rhs.val
+        if op == '==':
+            return lhs.val == rhs.val
+        raise ValueError(f'Unknown operator ({op})')
 
+    def map_e(self, e):
+        if type(e) is LoopIR.BinOp:
+            lhs = self.map_e(e.lhs)
+            rhs = self.map_e(e.rhs)
+            if isinstance(lhs, LoopIR.Const) and isinstance(rhs, LoopIR.Const):
+                return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type,
+                                    lhs.srcinfo)
 
+            if e.op == '+':
+                if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
+                    return rhs
+                if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+                    return lhs
+            if e.op == '-':
+                if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+                    return lhs
+            if e.op == '*':
+                if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
+                    return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+                if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+                    return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+                if isinstance(lhs, LoopIR.Const) and lhs.val == 1:
+                    return rhs
+                if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+                    return lhs
+            if e.op == '/':
+                if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+                    return lhs
+            if e.op == '%':
+                if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+                    return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+
+            return e
+
+        return super().map_e(e)
+
+    def map_s(self, s):
+        if type(s) == LoopIR.If:
+            cond = self.map_e(s.cond)
+            if isinstance(cond, LoopIR.Const):
+                if cond.val:
+                    return super().map_stmts(s.body)
+                else:
+                    return super().map_stmts(s.orelse)
+        return super().map_s(s)
 
 
 # --------------------------------------------------------------------------- #
@@ -1631,4 +1708,5 @@ class Schedules:
     DoReorderStmt       = _DoReorderStmt
     DoConfigWriteAfter  = _ConfigWriteAfter
     DoInlineWindow      = _InlineWindow
-    DoDeletePass        = _DoDeletePass
+    DoDeletePass = _DoDeletePass
+    DoSimplify = _DoSimplify
