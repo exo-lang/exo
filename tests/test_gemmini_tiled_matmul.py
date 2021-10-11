@@ -481,8 +481,8 @@ def test_matmul_c_i8_perfect():
     MM = 512
     KK = 512
 
-    T.alloc_dram_2i8('x', NN, KK, '1')
-    T.alloc_dram_2i8('y', KK, MM, '1')
+    T.alloc_dram_2i8('x', NN, KK, '4')
+    T.alloc_dram_2i8('y', KK, MM, '6')
     T.alloc_dram_f32('a_scale', '3.0f')
     T.alloc_dram_f32('b_scale', '2.0f')
     T.alloc_dram_f32('c_scale', '2.0f')
@@ -541,6 +541,11 @@ def test_matmul_c_i8_perfect():
                 clamp(tmp_res2, tmp_res)
                 C[i,j] = tmp_res
 
+    matmul_c_i8_cpu = matmul_c_i8_perfect.rename("matmul_c_i8_cpu")
+    matmul_c_i8_cpu = (matmul_c_i8_cpu.set_memory('res', DRAM)
+                                     .set_memory('a', DRAM)
+                                     .set_memory('b', DRAM))
+
     matmul_c_i8_perfect = matmul_c_i8_perfect.split('i',128,['io','i'], perfect=True)
     matmul_c_i8_perfect = matmul_c_i8_perfect.split('j',128,['jo','j'], perfect=True)
     matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i','jo')
@@ -594,38 +599,90 @@ def test_matmul_c_i8_perfect():
     matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("src = res[_]")
     matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("dst = C[_]")
 
-    print(matmul_c_i8_perfect)
-    #matmul_c_i8_perfect.check_effects()
-"""
+    matmul_c_i8_perfect = matmul_c_i8_perfect.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline("zero_acc_i32_v2(_, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("dst = res[_]")
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline("matmul_acc_i8_v2(_, _, _, _, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("A = a[_]")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("B = b[_]")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.inline_window("C = res[_]")
+
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("for k in _:_", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_zero_acc_i32(_, _, _)", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_zero()", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_st_acc_i8(_, _)", n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("res : _", "config_st_acc_i8(_, _)")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_st_acc_i8(_, _)", n_lifts=2)
+
+
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_ld_i8(_,_,_,_) #1", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_ld_i8(_,_) #1", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_ld_i8(_,_,_,_) #0", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_ld_i8(_,_) #0", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("b : _", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("a : _", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_matmul()", n_lifts=1)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("do_zero_acc_i32(_, _, _)", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("config_zero()", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_matmul()", n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("res : _", "config_matmul()")
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_matmul()", n_lifts=2)
 
 
     matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : i8', n_lifts=3)
     matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : i8', n_lifts=3)
 
+
     # Real optimization
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('zero_acc_i32(_)', n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_zero_acc_i32(_)', n_lifts=2)
     matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('for k in _:_', n_lifts=2)
     matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('j','k')
     matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i','k')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('ld_i8(_)', n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #1', n_lifts=3)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #0', n_lifts=3)
 
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_zero(_)', n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_ld_i8(_)', n_lifts=2)
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("for k in _:_ #0", "config_ld_i8(_) #1")
     matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
+
     matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
     matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i')
 
     T.add_proc(matmul_c_i8_perfect)
+    T.add_proc(matmul_c_i8_cpu)
+
+    T.start_timer('cpu')
+    T.add_body([f'matmul_c_i8_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, x, y, z_cpu);',
+                f'gemmini_fence();'])
+    T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'matmul_c_i8_perfect(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, x, y, z_cpu);',
+    T.add_body([f'matmul_c_i8_perfect(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, x, y, z_gemmini);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
-    T.compile().run()
-"""
 
+    T.add_body([f'if(check_eq_2i8({NN},{MM}, z_cpu, z_gemmini)) {{',
+                 '    printf("Correct\\n");',
+                 '} else {',
+                 '    printf("Results Don\'t Match\\n");',
+                 '    printf("Correct Result (z_cpu):\\n");',
+                f'    print_2i8({NN},{MM}, z_cpu);',
+                 '    printf("Computed Roundtrip (z_gemmini):\\n");',
+                f'    print_2i8({NN},{MM}, z_gemmini);',
+                 '    exit(1);',
+                 '}',
+                 ''])
+
+    T.compile().run()
+
+    print(matmul_c_i8_perfect)
 """
     #matmul_c_i8_perfect.check_effects()
 """

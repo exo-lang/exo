@@ -49,6 +49,25 @@ def new_config(name, fields, disable_rw=False):
     return Config(name, type_fields, disable_rw)
 """
 
+# Because of the recursive inclusion, we cannot use ctype in LoopIR here..
+def ctyp(typ):
+    if isinstance(typ, LoopIR.T.F32):
+        return "float"
+    elif isinstance(typ, LoopIR.T.F64):
+        return "double"
+    elif isinstance(typ, LoopIR.T.INT8):
+        return "int8_t"
+    elif isinstance(typ, LoopIR.T.INT32):
+        return "int32_t"
+    elif isinstance(typ, LoopIR.T.Bool):
+        return "bool"
+    elif (isinstance(typ, LoopIR.T.Index) or
+          isinstance(typ, LoopIR.T.Size) or
+          isinstance(typ, LoopIR.T.Stride)):
+        return "int"
+    else:
+        assert False, f"bad case! {typ}"
+
 class Config:
     def __init__(self, name, fields, disable_rw):
         self._name      = name
@@ -88,6 +107,7 @@ class Config:
         lines = []
         lines += [f"struct {self._name} {{"]
         for f in self._fields:
-            lines += [f"    {f[1].ctype()} {f[0]};"]
+            ltyp = self.lookup(f[0])[1]
+            lines += [f"    {ctyp(ltyp)} {f[0]};"]
         lines += [f"}} {self._name};"]
         return lines

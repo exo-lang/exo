@@ -776,8 +776,10 @@ class Compiler:
             return e.f.compile(args)
 
         elif etyp is LoopIR.StrideExpr:
-            raise NotImplementedError("TODO: note difference between "+
-                                      "window and tensor cases...")
+            basetyp     = self.envtyp[e.name]
+            strides = self.get_strides(e.name, basetyp)
+
+            return strides[e.dim]
         elif etyp is LoopIR.ReadConfig:
             if not e.config.is_allow_rw():
                 raise ConfigError(f"{e.srcinfo}: cannot read from config "+
