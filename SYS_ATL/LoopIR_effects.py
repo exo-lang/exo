@@ -1,11 +1,7 @@
-from .asdl.adt import ADT
-from .asdl.adt import memo as ADTmemo
-
-from .prelude import *
-
-#from .LoopIR import T
+from adt import ADT
 from . import LoopIR
 from .configs import Config
+from .prelude import *
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -666,4 +662,3 @@ def _is_FV(x, eff):
     else:
         assert False, f"bad case: {type(eff)}"
 """
-

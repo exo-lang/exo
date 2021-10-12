@@ -410,7 +410,7 @@ def test_avx512_sgemm_full():
                 for k in par(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
-    basename = test_avx2_sgemm_full.__name__
+    basename = test_avx512_sgemm_full.__name__
 
     sgemm_full.compile_c(TMP_DIR, basename)
     library = generate_lib(basename, extra_flags="-march=skylake-avx512")

@@ -1,27 +1,28 @@
-from .LoopIR_dataflow import LoopIR_Dependencies
-from .asdl.adt import ADT
-from .asdl.adt import memo as ADTmemo
-
-from .prelude import *
-from .LoopIR import LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars
-from .effectcheck import InferEffects, CheckEffects
-
-from collections import ChainMap
 import functools
-import re
 import itertools
+import re
+from collections import ChainMap
 
 import pysmt
 from pysmt import shortcuts as SMT
 
+from adt import ADT
+from .LoopIR import LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars
+from .LoopIR_dataflow import LoopIR_Dependencies
+from .LoopIR_scheduling import SchedulingError
+from .prelude import *
+
+
 def _get_smt_solver():
     factory = pysmt.factory.Factory(pysmt.shortcuts.get_env())
-    slvs    = factory.all_solvers()
-    if len(slvs) == 0: raise OSError("Could not find any SMT solvers")
+    slvs = factory.all_solvers()
+    if len(slvs) == 0:
+        raise OSError("Could not find any SMT solvers")
     return pysmt.shortcuts.Solver(name=next(iter(slvs)))
 
+
 def sanitize_str(s):
-    return re.sub(r'\W','_',s)
+    return re.sub(r'\W', '_', s)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

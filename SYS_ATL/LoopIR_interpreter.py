@@ -1,13 +1,11 @@
-from .asdl.adt import ADT
-from .asdl.adt import memo as ADTmemo
 from collections import ChainMap
 
+import numpy as np
+
+from .LoopIR import LoopIR
+from .LoopIR import T
 from .prelude import *
 
-from .LoopIR import T
-from .LoopIR import LoopIR
-
-import numpy as np
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

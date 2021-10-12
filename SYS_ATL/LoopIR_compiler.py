@@ -1,23 +1,17 @@
-from .asdl.adt import ADT
-from .asdl.adt import memo as ADTmemo
-import re
-
-from collections import defaultdict
-from collections import ChainMap
-
-from .prelude import *
-
-from .LoopIR import T
-from .LoopIR import LoopIR, LoopIR_Do
-
-from .mem_analysis import MemoryAnalysis
-from .prec_analysis import PrecisionAnalysis
-from .win_analysis import WindowAnalysis
-from .memory import MemGenError
-from .configs import ConfigError
-
-import numpy as np
 import os
+import re
+from collections import ChainMap
+from collections import defaultdict
+
+from .LoopIR import LoopIR, LoopIR_Do
+from .LoopIR import T
+from .configs import ConfigError
+from .mem_analysis import MemoryAnalysis
+from .memory import MemGenError
+from .prec_analysis import PrecisionAnalysis
+from .prelude import *
+from .win_analysis import WindowAnalysis
+
 
 def sanitize_str(s):
     return re.sub(r'\W','_',s)

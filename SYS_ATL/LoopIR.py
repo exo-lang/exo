@@ -1,5 +1,5 @@
-from .asdl.adt import ADT
-from .asdl.adt import memo as ADTmemo
+from adt import ADT
+from adt import memo as ADTmemo
 
 from .prelude import *
 

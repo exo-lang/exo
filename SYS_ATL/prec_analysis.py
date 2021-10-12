@@ -1,12 +1,5 @@
-from .asdl.adt import ADT
-from .asdl.adt import memo as ADTmemo
-
-from .prelude import *
-
-from .LoopIR import T
 from .LoopIR import LoopIR, LoopIR_Rewrite
-
-
+from .LoopIR import T
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

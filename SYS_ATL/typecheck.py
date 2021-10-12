@@ -1,12 +1,8 @@
-from .asdl.adt import ADT
-from .asdl.adt import memo as ADTmemo
-
-from .prelude import *
-from .LoopIR import UAST, LoopIR, front_ops, bin_ops
 from .LoopIR import T
-
-from .memory import *
+from .LoopIR import UAST, LoopIR
 from .builtins import BuiltIn_Typecheck_Error
+from .memory import *
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
