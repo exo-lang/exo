@@ -1,10 +1,9 @@
-from .prelude import *
-from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do, PAST
-from . import pyparser
-from .LoopIR import T
+import inspect
 import re
 
-import inspect
+from . import pyparser
+from .LoopIR import LoopIR, PAST
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

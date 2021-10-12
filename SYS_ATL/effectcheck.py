@@ -1,18 +1,19 @@
-from .prelude import *
-from .LoopIR import UAST, LoopIR, front_ops, bin_ops, LoopIR_Rewrite
-from .LoopIR import lift_to_eff_expr as lift_expr
+from collections import ChainMap
+
+import pysmt
+from pysmt import shortcuts as SMT
+
+from .LoopIR import LoopIR
 from .LoopIR import T
+from .LoopIR import lift_to_eff_expr as lift_expr
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (eff_null, eff_read, eff_write, eff_reduce,
                              eff_config_read, eff_config_write,
                              eff_concat, eff_union, eff_remove_buf,
                              eff_filter, eff_bind)
+from .prelude import *
 
-from collections import ChainMap
-
-import pysmt
-from pysmt import shortcuts as SMT
 
 def _get_smt_solver():
     factory = pysmt.factory.Factory(pysmt.shortcuts.get_env())
@@ -1051,4 +1052,3 @@ class CheckEffects:
 
 
         return body_eff # Returns union of all effects
-

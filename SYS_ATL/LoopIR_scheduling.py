@@ -1,14 +1,11 @@
 import re
 from collections import ChainMap
 
-from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do, SubstArgs
-from .LoopIR import T
-from .LoopIR import lift_to_eff_expr
+from .LoopIR import (LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do,
+                     SubstArgs, T, lift_to_eff_expr)
 from .LoopIR_dataflow import LoopIR_Dependencies
-from .LoopIR_effects import Effects as E
-from .LoopIR_effects import (eff_filter, eff_bind,
-                             eff_null)
-from .LoopIR_effects import get_effect_of_stmts
+from .LoopIR_effects import (Effects as E, eff_filter, eff_bind, eff_null,
+                             get_effect_of_stmts)
 from .effectcheck import InferEffects
 from .prelude import *
 

@@ -1,11 +1,10 @@
-from .prelude import *
-from .LoopIR import LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do, PAST
-from . import pyparser
-from .LoopIR import T
-import re
-
-from collections import ChainMap
 import inspect
+from collections import ChainMap
+
+from . import pyparser
+from .LoopIR import LoopIR, LoopIR_Do, PAST
+from .LoopIR import T
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -128,4 +127,3 @@ class ParseFragment:
 
     def results(self):
         return self._results
-

@@ -1,15 +1,12 @@
+from collections import ChainMap
+
 from adt import ADT
 from adt import memo as ADTmemo
-
-from .prelude import *
-
 from .LoopIR_effects import Effects as E
-
-from .memory import Memory
 from .builtins import BuiltIn
 from .configs import Config
-
-from collections import ChainMap
+from .memory import Memory
+from .prelude import *
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

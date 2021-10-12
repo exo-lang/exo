@@ -1,25 +1,21 @@
-from .prelude import *
-from .LoopIR import UAST, LoopIR
+from weakref import WeakKeyDictionary
+
 from .LoopIR import T
-from .typecheck import TypeChecker
-from .LoopIR_compiler import Compiler, run_compile, compile_to_strings
-from .LoopIR_interpreter import Interpreter, run_interpreter
+from .LoopIR import UAST, LoopIR
+from .LoopIR_compiler import run_compile, compile_to_strings
+from .LoopIR_interpreter import run_interpreter
 from .LoopIR_scheduling import Schedules
 from .LoopIR_scheduling import (name_plus_count,
                                 iter_name_to_pattern,
                                 nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace, UnificationError
-from .effectcheck import InferEffects, CheckEffects
-
-from .memory import Memory
 from .configs import Config
-
-from .pattern_match import match_pattern
+from .effectcheck import InferEffects, CheckEffects
+from .memory import Memory
 from .parse_fragment import parse_fragment
-
-import weakref
-from weakref import WeakKeyDictionary
-
+from .pattern_match import match_pattern
+from .prelude import *
+from .typecheck import TypeChecker
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

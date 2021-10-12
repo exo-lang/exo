@@ -1,7 +1,3 @@
-from .prelude import *
-
-from . import LoopIR
-
 import math
 
 

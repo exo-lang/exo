@@ -1,5 +1,4 @@
-from .LoopIR import T
-from .LoopIR import UAST, LoopIR
+from .LoopIR import T, UAST, LoopIR
 from .builtins import BuiltIn_Typecheck_Error
 from .memory import *
 

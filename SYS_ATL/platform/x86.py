@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-import sys
-
-sys.path.append(sys.path[0] + "/..")
-sys.path.append(sys.path[0] + "/.")
-
-from SYS_ATL import instr, DRAM
-from SYS_ATL.libs.memories import AVX2, AVX512
+from .. import instr, DRAM
+from ..libs.memories import AVX2, AVX512
 
 
 # --------------------------------------------------------------------------- #

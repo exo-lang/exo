@@ -1,10 +1,7 @@
-from .prelude import *
-from .LoopIR import LoopIR, LoopIR_Do
-
-from collections import defaultdict, ChainMap
-
+from collections import defaultdict
 from weakref import WeakKeyDictionary
 
+from .LoopIR import LoopIR, LoopIR_Do
 
 _WC_Leaf = {} # unique object to use as key....
 class WeakCache(WeakKeyDictionary):

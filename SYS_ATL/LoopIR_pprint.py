@@ -1,17 +1,14 @@
 import re
-import textwrap
 from collections import ChainMap
 
-from .prelude import *
-from .LoopIR import UAST, front_ops, LoopIR
-from .LoopIR_effects import Effects as E
-from .LoopIR import T
-
-# google python formatting project
-# to save myself the trouble of being overly clever
+# google python formatting project to save myself the trouble of being overly
+# clever run the function FormatCode to transform one string into a formatted
+# string
 from yapf.yapflib.yapf_api import FormatCode
-# run the function FormatCode to transform
-# one string into a formatted string
+
+from .LoopIR import T
+from .LoopIR import UAST, LoopIR
+from .prelude import *
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

@@ -1,5 +1,4 @@
-from .LoopIR import LoopIR, LoopIR_Rewrite
-from .LoopIR import T
+from .LoopIR import LoopIR, LoopIR_Rewrite, T
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

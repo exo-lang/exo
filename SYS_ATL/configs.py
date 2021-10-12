@@ -1,6 +1,3 @@
-
-# don't import T from LoopIR in order to break file inclusion circularity
-#from .LoopIR import T
 from . import LoopIR
 
 # --------------------------------------------------------------------------- #

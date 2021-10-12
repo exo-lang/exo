@@ -1,6 +1,6 @@
-from re import compile as _re_compile
 from inspect import (currentframe as _curr_frame,
                      getframeinfo as _get_frame_info)
+from re import compile as _re_compile
 
 
 def is_pos_int(obj):
