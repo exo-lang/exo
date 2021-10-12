@@ -5,12 +5,11 @@ import inspect
 import re
 import sys
 import textwrap
-import types
 from collections import ChainMap
 
 import astor
 
-from .API import Procedure
+from .API_types import ProcedureBase
 from .LoopIR import UAST, front_ops, PAST
 from .builtins import *
 from .configs import Config
@@ -38,23 +37,11 @@ def str_to_mem(name):
 # --------------------------------------------------------------------------- #
 # Top-level decorator
 
-def instr(instruction, _testing=None):
-    if type(instruction) is not str:
-        raise TypeError("@instr decorator must be @instr(<your instuction>)")
-    def inner(f):
-        if type(f) is not types.FunctionType:
-            raise TypeError("@instr decorator must be applied to a function")
 
-        return proc(f, _instr=instruction, _testing=_testing)
-
-    return inner
-
-def proc(f, _instr=None,_testing=None):
-    if type(f) is not types.FunctionType:
-        raise TypeError("@proc decorator must be applied to a function")
-
+def get_ast_from_python(f):
     # note that we must dedent in case the function is defined
     # inside of a local scope
+
     rawsrc = inspect.getsource(f)
     src = textwrap.dedent(rawsrc)
     n_dedent = (len(re.match('^(.*)', rawsrc).group()) -
@@ -63,107 +50,32 @@ def proc(f, _instr=None,_testing=None):
     _, srclineno = inspect.getsourcelines(f)
     srclineno -= 1  # adjust for decorator line
 
-    # convert into AST nodes; which should be a module with a single
-    # FunctionDef node
-    module = pyast.parse(src)
-    assert len(module.body) == 1
-    assert type(module.body[0]) == pyast.FunctionDef
-
-    # get global and local environments for context capture purposes
-    func_globals = f.__globals__
-    stack_frames = inspect.stack()
-    assert(len(stack_frames) >= 1)
-    assert(type(stack_frames[1]) == inspect.FrameInfo)
-    func_locals = stack_frames[1].frame.f_locals
-    if _instr is not None:
-        assert(len(stack_frames) >= 2)
-        assert(type(stack_frames[2]) == inspect.FrameInfo)
-        func_locals = stack_frames[2].frame.f_locals
-    else:
-        assert(len(stack_frames) >= 1)
-        assert(type(stack_frames[1]) == inspect.FrameInfo)
-        func_locals = stack_frames[1].frame.f_locals
-
-    assert(type(func_locals) == dict)
-    srclocals = ChainMap(func_locals)
-
-    # patch in Built-In functions to scope
-    # srclocals['name'] = object
-
     # create way to query for src-code information
     def getsrcinfo(node):
         return SrcInfo(filename=srcfilename,
-                       lineno=node.lineno+srclineno,
-                       col_offset=node.col_offset+n_dedent,
+                       lineno=node.lineno + srclineno,
+                       col_offset=node.col_offset + n_dedent,
                        end_lineno=(None if node.end_lineno is None
-                                   else node.end_lineno+srclineno),
+                                   else node.end_lineno + srclineno),
                        end_col_offset=(None if node.end_col_offset is None
-                                       else node.end_col_offset+n_dedent))
+                                       else node.end_col_offset + n_dedent))
 
-    # try to attribute parse error messages with minimal internal
-    # stack traces...
-    # try:
-    parser = Parser(module.body[0], func_globals,
-                    srclocals, getsrcinfo,
-                    instr   =_instr,
-                    as_func =True)
-    # except ParseError as pe:
-    #  pemsg = "Encountered error while parsing decorated function:\n"+str(pe)
-    #  raise ParseError(pemsg) from pe
+    # convert into AST nodes; which should be a module with a single node
+    module = pyast.parse(src)
+    assert len(module.body) == 1
 
-    return Procedure(parser.result(), _testing=_testing)
+    return module.body[0], getsrcinfo
 
-def config(_cls=None, *, readwrite=True):
-    def parse_config(cls):
-        if not inspect.isclass(cls):
-            raise TypeError("@config decorator must be applied to a class")
 
-        # note that we must dedent in case the function is defined
-        # inside of a local scope
-        rawsrc = inspect.getsource(cls)
-        src = textwrap.dedent(rawsrc)
-        n_dedent = (len(re.match('^(.*)', rawsrc).group()) -
-                    len(re.match('^(.*)', src).group()))
-        srcfilename = inspect.getsourcefile(cls)
-        _, srclineno = inspect.getsourcelines(cls)
-        srclineno -= 1  # adjust for decorator line
-
-        # convert into AST nodes; which should be a module with a single
-        # FunctionDef node
-        module = pyast.parse(src)
-        assert len(module.body) == 1
-        assert type(module.body[0]) == pyast.ClassDef
-
-        # get global and local environments for context capture purposes
-        func_globals = dict()#cls.__globals__
-        stack_frames = inspect.stack()
-        assert(len(stack_frames) >= 1)
-        assert(type(stack_frames[1]) == inspect.FrameInfo)
-        func_locals = stack_frames[1].frame.f_locals
-        assert(type(func_locals) == dict)
-        srclocals = ChainMap(func_locals)
-
-        # create way to query for src-code information
-        def getsrcinfo(node):
-            return SrcInfo(filename=srcfilename,
-                           lineno=node.lineno+srclineno,
-                           col_offset=node.col_offset+n_dedent,
-                           end_lineno=(None if node.end_lineno is None
-                                       else node.end_lineno+srclineno),
-                           end_col_offset=(None if node.end_col_offset is None
-                                           else node.end_col_offset+n_dedent))
-
-        parser = Parser(module.body[0], func_globals,
-                        srclocals, getsrcinfo,
-                        as_config = True)
-
-        name, fields = parser.result()
-        return Config(name, fields, not readwrite)
-
-    if _cls is None:
-        return parse_config
-    else:
-        return parse_config(_cls)
+def get_src_locals(*, depth):
+    """
+    Get global and local environments for context capture purposes
+    """
+    stack_frames: [inspect.FrameInfo] = inspect.stack()
+    assert len(stack_frames) >= depth
+    func_locals = stack_frames[depth].frame.f_locals
+    assert isinstance(func_locals, dict)
+    return ChainMap(func_locals)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -308,7 +220,7 @@ class Parser:
         preds = []
         for a in assertions:
             if a.msg is not None:
-                self.err(a, "SYS_ATL procedure assertions should "+
+                self.err(a, "SYS_ATL procedure assertions should "
                             "not have messages")
 
             # stride-expr handling
@@ -337,7 +249,7 @@ class Parser:
         return (name, fields)
 
     def parse_config_field(self, stmt):
-        basic_err = ("expected config field definition of the form: "+
+        basic_err = ("expected config field definition of the form: "
                      "name : type")
         if type(stmt) is pyast.AnnAssign:
             if stmt.value:
@@ -360,10 +272,11 @@ class Parser:
                 stmt.annotation.id in typ_list):
                 typ = typ_list[stmt.annotation.id]
             else:
-                self.err(stmt.annotation, "expected one of the following "+
-                    "types: "+', '.join(list(typ_list.keys())))
+                self.err(stmt.annotation, "expected one of the following "
+                                          "types: " + ', '.join(
+                    list(typ_list.keys())))
 
-            return (name,typ)
+            return name, typ
         else:
             self.err(stmt, basic_err)
 
@@ -392,25 +305,25 @@ class Parser:
         # parse each kind of type here
         if is_size(typ_node):
             if mem_node is not None:
-                self.err(node, "size types should not be annotated with "+
+                self.err(node, "size types should not be annotated with "
                                "memory locations")
             return UAST.Size(), None
 
         elif is_index(typ_node):
             if mem_node is not None:
-                self.err(node, "size types should not be annotated with "+
+                self.err(node, "size types should not be annotated with "
                                "memory locations")
             return UAST.Index(), None
 
         elif is_bool(typ_node):
             if mem_node is not None:
-                self.err(node, "size types should not be annotated with "+
+                self.err(node, "size types should not be annotated with "
                                "memory locations")
             return UAST.Bool(), None
 
         elif is_stride(typ_node):
             if mem_node is not None:
-                self.err(node, "stride types should not be annotated with "+
+                self.err(node, "stride types should not be annotated with "
                                "memory locations")
             return UAST.Stride(), None
 
@@ -446,17 +359,17 @@ class Parser:
         if type(node) is pyast.Subscript:
             if type(node.value) is pyast.List:
                 if is_arg is not True:
-                    self.err(node, "Window expression such as [R] "+
-                                   "should only be used in the function "+
+                    self.err(node, "Window expression such as [R] "
+                                   "should only be used in the function "
                                    "signature")
                 if len(node.value.elts) != 1:
-                    self.err(node, "Window expression should annotate "+
+                    self.err(node, "Window expression should annotate "
                                    "only one type, e.g. [R]")
 
                 base = node.value.elts[0]
                 if (type(base) is not pyast.Name or
                     base.id not in Parser._prim_types):
-                    self.err(node, "expected window type to be of "+
+                    self.err(node, "expected window type to be of "
                                    "the form '[R][...]', '[f32][...]', etc.")
 
                 typ       = Parser._prim_types[base.id]
@@ -466,7 +379,7 @@ class Parser:
                 typ       = Parser._prim_types[node.value.id]
                 is_window = False
             else:
-                self.err(node, "expected tensor type to be "+
+                self.err(node, "expected tensor type to be "
                                "of the form 'R[...]', 'f32[...]', etc.")
 
             if sys.version_info[:3] >= (3, 9):
@@ -515,7 +428,7 @@ class Parser:
                 rhs = None
                 if type(s) is pyast.AnnAssign:
                     if s.value is not None:
-                        self.err(s, "Variable declaration should not "+
+                        self.err(s, "Variable declaration should not "
                                     "have value assigned")
                 else:
                     rhs = self.parse_expr(s.value)
@@ -523,20 +436,20 @@ class Parser:
                 # parse the lvalue expression
                 if type(s) is pyast.Assign:
                     if len(s.targets) > 1:
-                        self.err(s, "expected only one expression " +
+                        self.err(s, "expected only one expression "
                                     "on the left of an assignment")
                     node = s.targets[0]
                     # handle WriteConfigs
                     if type(node) is pyast.Attribute:
                         if type(node.value) is not pyast.Name:
-                            self.err(tgt, "expected configuration writes "+
-                                          "of the form 'config.field = ...'")
+                            self.err(node, "expected configuration writes "
+                                           "of the form 'config.field = ...'")
                         assert type(node.attr) is str
 
                         # lookup config and early-exit
                         config_obj  = self.eval_expr(node.value)
                         if not isinstance(config_obj, Config):
-                            self.err(node.value, "expected indexed object "+
+                            self.err(node.value, "expected indexed object "
                                                  "to be a Config")
 
                         # early-exit in this case
@@ -555,7 +468,7 @@ class Parser:
                     lhs = s.target
 
                 if is_window:
-                    self.err(lhs, "cannot perform windowing on "+
+                    self.err(lhs, "cannot perform windowing on "
                                   "left-hand-side of an assignment")
                 if type(s) is pyast.AnnAssign and len(idxs) > 0:
                     self.err(lhs, "expected simple name in declaration")
@@ -585,10 +498,10 @@ class Parser:
                             name_node, f"variable '{name_node.id}' undefined")
                     nm = self.locals[name_node.id]
                     if type(nm) is SizeStub:
-                        self.err(name_node, f"cannot write to " +
+                        self.err(name_node, f"cannot write to "
                                             f"size variable '{name_node.id}'")
                     elif type(nm) is not Sym:
-                        self.err(name_node, f"expected '{name_node.id}' to "+
+                        self.err(name_node, f"expected '{name_node.id}' to "
                                             f"refer to a local variable")
 
                 # generate the assignemnt or reduction statement
@@ -638,25 +551,25 @@ class Parser:
             elif (type(s) is pyast.Expr and
                   type(s.value) is pyast.Call):
                 f = self.eval_expr(s.value.func)
-                if not isinstance(f, Procedure):
-                    self.err(s.value.func, f"expected called object "+
-                                            "to be a procedure")
+                if not isinstance(f, ProcedureBase):
+                    self.err(s.value.func, f"expected called object "
+                                           "to be a procedure")
 
                 if len(s.value.keywords) > 0:
-                    self.err(s.value, "cannot call procedure() "+
+                    self.err(s.value, "cannot call procedure() "
                                       "with keyword arguments")
 
-                args = [ self.parse_expr(a) for a in s.value.args ]
+                args = [self.parse_expr(a) for a in s.value.args]
 
                 rstmts.append(UAST.Call(f.INTERNAL_proc(),
-                              args, self.getsrcinfo(s.value)))
+                                        args, self.getsrcinfo(s.value)))
 
             # ----- Pass no-op parsing
             elif type(s) is pyast.Pass:
                 rstmts.append(UAST.Pass(self.getsrcinfo(s)))
 
             elif type(s) is pyast.Assert:
-                self.err(s, "predicate assert should happen at the beginning "+
+                self.err(s, "predicate assert should happen at the beginning "
                             "of a function")
             else:
                 self.err(s, "unsupported type of statement")
@@ -668,10 +581,10 @@ class Parser:
             if type(cond.func) is pyast.Name and (cond.func.id == "par" or
                     cond.func.id == "seq"):
                 if len(cond.keywords) > 0:
-                    self.err(cond, "par() and seq() does not support"+
+                    self.err(cond, "par() and seq() does not support"
                                    " named arguments")
                 elif len(cond.args) != 2:
-                    self.err(cond, "par() and seq() expects exactly"+
+                    self.err(cond, "par() and seq() expects exactly"
                                    " 2 arguments")
                 lo = self.parse_expr(cond.args[0])
                 hi = self.parse_expr(cond.args[1])
@@ -680,7 +593,7 @@ class Parser:
                 else:
                     return UAST.SeqRange(lo, hi, self.getsrcinfo(cond))
             else:
-                self.err(cond, "expected for loop condition to be in the form "+
+                self.err(cond, "expected for loop condition to be in the form "
                                "'par(...,...)' or 'seq(...,...)'")
         else:
             return self.parse_expr(cond)
@@ -739,7 +652,7 @@ class Parser:
             lo = None if e.lower is None else self.parse_expr(e.lower)
             hi = None if e.upper is None else self.parse_expr(e.upper)
             if e.step is not None:
-                self.err(e, "expected windowing to have the form x[:], "+
+                self.err(e, "expected windowing to have the form x[:], "
                             "x[i:], x[:j], or x[i:j], but not x[i:j:k]")
 
             return UAST.Interval(lo, hi, srcinfo)
@@ -764,21 +677,21 @@ class Parser:
                 pass # nm is already set correctly
             elif type(nm) is int or type(nm) is float:
                 if len(idxs) > 0:
-                    self.err(nm_node, f"cannot index '{nm_node.id}' because "+
+                    self.err(nm_node, f"cannot index '{nm_node.id}' because "
                                       f"it is the constant {nm}")
                 else:
                     return UAST.Const(nm, self.getsrcinfo(e))
-            else: # could not resolve name to anything
+            else:  # could not resolve name to anything
                 self.err(nm_node, f"variable '{nm_node.id}' undefined")
 
             ## get the buffer name
-            #if nm_node.id not in self.locals:
+            # if nm_node.id not in self.locals:
             #    self.err(nm_node, f"variable '{nm_node.id}' undefined")
-            #nm = self.locals[nm_node.id]
-            #if type(nm) is SizeStub:
+            # nm = self.locals[nm_node.id]
+            # if type(nm) is SizeStub:
             #    nm = nm.nm
-            #elif type(nm) is not Sym:
-            #    self.err(nm_node, f"expected '{nm_node.id}' to refer to " +
+            # elif type(nm) is not Sym:
+            #    self.err(nm_node, f"expected '{nm_node.id}' to refer to "
             #                      f"a local variable")
 
             if is_window:
@@ -788,14 +701,14 @@ class Parser:
 
         elif type(e) is pyast.Attribute:
             if type(e.value) is not pyast.Name:
-                self.err(e, "expected configuration reads "+
-                             "of the form 'config.field'")
+                self.err(e, "expected configuration reads "
+                            "of the form 'config.field'")
 
             assert type(e.attr) is str
 
             config_obj  = self.eval_expr(e.value)
             if not isinstance(config_obj, Config):
-                self.err(e.value, "expected indexed object "+
+                self.err(e.value, "expected indexed object "
                                   "to be a Config")
 
             return UAST.ReadConfig(config_obj, e.attr, self.getsrcinfo(e))
@@ -909,17 +822,17 @@ class Parser:
             # handle stride expression
             if type(e.func) == pyast.Name and e.func.id == "stride":
                 if (len(e.keywords) > 0 or len(e.args) != 2 or
-                    type(e.args[0]) is not pyast.Name or
-                    type(e.args[1]) is not pyast.Constant or
-                    type(e.args[1].value) is not int):
-                    self.err(e, "expected stride(...) to "+
-                                "have exactly 2 arguments: the identifier "+
-                                "for the buffer we are talking about "+
+                        type(e.args[0]) is not pyast.Name or
+                        type(e.args[1]) is not pyast.Constant or
+                        type(e.args[1].value) is not int):
+                    self.err(e, "expected stride(...) to "
+                                "have exactly 2 arguments: the identifier "
+                                "for the buffer we are talking about "
                                 "and an integer specifying which dimension")
 
                 name    = e.args[0].id
                 if name not in self.locals:
-                    self.err(args[0], f"variable '{name}' undefined")
+                    self.err(e.args[0], f"variable '{name}' undefined")
                 name    = self.locals[name]
                 dim     = e.args[1].value
 
@@ -931,12 +844,12 @@ class Parser:
                 fname = e.func.id
 
                 if not isinstance(f, BuiltIn):
-                    self.err(e.func, f"expected called object "+
-                                      "to be a builtin function")
+                    self.err(e.func, f"expected called object "
+                                     "to be a builtin function")
 
                 if len(e.keywords) > 0:
-                    self.err(s.value, "cannot call a builtin function "+
-                                      "with keyword arguments")
+                    self.err(f, "cannot call a builtin function "
+                                "with keyword arguments")
 
                 args = [ self.parse_expr(a) for a in e.args ]
 
@@ -1002,11 +915,12 @@ class PatternParser:
                 rhs = None
                 if type(s) is pyast.AnnAssign:
                     if s.value is not None:
-                        self.err(s, "Variable declaration should not "+
+                        self.err(s, "Variable declaration should not "
                                     "have value assigned")
                     name_node, idxs = self.parse_lvalue(s.target)
                     if len(idxs) > 0:
-                        self.err(tgt, "expected simple name in declaration")
+                        self.err(s.target,
+                                 "expected simple name in declaration")
                     nm = name_node.id
                     if nm != '_' and not is_valid_name(nm):
                         self.err(name_node, "expected valid name or _")
@@ -1018,14 +932,14 @@ class PatternParser:
                 # parse the lvalue expression
                 if type(s) is pyast.Assign:
                     if len(s.targets) > 1:
-                        self.err(s, "expected only one expression " +
+                        self.err(s, "expected only one expression "
                                     "on the left of an assignment")
                     node = s.targets[0]
                     # WriteConfigs
                     if type(node) is pyast.Attribute:
                         if type(node.value) is not pyast.Name:
-                            self.err(tgt, "expected configuration writes "+
-                                          "of the form 'config.field = ...'")
+                            self.err(node, "expected configuration writes "
+                                           "of the form 'config.field = ...'")
                         assert type(node.attr) is str
                         assert type(node.value.id) is str
 
@@ -1089,13 +1003,13 @@ class PatternParser:
                 # handle stride expression
                 if s.value.func.id == "stride":
                     if (len(s.value.keywords) > 0 or len(s.value.args) != 2 or
-                        type(s.value.args[0]) is not pyast.Name or
-                        type(s.value.args[1]) is not pyast.Constant or
-                        type(s.value.args[1].value) is not int):
-                        self.err(s.value, "expected stride(...) to "+
-                                    "have exactly 2 arguments: the identifier "+
-                                    "for the buffer we are talking about "+
-                                    "and an integer specifying which dimension")
+                            type(s.value.args[0]) is not pyast.Name or
+                            type(s.value.args[1]) is not pyast.Constant or
+                            type(s.value.args[1].value) is not int):
+                        self.err(s.value, "expected stride(...) to "
+                                          "have exactly 2 arguments: the identifier "
+                                          "for the buffer we are talking about "
+                                          "and an integer specifying which dimension")
 
                     name    = s.value.args[0].id
                     dim     = s.value.args[1].value
@@ -1103,7 +1017,7 @@ class PatternParser:
                     rstmts.append(PAST.StrideExpr(name, dim, self.getsrcinfo(s.value)))
                 else:
                     if len(s.value.keywords) > 0:
-                        self.err(s.value, "cannot call procedure() "+
+                        self.err(s.value, "cannot call procedure() "
                                           "with keyword arguments")
 
                     args = [ self.parse_expr(a) for a in s.value.args ]
@@ -1127,7 +1041,7 @@ class PatternParser:
 
     def parse_lvalue(self, node):
         if type(node) is not pyast.Name and type(node) is not pyast.Subscript:
-            self.err(tgt, "expected lhs of form 'x' or 'x[...]'")
+            self.err(node, "expected lhs of form 'x' or 'x[...]'")
         else:
             return self.parse_array_indexing(node)
 

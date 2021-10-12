@@ -1,11 +1,13 @@
+import ast as pyast
+import inspect
+import types
 from weakref import WeakKeyDictionary
 
-from .LoopIR import T
-from .LoopIR import UAST, LoopIR
+from .API_types import ProcedureBase
+from .LoopIR import LoopIR, T, UAST
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_interpreter import run_interpreter
-from .LoopIR_scheduling import Schedules
-from .LoopIR_scheduling import (name_plus_count,
+from .LoopIR_scheduling import (Schedules, name_plus_count,
                                 iter_name_to_pattern,
                                 nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace, UnificationError
@@ -15,6 +17,7 @@ from .memory import Memory
 from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern
 from .prelude import *
+from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .typecheck import TypeChecker
 
 # --------------------------------------------------------------------------- #
@@ -45,6 +48,56 @@ def _proc_prov_unify(lhs, rhs):
         _proc_root[p] = lhs
     _proc_root[rhs] = lhs
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Top-level decorator
+
+
+def proc(f, _instr=None, _testing=None):
+    if not isinstance(f, types.FunctionType):
+        raise TypeError("@proc decorator must be applied to a function")
+
+    body, getsrcinfo = get_ast_from_python(f)
+    assert isinstance(body, pyast.FunctionDef)
+
+    parser = Parser(body, f.__globals__,
+                    get_src_locals(depth=3 if _instr else 2),
+                    getsrcinfo, instr=_instr, as_func=True)
+    return Procedure(parser.result(), _testing=_testing)
+
+
+def instr(instruction, _testing=None):
+    if not isinstance(instruction, str):
+        raise TypeError("@instr decorator must be @instr(<your instuction>)")
+
+    def inner(f):
+        if not isinstance(f, types.FunctionType):
+            raise TypeError("@instr decorator must be applied to a function")
+
+        return proc(f, _instr=instruction, _testing=_testing)
+
+    return inner
+
+
+def config(_cls=None, *, readwrite=True):
+    def parse_config(cls):
+        if not inspect.isclass(cls):
+            raise TypeError("@config decorator must be applied to a class")
+
+        body, getsrcinfo = get_ast_from_python(cls)
+        assert type(body) == pyast.ClassDef
+
+        parser = Parser(body, {}, get_src_locals(depth=2), getsrcinfo,
+                        as_config=True)
+        return Config(*parser.result(), not readwrite)
+
+    if _cls is None:
+        return parse_config
+    else:
+        return parse_config(_cls)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   iPython Display Object
@@ -67,8 +120,10 @@ def compile_procs(proc_list, path, c_file, h_file, malloc=False):
                 path, c_file, h_file, malloc=malloc)
 
 
-class Procedure:
+class Procedure(ProcedureBase):
     def __init__(self, proc, _testing=None, _provenance_eq_Procedure=None):
+        super().__init__()
+
         if isinstance(proc, LoopIR.proc):
             self._loopir_proc = proc
         else:

@@ -1,0 +1,2 @@
+class ProcedureBase:
+    pass
