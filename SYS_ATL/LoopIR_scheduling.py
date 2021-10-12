@@ -1705,5 +1705,5 @@ class Schedules:
     DoReorderStmt       = _DoReorderStmt
     DoConfigWriteAfter  = _ConfigWriteAfter
     DoInlineWindow      = _InlineWindow
-    DoDeletePass = _DoDeletePass
-    DoSimplify = _DoSimplify
+    DoDeletePass        = _DoDeletePass
+    DoSimplify          = _DoSimplify
