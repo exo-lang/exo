@@ -557,13 +557,13 @@ class Procedure:
                                                    n_lifts).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def factor_out_stmt(self, name, stmt_pattern):
+    def extract_method(self, name, stmt_pattern):
         if not is_valid_name(name):
             raise TypeError("expected first argument to be a valid name")
         stmt        = self._find_stmt(stmt_pattern)
 
         loopir          = self._loopir_proc
-        passobj         = Schedules.DoFactorOut(loopir, name, stmt)
+        passobj         = Schedules.DoExtractMethod(loopir, name, stmt)
         loopir, subproc = passobj.result(), passobj.subproc()
         return ( Procedure(loopir, _provenance_eq_Procedure=self),
                  Procedure(subproc) )

@@ -1548,7 +1548,7 @@ class _DoDeletePass(LoopIR_Rewrite):
             return super().map_s(s)
 
 
-class _DoFactorOut(LoopIR_Rewrite):
+class _DoExtractMethod(LoopIR_Rewrite):
     def __init__(self, proc, name, stmt):
         assert isinstance(stmt, LoopIR.stmt)
         self.orig_proc      = proc
@@ -1700,7 +1700,7 @@ class Schedules:
     DoStageAssn         = _DoStageAssn
     DoLiftAlloc         = _LiftAlloc
     DoFissionLoops      = _FissionLoops
-    DoFactorOut         = _DoFactorOut
+    DoExtractMethod     = _DoExtractMethod
     DoParToSeq          = _DoParToSeq
     DoReorderStmt       = _DoReorderStmt
     DoConfigWriteAfter  = _ConfigWriteAfter

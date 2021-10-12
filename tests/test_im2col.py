@@ -57,8 +57,8 @@ def test_im2col():
 
     # Now, in order to expose these two parts of the computation as
     # re-usable sub-procedures, we want a way to factor them out.
-    im2col_conv, im2col = im2col_conv.factor_out_stmt('im2col', 'for c in _: _')
-    im2col_conv, matmul = im2col_conv.factor_out_stmt('matmul', 'for k in _: _')
+    im2col_conv, im2col = im2col_conv.extract_method('im2col', 'for c in _: _')
+    im2col_conv, matmul = im2col_conv.extract_method('matmul', 'for k in _: _')
 
     # Given this factoring, we can then proceed
     # to schedule these sub-procedures themselves.
