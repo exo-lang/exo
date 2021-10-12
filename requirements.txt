@@ -1,15 +1,14 @@
-asdl
-numpy >= 1
-pytest >= 5
-pytest-cov >= 2
-astor
-yapf
-pillow
-scipy
-jupyter_contrib_nbextensions
-pysmt
-sympy
-
-z3-solver
+asdl==0.1.5
+astor==0.8.1
+jupyter-contrib-nbextensions==0.5.1
+numpy==1.21.2
+Pillow==8.3.2
+PySMT==0.9.0
+pytest==6.2.5
+pytest-cov==3.0.0
+scipy==1.7.1
+sympy==1.9
+yapf==0.31.0
+z3-solver==4.8.12.0
 
 -e SYS_ATL/asdl
