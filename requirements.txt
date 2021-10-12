@@ -11,3 +11,5 @@ pysmt
 sympy
 
 z3-solver
+
+-e SYS_ATL/asdl
