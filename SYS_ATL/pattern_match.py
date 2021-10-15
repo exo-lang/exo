@@ -30,6 +30,16 @@ A <pattern-string> has the following form:
                          -- specified by LoopIR.PAST
 """
 
+def get_match_no(pattern_str):
+    # break-down pattern_str for possible #<num> post-fix
+    match = re.search(r"^([^\#]+)\#(\d+)\s*$", pattern_str)
+    if match:
+        pattern_str = match[1]
+        match_no    = int(match[2]) if match[2] is not None else None
+    else:
+        match_no    = None
+    return match_no
+
 def match_pattern(ast, pattern_str, call_depth=0, default_match_no=None):
     # get source location where this is getting called from
     caller = inspect.getframeinfo(inspect.stack()[call_depth+1][0])

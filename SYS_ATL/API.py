@@ -15,10 +15,11 @@ from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
-from .pattern_match import match_pattern
+from .pattern_match import match_pattern, get_match_no
 from .prelude import *
 from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .typecheck import TypeChecker
+from .reflection import LoopIR_to_QAST
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -183,6 +184,39 @@ class Procedure(ProcedureBase):
 
     def get_instr(self):
         return self._loopir_proc.instr
+
+    def get_ast(self, pattern=None):
+        if pattern is None:
+            return LoopIR_to_QAST(self._loopir_proc).result()
+        else:
+            # do pattern matching
+            body        = self._loopir_proc.body
+            match_no    = get_match_no(pattern)
+            match       = match_pattern(body, pattern, call_depth=1)
+
+            # convert matched sub-trees to QAST
+            assert type(match) is list
+            if len(match) == 0:
+                return None
+            elif isinstance(match[0], LoopIR.expr):
+                results = [ LoopIR_to_QAST(e).result() for e in match ]
+            elif isinstance(match[0], list):
+                # statements
+                assert all( isinstance(s, LoopIR.stmt)
+                            for stmts in match
+                            for s in stmts )
+                results = [ LoopIR_to_QAST(stmts).result()
+                            for stmts in match ]
+            else:
+                assert False, "bad case"
+
+            # modulate the return type depending on whether this
+            # was a query for a specific match or for all matches
+            if match_no is None:
+                return results
+            else:
+                assert len(results) == 1
+                return results[0]
 
     # ---------------------------------------------- #
     #     execution / interpretation operations
