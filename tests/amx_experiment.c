@@ -88,7 +88,10 @@ void my_matmul(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
     for (int k=0; k<K; k++) {
       for (int n=0; n<N; n++) {
         for (int n_in=0; n_in<4; n_in++) {
-          C[m*N + n] += (1 << (8*n_in*2)) * A[m*4*K + 4*k+n_in] * B[k*4*N + 4*n+n_in];
+          for (int k_in=0; k_in<4; k_in++) {
+            uint32_t C_temp = (1ul << (8*(n_in+k_in))) * A[m*4*K + 4*k+k_in] * B[k*4*N + 4*n+n_in];
+            C[m*N + n] += C_temp;
+          }
         }
       }
     }
@@ -104,16 +107,16 @@ void convert_to_uint32_t(int M, int N, uint8_t* A_in, uint32_t* A_out) {
     for (int j=0; j<N; j++) {
       A_out[i * N + j] = 0;
       for (int k=0; k<4; k++) { 
-        A_out[i*N + j] += A_in[i*4*N + 4*j + k] * (1 << (8*k));
+        A_out[i*N + j] += (1ul << (8*k)) * A_in[i*4*N + 4*j + k];
       }
     }
   }
 }
 
 int main() {
-  int M = 7;
-  int K = 5;
-  int N = 10;
+  int M = 1;
+  int K = 1;
+  int N = 1;
   
   uint8_t A[M][4*K];
   uint8_t B[K][4*N];
@@ -123,15 +126,16 @@ int main() {
   uint32_t B_32[K][N];
   uint32_t C_amx[M][N]; 
   uint32_t C_ref[M][N]; 
-  
+ 
+  int threshold = 3;
   for (int i=0; i<M; i++) {
     for (int j=0; j<4*K; j++) {
-      A[i][j] = (j%4 > 0) ? 0 : (i+j);
+      A[i][j] = (j%4 > threshold) ? 0 : (i+j);
     }
   }
   for (int i=0; i<K; i++) {
     for (int j=0; j<4*N; j++) {
-      B[i][j] = (j%4 > 0) ? 0 : (i+j);
+      B[i][j] = (j%4 > threshold) ? 0 : (i+j);
     }
   }
   for (int i=0; i<M; i++) {
@@ -152,27 +156,27 @@ int main() {
   }
   if (!match) {
     printf("ERROR: My DPBUUD failed\n");  
+    
+    printf("My DPBUUD:\n");
+    for (int i=0; i<M; i++) {
+      for (int j=0; j<N; j++) {
+        printf("%d\t", C_ref[i][j]);
+      }
+      printf("\n");
+    }
+    printf("------------------------------\n");
+    printf("AMX DPBUUD:\n");
+    for (int i=0; i<M; i++) {
+      for (int j=0; j<N; j++) {
+        printf("%d\t", C_amx[i][j]);
+      }
+      printf("\n");
+    }
+
     return -1;
   }
 
   printf("My DPBUUD succeeded!\n");
-  /*
-  printf("Reference results:\n");
-  for (int i=0; i<M; i++) {
-    for (int j=0; j<N; j++) {
-      printf("%d\t", C_ref[i][j]);
-    }
-    printf("\n");
-  }
-  printf("------------------------------\n");
-  printf("AMX results:\n");
-  for (int i=0; i<M; i++) {
-    for (int j=0; j<N; j++) {
-      printf("%d\t", C_amx[i][j]);
-    }
-    printf("\n");
-  }
-  */
   
   uint32_t C_matmul1[M][N];
   uint32_t C_matmul2[M][N];
@@ -186,37 +190,6 @@ int main() {
   convert_to_uint32_t(M, K, A, A_32);
   convert_to_uint32_t(K, N, B, B_32);
 
-  /*
-  printf("Matrix A:\n");
-  for (int i=0; i<M; i++) {
-    for (int j=0; j<4*K; j++) {
-      printf("%d\t", A[i][j]);
-    }
-    printf("\n");
-  }
-  printf("Matrix A_32:\n");
-  for (int i=0; i<M; i++) {
-    for (int j=0; j<K; j++) {
-      printf("%d\t", A_32[i][j]);
-    }
-    printf("\n");
-  }
-  printf("Matrix B:\n");
-  for (int i=0; i<K; i++) {
-    for (int j=0; j<4*N; j++) {
-      printf("%d\t", B[i][j]);
-    }
-    printf("\n");
-  }
-  printf("Matrix B_32:\n");
-  for (int i=0; i<K; i++) {
-    for (int j=0; j<N; j++) {
-      printf("%d\t", B_32[i][j]);
-    }
-    printf("\n");
-  }
-  */
-
   matmul_32(M, K, N, A_32, B_32, C_matmul1);
   my_matmul(M, K, N, A, B, C_matmul2);
   
@@ -226,28 +199,64 @@ int main() {
       match &= (C_matmul1[i][j] == C_matmul2[i][j]);
     }
   }
+
   if (!match) {
     printf("ERROR: My matmul failed\n");  
+   
+    uint32_t x = A_32[0][0];
+    uint32_t y = A_32[1][0];
+    uint32_t z = A_32[0][1];
+
+    printf("Theoretical x^2 + y*z: %d\n", x*x+y*z);
+
+    printf("Matrix A:\n");
+    for (int i=0; i<M; i++) {
+      for (int j=0; j<4*K; j++) {
+        printf("%d\t", A[i][j]);
+      }
+      printf("\n");
+    }
+    printf("Matrix A_32:\n");
+    for (int i=0; i<M; i++) {
+      for (int j=0; j<K; j++) {
+        printf("%d\t", A_32[i][j]);
+      }
+      printf("\n");
+    }
+    printf("Matrix B:\n");
+    for (int i=0; i<K; i++) {
+      for (int j=0; j<4*N; j++) {
+        printf("%d\t", B[i][j]);
+      }
+      printf("\n");
+    }
+    printf("Matrix B_32:\n");
+    for (int i=0; i<K; i++) {
+      for (int j=0; j<N; j++) {
+        printf("%d\t", B_32[i][j]);
+      }
+      printf("\n");
+    }
+    
+    printf("Reference matmul\n");
+    for (int i=0; i<M; i++) {
+      for (int j=0; j<N; j++) {
+        printf("%d\t", C_matmul1[i][j]);
+      }
+      printf("\n");
+    }
+    printf("My matmul\n");
+    for (int i=0; i<M; i++) {
+      for (int j=0; j<N; j++) {
+        printf("%d\t", C_matmul2[i][j]);
+      }
+      printf("\n");
+    }
+
     return -1;
   }
 
   printf("My matmul succeeded!\n");
   
-  /*
-  printf("Matrix C reference matmul\n");
-  for (int i=0; i<M; i++) {
-    for (int j=0; j<N; j++) {
-      printf("%d\t", C_matmul1[i][j]);
-    }
-    printf("\n");
-  }
-  printf("Matrix C matmul\n");
-  for (int i=0; i<M; i++) {
-    for (int j=0; j<N; j++) {
-      printf("%d\t", C_matmul2[i][j]);
-    }
-    printf("\n");
-  }*/
-
   return 0;
 }
