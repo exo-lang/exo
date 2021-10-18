@@ -1,7 +1,7 @@
 from __future__ import annotations
-import pytest
-import sys
-from SYS_ATL import proc, Procedure, DRAM, config, instr, QAST
+
+from SYS_ATL import proc, DRAM, QAST
+
 
 # ------- Reflection tests ---------
 

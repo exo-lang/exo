@@ -1,16 +1,13 @@
 from __future__ import annotations
-import subprocess
+
 import os
-import ctypes
-from ctypes import *
+from ctypes import POINTER, c_int
+
 import numpy as np
-import sys
-from PIL import Image
-import scipy.stats as st
-from SYS_ATL import proc, instr, Procedure
-from .helper import *
 import pytest
 
+from SYS_ATL import proc, Procedure
+from .helper import *
 
 
 # ------- Precision casting tests ------

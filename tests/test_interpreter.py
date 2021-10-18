@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import numpy as np
-import sys
-from SYS_ATL import proc, Procedure
-from .helper import *
+
+from SYS_ATL import proc
+
 
 # Test 1 is Full 1D convolution
 def gen_conv1d():

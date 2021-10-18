@@ -1,14 +1,10 @@
 from __future__ import annotations
-import ctypes
-from ctypes import *
-import os
-import sys
-import subprocess
-import numpy as np
-import scipy.stats as st
+
 import pytest
+
 from SYS_ATL import proc, Procedure, DRAM
 from .helper import *
+
 
 # ------- Window related tests ---------
 

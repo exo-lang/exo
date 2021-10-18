@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import sys
-from SYS_ATL import proc, instr, Procedure, DRAM, compile_procs
-from SYS_ATL.libs.memories import GEMM_SCRATCH, GEMM_ACCUM, MDRAM
-from .gemmini import *
-from .harness_gemmini import ENV, GemmTestBuilder
 import pytest
+
+from .gemmini import *
+from .harness_gemmini import GemmTestBuilder
+
 
 # --------------------------------------------------------------------------- #
 #   Basic Conv Test

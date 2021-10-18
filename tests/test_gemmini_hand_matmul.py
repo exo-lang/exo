@@ -1,18 +1,8 @@
 from __future__ import annotations
 
-#from ctypes import *
-#import os
-#import subprocess
-#import numpy as np
-#import scipy.stats as st
-#import os
-
-import sys
-from SYS_ATL import proc, instr, Procedure, DRAM, compile_procs
-from SYS_ATL.libs.memories import GEMM_SCRATCH, GEMM_ACCUM, MDRAM
+from SYS_ATL.libs.memories import MDRAM
 from .gemmini import *
-from .harness_gemmini import ENV, GemmTestBuilder
-import pytest
+from .harness_gemmini import GemmTestBuilder
 
 # --------------------------------------------------------------------------- #
 #   Basic MatMul Test

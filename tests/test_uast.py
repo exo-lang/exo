@@ -1,6 +1,7 @@
 from __future__ import annotations
-import sys
-from SYS_ATL import proc, instr, Procedure, DRAM
+
+from SYS_ATL import instr, Procedure, DRAM
+
 
 # Merge this file to frontend?
 

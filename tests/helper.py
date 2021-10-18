@@ -1,19 +1,16 @@
 from __future__ import annotations
-import ctypes
-from ctypes import *
-import os
-import sys
-import subprocess
-import numpy as np
-from PIL import Image
-import scipy.stats as st
 
-from SYS_ATL import proc, Procedure
+import ctypes
+import os
+import subprocess
+
+import numpy as np
+import scipy.stats as st
+from PIL import Image
 
 # Figure out the filesystem location of this file
 # and then all other resources can be located relative to it.
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
-_ROOT_DIR = os.path.abspath(os.path.join(_TEST_DIR, '..'))
 TMP_DIR = os.path.join(_TEST_DIR, 'tmp')
 
 # Initialize by creating a tmp directory
@@ -21,9 +18,8 @@ if not os.path.isdir(TMP_DIR):
     os.mkdir(TMP_DIR)
 
 # Dump image here
-input_filename = os.path.join(_TEST_DIR, "input.png")
-o_image = Image.open(input_filename)
-image = np.asarray(o_image, dtype="float32")
+IMAGE = np.asarray(Image.open(os.path.join(_TEST_DIR, "input.png")),
+                   dtype="float32")
 
 
 def gkern(kernlen=5, nsig=1, typ=np.float32):
@@ -56,7 +52,18 @@ def generate_lib(filename, *, extra_flags=""):
     so_file = os.path.join(TMP_DIR, filename + '.so')
     compiler = os.getenv('CC', default='clang')
     cflags = os.getenv('CFLAGS', default='-Wall')
-    compile_so_cmd = f"{compiler} {cflags} {extra_flags} -O3 -fPIC " \
-                     f"-shared {c_file} -I {h_file} -o {so_file}"
+    compile_so_cmd = (f"{compiler} {cflags} {extra_flags} -O3 -fPIC "
+                      f"-shared {c_file} -I {h_file} -o {so_file}")
     subprocess.run(compile_so_cmd, check=True, shell=True)
     return ctypes.CDLL(so_file)
+
+
+__all__ = [
+    'TMP_DIR',
+    'IMAGE',
+    'gkern',
+    'cvt_c',
+    'nparray',
+    'nprand',
+    'generate_lib',
+]

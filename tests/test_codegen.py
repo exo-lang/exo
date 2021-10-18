@@ -1,16 +1,15 @@
 from __future__ import annotations
-import subprocess
+
 import os
-import ctypes
-from ctypes import *
+from ctypes import POINTER, c_int, c_bool
+
 import numpy as np
-import sys
 from PIL import Image
-import scipy.stats as st
-from SYS_ATL import proc, instr, Procedure, DRAM
+
+from SYS_ATL import proc, Procedure, DRAM
 from SYS_ATL.libs.memories import MDRAM
 from .helper import *
-import pytest
+
 
 # --- Start Blur Test ---
 
@@ -45,15 +44,15 @@ def test_simple_blur():
     blur.compile_c(TMP_DIR, filename)
 
     # Execute
-    n_size = image.shape[0]
-    m_size = image.shape[1]
+    n_size = IMAGE.shape[0]
+    m_size = IMAGE.shape[1]
     k_size = 5
-    kernel = gkern(k_size,1)
+    kernel = gkern(k_size, 1)
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
     test_lib.blur(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
-        k_size), cvt_c(image), cvt_c(kernel), res_c)
+        k_size), cvt_c(IMAGE), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
     out = Image.fromarray(res_c)
@@ -72,22 +71,23 @@ def test_simple_blur_split():
                 for j2 in par(0, 2):
                     for k in par(0, k_size):
                         for l in par(0, k_size):
-                            if i+k >= 1 and i+k-n < 1 and j1*2+j2+l >= 1 and j1*2+j2+l-m < 1:
-                                res[i, j1*2+j2] += kernel[k, l] * image[i+k-1, j1*2+j2+l-1]
+                            if i + k >= 1 and i + k - n < 1 and j1 * 2 + j2 + l >= 1 and j1 * 2 + j2 + l - m < 1:
+                                res[i, j1 * 2 + j2] += kernel[k, l] * image[i + k - 1, j1 * 2 + j2 + l - 1]
 
     assert type(simple_blur_split) is Procedure
     filename = "test_simple_blur_split"
     simple_blur_split.compile_c(TMP_DIR, filename)
 
-    n_size = image.shape[0]
-    m_size = image.shape[1]
+    n_size = IMAGE.shape[0]
+    m_size = IMAGE.shape[1]
     k_size = 5
-    kernel = gkern(k_size,1)
+    kernel = gkern(k_size, 1)
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
-    test_lib.simple_blur_split(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
-        k_size), cvt_c(image), cvt_c(kernel), res_c)
+    test_lib.simple_blur_split(POINTER(c_int)(), c_int(n_size), c_int(m_size),
+                               c_int(k_size), cvt_c(IMAGE), cvt_c(kernel),
+                               res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
     out = Image.fromarray(res_c)
@@ -109,15 +109,15 @@ def test_split_blur():
     f_pretty.close()
 
     blur.compile_c(TMP_DIR, filename)
-    n_size = image.shape[0]
-    m_size = image.shape[1]
+    n_size = IMAGE.shape[0]
+    m_size = IMAGE.shape[1]
     k_size = 5
-    kernel = gkern(k_size,1)
+    kernel = gkern(k_size, 1)
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
     test_lib.blur(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
-        k_size), cvt_c(image), cvt_c(kernel), res_c)
+        k_size), cvt_c(IMAGE), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
     out = Image.fromarray(res_c)
@@ -140,16 +140,16 @@ def test_reorder_blur():
 
     blur.compile_c(TMP_DIR, filename)
 
-    #Execute
-    n_size = image.shape[0]
-    m_size = image.shape[1]
+    # Execute
+    n_size = IMAGE.shape[0]
+    m_size = IMAGE.shape[1]
     k_size = 5
-    kernel = gkern(k_size,1)
+    kernel = gkern(k_size, 1)
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
     test_lib.blur(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
-        k_size), cvt_c(image), cvt_c(kernel), res_c)
+        k_size), cvt_c(IMAGE), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
     out = Image.fromarray(res_c)
@@ -172,15 +172,15 @@ def test_unroll_blur():
     f_pretty.close()
 
     blur.compile_c(TMP_DIR, filename)
-    n_size = image.shape[0]
-    m_size = image.shape[1]
+    n_size = IMAGE.shape[0]
+    m_size = IMAGE.shape[1]
     k_size = 5
-    kernel = gkern(k_size,1)
+    kernel = gkern(k_size, 1)
     res = nprand(size=(n_size, m_size))
     res_c = cvt_c(res)
     test_lib = generate_lib(filename)
     test_lib.blur(POINTER(c_int)(), c_int(n_size), c_int(m_size), c_int(
-        k_size), cvt_c(image), cvt_c(kernel), res_c)
+        k_size), cvt_c(IMAGE), cvt_c(kernel), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size, m_size))
     res_c = res_c.astype(np.uint8)
     out = Image.fromarray(res_c)
@@ -341,7 +341,7 @@ def test_unary_neg():
     res_c = cvt_c(res)
 
     test_lib = generate_lib(filename)
-    test_lib.negate_array(POINTER(c_int)(), c_int(n_size), cvt_c(x),  res_c)
+    test_lib.negate_array(POINTER(c_int)(), c_int(n_size), cvt_c(x), res_c)
     res_c = np.ctypeslib.as_array(res_c, shape=(n_size,))
     negate_array.interpret(n=n_size, x=x, res=res)
     np.testing.assert_almost_equal(res, res_c)

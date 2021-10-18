@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import itertools
-import sys
+import os
+import platform
 
+import pytest
+
+from SYS_ATL import proc
 from SYS_ATL.platform.x86 import *
 
-from .helper import *
-
-import platform
-import pytest
+from .helper import TMP_DIR, generate_lib, nparray, cvt_c
+from ctypes import POINTER, c_int
+import numpy as np
 
 if platform.system() == 'Darwin':
     pytest.skip("skipping x86 tests on Apple machines for now",

@@ -1,12 +1,9 @@
-
 import os
-import sys
 import subprocess
+
 import pytest
 
 from SYS_ATL import compile_procs
-
-
 
 GEMMINI_ROOT = os.getenv('GEMMINI_ROOT')
 if GEMMINI_ROOT is None:

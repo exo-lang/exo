@@ -1,13 +1,7 @@
-from __future__ import annotations        # make Python behave
-import numpy as np                        # standard array library
-import time                               # timers
-import sys                                # add DSL library to the Python path
-from ctypes import *
-import os
-import subprocess
-import scipy.stats as st
-from SYS_ATL import proc, Procedure
-from .helper import *
+from __future__ import annotations  # make Python behave
+
+from SYS_ATL import proc
+
 
 # I'm going to define a 1-d version of a standard convolutional layer, like in CuDNN
 # K - # of output channels
