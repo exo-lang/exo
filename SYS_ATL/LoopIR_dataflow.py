@@ -3,14 +3,14 @@ from weakref import WeakKeyDictionary
 
 from .LoopIR import LoopIR, LoopIR_Do
 
-_WC_Leaf = {} # unique object to use as key....
+_WC_Leaf = {}  # unique object to use as key....
 class WeakCache(WeakKeyDictionary):
     def __init__(self):
-        self._tuple_dict    = WeakKeyDictionary()
-        self._dict          = WeakKeyDictionary()
+        self._tuple_dict = WeakKeyDictionary()
+        self._dict       = WeakKeyDictionary()
 
     def __contains__(self, key):
-        if type(key) is tuple or type(key) is list:
+        if isinstance(key, (tuple, list)):
             lookup = self._tuple_dict
             for k in key:
                 if k not in lookup:
@@ -22,16 +22,16 @@ class WeakCache(WeakKeyDictionary):
             return key in self._dict
 
     def __getitem__(self, key):
-        if type(key) is tuple or type(key) is list:
+        if isinstance(key, (tuple, list)):
             lookup = self._tuple_dict
             for k in key:
-                lookup  = lookup[k]
+                lookup = lookup[k]
             return lookup[_WC_Leaf]
         else:
             return self._dict[key]
 
     def __setitem__(self, key, value):
-        if type(key) is tuple or type(key) is list:
+        if isinstance(key, (tuple, list)):
             lookup = self._tuple_dict
             for k in key:
                 if k not in lookup:
@@ -108,64 +108,64 @@ class LoopIR_Dependencies(LoopIR_Do):
             done.append(sym)
             d = self._depends[sym]
             depends.update(d)
-            [ new.append(s) for s in d if s not in done ]
+            new.extend(s for s in d if s not in done)
 
         return depends
 
     def do_s(self, s):
-        if type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce:
-            lhs         = self._alias.get(s.name, s.name)
-            self._lhs   = lhs
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            lhs       = self._alias.get(s.name, s.name)
+            self._lhs = lhs
             self._depends[lhs].add(lhs)
             self._depends[lhs].update(self._context)
             for i in s.idx:
                 self.do_e(i)
             self.do_e(s.rhs)
-            self._lhs   = None
-        elif type(s) is LoopIR.WriteConfig:
-            lhs         = (s.config, s.field)
-            self._lhs   = lhs
+            self._lhs = None
+        elif isinstance(s, LoopIR.WriteConfig):
+            lhs       = (s.config, s.field)
+            self._lhs = lhs
             self._depends[lhs].add(lhs)
             self._depends[lhs].update(self._context)
             self.do_e(s.rhs)
-            self._lhs   = None
-        elif type(s) is LoopIR.WindowStmt:
-            rhs_buf     = self._alias.get(s.rhs.name, s.rhs.name)
+            self._lhs = None
+        elif isinstance(s, LoopIR.WindowStmt):
+            rhs_buf = self._alias.get(s.rhs.name, s.rhs.name)
             self._alias[s.lhs] = rhs_buf
             self._lhs   = rhs_buf
             self._depends[rhs_buf].add(rhs_buf)
             self.do_e(s.rhs)
             self._lhs   = None
 
-        elif type(s) is LoopIR.If:
-            old_context     = self._context
-            self._context   = old_context.copy()
+        elif isinstance(s, LoopIR.If):
+            old_context   = self._context
+            self._context = old_context.copy()
 
-            self._control   = True
+            self._control = True
             self.do_e(s.cond)
-            self._control   = False
+            self._control = False
 
             self.do_stmts(s.body)
             self.do_stmts(s.orelse)
 
-            self._context   = old_context
+            self._context = old_context
 
-        elif type(s) is LoopIR.ForAll or type(s) is LoopIR.Seq:
-            old_context     = self._context
-            self._context   = old_context.copy()
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            old_context   = self._context
+            self._context = old_context.copy()
 
-            self._control   = True
-            self._lhs       = s.iter
+            self._control = True
+            self._lhs     = s.iter
             self._depends[s.iter].add(s.iter)
             self.do_e(s.hi)
-            self._lhs       = None
-            self._control   = False
+            self._lhs     = None
+            self._control = False
 
             self.do_stmts(s.body)
 
-            self._context   = old_context
+            self._context = old_context
 
-        elif type(s) is LoopIR.Call:
+        elif isinstance(s, LoopIR.Call):
 
             def process_reads():
                 # now handle dependencies on buffers that might
@@ -174,7 +174,7 @@ class LoopIR_Dependencies(LoopIR_Do):
                 for faa, aa in zip(s.f.args, s.args):
                     if faa.type.is_numeric():
                         maybe_read = self.analyze_eff(s.f.eff, faa.name,
-                                                      read = True)
+                                                      read=True)
                     else:
                         maybe_read = True
 
@@ -184,7 +184,7 @@ class LoopIR_Dependencies(LoopIR_Do):
                 # additionally, we need to handle dependencies
                 # on configuration fields
                 for ce in s.f.eff.config_reads:
-                    name    = (ce.config, ce.field)
+                    name = (ce.config, ce.field)
                     if self._lhs:
                         self._depends[self._lhs].add(name)
 
@@ -205,14 +205,14 @@ class LoopIR_Dependencies(LoopIR_Do):
             # secondly, for every configuration field being written to
             # by this sub-procedure, we need to determine dependencies
             for ce in s.f.eff.config_writes:
-                name    = (ce.config, ce.field)
+                name = (ce.config, ce.field)
                 self._lhs = name
                 self._depends[name].add(name)
                 self._depends[name].update(self._context)
                 process_reads()
                 self._lhs = None
 
-        elif type(s) is LoopIR.Pass or type(s) is LoopIR.Alloc:
+        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc)):
             pass
         else:
             assert False, "bad case"
@@ -231,20 +231,20 @@ class LoopIR_Dependencies(LoopIR_Do):
         return False
 
     def do_e(self, e):
-        if ( type(e) is LoopIR.Read or type(e) is LoopIR.WindowExpr ):
+        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr)):
             def visit_idx(e):
-                if type(e) is LoopIR.Read:
+                if isinstance(e, LoopIR.Read):
                     for i in e.idx:
                         self.do_e(i)
                 else:
                     for w in e.idx:
-                        if type(w) is LoopIR.Interval:
+                        if isinstance(w, LoopIR.Interval):
                             self.do_e(w.lo)
                             self.do_e(w.hi)
                         else:
                             self.do_e(w.pt)
 
-            name    = self._alias.get(e.name, e.name)
+            name = self._alias.get(e.name, e.name)
             if self._lhs:
                 self._depends[self._lhs].add(name)
             if self._control:
@@ -252,8 +252,8 @@ class LoopIR_Dependencies(LoopIR_Do):
 
             visit_idx(e)
 
-        elif type(e) is LoopIR.ReadConfig:
-            name    = (e.config, e.field)
+        elif isinstance(e, LoopIR.ReadConfig):
+            name = (e.config, e.field)
             if self._lhs:
                 self._depends[self._lhs].add(name)
             if self._control:
@@ -264,5 +264,6 @@ class LoopIR_Dependencies(LoopIR_Do):
 
     def do_t(self, t):
         pass
+
     def do_eff(self, eff):
         pass

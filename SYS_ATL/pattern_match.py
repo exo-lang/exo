@@ -89,13 +89,13 @@ class PatternMatch:
         self._results   = []
 
         # prevent the top level of a pattern being just a hole
-        if type(pat) is PAST.E_Hole:
+        if isinstance(pat, PAST.E_Hole):
             raise PatternMatchError("pattern match on 'anything' unsupported")
-        elif (type(pat) is list and
-              all( type(p) is PAST.S_Hole for p in pat )):
+        elif (isinstance(pat, list) and
+              all(isinstance(p, PAST.S_Hole) for p in pat)):
             raise PatternMatchError("pattern match on 'anything' unsupported")
 
-        if type(pat) is list:
+        if isinstance(pat, list):
             assert len(pat) > 0
             self.find_stmts_in_stmts(pat, src_stmts)
         else:
@@ -209,7 +209,7 @@ class PatternMatch:
 
         stmt_idx = 0
         for p in pats:
-            if type(p) is PAST.S_Hole:
+            if isinstance(p, PAST.S_Hole):
                 in_hole = True
                 continue
 
@@ -232,7 +232,7 @@ class PatternMatch:
             # If we successfully matched a statement to a non-hole pattern
             # then we've moved past any statement hole---if we were in one.
             # If we weren't in a hole, this operation has no effect.
-            if type(p) is not PAST.S_Hole:
+            if not isinstance(p, PAST.S_Hole):
                 in_hole = False
 
             # finally, if we're here we found a match and can advance the
@@ -245,8 +245,8 @@ class PatternMatch:
 
 
     def match_stmt(self, pat, stmt):
-        assert type(pat) is not PAST.S_Hole, ("holes should be handled "+
-                                              "in match_stmts")
+        assert not isinstance(pat, PAST.S_Hole), ("holes should be handled "
+                                                  "in match_stmts")
 
         # first ensure that we the pattern and statement
         # are the same constructor
@@ -263,10 +263,10 @@ class PatternMatch:
                           for pi,si in zip(pat.idx,stmt.idx) ) and
                      self.match_e(pat.rhs, stmt.rhs) )
         elif styp is LoopIR.WindowStmt:
-            if type(pat) is PAST.Assign:
-                return ( self.match_name(pat.name, stmt.lhs) and
-                         pat.idx == [] and
-                         self.match_e( pat.rhs, stmt.rhs ) )
+            if isinstance(pat, PAST.Assign):
+                return (self.match_name(pat.name, stmt.lhs) and
+                        pat.idx == [] and
+                        self.match_e(pat.rhs, stmt.rhs))
             else:
                 return False
         elif styp is LoopIR.Pass:
@@ -292,7 +292,7 @@ class PatternMatch:
     def match_e(self, pat, e):
         # expression holes can match anything
         # and we don't have to worry about Kleene-Star behavior
-        if type(pat) is PAST.E_Hole:
+        if isinstance(pat, PAST.E_Hole):
             return True
 
         # first ensure that we the pattern and statement
@@ -307,15 +307,15 @@ class PatternMatch:
                      all( self.match_e(pi,si)
                           for pi,si in zip(pat.idx,e.idx) ) )
         elif etyp is LoopIR.WindowExpr:
-            if type(pat) is PAST.Read:
+            if isinstance(pat, PAST.Read):
                 # TODO: Should we be able to handle window slicing matching? Nah..
-                if len(pat.idx) != 1 or type(pat.idx[0]) is not PAST.E_Hole:
+                if len(pat.idx) != 1 or not isinstance(pat.idx[0], PAST.E_Hole):
                     return False
-                return ( self.match_name(pat.name, e.name) )
+                return self.match_name(pat.name, e.name)
             else:
                 return False
         elif etyp is LoopIR.Const:
-            return ( pat.val == e.val )
+            return pat.val == e.val
         elif etyp is LoopIR.BinOp:
             return ( pat.op == e.op and
                      self.match_e(pat.lhs, e.lhs) and

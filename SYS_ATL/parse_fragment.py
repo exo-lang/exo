@@ -102,22 +102,17 @@ class ParseFragment:
 
         env = BuildEnv(proc, stmt).result()
 
-        if type(pat) is PAST.Read:
-            nm  = self.find_sym(pat, env)
-            idx = [ self.find_sym(i) for i in pat.idx ]
+        if isinstance(pat, PAST.Read):
+            nm = self.find_sym(pat, env)
+            idx = [self.find_sym(i) for i in pat.idx]
             self._results = LoopIR.Read(nm, idx, env[nm], stmt.srcinfo)
-        elif type(pat) is PAST.StrideExpr:
+        elif isinstance(pat, PAST.StrideExpr):
             nm = self.find_sym(pat.name, env)
-            self._results = LoopIR.StrideExpr(nm, pat.dim, T.stride, stmt.srcinfo)
-        elif type(pat) is PAST.Const:
-            if type(pat.val) is float:
-                typ = T.R
-            elif type(pat.val) is int:
-                typ = T.int
-            elif type(pat.val) is bool:
-                typ = T.bool
-            else:
-                assert False, "bad type!"
+            self._results = LoopIR.StrideExpr(nm, pat.dim, T.stride,
+                                              stmt.srcinfo)
+        elif isinstance(pat, PAST.Const):
+            typ = {float: T.R, bool: T.bool, int: T.int}.get(type(pat.val))
+            assert typ is not None, "bad type!"
             self._results = LoopIR.Const(pat.val, typ, stmt.srcinfo)
 
     def find_sym(self, expr, env):

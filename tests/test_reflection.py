@@ -42,22 +42,22 @@ def test_find_outer_loop():
   sgemm = new_sgemm()
 
   loops = sgemm.get_ast("for _ in _: _ #0")
-  assert type(loops) is list and len(loops) == 1
+  assert isinstance(loops, list) and len(loops) == 1
   assert isinstance(loops[0], QAST.For)
 
   assert loops[0].name == "i"
   i_body = loops[0].body
-  assert type(i_body) is list and len(i_body) == 1
+  assert isinstance(i_body, list) and len(i_body) == 1
   assert isinstance(i_body[0], QAST.For)
 
   assert i_body[0].name == "j"
   j_body = i_body[0].body
-  assert type(j_body) is list and len(j_body) == 1
+  assert isinstance(j_body, list) and len(j_body) == 1
   assert isinstance(j_body[0], QAST.For)
 
   assert j_body[0].name == "k"
   k_body = j_body[0].body
-  assert type(k_body) is list and len(k_body) == 1
+  assert isinstance(k_body, list) and len(k_body) == 1
 
   assert not isinstance(k_body[0], QAST.For)
 
@@ -65,7 +65,7 @@ def get_loop_nest_info(p, pattern):
   loops = p.get_ast(pattern)
   if loops == None:
     return []
-  assert type(loops) is list and len(loops) > 0
+  assert isinstance(loops, list) and len(loops) > 0
   assert isinstance(loops[0], QAST.Stmt), "must call with ... #_ pattern"
 
   def recurse_loops(loops):

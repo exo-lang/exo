@@ -20,7 +20,7 @@ def gen_conv1d():
 
 def test_conv1d():
     conv1d = gen_conv1d()
-    assert type(conv1d) is Procedure
+    assert isinstance(conv1d, Procedure)
     print(conv1d)
 
 
@@ -30,7 +30,7 @@ def test_unary_neg():
         for i in par(0, n):
             res[i] = -x[i] + -(x[i]) - -(x[i] + 0.0)
 
-    assert type(negate_array) is Procedure
+    assert isinstance(negate_array, Procedure)
     code = str(negate_array)
     print(code)
     assert 'res[i] = -x[i] + -x[i] - -(x[i] + 0.0)' in code
@@ -57,5 +57,5 @@ def gen_alloc_nest():
 
 def test_alloc_nest():
     alloc = gen_alloc_nest()
-    assert type(alloc) is Procedure
+    assert isinstance(alloc, Procedure)
     print(alloc)

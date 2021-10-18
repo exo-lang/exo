@@ -163,7 +163,7 @@ module UEq {
           |  Scale( int coeff, expr e )
 
 } """, {
-    'sym':          lambda x: type(x) is Sym,
+    'sym': lambda x: isinstance(x, Sym),
 })
 
 
@@ -231,41 +231,44 @@ del __str__
 @extclass(UEq.expr)
 def normalize(orig_e):
     def to_nform(e):
-        if type(e) is UEq.Const:
+        if isinstance(e, UEq.Const):
             return [], e.val
-        elif type(e) is UEq.Var:
-            return [(1,e.name)], 0
-        elif type(e) is UEq.Add:
+        elif isinstance(e, UEq.Var):
+            return [(1, e.name)], 0
+        elif isinstance(e, UEq.Add):
             xcs, xoff = to_nform(e.lhs)
             ycs, yoff = to_nform(e.rhs)
-            def merge(xcs=xcs,ycs=ycs):
-                xi, yi  = 0,0
-                res     = []
-                while xi<len(xcs) and yi<len(ycs):
-                    (xc,xv), (yc,yv) = xcs[xi], ycs[yi]
+
+            def merge(xcs=xcs, ycs=ycs):
+                xi, yi = 0, 0
+                res = []
+                while xi < len(xcs) and yi < len(ycs):
+                    (xc, xv), (yc, yv) = xcs[xi], ycs[yi]
                     if xv < yv:
-                        res.append( (xc,xv) )
+                        res.append((xc, xv))
                         xi += 1
                     elif yv < xv:
-                        res.append( (yc,yv) )
+                        res.append((yc, yv))
                         yi += 1
                     else:
                         if xc + yc != 0:
-                            res.append( (xc + yc, xv) )
+                            res.append((xc + yc, xv))
                         xi += 1
                         yi += 1
                 if xi == len(xcs):
                     res += ycs[yi:]
                 elif yi == len(ycs):
                     res += xcs[xi:]
-                else: assert False, "bad iteration"
+                else:
+                    assert False, "bad iteration"
                 return res
+
             return merge(), xoff + yoff
-        elif type(e) is UEq.Scale:
+        elif isinstance(e, UEq.Scale):
             if e.coeff == 0:
                 return [], 0
             cs, off = to_nform(e.e)
-            return [ (e.coeff * c, v) for (c,v) in cs ], e.coeff*off
+            return [(e.coeff * c, v) for (c, v) in cs], e.coeff * off
         else: assert False, "bad case"
     def from_nform(cs, off):
         e = None
@@ -317,11 +320,11 @@ def solve(prob):
         get_var(x)
 
     def lower_e(e):
-        if type(e) is UEq.Const:
+        if isinstance(e, UEq.Const):
             return ([SMT.Int(0)] * Nk) + [SMT.Int(e.val)]
-        elif type(e) is UEq.Var:
+        elif isinstance(e, UEq.Var):
             if e.name in known_idx:
-                one_hot = [SMT.Int(0)] * (Nk+1)
+                one_hot = [SMT.Int(0)] * (Nk + 1)
                 one_hot[known_idx[e.name]] = SMT.Int(1)
                 return one_hot
             elif e.name in hole_idx:
@@ -330,34 +333,37 @@ def solve(prob):
                 raise UnificationError(
                     f"Unable to cancel variable '{e.name}' from both sides "
                     f"of a unification equation")
-        elif type(e) is UEq.Add:
+        elif isinstance(e, UEq.Add):
             lhs = lower_e(e.lhs)
             rhs = lower_e(e.rhs)
-            return [ SMT.Plus(x,y) for x,y in zip(lhs,rhs) ]
-        elif type(e) is UEq.Scale:
+            return [SMT.Plus(x, y) for x, y in zip(lhs, rhs)]
+        elif isinstance(e, UEq.Scale):
             arg = lower_e(e.e)
-            return [ SMT.Times(SMT.Int(e.coeff), a) for a in arg ]
-        else: assert False, "bad case"
+            return [SMT.Times(SMT.Int(e.coeff), a) for a in arg]
+        else:
+            assert False, "bad case"
 
     def lower_p(p):
-        if type(p) is UEq.Eq:
-            diff    = p.lhs.sub(p.rhs).normalize()
+        if isinstance(p, UEq.Eq):
+            diff = p.lhs.sub(p.rhs).normalize()
             try:
-                es      = lower_e(diff)
-                return SMT.And(*[ SMT.Equals(x,SMT.Int(0)) for x in es ])
+                es = lower_e(diff)
+                return SMT.And(*[SMT.Equals(x, SMT.Int(0)) for x in es])
             except UnificationError:
                 return SMT.FALSE()
-        elif type(p) is UEq.Conj:
-            return SMT.And(*[ lower_p(pp) for pp in p.preds ])
-        elif type(p) is UEq.Disj:
-            return SMT.Or(*[ lower_p(pp) for pp in p.preds ])
-        elif type(p) is UEq.Cases:
+        elif isinstance(p, UEq.Conj):
+            return SMT.And(*[lower_p(pp) for pp in p.preds])
+        elif isinstance(p, UEq.Disj):
+            return SMT.Or(*[lower_p(pp) for pp in p.preds])
+        elif isinstance(p, UEq.Cases):
             case_var = get_case(p.case_var)
-            def per_case(i,c):
+
+            def per_case(i, c):
                 pp = lower_p(c)
                 is_case = SMT.Equals(case_var, SMT.Int(i))
                 return SMT.And(is_case, pp)
-            disj    = SMT.Or(*[ per_case(i,c) for i,c in enumerate(p.cases) ])
+
+            disj = SMT.Or(*[per_case(i, c) for i, c in enumerate(p.cases)])
             case_lo = SMT.GE(case_var, SMT.Int(0))
             case_hi = SMT.LT(case_var, SMT.Int(len(p.cases)))
             return SMT.And(disj, case_lo, case_hi)
@@ -423,13 +429,12 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
         return tuple(args)
 
     def do_e(self, e):
-        if ( type(e) is LoopIR.BinOp and
-             (e.op == '%' or e.op == '/') and
-             e.type.is_indexable() ):
+        if (isinstance(e, LoopIR.BinOp) and (e.op == '%' or e.op == '/') and
+                e.type.is_indexable()):
             # found a mod-div site
             tuple_node = self.tupleify(e)
             if tuple_node is None:
-                raise UnificationError(f"{e.srcinfo}: cannot handle this "+
+                raise UnificationError(f"{e.srcinfo}: cannot handle this "
                                        f"'{e.op}' operation")
 
             # either we have already seen this expression
@@ -452,21 +457,21 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
             super().do_e(e)
 
     def tupleify(self, e):
-        if type(e) is LoopIR.Read:
+        if isinstance(e, LoopIR.Read):
             assert len(e.idx) == 0
             if e.name not in self.FV:
-                raise UnificationError(f"{e.srcinfo}:"+
-                        f" Found bound variable '{e.name}' inside of "+
-                        f"mod or div operation")
+                raise UnificationError(f"{e.srcinfo}:" +
+                                       f" Found bound variable '{e.name}' inside of " +
+                                       f"mod or div operation")
             else:
                 return e.name
-        elif type(e) is LoopIR.Const:
+        elif isinstance(e, LoopIR.Const):
             return e.val
-        elif type(e) is LoopIR.USub:
+        elif isinstance(e, LoopIR.USub):
             return self.tuple_memo('-', self.tupleify(e.arg))
-        elif type(e) is LoopIR.BinOp:
+        elif isinstance(e, LoopIR.BinOp):
             return self.tuple_memo(e.op, self.tupleify(e.lhs),
-                                         self.tupleify(e.rhs))
+                                   self.tupleify(e.rhs))
         else: assert False, "Bad case tupleify"
 
     def do_eff(self, eff):
@@ -525,7 +530,7 @@ class BufVar:
         assert self.win_dim is not None
         results = []
         for c in self.cases:
-            intervals = [ i for i in c if type(i) is not Sym ]
+            intervals = [i for i in c if not isinstance(i, Sym)]
             assert len(intervals) == self.n_dim
             for (lo,hi),sz in zip(intervals, self.typ.shape()):
                 diff    = UEq.Add( UEq.Var(hi), UEq.Scale(-1, UEq.Var(lo)) )
@@ -539,7 +544,7 @@ class BufVar:
             xs = [ self.case_var ]
             for c in self.cases:
                 for i in c:
-                    if type(i) is Sym:
+                    if isinstance(i, Sym):
                         xs.append(i)
                     else:
                         xs.append(i[0])
@@ -556,7 +561,7 @@ class BufVar:
             case        = self.cases[which_case]
 
             def subtract(hi,lo):
-                if type(lo) is LoopIR.Const and lo.val == 0:
+                if isinstance(lo, LoopIR.Const) and lo.val == 0:
                     return hi
                 else:
                     return LoopIR.BinOp('-', hi, lo, T.index, hi.srcinfo)
@@ -564,14 +569,14 @@ class BufVar:
             idx         = []
             win_shape   = []
             for w in case:
-                if type(w) is Sym:
-                    pt = UObj.from_ueq( ueq_solutions[w], srcinfo )
+                if isinstance(w, Sym):
+                    pt = UObj.from_ueq(ueq_solutions[w], srcinfo)
                     idx.append(LoopIR.Point(pt, srcinfo))
                 else:
-                    lo = UObj.from_ueq( ueq_solutions[w[0]], srcinfo )
-                    hi = UObj.from_ueq( ueq_solutions[w[1]], srcinfo )
+                    lo = UObj.from_ueq(ueq_solutions[w[0]], srcinfo)
+                    hi = UObj.from_ueq(ueq_solutions[w[1]], srcinfo)
                     idx.append(LoopIR.Interval(lo, hi, srcinfo))
-                    win_shape.append(subtract(hi,lo))
+                    win_shape.append(subtract(hi, lo))
 
             as_tensor   = T.Tensor(win_shape, True, buf_typ.type)
             w_typ       = T.Window(buf_typ, as_tensor, buf, idx)
@@ -620,20 +625,20 @@ class Unification:
             self.FV[x]  = typ
 
             def expand_e(e):
-                if type(e) is LoopIR.Read:
+                if isinstance(e, LoopIR.Read):
                     add_fv(e.name)
-                elif type(e) is LoopIR.USub:
+                elif isinstance(e, LoopIR.USub):
                     expand_e(e.arg)
-                elif type(e) is LoopIR.BinOp:
+                elif isinstance(e, LoopIR.BinOp):
                     expand_e(e.lhs)
                     expand_e(e.rhs)
 
-            if type(typ) is T.Tensor:
+            if isinstance(typ, T.Tensor):
                 for e in typ.hi:
                     expand_e(e)
-            elif type(typ) is T.Window:
+            elif isinstance(typ, T.Window):
                 for w in typ.idx:
-                    if type(w) is LoopIR.Interval:
+                    if isinstance(w, LoopIR.Interval):
                         expand_e(w.lo)
                         expand_e(w.hi)
                     else:
@@ -718,27 +723,27 @@ class Unification:
 
     def to_ueq(self, e, in_subproc=False):
         insp = in_subproc
-        if type(e) is LoopIR.Read:
+        if isinstance(e, LoopIR.Read):
             assert len(e.idx) == 0
             name = (self.idx_subst[e.name] if e.name in self.idx_subst else
                     e.name)
             return UEq.Var(name)
-        elif type(e) is LoopIR.Const:
+        elif isinstance(e, LoopIR.Const):
             return UEq.Const(e.val)
-        elif type(e) is LoopIR.USub:
-            return UEq.Scale( -1, self.to_ueq(e.arg,insp) )
-        elif type(e) is LoopIR.BinOp:
+        elif isinstance(e, LoopIR.USub):
+            return UEq.Scale(-1, self.to_ueq(e.arg, insp))
+        elif isinstance(e, LoopIR.BinOp):
             if e.op == '+':
-                return UEq.Add( self.to_ueq(e.lhs,insp),
-                                self.to_ueq(e.rhs,insp) )
+                return UEq.Add(self.to_ueq(e.lhs, insp),
+                               self.to_ueq(e.rhs, insp))
             elif e.op == '-':
-                rhs = UEq.Scale( -1, self.to_ueq(e.rhs,insp) )
-                return UEq.Add( self.to_ueq(e.lhs,insp), rhs )
+                rhs = UEq.Scale(-1, self.to_ueq(e.rhs, insp))
+                return UEq.Add(self.to_ueq(e.lhs, insp), rhs)
             elif e.op == '*':
-                if type(e.lhs) is LoopIR.Const:
-                    return UEq.Scale( e.lhs.val, self.to_ueq(e.rhs,insp) )
-                elif type(e.rhs) is LoopIR.Const:
-                    return UEq.Scale( e.rhs.val, self.to_ueq(e.lhs,insp) )
+                if isinstance(e.lhs, LoopIR.Const):
+                    return UEq.Scale(e.lhs.val, self.to_ueq(e.rhs, insp))
+                elif isinstance(e.rhs, LoopIR.Const):
+                    return UEq.Scale(e.rhs.val, self.to_ueq(e.lhs, insp))
                 else:
                     assert False, (
                         "unexpected multiplication; improve the code here")
@@ -754,16 +759,16 @@ class Unification:
         else: assert False, "unexpected affine expression case"
 
     def from_ueq(self, e, srcinfo=null_srcinfo()):
-        if type(e) is UEq.Var:
+        if isinstance(e, UEq.Var):
             if e.name in self.sym_nodes:
                 return self.sym_nodes[e.name]
             else:
                 typ = self.FV[e.name]
                 return LoopIR.Read(e.name, [], typ, srcinfo)
 
-        elif type(e) is UEq.Const:
+        elif isinstance(e, UEq.Const):
             return LoopIR.Const(e.val, T.int, srcinfo)
-        elif type(e) is UEq.Add:
+        elif isinstance(e, UEq.Add):
             lhs = self.from_ueq(e.lhs, srcinfo)
             rhs = self.from_ueq(e.rhs, srcinfo)
             typ = (lhs.type if rhs.type == T.int else
@@ -771,48 +776,49 @@ class Unification:
                    lhs.type if rhs.type == T.size else
                    rhs.type)
             return LoopIR.BinOp('+', lhs, rhs, typ, srcinfo)
-        elif type(e) is UEq.Scale:
+        elif isinstance(e, UEq.Scale):
             lhs = LoopIR.Const(e.coeff, T.int, srcinfo)
-            rhs = self.from_ueq(e.e,srcinfo)
+            rhs = self.from_ueq(e.e, srcinfo)
             return LoopIR.BinOp('*', lhs, rhs, rhs.type, srcinfo)
         else: assert False, "bad case"
 
     # ----------
 
     def all_bound_e(self, be):
-        if type(be) is LoopIR.Read:
+        if isinstance(be, LoopIR.Read):
             if be.name not in self.FV:
                 return False
-            return all( self.all_bound_e(i) for i in be.idx )
-        elif type(be) is LoopIR.Const:
+            return all(self.all_bound_e(i) for i in be.idx)
+        elif isinstance(be, LoopIR.Const):
             return True
-        elif type(be) is LoopIR.USub:
+        elif isinstance(be, LoopIR.USub):
             return self.all_bound_e(be.arg)
-        elif type(be) is LoopIR.BinOp:
+        elif isinstance(be, LoopIR.BinOp):
             return self.all_bound_e(be.lhs) and self.all_bound_e(be.rhs)
-        elif type(be) is LoopIR.BuiltIn:
-            return all( self.all_bound_e(a) for a in be.args )
-        else: assert False, "unsupported case"
+        elif isinstance(be, LoopIR.BuiltIn):
+            return all(self.all_bound_e(a) for a in be.args)
+        else:
+            assert False, "unsupported case"
 
     def is_exact_e(self, e0, e1):
-        if type(e0) != type(e1):
+        if type(e0) is not type(e1):
             return False
-        elif type(e0) is LoopIR.Read:
+        elif isinstance(e0, LoopIR.Read):
             return (e0.name == e1.name and
-                    all( self.is_exact_e(i0, i1)
-                         for i0,i1 in zip(e0.idx,e1.idx) ))
-        elif type(e0) is LoopIR.Const:
+                    all(self.is_exact_e(i0, i1)
+                        for i0, i1 in zip(e0.idx, e1.idx)))
+        elif isinstance(e0, LoopIR.Const):
             return e0.val == e1.val
-        elif type(e0) is LoopIR.USub:
+        elif isinstance(e0, LoopIR.USub):
             return self.is_exact_e(e0.arg, e1.arg)
-        elif type(e0) is LoopIR.BinOp:
+        elif isinstance(e0, LoopIR.BinOp):
             return (e0.op == e1.op and
                     self.is_exact_e(e0.lhs, e1.lhs) and
                     self.is_exact_e(e0.rhs, e1.rhs))
-        elif type(e0) is LoopIR.BuiltIn:
+        elif isinstance(e0, LoopIR.BuiltIn):
             return (e0.f == e1.f and
-                    all( self.is_exact_e(a0, a1)
-                         for a0,a1 in zip(e0.args,e1.args) ))
+                    all(self.is_exact_e(a0, a1)
+                        for a0, a1 in zip(e0.args, e1.args)))
         else: assert False, "unsupported case"
 
     # ----------
@@ -823,7 +829,7 @@ class Unification:
 
     def unify_bool_hole(self, pe, be):
         assert pe.type == be.type == T.bool
-        assert type(pe) is LoopIR.Read and pe.name in self.bool_holes
+        assert isinstance(pe, LoopIR.Read) and pe.name in self.bool_holes
 
         if not self.all_bound_e(be):
             raise UnificationError(
@@ -843,7 +849,7 @@ class Unification:
 
     def unify_stride_hole(self, pe, be):
         assert pe.type == be.type == T.stride
-        assert type(pe) is LoopIR.Read and pe.name in self.stride_holes
+        assert isinstance(pe, LoopIR.Read) and pe.name in self.stride_holes
 
         # TODO: Add checks here??
         lookup = self.stride_holes[pe.name]
@@ -870,27 +876,27 @@ class Unification:
             raise UnificationError(
                 f"cannot unify a {type(ps)} statement (@{ps.srcinfo}) with "
                 f"a {type(bs)} statement (@{bs.srcinfo})")
-        elif type(ps) is LoopIR.Assign or type(ps) is LoopIR.Reduce:
+        elif isinstance(ps, (LoopIR.Assign, LoopIR.Reduce)):
             self.unify_e(ps.rhs, bs.rhs)
             self.unify_accesses(ps, bs)
-        elif type(ps) is LoopIR.WriteConfig:
+        elif isinstance(ps, LoopIR.WriteConfig):
             if ps.config != bs.config or ps.field != bs.field:
                 raise UnificationError(
                     f"cannot unify Writeconfig '{pe.config.name()}.{pe.field}' "
                     f"with Writeconfig '{be.config.name()}.{be.field}'")
             self.unify_e(ps.rhs, bs.rhs)
-        elif type(ps) is LoopIR.Pass:
+        elif isinstance(ps, LoopIR.Pass):
             pass
-        elif type(ps) is LoopIR.If:
+        elif isinstance(ps, LoopIR.If):
             self.unify_e(ps.cond, bs.cond)
             self.unify_stmts(ps.body, bs.body)
             self.unify_stmts(ps.orelse, bs.orelse)
-        elif type(ps) is LoopIR.ForAll or type(ps) is LoopIR.Seq:
+        elif isinstance(ps, (LoopIR.ForAll, LoopIR.Seq)):
             # BINDING
             self.idx_subst[ps.iter] = bs.iter
             self.unify_e(ps.hi, bs.hi)
             self.unify_stmts(ps.body, bs.body)
-        elif type(ps) is LoopIR.Alloc:
+        elif isinstance(ps, LoopIR.Alloc):
             # introduce BufVars on the sub-procedure side of unification
             # and immediately force the solution to match the name found
             # on the original code side of unification
@@ -898,15 +904,15 @@ class Unification:
             pvar.set_buf_solution(bs.name)
             self.buf_unknowns[ps.name] = pvar
             self.bbuf_types[bs.name] = bs.type
-            self.unify_types(ps.type, bs.type, ps,bs)
-        elif type(ps) is LoopIR.Call:
+            self.unify_types(ps.type, bs.type, ps, bs)
+        elif isinstance(ps, LoopIR.Call):
             if ps.f != bs.f:
                 raise UnificationError(
                     f"cannot unify a call to '{ps.f.name()}' (@{ps.srcinfo}) "
                     f"with a call to {bs.f.name()} (@{bs.srcinfo})")
             for pe, be in zip(ps.args, bs.args):
                 self.unify_e(pe, be)
-        elif type(ps) is LoopIR.WindowStmt:
+        elif isinstance(ps, LoopIR.WindowStmt):
             self.unify_e(ps.rhs, bs.rhs)
             # new name identification is similar to Alloc
             pvar = BufVar(ps.lhs, ps.rhs.type.as_tensor, use_win=False)
@@ -950,7 +956,7 @@ class Unification:
 
         # handle special case of unindexed buffers used in
         # call-argument position
-        if type(bnode) is LoopIR.Read and len(bnode.type.shape()) > 0:
+        if isinstance(bnode, LoopIR.Read) and len(bnode.type.shape()) > 0:
             assert len(bidx) == 0
             # we now know that bnode looks something like `x` where
             # `x` is not a scalar
@@ -960,10 +966,10 @@ class Unification:
                     f"with buffer '{bbuf}' (@{bnode.srcinfo})")
             else:
                 assert len(pidx) == 0
-                self.unify_types(pnode.type, bnode.type, pnode,bnode)
-                self.unify_buf_name_no_win(pbuf,bbuf)
+                self.unify_types(pnode.type, bnode.type, pnode, bnode)
+                self.unify_buf_name_no_win(pbuf, bbuf)
                 return
-        elif type(pnode) is LoopIR.Read and len(pnode.type.shape()) > 0:
+        elif isinstance(pnode, LoopIR.Read) and len(pnode.type.shape()) > 0:
             # NOTE: bnode is not trivial b/c of the elif
             raise UnificationError(
                 f"Unification of the simple call argument "
@@ -1019,13 +1025,12 @@ class Unification:
                 tmp_pidx    = pidx.copy()
                 assert len(bidx) == len(case_idxs)
                 for bi, wi in zip(bidx,case_idxs):
-                    be      = self.to_ueq(bi)
-                    pe      = None
-                    if type(wi) == Sym: # point access from window
-                        pe  = UEq.Var(wi)
-                    else: # interval access
-                        pe  = UEq.Add(UEq.Var(wi[0]),
-                                      self.to_ueq(tmp_pidx.pop(0)))
+                    be = self.to_ueq(bi)
+                    if isinstance(wi, Sym):  # point access from window
+                        pe = UEq.Var(wi)
+                    else:  # interval access
+                        pe = UEq.Add(UEq.Var(wi[0]),
+                                     self.to_ueq(tmp_pidx.pop(0)))
                     eqs.append(UEq.Eq(pe, be))
 
                 assert len(tmp_pidx) == 0
@@ -1059,7 +1064,7 @@ class Unification:
 
     def unify_e(self, pe, be):
         if (pe.type.is_indexable() != be.type.is_indexable() or
-            (pe.type == T.bool) != (be.type == T.bool)):
+                (pe.type == T.bool) != (be.type == T.bool)):
             raise UnificationError(
                 f"expected expressions "
                 f"({pe} @{pe.srcinfo} vs. {be} @{be.srcinfo}) "
@@ -1068,55 +1073,55 @@ class Unification:
             # convert to an equality
             self.unify_affine_e(pe, be)
             return
-        elif (pe.type == T.bool and type(pe) is LoopIR.Read
-                                and pe.name in self.bool_holes):
+        elif (pe.type == T.bool and isinstance(pe, LoopIR.Read)
+              and pe.name in self.bool_holes):
             self.unify_bool_hole(pe, be)
             return
-        elif (pe.type == T.stride and type(pe) is LoopIR.Read
-                                  and pe.name in self.stride_holes):
+        elif (pe.type == T.stride and isinstance(pe, LoopIR.Read)
+              and pe.name in self.stride_holes):
             self.unify_stride_hole(pe, be)
             return
 
-        if type(pe) != type(be):
+        if type(pe) is not type(be):
             raise UnificationError(
                 f"cannot unify a {type(pe)} expression (@{pe.srcinfo}) with "
                 f"a {type(be)} expression (@{be.srcinfo})")
-        elif type(pe) is LoopIR.Read:
+        elif isinstance(pe, LoopIR.Read):
             assert pe.type.is_numeric(), "unhandled expression type...?"
             self.unify_accesses(pe, be)
-        elif type(pe) is LoopIR.Const:
+        elif isinstance(pe, LoopIR.Const):
             if pe.val != be.val:
                 raise UnificationError(
                     f"cannot unify {pe.val} (@{pe.srcinfo}) with "
                     f"{be.val} (@{be.srcinfo})")
-        elif type(pe) is LoopIR.USub:
+        elif isinstance(pe, LoopIR.USub):
             self.unify_e(pe.arg, be.arg)
-        elif type(pe) is LoopIR.BinOp:
+        elif isinstance(pe, LoopIR.BinOp):
             if pe.op != be.op:
                 raise UnificationError(
                     f"cannot unify a '{pe.op}' (@{pe.srcinfo}) with "
                     f"a '{be.op}'' (@{be.srcinfo})")
             self.unify_e(pe.lhs, be.lhs)
             self.unify_e(pe.rhs, be.rhs)
-        elif type(pe) is LoopIR.BuiltIn:
+        elif isinstance(pe, LoopIR.BuiltIn):
             if pe.f != be.f:
                 raise UnificationError(
                     f"cannot unify builtin '{pe.f.name()}' (@{pe.srcinfo}) "
                     f"with builtin '{be.f.name()}'' (@{be.srcinfo})")
-            for pa,ba in zip(pe.args,be.args):
-                self.unify_e(pa,ba)
-        elif type(pe) is LoopIR.ReadConfig:
+            for pa, ba in zip(pe.args, be.args):
+                self.unify_e(pa, ba)
+        elif isinstance(pe, LoopIR.ReadConfig):
             if (pe.config != be.config or
                     pe.field != be.field):
                 raise UnificationError(
                     f"cannot unify readconfig '{pe.config.name()}.{pe.field}' "
                     f"with readconfig '{be.config.name()}.{be.field}'")
-        elif type(pe) is LoopIR.WindowExpr:
+        elif isinstance(pe, LoopIR.WindowExpr):
             pvar = self.buf_unknowns[pe.name]
 
             # unify the two buffers
-            self.unify_buf_name_no_win(pe.name,be.name)
-            self.unify_types(pvar.typ, self.bbuf_types[be.name],pe,be)
+            self.unify_buf_name_no_win(pe.name, be.name)
+            self.unify_types(pvar.typ, self.bbuf_types[be.name], pe, be)
 
             # unify the two windowing expressions
             if len(pe.idx) != len(be.idx):
@@ -1125,15 +1130,15 @@ class Unification:
                     f"using {len(pe.idx)} indices with the windowing of "
                     f"{be.name} (@{be.srcinfo}) using {len(be.idx)}")
 
-            for i,(pw,bw) in enumerate(zip(pe.idx,be.idx)):
-                if type(pw) != type(bw):
+            for i, (pw, bw) in enumerate(zip(pe.idx, be.idx)):
+                if type(pw) is not type(bw):
                     raise UnificationError(
                         f"cannot unify the windowing of "
                         f"{pe.name} (@{pe.srcinfo}) with the windowing of "
                         f"{be.name} (@{be.srcinfo}) because one evaluates to a "
                         f"point at index {i}, while the other evaluates to an "
                         f"interval")
-                elif type(pw) == LoopIR.Point:
+                elif isinstance(pw, LoopIR.Point):
                     self.unify_affine_e(pw.pt, bw.pt)
                 else:
                     self.unify_affine_e(pw.lo, bw.lo)

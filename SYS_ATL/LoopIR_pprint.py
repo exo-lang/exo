@@ -90,11 +90,11 @@ class UAST_PPrinter:
         elif isinstance(node, UAST.type):
             self.addline(self.ptype(node))
         elif isinstance(node, UAST.w_access):
-            if type(node) is UAST.Interval:
+            if isinstance(node, UAST.Interval):
                 lo = self.pexpr(node.lo) if node.lo else "None"
                 hi = self.pexpr(node.hi) if node.hi else "None"
                 self.addline(f"Interval({lo},{hi})")
-            elif type(node) is UAST.Point:
+            elif isinstance(node, UAST.Point):
                 self.addline(f"Point({self.pexpr(node.pt)})")
             else: assert False, "bad case"
         else:
@@ -175,10 +175,10 @@ class UAST_PPrinter:
 
     def pstmts(self, body):
         for stmt in body:
-            if type(stmt) is UAST.Pass:
+            if isinstance(stmt, UAST.Pass):
                 self.addline("pass")
-            elif type(stmt) is UAST.Assign or type(stmt) is UAST.Reduce:
-                op = "=" if type(stmt) is UAST.Assign else "+="
+            elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
+                op = "=" if isinstance(stmt, UAST.Assign) else "+="
 
                 rhs = self.pexpr(stmt.rhs)
 
@@ -189,21 +189,21 @@ class UAST_PPrinter:
                     lhs = self.get_name(stmt.name)
 
                 self.addline(f"{lhs} {op} {rhs}")
-            elif type(stmt) is LoopIR.WriteConfig:
+            elif isinstance(stmt, LoopIR.WriteConfig):
                 cname   = stmt.config.name()
                 rhs     = self.pexpr(stmt.rhs)
                 self.addline(f"{cname}.{stmt.field} = {rhs}")
-            elif type(stmt) is UAST.FreshAssign:
+            elif isinstance(stmt, UAST.FreshAssign):
                 rhs = self.pexpr(stmt.rhs)
                 self.addline(f"{self.new_name(stmt.name)} = {rhs}")
-            elif type(stmt) is UAST.Alloc:
+            elif isinstance(stmt, UAST.Alloc):
                 mem = f" @{stmt.mem.name()}" if stmt.mem else ""
                 self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
-            elif type(stmt) is UAST.Call:
+            elif isinstance(stmt, UAST.Call):
                 pname   = stmt.f.name or "_anon_"
                 args    = [ self.pexpr(a) for a in p.args ]
                 self.addline(f"{pname}({','.join(args)})")
-            elif type(stmt) is UAST.If:
+            elif isinstance(stmt, UAST.If):
                 cond = self.pexpr(stmt.cond)
                 self.addline(f"if {cond}:")
                 self.push()
@@ -214,7 +214,7 @@ class UAST_PPrinter:
                     self.push()
                     self.pstmts(stmt.orelse)
                     self.pop()
-            elif type(stmt) is UAST.ForAll:
+            elif isinstance(stmt, UAST.ForAll):
                 cond = self.pexpr(stmt.cond)
                 self.push(only='env')
                 self.addline(f"for {self.new_name(stmt.iter)} in {cond}:")
@@ -225,15 +225,15 @@ class UAST_PPrinter:
                 assert False, "unrecognized stmt type"
 
     def pexpr(self, e, prec=0):
-        if type(e) is UAST.Read:
+        if isinstance(e, UAST.Read):
             if len(e.idx) > 0:
                 idx = [self.pexpr(i) for i in e.idx]
                 return f"{self.get_name(e.name)}[{','.join(idx)}]"
             else:
                 return self.get_name(e.name)
-        elif type(e) is UAST.Const:
+        elif isinstance(e, UAST.Const):
             return str(e.val)
-        elif type(e) is UAST.BinOp:
+        elif isinstance(e, UAST.BinOp):
             local_prec = op_prec[e.op]
             # increment rhs by 1 to account for left-associativity
             lhs = self.pexpr(e.lhs, prec=local_prec)
@@ -243,55 +243,55 @@ class UAST_PPrinter:
             if local_prec < prec:
                 s = f"({s})"
             return s
-        elif type(e) is UAST.USub:
+        elif isinstance(e, UAST.USub):
             return f"-{self.pexpr(e.arg,prec=op_prec['~'])}"
-        elif type(e) is UAST.ParRange:
+        elif isinstance(e, UAST.ParRange):
             return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
-        elif type(e) is UAST.SeqRange:
+        elif isinstance(e, UAST.SeqRange):
             return f"seq({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
-        elif type(e) is UAST.WindowExpr:
+        elif isinstance(e, UAST.WindowExpr):
             def pacc(w):
-                if type(w) is UAST.Point:
+                if isinstance(w, UAST.Point):
                     return self.pexpr(w.pt)
-                elif type(w) is UAST.Interval:
+                elif isinstance(w, UAST.Interval):
                     lo = self.pexpr(w.lo) if w.lo else ""
                     hi = self.pexpr(w.hi) if w.hi else ""
                     return f"{lo}:{hi}"
                 else: assert False, "bad case"
             return (f"{self.get_name(e.name)}"+
                     f"[{', '.join([ pacc(w) for w in e.idx ])}]")
-        elif type(e) is UAST.StrideExpr:
+        elif isinstance(e, UAST.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
-        elif type(e) is UAST.BuiltIn:
+        elif isinstance(e, UAST.BuiltIn):
             pname   = e.f.name() or "_anon_"
             args    = [ self.pexpr(a) for a in e.args ]
             return f"{pname}({','.join(args)})"
-        elif type(e) is LoopIR.ReadConfig:
+        elif isinstance(e, LoopIR.ReadConfig):
             cname   = e.config.name()
             return f"{cname}.{e.field}"
         else:
             assert False, "unrecognized expr type"
 
     def ptype(self, t):
-        if type(t) is UAST.Num:
+        if isinstance(t, UAST.Num):
             return "R"
-        elif type(t) is UAST.F32:
+        elif isinstance(t, UAST.F32):
             return "f32"
-        elif type(t) is UAST.F64:
+        elif isinstance(t, UAST.F64):
             return "f64"
-        elif type(t) is UAST.INT8:
+        elif isinstance(t, UAST.INT8):
             return "i8"
-        elif type(t) is UAST.INT32:
+        elif isinstance(t, UAST.INT32):
             return "i32"
-        elif type(t) is UAST.Bool:
+        elif isinstance(t, UAST.Bool):
             return "bool"
-        elif type(t) is UAST.Int:
+        elif isinstance(t, UAST.Int):
             return "int"
-        elif type(t) is UAST.Index:
+        elif isinstance(t, UAST.Index):
             return "index"
-        elif type(t) is UAST.Size:
+        elif isinstance(t, UAST.Size):
             return "size"
-        elif type(t) is UAST.Tensor:
+        elif isinstance(t, UAST.Tensor):
             base = str(t.basetype())
             if t.is_window:
                 base = f"[{base}]"
@@ -333,10 +333,10 @@ class LoopIR_PPrinter:
         elif isinstance(node, LoopIR.type):
             self.addline(self.ptype(node))
         elif isinstance(node, LoopIR.w_access):
-            if type(node) is LoopIR.Interval:
+            if isinstance(node, LoopIR.Interval):
                 self.addline(f"Interval({self.pexpr(node.lo)},"+
                              f"{self.pexpr(node.hi)})")
-            elif type(node) is LoopIR.Point:
+            elif isinstance(node, LoopIR.Point):
                 self.addline(f"Point({self.pexpr(node.pt)})")
             else: assert False, "bad case"
         else:
@@ -424,10 +424,10 @@ class LoopIR_PPrinter:
             return f"{self.new_name(a.name)} : {self.ptype(a.type)} {mem}"
 
     def pstmt(self, stmt):
-        if type(stmt) is LoopIR.Pass:
+        if isinstance(stmt, LoopIR.Pass):
             self.addline("pass")
-        elif type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
-            op = "=" if type(stmt) is LoopIR.Assign else "+="
+        elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
+            op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
 
             rhs = self.pexpr(stmt.rhs)
 
@@ -438,24 +438,24 @@ class LoopIR_PPrinter:
                 lhs = self.get_name(stmt.name)
 
             self.addline(f"{lhs} {op} {rhs}")
-        elif type(stmt) is LoopIR.WriteConfig:
+        elif isinstance(stmt, LoopIR.WriteConfig):
             cname   = stmt.config.name()
             rhs     = self.pexpr(stmt.rhs)
             self.addline(f"{cname}.{stmt.field} = {rhs}")
-        elif type(stmt) is LoopIR.WindowStmt:
+        elif isinstance(stmt, LoopIR.WindowStmt):
             rhs = self.pexpr(stmt.rhs)
             self.addline(f"{self.new_name(stmt.lhs)} = {rhs}")
-        elif type(stmt) is LoopIR.Alloc:
+        elif isinstance(stmt, LoopIR.Alloc):
             mem = f" @{stmt.mem.name()}" if stmt.mem else ""
             self.addline(f"{self.new_name(stmt.name)} : "+
                          f"{self.ptype(stmt.type)}{mem}")
-        elif type(stmt) is LoopIR.Free:
+        elif isinstance(stmt, LoopIR.Free):
             mem = f" @{stmt.mem._name}" if stmt.mem else ""
             self.addline(f"free({self.get_name(stmt.name)})")
-        elif type(stmt) is LoopIR.Call:
+        elif isinstance(stmt, LoopIR.Call):
             args    = [ self.pexpr(a) for a in stmt.args ]
             self.addline(f"{stmt.f.name}({','.join(args)})")
-        elif type(stmt) is LoopIR.If:
+        elif isinstance(stmt, LoopIR.If):
             cond = self.pexpr(stmt.cond)
             self.addline(f"if {cond}:")
             self.push()
@@ -469,10 +469,10 @@ class LoopIR_PPrinter:
                     self.pstmt(p)
                 self.pop()
 
-        elif type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
+        elif isinstance(stmt, LoopIR.ForAll) or isinstance(stmt, LoopIR.Seq):
             hi = self.pexpr(stmt.hi)
             self.push(only='env')
-            if type(stmt) is LoopIR.ForAll:
+            if isinstance(stmt, LoopIR.ForAll):
                 self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}):")
             else:
                 self.addline(f"for {self.new_name(stmt.iter)} in seq(0, {hi}):")
@@ -484,17 +484,17 @@ class LoopIR_PPrinter:
             assert False, f"unrecognized stmt: {type(stmt)}"
 
     def pexpr(self, e, prec=0):
-        if type(e) is LoopIR.Read:
+        if isinstance(e, LoopIR.Read):
             if len(e.idx) > 0:
                 idx = [self.pexpr(i) for i in e.idx]
                 return f"{self.get_name(e.name)}[{','.join(idx)}]"
             else:
                 return self.get_name(e.name)
-        elif type(e) is LoopIR.Const:
+        elif isinstance(e, LoopIR.Const):
             return str(e.val)
-        elif type(e) is LoopIR.USub:
+        elif isinstance(e, LoopIR.USub):
             return f'-{self.pexpr(e.arg, op_prec["~"])}'
-        elif type(e) is LoopIR.BinOp:
+        elif isinstance(e, LoopIR.BinOp):
             local_prec = op_prec[e.op]
             # increment rhs by 1 to account for left-associativity
             lhs = self.pexpr(e.lhs, prec=local_prec)
@@ -504,60 +504,60 @@ class LoopIR_PPrinter:
             if local_prec < prec:
                 s = f"({s})"
             return s
-        elif type(e) is LoopIR.WindowExpr:
+        elif isinstance(e, LoopIR.WindowExpr):
             return (f"{self.get_name(e.name)}"+
                     f"[{', '.join([ self.pwacc(w) for w in e.idx ])}]")
-        elif type(e) is LoopIR.StrideExpr:
+        elif isinstance(e, LoopIR.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
-        elif type(e) is LoopIR.BuiltIn:
+        elif isinstance(e, LoopIR.BuiltIn):
             pname   = e.f.name() or "_anon_"
             args    = [ self.pexpr(a) for a in e.args ]
             return f"{pname}({','.join(args)})"
-        elif type(e) is LoopIR.ReadConfig:
+        elif isinstance(e, LoopIR.ReadConfig):
             cname   = e.config.name()
             return f"{cname}.{e.field}"
         else:
             assert False, f"unrecognized expr: {type(e)}"
 
     def pwacc(self, w):
-        if type(w) is LoopIR.Point:
+        if isinstance(w, LoopIR.Point):
             return self.pexpr(w.pt)
-        elif type(w) is LoopIR.Interval:
+        elif isinstance(w, LoopIR.Interval):
             return f"{self.pexpr(w.lo)}:{self.pexpr(w.hi)}"
         else: assert False, "bad case"
 
     def ptype(self, t):
-        if type(t) is T.Num:
+        if isinstance(t, T.Num):
             return "R"
-        elif type(t) is T.F32:
+        elif isinstance(t, T.F32):
             return "f32"
-        elif type(t) is T.F64:
+        elif isinstance(t, T.F64):
             return "f64"
-        elif type(t) is T.INT8:
+        elif isinstance(t, T.INT8):
             return "i8"
-        elif type(t) is T.INT32:
+        elif isinstance(t, T.INT32):
             return "i32"
-        elif type(t) is T.Bool:
+        elif isinstance(t, T.Bool):
             return "bool"
-        elif type(t) is T.Int:
+        elif isinstance(t, T.Int):
             return "int"
-        elif type(t) is T.Index:
+        elif isinstance(t, T.Index):
             return "index"
-        elif type(t) is T.Size:
+        elif isinstance(t, T.Size):
             return "size"
-        elif type(t) is T.Error:
+        elif isinstance(t, T.Error):
             return "err"
-        elif type(t) is T.Tensor:
+        elif isinstance(t, T.Tensor):
             base = str(t.basetype())
             if t.is_window:
                 base = f"[{base}]"
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
             return f"{base}[{rngs}]"
-        elif type(t) is T.Window:
+        elif isinstance(t, T.Window):
             return (f"Window(src_type={t.src_type},as_tensor={t.as_tensor},"+
                     f"src_buf={t.src_buf},"+
                     f"idx=[{', '.join([ self.pwacc(w) for w in t.idx ])}])")
-        elif type(t) is T.Stride:
+        elif isinstance(t, T.Stride):
             return "stride"
         else:
             assert False, f"impossible type {type(t)}"

@@ -26,30 +26,31 @@ def _get_smt_solver():
 # Helper Functions
 
 def loopir_subst(e, subst):
-    if type(e) is LoopIR.Read:
+    if isinstance(e, LoopIR.Read):
         assert not e.type.is_numeric()
         return subst[e.name] if e.name in subst else e
-    elif type(e) is LoopIR.Const or type(e) is LoopIR.ReadConfig:
+    elif isinstance(e, (LoopIR.Const, LoopIR.ReadConfig)):
         return e
-    elif type(e) is LoopIR.USub:
-        return LoopIR.USub( self.loopir_subst(e.arg, subst),
-                            e.type, e.srcinfo )
-    elif type(e) is LoopIR.BinOp:
-        return LoopIR.BinOp( e.op, loopir_subst(e.lhs, subst),
-                                   loopir_subst(e.rhs, subst),
-                                   e.type, e.srcinfo )
-    elif type(e) is LoopIR.StrideExpr:
+    elif isinstance(e, LoopIR.USub):
+        return LoopIR.USub(loopir_subst(e.arg, subst),
+                           e.type, e.srcinfo)
+    elif isinstance(e, LoopIR.BinOp):
+        return LoopIR.BinOp(e.op,
+                            loopir_subst(e.lhs, subst),
+                            loopir_subst(e.rhs, subst),
+                            e.type, e.srcinfo)
+    elif isinstance(e, LoopIR.StrideExpr):
         if e.name not in subst:
             return e
         lookup = subst[e.name]
-        if type(lookup) is LoopIR.Read:
+        if isinstance(lookup, LoopIR.Read):
             assert len(lookup.idx) == 0
             return LoopIR.StrideExpr(lookup.name, e.dim,
                                      e.type, e.srcinfo)
-        elif type(lookup) is LoopIR.WindowExpr:
-            windowed_orig_dims  = [ d for d,w in enumerate(lookup.idx)
-                                      if type(w) is LoopIR.Interval ]
-            dim     = windowed_orig_dims[e.dim]
+        elif isinstance(lookup, LoopIR.WindowExpr):
+            windowed_orig_dims = [d for d, w in enumerate(lookup.idx)
+                                  if isinstance(w, LoopIR.Interval)]
+            dim = windowed_orig_dims[e.dim]
             return LoopIR.StrideExpr(lookup.name, dim,
                                      e.type, e.srcinfo)
 
@@ -96,15 +97,15 @@ class InferEffects:
             self.rec_s_types(s)
 
     def rec_s_types(self, stmt):
-        if type(stmt) is LoopIR.If:
+        if isinstance(stmt, LoopIR.If):
             self.rec_stmts_types(stmt.body)
             if len(stmt.orelse) > 0:
                 self.rec_stmts_types(stmt.orelse)
-        elif type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
+        elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
             self.rec_stmts_types(stmt.body)
-        elif type(stmt) is LoopIR.Alloc:
+        elif isinstance(stmt, LoopIR.Alloc):
             self._types[stmt.name] = stmt.type
-        elif type(stmt) is LoopIR.WindowStmt:
+        elif isinstance(stmt, LoopIR.WindowStmt):
             self._types[stmt.lhs] = stmt.rhs.type
         else:
             pass
@@ -116,21 +117,21 @@ class InferEffects:
         for s in reversed(body):
             new_s = self.map_s(s)
             stmts.append(new_s)
-            if type(new_s) is LoopIR.Alloc:
+            if isinstance(new_s, LoopIR.Alloc):
                 eff = eff_remove_buf(new_s.name, eff)
             else:
                 eff = eff_concat(new_s.eff, eff)
         return (list(reversed(stmts)), eff)
 
     def map_s(self, stmt):
-        if type(stmt) is LoopIR.Assign or type(stmt) is LoopIR.Reduce:
+        if isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
             styp = type(stmt)
             buf = stmt.name
-            loc = [ lift_expr(idx) for idx in stmt.idx ]
+            loc = [lift_expr(idx) for idx in stmt.idx]
             rhs_eff = self.eff_e(stmt.rhs)
             if styp is LoopIR.Assign:
                 effects = eff_write(buf, loc, stmt.srcinfo)
-            else: # Reduce
+            else:  # Reduce
                 effects = eff_reduce(buf, loc, stmt.srcinfo)
 
             effects = eff_concat(rhs_eff, effects)
@@ -139,11 +140,10 @@ class InferEffects:
                         stmt.idx, stmt.rhs,
                         effects, stmt.srcinfo)
 
-        elif type(stmt) is LoopIR.WriteConfig:
+        elif isinstance(stmt, LoopIR.WriteConfig):
             rhs_eff = self.eff_e(stmt.rhs)
             if stmt.rhs.type.is_numeric():
-                rhs = E.Var(Sym("opaque_rhs"), stmt.rhs.type,
-                                               stmt.rhs.srcinfo)
+                rhs = E.Var(Sym("opaque_rhs"), stmt.rhs.type, stmt.rhs.srcinfo)
             else:
                 rhs = lift_expr(stmt.rhs)
             cw_eff  = eff_config_write(stmt.config, stmt.field,
@@ -152,10 +152,10 @@ class InferEffects:
             return LoopIR.WriteConfig(stmt.config, stmt.field, stmt.rhs,
                                       eff, stmt.srcinfo)
 
-        elif type(stmt) is LoopIR.If:
+        elif isinstance(stmt, LoopIR.If):
             cond = lift_expr(stmt.cond)
             body, body_effects = self.map_stmts(stmt.body)
-            body_effects = eff_filter(cond ,body_effects)
+            body_effects = eff_filter(cond, body_effects)
             orelse_effects = eff_null(stmt.srcinfo)
             orelse = stmt.orelse
             if len(stmt.orelse) > 0:
@@ -167,7 +167,7 @@ class InferEffects:
             return LoopIR.If(stmt.cond, body, orelse,
                              effects, stmt.srcinfo)
 
-        elif type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
+        elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
             styp = type(stmt)
             # pred is: 0 <= bound < stmt.hi
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
@@ -185,17 +185,16 @@ class InferEffects:
             return styp(stmt.iter, stmt.hi, body,
                                    effects, stmt.srcinfo)
 
-        elif type(stmt) is LoopIR.Call:
+        elif isinstance(stmt, LoopIR.Call):
             assert stmt.f.eff is not None
             # build up a substitution dictionary....
             # sig is a LoopIR.fnarg, arg is a LoopIR.expr
-            subst       = {}
-            for sig,arg in zip(stmt.f.args, stmt.args):
+            subst = {}
+            for sig, arg in zip(stmt.f.args, stmt.args):
                 if sig.type.is_numeric():
-                    assert (type(arg) is LoopIR.Read or
-                            type(arg) is LoopIR.WindowExpr)
-                    if type(arg.type) is T.Window:
-                        pass # handle below
+                    assert isinstance(arg, (LoopIR.Read, LoopIR.WindowExpr))
+                    if isinstance(arg.type, T.Window):
+                        pass  # handle below
                     else:
                         subst[sig.name] = arg.name
                 elif sig.type.is_indexable() or sig.type is T.bool:
@@ -212,18 +211,18 @@ class InferEffects:
             # translate effects occuring on windowed arguments
             for sig,arg in zip(stmt.f.args, stmt.args):
                 if sig.type.is_numeric():
-                    if type(arg.type) is T.Window:
+                    if isinstance(arg.type, T.Window):
                         eff = self.translate_eff(eff, sig.name, arg.type)
 
             return LoopIR.Call(stmt.f, stmt.args,
                                eff, stmt.srcinfo)
 
-        elif type(stmt) is LoopIR.Pass:
+        elif isinstance(stmt, LoopIR.Pass):
             return LoopIR.Pass(eff_null(stmt.srcinfo), stmt.srcinfo)
-        elif type(stmt) is LoopIR.Alloc:
+        elif isinstance(stmt, LoopIR.Alloc):
             return LoopIR.Alloc(stmt.name, stmt.type, stmt.mem,
                                 eff_null(stmt.srcinfo), stmt.srcinfo)
-        elif type(stmt) is LoopIR.WindowStmt:
+        elif isinstance(stmt, LoopIR.WindowStmt):
             return LoopIR.WindowStmt(stmt.lhs, stmt.rhs,
                                      eff_null(stmt.srcinfo), stmt.srcinfo)
 
@@ -232,42 +231,43 @@ class InferEffects:
 
     # extract effects from this expression; return E.effect
     def eff_e(self, e):
-        if type(e) is LoopIR.Read:
+        if isinstance(e, LoopIR.Read):
             if e.type.is_numeric():
                 # we may assume that we're not in a call-argument position
                 assert e.type.is_real_scalar()
-                loc = [ lift_expr(idx) for idx in e.idx ]
+                loc = [lift_expr(idx) for idx in e.idx]
                 eff = eff_read(e.name, loc, e.srcinfo)
 
                 # x[...], x
                 buf_typ = self._types[e.name]
-                if type(buf_typ) is T.Window:
+                if isinstance(buf_typ, T.Window):
                     eff = self.translate_eff(eff, e.name, buf_typ)
 
                 return eff
             else:
                 return eff_null(e.srcinfo)
-        elif type(e) is LoopIR.BinOp:
+        elif isinstance(e, LoopIR.BinOp):
             return eff_concat(self.eff_e(e.lhs), self.eff_e(e.rhs),
-                             srcinfo=e.srcinfo)
-        elif type(e) is LoopIR.USub:
+                              srcinfo=e.srcinfo)
+        elif isinstance(e, LoopIR.USub):
             return self.eff_e(e.arg)
-        elif type(e) is LoopIR.Const:
+        elif isinstance(e, LoopIR.Const):
             return eff_null(e.srcinfo)
-        elif type(e) is LoopIR.WindowExpr:
+        elif isinstance(e, LoopIR.WindowExpr):
             return eff_null(e.srcinfo)
-        elif type(e) is LoopIR.BuiltIn:
+        elif isinstance(e, LoopIR.BuiltIn):
             return eff_null(e.srcinfo)
-        elif type(e) is LoopIR.StrideExpr:
+        elif isinstance(e, LoopIR.StrideExpr):
             return eff_null(e.srcinfo)
-        elif type(e) is LoopIR.ReadConfig:
+        elif isinstance(e, LoopIR.ReadConfig):
             return eff_config_read(e.config, e.field, e.srcinfo)
         else:
             assert False, "bad case"
 
     def translate_eff(self, eff, buf_name, win_typ):
-        assert type(eff) == E.effect
-        assert type(win_typ) == T.Window
+        assert isinstance(eff, E.effect)
+        assert isinstance(win_typ, T.Window)
+
         def translate_set(es):
             if es.buffer != buf_name:
                 return es
@@ -284,16 +284,16 @@ class InferEffects:
             loc = es.loc
             buf = buf_name
             typ = win_typ
-            while type(typ) is T.Window:
+            while isinstance(typ, T.Window):
                 buf     = typ.src_buf
                 idx     = typ.idx
                 typ     = self._types[buf]
                 loc_i   = 0
                 new_loc = []
                 for w_acc in idx:
-                    if type(w_acc) is LoopIR.Point:
+                    if isinstance(w_acc, LoopIR.Point):
                         new_loc.append(lift_expr(w_acc.pt))
-                    elif type(w_acc) is LoopIR.Interval:
+                    elif isinstance(w_acc, LoopIR.Interval):
                         j = E.BinOp("+", loc[loc_i], lift_expr(w_acc.lo),
                                     T.index, w_acc.lo.srcinfo)
                         new_loc.append(j)
@@ -485,7 +485,7 @@ class CheckEffects:
 
         # Add assertions
         for arg in proc.args:
-            if type(arg.type) is T.Size:
+            if isinstance(arg.type, T.Size):
                 pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(arg.name))
                 self.solver.add_assertion(pos_sz)
             elif arg.type.is_tensor_or_window() and not arg.type.is_win():
@@ -569,33 +569,34 @@ class CheckEffects:
 
     def expr_to_smt(self, expr):
         assert isinstance(expr, E.expr), "expected Effects.expr"
-        if type(expr) is E.Const:
+        if isinstance(expr, E.Const):
             if expr.type == T.bool:
                 return SMT.Bool(expr.val)
             elif expr.type.is_indexable():
                 return SMT.Int(expr.val)
-            else: assert False, "unrecognized const type: {type(expr.val)}"
-        elif type(expr) is E.Var:
+            else:
+                assert False, "unrecognized const type: {type(expr.val)}"
+        elif isinstance(expr, E.Var):
             return self.sym_to_smt(expr.name, expr.type)
-        elif type(expr) is E.Not:
+        elif isinstance(expr, E.Not):
             arg = self.expr_to_smt(expr.arg)
             return SMT.Not(arg)
-        elif type(expr) is E.Stride:
-            key = (expr.name,expr.dim)
+        elif isinstance(expr, E.Stride):
+            key = (expr.name, expr.dim)
             if key in self.stride_sym:
-                stride_sym  = self.stride_sym[key]
+                stride_sym = self.stride_sym[key]
             else:
-                stride_sym  = Sym(f"{expr.name}_stride_{expr.dim}")
+                stride_sym = Sym(f"{expr.name}_stride_{expr.dim}")
                 self.stride_sym[key] = stride_sym
             return self.sym_to_smt(stride_sym)
-        elif type(expr) is E.Select:
-            cond    = self.expr_to_smt(expr.cond)
-            tcase   = self.expr_to_smt(expr.tcase)
-            fcase   = self.expr_to_smt(expr.fcase)
+        elif isinstance(expr, E.Select):
+            cond = self.expr_to_smt(expr.cond)
+            tcase = self.expr_to_smt(expr.tcase)
+            fcase = self.expr_to_smt(expr.fcase)
             return SMT.Ite(cond, tcase, fcase)
-        elif type(expr) is E.ConfigField:
+        elif isinstance(expr, E.ConfigField):
             return self.config_to_smt(expr.config, expr.field, expr.type)
-        elif type(expr) is E.BinOp:
+        elif isinstance(expr, E.BinOp):
             lhs = self.expr_to_smt(expr.lhs)
             rhs = self.expr_to_smt(expr.rhs)
             if expr.op == "+":
@@ -605,7 +606,7 @@ class CheckEffects:
             elif expr.op == "*":
                 return SMT.Times(lhs, rhs)
             elif expr.op == "/":
-                assert type(expr.rhs) is E.Const
+                assert isinstance(expr.rhs, E.Const)
                 assert expr.rhs.val > 0
                 # x // y is defined as floor(x/y)
                 # Let z == floor(x/y)
@@ -669,7 +670,7 @@ class CheckEffects:
                 self.solver.add_assertion(SMT.And(rhs_eq, lhs_eq))
                 return div_tmp
             elif expr.op == "%":
-                assert type(expr.rhs) is E.Const
+                assert isinstance(expr.rhs, E.Const)
                 assert expr.rhs.val > 0
                 # In the below, copy the logic above for division
                 # to construct `mod_tmp` s.t.
@@ -713,9 +714,9 @@ class CheckEffects:
         # compute statically knowable strides from the shape
         strides = [None] * len(shape)
         strides[-1] = 1
-        for i,sz in reversed(list(enumerate(shape))):
+        for i, sz in reversed(list(enumerate(shape))):
             if i > 0:
-                if type(sz) is not LoopIR.Const:
+                if not isinstance(sz, LoopIR.Const):
                     break
                 else:
                     strides[i-1] = sz.val * strides[i]
@@ -730,7 +731,7 @@ class CheckEffects:
                 self.solver.add_assertion(self.expr_to_smt(lift_expr(eq)))
 
     def check_in_bounds(self, sym, shape, eff, eff_str):
-        assert type(eff) is E.effset, "effset should be passed to in_bounds"
+        assert isinstance(eff, E.effset), "effset should be passed to in_bounds"
 
         if sym == eff.buffer:
 #       IN_BOUNDS( x, T, (x, (i,j), nms, pred ) ) =
@@ -913,23 +914,23 @@ class CheckEffects:
 
     def preprocess_stmts(self, body):
         for stmt in body:
-            if type(stmt) is LoopIR.If:
+            if isinstance(stmt, LoopIR.If):
                 self.preprocess_stmts(stmt.body)
                 self.preprocess_stmts(stmt.orelse)
-            elif type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
+            elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
                 self.preprocess_stmts(stmt.body)
-            elif type(stmt) is LoopIR.Alloc:
+            elif isinstance(stmt, LoopIR.Alloc):
                 if stmt.type.is_tensor_or_window():
                     self.assume_tensor_strides(stmt, stmt.name,
-                                                     stmt.type.shape())
-            elif type(stmt) is LoopIR.WindowStmt:
-                #src_shape   = stmt.rhs.type.src_type.shape()
-                w_idx       = stmt.rhs.type.idx
-                src_buf     = stmt.rhs.type.src_buf
-                dst_buf     = stmt.lhs
+                                               stmt.type.shape())
+            elif isinstance(stmt, LoopIR.WindowStmt):
+                # src_shape   = stmt.rhs.type.src_type.shape()
+                w_idx = stmt.rhs.type.idx
+                src_buf = stmt.rhs.type.src_buf
+                dst_buf = stmt.lhs
 
-                src_dims    = [ d for d,w in enumerate(w_idx)
-                                  if type(w) is LoopIR.Interval ]
+                src_dims = [d for d, w in enumerate(w_idx)
+                            if isinstance(w, LoopIR.Interval)]
                 for dst_dim, src_dim in enumerate(src_dims):
                     src = LoopIR.StrideExpr(src_buf, src_dim,
                                             T.stride, stmt.srcinfo)
@@ -949,16 +950,17 @@ class CheckEffects:
         body_eff = eff_null(body[-1].srcinfo)
 
         for stmt in reversed(body):
-            if type(stmt) is LoopIR.ForAll or type(stmt) is LoopIR.Seq:
+            if isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
                 self.push()
-                def bd_pred(x,hi,srcinfo):
-                    zero    = E.Const(0, T.int, srcinfo)
-                    x       = E.Var(x, T.int, srcinfo)
-                    hi      = lift_expr(hi)
+
+                def bd_pred(x, hi, srcinfo):
+                    zero = E.Const(0, T.int, srcinfo)
+                    x = E.Var(x, T.int, srcinfo)
+                    hi = lift_expr(hi)
                     return E.BinOp("and",
-                                E.BinOp("<=", zero, x, T.bool, srcinfo),
-                                E.BinOp("<",  x,   hi, T.bool, srcinfo),
-                            T.bool, srcinfo)
+                                   E.BinOp("<=", zero, x, T.bool, srcinfo),
+                                   E.BinOp("<", x, hi, T.bool, srcinfo),
+                                   T.bool, srcinfo)
 
                 # Check if for-loop bound is non-negative
                 # with the context, before adding assertion
@@ -974,17 +976,17 @@ class CheckEffects:
                 self.check_config_no_loop_depend(stmt.iter, sub_body_eff, stmt.body)
                 # Parallelism checking here
                 # Don't check parallelism is it's a seq loop
-                if type(stmt) is LoopIR.ForAll:
+                if isinstance(stmt, LoopIR.ForAll):
                     self.check_commutes(stmt.iter, lift_expr(stmt.hi),
-                                                   sub_body_eff, stmt.body)
+                                        sub_body_eff, stmt.body)
 
                 body_eff = eff_concat(stmt.eff, body_eff)
 
-            if type(stmt) is LoopIR.If:
+            if isinstance(stmt, LoopIR.If):
                 # first, do the if-branch
                 self.push()
-                self.solver.add_assertion(self.expr_to_smt(
-                                                lift_expr(stmt.cond)))
+                self.solver.add_assertion(
+                    self.expr_to_smt(lift_expr(stmt.cond)))
                 self.map_stmts(stmt.body)
                 self.pop()
 
@@ -998,8 +1000,8 @@ class CheckEffects:
 
                 body_eff = eff_concat(stmt.eff, body_eff)
 
-            elif type(stmt) is LoopIR.Alloc:
-                shape = [ lift_expr(s) for s in stmt.type.shape() ]
+            elif isinstance(stmt, LoopIR.Alloc):
+                shape = [lift_expr(s) for s in stmt.type.shape()]
                 # check that all sizes are positive
                 for s in shape:
                     self.check_pos_size(s)
@@ -1007,13 +1009,13 @@ class CheckEffects:
                 self.check_bounds(stmt.name, shape, body_eff)
                 body_eff = eff_remove_buf(stmt.name, body_eff)
 
-            elif type(stmt) is LoopIR.Call:
-                subst   = dict()
-                for sig,arg in zip(stmt.f.args, stmt.args):
+            elif isinstance(stmt, LoopIR.Call):
+                subst = dict()
+                for sig, arg in zip(stmt.f.args, stmt.args):
                     if sig.type.is_numeric():
                         # need to check that the argument shape
                         # has all positive dimensions
-                        arg_shape = [ lift_expr(s) for s in arg.type.shape() ]
+                        arg_shape = [lift_expr(s) for s in arg.type.shape()]
                         for e in arg_shape:
                             self.check_pos_size(e)
                         # also, need to check that the argument shape

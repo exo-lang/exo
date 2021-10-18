@@ -27,8 +27,9 @@ class ParseError(Exception):
 
 class SizeStub:
     def __init__(self, nm):
-        assert type(nm) is Sym
+        assert isinstance(nm, Sym)
         self.nm = nm
+
 
 def str_to_mem(name):
     return getattr(sys.modules[__name__], name)
@@ -82,7 +83,7 @@ def get_src_locals(*, depth):
 # Pattern-Parser top-level, invoked on strings rather than as a decorator
 
 def pattern(s, filename=None, lineno=None):
-    assert type(s) is str
+    assert isinstance(s, str)
 
     src = s
     n_dedent = 0
@@ -94,7 +95,7 @@ def pattern(s, filename=None, lineno=None):
         srclineno   = 0
 
     module = pyast.parse(src)
-    assert type(module) == pyast.Module
+    assert isinstance(module, pyast.Module)
 
     # create way to query for src-code information
     def getsrcinfo(node):
@@ -166,7 +167,7 @@ class Parser:
     # structural parsing rules...
 
     def parse_fdef(self, fdef, instr=None):
-        assert type(fdef) == pyast.FunctionDef
+        assert isinstance(fdef, pyast.FunctionDef)
 
         fargs = fdef.args
         bad_arg_syntax_errmsg = """
@@ -196,7 +197,7 @@ class Parser:
                 self.err(a, f"repeated argument name: '{a.arg}'")
             names.add(a.arg)
             nm = Sym(a.arg)
-            if type(typ) == UAST.Size:
+            if isinstance(typ, UAST.Size):
                 self.locals[a.arg] = SizeStub(nm)
             else:
                 # note we don't need to stub the index variables
@@ -211,7 +212,7 @@ class Parser:
         # first split the assertions out
         first_non_assert = 0
         while (first_non_assert < len(fdef.body) and
-               type(fdef.body[first_non_assert]) == pyast.Assert):
+               isinstance(fdef.body[first_non_assert], pyast.Assert)):
             first_non_assert += 1
         assertions = fdef.body[0:first_non_assert]
         pyast_body = fdef.body[first_non_assert:]
@@ -237,7 +238,7 @@ class Parser:
                          srcinfo=self.getsrcinfo(fdef))
 
     def parse_cls(self, cls):
-        assert type(cls) is pyast.ClassDef
+        assert isinstance(cls, pyast.ClassDef)
 
         name = cls.name
         if len(cls.bases) > 0:
@@ -251,25 +252,25 @@ class Parser:
     def parse_config_field(self, stmt):
         basic_err = ("expected config field definition of the form: "
                      "name : type")
-        if type(stmt) is pyast.AnnAssign:
+        if isinstance(stmt, pyast.AnnAssign):
             if stmt.value:
                 self.err(stmt, basic_err)
-            elif type(stmt.target) is not pyast.Name:
+            elif not isinstance(stmt.target, pyast.Name):
                 self.err(stmt, basic_err)
-            name    = stmt.target.id
+            name = stmt.target.id
 
             typ_list = {
-                'bool'  : UAST.Bool(),
-                'size'  : UAST.Size(),
-                'index' : UAST.Index(),
+                'bool':   UAST.Bool(),
+                'size':   UAST.Size(),
+                'index':  UAST.Index(),
                 'stride': UAST.Stride(),
             }
             for k in Parser._prim_types:
                 typ_list[k] = Parser._prim_types[k]
             del typ_list['R']
 
-            if (type(stmt.annotation) is pyast.Name and
-                stmt.annotation.id in typ_list):
+            if (isinstance(stmt.annotation, pyast.Name) and
+                    stmt.annotation.id in typ_list):
                 typ = typ_list[stmt.annotation.id]
             else:
                 self.err(stmt.annotation, "expected one of the following "
@@ -286,7 +287,8 @@ class Parser:
         #   ` type `
         #   ` type @ memory `
         def is_at(x):
-            return type(x) is pyast.BinOp and type(x.op) is pyast.MatMult
+            return (isinstance(x, pyast.BinOp)
+                    and isinstance(x.op, pyast.MatMult))
 
         # decompose top-level of annotation syntax
         if is_at(node):
@@ -297,10 +299,10 @@ class Parser:
             mem_node = None
 
         # detect which sort of type we have here
-        is_size     = lambda x: type(x) is pyast.Name and x.id == "size"
-        is_index    = lambda x: type(x) is pyast.Name and x.id == "index"
-        is_bool     = lambda x: type(x) is pyast.Name and x.id == "bool"
-        is_stride   = lambda x: type(x) is pyast.Name and x.id == "stride"
+        is_size = lambda x: isinstance(x, pyast.Name) and x.id == "size"
+        is_index = lambda x: isinstance(x, pyast.Name) and x.id == "index"
+        is_bool = lambda x: isinstance(x, pyast.Name) and x.id == "bool"
+        is_stride = lambda x: isinstance(x, pyast.Name) and x.id == "stride"
 
         # parse each kind of type here
         if is_size(typ_node):
@@ -336,12 +338,12 @@ class Parser:
 
 
     def parse_alloc_typmem(self, node):
-        if type(node) is pyast.BinOp and type(node.op) is pyast.MatMult:
+        if isinstance(node, pyast.BinOp) and isinstance(node.op, pyast.MatMult):
             # node.right == Name
             # x[n] @ DRAM
             # x[n] @ lib.scratch
-            mem     = self.eval_expr(node.right)
-            node    = node.left
+            mem = self.eval_expr(node.right)
+            node = node.left
         else:
             mem     = None
         typ = self.parse_num_type(node)
@@ -356,8 +358,8 @@ class Parser:
     }
 
     def parse_num_type(self, node, is_arg = False):
-        if type(node) is pyast.Subscript:
-            if type(node.value) is pyast.List:
+        if isinstance(node, pyast.Subscript):
+            if isinstance(node.value, pyast.List):
                 if is_arg is not True:
                     self.err(node, "Window expression such as [R] "
                                    "should only be used in the function "
@@ -367,16 +369,16 @@ class Parser:
                                    "only one type, e.g. [R]")
 
                 base = node.value.elts[0]
-                if (type(base) is not pyast.Name or
-                    base.id not in Parser._prim_types):
+                if (not isinstance(base, pyast.Name) or
+                        base.id not in Parser._prim_types):
                     self.err(node, "expected window type to be of "
                                    "the form '[R][...]', '[f32][...]', etc.")
 
-                typ       = Parser._prim_types[base.id]
+                typ = Parser._prim_types[base.id]
                 is_window = True
-            elif (type(node.value) is pyast.Name
-                    and node.value.id in Parser._prim_types):
-                typ       = Parser._prim_types[node.value.id]
+            elif (isinstance(node.value, pyast.Name)
+                  and node.value.id in Parser._prim_types):
+                typ = Parser._prim_types[node.value.id]
                 is_window = False
             else:
                 self.err(node, "expected tensor type to be "
@@ -384,22 +386,21 @@ class Parser:
 
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
-                if type(node.slice) is pyast.Slice:
+                if isinstance(node.slice, pyast.Slice):
                     self.err(node, "index-slicing not allowed")
                 else:
-                    if type(node.slice) is pyast.Tuple:
+                    if isinstance(node.slice, pyast.Tuple):
                         dims = node.slice.elts
                     else:
-                        assert (type(node.slice) is pyast.Name or
-                                type(node.slice) is pyast.Constant)
+                        assert isinstance(node.slice,
+                                          (pyast.Name, pyast.Constant))
                         dims = [node.slice]
             else:
-                if (type(node.slice) is pyast.Slice or
-                    type(node.slice) is pyast.ExtSlice):
+                if isinstance(node.slice, (pyast.Slice, pyast.ExtSlice)):
                     self.err(node, "index-slicing not allowed")
                 else:
-                    assert type(node.slice) is pyast.Index
-                    if type(node.slice.value) is pyast.Tuple:
+                    assert isinstance(node.slice, pyast.Index)
+                    if isinstance(node.slice.value, pyast.Tuple):
                         dims = node.slice.value.elts
                     else:
                         dims = [node.slice.value]
@@ -410,23 +411,22 @@ class Parser:
 
             return typ
 
-        elif type(node) is pyast.Name and node.id in Parser._prim_types:
+        elif isinstance(node, pyast.Name) and node.id in Parser._prim_types:
             return Parser._prim_types[node.id]
         else:
             self.err(node, "unrecognized type: "+astor.dump_tree(node))
 
     def parse_stmt_block(self, stmts):
-        assert type(stmts) is list
+        assert isinstance(stmts, list)
 
         rstmts = []
 
         for s in stmts:
             # ----- Assginment, Reduction, Var Declaration/Allocation parsing
-            if (type(s) is pyast.Assign or type(s) is pyast.AnnAssign or
-                    type(s) is pyast.AugAssign):
+            if isinstance(s, (pyast.Assign, pyast.AnnAssign, pyast.AugAssign)):
                 # parse the rhs first, if it's present
                 rhs = None
-                if type(s) is pyast.AnnAssign:
+                if isinstance(s, pyast.AnnAssign):
                     if s.value is not None:
                         self.err(s, "Variable declaration should not "
                                     "have value assigned")
@@ -434,20 +434,20 @@ class Parser:
                     rhs = self.parse_expr(s.value)
 
                 # parse the lvalue expression
-                if type(s) is pyast.Assign:
+                if isinstance(s, pyast.Assign):
                     if len(s.targets) > 1:
                         self.err(s, "expected only one expression "
                                     "on the left of an assignment")
                     node = s.targets[0]
                     # handle WriteConfigs
-                    if type(node) is pyast.Attribute:
-                        if type(node.value) is not pyast.Name:
+                    if isinstance(node, pyast.Attribute):
+                        if not isinstance(node.value, pyast.Name):
                             self.err(node, "expected configuration writes "
                                            "of the form 'config.field = ...'")
-                        assert type(node.attr) is str
+                        assert isinstance(node.attr, str)
 
                         # lookup config and early-exit
-                        config_obj  = self.eval_expr(node.value)
+                        config_obj = self.eval_expr(node.value)
                         if not isinstance(config_obj, Config):
                             self.err(node.value, "expected indexed object "
                                                  "to be a Config")
@@ -470,11 +470,11 @@ class Parser:
                 if is_window:
                     self.err(lhs, "cannot perform windowing on "
                                   "left-hand-side of an assignment")
-                if type(s) is pyast.AnnAssign and len(idxs) > 0:
+                if isinstance(s, pyast.AnnAssign) and len(idxs) > 0:
                     self.err(lhs, "expected simple name in declaration")
 
                 # insert any needed Allocs
-                if type(s) is pyast.AnnAssign:
+                if isinstance(s, pyast.AnnAssign):
                     nm = Sym(name_node.id)
                     self.locals[name_node.id] = nm
                     typ, mem = self.parse_alloc_typmem(s.annotation)
@@ -482,8 +482,8 @@ class Parser:
 
                 # handle cases of ambiguous assignment to undefined
                 # variables
-                if ( type(s) is pyast.Assign and len(idxs) == 0 and
-                     name_node.id not in self.locals ):
+                if (isinstance(s, pyast.Assign) and len(idxs) == 0 and
+                        name_node.id not in self.locals):
                     nm = Sym(name_node.id)
                     self.locals[name_node.id] = nm
                     do_fresh_assignment = True
@@ -492,15 +492,15 @@ class Parser:
 
                 # get the symbol corresponding to the name on the
                 # left-hand-side
-                if type(s) is pyast.Assign or type(s) is pyast.AugAssign:
+                if isinstance(s, (pyast.Assign, pyast.AugAssign)):
                     if name_node.id not in self.locals:
                         self.err(
                             name_node, f"variable '{name_node.id}' undefined")
                     nm = self.locals[name_node.id]
-                    if type(nm) is SizeStub:
+                    if isinstance(nm, SizeStub):
                         self.err(name_node, f"cannot write to "
                                             f"size variable '{name_node.id}'")
-                    elif type(nm) is not Sym:
+                    elif not isinstance(nm, Sym):
                         self.err(name_node, f"expected '{name_node.id}' to "
                                             f"refer to a local variable")
 
@@ -508,34 +508,34 @@ class Parser:
                 if do_fresh_assignment:
                     rstmts.append(UAST.FreshAssign(
                         nm, rhs, self.getsrcinfo(s)))
-                elif type(s) is pyast.Assign:
+                elif isinstance(s, pyast.Assign):
                     rstmts.append(UAST.Assign(
                         nm, idxs, rhs, self.getsrcinfo(s)))
-                elif type(s) is pyast.AugAssign:
-                    if type(s.op) is not pyast.Add:
+                elif isinstance(s, pyast.AugAssign):
+                    if not isinstance(s.op, pyast.Add):
                         self.err(s, "only += reductions currently supported")
                     rstmts.append(UAST.Reduce(
                         nm, idxs, rhs, self.getsrcinfo(s)))
 
             # ----- For Loop parsing
-            elif type(s) is pyast.For:
+            elif isinstance(s, pyast.For):
                 if len(s.orelse) > 0:
                     self.err(s, "else clause on for-loops unsupported")
 
                 self.push()
-                if type(s.target) is not pyast.Name:
+                if not isinstance(s.target, pyast.Name):
                     self.err(
                         s.target, "expected simple name for iterator variable")
                 itr = Sym(s.target.id)
                 self.locals[s.target.id] = itr
-                hi   = self.parse_loop_cond(s.iter)
+                hi = self.parse_loop_cond(s.iter)
                 body = self.parse_stmt_block(s.body)
                 self.pop()
 
                 rstmts.append(UAST.ForAll(itr, hi, body, self.getsrcinfo(s)))
 
             # ----- If statement parsing
-            elif type(s) is pyast.If:
+            elif isinstance(s, pyast.If):
                 cond = self.parse_expr(s.test)
 
                 self.push()
@@ -548,8 +548,7 @@ class Parser:
                 rstmts.append(UAST.If(cond, body, orelse, self.getsrcinfo(s)))
 
             # ----- Sub-routine call parsing
-            elif (type(s) is pyast.Expr and
-                  type(s.value) is pyast.Call):
+            elif isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Call):
                 f = self.eval_expr(s.value.func)
                 if not isinstance(f, ProcedureBase):
                     self.err(s.value.func, f"expected called object "
@@ -565,10 +564,10 @@ class Parser:
                                         args, self.getsrcinfo(s.value)))
 
             # ----- Pass no-op parsing
-            elif type(s) is pyast.Pass:
+            elif isinstance(s, pyast.Pass):
                 rstmts.append(UAST.Pass(self.getsrcinfo(s)))
 
-            elif type(s) is pyast.Assert:
+            elif isinstance(s, pyast.Assert):
                 self.err(s, "predicate assert should happen at the beginning "
                             "of a function")
             else:
@@ -577,9 +576,9 @@ class Parser:
         return rstmts
 
     def parse_loop_cond(self, cond):
-        if type(cond) is pyast.Call:
-            if type(cond.func) is pyast.Name and (cond.func.id == "par" or
-                    cond.func.id == "seq"):
+        if isinstance(cond, pyast.Call):
+            if (isinstance(cond.func, pyast.Name) and
+                    cond.func.id in ("par", "seq")):
                 if len(cond.keywords) > 0:
                     self.err(cond, "par() and seq() does not support"
                                    " named arguments")
@@ -600,40 +599,40 @@ class Parser:
 
     # parse the left-hand-side of an assignment
     def parse_lvalue(self, node):
-        if type(node) is not pyast.Name and type(node) is not pyast.Subscript:
+        if not isinstance(node, (pyast.Name, pyast.Subscript)):
             self.err(node, "expected lhs of form 'x' or 'x[...]'")
         else:
             return self.parse_array_indexing(node)
 
     def parse_array_indexing(self, node):
-        if type(node) is pyast.Name:
+        if isinstance(node, pyast.Name):
             return node, [], False
-        elif type(node) is pyast.Subscript:
+        elif isinstance(node, pyast.Subscript):
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
-                if type(node.slice) is pyast.Tuple:
+                if isinstance(node.slice, pyast.Tuple):
                     dims = node.slice.elts
                 else:
                     dims = [node.slice]
             else:
-                if type(node.slice) is pyast.Slice:
+                if isinstance(node.slice, pyast.Slice):
                     dims = [node.slice]
-                elif type(node.slice) is pyast.ExtSlice:
+                elif isinstance(node.slice, pyast.ExtSlice):
                     dims = node.slice.dims
                 else:
-                    assert type(node.slice) is pyast.Index
-                    if type(node.slice.value) is pyast.Tuple:
+                    assert isinstance(node.slice, pyast.Index)
+                    if isinstance(node.slice.value, pyast.Tuple):
                         dims = node.slice.value.elts
                     else:
                         dims = [node.slice.value]
 
-            if type(node.value) is not pyast.Name:
+            if not isinstance(node.value, pyast.Name):
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
 
-            is_window = any( type(e) is pyast.Slice for e in dims )
-            idxs = [ (self.parse_slice(e, node) if is_window else
-                      self.parse_expr(e))
-                     for e in dims ]
+            is_window = any(isinstance(e, pyast.Slice) for e in dims)
+            idxs = [(self.parse_slice(e, node) if is_window else
+                     self.parse_expr(e))
+                    for e in dims]
 
             return node.value, idxs, is_window
         else: assert False, "bad case"
@@ -642,13 +641,13 @@ class Parser:
         if sys.version_info[:3] >= (3, 9):
             srcinfo = self.getsrcinfo(e)
         else:
-            if type(e) is pyast.Index:
+            if isinstance(e, pyast.Index):
                 e = e.value
                 srcinfo = self.getsrcinfo(e)
             else:
                 srcinfo = self.getsrcinfo(node)
 
-        if type(e) is pyast.Slice:
+        if isinstance(e, pyast.Slice):
             lo = None if e.lower is None else self.parse_expr(e.lower)
             hi = None if e.upper is None else self.parse_expr(e.upper)
             if e.step is not None:
@@ -661,7 +660,7 @@ class Parser:
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):
-        if type(e) is pyast.Name or type(e) is pyast.Subscript:
+        if isinstance(e, (pyast.Name, pyast.Subscript)):
             nm_node, idxs, is_window = self.parse_array_indexing(e)
 
             if nm_node.id in self.locals:
@@ -671,11 +670,11 @@ class Parser:
             else:
                 nm = None
 
-            if type(nm) is SizeStub:
+            if isinstance(nm, SizeStub):
                 nm = nm.nm
-            elif type(nm) is Sym:
-                pass # nm is already set correctly
-            elif type(nm) is int or type(nm) is float:
+            elif isinstance(nm, Sym):
+                pass  # nm is already set correctly
+            elif isinstance(nm, (int, float)):
                 if len(idxs) > 0:
                     self.err(nm_node, f"cannot index '{nm_node.id}' because "
                                       f"it is the constant {nm}")
@@ -688,9 +687,9 @@ class Parser:
             # if nm_node.id not in self.locals:
             #    self.err(nm_node, f"variable '{nm_node.id}' undefined")
             # nm = self.locals[nm_node.id]
-            # if type(nm) is SizeStub:
+            # if isinstance(nm, SizeStub):
             #    nm = nm.nm
-            # elif type(nm) is not Sym:
+            # elif not isinstance(nm, Sym):
             #    self.err(nm_node, f"expected '{nm_node.id}' to refer to "
             #                      f"a local variable")
 
@@ -699,62 +698,62 @@ class Parser:
             else:
                 return UAST.Read(nm, idxs, self.getsrcinfo(e))
 
-        elif type(e) is pyast.Attribute:
-            if type(e.value) is not pyast.Name:
+        elif isinstance(e, pyast.Attribute):
+            if not isinstance(e.value, pyast.Name):
                 self.err(e, "expected configuration reads "
                             "of the form 'config.field'")
 
-            assert type(e.attr) is str
+            assert isinstance(e.attr, str)
 
-            config_obj  = self.eval_expr(e.value)
+            config_obj = self.eval_expr(e.value)
             if not isinstance(config_obj, Config):
                 self.err(e.value, "expected indexed object "
                                   "to be a Config")
 
             return UAST.ReadConfig(config_obj, e.attr, self.getsrcinfo(e))
 
-        elif type(e) is pyast.Constant:
+        elif isinstance(e, pyast.Constant):
             return UAST.Const(e.value, self.getsrcinfo(e))
 
-        elif type(e) is pyast.UnaryOp:
-            if type(e.op) is pyast.USub:
+        elif isinstance(e, pyast.UnaryOp):
+            if isinstance(e.op, pyast.USub):
                 arg = self.parse_expr(e.operand)
                 return UAST.USub(arg, self.getsrcinfo(e))
             else:
-                opnm = ("+" if type(e.op) is pyast.UAdd else
-                        "not" if type(e.op) is pyast.Not else
-                        "~" if type(e.op) is pyast.Invert else
+                opnm = ("+" if isinstance(e.op, pyast.UAdd) else
+                        "not" if isinstance(e.op, pyast.Not) else
+                        "~" if isinstance(e.op, pyast.Invert) else
                         "ERROR-BAD-OP-CASE")
                 self.err(e, f"unsupported unary operator: {opnm}")
 
-        elif type(e) is pyast.BinOp:
+        elif isinstance(e, pyast.BinOp):
             lhs = self.parse_expr(e.left)
             rhs = self.parse_expr(e.right)
-            if type(e.op) is pyast.Add:
+            if isinstance(e.op, pyast.Add):
                 op = "+"
-            elif type(e.op) is pyast.Sub:
+            elif isinstance(e.op, pyast.Sub):
                 op = "-"
-            elif type(e.op) is pyast.Mult:
+            elif isinstance(e.op, pyast.Mult):
                 op = "*"
-            elif type(e.op) is pyast.Div:
+            elif isinstance(e.op, pyast.Div):
                 op = "/"
-            elif type(e.op) is pyast.FloorDiv:
+            elif isinstance(e.op, pyast.FloorDiv):
                 op = "//"
-            elif type(e.op) is pyast.Mod:
+            elif isinstance(e.op, pyast.Mod):
                 op = "%"
-            elif type(e.op) is pyast.Pow:
+            elif isinstance(e.op, pyast.Pow):
                 op = "**"
-            elif type(e.op) is pyast.LShift:
+            elif isinstance(e.op, pyast.LShift):
                 op = "<<"
-            elif type(e.op) is pyast.RShift:
+            elif isinstance(e.op, pyast.RShift):
                 op = ">>"
-            elif type(e.op) is pyast.BitOr:
+            elif isinstance(e.op, pyast.BitOr):
                 op = "|"
-            elif type(e.op) is pyast.BitXor:
+            elif isinstance(e.op, pyast.BitXor):
                 op = "^"
-            elif type(e.op) is pyast.BitAnd:
+            elif isinstance(e.op, pyast.BitAnd):
                 op = "&"
-            elif type(e.op) is pyast.MatMult:
+            elif isinstance(e.op, pyast.MatMult):
                 op = "@"
             else:
                 assert False, "unrecognized op"
@@ -763,13 +762,13 @@ class Parser:
 
             return UAST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
 
-        elif type(e) is pyast.BoolOp:
+        elif isinstance(e, pyast.BoolOp):
             assert len(e.values) > 1
             lhs = self.parse_expr(e.values[0])
 
-            if type(e.op) is pyast.And:
+            if isinstance(e.op, pyast.And):
                 op = "and"
-            elif type(e.op) is pyast.Or:
+            elif isinstance(e.op, pyast.Or):
                 op = "or"
             else:
                 assert False, "unrecognized op"
@@ -780,7 +779,7 @@ class Parser:
 
             return lhs
 
-        elif type(e) is pyast.Compare:
+        elif isinstance(e, pyast.Compare):
             assert len(e.ops) == len(e.comparators)
 
             vals = ([self.parse_expr(e.left)] +
@@ -789,25 +788,25 @@ class Parser:
 
             res = None
             for opnode, lhs, rhs in zip(e.ops, vals[:-1], vals[1:]):
-                if type(opnode) is pyast.Eq:
+                if isinstance(opnode, pyast.Eq):
                     op = "=="
-                elif type(opnode) is pyast.NotEq:
+                elif isinstance(opnode, pyast.NotEq):
                     op = "!="
-                elif type(opnode) is pyast.Lt:
+                elif isinstance(opnode, pyast.Lt):
                     op = "<"
-                elif type(opnode) is pyast.LtE:
+                elif isinstance(opnode, pyast.LtE):
                     op = "<="
-                elif type(opnode) is pyast.Gt:
+                elif isinstance(opnode, pyast.Gt):
                     op = ">"
-                elif type(opnode) is pyast.GtE:
+                elif isinstance(opnode, pyast.GtE):
                     op = ">="
-                elif type(opnode) is pyast.Is:
+                elif isinstance(opnode, pyast.Is):
                     op = "is"
-                elif type(opnode) is pyast.IsNot:
+                elif isinstance(opnode, pyast.IsNot):
                     op = "is not"
-                elif type(opnode) is pyast.In:
+                elif isinstance(opnode, pyast.In):
                     op = "in"
-                elif type(opnode) is pyast.NotIn:
+                elif isinstance(opnode, pyast.NotIn):
                     op = "not in"
                 else:
                     assert False, "unrecognized op"
@@ -818,23 +817,23 @@ class Parser:
 
             return res
 
-        elif type(e) is pyast.Call:
+        elif isinstance(e, pyast.Call):
             # handle stride expression
-            if type(e.func) == pyast.Name and e.func.id == "stride":
+            if isinstance(e.func, pyast.Name) and e.func.id == "stride":
                 if (len(e.keywords) > 0 or len(e.args) != 2 or
-                        type(e.args[0]) is not pyast.Name or
-                        type(e.args[1]) is not pyast.Constant or
-                        type(e.args[1].value) is not int):
+                        not isinstance(e.args[0], pyast.Name) or
+                        not isinstance(e.args[1], pyast.Constant) or
+                        not isinstance(e.args[1].value, int)):
                     self.err(e, "expected stride(...) to "
                                 "have exactly 2 arguments: the identifier "
                                 "for the buffer we are talking about "
                                 "and an integer specifying which dimension")
 
-                name    = e.args[0].id
+                name = e.args[0].id
                 if name not in self.locals:
                     self.err(e.args[0], f"variable '{name}' undefined")
-                name    = self.locals[name]
-                dim     = e.args[1].value
+                name = self.locals[name]
+                dim = int(e.args[1].value)
 
                 return UAST.StrideExpr(name, dim, self.getsrcinfo(e))
 
@@ -876,7 +875,8 @@ class PatternParser:
         is_expr = False
         if len(module_stmts) == 1:
             s = module_stmts[0]
-            if type(s) is pyast.Expr and type(s.value) is not pyast.Call:
+            if isinstance(s, pyast.Expr) and not isinstance(s.value,
+                                                            pyast.Call):
                 is_expr = True
 
         if is_expr:
@@ -903,17 +903,16 @@ class PatternParser:
     # structural parsing rules...
 
     def parse_stmts(self, stmts):
-        assert type(stmts) is list
+        assert isinstance(stmts, list)
 
         rstmts = []
 
         for s in stmts:
             # ----- Assginment, Reduction, Var Declaration/Allocation parsing
-            if (type(s) is pyast.Assign or type(s) is pyast.AnnAssign or
-                type(s) is pyast.AugAssign):
+            if isinstance(s, (pyast.Assign, pyast.AnnAssign, pyast.AugAssign)):
                 # parse the rhs first, if it's present
                 rhs = None
-                if type(s) is pyast.AnnAssign:
+                if isinstance(s, pyast.AnnAssign):
                     if s.value is not None:
                         self.err(s, "Variable declaration should not "
                                     "have value assigned")
@@ -930,18 +929,18 @@ class PatternParser:
                     rhs = self.parse_expr(s.value)
 
                 # parse the lvalue expression
-                if type(s) is pyast.Assign:
+                if isinstance(s, pyast.Assign):
                     if len(s.targets) > 1:
                         self.err(s, "expected only one expression "
                                     "on the left of an assignment")
                     node = s.targets[0]
                     # WriteConfigs
-                    if type(node) is pyast.Attribute:
-                        if type(node.value) is not pyast.Name:
+                    if isinstance(node, pyast.Attribute):
+                        if not isinstance(node.value, pyast.Name):
                             self.err(node, "expected configuration writes "
                                            "of the form 'config.field = ...'")
-                        assert type(node.attr) is str
-                        assert type(node.value.id) is str
+                        assert isinstance(node.attr, str)
+                        assert isinstance(node.value.id, str)
 
                         rstmts.append(PAST.WriteConfig(node.value.id, node.attr,
                                                        self.getsrcinfo(s)))
@@ -957,22 +956,22 @@ class PatternParser:
                     self.err(name_node, "expected valid name or _")
 
                 # generate the assignemnt or reduction statement
-                if type(s) is pyast.Assign:
+                if isinstance(s, pyast.Assign):
                     rstmts.append(PAST.Assign(
                         nm, idxs, rhs, self.getsrcinfo(s)))
-                elif type(s) is pyast.AugAssign:
-                    if type(s.op) is not pyast.Add:
+                elif isinstance(s, pyast.AugAssign):
+                    if not isinstance(s.op, pyast.Add):
                         self.err(s, "only += reductions currently supported")
                     rstmts.append(PAST.Reduce(
                         nm, idxs, rhs, self.getsrcinfo(s)))
 
             # ----- For Loop parsing
-            elif type(s) is pyast.For:
+            elif isinstance(s, pyast.For):
                 if len(s.orelse) > 0:
                     self.err(s, "else clause on for-loops unsupported")
 
                 self.push()
-                if type(s.target) is not pyast.Name:
+                if not isinstance(s.target, pyast.Name):
                     self.err(
                         s.target, "expected simple name for iterator variable")
                 itr = s.target.id
@@ -983,7 +982,7 @@ class PatternParser:
                 rstmts.append(PAST.ForAll(itr, cond, body, self.getsrcinfo(s)))
 
             # ----- If statement parsing
-            elif type(s) is pyast.If:
+            elif isinstance(s, pyast.If):
                 cond = self.parse_expr(s.test)
 
                 self.push()
@@ -996,25 +995,26 @@ class PatternParser:
                 rstmts.append(PAST.If(cond, body, orelse, self.getsrcinfo(s)))
 
             # ----- Sub-routine call parsing
-            elif (type(s) is pyast.Expr and
-                  type(s.value) is pyast.Call and
-                  type(s.value.func) is pyast.Name):
+            elif (isinstance(s, pyast.Expr) and
+                  isinstance(s.value, pyast.Call) and
+                  isinstance(s.value.func, pyast.Name)):
 
                 # handle stride expression
                 if s.value.func.id == "stride":
                     if (len(s.value.keywords) > 0 or len(s.value.args) != 2 or
-                            type(s.value.args[0]) is not pyast.Name or
-                            type(s.value.args[1]) is not pyast.Constant or
-                            type(s.value.args[1].value) is not int):
+                            not isinstance(s.value.args[0], pyast.Name) or
+                            not isinstance(s.value.args[1], pyast.Constant) or
+                            not isinstance(s.value.args[1].value, int)):
                         self.err(s.value, "expected stride(...) to "
                                           "have exactly 2 arguments: the identifier "
                                           "for the buffer we are talking about "
                                           "and an integer specifying which dimension")
 
-                    name    = s.value.args[0].id
-                    dim     = s.value.args[1].value
+                    name = s.value.args[0].id
+                    dim = int(s.value.args[1].value)
 
-                    rstmts.append(PAST.StrideExpr(name, dim, self.getsrcinfo(s.value)))
+                    rstmts.append(
+                        PAST.StrideExpr(name, dim, self.getsrcinfo(s.value)))
                 else:
                     if len(s.value.keywords) > 0:
                         self.err(s.value, "cannot call procedure() "
@@ -1026,13 +1026,13 @@ class PatternParser:
                                             self.getsrcinfo(s.value)))
 
             # ----- Stmt Hole parsing
-            elif (type(s) is pyast.Expr and
-                  type(s.value) is pyast.Name and
+            elif (isinstance(s, pyast.Expr) and
+                  isinstance(s.value, pyast.Name) and
                   s.value.id == '_'):
                 rstmts.append(PAST.S_Hole(self.getsrcinfo(s.value)))
 
             # ----- Pass no-op parsing
-            elif type(s) is pyast.Pass:
+            elif isinstance(s, pyast.Pass):
                 rstmts.append(PAST.Pass(self.getsrcinfo(s)))
             else:
                 self.err(s, "unsupported type of statement")
@@ -1040,38 +1040,36 @@ class PatternParser:
         return rstmts
 
     def parse_lvalue(self, node):
-        if type(node) is not pyast.Name and type(node) is not pyast.Subscript:
+        if not isinstance(node, (pyast.Name, pyast.Subscript)):
             self.err(node, "expected lhs of form 'x' or 'x[...]'")
         else:
             return self.parse_array_indexing(node)
 
     def parse_array_indexing(self, node):
-        if type(node) is pyast.Name:
+        if isinstance(node, pyast.Name):
             return node, []
-        elif type(node) is pyast.Subscript:
+        elif isinstance(node, pyast.Subscript):
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
-                if type(node.slice) is pyast.Slice:
+                if isinstance(node.slice, pyast.Slice):
                     self.err(node, "index-slicing not allowed")
-                elif type(node.slice) is pyast.Tuple:
+                elif isinstance(node.slice, pyast.Tuple):
                     dims = node.slice.elts
                 else:
-                    assert (type(node.slice) is pyast.Name or
-                            type(node.slice) is pyast.Constant or
-                            type(node.slice) is pyast.BinOp)
+                    assert isinstance(node.slice, (pyast.Name,
+                                                   pyast.Constant, pyast.BinOp))
                     dims = [node.slice]
             else:
-                if (type(node.slice) is pyast.Slice or
-                     type(node.slice) is pyast.ExtSlice):
+                if isinstance(node.slice, (pyast.Slice, pyast.ExtSlice)):
                     self.err(node, "index-slicing not allowed")
                 else:
-                    assert type(node.slice) is pyast.Index
-                    if type(node.slice.value) is pyast.Tuple:
+                    assert isinstance(node.slice, pyast.Index)
+                    if isinstance(node.slice.value, pyast.Tuple):
                         dims = node.slice.value.elts
                     else:
                         dims = [node.slice.value]
 
-            if type(node.value) is not pyast.Name:
+            if not isinstance(node.value, pyast.Name):
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
 
             idxs    = [ self.parse_expr(e) for e in dims ]
@@ -1079,74 +1077,75 @@ class PatternParser:
             return node.value, idxs
 
     def parse_loop_cond(self, cond):
-        if type(cond) is pyast.Name and cond.id == '_':
+        if isinstance(cond, pyast.Name) and cond.id == '_':
             return self.parse_expr(cond)
-        if type(cond) is pyast.Call:
-            if type(cond.func) is pyast.Name and (cond.func.id == "par" or
-                    cond.func.id == "seq"):
+        if isinstance(cond, pyast.Call):
+            if (isinstance(cond.func, pyast.Name) and
+                    cond.func.id in ("par", "seq")):
                 if len(cond.keywords) > 0:
-                    self.err(cond, "par() or seq() does not support named arguments")
+                    self.err(cond,
+                             "par() or seq() does not support named arguments")
                 elif len(cond.args) != 2:
                     self.err(cond, "par() or seq() expects exactly 2 arguments")
                 lo = self.parse_expr(cond.args[0])
                 hi = self.parse_expr(cond.args[1])
-                if type(lo) is not UAST.Const or lo.val != 0:
-                    self.err(cond ,"expected par(0, ...) or seq(0, ...)")
+                if not (isinstance(lo, UAST.Const) and lo.val == 0):
+                    self.err(cond, "expected par(0, ...) or seq(0, ...)")
                 return hi
         # fall-through error
         self.err(cond, "expected 'par(..., ...)' or 'seq(..., ...)'")
 
     def parse_expr(self, e):
-        if type(e) is pyast.Name or type(e) is pyast.Subscript:
-            nm_node, idxs   = self.parse_array_indexing(e)
-            nm              = nm_node.id
+        if isinstance(e, (pyast.Name, pyast.Subscript)):
+            nm_node, idxs = self.parse_array_indexing(e)
+            nm = nm_node.id
             if len(idxs) == 0 and nm == '_':
-                return PAST.E_Hole( self.getsrcinfo(e) )
+                return PAST.E_Hole(self.getsrcinfo(e))
             else:
                 return PAST.Read(nm, idxs, self.getsrcinfo(e))
 
-        elif type(e) is pyast.Constant:
+        elif isinstance(e, pyast.Constant):
             return PAST.Const(e.value, self.getsrcinfo(e))
 
-        elif type(e) is pyast.UnaryOp:
-            if type(e.op) is pyast.USub:
+        elif isinstance(e, pyast.UnaryOp):
+            if isinstance(e.op, pyast.USub):
                 arg = self.parse_expr(e.operand)
                 return PAST.USub(arg, self.getsrcinfo(e))
             else:
-                opnm = ("+" if type(e.op) is pyast.UAdd else
-                        "not" if type(e.op) is pyast.Not else
-                        "~" if type(e.op) is pyast.Invert else
+                opnm = ("+" if isinstance(e.op, pyast.UAdd) else
+                        "not" if isinstance(e.op, pyast.Not) else
+                        "~" if isinstance(e.op, pyast.Invert) else
                         "ERROR-BAD-OP-CASE")
                 self.err(e, f"unsupported unary operator: {opnm}")
 
-        elif type(e) is pyast.BinOp:
+        elif isinstance(e, pyast.BinOp):
             lhs = self.parse_expr(e.left)
             rhs = self.parse_expr(e.right)
-            if type(e.op) is pyast.Add:
+            if isinstance(e.op, pyast.Add):
                 op = "+"
-            elif type(e.op) is pyast.Sub:
+            elif isinstance(e.op, pyast.Sub):
                 op = "-"
-            elif type(e.op) is pyast.Mult:
+            elif isinstance(e.op, pyast.Mult):
                 op = "*"
-            elif type(e.op) is pyast.Div:
+            elif isinstance(e.op, pyast.Div):
                 op = "/"
-            elif type(e.op) is pyast.FloorDiv:
+            elif isinstance(e.op, pyast.FloorDiv):
                 op = "//"
-            elif type(e.op) is pyast.Mod:
+            elif isinstance(e.op, pyast.Mod):
                 op = "%"
-            elif type(e.op) is pyast.Pow:
+            elif isinstance(e.op, pyast.Pow):
                 op = "**"
-            elif type(e.op) is pyast.LShift:
+            elif isinstance(e.op, pyast.LShift):
                 op = "<<"
-            elif type(e.op) is pyast.RShift:
+            elif isinstance(e.op, pyast.RShift):
                 op = ">>"
-            elif type(e.op) is pyast.BitOr:
+            elif isinstance(e.op, pyast.BitOr):
                 op = "|"
-            elif type(e.op) is pyast.BitXor:
+            elif isinstance(e.op, pyast.BitXor):
                 op = "^"
-            elif type(e.op) is pyast.BitAnd:
+            elif isinstance(e.op, pyast.BitAnd):
                 op = "&"
-            elif type(e.op) is pyast.MatMult:
+            elif isinstance(e.op, pyast.MatMult):
                 op = "@"
             else:
                 assert False, "unrecognized op"
@@ -1155,13 +1154,13 @@ class PatternParser:
 
             return PAST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
 
-        elif type(e) is pyast.BoolOp:
+        elif isinstance(e, pyast.BoolOp):
             assert len(e.values) > 1
             lhs = self.parse_expr(e.values[0])
 
-            if type(e.op) is pyast.And:
+            if isinstance(e.op, pyast.And):
                 op = "and"
-            elif type(e.op) is pyast.Or:
+            elif isinstance(e.op, pyast.Or):
                 op = "or"
             else:
                 assert False, "unrecognized op"
@@ -1172,7 +1171,7 @@ class PatternParser:
 
             return lhs
 
-        elif type(e) is pyast.Compare:
+        elif isinstance(e, pyast.Compare):
             assert len(e.ops) == len(e.comparators)
             vals = ([self.parse_expr(e.left)] +
                     [self.parse_expr(v) for v in e.comparators])
@@ -1180,25 +1179,25 @@ class PatternParser:
 
             res = None
             for opnode, lhs, rhs in zip(e.ops, vals[:-1], vals[1:]):
-                if type(opnode) is pyast.Eq:
+                if isinstance(opnode, pyast.Eq):
                     op = "=="
-                elif type(opnode) is pyast.NotEq:
+                elif isinstance(opnode, pyast.NotEq):
                     op = "!="
-                elif type(opnode) is pyast.Lt:
+                elif isinstance(opnode, pyast.Lt):
                     op = "<"
-                elif type(opnode) is pyast.LtE:
+                elif isinstance(opnode, pyast.LtE):
                     op = "<="
-                elif type(opnode) is pyast.Gt:
+                elif isinstance(opnode, pyast.Gt):
                     op = ">"
-                elif type(opnode) is pyast.GtE:
+                elif isinstance(opnode, pyast.GtE):
                     op = ">="
-                elif type(opnode) is pyast.Is:
+                elif isinstance(opnode, pyast.Is):
                     op = "is"
-                elif type(opnode) is pyast.IsNot:
+                elif isinstance(opnode, pyast.IsNot):
                     op = "is not"
-                elif type(opnode) is pyast.In:
+                elif isinstance(opnode, pyast.In):
                     op = "in"
-                elif type(opnode) is pyast.NotIn:
+                elif isinstance(opnode, pyast.NotIn):
                     op = "not in"
                 else:
                     assert False, "unrecognized op"

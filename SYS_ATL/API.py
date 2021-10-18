@@ -87,7 +87,7 @@ def config(_cls=None, *, readwrite=True):
             raise TypeError("@config decorator must be applied to a class")
 
         body, getsrcinfo = get_ast_from_python(cls)
-        assert type(body) == pyast.ClassDef
+        assert isinstance(body, pyast.ClassDef)
 
         parser = Parser(body, {}, get_src_locals(depth=2), getsrcinfo,
                         as_config=True)
@@ -116,7 +116,7 @@ class MarkDownBlob:
 
 def compile_procs(proc_list, path, c_file, h_file, malloc=False):
     assert isinstance(proc_list, list)
-    assert all(type(p) is Procedure for p in proc_list)
+    assert all(isinstance(p, Procedure) for p in proc_list)
     run_compile([ p._loopir_proc for p in proc_list ],
                 path, c_file, h_file, malloc=malloc)
 
@@ -195,7 +195,7 @@ class Procedure(ProcedureBase):
             match       = match_pattern(body, pattern, call_depth=1)
 
             # convert matched sub-trees to QAST
-            assert type(match) is list
+            assert isinstance(match, list)
             if len(match) == 0:
                 return None
             elif isinstance(match[0], LoopIR.expr):
@@ -258,7 +258,7 @@ class Procedure(ProcedureBase):
         return Procedure(p, _provenance_eq_Procedure=self)
 
     def make_instr(self, instr):
-        if type(instr) is not str:
+        if not isinstance(instr, str):
             raise TypeError("expected an instruction macro "
                             "(Python string with {} escapes "
                             "as an argument")
@@ -268,7 +268,7 @@ class Procedure(ProcedureBase):
         return Procedure(p, _provenance_eq_Procedure=self)
 
     def unsafe_assert_eq(self, other_proc):
-        if type(other_proc) is not Procedure:
+        if not isinstance(other_proc, Procedure):
             raise TypeError("expected a procedure as argument")
         _proc_prov_unify(self._loopir_proc, other_proc._loopir_proc)
         return self
@@ -303,7 +303,7 @@ class Procedure(ProcedureBase):
 
     def set_window(self, name, is_window):
         name, count = name_plus_count(name)
-        if type(is_window) is not bool:
+        if not isinstance(is_window, bool):
             raise TypeError("expected second argument to set_window() to "
                             "be a boolean")
 
@@ -314,7 +314,7 @@ class Procedure(ProcedureBase):
 
     def set_memory(self, name, memory_obj):
         name, count = name_plus_count(name)
-        if type(memory_obj) is not Memory:
+        if not isinstance(memory_obj, Memory):
             raise TypeError("expected second argument to set_memory() to "
                             "be a Memory object")
 
@@ -337,7 +337,7 @@ class Procedure(ProcedureBase):
 
     def _find_callsite(self, call_site_pattern):
         call_stmt   = self._find_stmt(call_site_pattern, call_depth=3)
-        if type(call_stmt) is not LoopIR.Call:
+        if not isinstance(call_stmt, LoopIR.Call):
             raise TypeError("pattern did not describe a call-site")
 
         return call_stmt
@@ -345,9 +345,9 @@ class Procedure(ProcedureBase):
 
     def bind_config(self, var_pattern, config, field):
         # Check if config and field are valid here
-        if type(config) is not Config:
+        if not isinstance(config, Config):
             raise TypeError("Did not pass a config object")
-        if type(field) is not str:
+        if not isinstance(field, str):
             raise TypeError("Did not pass a config field string")
         if not config.has_field(field):
             raise TypeError(f"expected '{field}' to be a field "+
@@ -359,7 +359,7 @@ class Procedure(ProcedureBase):
         if not matches:
             raise TypeError("failed to find expression")
         # Can only bind single read atm. How to reason about scoping?
-        if len(matches) != 1 or type(matches[0]) is not LoopIR.Read:
+        if len(matches) != 1 or not isinstance(matches[0], LoopIR.Read):
             raise TypeError(f"expected a single Read")
 
         # Check that the type of config field and read are the same
@@ -374,15 +374,15 @@ class Procedure(ProcedureBase):
     
     
     def configwrite_after(self, stmt_pattern, config, field, var_pattern):
-        if type(config) is not Config:
+        if not isinstance(config, Config):
             raise TypeError("Did not pass a config object")
-        if type(field) is not str:
+        if not isinstance(field, str):
             raise TypeError("Did not pass a config field string")
         if not config.has_field(field):
             raise TypeError(f"expected '{field}' to be a field "+
                             f"in config '{config.name()}'")
 
-        if type(var_pattern) is not str:
+        if not isinstance(var_pattern, str):
             raise TypeError("expected second argument to be a string var")
 
         stmt     = self._find_stmt(stmt_pattern)
@@ -394,7 +394,7 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def inline_window(self, stmt_pattern):
-        if type(stmt_pattern) is not str:
+        if not isinstance(stmt_pattern, str):
             raise TypeError("Did not pass a stmt string")
 
         stmt   = self._find_stmt(stmt_pattern, default_match_no=None)
@@ -406,7 +406,7 @@ class Procedure(ProcedureBase):
 
     def split(self, split_var, split_const, out_vars,
               tail='guard', perfect=False):
-        if type(split_var) is not str:
+        if not isinstance(split_var, str):
             raise TypeError("expected first arg to be a string")
         elif not is_pos_int(split_const):
             raise TypeError("expected second arg to be a positive integer")
@@ -432,39 +432,39 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def add_guard(self, stmt_pat, iter_pat, value):
-      if type(stmt_pat) is not str:
-          raise TypeError("expected first arg to be a string")
-      if type(iter_pat) is not str:
-          raise TypeError("expected second arg to be a string")
-      if type(value) is not int:
-          raise TypeError("expected third arg to be an int")
-      if value != 0:
-          raise TypeError("expected third arg to be 0")
+        if not isinstance(stmt_pat, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(iter_pat, str):
+            raise TypeError("expected second arg to be a string")
+        if not isinstance(value, int):
+            raise TypeError("expected third arg to be an int")
+        # TODO: what is going on here?
+        if value != 0:
+            raise TypeError("expected third arg to be 0")
 
-      iter_pat = iter_name_to_pattern(iter_pat)
-      iter_pat = self._find_stmt(iter_pat)
-      if type(iter_pat) is not LoopIR.Seq:
-          raise TypeError("expected the loop to be sequential")
-      stmts = self._find_stmt(stmt_pat, default_match_no=None)
-      loopir = self._loopir_proc
-      for s in stmts:
-          loopir = Schedules.DoAddGuard(loopir, s, iter_pat, value).result()
+        iter_pat = iter_name_to_pattern(iter_pat)
+        iter_pat = self._find_stmt(iter_pat)
+        if not isinstance(iter_pat, LoopIR.Seq):
+            raise TypeError("expected the loop to be sequential")
+        stmts = self._find_stmt(stmt_pat, default_match_no=None)
+        loopir = self._loopir_proc
+        for s in stmts:
+            loopir = Schedules.DoAddGuard(loopir, s, iter_pat, value).result()
 
-      return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def fuse_loop(self, loop1, loop2):
-        if type(loop1) is not str:
+        if not isinstance(loop1, str):
             raise TypeError("expected first arg to be a string")
-        if type(loop2) is not str:
+        if not isinstance(loop2, str):
             raise TypeError("expected second arg to be a string")
 
         loop1 = self._find_stmt(loop1)
         loop2 = self._find_stmt(loop2)
 
-        if (not isinstance(loop1, LoopIR.ForAll) and
-                not isinstance(loop1, LoopIR.Seq)):
+        if not isinstance(loop1, (LoopIR.ForAll, LoopIR.Seq)):
             raise TypeError("expected loop to be par or seq loop")
-        if type(loop1) != type(loop2):
+        if type(loop1) is not type(loop2):
             raise TypeError("expected loop type to match")
         
         loopir = self._loopir_proc
@@ -473,11 +473,11 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def add_loop(self, stmt, var, hi):
-        if type(stmt) is not str:
+        if not isinstance(stmt, str):
             raise TypeError("expected first arg to be a string")
-        if type(var) is not str:
+        if not isinstance(var, str):
             raise TypeError("expected second arg to be a string")
-        if type(hi) is not int:
+        if not isinstance(hi, int):
             raise TypeError("currently, only constant bound is supported")
 
         stmt = self._find_stmt(stmt)
@@ -488,16 +488,17 @@ class Procedure(ProcedureBase):
 
 
     def merge_guard(self, stmt1, stmt2):
-        if type(stmt1) is not str:
+        if not isinstance(stmt1, str):
             raise TypeError("expected first arg to be a string")
-        if type(stmt2) is not str:
+        if not isinstance(stmt2, str):
             raise TypeError("expected second arg to be a string")
 
         stmt1 = self._find_stmt(stmt1)
         stmt2 = self._find_stmt(stmt2)
-        if (type(stmt1) is not LoopIR.If or
-                type(stmt2) is not LoopIR.If):
-            raise TypeError("expected both arguments to be if stmt")
+        if not isinstance(stmt1, LoopIR.If):
+            raise ValueError('stmt1 did not resolve to if stmt')
+        if not isinstance(stmt2, LoopIR.If):
+            raise ValueError('stmt2 did not resolve to if stmt')
         loopir = self._loopir_proc
         loopir = Schedules.DoMergeGuard(loopir, stmt1, stmt2).result()
 
@@ -510,9 +511,9 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def reorder_stmts(self, first_pat, second_pat):
-        if type(first_pat) is not str:
+        if not isinstance(first_pat, str):
             raise TypeError("expected first arg to be a pattern in string")
-        if type(second_pat) is not str:
+        if not isinstance(second_pat, str):
             raise TypeError("expected second arg to be a pattern in string")
 
         first_stmt = self._find_stmt(first_pat, default_match_no=None)
@@ -531,7 +532,7 @@ class Procedure(ProcedureBase):
         
 
     def reorder(self, out_var, in_var):
-        if type(out_var) is not str:
+        if not isinstance(out_var, str):
             raise TypeError("expected first arg to be a string")
         elif not is_valid_name(in_var):
             raise TypeError("expected second arg to be a valid name string")
@@ -545,7 +546,7 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def unroll(self, unroll_var):
-        if type(unroll_var) is not str:
+        if not isinstance(unroll_var, str):
             raise TypeError("expected first arg to be a string")
 
         pattern     = iter_name_to_pattern(unroll_var)
@@ -557,9 +558,9 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def replace(self, subproc, pattern):
-        if type(subproc) is not Procedure:
+        if not isinstance(subproc, Procedure):
             raise TypeError("expected first arg to be a subprocedure")
-        elif type(pattern) is not str:
+        elif not isinstance(pattern, str):
             raise TypeError("expected second arg to be a string")
 
         body        = self._loopir_proc.body
@@ -675,7 +676,7 @@ class Procedure(ProcedureBase):
         par_stmts = self._find_stmt(par_pattern, default_match_no=None)
         loopir   = self._loopir_proc
         for s in par_stmts:
-            if type(s) is not LoopIR.ForAll:
+            if not isinstance(s, LoopIR.ForAll):
                 raise TypeError("pattern did not describe a par loop")
 
             loopir  = Schedules.DoParToSeq(loopir, s).result()
@@ -688,17 +689,17 @@ class Procedure(ProcedureBase):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "
                             "a positive integer")
-        if type(mode) is not str:
+        if not isinstance(mode, str):
             raise TypeError("expected third argument 'mode' to be "
                             "'row' or 'col'")
-        if size and type(size) is not int:
+        if size and not isinstance(size, int):
             raise TypeError("expected fourth argument 'size' to be "
                             "an integer")
 
         alloc_stmts = self._find_stmt(alloc_site_pattern, default_match_no=None)
         loopir      = self._loopir_proc
         for s in alloc_stmts:
-            if type(s) is not LoopIR.Alloc:
+            if not isinstance(s, LoopIR.Alloc):
                 raise TypeError("pattern did not describe an alloc statement")
 
             loopir  = Schedules.DoLiftAlloc(

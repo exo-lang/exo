@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from SYS_ATL import proc, Procedure, DRAM
-from .helper import *
+from .helper import TMP_DIR
 
 
 # ------- Window related tests ---------
@@ -83,7 +83,7 @@ def test_window():
             for j in par(0, m):
                 dst[i,j] = src[i,j]
 
-    assert type(window) is Procedure
+    assert isinstance(window, Procedure)
 
     filename = "test_window_window"
     window.compile_c(TMP_DIR, filename)
@@ -106,7 +106,7 @@ def test_stride_assert():
             for j in par(0, m):
                 dst[i,j] = src[i,j]
 
-    assert type(stride_assert) is Procedure
+    assert isinstance(stride_assert, Procedure)
 
     filename = "test_window_stride_assert"
     stride_assert.compile_c(TMP_DIR, filename)
@@ -119,7 +119,7 @@ def test_window_stmt():
         for i in par(0, n):
             z[i] = y[i]
 
-    assert type(window_stmt) is Procedure
+    assert isinstance(window_stmt, Procedure)
 
     filename = "test_window_stmt"
     window_stmt.compile_c(TMP_DIR, filename)
@@ -132,15 +132,15 @@ def test_normalize():
             r += x[i]*y[i]
 
     @proc
-    def proj(n : size, m : size, x : f32[n,m], y : f32[m,n]):
+    def proj(n: size, m: size, x: f32[n, m], y: f32[m, n]):
         assert n > 4
         assert m > 4
-        xy : f32
-        y2 : f32
-        dot(m, x[1,:], y[:,2], xy)
-        dot(m, y[:,3], y[:,3], y2)
+        xy: f32
+        y2: f32
+        dot(m, x[1, :], y[:, 2], xy)
+        dot(m, y[:, 3], y[:, 3], y2)
 
-    assert type(dot) is Procedure
-    assert type(proj) is Procedure
+    assert isinstance(dot, Procedure)
+    assert isinstance(proj, Procedure)
     filename = "test_window_proj"
     proj.compile_c(TMP_DIR, filename)

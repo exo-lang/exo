@@ -25,11 +25,11 @@ def new_config(name, fields, disable_rw=False):
         'i8'        : LoopIR.T.i8,
         'i32'       : LoopIR.T.i32,
     }
-    good_args = (type(name) is str and
+    good_args = (isinstance(name, str) and
                  isinstance(fields, list) and
-                 all( type(f) is tuple for f in fields ) and
-                 all( type(f[0]) is str for f in fields ) and
-                 all( type(f[1]) is str for f in fields ) and
+                 all( isinstance(f, tuple) for f in fields ) and
+                 all( isinstance(f[0], str) for f in fields ) and
+                 all( isinstance(f[1], str) for f in fields ) and
                  all( f[1] in str_to_type for f in fields ))
     if not good_args:
         raise TypeError("Expected call to new_config to have the form:\n"+

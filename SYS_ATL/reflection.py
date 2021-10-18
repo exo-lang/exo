@@ -98,7 +98,7 @@ class LoopIR_to_QAST:
     elif etyp is LoopIR.USub:
       return QAST.USub(self.map_expr(e.arg), self.map_type(e.type))
     elif etyp is LoopIR.BinOp:
-      return QAST.BinOp(e.op, self.map_expr(e.lhs), 
+      return QAST.BinOp(e.op, self.map_expr(e.lhs),
                               self.map_expr(e.rhs), self.map_type(e.type))
     elif etyp is LoopIR.BuiltIn:
       return QAST.BuiltIn(e.f.name(),
@@ -107,7 +107,7 @@ class LoopIR_to_QAST:
     elif etyp is LoopIR.WindowExpr:
       name = self.getname(e.name)
       def map_w(w):
-        if type(w) is LoopIR.Interval:
+        if isinstance(w, LoopIR.Interval):
           return QAST.Interval(self.map_expr(w.lo), self.map_expr(w.hi))
         else:
           return QAST.Point(self.map_expr(w.pt))
@@ -146,10 +146,8 @@ class LoopIR_to_QAST:
     elif typ == T.stride:
       return QAST.stride()
     elif typ.is_tensor_or_window():
-      as_tensor = typ.as_tensor if type(typ) is T.Window else typ
+      as_tensor = typ.as_tensor if isinstance(typ, T.Window) else typ
       return QAST.tensor([ self.map_expr(e) for e in as_tensor.hi ],
                          as_tensor.is_window, self.map_type(as_tensor.type))
     else:
       assert False, f"bad case: {type(typ)}"
-
-

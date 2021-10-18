@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from SYS_ATL import proc, Procedure
-from .helper import *
+from .helper import TMP_DIR, nprand, generate_lib, nparray, cvt_c
 
 
 # ------- Precision casting tests ------
@@ -54,7 +54,7 @@ def gen_bad_prec1():
 
 def test_good_prec1():
     good_prec1 = gen_good_prec1()
-    assert type(good_prec1) is Procedure
+    assert isinstance(good_prec1, Procedure)
 
     filename = "test_good_prec1"
 
@@ -117,7 +117,7 @@ def test_bad_prec1():
 def test_good_prec2():
     dot = gen_dot()
     good_prec2 = gen_good_prec2(dot)
-    assert type(good_prec2) is Procedure
+    assert isinstance(good_prec2, Procedure)
 
     filename = "test_good_prec2"
 

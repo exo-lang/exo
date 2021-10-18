@@ -30,7 +30,7 @@ def get_default_prec():
 
 class PrecisionAnalysis(LoopIR_Rewrite):
     def __init__(self, proc):
-        assert type(proc) is LoopIR.proc
+        assert isinstance(proc, LoopIR.proc)
         self._errors    = []
         self._types     = {}
         self.default    = get_default_prec()
@@ -56,9 +56,9 @@ class PrecisionAnalysis(LoopIR_Rewrite):
     def splice_type(self, t, bt):
         if t.is_real_scalar():
             return bt
-        elif type(t) is T.Tensor:
+        elif isinstance(t, T.Tensor):
             return T.Tensor(t.hi, t.is_window, self.splice_type(t.type, bt))
-        elif type(t) is T.Window:
+        elif isinstance(t, T.Window):
             return T.Window(self.splice_type(t.src_type, bt),
                             self.splice_type(t.as_tensor, bt),
                             t.src_buf,
@@ -140,19 +140,19 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         return result
 
     def map_e(self, e):
-        if type(e) is LoopIR.Read:
-            typ     = e.type
+        if isinstance(e, LoopIR.Read):
+            typ = e.type
             if typ.is_numeric():
                 btyp = self.get_type(e.name).basetype()
                 typ = self.splice_type(e.type, btyp)
             return LoopIR.Read(e.name, e.idx, typ, e.srcinfo)
 
-        elif type(e) is LoopIR.WindowExpr:
-            btyp    = self.get_type(e.name).basetype()
-            wtyp    = self.splice_type(e.type, btyp)
-            return LoopIR.WindowExpr( e.name, e.idx, wtyp, e.srcinfo )
+        elif isinstance(e, LoopIR.WindowExpr):
+            btyp = self.get_type(e.name).basetype()
+            wtyp = self.splice_type(e.type, btyp)
+            return LoopIR.WindowExpr(e.name, e.idx, wtyp, e.srcinfo)
 
-        elif type(e) is LoopIR.USub:
+        elif isinstance(e, LoopIR.USub):
             arg = self.map_e(e.arg)
 
             if not e.type.is_numeric():
@@ -161,7 +161,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             assert arg.type.is_real_scalar() or arg.type == T.err
             return LoopIR.USub(arg, arg.type, e.srcinfo)
 
-        elif type(e) is LoopIR.BinOp:
+        elif isinstance(e, LoopIR.BinOp):
             lhs = self.map_e(e.lhs)
             rhs = self.map_e(e.rhs)
 
@@ -198,16 +198,16 @@ class PrecisionAnalysis(LoopIR_Rewrite):
     # induce appropriate casts onto T.R typed constants at
     # the leaves of numeric expressions
     def coerce_e(self, e, btyp):
-        if type(e) is LoopIR.Const:
+        if isinstance(e, LoopIR.Const):
             assert e.type == btyp or e.type == T.R
             return LoopIR.Const(e.val, btyp, e.srcinfo)
-        elif type(e) is LoopIR.USub:
+        elif isinstance(e, LoopIR.USub):
             arg = e.arg
             if arg.type == T.R:
                 arg = self.coerce_e(arg, btyp)
             assert arg.type == btyp
             return LoopIR.USub(arg, btyp, e.srcinfo)
-        elif type(e) is LoopIR.BinOp:
+        elif isinstance(e, LoopIR.BinOp):
             lhs, rhs = e.lhs, e.rhs
             if lhs.type == T.R:
                 lhs = self.coerce_e(lhs, btyp)

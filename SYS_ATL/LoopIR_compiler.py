@@ -57,7 +57,7 @@ class LoopIR_SubProcs(LoopIR_Do):
         pass
 
     def do_s(self, s):
-        if type(s) is LoopIR.Call:
+        if isinstance(s, LoopIR.Call):
             self._subprocs.add(s.f)
         else:
             super().do_s(s)
@@ -103,7 +103,7 @@ class LoopIR_FindMems(LoopIR_Do):
         pass
 
     def do_s(self, s):
-        if type(s) is LoopIR.Alloc:
+        if isinstance(s, LoopIR.Alloc):
             if s.mem:
                 self._mems.add(s.mem)
         else:
@@ -124,7 +124,7 @@ class LoopIR_FindBuiltIns(LoopIR_Do):
 
     # to improve efficiency
     def do_e(self,e):
-        if type(e) is LoopIR.BuiltIn:
+        if isinstance(e, LoopIR.BuiltIn):
             self._builtins.add(e.f)
         else:
             super().do_e(e)
@@ -144,13 +144,13 @@ class LoopIR_FindConfigs(LoopIR_Do):
 
     # to improve efficiency
     def do_e(self,e):
-        if type(e) is LoopIR.ReadConfig:
+        if isinstance(e, LoopIR.ReadConfig):
             self._configs.add(e.config)
         else:
             super().do_e(e)
 
     def do_s(self, s):
-        if type(s) is LoopIR.WriteConfig:
+        if isinstance(s, LoopIR.WriteConfig):
             self._configs.add(s.config)
         super().do_s(s)
 
@@ -352,7 +352,7 @@ def compile_to_strings(lib_name, proc_list):
 
 class Compiler:
     def __init__(self, proc, ctxt_name, **kwargs):
-        assert type(proc) is LoopIR.proc
+        assert isinstance(proc, LoopIR.proc)
 
         self.proc   = proc
         self.ctxt_name = ctxt_name
@@ -517,16 +517,16 @@ class Compiler:
         return acc
 
     def get_window_type(self, typ):
-        if type(typ) is T.Window:
-            base    = typ.as_tensor.basetype()
-            n_dims  = len(typ.as_tensor.shape())
-        elif type(typ) is T.Tensor and typ.is_window:
-            base    = typ.basetype()
-            n_dims  = len(typ.shape())
+        if isinstance(typ, T.Window):
+            base = typ.as_tensor.basetype()
+            n_dims = len(typ.as_tensor.shape())
+        elif isinstance(typ, T.Tensor) and typ.is_window:
+            base = typ.basetype()
+            n_dims = len(typ.shape())
         else: assert False, f"not a window type: {typ}"
 
         lookup = self.window_cache[base][n_dims]
-        if type(lookup) is str:
+        if isinstance(lookup, str):
             return lookup
         else:
             name, defn = window_struct(base, n_dims)
@@ -597,7 +597,7 @@ class Compiler:
         elif styp is LoopIR.WindowStmt:
             win_struct  = self.get_window_type(s.rhs.type)
             rhs         = self.comp_e(s.rhs)
-            assert type(s.rhs) is LoopIR.WindowExpr
+            assert isinstance(s.rhs, LoopIR.WindowExpr)
             mem         = self.mems[s.rhs.name]
             lhs         = self.new_varname(s.lhs, typ=s.rhs.type, mem=mem)
             self.add_line(f"struct {win_struct} {lhs} = {rhs};")
@@ -706,7 +706,7 @@ class Compiler:
 
             # compute offset to new data pointer
             def w_lo(w):
-                return (w.lo if type(w) is LoopIR.Interval else w.pt)
+                return w.lo if isinstance(w, LoopIR.Interval) else w.pt
 
             idxs        = [ self.comp_e(w_lo(w)) for w in e.idx ]
 
@@ -714,8 +714,8 @@ class Compiler:
             all_strides = self.get_strides(base, basetyp, prec=0)
             assert len(all_strides) == len(e.idx)
             assert len(all_strides) > 0
-            strides     = [ s for s,w in zip(all_strides,e.idx)
-                              if type(w) is LoopIR.Interval ]
+            strides     = [s for s, w in zip(all_strides, e.idx)
+                           if isinstance(w, LoopIR.Interval)]
 
             # apply offset to new data pointer
             baseptr     = base
@@ -733,8 +733,8 @@ class Compiler:
 
             return struct_str
         elif etyp is LoopIR.Const:
-            if type(e.val) is bool:
-                if e.val == True:
+            if isinstance(e.val, bool):
+                if e.val:
                     return "true"
                 else:
                     return "false"

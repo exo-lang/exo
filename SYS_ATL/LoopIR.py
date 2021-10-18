@@ -82,14 +82,14 @@ module UAST {
             | Stride()
             | Tensor( expr *hi, bool is_window, type type )
 } """, {
-    'name':         is_valid_name,
-    'sym':          lambda x: type(x) is Sym,
-    'mem':          lambda x: isinstance(x, Memory),
-    'builtin':      lambda x: isinstance(x, BuiltIn),
-    'config':       lambda x: isinstance(x, Config),
-    'loopir_proc':  lambda x: type(x) is LoopIR.proc,
-    'op':           lambda x: x in front_ops,
-    'srcinfo':      lambda x: type(x) is SrcInfo
+    'name':        is_valid_name,
+    'sym':         lambda x: isinstance(x, Sym),
+    'mem':         lambda x: isinstance(x, Memory),
+    'builtin':     lambda x: isinstance(x, BuiltIn),
+    'config':      lambda x: isinstance(x, Config),
+    'loopir_proc': lambda x: isinstance(x, LoopIR.proc),
+    'op':          lambda x: x in front_ops,
+    'srcinfo':     lambda x: isinstance(x, SrcInfo)
 })
 
 ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'INT32',
@@ -104,13 +104,13 @@ ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'INT32',
 @extclass(UAST.INT8)
 @extclass(UAST.INT32)
 def shape(t):
-    shp = t.hi if type(t) is UAST.Tensor else []
+    shp = t.hi if isinstance(t, UAST.Tensor) else []
     return shp
 del shape
 
 @extclass(UAST.type)
 def basetype(t):
-    if type(t) is UAST.Tensor:
+    if isinstance(t, UAST.Tensor):
         t = t.type
     return t
 del basetype
@@ -144,9 +144,9 @@ module PAST {
             attributes( srcinfo srcinfo )
 
 } """, {
-    'name':         lambda x: x == '_' or is_valid_name(x),
-    'op':           lambda x: x in front_ops,
-    'srcinfo':      lambda x: type(x) is SrcInfo,
+    'name':    lambda x: x == '_' or is_valid_name(x),
+    'op':      lambda x: x in front_ops,
+    'srcinfo': lambda x: isinstance(x, SrcInfo),
 })
 
 # --------------------------------------------------------------------------- #
@@ -234,14 +234,14 @@ module LoopIR {
                            sym src_buf, w_access *idx )
 
 } """, {
-    'name':     is_valid_name,
-    'sym':      lambda x: type(x) is Sym,
-    'effect':   lambda x: type(x) is E.effect,
-    'mem':      lambda x: isinstance(x, Memory),
-    'builtin':  lambda x: isinstance(x, BuiltIn),
-    'config':   lambda x: isinstance(x, Config),
-    'binop':    lambda x: x in bin_ops,
-    'srcinfo':  lambda x: type(x) is SrcInfo,
+    'name':    is_valid_name,
+    'sym':     lambda x: isinstance(x, Sym),
+    'effect':  lambda x: isinstance(x, E.effect),
+    'mem':     lambda x: isinstance(x, Memory),
+    'builtin': lambda x: isinstance(x, BuiltIn),
+    'config':  lambda x: isinstance(x, Config),
+    'binop':   lambda x: x in bin_ops,
+    'srcinfo': lambda x: isinstance(x, SrcInfo),
 })
 
 ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'INT32' 'Bool', 'Int', 'Index',
@@ -300,10 +300,10 @@ class T:
 @extclass(T.INT8)
 @extclass(T.INT32)
 def shape(t):
-    if type(t) is T.Window:
+    if isinstance(t, T.Window):
         return t.as_tensor.shape()
-    elif type(t) is T.Tensor:
-        assert type(t.type) is not T.Tensor, "expect no nesting"
+    elif isinstance(t, T.Tensor):
+        assert not isinstance(t.type, T.Tensor), "expect no nesting"
         return t.hi
     else:
         return []
@@ -320,59 +320,61 @@ del shape
 @extclass(T.Size)
 @extclass(T.Stride)
 def ctype(t):
-    if type(t) is T.Num:
+    if isinstance(t, T.Num):
         assert False, "Don't ask for ctype of Num"
-    elif type(t) is T.F32:
+    elif isinstance(t, T.F32):
         return "float"
-    elif type(t) is T.F64:
+    elif isinstance(t, T.F64):
         return "double"
-    elif type(t) is T.INT8:
+    elif isinstance(t, T.INT8):
         return "int8_t"
-    elif type(t) is T.INT32:
+    elif isinstance(t, T.INT32):
         return "int32_t"
-    elif type(t) is T.Bool:
+    elif isinstance(t, T.Bool):
         return "bool"
-    elif (type(t) is T.Int or type(t) is T.Index or
-          type(t) is T.Size or type(t) is T.Stride):
+    elif isinstance(t, (T.Int, T.Index, T.Size, T.Stride)):
         return "int"
 del ctype
 
+
 @extclass(LoopIR.type)
 def is_real_scalar(t):
-    return (type(t) is T.Num or type(t) is T.F32 or
-            type(t) is T.F64 or type(t) is T.INT8 or type(t) is T.INT32)
+    return isinstance(t, (T.Num, T.F32, T.F64, T.INT8, T.INT32))
 del is_real_scalar
 
 @extclass(LoopIR.type)
 def is_tensor_or_window(t):
-    return (type(t) is T.Tensor or type(t) is T.Window)
+    return isinstance(t, (T.Tensor, T.Window))
 del is_tensor_or_window
+
 
 @extclass(LoopIR.type)
 def is_win(t):
-    return ( (type(t) is T.Tensor and t.is_window ) or
-             (type(t) is T.Window))
+    return ((isinstance(t, T.Tensor) and t.is_window) or
+            isinstance(t, T.Window))
 del is_win
+
 
 @extclass(LoopIR.type)
 def is_numeric(t):
-    return t.is_real_scalar() or type(t) is T.Tensor or type(t) is T.Window
+    return t.is_real_scalar() or isinstance(t, (T.Tensor, T.Window))
 del is_numeric
+
 
 @extclass(LoopIR.type)
 def is_indexable(t):
-    return type(t) is T.Int or type(t) is T.Index or type(t) is T.Size
+    return isinstance(t, (T.Int, T.Index, T.Size))
 del is_indexable
 
 @extclass(LoopIR.type)
 def is_stridable(t):
-    return type(t) is T.Int or type(t) is T.Stride
+    return isinstance(t, (T.Int, T.Stride))
 
 @extclass(LoopIR.type)
 def basetype(t):
-    if type(t) is T.Window:
+    if isinstance(t, T.Window):
         return t.as_tensor.basetype()
-    elif type(t) is T.Tensor:
+    elif isinstance(t, T.Tensor):
         assert not t.type.is_tensor_or_window()
         return t.type
     else:
@@ -384,27 +386,29 @@ del basetype
 
 # convert from LoopIR.expr to E.expr
 def lift_to_eff_expr(e):
-    if type(e) is LoopIR.Read:
+    if isinstance(e, LoopIR.Read):
         assert len(e.idx) == 0
-        return E.Var( e.name, e.type, e.srcinfo )
-    elif type(e) is LoopIR.Const:
-        return E.Const( e.val, e.type, e.srcinfo )
-    elif type(e) is LoopIR.BinOp:
-        return E.BinOp( e.op,
-                        lift_to_eff_expr(e.lhs),
-                        lift_to_eff_expr(e.rhs),
-                        e.type, e.srcinfo )
-    elif type(e) is LoopIR.USub:
-        return E.BinOp('-', E.Const(0, e.type, e.srcinfo),
-                            lift_to_eff_expr(e.arg),
-                            e.type, e.srcinfo)
-    elif type(e) is LoopIR.StrideExpr:
+        return E.Var(e.name, e.type, e.srcinfo)
+    elif isinstance(e, LoopIR.Const):
+        return E.Const(e.val, e.type, e.srcinfo)
+    elif isinstance(e, LoopIR.BinOp):
+        return E.BinOp(e.op,
+                       lift_to_eff_expr(e.lhs),
+                       lift_to_eff_expr(e.rhs),
+                       e.type, e.srcinfo)
+    elif isinstance(e, LoopIR.USub):
+        return E.BinOp('-',
+                       E.Const(0, e.type, e.srcinfo),
+                       lift_to_eff_expr(e.arg),
+                       e.type, e.srcinfo)
+    elif isinstance(e, LoopIR.StrideExpr):
         return E.Stride(e.name, e.dim, e.type, e.srcinfo)
-    elif type(e) is LoopIR.ReadConfig:
+    elif isinstance(e, LoopIR.ReadConfig):
         return E.ConfigField(e.config, e.field,
                              e.config.lookup(e.field)[1], e.srcinfo)
 
-    else: assert False, "bad case, e is " + str(type(e))
+    else:
+        assert False, "bad case, e is " + str(type(e))
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -498,7 +502,7 @@ class LoopIR_Rewrite:
             return e
 
     def map_w_access(self, w):
-        if type(w) is LoopIR.Interval:
+        if isinstance(w, LoopIR.Interval):
             return LoopIR.Interval(self.map_e(w.lo),
                                    self.map_e(w.hi), w.srcinfo)
         else:
@@ -541,9 +545,9 @@ class LoopIR_Rewrite:
                              ce.srcinfo )
 
     def map_eff_e(self, e):
-        if type(e) is E.BinOp:
+        if isinstance(e, E.BinOp):
             return E.BinOp(e.op, self.map_eff_e(e.lhs),
-                                 self.map_eff_e(e.rhs), e.type, e.srcinfo )
+                           self.map_eff_e(e.rhs), e.type, e.srcinfo)
         else:
             return e
 
@@ -613,18 +617,18 @@ class LoopIR_Do:
         self.do_t(e.type)
 
     def do_w_access(self, w):
-        if type(w) is LoopIR.Interval:
+        if isinstance(w, LoopIR.Interval):
             self.do_e(w.lo)
             self.do_e(w.hi)
-        elif type(w) is LoopIR.Point:
+        elif isinstance(w, LoopIR.Point):
             self.do_e(w.pt)
         else: assert False, "bad case"
 
     def do_t(self, t):
-        if type(t) is T.Tensor:
+        if isinstance(t, T.Tensor):
             for i in t.hi:
                 self.do_e(i)
-        elif type(t) is T.Window:
+        elif isinstance(t, T.Window):
             self.do_t(t.src_type)
             self.do_t(t.as_tensor)
             for w in t.idx:
@@ -649,7 +653,7 @@ class LoopIR_Do:
             self.do_eff_e(es.pred)
 
     def do_eff_e(self, e):
-        if type(e) is E.BinOp:
+        if isinstance(e, E.BinOp):
             self.do_eff_e(e.lhs)
             self.do_eff_e(e.rhs)
 
@@ -716,7 +720,7 @@ class FreeVars(LoopIR_Do):
         super().do_e(e)
 
     def do_t(self, t):
-        if type(t) is T.Window:
+        if isinstance(t, T.Window):
             if t.src_buf not in self.env:
                 self.fv.add(t.src_buf)
 
@@ -734,7 +738,7 @@ class FreeVars(LoopIR_Do):
         self.pop()
 
     def do_eff_e(self, e):
-        if type(e) is E.Var and e.name not in self.env:
+        if isinstance(e, E.Var) and e.name not in self.env:
             self.fv.add(e.name)
 
         super().do_eff_e(e)
@@ -831,9 +835,9 @@ class Alpha_Rename(LoopIR_Rewrite):
         return eset
 
     def map_eff_e(self, e):
-        if type(e) is E.Var:
+        if isinstance(e, E.Var):
             nm = self.env[e.name] if e.name in self.env else e.name
-            return E.Var( nm, e.type, e.srcinfo )
+            return E.Var(nm, e.type, e.srcinfo)
 
         return super().map_eff_e(e)
 
@@ -842,8 +846,9 @@ class SubstArgs(LoopIR_Rewrite):
     def __init__(self, nodes, binding):
         assert isinstance(nodes, list)
         assert isinstance(binding, dict)
-        assert all( isinstance(v, LoopIR.expr) for v in binding.values() )
-        assert all( type(v) != LoopIR.WindowExpr for v in binding.values() )
+        assert all(isinstance(v, LoopIR.expr) for v in binding.values())
+        assert not any(
+            isinstance(v, LoopIR.WindowExpr) for v in binding.values())
         self.env    = binding
         self.nodes  = []
         for n in nodes:
@@ -862,7 +867,7 @@ class SubstArgs(LoopIR_Rewrite):
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             if s.name in self.env:
                 e = self.env[s.name]
-                assert type(e) is LoopIR.Read and len(e.idx) == 0
+                assert isinstance(e, LoopIR.Read) and len(e.idx) == 0
                 return [styp( e.name, self.map_t(s.type), s.cast,
                             [ self.map_e(a) for a in s.idx ],
                               self.map_e(s.rhs), s.eff, s.srcinfo )]
@@ -871,16 +876,17 @@ class SubstArgs(LoopIR_Rewrite):
 
     def map_e(self, e):
         # this substitution could refer to a read or a window expression
-        if type(e) is LoopIR.Read:
+        if isinstance(e, LoopIR.Read):
             if e.name in self.env:
                 if len(e.idx) == 0:
                     return self.env[e.name]
                 else:
                     sub_e = self.env[e.name]
-                    assert type(sub_e) is LoopIR.Read and len(sub_e.idx) == 0
-                    return LoopIR.Read( sub_e.name,
-                                        [ self.map_e(a) for a in e.idx ],
-                                        e.type, e.srcinfo )
+                    assert (isinstance(sub_e, LoopIR.Read) and
+                            len(sub_e.idx) == 0)
+                    return LoopIR.Read(sub_e.name,
+                                       [self.map_e(a) for a in e.idx],
+                                       e.type, e.srcinfo)
 
         return super().map_e(e)
 
@@ -889,15 +895,15 @@ class SubstArgs(LoopIR_Rewrite):
         new_es = super().map_eff_es(es)
         if es.buffer in self.env:
             sub_e = self.env[es.buffer]
-            assert type(sub_e) is LoopIR.Read and len(sub_e.idx) == 0
+            assert isinstance(sub_e, LoopIR.Read) and len(sub_e.idx) == 0
             new_es.buffer = sub_e.name
         return new_es
 
     def map_eff_e(self, e):
         # purely index expressions
-        if type(e) is E.Var:
-            #TODO: ?
-            #assert e.type.is_indexable(), f"type is {e.type}"
+        if isinstance(e, E.Var):
+            # TODO: ?
+            # assert e.type.is_indexable(), f"type is {e.type}"
             if e.name in self.env:
                 sub_e = self.env[e.name]
                 assert sub_e.type.is_indexable()

@@ -9,7 +9,7 @@ from .memory import DRAM
 
 class MemoryAnalysis:
     def __init__(self, proc):
-        assert type(proc) is LoopIR.proc
+        assert isinstance(proc, LoopIR.proc)
 
         self.mem_env = {}
 
@@ -61,7 +61,7 @@ class MemoryAnalysis:
         return body
 
     def get_e_mem(self, e):
-        if type(e) is LoopIR.WindowExpr or type(e) is LoopIR.Read:
+        if isinstance(e, (LoopIR.WindowExpr, LoopIR.Read)):
             return self.mem_env[e.name]
         else: assert False
 

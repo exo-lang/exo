@@ -6,24 +6,25 @@ from .LoopIR import LoopIR, T, LoopIR_Rewrite
 
 class WindowAnalysis(LoopIR_Rewrite):
     def __init__(self, proc):
-        assert type(proc) is LoopIR.proc
+        assert isinstance(proc, LoopIR.proc)
         super().__init__(proc)
 
     def err(self, node, msg):
         raise TypeError(f"{node.srcinfo}: {msg}")
 
     def map_s(self, s):
-        if type(s) is LoopIR.Call:
+        if isinstance(s, LoopIR.Call):
             args = s.args
-            def promote_tensor(a,sa):
+
+            def promote_tensor(a, sa):
                 assert sa.type.is_win()
                 assert not a.type.is_win()
-                assert type(a) is LoopIR.Read and len(a.idx) == 0
-                shape   = a.type.shape()
+                assert isinstance(a, LoopIR.Read) and len(a.idx) == 0
+                shape = a.type.shape()
                 assert len(shape) > 0
-                idx     = [ LoopIR.Interval(LoopIR.Const(0,T.int,N.srcinfo),
-                                            N, N.srcinfo)
-                            for N in shape ]
+                idx = [LoopIR.Interval(LoopIR.Const(0, T.int, N.srcinfo),
+                                       N, N.srcinfo)
+                       for N in shape]
                 as_tens = T.Tensor(shape, True, a.type.basetype())
                 win_typ = T.Window(a.type, as_tens, a.name, idx)
                 return LoopIR.WindowExpr(a.name, idx, win_typ, a.srcinfo)
@@ -31,7 +32,7 @@ class WindowAnalysis(LoopIR_Rewrite):
             def promote_arg(a,sa):
                 if sa.type.is_win() and not a.type.is_win():
                     return promote_tensor(a,sa)
-                elif (type(sa.type) is T.Tensor and
+                elif (isinstance(sa.type, T.Tensor) and
                       not sa.type.is_win() and
                       a.type.is_win()):
                     self.err(a, "expected a non-window tensor")

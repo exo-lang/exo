@@ -8,7 +8,7 @@ from PIL import Image
 
 from SYS_ATL import proc, Procedure, DRAM
 from SYS_ATL.libs.memories import MDRAM
-from .helper import *
+from .helper import gkern, TMP_DIR, IMAGE, nprand, generate_lib, cvt_c, nparray
 
 
 # --- Start Blur Test ---
@@ -31,7 +31,7 @@ def gen_blur():
 
 def test_simple_blur():
     blur = gen_blur()
-    assert type(blur) is Procedure
+    assert isinstance(blur, Procedure)
 
     filename = "test_simple_blur"
 
@@ -74,7 +74,7 @@ def test_simple_blur_split():
                             if i + k >= 1 and i + k - n < 1 and j1 * 2 + j2 + l >= 1 and j1 * 2 + j2 + l - m < 1:
                                 res[i, j1 * 2 + j2] += kernel[k, l] * image[i + k - 1, j1 * 2 + j2 + l - 1]
 
-    assert type(simple_blur_split) is Procedure
+    assert isinstance(simple_blur_split, Procedure)
     filename = "test_simple_blur_split"
     simple_blur_split.compile_c(TMP_DIR, filename)
 
@@ -100,7 +100,7 @@ def test_split_blur():
     blur = blur.split('j',4,['j1','j2'])
     blur = blur.split('i#1',4,['i1','i2'])
 
-    assert type(blur) is Procedure
+    assert isinstance(blur, Procedure)
     filename = "test_split_blur"
 
     # Write pretty printing to a file
@@ -130,7 +130,7 @@ def test_reorder_blur():
     blur = blur.reorder('k','l')
     blur = blur.reorder('i','j')
 
-    assert type(blur) is Procedure
+    assert isinstance(blur, Procedure)
     filename = "test_reorder_blur"
 
     # Write pretty printing to a file
@@ -163,7 +163,7 @@ def test_unroll_blur():
     blur = blur.split('j',4,['j1','j2'])
     blur = blur.unroll('j2')
 
-    assert type(blur) is Procedure
+    assert isinstance(blur, Procedure)
     filename = "test_unroll_blur"
 
     # Write pretty printing to a file
@@ -201,7 +201,7 @@ def test_conv1d():
                 if j < i+1 and j >= i-m+1:
                     res[i] += x[j]*w[i-j]
 
-    assert type(conv1d) is Procedure
+    assert isinstance(conv1d, Procedure)
     filename = "test_conv1d"
     conv1d.compile_c(TMP_DIR, filename)
 
@@ -238,7 +238,7 @@ def test_alloc_nest():
             for j in par(0,m):
                 res[i,j] = rloc[j]
 
-    assert type(alloc_nest) is Procedure
+    assert isinstance(alloc_nest, Procedure)
 
     filename = "test_alloc_nest"
 
@@ -291,7 +291,7 @@ def test_alloc_nest_malloc():
             for j in par(0,m):
                 res[i,j] = rloc[j]
 
-    assert type(alloc_nest_malloc) is Procedure
+    assert isinstance(alloc_nest_malloc, Procedure)
 
     filename = "test_alloc_nest_malloc"
 
@@ -327,7 +327,7 @@ def test_unary_neg():
         for i in par(0, n):
             res[i] = -x[i] + -(x[i]) - -(x[i] + 0.0)
 
-    assert type(negate_array) is Procedure
+    assert isinstance(negate_array, Procedure)
     filename = test_unary_neg.__name__
 
     with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
@@ -373,7 +373,7 @@ def test_bool1():
         if a:
             x = 0.0
 
-    assert type(bool1) is Procedure
+    assert isinstance(bool1, Procedure)
     filename = test_bool1.__name__
 
     with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
@@ -392,7 +392,7 @@ def test_sin1():
     def sin1(x : f32):
         x = sin(x)
 
-    assert type(sin1) is Procedure
+    assert isinstance(sin1, Procedure)
     filename = test_sin1.__name__
 
     with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
@@ -415,7 +415,7 @@ def test_relu1():
     def relu1(x : f32):
         x = relu(x)
 
-    assert type(relu1) is Procedure
+    assert isinstance(relu1, Procedure)
     filename = test_relu1.__name__
 
     with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:
@@ -440,7 +440,7 @@ def test_select1():
         zero = 0.0
         x = select(x, zero, zero, x)
 
-    assert type(select1) is Procedure
+    assert isinstance(select1, Procedure)
     filename = test_select1.__name__
 
     with open(os.path.join(TMP_DIR, f'{filename}_pretty.atl'), 'w') as f:

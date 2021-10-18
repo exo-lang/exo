@@ -58,11 +58,11 @@ module Effects {
                 attributes( type type, srcinfo srcinfo )
 
 } """, {
-    'sym':          lambda x: type(x) is Sym,
-    'type':         lambda x: LoopIR.T.is_type(x),
-    'binop':        lambda x: x in front_ops,
-    'config':       lambda x: isinstance(x, Config),
-    'srcinfo':      lambda x: type(x) is SrcInfo,
+    'sym':     lambda x: isinstance(x, Sym),
+    'type':    lambda x: LoopIR.T.is_type(x),
+    'binop':   lambda x: x in front_ops,
+    'config':  lambda x: isinstance(x, Config),
+    'srcinfo': lambda x: isinstance(x, SrcInfo),
 })
 
 
@@ -83,10 +83,10 @@ module Effects {
 #             attributes( type type, srcinfo srcinfo )
 #
 # } """, {
-#     'sym':          lambda x: type(x) is Sym,
+#     'sym':          lambda x: isinstance(x, Sym),
 #     'type':         T.is_type,
 #     'binop':        lambda x: x in bin_ops,
-#     'srcinfo':      lambda x: type(x) is SrcInfo,
+#     'srcinfo':      lambda x: isinstance(x, SrcInfo),
 # })
 
 # --------------------------------------------------------------------------- #
@@ -127,34 +127,35 @@ def __str__(self):
 del __str__
 
 def _exprstr(e, prec=0):
-    if type(e) is Effects.Var:
+    if isinstance(e, Effects.Var):
         return str(e.name)
-    elif type(e) is Effects.Not:
+    elif isinstance(e, Effects.Not):
         return f"(not {e.arg})"
-    elif type(e) is Effects.Const:
+    elif isinstance(e, Effects.Const):
         return str(e.val)
-    elif type(e) is Effects.BinOp:
-        local_prec  = op_prec[e.op]
-        lhs         = _exprstr(e.lhs, prec=local_prec)
-        rhs         = _exprstr(e.rhs, prec=local_prec+1)
+    elif isinstance(e, Effects.BinOp):
+        local_prec = op_prec[e.op]
+        lhs = _exprstr(e.lhs, prec=local_prec)
+        rhs = _exprstr(e.rhs, prec=local_prec + 1)
         if local_prec < prec:
             return f"({lhs} {e.op} {rhs})"
         else:
             return f"{lhs} {e.op} {rhs}"
-    elif type(e) is Effects.Stride:
+    elif isinstance(e, Effects.Stride):
         return f"stride({e.name},{e.dim})"
-    elif type(e) is Effects.Select:
-        local_prec  = op_prec["ternary"]
-        cond        = _exprstr(e.cond)
-        tcase       = _exprstr(e.tcase, prec=local_prec+1)
-        fcase       = _exprstr(e.fcase, prec=local_prec+1)
+    elif isinstance(e, Effects.Select):
+        local_prec = op_prec["ternary"]
+        cond = _exprstr(e.cond)
+        tcase = _exprstr(e.tcase, prec=local_prec + 1)
+        fcase = _exprstr(e.fcase, prec=local_prec + 1)
         if local_prec < prec:
             return f"(({cond})? {tcase} : {fcase})"
         else:
             return f"({cond})? {tcase} : {fcase}"
-    elif type(e) is Effects.ConfigField:
+    elif isinstance(e, Effects.ConfigField):
         return f"{e.config.name()}.{e.field}"
-    else: assert False, "bad case"
+    else:
+        assert False, "bad case"
 
 
 @extclass(Effects.effect)
@@ -163,7 +164,7 @@ def __str__(self):
 del __str__
 
 def _effect_as_str(e):
-    assert type(e) is Effects.effect
+    assert isinstance(e, Effects.effect)
 
     def name(sym):
         return str(sym)
@@ -231,14 +232,14 @@ del negate
 def negate_expr(e):
     Tbool = LoopIR.T.bool
     assert e.type == Tbool, "can only negate predicates"
-    if type(e) is Effects.Const:
-        return Effects.Const( not e.val, e.type, e.srcinfo )
-    elif type(e) is Effects.Var:
-        return Effects.Not( e, e.type, e.srcinfo )
-    elif type(e) is Effects.Not:
+    if isinstance(e, Effects.Const):
+        return Effects.Const(not e.val, e.type, e.srcinfo)
+    elif isinstance(e, Effects.Var):
+        return Effects.Not(e, e.type, e.srcinfo)
+    elif isinstance(e, Effects.Not):
         return e.arg
-    elif type(e) is Effects.BinOp:
-        def change_op(op,lhs=e.lhs,rhs=e.rhs):
+    elif isinstance(e, Effects.BinOp):
+        def change_op(op, lhs=e.lhs, rhs=e.rhs):
             return Effects.BinOp(op, lhs, rhs, e.type, e.srcinfo)
 
         if e.op == "and":
@@ -256,20 +257,20 @@ def negate_expr(e):
         elif e.op == "==":
             if e.lhs.type is Tbool and e.rhs.type is Tbool:
                 l = Effects.BinOp("and", e.lhs, negate_expr(e.rhs),
-                                   Tbool, e.srcinfo)
+                                  Tbool, e.srcinfo)
                 r = Effects.BinOp("and", negate_expr(e.lhs), e.rhs,
-                                   Tbool, e.srcinfo)
+                                  Tbool, e.srcinfo)
 
                 return Effects.BinOp("or", l, r, Tbool, e.srcinfo)
             elif e.lhs.type.is_indexable() and e.rhs.type.is_indexable():
                 return Effects.BinOp("or", change_op("<"), change_op(">"),
-                               Tbool, e.srcinfo)
+                                     Tbool, e.srcinfo)
             else:
                 assert False, "TODO: add != support explicitly..."
-    elif type(e) is Effects.Select:
+    elif isinstance(e, Effects.Select):
         return Effects.Select(e.cond, negate_expr(e.tcase),
-                                      negate_expr(e.fcase),
-                                      e.type, e.srcinfo)
+                              negate_expr(e.fcase),
+                              e.type, e.srcinfo)
     assert False, "bad case"
 
 @extclass(Effects.effect)
@@ -280,50 +281,51 @@ def subst(self, env):
 
 del subst
 
+
 def eff_subst(env, eff):
-    if type(eff) is Effects.effset:
-        assert all( nm not in env for nm in eff.names )
-        buf  = env[eff.buffer] if eff.buffer in env else eff.buffer
+    if isinstance(eff, Effects.effset):
+        assert all(nm not in env for nm in eff.names)
+        buf = env[eff.buffer] if eff.buffer in env else eff.buffer
         pred = eff_subst(env, eff.pred) if eff.pred else None
         return Effects.effset(buf,
-                              [ eff_subst(env, e) for e in eff.loc ],
+                              [eff_subst(env, e) for e in eff.loc],
                               eff.names,
                               pred,
                               eff.srcinfo)
-    elif type(eff) is Effects.config_eff:
-        value   = eff_subst(env, eff.value) if eff.value else None
-        pred    = eff_subst(env, eff.pred) if eff.pred else None
+    elif isinstance(eff, Effects.config_eff):
+        value = eff_subst(env, eff.value) if eff.value else None
+        pred = eff_subst(env, eff.pred) if eff.pred else None
         return Effects.config_eff(eff.config, eff.field,
                                   value, pred, eff.srcinfo)
-    elif type(eff) is Effects.Var:
+    elif isinstance(eff, Effects.Var):
         return env[eff.name] if eff.name in env else eff
-    elif type(eff) is Effects.Not:
-        return Effects.Not( eff_subst(env, eff.arg ), eff.type, eff.srcinfo )
-    elif type(eff) is Effects.Const:
+    elif isinstance(eff, Effects.Not):
+        return Effects.Not(eff_subst(env, eff.arg), eff.type, eff.srcinfo)
+    elif isinstance(eff, Effects.Const):
         return eff
-    elif type(eff) is Effects.BinOp:
+    elif isinstance(eff, Effects.BinOp):
         return Effects.BinOp(eff.op, eff_subst(env, eff.lhs),
-                                     eff_subst(env, eff.rhs),
+                             eff_subst(env, eff.rhs),
                              eff.type, eff.srcinfo)
-    elif type(eff) is Effects.Stride:
+    elif isinstance(eff, Effects.Stride):
         assert eff.name not in env
         return eff
-    elif type(eff) is Effects.Select:
+    elif isinstance(eff, Effects.Select):
         return Effects.Select(eff_subst(env, eff.cond),
                               eff_subst(env, eff.tcase),
                               eff_subst(env, eff.fcase),
                               eff.type, eff.srcinfo)
-    elif type(eff) is Effects.ConfigField:
+    elif isinstance(eff, Effects.ConfigField):
         return eff
-    elif type(eff) is Effects.effect:
-        return Effects.effect( [eff_subst(env, es) for es in eff.reads],
-                               [eff_subst(env, es) for es in eff.writes],
-                               [eff_subst(env, es) for es in eff.reduces],
-                               [eff_subst(env, ce)
-                                for ce in eff.config_reads],
-                               [eff_subst(env, ce)
-                                for ce in eff.config_writes],
-                               eff.srcinfo )
+    elif isinstance(eff, Effects.effect):
+        return Effects.effect([eff_subst(env, es) for es in eff.reads],
+                              [eff_subst(env, es) for es in eff.writes],
+                              [eff_subst(env, es) for es in eff.reduces],
+                              [eff_subst(env, ce)
+                               for ce in eff.config_reads],
+                              [eff_subst(env, ce)
+                               for ce in eff.config_writes],
+                              eff.srcinfo)
     else:
         assert False, f"bad case: {type(eff)}"
 
@@ -335,44 +337,44 @@ def config_subst(self, env):
 del config_subst
 
 def _subcfg(env, eff):
-    if type(eff) is Effects.effset:
+    if isinstance(eff, Effects.effset):
         return Effects.effset(eff.buffer,
-                              [ _subcfg(env, e) for e in eff.loc ],
+                              [_subcfg(env, e) for e in eff.loc],
                               eff.names,
                               _subcfg(env, eff.pred) if eff.pred else None,
                               eff.srcinfo)
-    elif type(eff) is Effects.config_eff:
-        value   = _subcfg(env, eff.value) if eff.value else None
-        pred    = _subcfg(env, eff.pred) if eff.pred else None
+    elif isinstance(eff, Effects.config_eff):
+        value = _subcfg(env, eff.value) if eff.value else None
+        pred = _subcfg(env, eff.pred) if eff.pred else None
         return Effects.config_eff(eff.config, eff.field,
                                   value, pred, eff.srcinfo)
-    elif (type(eff) is Effects.Var or type(eff) is Effects.Const):
+    elif isinstance(eff, (Effects.Var, Effects.Const)):
         return eff
-    elif type(eff) is Effects.Not:
-        return Effects.Not( _subcfg(env, eff.arg), eff.type, eff.srcinfo )
-    elif type(eff) is Effects.BinOp:
+    elif isinstance(eff, Effects.Not):
+        return Effects.Not(_subcfg(env, eff.arg), eff.type, eff.srcinfo)
+    elif isinstance(eff, Effects.BinOp):
         return Effects.BinOp(eff.op, _subcfg(env, eff.lhs),
-                                     _subcfg(env, eff.rhs),
+                             _subcfg(env, eff.rhs),
                              eff.type, eff.srcinfo)
-    elif type(eff) is Effects.Stride:
+    elif isinstance(eff, Effects.Stride):
         return eff
-    elif type(eff) is Effects.Select:
+    elif isinstance(eff, Effects.Select):
         return Effects.Select(_subcfg(env, eff.cond),
                               _subcfg(env, eff.tcase),
                               _subcfg(env, eff.fcase),
                               eff.type, eff.srcinfo)
-    elif type(eff) is Effects.ConfigField:
-        if (eff.config,eff.field) in env:
-            return env[(eff.config,eff.field)]
+    elif isinstance(eff, Effects.ConfigField):
+        if (eff.config, eff.field) in env:
+            return env[(eff.config, eff.field)]
         else:
             return eff
-    elif type(eff) is Effects.effect:
-        return Effects.effect( [_subcfg(env, es) for es in eff.reads],
-                               [_subcfg(env, es) for es in eff.writes],
-                               [_subcfg(env, es) for es in eff.reduces],
-                               [_subcfg(env, ce) for ce in eff.config_reads],
-                               [_subcfg(env, ce) for ce in eff.config_writes],
-                               eff.srcinfo )
+    elif isinstance(eff, Effects.effect):
+        return Effects.effect([_subcfg(env, es) for es in eff.reads],
+                              [_subcfg(env, es) for es in eff.writes],
+                              [_subcfg(env, es) for es in eff.reduces],
+                              [_subcfg(env, ce) for ce in eff.config_reads],
+                              [_subcfg(env, ce) for ce in eff.config_writes],
+                              eff.srcinfo)
     else:
         assert False, f"bad case: {type(eff)}"
 
@@ -384,7 +386,7 @@ def get_effect_of_stmts(body):
     assert len(body) > 0
     eff   = eff_null(body[0].srcinfo)
     for s in reversed(body):
-        if type(s) is LoopIR.LoopIR.Alloc:
+        if isinstance(s, LoopIR.LoopIR.Alloc):
             eff = eff_remove_buf(s.name, eff)
         elif s.eff is not None:
             eff = eff_concat(s.eff, eff)
@@ -599,7 +601,7 @@ def eff_filter(pred, e):
 
 # handle for loop
 def eff_bind(bind_name, e, pred=None, config_pred=None):
-    assert type(bind_name) is Sym
+    assert isinstance(bind_name, Sym)
     def bind_es(es):
         return Effects.effset(es.buffer, es.loc, [bind_name]+es.names,
                               _and_preds(pred,es.pred), es.srcinfo)
@@ -629,31 +631,31 @@ def has_FV(self, x):
 del has_FV
 
 def _is_FV(x, eff):
-    if type(eff) is Effects.effset:
+    if isinstance(eff, Effects.effset):
         if x in eff.names:
             return False
         return ( any( _is_FV(x, e) for e in eff.loc ) or
                  (eff.pred is not None and is_FV(x, eff.pred)) )
-    elif type(eff) is Effects.config_eff:
+    elif isinstance(eff, Effects.config_eff):
         return ( (eff.value is not None and _is_FV(x, eff.value)) or
                  (eff.pred  is not None and _is_FV(x, eff.pred)) )
-    elif type(eff) is Effects.Var:
+    elif isinstance(eff, Effects.Var):
         return x == eff.name
-    elif type(eff) is Effects.Const:
+    elif isinstance(eff, Effects.Const):
         return False
-    elif type(eff) is Effects.Not:
+    elif isinstance(eff, Effects.Not):
         return _is_FV(x, eff.arg)
-    elif type(eff) is Effects.BinOp:
+    elif isinstance(eff, Effects.BinOp):
         return _is_FV(x, eff.lhs) or _is_FV(x, eff.rhs)
-    elif type(eff) is Effects.Stride:
+    elif isinstance(eff, Effects.Stride):
         return False
-    elif type(eff) is Effects.Select:
+    elif isinstance(eff, Effects.Select):
         return (_is_FV(x, eff.cond) or
                 _is_FV(x, eff.tcase) or
                 _is_FV(x, eff.fcase))
-    elif type(eff) is Effects.ConfigField:
+    elif isinstance(eff, Effects.ConfigField):
         return False
-    elif type(eff) is Effects.effect:
+    elif isinstance(eff, Effects.effect):
         return ( any( _is_FV(x, es) for es in eff.reads ) or
                  any( _is_FV(x, es) for es in eff.writes ) or
                  any( _is_FV(x, es) for es in eff.reduces ) or

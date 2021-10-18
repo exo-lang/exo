@@ -290,16 +290,16 @@ class GemmTestBuilder:
                       '']
 
     def alloc_gemm_1i8(self, name, N, acc=False):
-        assert type(N) is int
+        assert isinstance(N, int)
         self.alloc_gemm_2i8(name, N,16, acc=acc)
 
     def alloc_gemm_2i8(self, name, N, M, acc=False):
-        assert type(N) is int
-        assert type(M) is int
+        assert isinstance(N, int)
+        assert isinstance(M, int)
         assert M % 16 == 0
         self.install_gemm_allocator()
-        self.glob += [f'int8_t *{name};','']
-        malloc    = 'gemm_acc_malloc' if acc else 'gemm_malloc'
+        self.glob += [f'int8_t *{name};', '']
+        malloc = 'gemm_acc_malloc' if acc else 'gemm_malloc'
         self.body += [f'{name} = (int8_t*)((uint64_t){malloc}({N}*{M}/16));',
                       '']
 
@@ -312,5 +312,5 @@ class GemmTestBuilder:
                       '']
 
     def add_body(self, lines):
-        assert type(lines) is list
+        assert isinstance(lines, list)
         self.body += lines

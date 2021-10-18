@@ -119,8 +119,8 @@ class TypeChecker:
         return idx, typ
 
     def check_single_stmt(self, stmt):
-        if type(stmt) is UAST.FreshAssign:
-            rhs     = self.check_e(stmt.rhs)
+        if isinstance(stmt, UAST.FreshAssign):
+            rhs = self.check_e(stmt.rhs)
 
             # We see a statement of the form
             #   nm = ...
@@ -131,87 +131,87 @@ class TypeChecker:
             if rhs.type == T.err:
                 self.env[stmt.name] = T.err
                 return []
-            elif type(rhs.type) is T.Window:
-                assert type(rhs) is LoopIR.WindowExpr
+            elif isinstance(rhs.type, T.Window):
+                assert isinstance(rhs, LoopIR.WindowExpr)
                 self.env[stmt.name] = rhs.type
-                return [ LoopIR.WindowStmt( stmt.name, rhs,
-                                            None, stmt.srcinfo ) ]
+                return [LoopIR.WindowStmt(stmt.name, rhs,
+                                          None, stmt.srcinfo)]
             else:
-                self.err(stmt, f"unable to disambiguate assignment to "+
+                self.err(stmt, f"unable to disambiguate assignment to "
                                f"undefined variable '{stmt.name}'")
                 self.env[stmt.name] = T.err
                 return []
 
-        if type(stmt) is UAST.Assign or type(stmt) is UAST.Reduce:
-            rhs     = self.check_e(stmt.rhs)
+        if isinstance(stmt, (UAST.Assign, UAST.Reduce)):
+            rhs = self.check_e(stmt.rhs)
             if rhs.type != T.err and not rhs.type.is_real_scalar():
-                self.err(rhs, f"cannot assign/reduce a "+
+                self.err(rhs, f"cannot assign/reduce a "
                               f"'{rhs.type}' type value")
 
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx,
                                          lvalue=True)
             assert (typ.is_real_scalar() or typ is T.err)
 
-            IRnode  = (LoopIR.Assign if type(stmt) is UAST.Assign else
-                       LoopIR.Reduce)
+            IRnode = (LoopIR.Assign if isinstance(stmt, UAST.Assign) else
+                      LoopIR.Reduce)
             return [IRnode(stmt.name, typ, None, idx, rhs, None, stmt.srcinfo)]
 
-        elif type(stmt) is UAST.WriteConfig:
+        elif isinstance(stmt, UAST.WriteConfig):
             # Check that field is in config
             if not stmt.config.has_field(stmt.field):
-                self.err(stmt.field, f"expected '{stmt.field}'  to be a field "+
-                                     f"in config '{stmt.config.name()}'")
+                self.err(stmt.field,
+                         f"expected '{stmt.field}'  to be a field "
+                         f"in config '{stmt.config.name()}'")
 
-            ftyp    = stmt.config.lookup(stmt.field)[1]
-            rhs     = self.check_e(stmt.rhs)
+            ftyp = stmt.config.lookup(stmt.field)[1]
+            rhs = self.check_e(stmt.rhs)
 
             if rhs.type != T.err:
                 if ftyp.is_real_scalar():
                     if not rhs.type.is_real_scalar():
-                        self.err(rhs, f"expected a real scalar value, but "+
+                        self.err(rhs, f"expected a real scalar value, but "
                                       f"got an expression of type {rhs.type}")
                 elif ftyp.is_indexable():
                     if not rhs.type.is_indexable():
-                        self.err(rhs, f"expected an index or size type "+
+                        self.err(rhs, f"expected an index or size type "
                                       f"expression, but got type {rhs.type}")
                 elif ftyp == T.bool:
                     if rhs.type != T.bool:
-                        self.err(rhs, f"expected a bool expression, "+
+                        self.err(rhs, f"expected a bool expression, "
                                       f"but got type {rhs.type}")
                 elif ftyp.is_stridable():
                     if not rhs.type.is_stridable():
-                        self.err(rhs, f"expected a stride type expression, "+
+                        self.err(rhs, f"expected a stride type expression, "
                                       f"but got type {rhs.type}")
                 else:
                     assert False, "bad case"
 
             return [LoopIR.WriteConfig(stmt.config, stmt.field,
                                        rhs, None, stmt.srcinfo)]
-        elif type(stmt) is UAST.Pass:
+        elif isinstance(stmt, UAST.Pass):
             return [LoopIR.Pass(None, stmt.srcinfo)]
 
-        elif type(stmt) is UAST.If:
-            cond    = self.check_e(stmt.cond)
+        elif isinstance(stmt, UAST.If):
+            cond = self.check_e(stmt.cond)
             if cond.type != T.err and cond.type != T.bool:
                 self.err(cond, f"expected a bool expression")
-            body    = self.check_stmts(stmt.body)
-            ebody   = []
+            body = self.check_stmts(stmt.body)
+            ebody = []
             if len(stmt.orelse) > 0:
-                ebody   = self.check_stmts(stmt.orelse)
+                ebody = self.check_stmts(stmt.orelse)
             return [LoopIR.If(cond, body, ebody, None, stmt.srcinfo)]
 
-        elif type(stmt) is UAST.ForAll:
+        elif isinstance(stmt, UAST.ForAll):
             self.env[stmt.iter] = T.index
 
             # handle standard ParRanges
-            parerr = ("currently supporting for-loops of the form:\n" +
-                      "  'for _ in par(0, affine_expression):' and "+
+            parerr = ("currently supporting for-loops of the form:\n"
+                      "  'for _ in par(0, affine_expression):' and "
                       "'for _ in seq(0, affine_expression):'")
 
-            if ((type(stmt.cond) is not UAST.ParRange and
-                    type(stmt.cond) is not UAST.SeqRange) or
-                        type(stmt.cond.lo) is not UAST.Const or
-                            stmt.cond.lo.val != 0):
+            if not (isinstance(stmt.cond, (UAST.ParRange, UAST.SeqRange))
+                    and isinstance(stmt.cond.lo, UAST.Const)
+                    and stmt.cond.lo.val == 0):
                 self.err(stmt.cond, parerr)
 
             hi = self.check_e(stmt.cond.hi)
@@ -219,14 +219,14 @@ class TypeChecker:
                 self.err(hi, "expected loop bound to be indexable.")
 
             body = self.check_stmts(stmt.body)
-            if type(stmt.cond) is UAST.ParRange:
+            if isinstance(stmt.cond, UAST.ParRange):
                 return [LoopIR.ForAll(stmt.iter, hi, body, None, stmt.srcinfo)]
-            elif type(stmt.cond) is UAST.SeqRange:
+            elif isinstance(stmt.cond, UAST.SeqRange):
                 return [LoopIR.Seq(stmt.iter, hi, body, None, stmt.srcinfo)]
             else:
                 assert False, "bad case"
 
-        elif type(stmt) is UAST.Alloc:
+        elif isinstance(stmt, UAST.Alloc):
             typ = self.check_t(stmt.type)
             self.env[stmt.name] = typ
             mem = stmt.mem
@@ -234,16 +234,16 @@ class TypeChecker:
                 mem = DRAM
             return [LoopIR.Alloc(stmt.name, typ, mem, None, stmt.srcinfo)]
 
-        elif type(stmt) is UAST.Call:
-            args    = [ self.check_e(a) for a in stmt.args ]
+        elif isinstance(stmt, UAST.Call):
+            args = [self.check_e(a) for a in stmt.args]
 
-            for call_a,sig_a in zip(args, stmt.f.args):
+            for call_a, sig_a in zip(args, stmt.f.args):
                 if call_a.type == T.err:
                     pass
                 elif sig_a.type is T.size or sig_a.type is T.index:
                     if not call_a.type.is_indexable():
-                        self.err(call_a, "expected size or index type "+
-                                         "expression, "+
+                        self.err(call_a, "expected size or index type "
+                                         "expression, "
                                          f"but got type {call_a.type}")
 
                 elif sig_a.type is T.bool:
@@ -264,10 +264,10 @@ class TypeChecker:
 
                     # ensure scalars are simply variable names
                     elif call_a.type.is_real_scalar():
-                        if (type(call_a) is not LoopIR.Read or
-                            len(call_a.idx) != 0):
-                            self.err(call_a, "expected scalar arguments "+
-                                             "to be simply variable names "+
+                        if not (isinstance(call_a, LoopIR.Read) and
+                                len(call_a.idx) == 0):
+                            self.err(call_a, "expected scalar arguments "
+                                             "to be simply variable names "
                                              "for now")
 
                 else: assert False, "bad argument type case"
@@ -278,20 +278,20 @@ class TypeChecker:
 
 
     def check_w_access(self, e, orig_hi):
-        if type(e) is UAST.Point:
+        if isinstance(e, UAST.Point):
             pt = self.check_e(e.pt)
             if pt.type != T.err and not pt.type.is_indexable():
-                self.err(pt, f"cannot index with expression "+
+                self.err(pt, f"cannot index with expression "
                              f"of type '{pt.type}'")
-            return LoopIR.Point( pt, e.srcinfo )
+            return LoopIR.Point(pt, e.srcinfo)
 
-        elif type(e) is UAST.Interval:
+        elif isinstance(e, UAST.Interval):
             if e.lo is None:
                 lo = LoopIR.Const(0, T.int, e.srcinfo)
             else:
                 lo = self.check_e(e.lo)
                 if lo.type != T.err and not lo.type.is_indexable():
-                    self.err(lo, f"cannot index with expression "+
+                    self.err(lo, f"cannot index with expression "
                                  f"of type '{lo.type}'")
 
             if e.hi is None:
@@ -305,29 +305,29 @@ class TypeChecker:
             return LoopIR.Interval( lo, hi, e.srcinfo )
 
     def build_window_shape(self, ws):
-        def subtract(hi,lo):
-            if type(lo) is LoopIR.Const and lo.val == 0:
+        def subtract(hi, lo):
+            if isinstance(lo, LoopIR.Const) and lo.val == 0:
                 return hi
             else:
                 return LoopIR.BinOp('-', hi, lo, T.index, hi.srcinfo)
 
-        return [ subtract(w.hi, w.lo)
-                 for w in ws
-                 if type(w) is LoopIR.Interval ]
+        return [subtract(w.hi, w.lo)
+                for w in ws
+                if isinstance(w, LoopIR.Interval)]
 
     def check_e(self, e):
-        if type(e) is UAST.Read:
-            typ     = self.env[e.name]
+        if isinstance(e, UAST.Read):
+            typ = self.env[e.name]
             # if we only partially accessed the base tensor/window,
             # then this is sugar for a windowing expression
-            if ( typ.is_tensor_or_window() and
-                 0 < len(e.idx) < len(typ.shape()) ):
+            if (typ.is_tensor_or_window() and
+                    0 < len(e.idx) < len(typ.shape())):
                 # expand to a windowing expression
                 # x[i] == x[i,:]
 
-                idxs    = ([ UAST.Point(i, i.srcinfo) for i in e.idx ] +
-                           [ UAST.Interval(None, None, e.srcinfo)
-                             for _ in range(0,len(typ.shape()) - len(e.idx)) ])
+                idxs = ([UAST.Point(i, i.srcinfo) for i in e.idx] +
+                        [UAST.Interval(None, None, e.srcinfo)
+                         for _ in range(0, len(typ.shape()) - len(e.idx))])
 
                 desugared = UAST.WindowExpr(e.name, idxs, e.srcinfo)
                 return self.check_e(desugared)
@@ -337,16 +337,16 @@ class TypeChecker:
                 idx, typ = self.check_access(e, e.name, e.idx, lvalue=False)
                 return LoopIR.Read(e.name, idx, typ, e.srcinfo)
 
-        elif type(e) is UAST.WindowExpr:
+        elif isinstance(e, UAST.WindowExpr):
             typ = self.env[e.name]
             if not typ.is_tensor_or_window():
-                self.err(e, f"cannot perform windowing on non-tensor, "+
+                self.err(e, f"cannot perform windowing on non-tensor, "
                             f"non-window type {e.base}")
-                return LoopIR.WindowExpr(e.name,[],T.err,e.srcinfo)
+                return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 
             shape = typ.shape()
             if len(shape) != len(e.idx):
-                self.err(e, f"expected {len(shape)} indices for window "+
+                self.err(e, f"expected {len(shape)} indices for window "
                             f"but got {len(e.idx)}")
 
             idx = [ self.check_w_access(w, t) for w,t in zip(e.idx, shape) ]
@@ -358,23 +358,18 @@ class TypeChecker:
             w_typ           = T.Window( typ, as_tensor, e.name, idx )
             return LoopIR.WindowExpr( e.name, idx, w_typ, e.srcinfo )
 
-        elif type(e) is UAST.Const:
-            if type(e.val) is float:
-                return LoopIR.Const(e.val, T.R, e.srcinfo)
-            elif type(e.val) is int:
-                return LoopIR.Const(e.val, T.int, e.srcinfo)
-            elif type(e.val) is bool:
-                return LoopIR.Const(e.val, T.bool, e.srcinfo)
-            else:
-            # We currently don't allow constant bool type
-                self.err(e, f"literal of unexpected type '{type(e.val)}' "
-                            f"and value: {e.val}")
+        elif isinstance(e, UAST.Const):
+            ty = {float: T.R, bool: T.bool, int: T.int}.get(type(e.val))
+            if not ty:
+                self.err(e, f"literal of unexpected type '{type(e.val)}' and "
+                            f"value: {e.val}")
                 return LoopIR.Const(0, T.err, e.srcinfo)
+            return LoopIR.Const(e.val, ty, e.srcinfo)
 
-        elif type(e) is UAST.USub:
+        elif isinstance(e, UAST.USub):
             arg = self.check_e(e.arg)
             if arg.type.is_real_scalar() or arg.type.is_indexable():
-                if type(arg) is LoopIR.Const:
+                if isinstance(arg, LoopIR.Const):
                     return LoopIR.Const(-arg.val, arg.type, e.srcinfo)
                 else:
                     return LoopIR.USub(arg, arg.type, e.srcinfo)
@@ -382,7 +377,7 @@ class TypeChecker:
                 self.err(e, f"cannot negate expression of type '{arg.type}'")
             return LoopIR.Const(0, T.err, e.srcinfo)
 
-        elif type(e) is UAST.BinOp:
+        elif isinstance(e, UAST.BinOp):
             lhs = self.check_e(e.lhs)
             rhs = self.check_e(e.rhs)
             typ = T.err
@@ -449,12 +444,13 @@ class TypeChecker:
                     assert lhs.type.is_indexable()
                     assert rhs.type.is_indexable()
                     if e.op == "/" or e.op == "%":
-                        if rhs.type != T.int or type(rhs) is not LoopIR.Const:
-                            self.err(rhs, "cannot divide or modulo by a "+
+                        if rhs.type != T.int or not isinstance(rhs,
+                                                               LoopIR.Const):
+                            self.err(rhs, "cannot divide or modulo by a "
                                           "non-constant value")
                             typ = T.err
                         elif rhs.val <= 0:
-                            self.err(rhs, "cannot divide or modulo by zero "+
+                            self.err(rhs, "cannot divide or modulo by zero "
                                           "or a negative value")
                             typ = T.err
 
@@ -481,9 +477,9 @@ class TypeChecker:
 
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
 
-        elif type(e) is UAST.BuiltIn:
+        elif isinstance(e, UAST.BuiltIn):
 
-            args    = [ self.check_e(a) for a in e.args ]
+            args = [self.check_e(a) for a in e.args]
 
             try:
                 typ = e.f.typecheck(args)
@@ -491,9 +487,9 @@ class TypeChecker:
                 typ = T.err
                 self.err(e, str(err))
 
-            return LoopIR.BuiltIn( e.f, args, typ, e.srcinfo)
+            return LoopIR.BuiltIn(e.f, args, typ, e.srcinfo)
 
-        elif type(e) is UAST.StrideExpr:
+        elif isinstance(e, UAST.StrideExpr):
             idx, typ = self.check_access(e, e.name, [], lvalue=False)
             assert len(idx) == 0
             if typ == T.err:
@@ -503,17 +499,17 @@ class TypeChecker:
             else:
                 shape = typ.shape()
                 if not (0 <= e.dim < len(shape)):
-                    self.err(e, f"expected {e.dim} to be in-bounds "+
+                    self.err(e, f"expected {e.dim} to be in-bounds "
                                 f"(i.e. 0 <= {e.dim} < {len(shape)})")
 
             return LoopIR.StrideExpr(e.name, e.dim, T.stride, e.srcinfo)
 
-        elif type(e) is UAST.ParRange:
-            assert False, ("parser should not place ParRange anywhere "+
+        elif isinstance(e, UAST.ParRange):
+            assert False, ("parser should not place ParRange anywhere "
                            "outside of a for-loop condition")
-        elif type(e) is UAST.ReadConfig:
+        elif isinstance(e, UAST.ReadConfig):
             if not e.config.has_field(e.field):
-                self.err(e.field, f"'{e.field}' has to be a field in config "+
+                self.err(e.field, f"'{e.field}' has to be a field in config "
                                   f"'{e.config.name()}'")
 
             ftyp = e.config.lookup(e.field)[1]
@@ -538,13 +534,13 @@ class TypeChecker:
     def check_t(self, typ):
         if type(typ) in TypeChecker._typ_table:
             return TypeChecker._typ_table[type(typ)]
-        elif type(typ) is UAST.Tensor:
-            hi          = [self.check_e(h) for h in typ.hi]
-            sub_typ     = self.check_t(typ.type)
+        elif isinstance(typ, UAST.Tensor):
+            hi = [self.check_e(h) for h in typ.hi]
+            sub_typ = self.check_t(typ.type)
             for h in hi:
                 if not h.type.is_indexable():
-                    self.err(h, "expected array size expression "+
-                                 "to have type 'size' or type 'index'")
+                    self.err(h, "expected array size expression "
+                                "to have type 'size' or type 'index'")
             return T.Tensor(hi, typ.is_window, sub_typ)
         else:
             assert False, "bad case"

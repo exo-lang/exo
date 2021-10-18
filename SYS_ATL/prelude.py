@@ -4,16 +4,16 @@ from re import compile as _re_compile
 
 
 def is_pos_int(obj):
-    return type(obj) is int and obj >= 1
+    return isinstance(obj, int) and obj >= 1
 
 
 _valid_pattern = _re_compile(r"^[a-zA-Z_]\w*$")
 valid_name_pattern = r"[a-zA-Z_]\w*"
 
 def is_valid_name(obj):
-    return ((type(obj) is str) and
+    return (isinstance(obj, str) and
             obj != '_' and  # prohibit the name '_' universally
-            (_valid_pattern.match(obj) != None))
+            (_valid_pattern.match(obj) is not None))
 
 
 class Sym:

@@ -21,7 +21,7 @@ def run_interpreter(proc, kwargs):
 
 class Interpreter:
     def __init__(self, proc, kwargs, use_randomization=False):
-        assert type(proc) is LoopIR.proc
+        assert isinstance(proc, LoopIR.proc)
 
         self.proc = proc
         self.env = ChainMap()
@@ -63,7 +63,7 @@ class Interpreter:
         # raise TypeError(f"type of argument '{a.name}' "
         #                 f"value mismatches")
         pre = f"bad argument '{nm}'"
-        if type(buf) is not np.ndarray:
+        if not isinstance(buf, np.ndarray):
             raise TypeError(f"{pre}: expected numpy.ndarray")
         elif buf.dtype != float and buf.dtype != np.float32:
             raise TypeError(f"{pre}: expected buffer of floating-point values; "+
@@ -141,11 +141,7 @@ class Interpreter:
 
         if etyp is LoopIR.Read:
             buf = self.env[e.name]
-            if type(buf) is int:
-                return buf
-            elif type(buf) is bool:
-                return buf
-            if call_arg:
+            if call_arg or isinstance(buf, (int, bool)):
                 return buf
             else:
                 idx = ((0,) if len(e.idx) == 0
@@ -164,7 +160,7 @@ class Interpreter:
             elif e.op == "*":
                 return lhs * rhs
             elif e.op == "/": # is this right?
-                if type(lhs) is int:
+                if isinstance(lhs, int):
                     return (lhs + rhs - 1) // rhs
                 else:
                     return lhs / rhs
