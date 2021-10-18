@@ -6,9 +6,7 @@ from ctypes import *
 import os
 import subprocess
 import scipy.stats as st
-sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure
-sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
 # I'm going to define a 1-d version of a standard convolutional layer, like in CuDNN

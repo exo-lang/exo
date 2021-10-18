@@ -8,8 +8,6 @@ from __future__ import annotations
 #import os
 
 import sys
-sys.path.append(sys.path[0]+"/..")
-sys.path.append(sys.path[0]+"/.")
 from SYS_ATL import proc, instr, Procedure, DRAM, compile_procs
 from SYS_ATL.libs.memories import GEMM_SCRATCH, GEMM_ACCUM, MDRAM
 from .gemmini import *

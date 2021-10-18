@@ -4,9 +4,6 @@ import sys
 import subprocess
 import pytest
 
-sys.path.append(sys.path[0]+"/..")
-sys.path.append(sys.path[0]+"/.")
-
 from SYS_ATL import compile_procs
 
 

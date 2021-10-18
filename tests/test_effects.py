@@ -7,10 +7,8 @@ import subprocess
 import numpy as np
 import scipy.stats as st
 import pytest
-sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
-sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
 # ------- Effect check tests ---------
@@ -591,5 +589,3 @@ def test_read_write2():
 
 
 """
-
-

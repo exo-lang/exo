@@ -7,10 +7,8 @@ import subprocess
 import numpy as np
 import scipy.stats as st
 import pytest
-sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure, DRAM, config, instr
 from SYS_ATL.libs.memories import GEMM_SCRATCH
-sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
 # ------- Configuration tests ---------
