@@ -13,6 +13,7 @@ amx_build/
 
 venv/
 
+*.swp
 *~
 *#
 build
