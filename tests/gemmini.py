@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import sys
-sys.path.append(sys.path[0]+"/..")
-sys.path.append(sys.path[0]+"/.")
 
 
 from SYS_ATL import proc, instr, Procedure, DRAM, compile_procs, config

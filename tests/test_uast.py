@@ -1,7 +1,6 @@
 from __future__ import annotations
 import sys
 from SYS_ATL import proc, instr, Procedure, DRAM
-sys.path.append(sys.path[0]+"/..")
 
 # Merge this file to frontend?
 

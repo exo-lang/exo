@@ -7,9 +7,7 @@ import subprocess
 import numpy as np
 import scipy.stats as st
 import pytest
-sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure, DRAM
-sys.path.append(sys.path[0]+"/.")
 from .helper import *
 
 # ------- Window related tests ---------

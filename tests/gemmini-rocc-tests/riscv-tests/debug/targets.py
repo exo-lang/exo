@@ -189,7 +189,9 @@ def target(parsed):
     filename = os.path.basename(parsed.target)
     module_name = os.path.splitext(filename)[0]
 
+    # TODO: don't touch sys.path without documenting why
     sys.path.append(directory)
+
     module = importlib.import_module(module_name)
     found = []
     for name in dir(module):

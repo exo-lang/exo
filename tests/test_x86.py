@@ -3,10 +3,8 @@ from __future__ import annotations
 import itertools
 import sys
 
-sys.path.append(sys.path[0] + "/..")
 from SYS_ATL.platform.x86 import *
 
-sys.path.append(sys.path[0] + "/.")
 from .helper import *
 
 import platform
