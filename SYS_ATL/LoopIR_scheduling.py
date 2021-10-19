@@ -1497,6 +1497,21 @@ class _FissionLoops:
         else:
             return ([single_stmt],[])
 
+class _DoAddGuard(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, itr_stmt, val):
+        self.stmt = stmt
+        self.itr = itr_stmt.iter
+        self.val = val
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s == self.stmt:
+            cond = LoopIR.BinOp('==', LoopIR.Read(self.itr, [], T.index, s.srcinfo),
+                                      LoopIR.Const(self.val, T.int, s.srcinfo), T.bool, s.srcinfo)
+            return [LoopIR.If(cond, [s], [], None, s.srcinfo)]
+
+        return super().map_s(s)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -1707,3 +1722,4 @@ class Schedules:
     DoInlineWindow      = _InlineWindow
     DoDeletePass        = _DoDeletePass
     DoSimplify          = _DoSimplify
+    DoAddGuard          = _DoAddGuard

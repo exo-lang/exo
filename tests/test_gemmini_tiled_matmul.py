@@ -641,19 +641,27 @@ def test_matmul_c_i8_perfect():
     matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('for k in _:_', n_lifts=2)
     matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('j','k')
     matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i','k')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #1', n_lifts=3)
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #0', n_lifts=3)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i','j')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for i in _:_ #1')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for j in _:_ #1')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('config_ld_i8(_,_) #0', 'j', 0)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('do_ld_i8(_) #0', 'j', 0)
 
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_zero(_)', n_lifts=2)
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_ld_i8(_)', n_lifts=2)
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #1', n_lifts=3)
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #0', n_lifts=3)
+
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_zero(_)', n_lifts=2)
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_ld_i8(_)', n_lifts=2)
     #matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("for k in _:_ #0", "config_ld_i8(_) #1")
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
 
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j')
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i')
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j')
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i')
 
+    print(matmul_c_i8_perfect)
+"""
     T.add_proc(matmul_c_i8_perfect)
     T.add_proc(matmul_c_i8_cpu)
 
@@ -682,7 +690,5 @@ def test_matmul_c_i8_perfect():
 
     T.compile().run()
 
-    print(matmul_c_i8_perfect)
-"""
     #matmul_c_i8_perfect.check_effects()
 """

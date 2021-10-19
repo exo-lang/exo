@@ -431,6 +431,23 @@ class Procedure(ProcedureBase):
                                         perfect=perfect).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def add_guard(self, stmt_pat, iter_pat, value):
+      if type(stmt_pat) is not str:
+          raise TypeError("expected first arg to be a string")
+      if type(iter_pat) is not str:
+          raise TypeError("expected second arg to be a string")
+      if type(value) is not int:
+          raise TypeError("expected third arg to be an int")
+
+      iter_pat = iter_name_to_pattern(iter_pat)
+      iter_pat = self._find_stmt(iter_pat)
+      stmts = self._find_stmt(stmt_pat, default_match_no=None)
+      loopir = self._loopir_proc
+      for s in stmts:
+          loopir = Schedules.DoAddGuard(loopir, s, iter_pat, value).result()
+
+      return Procedure(loopir, _provenance_eq_Procedure=self)
+
     def delete_pass(self):
         loopir = self._loopir_proc
         loopir = Schedules.DoDeletePass(loopir).result()
