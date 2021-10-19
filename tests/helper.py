@@ -8,7 +8,6 @@ import numpy as np
 from PIL import Image
 import scipy.stats as st
 
-sys.path.append(sys.path[0] + "/..")
 from SYS_ATL import proc, Procedure
 
 # Figure out the filesystem location of this file

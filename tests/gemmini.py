@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import sys
-sys.path.append(sys.path[0]+"/..")
-sys.path.append(sys.path[0]+"/.")
 
 
 from SYS_ATL import proc, instr, Procedure, DRAM, compile_procs, config
@@ -157,6 +155,14 @@ def ld_acc_i32(
             tmp      = src[i,j]
             tmp      = tmp * scale
             dst[i,j] = tmp
+
+
+
+
+
+
+
+
 
 _gemm_st_i8   = ("gemmini_extended_config_st({dst}.strides[0]*1, 0, 1.0f);\n"+
                  "gemmini_extended_mvout( "+
@@ -367,10 +373,13 @@ zero_acc_i32_v2 = zero_acc_i32_v2.configwrite_after('ConfigLoad.scale = _', Conf
 zero_acc_i32_v2 = zero_acc_i32_v2.replace(do_zero_acc_i32, 'for i in _:_')
 zero_acc_i32_v2 = zero_acc_i32_v2.replace(config_zero, 'ConfigLoad.scale = 1.0')
 
-zero_i8 = zero_i8.delete_pass()
-zero_i8_v2 = zero_i8_v2.delete_pass()
-zero_acc_i32    = zero_acc_i32.delete_pass()
-zero_acc_i32_v2 = zero_acc_i32_v2.delete_pass()
+zero_i8 = zero_i8.delete_pass().make_instr(_gemm_zero)
+zero_i8_v2 = zero_i8_v2.delete_pass().make_instr(_gemm_zero)
+zero_acc_i32    = zero_acc_i32.delete_pass().make_instr(_gemm_zero)
+zero_acc_i32_v2 = zero_acc_i32_v2.delete_pass().make_instr(_gemm_zero)
+
+
+
 
 
 
@@ -390,7 +399,19 @@ _gemm_config_matmul = "gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);\n"
 def config_matmul():
     ConfigMatmul.done = True
 
-@proc
+_gemm_matmul = (
+       "gemmini_extended_preload("+
+            "(uint32_t)({B}.data), (uint32_t)({C}.data), "+
+            "{M}, {K}, "+
+            "{M}, {N}"+
+       ");\n"+
+       "gemmini_extended_compute_preloaded("+
+            "(uint32_t)({A}.data), ~((uint32_t)0), "+
+            "{K}, {N}, "+
+            "16, 16"+
+       ");")
+
+@instr(_gemm_config_matmul + _gemm_matmul)
 def matmul_i8(
     N : size,
     M : size,
@@ -415,16 +436,8 @@ def matmul_i8(
                 b = B[k,j]
 
                 C[i, j] += a * b
-@instr("gemmini_extended_preload("+
-            "(uint32_t)({B}.data), (uint32_t)({C}.data), "+
-            "{M}, {K}, "+
-            "{M}, {N}"+
-       ");\n"+
-       "gemmini_extended_compute_preloaded("+
-            "(uint32_t)({A}.data), ~((uint32_t)0), "+
-            "{K}, {N}, "+
-            "16, 16"+
-       ");")
+
+@instr(_gemm_matmul)
 def do_matmul_i8(
     N : size,
     M : size,
@@ -448,17 +461,30 @@ def do_matmul_i8(
                 b = B[k,j]
 
                 C[i, j] += a * b
+
 matmul_i8_v2 = matmul_i8.rename("matmul_i8_v2")
 matmul_i8_v2 = matmul_i8_v2.configwrite_after('pass', ConfigMatmul, 'done', 'True')
 matmul_i8_v2 = matmul_i8_v2.replace(do_matmul_i8, 'for i in _:_')
 matmul_i8_v2 = matmul_i8_v2.replace(config_matmul, 'ConfigMatmul.done = True')
-matmul_i8_v2 = matmul_i8_v2.delete_pass()
-matmul_i8    = matmul_i8.delete_pass()
+matmul_i8_v2 = matmul_i8_v2.delete_pass().make_instr(_gemm_matmul)
+matmul_i8    = matmul_i8.delete_pass().make_instr(_gemm_config_matmul + _gemm_matmul)
 
 
 
 
-@proc
+_gemm_matmul_acc = (
+       "gemmini_extended_preload("+
+            "(uint32_t)({B}.data), (uint32_t)({C}.data) | 0x40000000, "+
+            "{M}, {K}, "+
+            "{M}, {N}"+
+       ");\n"+
+       "gemmini_extended_compute_preloaded("+
+            "(uint32_t)({A}.data), ~((uint32_t)0), "+
+            "{K}, {N}, "+
+            "16, 16"+
+       ");")
+
+@instr(_gemm_matmul_acc)
 def matmul_acc_i8(
     N : size,
     M : size,
@@ -482,16 +508,8 @@ def matmul_acc_i8(
                 b = B[k,j]
 
                 C[i, j] += a * b
-@instr("gemmini_extended_preload("+
-            "(uint32_t)({B}.data), (uint32_t)({C}.data) | 0x40000000, "+
-            "{M}, {K}, "+
-            "{M}, {N}"+
-       ");\n"+
-       "gemmini_extended_compute_preloaded("+
-            "(uint32_t)({A}.data), ~((uint32_t)0), "+
-            "{K}, {N}, "+
-            "16, 16"+
-       ");")
+
+@instr(_gemm_matmul_acc)
 def do_matmul_acc_i8(
     N : size,
     M : size,
@@ -518,8 +536,8 @@ matmul_acc_i8_v2 = matmul_acc_i8.rename("matmul_acc_i8_v2")
 matmul_acc_i8_v2 = matmul_acc_i8_v2.configwrite_after('pass', ConfigMatmul, 'done', 'True')
 matmul_acc_i8_v2 = matmul_acc_i8_v2.replace(do_matmul_acc_i8, 'for i in _:_')
 matmul_acc_i8_v2 = matmul_acc_i8_v2.replace(config_matmul, 'ConfigMatmul.done = True')
-matmul_acc_i8_v2 = matmul_acc_i8_v2.delete_pass()
-matmul_acc_i8    = matmul_acc_i8.delete_pass()
+matmul_acc_i8_v2 = matmul_acc_i8_v2.delete_pass().make_instr(_gemm_matmul_acc)
+matmul_acc_i8    = matmul_acc_i8.delete_pass().make_instr(_gemm_config_matmul + _gemm_matmul_acc)
 
 # --------------------------------------------------------------------------- #
 #

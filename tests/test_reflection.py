@@ -1,9 +1,7 @@
 from __future__ import annotations
 import pytest
 import sys
-sys.path.append(sys.path[0]+"/..")
 from SYS_ATL import proc, Procedure, DRAM, config, instr, QAST
-sys.path.append(sys.path[0]+"/.")
 
 # ------- Reflection tests ---------
 
@@ -129,4 +127,3 @@ def test_get_no_loop_info():
 
   info  = get_loop_nest_info(sgemm, "for abc in _: _ #0")
   assert info == []
-
