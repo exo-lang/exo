@@ -5,7 +5,14 @@ import pytest
 
 from SYS_ATL import compile_procs
 
-CC_BAREMETAL        = 'clang'
+import distutils.spawn
+
+SDE = distutils.spawn.find_executable("sde")
+if SDE is None:
+    pytest.skip("skipping AMX tests; could not find sde",
+                allow_module_level=True)
+
+CC_BAREMETAL        = os.getenv('CLANG')
 CFLAGS_BAREMETAL    = ' '.join([
                         f'-mamx-int8',
                         f'-mamx-tile',
@@ -36,8 +43,6 @@ ENV.TMP_DIR             = TMP_DIR
 ENV.AMX_BUILD_DIR       = AMX_BUILD_DIR
 
 ENV.COMPILE             = COMPILE
-
-
 
 
 def amx_test_template(incl_file, glob_lines, body_lines):
