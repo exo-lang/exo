@@ -299,6 +299,7 @@ def test_matmul_i8_ones_16():
         matmul_i8(16,16,16, A, B, C)
 
         st_acc_i8(16,16, scale, False, C, res)
+
     T.add_proc(matmul_i8_ones_16)
 
 
