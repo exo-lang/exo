@@ -251,3 +251,21 @@ AVX512 = Memory(
     write=False,
     red=False
 )
+
+
+# ----------- AMX tile! ----------------
+
+def _amx_alloc(new_name, prim_type, shape, srcinfo):
+    return (f"{prim_type} *{new_name} = ({prim_type}*) 0;")
+
+def _amx_free(new_name, prim_type, shape, srcinfo):
+    return ""
+
+AMX_TILE = Memory(
+    "AMX_TILE",
+    alloc=_amx_alloc,
+    free =_amx_free,
+    read=False,
+    write=False,
+    red=False,
+)

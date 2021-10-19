@@ -5,10 +5,6 @@ import pytest
 
 from SYS_ATL import compile_procs
 
-
-AMX_ROOT            = os.getenv('AMX_ROOT')
-AMX_ROOT            = os.path.abspath(AMX_ROOT)
-
 CC_BAREMETAL        = 'clang'
 CFLAGS_BAREMETAL    = ' '.join([
                         f'-mamx-int8',
@@ -22,21 +18,13 @@ TMP_DIR             = os.path.join(DIR_TEST_ROOT,'tmp')
 
 AMX_BUILD_DIR      = os.path.join(DIR_TEST_ROOT,'amx_build')
 
-COMPILE             = (f"{CC_BAREMETAL} {CFLAGS_BAREMETAL} "+
-                       f"{BCOMMON}/*.c {BCOMMON}/*.S")
+COMPILE             = (f"{CC_BAREMETAL} {CFLAGS_BAREMETAL}")
 
 # make sure the build directory exists
-os.makedirs(GEMM_BUILD_DIR, exist_ok=True)
+os.makedirs(AMX_BUILD_DIR, exist_ok=True)
 
 class ENV:
     pass
-
-ENV.AMX_ROOT        = AMX_ROOT
-ENV.CHIPYARD_ROOT       = CHIPYARD_ROOT
-ENV.SIMS_VCS_DIR        = SIMS_VCS_DIR
-ENV.GEMMINI_ROCC_TESTS  = GEMMINI_ROCC_TESTS
-ENV.ROOT                = ROOT
-ENV.BCOMMON             = BCOMMON
 
 ENV.CC_BAREMETAL        = CC_BAREMETAL
 ENV.CFLAGS_BAREMETAL    = CFLAGS_BAREMETAL
@@ -45,14 +33,14 @@ ENV.SYSTL_ROOT          = SYSTL_ROOT
 ENV.DIR_TEST_ROOT       = DIR_TEST_ROOT
 ENV.TMP_DIR             = TMP_DIR
 
-ENV.GEMM_BUILD_DIR      = GEMM_BUILD_DIR
+ENV.AMX_BUILD_DIR       = AMX_BUILD_DIR
 
 ENV.COMPILE             = COMPILE
 
 
 
 
-def gemmini_test_template(incl_file, glob_lines, body_lines):
+def amx_test_template(incl_file, glob_lines, body_lines):
     lines = ['#include <stdint.h>',
              '#include <stddef.h>',
              '#include <assert.h>',
@@ -60,7 +48,6 @@ def gemmini_test_template(incl_file, glob_lines, body_lines):
              '#include <stdio.h>',
              '#include <time.h>',
              '',
-             '#include "include/gemmini_testutils.h"',
              f'#include "{incl_file}"',
              '',
             ]
@@ -87,40 +74,33 @@ def gemmini_test_template(incl_file, glob_lines, body_lines):
 
     return '\n'.join(lines)
 
-def gemmini_write_test_main(filename, body):
-    with open(os.path.join(ENV.GEMM_BUILD_DIR, filename), "w") as F:
+def amx_write_test_main(filename, body):
+    with open(os.path.join(ENV.AMX_BUILD_DIR, filename), "w") as F:
         F.write(body)
 
-def gemmini_compile(mainfile, libfile, binfile):
-    mainfile  = os.path.join(ENV.GEMM_BUILD_DIR, mainfile)
-    libfile   = os.path.join(ENV.GEMM_BUILD_DIR, libfile)
-    binfile   = os.path.join(ENV.GEMM_BUILD_DIR, binfile)
+def amx_compile(mainfile, libfile, binfile):
+    mainfile  = os.path.join(ENV.AMX_BUILD_DIR, mainfile)
+    libfile   = os.path.join(ENV.AMX_BUILD_DIR, libfile)
+    binfile   = os.path.join(ENV.AMX_BUILD_DIR, binfile)
     CMD = f"{ENV.COMPILE} -I{ENV.TMP_DIR} {mainfile} {libfile} -o {binfile}"
 
     if 0 != subprocess.call(CMD, shell=True):
         raise OSError("Compilation Failed")
 
-def gemmini_run(binfile):
+def amx_run(binfile):
     binfile   = os.path.join(ENV.GEMM_BUILD_DIR, binfile)
-    CMD = f"spike --extension=gemmini {binfile}"
+    CMD = f"sde -future -- {binfile}"
 
     if 0 != subprocess.call(CMD, shell=True):
         raise OSError("Spike Execution Failed")
 
-def gemmini_run_on_vcs(binfile):
-    binfile   = os.path.join(ENV.GEMM_BUILD_DIR, binfile)
-    CMD = f"{SIMS_VCS_DIR}/simv-chipyard-GemminiRocketConfig {binfile}"
-
-    if 0 != subprocess.call(CMD, shell=True):
-        raise OSError("VCS Execution Failed")
-
-class GemmTestBuilder:
+class AMXTestBuilder:
     def __init__(self, test_name):
         self.test_name  = test_name
         self.glob       = []
         self.body       = []
         self.procs      = []
-        self._has_gemm_alloc = False
+        self._has_amx_alloc = False
 
 
         self.glob += ['void print_2i8(int N, int M, int8_t *data) {',
@@ -198,21 +178,18 @@ class GemmTestBuilder:
         bin_file  = self.test_name
 
         # write lib.c and lib.h
-        compile_procs(self.procs, ENV.GEMM_BUILD_DIR, lib_file, h_file)
+        compile_procs(self.procs, ENV.AMX_BUILD_DIR, lib_file, h_file)
 
         # write main.c
-        main_src  = gemmini_test_template(h_file, self.glob, self.body)
-        gemmini_write_test_main(main_file, main_src)
+        main_src  = amx_test_template(h_file, self.glob, self.body)
+        amx_write_test_main(main_file, main_src)
 
-        gemmini_compile(main_file, lib_file, bin_file)
+        amx_compile(main_file, lib_file, bin_file)
 
         return self
 
     def run(self):
-        gemmini_run(self.test_name)
-
-    def vcs(self):
-        gemmini_run_on_vcs(self.test_name)
+        amx_run(self.test_name)
 
     def alloc_dram_4i8(self, name, N, M, K, R, init):
         self.glob += [f'int8_t {name}[{N}*{M}*{K}*{R}];','']
@@ -245,31 +222,31 @@ class GemmTestBuilder:
         self.glob += [f'float {name}[1];','']
         self.body += [f'{name}[0] = {init};','']
 
-    def install_gemm_allocator(self):
-        if self._has_gemm_alloc:
+    def install_amx_allocator(self):
+        if self._has_amx_alloc:
             return
-        self._has_gemm_alloc = True
+        self._has_amx_alloc = True
 
-        self.glob += ['void gemm_init_mem();',
-                      'uint32_t gemm_malloc(long unsigned int size);',
-                      'void gemm_free(uint32_t addr);',
-                      '',
-                      'void gemm_acc_init_mem();',
-                      'uint32_t gemm_acc_malloc(long unsigned int size);',
-                      'void gemm_acc_free(uint32_t addr);',
-                      '']
+#        self.glob += ['void gemm_init_mem();',
+#                      'uint32_t gemm_malloc(long unsigned int size);',
+#                      'void gemm_free(uint32_t addr);',
+#                      '',
+#                      'void gemm_acc_init_mem();',
+#                      'uint32_t gemm_acc_malloc(long unsigned int size);',
+#                      'void gemm_acc_free(uint32_t addr);',
+#                      '']
 
-    def alloc_gemm_1i8(self, name, N, acc=False):
+    def alloc_amx_1i8(self, name, N, acc=False):
         assert type(N) is int
-        self.alloc_gemm_2i8(name, N,16, acc=acc)
+        self.alloc_amx_2i8(name, N,16, acc=acc)
 
-    def alloc_gemm_2i8(self, name, N, M, acc=False):
+    def alloc_amx_2i8(self, name, N, M, acc=False):
         assert type(N) is int
         assert type(M) is int
         assert M % 16 == 0
-        self.install_gemm_allocator()
+        self.install_amx_allocator()
         self.glob += [f'int8_t *{name};','']
-        malloc    = 'gemm_acc_malloc' if acc else 'gemm_malloc'
+        malloc    = 'amx_acc_malloc' if acc else 'amx_malloc'
         self.body += [f'{name} = (int8_t*)((uint64_t){malloc}({N}*{M}/16));',
                       '']
 
