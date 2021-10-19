@@ -263,6 +263,7 @@ def _amx_free(new_name, prim_type, shape, srcinfo):
 
 AMX_TILE = Memory(
     "AMX_TILE",
+    globl='#include <immintrin.h>',
     alloc=_amx_alloc,
     free =_amx_free,
     read=False,

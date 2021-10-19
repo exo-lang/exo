@@ -72,8 +72,10 @@ void amx_dpbuud(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
     };
 
     _tile_loadconfig(config);
-   
-    _tile_zero(2);
+
+    int tile_num = 2;
+
+    _tile_zero(tile_num);
     _tile_loadd(0, A, 4*K);
     _tile_loadd(1, B, 4*N);
 

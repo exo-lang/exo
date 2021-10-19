@@ -11,7 +11,7 @@ from SYS_ATL.libs.memories import AMX_TILE
 # --------------------------------------------------------------------------- #
 
 # TODO: Handle read_stride
-_amx_ld_i8   = ("_tile_loadd({dst}.data, {src}.data, {src}.strides[0]);")
+_amx_ld_i8   = ("_tile_loadd(0, {src}.data, {src}.strides[0]);")
 @instr(_amx_ld_i8)
 def ld_i8(
     n     : size,
@@ -25,7 +25,7 @@ def ld_i8(
             dst[i,j] = src[i,j]
 
 # TODO: Handle write_stride
-_amx_st_i8   = ("_tile_stored({src}.data, {dst}.data, {src}.strides[0]);")
+_amx_st_i8   = ("_tile_stored(0, {dst}.data, {src}.strides[0]);")
 @instr(_amx_st_i8)
 def st_i8(
     n     : size,

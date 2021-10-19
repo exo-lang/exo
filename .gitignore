@@ -6,6 +6,7 @@ htmlcov
 
 tmp/
 gemmini_build/
+amx_build/
 
 .ipynb_checkpoints
 .sys_atl_c_cache

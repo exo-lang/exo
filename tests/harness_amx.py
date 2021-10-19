@@ -47,6 +47,7 @@ def amx_test_template(incl_file, glob_lines, body_lines):
              '#include <stdlib.h>',
              '#include <stdio.h>',
              '#include <time.h>',
+             '#include <immintrin.h>',
              '',
              f'#include "{incl_file}"',
              '',
@@ -88,7 +89,7 @@ def amx_compile(mainfile, libfile, binfile):
         raise OSError("Compilation Failed")
 
 def amx_run(binfile):
-    binfile   = os.path.join(ENV.GEMM_BUILD_DIR, binfile)
+    binfile   = os.path.join(ENV.AMX_BUILD_DIR, binfile)
     CMD = f"sde -future -- {binfile}"
 
     if 0 != subprocess.call(CMD, shell=True):
