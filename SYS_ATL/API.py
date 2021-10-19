@@ -114,11 +114,11 @@ class MarkDownBlob:
 # --------------------------------------------------------------------------- #
 #   Procedure Objects
 
-def compile_procs(proc_list, path, c_file, h_file, malloc=False):
+
+def compile_procs(proc_list, path, c_file, h_file):
     assert isinstance(proc_list, list)
     assert all(isinstance(p, Procedure) for p in proc_list)
-    run_compile([ p._loopir_proc for p in proc_list ],
-                path, c_file, h_file, malloc=malloc)
+    run_compile([p._loopir_proc for p in proc_list], path, c_file, h_file)
 
 
 class Procedure(ProcedureBase):
@@ -180,7 +180,7 @@ class Procedure(ProcedureBase):
         return str(stmt.eff)
 
     def is_instr(self):
-        return self._loopir_proc.instr != None
+        return self._loopir_proc.instr is not None
 
     def get_instr(self):
         return self._loopir_proc.instr
@@ -229,9 +229,9 @@ class Procedure(ProcedureBase):
         decls, defns = compile_to_strings("c_code_str", [self._loopir_proc])
         return defns
 
-    def compile_c(self, directory, filename, malloc=False):
+    def compile_c(self, directory, filename):
         run_compile([self._loopir_proc], directory,
-                    (filename + ".c"), (filename + ".h"), malloc)
+                    (filename + ".c"), (filename + ".h"))
 
     def interpret(self, **kwargs):
         run_interpreter(self._loopir_proc, kwargs)

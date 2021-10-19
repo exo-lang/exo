@@ -12,6 +12,9 @@ amx_build/
 .sys_atl_c_cache
 
 venv/
+dist/
+
+*.egg-info/
 
 *.swp
 *~

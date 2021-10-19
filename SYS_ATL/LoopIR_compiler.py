@@ -209,7 +209,7 @@ def window_struct(basetyp, n_dims):
 # top level compiler function called by tests!
 
 
-def run_compile(proc_list, path, c_file, h_file, malloc=False):
+def run_compile(proc_list, path, c_file, h_file, header_guard=None):
     file_stem = re.match(r'^([^\.]+)\.[^\.]+$', c_file)
     if not file_stem:
         raise ValueError("Expected file name to end "
@@ -217,71 +217,63 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
     lib_name = sanitize_str(file_stem[1])
     fwd_decls, body = compile_to_strings(lib_name, proc_list)
 
-    #includes = "#include <stdio.h>\n" + "#include <stdlib.h>\n"
-    includes = "#include <stdint.h>\n" + "#include <stdbool.h>\n"
+    if header_guard is None:
+        header_guard = re.sub(r'\W', '_', h_file).upper()
 
-    if malloc:
-        includes += ("#include <assert.h>\n"
-                     "#include <string.h>\n")
-
-        with open(os.path.dirname(os.path.realpath(__file__)) +
-                                  "/malloc.c", "r") as f_malloc:
-            m_lines = f_malloc.readlines()
-            m_lines[0] = m_lines[0].format(heap_size=100000)
-            body = "".join(m_lines) + body
-
-    fwd_decls = f"{includes}\n{fwd_decls}"
-
-    H_FILE_CONST = re.sub(r'\W', '_', h_file).upper()
-    fwd_decls = (f"#ifndef _{H_FILE_CONST}_\n"
-                 f"#define _{H_FILE_CONST}_\n"
+    fwd_decls = (f'#pragma once\n'
+                 f"#ifndef {header_guard}\n"
+                 f"#define {header_guard}\n"
                  "#ifdef __cplusplus\n"
                  "extern \"C\" {\n"
                  "#endif\n"
+                 "#include <stdint.h>\n"
+                 "#include <stdbool.h>\n"
                  f'{fwd_decls}'
                  "#ifdef __cplusplus\n"
                  "}\n"
                  "#endif\n"
-                 f"#endif //_{H_FILE_CONST}_\n")
+                 f"#endif //{header_guard}\n")
+
+    body = (f'#include "{h_file}"\n'
+            f'\n'
+            f'{body}')
 
     with open(os.path.join(path, h_file), "w") as f_header:
         f_header.write(fwd_decls)
 
     with open(os.path.join(path, c_file), "w") as f_cpp:
-        f_cpp.write(f'#include "{h_file}"\n'
-                    f'#include <stdint.h>\n'
-                    f'\n')
         f_cpp.write(body)
 
 
 def compile_to_strings(lib_name, proc_list):
-
     # get transitive closure of call-graph
-    orig_procs  = [ id(p) for p in proc_list ]
-    proc_list   = find_all_subprocs(proc_list)
-    mem_list    = find_all_mems(proc_list)
-    builtin_list= find_all_builtins(proc_list)
+    orig_procs = [id(p) for p in proc_list]
+    proc_list = find_all_subprocs(proc_list)
+    mem_list = find_all_mems(proc_list)
+    builtin_list = find_all_builtins(proc_list)
     config_list = find_all_configs(proc_list)
 
     # check for name conflicts between procs
-    used_names  = set()
+    used_names = set()
     for p in proc_list:
         if p.name in used_names:
             raise Exception(f"Cannot compile multiple "
                             f"procedures named '{p.name}'")
         used_names.add(p.name)
 
-    body = ["#include <stdint.h>\n",
-            "",
-            "inline int _floor_div(int num, int quot) {",
-            "  int off = (num>=0)? 0 : quot-1;",
-            "  return (num-off)/quot;",
-            "}",
-            "",
-            "inline int8_t _clamp_32to8(int32_t x) {",
-            "  return (x < -128)? -128 : ((x > 127)? 127 : x);",
-            "}",
-            "",]
+    body = [
+        "#include <stdint.h>\n",
+        "",
+        "inline static int _floor_div(int num, int quot) {",
+        "  int off = (num>=0)? 0 : quot-1;",
+        "  return (num-off)/quot;",
+        "}",
+        "",
+        "inline static int8_t _clamp_32to8(int32_t x) {",
+        "  return (x < -128)? -128 : ((x > 127)? 127 : x);",
+        "}",
+        "",
+    ]
 
     fwd_decls = []
     struct_defns = set()
@@ -298,19 +290,19 @@ def compile_to_strings(lib_name, proc_list):
             body.append("\n")
 
     # Build Context Struct
-    ctxt_name   = f"{lib_name}_Context"
-    ctxt_def    = [f"typedef struct {ctxt_name} {{ ",
-                   f""]
+    ctxt_name = f"{lib_name}_Context"
+    ctxt_def = [f"typedef struct {ctxt_name} {{ ",
+                f""]
     for c in config_list:
         if c.is_allow_rw():
-            sdef_lines  = c.c_struct_def()
-            sdef_lines  = [ f"    {line}" for line in sdef_lines ]
-            ctxt_def   += sdef_lines
-            ctxt_def   += [""]
+            sdef_lines = c.c_struct_def()
+            sdef_lines = [f"    {line}" for line in sdef_lines]
+            ctxt_def += sdef_lines
+            ctxt_def += [""]
         else:
             ctxt_def += [f"// config '{c.name()}' not materialized",
                          ""]
-    ctxt_def  += [f"}} {ctxt_name};"]
+    ctxt_def += [f"}} {ctxt_name};"]
     fwd_decls += ctxt_def
     fwd_decls.append("\n")
     # check that we don't have a name conflict on configs
@@ -329,11 +321,11 @@ def compile_to_strings(lib_name, proc_list):
                         "*/\n")
         else:
             p_to_start = p
-            p       = PrecisionAnalysis(p).result()
-            p       = WindowAnalysis(p).result()
-            p       = MemoryAnalysis(p).result()
-            comp    = Compiler(p, ctxt_name)
-            d, b    = comp.comp_top()
+            p = PrecisionAnalysis(p).result()
+            p = WindowAnalysis(p).result()
+            p = MemoryAnalysis(p).result()
+            comp = Compiler(p, ctxt_name)
+            d, b = comp.comp_top()
             struct_defns = struct_defns.union(comp.struct_defns())
             # only dump .h-file forward declarations for requested procedures
             if id(p_to_start) in orig_procs:
@@ -343,7 +335,7 @@ def compile_to_strings(lib_name, proc_list):
     # add struct definitions before the other forward declarations
     fwd_decls = list(struct_defns) + fwd_decls
 
-    return ("\n".join(fwd_decls), "\n".join(body))
+    return "\n".join(fwd_decls), "\n".join(body)
 
 
 # --------------------------------------------------------------------------- #

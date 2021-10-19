@@ -7,7 +7,7 @@ import platform
 import pytest
 
 from SYS_ATL import proc
-from SYS_ATL.platform.x86 import *
+from SYS_ATL.platforms.x86 import *
 
 from .helper import TMP_DIR, generate_lib, nparray, cvt_c
 from ctypes import POINTER, c_int

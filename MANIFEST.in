@@ -1,0 +1,10 @@
+include pyproject.toml
+
+# Include the README
+include *.md
+
+# Include setup.py
+include setup.py
+
+# Include CMake support files
+recursive-include SYS_ATL/cmake *
