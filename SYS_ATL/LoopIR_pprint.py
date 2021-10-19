@@ -258,8 +258,8 @@ class UAST_PPrinter:
                     hi = self.pexpr(w.hi) if w.hi else ""
                     return f"{lo}:{hi}"
                 else: assert False, "bad case"
-            return (f"{self.get_name(e.name)}"+
-                    f"[{', '.join([ pacc(w) for w in e.idx ])}]")
+            return (f"{self.get_name(e.name)}"
+                    f"[{', '.join([pacc(w) for w in e.idx])}]")
         elif isinstance(e, UAST.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
         elif isinstance(e, UAST.BuiltIn):
@@ -334,7 +334,7 @@ class LoopIR_PPrinter:
             self.addline(self.ptype(node))
         elif isinstance(node, LoopIR.w_access):
             if isinstance(node, LoopIR.Interval):
-                self.addline(f"Interval({self.pexpr(node.lo)},"+
+                self.addline(f"Interval({self.pexpr(node.lo)},"
                              f"{self.pexpr(node.hi)})")
             elif isinstance(node, LoopIR.Point):
                 self.addline(f"Point({self.pexpr(node.pt)})")
@@ -447,7 +447,7 @@ class LoopIR_PPrinter:
             self.addline(f"{self.new_name(stmt.lhs)} = {rhs}")
         elif isinstance(stmt, LoopIR.Alloc):
             mem = f" @{stmt.mem.name()}" if stmt.mem else ""
-            self.addline(f"{self.new_name(stmt.name)} : "+
+            self.addline(f"{self.new_name(stmt.name)} : "
                          f"{self.ptype(stmt.type)}{mem}")
         elif isinstance(stmt, LoopIR.Free):
             mem = f" @{stmt.mem._name}" if stmt.mem else ""
@@ -505,8 +505,8 @@ class LoopIR_PPrinter:
                 s = f"({s})"
             return s
         elif isinstance(e, LoopIR.WindowExpr):
-            return (f"{self.get_name(e.name)}"+
-                    f"[{', '.join([ self.pwacc(w) for w in e.idx ])}]")
+            return (f"{self.get_name(e.name)}"
+                    f"[{', '.join([self.pwacc(w) for w in e.idx])}]")
         elif isinstance(e, LoopIR.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
         elif isinstance(e, LoopIR.BuiltIn):
@@ -554,9 +554,9 @@ class LoopIR_PPrinter:
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
             return f"{base}[{rngs}]"
         elif isinstance(t, T.Window):
-            return (f"Window(src_type={t.src_type},as_tensor={t.as_tensor},"+
-                    f"src_buf={t.src_buf},"+
-                    f"idx=[{', '.join([ self.pwacc(w) for w in t.idx ])}])")
+            return (f"Window(src_type={t.src_type},as_tensor={t.as_tensor},"
+                    f"src_buf={t.src_buf},"
+                    f"idx=[{', '.join([self.pwacc(w) for w in t.idx])}])")
         elif isinstance(t, T.Stride):
             return "stride"
         else:

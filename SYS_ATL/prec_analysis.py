@@ -14,9 +14,9 @@ def set_default_prec(name):
         'i32'   : T.i32,
     }
     if name not in vals:
-        raise TypeError(f"Got {name}, but "+
-                        "expected one of the following precision types: "+
-                        ','.join([ k for k in vals ]))
+        raise TypeError(f"Got {name}, but "
+                        "expected one of the following precision types: " +
+                        ','.join([k for k in vals]))
     _default_prec = vals[name]
 
 def get_default_prec():
@@ -182,9 +182,9 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             elif rhs.type == T.R:
                 typ = lhs.type
                 rhs = self.coerce_e(rhs, typ)
-            elif lhs.type != rhs.type: # no T.R or T.err left, so...
-                self.err(e, f"cannot compute operation '{e.op}' between "+
-                            f"inconsistent precision types: "+
+            elif lhs.type != rhs.type:  # no T.R or T.err left, so...
+                self.err(e, f"cannot compute operation '{e.op}' between "
+                            f"inconsistent precision types: "
                             f"{lhs.type} and {rhs.type}")
                 typ = T.err
             else:

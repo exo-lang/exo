@@ -32,14 +32,14 @@ def new_config(name, fields, disable_rw=False):
                  all( isinstance(f[1], str) for f in fields ) and
                  all( f[1] in str_to_type for f in fields ))
     if not good_args:
-        raise TypeError("Expected call to new_config to have the form:\n"+
-                        "new_config('config_name',[\n"+
-                        "  ('field1_name', 'field1_type'),\n"+
-                        "  ('field2_name', 'field2_type'),\n"+
-                        "  ..."+
-                        "])\n"+
-                        "where types are either: "+
-                        "'size', 'index', 'bool', 'stride', or some "+
+        raise TypeError("Expected call to new_config to have the form:\n"
+                        "new_config('config_name',[\n"
+                        "  ('field1_name', 'field1_type'),\n"
+                        "  ('field2_name', 'field2_type'),\n"
+                        "  ..."
+                        "])\n"
+                        "where types are either: "
+                        "'size', 'index', 'bool', 'stride', or some "
                         "real scalar type with a given precision")
 
     type_fields = [ (nm, str_to_type[t]) for nm,t in fields ]

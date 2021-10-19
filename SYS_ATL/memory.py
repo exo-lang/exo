@@ -90,7 +90,7 @@ def _dram_alloc(new_name, prim_type, shape, srcinfo):
         size_str = shape[0]
         for s in shape[1:]:
             size_str = f"{s} * {size_str}"
-        return (f"{prim_type} *{new_name} = " +
+        return (f"{prim_type} *{new_name} = "
                 f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
 
 def _dram_free(new_name, prim_type, shape, srcinfo):

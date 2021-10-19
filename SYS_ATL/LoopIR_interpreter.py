@@ -66,19 +66,19 @@ class Interpreter:
         if not isinstance(buf, np.ndarray):
             raise TypeError(f"{pre}: expected numpy.ndarray")
         elif buf.dtype != float and buf.dtype != np.float32:
-            raise TypeError(f"{pre}: expected buffer of floating-point values; "+
+            raise TypeError(f"{pre}: expected buffer of floating-point values; "
                             f"had '{buf.dtype}' values")
             #raise TypeError(f"type of argument '{name}' "
             #                f"value mismatches")
 
         if typ.is_real_scalar():
             if tuple(buf.shape) != (1,):
-                raise TypeError(f"{pre}: expected buffer of shape (1,), "+
+                raise TypeError(f"{pre}: expected buffer of shape (1,), "
                                 f"but got shape {tuple(buf.shape)}")
         else:
             shape = self.eval_shape(typ)
             if shape != tuple(buf.shape):
-                raise TypeError(f"{pre}: expected buffer of shape {shape}, "+
+                raise TypeError(f"{pre}: expected buffer of shape {shape}, "
                                 f"but got shape {tuple(buf.shape)}")
 
     def eval_stmts(self, stmts):

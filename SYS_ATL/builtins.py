@@ -43,8 +43,8 @@ class _Sin(BuiltIn):
 
         atyp    = args[0].type
         if not atyp.is_real_scalar():
-            raise _BErr(f"expected argument 1 to be a real scalar value, but "+
-                      f"got type {atyp}")
+            raise _BErr(f"expected argument 1 to be a real scalar value, but "
+                        f"got type {atyp}")
         return atyp
 
     def globl(self):
@@ -69,15 +69,15 @@ class _Relu(BuiltIn):
 
         atyp    = args[0].type
         if not atyp.is_real_scalar():
-            raise _BErr(f"expected argument 1 to be a real scalar value, but "+
-                      f"got type {atyp}")
+            raise _BErr(f"expected argument 1 to be a real scalar value, but "
+                        f"got type {atyp}")
         return atyp
 
     def globl(self):
-        s =  ("double _relu_(double x) {\n"+
-              "    if (x > 0.0) return x;\n"+
-              "    else return 0.0;\n"+
-              "}\n")
+        s = ("double _relu_(double x) {\n"
+             "    if (x > 0.0) return x;\n"
+             "    else return 0.0;\n"
+             "}\n")
         return s
 
     def interpret(self, args):
@@ -102,30 +102,30 @@ class _Select(BuiltIn):
 
         atyp    = args[0].type
         if not atyp.is_real_scalar():
-            raise _BErr(f"expected argument 1 to be a real scalar value, but "+
+            raise _BErr(f"expected argument 1 to be a real scalar value, but "
                         f"got type {atyp}")
 
         atyp    = args[1].type
         if not atyp.is_real_scalar():
-            raise _BErr(f"expected argument 2 to be a real scalar value, but "+
+            raise _BErr(f"expected argument 2 to be a real scalar value, but "
                         f"got type {atyp}")
 
         atyp    = args[2].type
         if not atyp.is_real_scalar():
-            raise _BErr(f"expected argument 3 to be a real scalar value, but "+
+            raise _BErr(f"expected argument 3 to be a real scalar value, but "
                         f"got type {atyp}")
 
         atyp    = args[3].type
         if not atyp.is_real_scalar():
-            raise _BErr(f"expected argument 4 to be a real scalar value, but "+
+            raise _BErr(f"expected argument 4 to be a real scalar value, but "
                         f"got type {atyp}")
         return atyp
 
     def globl(self):
-        s =  ("double _select_(double x, double v, double y, double z) {\n"+
-              "    if (x < v) return y;\n"+
-              "    else return z;\n"+
-              "}\n")
+        s = ("double _select_(double x, double v, double y, double z) {\n"
+             "    if (x < v) return y;\n"
+             "    else return z;\n"
+             "}\n")
         return s
 
     def interpret(self, args):

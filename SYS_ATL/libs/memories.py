@@ -1,6 +1,7 @@
+import os
+
 from SYS_ATL import Memory
 from SYS_ATL.memory import MemGenError
-import os
 
 
 def _is_const_size(sz, c):
@@ -16,7 +17,7 @@ def _mdram_alloc(new_name, prim_type, shape, srcinfo):
         size_str = shape[0]
         for s in shape[1:]:
             size_str = f"{s} * {size_str}"
-        return (f"{prim_type} *{new_name} = " +
+        return (f"{prim_type} *{new_name} = "
                 f"({prim_type}*) malloc_dram ({size_str} * sizeof({prim_type}));")
 
 
@@ -61,11 +62,11 @@ def _gemm_alloc(new_name, prim_type, shape, srcinfo):
         for s in shape[1:]:
             size_str = f"{s} * {size_str}"
         if not _is_const_size(shape[-1], 16):
-            raise MemGenError(f"{srcinfo}: " +
-                              "Cannot allocate GEMMINI Scratchpad Memory " +
-                              "unless innermost dimension is exactly 16.  " +
+            raise MemGenError(f"{srcinfo}: "
+                              "Cannot allocate GEMMINI Scratchpad Memory "
+                              "unless innermost dimension is exactly 16.  "
                               f"got {shape[-1]}")
-        return (f"{prim_type} *{new_name} = " +
+        return (f"{prim_type} *{new_name} = "
                 f"({prim_type}*) ((uint64_t)gemm_malloc ({size_str} * sizeof({prim_type})));")
 
 
@@ -81,8 +82,8 @@ def _gemm_window(prim_type, baseptr, indices, strides, srcinfo):
     #    and that strides[-2] == 16 (if there is a strides[-2])
     assert len(indices) == len(strides) and len(strides) >= 2
     offset = " + ".join([f"({i}) * ({s})" for i, s in zip(indices, strides)])
-    return (f"({prim_type}*)((uint64_t)( " +
-            f"((uint32_t)((uint64_t){baseptr})) + " +
+    return (f"({prim_type}*)((uint64_t)( "
+            f"((uint32_t)((uint64_t){baseptr})) + "
             f"({offset})/16 ))")
 
 
@@ -124,11 +125,11 @@ def _gemm_accum_alloc(new_name, prim_type, shape, srcinfo):
         for s in shape[1:]:
             size_str = f"{s} * {size_str}"
         if not _is_const_size(shape[-1], 16):
-            raise MemGenError(f"{srcinfo}: " +
-                              "Cannot allocate GEMMINI Accumulator Memory " +
-                              "unless innermost dimension is exactly 16.  " +
+            raise MemGenError(f"{srcinfo}: "
+                              "Cannot allocate GEMMINI Accumulator Memory "
+                              "unless innermost dimension is exactly 16.  "
                               f"got {shape[-1]}")
-        return (f"{prim_type} *{new_name} = " +
+        return (f"{prim_type} *{new_name} = "
                 f"({prim_type}*) ((uint32_t)gemm_acc_malloc ({size_str} * sizeof({prim_type})));")
 
 
@@ -144,8 +145,8 @@ def _gemm_accum_window(prim_type, baseptr, indices, strides, srcinfo):
     #    and that strides[-2] == 16 (if there is a strides[-2])
     assert len(indices) == len(strides) and len(strides) >= 2
     offset = " + ".join([f"({i}) * ({s})" for i, s in zip(indices, strides)])
-    return (f"({prim_type}*)((uint64_t)( " +
-            f"((uint32_t)((uint64_t){baseptr})) + " +
+    return (f"({prim_type}*)((uint64_t)( "
+            f"((uint32_t)((uint64_t){baseptr})) + "
             f"({offset})/16 ))")
 
 

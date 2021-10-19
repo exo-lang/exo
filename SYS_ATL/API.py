@@ -18,8 +18,8 @@ from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern, get_match_no
 from .prelude import *
 from .pyparser import get_ast_from_python, Parser, get_src_locals
-from .typecheck import TypeChecker
 from .reflection import LoopIR_to_QAST
+from .typecheck import TypeChecker
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -350,7 +350,7 @@ class Procedure(ProcedureBase):
         if not isinstance(field, str):
             raise TypeError("Did not pass a config field string")
         if not config.has_field(field):
-            raise TypeError(f"expected '{field}' to be a field "+
+            raise TypeError(f"expected '{field}' to be a field "
                             f"in config '{config.name()}'")
 
         body    = self._loopir_proc.body
@@ -364,8 +364,8 @@ class Procedure(ProcedureBase):
 
         # Check that the type of config field and read are the same
         if matches[0].type != config.lookup(field)[1]:
-            raise TypeError(f"types of config and a read variable does"+
-                             " not match")
+            raise TypeError("types of config and a read variable does "
+                            "not match")
 
         loopir = self._loopir_proc
         loopir = Schedules.DoBindConfig(loopir, config, field, matches[0]).result()
@@ -379,7 +379,7 @@ class Procedure(ProcedureBase):
         if not isinstance(field, str):
             raise TypeError("Did not pass a config field string")
         if not config.has_field(field):
-            raise TypeError(f"expected '{field}' to be a field "+
+            raise TypeError(f"expected '{field}' to be a field "
                             f"in config '{config.name()}'")
 
         if not isinstance(var_pattern, str):
@@ -417,7 +417,7 @@ class Procedure(ProcedureBase):
         elif len(out_vars) != 2:
             raise TypeError("expected third arg list/tuple to have length 2")
         elif not all(is_valid_name(s) for s in out_vars):
-            raise TypeError("expected third arg to be a list/tuple of two "+
+            raise TypeError("expected third arg to be a list/tuple of two "
                             "valid name strings")
 
         pattern     = iter_name_to_pattern(split_var)
@@ -522,8 +522,9 @@ class Procedure(ProcedureBase):
         if not first_stmt or not second_stmt:
             raise TypeError("failed to find stmt")
         if len(first_stmt) != 1 or len(second_stmt) != 1:
-            raise TypeError("expected stmt patterns to be specified s.t. it has "+
-                            "only one matching")
+            raise TypeError(
+                "expected stmt patterns to be specified s.t. it has "
+                "only one matching")
 
         loopir = self._loopir_proc
         loopir = Schedules.DoReorderStmt(loopir, first_stmt[0], second_stmt[0]).result()
@@ -646,7 +647,7 @@ class Procedure(ProcedureBase):
             raise TypeError("pattern matched, but not to an expression")
 
         if any(not m.type.is_numeric() for m in matches):
-            raise TypeError("only numeric (not index or size) expressions "+
+            raise TypeError("only numeric (not index or size) expressions "
                             "can be targeted by bind_expr()")
 
         loopir = self._loopir_proc

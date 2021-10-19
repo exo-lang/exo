@@ -48,19 +48,19 @@ class DoReplace(LoopIR_Rewrite):
 
         super().__init__(proc)
         # fix up effects post-hoc
-        #self.proc = InferEffects(self.proc).result()
+        # self.proc = InferEffects(self.proc).result()
         # and then check that all effect-check conditions are
         # still satisfied...
-        #try:
+        # try:
         #    CheckEffects(self.proc)
-        #except TypeError as te:
+        # except TypeError as te:
         #    errmsg = te.args[0]
-        #    premsg = ("After performing a `replace()` operation, the "+
-        #              "resulting procedure was not safe, failing an effect-"+
-        #              "check.  This may be due to current limitations with "+
-        #              "`replace()` or due to an internal compiler bug.  "+
-        #              "Regardless, here is the text of the procedure "+
-        #              "failing the effect-check:\n"+
+        #    premsg = ("After performing a `replace()` operation, the "
+        #              "resulting procedure was not safe, failing an effect-"
+        #              "check.  This may be due to current limitations with "
+        #              "`replace()` or due to an internal compiler bug.  "
+        #              "Regardless, here is the text of the procedure "
+        #              "failing the effect-check:\n"
         #              str(self.proc)+"\n"+errmsg)
         #    raise TypeError(premsg)
 
@@ -460,9 +460,9 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
         if isinstance(e, LoopIR.Read):
             assert len(e.idx) == 0
             if e.name not in self.FV:
-                raise UnificationError(f"{e.srcinfo}:" +
-                                       f" Found bound variable '{e.name}' inside of " +
-                                       f"mod or div operation")
+                raise UnificationError(f"{e.srcinfo}: "
+                                       f"Found bound variable '{e.name}' "
+                                       f"inside of mod or div operation")
             else:
                 return e.name
         elif isinstance(e, LoopIR.Const):
@@ -509,20 +509,21 @@ class BufVar:
             full_dim        = self.n_dim + win_dim
 
             for case_id, pt_idxs in enumerate(
-                itertools.combinations(range(0,full_dim),win_dim)):
-                case_name = (f"{self.name}_"+
-                             '_'.join([str(i) for i in pt_idxs])+
+                    itertools.combinations(range(0, full_dim), win_dim)):
+                case_name = (f"{self.name}_" +
+                             '_'.join([str(i) for i in pt_idxs]) +
                              f"_cs{case_id}")
 
                 def make_pt(i):
                     return Sym(f"{case_name}_pt{i}")
+
                 def make_interval(i):
                     return (Sym(f"{case_name}_lo{i}"),
                             Sym(f"{case_name}_hi{i}"))
 
-                idx_vars = [ (make_pt(i) if i in pt_idxs else
-                              make_interval(i))
-                             for i in range(0,full_dim) ]
+                idx_vars = [(make_pt(i) if i in pt_idxs else
+                             make_interval(i))
+                            for i in range(0, full_dim)]
 
                 self.cases.append(idx_vars)
 

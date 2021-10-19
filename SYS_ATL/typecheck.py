@@ -93,15 +93,15 @@ class TypeChecker:
             pass
         elif typ.is_numeric():
             if len(idx) > len(typ.shape()):
-                self.err(node, f"expected access of variable " +
-                               f"'{nm}' of type '{typ}' to have " +
-                               f"no more than {len(typ.shape())} " +
+                self.err(node, f"expected access of variable "
+                               f"'{nm}' of type '{typ}' to have "
+                               f"no more than {len(typ.shape())} "
                                f"indices, but {len(idx)} were found.")
                 typ = T.err
             elif lvalue and len(typ.shape()) != len(idx):
-                self.err(node, f"expected lvalue access of variable " +
-                               f"'{nm}' of type '{typ}' to have " +
-                               f"exactly {len(typ.shape())} " +
+                self.err(node, f"expected lvalue access of variable "
+                               f"'{nm}' of type '{typ}' to have "
+                               f"exactly {len(typ.shape())} "
                                f"indices, but {len(idx)} were found.")
                 typ = T.err
             elif len(idx) > 0:
@@ -110,7 +110,7 @@ class TypeChecker:
             # else if len(idx) == 0 then just fall through
 
         elif lvalue:
-            self.err(node, f"cannot assign/reduce to '{nm}', " +
+            self.err(node, f"cannot assign/reduce to '{nm}', "
                            f"a non-numeric variable of type '{typ}'")
             typ = T.err
         elif len(idx) > 0:
@@ -248,13 +248,13 @@ class TypeChecker:
 
                 elif sig_a.type is T.bool:
                     if not call_a.type is T.bool:
-                        self.err(call_a, "expected bool-type variable, "+
-                                        f"but got type {call_a.type}")
+                        self.err(call_a, "expected bool-type variable, "
+                                         f"but got type {call_a.type}")
 
                 elif sig_a.type is T.stride:
                     if not call_a.type.is_stridable():
-                        self.err(call_a, "expected stride-type variable, "+
-                                        f"but got type {call_a.type}")
+                        self.err(call_a, "expected stride-type variable, "
+                                         f"but got type {call_a.type}")
 
                 elif sig_a.type.is_numeric():
                     if len(call_a.type.shape()) != len(sig_a.type.shape()):
@@ -299,7 +299,7 @@ class TypeChecker:
             else:
                 hi = self.check_e(e.hi)
                 if hi.type != T.err and not hi.type.is_indexable():
-                    self.err(hi, f"cannot index with expression "+
+                    self.err(hi, f"cannot index with expression "
                                  f"of type '{hi.type}'")
 
             return LoopIR.Interval( lo, hi, e.srcinfo )
@@ -398,10 +398,10 @@ class TypeChecker:
             elif (e.op == "<" or e.op == "<=" or e.op == "==" or
                   e.op == ">" or e.op == ">="):
                 if not lhs.type.is_indexable():
-                    self.err(lhs, f"expected 'index' or 'size' argument to "+
+                    self.err(lhs, f"expected 'index' or 'size' argument to "
                                   f"comparison op: {e.op}")
                 if not rhs.type.is_indexable():
-                    self.err(rhs, f"expected 'index' or 'size' argument to "+
+                    self.err(rhs, f"expected 'index' or 'size' argument to "
                                   f"comparison op: {e.op}")
                 typ = T.bool
             elif (e.op == "+" or e.op == "-" or e.op == "*" or
@@ -428,12 +428,12 @@ class TypeChecker:
                     self.err(lhs, "expected scalar type")
                 elif lhs.type == T.bool or rhs.type == T.bool:
                     node = lhs if lhs.type == T.bool else rhs
-                    self.err(node, "cannot perform arithmetic on "+
+                    self.err(node, "cannot perform arithmetic on "
                                    "'bool' values")
                     typ = T.err
                 elif lhs.type == T.stride or rhs.type == T.stride:
                     node = lhs if lhs.type == T.bool else rhs
-                    self.err(node, "cannot perform arithmetic on "+
+                    self.err(node, "cannot perform arithmetic on "
                                    "'stride' values")
                     typ = T.err
                 elif ( lhs.type.is_tensor_or_window() or
@@ -461,8 +461,8 @@ class TypeChecker:
                         elif rhs.type == T.int:
                             typ = lhs.type
                         else:
-                            self.err(e, "cannot multiply two non-constant "+
-                                        "indexing/sizing expressions, since "+
+                            self.err(e, "cannot multiply two non-constant "
+                                        "indexing/sizing expressions, since "
                                         "the result would be non-affine")
                             typ = T.err
                     else: # + or -

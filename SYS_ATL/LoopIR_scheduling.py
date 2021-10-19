@@ -25,10 +25,10 @@ class SchedulingError(Exception):
 def name_plus_count(namestr):
     results = re.search(r"^([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$", namestr)
     if not results:
-        raise TypeError("expected name pattern of the form\n"+
-                        "  ident (# integer)?\n"+
-                        "where ident is the name of a variable "+
-                        "and (e.g.) '#2' may optionally be attached to mean "+
+        raise TypeError("expected name pattern of the form\n"
+                        "  ident (# integer)?\n"
+                        "where ident is the name of a variable "
+                        "and (e.g.) '#2' may optionally be attached to mean "
                         "'the second occurence of that identifier")
 
     name        = results[1]
@@ -54,8 +54,8 @@ def nested_iter_names_to_pattern(namestr, inner):
         count   = ""
     assert is_valid_name(inner)
 
-    pattern     = (f"for {name} in _:\n"+
-                   f"  for {inner} in _: _{count}")
+    pattern = (f"for {name} in _:\n"
+               f"  for {inner} in _: _{count}")
     return pattern
 
 # --------------------------------------------------------------------------- #
@@ -78,14 +78,13 @@ class _DoReorderStmt(LoopIR_Rewrite):
 
     def not_conflicts(self, e1, e2):
         if e1.buffer == e2.buffer:
-            raise SchedulingError("Cannot reorder stmts using the same "+
+            raise SchedulingError("Cannot reorder stmts using the same "
                                   "buffer or config")
 
     def not_conflicts_config(self, c1, c2):
         if (c1.config.name() == c2.config.name() and
             c1.field == c2.field):
-            raise SchedulingError("Cannot reorder stmts using the same "+
-                                  "config")
+            raise SchedulingError("Cannot reorder stmts using the same config")
 
     def check_commutes(self, f_eff, s_eff):
         for r in f_eff.reads:
@@ -129,7 +128,7 @@ class _DoReorderStmt(LoopIR_Rewrite):
             for s in self.map_s(b):
                 if self.found_first:
                     if s != self.s_stmt:
-                        raise SchedulingError("expected the second stmt to be "+
+                        raise SchedulingError("expected the second stmt to be "
                                               "directly inside the first stmt")
                     self.found_first = False
                     continue #skip the second stmt because it's already reordered
@@ -428,7 +427,7 @@ class _Unroll(LoopIR_Rewrite):
                 raise SchedulingError(f"expected loop '{s.iter}' "
                                       f"to have constant bounds")
             # if len(s.body) != 1:
-            #    raise SchedulingError(f"expected loop '{s.iter}' "+
+            #    raise SchedulingError(f"expected loop '{s.iter}' "
             #                          f"to have only one body")
             hi      = s.hi.val
             assert hi > 0
@@ -549,10 +548,10 @@ class _PartialEval(LoopIR_Rewrite):
                 if isinstance(v, int):
                     self.env[a.name] = v
                 else:
-                    raise SchedulingError("cannot partially evaluate "+
+                    raise SchedulingError("cannot partially evaluate "
                                           "to a non-int value")
             else:
-                raise SchedulingError("cannot partially evaluate "+
+                raise SchedulingError("cannot partially evaluate "
                                       "numeric (non-index) arguments")
 
         args    = [ self.map_fnarg(a) for v,a in zip(arg_vals, proc.args)
@@ -649,18 +648,18 @@ class _SetTypAndMem(LoopIR_Rewrite):
         mem     = a.mem
         if self.basetyp is not None:
             if not a.type.is_numeric():
-                raise SchedulingError("cannot change the precision of a "+
+                raise SchedulingError("cannot change the precision of a "
                                       "non-numeric argument")
             typ = self.change_precision(typ)
         elif self.win is not None:
             if not a.type.is_tensor_or_window():
-                raise SchedulingError("cannot change windowing of a "+
+                raise SchedulingError("cannot change windowing of a "
                                       "non-tensor/window argument")
             typ = self.change_window(typ)
         else:
             assert self.mem is not None
             if not a.type.is_numeric():
-                raise SchedulingError("cannot change the memory of a "+
+                raise SchedulingError("cannot change the memory of a "
                                       "non-numeric argument")
             mem = self.mem
 
@@ -681,7 +680,7 @@ class _SetTypAndMem(LoopIR_Rewrite):
                 if self.basetyp is not None:
                     typ = self.change_precision(typ)
                 elif self.win is not None:
-                    raise SchedulingError("cannot change an allocation to "+
+                    raise SchedulingError("cannot change an allocation to "
                                           "be or not be a window")
                 else:
                     assert self.mem is not None
@@ -1411,8 +1410,8 @@ class _FissionLoops:
 
     def alloc_check(self, pre, post):
         if not _is_alloc_free(pre, post):
-            raise SchedulingError("Will not fission here, because "+
-                                  "an allocation might be buried "+
+            raise SchedulingError("Will not fission here, because "
+                                  "an allocation might be buried "
                                   "in a different scope than some use-site")
 
     # returns a pair of stmt-lists

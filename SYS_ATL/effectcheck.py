@@ -495,7 +495,7 @@ class CheckEffects:
             # Check whether the assert is even potentially correct
             smt_p = self.expr_to_smt(lift_expr(p))
             if not self.solver.is_sat(smt_p):
-                self.err(p, f"The assertion {p} at {p.srcinfo} "+
+                self.err(p, f"The assertion {p} at {p.srcinfo} "
                             f"is always unsatisfiable.")
             # independently, we will assume the assertion is
             # true while checking the rest of this procedure body
@@ -752,7 +752,7 @@ class CheckEffects:
 
             if not self.solver.is_valid(in_bds):
                 eg = self.counter_example()
-                self.err(eff, f"{sym} is {eff_str} out-of-bounds "+
+                self.err(eff, f"{sym} is {eff_str} out-of-bounds "
                               f"when:\n  {eg}.")
 
             self.pop()
@@ -811,8 +811,8 @@ class CheckEffects:
 
         if not self.solver.is_valid(loc_neq):
             eg = self.counter_example()
-            self.err(e1, f"data race conflict with statement on "+
-                         f"{e2.srcinfo} while accessing {e1.buffer} "+
+            self.err(e1, f"data race conflict with statement on "
+                         f"{e2.srcinfo} while accessing {e1.buffer} "
                          f"in loop over {iter}, when:\n  {eg}.")
 
         self.pop()
@@ -829,9 +829,9 @@ class CheckEffects:
 
             if not self.solver.is_valid(disjoint):
                 eg = self.counter_example()
-                self.err(e1, f"conflict on configuration variable "+
-                             f"{e1.config.name()}.{e1.field} between "+
-                             f"access at {e1.srcinfo} and access at "+
+                self.err(e1, f"conflict on configuration variable "
+                             f"{e1.config.name()}.{e1.field} between "
+                             f"access at {e1.srcinfo} and access at "
                              f"{e1.srcinfo}, occurs when:\n  {eg}.")
 
             self.pop()
@@ -874,27 +874,27 @@ class CheckEffects:
     def check_config_no_loop_depend(self, iter, eff, body):
         for ce in eff.config_reads:
             if iter in LoopIR_Dependencies((ce.config, ce.field), body).result():
-                self.err(ce, f"The read of config variable "+
-                             f"{ce.config.name()}.{ce.field} depends on "+
+                self.err(ce, f"The read of config variable "
+                             f"{ce.config.name()}.{ce.field} depends on "
                              f"the loop iteration variable {iter}")
         for ce in eff.config_writes:
             if iter in LoopIR_Dependencies((ce.config, ce.field), body).result():
-                self.err(ce, f"The value written to config variable "+
-                             f"{ce.config.name()}.{ce.field} depends on "+
+                self.err(ce, f"The value written to config variable "
+                             f"{ce.config.name()}.{ce.field} depends on "
                              f"the loop iteration variable {iter}")
 
     def check_pos_size(self, expr):
         e_pos = SMT.LT( SMT.Int(0), self.expr_to_smt(expr) )
         if not self.solver.is_valid(e_pos):
             eg = self.counter_example()
-            self.err(expr, "expected expression to always be positive. "+
+            self.err(expr, "expected expression to always be positive. "
                            f"It can be non positive when:\n  {eg}.")
 
     def check_non_negative(self, expr):
         e_nn = SMT.LE( SMT.Int(0), self.expr_to_smt(expr) )
         if not self.solver.is_valid(e_nn):
             eg = self.counter_example()
-            self.err(expr, "expected expression to always be non-negative. "+
+            self.err(expr, "expected expression to always be non-negative. "
                            f"It can be negative when:\n  {eg}.")
 
     def check_call_shape_eqv(self, argshp, sigshp, node):
@@ -906,10 +906,10 @@ class CheckEffects:
             eqv_dim = SMT.And(eqv_dim, eq_here)
         if not self.solver.is_valid(eqv_dim):
             eg = self.counter_example()
-            self.err(node, "type-shape of calling argument may not equal "+
-                           "the required type-shape: "+
-                           f"[{','.join(map(str,argshp))}] vs. "+
-                           f"[{','.join(map(str,sigshp))}]."+
+            self.err(node, "type-shape of calling argument may not equal "
+                           "the required type-shape: "
+                           f"[{','.join(map(str,argshp))}] vs. "
+                           f"[{','.join(map(str,sigshp))}]."
                            f" It could be non equal when:\n  {eg}")
 
     def preprocess_stmts(self, body):
@@ -1043,8 +1043,8 @@ class CheckEffects:
                     smt_pred    = self.expr_to_smt(lift_expr(p_subst))
                     if not self.solver.is_valid(smt_pred):
                         eg = self.counter_example()
-                        self.err(stmt, f"Could not verify assertion {p} in "+
-                                       f"{stmt.f.name} at {p.srcinfo}."+
+                        self.err(stmt, f"Could not verify assertion {p} in "
+                                       f"{stmt.f.name} at {p.srcinfo}."
                                        f" Assertion is false when:\n  {eg}")
 
                 body_eff = eff_concat(stmt.eff, body_eff)

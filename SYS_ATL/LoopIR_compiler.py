@@ -194,9 +194,9 @@ def window_struct(basetyp, n_dims):
     assert n_dims >= 1
     sname = f"systl_win_{n_dims}{_window_struct_shorthand[basetyp]}"
 
-    sdef = (f"struct {sname}{{\n"+
-            f"    {basetyp.ctype()} *data;\n"+
-            f"    int strides[{n_dims}];\n"+
+    sdef = (f"struct {sname}{{\n"
+            f"    {basetyp.ctype()} *data;\n"
+            f"    int strides[{n_dims}];\n"
             f"}};")
 
     return sname, sdef
@@ -212,7 +212,7 @@ def window_struct(basetyp, n_dims):
 def run_compile(proc_list, path, c_file, h_file, malloc=False):
     file_stem = re.match(r'^([^\.]+)\.[^\.]+$', c_file)
     if not file_stem:
-        raise ValueError("Expected file name to end "+
+        raise ValueError("Expected file name to end "
                          "with extension: e.g. ___.__ ")
     lib_name = sanitize_str(file_stem[1])
     fwd_decls, body = compile_to_strings(lib_name, proc_list)
@@ -221,7 +221,7 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
     includes = "#include <stdint.h>\n" + "#include <stdbool.h>\n"
 
     if malloc:
-        includes += ("#include <assert.h>\n"+
+        includes += ("#include <assert.h>\n"
                      "#include <string.h>\n")
 
         with open(os.path.dirname(os.path.realpath(__file__)) +
@@ -237,8 +237,8 @@ def run_compile(proc_list, path, c_file, h_file, malloc=False):
                  f"#define _{H_FILE_CONST}_\n"
                  "#ifdef __cplusplus\n"
                  "extern \"C\" {\n"
-                 "#endif\n" +
-                 fwd_decls +
+                 "#endif\n"
+                 f'{fwd_decls}'
                  "#ifdef __cplusplus\n"
                  "}\n"
                  "#endif\n"
@@ -267,7 +267,7 @@ def compile_to_strings(lib_name, proc_list):
     used_names  = set()
     for p in proc_list:
         if p.name in used_names:
-            raise Exception(f"Cannot compile multiple "+
+            raise Exception(f"Cannot compile multiple "
                             f"procedures named '{p.name}'")
         used_names.add(p.name)
 
@@ -316,16 +316,16 @@ def compile_to_strings(lib_name, proc_list):
     # check that we don't have a name conflict on configs
     config_names = { c.name() for c in config_list }
     if len(config_names) != len(config_list):
-        raise TypeError("Cannot compile while using two configs "+
+        raise TypeError("Cannot compile while using two configs "
                         "with the same name")
 
     for p in proc_list:
         # don't compile instruction procedures, but add a comment?
         if p.instr is not None:
-            argstr = ','.join([str(a.name)for a in p.args])
-            body.append("\n/* relying on the following instruction...\n"+
-                        f"{p.name}({argstr})\n"+
-                        p.instr+"\n"+
+            argstr = ','.join([str(a.name) for a in p.args])
+            body.append("\n/* relying on the following instruction...\n"
+                        f"{p.name}({argstr})\n"
+                        f'{p.instr}\n'
                         "*/\n")
         else:
             p_to_start = p
@@ -405,23 +405,24 @@ class Compiler:
                 else:
                     ctyp = a.type.basetype().ctype()
                     arg_strs.append(f"{ctyp}* {name_arg}")
-                mem             = f" @{a.mem.name()}" if a.mem else ""
-                comment_str     = f"{name_arg} : {a.type} {mem}"
+                mem = f" @{a.mem.name()}" if a.mem else ""
+                comment_str = f"{name_arg} : {a.type} {mem}"
                 typ_comments.append(comment_str)
 
         self.comp_stmts(self.proc.body)
 
         # Generate headers here?
-        comment     = (f"// {name}(\n"+
-                        ',\n'.join(['//     '+s for s in typ_comments])+
-                        '\n'+
-                        "// )\n")
-        proc_decl   = (comment+
-                       f"void {name}( {', '.join(arg_strs)} );\n")
-        proc_def    = (comment+
-                       f"void {name}( {', '.join(arg_strs)} ) {{\n"+
-                        "\n".join(self._lines) + "\n"+
-                        "}\n")
+        comment = (f"// {name}(\n" +
+                   ',\n'.join(['//     ' + s for s in typ_comments]) +
+                   '\n'
+                   "// )\n")
+        proc_decl = (comment +
+                     f"void {name}( {', '.join(arg_strs)} );\n")
+        proc_def = (comment +
+                    f"void {name}( {', '.join(arg_strs)} ) {{\n" +
+                    "\n".join(self._lines) +
+                    "\n"
+                    "}\n")
 
         self.proc_decl = proc_decl
         self.proc_def = proc_def
@@ -563,18 +564,18 @@ class Compiler:
             mem = self.mems[s.name]
             if styp is LoopIR.Assign:
                 if not mem._write:
-                    raise MemGenError(f"{s.srcinfo}: cannot write to buffer "+
+                    raise MemGenError(f"{s.srcinfo}: cannot write to buffer "
                                       f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} = {rhs};")
             else:
                 if not mem._reduce:
-                    raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "+
+                    raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "
                                       f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} += {rhs};")
 
         elif styp is LoopIR.WriteConfig:
             if not s.config.is_allow_rw():
-                raise ConfigError(f"{s.srcinfo}: cannot write to config "+
+                raise ConfigError(f"{s.srcinfo}: cannot write to config "
                                   f"'{s.config.name()}'")
 
             nm      = s.config.name()
@@ -689,7 +690,7 @@ class Compiler:
                 mem = self.mems[e.name]
 
                 if not mem._read:
-                    raise MemGenError(f"{e.srcinfo}: cannot read from buffer "+
+                    raise MemGenError(f"{e.srcinfo}: cannot read from buffer "
                                       f"'{e.name}' in memory '{mem.name()}'")
 
                 if e.name in self._scalar_refs:
@@ -718,18 +719,18 @@ class Compiler:
                            if isinstance(w, LoopIR.Interval)]
 
             # apply offset to new data pointer
-            baseptr     = base
+            baseptr = base
             if basetyp.is_win():
                 baseptr = f"{base}.data"
             if mem._window:
-                dataptr     = mem._window(basetyp.basetype().ctype(),
-                                          base, idxs, all_strides, e.srcinfo)
+                dataptr = mem._window(basetyp.basetype().ctype(),
+                                      base, idxs, all_strides, e.srcinfo)
             else:
-                idx_expr    = self.get_idx_offset(base, basetyp, idxs)
-                dataptr     = f"{baseptr} + {idx_expr}"
+                idx_expr = self.get_idx_offset(base, basetyp, idxs)
+                dataptr = f"{baseptr} + {idx_expr}"
 
-            struct_str = (f"(struct {win_struct}){{ {dataptr},"+
-                                            f" {{ {','.join(strides)} }} }}")
+            struct_str = (f"(struct {win_struct}){{ {dataptr},"
+                          f" {{ {','.join(strides)} }} }}")
 
             return struct_str
         elif etyp is LoopIR.Const:
@@ -776,7 +777,7 @@ class Compiler:
             return strides[e.dim]
         elif etyp is LoopIR.ReadConfig:
             if not e.config.is_allow_rw():
-                raise ConfigError(f"{e.srcinfo}: cannot read from config "+
+                raise ConfigError(f"{e.srcinfo}: cannot read from config "
                                   f"'{e.config.name()}'")
             return f"ctxt->{e.config.name()}.{e.field}"
 
