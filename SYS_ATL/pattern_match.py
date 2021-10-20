@@ -65,21 +65,20 @@ _PAST_to_LoopIR = {
   # list of stmts
   list:               list,
   #
-  PAST.Assign:        LoopIR.Assign,
-  PAST.Reduce:        LoopIR.Reduce,
-  PAST.Pass:          LoopIR.Pass,
-  PAST.If:            LoopIR.If,
-  PAST.ForAll:        LoopIR.ForAll,
-  PAST.Seq   :        LoopIR.Seq,
-  PAST.Alloc:         LoopIR.Alloc,
-  PAST.Call:          LoopIR.Call,
-  PAST.WriteConfig:   LoopIR.WriteConfig,
+  PAST.Assign:        [LoopIR.Assign],
+  PAST.Reduce:        [LoopIR.Reduce],
+  PAST.Pass:          [LoopIR.Pass],
+  PAST.If:            [LoopIR.If],
+  PAST.ForAll:        [LoopIR.ForAll, LoopIR.Seq],
+  PAST.Alloc:         [LoopIR.Alloc],
+  PAST.Call:          [LoopIR.Call],
+  PAST.WriteConfig:   [LoopIR.WriteConfig],
   PAST.S_Hole:        None,
   #
-  PAST.Read:          LoopIR.Read,
-  PAST.Const:         LoopIR.Const,
-  PAST.USub:          LoopIR.USub,
-  PAST.BinOp:         LoopIR.BinOp,
+  PAST.Read:          [LoopIR.Read],
+  PAST.Const:         [LoopIR.Const],
+  PAST.USub:          [LoopIR.USub],
+  PAST.BinOp:         [LoopIR.BinOp],
   PAST.E_Hole:        None,
 }
 
@@ -253,7 +252,7 @@ class PatternMatch:
         # are the same constructor
         styp = type(stmt)
 
-        if (_PAST_to_LoopIR[type(pat)] is not styp and
+        if (styp not in _PAST_to_LoopIR[type(pat)] and
                 styp is not LoopIR.WindowStmt):
             return False
 
@@ -299,7 +298,7 @@ class PatternMatch:
         # first ensure that we the pattern and statement
         # are the same constructor
         etyp = type(e)
-        if (_PAST_to_LoopIR[type(pat)] is not etyp and
+        if (etyp not in _PAST_to_LoopIR[type(pat)] and
                 etyp is not LoopIR.WindowExpr):
             return False
 

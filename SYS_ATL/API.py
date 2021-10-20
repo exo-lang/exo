@@ -443,9 +443,8 @@ class Procedure(ProcedureBase):
 
       iter_pat = iter_name_to_pattern(iter_pat)
       iter_pat = self._find_stmt(iter_pat)
-      # TODO: Fix _find_stmt to handle Seq
-      #if type(iter_pat) is not LoopIR.Seq:
-      #    raise TypeError("expected the loop to be sequential")
+      if type(iter_pat) is not LoopIR.Seq:
+          raise TypeError("expected the loop to be sequential")
       stmts = self._find_stmt(stmt_pat, default_match_no=None)
       loopir = self._loopir_proc
       for s in stmts:
@@ -466,7 +465,6 @@ class Procedure(ProcedureBase):
             raise TypeError("expected both arguments to be if stmt")
         loopir = self._loopir_proc
         loopir = Schedules.DoMergeGuard(loopir, stmt1, stmt2).result()
-        print(type(loopir))
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
