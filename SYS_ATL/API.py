@@ -453,6 +453,23 @@ class Procedure(ProcedureBase):
 
       return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def merge_guard(self, stmt1, stmt2):
+        if type(stmt1) is not str:
+            raise TypeError("expected first arg to be a string")
+        if type(stmt2) is not str:
+            raise TypeError("expected second arg to be a string")
+
+        stmt1 = self._find_stmt(stmt1)
+        stmt2 = self._find_stmt(stmt2)
+        if (type(stmt1) is not LoopIR.If or
+                type(stmt2) is not LoopIR.If):
+            raise TypeError("expected both arguments to be if stmt")
+        loopir = self._loopir_proc
+        loopir = Schedules.DoMergeGuard(loopir, stmt1, stmt2).result()
+        print(type(loopir))
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
     def delete_pass(self):
         loopir = self._loopir_proc
         loopir = Schedules.DoDeletePass(loopir).result()

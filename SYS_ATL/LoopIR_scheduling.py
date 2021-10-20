@@ -1536,6 +1536,44 @@ class _DoAddGuard(LoopIR_Rewrite):
 
         return super().map_s(s)
 
+
+class _DoMergeGuard(LoopIR_Rewrite):
+    def __init__(self, proc, stmt1, stmt2):
+        assert type(stmt1) == LoopIR.If
+        assert type(stmt2) == LoopIR.If
+         
+        self.stmt1 = stmt1
+        self.stmt2 = stmt2
+        self.found_first = False
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        new_stmts = []
+
+        for b in stmts:
+            if self.found_first:
+                if b != self.stmt2:
+                    raise SchedulingError("expected the second stmt to be "+
+                                          "directly after the first stmt")
+                self.found_first = False
+
+                body = self.stmt1.body + self.stmt2.body
+                orelse = self.stmt1.orelse + self.stmt2.orelse
+                b = LoopIR.If(b.cond, body, orelse, None, b.srcinfo)
+
+            if b == self.stmt1:
+                self.found_first = True
+                continue
+
+            for s in self.map_s(b):
+                new_stmts.append(s)
+
+        return new_stmts
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   Factor out a sub-statement as a Procedure scheduling directive
@@ -1746,3 +1784,4 @@ class Schedules:
     DoDeletePass        = _DoDeletePass
     DoSimplify          = _DoSimplify
     DoAddGuard          = _DoAddGuard
+    DoMergeGuard        = _DoMergeGuard
