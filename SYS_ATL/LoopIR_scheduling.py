@@ -984,6 +984,7 @@ class _BindExpr(LoopIR_Rewrite):
             e = self.exprs[0]
             # bind LHS when self.cse == True
             if (self.cse and
+                type(e) is LoopIR.Read and
                 e.name == s.name and
                 e.type == s.type and
                 all([True for i,j in zip(e.idx, s.idx) if i == j])):
