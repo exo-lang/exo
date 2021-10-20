@@ -925,8 +925,8 @@ class _BindExpr(LoopIR_Rewrite):
         self.orig_proc = proc
         self.new_name = Sym(new_name)
         self.exprs = exprs if cse else [exprs[0]]
-        self.found_expr = None
         self.cse = cse
+        self.found_expr = None
         self.placed_alloc = False
         self.sub_over = False
 
@@ -981,12 +981,16 @@ class _BindExpr(LoopIR_Rewrite):
             return [LoopIR.If(s.cond, if_then, if_else, s.eff, s.srcinfo)]
 
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            stmts = super().map_s(s)
-            # TODO: kill the search if we update any of the buffers referred
-            #  to by self.found_expr (unfortunately, read effects aren't
-            #  tracked in LoopIR.expr instances, so more ad-hoc logic will be
-            #  needed).
-            return stmts
+            e = self.exprs[0]
+            # bind LHS when self.cse == True
+            if (self.cse and
+                e.name == s.name and
+                e.type == s.type and
+                all([True for i,j in zip(e.idx, s.idx) if i == j])):
+                
+                rhs = self.map_e(s.rhs)
+
+                return [type(s)(self.new_name, s.type, None, [], rhs, None, s.srcinfo)]
 
         return super().map_s(s)
 

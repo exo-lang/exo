@@ -12,6 +12,19 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH
 from .helper import *
 
 
+def test_bind_lhs():
+    @proc
+    def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
+        for ii in par(0, 1):
+            for jj in par(0, 1):
+                for kk in par(0, 16):
+                    out[ii, jj, kk] = out[ii, jj, kk] + inp[ii, jj, kk]
+                    out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
+
+    myfunc_cpu = myfunc_cpu.bind_expr('inp_ram', 'inp[_]', cse=True) 
+    myfunc_cpu = myfunc_cpu.bind_expr('out_ram', 'out[_]', cse=True) 
+    print(myfunc_cpu)
+
 def test_simple_split():
     @proc
     def bar(n : size, A : i8[n]):
