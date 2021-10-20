@@ -1503,14 +1503,33 @@ class _FissionLoops:
 
 class _DoAddGuard(LoopIR_Rewrite):
     def __init__(self, proc, stmt, itr_stmt, val):
+        assert val == 0
+
         self.stmt = stmt
+        self.loop = itr_stmt
         self.itr = itr_stmt.iter
         self.val = val
+        self.in_loop = False
 
         super().__init__(proc)
 
     def map_s(self, s):
+        if s == self.loop:
+            self.in_loop = True
+            hi = self.map_e(s.hi)
+            body = self.map_stmts(s.body)
+            eff = self.map_eff(s.eff)
+            self.in_loop = False
+            return [type(s)( s.iter, hi, body, eff, s.srcinfo )]
         if s == self.stmt:
+            if not self.in_loop:
+                raise SchedulingError(f"statement is not inside the loop {self.itr}")
+            if self.itr in _FV([s]):
+                raise SchedulingError(f"expected {self.itr} not to be used"+
+                                      " in statement {s}")
+            if not _is_idempotent([s]):
+                raise SchedulingError(f"statement {s} is not idempotent")
+
             cond = LoopIR.BinOp('==', LoopIR.Read(self.itr, [], T.index, s.srcinfo),
                                       LoopIR.Const(self.val, T.int, s.srcinfo), T.bool, s.srcinfo)
             return [LoopIR.If(cond, [s], [], None, s.srcinfo)]

@@ -438,9 +438,14 @@ class Procedure(ProcedureBase):
           raise TypeError("expected second arg to be a string")
       if type(value) is not int:
           raise TypeError("expected third arg to be an int")
+      if value != 0:
+          raise TypeError("expected third arg to be 0")
 
       iter_pat = iter_name_to_pattern(iter_pat)
       iter_pat = self._find_stmt(iter_pat)
+      # TODO: Fix _find_stmt to handle Seq
+      #if type(iter_pat) is not LoopIR.Seq:
+      #    raise TypeError("expected the loop to be sequential")
       stmts = self._find_stmt(stmt_pat, default_match_no=None)
       loopir = self._loopir_proc
       for s in stmts:
