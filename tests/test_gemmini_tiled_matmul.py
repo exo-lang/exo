@@ -645,18 +645,13 @@ def test_matmul_c_i8_perfect():
     matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('do_ld_i8(_) #0', 'j #1', 0)
     matmul_c_i8_perfect = matmul_c_i8_perfect.merge_guard('if j == 0:_ #0', 'if j == 0:_ #1')
 
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #1', n_lifts=3)
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('do_ld_i8(_) #0', n_lifts=3)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('config_ld_i8(_,_) #1', 'i #1', 0)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('do_ld_i8(_) #1', 'i #1', 0)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.merge_guard('if i == 0:_ #0', 'if i == 0:_ #1')
 
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_zero(_)', n_lifts=2)
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after('config_ld_i8(_)', n_lifts=2)
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.reorder_stmts("for k in _:_ #0", "config_ld_i8(_) #1")
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j')
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #1')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.simplify()
 
     print(matmul_c_i8_perfect)
 """
