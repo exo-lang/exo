@@ -649,16 +649,22 @@ def test_matmul_c_i8_perfect():
     matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('do_ld_i8(_) #1', 'i #1', 0)
     matmul_c_i8_perfect = matmul_c_i8_perfect.merge_guard('if i == 0:_ #0', 'if i == 0:_ #1')
 
-    matmul_c_i8_perfect = matmul_c_i8_perfect.fission_after("config_zero()", n_lifts=2)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.add_loop('for j in _:_ #0', 'k', 32)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fuse_loop('for k in _:_ #0', 'for k in _:_ #1')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for j in _:_ #0')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for i in _:_ #0')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
 
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #1')
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #1')
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.simplify()
+    matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for k in _:_ #0')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('config_zero(_) #0', 'k #0', 0)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('do_zero_acc_i32(_) #0', 'k #0', 0)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.merge_guard('if k == 0:_ #0', 'if k == 0:_ #1')
 
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i')
+    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.simplify()
 
-    print(matmul_c_i8_perfect)
-"""
     T.add_proc(matmul_c_i8_perfect)
     T.add_proc(matmul_c_i8_cpu)
 
@@ -687,5 +693,8 @@ def test_matmul_c_i8_perfect():
 
     T.compile().run()
 
+
+    print(matmul_c_i8_perfect)
+"""
     #matmul_c_i8_perfect.check_effects()
 """

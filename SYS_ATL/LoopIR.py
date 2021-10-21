@@ -896,7 +896,8 @@ class SubstArgs(LoopIR_Rewrite):
     def map_eff_e(self, e):
         # purely index expressions
         if type(e) is E.Var:
-            assert e.type.is_indexable()
+            #TODO: ?
+            #assert e.type.is_indexable(), f"type is {e.type}"
             if e.name in self.env:
                 sub_e = self.env[e.name]
                 assert sub_e.type.is_indexable()

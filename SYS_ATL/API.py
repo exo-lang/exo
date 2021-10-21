@@ -452,6 +452,41 @@ class Procedure(ProcedureBase):
 
       return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def fuse_loop(self, loop1, loop2):
+        if type(loop1) is not str:
+            raise TypeError("expected first arg to be a string")
+        if type(loop2) is not str:
+            raise TypeError("expected second arg to be a string")
+
+        loop1 = self._find_stmt(loop1)
+        loop2 = self._find_stmt(loop2)
+
+        if (not isinstance(loop1, LoopIR.ForAll) and
+                not isinstance(loop1, LoopIR.Seq)):
+            raise TypeError("expected loop to be par or seq loop")
+        if type(loop1) != type(loop2):
+            raise TypeError("expected loop type to match")
+        
+        loopir = self._loopir_proc
+        loopir = Schedules.DoFuseLoop(loopir, loop1, loop2).result()
+      
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def add_loop(self, stmt, var, hi):
+        if type(stmt) is not str:
+            raise TypeError("expected first arg to be a string")
+        if type(var) is not str:
+            raise TypeError("expected second arg to be a string")
+        if type(hi) is not int:
+            raise TypeError("currently, only constant bound is supported")
+
+        stmt = self._find_stmt(stmt)
+        loopir = self._loopir_proc
+        loopir = Schedules.DoAddLoop(loopir, stmt, var, hi).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
     def merge_guard(self, stmt1, stmt2):
         if type(stmt1) is not str:
             raise TypeError("expected first arg to be a string")

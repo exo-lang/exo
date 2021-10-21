@@ -1575,6 +1575,80 @@ class _DoMergeGuard(LoopIR_Rewrite):
         return new_stmts
 
 
+class _DoFuseLoop(LoopIR_Rewrite):
+    def __init__(self, proc, loop1, loop2):
+        self.loop1 = loop1
+        self.loop2 = loop2
+        self.found_first = False
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        new_stmts = []
+
+        for b in stmts:
+            if self.found_first:
+                if b != self.loop2:
+                    raise SchedulingError("expected the second stmt to be "+
+                                          "directly after the first stmt")
+                self.found_first = False
+
+                # TODO: Is this enough??
+                # Check that loop is equivalent
+                if self.loop1.iter.name() != self.loop2.iter.name():
+                    raise SchedulingError("expected loop iteration variable "+
+                                          "to match")
+                # TODO: Handle more expressions!
+                if (type(self.loop1.hi) is not LoopIR.Const or
+                        type(self.loop2.hi) is not LoopIR.Const):
+                    raise SchedulingError("expected loop bound to be const "+
+                                          "for now!")
+                if self.loop1.hi.val != self.loop2.hi.val:
+                    raise SchedulingError("bound does not match!")
+                # TODO: Check sth about stmts?
+
+
+                body1 = SubstArgs(self.loop1.body,
+                                    {self.loop1.iter : LoopIR.Read(self.loop2.iter, [],
+                                                       T.index, self.loop2.srcinfo)}).result()
+                body = body1 + self.loop2.body
+
+                b = type(self.loop1)(self.loop2.iter, self.loop2.hi, body, None, b.srcinfo)
+
+            if b == self.loop1:
+                self.found_first = True
+                continue
+
+            for s in self.map_s(b):
+                new_stmts.append(s)
+
+        return new_stmts
+            
+
+class _DoAddLoop(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, var, hi):
+        self.stmt = stmt
+        self.var  = var
+        self.hi   = hi
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s == self.stmt:
+            if not _is_idempotent([s]):
+                raise SchedulingError("expected stmt to be idempotent!")
+
+            sym = Sym(self.var)
+            hi  = LoopIR.Const(self.hi, T.int, s.srcinfo)
+            ir  = LoopIR.ForAll(sym, hi, [s], None, s.srcinfo)
+            return [ir]
+
+        return super().map_s(s)
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   Factor out a sub-statement as a Procedure scheduling directive
@@ -1786,3 +1860,5 @@ class Schedules:
     DoSimplify          = _DoSimplify
     DoAddGuard          = _DoAddGuard
     DoMergeGuard        = _DoMergeGuard
+    DoFuseLoop          = _DoFuseLoop
+    DoAddLoop           = _DoAddLoop
