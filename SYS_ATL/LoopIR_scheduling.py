@@ -261,7 +261,7 @@ class _Split(LoopIR_Rewrite):
                 return boolop("and", lhs, rhs)
             def do_bind(x, hi, eff):
                 cond    = lift_to_eff_expr( rng(rd(x),hi) )
-                cond_nz = boolop("<", cnst(0), hi)
+                cond_nz = lift_to_eff_expr( boolop("<", cnst(0), hi) )
                 return eff_bind(x, eff, pred=cond, config_pred=cond_nz)
 
             # in the simple case, wrap body in a guard
@@ -1513,6 +1513,8 @@ class _DoAddGuard(LoopIR_Rewrite):
         self.in_loop = False
 
         super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
         if s == self.loop:

@@ -661,8 +661,11 @@ def test_matmul_c_i8_perfect():
     matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('do_zero_acc_i32(_) #0', 'k #0', 0)
     matmul_c_i8_perfect = matmul_c_i8_perfect.merge_guard('if k == 0:_ #0', 'if k == 0:_ #1')
 
-    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i')
-    #matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.split('k', 2, ['ko', 'ki'], perfect=True)
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #0')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('j #0')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('ki')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i #0')
     matmul_c_i8_perfect = matmul_c_i8_perfect.simplify()
 
     T.add_proc(matmul_c_i8_perfect)
