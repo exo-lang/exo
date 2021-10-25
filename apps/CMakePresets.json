@@ -1,0 +1,35 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "gha-Linux",
+      "displayName": "GHA (Linux)",
+      "description": "GitHub Actions Linux build with Intel SDE emulator",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-march=skylake-avx512",
+        "CMAKE_CXX_FLAGS": "-march=skylake-avx512",
+        "CMAKE_CROSSCOMPILING_EMULATOR": "$env{SDE_PATH}/sde64;--",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "gha-macOS",
+      "displayName": "GHA (macOS)",
+      "description": "GitHub Actions macOS build with Intel SDE emulator",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-march=skylake-avx512",
+        "CMAKE_CXX_FLAGS": "-march=skylake-avx512",
+        "CMAKE_CROSSCOMPILING_EMULATOR": "$env{SDE_PATH}/sde64;--",
+        "CMAKE_BUILD_TYPE": "Release",
+        "Python3_ROOT_DIR": "$env{pythonLocation}"
+      }
+    }
+  ]
+}
