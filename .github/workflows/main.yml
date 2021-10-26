@@ -29,8 +29,11 @@ jobs:
       - name: Setup SDE binaries
         uses: petarpetrovt/setup-sde@v1.2
 
-      - name: Run unit tests
+      - name: Run PyTest
         run: python -m pytest
+
+      - name: Run tox
+        run: tox
 
       - name: Build package
         run: python -m build
