@@ -12,6 +12,7 @@ add_sys_atl_library(sgemm sgemm.py)
 
 add_executable(run_sgemm run_sgemm.cpp)
 target_link_libraries(run_sgemm PRIVATE x86_demo::sgemm)
+target_compile_features(run_sgemm PRIVATE cxx_std_11)
 
 if (BUILD_TESTING)
   add_test(NAME sgemm_100
