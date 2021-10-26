@@ -47,5 +47,7 @@ jobs:
           cmake --build build
 
       - name: Check apps run with CMake
+        # Skip running on macOS since the SDE simulator is too slow there
+        if: runner.os == 'Linux'
         run: ctest --output-on-failure
         working-directory: build
