@@ -88,6 +88,20 @@ def mm512_loadu_ps(
         dst[i] = src[i]
 
 
+# TODO: improve the memory interface to not require separate
+#       functions for codegen
+@instr('{dst} = _mm512_loadu_ps({src}.data);')
+def mm512_loadu_ps_reg(
+        dst: f32[16] @ AVX512,
+        src: [f32][16] @ DRAM
+):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in par(0, 16):
+        dst[i] = src[i]
+
+
 @instr('_mm512_storeu_ps({dst}.data, *(__m512*){src}.data);')
 def mm512_storeu_ps(
     dst: [f32][16] @ DRAM,

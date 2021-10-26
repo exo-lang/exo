@@ -42,7 +42,7 @@ def sgemm_masked_kernel_avx512_template(
             mm512_set1_ps(a_vec, A[i, k:k + 1])
             for j in par(0, ((N + 15) / 16)):
                 b_vec: f32[16] @ AVX512
-                mm512_loadu_ps(b_vec, B[k, j * 16:j * 16 + 16])
+                mm512_loadu_ps_reg(b_vec, B[k, j * 16:j * 16 + 16])
                 mm512_fmadd_ps(a_vec, b_vec, C_reg[i, j, :])
 
     for i in par(0, M):
