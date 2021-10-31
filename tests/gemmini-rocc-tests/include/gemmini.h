@@ -3503,7 +3503,7 @@ static void tiled_conv_A_stride(
     }
 }
 
-static void tiled_conv_A_stride_auto(
+static void orig_tiled_conv_A_stride_auto(
         int batch_size, int in_dim, int in_channels,
         int out_channels, int out_dim,
         int stride, int input_dilation, int kernel_dilation, int padding, int kernel_dim,
@@ -3690,6 +3690,217 @@ static void tiled_conv_A_stride_auto(
 
         tiled_conv_type);
 }
+
+typedef struct conv_2_lib_Context { 
+
+} conv_2_lib_Context;
+
+
+void conv_on_cpu( conv_2_lib_Context *ctxt, int batch_size, int out_dim, int out_channel, int kernel_dim, int in_channel, int in_dim, int8_t* output, int32_t* bias, int8_t* inp, int8_t* weights, bool act, float* scale ) {
+for (int b=0; b < batch_size; b++) {
+  for (int orow=0; orow < out_dim; orow++) {
+    for (int ocol=0; ocol < out_dim; ocol++) {
+      for (int och=0; och < out_channel; och++) {
+        int32_t res;
+        res = bias[(0) * (out_channel) + (och) * (1)];
+        for (int krow=0; krow < kernel_dim; krow++) {
+          for (int kcol=0; kcol < kernel_dim; kcol++) {
+            for (int kch=0; kch < in_channel; kch++) {
+              res += (int32_t)(weights[(krow) * (kernel_dim * in_channel * out_channel) + (kcol) * (in_channel * out_channel) + (kch) * (out_channel) + (och) * (1)] * inp[(b) * (in_dim * in_dim * in_channel) + (orow + krow) * (in_dim * in_channel) + (ocol + kcol) * (in_channel) + (kch) * (1)]);
+            }
+          }
+        }
+        if (act == true) {
+          res = _relu_((double)*&res);
+        }
+        float tmp_res1;
+        tmp_res1 = (float)(res);
+        tmp_res1 = tmp_res1 * *scale;
+        int8_t tmp_res2;
+        clamp(ctxt,&tmp_res1,&tmp_res2);
+        output[(b) * (out_dim * out_dim * out_channel) + (orow) * (out_dim * out_channel) + (ocol) * (out_channel) + (och) * (1)] = tmp_res2;
+        
+        
+        
+      }
+    }
+  }
+}
+}
+
+void conv_on_gemmini( conv_2_lib_Context *ctxt, int batch_size, int out_dim, int out_channel, int kernel_dim, int in_channel, int in_dim, int8_t* output, int32_t* bias, int8_t* inp, int8_t* weights, bool act, float* scale ) {
+float one;
+one = 1.0;
+for (int b=0; b < batch_size; b++) {
+  for (int orow=0; orow < out_dim; orow++) {
+    for (int ocol=0; ocol < _floor_div(out_dim, 16); ocol++) {
+      for (int och=0; och < _floor_div(out_channel, 16); och++) {
+        int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * sizeof(int32_t)));
+        for (int l=0; l < 16; l++) {
+          gemmini_extended3_config_ld(((struct systl_win_2i32){ bias + (0) * (out_channel) + (16 * och) * (1), { out_channel,1 } }).strides[0]*4, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((uint64_t) ((struct systl_win_2i32){ bias + (0) * (out_channel) + (16 * och) * (1), { out_channel,1 } }).data), ((uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((l) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (1) );
+        }
+        for (int kcol=0; kcol < kernel_dim; kcol++) {
+          for (int krow=0; krow < kernel_dim; krow++) {
+            for (int kch=0; kch < _floor_div(in_channel, 16); kch++) {
+              int8_t *in_scratch = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
+              int8_t *weight_scratch = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
+              gemmini_extended3_config_ld(((struct systl_win_2i8){ inp + (b) * (in_dim * in_dim * in_channel) + (orow + krow) * (in_dim * in_channel) + (16 * ocol + kcol) * (in_channel) + (16 * kch) * (1), { in_channel,1 } }).strides[0]*1, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ inp + (b) * (in_dim * in_dim * in_channel) + (orow + krow) * (in_dim * in_channel) + (16 * ocol + kcol) * (in_channel) + (16 * kch) * (1), { in_channel,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+              gemmini_extended3_config_ld(((struct systl_win_2i8){ weights + (krow) * (kernel_dim * in_channel * out_channel) + (kcol) * (in_channel * out_channel) + (16 * kch) * (out_channel) + (16 * och) * (1), { out_channel,1 } }).strides[0]*1, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ weights + (krow) * (kernel_dim * in_channel * out_channel) + (kcol) * (in_channel * out_channel) + (16 * kch) * (out_channel) + (16 * och) * (1), { out_channel,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+              gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
+              gemm_free((uint64_t)(in_scratch));
+              gemm_free((uint64_t)(weight_scratch));
+            }
+            if (in_channel % 16 > 0) {
+              int8_t *in_scratch_1 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
+              int8_t *weight_scratch_1 = (int8_t*) ((uint64_t)gemm_malloc (16 * (in_channel % 16) * sizeof(int8_t)));
+              gemmini_extended3_config_ld(((struct systl_win_2i8){ inp + (b) * (in_dim * in_dim * in_channel) + (orow + krow) * (in_dim * in_channel) + (16 * ocol + kcol) * (in_channel) + (in_channel - in_channel % 16) * (1), { in_channel,1 } }).strides[0]*1, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ inp + (b) * (in_dim * in_dim * in_channel) + (orow + krow) * (in_dim * in_channel) + (16 * ocol + kcol) * (in_channel) + (in_channel - in_channel % 16) * (1), { in_channel,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (in_channel % 16), (16) );
+              gemmini_extended3_config_ld(((struct systl_win_2i8){ weights + (krow) * (kernel_dim * in_channel * out_channel) + (kcol) * (in_channel * out_channel) + (in_channel - in_channel % 16) * (out_channel) + (16 * och) * (1), { out_channel,1 } }).strides[0]*1, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ weights + (krow) * (kernel_dim * in_channel * out_channel) + (kcol) * (in_channel * out_channel) + (in_channel - in_channel % 16) * (out_channel) + (16 * och) * (1), { out_channel,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (in_channel % 16) );
+              gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (in_channel % 16), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (in_channel % 16), (16), 16, 16);
+              gemm_free((uint64_t)(in_scratch_1));
+              gemm_free((uint64_t)(weight_scratch_1));
+            }
+          }
+        }
+        gemmini_extended_config_st(((struct systl_win_2i8){ output + (b) * (out_dim * out_dim * out_channel) + (orow) * (out_dim * out_channel) + (16 * ocol) * (out_channel) + (16 * och) * (1), { out_channel,1 } }).strides[0]*1, (act), (scale)[0]);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ output + (b) * (out_dim * out_dim * out_channel) + (orow) * (out_dim * out_channel) + (16 * ocol) * (out_channel) + (16 * och) * (1), { out_channel,1 } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (16) );
+        gemm_acc_free((uint32_t)(res));
+      }
+    }
+    if (out_dim % 16 > 0) {
+      for (int och_1=0; och_1 < _floor_div(out_channel, 16); och_1++) {
+        int32_t *res_1 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * (out_dim % 16) * sizeof(int32_t)));
+        for (int l_1=0; l_1 < out_dim % 16; l_1++) {
+          gemmini_extended3_config_ld(((struct systl_win_2i32){ bias + (0) * (out_channel) + (16 * och_1) * (1), { out_channel,1 } }).strides[0]*4, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((uint64_t) ((struct systl_win_2i32){ bias + (0) * (out_channel) + (16 * och_1) * (1), { out_channel,1 } }).data), ((uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((l_1) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (1) );
+        }
+        for (int kcol_1=0; kcol_1 < kernel_dim; kcol_1++) {
+          for (int krow_1=0; krow_1 < kernel_dim; krow_1++) {
+            for (int kch_1=0; kch_1 < _floor_div(in_channel, 16); kch_1++) {
+              int8_t *in_scratch_2 = (int8_t*) ((uint64_t)gemm_malloc (16 * (out_dim % 16) * sizeof(int8_t)));
+              int8_t *weight_scratch_2 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
+              gemmini_extended3_config_ld(((struct systl_win_2i8){ inp + (b) * (in_dim * in_dim * in_channel) + (orow + krow_1) * (in_dim * in_channel) + (kcol_1 + out_dim - out_dim % 16) * (in_channel) + (16 * kch_1) * (1), { in_channel,1 } }).strides[0]*1, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ inp + (b) * (in_dim * in_dim * in_channel) + (orow + krow_1) * (in_dim * in_channel) + (kcol_1 + out_dim - out_dim % 16) * (in_channel) + (16 * kch_1) * (1), { in_channel,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (out_dim % 16) );
+              gemmini_extended3_config_ld(((struct systl_win_2i8){ weights + (krow_1) * (kernel_dim * in_channel * out_channel) + (kcol_1) * (in_channel * out_channel) + (16 * kch_1) * (out_channel) + (16 * och_1) * (1), { out_channel,1 } }).strides[0]*1, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ weights + (krow_1) * (kernel_dim * in_channel * out_channel) + (kcol_1) * (in_channel * out_channel) + (16 * kch_1) * (out_channel) + (16 * och_1) * (1), { out_channel,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+              gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (out_dim % 16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch_2)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (out_dim % 16), 16, 16);
+              gemm_free((uint64_t)(in_scratch_2));
+              gemm_free((uint64_t)(weight_scratch_2));
+            }
+            if (in_channel % 16 > 0) {
+              int8_t *in_scratch_3 = (int8_t*) ((uint64_t)gemm_malloc (16 * (out_dim % 16) * sizeof(int8_t)));
+              int8_t *weight_scratch_3 = (int8_t*) ((uint64_t)gemm_malloc (16 * (in_channel % 16) * sizeof(int8_t)));
+              gemmini_extended3_config_ld(((struct systl_win_2i8){ inp + (b) * (in_dim * in_dim * in_channel) + (orow + krow_1) * (in_dim * in_channel) + (kcol_1 + out_dim - out_dim % 16) * (in_channel) + (in_channel - in_channel % 16) * (1), { in_channel,1 } }).strides[0]*1, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ inp + (b) * (in_dim * in_dim * in_channel) + (orow + krow_1) * (in_dim * in_channel) + (kcol_1 + out_dim - out_dim % 16) * (in_channel) + (in_channel - in_channel % 16) * (1), { in_channel,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (in_channel % 16), (out_dim % 16) );
+              gemmini_extended3_config_ld(((struct systl_win_2i8){ weights + (krow_1) * (kernel_dim * in_channel * out_channel) + (kcol_1) * (in_channel * out_channel) + (in_channel - in_channel % 16) * (out_channel) + (16 * och_1) * (1), { out_channel,1 } }).strides[0]*1, (&one)[0], 0, 0);
+gemmini_extended_mvin( ((struct systl_win_2i8){ weights + (krow_1) * (kernel_dim * in_channel * out_channel) + (kcol_1) * (in_channel * out_channel) + (in_channel - in_channel % 16) * (out_channel) + (16 * och_1) * (1), { out_channel,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (in_channel % 16) );
+              gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (in_channel % 16), (16), (out_dim % 16));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch_3)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (in_channel % 16), (out_dim % 16), 16, 16);
+              gemm_free((uint64_t)(in_scratch_3));
+              gemm_free((uint64_t)(weight_scratch_3));
+            }
+          }
+        }
+        gemmini_extended_config_st(((struct systl_win_2i8){ output + (b) * (out_dim * out_dim * out_channel) + (orow) * (out_dim * out_channel) + (out_dim - out_dim % 16) * (out_channel) + (16 * och_1) * (1), { out_channel,1 } }).strides[0]*1, (act), (scale)[0]);
+gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ output + (b) * (out_dim * out_dim * out_channel) + (orow) * (out_dim * out_channel) + (out_dim - out_dim % 16) * (out_channel) + (16 * och_1) * (1), { out_channel,1 } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (out_dim % 16) );
+        gemm_acc_free((uint32_t)(res_1));
+      }
+    }
+  }
+}
+
+}
+
+static void tiled_conv_A_stride_auto(
+        int batch_size, int in_dim, int in_channels,
+        int out_channels, int out_dim,
+        int stride, int input_dilation, int kernel_dilation, int padding, int kernel_dim,
+        bool wrot180, bool trans_output_1203, bool trans_input_3120,
+        bool trans_weight_1203, bool trans_weight_0132,
+
+        const elem_t * input,
+        const elem_t * weights,
+        const acc_t * bias,
+        elem_t * output,
+
+        int act, acc_scale_t scale, size_t relu6_shift,
+        int pool_size, int pool_stride, int pool_padding,
+
+        enum tiled_matmul_type_t tiled_conv_type) {
+
+    if (tiled_conv_type != WS) {
+        printf("Calling original conv auto\n");
+        orig_tiled_conv_A_stride_auto(batch_size, in_dim, in_channels, out_channels,
+                out_dim, stride, input_dilation, kernel_dilation, padding, kernel_dim,
+                wrot180, trans_output_1203, trans_input_3120, trans_weight_1203, trans_weight_0132,
+                input, weights, bias, output, act, scale, relu6_shift, pool_size, pool_stride, pool_padding, tiled_conv_type);
+        return;
+    }
+    if (input_dilation != 1) {
+        printf("input_dilation should be 1\n");
+        exit(1);
+    }
+    if (kernel_dilation != 1) {
+        printf("kernel_dilation should be 1\n");
+        exit(1);
+    }
+    if (wrot180 || trans_output_1203 || trans_input_3120 || trans_weight_1203 || trans_weight_0132) {
+        printf("transpose should not happen in inference\n");
+        exit(1);
+    }
+    if (relu6_shift != 0) {
+        printf("relu6_shift is deprecated!\n");
+        exit(1);
+    }
+    //printf("pool_size: %d\n", pool_size);
+    //printf("pool_stride: %d\n", pool_stride);
+    //printf("pool_padding: %d\n", pool_padding);
+    //printf("act: %d\n", act);
+    //printf("scale: %d\n", (int)scale);
+
+    if (padding < 0 || padding >= 16) {
+        printf("padding should be 0 to 15!\n");
+        exit(1);
+    }
+    if (padding >= out_dim) {
+        printf("padding should be less than out_dim!\n");
+        exit(1);
+    }
+    if (padding != 1) {
+        printf("padding should be 1!\n");
+        exit(1);
+    }
+
+    float c_scale = (float) scale;
+    bool act_    = (bool) act;
+
+    //printf("in tiled conv\n");
+    conv_2_lib_Context *ctxt1;
+    if (stride == 1) {
+        conv_on_cpu(ctxt1, batch_size, out_dim, out_channels, kernel_dim, in_channels, in_dim,
+                                 output, bias, input, weights, act_, &c_scale);
+        //conv_on_gemmini(ctxt1, batch_size, out_dim, out_channels, kernel_dim, in_channels, in_dim,
+        //                         output, bias, input, weights, act_, &c_scale);
+    } else if (stride == 2) {
+        printf("out of date\n");
+        exit(1);
+    } else {
+        printf("Stride should be 1 or 2!\n");
+        exit(1);
+    }
+}
+
 
 // This function is for a convolution with kernel_dim=1, stride==2, padding=0, and no pooling
 static void tiled_conv_downsample(

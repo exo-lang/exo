@@ -28,16 +28,16 @@
 
 #else
 
-#define IN_DIM 17
-#define IN_CHANNELS 18
-#define OUT_CHANNELS 19
+#define IN_DIM 4
+#define IN_CHANNELS 2
+#define OUT_CHANNELS 2
 
 #endif
 
-#define BATCH_SIZE 2
-#define KERNEL_DIM 3
+#define BATCH_SIZE 1
+#define KERNEL_DIM 1
 #define PADDING 1
-#define STRIDE 2
+#define STRIDE 1
 
 #endif
 
