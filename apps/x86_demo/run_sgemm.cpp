@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <benchmark/benchmark.h>
+#include <mkl.h>
 
 #include <sgemm.h>
 
@@ -41,3 +42,29 @@ static void BM_sys_atl_kernel(benchmark::State &state) {
 }
 
 BENCHMARK(BM_sys_atl_kernel)->Range(8, 8 << 10);
+
+static void BM_mkl_kernel(benchmark::State &state) {
+  size_t k = state.range(0);
+  auto a = gen_matrix(6, k);
+  auto b = gen_matrix(k, 64);
+  auto c = gen_matrix(6, 64);
+
+  for (auto _ : state) {
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, // layout
+                6, 64, k,                                  // m, n, k
+                1.0,                                       // alpha
+                a.data(), k,                               // A (lda)
+                b.data(), 64,                              // B (ldb)
+                1.0,                                       // beta
+                c.data(), 64                               // C (ldc)
+    );
+  }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations() * num_flops(6, 64, k)), //
+      benchmark::Counter::kIsRate,                                   //
+      benchmark::Counter::kIs1000                                    //
+  );
+}
+
+BENCHMARK(BM_mkl_kernel)->Range(8, 8 << 10);

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "WARNING: this is meant to be run on Alex's computer. YMMV"
+
 # Meant to be run from the root of the repo:
 # ./apps/build.sh
 
