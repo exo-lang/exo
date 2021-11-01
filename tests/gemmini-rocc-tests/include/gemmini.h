@@ -1377,6 +1377,7 @@ for (int io=0; io < 4; io++) {
     int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 32 * 8 * sizeof(int8_t)));
     int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 32 * 8 * sizeof(int8_t)));
 
+
     for (int j=0; j < 8; j++) {
       gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((0) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
       gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((1) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data),(16), (16) );
@@ -3877,21 +3878,29 @@ static void tiled_conv_A_stride_auto(
         printf("padding should be less than out_dim!\n");
         exit(1);
     }
-    if (padding != 1) {
-        printf("padding should be 1!\n");
+    if (padding != 0) {
+        printf("padding should be 0!\n");
         exit(1);
     }
 
     float c_scale = (float) scale;
     bool act_    = (bool) act;
 
+    gemm_init_mem();
+    gemm_acc_init_mem();
+    gemmini_flush(0);
+    gemmini_fence();
+
     //printf("in tiled conv\n");
     conv_2_lib_Context *ctxt1;
     if (stride == 1) {
-        conv_on_cpu(ctxt1, batch_size, out_dim, out_channels, kernel_dim, in_channels, in_dim,
+        //conv_on_cpu(ctxt1, batch_size, out_dim, out_channels, kernel_dim, in_channels, in_dim,
+         //                        output, bias, input, weights, act_, &c_scale);
+        conv_on_gemmini(ctxt1, batch_size, out_dim, out_channels, kernel_dim, in_channels, in_dim,
                                  output, bias, input, weights, act_, &c_scale);
-        //conv_on_gemmini(ctxt1, batch_size, out_dim, out_channels, kernel_dim, in_channels, in_dim,
-        //                         output, bias, input, weights, act_, &c_scale);
+        //orig_conv(batch_size, in_channels, in_dim, out_channels, kernel_dim, out_dim, stride, padding, input, weights, bias, output);
+        gemmini_fence();
+
     } else if (stride == 2) {
         printf("out of date\n");
         exit(1);

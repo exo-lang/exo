@@ -28,15 +28,15 @@
 
 #else
 
-#define IN_DIM 4
-#define IN_CHANNELS 2
-#define OUT_CHANNELS 2
+#define IN_DIM 225
+#define IN_CHANNELS 3
+#define OUT_CHANNELS 32
 
 #endif
 
-#define BATCH_SIZE 1
-#define KERNEL_DIM 1
-#define PADDING 1
+#define BATCH_SIZE 4
+#define KERNEL_DIM 3
+#define PADDING 0
 #define STRIDE 1
 
 #endif
@@ -52,7 +52,7 @@ void conv(int batch_size, int in_channels, int in_dim,
         int out_dim,
         int stride, int padding,
         elem_t input[batch_size][in_dim][in_dim][in_channels],
-        elem_t weights[out_channels][kernel_dim][kernel_dim][in_channels],
+        elem_t weights[kernel_dim][kernel_dim][in_channels][out_channels],
         acc_t bias[out_channels],
         elem_t output[batch_size][out_dim][out_dim][out_channels]) {
 
@@ -80,7 +80,7 @@ void conv(int batch_size, int in_channels, int in_dim,
                                     0 : input[b][irow][icol][kch];
 
                                 result +=
-                                    weights[och][krow][kcol][kch] *
+                                    weights[krow][kcol][kch][och] *
                                     pixel;
                             }
                         }
@@ -171,7 +171,7 @@ int main() {
     printf("Output dimension: %u\n\n", OUT_DIM);
 
     static elem_t input[BATCH_SIZE][IN_DIM][IN_DIM][IN_CHANNELS];
-    static elem_t weights[OUT_CHANNELS][KERNEL_DIM][KERNEL_DIM][IN_CHANNELS];
+    static elem_t weights[KERNEL_DIM][KERNEL_DIM][IN_CHANNELS][OUT_CHANNELS];
     static acc_t bias[OUT_CHANNELS];
     static elem_t output[BATCH_SIZE][OUT_DIM][OUT_DIM][OUT_CHANNELS];
 
@@ -202,14 +202,17 @@ int main() {
     uint64_t end_cpu = read_cycles();
     printf("CPU conv took %llu cycles\n", end_cpu - start_cpu);
 
-    static elem_t weights_mat[PATCH_SIZE][OUT_CHANNELS];
-    static elem_t output_mat[N_PATCHES][OUT_CHANNELS];
+    //static elem_t weights_mat[PATCH_SIZE][OUT_CHANNELS];
+    //static elem_t output_mat[N_PATCHES][OUT_CHANNELS];
 
-    printf("Flatten weights...\n");
+    //printf("Flatten weights...\n");
+    /*
     flatten_weights(OUT_CHANNELS, KERNEL_DIM, IN_CHANNELS,
             PATCH_SIZE,
             weights,
             weights_mat);
+            */
+    static elem_t output_mat[BATCH_SIZE][OUT_DIM][OUT_DIM][OUT_CHANNELS];
 
     printf("Gemmini conv...\n");
     uint64_t start_gemmini = read_cycles();
@@ -220,7 +223,7 @@ int main() {
         false, false, false, false, false,
 
         (elem_t*)input,
-        (elem_t*)weights_mat,
+        (elem_t*)weights,
         NO_BIAS ? NULL : (acc_t*)bias,
         (elem_t*)output_mat,
 
@@ -244,7 +247,7 @@ int main() {
       }
     }
 #else
-    bool success = vec_is_equal(&output[0][0][0][0], &output_mat[0][0], sizeof(output) / sizeof(elem_t));
+    bool success = vec_is_equal(&output[0][0][0][0], &output_mat[0][0][0][0], sizeof(output) / sizeof(elem_t));
 #endif
 
     if (!success) {
@@ -274,6 +277,7 @@ int main() {
         }
         printf("\b\n\n");
 
+        /*
         printf("weights_mat:\n");
         for (int wrow = 0; wrow < KERNEL_DIM * KERNEL_DIM * IN_CHANNELS; wrow++) {
             printf("[");
@@ -283,6 +287,7 @@ int main() {
             printf("\b],\n");
         }
         printf("\b\n\n");
+        */
 
         printf("input:\n");
         for (int batch = 0; batch < BATCH_SIZE; batch++) {
@@ -321,12 +326,20 @@ int main() {
         printf("\b\n\n");
 
         printf("output_mat:\n");
-        for (int orow = 0; orow < BATCH_SIZE * OUT_DIM * OUT_DIM; orow++) {
+        for (int batch = 0; batch < BATCH_SIZE; batch++) {
             printf("[");
-            for (int ocol = 0; ocol < OUT_CHANNELS; ocol++) {
-                printf("%d,", output_mat[orow][ocol]);
+            for (int orow = 0; orow < OUT_DIM; orow++) {
+                printf("[");
+                for (int ocol = 0; ocol < OUT_DIM; ocol++) {
+                    printf("[");
+                    for (int och = 0; och < OUT_CHANNELS; och++) {
+                        printf("%d,", output_mat[batch][orow][ocol][och]);
+                    }
+                    printf("\b],");
+                }
+                printf("\b],\n");
             }
-            printf("\b],\n");
+            printf("\b],");
         }
         printf("\b\n\n");
 
