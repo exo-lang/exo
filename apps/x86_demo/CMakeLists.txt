@@ -50,7 +50,7 @@ add_sys_atl_library(sgemm sgemm.py)
 # Test harness executables
 
 ## SGEMM
-add_executable(run_sgemm run_sgemm.cpp)
+add_executable(run_sgemm run_sgemm.cpp alex_sgemm.cpp)
 target_link_libraries(
     run_sgemm
     PRIVATE

@@ -6,6 +6,8 @@
 
 #include <sgemm.h>
 
+#include "alex_sgemm.h"
+
 double num_flops(long m, long n, long k) { return 2 * m * n * k; }
 
 std::vector<float> gen_matrix(long m, long n) {
@@ -90,3 +92,22 @@ static void BM_mkl_sgemm(benchmark::State &state) {
 }
 
 BENCHMARK(BM_mkl_sgemm)->DenseRange(64, 1984, 128);
+
+static void BM_alex_sgemm(benchmark::State &state) {
+  size_t n = state.range(0);
+  auto a = gen_matrix(n, n);
+  auto b = gen_matrix(n, n);
+  auto c = gen_matrix(n, n);
+
+  for (auto _ : state) {
+    sgemm_square(a.data(), b.data(), c.data(), n);
+  }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations() * num_flops(n, n, n)), //
+      benchmark::Counter::kIsRate,                                  //
+      benchmark::Counter::kIs1000                                   //
+  );
+}
+
+BENCHMARK(BM_alex_sgemm)->DenseRange(64, 1984, 128);
