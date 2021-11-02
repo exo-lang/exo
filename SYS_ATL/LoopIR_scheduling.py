@@ -430,7 +430,10 @@ class _Unroll(LoopIR_Rewrite):
             #    raise SchedulingError(f"expected loop '{s.iter}' "
             #                          f"to have only one body")
             hi      = s.hi.val
-            assert hi > 0
+            if hi == 0:
+                return []
+
+            #assert hi > 0
             orig_body = s.body
 
             self.unroll_itr = 0
@@ -579,8 +582,7 @@ class _PartialEval(LoopIR_Rewrite):
 
     def map_eff_e(self,e):
         if isinstance(e, E.Var):
-            assert e.type.is_indexable()
-            if e.name in self.env:
+            if e.type.is_indexable() and e.name in self.env:
                 return E.Const(self.env[e.name], T.int, e.srcinfo)
 
         return super().map_eff_e(e)
@@ -1836,6 +1838,7 @@ class _DoSimplify(LoopIR_Rewrite):
                     return super().map_stmts(s.body)
                 else:
                     return super().map_stmts(s.orelse)
+
         return super().map_s(s)
 
 
