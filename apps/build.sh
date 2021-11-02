@@ -13,6 +13,8 @@ cmake -G Ninja -S dependencies/benchmark -B build/benchmark \
 cmake --build build/benchmark --target install
 
 cmake -G Ninja -S apps -B build/apps \
+  -DCMAKE_C_COMPILER=gcc-11 \
+  -DCMAKE_CXX_COMPILER=g++-11 \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$PWD/build/_install" \
   -DCMAKE_C_FLAGS="-march=skylake-avx512" \

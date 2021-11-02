@@ -91,7 +91,17 @@ static void BM_mkl_sgemm(benchmark::State &state) {
   );
 }
 
-BENCHMARK(BM_mkl_sgemm)->DenseRange(64, 1984, 128);
+BENCHMARK(BM_mkl_sgemm)
+    ->DenseRange(64, 1984, 128)
+    ->Arg(221)
+    ->Arg(256)
+    ->Arg(397)
+    ->Arg(412)
+    ->Arg(512)
+    ->Arg(732)
+    ->Arg(911)
+    ->Arg(1024)
+    ->Arg(2048);
 
 static void BM_alex_sgemm(benchmark::State &state) {
   size_t n = state.range(0);
@@ -110,4 +120,14 @@ static void BM_alex_sgemm(benchmark::State &state) {
   );
 }
 
-BENCHMARK(BM_alex_sgemm)->DenseRange(64, 1984, 128);
+BENCHMARK(BM_alex_sgemm)
+    ->DenseRange(64, 1984, 128)
+    ->Arg(221)
+    ->Arg(256)
+    ->Arg(397)
+    ->Arg(412)
+    ->Arg(512)
+    ->Arg(732)
+    ->Arg(911)
+    ->Arg(1024)
+    ->Arg(2048);
