@@ -6,9 +6,9 @@
 
 #include <sgemm.h>
 
-float num_flops(int m, int n, int k) { return 2 * m * n * k; }
+double num_flops(long m, long n, long k) { return 2 * m * n * k; }
 
-std::vector<float> gen_matrix(int m, int n) {
+std::vector<float> gen_matrix(long m, long n) {
   static std::random_device rd;
   static std::mt19937 rng{rd()};
   std::uniform_real_distribution<> rv{-1.0f, 1.0f};
@@ -37,7 +37,7 @@ static void BM_sys_atl_kernel(benchmark::State &state) {
   );
 }
 
-BENCHMARK(BM_sys_atl_kernel)->Range(8, 8 << 10);
+BENCHMARK(BM_sys_atl_kernel)->Range(8, 8196);
 
 static void BM_mkl_kernel(benchmark::State &state) {
   size_t k = state.range(0);
@@ -63,4 +63,30 @@ static void BM_mkl_kernel(benchmark::State &state) {
   );
 }
 
-BENCHMARK(BM_mkl_kernel)->Range(8, 8 << 10);
+BENCHMARK(BM_mkl_kernel)->Range(8, 8196);
+
+static void BM_mkl_sgemm(benchmark::State &state) {
+  size_t n = state.range(0);
+  auto a = gen_matrix(n, n);
+  auto b = gen_matrix(n, n);
+  auto c = gen_matrix(n, n);
+
+  for (auto _ : state) {
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, // layout
+                n, n, n,                                   // m, n, k
+                1.0,                                       // alpha
+                a.data(), n,                               // A (lda)
+                b.data(), n,                               // B (ldb)
+                1.0,                                       // beta
+                c.data(), n                                // C (ldc)
+    );
+  }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations() * num_flops(n, n, n)), //
+      benchmark::Counter::kIsRate,                                  //
+      benchmark::Counter::kIs1000                                   //
+  );
+}
+
+BENCHMARK(BM_mkl_sgemm)->DenseRange(64, 1984, 128);
