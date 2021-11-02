@@ -1,3 +1,6 @@
 [submodule "dependencies/asdl"]
 	path = dependencies/asdl
 	url = git@github.com:ChezJrk/asdl.git
+[submodule "dependencies/benchmark"]
+	path = dependencies/benchmark
+	url = https://github.com/google/benchmark.git

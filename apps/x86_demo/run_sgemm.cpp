@@ -1,44 +1,66 @@
-#include <iostream>
-#include <chrono>
+#include <random>
 #include <vector>
-#include <cstdlib>
-#include <cstdio>
+
+#include <benchmark/benchmark.h>
+#include <mkl.h>
 
 #include <sgemm.h>
 
-float num_gflops(int k) { return 1e-9 * 2 * 6 * 64 * k; }
+float num_flops(int m, int n, int k) { return 2 * m * n * k; }
 
-int main (int argc, char *argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <k>\n";
-        return 1;
-    }
+std::vector<float> gen_matrix(int m, int n) {
+  static std::random_device rd;
+  static std::mt19937 rng{rd()};
+  std::uniform_real_distribution<> rv{-1.0f, 1.0f};
 
-    int k = std::atoi(argv[1]);
-    if (k < 1) {
-        std::cerr << "k must be positive!\n";
-        return 1;
-    }
+  std::vector<float> mat(m * n);
+  std::generate(std::begin(mat), std::end(mat), [&]() { return rv(rng); });
 
-    std::vector<float> a(6 * k);
-    std::vector<float> b(k * 64);
-    std::vector<float> c(6 * 64);
-
-    int num_trials = 10000;
-
-    const auto start = std::chrono::steady_clock::now();
-
-    for (int i = 0; i < num_trials; i++) {
-        sgemm_kernel_avx512_6x4(nullptr, k, a.data(), b.data(),
-                                { c.data(), {64, 1}});
-    }
-
-    const auto end = std::chrono::steady_clock::now();
-    double duration =
-        std::chrono::duration<double>(end - start).count() / num_trials;
-
-    double gflops = num_gflops(k) / duration;
-
-    printf("Ran 6x64 rank-k (k=%d) reduce in %lf s (%lf GFLOPs)\n", k,
-           duration, gflops);
+  return mat;
 }
+
+static void BM_sys_atl_kernel(benchmark::State &state) {
+  size_t k = state.range(0);
+  auto a = gen_matrix(6, k);
+  auto b = gen_matrix(k, 64);
+  auto c = gen_matrix(6, 64);
+
+  for (auto _ : state) {
+    sgemm_kernel_avx512_6x4(nullptr, k, a.data(), b.data(),
+                            {c.data(), {64, 1}});
+  }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations() * num_flops(6, 64, k)), //
+      benchmark::Counter::kIsRate,                                   //
+      benchmark::Counter::kIs1000                                    //
+  );
+}
+
+BENCHMARK(BM_sys_atl_kernel)->Range(8, 8 << 10);
+
+static void BM_mkl_kernel(benchmark::State &state) {
+  size_t k = state.range(0);
+  auto a = gen_matrix(6, k);
+  auto b = gen_matrix(k, 64);
+  auto c = gen_matrix(6, 64);
+
+  for (auto _ : state) {
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, // layout
+                6, 64, k,                                  // m, n, k
+                1.0,                                       // alpha
+                a.data(), k,                               // A (lda)
+                b.data(), 64,                              // B (ldb)
+                1.0,                                       // beta
+                c.data(), 64                               // C (ldc)
+    );
+  }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations() * num_flops(6, 64, k)), //
+      benchmark::Counter::kIsRate,                                   //
+      benchmark::Counter::kIs1000                                    //
+  );
+}
+
+BENCHMARK(BM_mkl_kernel)->Range(8, 8 << 10);
