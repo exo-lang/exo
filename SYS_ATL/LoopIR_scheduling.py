@@ -1249,7 +1249,7 @@ class _LiftAlloc(LoopIR_Rewrite):
                 # shrink the allocation by being aware of
                 # guards; oh well.
                 continue
-            elif isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq):
+            elif isinstance(s, LoopIR.ForAll):
                 # note, do not accrue false dependencies
                 if s.iter in self.alloc_deps or self.keep_dims:
                     idxs.append(s.iter)
@@ -1283,6 +1283,8 @@ class _LiftAlloc(LoopIR_Rewrite):
                         rngs.append(LoopIR.Const(self.lift_size, T.int, s.srcinfo))
                     else:
                         rngs.append(s.hi)
+            elif isinstance(s, LoopIR.Seq):
+                pass
             else:
                 assert False, "bad case"
 
@@ -1469,7 +1471,7 @@ class _FissionLoops:
             # then we need to gather together the pre and post.
             single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
 
-        elif isinstance(s, LoopIR.ForAll):
+        elif isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq):
 
             # check if we need to split the loop
             pre, post = self.map_stmts(s.body)
