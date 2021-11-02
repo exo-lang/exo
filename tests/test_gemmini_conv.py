@@ -1123,20 +1123,43 @@ def test_conv_2():
 
                         st_acc_i8(out_dim%16,16, scale, act, res, output[b, orow, out_dim-out_dim%16:, 16*och:16*(och+1)])
 
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch : _', n_lifts=5)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch : _', n_lifts=5)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res : _', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
+    conv_on_gemmini = conv_on_gemmini.simplify()
+    conv_on_gemmini = conv_on_gemmini.unroll('kch')
 
+    conv_on_gemmini = conv_on_gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_)")
+    conv_on_gemmini = conv_on_gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_)")
+    conv_on_gemmini = conv_on_gemmini.inline("matmul_acc_i8_v2(_)")
+    conv_on_gemmini = conv_on_gemmini.inline_window("A = in_scratch[_]")
+    conv_on_gemmini = conv_on_gemmini.inline_window("B = weight_scratch[_]")
+    conv_on_gemmini = conv_on_gemmini.inline_window("C = res[_]")
+    conv_on_gemmini = conv_on_gemmini.inline("matmul_acc_i8_v2(_)")
+    conv_on_gemmini = conv_on_gemmini.inline_window("A = in_scratch[_]")
+    conv_on_gemmini = conv_on_gemmini.inline_window("B = weight_scratch[_]")
+    conv_on_gemmini = conv_on_gemmini.inline_window("C = res[_]")
+
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts("ld_i8(_) #1", "config_matmul(_) #0")
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts("ld_i8(_) #0", "config_matmul(_) #0")
+    #conv_on_gemmini = conv_on_gemmini.fission_after("config_matmul(_) #0", n_lifts=1)
+
+
+    print(conv_on_gemmini)
+"""
+    conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
 
     T.add_proc(conv_on_cpu)
     T.add_proc(conv_on_gemmini)
 
     T.start_timer('cpu')
-    T.add_body([f'conv_on_cpu(ctxt, {batch_size}, {out_dim}, {out_channel}, {kernel_dim},',
-                f'{in_channel}, {in_dim}, output_cpu, bias, inp, weights, false, scale);',
+    T.add_body([f'conv_on_cpu(ctxt,  output_cpu, bias, inp, weights, false, scale);',
                 f'gemmini_fence();'])
     T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'conv_on_gemmini(ctxt, {batch_size}, {out_dim}, {out_channel}, {kernel_dim},',
-                f'{in_channel}, {in_dim}, output_gemmini, bias, inp, weights, false, scale);',
+    T.add_body([f'conv_on_gemmini(ctxt,  output_gemmini, bias, inp, weights, false, scale);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
@@ -1154,5 +1177,6 @@ def test_conv_2():
 
     T.compile().run()
 
+"""
 
 

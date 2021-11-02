@@ -11,12 +11,12 @@
 #ifndef BAREMETAL
 
 #define BATCH_SIZE 4
-#define IN_DIM 224
+#define IN_DIM 225
 #define IN_CHANNELS 3
 #define OUT_CHANNELS 32
 #define KERNEL_DIM 3
-#define PADDING 1
-#define STRIDE 2
+#define PADDING 0
+#define STRIDE 1
 
 #else
 
