@@ -41,13 +41,12 @@ jobs:
       - name: Install package
         run: pip install dist/*.whl
 
+      # Skip running on macOS since the SDE simulator is too slow there
       - name: Build apps with CMake
-        run: |
-          cmake -G Ninja -S apps -B build --preset gha-${{ runner.os }}
-          cmake --build build
+        if: runner.os == 'Linux'
+        run: ./apps/build.sh
 
       - name: Check apps run with CMake
-        # Skip running on macOS since the SDE simulator is too slow there
         if: runner.os == 'Linux'
         run: ctest --output-on-failure
         working-directory: build
