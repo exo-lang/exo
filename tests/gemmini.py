@@ -16,7 +16,25 @@ def new_config_ld():
 
     return ConfigLoad
 
+def new_config_ld_id1():
+    @config
+    class ConfigLoad_id1:
+        scale : f32
+        src_stride : stride
+
+    return ConfigLoad_id1
+
+def new_config_ld_id2():
+    @config
+    class ConfigLoad_id2:
+        scale : f32
+        src_stride : stride
+
+    return ConfigLoad_id2
+
 ConfigLoad = new_config_ld()
+ConfigLoad_id1 = new_config_ld_id1()
+ConfigLoad_id2 = new_config_ld_id2()
 
 _gemm_config_ld_i8   = ("gemmini_extended3_config_ld({src_stride}, "+
                         "{scale}[0], 0, 0);\n")
@@ -27,6 +45,26 @@ def config_ld_i8(
 ):
     ConfigLoad.scale = scale
     ConfigLoad.src_stride = src_stride
+
+_gemm_config_ld_i8_id1 = ("gemmini_extended3_config_ld({src_stride}, "+
+                        "{scale}[0], 0, 1);\n")
+@instr(_gemm_config_ld_i8_id1)
+def config_ld_i8_id1(
+    scale : f32,
+    src_stride : stride
+):
+    ConfigLoad_id1.scale = scale
+    ConfigLoad_id1.src_stride = src_stride
+
+_gemm_config_ld_i8_id2 = ("gemmini_extended3_config_ld({src_stride}, "+
+                        "{scale}[0], 0, 2);\n")
+@instr(_gemm_config_ld_i8_id2)
+def config_ld_i8_id2(
+    scale : f32,
+    src_stride : stride
+):
+    ConfigLoad_id2.scale = scale
+    ConfigLoad_id2.src_stride = src_stride
 
 
 _gemm_do_ld_i8   = ("gemmini_extended_mvin( {src}.data, "+
@@ -54,6 +92,51 @@ def do_ld_i8(
             tmp      = tmp * ConfigLoad.scale
             dst[i,j] = tmp
 
+_gemm_do_ld_i8_id1 = ("gemmini_extended_mvin2( {src}.data, "+
+                              "((uint64_t) {dst}.data), {m}, {n} );")
+@instr(_gemm_do_ld_i8_id1)
+def do_ld_i8_id1(
+    n     : size,
+    m     : size,
+    src   : [i8][n, m] @ DRAM,
+    dst   : [i8][n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+    assert stride(src, 0) == ConfigLoad_id1.src_stride
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : f32
+            tmp      = src[i,j]
+            tmp      = tmp * ConfigLoad_id1.scale
+            dst[i,j] = tmp
+
+_gemm_do_ld_i8_id2 = ("gemmini_extended_mvin3( {src}.data, "+
+                              "((uint64_t) {dst}.data), {m}, {n} );")
+@instr(_gemm_do_ld_i8_id2)
+def do_ld_i8_id2(
+    n     : size,
+    m     : size,
+    src   : [i8][n, m] @ DRAM,
+    dst   : [i8][n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+    assert stride(src, 0) == ConfigLoad_id2.src_stride
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : f32
+            tmp      = src[i,j]
+            tmp      = tmp * ConfigLoad_id2.scale
+            dst[i,j] = tmp
 
 _gemm_ld_i8   = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                  "{scale}[0], 0, 0);\n"+
@@ -88,6 +171,34 @@ ld_i8_v2 = ld_i8_v2.configwrite_after('ConfigLoad.scale = _', ConfigLoad, 'src_s
 ld_i8_v2 = ld_i8_v2.replace(do_ld_i8, 'for i in _:_')
 ld_i8_v2 = ld_i8_v2.replace(config_ld_i8, 'ConfigLoad.scale = scale')
 
+
+_gemm_ld_i8_id1 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
+                 "{scale}[0], 0, 1);\n"+
+                 "gemmini_extended_mvin2( {src}.data, "+
+                              "((uint64_t) {dst}.data), {m}, {n} );")
+ld_i8_id1 = ld_i8.rename("ld_i8_id1").make_instr(_gemm_ld_i8_id1)
+
+_gemm_ld_i8_id2 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
+                 "{scale}[0], 0, 2);\n"+
+                 "gemmini_extended_mvin3( {src}.data, "+
+                              "((uint64_t) {dst}.data), {m}, {n} );")
+ld_i8_id2 = ld_i8.rename("ld_i8_id2").make_instr(_gemm_ld_i8_id2)
+
+ld_i8_id1_v2 = ld_i8_id1.rename("ld_i8_id1_v2").bind_config('scale', ConfigLoad_id1, 'scale')
+ld_i8_id1_v2 = ld_i8_id1_v2.reorder_stmts('tmp = src[_]', 'ConfigLoad_id1.scale = _')
+ld_i8_id1_v2 = ld_i8_id1_v2.reorder_stmts('tmp : _', 'ConfigLoad_id1.scale = _')
+ld_i8_id1_v2 = ld_i8_id1_v2.fission_after('ConfigLoad_id1.scale = _', n_lifts=3)
+ld_i8_id1_v2 = ld_i8_id1_v2.configwrite_after('ConfigLoad_id1.scale = _', ConfigLoad_id1, 'src_stride', 'stride(src, 0)')
+ld_i8_id1_v2 = ld_i8_id1_v2.replace(do_ld_i8_id1, 'for i in _:_')
+ld_i8_id1_v2 = ld_i8_id1_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.scale = scale')
+
+ld_i8_id2_v2 = ld_i8_id2.rename("ld_i8_id2_v2").bind_config('scale', ConfigLoad_id2, 'scale')
+ld_i8_id2_v2 = ld_i8_id2_v2.reorder_stmts('tmp = src[_]', 'ConfigLoad_id2.scale = _')
+ld_i8_id2_v2 = ld_i8_id2_v2.reorder_stmts('tmp : _', 'ConfigLoad_id2.scale = _')
+ld_i8_id2_v2 = ld_i8_id2_v2.fission_after('ConfigLoad_id2.scale = _', n_lifts=3)
+ld_i8_id2_v2 = ld_i8_id2_v2.configwrite_after('ConfigLoad_id2.scale = _', ConfigLoad_id2, 'src_stride', 'stride(src, 0)')
+ld_i8_id2_v2 = ld_i8_id2_v2.replace(do_ld_i8_id2, 'for i in _:_')
+ld_i8_id2_v2 = ld_i8_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.scale = scale')
 
 
 
