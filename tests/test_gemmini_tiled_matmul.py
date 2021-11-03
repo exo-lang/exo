@@ -587,25 +587,22 @@ def matmul_c_i8_perfect(
   B : i8[K,M] @ DRAM,
   C : i8[N,M] @ DRAM,
 ):
-    assert N == 512
-    assert M == 512
-    assert K == 512
 
-    for i in par(0,512):
-        for j in par(0,512):
-            res : i32 @ GEMM_ACCUM
+    for i in par(0,N):
+        for j in par(0,M):
+            res : i32 @ DRAM
             res = 0.0
-            for k in par(0,512):
+            for k in par(0,K):
                 tmp_a : f32
                 tmp_a = A[i,k]
                 tmp_a = tmp_a * a_scale
-                a : i8 @ GEMM_SCRATCH
+                a : i8 @ DRAM
                 a = tmp_a
 
                 tmp_b : f32
                 tmp_b = B[k,j]
                 tmp_b = tmp_b * b_scale
-                b : i8 @ GEMM_SCRATCH
+                b : i8 @ DRAM
                 b = tmp_b
 
                 a2 : i32
@@ -626,11 +623,12 @@ def matmul_c_i8_perfect(
             clamp(tmp_res2, tmp_res)
             C[i,j] = tmp_res
 
-matmul_c_i8_cpu = matmul_c_i8_perfect.rename("matmul_c_i8_cpu")
-matmul_c_i8_cpu = (matmul_c_i8_cpu.set_memory('res', DRAM)
-                                 .set_memory('a', DRAM)
-                                 .set_memory('b', DRAM))
+NN = 512
+MM = 512
+KK = 512
 
+matmul_c_i8_cpu = matmul_c_i8_perfect.rename("matmul_c_i8_cpu")
+matmul_c_i8_cpu = matmul_c_i8_cpu.partial_eval(NN, MM, KK)
 
 def test_matmul_c_i8_perfect():
     T = GemmTestBuilder('matmul_c_i8_perfect')
@@ -640,10 +638,6 @@ def test_matmul_c_i8_perfect():
                 ''])
     T.add_body(["matmul_c_i8_perfect_lib_Context *ctxt;"])
 
-    NN = 512
-    MM = 512
-    KK = 512
-
     T.alloc_dram_2i8('x', NN, KK, '4')
     T.alloc_dram_2i8('y', KK, MM, '6')
     T.alloc_dram_f32('a_scale', '3.0f')
@@ -652,62 +646,10 @@ def test_matmul_c_i8_perfect():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    @proc
-    def matmul_c_i8_perfect(
-      N : size,
-      M : size,
-      K : size,
-      a_scale : f32,
-      b_scale : f32,
-      c_scale : f32,
-      acc     : bool,
-      A : i8[N,K] @ DRAM,
-      B : i8[K,M] @ DRAM,
-      C : i8[N,M] @ DRAM,
-    ):
-        assert N == 512
-        assert M == 512
-        assert K == 512
-
-        for i in par(0,512):
-            for j in par(0,512):
-                res : i32 @ GEMM_ACCUM
-                res = 0.0
-                for k in par(0,512):
-                    tmp_a : f32
-                    tmp_a = A[i,k]
-                    tmp_a = tmp_a * a_scale
-                    a : i8 @ GEMM_SCRATCH
-                    a = tmp_a
-
-                    tmp_b : f32
-                    tmp_b = B[k,j]
-                    tmp_b = tmp_b * b_scale
-                    b : i8 @ GEMM_SCRATCH
-                    b = tmp_b
-
-                    a2 : i32
-                    b2 : i32
-                    a2 = a
-                    b2 = b
-                    res += a2*b2
-
-                tmp_res : i8
-                if acc == True:
-                    tmp_res = relu(res)
-                else:
-                    tmp_res = res
-
-                tmp_res2 : f32
-                tmp_res2 = tmp_res
-                tmp_res2 = tmp_res2 * c_scale
-                clamp(tmp_res2, tmp_res)
-                C[i,j] = tmp_res
-
-    matmul_c_i8_cpu = matmul_c_i8_perfect.rename("matmul_c_i8_cpu")
-    matmul_c_i8_cpu = (matmul_c_i8_cpu.set_memory('res', DRAM)
-                                     .set_memory('a', DRAM)
-                                     .set_memory('b', DRAM))
+    matmul_c_i8_perfect = matmul_c_i8_cpu.rename("matmul_c_i8_perfect")
+    matmul_c_i8_perfect = (matmul_c_i8_perfect.set_memory('res', GEMM_ACCUM)
+                                     .set_memory('a', GEMM_SCRATCH)
+                                     .set_memory('b', GEMM_SCRATCH))
 
     matmul_c_i8_perfect = matmul_c_i8_perfect.split('i',128,['io','i'], perfect=True)
     matmul_c_i8_perfect = matmul_c_i8_perfect.split('j',128,['jo','j'], perfect=True)
@@ -836,18 +778,16 @@ def test_matmul_c_i8_perfect():
     matmul_c_i8_perfect = matmul_c_i8_perfect.unroll('i')
     matmul_c_i8_perfect = matmul_c_i8_perfect.simplify()
 
-    print(matmul_c_i8_perfect)
-"""
     T.add_proc(matmul_c_i8_perfect)
     T.add_proc(matmul_c_i8_cpu)
 
     T.start_timer('cpu')
-    T.add_body([f'matmul_c_i8_cpu(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, x, y, z_cpu);',
+    T.add_body([f'matmul_c_i8_cpu(ctxt, a_scale, b_scale, c_scale, false, x, y, z_cpu);',
                 f'gemmini_fence();'])
     T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'matmul_c_i8_perfect(ctxt, {NN}, {MM}, {KK}, a_scale, b_scale, c_scale, false, x, y, z_gemmini);',
+    T.add_body([f'matmul_c_i8_perfect(ctxt, a_scale, b_scale, c_scale, false, x, y, z_gemmini);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
@@ -866,5 +806,7 @@ def test_matmul_c_i8_perfect():
 
     T.compile().run()
 
+    print(matmul_c_i8_perfect)
+"""
 """
 
