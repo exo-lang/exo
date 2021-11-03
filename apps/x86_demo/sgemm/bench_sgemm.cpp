@@ -86,6 +86,12 @@ struct alex_square {
   }
 };
 
+struct sys_atl_square {
+  void operator()(float *a, float *b, float *c, long n) {
+    sgemm_sys_atl(nullptr, n, n, n, a, b, c);
+  }
+};
+
 BENCHMARK_TEMPLATE(BM_square_sgemm, mkl_square)
     ->Name("sgemm_mkl")
     ->DenseRange(64, 1984, 128)
@@ -101,6 +107,19 @@ BENCHMARK_TEMPLATE(BM_square_sgemm, mkl_square)
 
 BENCHMARK_TEMPLATE(BM_square_sgemm, alex_square)
     ->Name("sgemm_alex")
+    ->DenseRange(64, 1984, 128)
+    ->Arg(221)
+    ->Arg(256)
+    ->Arg(397)
+    ->Arg(412)
+    ->Arg(512)
+    ->Arg(732)
+    ->Arg(911)
+    ->Arg(1024)
+    ->Arg(2048);
+
+BENCHMARK_TEMPLATE(BM_square_sgemm, sys_atl_square)
+    ->Name("sgemm_sys_atl")
     ->DenseRange(64, 1984, 128)
     ->Arg(221)
     ->Arg(256)

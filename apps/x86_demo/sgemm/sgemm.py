@@ -56,14 +56,43 @@ def sgemm_masked_kernel_avx512_template(
             )
 
 
-sgemm_kernel_avx512_6x4 = (
-    sgemm_masked_kernel_avx512_template
-        .partial_eval(6, 64)
-        .simplify()
-        .unroll('j')
-        .unroll('i')
-        .simplify()
-        .rename('sgemm_kernel_avx512_6x4')
-)
+sgemm_kernel_avx512 = dict()
+for i in range(1, 6 + 1):
+    for j in range(1, 4 + 1):
+        sgemm_kernel_avx512[(i, j)] = (
+            sgemm_masked_kernel_avx512_template
+                .partial_eval(i, 16 * j)
+                .simplify()
+                .unroll('j')
+                .unroll('i')
+                .simplify()
+                .rename(f'sgemm_kernel_avx512_{i}x{j}')
+        )
 
-__all__ = ['sgemm_kernel_avx512_6x4']
+sgemm_kernel_avx512_6x4 = sgemm_kernel_avx512[(6, 4)]
+
+
+# noinspection PyPep8Naming
+@proc
+def sgemm_sys_atl(
+        M: size,
+        N: size,
+        K: size,
+        A: f32[M, K],
+        B: f32[K, N],
+        C: f32[M, N],
+):
+    assert M >= 1
+    assert N >= 1
+    assert K >= 1
+    assert stride(A, 1) == 1
+    assert stride(B, 1) == 1
+    assert stride(C, 1) == 1
+
+    for k in par(0, K):
+        for i in par(0, M):
+            for j in par(0, N):
+                C[i, j] += A[i, k] * B[k, j]
+
+
+__all__ = ['sgemm_kernel_avx512_6x4', 'sgemm_sys_atl']
