@@ -41,38 +41,9 @@ find_package(benchmark REQUIRED)
 
 
 # ---------------------------------------------------------------------------- #
-# SYS_ATL libraries
+# Benchmarks
 
-add_sys_atl_library(sgemm sgemm.py)
-
-
-# ---------------------------------------------------------------------------- #
-# Test harness executables
-
-## SGEMM
-add_executable(run_sgemm run_sgemm.cpp)
-target_link_libraries(
-    run_sgemm
-    PRIVATE
-    x86_demo::sgemm
-    MKL::MKL
-    benchmark::benchmark_main
-)
-target_compile_features(run_sgemm PRIVATE cxx_std_11)
-
-## Convolution
-
-## RESNET
-
-## SYRK
-
-## Transformer
-
-
-# ---------------------------------------------------------------------------- #
-# CTest configuration
-
-if (BUILD_TESTING)
-  add_test(NAME sgemm_100 COMMAND run_sgemm 100)
-  set_tests_properties(sgemm_100 PROPERTIES ENVIRONMENT "${MKL_ENV}")
-endif ()
+add_subdirectory(conv)
+add_subdirectory(resnet)
+add_subdirectory(sgemm)
+add_subdirectory(ssyrk)
