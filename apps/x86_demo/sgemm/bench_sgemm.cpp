@@ -11,6 +11,7 @@
 // ----------------------------------------------------------------------------
 // Utilities
 
+// Source: http://www.netlib.org/lapack/lawnspdf/lawn41.pdf (p.120)
 static double num_flops(long m, long n, long k) { return 2 * m * n * k; }
 
 static std::vector<float> gen_matrix(long m, long n) {
