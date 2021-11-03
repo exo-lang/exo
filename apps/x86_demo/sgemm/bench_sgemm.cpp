@@ -11,9 +11,9 @@
 // ----------------------------------------------------------------------------
 // Utilities
 
-double num_flops(long m, long n, long k) { return 2 * m * n * k; }
+static double num_flops(long m, long n, long k) { return 2 * m * n * k; }
 
-std::vector<float> gen_matrix(long m, long n) {
+static std::vector<float> gen_matrix(long m, long n) {
   static std::random_device rd;
   static std::mt19937 rng{rd()};
   std::uniform_real_distribution<> rv{-1.0f, 1.0f};
@@ -22,6 +22,24 @@ std::vector<float> gen_matrix(long m, long n) {
   std::generate(std::begin(mat), std::end(mat), [&]() { return rv(rng); });
 
   return mat;
+}
+
+template <typename SgemmFn>
+static void BM_square_sgemm(benchmark::State &state) {
+  size_t n = state.range(0);
+  auto a = gen_matrix(n, n);
+  auto b = gen_matrix(n, n);
+  auto c = gen_matrix(n, n);
+
+  for (auto _ : state) {
+    SgemmFn{}(a.data(), b.data(), c.data(), n);
+  }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations() * num_flops(n, n, n)), //
+      benchmark::Counter::kIsRate,                                  //
+      benchmark::Counter::kIs1000                                   //
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -48,24 +66,7 @@ static void BM_sys_atl_kernel(benchmark::State &state) {
 BENCHMARK(BM_sys_atl_kernel)->Name("kernel_sys_atl")->Range(8, 8196);
 
 // ----------------------------------------------------------------------------
-// Benchmarking various SGEMM implementations on square sizes.
-
-template <typename SgemmFn> void BM_square_sgemm(benchmark::State &state) {
-  size_t n = state.range(0);
-  auto a = gen_matrix(n, n);
-  auto b = gen_matrix(n, n);
-  auto c = gen_matrix(n, n);
-
-  for (auto _ : state) {
-    SgemmFn{}(a.data(), b.data(), c.data(), n);
-  }
-
-  state.counters["flops"] = benchmark::Counter(
-      static_cast<double>(state.iterations() * num_flops(n, n, n)), //
-      benchmark::Counter::kIsRate,                                  //
-      benchmark::Counter::kIs1000                                   //
-  );
-}
+// MKL SGEMM benchmark
 
 struct mkl_square {
   void operator()(const float *a, const float *b, float *c, long n) {
@@ -77,18 +78,6 @@ struct mkl_square {
                 1.0,                                       // beta
                 c, n                                       // C (ldc)
     );
-  }
-};
-
-struct alex_square {
-  void operator()(const float *a, const float *b, float *c, long n) {
-    sgemm_square(a, b, c, n);
-  }
-};
-
-struct sys_atl_square {
-  void operator()(float *a, float *b, float *c, long n) {
-    sgemm_sys_atl(nullptr, n, n, n, a, b, c);
   }
 };
 
@@ -105,6 +94,15 @@ BENCHMARK_TEMPLATE(BM_square_sgemm, mkl_square)
     ->Arg(1024)
     ->Arg(2048);
 
+// ----------------------------------------------------------------------------
+// Handwritten C++ SGEMM benchmark
+
+struct alex_square {
+  void operator()(const float *a, const float *b, float *c, long n) {
+    sgemm_square(a, b, c, n);
+  }
+};
+
 BENCHMARK_TEMPLATE(BM_square_sgemm, alex_square)
     ->Name("sgemm_alex")
     ->DenseRange(64, 1984, 128)
@@ -117,6 +115,15 @@ BENCHMARK_TEMPLATE(BM_square_sgemm, alex_square)
     ->Arg(911)
     ->Arg(1024)
     ->Arg(2048);
+
+// ----------------------------------------------------------------------------
+// SYS_ATL SGEMM benchmark
+
+struct sys_atl_square {
+  void operator()(float *a, float *b, float *c, long n) {
+    sgemm_sys_atl(nullptr, n, n, n, a, b, c);
+  }
+};
 
 BENCHMARK_TEMPLATE(BM_square_sgemm, sys_atl_square)
     ->Name("sgemm_sys_atl")
