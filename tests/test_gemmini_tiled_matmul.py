@@ -755,17 +755,16 @@ def test_matmul_c_i8_perfect():
 
     # Real optimization
 
-    matmul_c_i8_perfect = matmul_c_i8_perfect.reorder('i', 'j')
     # Why is this lost?
     matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for jo in _:_')
     matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for io in _:_')
     matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('a : i8', n_lifts=5)
     matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('b : i8', n_lifts=5)
 
-    matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for j in _:_ #0')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for i in _:_ #0')
     matmul_c_i8_perfect = matmul_c_i8_perfect.lift_alloc('res : _ #0', n_lifts=4)
 
-    matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for i in _:_ #0')
+    matmul_c_i8_perfect = matmul_c_i8_perfect.par_to_seq('for j in _:_ #0')
 
     matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('do_ld_i8_id1(_)', 'j', 0)
     matmul_c_i8_perfect = matmul_c_i8_perfect.add_guard('do_ld_i8_id2(_)', 'i', 0)
