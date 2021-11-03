@@ -43,4 +43,7 @@ find_package(benchmark REQUIRED)
 # ---------------------------------------------------------------------------- #
 # Benchmarks
 
+add_subdirectory(conv)
+add_subdirectory(resnet)
 add_subdirectory(sgemm)
+add_subdirectory(syrk)
