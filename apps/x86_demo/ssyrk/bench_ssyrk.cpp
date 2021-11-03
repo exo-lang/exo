@@ -57,6 +57,6 @@ struct mkl_functor {
 BENCHMARK_TEMPLATE(BM_ssyrk, mkl_functor)
     ->Name("ssyrk_mkl")
     ->ArgsProduct({
-        benchmark::CreateRange(8, 2048, /* multi= */ 2), // n
-        benchmark::CreateRange(8, 2048, /* multi= */ 2)  // k
+        benchmark::CreateRange(64, 2048, /* multi= */ 2), // n
+        benchmark::CreateRange(16, 2048, /* multi= */ 2)  // k
     });
