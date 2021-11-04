@@ -966,8 +966,162 @@ def test_conv_stride_2_gemmini():
     T.compile().run()
 
 
+@proc
+def orig_conv_partial(
+    batch_size : size,
+    out_dim    : size,
+    out_channel: size,
+    kernel_dim : size,
+    in_channel : size,
+    in_dim     : size,
+    output     : i8[batch_size, out_dim, out_dim, out_channel],
+    bias       : i32[1, out_channel],
+    inp        : i8[batch_size, in_dim, in_dim, in_channel],
+    weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+    act        : bool,
+    scale      : f32,
+    b          : index,
+    orow       : index,
+    one        : f32,
+    DIM_SIZE   : size,
+    DIM_LO     : index,
+    DIM_HI     : size
+    ):
+
+    assert in_dim == out_dim + kernel_dim - 1
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+
+    for och in par(0, out_channel/16):
+
+        res : i32[DIM_SIZE,16] @ GEMM_ACCUM
+        for l in par(0, DIM_SIZE):
+            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+
+        for kcol in par(0, kernel_dim):
+            for krow in par(0, kernel_dim):
+                for kch in par(0, in_channel/16):
+                    in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                    weight_scratch : i8[16,16] @ GEMM_SCRATCH
+
+                    #config_ld_i8(one, stride(inp, 0))
+                    ld_i8(DIM_SIZE, 16, one,
+                            inp[ b, orow+krow, kcol+DIM_LO:kcol+DIM_HI, 16*kch:16*(kch+1)],
+                            in_scratch)
+                    #config_ld_i8(one, stride(weights, 0))
+                    ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+
+                    matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
+
+                if in_channel%16 > 0:
+                    in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                    weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
+
+                    ld_i8(DIM_SIZE, in_channel%16, one,
+                            inp[b,orow+krow, kcol+DIM_LO:kcol+DIM_HI, in_channel-in_channel%16:],
+                            in_scratch)
+                    ld_i8(in_channel%16, 16, one,
+                            weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)],
+                            weight_scratch)
+
+                    #config_matmul()
+                    matmul_acc_i8(DIM_SIZE,16,in_channel%16,in_scratch,weight_scratch,res)
+
+        #config_st_acc_i8(scale, stride(dst, 0))
+        st_acc_i8(DIM_SIZE,16, scale, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
+
+
+
+
+
+
+
+
+
+
+@proc
+def conv_partial(
+    batch_size : size,
+    out_dim    : size,
+    out_channel: size,
+    kernel_dim : size,
+    in_channel : size,
+    in_dim     : size,
+    output     : i8[batch_size, out_dim, out_dim, out_channel],
+    bias       : i32[1, out_channel],
+    inp        : i8[batch_size, in_dim, in_dim, in_channel],
+    weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+    act        : bool,
+    scale      : f32,
+    b          : index,
+    orow       : index,
+    one        : f32,
+    DIM_SIZE   : size,
+    DIM_LO     : index,
+    DIM_HI     : size
+    ):
+
+    assert in_dim == out_dim + kernel_dim - 1
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+
+    config_st_acc_i8(scale, stride(output, 2))
+    config_ld_i8(one, stride(bias, 0))
+    config_ld_i8_id1(one, stride(inp, 2))
+    config_ld_i8_id2(one, stride(weights, 2))
+    config_matmul()
+    for och in par(0, out_channel/16):
+
+        res : i32[DIM_SIZE,16] @ GEMM_ACCUM
+        for l in par(0, DIM_SIZE):
+            do_ld_acc_i32(1, 16, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+
+        for kcol in par(0, kernel_dim):
+            for krow in par(0, kernel_dim):
+                for kch in par(0, in_channel/16):
+                    in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                    weight_scratch : i8[16,16] @ GEMM_SCRATCH
+
+                    do_ld_i8_id1(DIM_SIZE, 16,
+                            inp[ b, orow+krow, kcol+DIM_LO:kcol+DIM_HI, 16*kch:16*(kch+1)],
+                            in_scratch)
+                    do_ld_i8_id2(16, 16, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+
+                    do_matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
+
+                if in_channel%16 > 0:
+                    in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                    weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
+
+                    do_ld_i8_id1(DIM_SIZE, in_channel%16,
+                            inp[b,orow+krow, kcol+DIM_LO:kcol+DIM_HI, in_channel-in_channel%16:],
+                            in_scratch)
+                    do_ld_i8_id2(in_channel%16, 16,
+                            weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)],
+                            weight_scratch)
+
+                    do_matmul_acc_i8(DIM_SIZE,16,in_channel%16,in_scratch,weight_scratch,res)
+
+        do_st_acc_i8(DIM_SIZE, 16, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
+
+
+# TODO: Config optimization is super buggy... handwrinting for now..
+print(conv_partial)
+
+
 
 # Padding = 0
+# out_channel should be divisible by 16
 def test_conv_2():
     T = GemmTestBuilder('conv_2')
     T.add_body(['gemm_init_mem();',
@@ -1055,103 +1209,19 @@ def test_conv_2():
         for b in par(0, batch_size):
             for orow in par(0, out_dim):
                 for ocol in par(0, out_dim/16):
-                    for och in par(0, out_channel/16):
-
-                        res : i32[16,16] @ GEMM_ACCUM
-                        for l in par(0, 16):
-                            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
-
-                        for kcol in par(0, kernel_dim):
-                            for krow in par(0, kernel_dim):
-                                for kch in par(0, in_channel/16):
-                                    in_scratch : i8[16,16] @ GEMM_SCRATCH
-                                    weight_scratch : i8[16,16] @ GEMM_SCRATCH
-
-                                    ld_i8(16, 16, one, inp[ b, orow+krow, 16*(ocol)+kcol:16*(ocol+1)+kcol, 16*kch:16*(kch+1)],
-                                            in_scratch)
-                                    ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
-
-                                    matmul_acc_i8(16,16,16,in_scratch,weight_scratch,res)
-
-                                if in_channel%16 > 0:
-                                    in_scratch : i8[16,16] @ GEMM_SCRATCH
-                                    weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
-
-                                    ld_i8(16, in_channel%16, one,
-                                            inp[ b, orow+krow, 16*(ocol)+kcol:16*(ocol+1)+kcol, in_channel-in_channel%16: ],
-                                            in_scratch)
-                                    ld_i8(in_channel%16, 16, one,
-                                            weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)],
-                                            weight_scratch)
-
-                                    matmul_acc_i8(16,16,in_channel%16,in_scratch,weight_scratch,res)
-
-                        st_acc_i8(16,16, scale, act, res, output[b, orow, 16*ocol:16*(ocol+1), 16*och:16*(och+1)])
+                    conv_partial(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
 
                 if out_dim%16 > 0:
-                    for och in par(0, out_channel/16):
 
-                        res : i32[out_dim%16,16] @ GEMM_ACCUM
-                        for l in par(0, out_dim%16):
-                            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+                    conv_partial(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
 
-                        for kcol in par(0, kernel_dim):
-                            for krow in par(0, kernel_dim):
-                                for kch in par(0, in_channel/16):
-                                    in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
-                                    weight_scratch : i8[16,16] @ GEMM_SCRATCH
 
-                                    ld_i8(out_dim%16, 16, one,
-                                            inp[ b, orow+krow, kcol+out_dim-out_dim%16:kcol+out_dim, 16*kch:16*(kch+1)],
-                                            in_scratch)
-                                    ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+    #conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_)')
 
-                                    matmul_acc_i8(out_dim%16,16,16,in_scratch,weight_scratch,res)
-
-                                if in_channel%16 > 0:
-                                    in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
-                                    weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
-
-                                    ld_i8(out_dim%16, in_channel%16, one,
-                                            inp[b,orow+krow, kcol+out_dim-out_dim%16:kcol+out_dim, in_channel-in_channel%16:],
-                                            in_scratch)
-                                    ld_i8(in_channel%16, 16, one,
-                                            weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)],
-                                            weight_scratch)
-
-                                    matmul_acc_i8(out_dim%16,16,in_channel%16,in_scratch,weight_scratch,res)
-
-                        st_acc_i8(out_dim%16,16, scale, act, res, output[b, orow, out_dim-out_dim%16:, 16*och:16*(och+1)])
-
-    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch : _', n_lifts=5)
-    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch : _', n_lifts=5)
-    conv_on_gemmini = conv_on_gemmini.lift_alloc('res : _', n_lifts=2)
     conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
-    conv_on_gemmini = conv_on_gemmini.simplify()
-    conv_on_gemmini = conv_on_gemmini.unroll('kch')
-
-    conv_on_gemmini = conv_on_gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_)")
-    conv_on_gemmini = conv_on_gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_)")
-    conv_on_gemmini = conv_on_gemmini.inline("matmul_acc_i8_v2(_)")
-    conv_on_gemmini = conv_on_gemmini.inline_window("A = in_scratch[_]")
-    conv_on_gemmini = conv_on_gemmini.inline_window("B = weight_scratch[_]")
-    conv_on_gemmini = conv_on_gemmini.inline_window("C = res[_]")
-    conv_on_gemmini = conv_on_gemmini.inline("matmul_acc_i8_v2(_)")
-    conv_on_gemmini = conv_on_gemmini.inline_window("A = in_scratch[_]")
-    conv_on_gemmini = conv_on_gemmini.inline_window("B = weight_scratch[_]")
-    conv_on_gemmini = conv_on_gemmini.inline_window("C = res[_]")
-
-    conv_on_gemmini = conv_on_gemmini.reorder_stmts("ld_i8(_) #1", "config_matmul(_) #0")
-    conv_on_gemmini = conv_on_gemmini.reorder_stmts("ld_i8(_) #0", "config_matmul(_) #0")
-    #conv_on_gemmini = conv_on_gemmini.fission_after("config_matmul(_) #0", n_lifts=1)
-
-
-    print(conv_on_gemmini)
-"""
-    conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
-
-    T.add_proc(conv_on_cpu)
     T.add_proc(conv_on_gemmini)
+    conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
+    T.add_proc(conv_on_cpu)
 
     T.start_timer('cpu')
     T.add_body([f'conv_on_cpu(ctxt,  output_cpu, bias, inp, weights, false, scale);',
@@ -1177,6 +1247,6 @@ def test_conv_2():
 
     T.compile().run()
 
-"""
+    print(conv_on_gemmini)
 
 

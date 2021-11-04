@@ -265,6 +265,27 @@ def ld_acc_i32(
             tmp      = tmp * scale
             dst[i,j] = tmp
 
+_gemm_do_ld_acc_i32   = ("gemmini_extended_mvin( ((uint64_t) {src}.data), "+
+                               "((uint32_t) {dst}.data), {m}, {n} );")
+@instr(_gemm_do_ld_acc_i32)
+def do_ld_acc_i32(
+    n     : size,
+    m     : size,
+    src   : [i32][n, m] @ DRAM,
+    dst   : [i32][n, 16] @ GEMM_ACCUM,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : f32
+            tmp      = src[i,j]
+            tmp      = tmp * ConfigLoad.scale
+            dst[i,j] = tmp
 
 
 
