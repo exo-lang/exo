@@ -308,7 +308,8 @@ def eff_subst(env, eff):
                              eff_subst(env, eff.rhs),
                              eff.type, eff.srcinfo)
     elif isinstance(eff, Effects.Stride):
-        assert eff.name not in env
+        #TODO: ?
+        #assert eff.name not in env
         return eff
     elif isinstance(eff, Effects.Select):
         return Effects.Select(eff_subst(env, eff.cond),

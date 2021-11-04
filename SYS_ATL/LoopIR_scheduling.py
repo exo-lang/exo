@@ -82,6 +82,8 @@ class _DoReorderStmt(LoopIR_Rewrite):
                                   "buffer or config")
 
     def not_conflicts_config(self, c1, c2):
+        return
+        #TODO: This check is too coarse..
         if (c1.config.name() == c2.config.name() and
             c1.field == c2.field):
             raise SchedulingError("Cannot reorder stmts using the same config")
@@ -1408,6 +1410,7 @@ class _FissionLoops:
                                 instr   = None,
                                 eff     = self.orig_proc.eff,
                                 srcinfo = self.orig_proc.srcinfo)
+        self.proc = InferEffects(self.proc).result()
 
     def result(self):
         return self.proc
@@ -1434,7 +1437,7 @@ class _FissionLoops:
     # see map_stmts comment
     def map_s(self, s):
         if s == self.tgt_stmt:
-            assert self.hit_fission == False
+            #assert self.hit_fission == False
             self.hit_fission = True
             # none-the-less make sure we return this statement in
             # the pre-fission position
