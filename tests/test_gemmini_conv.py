@@ -1216,9 +1216,41 @@ def test_conv_2():
                     conv_partial(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
 
 
-    #conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_)')
-
     conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
+    conv_on_gemmini = conv_on_gemmini.simplify()
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id1(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id2(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_matmul(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_st_acc_i8(_) #1')
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8(_) #1')
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8_id1(_) #1')
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8_id2(_) #1')
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #1', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8(_) #1', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id1(_) #1', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id2(_) #1', n_lifts=2)
+
+    conv_on_gemmini = conv_on_gemmini.unroll('kch')
+
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_ #0', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_ #0', n_lifts=1)
+
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for b in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for orow in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for ocol in _:_')
+
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
+
+
     T.add_proc(conv_on_gemmini)
     conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
     T.add_proc(conv_on_cpu)
@@ -1248,5 +1280,6 @@ def test_conv_2():
     T.compile().run()
 
     print(conv_on_gemmini)
-
+"""
+"""
 

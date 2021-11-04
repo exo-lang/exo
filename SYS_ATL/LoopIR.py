@@ -904,7 +904,7 @@ class SubstArgs(LoopIR_Rewrite):
         if isinstance(e, E.Var):
             # TODO: ?
             # assert e.type.is_indexable(), f"type is {e.type}"
-            if e.name in self.env:
+            if e.type.is_indexable() and e.name in self.env:
                 sub_e = self.env[e.name]
                 assert sub_e.type.is_indexable()
                 return lift_to_eff_expr(sub_e)

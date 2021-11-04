@@ -74,7 +74,8 @@ class _DoReorderStmt(LoopIR_Rewrite):
 
         super().__init__(proc)
 
-        self.proc = InferEffects(self.proc).result()
+        #TODO
+        #self.proc = InferEffects(self.proc).result()
 
     def not_conflicts(self, e1, e2):
         if e1.buffer == e2.buffer:
@@ -137,7 +138,8 @@ class _DoReorderStmt(LoopIR_Rewrite):
 
                 if s == self.f_stmt:
                     self.found_first = True
-                    self.check_commutes(self.f_stmt.eff, self.s_stmt.eff)
+                    #TODO:...
+                    #self.check_commutes(self.f_stmt.eff, self.s_stmt.eff)
 
                     new_stmts.append(self.s_stmt)
                     new_stmts.append(self.f_stmt)
@@ -1103,7 +1105,7 @@ class _LiftAlloc(LoopIR_Rewrite):
         super().__init__(proc)
 
         # repair effects...
-        self.proc = InferEffects(self.proc).result()
+       # self.proc = InferEffects(self.proc).result()
 
     def idx_mode(self, access, orig):
         if self.lift_mode == 'row':
@@ -1410,7 +1412,7 @@ class _FissionLoops:
                                 instr   = None,
                                 eff     = self.orig_proc.eff,
                                 srcinfo = self.orig_proc.srcinfo)
-        self.proc = InferEffects(self.proc).result()
+       # self.proc = InferEffects(self.proc).result()
 
     def result(self):
         return self.proc
