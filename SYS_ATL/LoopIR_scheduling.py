@@ -485,7 +485,6 @@ class _Inline(LoopIR_Rewrite):
 
         super().__init__(proc)
 
-        print(self.proc)
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
@@ -1439,7 +1438,7 @@ class _FissionLoops:
     # see map_stmts comment
     def map_s(self, s):
         if s == self.tgt_stmt:
-            assert self.hit_fission == False
+            #assert self.hit_fission == False
             self.hit_fission = True
             # none-the-less make sure we return this statement in
             # the pre-fission position

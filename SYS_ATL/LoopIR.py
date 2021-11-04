@@ -794,6 +794,7 @@ class Alpha_Rename(LoopIR_Rewrite):
                                 eff, s.srcinfo )]
             self.pop()
             return stmts
+
         elif styp is LoopIR.Alloc:
             nm = s.name.copy()
             self.env[s.name] = nm

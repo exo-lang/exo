@@ -1218,15 +1218,13 @@ def test_conv_2():
 
     conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
     conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
-    print(conv_on_gemmini)
-"""
     conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
     conv_on_gemmini = conv_on_gemmini.simplify()
     conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #0', n_lifts=3)
     conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8(_) #0', n_lifts=3)
     conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id1(_) #0', n_lifts=3)
     conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id2(_) #0', n_lifts=3)
-    conv_on_gemmini = conv_on_gemmini.fission_after('config_matmul(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_matmul() #0', n_lifts=3)
     conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_st_acc_i8(_) #1')
     conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8(_) #1')
     conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8_id1(_) #1')
@@ -1281,5 +1279,7 @@ def test_conv_2():
 
     T.compile().run()
 
+    print(conv_on_gemmini)
+"""
 """
 
