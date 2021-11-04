@@ -1,10 +1,9 @@
-#include <random>
-#include <vector>
-
 #include <benchmark/benchmark.h>
 #include <mkl.h>
-
 #include <sgemm.h>
+
+#include <random>
+#include <vector>
 
 #include "alex_sgemm.h"
 
@@ -37,9 +36,9 @@ static void BM_square_sgemm(benchmark::State &state) {
   }
 
   state.counters["flops"] = benchmark::Counter(
-      static_cast<double>(state.iterations() * num_flops(n, n, n)), //
-      benchmark::Counter::kIsRate,                                  //
-      benchmark::Counter::kIs1000                                   //
+      static_cast<double>(state.iterations() * num_flops(n, n, n)),  //
+      benchmark::Counter::kIsRate,                                   //
+      benchmark::Counter::kIs1000                                    //
   );
 }
 
@@ -58,9 +57,9 @@ static void BM_sys_atl_kernel(benchmark::State &state) {
   }
 
   state.counters["flops"] = benchmark::Counter(
-      static_cast<double>(state.iterations() * num_flops(6, 64, k)), //
-      benchmark::Counter::kIsRate,                                   //
-      benchmark::Counter::kIs1000                                    //
+      static_cast<double>(state.iterations() * num_flops(6, 64, k)),  //
+      benchmark::Counter::kIsRate,                                    //
+      benchmark::Counter::kIs1000                                     //
   );
 }
 
@@ -71,13 +70,13 @@ BENCHMARK(BM_sys_atl_kernel)->Name("kernel_sys_atl")->Range(8, 8196);
 
 struct mkl_square {
   void operator()(const float *a, const float *b, float *c, long n) {
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, // layout
-                n, n, n,                                   // m, n, k
-                1.0,                                       // alpha
-                a, n,                                      // A (lda)
-                b, n,                                      // B (ldb)
-                1.0,                                       // beta
-                c, n                                       // C (ldc)
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,  // layout
+                n, n, n,                                    // m, n, k
+                1.0,                                        // alpha
+                a, n,                                       // A (lda)
+                b, n,                                       // B (ldb)
+                1.0,                                        // beta
+                c, n                                        // C (ldc)
     );
   }
 };

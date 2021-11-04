@@ -1,8 +1,8 @@
-#include <random>
-#include <vector>
-
 #include <benchmark/benchmark.h>
 #include <mkl.h>
+
+#include <random>
+#include <vector>
 
 // ----------------------------------------------------------------------------
 // Utilities
@@ -21,7 +21,8 @@ static std::vector<float> gen_matrix(long m, long n) {
   return mat;
 }
 
-template <typename SsyrkFn> static void BM_ssyrk(benchmark::State &state) {
+template <typename SsyrkFn>
+static void BM_ssyrk(benchmark::State &state) {
   size_t n = state.range(0);
   size_t k = state.range(1);
 
@@ -33,9 +34,9 @@ template <typename SsyrkFn> static void BM_ssyrk(benchmark::State &state) {
   }
 
   state.counters["flops"] = benchmark::Counter(
-      static_cast<double>(state.iterations() * num_flops(n, k)), //
-      benchmark::Counter::kIsRate,                               //
-      benchmark::Counter::kIs1000                                //
+      static_cast<double>(state.iterations() * num_flops(n, k)),  //
+      benchmark::Counter::kIsRate,                                //
+      benchmark::Counter::kIs1000                                 //
   );
 }
 
@@ -44,12 +45,12 @@ template <typename SsyrkFn> static void BM_ssyrk(benchmark::State &state) {
 
 struct mkl_functor {
   void operator()(const float *a, float *c, long n, long k) {
-    cblas_ssyrk(CblasRowMajor, CblasUpper, CblasNoTrans, // layout
-                n, k,                                    // dimensions
-                1.0,                                     // alpha
-                a, k,                                    // A (lda)
-                1.0,                                     // beta
-                c, n                                     // C (ldc)
+    cblas_ssyrk(CblasRowMajor, CblasUpper, CblasNoTrans,  // layout
+                n, k,                                     // dimensions
+                1.0,                                      // alpha
+                a, k,                                     // A (lda)
+                1.0,                                      // beta
+                c, n                                      // C (ldc)
     );
   }
 };
@@ -57,6 +58,6 @@ struct mkl_functor {
 BENCHMARK_TEMPLATE(BM_ssyrk, mkl_functor)
     ->Name("ssyrk_mkl")
     ->ArgsProduct({
-        benchmark::CreateRange(64, 2048, /* multi= */ 2), // n
-        benchmark::CreateRange(16, 2048, /* multi= */ 2)  // k
+        benchmark::CreateRange(64, 2048, /* multi= */ 2),  // n
+        benchmark::CreateRange(16, 2048, /* multi= */ 2)   // k
     });
