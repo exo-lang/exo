@@ -371,6 +371,24 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoBindConfig(loopir, config, field, matches[0]).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def data_reuse(self, buf_pattern, replace_pattern):
+        if not isinstance(buf_pattern, str):
+            raise TypeError("expected first argument to be alloc pattern")
+        if not isinstance(replace_pattern, str):
+            raise TypeError("expected second argument to be alloc that you want to replace")
+
+        buf_s = self._find_stmt(buf_pattern)
+        rep_s = self._find_stmt(replace_pattern)
+
+        if not isinstance(buf_s, LoopIR.Alloc) or not isinstance(rep_s, LoopIR.Alloc):
+            raise TypeError("expected both arguments to be alloc pattern,"+
+                            f" got {type(buf_s)} and {type(rep_s)}")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.DoDataReuse(loopir, buf_s, rep_s).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
     
     
     def configwrite_after(self, stmt_pattern, config, field, var_pattern):
