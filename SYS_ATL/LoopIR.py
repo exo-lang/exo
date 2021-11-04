@@ -811,8 +811,10 @@ class Alpha_Rename(LoopIR_Rewrite):
         elif etyp is LoopIR.WindowExpr:
             win_e = super().map_e(e)
             nm = self.env[e.name] if e.name in self.env else e.name
-            win_e.name = nm
-            return win_e
+            return LoopIR.WindowExpr(nm,
+                               [self.map_w_access(a) for a in e.idx],
+                               self.map_t(e.type), e.srcinfo)
+
         elif etyp is LoopIR.StrideExpr:
             nm = self.env[e.name] if e.name in self.env else e.name
             return LoopIR.StrideExpr(nm, e.dim, e.type, e.srcinfo)
@@ -840,6 +842,19 @@ class Alpha_Rename(LoopIR_Rewrite):
             return E.Var(nm, e.type, e.srcinfo)
 
         return super().map_eff_e(e)
+
+    def map_t(self, t):
+        ttyp = type(t)
+        if ttyp is T.Window:
+            src_buf = t.src_buf
+            if t.src_buf in self.env:
+                src_buf = self.env[t.src_buf]
+
+            return T.Window( self.map_t(t.src_type), self.map_t(t.as_tensor),
+                             src_buf,
+                             [ self.map_w_access(w) for w in t.idx ] )
+
+        return super().map_t(t)
 
 
 class SubstArgs(LoopIR_Rewrite):
@@ -887,6 +902,21 @@ class SubstArgs(LoopIR_Rewrite):
                     return LoopIR.Read(sub_e.name,
                                        [self.map_e(a) for a in e.idx],
                                        e.type, e.srcinfo)
+        elif isinstance(e, LoopIR.WindowExpr):
+            if e.name in self.env:
+                if len(e.idx) == 0:
+                    return self.env[e.name]
+                else:
+                    sub_e = self.env[e.name]
+                    assert (isinstance(sub_e, LoopIR.Read) and len(sub_e.idx) == 0)
+                    return LoopIR.WindowExpr(sub_e.name,
+                                       [self.map_w_access(a) for a in e.idx],
+                                       self.map_t(e.type), e.srcinfo)
+            
+        elif isinstance(e, LoopIR.StrideExpr):
+            if e.name in self.env:
+                sub_e = self.env[e.name]
+            return LoopIR.StrideExpr(sub_e.name, e.dim, e.type, e.srcinfo)
 
         return super().map_e(e)
 
@@ -900,13 +930,29 @@ class SubstArgs(LoopIR_Rewrite):
         return new_es
 
     def map_eff_e(self, e):
-        # purely index expressions
         if isinstance(e, E.Var):
-            # TODO: ?
-            # assert e.type.is_indexable(), f"type is {e.type}"
-            if e.type.is_indexable() and e.name in self.env:
-                sub_e = self.env[e.name]
-                assert sub_e.type.is_indexable()
-                return lift_to_eff_expr(sub_e)
+            if e.name in self.env:
+                if e.type.is_indexable():
+                    sub_e = self.env[e.name]
+                    assert sub_e.type.is_indexable()
+                    return lift_to_eff_expr(sub_e)
+                else: # Could be config value (e.g. f32)
+                    sub_e = self.env[e.name]
+                    return lift_to_eff_expr(sub_e)
 
         return super().map_eff_e(e)
+
+    def map_t(self, t):
+        ttyp = type(t)
+        if ttyp is T.Window:
+            src_buf = t.src_buf
+            if t.src_buf in self.env:
+                src_buf = self.env[t.src_buf].name
+
+            return T.Window( self.map_t(t.src_type), self.map_t(t.as_tensor),
+                             src_buf,
+                             [ self.map_w_access(w) for w in t.idx ] )
+
+        return super().map_t(t)
+
+

@@ -1116,7 +1116,7 @@ def conv_partial(
 
 
 # TODO: Config optimization is super buggy... handwrinting for now..
-print(conv_partial)
+#print(conv_partial)
 
 
 
@@ -1218,6 +1218,8 @@ def test_conv_2():
 
     conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
     conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
+    print(conv_on_gemmini)
+"""
     conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
     conv_on_gemmini = conv_on_gemmini.simplify()
     conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #0', n_lifts=3)
@@ -1279,7 +1281,5 @@ def test_conv_2():
 
     T.compile().run()
 
-    print(conv_on_gemmini)
-"""
 """
 

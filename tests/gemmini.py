@@ -81,8 +81,6 @@ def do_ld_i8(
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
-    # TODO: We need to think about how to handle non-local config in
-    # effectcheck.
     assert stride(src, 0) == ConfigLoad.src_stride
 
     for i in par(0, n):
@@ -106,7 +104,7 @@ def do_ld_i8_id1(
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
-    assert stride(src, 0) == ConfigLoad_id1.src_stride
+    #assert stride(src, 0) == ConfigLoad_id1.src_stride
 
     for i in par(0, n):
         for j in par(0, m):
@@ -129,7 +127,7 @@ def do_ld_i8_id2(
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
-    assert stride(src, 0) == ConfigLoad_id2.src_stride
+    #assert stride(src, 0) == ConfigLoad_id2.src_stride
 
     for i in par(0, n):
         for j in par(0, m):

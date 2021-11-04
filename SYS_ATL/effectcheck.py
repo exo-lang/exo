@@ -973,7 +973,8 @@ class CheckEffects:
                 sub_body_eff = self.map_stmts(stmt.body)
                 self.pop()
 
-                self.check_config_no_loop_depend(stmt.iter, sub_body_eff, stmt.body)
+                # TODO: This check is outdated
+                #self.check_config_no_loop_depend(stmt.iter, sub_body_eff, stmt.body)
                 # Parallelism checking here
                 # Don't check parallelism is it's a seq loop
                 if isinstance(stmt, LoopIR.ForAll):
