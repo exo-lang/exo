@@ -1051,77 +1051,8 @@ def conv_stride_1():
 
     return conv_on_cpu_stride_1
 
-
-
 @proc
-def conv_partial_padding1(
-    batch_size : size,
-    out_dim    : size,
-    out_channel: size,
-    kernel_dim : size,
-    in_channel : size,
-    in_dim     : size,
-    padding    : size,
-    output     : i8[batch_size, out_dim, out_dim, out_channel],
-    bias       : i32[1, out_channel],
-    inp        : i8[batch_size, in_dim, in_dim, in_channel],
-    weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
-    act        : bool,
-    scale      : f32,
-    b          : index,
-    orow       : index,
-    ocol       : index,
-    one        : f32,
-    ):
-
-    assert out_dim == in_dim + 2*padding - kernel_dim + 1
-    assert 0 <= padding < 16
-    assert padding < out_dim
-    assert 0 <= b and b < batch_size
-    assert 0 <= orow and orow < out_dim
-    assert 0 <= ocol and ocol < out_dim/16
-
-    for och in par(0, out_channel/16):
-
-        res : i32[16,16] @ GEMM_ACCUM
-        for l in par(0, 16):
-            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
-
-        for kcol in par(0, kernel_dim):
-            for krow in par(0, kernel_dim):
-                for kch in par(0, in_channel/16):
-                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                        in_scratch : i8[16,16] @ GEMM_SCRATCH
-                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
-
-                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                            ld_i8(16+(16*(ocol)+kcol-padding), 16, one,
-                                inp[ b, orow+krow-padding, 0:16*(ocol+1)+kcol-padding, 16*kch:16*(kch+1)],
-                                in_scratch[-(16*(ocol)+kcol-padding):, :])
-                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                            ld_i8(16-(16*(ocol+1)+kcol-padding-in_dim), 16, one,
-                                inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:, 16*kch:16*(kch+1)],
-                                in_scratch[0:16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                            ld_i8(in_dim, 16, one,
-                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
-                                in_scratch[-(16*(ocol)+kcol-padding):16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                            ld_i8(16, 16, one,
-                            inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:16*(ocol+1)+kcol-padding, 16*kch:16*(kch+1)],
-                            in_scratch)
-
-                        ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
-                        matmul_acc_i8(16,16,16,in_scratch,weight_scratch,res)
-
-        st_acc_i8(16,16, scale, act, res, output[b, orow, 16*ocol:16*(ocol+1), 16*och:16*(och+1)])
-
-@proc
-def conv_partial_padding2(
+def orig_conv_partial_padding(
     batch_size : size,
     out_dim    : size,
     out_channel: size,
@@ -1138,6 +1069,9 @@ def conv_partial_padding2(
     b          : index,
     orow       : index,
     one        : f32,
+    DIM_SIZE   : size,
+    DIM_LO     : index,
+    DIM_HI     : index
     ):
 
     assert out_dim == in_dim + 2*padding - kernel_dim + 1
@@ -1145,48 +1079,131 @@ def conv_partial_padding2(
     assert padding < out_dim
     assert 0 <= b and b < batch_size
     assert 0 <= orow and orow < out_dim
-    assert out_dim%16 > 0
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+    assert DIM_HI-padding > 0
 
     for och in par(0, out_channel/16):
 
-        res : i32[out_dim%16,16] @ GEMM_ACCUM
-        for l in par(0, out_dim%16):
+        res : i32[DIM_SIZE,16] @ GEMM_ACCUM
+        for l in par(0, DIM_SIZE):
             ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
 
         for kcol in par(0, kernel_dim):
             for krow in par(0, kernel_dim):
                 for kch in par(0, in_channel/16):
                     if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                        in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
+                        in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
                         weight_scratch : i8[16,16] @ GEMM_SCRATCH
 
-                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding <= in_dim:
-                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
-                            ld_i8(out_dim+kcol-padding, 16, one,
-                                inp[ b, orow+krow-padding, 0:out_dim+kcol-padding, 16*kch:16*(kch+1)],
-                                in_scratch[-(out_dim-out_dim%16+kcol-padding):, :])
-                        if (out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding > in_dim
-                                and out_dim-out_dim%16+kcol-padding < in_dim):
-                            ld_i8(in_dim-(out_dim-out_dim%16+kcol-padding), 16, one,
-                                inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:, 16*kch:16*(kch+1)],
-                                in_scratch[0:in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding > in_dim:
-                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
+                        if DIM_LO+kcol-padding < 0 and DIM_HI+kcol-padding <= in_dim:
+                            zero_i8(-(DIM_LO+kcol-padding), 16, in_scratch[0:-(DIM_LO+kcol-padding), :])
+                            ld_i8(DIM_SIZE+(DIM_LO+kcol-padding), 16, one,
+                                inp[ b, orow+krow-padding, 0:DIM_HI+kcol-padding, 16*kch:16*(kch+1)],
+                                in_scratch[-(DIM_LO+kcol-padding):, :])
+                        if DIM_LO+kcol-padding >= 0 and DIM_HI+kcol-padding > in_dim and DIM_LO+kcol-padding < in_dim:
+                            ld_i8(DIM_SIZE-(DIM_HI+kcol-padding-in_dim), 16, one,
+                                inp[ b, orow+krow-padding, DIM_LO+kcol-padding:, 16*kch:16*(kch+1)],
+                                in_scratch[0:DIM_SIZE-(DIM_HI+kcol-padding-in_dim), :])
+                            zero_i8((DIM_HI+kcol-padding-in_dim), 16, in_scratch[DIM_SIZE-(DIM_HI+kcol-padding-in_dim):, :])
+                        if DIM_LO+kcol-padding < 0 and DIM_HI+kcol-padding > in_dim:
+                            zero_i8(-(DIM_LO+kcol-padding), 16, in_scratch[0:-(DIM_LO+kcol-padding), :])
                             ld_i8(in_dim, 16, one,
                                 inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
-                                in_scratch[-(out_dim-out_dim%16+kcol-padding):in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                        if out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding <= in_dim:
-                            ld_i8(out_dim%16, 16, one,
-                            inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:out_dim+kcol-padding, 16*kch:16*(kch+1)],
+                                in_scratch[-(DIM_LO+kcol-padding):DIM_SIZE-(DIM_HI+kcol-padding-in_dim), :])
+                            zero_i8((DIM_HI+kcol-padding-in_dim), 16, in_scratch[DIM_SIZE-(DIM_HI+kcol-padding-in_dim):, :])
+                        if DIM_LO+kcol-padding >= 0 and DIM_HI+kcol-padding <= in_dim:
+                            ld_i8(DIM_SIZE, 16, one,
+                            inp[ b, orow+krow-padding, DIM_LO+kcol-padding:DIM_HI+kcol-padding, 16*kch:16*(kch+1)],
                             in_scratch)
 
                         ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
-                        matmul_acc_i8(out_dim%16,16,16,in_scratch,weight_scratch,res)
+                        matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
 
-        st_acc_i8(out_dim%16,16, scale, act, res, output[b, orow, out_dim-out_dim%16:, 16*och:16*(och+1)])
+        st_acc_i8(DIM_SIZE,16, scale, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
 
+
+@proc
+def conv_partial_padding(
+    batch_size : size,
+    out_dim    : size,
+    out_channel: size,
+    kernel_dim : size,
+    in_channel : size,
+    in_dim     : size,
+    padding    : size,
+    output     : i8[batch_size, out_dim, out_dim, out_channel],
+    bias       : i32[1, out_channel],
+    inp        : i8[batch_size, in_dim, in_dim, in_channel],
+    weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+    act        : bool,
+    scale      : f32,
+    b          : index,
+    orow       : index,
+    one        : f32,
+    DIM_SIZE   : size,
+    DIM_LO     : index,
+    DIM_HI     : index
+    ):
+
+    assert out_dim == in_dim + 2*padding - kernel_dim + 1
+    assert 0 <= padding < 16
+    assert padding < out_dim
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+    assert DIM_HI-padding > 0
+
+    config_st_acc_i8(scale, stride(output, 2))
+    config_ld_i8(one, stride(bias, 0))
+    config_ld_i8_id1(one, stride(inp, 2))
+    config_ld_i8_id2(one, stride(weights, 2))
+    config_matmul()
+    for och in par(0, out_channel/16):
+
+        res : i32[DIM_SIZE,16] @ GEMM_ACCUM
+        for l in par(0, DIM_SIZE):
+            do_ld_acc_i32(1, 16, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+
+        for kcol in par(0, kernel_dim):
+            for krow in par(0, kernel_dim):
+                for kch in par(0, in_channel/16):
+                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
+                        in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
+
+                        if DIM_LO+kcol-padding < 0 and DIM_HI+kcol-padding <= in_dim:
+                            do_zero_i8(-(DIM_LO+kcol-padding), 16, in_scratch[0:-(DIM_LO+kcol-padding), :])
+                            do_ld_i8_id1(DIM_SIZE+(DIM_LO+kcol-padding), 16,
+                                inp[ b, orow+krow-padding, 0:DIM_HI+kcol-padding, 16*kch:16*(kch+1)],
+                                in_scratch[-(DIM_LO+kcol-padding):, :])
+                        if DIM_LO+kcol-padding >= 0 and DIM_HI+kcol-padding > in_dim and DIM_LO+kcol-padding < in_dim:
+                            do_ld_i8_id1(DIM_SIZE-(DIM_HI+kcol-padding-in_dim), 16,
+                                inp[ b, orow+krow-padding, DIM_LO+kcol-padding:, 16*kch:16*(kch+1)],
+                                in_scratch[0:DIM_SIZE-(DIM_HI+kcol-padding-in_dim), :])
+                            do_zero_i8((DIM_HI+kcol-padding-in_dim), 16, in_scratch[DIM_SIZE-(DIM_HI+kcol-padding-in_dim):, :])
+                        if DIM_LO+kcol-padding < 0 and DIM_HI+kcol-padding > in_dim:
+                            do_zero_i8(-(DIM_LO+kcol-padding), 16, in_scratch[0:-(DIM_LO+kcol-padding), :])
+                            do_ld_i8_id1(in_dim, 16,
+                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
+                                in_scratch[-(DIM_LO+kcol-padding):DIM_SIZE-(DIM_HI+kcol-padding-in_dim), :])
+                            do_zero_i8((DIM_HI+kcol-padding-in_dim), 16, in_scratch[DIM_SIZE-(DIM_HI+kcol-padding-in_dim):, :])
+                        if DIM_LO+kcol-padding >= 0 and DIM_HI+kcol-padding <= in_dim:
+                            do_ld_i8_id1(DIM_SIZE, 16,
+                            inp[ b, orow+krow-padding, DIM_LO+kcol-padding:DIM_HI+kcol-padding, 16*kch:16*(kch+1)],
+                            in_scratch)
+
+                        do_ld_i8_id2(16, 16, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+                        do_matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
+
+        do_st_acc_i8(DIM_SIZE,16, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
 
 
 def test_conv_stride_1_gemmini():
@@ -1242,10 +1259,10 @@ def test_conv_stride_1_gemmini():
         for b in par(0, batch_size):
             for orow in par(0, out_dim):
                 for ocol in par(0, out_dim/16):
-                    conv_partial_padding1(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, ocol, one)
+                    conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
 
                 if out_dim%16 > 0:
-                    conv_partial_padding2(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one)
+                    conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
 
 
 
