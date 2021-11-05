@@ -4,7 +4,7 @@ jobs:
   build:
     strategy:
       matrix:
-        runner: [ ubuntu-latest, macos-latest ]
+        runner: [ ubuntu-latest ]  # , macos-latest ]
     runs-on: ${{matrix.runner}}
     steps:
       - name: Checkout sources (including submodules)
