@@ -388,414 +388,6 @@ def test_conv_stride_1_padding_0_gemmini():
 
 
 @pytest.mark.skip()
-def test_conv_stride_1_gemmini():
-    T = GemmTestBuilder('conv_on_cpu_stride_1_gemmini')
-    T.add_body(['gemm_init_mem();',
-  #              'init_mem();',
-                'gemm_acc_init_mem();',
-                'gemmini_flush(0);',
-                ''])
-    T.add_body(["conv_on_cpu_stride_1_gemmini_lib_Context *ctxt;"])
-
-    batch_size = 1
-    out_channel= 31
-    kernel_dim = 1
-    in_channel = 9
-    padding    = 3
-    in_dim     = 25
-    out_dim    = int(in_dim + 2*padding - kernel_dim + 1)
-    assert out_dim == 31
-    assert 0 <= padding < 16
-    assert padding < out_dim
-
-    T.alloc_dram_f32('scale', '1.0f')
-    T.alloc_dram_2i32('bias', 1, out_channel, '0')
-    T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
-    T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
-    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, '1')
-    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, '1')
-
-    @proc
-    def conv_on_cpu_stride_1(
-        batch_size : size,
-        out_dim    : size,
-        out_channel: size,
-        kernel_dim : size,
-        in_channel : size,
-        in_dim     : size,
-        padding    : size,
-        output     : i8[batch_size, out_dim, out_dim, out_channel],
-        bias       : i32[1,out_channel],
-        inp        : i8[batch_size, in_dim, in_dim, in_channel],
-        weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
-        act        : bool,
-        scale      : f32
-        ):
-
-        assert out_dim == in_dim + 2*padding - kernel_dim + 1
-
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim):
-                    for och in par(0, out_channel):
-
-                        res : i32
-                        res = bias[0,och]
-                        for krow in par(0, kernel_dim):
-                            for kcol in par(0, kernel_dim):
-                                for kch in par(0, in_channel):
-                                    if (0 <= orow+krow-padding  and orow+krow-padding < in_dim and
-                                            0 <= ocol+kcol-padding and ocol+kcol-padding < in_dim):
-                                        res += weights[krow,kcol,kch,och] * inp[b,orow+krow-padding,ocol+kcol-padding,kch]
-
-                        if act == True:
-                            res = relu(res)
-
-                        tmp_res1 : f32
-                        tmp_res1 = res
-                        tmp_res1 = tmp_res1 * scale
-                        tmp_res2 : i8
-                        clamp(tmp_res1, tmp_res2)
-                        output[b,orow,ocol,och] = tmp_res2
-
-    @proc
-    def conv_on_cpu_stride_1_gemmini(
-        batch_size : size,
-        out_dim    : size,
-        out_channel: size,
-        kernel_dim : size,
-        in_channel : size,
-        in_dim     : size,
-        padding    : size,
-        output     : i8[batch_size, out_dim, out_dim, out_channel],
-        bias       : i32[1, out_channel],
-        inp        : i8[batch_size, in_dim, in_dim, in_channel],
-        weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
-        act        : bool,
-        scale      : f32
-        ):
-
-        assert out_dim == in_dim + 2*padding - kernel_dim + 1
-        assert 0 <= padding < 16
-        assert padding < out_dim
-
-        one : f32
-        one = 1.0
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim/16):
-                    for och in par(0, out_channel/16):
-
-                        res : i32[16,16] @ GEMM_ACCUM
-                        for l in par(0, 16):
-                            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
-
-                        for kcol in par(0, kernel_dim):
-                            for krow in par(0, kernel_dim):
-                                for kch in par(0, in_channel/16):
-                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                                        in_scratch : i8[16,16] @ GEMM_SCRATCH
-                                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
-
-                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                                            ld_i8(16+(16*(ocol)+kcol-padding), 16, one,
-                                                inp[ b, orow+krow-padding, 0:16*(ocol+1)+kcol-padding, 16*kch:16*(kch+1)],
-                                                in_scratch[-(16*(ocol)+kcol-padding):, :])
-                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                                            ld_i8(16-(16*(ocol+1)+kcol-padding-in_dim), 16, one,
-                                                inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:, 16*kch:16*(kch+1)],
-                                                in_scratch[0:16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                                            ld_i8(in_dim, 16, one,
-                                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
-                                                in_scratch[-(16*(ocol)+kcol-padding):16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                                            ld_i8(16, 16, one,
-                                            inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:16*(ocol+1)+kcol-padding, 16*kch:16*(kch+1)],
-                                            in_scratch)
-
-                                        ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
-                                        matmul_acc_i8(16,16,16,in_scratch,weight_scratch,res)
-
-                                if in_channel%16 > 0:
-                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                                        in_scratch : i8[16,16] @ GEMM_SCRATCH
-                                        weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
-
-                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                                            ld_i8(16+(16*(ocol)+kcol-padding), in_channel%16, one,
-                                                inp[ b, orow+krow-padding, 0:16*(ocol+1)+kcol-padding, in_channel-in_channel%16: ],
-                                                in_scratch[-(16*(ocol)+kcol-padding):, :])
-                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                                            ld_i8(16-(16*(ocol+1)+kcol-padding-in_dim), in_channel%16, one,
-                                                inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:, in_channel-in_channel%16: ],
-                                                in_scratch[0:16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                                            ld_i8(in_dim, in_channel%16, one,
-                                                inp[ b, orow+krow-padding, :, in_channel-in_channel%16: ],
-                                                in_scratch[-(16*(ocol)+kcol-padding):16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                                            ld_i8(16, in_channel%16, one,
-                                            inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:16*(ocol+1)+kcol-padding, in_channel-in_channel%16: ],
-                                            in_scratch)
-
-                                        ld_i8(in_channel%16, 16, one, weights[ krow, kcol, in_channel-in_channel%16: , 16*och:16*(och+1)], weight_scratch)
-                                        matmul_acc_i8(16,16,in_channel%16,in_scratch,weight_scratch,res)
-
-                        st_acc_i8(16,16, scale, act, res, output[b, orow, 16*ocol:16*(ocol+1), 16*och:16*(och+1)])
-
-                    if out_channel%16 > 0:
-
-                        res : i32[16,16] @ GEMM_ACCUM
-                        for l in par(0, 16):
-                            ld_acc_i32(1, out_channel%16, one, bias[ 0:1, out_channel-out_channel%16: ], res[l:l+1, :])
-
-                        for kcol in par(0, kernel_dim):
-                            for krow in par(0, kernel_dim):
-                                for kch in par(0, in_channel/16):
-                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                                        in_scratch : i8[16,16] @ GEMM_SCRATCH
-                                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
-
-                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                                            ld_i8(16+(16*(ocol)+kcol-padding), 16, one,
-                                                inp[ b, orow+krow-padding, 0:16*(ocol+1)+kcol-padding, 16*kch:16*(kch+1)],
-                                                in_scratch[-(16*(ocol)+kcol-padding):, :])
-                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                                            ld_i8(16-(16*(ocol+1)+kcol-padding-in_dim), 16, one,
-                                                inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:, 16*kch:16*(kch+1)],
-                                                in_scratch[0:16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                                            ld_i8(in_dim, 16, one,
-                                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
-                                                in_scratch[-(16*(ocol)+kcol-padding):16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                                            ld_i8(16, 16, one,
-                                            inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:16*(ocol+1)+kcol-padding, 16*kch:16*(kch+1)],
-                                            in_scratch)
-
-                                        ld_i8(16, out_channel%16, one, weights[ krow, kcol, 16*kch:16*(kch+1), out_channel-out_channel%16:], weight_scratch)
-                                        matmul_acc_i8(16,out_channel%16,16,in_scratch,weight_scratch,res)
-
-                                if in_channel%16 > 0:
-                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                                        in_scratch : i8[16,16] @ GEMM_SCRATCH
-                                        weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
-
-                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                                            ld_i8(16+(16*(ocol)+kcol-padding), in_channel%16, one,
-                                                inp[ b, orow+krow-padding, 0:16*(ocol+1)+kcol-padding, in_channel-in_channel%16: ],
-                                                in_scratch[-(16*(ocol)+kcol-padding):, :])
-                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                                            ld_i8(16-(16*(ocol+1)+kcol-padding-in_dim), in_channel%16, one,
-                                                inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:, in_channel-in_channel%16: ],
-                                                in_scratch[0:16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding > in_dim:
-                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
-                                            ld_i8(in_dim, in_channel%16, one,
-                                                inp[ b, orow+krow-padding, :, in_channel-in_channel%16: ],
-                                                in_scratch[-(16*(ocol)+kcol-padding):16-(16*(ocol+1)+kcol-padding-in_dim), :])
-                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
-                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding <= in_dim:
-                                            ld_i8(16, in_channel%16, one,
-                                            inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:16*(ocol+1)+kcol-padding, in_channel-in_channel%16: ],
-                                            in_scratch)
-
-                                        ld_i8(in_channel%16, out_channel%16, one, weights[ krow, kcol, in_channel-in_channel%16: , out_channel-out_channel%16: ], weight_scratch)
-                                        matmul_acc_i8(16,out_channel%16,in_channel%16,in_scratch,weight_scratch,res)
-
-                        st_acc_i8(16,out_channel%16, scale, act, res, output[b, orow, 16*ocol:16*(ocol+1), out_channel-out_channel%16: ])
-
-                if out_dim%16 > 0:
-                    for och in par(0, out_channel/16):
-
-                        res : i32[out_dim%16,16] @ GEMM_ACCUM
-                        for l in par(0, out_dim%16):
-                            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
-
-                        for kcol in par(0, kernel_dim):
-                            for krow in par(0, kernel_dim):
-                                for kch in par(0, in_channel/16):
-                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                                        in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
-                                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
-
-                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding <= in_dim:
-                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
-                                            ld_i8(out_dim+kcol-padding, 16, one,
-                                                inp[ b, orow+krow-padding, 0:out_dim+kcol-padding, 16*kch:16*(kch+1)],
-                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if (out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding > in_dim
-                                                and out_dim-out_dim%16+kcol-padding < in_dim):
-                                            ld_i8(in_dim-(out_dim-out_dim%16+kcol-padding), 16, one,
-                                                inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:, 16*kch:16*(kch+1)],
-                                                in_scratch[0:in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding > in_dim:
-                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
-                                            ld_i8(in_dim, 16, one,
-                                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
-                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding <= in_dim:
-                                            ld_i8(out_dim%16, 16, one,
-                                            inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:out_dim+kcol-padding, 16*kch:16*(kch+1)],
-                                            in_scratch)
-
-                                        ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
-                                        matmul_acc_i8(out_dim%16,16,16,in_scratch,weight_scratch,res)
-
-                                if in_channel%16 > 0:
-                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                                        in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
-                                        weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
-
-                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding <= in_dim:
-                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
-                                            ld_i8(out_dim+kcol-padding, in_channel%16, one,
-                                                inp[ b, orow+krow-padding, 0:out_dim+kcol-padding, in_channel-in_channel%16:],
-                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if (out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding > in_dim
-                                                and out_dim-out_dim%16+kcol-padding < in_dim):
-                                            ld_i8(in_dim-(out_dim-out_dim%16+kcol-padding), in_channel%16, one,
-                                                inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:, in_channel-in_channel%16:],
-                                                in_scratch[0:in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding > in_dim:
-                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
-                                            ld_i8(in_dim, in_channel%16, one,
-                                                inp[ b, orow+krow-padding, :, in_channel-in_channel%16:],
-                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding <= in_dim:
-                                            ld_i8(out_dim%16, in_channel%16, one,
-                                            inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:out_dim+kcol-padding, in_channel-in_channel%16:],
-                                            in_scratch)
-
-                                        ld_i8(in_channel%16, 16, one, weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)], weight_scratch)
-                                        matmul_acc_i8(out_dim%16,16,in_channel%16,in_scratch,weight_scratch,res)
-
-                        st_acc_i8(out_dim%16,16, scale, act, res, output[b, orow, out_dim-out_dim%16:, 16*och:16*(och+1)])
-
-                    if out_channel%16 > 0:
-
-                        res : i32[out_dim%16,16] @ GEMM_ACCUM
-                        for l in par(0, out_dim%16):
-                            ld_acc_i32(1, out_channel%16, one, bias[ 0:1, out_channel-out_channel%16: ], res[l:l+1, :])
-
-                        for kcol in par(0, kernel_dim):
-                            for krow in par(0, kernel_dim):
-                                for kch in par(0, in_channel/16):
-                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                                        in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
-                                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
-
-                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding <= in_dim:
-                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
-                                            ld_i8(out_dim+kcol-padding, 16, one,
-                                                inp[ b, orow+krow-padding, 0:out_dim+kcol-padding, 16*kch:16*(kch+1)],
-                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if (out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding > in_dim
-                                                and out_dim-out_dim%16+kcol-padding < in_dim):
-                                            ld_i8(in_dim-(out_dim-out_dim%16+kcol-padding), 16, one,
-                                                inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:, 16*kch:16*(kch+1)],
-                                                in_scratch[0:in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding > in_dim:
-                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
-                                            ld_i8(in_dim, 16, one,
-                                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
-                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding <= in_dim:
-                                            ld_i8(out_dim%16, 16, one,
-                                            inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:out_dim+kcol-padding, 16*kch:16*(kch+1)],
-                                            in_scratch)
-
-                                        ld_i8(16, out_channel%16, one, weights[ krow, kcol, 16*kch:16*(kch+1), out_channel-out_channel%16: ], weight_scratch)
-                                        matmul_acc_i8(out_dim%16,16,16,in_scratch,weight_scratch,res)
-
-                                if in_channel%16 > 0:
-                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
-                                        in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
-                                        weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
-
-                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding <= in_dim:
-                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
-                                            ld_i8(out_dim+kcol-padding, in_channel%16, one,
-                                                inp[ b, orow+krow-padding, 0:out_dim+kcol-padding, in_channel-in_channel%16:],
-                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if (out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding > in_dim
-                                                and out_dim-out_dim%16+kcol-padding < in_dim):
-                                            ld_i8(in_dim-(out_dim-out_dim%16+kcol-padding), in_channel%16, one,
-                                                inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:, in_channel-in_channel%16:],
-                                                in_scratch[0:in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding > in_dim:
-                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
-                                            ld_i8(in_dim, in_channel%16, one,
-                                                inp[ b, orow+krow-padding, :, in_channel-in_channel%16:],
-                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):in_dim-(out_dim-out_dim%16+kcol-padding), :])
-                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
-                                        if out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding <= in_dim:
-                                            ld_i8(out_dim%16, in_channel%16, one,
-                                            inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:out_dim+kcol-padding, in_channel-in_channel%16:],
-                                            in_scratch)
-
-                                        ld_i8(in_channel%16, out_channel%16, one, weights[ krow, kcol, in_channel-in_channel%16:, out_channel-out_channel%16: ], weight_scratch)
-                                        matmul_acc_i8(out_dim%16,16,in_channel%16,in_scratch,weight_scratch,res)
-
-                        st_acc_i8(out_dim%16,out_channel%16, scale, act, res, output[b, orow, out_dim-out_dim%16:, out_channel-out_channel%16:])
-
-
-
-
-    T.add_proc(conv_on_cpu_stride_1)
-    T.add_proc(conv_on_cpu_stride_1_gemmini)
-
-    T.start_timer('cpu')
-    T.add_body([f'conv_on_cpu_stride_1(ctxt, {batch_size}, {out_dim}, {out_channel}, {kernel_dim},',
-                f'{in_channel}, {in_dim}, {padding}, output_cpu, bias, inp, weights, false, scale);',
-                f'gemmini_fence();'])
-    T.stop_timer('cpu', 'Cycles for CPU version')
-
-    T.start_timer('gemmini')
-    T.add_body([f'conv_on_cpu_stride_1_gemmini(ctxt, {batch_size}, {out_dim}, {out_channel}, {kernel_dim},',
-                f'{in_channel}, {in_dim}, {padding}, output_gemmini, bias, inp, weights, false, scale);',
-                f'gemmini_fence();'])
-    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
-    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
-                 '    printf("Correct\\n");',
-                 '} else {',
-                 '    printf("Results Don\'t Match\\n");',
-                 '    printf("Correct Result (output_cpu):\\n");',
-                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
-                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
-                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
-                 '    exit(1);',
-                 '}',
-                 ''])
-
-    T.compile().run()
-
-
-
-@pytest.mark.skip()
 def test_conv_stride_2_gemmini():
     T = GemmTestBuilder('conv_on_cpu_stride_2_gemmini')
     T.add_body(['gemm_init_mem();',
@@ -966,32 +558,160 @@ def test_conv_stride_2_gemmini():
     T.compile().run()
 
 
+@proc
+def orig_conv_partial(
+    batch_size : size,
+    out_dim    : size,
+    out_channel: size,
+    kernel_dim : size,
+    in_channel : size,
+    in_dim     : size,
+    output     : i8[batch_size, out_dim, out_dim, out_channel],
+    bias       : i32[1, out_channel],
+    inp        : i8[batch_size, in_dim, in_dim, in_channel],
+    weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+    act        : bool,
+    scale      : f32,
+    b          : index,
+    orow       : index,
+    one        : f32,
+    DIM_SIZE   : size,
+    DIM_LO     : index,
+    DIM_HI     : size
+    ):
 
-# Padding = 0
-def test_conv_2():
-    T = GemmTestBuilder('conv_2')
-    T.add_body(['gemm_init_mem();',
-  #              'init_mem();',
-                'gemm_acc_init_mem();',
-                'gemmini_flush(0);',
-                ''])
-    T.add_body(["conv_2_lib_Context *ctxt;"])
+    assert in_dim == out_dim + kernel_dim - 1
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
 
-    batch_size = 4
-    out_channel= 32
-    kernel_dim = 3
-    in_channel = 3
-    in_dim     = 225
-    out_dim    = int(in_dim - kernel_dim + 1)
-    assert out_dim > 0
+    for och in par(0, out_channel/16):
 
-    T.alloc_dram_f32('scale', '1.0f')
-    T.alloc_dram_2i32('bias', 1, out_channel, 'i+j')
-    T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
-    T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
-    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'k+r')
-    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, 'i+r')
+        res : i32[DIM_SIZE,16] @ GEMM_ACCUM
+        for l in par(0, DIM_SIZE):
+            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
 
+        for kcol in par(0, kernel_dim):
+            for krow in par(0, kernel_dim):
+                for kch in par(0, in_channel/16):
+                    in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                    weight_scratch : i8[16,16] @ GEMM_SCRATCH
+
+                    #config_ld_i8(one, stride(inp, 0))
+                    ld_i8(DIM_SIZE, 16, one,
+                            inp[ b, orow+krow, kcol+DIM_LO:kcol+DIM_HI, 16*kch:16*(kch+1)],
+                            in_scratch)
+                    #config_ld_i8(one, stride(weights, 0))
+                    ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+
+                    matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
+
+                if in_channel%16 > 0:
+                    in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                    weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
+
+                    ld_i8(DIM_SIZE, in_channel%16, one,
+                            inp[b,orow+krow, kcol+DIM_LO:kcol+DIM_HI, in_channel-in_channel%16:],
+                            in_scratch)
+                    ld_i8(in_channel%16, 16, one,
+                            weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)],
+                            weight_scratch)
+
+                    #config_matmul()
+                    matmul_acc_i8(DIM_SIZE,16,in_channel%16,in_scratch,weight_scratch,res)
+
+        #config_st_acc_i8(scale, stride(dst, 0))
+        st_acc_i8(DIM_SIZE,16, scale, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
+
+
+
+
+
+
+
+
+
+
+@proc
+def conv_partial(
+    batch_size : size,
+    out_dim    : size,
+    out_channel: size,
+    kernel_dim : size,
+    in_channel : size,
+    in_dim     : size,
+    output     : i8[batch_size, out_dim, out_dim, out_channel],
+    bias       : i32[1, out_channel],
+    inp        : i8[batch_size, in_dim, in_dim, in_channel],
+    weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+    act        : bool,
+    scale      : f32,
+    b          : index,
+    orow       : index,
+    one        : f32,
+    DIM_SIZE   : size,
+    DIM_LO     : index,
+    DIM_HI     : size
+    ):
+
+    assert in_dim == out_dim + kernel_dim - 1
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+
+    config_st_acc_i8(scale, stride(output, 2))
+    config_ld_i8(one, stride(bias, 0))
+    config_ld_i8_id1(one, stride(inp, 2))
+    config_ld_i8_id2(one, stride(weights, 2))
+    config_matmul()
+    for och in par(0, out_channel/16):
+
+        res : i32[DIM_SIZE,16] @ GEMM_ACCUM
+        for l in par(0, DIM_SIZE):
+            do_ld_acc_i32(1, 16, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+
+        for kcol in par(0, kernel_dim):
+            for krow in par(0, kernel_dim):
+                for kch in par(0, in_channel/16):
+                    in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                    weight_scratch : i8[16,16] @ GEMM_SCRATCH
+
+                    do_ld_i8_id1(DIM_SIZE, 16,
+                            inp[ b, orow+krow, kcol+DIM_LO:kcol+DIM_HI, 16*kch:16*(kch+1)],
+                            in_scratch)
+                    do_ld_i8_id2(16, 16, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+
+                    do_matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
+
+                if in_channel%16 > 0:
+                    in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                    weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
+
+                    do_ld_i8_id1(DIM_SIZE, in_channel%16,
+                            inp[b,orow+krow, kcol+DIM_LO:kcol+DIM_HI, in_channel-in_channel%16:],
+                            in_scratch)
+                    do_ld_i8_id2(in_channel%16, 16,
+                            weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)],
+                            weight_scratch)
+
+                    do_matmul_acc_i8(DIM_SIZE,16,in_channel%16,in_scratch,weight_scratch,res)
+
+        do_st_acc_i8(DIM_SIZE, 16, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
+
+
+# TODO: Config optimization is super buggy... handwrinting for now..
+#print(conv_partial)
+
+
+def conv_cpu():
     @proc
     def conv_on_cpu(
         batch_size : size,
@@ -1032,6 +752,36 @@ def test_conv_2():
                         clamp(tmp_res1, tmp_res2)
                         output[b,orow,ocol,och] = tmp_res2
 
+    return conv_on_cpu
+
+
+# Padding = 0
+# out_channel should be divisible by 16
+@pytest.mark.skip()
+def test_conv_2():
+    T = GemmTestBuilder('conv_2')
+    T.add_body(['gemm_init_mem();',
+  #              'init_mem();',
+                'gemm_acc_init_mem();',
+                'gemmini_flush(0);',
+                ''])
+    T.add_body(["conv_2_lib_Context *ctxt;"])
+
+    batch_size = 4
+    out_channel= 32
+    kernel_dim = 3
+    in_channel = 3
+    in_dim     = 225
+    out_dim    = int(in_dim - kernel_dim + 1)
+    assert out_dim > 0
+
+    T.alloc_dram_f32('scale', '1.0f')
+    T.alloc_dram_2i32('bias', 1, out_channel, 'i+j')
+    T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'k+r')
+    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, 'i+r')
+
     @proc
     def conv_on_gemmini(
         batch_size : size,
@@ -1055,103 +805,63 @@ def test_conv_2():
         for b in par(0, batch_size):
             for orow in par(0, out_dim):
                 for ocol in par(0, out_dim/16):
-                    for och in par(0, out_channel/16):
-
-                        res : i32[16,16] @ GEMM_ACCUM
-                        for l in par(0, 16):
-                            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
-
-                        for kcol in par(0, kernel_dim):
-                            for krow in par(0, kernel_dim):
-                                for kch in par(0, in_channel/16):
-                                    in_scratch : i8[16,16] @ GEMM_SCRATCH
-                                    weight_scratch : i8[16,16] @ GEMM_SCRATCH
-
-                                    ld_i8(16, 16, one, inp[ b, orow+krow, 16*(ocol)+kcol:16*(ocol+1)+kcol, 16*kch:16*(kch+1)],
-                                            in_scratch)
-                                    ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
-
-                                    matmul_acc_i8(16,16,16,in_scratch,weight_scratch,res)
-
-                                if in_channel%16 > 0:
-                                    in_scratch : i8[16,16] @ GEMM_SCRATCH
-                                    weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
-
-                                    ld_i8(16, in_channel%16, one,
-                                            inp[ b, orow+krow, 16*(ocol)+kcol:16*(ocol+1)+kcol, in_channel-in_channel%16: ],
-                                            in_scratch)
-                                    ld_i8(in_channel%16, 16, one,
-                                            weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)],
-                                            weight_scratch)
-
-                                    matmul_acc_i8(16,16,in_channel%16,in_scratch,weight_scratch,res)
-
-                        st_acc_i8(16,16, scale, act, res, output[b, orow, 16*ocol:16*(ocol+1), 16*och:16*(och+1)])
+                    conv_partial(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
 
                 if out_dim%16 > 0:
-                    for och in par(0, out_channel/16):
 
-                        res : i32[out_dim%16,16] @ GEMM_ACCUM
-                        for l in par(0, out_dim%16):
-                            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+                    conv_partial(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
 
-                        for kcol in par(0, kernel_dim):
-                            for krow in par(0, kernel_dim):
-                                for kch in par(0, in_channel/16):
-                                    in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
-                                    weight_scratch : i8[16,16] @ GEMM_SCRATCH
 
-                                    ld_i8(out_dim%16, 16, one,
-                                            inp[ b, orow+krow, kcol+out_dim-out_dim%16:kcol+out_dim, 16*kch:16*(kch+1)],
-                                            in_scratch)
-                                    ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
-
-                                    matmul_acc_i8(out_dim%16,16,16,in_scratch,weight_scratch,res)
-
-                                if in_channel%16 > 0:
-                                    in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
-                                    weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
-
-                                    ld_i8(out_dim%16, in_channel%16, one,
-                                            inp[b,orow+krow, kcol+out_dim-out_dim%16:kcol+out_dim, in_channel-in_channel%16:],
-                                            in_scratch)
-                                    ld_i8(in_channel%16, 16, one,
-                                            weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)],
-                                            weight_scratch)
-
-                                    matmul_acc_i8(out_dim%16,16,in_channel%16,in_scratch,weight_scratch,res)
-
-                        st_acc_i8(out_dim%16,16, scale, act, res, output[b, orow, out_dim-out_dim%16:, 16*och:16*(och+1)])
-
-    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch : _', n_lifts=5)
-    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch : _', n_lifts=5)
-    conv_on_gemmini = conv_on_gemmini.lift_alloc('res : _', n_lifts=2)
     conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
     conv_on_gemmini = conv_on_gemmini.simplify()
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id1(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id2(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_matmul() #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_st_acc_i8(_) #1')
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8(_) #1')
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8_id1(_) #1')
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8_id2(_) #1')
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #1', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8(_) #1', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id1(_) #1', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id2(_) #1', n_lifts=2)
+
     conv_on_gemmini = conv_on_gemmini.unroll('kch')
 
-    conv_on_gemmini = conv_on_gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_)")
-    conv_on_gemmini = conv_on_gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_)")
-    conv_on_gemmini = conv_on_gemmini.inline("matmul_acc_i8_v2(_)")
-    conv_on_gemmini = conv_on_gemmini.inline_window("A = in_scratch[_]")
-    conv_on_gemmini = conv_on_gemmini.inline_window("B = weight_scratch[_]")
-    conv_on_gemmini = conv_on_gemmini.inline_window("C = res[_]")
-    conv_on_gemmini = conv_on_gemmini.inline("matmul_acc_i8_v2(_)")
-    conv_on_gemmini = conv_on_gemmini.inline_window("A = in_scratch[_]")
-    conv_on_gemmini = conv_on_gemmini.inline_window("B = weight_scratch[_]")
-    conv_on_gemmini = conv_on_gemmini.inline_window("C = res[_]")
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_ #0', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_ #0', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
 
-    conv_on_gemmini = conv_on_gemmini.reorder_stmts("ld_i8(_) #1", "config_matmul(_) #0")
-    conv_on_gemmini = conv_on_gemmini.reorder_stmts("ld_i8(_) #0", "config_matmul(_) #0")
-    #conv_on_gemmini = conv_on_gemmini.fission_after("config_matmul(_) #0", n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for b in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for orow in _:_')
+
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=3)
+
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for och in _:_')
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #0', 'och #0', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #1', 'och #1', 0)
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for ocol in _:_')
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #0', 'ocol #0', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #0', 'orow', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #1', 'orow', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #0', 'b', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #1', 'b', 0)
+
+    conv_on_gemmini = conv_on_gemmini.unroll('krow')
 
 
-    print(conv_on_gemmini)
-"""
-    conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
-
-    T.add_proc(conv_on_cpu)
     T.add_proc(conv_on_gemmini)
+    conv_on_cpu = conv_cpu()
+    conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
+    T.add_proc(conv_on_cpu)
 
     T.start_timer('cpu')
     T.add_body([f'conv_on_cpu(ctxt,  output_cpu, bias, inp, weights, false, scale);',
@@ -1177,6 +887,558 @@ def test_conv_2():
 
     T.compile().run()
 
+@pytest.mark.skip()
+def test_conv_3():
+    T = GemmTestBuilder('conv_2')
+    T.add_body(['gemm_init_mem();',
+  #              'init_mem();',
+                'gemm_acc_init_mem();',
+                'gemmini_flush(0);',
+                ''])
+    T.add_body(["conv_2_lib_Context *ctxt;"])
+
+    batch_size = 4
+    out_channel= 256
+    kernel_dim = 3
+    in_channel = 256
+    in_dim     = 50
+    out_dim    = int(in_dim - kernel_dim + 1)
+    assert out_dim > 0
+
+    T.alloc_dram_f32('scale', '1.0f')
+    T.alloc_dram_2i32('bias', 1, out_channel, 'i+j')
+    T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'k+r')
+    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, 'i+r')
+
+    @proc
+    def conv_on_gemmini(
+        batch_size : size,
+        out_dim    : size,
+        out_channel: size,
+        kernel_dim : size,
+        in_channel : size,
+        in_dim     : size,
+        output     : i8[batch_size, out_dim, out_dim, out_channel],
+        bias       : i32[1, out_channel],
+        inp        : i8[batch_size, in_dim, in_dim, in_channel],
+        weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+        act        : bool,
+        scale      : f32
+        ):
+
+        assert in_dim == out_dim + kernel_dim - 1
+
+        one : f32
+        one = 1.0
+        for b in par(0, batch_size):
+            for orow in par(0, out_dim):
+                for ocol in par(0, out_dim/16):
+                    conv_partial(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
+
+                if out_dim%16 > 0:
+
+                    conv_partial(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
+
+
+    conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
+    conv_on_gemmini = conv_on_gemmini.simplify()
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id1(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id2(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_matmul() #0', n_lifts=3)
+
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=5)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
+
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for b in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for orow in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for ocol in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for och in _:_')
+
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=4)
+
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_)', 'och', 0)
+
+    conv_on_gemmini = conv_on_gemmini.unroll('kch')
+
+    T.add_proc(conv_on_gemmini)
+    conv_on_cpu = conv_cpu()
+    conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
+    T.add_proc(conv_on_cpu)
+
+    T.start_timer('cpu')
+    T.add_body([f'conv_on_cpu(ctxt,  output_cpu, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('cpu', 'Cycles for CPU version')
+
+    T.start_timer('gemmini')
+    T.add_body([f'conv_on_gemmini(ctxt,  output_gemmini, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+
+    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
+                 '    printf("Correct\\n");',
+                 '} else {',
+                 '    printf("Results Don\'t Match\\n");',
+                 '    printf("Correct Result (output_cpu):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
+                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
+                 '    exit(1);',
+                 '}',
+                 ''])
+
+    T.compile().run()
+
+
+    print(conv_on_gemmini)
+
+
+
+
+
+def conv_stride_1():
+    @proc
+    def conv_on_cpu_stride_1(
+        batch_size : size,
+        out_dim    : size,
+        out_channel: size,
+        kernel_dim : size,
+        in_channel : size,
+        in_dim     : size,
+        padding    : size,
+        output     : i8[batch_size, out_dim, out_dim, out_channel],
+        bias       : i32[1,out_channel],
+        inp        : i8[batch_size, in_dim, in_dim, in_channel],
+        weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+        act        : bool,
+        scale      : f32
+        ):
+
+        assert out_dim == in_dim + 2*padding - kernel_dim + 1
+
+        for b in par(0, batch_size):
+            for orow in par(0, out_dim):
+                for ocol in par(0, out_dim):
+                    for och in par(0, out_channel):
+
+                        res : i32
+                        res = bias[0,och]
+                        for krow in par(0, kernel_dim):
+                            for kcol in par(0, kernel_dim):
+                                for kch in par(0, in_channel):
+                                    if (0 <= orow+krow-padding  and orow+krow-padding < in_dim and
+                                            0 <= ocol+kcol-padding and ocol+kcol-padding < in_dim):
+                                        res += weights[krow,kcol,kch,och] * inp[b,orow+krow-padding,ocol+kcol-padding,kch]
+
+                        if act == True:
+                            res = relu(res)
+
+                        tmp_res1 : f32
+                        tmp_res1 = res
+                        tmp_res1 = tmp_res1 * scale
+                        tmp_res2 : i8
+                        clamp(tmp_res1, tmp_res2)
+                        output[b,orow,ocol,och] = tmp_res2
+
+    return conv_on_cpu_stride_1
+
+@proc
+def orig_conv_partial_padding(
+    batch_size : size,
+    out_dim    : size,
+    out_channel: size,
+    kernel_dim : size,
+    in_channel : size,
+    in_dim     : size,
+    padding    : size,
+    output     : i8[batch_size, out_dim, out_dim, out_channel],
+    bias       : i32[1, out_channel],
+    inp        : i8[batch_size, in_dim, in_dim, in_channel],
+    weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+    act        : bool,
+    scale      : f32,
+    b          : index,
+    orow       : index,
+    one        : f32,
+    DIM_SIZE   : size,
+    DIM_LO     : index,
+    DIM_HI     : index
+    ):
+
+    assert out_dim == in_dim + 2*padding - kernel_dim + 1
+    assert 0 <= padding < 16
+    assert padding < out_dim
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+    assert DIM_HI-padding > 0
+
+    for och in par(0, out_channel/16):
+
+        res : i32[DIM_SIZE,16] @ GEMM_ACCUM
+        for l in par(0, DIM_SIZE):
+            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+
+        for kcol in par(0, kernel_dim):
+            for krow in par(0, kernel_dim):
+                for kch in par(0, in_channel/16):
+                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
+                        in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
+
+                        if DIM_LO+kcol-padding < 0 and DIM_HI+kcol-padding <= in_dim:
+                            zero_i8(-(DIM_LO+kcol-padding), 16, in_scratch[0:-(DIM_LO+kcol-padding), :])
+                            ld_i8(DIM_SIZE+(DIM_LO+kcol-padding), 16, one,
+                                inp[ b, orow+krow-padding, 0:DIM_HI+kcol-padding, 16*kch:16*(kch+1)],
+                                in_scratch[-(DIM_LO+kcol-padding):, :])
+                        if DIM_LO+kcol-padding >= 0 and DIM_HI+kcol-padding > in_dim and DIM_LO+kcol-padding < in_dim:
+                            ld_i8(DIM_SIZE-(DIM_HI+kcol-padding-in_dim), 16, one,
+                                inp[ b, orow+krow-padding, DIM_LO+kcol-padding:, 16*kch:16*(kch+1)],
+                                in_scratch[0:DIM_SIZE-(DIM_HI+kcol-padding-in_dim), :])
+                            zero_i8((DIM_HI+kcol-padding-in_dim), 16, in_scratch[DIM_SIZE-(DIM_HI+kcol-padding-in_dim):, :])
+                        if DIM_LO+kcol-padding < 0 and DIM_HI+kcol-padding > in_dim:
+                            zero_i8(-(DIM_LO+kcol-padding), 16, in_scratch[0:-(DIM_LO+kcol-padding), :])
+                            ld_i8(in_dim, 16, one,
+                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
+                                in_scratch[-(DIM_LO+kcol-padding):DIM_SIZE-(DIM_HI+kcol-padding-in_dim), :])
+                            zero_i8((DIM_HI+kcol-padding-in_dim), 16, in_scratch[DIM_SIZE-(DIM_HI+kcol-padding-in_dim):, :])
+                        if DIM_LO+kcol-padding >= 0 and DIM_HI+kcol-padding <= in_dim:
+                            ld_i8(DIM_SIZE, 16, one,
+                            inp[ b, orow+krow-padding, DIM_LO+kcol-padding:DIM_HI+kcol-padding, 16*kch:16*(kch+1)],
+                            in_scratch)
+
+                        ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+                        matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
+
+        st_acc_i8(DIM_SIZE,16, scale, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
+
+
+@proc
+def conv_partial_padding(
+    batch_size : size,
+    out_dim    : size,
+    out_channel: size,
+    kernel_dim : size,
+    in_channel : size,
+    in_dim     : size,
+    padding    : size,
+    output     : i8[batch_size, out_dim, out_dim, out_channel],
+    bias       : i32[1, out_channel],
+    inp        : i8[batch_size, in_dim, in_dim, in_channel],
+    weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+    act        : bool,
+    scale      : f32,
+    b          : index,
+    orow       : index,
+    one        : f32,
+    DIM_SIZE   : size,
+    DIM_LO     : index,
+    DIM_HI     : index
+    ):
+
+    assert out_dim == in_dim + 2*padding - kernel_dim + 1
+    assert 0 <= padding < 16
+    assert padding < out_dim
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+    assert DIM_HI-padding > 0
+
+    config_st_acc_i8(scale, stride(output, 2))
+    config_ld_i8(one, stride(bias, 0))
+    config_ld_i8_id1(one, stride(inp, 2))
+    config_ld_i8_id2(one, stride(weights, 2))
+    config_matmul()
+    for och in par(0, out_channel/16):
+
+        res : i32[DIM_SIZE,16] @ GEMM_ACCUM
+        for l in par(0, DIM_SIZE):
+            do_ld_acc_i32(1, 16, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+
+        for kcol in par(0, kernel_dim):
+            for krow in par(0, kernel_dim):
+                for kch in par(0, in_channel/16):
+                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
+                        in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
+                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
+
+                        if DIM_LO+kcol-padding < 0 and DIM_HI+kcol-padding <= in_dim:
+                            do_zero_i8(-(DIM_LO+kcol-padding), 16, in_scratch[0:-(DIM_LO+kcol-padding), :])
+                            do_ld_i8_id1(DIM_SIZE+(DIM_LO+kcol-padding), 16,
+                                inp[ b, orow+krow-padding, 0:DIM_HI+kcol-padding, 16*kch:16*(kch+1)],
+                                in_scratch[-(DIM_LO+kcol-padding):, :])
+                        if DIM_LO+kcol-padding >= 0 and DIM_HI+kcol-padding > in_dim and DIM_LO+kcol-padding < in_dim:
+                            do_ld_i8_id1(DIM_SIZE-(DIM_HI+kcol-padding-in_dim), 16,
+                                inp[ b, orow+krow-padding, DIM_LO+kcol-padding:, 16*kch:16*(kch+1)],
+                                in_scratch[0:DIM_SIZE-(DIM_HI+kcol-padding-in_dim), :])
+                            do_zero_i8((DIM_HI+kcol-padding-in_dim), 16, in_scratch[DIM_SIZE-(DIM_HI+kcol-padding-in_dim):, :])
+                        if DIM_LO+kcol-padding < 0 and DIM_HI+kcol-padding > in_dim:
+                            do_zero_i8(-(DIM_LO+kcol-padding), 16, in_scratch[0:-(DIM_LO+kcol-padding), :])
+                            do_ld_i8_id1(in_dim, 16,
+                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
+                                in_scratch[-(DIM_LO+kcol-padding):DIM_SIZE-(DIM_HI+kcol-padding-in_dim), :])
+                            do_zero_i8((DIM_HI+kcol-padding-in_dim), 16, in_scratch[DIM_SIZE-(DIM_HI+kcol-padding-in_dim):, :])
+                        if DIM_LO+kcol-padding >= 0 and DIM_HI+kcol-padding <= in_dim:
+                            do_ld_i8_id1(DIM_SIZE, 16,
+                            inp[ b, orow+krow-padding, DIM_LO+kcol-padding:DIM_HI+kcol-padding, 16*kch:16*(kch+1)],
+                            in_scratch)
+
+                        do_ld_i8_id2(16, 16, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+                        do_matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
+
+        do_st_acc_i8(DIM_SIZE,16, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
+
+
+def test_conv_stride_1_gemmini():
+    T = GemmTestBuilder('conv_on_cpu_stride_1_gemmini')
+    T.add_body(['gemm_init_mem();',
+  #              'init_mem();',
+                'gemm_acc_init_mem();',
+                'gemmini_flush(0);',
+                ''])
+    T.add_body(["conv_on_cpu_stride_1_gemmini_lib_Context *ctxt;"])
+
+    batch_size = 4
+    out_channel= 64
+    kernel_dim = 3
+    in_channel = 64
+    padding    = 1
+    in_dim     = 56
+    out_dim    = int(in_dim + 2*padding - kernel_dim + 1)
+    assert out_dim == 56
+    assert 0 <= padding < 16
+    assert padding < out_dim
+
+    T.alloc_dram_f32('scale', '1.0f')
+    T.alloc_dram_2i32('bias', 1, out_channel, '0')
+    T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, '1')
+    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, '1')
+
+    @proc
+    def conv_on_cpu_stride_1_gemmini(
+        batch_size : size,
+        out_dim    : size,
+        out_channel: size,
+        kernel_dim : size,
+        in_channel : size,
+        in_dim     : size,
+        padding    : size,
+        output     : i8[batch_size, out_dim, out_dim, out_channel],
+        bias       : i32[1, out_channel],
+        inp        : i8[batch_size, in_dim, in_dim, in_channel],
+        weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+        act        : bool,
+        scale      : f32
+        ):
+
+        assert out_dim == in_dim + 2*padding - kernel_dim + 1
+        assert 0 <= padding < 16
+        assert padding < out_dim
+
+        one : f32
+        one = 1.0
+        for b in par(0, batch_size):
+            for orow in par(0, out_dim):
+                for ocol in par(0, out_dim/16):
+                    conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
+
+                if out_dim%16 > 0:
+                    conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
+
+
+
+    conv_on_gemmini = conv_on_cpu_stride_1_gemmini
+    conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
+
+    conv_on_gemmini = conv_on_gemmini.simplify()
+
+    conv_on_cpu = conv_stride_1()
+    conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
+    T.add_proc(conv_on_cpu)
+    T.add_proc(conv_on_gemmini)
+
+    T.start_timer('cpu')
+    T.add_body([f'conv_on_cpu_stride_1(ctxt, output_cpu, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('cpu', 'Cycles for CPU version')
+
+    T.start_timer('gemmini')
+    T.add_body([f'conv_on_cpu_stride_1_gemmini(ctxt, output_gemmini, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+
+    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
+                 '    printf("Correct\\n");',
+                 '} else {',
+                 '    printf("Results Don\'t Match\\n");',
+                 '    printf("Correct Result (output_cpu):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
+                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
+                 '    exit(1);',
+                 '}',
+                 ''])
+
+    T.compile().run()
+
+
+    print(conv_on_gemmini)
 """
+                    for och in par(0, out_channel/16):
+
+                        res : i32[16,16] @ GEMM_ACCUM
+                        for l in par(0, 16):
+                            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+
+                        for kcol in par(0, kernel_dim):
+                            for krow in par(0, kernel_dim):
+                                for kch in par(0, in_channel/16):
+                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
+                                        in_scratch : i8[16,16] @ GEMM_SCRATCH
+                                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
+
+                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding <= in_dim:
+                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
+                                            ld_i8(16+(16*(ocol)+kcol-padding), 16, one,
+                                                inp[ b, orow+krow-padding, 0:16*(ocol+1)+kcol-padding, 16*kch:16*(kch+1)],
+                                                in_scratch[-(16*(ocol)+kcol-padding):, :])
+                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding > in_dim:
+                                            ld_i8(16-(16*(ocol+1)+kcol-padding-in_dim), 16, one,
+                                                inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:, 16*kch:16*(kch+1)],
+                                                in_scratch[0:16-(16*(ocol+1)+kcol-padding-in_dim), :])
+                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
+                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding > in_dim:
+                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
+                                            ld_i8(in_dim, 16, one,
+                                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
+                                                in_scratch[-(16*(ocol)+kcol-padding):16-(16*(ocol+1)+kcol-padding-in_dim), :])
+                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
+                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding <= in_dim:
+                                            ld_i8(16, 16, one,
+                                            inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:16*(ocol+1)+kcol-padding, 16*kch:16*(kch+1)],
+                                            in_scratch)
+
+                                        ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+                                        matmul_acc_i8(16,16,16,in_scratch,weight_scratch,res)
+
+                                if in_channel%16 > 0:
+                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
+                                        in_scratch : i8[16,16] @ GEMM_SCRATCH
+                                        weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
+
+                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding <= in_dim:
+                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
+                                            ld_i8(16+(16*(ocol)+kcol-padding), in_channel%16, one,
+                                                inp[ b, orow+krow-padding, 0:16*(ocol+1)+kcol-padding, in_channel-in_channel%16: ],
+                                                in_scratch[-(16*(ocol)+kcol-padding):, :])
+                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding > in_dim:
+                                            ld_i8(16-(16*(ocol+1)+kcol-padding-in_dim), in_channel%16, one,
+                                                inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:, in_channel-in_channel%16: ],
+                                                in_scratch[0:16-(16*(ocol+1)+kcol-padding-in_dim), :])
+                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
+                                        if 16*(ocol)+kcol-padding < 0 and 16*(ocol+1)+kcol-padding > in_dim:
+                                            zero_i8(-(16*(ocol)+kcol-padding), 16, in_scratch[0:-(16*(ocol)+kcol-padding), :])
+                                            ld_i8(in_dim, in_channel%16, one,
+                                                inp[ b, orow+krow-padding, :, in_channel-in_channel%16: ],
+                                                in_scratch[-(16*(ocol)+kcol-padding):16-(16*(ocol+1)+kcol-padding-in_dim), :])
+                                            zero_i8((16*(ocol+1)+kcol-padding-in_dim), 16, in_scratch[16-(16*(ocol+1)+kcol-padding-in_dim):, :])
+                                        if 16*(ocol)+kcol-padding >= 0 and 16*(ocol+1)+kcol-padding <= in_dim:
+                                            ld_i8(16, in_channel%16, one,
+                                            inp[ b, orow+krow-padding, 16*(ocol)+kcol-padding:16*(ocol+1)+kcol-padding, in_channel-in_channel%16: ],
+                                            in_scratch)
+
+                                        ld_i8(in_channel%16, 16, one, weights[ krow, kcol, in_channel-in_channel%16: , 16*och:16*(och+1)], weight_scratch)
+                                        matmul_acc_i8(16,16,in_channel%16,in_scratch,weight_scratch,res)
+
+                        st_acc_i8(16,16, scale, act, res, output[b, orow, 16*ocol:16*(ocol+1), 16*och:16*(och+1)])
 
 
+                    for och in par(0, out_channel/16):
+
+                        res : i32[out_dim%16,16] @ GEMM_ACCUM
+                        for l in par(0, out_dim%16):
+                            ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
+
+                        for kcol in par(0, kernel_dim):
+                            for krow in par(0, kernel_dim):
+                                for kch in par(0, in_channel/16):
+                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
+                                        in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
+                                        weight_scratch : i8[16,16] @ GEMM_SCRATCH
+
+                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding <= in_dim:
+                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
+                                            ld_i8(out_dim+kcol-padding, 16, one,
+                                                inp[ b, orow+krow-padding, 0:out_dim+kcol-padding, 16*kch:16*(kch+1)],
+                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):, :])
+                                        if (out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding > in_dim
+                                                and out_dim-out_dim%16+kcol-padding < in_dim):
+                                            ld_i8(in_dim-(out_dim-out_dim%16+kcol-padding), 16, one,
+                                                inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:, 16*kch:16*(kch+1)],
+                                                in_scratch[0:in_dim-(out_dim-out_dim%16+kcol-padding), :])
+                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
+                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding > in_dim:
+                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
+                                            ld_i8(in_dim, 16, one,
+                                                inp[ b, orow+krow-padding, :, 16*kch:16*(kch+1)],
+                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):in_dim-(out_dim-out_dim%16+kcol-padding), :])
+                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
+                                        if out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding <= in_dim:
+                                            ld_i8(out_dim%16, 16, one,
+                                            inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:out_dim+kcol-padding, 16*kch:16*(kch+1)],
+                                            in_scratch)
+
+                                        ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
+                                        matmul_acc_i8(out_dim%16,16,16,in_scratch,weight_scratch,res)
+
+                                if in_channel%16 > 0:
+                                    if 0 <= orow+krow-padding and orow+krow-padding < in_dim:
+                                        in_scratch : i8[out_dim%16,16] @ GEMM_SCRATCH
+                                        weight_scratch : i8[in_channel%16,16] @ GEMM_SCRATCH
+
+                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding <= in_dim:
+                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
+                                            ld_i8(out_dim+kcol-padding, in_channel%16, one,
+                                                inp[ b, orow+krow-padding, 0:out_dim+kcol-padding, in_channel-in_channel%16:],
+                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):, :])
+                                        if (out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding > in_dim
+                                                and out_dim-out_dim%16+kcol-padding < in_dim):
+                                            ld_i8(in_dim-(out_dim-out_dim%16+kcol-padding), in_channel%16, one,
+                                                inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:, in_channel-in_channel%16:],
+                                                in_scratch[0:in_dim-(out_dim-out_dim%16+kcol-padding), :])
+                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
+                                        if out_dim-out_dim%16+kcol-padding < 0 and out_dim+kcol-padding > in_dim:
+                                            zero_i8(-(out_dim-out_dim%16+kcol-padding), 16, in_scratch[0:-(out_dim-out_dim%16+kcol-padding), :])
+                                            ld_i8(in_dim, in_channel%16, one,
+                                                inp[ b, orow+krow-padding, :, in_channel-in_channel%16:],
+                                                in_scratch[-(out_dim-out_dim%16+kcol-padding):in_dim-(out_dim-out_dim%16+kcol-padding), :])
+                                            zero_i8((out_dim+kcol-padding-in_dim), 16, in_scratch[in_dim-(out_dim-out_dim%16+kcol-padding):, :])
+                                        if out_dim-out_dim%16+kcol-padding >= 0 and out_dim+kcol-padding <= in_dim:
+                                            ld_i8(out_dim%16, in_channel%16, one,
+                                            inp[ b, orow+krow-padding, out_dim-out_dim%16+kcol-padding:out_dim+kcol-padding, in_channel-in_channel%16:],
+                                            in_scratch)
+
+                                        ld_i8(in_channel%16, 16, one, weights[ krow, kcol, in_channel-in_channel%16:, 16*och:16*(och+1)], weight_scratch)
+                                        matmul_acc_i8(out_dim%16,16,in_channel%16,in_scratch,weight_scratch,res)
+
+                        st_acc_i8(out_dim%16,16, scale, act, res, output[b, orow, out_dim-out_dim%16:, 16*och:16*(och+1)])
+"""

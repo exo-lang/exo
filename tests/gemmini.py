@@ -81,8 +81,6 @@ def do_ld_i8(
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
-    # TODO: We need to think about how to handle non-local config in
-    # effectcheck.
     assert stride(src, 0) == ConfigLoad.src_stride
 
     for i in par(0, n):
@@ -106,7 +104,7 @@ def do_ld_i8_id1(
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
-    assert stride(src, 0) == ConfigLoad_id1.src_stride
+    #assert stride(src, 0) == ConfigLoad_id1.src_stride
 
     for i in par(0, n):
         for j in par(0, m):
@@ -129,7 +127,7 @@ def do_ld_i8_id2(
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
-    assert stride(src, 0) == ConfigLoad_id2.src_stride
+    #assert stride(src, 0) == ConfigLoad_id2.src_stride
 
     for i in par(0, n):
         for j in par(0, m):
@@ -265,6 +263,27 @@ def ld_acc_i32(
             tmp      = tmp * scale
             dst[i,j] = tmp
 
+_gemm_do_ld_acc_i32   = ("gemmini_extended_mvin( ((uint64_t) {src}.data), "+
+                               "((uint32_t) {dst}.data), {m}, {n} );")
+@instr(_gemm_do_ld_acc_i32)
+def do_ld_acc_i32(
+    n     : size,
+    m     : size,
+    src   : [i32][n, m] @ DRAM,
+    dst   : [i32][n, 16] @ GEMM_ACCUM,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : f32
+            tmp      = src[i,j]
+            tmp      = tmp * ConfigLoad.scale
+            dst[i,j] = tmp
 
 
 

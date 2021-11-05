@@ -6,6 +6,22 @@ from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 
 
+def test_data_reuse():
+    @proc
+    def foo(a : f32 @DRAM, b : f32 @DRAM):
+        aa : f32
+        bb : f32
+        aa = a
+        bb = b
+
+        c : f32
+        c = aa + bb
+        b = c
+
+    foo = foo.data_reuse('bb:_', 'c:_')
+    print(foo)
+
+
 def test_bind_lhs():
     @proc
     def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
@@ -309,3 +325,4 @@ def test_unify6():
 
     bar = bar.replace(load, "for i in _:_")
     assert 'load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])' in str(bar)
+
