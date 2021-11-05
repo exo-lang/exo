@@ -1119,33 +1119,7 @@ def conv_partial(
 #print(conv_partial)
 
 
-
-# Padding = 0
-# out_channel should be divisible by 16
-def test_conv_2():
-    T = GemmTestBuilder('conv_2')
-    T.add_body(['gemm_init_mem();',
-  #              'init_mem();',
-                'gemm_acc_init_mem();',
-                'gemmini_flush(0);',
-                ''])
-    T.add_body(["conv_2_lib_Context *ctxt;"])
-
-    batch_size = 4
-    out_channel= 32
-    kernel_dim = 3
-    in_channel = 3
-    in_dim     = 225
-    out_dim    = int(in_dim - kernel_dim + 1)
-    assert out_dim > 0
-
-    T.alloc_dram_f32('scale', '1.0f')
-    T.alloc_dram_2i32('bias', 1, out_channel, 'i+j')
-    T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
-    T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
-    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'k+r')
-    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, 'i+r')
-
+def conv_cpu():
     @proc
     def conv_on_cpu(
         batch_size : size,
@@ -1185,6 +1159,36 @@ def test_conv_2():
                         tmp_res2 : i8
                         clamp(tmp_res1, tmp_res2)
                         output[b,orow,ocol,och] = tmp_res2
+
+    return conv_on_cpu
+
+
+# Padding = 0
+# out_channel should be divisible by 16
+@pytest.mark.skip()
+def test_conv_2():
+    T = GemmTestBuilder('conv_2')
+    T.add_body(['gemm_init_mem();',
+  #              'init_mem();',
+                'gemm_acc_init_mem();',
+                'gemmini_flush(0);',
+                ''])
+    T.add_body(["conv_2_lib_Context *ctxt;"])
+
+    batch_size = 4
+    out_channel= 32
+    kernel_dim = 3
+    in_channel = 3
+    in_dim     = 225
+    out_dim    = int(in_dim - kernel_dim + 1)
+    assert out_dim > 0
+
+    T.alloc_dram_f32('scale', '1.0f')
+    T.alloc_dram_2i32('bias', 1, out_channel, 'i+j')
+    T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'k+r')
+    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, 'i+r')
 
     @proc
     def conv_on_gemmini(
@@ -1237,21 +1241,33 @@ def test_conv_2():
     conv_on_gemmini = conv_on_gemmini.unroll('kch')
 
     conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_ #0', n_lifts=1)
     conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=3)
     conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
     conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_ #0', n_lifts=1)
-    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_ #0', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
 
     conv_on_gemmini = conv_on_gemmini.par_to_seq('for b in _:_')
     conv_on_gemmini = conv_on_gemmini.par_to_seq('for orow in _:_')
-    conv_on_gemmini = conv_on_gemmini.par_to_seq('for ocol in _:_')
 
     conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=3)
     conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=3)
-    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
+
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for och in _:_')
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #0', 'och #0', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #1', 'och #1', 0)
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for ocol in _:_')
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #0', 'ocol #0', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #0', 'orow', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #1', 'orow', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #0', 'b', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #1', 'b', 0)
+
+    conv_on_gemmini = conv_on_gemmini.unroll('krow')
 
 
     T.add_proc(conv_on_gemmini)
+    conv_on_cpu = conv_cpu()
     conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
     T.add_proc(conv_on_cpu)
 
@@ -1278,6 +1294,118 @@ def test_conv_2():
                  ''])
 
     T.compile().run()
+
+
+def test_conv_3():
+    T = GemmTestBuilder('conv_2')
+    T.add_body(['gemm_init_mem();',
+  #              'init_mem();',
+                'gemm_acc_init_mem();',
+                'gemmini_flush(0);',
+                ''])
+    T.add_body(["conv_2_lib_Context *ctxt;"])
+
+    batch_size = 4
+    out_channel= 256
+    kernel_dim = 3
+    in_channel = 256
+    in_dim     = 50
+    out_dim    = int(in_dim - kernel_dim + 1)
+    assert out_dim > 0
+
+    T.alloc_dram_f32('scale', '1.0f')
+    T.alloc_dram_2i32('bias', 1, out_channel, 'i+j')
+    T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
+    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'k+r')
+    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, 'i+r')
+
+    @proc
+    def conv_on_gemmini(
+        batch_size : size,
+        out_dim    : size,
+        out_channel: size,
+        kernel_dim : size,
+        in_channel : size,
+        in_dim     : size,
+        output     : i8[batch_size, out_dim, out_dim, out_channel],
+        bias       : i32[1, out_channel],
+        inp        : i8[batch_size, in_dim, in_dim, in_channel],
+        weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+        act        : bool,
+        scale      : f32
+        ):
+
+        assert in_dim == out_dim + kernel_dim - 1
+
+        one : f32
+        one = 1.0
+        for b in par(0, batch_size):
+            for orow in par(0, out_dim):
+                for ocol in par(0, out_dim/16):
+                    conv_partial(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
+
+                if out_dim%16 > 0:
+
+                    conv_partial(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
+
+
+    conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial(_) #0')
+    conv_on_gemmini = conv_on_gemmini.simplify()
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id1(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id2(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_matmul() #0', n_lifts=3)
+
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=5)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
+
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for b in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for orow in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for ocol in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for och in _:_')
+
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=4)
+
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_)', 'och', 0)
+
+    conv_on_gemmini = conv_on_gemmini.unroll('kch')
+
+    T.add_proc(conv_on_gemmini)
+    conv_on_cpu = conv_cpu()
+    conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
+    T.add_proc(conv_on_cpu)
+
+    T.start_timer('cpu')
+    T.add_body([f'conv_on_cpu(ctxt,  output_cpu, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('cpu', 'Cycles for CPU version')
+
+    T.start_timer('gemmini')
+    T.add_body([f'conv_on_gemmini(ctxt,  output_gemmini, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+
+    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
+                 '    printf("Correct\\n");',
+                 '} else {',
+                 '    printf("Results Don\'t Match\\n");',
+                 '    printf("Correct Result (output_cpu):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
+                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
+                 '    exit(1);',
+                 '}',
+                 ''])
+
+    T.compile().run()
+
 
     print(conv_on_gemmini)
 """
