@@ -28,15 +28,15 @@
 
 #else
 
-#define IN_DIM 50
-#define IN_CHANNELS 256
-#define OUT_CHANNELS 256
+#define IN_DIM 56
+#define IN_CHANNELS 64
+#define OUT_CHANNELS 64
 
 #endif
 
 #define BATCH_SIZE 4
 #define KERNEL_DIM 3
-#define PADDING 0
+#define PADDING 1
 #define STRIDE 1
 
 #endif

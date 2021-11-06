@@ -1207,13 +1207,13 @@ def conv_partial_padding(
 
 
 def test_conv_stride_1_gemmini():
-    T = GemmTestBuilder('conv_on_cpu_stride_1_gemmini')
+    T = GemmTestBuilder('conv_2')
     T.add_body(['gemm_init_mem();',
   #              'init_mem();',
                 'gemm_acc_init_mem();',
                 'gemmini_flush(0);',
                 ''])
-    T.add_body(["conv_on_cpu_stride_1_gemmini_lib_Context *ctxt;"])
+    T.add_body(["conv_2_lib_Context *ctxt;"])
 
     batch_size = 4
     out_channel= 64
@@ -1227,11 +1227,11 @@ def test_conv_stride_1_gemmini():
     assert padding < out_dim
 
     T.alloc_dram_f32('scale', '1.0f')
-    T.alloc_dram_2i32('bias', 1, out_channel, '0')
+    T.alloc_dram_2i32('bias', 1, out_channel, 'i')
     T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
     T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
-    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, '1')
-    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, '1')
+    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'i+j')
+    T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, 'j')
 
     @proc
     def conv_on_cpu_stride_1_gemmini(
@@ -1268,8 +1268,49 @@ def test_conv_stride_1_gemmini():
 
     conv_on_gemmini = conv_on_cpu_stride_1_gemmini
     conv_on_gemmini = conv_on_gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial_padding(_) #0')
+    conv_on_gemmini = conv_on_gemmini.inline('conv_partial_padding(_) #0')
     conv_on_gemmini = conv_on_gemmini.simplify()
+
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id1(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id2(_) #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_matmul() #0', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_st_acc_i8(_) #1')
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8(_) #1')
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8_id1(_) #1')
+    conv_on_gemmini = conv_on_gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8_id2(_) #1')
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_st_acc_i8(_) #1', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8(_) #1', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id1(_) #1', n_lifts=2)
+    conv_on_gemmini = conv_on_gemmini.fission_after('config_ld_i8_id2(_) #1', n_lifts=2)
+
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_ #0', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=5)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=5)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_ #0', n_lifts=1)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_ #0', n_lifts=1)
+
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for b in _:_')
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for orow in _:_')
+
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('res:_', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('in_scratch:_', n_lifts=3)
+    conv_on_gemmini = conv_on_gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
+
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for och in _:_')
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #0', 'och #0', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #1', 'och #0', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #2', 'och #0', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #3', 'och #0', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #4', 'och #1', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #5', 'och #1', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #6', 'och #1', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id1(_) #7', 'och #1', 0)
+    conv_on_gemmini = conv_on_gemmini.par_to_seq('for ocol in _:_')
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #0', 'ocol #0', 0)
 
     conv_on_cpu = conv_stride_1()
     conv_on_cpu = conv_on_cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
@@ -1300,9 +1341,14 @@ def test_conv_stride_1_gemmini():
 
     T.compile().run()
 
-
     print(conv_on_gemmini)
 """
+
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #0', 'orow', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #1', 'orow', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #0', 'b', 0)
+    conv_on_gemmini = conv_on_gemmini.add_guard('do_ld_i8_id2(_) #1', 'b', 0)
+
                     for och in par(0, out_channel/16):
 
                         res : i32[16,16] @ GEMM_ACCUM
