@@ -1,7 +1,8 @@
 #include "alex_sgemm.h"
 
-#include <algorithm>
 #include <immintrin.h>
+
+#include <algorithm>
 #include <vector>
 
 typedef __m512 vec_type;
