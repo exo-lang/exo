@@ -201,8 +201,8 @@ ld_i8_id2_v2 = ld_i8_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.scale = sc
 
 
 _gemm_ld_i8_stride_2 = ("gemmini_extended3_config_ld({src}.strides[0]*2, "+
-                        "{scale}[0], 0, 0);\n"+
-                        "gemmini_extended_mvin( {src}.data, "+
+                        "{scale}[0], 0, 1);\n"+
+                        "gemmini_extended_mvin2( {src}.data, "+
                               "((uint64_t) {dst}.data), {m}, {n} );")
 @instr(_gemm_ld_i8_stride_2)
 def ld_i8_s2(
@@ -224,6 +224,39 @@ def ld_i8_s2(
             tmp      = src[i*2,j]
             tmp      = tmp * scale
             dst[i,j] = tmp #no clamping
+
+_gemm_config_ld_i8_id1 = ("gemmini_extended3_config_ld({src_stride}*2, "+
+                        "{scale}[0], 0, 1);\n")
+@instr(_gemm_config_ld_i8_id1)
+def config_ld_i8_s2_id1(
+    scale : f32,
+    src_stride : stride
+):
+    ConfigLoad_id1.scale = scale
+    ConfigLoad_id1.src_stride = src_stride
+
+_do_gemm_ld_i8_stride_2 = ("gemmini_extended_mvin2( {src}.data, "+
+                              "((uint64_t) {dst}.data), {m}, {n} );")
+@instr(_do_gemm_ld_i8_stride_2)
+def do_ld_i8_s2_id1(
+    n     : size,
+    m     : size,
+    src   : [i8][n*2, m] @ DRAM,
+    dst   : [i8][n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp : f32
+            tmp      = src[i*2,j]
+            tmp      = tmp * ConfigLoad_id1.scale
+            dst[i,j] = tmp #no clamping
+
 
 
 # in order to load i8 values into the i32 accumulator memory,

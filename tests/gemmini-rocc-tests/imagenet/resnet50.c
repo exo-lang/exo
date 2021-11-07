@@ -534,6 +534,21 @@ int main (int argc, char * argv[]) {
         matmul_cycles += end - start;
 
     } else {
+      /*
+        const int kernel_dim = 3;
+        const int in_channels = 128;
+        const int out_channels = 128;
+        static elem_t conv_13_weight[3 * 3 * 128 * 128];
+        for (int i=0; i<out_channels; i++)
+            for (int j=0; j<kernel_dim; j++)
+                for (int k=0; k<kernel_dim; k++)
+                    for (int l=0; l<in_channels; l++)
+                        conv_13_weight[j*out_channels*in_channels*kernel_dim+ k*out_channels*in_channels+ l*out_channels + i] =
+                                      (elem_t)conv_13_w[i*in_channels*kernel_dim*kernel_dim +  j*in_channels*kernel_dim + k*in_channels + l];
+
+        printf("hoge!\n");
+        */
+
         start = read_cycles();
 
         tiled_conv_A_stride_auto(

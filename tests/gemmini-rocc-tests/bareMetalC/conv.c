@@ -8,38 +8,13 @@
 #endif
 #include "include/gemmini_testutils.h"
 
-#ifndef BAREMETAL
-
 #define BATCH_SIZE 4
-#define IN_DIM 225
-#define IN_CHANNELS 3
-#define OUT_CHANNELS 32
-#define KERNEL_DIM 3
-#define PADDING 0
-#define STRIDE 1
-
-#else
-
-#ifdef FAST
-
-#define IN_DIM 9
-#define IN_CHANNELS 5
-#define OUT_CHANNELS 7
-
-#else
-
 #define IN_DIM 56
-#define IN_CHANNELS 64
-#define OUT_CHANNELS 64
-
-#endif
-
-#define BATCH_SIZE 4
+#define IN_CHANNELS 128
+#define OUT_CHANNELS 128
 #define KERNEL_DIM 3
 #define PADDING 1
-#define STRIDE 1
-
-#endif
+#define STRIDE 2
 
 #define NO_BIAS false
 
@@ -51,49 +26,46 @@ void conv(int batch_size, int in_channels, int in_dim,
         int out_channels, int kernel_dim,
         int out_dim,
         int stride, int padding,
-        elem_t input[batch_size][in_dim][in_dim][in_channels],
-        elem_t weights[kernel_dim][kernel_dim][in_channels][out_channels],
-        acc_t bias[out_channels],
-        elem_t output[batch_size][out_dim][out_dim][out_channels]) {
+        const elem_t * input,
+        const elem_t * weights,
+        const acc_t * bias,
+        elem_t * output) {
 
-#ifdef GEMMINI_ASSERTIONS
-    if (out_dim != (in_dim + 2*padding - kernel_dim) / stride + 1) {
-        printf("conv out_dim is not correct\n");
-        exit(1);
-    }
-#endif
+  for (int b = 0; b < batch_size; b++) {
+    for (int orow = 0; orow < out_dim; orow++) {
+      for (int ocol = 0; ocol < out_dim; ocol++) {
+        for (int och = 0; och < out_channels; och++) {
 
-    for (int b = 0; b < batch_size; b++) {
-        for (int orow = 0; orow < out_dim; orow++) {
-            for (int ocol = 0; ocol < out_dim; ocol++) {
-                for (int och = 0; och < out_channels; och++) {
-                    acc_t result = bias[och];
+          acc_t opixel = bias[och];
 
-                    for (int krow = 0; krow < kernel_dim; krow++) {
-                        for (int kcol = 0; kcol < kernel_dim; kcol++) {
-                            for (int kch = 0; kch < in_channels; kch++) {
-                                int irow = orow * stride + krow - padding;
-                                int icol = ocol * stride + kcol - padding;
+          for (int krow = 0; krow < kernel_dim; krow++) {
+            for (int kcol = 0; kcol < kernel_dim; kcol++) {
+              for (int kch = 0; kch < in_channels; kch++) {
 
-                                elem_t pixel = irow < 0 || irow >= in_dim ||
-                                    icol < 0 || icol >= in_dim ?
-                                    0 : input[b][irow][icol][kch];
+                const int icol = (ocol * stride + kcol - padding);
+                const int irow = (orow * stride + krow - padding);
 
-                                result +=
-                                    weights[krow][kcol][kch][och] *
-                                    pixel;
-                            }
-                        }
-                    }
+                const elem_t * in = input + (b * in_dim * in_dim + irow * in_dim + icol) * in_channels + kch;
 
-                    // Clip result
-                    result = result > elem_t_max ? elem_t_max : (result < elem_t_min ? elem_t_min : result);
+                elem_t ipixel = irow < 0 || irow >= in_dim || icol < 0 || icol >= in_dim ?  0 : *in;
 
-                    output[b][orow][ocol][och] = result;
-                }
+                const int krow_ = krow;
+                const int kcol_ = kcol;
+
+                elem_t weight = *(weights + (krow_ * kernel_dim * in_channels + kcol_ * in_channels + kch) * out_channels + och);
+
+                opixel += weight * ipixel;
+              }
             }
+          }
+
+          elem_t * out = output+(b*out_dim*out_dim+orow*out_dim+ocol)*out_channels + och;
+
+          *out = scale_and_sat(opixel, 1, (1.0 / (1 << 8)), 0);
         }
+      }
     }
+  }
 }
 
 void flatten_weights(int out_channels, int kernel_dim, int in_channels,
@@ -170,10 +142,10 @@ int main() {
 
     printf("Output dimension: %u\n\n", OUT_DIM);
 
-    static elem_t input[BATCH_SIZE][IN_DIM][IN_DIM][IN_CHANNELS];
-    static elem_t weights[KERNEL_DIM][KERNEL_DIM][IN_CHANNELS][OUT_CHANNELS];
-    static acc_t bias[OUT_CHANNELS];
-    static elem_t output[BATCH_SIZE][OUT_DIM][OUT_DIM][OUT_CHANNELS];
+    static elem_t input[BATCH_SIZE][IN_DIM][IN_DIM][IN_CHANNELS] row_align(1);
+    static elem_t weights[KERNEL_DIM][KERNEL_DIM][IN_CHANNELS][OUT_CHANNELS] row_align(1);
+    static acc_t bias[OUT_CHANNELS] row_align_acc(1);
+    static elem_t output[BATCH_SIZE][OUT_DIM][OUT_DIM][OUT_CHANNELS] row_align(1);
 
     printf("Randomize inputs...\n");
     init_random(&input[0][0][0][0], sizeof(input) / sizeof(elem_t));
@@ -212,7 +184,7 @@ int main() {
             weights,
             weights_mat);
             */
-    static elem_t output_mat[BATCH_SIZE][OUT_DIM][OUT_DIM][OUT_CHANNELS];
+    static elem_t output_mat[BATCH_SIZE][OUT_DIM][OUT_DIM][OUT_CHANNELS] row_align(1);
 
     printf("Gemmini conv...\n");
     uint64_t start_gemmini = read_cycles();
