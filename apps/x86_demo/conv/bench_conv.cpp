@@ -66,20 +66,28 @@ void conv_oneDNN(benchmark::State &state) {
   dnnl::engine engine(engine::kind::cpu, 0);
   dnnl::stream engine_stream(engine);
 
+  const memory::dim               // Benchmark inputs.
+      in_dim = state.range(0),    // e.g. 224
+      in_chan = state.range(1),   // e.g. 3
+      out_chan = state.range(2),  // e.g. 64
+      kern_sz = state.range(3),   // e.g. 7
+      pad = state.range(4),       // e.g. 3
+      stride = state.range(5);    // e.g. 2
+
   const memory::dim                           // Tensor dimensions.
-      N = 3,                                  // batch size
-      IC = 3,                                 // input channels
-      IH = 224,                               // input height
-      IW = 224,                               // input width
-      OC = 64,                                // output channels
-      KH = 7,                                 // weights height
-      KW = 7,                                 // weights width
-      PH_L = 3,                               // height padding: left (top)
-      PH_R = 3,                               // height padding: right (bottom)
-      PW_L = 3,                               // width padding: left
-      PW_R = 3,                               // width padding: right
-      SH = 2,                                 // height-wise stride
-      SW = 2,                                 // width-wise stride
+      N = 4,                                  // batch size
+      IC = in_chan,                           // input channels
+      IH = in_dim,                            // input height
+      IW = in_dim,                            // input width
+      OC = out_chan,                          // output channels
+      KH = kern_sz,                           // weights height
+      KW = kern_sz,                           // weights width
+      PH_L = pad,                             // height padding: left (top)
+      PH_R = pad,                             // height padding: right (bottom)
+      PW_L = pad,                             // width padding: left
+      PW_R = pad,                             // width padding: right
+      SH = stride,                            // height-wise stride
+      SW = stride,                            // width-wise stride
       OH = (IH - KH + PH_L + PH_R) / SH + 1,  // output height
       OW = (IW - KW + PW_L + PW_R) / SW + 1;  // output width
 
@@ -220,4 +228,8 @@ void conv_oneDNN(benchmark::State &state) {
   read_from_dnnl_memory(dst_data.data(), user_dst_mem);
 }
 
-BENCHMARK(conv_oneDNN);
+BENCHMARK(conv_oneDNN)               // in-dim in-chan out-chan kern-dim pad str
+    ->Args({224, 3, 64, 7, 3, 2})    // conv1
+    ->Args({56, 64, 64, 3, 1, 1})    // conv3/7/10
+    ->Args({28, 128, 128, 3, 1, 2})  // conv13
+    ;
