@@ -539,10 +539,10 @@ class _Inline(LoopIR_Rewrite):
 
 class _PartialEval(LoopIR_Rewrite):
     def __init__(self, proc, arg_vals):
-        self.env        = {}
-        arg_gap         = len(proc.args) - len(arg_vals)
+        self.env = {}
+        arg_gap = len(proc.args) - len(arg_vals)
         assert arg_gap >= 0
-        arg_vals = list(arg_vals) + [ None for _ in range(arg_gap) ]
+        arg_vals = list(arg_vals) + [None for _ in range(arg_gap)]
 
         self.orig_proc = proc
 
@@ -560,19 +560,19 @@ class _PartialEval(LoopIR_Rewrite):
                 raise SchedulingError("cannot partially evaluate "
                                       "numeric (non-index) arguments")
 
-        args    = [ self.map_fnarg(a) for v,a in zip(arg_vals, proc.args)
-                                      if v is None ]
-        preds   = [ self.map_e(p) for p in self.orig_proc.preds ]
-        body    = self.map_stmts(self.orig_proc.body)
-        eff     = self.map_eff(self.orig_proc.eff)
+        args = [self.map_fnarg(a) for v, a in zip(arg_vals, proc.args)
+                if v is None]
+        preds = [self.map_e(p) for p in self.orig_proc.preds]
+        body = self.map_stmts(self.orig_proc.body)
+        eff = self.map_eff(self.orig_proc.eff)
 
-        self.proc = LoopIR.proc(name    = self.orig_proc.name,
-                                args    = args,
-                                preds   = preds,
-                                body    = body,
-                                instr   = None,
-                                eff     = eff,
-                                srcinfo = self.orig_proc.srcinfo)
+        self.proc = LoopIR.proc(name=self.orig_proc.name,
+                                args=args,
+                                preds=preds,
+                                body=body,
+                                instr=None,
+                                eff=eff,
+                                srcinfo=self.orig_proc.srcinfo)
 
     def map_e(self,e):
         if isinstance(e, LoopIR.Read):
