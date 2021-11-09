@@ -234,7 +234,7 @@ def negate_expr(e):
     assert e.type == Tbool, "can only negate predicates"
     if isinstance(e, Effects.Const):
         return Effects.Const(not e.val, e.type, e.srcinfo)
-    elif isinstance(e, Effects.Var):
+    elif isinstance(e, Effects.Var) or isinstance(e, Effects.ConfigField):
         return Effects.Not(e, e.type, e.srcinfo)
     elif isinstance(e, Effects.Not):
         return e.arg
