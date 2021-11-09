@@ -8,6 +8,71 @@ from .harness_gemmini import GemmTestBuilder
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #
 
+def test_ldst_acc_i8_16():
+    T = GemmTestBuilder('ldst_acc_i8_16')
+    T.add_body(['gemm_acc_init_mem();',
+                'gemmini_flush(0);',
+                ''])
+    T.add_body(["ldst_acc_i8_16_lib_Context *ctxt;"])
+
+    T.alloc_dram_f32('scale', '0.1')
+    T.alloc_dram_2i8('x', 16, 16, '100*i')
+    T.alloc_dram_2i8('y', 16, 16, '0')
+    T.alloc_dram_2i8('z', 16, 16, '0')
+
+    @instr("{dst}[0] = ACC_SCALE({src}[0], {scale}[0]);")
+    def acc_scale(src : i32, dst : f32, scale : f32):
+        pass
+
+    @proc
+    def ldst_cpu( x : i8[16,16] @DRAM, z : i8[16,16] @DRAM, scale : f32, act : bool ):
+        for i in par(0, 16):
+            for j in par(0, 16):
+                res : i32 @ DRAM
+                res = x[i,j]
+
+                tmp_res1 : f32
+                #tmp_res1 = res
+                #tmp_res1 = tmp_res1 * scale
+                acc_scale(res, tmp_res1, scale)
+                tmp_res2 : i8
+                clamp(tmp_res1, tmp_res2)
+                if act == True:
+                    tmp_res2 = relu(tmp_res2)
+
+                z[i,j] = tmp_res1
+
+    @proc
+    def ldst_acc_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM, scale : f32, act : bool ):
+        tmp : i32[16,16] @ GEMM_ACCUM
+        one : f32
+        one = 1.0
+        ld_acc_i8(16,16, one, x, tmp)
+        st_acc_i8(16,16, scale, act, tmp, y)
+
+    T.add_proc(ldst_acc_i8_16)
+    T.add_proc(ldst_cpu)
+
+    T.add_body(['ldst_acc_i8_16(ctxt, x, y, scale, false);',
+                '',
+                'gemmini_fence();',
+                'ldst_cpu(ctxt, x, z, scale, false);',
+                'if(check_eq_2i8(16,16, z, y)) {',
+                '    printf("Correct\\n");',
+                '} else {',
+                '    printf("Results Don\'t Match\\n");',
+                '    printf("Correct Result (z):\\n");',
+                '    print_2i8(16,16, z);',
+                '    printf("Computed Roundtrip (y):\\n");',
+                '    print_2i8(16,16, y);',
+                '    exit(1);',
+                '}',
+                ''])
+
+    T.compile().run()
+    
+
+"""
 def test_ldst_i8_16():
     T = GemmTestBuilder('ldst_i8_16')
     T.add_body(['gemm_init_mem();',
@@ -455,3 +520,4 @@ def test_matmul_i8_ones_odd():
                 ''])
 
     T.compile().run()
+"""

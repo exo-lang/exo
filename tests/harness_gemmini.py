@@ -245,7 +245,7 @@ class GemmTestBuilder:
         gemmini_run_on_vcs(self.test_name)
 
     def alloc_dram_4i8(self, name, N, M, K, R, init):
-        self.glob += [f'int8_t {name}[{N}*{M}*{K}*{R}];','']
+        self.glob += [f'static int8_t {name}[{N}*{M}*{K}*{R}];','']
         self.body += [f'for(int i=0; i<{N}; i++) {{',
                       f'    for(int j=0; j<{M}; j++) {{',
                       f'        for(int k=0; k<{K}; k++) {{',
@@ -256,7 +256,7 @@ class GemmTestBuilder:
 
 
     def alloc_dram_2i8(self, name, N, M, init):
-        self.glob += [f'int8_t {name}[{N}*{M}];','']
+        self.glob += [f'static int8_t {name}[{N}*{M}];','']
         self.body += [f'for(int i=0; i<{N}; i++) {{',
                       f'    for(int j=0; j<{M}; j++) {{',
                       f'        {name}[({M})*i + j] = {init};',
@@ -264,7 +264,7 @@ class GemmTestBuilder:
                       '']
 
     def alloc_dram_2i32(self, name, N, M, init):
-        self.glob += [f'int32_t {name}[{N}*{M}];','']
+        self.glob += [f'static int32_t {name}[{N}*{M}];','']
         self.body += [f'for(int i=0; i<{N}; i++) {{',
                       f'    for(int j=0; j<{M}; j++) {{',
                       f'        {name}[({M})*i + j] = {init};',

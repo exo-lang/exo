@@ -43,8 +43,9 @@ def conv_on_cpu():
                                         res += weights[krow,kcol,kch,och] * inp[b,orow*2+krow-padding,ocol*2+kcol-padding,kch]
 
                         tmp_res1 : f32
-                        tmp_res1 = res
-                        tmp_res1 = tmp_res1 * scale
+                        #tmp_res1 = res
+                        #tmp_res1 = tmp_res1 * scale
+                        acc_scale(res, tmp_res1, scale)
                         tmp_res2 : i8
                         clamp(tmp_res1, tmp_res2)
                         if act == True:
@@ -87,7 +88,9 @@ def orig_conv_partial_padding(
         for kcol in par(0, kernel_dim):
             for krow in par(0, kernel_dim):
                 for kch in par(0, in_channel/16):
-                    if 0 <= orow*2+krow-padding and orow*2+krow-padding < in_dim:
+                    if orow == 0 and krow == 0:
+                        pass
+                    else:
                         in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
                         weight_scratch : i8[16,16] @ GEMM_SCRATCH
 
@@ -134,7 +137,7 @@ def conv_partial_padding(
     DIM_HI     : index
     ):
 
-    config_st_acc_i8(scale, stride(output, 2))
+    config_st_acc_i8(scale, stride(output, 2), act)
     config_ld_i8(one, stride(bias, 0))
     config_ld_i8_s2_id1(one, stride(inp, 2))
     config_ld_i8_id2(one, stride(weights, 2))
@@ -170,7 +173,7 @@ def conv_partial_padding(
                         do_ld_i8_id2(16, 16, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
                         do_matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
 
-        do_st_acc_i8(DIM_SIZE,16, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
+        do_st_acc_i8(DIM_SIZE,16, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
 
 def test_conv_13():
     T = GemmTestBuilder('conv_13')
@@ -192,7 +195,7 @@ def test_conv_13():
     assert padding < out_dim
     assert out_dim == 28
 
-    T.alloc_dram_f32('scale', '0.3')
+    T.alloc_dram_f32('scale', '0.33')
     T.alloc_dram_2i32('bias', 1, out_channel, 'i')
     T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, 'i')
     T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, 'j')
@@ -225,44 +228,14 @@ def test_conv_13():
         for b in par(0, batch_size):
             for orow in par(0, out_dim):
                 for ocol in par(0, out_dim/16):
-                    orig_conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding,
+                    conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding,
                                             output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
-
                 if out_dim%16 > 0:
-                    orig_conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding,
+                    conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding,
                                             output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
 
+
     gemmini = conv_13.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-
-    cpu = conv_on_cpu().partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-    T.add_proc(cpu)
-    T.add_proc(gemmini)
-
-    T.start_timer('cpu')
-    T.add_body([f'conv_on_cpu_stride_2(ctxt, output_cpu, bias, inp, weights, false, scale);',
-                f'gemmini_fence();'])
-    T.stop_timer('cpu', 'Cycles for CPU version')
-
-    T.start_timer('gemmini')
-    T.add_body([f'conv_13(ctxt, output_gemmini, bias, inp, weights, false, scale);',
-                f'gemmini_fence();'])
-    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
-    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
-                 '    printf("Correct\\n");',
-                 '} else {',
-                 '    printf("Results Don\'t Match\\n");',
-                 '    printf("Correct Result (output_cpu):\\n");',
-                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
-                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
-                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
-                 '    exit(1);',
-                 '}',
-                 ''])
-
-    T.compile().run()
-
-"""
     gemmini = gemmini.inline('conv_partial_padding(_) #0')
     gemmini = gemmini.inline('conv_partial_padding(_) #0')
     gemmini = gemmini.simplify()
@@ -302,9 +275,38 @@ def test_conv_13():
     gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #5', 'och #1', 0)
 
     gemmini = gemmini.simplify()
+
+    cpu = conv_on_cpu().partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
+    T.add_proc(cpu)
+    T.add_proc(gemmini)
+
+    T.start_timer('cpu')
+    T.add_body([f'conv_on_cpu_stride_2(ctxt, output_cpu, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('cpu', 'Cycles for CPU version')
+
+    T.start_timer('gemmini')
+    T.add_body([f'conv_13(ctxt, output_gemmini, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+
+    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
+                 '    printf("Correct\\n");',
+                 '} else {',
+                 '    printf("Results Don\'t Match\\n");',
+                 '    printf("Correct Result (output_cpu):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
+                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
+                 '    exit(1);',
+                 '}',
+                 ''])
+
+    T.compile().run()
+
+"""
 """
 
-@pytest.mark.skip()
 def test_conv_26():
     T = GemmTestBuilder('conv_26')
     T.add_body(['gemm_init_mem();',
@@ -423,7 +425,8 @@ def test_conv_26():
 
     T.compile().run()
 
-@pytest.mark.skip()
+
+
 def test_conv_45():
     T = GemmTestBuilder('conv_45')
     T.add_body(['gemm_init_mem();',
