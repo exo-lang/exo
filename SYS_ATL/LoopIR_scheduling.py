@@ -907,7 +907,8 @@ class _BindConfig(LoopIR_Rewrite):
         if isinstance(s, LoopIR.If):
             if_then = self.process_block(s.body)
             if_else = self.process_block(s.orelse)
-            return [LoopIR.If(s.cond, if_then, if_else, s.eff, s.srcinfo)]
+            cond    = self.map_e(s.cond)
+            return [LoopIR.If(cond, if_then, if_else, s.eff, s.srcinfo)]
 
         return super().map_s(s)
 

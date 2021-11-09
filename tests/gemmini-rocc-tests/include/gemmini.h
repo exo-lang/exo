@@ -4166,6 +4166,47 @@ gemm_free((uint64_t)(in_scratch));
 gemm_free((uint64_t)(weight_scratch));
 }
 
+typedef struct conv_47_lib_Context { 
+
+} conv_47_lib_Context;
+void conv_47( conv_47_lib_Context *ctxt, int8_t* output, int32_t* bias, int8_t* inp, int8_t* weights, bool act, float* scale ) {
+float one;
+one = 1.0;
+gemmini_extended_config_st((2048), (act), (scale)[0]);
+
+gemmini_extended3_config_ld((2048), (&one)[0], 0, 0);
+
+gemmini_extended3_config_ld((1024)*2, (&one)[0], 0, 1);
+
+gemmini_extended3_config_ld((2048), (&one)[0], 0, 2);
+
+gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+
+int8_t *in_scratch = (int8_t*) ((uint64_t)gemm_malloc (16 * 7 * 64 * 7 * 4 * sizeof(int8_t)));
+int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 7 * 128 * sizeof(int32_t)));
+int8_t *weight_scratch = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 64 * sizeof(int8_t)));
+for (int b=0; b < 4; b++) {
+  for (int orow=0; orow < 7; orow++) {
+    for (int och=0; och < 128; och++) {
+      for (int l=0; l < 7; l++) {
+        gemmini_extended_mvin( ((uint64_t) ((struct systl_win_2i32){ bias + (0) * (2048) + (16 * och) * (1), { 2048,1 } }).data), ((uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((och) * (7 * 16) + (l) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (1) );
+      }
+      for (int kch=0; kch < 64; kch++) {
+        gemmini_extended_mvin2( ((struct systl_win_2i8){ inp + (b) * (14 * 14 * 1024) + (orow * 2) * (14 * 1024) + (0) * (1024) + (16 * kch) * (1), { 1024,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((b) * (7 * 64 * 7 * 16) + (orow) * (64 * 7 * 16) + (kch) * (7 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (7) );
+        gemmini_extended_mvin3( ((struct systl_win_2i8){ weights + (0) * (1 * 1024 * 2048) + (0) * (1024 * 2048) + (16 * kch) * (2048) + (16 * och) * (1), { 2048,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch)) + ((kch) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (16) );
+        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)weight_scratch)) + ((kch) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((och) * (7 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data) | 0x40000000, (16), (16), (16), (7));
+gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((b) * (7 * 64 * 7 * 16) + (orow) * (64 * 7 * 16) + (kch) * (7 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), ~((uint32_t)0), (16), (7), 16, 16);
+      }
+      gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ output + (b) * (7 * 7 * 2048) + (orow) * (7 * 2048) + (0) * (2048) + (16 * och) * (1), { 2048,1 } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((och) * (7 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data, (16), (7) );
+    }
+  }
+}
+
+gemm_free((uint64_t)(in_scratch));
+gemm_acc_free((uint32_t)(res));
+gemm_free((uint64_t)(weight_scratch));
+}
+
 
 static void tiled_conv_A_stride_auto(
         int batch_size, int in_dim, int in_channels,
@@ -4263,11 +4304,8 @@ static void tiled_conv_A_stride_auto(
         conv_45_lib_Context *ctxt;
         conv_45(ctxt, output, bias, input, weights, act_, &c_scale);
     } else if (out_dim == 7 & out_channels == 2048 & stride == 2) {
-        printf("Calling original conv auto\n");
-        orig_tiled_conv_A_stride_auto(batch_size, in_dim, in_channels, out_channels,
-                out_dim, stride, input_dilation, kernel_dilation, padding, kernel_dim,
-                wrot180, trans_output_1203, trans_input_3120, trans_weight_1203, trans_weight_0132,
-                input, weights, bias, output, act, scale, relu6_shift, pool_size, pool_stride, pool_padding, tiled_conv_type);
+        conv_47_lib_Context *ctxt;
+        conv_47(ctxt, output, bias, input, weights, act_, &c_scale);
     } else if (out_dim == 7 & out_channels == 512 & stride == 1) {
         conv_49_lib_Context *ctxt;
         conv_49(ctxt, output, bias, input, weights, act_, &c_scale);
