@@ -8,7 +8,9 @@
 // Utilities
 
 // Source: http://www.netlib.org/lapack/lawnspdf/lawn41.pdf (p.120)
-static double num_flops(long n, long k) { return k * n * (n + 1); }
+static double num_flops(long n, long k) {
+  return static_cast<double>(k * n * (n + 1));
+}
 
 static std::vector<float> gen_matrix(long m, long n) {
   static std::random_device rd;
@@ -23,8 +25,8 @@ static std::vector<float> gen_matrix(long m, long n) {
 
 template <typename SsyrkFn>
 static void BM_ssyrk(benchmark::State &state) {
-  size_t n = state.range(0);
-  size_t k = state.range(1);
+  long n = state.range(0);
+  long k = state.range(1);
 
   auto a = gen_matrix(n, k);
   auto c = gen_matrix(n, n);
@@ -34,7 +36,7 @@ static void BM_ssyrk(benchmark::State &state) {
   }
 
   state.counters["flops"] = benchmark::Counter(
-      static_cast<double>(state.iterations() * num_flops(n, k)),  //
+      static_cast<double>(state.iterations()) * num_flops(n, k),  //
       benchmark::Counter::kIsRate,                                //
       benchmark::Counter::kIs1000                                 //
   );
@@ -44,7 +46,7 @@ static void BM_ssyrk(benchmark::State &state) {
 // MKL SSYRK benchmark
 
 struct mkl_functor {
-  void operator()(const float *a, float *c, long n, long k) {
+  void operator()(const float *a, float *c, int n, int k) {
     cblas_ssyrk(CblasRowMajor, CblasUpper, CblasNoTrans,  // layout
                 n, k,                                     // dimensions
                 1.0,                                      // alpha

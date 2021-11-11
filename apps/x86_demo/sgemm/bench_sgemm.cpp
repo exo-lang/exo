@@ -11,7 +11,9 @@
 // Utilities
 
 // Source: http://www.netlib.org/lapack/lawnspdf/lawn41.pdf (p.120)
-static double num_flops(long m, long n, long k) { return 2 * m * n * k; }
+static double num_flops(long m, long n, long k) {
+  return static_cast<double>(2 * m * n * k);
+}
 
 static std::vector<float> gen_matrix(long m, long n) {
   static std::random_device rd;
@@ -26,17 +28,17 @@ static std::vector<float> gen_matrix(long m, long n) {
 
 template <typename SgemmFn>
 static void BM_square_sgemm(benchmark::State &state) {
-  size_t n = state.range(0);
+  long n = state.range(0);
   auto a = gen_matrix(n, n);
   auto b = gen_matrix(n, n);
   auto c = gen_matrix(n, n);
 
-  for (auto _ : state) {
+  for ([[maybe_unused]] auto _ : state) {
     SgemmFn{}(a.data(), b.data(), c.data(), n);
   }
 
   state.counters["flops"] = benchmark::Counter(
-      static_cast<double>(state.iterations() * num_flops(n, n, n)),  //
+      static_cast<double>(state.iterations()) * num_flops(n, n, n),  //
       benchmark::Counter::kIsRate,                                   //
       benchmark::Counter::kIs1000                                    //
   );
@@ -46,18 +48,19 @@ static void BM_square_sgemm(benchmark::State &state) {
 // Benchmarking just the inner kernel
 
 static void BM_sys_atl_kernel(benchmark::State &state) {
-  size_t k = state.range(0);
+  long k = state.range(0);
+
   auto a = gen_matrix(6, k);
   auto b = gen_matrix(k, 64);
   auto c = gen_matrix(6, 64);
 
-  for (auto _ : state) {
-    sgemm_kernel_avx512_6x4(nullptr, k, a.data(), b.data(),
+  for ([[maybe_unused]] auto _ : state) {
+    sgemm_kernel_avx512_6x4(nullptr, (int)k, a.data(), b.data(),
                             {c.data(), {64, 1}});
   }
 
   state.counters["flops"] = benchmark::Counter(
-      static_cast<double>(state.iterations() * num_flops(6, 64, k)),  //
+      static_cast<double>(state.iterations()) * num_flops(6, 64, k),  //
       benchmark::Counter::kIsRate,                                    //
       benchmark::Counter::kIs1000                                     //
   );
@@ -69,7 +72,7 @@ BENCHMARK(BM_sys_atl_kernel)->Name("kernel_sys_atl")->Range(8, 8196);
 // MKL SGEMM benchmark
 
 struct mkl_square {
-  void operator()(const float *a, const float *b, float *c, long n) {
+  void operator()(const float *a, const float *b, float *c, int n) {
     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,  // layout
                 n, n, n,                                    // m, n, k
                 1.0,                                        // alpha
@@ -120,7 +123,7 @@ BENCHMARK_TEMPLATE(BM_square_sgemm, alex_square)
 // SYS_ATL SGEMM benchmark
 
 struct sys_atl_square {
-  void operator()(float *a, float *b, float *c, long n) {
+  void operator()(float *a, float *b, float *c, int n) {
     sgemm_sys_atl(nullptr, n, n, n, a, b, c);
   }
 };
