@@ -559,10 +559,10 @@ class CheckEffects:
         if c not in self.config_env:
             if typ.is_indexable() or typ.is_stridable():
                 self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.INT)
-            elif typ.is_scalar():
-                self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.REAL)
             elif typ is T.bool:
                 self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.BOOL)
+            elif typ.is_scalar():
+                self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.REAL)
             else:
                 assert False, "bad case!"
         return self.config_env[c]

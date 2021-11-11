@@ -114,6 +114,7 @@ def test_write_loop_builtin():
             ConfigAB.a = sin(1.0)
 
 # Config loop dependency tests
+@pytest.mark.skip()
 def test_write_loop_varying():
     ConfigAB = new_config_f32()
     with pytest.raises(TypeError,
@@ -123,6 +124,7 @@ def test_write_loop_varying():
             for i in par(0, n):
                 ConfigAB.a = A[i]
 
+@pytest.mark.skip()
 def test_write_loop_varying_indirect():
     ConfigAB = new_config_f32()
     with pytest.raises(TypeError,
@@ -138,6 +140,7 @@ def test_write_loop_varying_indirect():
 #       but it would be very reasonable to make this test
 #       non-failing
 # Fix is to improve the dependency analysis
+@pytest.mark.skip()
 def test_write_loop_syntax_check_fail():
     CTRL = new_control_config()
 
