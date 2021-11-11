@@ -4208,6 +4208,62 @@ gemm_free((uint64_t)(weight_scratch));
 }
 
 
+typedef struct conv_1_lib_Context { 
+
+} conv_1_lib_Context;
+void conv_max_pool( conv_1_lib_Context *ctxt, int8_t* output, int32_t* bias, int8_t* inp, int8_t* weights, bool act, float* scale ) {
+int8_t zero;
+zero = 0.0;
+for (int b=0; b < 4; b++) {
+  for (int porow=0; porow < _floor_div(112 + 2 * 2 - 3, 2) + 1; porow++) {
+    for (int pocol=0; pocol < _floor_div(112 + 2 * 2 - 3, 2) + 1; pocol++) {
+      for (int poch=0; poch < 64; poch++) {
+        int8_t running_max;
+        running_max = -128.0;
+        for (int pwrow=0; pwrow < 3; pwrow++) {
+          for (int pwcol=0; pwcol < 3; pwcol++) {
+            if (porow * 2 + pwrow - 2 < 0 || porow * 2 + pwrow - 2 >= 112 || pocol * 2 + pwcol - 2 < 0 || pocol * 2 + pwcol - 2 >= 112) {
+              running_max = _select_((double)*&running_max, (double)*&zero, (double)*&zero, (double)*&running_max);
+            } else {
+              int32_t res;
+              res = bias[(0) * (64) + (poch) * (1)];
+              for (int krow=0; krow < 7; krow++) {
+                for (int kcol=0; kcol < 7; kcol++) {
+                  for (int kch=0; kch < 3; kch++) {
+                    if (0 <= (porow * 2 + pwrow - 2) * 2 + krow - 3 && (porow * 2 + pwrow - 2) * 2 + krow - 3 < 224 && 0 <= (pocol * 2 + pwcol - 2) * 2 + kcol - 3 && (pocol * 2 + pwcol - 2) * 2 + kcol - 3 < 224) {
+                      res += (int32_t)(weights[(krow) * (7 * 3 * 64) + (kcol) * (3 * 64) + (kch) * (64) + (poch) * (1)] * inp[(b) * (224 * 224 * 3) + ((porow * 2 + pwrow - 2) * 2 + krow - 3) * (224 * 3) + ((pocol * 2 + pwcol - 2) * 2 + kcol - 3) * (3) + (kch) * (1)]);
+                    }
+                  }
+                }
+              }
+              float tmp_res1;
+              (&tmp_res1)[0] = ACC_SCALE((&res)[0], (scale)[0]);
+              int8_t tmp_res2;
+              clamp(ctxt,&tmp_res1,&tmp_res2);
+              if (act == true) {
+                tmp_res2 = _relu_((double)*&tmp_res2);
+              }
+              running_max = _select_((double)*&running_max, (double)*&tmp_res2, (double)*&tmp_res2, (double)*&running_max);
+              
+              
+              
+            }
+            if (pwrow == 3 - 1 && pwcol == 3 - 1) {
+              output[(b) * ((_floor_div(112 + 2 * 2 - 3, 2) + 1) * (_floor_div(112 + 2 * 2 - 3, 2) + 1) * 64) + (porow * 2 + pwrow - 2) * ((_floor_div(112 + 2 * 2 - 3, 2) + 1) * 64) + (pocol * 2 + pwcol - 2) * (64) + (poch) * (1)] = running_max;
+            }
+          }
+        }
+        
+      }
+    }
+  }
+}
+
+}
+
+static elem_t output_1[4][56][56][64];
+static elem_t output_2[4][56][56][64];
+
 static void tiled_conv_A_stride_auto(
         int batch_size, int in_dim, int in_channels,
         int out_channels, int out_dim,
@@ -4280,11 +4336,19 @@ static void tiled_conv_A_stride_auto(
 
     if (out_dim == 112) {
         //  Not sure how to handle pool_size
-        printf("Calling original conv auto\n");
-        orig_tiled_conv_A_stride_auto(batch_size, in_dim, in_channels, out_channels,
-                out_dim, stride, input_dilation, kernel_dilation, padding, kernel_dim,
-                wrot180, trans_output_1203, trans_input_3120, trans_weight_1203, trans_weight_0132,
-                input, weights, bias, output, act, scale, relu6_shift, pool_size, pool_stride, pool_padding, tiled_conv_type);
+        conv_1_lib_Context *ctxt;
+        conv_max_pool(ctxt, output_1, bias, input, weights, act_, &c_scale);
+        conv_cpu(batch_size, in_dim, in_channels, out_channels, out_dim, stride, input_dilation, kernel_dilation, padding, kernel_dim,
+                         false, false, false, false, false, input, weights, bias, output_2, act, scale, relu6_shift, pool_size, pool_stride, pool_padding);
+        for (int i=0; i<4; i++)
+          for (int j=0; j<56; j++)
+            for (int k=0; k<56; k++)
+              for (int l=0; l<64; l++)
+                if (output_1[i][j][k][l] != output_2[i][j][k][l])
+                  printf("i:%d, j:%d, k:%d, l:%d, our:%d, orig:%d\n",i,j,k,l, output_1[i][j][k][l], output_2[i][j][k][l]);
+
+        exit(0);
+
     } else if (out_dim == 56 & out_channels == 64 & stride == 1) {
         conv_3_lib_Context *ctxt;
         conv_3(ctxt, output, bias, input, weights, act_, &c_scale);

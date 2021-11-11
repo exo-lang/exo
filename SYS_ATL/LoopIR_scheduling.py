@@ -1493,8 +1493,7 @@ class _FissionLoops:
                     pre     = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
-                    # TODO: something's buggy about alpha renaming here
-                    #pre         = Alpha_Rename(pre).result()
+                    pre         = Alpha_Rename(pre).result()
                 if s.iter in _FV(post) or not _is_idempotent(pre):
                     post    = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
 
