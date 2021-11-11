@@ -41,18 +41,18 @@ jobs:
       - name: Install package
         run: pip install dist/*.whl
 
-      # Skip running on macOS since the SDE simulator is too slow there
-      - name: Install apps deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt update
-          sudo apt install g++-11
+#       # Skip running on macOS since the SDE simulator is too slow there
+#       - name: Install apps deps
+#         if: runner.os == 'Linux'
+#         run: |
+#           sudo apt update
+#           sudo apt install g++-11
 
-      - name: Build apps with CMake
-        if: runner.os == 'Linux'
-        run: ./apps/build.sh
+#       - name: Build apps with CMake
+#         if: runner.os == 'Linux'
+#         run: ./apps/build.sh
 
-      - name: Check apps run with CMake
-        if: runner.os == 'Linux'
-        run: ctest --output-on-failure
-        working-directory: build
+#       - name: Check apps run with CMake
+#         if: runner.os == 'Linux'
+#         run: ctest --output-on-failure
+#         working-directory: build
