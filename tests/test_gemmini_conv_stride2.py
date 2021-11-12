@@ -354,7 +354,6 @@ def test_conv_13():
 
 
 
-@pytest.mark.skip()
 def test_conv_26():
     T = GemmTestBuilder('conv_26')
     T.add_body(['gemm_init_mem();',
@@ -603,7 +602,6 @@ def test_conv_45():
 
 
 
-"""
 @proc
 def conv_partial_no_padding(
     batch_size : size,
@@ -625,6 +623,16 @@ def conv_partial_no_padding(
     DIM_LO     : index,
     DIM_HI     : index
     ):
+    assert out_dim == (in_dim - kernel_dim)/2 + 1
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+    assert in_channel%16 == 0
+    assert out_channel%16 == 0
 
     config_st_acc_i8(scale, stride(output, 2), act)
     config_ld_i8(one, stride(bias, 0))
@@ -644,16 +652,16 @@ def conv_partial_no_padding(
                     weight_scratch : i8[16,16] @ GEMM_SCRATCH
 
                     do_ld_i8_s2_id1(DIM_SIZE, 16,
-                    inp[ b, orow*2+krow, DIM_LO*2+kcol:DIM_HI*2+kcol, 16*kch:16*(kch+1)],
+                    inp[ b, orow*2+krow, DIM_LO*2+kcol:DIM_HI*2+kcol-1, 16*kch:16*(kch+1)],
                         in_scratch)
 
                     do_ld_i8_id2(16, 16, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
                     do_matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
 
         do_st_acc_i8(DIM_SIZE,16, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
-"""
 
-@pytest.mark.skip()
+
+
 def test_conv_47():
     T = GemmTestBuilder('conv_47')
     T.add_body(['gemm_init_mem();',
@@ -689,7 +697,7 @@ def test_conv_47():
         kernel_dim : size,
         in_channel : size,
         in_dim     : size,
-        padding    : size,
+        padding    : index,
         output     : i8[batch_size, out_dim, out_dim, out_channel],
         bias       : i32[1, out_channel],
         inp        : i8[batch_size, in_dim, in_dim, in_channel],
@@ -701,6 +709,9 @@ def test_conv_47():
         assert out_dim == (in_dim + 2*padding - kernel_dim)/2 + 1
         assert 0 <= padding < 16
         assert padding < out_dim
+        assert padding == 0
+        assert in_channel%16 == 0
+        assert out_channel%16 == 0
 
         one : f32
         one = 1.0
@@ -769,5 +780,4 @@ def test_conv_47():
 
     T.compile().run()
     print(gemmini)
-"""
-"""
+
