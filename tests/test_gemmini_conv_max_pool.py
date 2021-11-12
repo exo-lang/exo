@@ -26,19 +26,21 @@ def conv_on_cpu():
         scale      : f32
         ):
 
-        assert out_dim == (in_dim + 2*padding - kernel_dim)/2 + 1
+        assert out_dim == (in_dim + 2*padding - kernel_dim)/2 
         assert 0 <= padding < 16
         assert padding < out_dim
 
         zero : i8
         zero = 0.0
+        min_ : i8
+        min_ = -128.0
         for b in par(0, batch_size):
             for porow in par(0, (out_dim+2*pool_padding-pool_size)/2+1):
                 for pocol in par(0, (out_dim+2*pool_padding-pool_size)/2+1):
                     for poch in par(0, out_channel):
 
                         running_max : i8
-                        running_max = -128.0
+                        running_max = min_
 
                         for pwrow in par(0, pool_size):
                             for pwcol in par(0, pool_size):
@@ -64,8 +66,7 @@ def conv_on_cpu():
 
                                     running_max = select(running_max, tmp_res2, tmp_res2, running_max)
 
-                                if pwrow == pool_size - 1 and pwcol == pool_size - 1:
-                                    output[b,porow*2+pwrow-pool_padding,pocol*2+pwcol-pool_padding,poch] = running_max
+                        output[b,porow,pocol,poch] = running_max
 
     return conv_max_pool
 
@@ -105,7 +106,8 @@ def test_conv_1():
         pass
 
     cpu = conv_on_cpu()
-    cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, pool_size, pool_stride)
+    cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, pool_size, pool_padding)
+
     T.add_proc(cpu)
     T.add_proc(gemmini)
 

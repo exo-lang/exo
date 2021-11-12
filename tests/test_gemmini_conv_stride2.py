@@ -99,7 +99,7 @@ def orig_conv_partial_padding(
                             ld_i8_s2(15, 16, one,
                                 inp[ b, orow*2+krow-1, 1:DIM_HI*2, 16*kch:16*(kch+1)],
                                 in_scratch[1:, :])
-                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim:
+                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim and in_dim > DIM_LO*2+kcol-2:
                             ld_i8_s2((in_dim-(DIM_LO*2+kcol-1)+1)/2, 16, one,
                                 inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:, 16*kch:16*(kch+1)],
                                 in_scratch[0:(in_dim-(DIM_LO*2+kcol-1)+1)/2, :])
@@ -160,7 +160,7 @@ def conv_partial_padding(
                             do_ld_i8_s2_id1(15, 16,
                                 inp[ b, orow*2+krow-1, 1:DIM_HI*2, 16*kch:16*(kch+1)],
                                 in_scratch[1:, :])
-                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim:
+                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim and in_dim > DIM_LO*2+kcol-2:
                             do_ld_i8_s2_id1((in_dim-(DIM_LO*2+kcol-1)+1)/2, 16,
                                 inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:, 16*kch:16*(kch+1)],
                                 in_scratch[0:(in_dim-(DIM_LO*2+kcol-1)+1)/2, :])
@@ -176,7 +176,6 @@ def conv_partial_padding(
         do_st_acc_i8(DIM_SIZE,16, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
 
 
-@pytest.mark.skip()
 def test_conv_13():
     T = GemmTestBuilder('conv_13')
     T.add_body(['gemm_init_mem();',
@@ -309,7 +308,6 @@ def test_conv_13():
 """
 """
 
-@pytest.mark.skip()
 def test_conv_26():
     T = GemmTestBuilder('conv_26')
     T.add_body(['gemm_init_mem();',
@@ -430,7 +428,6 @@ def test_conv_26():
 
 
 
-@pytest.mark.skip()
 def test_conv_45():
     T = GemmTestBuilder('conv_45')
     T.add_body(['gemm_init_mem();',

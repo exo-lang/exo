@@ -3705,7 +3705,7 @@ for (int b=0; b < 4; b++) {
                   gemmini_extended_mvin2( ((struct systl_win_2i8){ inp + (b) * (56 * 56 * 128) + (orow * 2 + krow - 1) * (56 * 128) + (1) * (128) + (16 * kch) * (1), { 128,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((kcol) * (3 * 8 * 16 * 16) + (krow) * (8 * 16 * 16) + (kch) * (16 * 16) + (1) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (15) );
                 }
               }
-              if (16 * 0 * 2 + kcol - 1 >= 0 && 16 * (0 + 1) * 2 + kcol - 1 > 56) {
+              if (16 * 0 * 2 + kcol - 1 >= 0 && 16 * (0 + 1) * 2 + kcol - 1 > 56 && 56 > 16 * 0 * 2 + kcol - 2) {
                 if (och == 0) {
                   gemmini_extended_mvin2( ((struct systl_win_2i8){ inp + (b) * (56 * 56 * 128) + (orow * 2 + krow - 1) * (56 * 128) + (16 * 0 * 2 + kcol - 1) * (128) + (16 * kch) * (1), { 128,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((kcol) * (3 * 8 * 16 * 16) + (krow) * (8 * 16 * 16) + (kch) * (16 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (_floor_div(56 - (16 * 0 * 2 + kcol - 1) + 1, 2)) );
                 }
@@ -3739,7 +3739,7 @@ gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)
                   gemmini_extended_mvin2( ((struct systl_win_2i8){ inp + (b) * (56 * 56 * 128) + (orow * 2 + krow_1 - 1) * (56 * 128) + (1) * (128) + (16 * kch_1) * (1), { 128,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch_1)) + ((kcol_1) * (3 * 8 * 12 * 16) + (krow_1) * (8 * 12 * 16) + (kch_1) * (12 * 16) + (1) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (15) );
                 }
               }
-              if ((28 - 28 % 16) * 2 + kcol_1 - 1 >= 0 && 28 * 2 + kcol_1 - 1 > 56) {
+              if ((28 - 28 % 16) * 2 + kcol_1 - 1 >= 0 && 28 * 2 + kcol_1 - 1 > 56 && 56 > (28 - 28 % 16) * 2 + kcol_1 - 2) {
                 if (och_1 == 0) {
                   gemmini_extended_mvin2( ((struct systl_win_2i8){ inp + (b) * (56 * 56 * 128) + (orow * 2 + krow_1 - 1) * (56 * 128) + ((28 - 28 % 16) * 2 + kcol_1 - 1) * (128) + (16 * kch_1) * (1), { 128,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch_1)) + ((kcol_1) * (3 * 8 * 12 * 16) + (krow_1) * (8 * 12 * 16) + (kch_1) * (12 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (_floor_div(56 - ((28 - 28 % 16) * 2 + kcol_1 - 1) + 1, 2)) );
                 }
@@ -3806,7 +3806,7 @@ for (int b=0; b < 4; b++) {
                   gemmini_extended_mvin2( ((struct systl_win_2i8){ inp + (b) * (28 * 28 * 256) + (orow * 2 + krow - 1) * (28 * 256) + (1) * (256) + (16 * kch) * (1), { 256,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((kcol) * (3 * 16 * 14 * 16) + (krow) * (16 * 14 * 16) + (kch) * (14 * 16) + (1) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (15) );
                 }
               }
-              if ((14 - 14 % 16) * 2 + kcol - 1 >= 0 && 14 * 2 + kcol - 1 > 28) {
+              if ((14 - 14 % 16) * 2 + kcol - 1 >= 0 && 14 * 2 + kcol - 1 > 28 && 28 > (14 - 14 % 16) * 2 + kcol - 2) {
                 if (och == 0) {
                   gemmini_extended_mvin2( ((struct systl_win_2i8){ inp + (b) * (28 * 28 * 256) + (orow * 2 + krow - 1) * (28 * 256) + ((14 - 14 % 16) * 2 + kcol - 1) * (256) + (16 * kch) * (1), { 256,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((kcol) * (3 * 16 * 14 * 16) + (krow) * (16 * 14 * 16) + (kch) * (14 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (_floor_div(28 - ((14 - 14 % 16) * 2 + kcol - 1) + 1, 2)) );
                 }
@@ -3870,7 +3870,7 @@ for (int b=0; b < 4; b++) {
                   gemmini_extended_mvin2( ((struct systl_win_2i8){ inp + (b) * (14 * 14 * 512) + (orow * 2 + krow - 1) * (14 * 512) + (1) * (512) + (16 * kch) * (1), { 512,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((kcol) * (3 * 32 * 7 * 16) + (krow) * (32 * 7 * 16) + (kch) * (7 * 16) + (1) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (15) );
                 }
               }
-              if ((7 - 7 % 16) * 2 + kcol - 1 >= 0 && 7 * 2 + kcol - 1 > 14) {
+              if ((7 - 7 % 16) * 2 + kcol - 1 >= 0 && 7 * 2 + kcol - 1 > 14 && 14 > (7 - 7 % 16) * 2 + kcol - 2) {
                 if (och == 0) {
                   gemmini_extended_mvin2( ((struct systl_win_2i8){ inp + (b) * (14 * 14 * 512) + (orow * 2 + krow - 1) * (14 * 512) + ((7 - 7 % 16) * 2 + kcol - 1) * (512) + (16 * kch) * (1), { 512,1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)((uint64_t)( ((uint32_t)((uint64_t)in_scratch)) + ((kcol) * (3 * 32 * 7 * 16) + (krow) * (32 * 7 * 16) + (kch) * (7 * 16) + (0) * (16) + (0) * (1))/16 )), { 16,1 } }).data), (16), (_floor_div(14 - ((7 - 7 % 16) * 2 + kcol - 1) + 1, 2)) );
                 }
@@ -4214,15 +4214,17 @@ typedef struct conv_1_lib_Context {
 void conv_max_pool( conv_1_lib_Context *ctxt, int8_t* output, int32_t* bias, int8_t* inp, int8_t* weights, bool act, float* scale ) {
 int8_t zero;
 zero = 0.0;
+int8_t min_;
+min_ = -128.0;
 for (int b=0; b < 4; b++) {
-  for (int porow=0; porow < _floor_div(112 + 2 * 2 - 3, 2) + 1; porow++) {
-    for (int pocol=0; pocol < _floor_div(112 + 2 * 2 - 3, 2) + 1; pocol++) {
+  for (int porow=0; porow < _floor_div(112 + 2 * 1 - 3, 2) + 1; porow++) {
+    for (int pocol=0; pocol < _floor_div(112 + 2 * 1 - 3, 2) + 1; pocol++) {
       for (int poch=0; poch < 64; poch++) {
         int8_t running_max;
-        running_max = -128.0;
+        running_max = min_;
         for (int pwrow=0; pwrow < 3; pwrow++) {
           for (int pwcol=0; pwcol < 3; pwcol++) {
-            if (porow * 2 + pwrow - 2 < 0 || porow * 2 + pwrow - 2 >= 112 || pocol * 2 + pwcol - 2 < 0 || pocol * 2 + pwcol - 2 >= 112) {
+            if (porow * 2 + pwrow - 1 < 0 || porow * 2 + pwrow - 1 >= 112 || pocol * 2 + pwcol - 1 < 0 || pocol * 2 + pwcol - 1 >= 112) {
               running_max = _select_((double)*&running_max, (double)*&zero, (double)*&zero, (double)*&running_max);
             } else {
               int32_t res;
@@ -4230,8 +4232,8 @@ for (int b=0; b < 4; b++) {
               for (int krow=0; krow < 7; krow++) {
                 for (int kcol=0; kcol < 7; kcol++) {
                   for (int kch=0; kch < 3; kch++) {
-                    if (0 <= (porow * 2 + pwrow - 2) * 2 + krow - 3 && (porow * 2 + pwrow - 2) * 2 + krow - 3 < 224 && 0 <= (pocol * 2 + pwcol - 2) * 2 + kcol - 3 && (pocol * 2 + pwcol - 2) * 2 + kcol - 3 < 224) {
-                      res += (int32_t)(weights[(krow) * (7 * 3 * 64) + (kcol) * (3 * 64) + (kch) * (64) + (poch) * (1)] * inp[(b) * (224 * 224 * 3) + ((porow * 2 + pwrow - 2) * 2 + krow - 3) * (224 * 3) + ((pocol * 2 + pwcol - 2) * 2 + kcol - 3) * (3) + (kch) * (1)]);
+                    if (0 <= (porow * 2 + pwrow - 1) * 2 + krow - 3 && (porow * 2 + pwrow - 1) * 2 + krow - 3 < 224 && 0 <= (pocol * 2 + pwcol - 1) * 2 + kcol - 3 && (pocol * 2 + pwcol - 1) * 2 + kcol - 3 < 224) {
+                      res += (int32_t)(weights[(krow) * (7 * 3 * 64) + (kcol) * (3 * 64) + (kch) * (64) + (poch) * (1)] * inp[(b) * (224 * 224 * 3) + ((porow * 2 + pwrow - 1) * 2 + krow - 3) * (224 * 3) + ((pocol * 2 + pwcol - 1) * 2 + kcol - 3) * (3) + (kch) * (1)]);
                     }
                   }
                 }
@@ -4248,21 +4250,18 @@ for (int b=0; b < 4; b++) {
               
               
             }
-            if (pwrow == 3 - 1 && pwcol == 3 - 1) {
-              output[(b) * ((_floor_div(112 + 2 * 2 - 3, 2) + 1) * (_floor_div(112 + 2 * 2 - 3, 2) + 1) * 64) + (porow * 2 + pwrow - 2) * ((_floor_div(112 + 2 * 2 - 3, 2) + 1) * 64) + (pocol * 2 + pwcol - 2) * (64) + (poch) * (1)] = running_max;
-            }
           }
         }
+        output[(b) * ((_floor_div(112 + 2 * 1 - 3, 2) + 1) * (_floor_div(112 + 2 * 1 - 3, 2) + 1) * 64) + (porow) * ((_floor_div(112 + 2 * 1 - 3, 2) + 1) * 64) + (pocol) * (64) + (poch) * (1)] = running_max;
         
       }
     }
   }
 }
 
+
 }
 
-static elem_t output_1[4][56][56][64];
-static elem_t output_2[4][56][56][64];
 
 static void tiled_conv_A_stride_auto(
         int batch_size, int in_dim, int in_channels,
@@ -4335,20 +4334,8 @@ static void tiled_conv_A_stride_auto(
     bool act_    = (bool) act;
 
     if (out_dim == 112) {
-        //  Not sure how to handle pool_size
         conv_1_lib_Context *ctxt;
-        conv_max_pool(ctxt, output_1, bias, input, weights, act_, &c_scale);
-        conv_cpu(batch_size, in_dim, in_channels, out_channels, out_dim, stride, input_dilation, kernel_dilation, padding, kernel_dim,
-                         false, false, false, false, false, input, weights, bias, output_2, act, scale, relu6_shift, pool_size, pool_stride, pool_padding);
-        for (int i=0; i<4; i++)
-          for (int j=0; j<56; j++)
-            for (int k=0; k<56; k++)
-              for (int l=0; l<64; l++)
-                if (output_1[i][j][k][l] != output_2[i][j][k][l])
-                  printf("i:%d, j:%d, k:%d, l:%d, our:%d, orig:%d\n",i,j,k,l, output_1[i][j][k][l], output_2[i][j][k][l]);
-
-        exit(0);
-
+        conv_max_pool(ctxt, output, bias, input, weights, act_, &c_scale);
     } else if (out_dim == 56 & out_channels == 64 & stride == 1) {
         conv_3_lib_Context *ctxt;
         conv_3(ctxt, output, bias, input, weights, act_, &c_scale);
