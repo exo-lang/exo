@@ -213,11 +213,11 @@ def ld_i8_s2(
     n     : size,
     m     : size,
     scale : f32,
-    src   : [i8][n*2, m] @ DRAM,
+    src   : [i8][n*2-1, m] @ DRAM,
     dst   : [i8][n, 16] @ GEMM_SCRATCH,
 ):
-    assert n <= 16
-    assert m <= 16
+    assert 0 < n and n <= 16
+    assert 0 < m and m <= 16
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
@@ -245,7 +245,7 @@ _do_gemm_ld_i8_stride_2 = ("gemmini_extended_mvin2( {src}.data, "+
 def do_ld_i8_s2_id1(
     n     : size,
     m     : size,
-    src   : [i8][n*2, m] @ DRAM,
+    src   : [i8][n*2-1, m] @ DRAM,
     dst   : [i8][n, 16] @ GEMM_SCRATCH,
 ):
     assert n <= 16

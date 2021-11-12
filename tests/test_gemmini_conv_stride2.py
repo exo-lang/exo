@@ -79,6 +79,22 @@ def orig_conv_partial_padding(
     DIM_HI     : index
     ):
 
+    assert out_dim == (in_dim + 2*padding - kernel_dim)/2 + 1
+    assert 0 <= padding < 16
+    assert padding < out_dim
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+    assert DIM_HI-padding > 0
+    assert in_channel%16 == 0
+    assert out_channel%16 == 0
+    assert padding == 1
+    assert DIM_SIZE > 2
+
     for och in par(0, out_channel/16):
 
         res : i32[DIM_SIZE,16] @ GEMM_ACCUM
@@ -88,31 +104,36 @@ def orig_conv_partial_padding(
         for kcol in par(0, kernel_dim):
             for krow in par(0, kernel_dim):
                 for kch in par(0, in_channel/16):
-                    if orow == 0 and krow == 0:
-                        pass
-                    else:
+                    if 0 <= orow*2+krow-padding and orow*2+krow-padding < in_dim:
                         in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
                         weight_scratch : i8[16,16] @ GEMM_SCRATCH
 
-                        if DIM_LO == 0 and kcol == 0:
+                        if DIM_LO*2+kcol-padding < 0 and DIM_HI*2+kcol-padding <= in_dim:
                             zero_i8(1, 16, in_scratch[0:1, :])
-                            ld_i8_s2(15, 16, one,
-                                inp[ b, orow*2+krow-1, 1:DIM_HI*2, 16*kch:16*(kch+1)],
-                                in_scratch[1:, :])
-                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim and in_dim > DIM_LO*2+kcol-2:
-                            ld_i8_s2((in_dim-(DIM_LO*2+kcol-1)+1)/2, 16, one,
+                            ld_i8_s2(DIM_SIZE-1, 16, one,
+                                inp[ b, orow*2+krow-1, 1:(DIM_SIZE-1)*2, 16*kch:16*(kch+1)],
+                                in_scratch[1:DIM_SIZE, :])
+                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim and DIM_LO*2+kcol-1 < in_dim and (in_dim-(DIM_LO*2+kcol-1))%2 == 0:
+                            ld_i8_s2((in_dim-(DIM_LO*2+kcol-1))/2, 16, one,
+                                inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:in_dim-1, 16*kch:16*(kch+1)],
+                                in_scratch[0:(in_dim-(DIM_LO*2+kcol-1))/2, :])
+                            zero_i8(DIM_SIZE-((in_dim-(DIM_LO*2+kcol-1))/2), 16, in_scratch[(in_dim-(DIM_LO*2+kcol-1))/2:, :])
+                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim and DIM_LO*2+kcol-1 < in_dim and (in_dim-(DIM_LO*2+kcol-1))%2 == 1:
+                            ld_i8_s2((in_dim-(DIM_LO*2+kcol-1))/2+1, 16, one,
                                 inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:, 16*kch:16*(kch+1)],
-                                in_scratch[0:(in_dim-(DIM_LO*2+kcol-1)+1)/2, :])
-                            zero_i8(DIM_SIZE-((in_dim-(DIM_LO*2+kcol-1)+1)/2), 16, in_scratch[(in_dim-(DIM_LO*2+kcol-1)+1)/2:, :])
+                                in_scratch[0:(in_dim-(DIM_LO*2+kcol-1))/2+1, :])
+                            if DIM_SIZE-((in_dim-(DIM_LO*2+kcol-1))/2+1) > 0:
+                                zero_i8(DIM_SIZE-((in_dim-(DIM_LO*2+kcol-1))/2+1), 16, in_scratch[(in_dim-(DIM_LO*2+kcol-1))/2+1:, :])
                         if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 <= in_dim:
                             ld_i8_s2(DIM_SIZE, 16, one,
-                            inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:DIM_HI*2+kcol-1, 16*kch:16*(kch+1)],
+                            inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:DIM_HI*2+kcol-2, 16*kch:16*(kch+1)],
                             in_scratch)
 
                         ld_i8(16, 16, one, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
                         matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
 
         st_acc_i8(DIM_SIZE,16, scale, act, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
+
 
 @proc
 def conv_partial_padding(
@@ -136,6 +157,20 @@ def conv_partial_padding(
     DIM_LO     : index,
     DIM_HI     : index
     ):
+    assert out_dim == (in_dim + 2*padding - kernel_dim)/2 + 1
+    assert 0 <= padding < 16
+    assert padding < out_dim
+    assert 0 <= b and b < batch_size
+    assert 0 <= orow and orow < out_dim
+    assert DIM_LO < DIM_HI
+    assert DIM_HI - DIM_LO <= 16
+    assert DIM_HI <= out_dim
+    assert DIM_HI - DIM_LO == DIM_SIZE
+    assert 0 <= DIM_LO
+    assert DIM_HI-padding > 0
+    assert in_channel%16 == 0
+    assert out_channel%16 == 0
+    assert padding == 1
 
     config_st_acc_i8(scale, stride(output, 2), act)
     config_ld_i8(one, stride(bias, 0))
@@ -155,20 +190,27 @@ def conv_partial_padding(
                         in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
                         weight_scratch : i8[16,16] @ GEMM_SCRATCH
 
-                        if DIM_LO == 0 and kcol == 0:
+                        if DIM_LO*2+kcol-padding < 0 and DIM_HI*2+kcol-padding <= in_dim:
                             do_zero_i8(1, 16, in_scratch[0:1, :])
-                            do_ld_i8_s2_id1(15, 16,
-                                inp[ b, orow*2+krow-1, 1:DIM_HI*2, 16*kch:16*(kch+1)],
-                                in_scratch[1:, :])
-                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim and in_dim > DIM_LO*2+kcol-2:
-                            do_ld_i8_s2_id1((in_dim-(DIM_LO*2+kcol-1)+1)/2, 16,
+                            do_ld_i8_s2_id1(DIM_SIZE-1, 16,
+                                inp[ b, orow*2+krow-1, 1:(DIM_SIZE-1)*2, 16*kch:16*(kch+1)],
+                                in_scratch[1:DIM_SIZE, :])
+                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim and DIM_LO*2+kcol-1 < in_dim and (in_dim-(DIM_LO*2+kcol-1))%2 == 0:
+                            do_ld_i8_s2_id1((in_dim-(DIM_LO*2+kcol-1))/2, 16,
+                                inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:in_dim-1, 16*kch:16*(kch+1)],
+                                in_scratch[0:(in_dim-(DIM_LO*2+kcol-1))/2, :])
+                            do_zero_i8(DIM_SIZE-((in_dim-(DIM_LO*2+kcol-1))/2), 16, in_scratch[(in_dim-(DIM_LO*2+kcol-1))/2:, :])
+                        if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 > in_dim and DIM_LO*2+kcol-1 < in_dim and (in_dim-(DIM_LO*2+kcol-1))%2 == 1:
+                            do_ld_i8_s2_id1((in_dim-(DIM_LO*2+kcol-1))/2+1, 16,
                                 inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:, 16*kch:16*(kch+1)],
-                                in_scratch[0:(in_dim-(DIM_LO*2+kcol-1)+1)/2, :])
-                            do_zero_i8(DIM_SIZE-((in_dim-(DIM_LO*2+kcol-1)+1)/2), 16, in_scratch[(in_dim-(DIM_LO*2+kcol-1)+1)/2:, :])
+                                in_scratch[0:(in_dim-(DIM_LO*2+kcol-1))/2+1, :])
+                            if DIM_SIZE-((in_dim-(DIM_LO*2+kcol-1))/2+1) > 0:
+                                do_zero_i8(DIM_SIZE-((in_dim-(DIM_LO*2+kcol-1))/2+1), 16, in_scratch[(in_dim-(DIM_LO*2+kcol-1))/2+1:, :])
                         if DIM_LO*2+kcol-1 >= 0 and DIM_HI*2+kcol-1 <= in_dim:
                             do_ld_i8_s2_id1(DIM_SIZE, 16,
-                            inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:DIM_HI*2+kcol-1, 16*kch:16*(kch+1)],
+                            inp[ b, orow*2+krow-1, DIM_LO*2+kcol-1:DIM_HI*2+kcol-2, 16*kch:16*(kch+1)],
                             in_scratch)
+
 
                         do_ld_i8_id2(16, 16, weights[ krow, kcol, 16*kch:16*(kch+1), 16*och:16*(och+1)], weight_scratch)
                         do_matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
@@ -223,6 +265,9 @@ def test_conv_13():
         assert out_dim == (in_dim + 2*padding - kernel_dim)/2 + 1
         assert 0 <= padding < 16
         assert padding < out_dim
+        assert in_channel%16 == 0
+        assert out_channel%16 == 0
+        assert padding == 1
 
         one : f32
         one = 1.0
@@ -271,9 +316,11 @@ def test_conv_13():
     gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #0', 'och #0', 0)
     gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #1', 'och #0', 0)
     gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #2', 'och #0', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #3', 'och #1', 0)
+    gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #3', 'och #0', 0)
     gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #4', 'och #1', 0)
     gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #5', 'och #1', 0)
+    gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #6', 'och #1', 0)
+    gemmini = gemmini.add_guard('do_ld_i8_s2_id1(_) #7', 'och #1', 0)
 
     gemmini = gemmini.simplify()
 
@@ -305,9 +352,9 @@ def test_conv_13():
 
     T.compile().run()
 
-"""
-"""
 
+
+@pytest.mark.skip()
 def test_conv_26():
     T = GemmTestBuilder('conv_26')
     T.add_body(['gemm_init_mem();',
@@ -355,6 +402,9 @@ def test_conv_26():
         assert out_dim == (in_dim + 2*padding - kernel_dim)/2 + 1
         assert 0 <= padding < 16
         assert padding < out_dim
+        assert in_channel%16 == 0
+        assert out_channel%16 == 0
+        assert padding == 1
 
         one : f32
         one = 1.0
@@ -475,6 +525,9 @@ def test_conv_45():
         assert out_dim == (in_dim + 2*padding - kernel_dim)/2 + 1
         assert 0 <= padding < 16
         assert padding < out_dim
+        assert in_channel%16 == 0
+        assert out_channel%16 == 0
+        assert padding == 1
 
         one : f32
         one = 1.0
@@ -550,7 +603,7 @@ def test_conv_45():
 
 
 
-
+"""
 @proc
 def conv_partial_no_padding(
     batch_size : size,
@@ -598,9 +651,9 @@ def conv_partial_no_padding(
                     do_matmul_acc_i8(DIM_SIZE,16,16,in_scratch,weight_scratch,res)
 
         do_st_acc_i8(DIM_SIZE,16, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
+"""
 
-
-
+@pytest.mark.skip()
 def test_conv_47():
     T = GemmTestBuilder('conv_47')
     T.add_body(['gemm_init_mem();',
