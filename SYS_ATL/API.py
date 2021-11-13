@@ -312,15 +312,15 @@ class Procedure(ProcedureBase):
                                         win=is_window).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def set_memory(self, name, memory_obj):
+    def set_memory(self, name, memory_type):
         name, count = name_plus_count(name)
-        if not isinstance(memory_obj, Memory):
+        if not issubclass(memory_type, Memory):
             raise TypeError("expected second argument to set_memory() to "
                             "be a Memory object")
 
         loopir = self._loopir_proc
         loopir = Schedules.SetTypAndMem(loopir, name, count,
-                                        mem=memory_obj).result()
+                                        mem=memory_type).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def _find_stmt(self, stmt_pattern, call_depth=2, default_match_no=0):

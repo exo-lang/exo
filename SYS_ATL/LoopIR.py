@@ -84,7 +84,7 @@ module UAST {
 } """, {
     'name':        is_valid_name,
     'sym':         lambda x: isinstance(x, Sym),
-    'mem':         lambda x: isinstance(x, Memory),
+    'mem':         lambda x: issubclass(x, Memory),
     'builtin':     lambda x: isinstance(x, BuiltIn),
     'config':      lambda x: isinstance(x, Config),
     'loopir_proc': lambda x: isinstance(x, LoopIR.proc),
@@ -237,7 +237,7 @@ module LoopIR {
     'name':    is_valid_name,
     'sym':     lambda x: isinstance(x, Sym),
     'effect':  lambda x: isinstance(x, E.effect),
-    'mem':     lambda x: isinstance(x, Memory),
+    'mem':     lambda x: issubclass(x, Memory),
     'builtin': lambda x: isinstance(x, BuiltIn),
     'config':  lambda x: isinstance(x, Config),
     'binop':   lambda x: x in bin_ops,
@@ -333,7 +333,7 @@ def ctype(t):
     elif isinstance(t, T.Bool):
         return "bool"
     elif isinstance(t, (T.Int, T.Index, T.Size, T.Stride)):
-        return "int"
+        return "int_fast32_t"
 del ctype
 
 
@@ -955,5 +955,3 @@ class SubstArgs(LoopIR_Rewrite):
                              [ self.map_w_access(w) for w in t.idx ] )
 
         return super().map_t(t)
-
-
