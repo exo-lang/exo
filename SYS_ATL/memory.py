@@ -59,55 +59,63 @@ class MemGenError(Exception):
 
 
 class Memory(ABC):
-    def name(self):
-        return type(self).__name__
+    @classmethod
+    def name(cls):
+        return cls.__name__
 
-    @property
-    @abstractmethod
-    def global_(self):
+    @classmethod
+    def global_(cls):
         """
         C code
         """
-        raise NotImplementedError()
+        return ''
 
+    @classmethod
     @abstractmethod
-    def alloc(self, new_name, prim_type, shape, srcinfo):
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
         """
         python gemmini_extended_compute_preloaded
         """
         raise NotImplementedError()
 
+    @classmethod
     @abstractmethod
-    def free(self, new_name, prim_type, shape, srcinfo):
+    def free(cls, new_name, prim_type, shape, srcinfo):
         raise NotImplementedError()
 
-    def window(self, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    @classmethod
+    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
         if basetyp.is_win():
             baseptr = f'{baseptr}.data'
         return f'{baseptr} + {idx_expr}'
 
-    @property
-    @abstractmethod
-    def can_read(self):
+    @classmethod
+    def can_read(cls):
         raise False
 
-    def write(self, s, lhs, rhs):
+    @classmethod
+    def write(cls, s, lhs, rhs):
         raise MemGenError(f"{s.srcinfo}: cannot write to buffer "
-                          f"'{s.name}' in memory '{self.name()}'")
+                          f"'{s.name}' in memory '{cls.name()}'")
 
-    def reduce(self, s, lhs, rhs):
+    @classmethod
+    def reduce(cls, s, lhs, rhs):
         raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "
-                          f"'{s.name}' in memory '{self.name()}'")
+                          f"'{s.name}' in memory '{cls.name()}'")
 
 
 # ----------- DRAM on LINUX ----------------
 
-class DRAMBase(Memory):
-    @property
-    def global_(self):
-        return "#include <stdio.h>\n" + "#include <stdlib.h>\n"
+class DRAM(Memory):
+    @classmethod
+    def global_(cls):
+        return '\n'.join([
+            "#include <stdio.h>",
+            "#include <stdlib.h>"
+        ])
 
-    def alloc(self, new_name, prim_type, shape, srcinfo):
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
         if len(shape) == 0:
             return f"{prim_type} {new_name};"
         else:
@@ -117,21 +125,21 @@ class DRAMBase(Memory):
             return (f"{prim_type} *{new_name} = "
                     f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
 
-    def free(self, new_name, prim_type, shape, srcinfo):
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
         if len(shape) == 0:
             return ""
         else:
             return f"free({new_name});"
 
-    @property
-    def can_read(self):
+    @classmethod
+    def can_read(cls):
         return True
 
-    def write(self, s, lhs, rhs):
+    @classmethod
+    def write(cls, s, lhs, rhs):
         return f'{lhs} = {rhs};'
 
-    def reduce(self, s, lhs, rhs):
+    @classmethod
+    def reduce(cls, s, lhs, rhs):
         return f"{lhs} += {rhs};"
-
-
-DRAM = DRAMBase()

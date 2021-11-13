@@ -294,9 +294,7 @@ def compile_to_strings(lib_name, proc_list):
 
     m: Memory
     for m in mem_list:
-        if m.global_:
-            body.append(m.global_)
-            body.append("\n")
+        body.append(f'{m.global_()}\n')
 
     for b in builtin_list:
         glb = b.globl()
@@ -691,7 +689,7 @@ class Compiler:
 
                 mem: Memory = self.mems[e.name]
 
-                if not mem.can_read:
+                if not mem.can_read():
                     raise MemGenError(f"{e.srcinfo}: cannot read from buffer "
                                       f"'{e.name}' in memory '{mem.name()}'")
 

@@ -314,7 +314,7 @@ class Procedure(ProcedureBase):
 
     def set_memory(self, name, memory_obj):
         name, count = name_plus_count(name)
-        if not isinstance(memory_obj, Memory):
+        if not issubclass(memory_obj, Memory):
             raise TypeError("expected second argument to set_memory() to "
                             "be a Memory object")
 
