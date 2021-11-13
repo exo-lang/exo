@@ -16,6 +16,8 @@
 #           * write to the memory (optional)
 #           * reduce to the memory (optional)
 """
+from abc import ABC, abstractmethod
+
 """
 --- Alloc specifications ---
     - new_name is a string with the variable name to be allocated.
@@ -51,59 +53,89 @@
         message.  This error will be reported to the user.
 """
 
+
 class MemGenError(Exception):
     pass
 
-class Memory:
-    def __init__(self, name,
-        globl   = None, # C code
-        alloc   = None, # python gemmini_extended_compute_preloaded
-        free    = None,
-        window  = None,
-        read    = False,
-        write   = False,
-        red     = False,
-    ):
-        if alloc is None:
-            raise TypeError("must supply 'alloc' argument")
-        if free is None:
-            raise TypeError("must supply 'free' argument")
-        self._name      = name
-        self._global    = globl
-        self._alloc     = alloc
-        self._free      = free
-        self._window    = window
-        self._read      = read
-        self._write     = write
-        self._reduce    = red
 
+class Memory(ABC):
     def name(self):
-        return self._name
+        return type(self).__name__
+
+    @property
+    @abstractmethod
+    def global_(self):
+        """
+        C code
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def alloc(self, new_name, prim_type, shape, srcinfo):
+        """
+        python gemmini_extended_compute_preloaded
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def free(self, new_name, prim_type, shape, srcinfo):
+        raise NotImplementedError()
+
+    def window(self, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+        if basetyp.is_win():
+            baseptr = f'{baseptr}.data'
+        return f'{baseptr} + {idx_expr}'
+
+    @property
+    @abstractmethod
+    def can_read(self):
+        raise False
+
+    @property
+    @abstractmethod
+    def can_write(self):
+        raise False
+
+    @property
+    @abstractmethod
+    def can_reduce(self):
+        raise False
 
 
 # ----------- DRAM on LINUX ----------------
 
-def _dram_alloc(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return (f"{prim_type} {new_name};")
-    else:
-        size_str = shape[0]
-        for s in shape[1:]:
-            size_str = f"{s} * {size_str}"
-        return (f"{prim_type} *{new_name} = "
-                f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
+class DRAMBase(Memory):
+    @property
+    def global_(self):
+        return "#include <stdio.h>\n" + "#include <stdlib.h>\n"
 
-def _dram_free(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return ""
-    else:
-        return f"free({new_name});"
+    def alloc(self, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return f"{prim_type} {new_name};"
+        else:
+            size_str = shape[0]
+            for s in shape[1:]:
+                size_str = f"{s} * {size_str}"
+            return (f"{prim_type} *{new_name} = "
+                    f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
 
-DRAM = Memory("DRAM",
-        globl   = "#include <stdio.h>\n" + "#include <stdlib.h>\n",
-        alloc   = _dram_alloc,
-        free    = _dram_free,
-        read    = True,
-        write   = True,
-        red     = True,
-       )
+    def free(self, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return ""
+        else:
+            return f"free({new_name});"
+
+    @property
+    def can_read(self):
+        return True
+
+    @property
+    def can_write(self):
+        return True
+
+    @property
+    def can_reduce(self):
+        return True
+
+
+DRAM = DRAMBase()

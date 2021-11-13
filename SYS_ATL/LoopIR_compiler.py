@@ -7,7 +7,7 @@ from .LoopIR import LoopIR, LoopIR_Do
 from .LoopIR import T
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
-from .memory import MemGenError
+from .memory import MemGenError, Memory
 from .prec_analysis import PrecisionAnalysis
 from .prelude import *
 from .win_analysis import WindowAnalysis
@@ -278,9 +278,10 @@ def compile_to_strings(lib_name, proc_list):
     fwd_decls = []
     struct_defns = set()
 
+    m: Memory
     for m in mem_list:
-        if m._global:
-            body.append(m._global)
+        if m.global_:
+            body.append(m.global_)
             body.append("\n")
 
     for b in builtin_list:
@@ -553,14 +554,14 @@ class Compiler:
                 else:
                     rhs = f"({lbtyp.ctype()})({rhs})"
 
-            mem = self.mems[s.name]
+            mem: Memory = self.mems[s.name]
             if styp is LoopIR.Assign:
-                if not mem._write:
+                if not mem.can_write:
                     raise MemGenError(f"{s.srcinfo}: cannot write to buffer "
                                       f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} = {rhs};")
             else:
-                if not mem._reduce:
+                if not mem.can_reduce:
                     raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "
                                       f"'{s.name}' in memory '{mem.name()}'")
                 self.add_line(f"{lhs} += {rhs};")
@@ -622,20 +623,20 @@ class Compiler:
             assert s.type.basetype().is_real_scalar()
             assert s.type.basetype() != T.R
             ctype = s.type.basetype().ctype()
-            line = s.mem._alloc( name,
-                                 ctype,
-                                 self.shape_strs( s.type.shape() ),
-                                 s.srcinfo )
+            line = s.mem.alloc(name,
+                               ctype,
+                               self.shape_strs(s.type.shape()),
+                               s.srcinfo)
 
             self.add_line(line)
         elif styp is LoopIR.Free:
             name = self.env[s.name]
             assert s.type.basetype().is_real_scalar()
             ctype = s.type.basetype().ctype()
-            line = s.mem._free( name,
-                                ctype,
-                                self.shape_strs( s.type.shape() ),
-                                s.srcinfo )
+            line = s.mem.free(name,
+                              ctype,
+                              self.shape_strs(s.type.shape()),
+                              s.srcinfo)
             self.add_line(line)
         elif styp is LoopIR.Call:
             assert all(a.type.is_win() == fna.type.is_win()
@@ -679,9 +680,9 @@ class Compiler:
                 if rtyp.is_indexable() or rtyp is T.bool or rtyp == T.stride:
                     return self.env[e.name]
 
-                mem = self.mems[e.name]
+                mem: Memory = self.mems[e.name]
 
-                if not mem._read:
+                if not mem.can_read:
                     raise MemGenError(f"{e.srcinfo}: cannot read from buffer "
                                       f"'{e.name}' in memory '{mem.name()}'")
 
@@ -695,7 +696,7 @@ class Compiler:
             win_struct  = self.get_window_type(e.type)
             base        = self.env[e.name]
             basetyp     = self.envtyp[e.name]
-            mem         = self.mems[e.name]
+            mem: Memory = self.mems[e.name]
 
             # compute offset to new data pointer
             def w_lo(w):
@@ -710,16 +711,9 @@ class Compiler:
             strides     = [s for s, w in zip(all_strides, e.idx)
                            if isinstance(w, LoopIR.Interval)]
 
-            # apply offset to new data pointer
-            baseptr = base
-            if basetyp.is_win():
-                baseptr = f"{base}.data"
-            if mem._window:
-                dataptr = mem._window(basetyp.basetype().ctype(),
-                                      base, idxs, all_strides, e.srcinfo)
-            else:
-                idx_expr = self.get_idx_offset(base, basetyp, idxs)
-                dataptr = f"{baseptr} + {idx_expr}"
+            idx_expr = self.get_idx_offset(base, basetyp, idxs)
+            dataptr = mem.window(basetyp, base, idx_expr, idxs, all_strides,
+                                 e.srcinfo)
 
             struct_str = (f"(struct {win_struct}){{ {dataptr},"
                           f" {{ {','.join(strides)} }} }}")
