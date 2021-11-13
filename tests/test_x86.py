@@ -17,7 +17,6 @@ if platform.system() == 'Darwin':
     pytest.skip("skipping x86 tests on Apple machines for now",
                 allow_module_level=True)
 
-
 def test_avx2_memcpy():
     """
     Compute dst = src
@@ -169,7 +168,7 @@ def sgemm_test_cases(proc, M, N, K):
         assert np.allclose(C, C_out), f"sgemm failed for m={m} n={n} k={k}"
 
 
-def gen_sgemm_6x16_avx():
+def gen_rank_k_reduce_6x16():
     @proc
     def rank_k_reduce_6x16(
         K: size,
@@ -182,6 +181,48 @@ def gen_sgemm_6x16_avx():
                 for k in par(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
+    avx = rank_k_reduce_6x16
+    avx = avx.stage_assn('C_reg', 'C[_] += _')
+    avx = avx.split('j', 8, ['jo', 'ji'], perfect=True)
+    avx = avx.reorder('ji', 'k')
+    avx = avx.reorder('jo', 'k')
+    avx = avx.reorder('i', 'k')
+    avx = avx.lift_alloc('C_reg:_', n_lifts=3)
+    avx = avx.fission_after('C_reg = _ #0', n_lifts=3)
+    avx = avx.fission_after('C_reg[_] += _ #0', n_lifts=3)
+    avx = avx.par_to_seq('for k in _:_')
+    avx = avx.lift_alloc('C_reg:_', n_lifts=1)
+    avx = avx.fission_after('for i in _:_#0', n_lifts=1)
+    avx = avx.fission_after('for i in _:_#1', n_lifts=1)
+    avx = avx.simplify()
+
+    return avx
+
+
+def gen_rank_k_reduce_6x16_zero():
+    @proc
+    def rank_k_reduce_6x16(
+        K: size,
+        C: [f32][6, 16] @ DRAM,
+        A: [f32][6, K] @ DRAM,
+        B: [f32][K, 16] @ DRAM,
+    ):
+        for i in par(0, 6):
+            for j in par(0, 16):
+                C[i, j] = 0.0
+                for k in par(0, K):
+                    C[i, j] += A[i, k] * B[k, j]
+
+    avx = rank_k_reduce_6x16
+    avx = avx.stage_assn('tmp', 'C[i,j] += _')
+    avx = avx.stage_assn('C_reg', 'C[i,j] = 0.0')
+    avx = avx.double_fission('tmp = _', 'tmp += _')
+    avx = avx.data_reuse('C_reg : _', 'tmp : _')
+    avx = avx.simplify()
+    # TODO: Need to implement data constant propagation and
+    # deadcode elimination
+
+def gen_sgemm_6x16_avx():
     @proc
     def avx2_sgemm_6x16(
         K: size,
@@ -208,6 +249,8 @@ def gen_sgemm_6x16_avx():
                 for ji in par(0, 8):
                     C[i, jo * 8 + ji] += C_reg[i, jo, ji]
 
+    # TODO: What to do with K < 1 ??
+    rank_k_reduce_6x16 = gen_rank_k_reduce_6x16()
     rank_k_reduce_6x16.unsafe_assert_eq(avx2_sgemm_6x16)
 
     avx2_sgemm_6x16 = (

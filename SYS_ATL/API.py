@@ -549,6 +549,22 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
         
+    def lift_if(self, if_pattern, n_lifts=1):
+        if not isinstance(if_pattern, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(n_lifts, int):
+            raise TypeError("expected second arg to be a int")
+
+        stmt = self._find_stmt(if_pattern, default_match_no=None)
+
+        if not stmt:
+            raise TypeError("failed to find stmt")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.DoLiftIf(loopir, stmt[0]).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
 
     def reorder(self, out_var, in_var):
         if not isinstance(out_var, str):
@@ -676,15 +692,14 @@ class Procedure(ProcedureBase):
         if not is_valid_name(new_name):
             raise TypeError("expected first argument to be a valid name")
 
-        ir = self._loopir_proc
-        matches = match_pattern(ir.body, stmt_pattern, call_depth=1,
-                                default_match_no=0)
-        if not matches:
+        stmts = self._find_stmt(stmt_pattern, default_match_no=None)
+
+        if not stmts:
             raise ValueError("failed to find Assign or Reduce")
 
-        for match in matches:
-            if isinstance(match, list) and len(match) == 1:
-                match = match[0]
+        ir = self._loopir_proc
+
+        for match in stmts:
             if not isinstance(match, (LoopIR.Assign, LoopIR.Reduce)):
                 raise ValueError(f"expected Assign or Reduce, got {match}")
             ir = Schedules.DoStageAssn(ir, new_name, match).result()
@@ -725,6 +740,23 @@ class Procedure(ProcedureBase):
                 loopir, s, n_lifts, mode, size, keep_dims).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def double_fission(self, stmt_pat1, stmt_pat2, n_lifts=1):
+        if not isinstance(stmt_pat1, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(stmt_pat2, str):
+            raise TypeError("expected second arg to be a string")
+        if not is_pos_int(n_lifts):
+            raise TypeError("expected third argument 'n_lifts' to be "
+                            "a positive integer")
+
+        stmt1  = self._find_stmt(stmt_pat1)
+        stmt2  = self._find_stmt(stmt_pat2)
+        loopir = self._loopir_proc
+        loopir = Schedules.DoDoubleFission(loopir, stmt1, stmt2, n_lifts).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
 
     def fission_after(self, stmt_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):
