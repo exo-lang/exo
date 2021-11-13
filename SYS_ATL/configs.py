@@ -61,7 +61,7 @@ def ctyp(typ):
     elif (isinstance(typ, LoopIR.T.Index) or
           isinstance(typ, LoopIR.T.Size) or
           isinstance(typ, LoopIR.T.Stride)):
-        return "int"
+        return "int_fast32_t"
     else:
         assert False, f"bad case! {typ}"
 

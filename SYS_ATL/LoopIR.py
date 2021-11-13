@@ -333,7 +333,7 @@ def ctype(t):
     elif isinstance(t, T.Bool):
         return "bool"
     elif isinstance(t, (T.Int, T.Index, T.Size, T.Stride)):
-        return "int"
+        return "int_fast32_t"
 del ctype
 
 
