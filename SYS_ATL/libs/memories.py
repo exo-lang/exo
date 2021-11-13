@@ -92,14 +92,6 @@ class GEMM_SCRATCH_BASE(Memory):
     def can_read(self):
         return False
 
-    @property
-    def can_write(self):
-        return False
-
-    @property
-    def can_reduce(self):
-        return False
-
 
 GEMM_SCRATCH = GEMM_SCRATCH_BASE()
 
@@ -150,14 +142,6 @@ class GEMM_ACCUM_BASE(Memory):
     def can_read(self):
         return False
 
-    @property
-    def can_write(self):
-        return False
-
-    @property
-    def can_reduce(self):
-        return False
-
 
 GEMM_ACCUM = GEMM_ACCUM_BASE()
 
@@ -193,14 +177,6 @@ class AVX2Base(Memory):
 
     @property
     def can_read(self):
-        return False
-
-    @property
-    def can_write(self):
-        return False
-
-    @property
-    def can_reduce(self):
         return False
 
 
@@ -243,14 +219,6 @@ class AVX512Base(Memory):
     def can_read(self):
         return False
 
-    @property
-    def can_write(self):
-        return False
-
-    @property
-    def can_reduce(self):
-        return False
-
 
 AVX512 = AVX512Base()
 
@@ -270,14 +238,6 @@ class AMX_TILE_BASE(Memory):
 
     @property
     def can_read(self):
-        return False
-
-    @property
-    def can_write(self):
-        return False
-
-    @property
-    def can_reduce(self):
         return False
 
 

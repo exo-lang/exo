@@ -571,15 +571,9 @@ class Compiler:
 
             mem: Memory = self.mems[s.name]
             if styp is LoopIR.Assign:
-                if not mem.can_write:
-                    raise MemGenError(f"{s.srcinfo}: cannot write to buffer "
-                                      f"'{s.name}' in memory '{mem.name()}'")
-                self.add_line(f"{lhs} = {rhs};")
+                self.add_line(mem.write(s, lhs, rhs))
             else:
-                if not mem.can_reduce:
-                    raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "
-                                      f"'{s.name}' in memory '{mem.name()}'")
-                self.add_line(f"{lhs} += {rhs};")
+                self.add_line(mem.reduce(s, lhs, rhs))
 
         elif styp is LoopIR.WriteConfig:
             if not s.config.is_allow_rw():

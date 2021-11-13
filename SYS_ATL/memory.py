@@ -91,15 +91,13 @@ class Memory(ABC):
     def can_read(self):
         raise False
 
-    @property
-    @abstractmethod
-    def can_write(self):
-        raise False
+    def write(self, s, lhs, rhs):
+        raise MemGenError(f"{s.srcinfo}: cannot write to buffer "
+                          f"'{s.name}' in memory '{self.name()}'")
 
-    @property
-    @abstractmethod
-    def can_reduce(self):
-        raise False
+    def reduce(self, s, lhs, rhs):
+        raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "
+                          f"'{s.name}' in memory '{self.name()}'")
 
 
 # ----------- DRAM on LINUX ----------------
@@ -129,13 +127,11 @@ class DRAMBase(Memory):
     def can_read(self):
         return True
 
-    @property
-    def can_write(self):
-        return True
+    def write(self, s, lhs, rhs):
+        return f'{lhs} = {rhs};'
 
-    @property
-    def can_reduce(self):
-        return True
+    def reduce(self, s, lhs, rhs):
+        return f"{lhs} += {rhs};"
 
 
 DRAM = DRAMBase()
