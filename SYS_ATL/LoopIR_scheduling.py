@@ -1767,6 +1767,14 @@ class _DoExtractMethod(LoopIR_Rewrite):
         return e
 
 
+class _DoLiftIf(LoopIR_Rewrite):
+    def __init__(self, proc):
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+
+
 class _DoSimplify(LoopIR_Rewrite):
     def __init__(self, proc):
         super().__init__(proc)
@@ -1928,3 +1936,4 @@ class Schedules:
     DoFuseLoop          = _DoFuseLoop
     DoAddLoop           = _DoAddLoop
     DoDataReuse         = _DoDataReuse
+    DoLiftIf            = _DoLiftIf

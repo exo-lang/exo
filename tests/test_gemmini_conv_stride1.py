@@ -36,9 +36,23 @@ def conv_on_cpu():
                         for krow in par(0, kernel_dim):
                             for kcol in par(0, kernel_dim):
                                 for kch in par(0, in_channel):
-                                    if (0 <= orow+krow-padding  and orow+krow-padding < in_dim and
-                                            0 <= ocol+kcol-padding and ocol+kcol-padding < in_dim):
-                                        res += weights[krow,kcol,kch,och] * inp[b,orow+krow-padding,ocol+kcol-padding,kch]
+                                    if (0 <= orow+krow-padding  and orow+krow-padding < in_dim):
+                                        w_s : i8 @ GEMM_SCRATCH
+                                        i_s : i8 @ GEMM_SCRATCH
+
+                                        w_s = weights[krow,kcol,kch,och]
+
+                                        if (0 <= ocol+kcol-padding and ocol+kcol-padding < in_dim):
+                                            i_s = inp[b,orow+krow-padding,ocol+kcol-padding,kch]
+                                        else:
+                                            i_s = 0.0
+
+                                        a2 : i32
+                                        b2 : i32
+                                        a2 = w_s
+                                        b2 = i_s
+
+                                        res += a2 * b2
 
                         tmp_res1 : f32
                         #tmp_res1 = res
@@ -132,7 +146,6 @@ def conv_partial_padding(
 
         do_st_acc_i8(DIM_SIZE,16, res, output[b, orow, DIM_LO:DIM_HI, 16*och:16*(och+1)])
 
-@pytest.mark.skip()
 def test_conv_3():
     T = GemmTestBuilder('conv_3')
     T.add_body(['gemm_init_mem();',
@@ -159,6 +172,27 @@ def test_conv_3():
     T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
     T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, '1')
     T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, '1')
+
+    conv = conv_on_cpu()
+    conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
+    conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
+    conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
+    conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
+    conv = conv.reorder('ocol_i', 'och_o')
+    conv = conv.lift_alloc('res : _', n_lifts=2)
+    conv = conv.fission_after('res[_] = _', n_lifts=2)
+    conv = conv.fission_after('for krow in _:_', n_lifts=2)
+    conv = conv.reorder('och_i', 'krow')
+    conv = conv.reorder('och_i', 'kcol')
+    conv = conv.reorder('och_i', 'kch_o')
+    conv = conv.reorder('ocol_i', 'krow')
+    conv = conv.reorder('ocol_i', 'kcol')
+    conv = conv.reorder('ocol_i', 'kch_o')
+    conv = conv.lift_alloc('i_s : _', n_lifts=4)
+    print(conv)
+"""
+    conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1 and 16 * ocol_o + ocol_i + kcol - 1 < 56 : _', n_lifts=1)
+
 
     @proc
     def conv_3(
@@ -267,7 +301,7 @@ def test_conv_3():
                  ''])
 
     T.compile().run()
-
+"""
 
 @pytest.mark.skip()
 def test_conv_17():
@@ -521,7 +555,7 @@ def test_conv_30():
 
     T.compile().run()
 
-
+@pytest.mark.skip()
 def test_conv_49():
     T = GemmTestBuilder('conv_49')
     T.add_body(['gemm_init_mem();',

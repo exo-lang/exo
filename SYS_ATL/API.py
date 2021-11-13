@@ -549,6 +549,22 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
         
+    def lift_if(self, if_pattern, n_lifts=1):
+        if not isinstance(if_pattern, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(n_lifts, int):
+            raise TypeError("expected second arg to be a int")
+
+        stmt = self._find_stmt(if_pattern, default_match_no=None)
+
+        if not stmt:
+            raise TypeError("failed to find stmt")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.DoLiftIf(loopir, stmt[0]).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
 
     def reorder(self, out_var, in_var):
         if not isinstance(out_var, str):
