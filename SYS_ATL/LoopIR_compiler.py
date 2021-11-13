@@ -458,20 +458,20 @@ class Compiler:
 
     def push(self, only=None):
         if only is None:
-            self.env.new_child()
-            self.names.new_child()
+            self.env = self.env.new_child()
+            self.names = self.names.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.new_child()
-            self.names.new_child()
+            self.env = self.env.new_child()
+            self.names = self.names.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.parents
-        self.names.parents
+        self.env = self.env.parents
+        self.names = self.names.parents
         self._tab = self._tab[:-2]
 
     def access_str(self, nm, idx_list):
