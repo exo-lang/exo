@@ -6,6 +6,21 @@ from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 
 
+def test_double_fission():
+    @proc
+    def foo(N : size, a : f32[N], b : f32[N], out : f32[N]):
+        for i in par(0, N):
+            res : f32
+            res = 0.0
+
+            res += a[i] * b[i]
+
+            out[i] = res
+
+    foo = foo.lift_alloc('res : _')
+    foo = foo.double_fission('res = _ #0', 'res += _ #0')
+    print(foo)
+
 def test_data_reuse():
     @proc
     def foo(a : f32 @DRAM, b : f32 @DRAM):
@@ -325,4 +340,3 @@ def test_unify6():
 
     bar = bar.replace(load, "for i in _:_")
     assert 'load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])' in str(bar)
-
