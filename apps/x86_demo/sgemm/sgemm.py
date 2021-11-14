@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from SYS_ATL.LoopIR_compiler import run_compile
+
 from SYS_ATL import *
 from SYS_ATL.platforms.x86 import *
 from SYS_ATL.syntax import *
@@ -94,5 +96,8 @@ def sgemm_sys_atl(
             for j in par(0, N):
                 C[i, j] += A[i, k] * B[k, j]
 
+
+if __name__ == '__main__':
+    print(sgemm_kernel_avx512_6x4.c_code_str())
 
 __all__ = ['sgemm_kernel_avx512_6x4', 'sgemm_sys_atl']

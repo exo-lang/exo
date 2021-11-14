@@ -608,7 +608,7 @@ class Compiler:
             hi = self.comp_e(s.hi)
             self.push(only='env')
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.add_line(f"for (int {itr}=0; {itr} < {hi}; {itr}++) {{")
+            self.add_line(f"for (int {itr} = 0; {itr} < {hi}; {itr}++) {{")
             self.push(only='tab')
             self.comp_stmts(s.body)
             self.pop()
