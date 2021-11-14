@@ -1084,20 +1084,17 @@ class _DoLiftIf(LoopIR_Rewrite):
         self.n_lifts      = n_lifts
 
         self.ctrl_ctxt    = []
-        self.lift_site    = None
+        self.lift_sites   = []
 
         super().__init__(proc)
-        print(proc)
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
         if s == self.if_stmt:
-            # mark the point we want to lift this alloc-stmt to
             n_up = min(self.n_lifts, len(self.ctrl_ctxt))
-            print("n_up", n_up)
-            self.lift_site = self.ctrl_ctxt[-n_up]
+            self.lift_sites = self.ctrl_ctxt[-n_up:]
 
             # erase the statement from this location
             return []
@@ -1105,31 +1102,27 @@ class _DoLiftIf(LoopIR_Rewrite):
         elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)): #TODO: Need to lift if??
             # handle recursive part of pass at this statement
             self.ctrl_ctxt.append(s)
-            stmts = super().map_s(s)
+            orig_body = super().map_stmts(s.body)
             self.ctrl_ctxt.pop()
 
             # splice in lifted statement at the point to lift-to
-            if s == self.lift_site:
+            if s in self.lift_sites:
                 if s.iter in self.if_deps:
                     raise SchedulingError("If statement condition should not depend on "+
                                           "loop variable")
                 if len(s.body) != 1:
                     raise SchedulingError("expected if statement to be directly inside "+
                                           "the loop")
-                if s.body[0] != self.if_stmt:
-                    print(s)
-                    print()
-                    print(s.body[0])
-                    print()
-                    print(self.if_stmt)
-                    raise SchedulingError("expected if statement to be directly inside "+
-                                          "the loop")
 
                 body   = [type(s)(s.iter, s.hi, self.if_stmt.body, None, s.srcinfo)]
-                orelse = [type(s)(s.iter, s.hi, self.if_stmt.orelse, None, s.srcinfo)]
-                return [LoopIR.If(self.if_stmt.cond, body, orelse, None, s.srcinfo)]
+                orelse = []
+                if len(self.if_stmt.orelse) > 0:
+                    orelse = [type(s)(s.iter, s.hi, self.if_stmt.orelse, None, s.srcinfo)]
+                self.if_stmt = LoopIR.If(self.if_stmt.cond, body, orelse, None, s.srcinfo)
 
-            return stmts
+                return [self.if_stmt]
+
+            return [type(s)(s.iter, s.hi, orig_body, None, s.srcinfo)]
 
         # fall-through
         return super().map_s(s)

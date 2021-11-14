@@ -189,7 +189,7 @@ def test_conv_3():
     conv = conv.reorder('ocol_i', 'kcol')
     conv = conv.reorder('ocol_i', 'kch_o')
     conv = conv.lift_alloc('i_s : _', n_lifts=4)
-    conv = conv.lift_if('if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=1)
+    conv = conv.lift_if('if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=3)
     print(conv)
 """
     conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1 and 16 * ocol_o + ocol_i + kcol - 1 < 56 : _', n_lifts=1)
