@@ -363,7 +363,7 @@ def compile_to_strings(lib_name, proc_list):
 #if SYS_ATL_HAS_BUILTIN(__builtin_assume)
 #  define SYS_ATL_ASSUME(expr) __builtin_assume(expr)
 #elif SYS_ATL_HAS_BUILTIN(__builtin_unreachable)
-#  define SYS_ATL_ASSUME(expr) \
+#  define SYS_ATL_ASSUME(expr) \\
       ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
 #else
 #  define SYS_ATL_ASSUME(expr) ((void)(expr))
