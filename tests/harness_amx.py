@@ -7,12 +7,13 @@ from SYS_ATL import compile_procs
 
 import distutils.spawn
 
-SDE = distutils.spawn.find_executable("sde")
-if SDE is None:
+SDE = (distutils.spawn.find_executable("sde64", os.environ['SDE_PATH'])
+       or distutils.spawn.find_executable("sde64"))
+if not SDE:
     pytest.skip("skipping AMX tests; could not find sde",
                 allow_module_level=True)
 
-CC_BAREMETAL        = os.getenv('CLANG')
+CC_BAREMETAL        = os.getenv('CLANG') or os.getenv('CC', 'clang-13')
 CFLAGS_BAREMETAL    = ' '.join([
                         f'-mamx-int8',
                         f'-mamx-tile',
@@ -95,7 +96,7 @@ def amx_compile(mainfile, libfile, binfile):
 
 def amx_run(binfile):
     binfile   = os.path.join(ENV.AMX_BUILD_DIR, binfile)
-    CMD = f"sde -future -- {binfile}"
+    CMD = f"{SDE} -future -- {binfile}"
 
     if 0 != subprocess.call(CMD, shell=True):
         raise OSError("Spike Execution Failed")

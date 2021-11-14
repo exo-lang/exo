@@ -372,9 +372,6 @@ def test_avx512_sgemm_full():
         assert stride(B, 1) == 1
         assert stride(C, 1) == 1
 
-        if K < 1:
-            unreachable()
-
         C_reg: f32[M, ((N + 15) / 16), 16] @ AVX512
         for i in par(0, M):
             for j in par(0, N / 16):

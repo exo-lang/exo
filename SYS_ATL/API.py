@@ -227,7 +227,7 @@ class Procedure(ProcedureBase):
 
     def c_code_str(self):
         decls, defns = compile_to_strings("c_code_str", [self._loopir_proc])
-        return defns
+        return decls + '\n' + defns
 
     def compile_c(self, directory, filename):
         run_compile([self._loopir_proc], directory,

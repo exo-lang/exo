@@ -79,16 +79,16 @@ class GEMM_SCRATCH(Memory):
         return f"gemm_free((uint64_t)({new_name}));"
 
     @classmethod
-    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
         # assume that strides[-1] == 1
         #    and that strides[-2] == 16 (if there is a strides[-2])
         assert len(indices) == len(strides) and len(strides) >= 2
         prim_type = basetyp.basetype().ctype()
         offset = " + ".join(
             [f"({i}) * ({s})" for i, s in zip(indices, strides)])
-        return (f"({prim_type}*)((uint64_t)( "
+        return (f"*({prim_type}*)((uint64_t)( "
                 f"((uint32_t)((uint64_t){baseptr})) + "
-                f"({offset})/16 ))")
+                f"({offset})/16))")
 
 
 # ----------- GEMMINI accumulator scratchpad ----------------
@@ -125,16 +125,16 @@ class GEMM_ACCUM(Memory):
         return f"gemm_acc_free((uint32_t)({new_name}));"
 
     @classmethod
-    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
         # assume that strides[-1] == 1
         #    and that strides[-2] == 16 (if there is a strides[-2])
         assert len(indices) == len(strides) and len(strides) >= 2
         prim_type = basetyp.basetype().ctype()
         offset = " + ".join([f"({i}) * ({s})"
                              for i, s in zip(indices, strides)])
-        return (f"({prim_type}*)((uint64_t)( "
+        return (f"*({prim_type}*)((uint64_t)( "
                 f"((uint32_t)((uint64_t){baseptr})) + "
-                f"({offset})/16 ))")
+                f"({offset})/16))")
 
 
 # ----------- AVX2 registers ----------------
@@ -164,12 +164,12 @@ class AVX2(Memory):
         return ''
 
     @classmethod
-    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
         assert strides[-1] == '1'
-        prim_type = basetyp.basetype().ctype()
-        if len(indices) == 1:
-            return f'({prim_type}*)&{baseptr}[0]'
-        return f'({prim_type}*)&{baseptr}[{"][".join(indices[:-1])}]'
+        idxs = indices[:-1] or ''
+        if idxs:
+            idxs = '[' + ']['.join(idxs) + ']'
+        return f'{baseptr}{idxs}'
 
 
 # ----------- AVX-512 registers ----------------
@@ -201,11 +201,12 @@ class AVX512(Memory):
         return ''
 
     @classmethod
-    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
         assert strides[-1] == '1'
-        prim_type = basetyp.basetype().ctype()
-        idxs = indices[:-1] if len(indices) > 1 else ["0"]
-        return f'({prim_type}*)&{baseptr}[{"][".join(idxs)}]'
+        idxs = indices[:-1] or ''
+        if idxs:
+            idxs = '[' + ']['.join(idxs) + ']'
+        return f'{baseptr}{idxs}'
 
 
 # ----------- AMX tile! ----------------

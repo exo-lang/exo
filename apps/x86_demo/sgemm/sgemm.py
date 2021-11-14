@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from SYS_ATL.LoopIR_compiler import run_compile
+
 from SYS_ATL import *
 from SYS_ATL.platforms.x86 import *
 from SYS_ATL.syntax import *
@@ -22,9 +24,6 @@ def sgemm_masked_kernel_avx512_template(
     assert stride(B, 1) == 1
     assert stride(C, 1) == 1
 
-    if K < 1:
-        unreachable()
-
     C_reg: f32[M, ((N + 15) / 16), 16] @ AVX512
     for i in par(0, M):
         for j in par(0, N / 16):
@@ -42,7 +41,7 @@ def sgemm_masked_kernel_avx512_template(
             mm512_set1_ps(a_vec, A[i, k:k + 1])
             for j in par(0, ((N + 15) / 16)):
                 b_vec: f32[16] @ AVX512
-                mm512_loadu_ps_reg(b_vec, B[k, j * 16:j * 16 + 16])
+                mm512_loadu_ps(b_vec, B[k, j * 16:j * 16 + 16])
                 mm512_fmadd_ps(a_vec, b_vec, C_reg[i, j, :])
 
     for i in par(0, M):
@@ -94,5 +93,8 @@ def sgemm_sys_atl(
             for j in par(0, N):
                 C[i, j] += A[i, k] * B[k, j]
 
+
+if __name__ == '__main__':
+    print(sgemm_kernel_avx512_6x4.c_code_str())
 
 __all__ = ['sgemm_kernel_avx512_6x4', 'sgemm_sys_atl']

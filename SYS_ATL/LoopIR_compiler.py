@@ -210,7 +210,7 @@ def window_struct(basetyp, n_dims):
 
     sdef = (f"struct {sname}{{\n"
             f"    {basetyp.ctype()} *data;\n"
-            f"    int strides[{n_dims}];\n"
+            f"    int_fast32_t strides[{n_dims}];\n"
             f"}};")
 
     return sname, sdef
@@ -234,23 +234,24 @@ def run_compile(proc_list, path, c_file, h_file, header_guard=None):
     if header_guard is None:
         header_guard = re.sub(r'\W', '_', h_file).upper()
 
-    fwd_decls = (f'#pragma once\n'
-                 f"#ifndef {header_guard}\n"
-                 f"#define {header_guard}\n"
-                 "#ifdef __cplusplus\n"
-                 "extern \"C\" {\n"
-                 "#endif\n"
-                 "#include <stdint.h>\n"
-                 "#include <stdbool.h>\n"
-                 f'{fwd_decls}'
-                 "#ifdef __cplusplus\n"
-                 "}\n"
-                 "#endif\n"
-                 f"#endif //{header_guard}\n")
+    fwd_decls = f'''
+#pragma once
+#ifndef {header_guard}
+#define {header_guard}
 
-    body = (f'#include "{h_file}"\n'
-            f'\n'
-            f'{body}')
+#ifdef __cplusplus
+extern "C" {{
+#endif
+
+{fwd_decls}
+
+#ifdef __cplusplus
+}}
+#endif
+#endif  // {header_guard}
+'''
+
+    body = f'#include "{h_file}"\n\n{body}'
 
     with open(os.path.join(path, h_file), "w") as f_header:
         f_header.write(fwd_decls)
@@ -276,8 +277,6 @@ def compile_to_strings(lib_name, proc_list):
         used_names.add(p.name)
 
     body = [
-        "#include <stdint.h>\n",
-        "",
         "static int _floor_div(int num, int quot) {",
         "  int off = (num>=0)? 0 : quot-1;",
         "  return (num-off)/quot;",
@@ -347,8 +346,35 @@ def compile_to_strings(lib_name, proc_list):
 
     # add struct definitions before the other forward declarations
     fwd_decls = list(struct_defns) + fwd_decls
+    fwd_decls = '\n'.join(fwd_decls)
+    fwd_decls = f'''
+#include <stdint.h>
+#include <stdbool.h>
 
-    return "\n".join(fwd_decls), "\n".join(body)
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define SYS_ATL_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define SYS_ATL_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if SYS_ATL_HAS_BUILTIN(__builtin_assume)
+#  define SYS_ATL_ASSUME(expr) __builtin_assume(expr)
+#elif SYS_ATL_HAS_BUILTIN(__builtin_unreachable)
+#  define SYS_ATL_ASSUME(expr) \\
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define SYS_ATL_ASSUME(expr) ((void)(expr))
+#endif
+
+{fwd_decls}
+'''
+
+    body = '\n'.join(body)
+
+    return fwd_decls, body
 
 
 # --------------------------------------------------------------------------- #
@@ -402,6 +428,10 @@ class Compiler:
                 mem = f" @{a.mem.name()}" if a.mem else ""
                 comment_str = f"{name_arg} : {a.type} {mem}"
                 typ_comments.append(comment_str)
+
+        for pred in proc.preds:
+            if not isinstance(pred, LoopIR.Const):
+                self.add_line(f'SYS_ATL_ASSUME({self.comp_e(pred)});')
 
         self.comp_stmts(self.proc.body)
 
@@ -458,20 +488,20 @@ class Compiler:
 
     def push(self, only=None):
         if only is None:
-            self.env.new_child()
-            self.names.new_child()
+            self.env = self.env.new_child()
+            self.names = self.names.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.new_child()
-            self.names.new_child()
+            self.env = self.env.new_child()
+            self.names = self.names.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.parents
-        self.names.parents
+        self.env = self.env.parents
+        self.names = self.names.parents
         self._tab = self._tab[:-2]
 
     def access_str(self, nm, idx_list):
@@ -608,7 +638,7 @@ class Compiler:
             hi = self.comp_e(s.hi)
             self.push(only='env')
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.add_line(f"for (int {itr}=0; {itr} < {hi}; {itr}++) {{")
+            self.add_line(f"for (int {itr} = 0; {itr} < {hi}; {itr}++) {{")
             self.push(only='tab')
             self.comp_stmts(s.body)
             self.pop()
@@ -642,7 +672,15 @@ class Compiler:
                 d = dict()
                 assert len(s.f.args) == len(args)
                 for i in range(len(args)):
-                    d[str(s.f.args[i].name)] = f"({args[i]})"
+                    arg_name = str(s.f.args[i].name)
+                    d[arg_name] = f"({args[i]})"
+                    arg_type = s.args[i].type
+                    if arg_type.is_win():
+                        assert isinstance(s.args[i], LoopIR.WindowExpr)
+                        data, _ = self.window_struct_fields(s.args[i])
+                        d[f'{arg_name}_data'] = data
+                    else:
+                        d[f'{arg_name}_data'] = f"({args[i]})"
 
                 self.add_line(f"{s.f.instr.format(**d)}")
             else:
@@ -690,39 +728,13 @@ class Compiler:
                     return self.access_str(e.name, e.idx)
         elif etyp is LoopIR.WindowExpr:
             win_struct = self.get_window_type(e.type)
-            base = self.env[e.name]
-            basetyp = self.envtyp[e.name]
-            mem: Memory = self.mems[e.name]
-
-            # compute offset to new data pointer
-            def w_lo(w):
-                return w.lo if isinstance(w, LoopIR.Interval) else w.pt
-
-            idxs = [self.comp_e(w_lo(w)) for w in e.idx]
-
-            # compute new window strides
-            all_strides = self.get_strides(base, basetyp, prec=0)
-            assert len(all_strides) == len(e.idx)
-            assert len(all_strides) > 0
-            strides = [s for s, w in zip(all_strides, e.idx)
-                       if isinstance(w, LoopIR.Interval)]
-
-            idx_expr = self.get_idx_offset(base, basetyp, idxs)
-            dataptr = mem.window(basetyp, base, idx_expr, idxs, all_strides,
-                                 e.srcinfo)
-
-            struct_str = (f"(struct {win_struct}){{ {dataptr},"
-                          f" {{ {','.join(strides)} }} }}")
-
-            return struct_str
+            cast = f'({self.envtyp[e.name].basetype().ctype()}*)'
+            data, strides = self.window_struct_fields(e)
+            return f"(struct {win_struct}){{ {cast}&{data}, {{ {strides} }} }}"
         elif etyp is LoopIR.Const:
             if isinstance(e.val, bool):
-                if e.val:
-                    return "true"
-                else:
-                    return "false"
-            else:
-                return str(e.val)
+                return 'true' if e.val else 'false'
+            return str(e.val)
         elif etyp is LoopIR.BinOp:
             local_prec = op_prec[e.op]
             int_div = (e.op == "/" and not e.type.is_numeric())
@@ -765,3 +777,21 @@ class Compiler:
 
         else:
             assert False, "bad case"
+
+    def window_struct_fields(self, e):
+        base = self.env[e.name]
+        basetyp = self.envtyp[e.name]
+        mem: Memory = self.mems[e.name]
+
+        # compute offset to new data pointer
+        def w_lo(w):
+            return w.lo if isinstance(w, LoopIR.Interval) else w.pt
+
+        idxs = [self.comp_e(w_lo(w)) for w in e.idx]
+        # compute new window strides
+        all_strides = self.get_strides(base, basetyp, prec=0)
+        assert 0 < len(all_strides) == len(e.idx)
+        dataptr = mem.window(basetyp, base, idxs, all_strides, e.srcinfo)
+        strides = ', '.join(s for s, w in zip(all_strides, e.idx)
+                            if isinstance(w, LoopIR.Interval))
+        return dataptr, strides

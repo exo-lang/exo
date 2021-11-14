@@ -8,7 +8,7 @@ from ..libs.memories import AVX2, AVX512
 #   AVX2 intrinsics
 # --------------------------------------------------------------------------- #
 
-@instr('*(__m256*){dst}.data = _mm256_loadu_ps({src}.data);')
+@instr('*(__m256*){dst_data} = _mm256_loadu_ps({src_data});')
 def mm256_loadu_ps(
     dst: [f32][8] @ AVX2,
     src: [f32][8] @ DRAM
@@ -20,7 +20,7 @@ def mm256_loadu_ps(
         dst[i] = src[i]
 
 
-@instr('_mm256_storeu_ps({dst}.data, *(__m256*){src}.data);')
+@instr('_mm256_storeu_ps({dst_data}, *(__m256*){src_data});')
 def mm256_storeu_ps(
     dst: [f32][8] @ DRAM,
     src: [f32][8] @ AVX2
@@ -32,8 +32,7 @@ def mm256_storeu_ps(
         dst[i] = src[i]
 
 
-@instr('*(__m256*){dst}.data = '
-       '_mm256_fmadd_ps({src1}, {src2}, *(__m256*){dst}.data);')
+@instr('{dst_data} = _mm256_fmadd_ps({src1}, {src2}, {dst_data});')
 def mm256_fmadd_ps(
     dst: [f32][8] @ AVX2,
     src1: f32[8] @ AVX2,
@@ -47,7 +46,7 @@ def mm256_fmadd_ps(
         dst[i] += src1[i] * src2[i]
 
 
-@instr('{out} = _mm256_broadcast_ss({val}.data);')
+@instr('{out} = _mm256_broadcast_ss(&{val_data});')
 def mm256_broadcast_ss(
     out: f32[8] @ AVX2,
     val: [f32][1],
@@ -76,7 +75,7 @@ def mm256_mul_ps(
 #   AVX512 intrinsics
 # --------------------------------------------------------------------------- #
 
-@instr('*(__m512*){dst}.data = _mm512_loadu_ps({src}.data);')
+@instr('{dst_data} = _mm512_loadu_ps(&{src_data});')
 def mm512_loadu_ps(
     dst: [f32][16] @ AVX512,
     src: [f32][16] @ DRAM
@@ -88,21 +87,7 @@ def mm512_loadu_ps(
         dst[i] = src[i]
 
 
-# TODO: improve the memory interface to not require separate
-#       functions for codegen
-@instr('{dst} = _mm512_loadu_ps({src}.data);')
-def mm512_loadu_ps_reg(
-        dst: f32[16] @ AVX512,
-        src: [f32][16] @ DRAM
-):
-    assert stride(src, 0) == 1
-    assert stride(dst, 0) == 1
-
-    for i in par(0, 16):
-        dst[i] = src[i]
-
-
-@instr('_mm512_storeu_ps({dst}.data, *(__m512*){src}.data);')
+@instr('_mm512_storeu_ps(&{dst_data}, {src_data});')
 def mm512_storeu_ps(
     dst: [f32][16] @ DRAM,
     src: [f32][16] @ AVX512
@@ -114,8 +99,7 @@ def mm512_storeu_ps(
         dst[i] = src[i]
 
 
-@instr('*(__m512*){dst}.data = '
-       '_mm512_maskz_loadu_ps(((1 << {N}) - 1), {src}.data);')
+@instr('{dst_data} = _mm512_maskz_loadu_ps(((1 << {N}) - 1), &{src_data});')
 def mm512_maskz_loadu_ps(
     N: size,
     dst: [f32][16] @ AVX512,
@@ -132,8 +116,7 @@ def mm512_maskz_loadu_ps(
             dst[i] = 0.0
 
 
-@instr('_mm512_mask_storeu_ps({dst}.data, ((1 << {N}) - 1), '
-       '*(__m512*){src}.data);')
+@instr('_mm512_mask_storeu_ps(&{dst_data}, ((1 << {N}) - 1), {src_data});')
 def mm512_mask_storeu_ps(
     N: size,
     dst: [f32][N] @ DRAM,
@@ -148,7 +131,7 @@ def mm512_mask_storeu_ps(
             dst[i] = src[i]
 
 
-@instr('*(__m512*){C}.data = _mm512_fmadd_ps({A}, {B}, *(__m512*){C}.data);')
+@instr('{C_data} = _mm512_fmadd_ps({A}, {B}, {C_data});')
 def mm512_fmadd_ps(
     A: f32[16] @ AVX512,
     B: f32[16] @ AVX512,
@@ -162,7 +145,7 @@ def mm512_fmadd_ps(
         C[i] += A[i] * B[i]
 
 
-@instr('{dst} = _mm512_set1_ps(*{src}.data);')
+@instr('{dst} = _mm512_set1_ps({src_data});')
 def mm512_set1_ps(
     dst: f32[16] @ AVX512,
     src: [f32][1],
@@ -174,21 +157,10 @@ def mm512_set1_ps(
 
 
 # --------------------------------------------------------------------------- #
-#   Compiler hints
-# --------------------------------------------------------------------------- #
-
-@instr('__builtin_unreachable();')
-def unreachable():
-    # assert False
-    pass
-
-
-# --------------------------------------------------------------------------- #
 #   Complex AVX2 operations
 # --------------------------------------------------------------------------- #
 
-@instr('*(__m256*){out}.data = _mm256_xor_ps(*(__m256*){out}.data, '
-       '*(__m256*){out}.data);')
+@instr('{out_data} = _mm256_xor_ps({out_data}, {out_data});')
 def avx2_set0_ps(
     out: [f32][8] @ AVX2
 ):
@@ -201,11 +173,8 @@ def avx2_set0_ps(
 @instr('''
 {{
   __m256 ones = {{ 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f }};
-  __m256 dst = _mm256_loadu_ps({dst}.data);
-  _mm256_storeu_ps(
-    {dst}.data,
-    _mm256_fmadd_ps(ones, dst, *(__m256*){val}.data)
-  );
+  __m256 dst = _mm256_loadu_ps(&{dst_data});
+  _mm256_storeu_ps(&{dst_data}, _mm256_fmadd_ps(ones, dst, {val_data}));
 }}
 ''')
 def avx2_fmadd_memu_ps(
