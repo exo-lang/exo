@@ -15,7 +15,7 @@ target_link_libraries(
   MKL::MKL
   benchmark::benchmark_main
 )
-target_compile_features(bench_sgemm PRIVATE cxx_std_11)
+target_compile_features(bench_sgemm PRIVATE cxx_std_17)
 
 # ---------------------------------------------------------------------------- #
 # CTest configuration
