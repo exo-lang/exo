@@ -8,7 +8,7 @@ from SYS_ATL.syntax import *
 def new_config_x86():
     @config
     class ConfigLoad:
-        masked_N: size
+        masked_N: index
 
     return ConfigLoad
 
@@ -18,23 +18,24 @@ Config = new_config_x86()
 
 # TODO: We need a better way of stack-allocating masks / config
 @instr('__mmask16 dumb_mask = (1 << {N}) - 1;')
-def mk_mask(N: size):
+def mk_mask(N: index):
     Config.masked_N = N
 
 
+# TODO: Read config here
 @instr('{dst_data} = _mm512_maskz_loadu_ps(dumb_mask, &{src_data});')
 def mm512_maskz_dumb_loadu_ps(
-        masked_N : size,
+        N  : size,
         dst: [f32][16] @ AVX512,
-        src: [f32][masked_N] @ DRAM,
+        src: [f32][N] @ DRAM,
 ):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
-    assert masked_N > 0
-    assert masked_N <= 16
+    assert N > 0
+    assert N <= 16
 
     for i in par(0, 16):
-        if i < masked_N:
+        if i < N:
             dst[i] = src[i]
         else:
             dst[i] = 0.0
@@ -42,7 +43,7 @@ def mm512_maskz_dumb_loadu_ps(
 
 @instr('_mm512_mask_storeu_ps(&{dst_data}, dumb_mask, {src_data});')
 def mm512_mask_dumb_storeu_ps(
-        masked_N: size,
+        masked_N: index,
         dst: [f32][masked_N] @ DRAM,
         src: [f32][16] @ AVX512
 ):
@@ -73,17 +74,17 @@ def sgemm_masked_kernel_avx512_template(
     assert stride(B, 1) == 1
     assert stride(C, 1) == 1
 
-    mk_mask(N % 16)
+    mk_mask(N%16)
 
     C_reg: f32[M, ((N + 15) / 16), 16] @ AVX512
     for i in par(0, M):
         for j in par(0, N / 16):
             mm512_loadu_ps(C_reg[i, j, :], C[i, 16 * j:16 * j + 16])
-        if N % 16 > 0:
+        if N%16 > 0:
             mm512_maskz_dumb_loadu_ps(
-                Config.masked_N,
+                N%16,
                 C_reg[i, N / 16, :],
-                C[i, 16 * (N / 16):16 * (N / 16) + N % 16]
+                C[i, 16 * (N / 16):16 * (N / 16) + N%16]
             )
 
     for k in par(0, K):
@@ -98,9 +99,9 @@ def sgemm_masked_kernel_avx512_template(
     for i in par(0, M):
         for j in par(0, N / 16):
             mm512_storeu_ps(C[i, 16 * j:16 * j + 16], C_reg[i, j, :])
-        if N % 16 > 0:
+        if N%16 > 0:
             mm512_mask_dumb_storeu_ps(
-                Config.masked_N,
+                N%16,
                 C[i, 16 * (N / 16):16 * (N / 16) + N % 16],
                 C_reg[i, N / 16, :]
             )

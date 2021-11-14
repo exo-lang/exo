@@ -2115,6 +2115,29 @@ class _DoSimplify(LoopIR_Rewrite):
         return super().map_s(s)
 
 
+class _AssertIf(LoopIR_Rewrite):
+    def __init__(self, proc, if_stmt, cond):
+        assert type(if_stmt) is LoopIR.If
+        assert type(cond) is bool
+
+        self.if_stmt = if_stmt
+        self.cond    = cond
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s == self.if_stmt:
+            # TODO: Gilbert's SMT thing should do this safely
+            if self.cond:
+                return self.map_stmts(s.body)
+            else:
+                return self.map_stmts(s.orelse)
+
+        return super().map_s(s)
+
+
 class _DoDataReuse(LoopIR_Rewrite):
     def __init__(self, proc, buf_pat, rep_pat):
         assert type(buf_pat) is LoopIR.Alloc
@@ -2195,3 +2218,4 @@ class Schedules:
     DoLiftIf            = _DoLiftIf
     DoDoubleFission     = _DoDoubleFission
     DoPartitionLoop     = _PartitionLoop
+    DoAssertIf          = _AssertIf

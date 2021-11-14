@@ -37,8 +37,8 @@ def conv_on_cpu():
                             for kcol in par(0, kernel_dim):
                                 for kch in par(0, in_channel):
                                     if (0 <= orow+krow-padding  and orow+krow-padding < in_dim):
-                                        w_s : i8 @ GEMM_SCRATCH
-                                        i_s : i8 @ GEMM_SCRATCH
+                                        w_s : i8 @ DRAM
+                                        i_s : i8 @ DRAM
 
                                         w_s = weights[krow,kcol,kch,och]
 
@@ -176,7 +176,7 @@ def test_conv_3():
     T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, '1')
     T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, '1')
 
-    conv = conv_on_cpu()
+    conv = conv_on_cpu().rename("conv_on_gemmini")
     conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
     conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
@@ -202,8 +202,43 @@ def test_conv_3():
     conv = conv.simplify()
     conv = conv.lift_if('if 0 <= 16 * ocol_o + 0 + kcol - 1: _ #0', n_lifts=1)
     conv = conv.lift_if('if 16 * ocol_o + 0 + kcol - 1 < 56: _ #0', n_lifts=1)
+    conv = conv.assert_if('if _:_ #3', True)
+    conv = conv.assert_if('if _:_ #3', True)
+    conv = conv.assert_if('if 0 <= ocol_i_5 + 56 / 16 * 16 + kcol_1 - 1:_', True)
+
     print(conv)
 """
+
+    cpu = conv_on_cpu()
+    cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
+    T.add_proc(cpu)
+    T.add_proc(conv)
+
+    T.start_timer('cpu')
+
+    T.add_body([f'conv_on_cpu_stride_1(ctxt, output_cpu, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('cpu', 'Cycles for CPU version')
+
+    T.start_timer('gemmini')
+    T.add_body([f'conv_on_gemmini(ctxt, output_gemmini, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+
+    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
+                 '    printf("Correct\\n");',
+                 '} else {',
+                 '    printf("Results Don\'t Match\\n");',
+                 '    printf("Correct Result (output_cpu):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
+                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
+                 '    exit(1);',
+                 '}',
+                 ''])
+
+    T.compile().run()
+
 
 
 

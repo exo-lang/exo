@@ -603,7 +603,7 @@ class Compiler:
             # possibly cast!
             ltyp = s.config.lookup(s.field)[1]
             rtyp = s.rhs.type
-            if ltyp != rtyp:
+            if ltyp != rtyp and not ltyp.is_indexable():
                 assert ltyp.is_real_scalar()
                 assert rtyp.is_real_scalar()
 
