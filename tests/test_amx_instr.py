@@ -17,11 +17,11 @@ def test_ldst_i8_16():
     T.add_body(["ldst_i8_16_lib_Context *ctxt;"])
 
     @proc
-    def ldst_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM ):
+    def ldst_i8_16(x: i8[16, 16] @ DRAM, y: i8[16, 16] @ DRAM):
         config(16, 16)
-        tmp : i8[16,16] @ AMX_TILE
-        ld_i8(16,16, x, tmp)
-        st_i8(16,16, tmp, y)
+        tmp: i8[16, 16] @ AMX_TILE
+        ld_i8(16, 16, x, tmp)
+        st_i8(16, 16, tmp, y)
 
     T.add_proc(ldst_i8_16)
 
@@ -43,5 +43,3 @@ def test_ldst_i8_16():
                 ''])
 
     T.compile().run()
-
-
