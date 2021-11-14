@@ -555,13 +555,14 @@ class Procedure(ProcedureBase):
         if not isinstance(n_lifts, int):
             raise TypeError("expected second arg to be a int")
 
-        stmt = self._find_stmt(if_pattern, default_match_no=None)
+        stmts = self._find_stmt(if_pattern, default_match_no=None)
 
-        if not stmt:
+        if not stmts:
             raise TypeError("failed to find stmt")
 
         loopir = self._loopir_proc
-        loopir = Schedules.DoLiftIf(loopir, stmt[0], n_lifts).result()
+        for s in stmts:
+            loopir = Schedules.DoLiftIf(loopir, s, n_lifts).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
