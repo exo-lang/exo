@@ -210,7 +210,7 @@ def window_struct(basetyp, n_dims):
 
     sdef = (f"struct {sname}{{\n"
             f"    {basetyp.ctype()} *data;\n"
-            f"    int strides[{n_dims}];\n"
+            f"    int_fast32_t strides[{n_dims}];\n"
             f"}};")
 
     return sname, sdef
@@ -234,23 +234,24 @@ def run_compile(proc_list, path, c_file, h_file, header_guard=None):
     if header_guard is None:
         header_guard = re.sub(r'\W', '_', h_file).upper()
 
-    fwd_decls = (f'#pragma once\n'
-                 f"#ifndef {header_guard}\n"
-                 f"#define {header_guard}\n"
-                 "#ifdef __cplusplus\n"
-                 "extern \"C\" {\n"
-                 "#endif\n"
-                 "#include <stdint.h>\n"
-                 "#include <stdbool.h>\n"
-                 f'{fwd_decls}'
-                 "#ifdef __cplusplus\n"
-                 "}\n"
-                 "#endif\n"
-                 f"#endif //{header_guard}\n")
+    fwd_decls = f'''
+#pragma once
+#ifndef {header_guard}
+#define {header_guard}
 
-    body = (f'#include "{h_file}"\n'
-            f'\n'
-            f'{body}')
+#ifdef __cplusplus
+extern "C" {{
+#endif
+
+{fwd_decls}
+
+#ifdef __cplusplus
+}}
+#endif
+#endif  // {header_guard}
+'''
+
+    body = f'#include "{h_file}"\n\n{body}'
 
     with open(os.path.join(path, h_file), "w") as f_header:
         f_header.write(fwd_decls)
@@ -345,9 +346,35 @@ def compile_to_strings(lib_name, proc_list):
 
     # add struct definitions before the other forward declarations
     fwd_decls = list(struct_defns) + fwd_decls
-    fwd_decls = ["#include <stdint.h>\n"] + fwd_decls
+    fwd_decls = '\n'.join(fwd_decls)
+    fwd_decls = f'''
+#include <stdint.h>
+#include <stdbool.h>
 
-    return "\n".join(fwd_decls), "\n".join(body)
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define SYS_ATL_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define SYS_ATL_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if SYS_ATL_HAS_BUILTIN(__builtin_assume)
+#  define SYS_ATL_ASSUME(expr) __builtin_assume(expr)
+#elif SYS_ATL_HAS_BUILTIN(__builtin_unreachable)
+#  define SYS_ATL_ASSUME(expr) \
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define SYS_ATL_ASSUME(expr) ((void)(expr))
+#endif
+
+{fwd_decls}
+'''
+
+    body = '\n'.join(body)
+
+    return fwd_decls, body
 
 
 # --------------------------------------------------------------------------- #
@@ -401,6 +428,10 @@ class Compiler:
                 mem = f" @{a.mem.name()}" if a.mem else ""
                 comment_str = f"{name_arg} : {a.type} {mem}"
                 typ_comments.append(comment_str)
+
+        for pred in proc.preds:
+            if not isinstance(pred, LoopIR.Const):
+                self.add_line(f'SYS_ATL_ASSUME({self.comp_e(pred)});')
 
         self.comp_stmts(self.proc.body)
 
