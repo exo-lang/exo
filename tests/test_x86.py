@@ -273,8 +273,6 @@ def test_avx2_sgemm_full():
         B: f32[K, M] @ DRAM,
     ):
         assert K > 0
-        if K < 1:
-            unreachable()
 
         for i in par(0, N):
             for j in par(0, M):

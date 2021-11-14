@@ -561,7 +561,7 @@ class Procedure(ProcedureBase):
             raise TypeError("failed to find stmt")
 
         loopir = self._loopir_proc
-        loopir = Schedules.DoLiftIf(loopir, stmt[0]).result()
+        loopir = Schedules.DoLiftIf(loopir, stmt[0], n_lifts).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 

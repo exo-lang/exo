@@ -1070,6 +1070,73 @@ class _DoParToSeq(LoopIR_Rewrite):
             return super().map_s(s)
 
 
+
+#Lift if no variable dependency
+class _DoLiftIf(LoopIR_Rewrite):
+    def __init__(self, proc, if_stmt, n_lifts):
+        assert isinstance(if_stmt, LoopIR.If)
+        assert is_pos_int(n_lifts)
+
+        self.orig_proc    = proc
+        self.if_stmt      = if_stmt
+        self.if_deps      = vars_in_expr(if_stmt.cond)
+
+        self.n_lifts      = n_lifts
+
+        self.ctrl_ctxt    = []
+        self.lift_site    = None
+
+        super().__init__(proc)
+        print(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s == self.if_stmt:
+            # mark the point we want to lift this alloc-stmt to
+            n_up = min(self.n_lifts, len(self.ctrl_ctxt))
+            print("n_up", n_up)
+            self.lift_site = self.ctrl_ctxt[-n_up]
+
+            # erase the statement from this location
+            return []
+
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)): #TODO: Need to lift if??
+            # handle recursive part of pass at this statement
+            self.ctrl_ctxt.append(s)
+            stmts = super().map_s(s)
+            self.ctrl_ctxt.pop()
+
+            # splice in lifted statement at the point to lift-to
+            if s == self.lift_site:
+                if s.iter in self.if_deps:
+                    raise SchedulingError("If statement condition should not depend on "+
+                                          "loop variable")
+                if len(s.body) != 1:
+                    raise SchedulingError("expected if statement to be directly inside "+
+                                          "the loop")
+                if s.body[0] != self.if_stmt:
+                    print(s)
+                    print()
+                    print(s.body[0])
+                    print()
+                    print(self.if_stmt)
+                    raise SchedulingError("expected if statement to be directly inside "+
+                                          "the loop")
+
+                body   = [type(s)(s.iter, s.hi, self.if_stmt.body, None, s.srcinfo)]
+                orelse = [type(s)(s.iter, s.hi, self.if_stmt.orelse, None, s.srcinfo)]
+                return [LoopIR.If(self.if_stmt.cond, body, orelse, None, s.srcinfo)]
+
+            return stmts
+
+        # fall-through
+        return super().map_s(s)
+
+
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
@@ -1376,6 +1443,26 @@ class _FreeVars(LoopIR_Do):
 
 def _FV(stmts):
     return _FreeVars(stmts).result()
+
+
+class _VarsInExpr(LoopIR_Do):
+    def __init__(self, expr):
+        assert isinstance(expr, LoopIR.expr)
+
+        self.vars = set()
+        self.do_e(expr)
+
+    def result(self):
+        return self.vars
+
+    def do_e(self, e):
+        if isinstance(e, LoopIR.Read):
+            self.vars.add(e.name)
+
+        super().do_e(e)
+
+def vars_in_expr(expr):
+    return _VarsInExpr(expr).result()
 
 
 def _is_idempotent(stmts):
@@ -1899,14 +1986,6 @@ class _DoExtractMethod(LoopIR_Rewrite):
 
     def map_e(self, e):
         return e
-
-
-class _DoLiftIf(LoopIR_Rewrite):
-    def __init__(self, proc):
-        super().__init__(proc)
-
-        self.proc = InferEffects(self.proc).result()
-
 
 
 class _DoSimplify(LoopIR_Rewrite):
