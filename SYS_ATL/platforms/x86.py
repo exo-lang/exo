@@ -8,7 +8,7 @@ from ..libs.memories import AVX2, AVX512
 #   AVX2 intrinsics
 # --------------------------------------------------------------------------- #
 
-@instr('*(__m256*){dst_data} = _mm256_loadu_ps({src_data});')
+@instr('*(__m256*)&{dst_data} = _mm256_loadu_ps(&{src_data});')
 def mm256_loadu_ps(
     dst: [f32][8] @ AVX2,
     src: [f32][8] @ DRAM
@@ -20,7 +20,7 @@ def mm256_loadu_ps(
         dst[i] = src[i]
 
 
-@instr('_mm256_storeu_ps({dst_data}, *(__m256*){src_data});')
+@instr('_mm256_storeu_ps(&{dst_data}, *(__m256*)&{src_data});')
 def mm256_storeu_ps(
     dst: [f32][8] @ DRAM,
     src: [f32][8] @ AVX2
