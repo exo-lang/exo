@@ -168,37 +168,6 @@ def sgemm_test_cases(proc, M, N, K):
         assert np.allclose(C, C_out), f"sgemm failed for m={m} n={n} k={k}"
 
 
-def gen_rank_k_reduce_6x16():
-    @proc
-    def rank_k_reduce_6x16(
-        K: size,
-        C: [f32][6, 16] @ DRAM,
-        A: [f32][6, K] @ DRAM,
-        B: [f32][K, 16] @ DRAM,
-    ):
-        for i in par(0, 6):
-            for j in par(0, 16):
-                for k in par(0, K):
-                    C[i, j] += A[i, k] * B[k, j]
-
-    avx = rank_k_reduce_6x16
-    avx = avx.stage_assn('C_reg', 'C[_] += _')
-    avx = avx.split('j', 8, ['jo', 'ji'], perfect=True)
-    avx = avx.reorder('ji', 'k')
-    avx = avx.reorder('jo', 'k')
-    avx = avx.reorder('i', 'k')
-    avx = avx.lift_alloc('C_reg:_', n_lifts=3)
-    avx = avx.fission_after('C_reg = _ #0', n_lifts=3)
-    avx = avx.fission_after('C_reg[_] += _ #0', n_lifts=3)
-    avx = avx.par_to_seq('for k in _:_')
-    avx = avx.lift_alloc('C_reg:_', n_lifts=1)
-    avx = avx.fission_after('for i in _:_#0', n_lifts=1)
-    avx = avx.fission_after('for i in _:_#1', n_lifts=1)
-    avx = avx.simplify()
-
-    return rank_k_reduce_6x16, avx
-
-
 def gen_rank_k_reduce_6x16_zero():
     @proc
     def rank_k_reduce_6x16(
@@ -222,36 +191,41 @@ def gen_rank_k_reduce_6x16_zero():
     # TODO: Need to implement data constant propagation and
     # deadcode elimination
 
-def gen_sgemm_6x16_avx():
+
+def gen_rank_k_reduce_6x16():
     @proc
-    def avx2_sgemm_6x16(
+    def rank_k_reduce_6x16(
         K: size,
         C: [f32][6, 16] @ DRAM,
         A: [f32][6, K] @ DRAM,
         B: [f32][K, 16] @ DRAM,
     ):
-        assert K > 0
-        if K < 1:
-            unreachable()
-
-        C_reg: f32[6, 2, 8] @ AVX2
         for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
-                    C_reg[i, jo, ji] = 0.0
-        for k in par(0, K):
-            for i in par(0, 6):
-                for jo in par(0, 2):
-                    for ji in par(0, 8):
-                        C_reg[i, jo, ji] += A[i, k] * B[k, jo * 8 + ji]
-        for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
-                    C[i, jo * 8 + ji] += C_reg[i, jo, ji]
+            for j in par(0, 16):
+                for k in par(0, K):
+                    C[i, j] += A[i, k] * B[k, j]
 
-    # TODO: What to do with K < 1 ??
-    orig_rank_k_reduce_6x16, rank_k_reduce_6x16 = gen_rank_k_reduce_6x16()
-    orig_rank_k_reduce_6x16.unsafe_assert_eq(avx2_sgemm_6x16)
+    avx = rank_k_reduce_6x16.rename("rank_k_reduce_6x16_scheduled")
+    avx = avx.stage_assn('C_reg', 'C[_] += _')
+    avx = avx.set_memory('C_reg', AVX2)
+    avx = avx.split('j', 8, ['jo', 'ji'], perfect=True)
+    avx = avx.reorder('ji', 'k')
+    avx = avx.reorder('jo', 'k')
+    avx = avx.reorder('i', 'k')
+    avx = avx.lift_alloc('C_reg:_', n_lifts=3)
+    avx = avx.fission_after('C_reg = _ #0', n_lifts=3)
+    avx = avx.fission_after('C_reg[_] += _ #0', n_lifts=3)
+    avx = avx.par_to_seq('for k in _:_')
+    avx = avx.lift_alloc('C_reg:_', n_lifts=1)
+    avx = avx.fission_after('for i in _:_#0', n_lifts=1)
+    avx = avx.fission_after('for i in _:_#1', n_lifts=1)
+    avx = avx.simplify()
+
+    return avx, rank_k_reduce_6x16
+
+
+def gen_sgemm_6x16_avx():
+    avx2_sgemm_6x16, rank_k_reduce_6x16 = gen_rank_k_reduce_6x16()
 
     avx2_sgemm_6x16 = (
         avx2_sgemm_6x16
@@ -267,15 +241,17 @@ def gen_sgemm_6x16_avx():
             #
             .replace_all(avx2_set0_ps)
             .replace_all(mm256_broadcast_ss)
-            .replace_all(mm256_loadu_ps)
             .replace_all(mm256_fmadd_ps)
             .replace_all(avx2_fmadd_memu_ps)
+            .replace(mm256_loadu_ps, 'for ji in _:_ #0')
+            .replace(mm256_loadu_ps, 'for ji in _:_ #0')
+            .replace(mm256_storeu_ps, 'for ji in _:_ #0')
             #
             .unroll('jo')
             .unroll('i')
     )
 
-    return orig_rank_k_reduce_6x16, avx2_sgemm_6x16
+    return rank_k_reduce_6x16, avx2_sgemm_6x16
 
 
 def test_print_avx2_sgemm_kernel():
@@ -296,6 +272,10 @@ def test_avx2_sgemm_full():
         A: f32[N, K] @ DRAM,
         B: f32[K, M] @ DRAM,
     ):
+        assert K > 0
+        if K < 1:
+            unreachable()
+
         for i in par(0, N):
             for j in par(0, M):
                 for k in par(0, K):
@@ -319,8 +299,8 @@ def test_avx2_sgemm_full():
             .fission_after('for ko in _: _', n_lifts=2)
             .reorder('ji', 'ko')
             .reorder('ii', 'ko')
-            # insert uses of micro-kernel now
             .replace_all(sgemm_6x16)
+            # insert uses of micro-kernel now
             .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
             .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
             # do outer tiling for cache-locality
@@ -347,6 +327,7 @@ def test_avx2_sgemm_full():
                      K=range(1, 512, 160))
 
 
+
 def test_avx2_sgemm_6x16():
     _, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
 
@@ -371,6 +352,7 @@ def test_avx2_sgemm_6x16():
 
     sgemm_test_cases(library.avx2_sgemm_6x16_wrapper, M=[6], N=[16],
                      K=range(1, 512))
+
 
 
 def test_avx512_sgemm_full():
@@ -463,3 +445,5 @@ def test_avx512_sgemm_full():
                      M=range(10, 600, 200),
                      N=range(20, 400, 120),
                      K=range(1, 512, 160))
+
+

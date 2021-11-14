@@ -167,6 +167,8 @@ class AVX2(Memory):
     def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
         assert strides[-1] == '1'
         prim_type = basetyp.basetype().ctype()
+        if len(indices) == 1:
+            return f'({prim_type}*)&{baseptr}[0]'
         return f'({prim_type}*)&{baseptr}[{"][".join(indices[:-1])}]'
 
 

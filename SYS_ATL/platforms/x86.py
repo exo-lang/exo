@@ -8,9 +8,9 @@ from ..libs.memories import AVX2, AVX512
 #   AVX2 intrinsics
 # --------------------------------------------------------------------------- #
 
-@instr('{dst} = _mm256_loadu_ps({src}.data);')
+@instr('*(__m256*){dst}.data = _mm256_loadu_ps({src}.data);')
 def mm256_loadu_ps(
-    dst: f32[8] @ AVX2,
+    dst: [f32][8] @ AVX2,
     src: [f32][8] @ DRAM
 ):
     assert stride(src, 0) == 1
@@ -20,10 +20,10 @@ def mm256_loadu_ps(
         dst[i] = src[i]
 
 
-@instr('_mm256_storeu_ps({dst}.data, {src});')
+@instr('_mm256_storeu_ps({dst}.data, *(__m256*){src}.data);')
 def mm256_storeu_ps(
     dst: [f32][8] @ DRAM,
-    src: f32[8] @ AVX2
+    src: [f32][8] @ AVX2
 ):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1

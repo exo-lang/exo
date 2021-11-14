@@ -247,7 +247,7 @@ class Procedure(ProcedureBase):
         '''
         p = self._loopir_proc
         p = Schedules.DoSimplify(p).result()
-        return Procedure(p)
+        return Procedure(p, _provenance_eq_Procedure=self)
 
     def rename(self, name):
         if not is_valid_name(name):
@@ -654,6 +654,9 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         loopir = Schedules.DoInline(loopir, call_stmt).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def is_eq(self, proc):
+        return _proc_prov_eq(self._loopir_proc, proc._loopir_proc)
 
     def call_eqv(self, other_Procedure, call_site_pattern):
         call_stmt = self._find_callsite(call_site_pattern)
