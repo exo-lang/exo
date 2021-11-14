@@ -42,8 +42,11 @@ def conv_on_cpu():
 
                                         w_s = weights[krow,kcol,kch,och]
 
-                                        if (0 <= ocol+kcol-padding and ocol+kcol-padding < in_dim):
-                                            i_s = inp[b,orow+krow-padding,ocol+kcol-padding,kch]
+                                        if (0 <= ocol+kcol-padding):
+                                            if (ocol+kcol-padding < in_dim):
+                                                i_s = inp[b,orow+krow-padding,ocol+kcol-padding,kch]
+                                            else:
+                                                i_s = 0.0
                                         else:
                                             i_s = 0.0
 
@@ -190,8 +193,20 @@ def test_conv_3():
     conv = conv.reorder('ocol_i', 'kch_o')
     conv = conv.lift_alloc('i_s : _', n_lifts=4)
     conv = conv.lift_if('if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=3)
+    conv = conv.lift_alloc('w_s : _', n_lifts=4)
+    conv = conv.fission_after('w_s = _', n_lifts=3)
+    conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1: _', n_lifts=3)
+    conv = conv.fission_after('if 0 <= ocol_i + 56 / 16 * 16 + kcol - 1: _', n_lifts=3)
+    conv = conv.partition_loop('ocol_i #1', 1)
+    conv = conv.unroll('ocol_i #1')
+    conv = conv.simplify()
+    conv = conv.lift_if('if 0 <= 16 * ocol_o + 0 + kcol - 1: _ #0', n_lifts=1)
+    conv = conv.lift_if('if 16 * ocol_o + 0 + kcol - 1 < 56: _ #0', n_lifts=1)
     print(conv)
 """
+
+
+
     conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1 and 16 * ocol_o + ocol_i + kcol - 1 < 56 : _', n_lifts=1)
 
 

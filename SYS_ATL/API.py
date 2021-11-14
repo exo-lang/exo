@@ -566,6 +566,21 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def partition_loop(self, var_pattern, num):
+        if not isinstance(var_pattern, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(num, int):
+            raise TypeError("expected second arg to be a int")
+
+        pattern     = iter_name_to_pattern(var_pattern)
+        stmts       = self._find_stmt(pattern, default_match_no=None)
+        loopir      = self._loopir_proc
+
+        for s in stmts:
+            loopir  = Schedules.DoPartitionLoop(loopir, s, num).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
 
     def reorder(self, out_var, in_var):
         if not isinstance(out_var, str):
