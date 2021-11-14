@@ -196,7 +196,7 @@ def gen_rank_k_reduce_6x16():
     avx = avx.fission_after('for i in _:_#1', n_lifts=1)
     avx = avx.simplify()
 
-    return avx
+    return rank_k_reduce_6x16, avx
 
 
 def gen_rank_k_reduce_6x16_zero():
@@ -250,8 +250,8 @@ def gen_sgemm_6x16_avx():
                     C[i, jo * 8 + ji] += C_reg[i, jo, ji]
 
     # TODO: What to do with K < 1 ??
-    rank_k_reduce_6x16 = gen_rank_k_reduce_6x16()
-    rank_k_reduce_6x16.unsafe_assert_eq(avx2_sgemm_6x16)
+    orig_rank_k_reduce_6x16, rank_k_reduce_6x16 = gen_rank_k_reduce_6x16()
+    orig_rank_k_reduce_6x16.unsafe_assert_eq(avx2_sgemm_6x16)
 
     avx2_sgemm_6x16 = (
         avx2_sgemm_6x16
@@ -275,7 +275,7 @@ def gen_sgemm_6x16_avx():
             .unroll('i')
     )
 
-    return rank_k_reduce_6x16, avx2_sgemm_6x16
+    return orig_rank_k_reduce_6x16, avx2_sgemm_6x16
 
 
 def test_print_avx2_sgemm_kernel():
