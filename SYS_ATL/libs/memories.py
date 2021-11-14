@@ -79,7 +79,7 @@ class GEMM_SCRATCH(Memory):
         return f"gemm_free((uint64_t)({new_name}));"
 
     @classmethod
-    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
         # assume that strides[-1] == 1
         #    and that strides[-2] == 16 (if there is a strides[-2])
         assert len(indices) == len(strides) and len(strides) >= 2
@@ -125,7 +125,7 @@ class GEMM_ACCUM(Memory):
         return f"gemm_acc_free((uint32_t)({new_name}));"
 
     @classmethod
-    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
         # assume that strides[-1] == 1
         #    and that strides[-2] == 16 (if there is a strides[-2])
         assert len(indices) == len(strides) and len(strides) >= 2
@@ -164,7 +164,7 @@ class AVX2(Memory):
         return ''
 
     @classmethod
-    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
         assert strides[-1] == '1'
         prim_type = basetyp.basetype().ctype()
         return f'({prim_type}*)&{baseptr}[{"][".join(indices[:-1])}]'
@@ -199,7 +199,7 @@ class AVX512(Memory):
         return ''
 
     @classmethod
-    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
         assert strides[-1] == '1'
         prim_type = basetyp.basetype().ctype()
         idxs = indices[:-1] if len(indices) > 1 else ["0"]

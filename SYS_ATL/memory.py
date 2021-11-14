@@ -84,10 +84,11 @@ class Memory(ABC):
         raise NotImplementedError()
 
     @classmethod
-    def window(cls, basetyp, baseptr, idx_expr, indices, strides, srcinfo):
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        offset = ' + '.join(f'({i}) * ({s})' for i, s in zip(indices, strides))
         if basetyp.is_win():
             baseptr = f'{baseptr}.data'
-        return f'{baseptr} + {idx_expr}'
+        return f'{baseptr} + {offset}'
 
     @classmethod
     def can_read(cls):
@@ -109,28 +110,24 @@ class Memory(ABC):
 class DRAM(Memory):
     @classmethod
     def global_(cls):
-        return '\n'.join([
-            "#include <stdio.h>",
-            "#include <stdlib.h>"
-        ])
+        return (
+            "#include <stdio.h>\n"
+            "#include <stdlib.h>\n"
+        )
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         if len(shape) == 0:
             return f"{prim_type} {new_name};"
-        else:
-            size_str = shape[0]
-            for s in shape[1:]:
-                size_str = f"{s} * {size_str}"
-            return (f"{prim_type} *{new_name} = "
-                    f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
+
+        return (f"{prim_type} *{new_name} = "
+                f"malloc({' * '.join(shape)} * sizeof(*{new_name}));")
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         if len(shape) == 0:
             return ""
-        else:
-            return f"free({new_name});"
+        return f"free({new_name});"
 
     @classmethod
     def can_read(cls):

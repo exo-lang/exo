@@ -707,9 +707,7 @@ class Compiler:
             strides = [s for s, w in zip(all_strides, e.idx)
                        if isinstance(w, LoopIR.Interval)]
 
-            idx_expr = self.get_idx_offset(base, basetyp, idxs)
-            dataptr = mem.window(basetyp, base, idx_expr, idxs, all_strides,
-                                 e.srcinfo)
+            dataptr = mem.window(basetyp, base, idxs, all_strides, e.srcinfo)
 
             struct_str = (f"(struct {win_struct}){{ {dataptr},"
                           f" {{ {','.join(strides)} }} }}")
