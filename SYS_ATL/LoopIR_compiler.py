@@ -276,8 +276,6 @@ def compile_to_strings(lib_name, proc_list):
         used_names.add(p.name)
 
     body = [
-        "#include <stdint.h>\n",
-        "",
         "static int _floor_div(int num, int quot) {",
         "  int off = (num>=0)? 0 : quot-1;",
         "  return (num-off)/quot;",
@@ -347,6 +345,7 @@ def compile_to_strings(lib_name, proc_list):
 
     # add struct definitions before the other forward declarations
     fwd_decls = list(struct_defns) + fwd_decls
+    fwd_decls = ["#include <stdint.h>\n"] + fwd_decls
 
     return "\n".join(fwd_decls), "\n".join(body)
 
@@ -642,7 +641,15 @@ class Compiler:
                 d = dict()
                 assert len(s.f.args) == len(args)
                 for i in range(len(args)):
-                    d[str(s.f.args[i].name)] = f"({args[i]})"
+                    arg_name = str(s.f.args[i].name)
+                    d[arg_name] = f"({args[i]})"
+                    arg_type = s.args[i].type
+                    if arg_type.is_win():
+                        assert isinstance(s.args[i], LoopIR.WindowExpr)
+                        data, _ = self.window_struct_fields(s.args[i])
+                        d[f'{arg_name}_data'] = data
+                    else:
+                        d[f'{arg_name}_data'] = f"({args[i]})"
 
                 self.add_line(f"{s.f.instr.format(**d)}")
             else:
@@ -690,37 +697,13 @@ class Compiler:
                     return self.access_str(e.name, e.idx)
         elif etyp is LoopIR.WindowExpr:
             win_struct = self.get_window_type(e.type)
-            base = self.env[e.name]
-            basetyp = self.envtyp[e.name]
-            mem: Memory = self.mems[e.name]
-
-            # compute offset to new data pointer
-            def w_lo(w):
-                return w.lo if isinstance(w, LoopIR.Interval) else w.pt
-
-            idxs = [self.comp_e(w_lo(w)) for w in e.idx]
-
-            # compute new window strides
-            all_strides = self.get_strides(base, basetyp, prec=0)
-            assert len(all_strides) == len(e.idx)
-            assert len(all_strides) > 0
-            strides = [s for s, w in zip(all_strides, e.idx)
-                       if isinstance(w, LoopIR.Interval)]
-
-            dataptr = mem.window(basetyp, base, idxs, all_strides, e.srcinfo)
-
-            struct_str = (f"(struct {win_struct}){{ {dataptr},"
-                          f" {{ {','.join(strides)} }} }}")
-
-            return struct_str
+            cast = f'({self.envtyp[e.name].basetype().ctype()}*)'
+            data, strides = self.window_struct_fields(e)
+            return f"(struct {win_struct}){{ {cast}&{data}, {{ {strides} }} }}"
         elif etyp is LoopIR.Const:
             if isinstance(e.val, bool):
-                if e.val:
-                    return "true"
-                else:
-                    return "false"
-            else:
-                return str(e.val)
+                return 'true' if e.val else 'false'
+            return str(e.val)
         elif etyp is LoopIR.BinOp:
             local_prec = op_prec[e.op]
             int_div = (e.op == "/" and not e.type.is_numeric())
@@ -763,3 +746,21 @@ class Compiler:
 
         else:
             assert False, "bad case"
+
+    def window_struct_fields(self, e):
+        base = self.env[e.name]
+        basetyp = self.envtyp[e.name]
+        mem: Memory = self.mems[e.name]
+
+        # compute offset to new data pointer
+        def w_lo(w):
+            return w.lo if isinstance(w, LoopIR.Interval) else w.pt
+
+        idxs = [self.comp_e(w_lo(w)) for w in e.idx]
+        # compute new window strides
+        all_strides = self.get_strides(base, basetyp, prec=0)
+        assert 0 < len(all_strides) == len(e.idx)
+        dataptr = mem.window(basetyp, base, idxs, all_strides, e.srcinfo)
+        strides = ', '.join(s for s, w in zip(all_strides, e.idx)
+                            if isinstance(w, LoopIR.Interval))
+        return dataptr, strides

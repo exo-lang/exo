@@ -88,7 +88,7 @@ class Memory(ABC):
         offset = ' + '.join(f'({i}) * ({s})' for i, s in zip(indices, strides))
         if basetyp.is_win():
             baseptr = f'{baseptr}.data'
-        return f'{baseptr} + {offset}'
+        return f'{baseptr}[{offset}]'
 
     @classmethod
     def can_read(cls):
