@@ -62,54 +62,66 @@ SGEMM_WINDOW = (
         .reorder('i', 'k')
 )
 
-basic_kernel = (
-    SGEMM_WINDOW
-        .rename('basic_kernel')
-        # Specialize to kernel size
-        .partial_eval(I_REG_BLK, J_REG_BLK)
-)
-
-sgemm_kernel_avx512_6x4 = (
-    basic_kernel
-        .rename('sgemm_kernel_avx512_6x4')
-        # Vectorize columns
-        .split('j', VEC_W, ['jo', 'ji'], perfect=True)
-        .par_to_seq('for k in _: _')
-        # Stage C for reduction
-        .stage_assn('C_reg', 'C[_] += _')
-        .set_memory('C_reg', AVX512)
-        .lift_alloc('C_reg: _', n_lifts=4)
-        .double_fission('C_reg[_] = C[_]', 'C_reg[_] += _', n_lifts=4)
-        # Stage A
-        .bind_expr('A_vec', 'A[_, _]')
-        .set_memory('A_vec', AVX512)
-        .lift_alloc('A_vec: _', keep_dims=True)
-        .fission_after('A_vec[_] = _')
-        # Stage B
-        .bind_expr('B_vec', 'B[_, _]')
-        .set_memory('B_vec', AVX512)
-        .lift_alloc('B_vec: _', keep_dims=True)
-        .fission_after('B_vec[_] = _')
-        # Schedule ops
-        .replace(mm512_loadu_ps, 'for ji in _: _ #0')
-        .replace(mm512_storeu_ps, 'for ji in _: _ #3')
-        .replace_all(mm512_set1_ps)
-        .replace_all(mm512_loadu_ps)
-        .replace_all(mm512_fmadd_ps)
-        # LICM
-        .lift_alloc('A_vec: _')
-        .fission_after('mm512_set1_ps(_)')
-        # # Tracing
-        # .insert_pass('C_reg: _')
-        # .replace(trace("inner"), 'pass')
-        # Clean up
-        .simplify()
-)
+basic_kernel_Mx4 = {}
+sgemm_kernel_avx512_Mx4 = {}
+for M in range(1, I_REG_BLK + 1):
+    basic_kernel_Mx4[M] = (
+        SGEMM_WINDOW
+            .rename(f'basic_kernel_{M}x4')
+            .partial_eval(M, J_REG_BLK)
+    )
+    sgemm_kernel_avx512_Mx4[M] = (
+        basic_kernel_Mx4[M]
+            .rename(f'sgemm_kernel_avx512_{M}x4')
+            # Vectorize columns
+            .split('j', VEC_W, ['jo', 'ji'], perfect=True)
+            # Mark k as a reduction loop
+            .par_to_seq('for k in _: _')
+            # Stage C for reduction
+            .stage_assn('C_reg', 'C[_] += _')
+            .set_memory('C_reg', AVX512)
+            .lift_alloc('C_reg: _', n_lifts=4)
+            .double_fission('C_reg[_] = C[_]', 'C_reg[_] += _', n_lifts=4)
+            # Stage A
+            .bind_expr('A_vec', 'A[_, _]')
+            .set_memory('A_vec', AVX512)
+            .lift_alloc('A_vec: _', keep_dims=True)
+            .fission_after('A_vec[_] = _')
+            # Stage B
+            .bind_expr('B_vec', 'B[_, _]')
+            .set_memory('B_vec', AVX512)
+            .lift_alloc('B_vec: _', keep_dims=True)
+            .fission_after('B_vec[_] = _')
+            # Schedule ops
+            .replace(mm512_loadu_ps, 'for ji in _: _ #0')
+            .replace(mm512_storeu_ps, 'for ji in _: _ #3')
+            .replace_all(mm512_set1_ps)
+            .replace_all(mm512_loadu_ps)
+            .replace_all(mm512_fmadd_ps)
+            # LICM
+            .lift_alloc('A_vec: _')
+            .fission_after('mm512_set1_ps(_)')
+            # Clean up
+            .simplify()
+    )
 
 bottom_panel_kernel = (
     SGEMM_WINDOW
         .rename('bottom_panel_kernel')
-        .partial_eval(N=64)
+        .partial_eval(N=J_REG_BLK)
+        .simplify()
+)
+
+bottom_panel_kernel_scheduled = (
+    bottom_panel_kernel
+        .rename('bottom_panel_kernel_scheduled')
+        .simplify()
+)
+
+right_panel_kernel = (
+    SGEMM_WINDOW
+        .rename('right_panel_kernel')
+        .partial_eval(M=I_REG_BLK)
         .simplify()
 )
 
@@ -122,9 +134,9 @@ sgemm_sys_atl = (
         .reorder('ii #0', 'jo')
         .reorder('ji #0', 'k')
         .reorder('ii #0', 'k')
-        .replace_all(basic_kernel)
         #
-        .call_eqv(sgemm_kernel_avx512_6x4, 'basic_kernel(_)')
+        .replace_all(basic_kernel_Mx4[6])
+        .call_eqv(sgemm_kernel_avx512_Mx4[6], 'basic_kernel_6x4(_)')
         # #
         # .insert_pass('for io in _: _')
         # .replace(trace("outer"), 'pass')
@@ -139,12 +151,15 @@ sgemm_sys_atl = (
         .reorder('ii', 'jo')
         .reorder('ii', 'k')
         # Bottom-right tile
-        .replace_all(SGEMM_WINDOW)
+        .replace_all(bottom_panel_kernel)
+        .replace_all(right_panel_kernel)
+        # .replace_all(SGEMM_WINDOW)
         .simplify()
 )
 
 if __name__ == '__main__':
     print(sgemm_sys_atl)
-    print(bottom_panel_kernel)
+    print(bottom_panel_kernel_scheduled)
+    print(right_panel_kernel)
 
 __all__ = ['sgemm_sys_atl']
