@@ -458,7 +458,9 @@ class Procedure(ProcedureBase):
             raise TypeError("expected second arg to be a string")
         if not isinstance(value, int):
             raise TypeError("expected third arg to be an int")
-        # TODO: what is going on here?
+        # TODO: refine this analysis or re-think the directive...
+        #  this is making sure that the condition will guarantee that the
+        #  guarded statement runs on the first iteration
         if value != 0:
             raise TypeError("expected third arg to be 0")
 
@@ -472,6 +474,25 @@ class Procedure(ProcedureBase):
             loopir = Schedules.DoAddGuard(loopir, s, iter_pat, value).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def bound_and_guard(self, loop):
+        """
+        Replace
+          for i in par(0, e): ...
+        with
+          for i in par(0, c):
+            if i < e: ...
+        where c is the tightest constant bound on e
+
+        This currently only works when e is of the form x % n
+        """
+        if not isinstance(loop, str):
+            raise TypeError("expected loop pattern")
+
+        loop = self._find_stmt(loop)
+        loopir = Schedules.DoBoundAndGuard(self._loopir_proc, loop).result()
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
 
     def fuse_loop(self, loop1, loop2):
         if not isinstance(loop1, str):

@@ -163,8 +163,8 @@ class _PartitionLoop(LoopIR_Rewrite):
             if not isinstance(s.hi, LoopIR.Const):
                 raise SchedulingError("expected loop bound to be constant")
             if s.hi.val <= self.partition_by:
-                raise SchedulingError("expected loop bound to be larger than"+
-                                      " partitioning value")
+                raise SchedulingError("expected loop bound to be larger than "
+                                      "partitioning value")
 
             body        = self.map_stmts(s.body)
             first_loop  = LoopIR.ForAll(s.iter,
@@ -193,7 +193,7 @@ class _PartitionLoop(LoopIR_Rewrite):
                 return LoopIR.BinOp("+", e, LoopIR.Const(self.partition_by, T.int, e.srcinfo), T.index, e.srcinfo)
 
         return super().map_e(e)
-    
+
 
 
 class _Reorder(LoopIR_Rewrite):
@@ -841,7 +841,7 @@ class _InlineWindow(LoopIR_Rewrite):
                                              old_typ.as_tensor,
                                              self.win_stmt.rhs.name,
                                              new_idxs)
-                            
+
 
                 return LoopIR.WindowExpr( self.win_stmt.rhs.name,
                                           new_idxs, new_type, e.srcinfo )
@@ -1814,6 +1814,37 @@ class _DoAddGuard(LoopIR_Rewrite):
         return super().map_s(s)
 
 
+def _get_constant_bound(e):
+    if isinstance(e, LoopIR.BinOp) and e.op == '%':
+        return e.rhs
+    raise SchedulingError(f'Could not derive constant bound on {e}')
+
+
+class _DoBoundAndGuard(LoopIR_Rewrite):
+    def __init__(self, proc, loop):
+        self.loop = loop
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s == self.loop:
+            assert isinstance(s, LoopIR.ForAll)
+            bound = _get_constant_bound(s.hi)
+            guard = LoopIR.If(
+                LoopIR.BinOp('<',
+                             LoopIR.Read(s.iter, [], T.index, s.srcinfo),
+                             s.hi,
+                             T.index,
+                             s.srcinfo),
+                s.body,
+                [],
+                None,
+                s.srcinfo
+            )
+            return [LoopIR.ForAll(s.iter, bound, [guard], None, s.srcinfo)]
+
+        return super().map_s(s)
+
+
 class _DoMergeGuard(LoopIR_Rewrite):
     def __init__(self, proc, stmt1, stmt2):
         assert isinstance(stmt1, LoopIR.If)
@@ -1833,7 +1864,7 @@ class _DoMergeGuard(LoopIR_Rewrite):
         for b in stmts:
             if self.found_first:
                 if b != self.stmt2:
-                    raise SchedulingError("expected the second stmt to be "+
+                    raise SchedulingError("expected the second stmt to be "
                                           "directly after the first stmt")
                 self.found_first = False
 
@@ -1903,7 +1934,7 @@ class _DoFuseLoop(LoopIR_Rewrite):
                 new_stmts.append(s)
 
         return new_stmts
-            
+
 
 class _DoAddLoop(LoopIR_Rewrite):
     def __init__(self, proc, stmt, var, hi):
@@ -2092,10 +2123,10 @@ class _DoSimplify(LoopIR_Rewrite):
                     return rhs
                 if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
                     return lhs
-            if e.op == '-':
+            elif e.op == '-':
                 if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
                     return lhs
-            if e.op == '*':
+            elif e.op == '*':
                 if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
                     return LoopIR.Const(0, lhs.type, lhs.srcinfo)
                 if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
@@ -2104,14 +2135,14 @@ class _DoSimplify(LoopIR_Rewrite):
                     return rhs
                 if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
                     return lhs
-            if e.op == '/':
+            elif e.op == '/':
                 if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
                     return lhs
-            if e.op == '%':
+            elif e.op == '%':
                 if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
                     return LoopIR.Const(0, lhs.type, lhs.srcinfo)
 
-            return e
+            return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
 
         return super().map_e(e)
 
@@ -2171,8 +2202,8 @@ class _DoDataReuse(LoopIR_Rewrite):
         # Check that buf_name is only used before the first assignment of rep_pat
         if self.first_assn:
             if self.buf_name in _FV([s]):
-                raise SchedulingError("buf_name should not be used after the first"+
-                                      " assignment of rep_pat")
+                raise SchedulingError("buf_name should not be used after the "
+                                      "first  assignment of rep_pat")
 
         if s == self.rep_pat:
             self.found_rep = True
@@ -2203,32 +2234,33 @@ class _DoDataReuse(LoopIR_Rewrite):
 # The Passes to export
 
 class Schedules:
-    DoReorder           = _Reorder
-    DoSplit             = _Split
-    DoUnroll            = _Unroll
-    DoInline            = _Inline
-    DoPartialEval       = _PartialEval
-    SetTypAndMem        = _SetTypAndMem
-    DoCallSwap          = _CallSwap
-    DoBindExpr          = _BindExpr
-    DoBindConfig        = _BindConfig
-    DoStageAssn         = _DoStageAssn
-    DoLiftAlloc         = _LiftAlloc
-    DoFissionLoops      = _FissionLoops
-    DoExtractMethod     = _DoExtractMethod
-    DoParToSeq          = _DoParToSeq
-    DoReorderStmt       = _DoReorderStmt
-    DoConfigWriteAfter  = _ConfigWriteAfter
-    DoInlineWindow      = _InlineWindow
-    DoInsertPass        = _DoInsertPass
-    DoDeletePass        = _DoDeletePass
-    DoSimplify          = _DoSimplify
-    DoAddGuard          = _DoAddGuard
-    DoMergeGuard        = _DoMergeGuard
-    DoFuseLoop          = _DoFuseLoop
-    DoAddLoop           = _DoAddLoop
-    DoDataReuse         = _DoDataReuse
-    DoLiftIf            = _DoLiftIf
-    DoDoubleFission     = _DoDoubleFission
-    DoPartitionLoop     = _PartitionLoop
-    DoAssertIf          = _AssertIf
+    DoReorder = _Reorder
+    DoSplit = _Split
+    DoUnroll = _Unroll
+    DoInline = _Inline
+    DoPartialEval = _PartialEval
+    SetTypAndMem = _SetTypAndMem
+    DoCallSwap = _CallSwap
+    DoBindExpr = _BindExpr
+    DoBindConfig = _BindConfig
+    DoStageAssn = _DoStageAssn
+    DoLiftAlloc = _LiftAlloc
+    DoFissionLoops = _FissionLoops
+    DoExtractMethod = _DoExtractMethod
+    DoParToSeq = _DoParToSeq
+    DoReorderStmt = _DoReorderStmt
+    DoConfigWriteAfter = _ConfigWriteAfter
+    DoInlineWindow = _InlineWindow
+    DoInsertPass = _DoInsertPass
+    DoDeletePass = _DoDeletePass
+    DoSimplify = _DoSimplify
+    DoAddGuard = _DoAddGuard
+    DoBoundAndGuard = _DoBoundAndGuard
+    DoMergeGuard = _DoMergeGuard
+    DoFuseLoop = _DoFuseLoop
+    DoAddLoop = _DoAddLoop
+    DoDataReuse = _DoDataReuse
+    DoLiftIf = _DoLiftIf
+    DoDoubleFission = _DoDoubleFission
+    DoPartitionLoop = _PartitionLoop
+    DoAssertIf = _AssertIf
