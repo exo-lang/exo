@@ -5,122 +5,6 @@ from SYS_ATL.platforms.x86 import *
 from SYS_ATL.syntax import *
 
 
-#
-# def new_config_x86():
-#     @config
-#     class ConfigLoad:
-#         masked_N: size
-#
-#     return ConfigLoad
-#
-#
-# Config = new_config_x86()
-
-#
-# # TODO: We need a better way of stack-allocating masks / config
-# @instr('__mmask16 dumb_mask = (1 << {N}) - 1;')
-# def mk_mask(N: size):
-#     Config.masked_N = N
-#
-#
-# @instr('{dst_data} = _mm512_maskz_loadu_ps(dumb_mask, &{src_data});')
-# def dumb_mm512_maskz_loadu_ps(
-#         masked_N: size,
-#         dst: [f32][16] @ AVX512,
-#         src: [f32][masked_N] @ DRAM,
-# ):
-#     assert stride(src, 0) == 1
-#     assert stride(dst, 0) == 1
-#     assert masked_N > 0
-#     assert masked_N <= 16
-#
-#     for i in par(0, 16):
-#         if i < masked_N:
-#             dst[i] = src[i]
-#         else:
-#             dst[i] = 0.0
-#
-#
-# @instr('_mm512_mask_storeu_ps(&{dst_data}, dumb_mask, {src_data});')
-# def dumb_mm512_mask_storeu_ps(
-#         masked_N: size,
-#         dst: [f32][masked_N] @ DRAM,
-#         src: [f32][16] @ AVX512
-# ):
-#     assert stride(src, 0) == 1
-#     assert stride(dst, 0) == 1
-#     assert masked_N > 0
-#     assert masked_N <= 16
-#
-#     for i in par(0, 16):
-#         if i < masked_N:
-#             dst[i] = src[i]
-
-#
-# # noinspection PyPep8Naming
-# @proc
-# def sgemm_masked_kernel_avx512_template(
-#         M: size,
-#         N: size,
-#         K: size,
-#         A: f32[M, K],
-#         B: f32[K, 16 * ((N + 15) / 16)],
-#         C: [f32][M, N],
-# ):
-#     assert M >= 1
-#     assert N >= 1
-#     assert K >= 1
-#     assert stride(A, 1) == 1
-#     assert stride(B, 1) == 1
-#     assert stride(C, 1) == 1
-#
-#     mk_mask(N % 16)
-#
-#     C_reg: f32[M, ((N + 15) / 16), 16] @ AVX512
-#     for i in par(0, M):
-#         for j in par(0, N / 16):
-#             mm512_loadu_ps(C_reg[i, j, :], C[i, 16 * j:16 * j + 16])
-#         if N % 16 > 0:
-#             dumb_mm512_maskz_loadu_ps(
-#                 Config.masked_N,
-#                 C_reg[i, N / 16, :],
-#                 C[i, 16 * (N / 16):16 * (N / 16) + N % 16]
-#             )
-#
-#     for k in par(0, K):
-#         for i in par(0, M):
-#             a_vec: f32[16] @ AVX512
-#             mm512_set1_ps(a_vec, A[i, k:k + 1])
-#             for j in par(0, ((N + 15) / 16)):
-#                 b_vec: f32[16] @ AVX512
-#                 mm512_loadu_ps(b_vec, B[k, j * 16:j * 16 + 16])
-#                 mm512_fmadd_ps(a_vec, b_vec, C_reg[i, j, :])
-#
-#     for i in par(0, M):
-#         for j in par(0, N / 16):
-#             mm512_storeu_ps(C[i, 16 * j:16 * j + 16], C_reg[i, j, :])
-#         if N % 16 > 0:
-#             dumb_mm512_mask_storeu_ps(
-#                 Config.masked_N,
-#                 C[i, 16 * (N / 16):16 * (N / 16) + N % 16],
-#                 C_reg[i, N / 16, :]
-#             )
-#
-#
-# # The primary kernel with no masked loads
-# sgemm_kernel_avx512_6x4 = (
-#     sgemm_masked_kernel_avx512_template
-#         .partial_eval(6, 64)
-#         .simplify()
-#         .unroll('j')
-#         .unroll('i')
-#         .simplify()
-#         .rename(f'sgemm_kernel_avx512_6x4')
-# )
-
-
-# TODO: the 6*4 tail kernels with masked loads on right edge
-
 def trace(message):
     @instr(f'puts("{message}");')
     def trace_impl():
@@ -131,7 +15,7 @@ def trace(message):
 
 # noinspection PyPep8Naming
 @proc
-def sgemm_sys_atl(
+def SGEMM(
         M: size,
         N: size,
         K: size,
@@ -167,21 +51,26 @@ K_L2_BLK = 512
 
 COPY_STREAMS = 3
 
-basic_kernel = (
-    sgemm_sys_atl
+SGEMM_WINDOW = (
+    SGEMM
         .set_window('A', True)
         .set_window('B', True)
         .set_window('C', True)
-        # Specialize to kernel size
-        .partial_eval(I_REG_BLK, J_REG_BLK)
         # Make reduction dimension outermost
         .reorder('j', 'k')
         .reorder('i', 'k')
+)
+
+basic_kernel = (
+    SGEMM_WINDOW
         .rename('basic_kernel')
+        # Specialize to kernel size
+        .partial_eval(I_REG_BLK, J_REG_BLK)
 )
 
 sgemm_kernel_avx512_6x4 = (
     basic_kernel
+        .rename('sgemm_kernel_avx512_6x4')
         # Vectorize columns
         .split('j', VEC_W, ['jo', 'ji'], perfect=True)
         .par_to_seq('for k in _: _')
@@ -214,11 +103,20 @@ sgemm_kernel_avx512_6x4 = (
         # .replace(trace("inner"), 'pass')
         # Clean up
         .simplify()
-        .rename('sgemm_kernel_avx512_6x4')
+)
+
+right_panel_kernel = (
+    SGEMM
+        .rename('right_panel_kernel')
+        .partial_eval(6)
+        .reorder('j', 'k')
+        .reorder('i', 'k')
+        .simplify()
 )
 
 sgemm_sys_atl = (
-    sgemm_sys_atl
+    SGEMM
+        .rename('sgemm_sys_atl')
         .split('j', J_REG_BLK, ['jo', 'ji'], tail='cut')
         .split('i', I_REG_BLK, ['io', 'ii'], tail='cut')
         .fission_after('for jo in _: _ #0', n_lifts=2)
@@ -241,10 +139,13 @@ sgemm_sys_atl = (
         # Bottom panel
         .reorder('ii', 'jo')
         .reorder('ii', 'k')
+        # Bottom-right tile
+        # .replace_all(SGEMM_WINDOW)
         .simplify()
 )
 
 if __name__ == '__main__':
     print(sgemm_sys_atl)
+    print(right_panel_kernel)
 
-__all__ = ['sgemm_kernel_avx512_6x4', 'sgemm_sys_atl']
+__all__ = ['sgemm_sys_atl']
