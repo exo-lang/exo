@@ -43,9 +43,6 @@ class DoReplace(LoopIR_Rewrite):
             raise SchedulingError("Not enough statements to match")
         stmt_block = stmt_block[:n_stmts]
 
-        # prevent name clashes between the statement block and sub-proc
-        subproc = Alpha_Rename(subproc).result()
-
         self.subproc        = subproc
         self.target_block   = stmt_block
         self.live_vars      = ChainMap()
@@ -122,9 +119,13 @@ class DoReplace(LoopIR_Rewrite):
             prefix_stmts    = super().map_stmts(stmts[ : match_i])
             suffix_stmts    = stmts[match_i+n_stmts : ]
             stmts           = stmts[match_i : match_i+n_stmts]
-            new_args = Unification(self.subproc, stmts,
+
+            # prevent name clashes between the statement block and sub-proc
+            subproc = Alpha_Rename(self.subproc).result()
+            new_args = Unification(subproc, stmts,
                                    self.live_vars).result()
 
+            # but don't use a different LoopIR.proc for the callsite itself
             new_call = LoopIR.Call(self.subproc, new_args,
                                    None, stmts[0].srcinfo)
 
