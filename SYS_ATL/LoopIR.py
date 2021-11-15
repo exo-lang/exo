@@ -2,6 +2,7 @@ from collections import ChainMap
 
 from adt import ADT
 from adt import memo as ADTmemo
+
 from .LoopIR_effects import Effects as E
 from .builtins import BuiltIn
 from .configs import Config
@@ -419,8 +420,10 @@ class LoopIR_Rewrite:
     def __init__(self, proc, instr=None, *args, **kwargs):
         self.orig_proc  = proc
 
-        args = [ self.map_fnarg(a) for a in self.orig_proc.args ]
-        preds= [ self.map_e(p) for p in self.orig_proc.preds ]
+        args = [self.map_fnarg(a) for a in self.orig_proc.args]
+        preds = [self.map_e(p) for p in self.orig_proc.preds]
+        preds = [p for p in preds
+                 if not (isinstance(p, LoopIR.Const) and p.val)]
         body = self.map_stmts(self.orig_proc.body)
 
         eff  = self.map_eff(self.orig_proc.eff)
