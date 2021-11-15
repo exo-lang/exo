@@ -177,8 +177,8 @@ def test_conv_3():
     T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, '1')
 
     conv = conv_on_cpu().rename("conv_3")
-    conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
+    conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
     conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
     conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
     conv = conv.reorder('ocol_i', 'och_o')
