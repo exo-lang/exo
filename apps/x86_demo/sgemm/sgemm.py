@@ -234,6 +234,13 @@ sgemm_sys_atl = (
         # #
         # .insert_pass('sgemm_kernel_avx512_6x4(_, _, _, _)')
         # .replace(trace("in_loop"), 'pass')
+        .fission_after('for jo in _: _ #1')
+        # Right panel
+        .reorder('ji', 'k')
+        .reorder('ii', 'k')
+        # Bottom panel
+        .reorder('ii', 'jo')
+        .reorder('ii', 'k')
         .simplify()
 )
 
