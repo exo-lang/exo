@@ -238,7 +238,6 @@ sgemm_sys_atl = (
 )
 
 if __name__ == '__main__':
-    print(basic_kernel)
     print(sgemm_sys_atl)
 
 __all__ = ['sgemm_kernel_avx512_6x4', 'sgemm_sys_atl']
