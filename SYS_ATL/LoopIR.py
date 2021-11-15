@@ -745,17 +745,21 @@ class FreeVars(LoopIR_Do):
 
 class Alpha_Rename(LoopIR_Rewrite):
     def __init__(self, node):
-        assert isinstance(node, list)
         self.env    = ChainMap()
         self.node   = []
-        for n in node:
-            if isinstance(n, LoopIR.stmt):
-                self.node += self.map_s(n)
-            elif isinstance(n, LoopIR.expr):
-                self.node += [self.map_e(n)]
-            elif isinstance(n, E.effect):
-                self.node += [self.map_eff(n)]
-            else: assert False, "expected stmt or expr or effect"
+
+        if isinstance(node, LoopIR.proc):
+            self.node = self.map_proc(node)
+        else:
+            assert isinstance(node, list)
+            for n in node:
+                if isinstance(n, LoopIR.stmt):
+                    self.node += self.map_s(n)
+                elif isinstance(n, LoopIR.expr):
+                    self.node += [self.map_e(n)]
+                elif isinstance(n, E.effect):
+                    self.node += [self.map_eff(n)]
+                else: assert False, "expected stmt or expr or effect"
 
     def result(self):
         return self.node
@@ -764,6 +768,21 @@ class Alpha_Rename(LoopIR_Rewrite):
         self.env = self.env.new_child()
     def pop(self):
         self.env = self.env.parents
+
+    def map_proc(self, proc):
+        args    = [ self.map_fnarg(fa) for fa in proc.args ]
+        preds   = [ self.map_e(e) for e in proc.preds ]
+        body    = self.map_stmts(proc.body)
+        eff     = self.map_eff(proc.eff)
+
+        return LoopIR.proc(proc.name, args, preds, body,
+                           proc.instr, eff, proc.srcinfo)
+
+    def map_fnarg(self, fa):
+        nm  = fa.name.copy()
+        self.env[fa.name] = nm
+        typ = self.map_t(fa.type)
+        return LoopIR.fnarg(nm, typ, fa.mem, fa.srcinfo)
 
     def map_s(self, s):
         styp = type(s)

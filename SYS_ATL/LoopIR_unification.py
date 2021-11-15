@@ -7,7 +7,8 @@ import pysmt
 from pysmt import shortcuts as SMT
 
 from adt import ADT
-from .LoopIR import LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars
+from .LoopIR import (LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars,
+                     Alpha_Rename)
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
@@ -41,6 +42,9 @@ class DoReplace(LoopIR_Rewrite):
         if len(stmt_block) < n_stmts:
             raise SchedulingError("Not enough statements to match")
         stmt_block = stmt_block[:n_stmts]
+
+        # prevent name clashes between the statement block and sub-proc
+        subproc = Alpha_Rename(subproc).result()
 
         self.subproc        = subproc
         self.target_block   = stmt_block
@@ -712,6 +716,7 @@ class Unification:
                 return bufvar.get_solution(self, solutions,
                                            stmt_block[0].srcinfo)
         self.new_args   = [ get_arg(fa) for fa in subproc.args ]
+
 
 
     def err(self):
