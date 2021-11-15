@@ -4,7 +4,10 @@ jobs:
   build:
     strategy:
       matrix:
-        runner: [ ubuntu-latest ]  # , macos-latest ]
+        runner: [ ubuntu-latest ]
+    env:
+      CC: clang-13
+      CXX: clang++-13
     runs-on: ${{matrix.runner}}
     steps:
       - name: Checkout sources (including submodules)
@@ -28,6 +31,12 @@ jobs:
 
       - name: Setup SDE binaries
         uses: petarpetrovt/setup-sde@v1.2
+
+      - name: Install Clang 13
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 13
 
       - name: Run PyTest
         run: python -m pytest

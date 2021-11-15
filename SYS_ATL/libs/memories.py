@@ -1,63 +1,65 @@
 import os
 
-from SYS_ATL import Memory
-from SYS_ATL.memory import MemGenError
+from SYS_ATL.memory import Memory, DRAM, MemGenError
+from pathlib import Path
 
 
 def _is_const_size(sz, c):
     return sz.isdecimal() and int(sz) == c
 
 
+def _configure_file(path: Path, **kwargs):
+    def transform(lines):
+        for line in lines:
+            if line.startswith('#define'):
+                line = line.format(**kwargs)
+            yield line
+
+    return '\n'.join(transform(path.read_text().split('\n')))
+
+
 # ----------- DRAM using custom malloc ----------------
 
-def _mdram_alloc(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return (f"{prim_type} {new_name};")
-    else:
+class MDRAM(DRAM):
+    @classmethod
+    def global_(cls):
+        _here_ = os.path.dirname(os.path.abspath(__file__))
+        return _configure_file(Path(_here_) / 'malloc.c', heap_size=100000)
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return f"{prim_type} {new_name};"
+
         size_str = shape[0]
         for s in shape[1:]:
             size_str = f"{s} * {size_str}"
         return (f"{prim_type} *{new_name} = "
                 f"({prim_type}*) malloc_dram ({size_str} * sizeof({prim_type}));")
 
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return ""
 
-def _mdram_free(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return ""
-    else:
         return f"free_dram({new_name});"
-
-
-def _mdram_globl():
-    _here_ = os.path.dirname(os.path.abspath(__file__))
-
-    with open(os.path.join(_here_, 'malloc.c'), 'r') as fp:
-        line = fp.readline()
-        malloc = line.format(heap_size=100000)
-        while line:
-            line = fp.readline()
-            malloc += line
-
-    return malloc
-
-
-MDRAM = Memory(
-    "MDRAM",
-    globl=_mdram_globl(),
-    alloc=_mdram_alloc,
-    free=_mdram_free,
-    read=True,
-    write=True,
-    red=True
-)
 
 
 # ----------- GEMMINI scratchpad ----------------
 
-def _gemm_alloc(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return (f"{prim_type} {new_name};")
-    else:
+class GEMM_SCRATCH(Memory):
+    @classmethod
+    def global_(cls):
+        _here_ = os.path.dirname(os.path.abspath(__file__))
+        return _configure_file(Path(_here_) / 'gemm_malloc.c',
+                               heap_size=100000,
+                               dim=16)
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return f"{prim_type} {new_name};"
+
         size_str = shape[0]
         for s in shape[1:]:
             size_str = f"{s} * {size_str}"
@@ -69,58 +71,42 @@ def _gemm_alloc(new_name, prim_type, shape, srcinfo):
         return (f"{prim_type} *{new_name} = "
                 f"({prim_type}*) ((uint64_t)gemm_malloc ({size_str} * sizeof({prim_type})));")
 
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return ""
 
-def _gemm_free(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return ""
-    else:
         return f"gemm_free((uint64_t)({new_name}));"
 
-
-def _gemm_window(prim_type, baseptr, indices, strides, srcinfo):
-    # assume that strides[-1] == 1
-    #    and that strides[-2] == 16 (if there is a strides[-2])
-    assert len(indices) == len(strides) and len(strides) >= 2
-    offset = " + ".join([f"({i}) * ({s})" for i, s in zip(indices, strides)])
-    return (f"({prim_type}*)((uint64_t)( "
-            f"((uint32_t)((uint64_t){baseptr})) + "
-            f"({offset})/16 ))")
-
-
-def _gemm_global():
-    _here_ = os.path.dirname(os.path.abspath(__file__))
-
-    malloc = []
-    with open(os.path.join(_here_, 'gemm_malloc.c'), 'r') as fp:
-        line = fp.readline()
-        malloc.append(line.format(heap_size=100000))
-        line = fp.readline()
-        malloc.append(line.format(dim=16))
-        while line:
-            line = fp.readline()
-            malloc.append(line)
-
-    return ''.join(malloc)
-
-
-GEMM_SCRATCH = Memory(
-    "GEMM_SCRATCH",
-    globl=_gemm_global(),
-    alloc=_gemm_alloc,
-    free=_gemm_free,
-    window=_gemm_window,
-    read=False,
-    write=False,
-    red=False,
-)
+    @classmethod
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        # assume that strides[-1] == 1
+        #    and that strides[-2] == 16 (if there is a strides[-2])
+        assert len(indices) == len(strides) and len(strides) >= 2
+        prim_type = basetyp.basetype().ctype()
+        offset = " + ".join(
+            [f"({i}) * ({s})" for i, s in zip(indices, strides)])
+        return (f"*({prim_type}*)((uint64_t)( "
+                f"((uint32_t)((uint64_t){baseptr})) + "
+                f"({offset})/16))")
 
 
 # ----------- GEMMINI accumulator scratchpad ----------------
 
-def _gemm_accum_alloc(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return (f"{prim_type} {new_name};")
-    else:
+
+class GEMM_ACCUM(Memory):
+    @classmethod
+    def global_(cls):
+        _here_ = os.path.dirname(os.path.abspath(__file__))
+        return _configure_file(Path(_here_) / 'gemm_acc_malloc.c',
+                               heap_size=100000,
+                               dim=16)
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return f"{prim_type} {new_name};"
+
         size_str = shape[0]
         for s in shape[1:]:
             size_str = f"{s} * {size_str}"
@@ -132,142 +118,108 @@ def _gemm_accum_alloc(new_name, prim_type, shape, srcinfo):
         return (f"{prim_type} *{new_name} = "
                 f"({prim_type}*) ((uint32_t)gemm_acc_malloc ({size_str} * sizeof({prim_type})));")
 
-
-def _gemm_accum_free(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return ""
-    else:
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return ""
         return f"gemm_acc_free((uint32_t)({new_name}));"
 
-
-def _gemm_accum_window(prim_type, baseptr, indices, strides, srcinfo):
-    # assume that strides[-1] == 1
-    #    and that strides[-2] == 16 (if there is a strides[-2])
-    assert len(indices) == len(strides) and len(strides) >= 2
-    offset = " + ".join([f"({i}) * ({s})" for i, s in zip(indices, strides)])
-    return (f"({prim_type}*)((uint64_t)( "
-            f"((uint32_t)((uint64_t){baseptr})) + "
-            f"({offset})/16 ))")
-
-
-def _gemm_accum_global():
-    _here_ = os.path.dirname(os.path.abspath(__file__))
-
-    malloc = []
-    with open(os.path.join(_here_, 'gemm_acc_malloc.c'), 'r') as fp:
-        line = fp.readline()
-        malloc.append(line.format(heap_size=100000))
-        line = fp.readline()
-        malloc.append(line.format(dim=16))
-        while line:
-            line = fp.readline()
-            malloc.append(line)
-
-    return ''.join(malloc)
-
-
-GEMM_ACCUM = Memory(
-    "GEMM_ACCUM",
-    globl=_gemm_accum_global(),
-    alloc=_gemm_accum_alloc,
-    free=_gemm_accum_free,
-    window=_gemm_accum_window,
-    read=False,
-    write=False,
-    red=False,
-)
+    @classmethod
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        # assume that strides[-1] == 1
+        #    and that strides[-2] == 16 (if there is a strides[-2])
+        assert len(indices) == len(strides) and len(strides) >= 2
+        prim_type = basetyp.basetype().ctype()
+        offset = " + ".join([f"({i}) * ({s})"
+                             for i, s in zip(indices, strides)])
+        return (f"*({prim_type}*)((uint64_t)( "
+                f"((uint32_t)((uint64_t){baseptr})) + "
+                f"({offset})/16))")
 
 
 # ----------- AVX2 registers ----------------
 
-def _avx2_alloc(new_name, prim_type, shape, srcinfo):
-    if not shape:
-        raise MemGenError(f'{srcinfo}: AVX2 vectors are not scalar values')
-    if not prim_type == 'float':
-        raise MemGenError(f'{srcinfo}: AVX2 vectors must be f32 (for now)')
-    if not _is_const_size(shape[-1], 8):
-        raise MemGenError(f'{srcinfo}: AVX2 vectors must be 8-wide')
+class AVX2(Memory):
+    @classmethod
+    def global_(cls):
+        return '#include <immintrin.h>'
 
-    shape = shape[:-1]
-    if shape:
-        return f'__m256 {new_name}[{"][".join(map(str, shape))}];'
-    else:
-        return f'__m256 {new_name};'
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        if not shape:
+            raise MemGenError(f'{srcinfo}: AVX2 vectors are not scalar values')
+        if not prim_type == 'float':
+            raise MemGenError(f'{srcinfo}: AVX2 vectors must be f32 (for now)')
+        if not _is_const_size(shape[-1], 8):
+            raise MemGenError(f'{srcinfo}: AVX2 vectors must be 8-wide')
+        shape = shape[:-1]
+        if shape:
+            result = f'__m256 {new_name}[{"][".join(map(str, shape))}];'
+        else:
+            result = f'__m256 {new_name};'
+        return result
 
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ''
 
-def _avx2_free(new_name, prim_type, shape, srcinfo):
-    return ''
+    @classmethod
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        assert strides[-1] == '1'
+        idxs = indices[:-1] or ''
+        if idxs:
+            idxs = '[' + ']['.join(idxs) + ']'
+        return f'{baseptr}{idxs}'
 
-
-def _avx2_window(prim_type, baseptr, indices, strides, srcinfo):
-    assert strides[-1] == '1'
-    return f'({prim_type}*)&{baseptr}[{"][".join(indices[:-1])}]'
-
-
-AVX2 = Memory(
-    'AVX2',
-    globl='#include <immintrin.h>',
-    alloc=_avx2_alloc,
-    free=_avx2_free,
-    window=_avx2_window,
-    read=False,
-    write=False,
-    red=False
-)
 
 # ----------- AVX-512 registers ----------------
 
-def _avx512_alloc(new_name, prim_type, shape, srcinfo):
-    if not shape:
-        raise MemGenError(f'{srcinfo}: AVX512 vectors are not scalar values')
-    if not prim_type == 'float':
-        raise MemGenError(f'{srcinfo}: AVX512 vectors must be f32 (for now)')
-    if not _is_const_size(shape[-1], 16):
-        raise MemGenError(f'{srcinfo}: AVX512 vectors must be 16-wide')
+class AVX512(Memory):
+    @classmethod
+    def global_(cls):
+        return '#include <immintrin.h>'
 
-    shape = shape[:-1]
-    if shape:
-        return f'__m512 {new_name}[{"][".join(map(str, shape))}];'
-    else:
-        return f'__m512 {new_name};'
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        if not shape:
+            raise MemGenError(
+                f'{srcinfo}: AVX512 vectors are not scalar values')
+        if not prim_type == 'float':
+            raise MemGenError(
+                f'{srcinfo}: AVX512 vectors must be f32 (for now)')
+        if not _is_const_size(shape[-1], 16):
+            raise MemGenError(f'{srcinfo}: AVX512 vectors must be 16-wide')
+        shape = shape[:-1]
+        if shape:
+            result = f'__m512 {new_name}[{"][".join(map(str, shape))}];'
+        else:
+            result = f'__m512 {new_name};'
+        return result
 
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ''
 
-def _avx512_free(new_name, prim_type, shape, srcinfo):
-    return ''
-
-
-def _avx512_window(prim_type, baseptr, indices, strides, srcinfo):
-    assert strides[-1] == '1'
-    idxs = indices[:-1] if len(indices) > 1 else ["0"]
-    return f'({prim_type}*)&{baseptr}[{"][".join(idxs)}]'
-
-
-AVX512 = Memory(
-    'AVX512',
-    globl='#include <immintrin.h>',
-    alloc=_avx512_alloc,
-    free=_avx512_free,
-    window=_avx512_window,
-    read=False,
-    write=False,
-    red=False
-)
+    @classmethod
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        assert strides[-1] == '1'
+        idxs = indices[:-1] or ''
+        if idxs:
+            idxs = '[' + ']['.join(idxs) + ']'
+        return f'{baseptr}{idxs}'
 
 
 # ----------- AMX tile! ----------------
 
-def _amx_alloc(new_name, prim_type, shape, srcinfo):
-    return (f"{prim_type} *{new_name} = ({prim_type}*) 0;")
+class AMX_TILE(Memory):
+    @classmethod
+    def global_(cls):
+        return '#include <immintrin.h>'
 
-def _amx_free(new_name, prim_type, shape, srcinfo):
-    return ""
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        return f"{prim_type} *{new_name} = ({prim_type}*) 0;"
 
-AMX_TILE = Memory(
-    "AMX_TILE",
-    globl='#include <immintrin.h>',
-    alloc=_amx_alloc,
-    free =_amx_free,
-    read=False,
-    write=False,
-    red=False,
-)
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ""

@@ -25,6 +25,18 @@ def _get_smt_solver():
 # --------------------------------------------------------------------------- #
 # Helper Functions
 
+def loopir_subst_stmts(stmts, subst):
+    new_s = []
+    for s in stmts:
+        if type(s) is LoopIR.WriteConfig:
+            new_s.append(LoopIR.WriteConfig(s.config, s.field,
+                loopir_subst(s.rhs, subst), s.eff, s.srcinfo))
+        else:#TODO
+            new_s.append(s)
+
+    return new_s
+
+
 def loopir_subst(e, subst):
     if isinstance(e, LoopIR.Read):
         assert not e.type.is_numeric()
@@ -915,6 +927,7 @@ class CheckEffects:
     def preprocess_stmts(self, body):
         for stmt in body:
             if isinstance(stmt, LoopIR.If):
+                self.solver.add_assertion(self.expr_to_smt(lift_expr(stmt.cond)))
                 self.preprocess_stmts(stmt.body)
                 self.preprocess_stmts(stmt.orelse)
             elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
@@ -923,6 +936,42 @@ class CheckEffects:
                 if stmt.type.is_tensor_or_window():
                     self.assume_tensor_strides(stmt, stmt.name,
                                                stmt.type.shape())
+            elif isinstance(stmt, LoopIR.Call):
+                subst = dict()
+                for sig, arg in zip(stmt.f.args, stmt.args):
+                    if sig.type.is_numeric():
+                        # need to check that the argument shape
+                        # has all positive dimensions
+                        arg_shape = [lift_expr(s) for s in arg.type.shape()]
+                        for e in arg_shape:
+                            self.check_pos_size(e)
+                        # also, need to check that the argument shape
+                        # is exactly the shape specified in the signature
+                        sig_shape = [ lift_expr(loopir_subst(s, subst))
+                                      for s in sig.type.shape() ]
+                        self.check_call_shape_eqv(arg_shape, sig_shape, arg)
+
+                        # bind potential window-expression
+                        subst[sig.name] = arg
+
+                    elif ( sig.type.is_indexable() or
+                           sig.type == T.bool or sig.type.is_stridable() ):
+                        # in this case we have a LoopIR expression...
+                        subst[sig.name] = arg
+                        if sig.type == T.size:
+                            e_arg       = lift_expr(arg)
+                            self.check_pos_size(e_arg)
+
+                    else: assert False, f"bad case {type(sig.type)}"
+
+                body_subst     = loopir_subst_stmts(stmt.f.body, subst)
+                self.preprocess_stmts(body_subst)
+
+            elif isinstance(stmt, LoopIR.WriteConfig):
+                eq = LoopIR.BinOp('==',
+                        LoopIR.ReadConfig(stmt.config, stmt.field, stmt.rhs.type, stmt.srcinfo),
+                        stmt.rhs, T.bool, stmt.srcinfo)
+                self.solver.add_assertion(self.expr_to_smt(lift_expr(eq)))
             elif isinstance(stmt, LoopIR.WindowStmt):
                 # src_shape   = stmt.rhs.type.src_type.shape()
                 w_idx = stmt.rhs.type.idx

@@ -7,14 +7,15 @@ from .LoopIR import LoopIR, LoopIR_Do
 from .LoopIR import T
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
-from .memory import MemGenError
+from .memory import MemGenError, Memory
 from .prec_analysis import PrecisionAnalysis
 from .prelude import *
 from .win_analysis import WindowAnalysis
 
 
 def sanitize_str(s):
-    return re.sub(r'\W','_',s)
+    return re.sub(r'\W', '_', s)
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -22,26 +23,27 @@ def sanitize_str(s):
 CacheDict = lambda: defaultdict(CacheDict)
 
 op_prec = {
-    "or":     10,
+    "or":  10,
     #
-    "and":    20,
+    "and": 20,
     #
-    "==":     30,
+    "==":  30,
     #
-    "<":      40,
-    ">":      40,
-    "<=":     40,
-    ">=":     40,
+    "<":   40,
+    ">":   40,
+    "<=":  40,
+    ">=":  40,
     #
-    "+":      50,
-    "-":      50,
+    "+":   50,
+    "-":   50,
     #
-    "*":      60,
-    "/":      60,
-    "%":      60,
+    "*":   60,
+    "/":   60,
+    "%":   60,
     # unary minus
-    "~":      70,
+    "~":   70,
 }
+
 
 class LoopIR_SubProcs(LoopIR_Do):
     def __init__(self, proc):
@@ -53,7 +55,7 @@ class LoopIR_SubProcs(LoopIR_Do):
         return self._subprocs
 
     # to improve efficiency
-    def do_e(self,e):
+    def do_e(self, e):
         pass
 
     def do_s(self, s):
@@ -62,11 +64,12 @@ class LoopIR_SubProcs(LoopIR_Do):
         else:
             super().do_s(s)
 
+
 def find_all_subprocs(proc_list):
-    to_visit    = [ p for p in reversed(proc_list) ] # ** see below
-    queued      = set(to_visit)
-    proc_list   = []
-    visited     = set(proc_list)
+    to_visit = [p for p in reversed(proc_list)]  # ** see below
+    queued = set(to_visit)
+    proc_list = []
+    visited = set(proc_list)
 
     # ** to_visit is reversed so that in the simple case of requesting e.g.
     # run_compile([p1, p2], ...) the generated C-code will list the def.
@@ -74,7 +77,7 @@ def find_all_subprocs(proc_list):
 
     # flood-fill algorithm to produce a topological-sort/order
     while len(to_visit) > 0:
-        p = to_visit.pop(0) # de-queue
+        p = to_visit.pop(0)  # de-queue
         visited.add(p)
         proc_list.append(p)
 
@@ -83,9 +86,10 @@ def find_all_subprocs(proc_list):
             assert sp not in visited, "found cycle in the call graph"
             if sp not in queued:
                 queued.add(sp)
-                to_visit.append(sp) #en-queue
+                to_visit.append(sp)  # en-queue
 
-    return [ p for p in reversed(proc_list) ]
+    return [p for p in reversed(proc_list)]
+
 
 class LoopIR_FindMems(LoopIR_Do):
     def __init__(self, proc):
@@ -99,7 +103,7 @@ class LoopIR_FindMems(LoopIR_Do):
         return self._mems
 
     # to improve efficiency
-    def do_e(self,e):
+    def do_e(self, e):
         pass
 
     def do_s(self, s):
@@ -109,10 +113,12 @@ class LoopIR_FindMems(LoopIR_Do):
         else:
             super().do_s(s)
 
-    def do_eff(self,eff):
+    def do_eff(self, eff):
         pass
-    def do_t(self,t):
+
+    def do_t(self, t):
         pass
+
 
 class LoopIR_FindBuiltIns(LoopIR_Do):
     def __init__(self, proc):
@@ -123,16 +129,18 @@ class LoopIR_FindBuiltIns(LoopIR_Do):
         return self._builtins
 
     # to improve efficiency
-    def do_e(self,e):
+    def do_e(self, e):
         if isinstance(e, LoopIR.BuiltIn):
             self._builtins.add(e.f)
         else:
             super().do_e(e)
 
-    def do_eff(self,eff):
+    def do_eff(self, eff):
         pass
-    def do_t(self,t):
+
+    def do_t(self, t):
         pass
+
 
 class LoopIR_FindConfigs(LoopIR_Do):
     def __init__(self, proc):
@@ -143,7 +151,7 @@ class LoopIR_FindConfigs(LoopIR_Do):
         return self._configs
 
     # to improve efficiency
-    def do_e(self,e):
+    def do_e(self, e):
         if isinstance(e, LoopIR.ReadConfig):
             self._configs.add(e.config)
         else:
@@ -154,41 +162,47 @@ class LoopIR_FindConfigs(LoopIR_Do):
             self._configs.add(s.config)
         super().do_s(s)
 
-    def do_eff(self,eff):
+    def do_eff(self, eff):
         pass
-    def do_t(self,t):
+
+    def do_t(self, t):
         pass
+
 
 def find_all_mems(proc_list):
     mems = set()
     for p in proc_list:
-        mems.update( LoopIR_FindMems(p).result() )
+        mems.update(LoopIR_FindMems(p).result())
 
-    return [ m for m in mems ]
+    return [m for m in mems]
+
 
 def find_all_builtins(proc_list):
     builtins = set()
     for p in proc_list:
-        builtins.update( LoopIR_FindBuiltIns(p).result() )
+        builtins.update(LoopIR_FindBuiltIns(p).result())
 
-    return [ b for b in builtins ]
+    return [b for b in builtins]
+
 
 def find_all_configs(proc_list):
     configs = set()
     for p in proc_list:
-        configs.update( LoopIR_FindConfigs(p).result() )
+        configs.update(LoopIR_FindConfigs(p).result())
 
     return list(configs)
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
 _window_struct_shorthand = {
-    T.f32       : 'f32',
-    T.f64       : 'f64',
-    T.i8        : 'i8',
-    T.i32       : 'i32',
+    T.f32: 'f32',
+    T.f64: 'f64',
+    T.i8:  'i8',
+    T.i32: 'i32',
 }
+
 
 def window_struct(basetyp, n_dims):
     assert n_dims >= 1
@@ -196,7 +210,7 @@ def window_struct(basetyp, n_dims):
 
     sdef = (f"struct {sname}{{\n"
             f"    {basetyp.ctype()} *data;\n"
-            f"    int strides[{n_dims}];\n"
+            f"    int_fast32_t strides[{n_dims}];\n"
             f"}};")
 
     return sname, sdef
@@ -220,23 +234,24 @@ def run_compile(proc_list, path, c_file, h_file, header_guard=None):
     if header_guard is None:
         header_guard = re.sub(r'\W', '_', h_file).upper()
 
-    fwd_decls = (f'#pragma once\n'
-                 f"#ifndef {header_guard}\n"
-                 f"#define {header_guard}\n"
-                 "#ifdef __cplusplus\n"
-                 "extern \"C\" {\n"
-                 "#endif\n"
-                 "#include <stdint.h>\n"
-                 "#include <stdbool.h>\n"
-                 f'{fwd_decls}'
-                 "#ifdef __cplusplus\n"
-                 "}\n"
-                 "#endif\n"
-                 f"#endif //{header_guard}\n")
+    fwd_decls = f'''
+#pragma once
+#ifndef {header_guard}
+#define {header_guard}
 
-    body = (f'#include "{h_file}"\n'
-            f'\n'
-            f'{body}')
+#ifdef __cplusplus
+extern "C" {{
+#endif
+
+{fwd_decls}
+
+#ifdef __cplusplus
+}}
+#endif
+#endif  // {header_guard}
+'''
+
+    body = f'#include "{h_file}"\n\n{body}'
 
     with open(os.path.join(path, h_file), "w") as f_header:
         f_header.write(fwd_decls)
@@ -262,8 +277,6 @@ def compile_to_strings(lib_name, proc_list):
         used_names.add(p.name)
 
     body = [
-        "#include <stdint.h>\n",
-        "",
         "static int _floor_div(int num, int quot) {",
         "  int off = (num>=0)? 0 : quot-1;",
         "  return (num-off)/quot;",
@@ -278,10 +291,9 @@ def compile_to_strings(lib_name, proc_list):
     fwd_decls = []
     struct_defns = set()
 
+    m: Memory
     for m in mem_list:
-        if m._global:
-            body.append(m._global)
-            body.append("\n")
+        body.append(f'{m.global_()}\n')
 
     for b in builtin_list:
         glb = b.globl()
@@ -306,7 +318,7 @@ def compile_to_strings(lib_name, proc_list):
     fwd_decls += ctxt_def
     fwd_decls.append("\n")
     # check that we don't have a name conflict on configs
-    config_names = { c.name() for c in config_list }
+    config_names = {c.name() for c in config_list}
     if len(config_names) != len(config_list):
         raise TypeError("Cannot compile while using two configs "
                         "with the same name")
@@ -334,8 +346,35 @@ def compile_to_strings(lib_name, proc_list):
 
     # add struct definitions before the other forward declarations
     fwd_decls = list(struct_defns) + fwd_decls
+    fwd_decls = '\n'.join(fwd_decls)
+    fwd_decls = f'''
+#include <stdint.h>
+#include <stdbool.h>
 
-    return "\n".join(fwd_decls), "\n".join(body)
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define SYS_ATL_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define SYS_ATL_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if SYS_ATL_HAS_BUILTIN(__builtin_assume)
+#  define SYS_ATL_ASSUME(expr) __builtin_assume(expr)
+#elif SYS_ATL_HAS_BUILTIN(__builtin_unreachable)
+#  define SYS_ATL_ASSUME(expr) \\
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define SYS_ATL_ASSUME(expr) ((void)(expr))
+#endif
+
+{fwd_decls}
+'''
+
+    body = '\n'.join(body)
+
+    return fwd_decls, body
 
 
 # --------------------------------------------------------------------------- #
@@ -346,13 +385,13 @@ class Compiler:
     def __init__(self, proc, ctxt_name, **kwargs):
         assert isinstance(proc, LoopIR.proc)
 
-        self.proc   = proc
+        self.proc = proc
         self.ctxt_name = ctxt_name
-        self.env    = ChainMap()
-        self.names  = ChainMap()
+        self.env = ChainMap()
+        self.names = ChainMap()
         self.envtyp = dict()
-        self.mems   = dict()
-        self._tab   = ""
+        self.mems = dict()
+        self._tab = ""
         self._lines = []
         self._scalar_refs = set()
 
@@ -360,9 +399,9 @@ class Compiler:
         self.window_cache = CacheDict()
 
         assert self.proc.name != None, "expected names for compilation"
-        name            = self.proc.name
-        arg_strs        = []
-        typ_comments    = []
+        name = self.proc.name
+        arg_strs = []
+        typ_comments = []
 
         # reserve the first "ctxt" argument
         self.new_varname(Sym('ctxt'), None)
@@ -371,20 +410,9 @@ class Compiler:
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
             name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
-            # setup, size argument binding
-            if a.type == T.size:
-                arg_strs.append(f"int {name_arg}")
-                typ_comments.append(f"{name_arg} : size")
-            # setup, index argument binding
-            elif a.type == T.index:
-                arg_strs.append(f"int {name_arg}")
-                typ_comments.append(f"{name_arg} : index")
-            elif a.type == T.bool:
-                arg_strs.append(f"bool {name_arg}")
-                typ_comments.append(f"{name_arg} : bool")
-            elif a.type == T.stride:
-                arg_strs.append(f"int {name_arg}")
-                typ_comments.append(f"{name_arg} : stride")
+            if a.type in (T.size, T.index, T.bool, T.stride):
+                arg_strs.append(f"{a.type.ctype()} {name_arg}")
+                typ_comments.append(f"{name_arg} : {a.type}")
             # setup, arguments
             else:
                 assert a.type.is_numeric()
@@ -400,6 +428,10 @@ class Compiler:
                 mem = f" @{a.mem.name()}" if a.mem else ""
                 comment_str = f"{name_arg} : {a.type} {mem}"
                 typ_comments.append(comment_str)
+
+        for pred in proc.preds:
+            if not isinstance(pred, LoopIR.Const):
+                self.add_line(f'SYS_ATL_ASSUME({self.comp_e(pred)});')
 
         self.comp_stmts(self.proc.body)
 
@@ -420,7 +452,8 @@ class Compiler:
         self.proc_def = proc_def
 
     def add_line(self, line):
-        self._lines.append(self._tab+line)
+        if line:
+            self._lines.append(self._tab + line)
 
     def comp_stmts(self, stmts):
         for b in stmts:
@@ -433,7 +466,7 @@ class Compiler:
         return self.window_defns
 
     def new_varname(self, symbol, typ, mem=None):
-        strnm   = str(symbol)
+        strnm = str(symbol)
         if strnm not in self.names:
             pass
         else:
@@ -444,49 +477,49 @@ class Compiler:
                     s = s + "_1"
                 else:
                     s = f"{m[1]}_{int(m[2]) + 1}"
-            self.names[strnm]   = s
-            strnm               = s
+            self.names[strnm] = s
+            strnm = s
 
-        self.names[strnm]   = strnm
-        self.env[symbol]    = strnm
+        self.names[strnm] = strnm
+        self.env[symbol] = strnm
         self.envtyp[symbol] = typ
         if mem is not None:
             self.mems[symbol] = mem
         return strnm
 
-    def push(self,only=None):
+    def push(self, only=None):
         if only is None:
-            self.env.new_child()
-            self.names.new_child()
+            self.env = self.env.new_child()
+            self.names = self.names.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.new_child()
-            self.names.new_child()
+            self.env = self.env.new_child()
+            self.names = self.names.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.parents
-        self.names.parents
+        self.env = self.env.parents
+        self.names = self.names.parents
         self._tab = self._tab[:-2]
 
     def access_str(self, nm, idx_list):
         buf = self.env[nm]
         type = self.envtyp[nm]
         idxs = [self.comp_e(i) for i in idx_list]
-        idx_expr = self.get_idx_offset(buf,type,idxs)
+        idx_expr = self.get_idx_offset(buf, type, idxs)
         if not type.is_win():
             return f"{buf}[{idx_expr}]"
         else:
             return f"{buf}.data[{idx_expr}]"
 
     def shape_strs(self, shape, prec=100):
-        return [ self.comp_e(s,prec=prec) for s in shape ]
+        return [self.comp_e(s, prec=prec) for s in shape]
 
     def tensor_strides(self, shape, prec=100):
-        szs = self.shape_strs(shape, max(prec,61))
+        szs = self.shape_strs(shape, max(prec, 61))
         assert len(szs) >= 1
         strides = ["1"]
         s = szs[-1]
@@ -499,14 +532,14 @@ class Compiler:
     # works for any tensor or window type
     def get_strides(self, name, typ, prec=100):
         if typ.is_win():
-            return [ f"{name}.strides[{i}]" for i in range(len(typ.shape())) ]
+            return [f"{name}.strides[{i}]" for i in range(len(typ.shape()))]
         else:
             return self.tensor_strides(typ.shape(), prec)
 
     def get_idx_offset(self, name, typ, idx):
         strides = self.get_strides(name, typ, prec=61)
         assert len(strides) == len(idx)
-        acc = " + ".join([ f"({i}) * ({s})" for i,s in zip(idx,strides) ])
+        acc = " + ".join([f"({i}) * ({s})" for i, s in zip(idx, strides)])
         return acc
 
     def get_window_type(self, typ):
@@ -516,7 +549,8 @@ class Compiler:
         elif isinstance(typ, T.Tensor) and typ.is_window:
             base = typ.basetype()
             n_dims = len(typ.shape())
-        else: assert False, f"not a window type: {typ}"
+        else:
+            assert False, f"not a window type: {typ}"
 
         lookup = self.window_cache[base][n_dims]
         if isinstance(lookup, str):
@@ -553,30 +587,24 @@ class Compiler:
                 else:
                     rhs = f"({lbtyp.ctype()})({rhs})"
 
-            mem = self.mems[s.name]
+            mem: Memory = self.mems[s.name]
             if styp is LoopIR.Assign:
-                if not mem._write:
-                    raise MemGenError(f"{s.srcinfo}: cannot write to buffer "
-                                      f"'{s.name}' in memory '{mem.name()}'")
-                self.add_line(f"{lhs} = {rhs};")
+                self.add_line(mem.write(s, lhs, rhs))
             else:
-                if not mem._reduce:
-                    raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "
-                                      f"'{s.name}' in memory '{mem.name()}'")
-                self.add_line(f"{lhs} += {rhs};")
+                self.add_line(mem.reduce(s, lhs, rhs))
 
         elif styp is LoopIR.WriteConfig:
             if not s.config.is_allow_rw():
                 raise ConfigError(f"{s.srcinfo}: cannot write to config "
                                   f"'{s.config.name()}'")
 
-            nm      = s.config.name()
-            rhs     = self.comp_e(s.rhs)
+            nm = s.config.name()
+            rhs = self.comp_e(s.rhs)
 
             # possibly cast!
-            ltyp    = s.config.lookup(s.field)[1]
-            rtyp    = s.rhs.type
-            if ltyp != rtyp:
+            ltyp = s.config.lookup(s.field)[1]
+            rtyp = s.rhs.type
+            if ltyp != rtyp and not ltyp.is_indexable():
                 assert ltyp.is_real_scalar()
                 assert rtyp.is_real_scalar()
 
@@ -588,11 +616,11 @@ class Compiler:
             self.add_line(f"ctxt->{nm}.{s.field} = {rhs};")
 
         elif styp is LoopIR.WindowStmt:
-            win_struct  = self.get_window_type(s.rhs.type)
-            rhs         = self.comp_e(s.rhs)
+            win_struct = self.get_window_type(s.rhs.type)
+            rhs = self.comp_e(s.rhs)
             assert isinstance(s.rhs, LoopIR.WindowExpr)
-            mem         = self.mems[s.rhs.name]
-            lhs         = self.new_varname(s.lhs, typ=s.rhs.type, mem=mem)
+            mem = self.mems[s.rhs.name]
+            lhs = self.new_varname(s.lhs, typ=s.rhs.type, mem=mem)
             self.add_line(f"struct {win_struct} {lhs} = {rhs};")
         elif styp is LoopIR.If:
             cond = self.comp_e(s.cond)
@@ -611,7 +639,7 @@ class Compiler:
             hi = self.comp_e(s.hi)
             self.push(only='env')
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.add_line(f"for (int {itr}=0; {itr} < {hi}; {itr}++) {{")
+            self.add_line(f"for (int {itr} = 0; {itr} < {hi}; {itr}++) {{")
             self.push(only='tab')
             self.comp_stmts(s.body)
             self.pop()
@@ -622,35 +650,43 @@ class Compiler:
             assert s.type.basetype().is_real_scalar()
             assert s.type.basetype() != T.R
             ctype = s.type.basetype().ctype()
-            line = s.mem._alloc( name,
-                                 ctype,
-                                 self.shape_strs( s.type.shape() ),
-                                 s.srcinfo )
+            line = s.mem.alloc(name,
+                               ctype,
+                               self.shape_strs(s.type.shape()),
+                               s.srcinfo)
 
             self.add_line(line)
         elif styp is LoopIR.Free:
             name = self.env[s.name]
             assert s.type.basetype().is_real_scalar()
             ctype = s.type.basetype().ctype()
-            line = s.mem._free( name,
-                                ctype,
-                                self.shape_strs( s.type.shape() ),
-                                s.srcinfo )
+            line = s.mem.free(name,
+                              ctype,
+                              self.shape_strs(s.type.shape()),
+                              s.srcinfo)
             self.add_line(line)
         elif styp is LoopIR.Call:
             assert all(a.type.is_win() == fna.type.is_win()
                        for a, fna in zip(s.args, s.f.args))
-            args    = [ self.comp_e(e, call_arg=True) for e in s.args ]
+            args = [self.comp_e(e, call_arg=True) for e in s.args]
             if s.f.instr is not None:
                 d = dict()
                 assert len(s.f.args) == len(args)
                 for i in range(len(args)):
-                    d[str(s.f.args[i].name)] = f"({args[i]})"
+                    arg_name = str(s.f.args[i].name)
+                    d[arg_name] = f"({args[i]})"
+                    arg_type = s.args[i].type
+                    if arg_type.is_win():
+                        assert isinstance(s.args[i], LoopIR.WindowExpr)
+                        data, _ = self.window_struct_fields(s.args[i])
+                        d[f'{arg_name}_data'] = data
+                    else:
+                        d[f'{arg_name}_data'] = f"({args[i]})"
 
                 self.add_line(f"{s.f.instr.format(**d)}")
             else:
-                fname   = s.f.name
-                args    = ["ctxt"] + args
+                fname = s.f.name
+                args = ["ctxt"] + args
                 self.add_line(f"{fname}({','.join(args)});")
         else:
             assert False, "bad case"
@@ -679,9 +715,9 @@ class Compiler:
                 if rtyp.is_indexable() or rtyp is T.bool or rtyp == T.stride:
                     return self.env[e.name]
 
-                mem = self.mems[e.name]
+                mem: Memory = self.mems[e.name]
 
-                if not mem._read:
+                if not mem.can_read():
                     raise MemGenError(f"{e.srcinfo}: cannot read from buffer "
                                       f"'{e.name}' in memory '{mem.name()}'")
 
@@ -692,60 +728,27 @@ class Compiler:
                 else:
                     return self.access_str(e.name, e.idx)
         elif etyp is LoopIR.WindowExpr:
-            win_struct  = self.get_window_type(e.type)
-            base        = self.env[e.name]
-            basetyp     = self.envtyp[e.name]
-            mem         = self.mems[e.name]
-
-            # compute offset to new data pointer
-            def w_lo(w):
-                return w.lo if isinstance(w, LoopIR.Interval) else w.pt
-
-            idxs        = [ self.comp_e(w_lo(w)) for w in e.idx ]
-
-            # compute new window strides
-            all_strides = self.get_strides(base, basetyp, prec=0)
-            assert len(all_strides) == len(e.idx)
-            assert len(all_strides) > 0
-            strides     = [s for s, w in zip(all_strides, e.idx)
-                           if isinstance(w, LoopIR.Interval)]
-
-            # apply offset to new data pointer
-            baseptr = base
-            if basetyp.is_win():
-                baseptr = f"{base}.data"
-            if mem._window:
-                dataptr = mem._window(basetyp.basetype().ctype(),
-                                      base, idxs, all_strides, e.srcinfo)
-            else:
-                idx_expr = self.get_idx_offset(base, basetyp, idxs)
-                dataptr = f"{baseptr} + {idx_expr}"
-
-            struct_str = (f"(struct {win_struct}){{ {dataptr},"
-                          f" {{ {','.join(strides)} }} }}")
-
-            return struct_str
+            win_struct = self.get_window_type(e.type)
+            cast = f'({self.envtyp[e.name].basetype().ctype()}*)'
+            data, strides = self.window_struct_fields(e)
+            return f"(struct {win_struct}){{ {cast}&{data}, {{ {strides} }} }}"
         elif etyp is LoopIR.Const:
             if isinstance(e.val, bool):
-                if e.val:
-                    return "true"
-                else:
-                    return "false"
-            else:
-                return str(e.val)
+                return 'true' if e.val else 'false'
+            return str(e.val)
         elif etyp is LoopIR.BinOp:
-            local_prec  = op_prec[e.op]
-            int_div     = (e.op == "/" and not e.type.is_numeric())
+            local_prec = op_prec[e.op]
+            int_div = (e.op == "/" and not e.type.is_numeric())
             if int_div:
                 local_prec = 0
-            op  = e.op
+            op = e.op
             if op == "and":
                 op = "&&"
             elif op == "or":
                 op = "||"
 
             lhs = self.comp_e(e.lhs, local_prec)
-            rhs = self.comp_e(e.rhs, local_prec+1)
+            rhs = self.comp_e(e.rhs, local_prec + 1)
 
             if int_div:
                 return f"_floor_div({lhs}, {rhs})"
@@ -759,11 +762,11 @@ class Compiler:
             return f'-{self.comp_e(e.arg, op_prec["~"])}'
 
         elif etyp is LoopIR.BuiltIn:
-            args    = [ self.comp_e(a, call_arg=True) for a in e.args ]
+            args = [self.comp_e(a, call_arg=True) for a in e.args]
             return e.f.compile(args)
 
         elif etyp is LoopIR.StrideExpr:
-            basetyp     = self.envtyp[e.name]
+            basetyp = self.envtyp[e.name]
             strides = self.get_strides(e.name, basetyp)
 
             return strides[e.dim]
@@ -775,3 +778,21 @@ class Compiler:
 
         else:
             assert False, "bad case"
+
+    def window_struct_fields(self, e):
+        base = self.env[e.name]
+        basetyp = self.envtyp[e.name]
+        mem: Memory = self.mems[e.name]
+
+        # compute offset to new data pointer
+        def w_lo(w):
+            return w.lo if isinstance(w, LoopIR.Interval) else w.pt
+
+        idxs = [self.comp_e(w_lo(w)) for w in e.idx]
+        # compute new window strides
+        all_strides = self.get_strides(base, basetyp, prec=0)
+        assert 0 < len(all_strides) == len(e.idx)
+        dataptr = mem.window(basetyp, base, idxs, all_strides, e.srcinfo)
+        strides = ', '.join(s for s, w in zip(all_strides, e.idx)
+                            if isinstance(w, LoopIR.Interval))
+        return dataptr, strides

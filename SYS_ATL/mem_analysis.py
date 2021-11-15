@@ -69,7 +69,7 @@ class MemoryAnalysis:
         styp = type(s)
 
         if (styp is LoopIR.Pass or styp is LoopIR.Assign or
-              styp is LoopIR.Reduce):
+              styp is LoopIR.Reduce or styp is LoopIR.WriteConfig):
             return s
 
         elif styp is LoopIR.WindowStmt:
@@ -102,9 +102,8 @@ class MemoryAnalysis:
             self.mem_env[s.name] = mem
             self.add_malloc(s.name, s.type, s.mem)
             return s
-
         elif styp is LoopIR.Free:
             assert False, ("There should not be frees inserted before mem "
                            "analysis")
         else:
-            assert False, "bad case"
+            assert False, f"bad case {styp}"

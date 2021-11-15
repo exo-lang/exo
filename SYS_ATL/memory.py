@@ -16,6 +16,8 @@
 #           * write to the memory (optional)
 #           * reduce to the memory (optional)
 """
+from abc import ABC, abstractmethod
+
 """
 --- Alloc specifications ---
     - new_name is a string with the variable name to be allocated.
@@ -51,59 +53,90 @@
         message.  This error will be reported to the user.
 """
 
+
 class MemGenError(Exception):
     pass
 
-class Memory:
-    def __init__(self, name,
-        globl   = None, # C code
-        alloc   = None, # python gemmini_extended_compute_preloaded
-        free    = None,
-        window  = None,
-        read    = False,
-        write   = False,
-        red     = False,
-    ):
-        if alloc is None:
-            raise TypeError("must supply 'alloc' argument")
-        if free is None:
-            raise TypeError("must supply 'free' argument")
-        self._name      = name
-        self._global    = globl
-        self._alloc     = alloc
-        self._free      = free
-        self._window    = window
-        self._read      = read
-        self._write     = write
-        self._reduce    = red
 
-    def name(self):
-        return self._name
+class Memory(ABC):
+    @classmethod
+    def name(cls):
+        return cls.__name__
+
+    @classmethod
+    def global_(cls):
+        """
+        C code
+        """
+        return ''
+
+    @classmethod
+    @abstractmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        """
+        python gemmini_extended_compute_preloaded
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    @abstractmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        raise NotImplementedError()
+
+    @classmethod
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        offset = ' + '.join(f'({i}) * ({s})' for i, s in zip(indices, strides))
+        if basetyp.is_win():
+            baseptr = f'{baseptr}.data'
+        return f'{baseptr}[{offset}]'
+
+    @classmethod
+    def can_read(cls):
+        raise False
+
+    @classmethod
+    def write(cls, s, lhs, rhs):
+        raise MemGenError(f"{s.srcinfo}: cannot write to buffer "
+                          f"'{s.name}' in memory '{cls.name()}'")
+
+    @classmethod
+    def reduce(cls, s, lhs, rhs):
+        raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "
+                          f"'{s.name}' in memory '{cls.name()}'")
 
 
 # ----------- DRAM on LINUX ----------------
 
-def _dram_alloc(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return (f"{prim_type} {new_name};")
-    else:
-        size_str = shape[0]
-        for s in shape[1:]:
-            size_str = f"{s} * {size_str}"
-        return (f"{prim_type} *{new_name} = "
-                f"({prim_type}*) malloc ({size_str} * sizeof({prim_type}));")
+class DRAM(Memory):
+    @classmethod
+    def global_(cls):
+        return (
+            "#include <stdio.h>\n"
+            "#include <stdlib.h>\n"
+        )
 
-def _dram_free(new_name, prim_type, shape, srcinfo):
-    if len(shape) == 0:
-        return ""
-    else:
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return f"{prim_type} {new_name};"
+
+        return (f"{prim_type} *{new_name} = "
+                f"malloc({' * '.join(shape)} * sizeof(*{new_name}));")
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        if len(shape) == 0:
+            return ""
         return f"free({new_name});"
 
-DRAM = Memory("DRAM",
-        globl   = "#include <stdio.h>\n" + "#include <stdlib.h>\n",
-        alloc   = _dram_alloc,
-        free    = _dram_free,
-        read    = True,
-        write   = True,
-        red     = True,
-       )
+    @classmethod
+    def can_read(cls):
+        return True
+
+    @classmethod
+    def write(cls, s, lhs, rhs):
+        return f'{lhs} = {rhs};'
+
+    @classmethod
+    def reduce(cls, s, lhs, rhs):
+        return f"{lhs} += {rhs};"
