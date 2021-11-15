@@ -69,6 +69,7 @@ for M in range(1, I_REG_BLK + 1):
         SGEMM_WINDOW
             .rename(f'basic_kernel_{M}x4')
             .partial_eval(M, J_REG_BLK)
+            .simplify()
     )
     sgemm_kernel_avx512_Mx4[M] = (
         basic_kernel_Mx4[M]
@@ -115,6 +116,25 @@ bottom_panel_kernel = (
 bottom_panel_kernel_scheduled = (
     bottom_panel_kernel
         .rename('bottom_panel_kernel_scheduled')
+        # Specialize branches (simplify needed to unify with basic kernels)
+        .add_ifelse('for k in _: _ #0', 'M == 1')
+        .add_ifelse('for k in _: _ #1', 'M == 2')
+        .add_ifelse('for k in _: _ #2', 'M == 3')
+        .add_ifelse('for k in _: _ #3', 'M == 4')
+        .add_ifelse('for k in _: _ #4', 'M == 5')
+        .simplify()
+        #
+        .replace_all(basic_kernel_Mx4[1])
+        .replace_all(basic_kernel_Mx4[2])
+        .replace_all(basic_kernel_Mx4[3])
+        .replace_all(basic_kernel_Mx4[4])
+        .replace_all(basic_kernel_Mx4[5])
+        #
+        .call_eqv(sgemm_kernel_avx512_Mx4[1], 'basic_kernel_1x4(_)')
+        .call_eqv(sgemm_kernel_avx512_Mx4[2], 'basic_kernel_2x4(_)')
+        .call_eqv(sgemm_kernel_avx512_Mx4[3], 'basic_kernel_3x4(_)')
+        .call_eqv(sgemm_kernel_avx512_Mx4[4], 'basic_kernel_4x4(_)')
+        .call_eqv(sgemm_kernel_avx512_Mx4[5], 'basic_kernel_5x4(_)')
         .simplify()
 )
 
@@ -147,19 +167,17 @@ sgemm_sys_atl = (
         # Right panel
         .reorder('ji', 'k')
         .reorder('ii', 'k')
+        .replace_all(right_panel_kernel)
         # Bottom panel
         .reorder('ii', 'jo')
         .reorder('ii', 'k')
-        # Bottom-right tile
         .replace_all(bottom_panel_kernel)
-        .replace_all(right_panel_kernel)
-        # .replace_all(SGEMM_WINDOW)
+        .call_eqv(bottom_panel_kernel_scheduled, 'bottom_panel_kernel(_)')
+        # TODO: bottom-right tile
         .simplify()
 )
 
 if __name__ == '__main__':
     print(sgemm_sys_atl)
-    print(bottom_panel_kernel_scheduled)
-    print(right_panel_kernel)
 
 __all__ = ['sgemm_sys_atl']
