@@ -7,13 +7,17 @@ add_sys_atl_library(sgemm sgemm.py)
 # ---------------------------------------------------------------------------- #
 # Test harness
 
-add_executable(bench_sgemm bench_sgemm.cpp alex_sgemm.cpp)
+add_library(alex_sgemm OBJECT alex_sgemm.cpp)
+target_compile_features(alex_sgemm PRIVATE cxx_std_17)
+
+add_executable(bench_sgemm bench_sgemm.cpp)
 target_link_libraries(
   bench_sgemm
   PRIVATE
   x86_demo::sgemm
   MKL::MKL
   benchmark::benchmark_main
+  alex_sgemm
 )
 target_compile_features(bench_sgemm PRIVATE cxx_std_17)
 
@@ -33,5 +37,6 @@ target_link_libraries(
   run_systl
   PRIVATE
   x86_demo::sgemm
+  alex_sgemm
 )
 target_compile_features(run_systl PRIVATE cxx_std_17)
