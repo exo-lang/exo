@@ -5,6 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 # Meant to be run from the root of the repo:
 # ./apps/build.sh
 
+rm -rf build/apps
+(cd "${ROOT_DIR}" && pip uninstall -y SYS_ATL && python -m build &&
+  pip install dist/*.whl)
+
 cmake -G Ninja -S "${ROOT_DIR}/dependencies/benchmark" -B build/benchmark \
   -DCMAKE_BUILD_TYPE=Release \
   -DBENCHMARK_ENABLE_TESTING=NO \

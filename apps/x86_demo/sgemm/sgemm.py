@@ -234,6 +234,7 @@ sgemm_sys_atl = (
         # #
         # .insert_pass('sgemm_kernel_avx512_6x4(_, _, _, _)')
         # .replace(trace("in_loop"), 'pass')
+        .simplify()
 )
 
 if __name__ == '__main__':
