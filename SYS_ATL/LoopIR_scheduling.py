@@ -2091,6 +2091,7 @@ class _DoExtractMethod(LoopIR_Rewrite):
 
 class _DoSimplify(LoopIR_Rewrite):
     def __init__(self, proc):
+        self.facts = ChainMap()
         super().__init__(proc)
 
         self.proc = InferEffects(self.proc).result()
@@ -2172,6 +2173,9 @@ class _DoSimplify(LoopIR_Rewrite):
         return check_quot(quot.lhs, quot.rhs) or check_quot(quot.rhs, quot.lhs)
 
     def map_e(self, e):
+        if isinstance(e, LoopIR.Read) and e.name in self.facts:
+            return self.facts[e.name]
+
         if isinstance(e, LoopIR.BinOp):
             lhs = self.map_e(e.lhs)
             rhs = self.map_e(e.rhs)
@@ -2209,16 +2213,39 @@ class _DoSimplify(LoopIR_Rewrite):
 
         return super().map_e(e)
 
+    def add_fact(self, cond):
+        if (isinstance(cond, LoopIR.BinOp) and cond.op == '=='
+                and isinstance(cond.lhs, LoopIR.Read)
+                and isinstance(cond.rhs, LoopIR.Const)):
+            self.facts[cond.lhs.name] = cond.rhs
+
     def map_s(self, s):
         if isinstance(s, LoopIR.If):
             cond = self.map_e(s.cond)
+
+            # If constant true or false, then drop the branch
             if isinstance(cond, LoopIR.Const):
                 if cond.val:
                     return super().map_stmts(s.body)
                 else:
                     return super().map_stmts(s.orelse)
 
-        return super().map_s(s)
+            # Try to use the condition while simplifying body
+            self.facts = self.facts.new_child()
+            self.add_fact(cond)
+            body = self.map_stmts(s.body)
+            self.facts = self.facts.parents
+
+            # Try to use the negation while simplifying orelse
+            self.facts = self.facts.new_child()
+            # TODO: negate fact here
+            orelse = self.map_stmts(s.orelse)
+            self.facts = self.facts.parents
+
+            return [LoopIR.If(cond, body, orelse, self.map_eff(s.eff),
+                              s.srcinfo)]
+        else:
+            return super().map_s(s)
 
 
 class _AssertIf(LoopIR_Rewrite):
