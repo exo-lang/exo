@@ -52,15 +52,15 @@ def conv_on_cpu():
 
                                         a2 : i32
                                         b2 : i32
-                                        a2 = w_s
-                                        b2 = i_s
+                                        a2 = i_s
+                                        b2 = w_s
 
                                         res += a2 * b2
 
+                        src_tmp : i32
+                        src_tmp = res
                         tmp_res1 : f32
-                        #tmp_res1 = res
-                        #tmp_res1 = tmp_res1 * scale
-                        acc_scale(res, tmp_res1, scale)
+                        acc_scale(src_tmp, tmp_res1, scale)
                         tmp_res2 : i8
                         clamp(tmp_res1, tmp_res2)
                         if act == True:
@@ -106,9 +106,9 @@ def conv_partial_padding(
     assert DIM_HI-padding > 0
 
     config_st_acc_i8(scale, stride(output, 2), act)
-    config_ld_i8(one, stride(bias, 0))
-    config_ld_i8_id1(one, stride(inp, 2))
-    config_ld_i8_id2(one, stride(weights, 2))
+    config_ld_i8(stride(bias, 0))
+    config_ld_i8_id1(stride(inp, 2))
+    config_ld_i8_id2(stride(weights, 2))
     config_matmul()
     for och in par(0, out_channel/16):
 
@@ -176,7 +176,7 @@ def test_conv_3():
     T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, '1')
     T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, '1')
 
-    conv = conv_on_cpu().rename("conv_on_gemmini")
+    conv = conv_on_cpu().rename("conv_3")
     conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
     conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
@@ -193,7 +193,9 @@ def test_conv_3():
     conv = conv.reorder('ocol_i', 'kch_o')
     conv = conv.lift_alloc('i_s : _', n_lifts=4)
     conv = conv.lift_if('if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=3)
-    conv = conv.lift_alloc('w_s : _', n_lifts=4)
+    conv = conv.lift_alloc('w_s : _', n_lifts=1)
+    conv = conv.lift_alloc('w_s : _', n_lifts=1, mode='col')
+    conv = conv.lift_alloc('w_s : _', n_lifts=2)
     conv = conv.fission_after('w_s = _', n_lifts=3)
     conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1: _', n_lifts=3)
     conv = conv.fission_after('if 0 <= ocol_i + 56 / 16 * 16 + kcol - 1: _', n_lifts=3)
@@ -204,10 +206,38 @@ def test_conv_3():
     conv = conv.lift_if('if 16 * ocol_o + 0 + kcol - 1 < 56: _ #0', n_lifts=1)
     conv = conv.assert_if('if _:_ #3', True)
     conv = conv.assert_if('if _:_ #3', True)
-    conv = conv.assert_if('if 0 <= ocol_i_5 + 56 / 16 * 16 + kcol_1 - 1:_', True)
+    conv = conv.assert_if('if 0 <= ocol_i + 56 / 16 * 16 + kcol - 1:_', True)
+    conv = conv.partition_loop('ocol_i #5', 7)
+    conv = conv.assert_if('if _:_ #5', True)
+    conv = conv.unroll('ocol_i #6')
+    conv = conv.lift_if('if _:_ #5', n_lifts=1)
+    conv = conv.assert_if('if 16 * ocol_o + 0 + kcol - 1 < 56:_', True)
 
-    print(conv)
-"""
+    # Now start replacing
+    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
+    conv = conv.reorder('och_i', 'kch_i')
+    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #1')
+    conv = conv.reorder('kch_i', 'och_i')
+    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #1')
+    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #1')
+
+    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
+    conv = conv.reorder('och_i', 'kch_i')
+    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #2')
+    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.reorder('kch_i', 'och_i')
+    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #2')
+    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #2')
+
+    conv = conv.set_memory('res', GEMM_ACCUM)
+    conv = conv.set_memory('i_s', GEMM_SCRATCH)
+    conv = conv.set_memory('w_s', GEMM_SCRATCH)
+
 
     cpu = conv_on_cpu()
     cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
@@ -221,7 +251,7 @@ def test_conv_3():
     T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'conv_on_gemmini(ctxt, output_gemmini, bias, inp, weights, false, scale);',
+    T.add_body([f'conv_3(ctxt, output_gemmini, bias, inp, weights, false, scale);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
@@ -238,6 +268,11 @@ def test_conv_3():
                  ''])
 
     T.compile().run()
+
+
+
+    print(conv)
+"""
 
 
 

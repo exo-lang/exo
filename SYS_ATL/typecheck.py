@@ -264,8 +264,9 @@ class TypeChecker:
 
                     # ensure scalars are simply variable names
                     elif call_a.type.is_real_scalar():
-                        if not (isinstance(call_a, LoopIR.Read) and
-                                len(call_a.idx) == 0):
+                        if (not isinstance(call_a, LoopIR.ReadConfig) and 
+                            not (isinstance(call_a, LoopIR.Read) and
+                                len(call_a.idx) == 0)):
                             self.err(call_a, "expected scalar arguments "
                                              "to be simply variable names "
                                              "for now")
