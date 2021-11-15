@@ -4,7 +4,7 @@ import types
 from weakref import WeakKeyDictionary
 
 from .API_types import ProcedureBase
-from .LoopIR import LoopIR, T, UAST
+from .LoopIR import LoopIR, T, UAST, LoopIR_Do
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_interpreter import run_interpreter
 from .LoopIR_scheduling import (Schedules, name_plus_count,
@@ -109,6 +109,25 @@ class MarkDownBlob:
 
     def _repr_markdown_(self):
         return self.mstr
+
+class FindBefore(LoopIR_Do):
+    def __init__(self, proc, stmt):
+        self.stmt = stmt
+        self.result = None
+        super().__init__(proc)
+
+    def result(self):
+        return self.result
+
+    def do_stmts(self, stmts):
+        prev = None
+        for s in stmts:
+            if s == self.stmt:
+                self.result = prev
+                return
+            else:
+                self.do_s(s)
+                prev = s
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -465,6 +484,20 @@ class Procedure(ProcedureBase):
                                         perfect=perfect).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def add_ifelse(self, stmt_pat, var_pattern):
+        if not isinstance(stmt_pat, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(var_pattern, str):
+            raise TypeError("expected second arg to be a string")
+
+        stmt = self._find_stmt(stmt_pat)
+        loopir = self._loopir_proc
+        var_expr = parse_fragment(loopir, var_pattern, stmt)
+
+        loopir = Schedules.DoAddIfElse(loopir, stmt, var_expr).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
     def add_guard(self, stmt_pat, iter_pat, value):
         if not isinstance(stmt_pat, str):
             raise TypeError("expected first arg to be a string")
@@ -570,6 +603,22 @@ class Procedure(ProcedureBase):
     def delete_pass(self):
         loopir = self._loopir_proc
         loopir = Schedules.DoDeletePass(loopir).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def reorder_before(self, pat):
+        if not isinstance(pat, str):
+            raise TypeError("expected first arg to be a pattern in string")
+
+        second_stmt = self._find_stmt(pat)
+
+        loopir = self._loopir_proc
+        first_stmt = FindBefore(loopir, second_stmt).result
+
+        if first_stmt is None:
+            raise TypeError("expected pattern to be after some statements")
+
+        loopir = Schedules.DoReorderStmt(loopir, first_stmt, second_stmt).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 

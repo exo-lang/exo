@@ -265,34 +265,11 @@ def test_conv_13():
 
     conv = conv_on_cpu().rename("conv_13")
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-    conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
-    conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
-    conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
-    conv = conv.reorder('ocol_i', 'och_o')
-    conv = conv.lift_alloc('res : _', n_lifts=2)
-    conv = conv.fission_after('res[_] = _', n_lifts=2)
-    conv = conv.fission_after('for krow in _:_', n_lifts=2)
-    conv = conv.reorder('och_i', 'krow')
-    conv = conv.reorder('och_i', 'kcol')
-    conv = conv.reorder('och_i', 'kch_o')
-    conv = conv.reorder('ocol_i', 'krow')
-    conv = conv.reorder('ocol_i', 'kcol')
-    conv = conv.reorder('ocol_i', 'kch_o')
-    conv = conv.lift_alloc('i_s : _', n_lifts=4)
-    conv = conv.lift_if('if 0 <= orow*2 + krow - 1 and orow*2 + krow - 1 < 56: _', n_lifts=3)
-    conv = conv.lift_alloc('w_s : _', n_lifts=1)
-    conv = conv.lift_alloc('w_s : _', n_lifts=1, mode='col')
-    conv = conv.lift_alloc('w_s : _', n_lifts=2)
-    conv = conv.fission_after('w_s = _', n_lifts=3)
-    conv = conv.simplify()
+    conv = conv_basic_opt(conv, 'if 0 <= orow*2 + krow - 1 and orow*2 + krow - 1 < 56: _', 'if 0 <= (16 * ocol_o + ocol_i)*2 + kcol - 1: _',
+            'if 0 <= (ocol_i + 28 / 16 * 16)*2 + kcol - 1: _', 'if 0 <= (16 * ocol_o + 0)*2 + kcol - 1: _ #0', 'if (16 * ocol_o + 0)*2 + kcol - 1 < 56: _ #0')
+
+    # Size specific asserts
     conv = conv.unroll('ocol_o')
-    conv = conv.fission_after('if 0 <= (16 * 0 + ocol_i)*2 + kcol - 1: _', n_lifts=3)
-    conv = conv.fission_after('if 0 <= (ocol_i + 28 / 16 * 16)*2 + kcol - 1: _', n_lifts=3)
-    conv = conv.partition_loop('ocol_i #1', 1)
-    conv = conv.unroll('ocol_i #1')
-    conv = conv.simplify()
-    conv = conv.lift_if('if 0 <= (16 * 0 + 0)*2 + kcol - 1: _ #0', n_lifts=1)
-    conv = conv.lift_if('if (16 * 0 + 0)*2 + kcol - 1 < 56: _ #0', n_lifts=1)
     conv = conv.assert_if('if _:_ #2', True)
     conv = conv.assert_if('if _:_ #2', True)
     conv = conv.assert_if('if _:_ #2', True)
@@ -350,10 +327,10 @@ def test_conv_13():
                  ''])
 
     T.compile().run()
+
+
     print(conv)
 """
-
-
 
     @proc
     def conv_13(

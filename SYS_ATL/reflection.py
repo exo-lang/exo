@@ -68,7 +68,7 @@ class LoopIR_to_QAST:
     elif styp is LoopIR.Pass:
       return QAST.Pass()
     elif styp is LoopIR.If:
-      return QAST.If(self.map_expr(s.expr),
+      return QAST.If(self.map_expr(s.cond),
                      self.map_stmts(s.body),
                      self.map_stmts(s.orelse))
     elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
@@ -80,7 +80,7 @@ class LoopIR_to_QAST:
       name = self.bindname(s.name)
       return QAST.Alloc(name, self.map_type(s.type), s.mem)
     elif styp is LoopIR.Call:
-      return QAST.Call(s.f.name(), [ self.map_expr(a) for a in s.args ])
+      return QAST.Call(s.f.name, [ self.map_expr(a) for a in s.args ])
     elif styp is LoopIR.WindowStmt:
       name = self.bindname(s.name)
       return QAST.WindowStmt(name, self.map_expr(s.rhs))

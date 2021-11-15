@@ -1771,6 +1771,26 @@ class _FissionLoops:
         else:
             return ([single_stmt],[])
 
+
+class _DoAddIfElse(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, cond):
+        self.stmt = stmt
+        self.cond = cond
+        self.in_loop = False
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s == self.stmt:
+            s1 = Alpha_Rename([s]).result()
+            s2 = Alpha_Rename([s]).result()
+            return [LoopIR.If(self.cond, s1, s2, None, s.srcinfo)]
+
+        return super().map_s(s)
+
+
 class _DoAddGuard(LoopIR_Rewrite):
     def __init__(self, proc, stmt, itr_stmt, val):
         assert val == 0
@@ -2307,3 +2327,4 @@ class Schedules:
     DoDoubleFission = _DoDoubleFission
     DoPartitionLoop = _PartitionLoop
     DoAssertIf = _AssertIf
+    DoAddIfElse = _DoAddIfElse

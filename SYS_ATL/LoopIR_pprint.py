@@ -450,7 +450,7 @@ class LoopIR_PPrinter:
             self.addline(f"{self.new_name(stmt.name)} : "
                          f"{self.ptype(stmt.type)}{mem}")
         elif isinstance(stmt, LoopIR.Free):
-            mem = f" @{stmt.mem._name}" if stmt.mem else ""
+            mem = f" @{stmt.mem.name()}" if stmt.mem else ""
             self.addline(f"free({self.get_name(stmt.name)})")
         elif isinstance(stmt, LoopIR.Call):
             args    = [ self.pexpr(a) for a in stmt.args ]
