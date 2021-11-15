@@ -192,11 +192,14 @@ class InferEffects:
             subst = {}
             for sig, arg in zip(stmt.f.args, stmt.args):
                 if sig.type.is_numeric():
-                    assert isinstance(arg, (LoopIR.Read, LoopIR.WindowExpr))
                     if isinstance(arg.type, T.Window):
                         pass  # handle below
-                    else:
+                    elif isinstance(arg, LoopIR.Read):
                         subst[sig.name] = arg.name
+                    elif isinstance(arg, LoopIR.ReadConfig):
+                        pass #?
+                    else:
+                        assert False, "bad case"
                 elif sig.type.is_indexable() or sig.type is T.bool:
                     # in this case we have a LoopIR expression...
                     subst[sig.name] = lift_expr(arg)
