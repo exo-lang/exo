@@ -575,7 +575,7 @@ class CheckEffects:
             elif expr.type.is_indexable():
                 return SMT.Int(expr.val)
             else:
-                assert False, "unrecognized const type: {type(expr.val)}"
+                assert False, f"unrecognized const type: {type(expr.val)}"
         elif isinstance(expr, E.Var):
             return self.sym_to_smt(expr.name, expr.type)
         elif isinstance(expr, E.Not):
