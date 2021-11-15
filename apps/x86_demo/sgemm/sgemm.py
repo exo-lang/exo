@@ -135,6 +135,7 @@ bottom_panel_kernel_scheduled = (
         .call_eqv(sgemm_kernel_avx512_Mx4[3], 'basic_kernel_3x4(_)')
         .call_eqv(sgemm_kernel_avx512_Mx4[4], 'basic_kernel_4x4(_)')
         .call_eqv(sgemm_kernel_avx512_Mx4[5], 'basic_kernel_5x4(_)')
+        #
         .simplify()
 )
 
@@ -148,22 +149,19 @@ right_panel_kernel = (
 sgemm_sys_atl = (
     SGEMM
         .rename('sgemm_sys_atl')
-        .split('j', J_REG_BLK, ['jo', 'ji'], tail='cut')
-        .split('i', I_REG_BLK, ['io', 'ii'], tail='cut')
+        # Split up into cases
+        .split('j', J_REG_BLK, ['jo', 'ji'], tail='cut_and_guard')
+        .split('i', I_REG_BLK, ['io', 'ii'], tail='cut_and_guard')
         .fission_after('for jo in _: _ #0', n_lifts=2)
         .reorder('ii #0', 'jo')
         .reorder('ji #0', 'k')
         .reorder('ii #0', 'k')
-        #
+        .fission_after('for jo in _: _ #1')
+        .lift_if('if N % 64 > 0: _', n_lifts=2)
+        .fission_after('for ii in _: _ #2')
+        # Main block
         .replace_all(basic_kernel_Mx4[6])
         .call_eqv(sgemm_kernel_avx512_Mx4[6], 'basic_kernel_6x4(_)')
-        # #
-        # .insert_pass('for io in _: _')
-        # .replace(trace("outer"), 'pass')
-        # #
-        # .insert_pass('sgemm_kernel_avx512_6x4(_, _, _, _)')
-        # .replace(trace("in_loop"), 'pass')
-        .fission_after('for jo in _: _ #1')
         # Right panel
         .reorder('ji', 'k')
         .reorder('ii', 'k')
