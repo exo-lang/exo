@@ -577,6 +577,40 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
 
+    def assert_if(self, if_pattern, cond):
+        if not isinstance(if_pattern, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(cond, bool):
+            raise TypeError("expected second arg to be a bool")
+
+        stmts = self._find_stmt(if_pattern, default_match_no=None)
+
+        if not stmts:
+            raise TypeError("failed to find stmt")
+
+        loopir = self._loopir_proc
+        for s in stmts:
+            loopir = Schedules.DoAssertIf(loopir, s, cond).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
+    def partition_loop(self, var_pattern, num):
+        if not isinstance(var_pattern, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(num, int):
+            raise TypeError("expected second arg to be a int")
+
+        pattern     = iter_name_to_pattern(var_pattern)
+        stmts       = self._find_stmt(pattern, default_match_no=None)
+        loopir      = self._loopir_proc
+
+        for s in stmts:
+            loopir  = Schedules.DoPartitionLoop(loopir, s, num).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
     def reorder(self, out_var, in_var):
         if not isinstance(out_var, str):
             raise TypeError("expected first arg to be a string")

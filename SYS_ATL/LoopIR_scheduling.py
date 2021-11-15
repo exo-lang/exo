@@ -146,6 +146,56 @@ class _DoReorderStmt(LoopIR_Rewrite):
         return new_stmts
 
 
+class _PartitionLoop(LoopIR_Rewrite):
+    def __init__(self, proc, loop_stmt, num):
+        self.stmt         = loop_stmt
+        self.partition_by = num
+        self.second       = False
+        self.second_iter  = None
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s == self.stmt:
+            assert isinstance(s, LoopIR.ForAll)
+            if not isinstance(s.hi, LoopIR.Const):
+                raise SchedulingError("expected loop bound to be constant")
+            if s.hi.val <= self.partition_by:
+                raise SchedulingError("expected loop bound to be larger than"+
+                                      " partitioning value")
+
+            body        = self.map_stmts(s.body)
+            first_loop  = LoopIR.ForAll(s.iter,
+                            LoopIR.Const(self.partition_by, T.int, s.srcinfo),
+                            body, None, s.srcinfo)
+
+            # Should add partition_by to everything in body
+            self.second = True
+            new_iter = s.iter.copy()
+            self.second_iter = new_iter
+            second_body = SubstArgs(body,
+                    {s.iter: LoopIR.Read(new_iter, [], T.index, s.srcinfo)}).result()
+            second_body = self.map_stmts(second_body)
+            second_loop = LoopIR.ForAll(new_iter,
+                            LoopIR.Const(s.hi.val - self.partition_by, T.int, s.srcinfo),
+                            second_body, None, s.srcinfo)
+
+            return [first_loop] + [second_loop]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        if self.second:
+            if type(e) is LoopIR.Read and e.name == self.second_iter:
+                assert e.type.is_indexable()
+                return LoopIR.BinOp("+", e, LoopIR.Const(self.partition_by, T.int, e.srcinfo), T.index, e.srcinfo)
+
+        return super().map_e(e)
+    
+
+
 class _Reorder(LoopIR_Rewrite):
     def __init__(self, proc, loop_stmt):
         self.stmt = loop_stmt
@@ -2077,6 +2127,29 @@ class _DoSimplify(LoopIR_Rewrite):
         return super().map_s(s)
 
 
+class _AssertIf(LoopIR_Rewrite):
+    def __init__(self, proc, if_stmt, cond):
+        assert type(if_stmt) is LoopIR.If
+        assert type(cond) is bool
+
+        self.if_stmt = if_stmt
+        self.cond    = cond
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s == self.if_stmt:
+            # TODO: Gilbert's SMT thing should do this safely
+            if self.cond:
+                return self.map_stmts(s.body)
+            else:
+                return self.map_stmts(s.orelse)
+
+        return super().map_s(s)
+
+
 class _DoDataReuse(LoopIR_Rewrite):
     def __init__(self, proc, buf_pat, rep_pat):
         assert type(buf_pat) is LoopIR.Alloc
@@ -2157,3 +2230,5 @@ class Schedules:
     DoDataReuse         = _DoDataReuse
     DoLiftIf            = _DoLiftIf
     DoDoubleFission     = _DoDoubleFission
+    DoPartitionLoop     = _PartitionLoop
+    DoAssertIf          = _AssertIf
