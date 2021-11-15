@@ -1,8 +1,186 @@
 from __future__ import annotations
 
-from SYS_ATL import proc, instr, DRAM, config
+from SYS_ATL import proc, instr, DRAM, config, QAST
 from SYS_ATL.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
 
+class QAST_Do():
+    def __init__(self, proc):
+        self.proc = proc
+
+        #[ self.do_fnarg(a) for a in self.proc.args ]
+        [ self.do_e(p) for p in self.proc.assertions ]
+        self.do_stmts(self.proc.body)
+
+    def do_stmts(self, stmts):
+        [ self.do_s(b) for b in stmts ]
+
+    def do_s(self, s):
+        if type(s) is QAST.Assign or type(s) is QAST.Reduce:
+            [ self.do_e(e) for e in s.idx ]
+            self.do_e(s.rhs)
+        elif type(s) is QAST.WriteConfig:
+            self.do_e(s.rhs)
+        elif type(s) is QAST.For:
+            self.do_e(s.lo)
+            self.do_e(s.hi)
+            self.do_stmts(s.body)
+        elif type(s) is QAST.If:
+            self.do_e(s.cond)
+            self.do_stmts(s.body)
+            if len(s.orelse) > 0:
+                self.do_stmts(s.orelse)
+        elif type(s) is QAST.Pass:
+            pass
+        elif type(s) is QAST.Alloc:
+            pass
+        elif type(s) is QAST.Call:
+            [ self.do_e(e) for e in s.args ]
+        elif type(s) is QAST.WindowStmt:
+            self.do_e(s.rhs)
+        else:
+            assert False, "bad case"
+
+    def do_w_access(self, w):
+        if type(w) is QAST.Interval:
+            self.do_e(w.lo)
+            self.do_e(w.hi)
+        elif type(w) is QAST.Point:
+            self.do_e(w.pt)
+
+    def do_e(self, e):
+        if type(e) is QAST.Read:
+            [ self.do_e(ei) for ei in e.idx ]
+        elif type(e) is QAST.Const:
+            pass
+        elif type(e) is QAST.USub:
+            self.do_e(e.arg)
+        elif type(e) is QAST.BinOp:
+            self.do_e(e.lhs)
+            self.do_e(e.rhs)
+        elif type(e) is QAST.BuiltIn:
+            [ self.do_e(ei) for ei in e.args ]
+        elif type(e) is QAST.WindowExpr:
+            [ self.do_w_access(w) for w in e.idx ]
+        elif type(e) is QAST.StrideExpr:
+            pass
+        elif type(e) is QAST.ReadConfig:
+            pass
+        else:
+            assert False, "bad case"
+
+class CanFission(QAST_Do):
+    def __init__(self, proc, stmt):
+        self.stmt = stmt
+        self.result = False
+        super().__init__(proc)
+
+    def result(self):
+        return self.result
+
+    def do_s(self, s):
+        if type(s) is QAST.If:
+            assert len(s.body) > 0
+            if s.body[0] == self.stmt:
+                self.result = True
+        elif type(s) is QAST.For:
+            assert len(s.body) > 0
+            if s.body[0] == self.stmt:
+                self.result = True
+
+        super().do_s(s)
+
+class CanReorder(QAST_Do):
+    def __init__(self, proc, stmt):
+        self.stmt = stmt
+        self.result = False
+        super().__init__(proc)
+
+    def result(self):
+        return self.result
+
+    def do_stmts(self, stmts):
+        is_first = True
+        for b in stmts:
+            if b == self.stmt and not is_first:
+                self.result = True
+            else:
+                self.do_s(b)
+                is_first = False
+
+def lift_config(conv, string):
+    stmt = conv.get_ast(string)
+    assert len(stmt) == 1
+    stmt = stmt[0][0] # Get the match
+
+    while True:
+        proc = conv.get_ast()
+        fission = CanFission(proc, stmt).result
+        reorder = CanReorder(proc, stmt).result
+        if fission:
+            conv = conv.fission_after(string)
+        elif reorder:
+            conv = conv.reorder_before(string)
+        else:
+            break
+
+    return conv
+
+def conv_replace_s1(conv):
+    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
+    conv = conv.reorder('och_i', 'kch_i')
+    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #1')
+    conv = conv.reorder('kch_i', 'och_i')
+    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #1')
+    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #1')
+
+    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
+    conv = conv.reorder('och_i', 'kch_i')
+    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #2')
+    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.reorder('kch_i', 'och_i')
+    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #2')
+    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #2')
+
+    conv = conv.set_memory('res', GEMM_ACCUM)
+    conv = conv.set_memory('i_s', GEMM_SCRATCH)
+    conv = conv.set_memory('w_s', GEMM_SCRATCH)
+
+    return conv
+
+def conv_basic_opt(conv, if1, if2, if3, if4, if5):
+    conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
+    conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
+    conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
+    conv = conv.reorder('ocol_i', 'och_o')
+    conv = conv.lift_alloc('res : _', n_lifts=2)
+    conv = conv.fission_after('res[_] = _', n_lifts=2)
+    conv = conv.fission_after('for krow in _:_', n_lifts=2)
+    conv = conv.reorder('och_i', 'krow')
+    conv = conv.reorder('och_i', 'kcol')
+    conv = conv.reorder('och_i', 'kch_o')
+    conv = conv.reorder('ocol_i', 'krow')
+    conv = conv.reorder('ocol_i', 'kcol')
+    conv = conv.reorder('ocol_i', 'kch_o')
+    conv = conv.lift_alloc('i_s : _', n_lifts=4)
+    conv = conv.lift_if(if1, n_lifts=3)
+    conv = conv.lift_alloc('w_s : _', n_lifts=1)
+    conv = conv.lift_alloc('w_s : _', n_lifts=1, mode='col')
+    conv = conv.lift_alloc('w_s : _', n_lifts=2)
+    conv = conv.fission_after('w_s = _', n_lifts=3)
+    conv = conv.fission_after(if2, n_lifts=3)
+    conv = conv.fission_after(if3, n_lifts=3)
+    conv = conv.partition_loop('ocol_i #1', 1)
+    conv = conv.unroll('ocol_i #1')
+    conv = conv.simplify()
+    conv = conv.lift_if(if4, n_lifts=1)
+    conv = conv.lift_if(if5, n_lifts=1)
+
+    return conv
 
 # --------------------------------------------------------------------------- #
 #   Instructions
@@ -167,11 +345,19 @@ ld_i8_id1_v2 = ld_i8_id1.rename("ld_i8_id1_v2")
 ld_i8_id1_v2 = ld_i8_id1_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 0)')
 ld_i8_id1_v2 = ld_i8_id1_v2.replace(do_ld_i8_id1, 'for i in _:_')
 ld_i8_id1_v2 = ld_i8_id1_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
+ld_i8_id1_v2 = ld_i8_id1_v2.delete_pass().make_instr(_gemm_ld_i8)
+
+ld_i8_id1_s2_v2 = ld_i8_id1.rename("ld_i8_id1_s2_v2")
+ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 2)')
+ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.replace(do_ld_i8_id1, 'for i in _:_')
+ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
+ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.delete_pass().make_instr(_gemm_ld_i8)
 
 ld_i8_id2_v2 = ld_i8_id2.rename("ld_i8_id2_v2")
 ld_i8_id2_v2 = ld_i8_id2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 0)')
 ld_i8_id2_v2 = ld_i8_id2_v2.replace(do_ld_i8_id2, 'for i in _:_')
 ld_i8_id2_v2 = ld_i8_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
+ld_i8_id2_v2 = ld_i8_id2_v2.delete_pass().make_instr(_gemm_ld_i8)
 
 ld_i8    = ld_i8.delete_pass().make_instr(_gemm_ld_i8)
 
@@ -237,6 +423,19 @@ def ld_i8_vector(
     for i in par(0, 16):
         dst[i] = src[i]
 
+_do_gemm_ld_i8_vec = ("gemmini_extended_mvin( {src}.data, ((uint64_t) {dst}.data), 16, 1);")
+@instr(_do_gemm_ld_i8_vec)
+def do_ld_i8_vector(
+    src   : [i8][16] @ DRAM,
+    dst   : [i8][16] @ GEMM_SCRATCH,
+):
+    assert stride(dst, 0) == 16
+
+    for i in par(0, 16):
+        dst[i] = src[i]
+
+
+
 
 
 # in order to load i8 values into the i32 accumulator memory,
@@ -254,7 +453,7 @@ ld_acc_i8 = (ld_i8.rename('ld_acc_i8')
 def new_config_ld_acc():
     @config
     class ConfigLoadAcc:
-        src_stride : stride
+        stride_set : bool
 
     return ConfigLoadAcc
 ConfigLoadAcc = new_config_ld_acc()
@@ -299,6 +498,13 @@ def do_ld_acc_i32(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
+_gemm_config_ld_acc_i32_vector = ("gemmini_extended3_config_ld(4, 1.0f, 0, 0);\n")
+@instr(_gemm_config_ld_acc_i32_vector)
+def config_ld_acc_i32_vector(
+    stride_set : bool
+):
+    ConfigLoadAcc.stride_set = stride_set
+
 _gemm_ld_acc_i32_vec   = ("gemmini_extended3_config_ld(4, 1.0f, 0, 0);\n"+
                           "gemmini_extended_mvin( ((uint64_t) &{src_data}), "+
                                "((uint32_t) {dst}.data), 16, 1 );")
@@ -310,10 +516,28 @@ def ld_acc_i32_vector(
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
+    pass
     for i in par(0, 16):
         dst[i] = src[i]
 
+_do_gemm_ld_acc_i32_vec   = ("gemmini_extended_mvin( ((uint64_t) &{src_data}), ((uint32_t) {dst}.data), 16, 1 );")
+@instr(_do_gemm_ld_acc_i32_vec)
+def do_ld_acc_i32_vector(
+    src   : [i32][16] @ DRAM,
+    dst   : [i32][16] @ GEMM_ACCUM,
+):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
 
+    for i in par(0, 16):
+        dst[i] = src[i]
+
+ld_acc_i32_vector_v2 = ld_acc_i32_vector.rename("ld_acc_i32_vector_v2")
+ld_acc_i32_vector_v2 = ld_acc_i32_vector_v2.configwrite_after('pass', ConfigLoadAcc, 'stride_set', 'True')
+ld_acc_i32_vector_v2 = ld_acc_i32_vector_v2.replace(do_ld_acc_i32_vector, 'for i in _:_')
+ld_acc_i32_vector_v2 = ld_acc_i32_vector_v2.replace(config_ld_acc_i32_vector, 'ConfigLoadAcc.stride_set = _')
+ld_acc_i32_vector_v2 = ld_acc_i32_vector_v2.delete_pass().make_instr(_gemm_ld_acc_i32_vec)
+ld_acc_i32_vector    = ld_acc_i32_vector.delete_pass().make_instr(_gemm_ld_acc_i32_vec)
 
 
 

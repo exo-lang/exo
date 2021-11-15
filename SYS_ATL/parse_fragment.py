@@ -48,6 +48,7 @@ _PAST_to_LoopIR = {
 class BuildEnv(LoopIR_Do):
     def __init__(self, proc, stmt):
         self.env       = ChainMap()
+        self.result    = None
         self.found_trg = False
         self.trg       = stmt
         self.proc      = proc
@@ -61,7 +62,7 @@ class BuildEnv(LoopIR_Do):
         self.do_stmts(self.proc.body)
 
     def result(self):
-        return self.env
+        return self.result
 
     def push(self):
         self.env = self.env.new_child()
@@ -70,8 +71,8 @@ class BuildEnv(LoopIR_Do):
         self.env = self.env.parents
 
     def do_s(self, s):
-        if self.found_trg:
-            return
+        if s == self.trg:
+            self.result = self.env.copy()
 
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
@@ -81,17 +82,24 @@ class BuildEnv(LoopIR_Do):
             self.do_e(s.rhs)
             self.do_t(s.type)
         elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
+            self.push()
             self.env[s.iter] = T.index
             self.do_e(s.hi)
             self.do_stmts(s.body)
+            self.pop()
+        elif styp is LoopIR.If:
+            self.push()
+            self.do_e(s.cond)
+            self.do_stmts(s.body)
+            if len(s.orelse) > 0:
+                self.do_stmts(s.orelse)
+            self.pop()
         elif styp is LoopIR.Alloc:
             self.env[s.name] = s.type
             self.do_t(s.type)
+        else:
+            super().do_s(s)
 
-        super().do_s(s)
-
-        if s is self.trg:
-            self.found_trg = True
 
 
 class ParseFragment:
@@ -100,20 +108,26 @@ class ParseFragment:
 
         assert isinstance(pat, PAST.expr)
 
-        env = BuildEnv(proc, stmt).result()
+        self.stmt = stmt
+        self.env = BuildEnv(proc, stmt).result
+        self._results = self.parse_e(pat)
 
+    def parse_e(self, pat):
         if isinstance(pat, PAST.Read):
-            nm = self.find_sym(pat, env)
+            nm = self.find_sym(pat.name, self.env)
             idx = [self.find_sym(i) for i in pat.idx]
-            self._results = LoopIR.Read(nm, idx, env[nm], stmt.srcinfo)
+            return LoopIR.Read(nm, idx, self.env[nm], self.stmt.srcinfo)
+        elif isinstance(pat, PAST.BinOp):
+            lhs = self.parse_e(pat.lhs)
+            rhs = self.parse_e(pat.rhs)
+            return LoopIR.BinOp(pat.op, lhs, rhs, T.bool, self.stmt.srcinfo)
         elif isinstance(pat, PAST.StrideExpr):
-            nm = self.find_sym(pat.name, env)
-            self._results = LoopIR.StrideExpr(nm, pat.dim, T.stride,
-                                              stmt.srcinfo)
+            nm = self.find_sym(pat.name, self.env)
+            return LoopIR.StrideExpr(nm, pat.dim, T.stride, self.stmt.srcinfo)
         elif isinstance(pat, PAST.Const):
             typ = {float: T.R, bool: T.bool, int: T.int}.get(type(pat.val))
             assert typ is not None, "bad type!"
-            self._results = LoopIR.Const(pat.val, typ, stmt.srcinfo)
+            return LoopIR.Const(pat.val, typ, self.stmt.srcinfo)
 
     def find_sym(self, expr, env):
         for k in env.keys():

@@ -178,6 +178,7 @@ def test_conv_3():
 
     conv = conv_on_cpu().rename("conv_3")
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
+
     conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
     conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
     conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
@@ -199,26 +200,27 @@ def test_conv_3():
     conv = conv.fission_after('w_s = _', n_lifts=3)
     conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1: _', n_lifts=3)
     conv = conv.fission_after('if 0 <= ocol_i + 56 / 16 * 16 + kcol - 1: _', n_lifts=3)
+    conv = conv.add_ifelse('for ocol_i in _:_ #1', 'ocol_o == 0 and kcol == 0')
     conv = conv.partition_loop('ocol_i #1', 1)
     conv = conv.unroll('ocol_i #1')
     conv = conv.simplify()
-    conv = conv.lift_if('if 0 <= 16 * ocol_o + 0 + kcol - 1: _ #0', n_lifts=1)
-    conv = conv.lift_if('if 16 * ocol_o + 0 + kcol - 1 < 56: _ #0', n_lifts=1)
-    conv = conv.assert_if('if _:_ #3', True)
-    conv = conv.assert_if('if _:_ #3', True)
+    conv = conv.assert_if('if _:_ #2', False)
+    conv = conv.assert_if('if _:_ #2', True)
+    conv = conv.assert_if('if _:_ #2', True)
+    conv = conv.assert_if('if _:_ #2', True)
+    conv = conv.assert_if('if _:_ #2', True)
     conv = conv.assert_if('if 0 <= ocol_i + 56 / 16 * 16 + kcol - 1:_', True)
-    conv = conv.partition_loop('ocol_i #5', 7)
-    conv = conv.assert_if('if _:_ #5', True)
-    conv = conv.unroll('ocol_i #6')
-    conv = conv.lift_if('if _:_ #5', n_lifts=1)
-    conv = conv.assert_if('if 16 * ocol_o + 0 + kcol - 1 < 56:_', True)
+    conv = conv.add_ifelse('for ocol_i in _:_ #6', 'kcol == 2')
+    conv = conv.partition_loop('ocol_i #6', 7)
+    conv = conv.assert_if('if ocol_i + 56 / 16 * 16 + kcol - 1 < 56:_', True)
+    conv = conv.unroll('ocol_i #7')
+    conv = conv.assert_if('if 0 + 7 + 56 / 16 * 16 + kcol - 1 < 56:_', False)
 
-    # Now start replacing
     conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
     conv = conv.reorder('och_i', 'kch_i')
     conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
     conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #1')
     conv = conv.replace(ld_i8, 'for ocol_i in _:_ #1')
     conv = conv.reorder('kch_i', 'och_i')
     conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #1')
@@ -228,8 +230,8 @@ def test_conv_3():
     conv = conv.reorder('och_i', 'kch_i')
     conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
     conv = conv.replace(ld_i8, 'for ocol_i in _:_ #2')
-    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
     conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #2')
     conv = conv.reorder('kch_i', 'och_i')
     conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #2')
     conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #2')
@@ -237,7 +239,6 @@ def test_conv_3():
     conv = conv.set_memory('res', GEMM_ACCUM)
     conv = conv.set_memory('i_s', GEMM_SCRATCH)
     conv = conv.set_memory('w_s', GEMM_SCRATCH)
-
 
     cpu = conv_on_cpu()
     cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
@@ -269,10 +270,32 @@ def test_conv_3():
 
     T.compile().run()
 
-
-
     print(conv)
 """
+    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
+
+
+    # Now start replacing
+    conv = conv_replace_s1(conv)
+
+    conv = conv.call_eqv(ld_acc_i32_vector_v2, "ld_acc_i32_vector(_)")
+    conv = conv.inline("ld_acc_i32_vector_v2(_)")
+    conv = conv.inline_window("src = bias[_]")
+    conv = conv.inline_window("dst = res[_]")
+    conv = lift_config(conv, 'config_ld_acc_i32_vector(_)')
+
+    conv = conv.call_eqv(ld_i8_id1_s2_v2, "ld_i8(_)")
+    conv = conv.inline("ld_i8_id1_s2_v2(_)")
+    conv = conv.inline_window("src = weights[_]")
+    conv = conv.inline_window("dst = w_s[_]")
+    conv = conv.fission_after("config_ld_i8_id1(_)")
+
+
+
+
+    conv = lift_config(conv, 'config_ld_i8_id1(_)')
+
+
 
 
 
