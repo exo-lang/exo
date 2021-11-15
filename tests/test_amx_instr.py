@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import pytest
+import platform
+if platform.system() == 'Darwin':
+    pytest.skip("skipping x86 tests on Apple machines for now",
+                allow_module_level=True)
+
 import sys
 from SYS_ATL import proc, instr, Procedure, DRAM, compile_procs
 from SYS_ATL.libs.memories import AMX_TILE
 from .amx import *
 from .harness_amx import ENV, AMXTestBuilder
-import pytest
+
 
 
 # --------------------------------------------------------------------------- #
