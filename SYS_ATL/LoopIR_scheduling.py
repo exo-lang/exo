@@ -2110,6 +2110,52 @@ class _DoSimplify(LoopIR_Rewrite):
             return lhs.val == rhs.val
         raise ValueError(f'Unknown operator ({op})')
 
+    @staticmethod
+    def is_quotient_remainder(e):
+        """
+        Checks if e is of the form (up to commutativity):
+            N % K + K * (N / K)
+        and returns N if so. Otherwise, returns None.
+        """
+        assert isinstance(e, LoopIR.BinOp)
+        if e.op != '+':
+            return None
+
+        if isinstance(e.lhs, LoopIR.BinOp) and e.lhs.op == '%':
+            assert isinstance(e.lhs.rhs, LoopIR.Const)
+            num = e.lhs.lhs
+            mod: LoopIR.Const = e.lhs.rhs
+            rem = e.lhs
+            quot = e.rhs
+        elif isinstance(e.rhs, LoopIR.BinOp) and e.rhs.op == '%':
+            assert isinstance(e.rhs.rhs, LoopIR.Const)
+            num = e.rhs.lhs
+            mod: LoopIR.Const = e.rhs.rhs
+            rem = e.rhs
+            quot = e.lhs
+        else:
+            return None
+
+        # Validate form of remainder
+        if not (isinstance(rem, LoopIR.BinOp) and rem.op == '%'
+                and str(rem.lhs) == str(num) and str(rem.rhs) == str(mod)):
+            return None
+
+        # Validate form of quotient
+        if not (isinstance(quot, LoopIR.BinOp) and quot.op == '*'):
+            return None
+
+        def check_quot(const, div):
+            if (isinstance(const, LoopIR.Const)
+                    and (isinstance(div, LoopIR.BinOp) and div.op == '/')
+                    and (str(const) == str(mod))
+                    and (str(div.lhs) == str(num))
+                    and (str(div.rhs) == str(mod))):
+                return num
+            return None
+
+        return check_quot(quot.lhs, quot.rhs) or check_quot(quot.rhs, quot.lhs)
+
     def map_e(self, e):
         if isinstance(e, LoopIR.BinOp):
             lhs = self.map_e(e.lhs)
@@ -2123,6 +2169,8 @@ class _DoSimplify(LoopIR_Rewrite):
                     return rhs
                 if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
                     return lhs
+                if val := self.is_quotient_remainder(e):
+                    return val
             elif e.op == '-':
                 if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
                     return lhs
