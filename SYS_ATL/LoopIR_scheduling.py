@@ -589,29 +589,24 @@ class _Inline(LoopIR_Rewrite):
 
 class _PartialEval(LoopIR_Rewrite):
     def __init__(self, proc, arg_vals):
-        self.env = {}
-        arg_gap = len(proc.args) - len(arg_vals)
-        assert arg_gap >= 0
-        arg_vals = list(arg_vals) + [None for _ in range(arg_gap)]
+        assert arg_vals, "Don't call _PartialEval without any substitutions"
+        self.env = arg_vals
+
+        arg_types = {p.name: p.type for p in proc.args}
+
+        # Validate env:
+        for k, v in self.env.items():
+            if not arg_types[k].is_indexable():
+                raise SchedulingError("cannot partially evaluate "
+                                      "numeric (non-index) arguments")
+            if not isinstance(v, int):
+                raise SchedulingError("cannot partially evaluate "
+                                      "to a non-int value")
 
         self.orig_proc = proc
 
-        # bind values for partial evaluation
-        for v, a in zip(arg_vals, proc.args):
-            if v is None:
-                pass
-            elif a.type.is_indexable():
-                if isinstance(v, int):
-                    self.env[a.name] = v
-                else:
-                    raise SchedulingError("cannot partially evaluate "
-                                          "to a non-int value")
-            else:
-                raise SchedulingError("cannot partially evaluate "
-                                      "numeric (non-index) arguments")
-
-        args = [self.map_fnarg(a) for v, a in zip(arg_vals, proc.args)
-                if v is None]
+        args = [self.map_fnarg(a) for a in proc.args
+                if a.name not in self.env]
         preds = [self.map_e(p) for p in self.orig_proc.preds]
         body = self.map_stmts(self.orig_proc.body)
         eff = self.map_eff(self.orig_proc.eff)

@@ -273,13 +273,27 @@ class Procedure(ProcedureBase):
         _proc_prov_unify(self._loopir_proc, other_proc._loopir_proc)
         return self
 
-    def partial_eval(self, *args):
+    def partial_eval(self, *args, **kwargs):
+        if kwargs and args:
+            raise ValueError("Must provide EITHER ordered OR named arguments")
+        if not kwargs and not args:
+            # Nothing to do if empty partial eval
+            return self
+
         p = self._loopir_proc
-        if len(args) > len(p.args):
-            raise TypeError(f"expected no more than {len(p.args)} "
-                            f"arguments, but got {len(args)}")
-        p = Schedules.DoPartialEval(p, args).result()
-        return Procedure(p)
+
+        if args:
+            if len(args) > len(p.args):
+                raise TypeError(f"expected no more than {len(p.args)} "
+                                f"arguments, but got {len(args)}")
+            kwargs = {arg.name: val for arg, val in zip(p.args, args)}
+        else:
+            # Get the symbols corresponding to the names
+            params_map = {sym.name.name(): sym.name for sym in p.args}
+            kwargs = {params_map[k]: v for k, v in kwargs.items()}
+
+        p = Schedules.DoPartialEval(p, kwargs).result()
+        return Procedure(p)  # No provenance because signature changed
 
     def set_precision(self, name, typ_abbreviation):
         name, count = name_plus_count(name)

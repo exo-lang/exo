@@ -53,6 +53,7 @@ COPY_STREAMS = 3
 
 SGEMM_WINDOW = (
     SGEMM
+        .rename('SGEMM_WINDOW')
         .set_window('A', True)
         .set_window('B', True)
         .set_window('C', True)
@@ -105,12 +106,10 @@ sgemm_kernel_avx512_6x4 = (
         .simplify()
 )
 
-right_panel_kernel = (
-    SGEMM
-        .rename('right_panel_kernel')
-        .partial_eval(6)
-        .reorder('j', 'k')
-        .reorder('i', 'k')
+bottom_panel_kernel = (
+    SGEMM_WINDOW
+        .rename('bottom_panel_kernel')
+        .partial_eval(N=64)
         .simplify()
 )
 
@@ -140,12 +139,12 @@ sgemm_sys_atl = (
         .reorder('ii', 'jo')
         .reorder('ii', 'k')
         # Bottom-right tile
-        # .replace_all(SGEMM_WINDOW)
+        .replace_all(SGEMM_WINDOW)
         .simplify()
 )
 
 if __name__ == '__main__':
     print(sgemm_sys_atl)
-    print(right_panel_kernel)
+    print(bottom_panel_kernel)
 
 __all__ = ['sgemm_sys_atl']
