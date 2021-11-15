@@ -25,18 +25,6 @@ def _get_smt_solver():
 # --------------------------------------------------------------------------- #
 # Helper Functions
 
-def loopir_subst_stmts(stmts, subst):
-    new_s = []
-    for s in stmts:
-        if type(s) is LoopIR.WriteConfig:
-            new_s.append(LoopIR.WriteConfig(s.config, s.field,
-                loopir_subst(s.rhs, subst), s.eff, s.srcinfo))
-        else:#TODO
-            new_s.append(s)
-
-    return new_s
-
-
 def loopir_subst(e, subst):
     if isinstance(e, LoopIR.Read):
         assert not e.type.is_numeric()
@@ -590,7 +578,7 @@ class CheckEffects:
             elif expr.type.is_indexable():
                 return SMT.Int(expr.val)
             else:
-                assert False, "unrecognized const type: {type(expr.val)}"
+                assert False, f"unrecognized const type: {type(expr.val)}"
         elif isinstance(expr, E.Var):
             return self.sym_to_smt(expr.name, expr.type)
         elif isinstance(expr, E.Not):
@@ -930,7 +918,6 @@ class CheckEffects:
     def preprocess_stmts(self, body):
         for stmt in body:
             if isinstance(stmt, LoopIR.If):
-                self.solver.add_assertion(self.expr_to_smt(lift_expr(stmt.cond)))
                 self.preprocess_stmts(stmt.body)
                 self.preprocess_stmts(stmt.orelse)
             elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):

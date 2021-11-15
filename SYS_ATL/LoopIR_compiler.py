@@ -452,7 +452,8 @@ class Compiler:
         self.proc_def = proc_def
 
     def add_line(self, line):
-        self._lines.append(self._tab + line)
+        if line:
+            self._lines.append(self._tab + line)
 
     def comp_stmts(self, stmts):
         for b in stmts:

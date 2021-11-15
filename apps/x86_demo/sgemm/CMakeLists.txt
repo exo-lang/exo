@@ -24,3 +24,14 @@ if (BUILD_TESTING)
   add_test(NAME sgemm_100 COMMAND bench_sgemm 100)
   set_tests_properties(sgemm_100 PROPERTIES ENVIRONMENT "${MKL_ENV}")
 endif ()
+
+# ---------------------------------------------------------------------------- #
+# Tiny harness
+
+add_executable(run_systl test.cpp)
+target_link_libraries(
+  run_systl
+  PRIVATE
+  x86_demo::sgemm
+)
+target_compile_features(run_systl PRIVATE cxx_std_17)

@@ -426,17 +426,19 @@ class Procedure(ProcedureBase):
               tail='guard', perfect=False):
         if not isinstance(split_var, str):
             raise TypeError("expected first arg to be a string")
-        elif not is_pos_int(split_const):
+        if not is_pos_int(split_const):
             raise TypeError("expected second arg to be a positive integer")
-        elif split_const == 1:
+        if split_const == 1:
             raise TypeError("why are you trying to split by 1?")
-        elif not isinstance(out_vars,list) and not isinstance(out_vars, tuple):
+        if not isinstance(out_vars,list) and not isinstance(out_vars, tuple):
             raise TypeError("expected third arg to be a list or tuple")
-        elif len(out_vars) != 2:
+        if len(out_vars) != 2:
             raise TypeError("expected third arg list/tuple to have length 2")
-        elif not all(is_valid_name(s) for s in out_vars):
+        if not all(is_valid_name(s) for s in out_vars):
             raise TypeError("expected third arg to be a list/tuple of two "
                             "valid name strings")
+        if tail not in ('cut', 'guard', 'cut_and_guard'):
+            raise ValueError(f'unknown tail strategy "{tail}"')
 
         pattern     = iter_name_to_pattern(split_var)
         # default_match_no=None means match all
@@ -520,6 +522,14 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         loopir = Schedules.DoMergeGuard(loopir, stmt1, stmt2).result()
 
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def insert_pass(self, pat: str):
+        if not isinstance(pat, str):
+            raise TypeError('expected first argument to be a pattern in string')
+
+        stmt = self._find_stmt(pat)
+        loopir = Schedules.DoInsertPass(self._loopir_proc, stmt).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def delete_pass(self):

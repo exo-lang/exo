@@ -1,5 +1,7 @@
 from . import LoopIR
 
+from .prelude import *
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Config Objects
@@ -85,6 +87,9 @@ class Config:
         self._lookup    = { nm : (i,uast_to_type[typ])
                             for i,(nm,typ) in enumerate(fields) }
 
+        self._field_syms    = { nm : Sym(f"{name}_{nm}")
+                                for (nm,typ) in enumerate(fields) }
+
     def name(self):
         return self._name
 
@@ -96,6 +101,9 @@ class Config:
 
     def lookup(self, fname):
         return self._lookup[fname]
+
+    def _INTERNAL_sym(self, fname):
+        return self._field_syms[fname]
 
     def is_allow_rw(self):
         return self._rw_ok

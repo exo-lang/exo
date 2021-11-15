@@ -1969,6 +1969,18 @@ def _make_closure(name, stmts, var_types):
 
     return closure, args
 
+
+class _DoInsertPass(LoopIR_Rewrite):
+    def __init__(self, proc, stmt):
+        self.stmt = stmt
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s == self.stmt:
+            return [LoopIR.Pass(eff_null(s.srcinfo), srcinfo=s.srcinfo), s]
+        return super().map_s(s)
+
+
 class _DoDeletePass(LoopIR_Rewrite):
     def map_s(self, s):
         if isinstance(s, LoopIR.Pass):
@@ -2208,6 +2220,7 @@ class Schedules:
     DoReorderStmt       = _DoReorderStmt
     DoConfigWriteAfter  = _ConfigWriteAfter
     DoInlineWindow      = _InlineWindow
+    DoInsertPass        = _DoInsertPass
     DoDeletePass        = _DoDeletePass
     DoSimplify          = _DoSimplify
     DoAddGuard          = _DoAddGuard

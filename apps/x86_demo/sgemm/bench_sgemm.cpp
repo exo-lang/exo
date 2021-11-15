@@ -45,30 +45,6 @@ static void BM_square_sgemm(benchmark::State &state) {
 }
 
 // ----------------------------------------------------------------------------
-// Benchmarking just the inner kernel
-
-static void BM_sys_atl_kernel(benchmark::State &state) {
-  long k = state.range(0);
-
-  auto a = gen_matrix(6, k);
-  auto b = gen_matrix(k, 64);
-  auto c = gen_matrix(6, 64);
-
-  for ([[maybe_unused]] auto _ : state) {
-    sgemm_kernel_avx512_6x4(nullptr, (int)k, a.data(), b.data(),
-                            {c.data(), {64, 1}});
-  }
-
-  state.counters["flops"] = benchmark::Counter(
-      static_cast<double>(state.iterations()) * num_flops(6, 64, k),  //
-      benchmark::Counter::kIsRate,                                    //
-      benchmark::Counter::kIs1000                                     //
-  );
-}
-
-BENCHMARK(BM_sys_atl_kernel)->Name("kernel_sys_atl")->Range(8, 8196);
-
-// ----------------------------------------------------------------------------
 // MKL SGEMM benchmark
 
 struct mkl_square {

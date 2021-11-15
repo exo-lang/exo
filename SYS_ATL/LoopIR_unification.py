@@ -7,7 +7,8 @@ import pysmt
 from pysmt import shortcuts as SMT
 
 from adt import ADT
-from .LoopIR import LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars
+from .LoopIR import (LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars,
+                     Alpha_Rename)
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
@@ -118,9 +119,13 @@ class DoReplace(LoopIR_Rewrite):
             prefix_stmts    = super().map_stmts(stmts[ : match_i])
             suffix_stmts    = stmts[match_i+n_stmts : ]
             stmts           = stmts[match_i : match_i+n_stmts]
-            new_args = Unification(self.subproc, stmts,
+
+            # prevent name clashes between the statement block and sub-proc
+            subproc = Alpha_Rename(self.subproc).result()
+            new_args = Unification(subproc, stmts,
                                    self.live_vars).result()
 
+            # but don't use a different LoopIR.proc for the callsite itself
             new_call = LoopIR.Call(self.subproc, new_args,
                                    None, stmts[0].srcinfo)
 
@@ -712,6 +717,7 @@ class Unification:
                 return bufvar.get_solution(self, solutions,
                                            stmt_block[0].srcinfo)
         self.new_args   = [ get_arg(fa) for fa in subproc.args ]
+
 
 
     def err(self):
