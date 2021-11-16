@@ -872,12 +872,15 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         for i in range(0, stmts_len):
             s = self._find_stmt(par_pattern, body=loopir.body)
+            # TODO: This repeated matching is broken. But at least don't
+            #   crash when using a pattern like "for i in _: _"
+            if isinstance(s, LoopIR.Seq):
+                continue
             if not isinstance(s, LoopIR.ForAll):
-                raise TypeError("pattern did not describe a par loop")
-            loopir  = Schedules.DoParToSeq(loopir, s).result()
+                raise TypeError(f'Expected par loop. Got:\n{s}')
+            loopir = Schedules.DoParToSeq(loopir, s).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-
 
     def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None,
                    keep_dims=False):
