@@ -219,7 +219,7 @@ def test_conv_3():
     conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
     conv = conv.reorder('och_i', 'kch_i')
     conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
-    conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(do_zero_i8_vector, 'for kch_i in _:_ #0')
     conv = conv.replace(ld_i8, 'for ocol_i in _:_ #1')
     conv = conv.replace(ld_i8, 'for ocol_i in _:_ #1')
     conv = conv.reorder('kch_i', 'och_i')
@@ -230,7 +230,7 @@ def test_conv_3():
     conv = conv.reorder('och_i', 'kch_i')
     conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
     conv = conv.replace(ld_i8, 'for ocol_i in _:_ #2')
-    conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
+    conv = conv.replace(do_zero_i8_vector, 'for kch_i in _:_ #0')
     conv = conv.replace(ld_i8, 'for ocol_i in _:_ #2')
     conv = conv.reorder('kch_i', 'och_i')
     conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #2')
@@ -239,6 +239,50 @@ def test_conv_3():
     conv = conv.set_memory('res', GEMM_ACCUM)
     conv = conv.set_memory('i_s', GEMM_SCRATCH)
     conv = conv.set_memory('w_s', GEMM_SCRATCH)
+
+    conv = inline_vector(conv)
+    conv = lift_config(conv, 'config_ld_acc_i32_vector(_)')
+
+    conv = inline_ld_id1(conv)
+    conv = conv.fission_after('config_ld_i8_id1(_)')
+    conv = conv.assert_if('if _:_ #0', True)
+    conv = lift_config(conv, 'config_ld_i8_id1(_)')
+
+    conv = inline_ld_id2(conv)
+    conv = conv.reorder_before("config_ld_i8_id2(_)")
+    conv = conv.fission_after("config_ld_i8_id2(_)")
+    conv = conv.assert_if("if ocol_o == 0 and kcol == 0:_ #0", True)
+    conv = conv.reorder_before("config_ld_i8_id2(_)")
+    conv = conv.fission_after("config_ld_i8_id2(_)")
+    conv = conv.assert_if('if _:_ #0', True)
+    conv = lift_config(conv, 'config_ld_i8_id2(_)')
+
+    conv = inline_ld_id2(conv)
+    conv = conv.delete_config("config_ld_i8_id2(_) #1") #Unsafe, need to reason about config shadow
+
+    conv = inline_matmul(conv)
+    conv = conv.reorder_before("config_matmul(_)")
+    conv = conv.reorder_before("config_matmul(_)")
+    conv = conv.fission_after("config_matmul(_)")
+    conv = conv.assert_if('if _:_ #0', True)
+    conv = lift_config(conv, 'config_matmul(_)')
+
+    conv = inline_vector(conv)
+    conv = inline_ld_id1(conv)
+    conv = inline_ld_id2(conv)
+    conv = inline_ld_id2(conv)
+    conv = inline_matmul(conv)
+    conv = conv.delete_config("config_ld_acc_i32_vector(_) #1")
+    conv = conv.delete_config("config_ld_i8_id1(_) #1")
+    conv = conv.delete_config("config_ld_i8_id2(_) #1")
+    conv = conv.delete_config("config_ld_i8_id2(_) #1")
+    conv = conv.delete_config("config_matmul(_) #1")
+
+    conv = inline_st(conv)
+    conv = lift_config(conv, 'config_st_acc_i8(_)')
+    conv = inline_st(conv)
+    conv = conv.delete_config("config_st_acc_i8(_) #1")
+    conv = conv.simplify()
 
     cpu = conv_on_cpu()
     cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
@@ -270,30 +314,11 @@ def test_conv_3():
 
     T.compile().run()
 
+
     print(conv)
 """
-    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
 
 
-    # Now start replacing
-    conv = conv_replace_s1(conv)
-
-    conv = conv.call_eqv(ld_acc_i32_vector_v2, "ld_acc_i32_vector(_)")
-    conv = conv.inline("ld_acc_i32_vector_v2(_)")
-    conv = conv.inline_window("src = bias[_]")
-    conv = conv.inline_window("dst = res[_]")
-    conv = lift_config(conv, 'config_ld_acc_i32_vector(_)')
-
-    conv = conv.call_eqv(ld_i8_id1_s2_v2, "ld_i8(_)")
-    conv = conv.inline("ld_i8_id1_s2_v2(_)")
-    conv = conv.inline_window("src = weights[_]")
-    conv = conv.inline_window("dst = w_s[_]")
-    conv = conv.fission_after("config_ld_i8_id1(_)")
-
-
-
-
-    conv = lift_config(conv, 'config_ld_i8_id1(_)')
 
 
 

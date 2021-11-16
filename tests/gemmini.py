@@ -68,7 +68,7 @@ class QAST_Do():
         else:
             assert False, "bad case"
 
-class CanFission(QAST_Do):
+class CanFissionLoop(QAST_Do):
     def __init__(self, proc, stmt):
         self.stmt = stmt
         self.result = False
@@ -78,47 +78,61 @@ class CanFission(QAST_Do):
         return self.result
 
     def do_s(self, s):
-        if type(s) is QAST.If:
-            assert len(s.body) > 0
-            if s.body[0] == self.stmt:
-                self.result = True
-        elif type(s) is QAST.For:
+        if type(s) is QAST.For:
             assert len(s.body) > 0
             if s.body[0] == self.stmt:
                 self.result = True
 
         super().do_s(s)
 
+class CanFissionIf(QAST_Do):
+    def __init__(self, proc, stmt):
+        self.stmt = stmt
+        self.result = None
+        super().__init__(proc)
+
+    def result(self):
+        return self.result
+
+    def do_s(self, s):
+        if type(s) is QAST.If:
+            assert len(s.body) > 0
+            if s.body[0] == self.stmt:
+                self.result = str(s)
+            elif len(s.orelse) > 0 and s.orelse[0] == self.stmt:
+                self.result = str(s)
+
+        super().do_s(s)
+
 class CanReorder(QAST_Do):
     def __init__(self, proc, stmt):
         self.stmt = stmt
-        self.result = False
+        self.result = None
         super().__init__(proc)
 
     def result(self):
         return self.result
 
     def do_stmts(self, stmts):
-        is_first = True
+        prev = None
         for b in stmts:
-            if b == self.stmt and not is_first:
-                self.result = True
+            if b == self.stmt and prev is not None:
+                self.result = str(prev)
             else:
                 self.do_s(b)
-                is_first = False
+                prev = b
 
-def lift_config(conv, string):
+def lift_config(conv, string, nth=0):
     stmt = conv.get_ast(string)
-    assert len(stmt) == 1
-    stmt = stmt[0][0] # Get the match
+    stmt = stmt[nth][0] # Get the match
 
     while True:
         proc = conv.get_ast()
-        fission = CanFission(proc, stmt).result
+        fission_loop = CanFissionLoop(proc, stmt).result
         reorder = CanReorder(proc, stmt).result
-        if fission:
+        if fission_loop:
             conv = conv.fission_after(string)
-        elif reorder:
+        elif reorder is not None:
             conv = conv.reorder_before(string)
         else:
             break
@@ -180,6 +194,42 @@ def conv_basic_opt(conv, if1, if2, if3, if4, if5):
     conv = conv.lift_if(if4, n_lifts=1)
     conv = conv.lift_if(if5, n_lifts=1)
 
+    return conv
+
+def inline_vector(conv):
+    conv = conv.call_eqv(ld_acc_i32_vector_v2, "ld_acc_i32_vector(_)")
+    conv = conv.inline("ld_acc_i32_vector_v2(_)")
+    conv = conv.inline_window("src = bias[_]")
+    conv = conv.inline_window("dst = res[_]")
+    return conv
+
+def inline_ld_id1(conv):
+    conv = conv.call_eqv(ld_i8_id1_s2_v2, "ld_i8(_)")
+    conv = conv.inline("ld_i8_id1_s2_v2(_)")
+    conv = conv.inline_window("src = weights[_]")
+    conv = conv.inline_window("dst = w_s[_]")
+    return conv
+
+def inline_ld_id2(conv):
+    conv = conv.call_eqv(ld_i8_id2_s2_v2, "ld_i8(_)")
+    conv = conv.inline("ld_i8_id2_s2_v2(_)")
+    conv = conv.inline_window("src = inp[_]")
+    conv = conv.inline_window("dst = i_s[_]")
+    return conv
+
+def inline_matmul(conv):
+    conv = conv.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_)")
+    conv = conv.inline("matmul_acc_i8_v2(_)")
+    conv = conv.inline_window("A = i_s[_]")
+    conv = conv.inline_window("B = w_s[_]")
+    conv = conv.inline_window("C = res[_]")
+    return conv
+
+def inline_st(conv):
+    conv = conv.call_eqv(st_acc_i8_s2_v2, "st_acc_i8(_)")
+    conv = conv.inline("st_acc_i8_s2_v2(_)")
+    conv = conv.inline_window("src = res[_]")
+    conv = conv.inline_window("dst = output[_]")
     return conv
 
 # --------------------------------------------------------------------------- #
@@ -323,6 +373,26 @@ def ld_i8(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
+
+@instr(_gemm_ld_i8)
+def ld_i8_block(
+    m     : size,
+    src   : [i8][16, m] @ DRAM,
+    dst   : [i8][16*((m+15)/16), 16] @ GEMM_SCRATCH,
+):
+    assert m <= 64
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    pass
+
+    for i in par(0, 16):
+        for j in par(0, m):
+            dst[i + (j/16)*16, j%16] = src[i,j]
+
+
+
 ld_i8_v2 = ld_i8.rename("ld_i8_v2")
 ld_i8_v2 = ld_i8_v2.configwrite_after('pass', ConfigLoad, 'src_stride', 'stride(src, 0)')
 ld_i8_v2 = ld_i8_v2.replace(do_ld_i8, 'for i in _:_')
@@ -359,7 +429,15 @@ ld_i8_id2_v2 = ld_i8_id2_v2.replace(do_ld_i8_id2, 'for i in _:_')
 ld_i8_id2_v2 = ld_i8_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
 ld_i8_id2_v2 = ld_i8_id2_v2.delete_pass().make_instr(_gemm_ld_i8)
 
+ld_i8_id2_s2_v2 = ld_i8_id2.rename("ld_i8_id2_s2_v2")
+ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 2)')
+ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.replace(do_ld_i8_id2, 'for i in _:_')
+ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
+ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.delete_pass().make_instr(_gemm_ld_i8)
+
 ld_i8    = ld_i8.delete_pass().make_instr(_gemm_ld_i8)
+ld_i8_id1= ld_i8_id1.delete_pass().make_instr(_gemm_ld_i8_id1)
+ld_i8_id2= ld_i8_id2.delete_pass().make_instr(_gemm_ld_i8_id2)
 
 
 _gemm_ld_i8_stride_2 = ("gemmini_extended3_config_ld({src}.strides[0]*2, "+
@@ -668,6 +746,24 @@ st_acc_i8_v2 = st_acc_i8_v2.fission_after('ConfigStore.act = _', n_lifts=2)
 st_acc_i8_v2 = st_acc_i8_v2.replace(do_st_acc_i8, 'for i in _:_')
 st_acc_i8_v2 = st_acc_i8_v2.replace(config_st_acc_i8, 'ConfigStore.scale = scale')
 
+st_acc_i8_s2_v2 = st_acc_i8.rename("st_acc_i8_s2_v2")
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.bind_config('scale', ConfigStore, 'scale')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('tmp : _', 'ConfigStore.scale = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp = _', 'ConfigStore.scale = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp : _', 'ConfigStore.scale = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.fission_after('ConfigStore.scale = _', n_lifts=2)
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 2)')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.bind_config('act', ConfigStore, 'act')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('clamp(_)', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('tmp2 : _', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('acc_scale(_)', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('tmp : _', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp = _', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp : _', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.fission_after('ConfigStore.act = _', n_lifts=2)
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.replace(do_st_acc_i8, 'for i in _:_')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.replace(config_st_acc_i8, 'ConfigStore.scale = scale')
+
 
 _gemm_st_acc_i32 = ("gemmini_extended_config_st({dst}.strides[0]*4, 0, 1.0f);\n"+
                     "gemmini_extended_mvout( ((uint64_t) {dst}.data), "+
@@ -767,12 +863,28 @@ def zero_i8_vector(
     dst : [i8][16] @ GEMM_SCRATCH,
 ):
     assert stride(dst, 0) == 16
+    pass
 
     for i in par(0, 16):
         dst[i] = 0.0
 
+_do_gemm_zero_vec = ("gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
+                                         "16, 1 );")
+@instr(_do_gemm_zero_vec)
+def do_zero_i8_vector(
+    dst : [i8][16] @ GEMM_SCRATCH,
+):
+    assert stride(dst, 0) == 16
 
+    for i in par(0, 16):
+        dst[i] = 0.0
 
+zero_i8_vector_v2 = zero_i8_vector.rename("zero_i8_vector_v2")
+zero_i8_vector_v2 = zero_i8_vector_v2.configwrite_after('pass', ConfigLoad, 'src_stride', '0')
+zero_i8_vector_v2 = zero_i8_vector_v2.replace(do_zero_i8_vector, 'for i in _:_')
+zero_i8_vector_v2 = zero_i8_vector_v2.replace(config_zero, 'ConfigLoad.src_stride = _')
+zero_i8_vector_v2 = zero_i8_vector_v2.delete_pass().make_instr(_gemm_zero_vec)
+zero_i8_vector = zero_i8_vector.delete_pass().make_instr(_gemm_zero_vec)
 
 
 
