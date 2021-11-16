@@ -1918,16 +1918,14 @@ class _DoFuseLoop(LoopIR_Rewrite):
                 # TODO: Is this enough??
                 # Check that loop is equivalent
                 if self.loop1.iter.name() != self.loop2.iter.name():
-                    raise SchedulingError("expected loop iteration variable " +
+                    raise SchedulingError("expected loop iteration variable "
                                           "to match")
-                # TODO: Handle more expressions!
-                if (not isinstance(self.loop1.hi, LoopIR.Const) or
-                        not isinstance(self.loop2.hi, LoopIR.Const)):
-                    raise SchedulingError("expected loop bound to be const " +
-                                          "for now!")
-                if self.loop1.hi.val != self.loop2.hi.val:
-                    raise SchedulingError("bound does not match!")
-                # TODO: Check sth about stmts?
+
+                # Structural match
+                if self.loop1.hi != self.loop2.hi:
+                    raise SchedulingError("Loop bounds do not match!")
+
+                # TODO: Check sth about stmts? Safe for Seq loops? etc. etc.
 
                 body1 = SubstArgs(
                     self.loop1.body,
