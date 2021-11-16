@@ -223,8 +223,36 @@ right_panel_kernel_scheduled = (
         .add_ifelse('right_panel_kernel(_) #3', '(N / 16) == 3')
         #
         .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
+        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
+        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
+        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
+        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
         .inline('right_panel_kernel_opt(_)')
+        .inline('right_panel_kernel_opt(_)')
+        .inline('right_panel_kernel_opt(_)')
+        .inline('right_panel_kernel_opt(_)')
+        .inline('right_panel_kernel_opt(_)')
+        #
+        .simplify()
+        #
         .inline_window('A = _')
+        .inline_window('A = _')
+        .inline_window('A = _')
+        .inline_window('A = _')
+        .inline_window('A = _')
+        #
+        .inline_window('B = _')
+        .inline_window('B = _')
+        .inline_window('B = _')
+        .inline_window('B = _')
+        .inline_window('B = _')
+        #
+        .inline_window('C = _')
+        .inline_window('C = _')
+        .inline_window('C = _')
+        .inline_window('C = _')
+        .inline_window('C = _')
+        #
         .simplify()
 )
 
@@ -259,7 +287,6 @@ sgemm_sys_atl = (
 )
 
 if __name__ == '__main__':
-    print(right_panel_kernel_scheduled)
-    # print(right_panel_kernel_scheduled.c_code_str())
+    print(sgemm_sys_atl)
 
 __all__ = ['sgemm_sys_atl']

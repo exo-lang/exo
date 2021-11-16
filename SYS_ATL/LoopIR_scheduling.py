@@ -2237,10 +2237,25 @@ class _DoSimplify(LoopIR_Rewrite):
     def add_fact(self, cond):
         if (isinstance(cond, LoopIR.BinOp) and cond.op == '=='
                 and isinstance(cond.rhs, LoopIR.Const)):
-            self.facts[str(cond.lhs)] = cond.rhs
+            expr = cond.lhs
+            const = cond.rhs
         elif (isinstance(cond, LoopIR.BinOp) and cond.op == '=='
               and isinstance(cond.lhs, LoopIR.Const)):
-            self.facts[str(cond.rhs)] = cond.lhs
+            expr = cond.rhs
+            const = cond.lhs
+        else:
+            return
+
+        del cond  # prevent coding errors... use expr/const!
+
+        self.facts[str(expr)] = const
+
+        # if we know that X / M == 0 then we also know that X % M == X.
+        if (isinstance(expr, LoopIR.BinOp) and expr.op == '/'
+                and const.val == 0):
+            mod_expr = LoopIR.BinOp('%', expr.lhs, expr.rhs, expr.type,
+                                    expr.srcinfo)
+            self.facts[str(mod_expr)] = expr.lhs
 
     def map_s(self, s):
         if isinstance(s, LoopIR.If):
