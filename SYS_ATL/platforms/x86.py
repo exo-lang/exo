@@ -143,13 +143,8 @@ def mm512_fmadd_ps(
         C[i] += A[i] * B[i]
 
 
-# ---------------------------------------------------------------------------- #
-
-
-# TODO: these "dumb" instructions exist as a hack around our current lack of
-#  overcompute. We'll revisit the proper way of doing this post-deadline.
-@instr('{C_data} = _mm512_fmadd_ps({A}, {B}, {C_data});')
-def mm512_dumb_mask_fmadd_ps(
+@instr('{C_data} = _mm512_mask_fmadd_ps({A}, ((1 << {N}) - 1), {B}, {C_data});')
+def mm512_mask_fmadd_ps(
         N: size,
         A: f32[16] @ AVX512,
         B: f32[16] @ AVX512,
@@ -166,8 +161,14 @@ def mm512_dumb_mask_fmadd_ps(
             C[i] += A[i] * B[i]
 
 
+# ---------------------------------------------------------------------------- #
+
+
+# TODO: this "dumb" instruction exists as a hack around our current lack of
+#  overcompute. We'll revisit the proper way of doing this post-deadline.
+
 @instr('{dst} = _mm512_set1_ps({src_data});')
-def mm512_dumb_mask_set1_ps(
+def mm512_mask_set1_ps(
         N: size,
         dst: f32[16] @ AVX512,
         src: [f32][1],

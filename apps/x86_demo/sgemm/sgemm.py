@@ -158,12 +158,15 @@ right_panel_kernel_opt = (
         .par_to_seq('for k in _: _')
         #
         .lift_alloc('C_reg: _', n_lifts=4)
+        .reorder_before('C_reg: _ #1')
+        #
         .fission_after('C_reg[_] = _', n_lifts=4)
         .fission_after('C_reg[_] += _', n_lifts=4)
         #
-        .reorder_before('C_reg: _ #1')
-        .reorder_before('C_reg: _ #1')
-        .reorder_before('C_reg: _ #1')
+        .reorder_before('for i in _: _ #3')
+        .reorder_before('for i in _: _ #2')
+        #
+        .reorder_before('for k in _: _ #1')
         #
         .set_memory('C_reg', AVX512)
         #
@@ -180,8 +183,9 @@ right_panel_kernel_opt = (
         .replace_all(mm512_set1_ps)
         .replace_all(mm512_fmadd_ps)
         .replace(mm512_loadu_ps, 'for ji in _: _ #0')
-        .replace(mm512_loadu_ps, 'for ji in _: _ #0')
-        .replace(mm512_storeu_ps, 'for ji in _: _ #0')
+        .replace(mm512_loadu_ps, 'for ji in _: _ #1')
+        .replace(mm512_storeu_ps, 'for ji in _: _ #2')
+        #
         .replace(mm512_maskz_loadu_ps, 'for ji in _: _ #0')
         .replace(mm512_mask_storeu_ps, 'for ji in _: _ #1')
         #
@@ -195,9 +199,14 @@ right_panel_kernel_opt = (
         .set_memory('B_reg2', AVX512)
         .fission_after('B_reg2[_] = _', n_lifts=2)
         #
-        .replace_all(mm512_dumb_mask_set1_ps)
-        .replace_all(mm512_dumb_mask_fmadd_ps)
+        .replace_all(mm512_mask_set1_ps)
+        .replace_all(mm512_mask_fmadd_ps)
         .replace_all(mm512_maskz_loadu_ps)
+        #
+        .fuse_loop('for i in _: _ #0', 'for i in _: _ #1')
+        .fuse_loop('for k in _: _ #0', 'for k in _: _ #1')
+        .fuse_loop('for i in _: _ #1', 'for i in _: _ #2')
+        .fuse_loop('for i in _: _ #2', 'for i in _: _ #3')
         #
         .simplify()
 )
@@ -250,8 +259,7 @@ sgemm_sys_atl = (
 )
 
 if __name__ == '__main__':
-    print(right_panel_kernel_opt)
-    # print(right_panel_kernel_scheduled)
+    print(right_panel_kernel_scheduled)
     # print(right_panel_kernel_scheduled.c_code_str())
 
 __all__ = ['sgemm_sys_atl']
