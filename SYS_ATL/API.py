@@ -868,17 +868,24 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def par_to_seq(self, par_pattern):
-        stmts_len = len(self._find_stmt(par_pattern, default_match_no=None))
+        if not self._find_stmt(par_pattern, default_match_no=None):
+            raise TypeError('Matched no statements!')
+
         loopir = self._loopir_proc
-        for i in range(0, stmts_len):
-            s = self._find_stmt(par_pattern, body=loopir.body)
-            # TODO: This repeated matching is broken. But at least don't
-            #   crash when using a pattern like "for i in _: _"
-            if isinstance(s, LoopIR.Seq):
-                continue
-            if not isinstance(s, LoopIR.ForAll):
-                raise TypeError(f'Expected par loop. Got:\n{s}')
-            loopir = Schedules.DoParToSeq(loopir, s).result()
+
+        changed_any = True
+        while changed_any:
+            changed_any = False
+            stmts = self._find_stmt(par_pattern, body=loopir.body,
+                                    default_match_no=None)
+            for s in stmts:
+                if not isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+                    raise TypeError(f'Expected par loop. Got:\n{s}')
+
+                if isinstance(s, LoopIR.ForAll):
+                    loopir = Schedules.DoParToSeq(loopir, s).result()
+                    changed_any = True
+                    break
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
