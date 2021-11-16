@@ -1733,8 +1733,7 @@ class _FissionLoops:
             # then we need to gather together the pre and post.
             single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
 
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
-            loop_type = type(s)
+        elif isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq):
 
             # check if we need to split the loop
             pre, post = self.map_stmts(s.body)
@@ -1748,17 +1747,17 @@ class _FissionLoops:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre = [loop_type(s.iter, s.hi, pre, None, s.srcinfo)]
+                    pre     = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre         = Alpha_Rename(pre).result()
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post = [loop_type(s.iter, s.hi, post, None, s.srcinfo)]
+                    post    = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
 
-                return pre, post
+                return (pre,post)
 
             # if we didn't split, then compose pre and post of the body
-            single_stmt = loop_type(s.iter, s.hi, pre + post, None, s.srcinfo)
+            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, None, s.srcinfo)
 
         else:
             # all other statements cannot recursively
