@@ -1073,9 +1073,9 @@ class Unification:
         if (pe.type.is_indexable() != be.type.is_indexable() or
                 (pe.type == T.bool) != (be.type == T.bool)):
             raise UnificationError(
-                f"expected expressions "
-                f"({pe} @{pe.srcinfo} vs. {be} @{be.srcinfo}) "
-                f"to have similar types")
+                f"expected expressions to have similar types:\n"
+                f'  {pe}: {pe.type} [{pe.srcinfo}]\n'
+                f'  {be}: {be.type} [{be.srcinfo}]')
         elif pe.type.is_indexable():
             # convert to an equality
             self.unify_affine_e(pe, be)

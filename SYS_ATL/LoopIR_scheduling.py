@@ -540,7 +540,8 @@ class _Inline(LoopIR_Rewrite):
     def map_s(self, s):
         if s == self.call_stmt:
             # handle potential window expressions in call positions
-            win_binds   = []
+            win_binds = []
+
             def map_bind(nm, a):
                 if isinstance(a, LoopIR.WindowExpr):
                     stmt = LoopIR.WindowStmt(nm, a, eff_null(a.srcinfo),
@@ -552,22 +553,19 @@ class _Inline(LoopIR_Rewrite):
 
             # first, set-up a binding from sub-proc arguments
             # to supplied expressions at the call-site
-            call_bind   = { xd.name : map_bind(xd.name, a)
-                            for xd,a in zip(s.f.args,s.args) }
+            call_bind = {xd.name: map_bind(xd.name, a)
+                         for xd, a in zip(s.f.args, s.args)}
 
-
-            # whenever we copy code we need to alpha-rename for safety
-            body        = Alpha_Rename(s.f.body).result()
-
-            # then we will substitute the bindings for the call
-            body        = SubstArgs(body, call_bind).result()
+            # we will substitute the bindings for the call
+            body = SubstArgs(s.f.body, call_bind).result()
 
             # note that all sub-procedure assertions must be true
             # even if not asserted, or else this call being inlined
             # wouldn't have been valid to make in the first place
 
+            # whenever we copy code we need to alpha-rename for safety
             # the code to splice in at this point
-            return win_binds + body
+            return Alpha_Rename(win_binds + body).result()
 
         # fall-through
         return super().map_s(s)
@@ -824,9 +822,10 @@ class _InlineWindow(LoopIR_Rewrite):
                             new_idxs.append(ivl)
                         else:  # Point
                             p = LoopIR.Point(LoopIR.BinOp("+", w.lo, idxs[0].pt,
-                                                           T.index, w.srcinfo))
+                                                           T.index, w.srcinfo),
+                                             w.srcinfo)
                             new_idxs.append(p)
-                        idxs.pop()
+                        idxs = idxs[1:]
                     else:
                         new_idxs.append(w)
 
@@ -1783,7 +1782,7 @@ class _DoAddIfElse(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        if s == self.stmt:
+        if s is self.stmt:
             s1 = Alpha_Rename([s]).result()
             s2 = Alpha_Rename([s]).result()
             return [LoopIR.If(self.cond, s1, s2, None, s.srcinfo)]
@@ -1848,7 +1847,7 @@ class _DoBoundAndGuard(LoopIR_Rewrite):
                 LoopIR.BinOp('<',
                              LoopIR.Read(s.iter, [], T.index, s.srcinfo),
                              s.hi,
-                             T.index,
+                             T.bool,
                              s.srcinfo),
                 s.body,
                 [],
@@ -2172,52 +2171,67 @@ class _DoSimplify(LoopIR_Rewrite):
 
         return check_quot(quot.lhs, quot.rhs) or check_quot(quot.rhs, quot.lhs)
 
+    def map_binop(self, e: LoopIR.BinOp):
+        lhs = self.map_e(e.lhs)
+        rhs = self.map_e(e.rhs)
+
+        if isinstance(lhs, LoopIR.Const) and isinstance(rhs, LoopIR.Const):
+            return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type,
+                                lhs.srcinfo)
+
+        if e.op == '+':
+            if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
+                return rhs
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+                return lhs
+            if val := self.is_quotient_remainder(
+                    LoopIR.BinOp(e.op, lhs, rhs, lhs.type, lhs.srcinfo)):
+                return val
+        elif e.op == '-':
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+                return lhs
+        elif e.op == '*':
+            if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
+                return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+                return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+            if isinstance(lhs, LoopIR.Const) and lhs.val == 1:
+                return rhs
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+                return lhs
+        elif e.op == '/':
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+                return lhs
+        elif e.op == '%':
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+                return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+
+        return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
+
     def map_e(self, e):
-        if isinstance(e, LoopIR.Read) and e.name in self.facts:
-            return self.facts[e.name]
+        # If we get a match, then replace it with the known constant right away.
+        # No need to run further simplify steps on this node.
+        if sub := self.facts.get(str(e)):
+            return sub
 
         if isinstance(e, LoopIR.BinOp):
-            lhs = self.map_e(e.lhs)
-            rhs = self.map_e(e.rhs)
-            if isinstance(lhs, LoopIR.Const) and isinstance(rhs, LoopIR.Const):
-                return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type,
-                                    lhs.srcinfo)
+            e = self.map_binop(e)
+        else:
+            e = super().map_e(e)
 
-            if e.op == '+':
-                if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
-                    return rhs
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
-                    return lhs
-                if val := self.is_quotient_remainder(e):
-                    return val
-            elif e.op == '-':
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
-                    return lhs
-            elif e.op == '*':
-                if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
-                    return LoopIR.Const(0, lhs.type, lhs.srcinfo)
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
-                    return LoopIR.Const(0, lhs.type, lhs.srcinfo)
-                if isinstance(lhs, LoopIR.Const) and lhs.val == 1:
-                    return rhs
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
-                    return lhs
-            elif e.op == '/':
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
-                    return lhs
-            elif e.op == '%':
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
-                    return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+        # After simplifying, we might match a known constant, so check again.
+        if sub := self.facts.get(str(e)):
+            return sub
 
-            return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
-
-        return super().map_e(e)
+        return e
 
     def add_fact(self, cond):
         if (isinstance(cond, LoopIR.BinOp) and cond.op == '=='
-                and isinstance(cond.lhs, LoopIR.Read)
                 and isinstance(cond.rhs, LoopIR.Const)):
-            self.facts[cond.lhs.name] = cond.rhs
+            self.facts[str(cond.lhs)] = cond.rhs
+        elif (isinstance(cond, LoopIR.BinOp) and cond.op == '=='
+              and isinstance(cond.lhs, LoopIR.Const)):
+            self.facts[str(cond.rhs)] = cond.lhs
 
     def map_s(self, s):
         if isinstance(s, LoopIR.If):
@@ -2244,6 +2258,18 @@ class _DoSimplify(LoopIR_Rewrite):
 
             return [LoopIR.If(cond, body, orelse, self.map_eff(s.eff),
                               s.srcinfo)]
+        elif isinstance(s, LoopIR.ForAll):
+            hi = self.map_e(s.hi)
+            # Delete the loop if it would not run at all
+            if isinstance(hi, LoopIR.Const) and hi.val == 0:
+                return []
+
+            # Delete the loop if it would have an empty body
+            body = self.map_stmts(s.body)
+            if not body:
+                return []
+            return [LoopIR.ForAll(s.iter, hi, body, self.map_eff(s.eff),
+                                  s.srcinfo)]
         else:
             return super().map_s(s)
 
