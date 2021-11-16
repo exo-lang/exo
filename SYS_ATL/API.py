@@ -833,10 +833,10 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def par_to_seq(self, par_pattern):
-        stmts_len = len(self._find_stmt(par_stmts, default_match_no=None))
+        stmts_len = len(self._find_stmt(par_pattern, default_match_no=None))
         loopir = self._loopir_proc
         for i in range(0, stmts_len):
-            s = self._find_stmt(par_stmts, body=loopir.body)
+            s = self._find_stmt(par_pattern, body=loopir.body)
             if not isinstance(s, LoopIR.ForAll):
                 raise TypeError("pattern did not describe a par loop")
             loopir  = Schedules.DoParToSeq(loopir, s).result()
