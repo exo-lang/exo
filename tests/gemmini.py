@@ -226,8 +226,8 @@ def inline_matmul(conv):
     return conv
 
 def inline_st(conv):
-    conv = conv.call_eqv(st_acc_i8_v2, "st_acc_i8(_)")
-    conv = conv.inline("st_acc_i8_v2(_)")
+    conv = conv.call_eqv(st_acc_i8_s2_v2, "st_acc_i8(_)")
+    conv = conv.inline("st_acc_i8_s2_v2(_)")
     conv = conv.inline_window("src = res[_]")
     conv = conv.inline_window("dst = output[_]")
     return conv
@@ -436,6 +436,8 @@ ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_
 ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.delete_pass().make_instr(_gemm_ld_i8)
 
 ld_i8    = ld_i8.delete_pass().make_instr(_gemm_ld_i8)
+ld_i8_id1= ld_i8_id1.delete_pass().make_instr(_gemm_ld_i8_id1)
+ld_i8_id2= ld_i8_id2.delete_pass().make_instr(_gemm_ld_i8_id2)
 
 
 _gemm_ld_i8_stride_2 = ("gemmini_extended3_config_ld({src}.strides[0]*2, "+
@@ -732,7 +734,7 @@ st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('tmp : _', 'ConfigStore.scale = _')
 st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('src_tmp = _', 'ConfigStore.scale = _')
 st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('src_tmp : _', 'ConfigStore.scale = _')
 st_acc_i8_v2 = st_acc_i8_v2.fission_after('ConfigStore.scale = _', n_lifts=2)
-st_acc_i8_v2 = st_acc_i8_v2.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 2)')
+st_acc_i8_v2 = st_acc_i8_v2.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 0)')
 st_acc_i8_v2 = st_acc_i8_v2.bind_config('act', ConfigStore, 'act')
 st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('clamp(_)', 'ConfigStore.act = _')
 st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('tmp2 : _', 'ConfigStore.act = _')
@@ -743,6 +745,24 @@ st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('src_tmp : _', 'ConfigStore.act = _')
 st_acc_i8_v2 = st_acc_i8_v2.fission_after('ConfigStore.act = _', n_lifts=2)
 st_acc_i8_v2 = st_acc_i8_v2.replace(do_st_acc_i8, 'for i in _:_')
 st_acc_i8_v2 = st_acc_i8_v2.replace(config_st_acc_i8, 'ConfigStore.scale = scale')
+
+st_acc_i8_s2_v2 = st_acc_i8.rename("st_acc_i8_s2_v2")
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.bind_config('scale', ConfigStore, 'scale')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('tmp : _', 'ConfigStore.scale = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp = _', 'ConfigStore.scale = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp : _', 'ConfigStore.scale = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.fission_after('ConfigStore.scale = _', n_lifts=2)
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 2)')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.bind_config('act', ConfigStore, 'act')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('clamp(_)', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('tmp2 : _', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('acc_scale(_)', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('tmp : _', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp = _', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp : _', 'ConfigStore.act = _')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.fission_after('ConfigStore.act = _', n_lifts=2)
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.replace(do_st_acc_i8, 'for i in _:_')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.replace(config_st_acc_i8, 'ConfigStore.scale = scale')
 
 
 _gemm_st_acc_i32 = ("gemmini_extended_config_st({dst}.strides[0]*4, 0, 1.0f);\n"+

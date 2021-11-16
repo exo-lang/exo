@@ -21,9 +21,9 @@ typedef acc_t ACC_T;
 typedef elem_t ACC_T;
 #endif
 
-#define MAT_DIM_I 12544
-#define MAT_DIM_K 64
-#define MAT_DIM_J 64
+#define MAT_DIM_I 512
+#define MAT_DIM_K 512
+#define MAT_DIM_J 512
 
 void print_tile(elem_t* in, int tile_dim) {
   for (size_t r = 0; r < tile_dim; r++) {
