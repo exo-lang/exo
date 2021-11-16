@@ -111,7 +111,7 @@ class UAST_PPrinter:
             assert linted, "generated unlinted code..."
         return fmtstr
 
-    def push(self,only=None):
+    def push(self, only=None):
         if only is None:
             self.env.new_child()
             self._tab = self._tab + "  "
@@ -319,6 +319,8 @@ class LoopIR_PPrinter:
         self._node = node
 
         self.env = ChainMap()
+        self.names = ChainMap()
+
         self._tab = ""
         self._lines = []
 
@@ -353,46 +355,40 @@ class LoopIR_PPrinter:
             assert linted, "generated unlinted code..."
         return fmtstr
 
-    def push(self,only=None):
+    def push(self, only=None):
         if only is None:
-            self.env.new_child()
+            self.env = self.env.new_child()
+            self.names = self.names.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.new_child()
+            self.env = self.env.new_child()
+            self.names = self.names.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.parents
+        self.env = self.env.parents
+        self.names = self.names.parents
         self._tab = self._tab[:-2]
 
     def addline(self, line):
         self._lines.append(f"{self._tab}{line}")
 
-    def new_name(self, nm):
-        strnm   = str(nm)
-        if strnm not in self.env:
-            self.env[strnm] = strnm
-            return strnm
-        else:
-            s = self.env[strnm]
-            m = re.match('^(.*)_([0-9]*)$', s)
-            # either post-pend a _1 or increment the post-pended counter
-            if not m:
-                s = s + "_1"
-            else:
-                s = f"{m[1]}_{int(m[2]) + 1}"
-            self.env[strnm] = s
-            return s
-
     def get_name(self, nm):
-        strnm = str(nm)
-        if strnm in self.env:
-            return self.env[strnm]
-        else:
-            return repr(nm)
+        if resolved := self.env.get(nm):
+            return resolved
+
+        candidate = str(nm)
+        num = self.names.get(candidate, 1)
+        while candidate in self.names:
+            candidate = f'{nm}_{num}'
+            num += 1
+
+        self.env[nm] = candidate
+        self.names[str(nm)] = num
+        return candidate
 
     def pproc(self, p):
         assert p.name
@@ -416,12 +412,12 @@ class LoopIR_PPrinter:
 
     def pfnarg(self, a):
         if a.type == T.size:
-            return f"{self.new_name(a.name)} : size"
+            return f"{self.get_name(a.name)} : size"
         elif a.type == T.index:
-            return f"{self.new_name(a.name)} : index"
+            return f"{self.get_name(a.name)} : index"
         else:
             mem = f" @{a.mem.name()}" if a.mem else ""
-            return f"{self.new_name(a.name)} : {self.ptype(a.type)} {mem}"
+            return f"{self.get_name(a.name)} : {self.ptype(a.type)} {mem}"
 
     def pstmt(self, stmt):
         if isinstance(stmt, LoopIR.Pass):
@@ -444,10 +440,10 @@ class LoopIR_PPrinter:
             self.addline(f"{cname}.{stmt.field} = {rhs}")
         elif isinstance(stmt, LoopIR.WindowStmt):
             rhs = self.pexpr(stmt.rhs)
-            self.addline(f"{self.new_name(stmt.lhs)} = {rhs}")
+            self.addline(f"{self.get_name(stmt.lhs)} = {rhs}")
         elif isinstance(stmt, LoopIR.Alloc):
             mem = f" @{stmt.mem.name()}" if stmt.mem else ""
-            self.addline(f"{self.new_name(stmt.name)} : "
+            self.addline(f"{self.get_name(stmt.name)} : "
                          f"{self.ptype(stmt.type)}{mem}")
         elif isinstance(stmt, LoopIR.Free):
             mem = f" @{stmt.mem.name()}" if stmt.mem else ""
@@ -473,9 +469,9 @@ class LoopIR_PPrinter:
             hi = self.pexpr(stmt.hi)
             self.push(only='env')
             if isinstance(stmt, LoopIR.ForAll):
-                self.addline(f"for {self.new_name(stmt.iter)} in par(0, {hi}):")
+                self.addline(f"for {self.get_name(stmt.iter)} in par(0, {hi}):")
             else:
-                self.addline(f"for {self.new_name(stmt.iter)} in seq(0, {hi}):")
+                self.addline(f"for {self.get_name(stmt.iter)} in seq(0, {hi}):")
             self.push(only='tab')
             for p in stmt.body:
                 self.pstmt(p)
