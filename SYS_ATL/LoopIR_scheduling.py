@@ -1946,6 +1946,47 @@ class _DoFuseLoop(LoopIR_Rewrite):
 
         return new_stmts
 
+class _DoFuseIf(LoopIR_Rewrite):
+    def __init__(self, proc, if1, if2):
+        self.if1 = if1
+        self.if2 = if2
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        new_stmts = []
+
+        found_first = False
+        for stmt in stmts:
+            if stmt is self.if1:
+                found_first = True
+                continue
+
+            if found_first:
+                found_first = False  # Must have been set on previous iteration
+
+                if stmt is not self.if2:
+                    raise SchedulingError("expected the second stmt to be "
+                                          "directly after the first stmt")
+
+                # Check that conditions are identical
+                if self.if1.cond != self.if2.cond:
+                    raise SchedulingError("expected conditions to match")
+
+                stmt = LoopIR.If(
+                    self.if1.cond,
+                    self.if1.body + self.if2.body,
+                    self.if1.orelse + self.if2.orelse,
+                    None,
+                    self.if1.srcinfo
+                )
+
+            new_stmts.extend(self.map_s(stmt))
+
+        return new_stmts
+
 
 class _DoAddLoop(LoopIR_Rewrite):
     def __init__(self, proc, stmt, var, hi):
@@ -2406,3 +2447,4 @@ class Schedules:
     DoAssertIf = _AssertIf
     DoAddIfElse = _DoAddIfElse
     DoDeleteConfig = _DoDeleteConfig
+    DoFuseIf = _DoFuseIf

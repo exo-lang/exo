@@ -582,6 +582,25 @@ class Procedure(ProcedureBase):
       
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def fuse_if(self, if1, if2):
+        if not isinstance(if1, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(if2, str):
+            raise TypeError("expected second arg to be a string")
+
+        if1 = self._find_stmt(if1)
+        if2 = self._find_stmt(if2)
+
+        if not isinstance(if1, LoopIR.If):
+            raise TypeError("expected first pattern to match if stmt")
+        if not isinstance(if2, LoopIR.If):
+            raise TypeError("expected second pattern to match if stmt")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.DoFuseIf(loopir, if1, if2).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
     def add_loop(self, stmt, var, hi):
         if not isinstance(stmt, str):
             raise TypeError("expected first arg to be a string")
