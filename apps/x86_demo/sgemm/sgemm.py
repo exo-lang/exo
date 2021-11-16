@@ -146,6 +146,79 @@ right_panel_kernel = (
         .simplify()
 )
 
+right_panel_kernel_opt = (
+    right_panel_kernel
+        .rename('right_panel_kernel_opt')
+        #
+        .stage_assn('C_reg', 'C[_] += _')
+        .split('j', VEC_W, ['jo', 'ji'], tail='cut')
+        .bound_and_guard('for ji in _: _ #1')
+        .fission_after('for jo in _: _', n_lifts=2)
+        #
+        .par_to_seq('for k in _: _')
+        #
+        .lift_alloc('C_reg: _', n_lifts=4)
+        .fission_after('C_reg[_] = _', n_lifts=4)
+        .fission_after('C_reg[_] += _', n_lifts=4)
+        #
+        .reorder_before('C_reg: _ #1')
+        .reorder_before('C_reg: _ #1')
+        .reorder_before('C_reg: _ #1')
+        #
+        .set_memory('C_reg', AVX512)
+        #
+        .bind_expr('A_reg', 'A[_]')
+        .lift_alloc('A_reg: _', keep_dims=True)
+        .set_memory('A_reg', AVX512)
+        .fission_after('A_reg[_] = _')
+        #
+        .bind_expr('B_reg', 'B[_]')
+        .lift_alloc('B_reg: _', keep_dims=True)
+        .set_memory('B_reg', AVX512)
+        .fission_after('B_reg[_] = _')
+        #
+        .replace_all(mm512_set1_ps)
+        .replace_all(mm512_fmadd_ps)
+        .replace(mm512_loadu_ps, 'for ji in _: _ #0')
+        .replace(mm512_loadu_ps, 'for ji in _: _ #0')
+        .replace(mm512_storeu_ps, 'for ji in _: _ #0')
+        .replace(mm512_maskz_loadu_ps, 'for ji in _: _ #0')
+        .replace(mm512_mask_storeu_ps, 'for ji in _: _ #1')
+        #
+        .bind_expr('A_reg2', 'A[_] #1')
+        .lift_alloc('A_reg2: _', keep_dims=True, n_lifts=2)
+        .set_memory('A_reg2', AVX512)
+        .fission_after('A_reg2[_] = _', n_lifts=2)
+        #
+        .bind_expr('B_reg2', 'B[_] #1')
+        .lift_alloc('B_reg2: _', keep_dims=True, n_lifts=2)
+        .set_memory('B_reg2', AVX512)
+        .fission_after('B_reg2[_] = _', n_lifts=2)
+        #
+        .replace_all(mm512_dumb_mask_set1_ps)
+        .replace_all(mm512_dumb_mask_fmadd_ps)
+        .replace_all(mm512_maskz_loadu_ps)
+        #
+        .simplify()
+)
+
+right_panel_kernel_scheduled = (
+    right_panel_kernel
+        .rename('right_panel_kernel_scheduled')
+        #
+        .replace_all(right_panel_kernel)
+        #
+        .add_ifelse('right_panel_kernel(_) #0', '(N / 16) == 0')
+        .add_ifelse('right_panel_kernel(_) #1', '(N / 16) == 1')
+        .add_ifelse('right_panel_kernel(_) #2', '(N / 16) == 2')
+        .add_ifelse('right_panel_kernel(_) #3', '(N / 16) == 3')
+        #
+        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
+        .inline('right_panel_kernel_opt(_)')
+        .inline_window('A = _')
+        .simplify()
+)
+
 sgemm_sys_atl = (
     SGEMM
         .rename('sgemm_sys_atl')
@@ -166,6 +239,7 @@ sgemm_sys_atl = (
         .reorder('ji', 'k')
         .reorder('ii', 'k')
         .replace_all(right_panel_kernel)
+        .call_eqv(right_panel_kernel_scheduled, 'right_panel_kernel(_)')
         # Bottom panel
         .reorder('ii', 'jo')
         .reorder('ii', 'k')
@@ -176,6 +250,8 @@ sgemm_sys_atl = (
 )
 
 if __name__ == '__main__':
-    print(sgemm_sys_atl)
+    print(right_panel_kernel_opt)
+    # print(right_panel_kernel_scheduled)
+    # print(right_panel_kernel_scheduled.c_code_str())
 
 __all__ = ['sgemm_sys_atl']
