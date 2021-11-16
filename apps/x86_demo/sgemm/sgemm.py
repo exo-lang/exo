@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 from SYS_ATL import *
 from SYS_ATL.platforms.x86 import *
 from SYS_ATL.syntax import *
@@ -39,15 +41,15 @@ def SGEMM(
 # Constants for scheduling
 VEC_W = 16
 
-I_REG_BLK = 6
-J_REG_BLK = (4 * VEC_W)
+M_REG_BLK = 6
+N_REG_BLK = (4 * VEC_W)
 
-I_L2_FAC = 44
-J_L2_FAC = 1
+M_L1_FAC = 44
+N_L1_FAC = 1
 
-I_L2_BLK = I_REG_BLK * I_L2_FAC
-J_L2_BLK = J_REG_BLK * J_L2_FAC
-K_L2_BLK = 512
+M_L1_BLK = M_REG_BLK * M_L1_FAC
+N_L1_BLK = N_REG_BLK * N_L1_FAC
+K_L1_BLK = 512
 
 COPY_STREAMS = 3
 
@@ -62,13 +64,83 @@ SGEMM_WINDOW = (
         .reorder('i', 'k')
 )
 
+sgemm_sys_atl = (
+    SGEMM
+        .rename('sgemm_sys_atl')
+        #
+        .split('k', K_L1_BLK, ['ko', 'ki'], tail='cut_and_guard')
+        .split('j', N_L1_BLK, ['jo', 'ji'], tail='cut_and_guard')
+        .split('i', M_L1_BLK, ['io', 'ii'], tail='cut_and_guard')
+        #
+        .fission_after('for ko in _: _', n_lifts=4)
+        .reorder('ji #0', 'ko')
+        .reorder('ii #0', 'jo')
+        .reorder('ii #0', 'ko')
+        .reorder('ji #0', 'ki')
+        .reorder('ii #0', 'ki')
+        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
+        #
+        .fission_after('for jo in _: _ #1')
+        .fission_after('for ii in _: _ #1')
+        .lift_if('if K % _ > 0: _', n_lifts=2)
+        .lift_if('if K % _ > 0: _ #0')
+        .lift_if('if K % _ > 0: _ #1')
+        .reorder('ii #0', 'jo')
+        .reorder('ji #0', 'ki')
+        .reorder('ii #0', 'ki')
+        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
+        #
+        .lift_if('if N % _ > 0: _ #0')
+        .reorder('ji #0', 'ko')
+        .reorder('ii #0', 'ko')
+        .reorder('ji #0', 'ki')
+        .reorder('ii #0', 'ki')
+        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
+        #
+        .reorder('ji #0', 'ki')
+        .reorder('ii #0', 'ki')
+        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
+        #
+        .reorder('ii #0', 'jo')
+        .reorder('ji #0', 'ko')
+        .reorder('ii #0', 'ko')
+        .reorder('ji #0', 'ki')
+        .reorder('ii #0', 'ki')
+        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
+        #
+        .fission_after('if K % _ > 0: _ #2')
+        .lift_if('if K % _ > 0: _ #2')
+        .reorder('ii #0', 'jo')
+        .reorder('ji #0', 'ki')
+        .reorder('ii #0', 'ki')
+        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
+        #
+        .lift_if('if N % _ > 0: _ #1')
+        .reorder('ji #0', 'ko')
+        .reorder('ii #0', 'ko')
+        .reorder('ji #0', 'ki')
+        .reorder('ii #0', 'ki')
+        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
+        #
+        .reorder('ji #0', 'ki')
+        .reorder('ii #0', 'ki')
+        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
+        #
+        .simplify()
+        #
+        .fuse_loop('for io in _: _ #0', 'for io in _: _ #1')
+)
+
+print(sgemm_sys_atl)
+sys.exit()
+
 basic_kernel_Mx4 = {}
 sgemm_kernel_avx512_Mx4 = {}
-for M in range(1, I_REG_BLK + 1):
+for M in range(1, M_REG_BLK + 1):
     basic_kernel_Mx4[M] = (
         SGEMM_WINDOW
             .rename(f'basic_kernel_{M}x4')
-            .partial_eval(M, J_REG_BLK)
+            .partial_eval(M, N_REG_BLK)
             .simplify()
     )
     sgemm_kernel_avx512_Mx4[M] = (
@@ -109,7 +181,7 @@ for M in range(1, I_REG_BLK + 1):
 bottom_panel_kernel = (
     SGEMM_WINDOW
         .rename('bottom_panel_kernel')
-        .partial_eval(N=J_REG_BLK)
+        .partial_eval(N=N_REG_BLK)
         .simplify()
 )
 
@@ -142,7 +214,7 @@ bottom_panel_kernel_scheduled = (
 right_panel_kernel = (
     SGEMM_WINDOW
         .rename('right_panel_kernel')
-        .partial_eval(M=I_REG_BLK)
+        .partial_eval(M=M_REG_BLK)
         .simplify()
 )
 
@@ -256,12 +328,12 @@ right_panel_kernel_scheduled = (
         .simplify()
 )
 
-sgemm_sys_atl = (
+sgemm_above_kernel = (
     SGEMM
-        .rename('sgemm_sys_atl')
+        .rename('sgemm_above_kernel')
         # Split up into cases
-        .split('j', J_REG_BLK, ['jo', 'ji'], tail='cut_and_guard')
-        .split('i', I_REG_BLK, ['io', 'ii'], tail='cut_and_guard')
+        .split('j', N_REG_BLK, ['jo', 'ji'], tail='cut_and_guard')
+        .split('i', M_REG_BLK, ['io', 'ii'], tail='cut_and_guard')
         .fission_after('for jo in _: _ #0', n_lifts=2)
         .reorder('ii #0', 'jo')
         .reorder('ji #0', 'k')

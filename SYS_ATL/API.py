@@ -563,7 +563,6 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoBoundAndGuard(self._loopir_proc, loop).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-
     def fuse_loop(self, loop1, loop2):
         if not isinstance(loop1, str):
             raise TypeError("expected first arg to be a string")
@@ -751,7 +750,7 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def replace(self, subproc, pattern):
+    def replace(self, subproc, pattern, quiet=False):
         if not isinstance(subproc, Procedure):
             raise TypeError("expected first arg to be a subprocedure")
         elif not isinstance(pattern, str):
@@ -764,8 +763,16 @@ class Procedure(ProcedureBase):
 
         loopir = self._loopir_proc
         for stmt_block in stmt_lists:
-            loopir = DoReplace(loopir, subproc._loopir_proc,
-                               stmt_block).result()
+            try:
+                loopir = DoReplace(loopir, subproc._loopir_proc,
+                                   stmt_block).result()
+            except UnificationError:
+                if quiet:
+                    raise
+                print(f'Failed to unify the following:\nSubproc:\n{subproc}'
+                      f'Statements:\n')
+                [print(s) for s in stmt_block]
+                raise
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
@@ -800,7 +807,7 @@ class Procedure(ProcedureBase):
         i = 0
         while True:
             try:
-                proc = proc.replace(subproc, f'{pattern} #{i}')
+                proc = proc.replace(subproc, f'{pattern} #{i}', quiet=True)
             except TypeError as e:
                 if 'failed to find statement' in str(e):
                     return proc
