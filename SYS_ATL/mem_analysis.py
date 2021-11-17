@@ -83,7 +83,7 @@ class MemoryAnalysis:
                 if sa.type.is_numeric():
                     smem = sa.mem if sa.mem else DRAM
                     cmem = self.get_e_mem(ca)
-                    if smem != cmem:
+                    if not issubclass(cmem, smem):
                         raise TypeError(f"{ca.srcinfo}: expected "
                                         f"argument in {smem.name()} but got an "
                                         f"argument in {cmem.name()}")
