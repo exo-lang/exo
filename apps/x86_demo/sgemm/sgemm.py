@@ -288,11 +288,28 @@ sgemm_above_kernel = (
         .simplify()
 )
 
+
 class A_CACHE_MEM(DRAM):
     @classmethod
     def global_(cls):
         return textwrap.dedent('''
         static float A_cache[264 * 512];
+        ''')
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        return ''
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ''
+
+
+class B_CACHE_MEM(DRAM):
+    @classmethod
+    def global_(cls):
+        return textwrap.dedent('''
+        static float B_cache[512 * 64]; 
         ''')
 
     @classmethod
@@ -365,6 +382,12 @@ sgemm_sys_atl = (
         .par_to_seq('for jo in _: _ #0')
         .lift_alloc('A_cache: _', n_lifts=3)
         .fission_after('for i0 in _: _')
+        # Stage B
+        .stage_window('B_cache', 'B[_] #0', B_CACHE_MEM)
+        .par_to_seq('for ko in _: _ #0')
+        .par_to_seq('for io in _: _ #0')
+        .par_to_seq('for jo in _: _ #0')
+        .lift_alloc('B_cache: _', n_lifts=3)
         # Clean up
         .simplify()
 )
