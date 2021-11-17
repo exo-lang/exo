@@ -345,6 +345,6 @@ sgemm_sys_atl = (
 )
 
 if __name__ == '__main__':
-    print(sgemm_sys_atl.c_code_str())
+    print(sgemm_sys_atl)
 
 __all__ = ['sgemm_sys_atl']

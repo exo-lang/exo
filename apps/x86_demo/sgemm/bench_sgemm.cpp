@@ -1,5 +1,5 @@
 #include <benchmark/benchmark.h>
-#include <mkl.h>
+#include <cblas.h>
 #include <sgemm.h>
 
 #include <random>
