@@ -114,7 +114,7 @@ class ParseFragment:
 
     def parse_e(self, pat):
         if isinstance(pat, PAST.Read):
-            nm = self.find_sym(pat.name, self.env)
+            nm = self.find_sym(pat.name)
             idx = [self.find_sym(i) for i in pat.idx]
             return LoopIR.Read(nm, idx, self.env[nm], self.stmt.srcinfo)
         elif isinstance(pat, PAST.BinOp):
@@ -123,15 +123,15 @@ class ParseFragment:
             return LoopIR.BinOp(pat.op, lhs, rhs, self.type_for_binop(pat.op),
                                 self.stmt.srcinfo)
         elif isinstance(pat, PAST.StrideExpr):
-            nm = self.find_sym(pat.name, self.env)
+            nm = self.find_sym(pat.name)
             return LoopIR.StrideExpr(nm, pat.dim, T.stride, self.stmt.srcinfo)
         elif isinstance(pat, PAST.Const):
             typ = {float: T.R, bool: T.bool, int: T.int}.get(type(pat.val))
             assert typ is not None, "bad type!"
             return LoopIR.Const(pat.val, typ, self.stmt.srcinfo)
 
-    def find_sym(self, expr, env):
-        for k in env.keys():
+    def find_sym(self, expr):
+        for k in self.env.keys():
             if expr == str(k):
                 return k
 

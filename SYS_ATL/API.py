@@ -524,6 +524,16 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def add_assertion(self, assertion):
+        if not isinstance(assertion, str):
+            raise TypeError('assertion must be a SYS_ATL string')
+
+        p = self._loopir_proc
+        assertion = parse_fragment(p, assertion, p.body[0])
+        p = LoopIR.proc(p.name, p.args, p.preds + [assertion], p.body,
+                        p.instr, p.eff, p.srcinfo)
+        return Procedure(p, _provenance_eq_Procedure=None)
+
     def add_guard(self, stmt_pat, iter_pat, value):
         if not isinstance(stmt_pat, str):
             raise TypeError("expected first arg to be a string")
