@@ -1317,6 +1317,10 @@ struct systl_win_2i8{
     int8_t *data;
     int_fast32_t strides[2];
 };
+struct systl_win_3i8{
+    int8_t *data;
+    int_fast32_t strides[3];
+};
 typedef struct matmul_512x512x512_lib_Context { 
 
     struct ConfigLoad {
@@ -1352,282 +1356,52 @@ h = 127.0;
 *dst = _select_((double)*src, (double)*&l, (double)*&l, (double)*dst);
 }
 
+
+
 void matmul_on_gemmini( matmul_512x512x512_lib_Context *ctxt, float* scale, bool act, int8_t* A, int8_t* B, int8_t* C ) {
 gemmini_extended_config_st((512), (act), (scale)[0]);
 
-gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-
-gemmini_extended3_config_ld((512), 1.0f, 0, 1);
+gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
 gemmini_extended3_config_ld((512), 1.0f, 0, 2);
 
-gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended3_config_ld((512), 1.0f, 0, 1);
 
-int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 32 * 8 * sizeof(int8_t)));
-int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 32 * 8 * sizeof(int8_t)));
-int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 8 * 8 * sizeof(int32_t)));
-for (int io = 0; io < 4; io++) {
-  for (int jo = 0; jo < 4; jo++) {
-    for (int i = 0; i < 8; i++) {
-      for (int j = 0; j < 8; j++) {
-        gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data),(16), (16) );
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (0) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (0) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
+gemmini_extended3_config_ld(0, 1.0f, 0, 0);
+
+int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 8 * 8 * 2 * sizeof(int8_t)));
+int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 8 * 4 * sizeof(int8_t)));
+int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 4 * sizeof(int32_t)));
+for (int ioo = 0; ioo < 2; ioo++) {
+  for (int jo = 0; jo < 2; jo++) {
+    for (int io = 0; io < 2; io++) {
+      for (int i = 0; i < 8; i++) {
+        for (int ji = 0; ji < 4; ji++) {
+          for (int j_in_o = 0; j_in_o < 4; j_in_o++) {
+            gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (4 * 16 * 16) + (j_in_o) * (16 * 16) + (0) * (16) + (0) * (1))/16))),(16), (16) );
+          }
+          for (int ko = 0; ko < 8; ko++) {
+            if (ji == 0) {
+              if (jo == 0) {
+                gemmini_extended_mvin2( &A[(16 * (8 * (2 * ioo + io) + i)) * (512) + (64 * ko) * (1)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((io) * (8 * 8 * 4 * 16 * 16) + (i) * (8 * 4 * 16 * 16) + (ko) * (4 * 16 * 16) + (0) * (16 * 16) + (0) * (16) + (0) * (1))/16))), 16*(4), (16) );
+              }
+            }
+            for (int k = 0; k < 4; k++) {
+              if (i == 0) {
+                if (io == 0) {
+                  gemmini_extended_mvin3( &B[(16 * k + 64 * ko) * (512) + (64 * (4 * jo + ji)) * (1)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((ji) * (8 * 4 * 4 * 16 * 16) + (ko) * (4 * 4 * 16 * 16) + (k) * (4 * 16 * 16) + (0) * (16 * 16) + (0) * (16) + (0) * (1))/16))), 16*(4), (16) );
+                }
+              }
+              for (int j_in_o = 0; j_in_o < 4; j_in_o++) {
+                gemmini_extended_preload((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((ji) * (8 * 4 * 4 * 16 * 16) + (ko) * (4 * 4 * 16 * 16) + (k) * (4 * 16 * 16) + (j_in_o) * (16 * 16) + (0) * (16) + (0) * (1))/16))), (uint32_t)(&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (4 * 16 * 16) + (j_in_o) * (16 * 16) + (0) * (16) + (0) * (1))/16))) | 0x40000000, (16), (16), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((io) * (8 * 8 * 4 * 16 * 16) + (i) * (8 * 4 * 16 * 16) + (ko) * (4 * 16 * 16) + (k) * (16 * 16) + (0) * (16) + (0) * (1))/16))), ~((uint32_t)0), (16), (16), 16, 16);
+              }
+            }
+          }
+          for (int j_in_o = 0; j_in_o < 4; j_in_o++) {
+            gemmini_extended_mvout( ((uint64_t) &C[(16 * (8 * (2 * ioo + io) + i)) * (512) + (16 * j_in_o + 64 * (4 * jo + ji)) * (1)]), (uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (4 * 16 * 16) + (j_in_o) * (16 * 16) + (0) * (16) + (0) * (1))/16)), (16), (16) );
+          }
         }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(0) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (0) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (0) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (0) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (16) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (1) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(16) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (1) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (1) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (1) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (32) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (2) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(32) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (2) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (2) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (2) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (48) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (3) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(48) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (3) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (3) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (3) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (64) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (4) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(64) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (4) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (4) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (4) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (80) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (5) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(80) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (5) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (5) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (5) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (96) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (6) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(96) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (6) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (6) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (6) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (112) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (7) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(112) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (7) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (7) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (7) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (128) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (8) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(128) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (8) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (8) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (8) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (144) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (9) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(144) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (9) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (9) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (9) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (160) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (10) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(160) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (10) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (10) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (10) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (176) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (11) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(176) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (11) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (11) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (11) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (192) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (12) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(192) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (12) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (12) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (12) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (208) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (13) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(208) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (13) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (13) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (13) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (224) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (14) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(224) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (14) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (14) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (14) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (240) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (15) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(240) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (15) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (15) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (15) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (256) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (16) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(256) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (16) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (16) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (16) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (272) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (17) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(272) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (17) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (17) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (17) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (288) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (18) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(288) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (18) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (18) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (18) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (304) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (19) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(304) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (19) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (19) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (19) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (320) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (20) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(320) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (20) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (20) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (20) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (336) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (21) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(336) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (21) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (21) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (21) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (352) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (22) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(352) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (22) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (22) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (22) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (368) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (23) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(368) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (23) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (23) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (23) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (384) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (24) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(384) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (24) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (24) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (24) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (400) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (25) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(400) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (25) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (25) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (25) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (416) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (26) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(416) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (26) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (26) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (26) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (432) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (27) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(432) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (27) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (27) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (27) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (448) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (28) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(448) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (28) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (28) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (28) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (464) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (29) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(464) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (29) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (29) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (29) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (480) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (30) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(480) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (30) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (30) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (30) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        if (j == 0) {
-          gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&A[(16 * i + 128 * io) * (512) + (496) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (31) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        if (i == 0) {
-          gemmini_extended_mvin3( ((struct systl_win_2i8){ (int8_t*)&B[(496) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (31) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-        }
-        gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((j) * (32 * 16 * 16) + (31) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (32 * 16 * 16) + (31) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-        gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&C[(16 * i + 128 * io) * (512) + (16 * j + 128 * jo) * (1)], { 512, 1 } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (8 * 16 * 16) + (j) * (16 * 16) + (0) * (16) + (0) * (1))/16)), { 16, 1 } }).data, (16), (16) );
       }
     }
   }
@@ -1636,8 +1410,6 @@ gemm_free((uint64_t)(a));
 gemm_free((uint64_t)(b));
 gemm_acc_free((uint32_t)(res));
 }
-
-
 
 
 static void tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
@@ -1653,15 +1425,15 @@ static void tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
 
     float c_scale = (float) scale;
     bool act_    = (bool) act;
-    /*
     orig_tiled_matmul_auto(dim_I, dim_J, dim_K, A, B, D, C, stride_A, stride_B, stride_D, stride_C,
                            A_scale_factor, B_scale_factor, D_scale_factor, act, scale,
                            relu6_shift, repeating_bias, transpose_A, transpose_B, full_C, low_D,
                            weightA, tiled_matmul_type);
-                           */
 
+    /*
     matmul_512x512x512_lib_Context *ctxt;
     matmul_on_gemmini(ctxt, &c_scale, act_, A, B, C);
+    */
 }
 
 
@@ -3713,84 +3485,96 @@ for (int b=0; b < 4; b++) {
 }
 
 void conv_3( conv_3_lib_Context *ctxt, int8_t* output, int32_t* bias, int8_t* inp, int8_t* weights, bool act, float* scale ) {
-gemmini_extended3_config_ld((64), 1.0f, 0, 1);
-
-gemmini_extended3_config_ld(4, 1.0f, 0, 0);
-
 for (int b = 0; b < 4; b++) {
   for (int orow = 0; orow < 56; orow++) {
     for (int ocol_o = 0; ocol_o < 3; ocol_o++) {
+      int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * sizeof(int32_t)));
       for (int och_o = 0; och_o < 4; och_o++) {
-        int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * sizeof(int32_t)));
         for (int ocol_i = 0; ocol_i < 16; ocol_i++) {
-          gemmini_extended_mvin( ((uint64_t) &bias[(0) * (64) + (16 * och_o + 0 + 0) * (1)]), ((uint32_t) ((struct systl_win_1i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ocol_i + 0) * (16) + (0 + 0) * (1))/16)), { 1 } }).data), 16, 1 );
+          gemmini_extended3_config_ld(4, 1.0f, 0, 0);
+gemmini_extended_mvin( ((uint64_t) &bias[(0) * (64) + (16 * och_o + 0) * (1)]), ((uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((och_o + 0) * (16 * 16) + (ocol_i + 0) * (16) + (0) * (1))/16))), 16, 1 );
         }
-        for (int krow = 0; krow < 3; krow++) {
-          for (int kcol = 0; kcol < 3; kcol++) {
-            for (int kch_o = 0; kch_o < 4; kch_o++) {
-              int8_t *i_s = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-              int8_t *w_s = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-              if (0 <= orow + krow - 1 && orow + krow - 1 < 56) {
-                gemmini_extended_mvin2( ((struct systl_win_2i8){ (int8_t*)&weights[(krow + 0) * (3 * 64 * 64) + (kcol + 0) * (64 * 64) + (16 * kch_o + 0 + 0) * (64) + (16 * och_o + 0 + 0) * (1)], { 64, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)w_s)) + ((0 + 0) * (16) + (0 + 0) * (1))/16)), { 16, 1 } }).data), (16 + 0), (16 + 0) );
-                if (ocol_o == 0 && kcol == 0) {
-                  gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_1i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((0) * (16) + (0) * (1))/16)), { 1 } }).data),16, 1 );
-                  gemmini_extended3_config_ld(((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (16 * ocol_o + kcol + 0) * (64) + (16 * kch_o + 0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, 0);
-gemmini_extended_mvin( ((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (16 * ocol_o + kcol + 0) * (64) + (16 * kch_o + 0) * (1)], { 64, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((1) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (15) );
-                } else {
-                  gemmini_extended3_config_ld(((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (16 * ocol_o + kcol + -1) * (64) + (16 * kch_o + 0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, 0);
-gemmini_extended_mvin( ((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (16 * ocol_o + kcol + -1) * (64) + (16 * kch_o + 0) * (1)], { 64, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-                }
-                gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
-gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)w_s)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (16));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (16), 16, 16);
-              }
-              gemm_free((uint64_t)(i_s));
-              gemm_free((uint64_t)(w_s));
-            }
-          }
-        }
-        gemmini_extended_config_st(((struct systl_win_2i8){ (int8_t*)&output[(b + 0) * (56 * 56 * 64) + (orow + 0) * (56 * 64) + (16 * ocol_o + 0) * (64) + (16 * och_o + 0) * (1)], { 64, 1 } }).strides[0]*1, (act), (scale)[0]);
-gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&output[(b + 0) * (56 * 56 * 64) + (orow + 0) * (56 * 64) + (16 * ocol_o + 0) * (64) + (16 * och_o + 0) * (1)], { 64, 1 } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data, (16), (16) );
-        gemm_acc_free((uint32_t)(res));
-      }
-    }
-    for (int och_o = 0; och_o < 4; och_o++) {
-      int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 9 * sizeof(int32_t)));
-      for (int ocol_i = 0; ocol_i < 8; ocol_i++) {
-        gemmini_extended3_config_ld(4, 1.0f, 0, 0);
-gemmini_extended_mvin( ((uint64_t) &bias[(0) * (64) + (16 * och_o + 0) * (1)]), ((uint32_t) ((struct systl_win_1i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ocol_i + 0) * (16) + (0) * (1))/16)), { 1 } }).data), 16, 1 );
       }
       for (int krow = 0; krow < 3; krow++) {
+        int8_t *i_s = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 3 * sizeof(int8_t)));
+        int8_t *w_s = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 3 * sizeof(int8_t)));
+        if (0 <= orow + krow - 1 && orow + krow - 1 < 56) {
+          for (int kcol = 0; kcol < 3; kcol++) {
+            for (int kch_o = 0; kch_o < 4; kch_o++) {
+              gemmini_extended3_config_ld(((struct systl_win_2i8){ (int8_t*)&weights[(krow + 0) * (3 * 64 * 64) + (kcol + 0) * (64 * 64) + (16 * kch_o + 0) * (64) + (0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, 1);
+gemmini_extended_mvin2( &weights[(krow + 0) * (3 * 64 * 64) + (kcol + 0) * (64 * 64) + (16 * kch_o + 0) * (64) + (0) * (1)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)w_s)) + ((kcol + 0) * (4 * 4 * 16 * 16) + (kch_o + 0) * (4 * 16 * 16) + (0) * (16 * 16) + (0) * (16) + (0) * (1))/16))), 16*(4), (16) );
+            }
+            if (ocol_o == 0 && kcol == 0) {
+              for (int kch_o = 0; kch_o < 4; kch_o++) {
+                gemmini_extended_mvin( 0, ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((kcol + 0) * (4 * 16 * 16) + (kch_o + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16))),16, 1 );
+              }
+              gemmini_extended4_config_ld(((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (kcol + 16 * ocol_o + 0) * (64) + (0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, (15), 2);
+gemmini_extended_mvin3( &inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (kcol + 16 * ocol_o + 0) * (64) + (0) * (1)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((kcol + 0) * (4 * 16 * 16) + (0) * (16 * 16) + (1) * (16) + (0) * (1))/16))), 16*(4), (15) );
+            } else {
+              gemmini_extended4_config_ld(((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (kcol + 16 * ocol_o + -1) * (64) + (0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, (16), 2);
+gemmini_extended_mvin3( &inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (kcol + 16 * ocol_o + -1) * (64) + (0) * (1)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((kcol + 0) * (4 * 16 * 16) + (0) * (16 * 16) + (0) * (16) + (0) * (1))/16))), 16*(4), (16) );
+            }
+            for (int kch_o = 0; kch_o < 4; kch_o++) {
+              for (int och_o = 0; och_o < 4; och_o++) {
+                gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)w_s)) + ((kcol + 0) * (4 * 4 * 16 * 16) + (kch_o + 0) * (4 * 16 * 16) + (och_o + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16))), (uint32_t)(&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((och_o + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16))) | 0x40000000, (16), (16), (16), (16));
+gemmini_extended_compute_preloaded((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((kcol + 0) * (4 * 16 * 16) + (kch_o + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16))), ~((uint32_t)0), (16), (16), 16, 16);
+              }
+            }
+          }
+        }
+        gemm_free((uint64_t)(i_s));
+        gemm_free((uint64_t)(w_s));
+      }
+      for (int och_o = 0; och_o < 4; och_o++) {
+        gemmini_extended_config_st(((struct systl_win_2i8){ (int8_t*)&output[(b + 0) * (56 * 56 * 64) + (orow + 0) * (56 * 64) + (16 * ocol_o + 0) * (64) + (16 * och_o + 0) * (1)], { 64, 1 } }).strides[0]*1, (act), (scale)[0]);
+gemmini_extended_mvout( ((uint64_t) &output[(b + 0) * (56 * 56 * 64) + (orow + 0) * (56 * 64) + (16 * ocol_o + 0) * (64) + (16 * och_o + 0) * (1)]), (uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((och_o + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16)), (16), (16) );
+      }
+      gemm_acc_free((uint32_t)(res));
+    }
+    int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 9 * 4 * sizeof(int32_t)));
+    for (int och_o = 0; och_o < 4; och_o++) {
+      for (int ocol_i = 0; ocol_i < 8; ocol_i++) {
+        gemmini_extended3_config_ld(4, 1.0f, 0, 0);
+gemmini_extended_mvin( ((uint64_t) &bias[(0) * (64) + (16 * och_o + 0) * (1)]), ((uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((och_o + 0) * (9 * 16) + (ocol_i + 0) * (16) + (0) * (1))/16))), 16, 1 );
+      }
+    }
+    for (int krow = 0; krow < 3; krow++) {
+      int8_t *i_s = (int8_t*) ((uint64_t)gemm_malloc (16 * 8 * 4 * 3 * sizeof(int8_t)));
+      int8_t *w_s = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 3 * sizeof(int8_t)));
+      if (0 <= orow + krow - 1 && orow + krow - 1 < 56) {
         for (int kcol = 0; kcol < 3; kcol++) {
           for (int kch_o = 0; kch_o < 4; kch_o++) {
-            int8_t *i_s = (int8_t*) ((uint64_t)gemm_malloc (16 * 9 * sizeof(int8_t)));
-            int8_t *w_s = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * sizeof(int8_t)));
-            if (0 <= orow + krow - 1 && orow + krow - 1 < 56) {
-              gemmini_extended3_config_ld(((struct systl_win_2i8){ (int8_t*)&weights[(krow + 0) * (3 * 64 * 64) + (kcol + 0) * (64 * 64) + (16 * kch_o + 0) * (64) + (16 * och_o + 0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, 0);
-gemmini_extended_mvin( ((struct systl_win_2i8){ (int8_t*)&weights[(krow + 0) * (3 * 64 * 64) + (kcol + 0) * (64 * 64) + (16 * kch_o + 0) * (64) + (16 * och_o + 0) * (1)], { 64, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)w_s)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (16) );
-              if (kcol == 2) {
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (16 * _floor_div(56, 16) + kcol + -1) * (64) + (16 * kch_o + 0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, 0);
-gemmini_extended_mvin( ((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (16 * _floor_div(56, 16) + kcol + -1) * (64) + (16 * kch_o + 0) * (1)], { 64, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (7) );
-                gemmini_extended3_config_ld(0, 1.0f, 0, 0);
-gemmini_extended_mvin( 0, ((uint64_t) ((struct systl_win_1i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((7) * (16) + (0) * (1))/16)), { 1 } }).data),16, 1 );
-              } else {
-                gemmini_extended3_config_ld(((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (16 * _floor_div(56, 16) + kcol + -1) * (64) + (16 * kch_o + 0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, 0);
-gemmini_extended_mvin( ((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (16 * _floor_div(56, 16) + kcol + -1) * (64) + (16 * kch_o + 0) * (1)], { 64, 1 } }).data, ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (16), (8) );
-              }
-              gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
-gemmini_extended_preload((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)w_s)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), (uint32_t)(((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data) | 0x40000000, (16), (16), (16), (8));
-gemmini_extended_compute_preloaded((uint32_t)(((struct systl_win_2i8){ (int8_t*)&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data), ~((uint32_t)0), (16), (8), 16, 16);
+            gemmini_extended3_config_ld(((struct systl_win_2i8){ (int8_t*)&weights[(krow + 0) * (3 * 64 * 64) + (kcol + 0) * (64 * 64) + (16 * kch_o + 0) * (64) + (0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, 1);
+gemmini_extended_mvin2( &weights[(krow + 0) * (3 * 64 * 64) + (kcol + 0) * (64 * 64) + (16 * kch_o + 0) * (64) + (0) * (1)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)w_s)) + ((kcol + 0) * (4 * 4 * 16 * 16) + (kch_o + 0) * (4 * 16 * 16) + (0) * (16 * 16) + (0) * (16) + (0) * (1))/16))), 16*(4), (16) );
+          }
+          if (kcol == 2) {
+            gemmini_extended4_config_ld(((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (kcol + 47) * (64) + (0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, (7), 2);
+gemmini_extended_mvin3( &inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (kcol + 47) * (64) + (0) * (1)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((kcol + 0) * (4 * 8 * 16) + (0) * (8 * 16) + (0) * (16) + (0) * (1))/16))), 16*(4), (7) );
+            for (int kch_o = 0; kch_o < 4; kch_o++) {
+              gemmini_extended_mvin( 0, ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((kcol + 0) * (4 * 8 * 16) + (kch_o + 0) * (8 * 16) + (7) * (16) + (0) * (1))/16))),16, 1 );
             }
-            gemm_free((uint64_t)(i_s));
-            gemm_free((uint64_t)(w_s));
+          } else {
+            gemmini_extended4_config_ld(((struct systl_win_2i8){ (int8_t*)&inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (kcol + 47) * (64) + (0) * (1)], { 64, 1 } }).strides[0]*1, 1.0f, 0, (8), 2);
+gemmini_extended_mvin3( &inp[(b + 0) * (56 * 56 * 64) + (orow + krow + -1) * (56 * 64) + (kcol + 47) * (64) + (0) * (1)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((kcol + 0) * (4 * 8 * 16) + (0) * (8 * 16) + (0) * (16) + (0) * (1))/16))), 16*(4), (8) );
+          }
+          for (int kch_o = 0; kch_o < 4; kch_o++) {
+            for (int och_o = 0; och_o < 4; och_o++) {
+              gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_preload((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)w_s)) + ((kcol + 0) * (4 * 4 * 16 * 16) + (kch_o + 0) * (4 * 16 * 16) + (och_o + 0) * (16 * 16) + (0) * (16) + (0) * (1))/16))), (uint32_t)(&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((och_o + 0) * (9 * 16) + (0) * (16) + (0) * (1))/16))) | 0x40000000, (16), (16), (16), (8));
+gemmini_extended_compute_preloaded((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)i_s)) + ((kcol + 0) * (4 * 8 * 16) + (kch_o + 0) * (8 * 16) + (0) * (16) + (0) * (1))/16))), ~((uint32_t)0), (16), (8), 16, 16);
+            }
           }
         }
       }
-      gemmini_extended_config_st(((struct systl_win_2i8){ (int8_t*)&output[(b + 0) * (56 * 56 * 64) + (orow + 0) * (56 * 64) + (16 * _floor_div(56, 16) + 0) * (64) + (16 * och_o + 0) * (1)], { 64, 1 } }).strides[0]*1, (act), (scale)[0]);
-gemmini_extended_mvout( ((uint64_t) ((struct systl_win_2i8){ (int8_t*)&output[(b + 0) * (56 * 56 * 64) + (orow + 0) * (56 * 64) + (16 * _floor_div(56, 16) + 0) * (64) + (16 * och_o + 0) * (1)], { 64, 1 } }).data), (uint32_t) ((struct systl_win_2i32){ (int32_t*)&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((0) * (16) + (0) * (1))/16)), { 16, 1 } }).data, (16), (8) );
-      gemm_acc_free((uint32_t)(res));
+      gemm_free((uint64_t)(i_s));
+      gemm_free((uint64_t)(w_s));
     }
+    for (int och_o = 0; och_o < 4; och_o++) {
+      gemmini_extended_config_st(((struct systl_win_2i8){ (int8_t*)&output[(b + 0) * (56 * 56 * 64) + (orow + 0) * (56 * 64) + (48) * (64) + (16 * och_o + 0) * (1)], { 64, 1 } }).strides[0]*1, (act), (scale)[0]);
+gemmini_extended_mvout( ((uint64_t) &output[(b + 0) * (56 * 56 * 64) + (orow + 0) * (56 * 64) + (48) * (64) + (16 * och_o + 0) * (1)]), (uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((och_o + 0) * (9 * 16) + (0) * (16) + (0) * (1))/16)), (16), (8) );
+    }
+    gemm_acc_free((uint32_t)(res));
   }
 }
 }
@@ -4389,14 +4173,6 @@ static void tiled_conv_A_stride_auto(
 
         enum tiled_matmul_type_t tiled_conv_type) {
 
-    if (tiled_conv_type != WS) {
-        printf("Calling original conv auto\n");
-        orig_tiled_conv_A_stride_auto(batch_size, in_dim, in_channels, out_channels,
-                out_dim, stride, input_dilation, kernel_dilation, padding, kernel_dim,
-                wrot180, trans_output_1203, trans_input_3120, trans_weight_1203, trans_weight_0132,
-                input, weights, bias, output, act, scale, relu6_shift, pool_size, pool_stride, pool_padding, tiled_conv_type);
-        return;
-    }
     if (input_dilation != 1) {
         printf("input_dilation should be 1\n");
         exit(1);
@@ -4442,6 +4218,14 @@ static void tiled_conv_A_stride_auto(
     float c_scale = (float) scale;
     bool act_    = (bool) act;
 
+    if (tiled_conv_type != WS) {
+        printf("Calling original conv auto\n");
+        orig_tiled_conv_A_stride_auto(batch_size, in_dim, in_channels, out_channels,
+                out_dim, stride, input_dilation, kernel_dilation, padding, kernel_dim,
+                wrot180, trans_output_1203, trans_input_3120, trans_weight_1203, trans_weight_0132,
+                input, weights, bias, output, act, scale, relu6_shift, pool_size, pool_stride, pool_padding, tiled_conv_type);
+        return;
+    }
     if (out_dim == 112) {
         conv_1_lib_Context *ctxt;
         conv_max_pool(ctxt, output, bias, input, weights, act_, &c_scale);

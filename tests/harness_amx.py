@@ -7,7 +7,7 @@ from SYS_ATL import compile_procs
 
 import distutils.spawn
 
-SDE = (distutils.spawn.find_executable("sde64", os.environ['SDE_PATH'])
+SDE = (distutils.spawn.find_executable("sde64", os.getenv('SDE_PATH'))
        or distutils.spawn.find_executable("sde64"))
 if not SDE:
     pytest.skip("skipping AMX tests; could not find sde",

@@ -53,9 +53,6 @@ def test_matmul_512x512x512():
     NN = 512
     MM = 512
     KK = 512
-    tile_size_I = 128
-    tile_size_J = 128
-    K_SIZE = KK//16
 
     cpu = matmul_cpu().rename("matmul_on_cpu")
     cpu = cpu.partial_eval(NN, MM, KK)
@@ -67,8 +64,8 @@ def test_matmul_512x512x512():
                 ''])
     T.add_body(["matmul_512x512x512_lib_Context *ctxt;"])
 
-    T.alloc_dram_2i8('x', NN, KK, '7')
-    T.alloc_dram_2i8('y', KK, MM, '4')
+    T.alloc_dram_2i8('x', NN, KK, 'i+j')
+    T.alloc_dram_2i8('y', KK, MM, 'j*3')
     T.alloc_dram_f32('c_scale', '2.0f')
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
@@ -78,122 +75,53 @@ def test_matmul_512x512x512():
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
 
-    gemmini = gemmini.split('i',tile_size_I,['io','i'], perfect=True)
-    gemmini = gemmini.split('j',tile_size_J,['jo','j'], perfect=True)
-    gemmini = gemmini.reorder('i','jo')
+    # Tile outer loops
+    gemmini = tile_outer_loops(gemmini)
 
-    gemmini = gemmini.split('i',16,['i','i_in'], perfect=True)
-    gemmini = gemmini.reorder('i_in','j')
-    gemmini = gemmini.split('j',16,['j','j_in'], perfect=True)
-
-    gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=1)
+    # Lift res, so that we can fission the inner loop to use gemmini instructions
+    gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=2)
     gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16)
-    gemmini = gemmini.par_to_seq('for jo in _:_')
-    gemmini = gemmini.par_to_seq('for io in _:_')
 
-    gemmini = gemmini.fission_after('res[_] = 0.0 #0', n_lifts=2)
+    # fission loops to zero accum code block, main block, and store block and reorder k up
+    gemmini = fission_outer_blocks(gemmini)
 
-    gemmini = gemmini.fission_after('for k in _:_ #0', n_lifts=2)
+    # fission the main block to 4x16x16 blocks, so that we can use gemmini instr
+    gemmini = fission_inner_blocks(gemmini)
 
-    gemmini = gemmini.reorder('i_in','k')
-    gemmini = gemmini.reorder('j_in','k')
+    # replace to gemmini calls
+    gemmini = replace_gemmini_calls(gemmini)
 
-    gemmini = gemmini.lift_alloc('a : i8', n_lifts=2)
-    gemmini = gemmini.lift_alloc('b : i8', n_lifts=2)
-
-    gemmini = gemmini.split('k',16,['k','k_in'], perfect=True)
-
-    gemmini = gemmini.lift_alloc('a : _ #0', n_lifts=1, mode='col')
-    gemmini = gemmini.lift_alloc('b : _', n_lifts=1)
-
-    gemmini = gemmini.fission_after('a[_] = _', n_lifts=3)
-    gemmini = gemmini.fission_after('b[_] = _', n_lifts=3)
-
-    gemmini = gemmini.reorder('j_in','i_in')
-    gemmini = gemmini.replace(zero_acc_i32, "for i_in in _:_ #0")
-    gemmini = gemmini.reorder('k_in','i_in')
-    gemmini = gemmini.replace(ld_i8_id1, "for i_in in _:_ #0")
-    gemmini = gemmini.replace(ld_i8_id2, "for k_in in _:_ #0")
-    gemmini = gemmini.reorder('k_in','j_in')
-    gemmini = gemmini.replace(matmul_acc_i8, "for i_in in _:_ #0")
-    gemmini = gemmini.replace(st_acc_i8, "for i_in in _:_ #0")
-
-    gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
-    gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
-    gemmini = gemmini.inline_window("dst = res[_]")
-
-    gemmini = gemmini.call_eqv(ld_i8_id1_v2, "ld_i8_id1(_, _, _, _, _)")
-    gemmini = gemmini.inline("ld_i8_id1_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = A[_]")
-    gemmini = gemmini.inline_window("dst = a[_]")
-
-    gemmini = gemmini.call_eqv(ld_i8_id2_v2, "ld_i8_id2(_, _, _, _, _)")
-    gemmini = gemmini.inline("ld_i8_id2_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = B[_]")
-    gemmini = gemmini.inline_window("dst = b[_]")
-
-    gemmini = gemmini.call_eqv(st_acc_i8_v2, "st_acc_i8(_, _, _, _, _, _)")
-    gemmini = gemmini.inline("st_acc_i8_v2(_, _, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = res[_]")
-    gemmini = gemmini.inline_window("dst = C[_]")
-
-    gemmini = gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
-    gemmini = gemmini.inline("matmul_acc_i8_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("A = a[_]")
-    gemmini = gemmini.inline_window("B = b[_]")
-    gemmini = gemmini.inline_window("C = res[_]")
-
-
-    gemmini = gemmini.reorder_stmts("for k in _:_", "config_st_acc_i8(_, _)")
-    gemmini = gemmini.reorder_stmts("do_zero_acc_i32(_, _, _)", "config_st_acc_i8(_, _)")
-    gemmini = gemmini.reorder_stmts("config_zero()", "config_st_acc_i8(_, _)")
-    gemmini = gemmini.reorder_stmts("res : _", "config_st_acc_i8(_, _)")
-    gemmini = gemmini.fission_after("config_st_acc_i8(_, _)", n_lifts=2)
-    gemmini = gemmini.fission_after("config_st_acc_i8(_, _)", n_lifts=2)
-
-    gemmini = gemmini.reorder_stmts("res : _", "config_zero(_)")
-    gemmini = gemmini.fission_after("config_zero(_)", n_lifts=4)
-
-    gemmini = gemmini.reorder_stmts("b : _", "config_ld_i8_id1(_)")
-    gemmini = gemmini.reorder_stmts("a : _", "config_ld_i8_id1(_)")
-    gemmini = gemmini.reorder_stmts("do_ld_i8_id1(_)", "config_ld_i8_id2(_)")
-    gemmini = gemmini.reorder_stmts("b : _", "config_ld_i8_id2(_)")
-    gemmini = gemmini.reorder_stmts("a : _", "config_ld_i8_id2(_)")
-    gemmini = gemmini.fission_after("config_ld_i8_id1(_)", n_lifts=1)
-    gemmini = gemmini.fission_after("config_ld_i8_id2(_)", n_lifts=1)
-    gemmini = gemmini.reorder_stmts("do_zero_acc_i32(_)", "config_ld_i8_id1(_)")
-    gemmini = gemmini.reorder_stmts("do_zero_acc_i32(_)", "config_ld_i8_id2(_)")
-    gemmini = gemmini.reorder_stmts("res:_", "config_ld_i8_id1(_)")
-    gemmini = gemmini.reorder_stmts("res:_", "config_ld_i8_id2(_)")
-    gemmini = gemmini.fission_after("config_ld_i8_id1(_)", n_lifts=4)
-    gemmini = gemmini.fission_after("config_ld_i8_id2(_)", n_lifts=4)
-
-    gemmini = gemmini.reorder_stmts("do_ld_i8_id2(_,_,_,_)", "config_matmul()")
-    gemmini = gemmini.reorder_stmts("do_ld_i8_id1(_,_,_,_)", "config_matmul()")
-    gemmini = gemmini.reorder_stmts("b : _", "config_matmul()")
-    gemmini = gemmini.reorder_stmts("a : _", "config_matmul()")
-    gemmini = gemmini.fission_after("config_matmul()", n_lifts=1)
-    gemmini = gemmini.reorder_stmts("do_zero_acc_i32(_, _, _)", "config_matmul()")
-    gemmini = gemmini.reorder_stmts("res:_", "config_matmul()")
-    gemmini = gemmini.fission_after("config_matmul()", n_lifts=4)
+    # inline and lift config
+    gemmini = inline_lift_config(gemmini)
 
     # Real optimization
+    gemmini = gemmini.split('j', 4, ['jo', 'ji'], perfect=True)
+    gemmini = gemmini.split('i', 8, ['io', 'i'], perfect=True)
+    gemmini = gemmini.split('io', 2, ['ioo', 'io'], perfect=True)
+    gemmini = gemmini.reorder('i','jo')
+    gemmini = gemmini.reorder('io','jo')
+    gemmini = gemmini.lift_alloc('res : _', n_lifts=1)
+    gemmini = gemmini.lift_alloc('a : _', n_lifts=4)
+    gemmini = gemmini.lift_alloc('b : _', n_lifts=3)
 
-    # Why is this lost?
-    gemmini = gemmini.par_to_seq('for jo in _:_')
+    gemmini = gemmini.par_to_seq('for ioo in _:_')
     gemmini = gemmini.par_to_seq('for io in _:_')
-    gemmini = gemmini.lift_alloc('a : i8', n_lifts=5)
-    gemmini = gemmini.lift_alloc('b : i8', n_lifts=5)
+    gemmini = gemmini.par_to_seq('for jo in _:_')
+    gemmini = gemmini.par_to_seq('for i in _:_')
 
-    gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=4)
+    gemmini = gemmini.lift_alloc('a : i8', n_lifts=1)
+    gemmini = gemmini.lift_alloc('b : i8', n_lifts=2)
+    gemmini = gemmini.lift_alloc('res : _', n_lifts=4)
 
-    gemmini = gemmini.par_to_seq('for i in _:_ #0')
-    gemmini = gemmini.par_to_seq('for j in _:_ #0')
+    gemmini = gemmini.par_to_seq('for ji in _:_')
+    gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'ji', 0)
+    gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'jo', 0)
+    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
+    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
 
-    gemmini = gemmini.add_guard('do_ld_i8_id1(_)', 'j', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_id2(_)', 'i', 0)
-
-    gemmini = gemmini.unroll('k')
+    gemmini = gemmini.fuse_loop('for k in _:_ #0', 'for k in _:_ #1')
+    gemmini = gemmini.unroll('j_in_o')
+    #gemmini = gemmini.unroll('k')
     gemmini = gemmini.simplify()
 
     T.add_proc(gemmini)
@@ -224,8 +152,9 @@ def test_matmul_512x512x512():
 
     T.compile().run()
 
-
     print(gemmini)
 """
+
+
 
 """

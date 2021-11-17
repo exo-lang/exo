@@ -45,6 +45,9 @@ git config core.hooksPath githooks
 
 This will setup the repository to use the provided project hooks.  In particular, we have pre-commit hooks there that will prevent the repository history getting bloated with iPython Notebook output.
 
+### SDE
+For testing x86 features on processors which don't support them (e.g., AVX-512 or AMX), we rely on the [Intel Software Development Emulator](https://www.intel.com/content/www/us/en/developer/articles/tool/software-development-emulator.html) as an optional dependency. Tests which rely on this (namely for AMX) look for `sde64` either in the path defined by the `SDE_PATH` environment variable or in the system `PATH`, and are skipped if it is not available.
+
 
 ## Notes for Testing
 
