@@ -1,6 +1,9 @@
+import inspect
 import re
+import textwrap
 from collections import ChainMap
 
+from .API_types import ProcedureBase
 from .LoopIR import (LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do,
                      SubstArgs, T, lift_to_eff_expr)
 from .LoopIR_dataflow import LoopIR_Dependencies
@@ -15,7 +18,33 @@ from .prelude import *
 # Scheduling Errors
 
 class SchedulingError(Exception):
-    pass
+    def __init__(self, message, **kwargs):
+        ops = self._get_scheduling_ops()
+        # TODO: include outer ops in message
+        message = f'{ops[0]}: {message}'
+        for name, blob in kwargs.items():
+            message += self._format_named_blob(name.title(), blob)
+        super().__init__(message)
+
+    @staticmethod
+    def _format_named_blob(name, blob):
+        blob = str(blob).rstrip()
+        n = len(name) + 2
+        blob = textwrap.indent(blob, ' ' * n).strip()
+        return f'\n{name}: ' + blob
+
+    @staticmethod
+    def _get_scheduling_ops():
+        ops = []
+        for frame in inspect.stack():
+            if obj := frame[0].f_locals.get('self'):
+                fn = frame.function
+                if isinstance(obj, ProcedureBase) and not fn.startswith('_'):
+                    ops.append(fn)
+        if not ops:
+            ops = ['<<<unknown directive>>>']
+        return ops
+
 
 
 # --------------------------------------------------------------------------- #

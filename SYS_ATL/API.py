@@ -8,7 +8,7 @@ from .API_types import ProcedureBase
 from .LoopIR import LoopIR, T, UAST, LoopIR_Do
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_interpreter import run_interpreter
-from .LoopIR_scheduling import (Schedules, name_plus_count,
+from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
                                 iter_name_to_pattern,
                                 nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace, UnificationError
@@ -281,23 +281,30 @@ class Procedure(ProcedureBase):
     # ------------------------------- #
 
     def simplify(self):
-        '''
-        Simplify the code in the procedure body. Currently only performs
-        constant folding
-        '''
+        """
+        Simplify the code in the procedure body. Tries to reduce expressions
+        to constants and eliminate dead branches and loops. Uses branch
+        conditions to simplify expressions inside the branches.
+        """
         p = self._loopir_proc
         p = Schedules.DoSimplify(p).result()
         return Procedure(p, _provenance_eq_Procedure=self)
 
     def rename(self, name):
+        """
+        Rename the procedure. Affects generated symbol names.
+        """
         if not is_valid_name(name):
-            raise TypeError(f"'{name}' is not a valid name")
+            raise ValueError(f"'{name}' is not a valid name")
         p = self._loopir_proc
         p = LoopIR.proc( name, p.args, p.preds, p.body,
                          p.instr, p.eff, p.srcinfo )
         return Procedure(p, _provenance_eq_Procedure=self)
 
     def has_dup(self):
+        """
+        Internal check to see if there are any reference diamonds in the AST
+        """
         return FindDup(self._loopir_proc).result
 
     def make_instr(self, instr):
@@ -387,8 +394,8 @@ class Procedure(ProcedureBase):
                                     call_depth=call_depth,
                                     default_match_no=default_match_no)
         if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
-            raise TypeError(f"failed to find statement.\n"
-                            f"Pattern was:\n{stmt_pattern}")
+            raise SchedulingError('failed to find statement',
+                                  pattern=stmt_pattern)
         elif default_match_no is None:
             return [ s[0] for s in stmt_lists ]
         else:
