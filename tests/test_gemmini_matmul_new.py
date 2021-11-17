@@ -119,9 +119,9 @@ def test_matmul_512x512x512():
     gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
     gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
 
-    gemmini = gemmini.unroll('k #0')
+    gemmini = gemmini.fuse_loop('for k in _:_ #0', 'for k in _:_ #1')
     gemmini = gemmini.unroll('j_in_o')
-
+    #gemmini = gemmini.unroll('k')
     gemmini = gemmini.simplify()
 
     T.add_proc(gemmini)
@@ -152,8 +152,9 @@ def test_matmul_512x512x512():
 
     T.compile().run()
 
-
     print(gemmini)
 """
+
+
 
 """

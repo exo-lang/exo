@@ -198,11 +198,12 @@ def test_conv_3():
 
     T.compile().run()
 
-
-
-
     print(conv)
 """
+
+
+
+
     conv = inline_vector(conv)
     conv = lift_config(conv, 'config_ld_acc_i32_vector(_)')
 
