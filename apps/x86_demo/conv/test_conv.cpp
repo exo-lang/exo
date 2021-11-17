@@ -165,9 +165,18 @@ void conv_oneDNN(conv_instance &ci) {
       conv_weights_md, user_bias_md, conv_dst_md, ci.strides_dims,
       ci.padding_dims_l, ci.padding_dims_r);
 
+  // Create primitive post-ops (ReLU).
+  const float scale = 1.f;
+  const float alpha = 0.f;
+  const float beta = 0.f;
+  post_ops conv_ops;
+  conv_ops.append_eltwise(scale, algorithm::eltwise_relu, alpha, beta);
+  primitive_attr conv_attr;
+  conv_attr.set_post_ops(conv_ops);
+
   // Create primitive descriptor.
   auto conv_pd =
-      convolution_forward::primitive_desc(conv_desc, primitive_attr{}, engine);
+      convolution_forward::primitive_desc(conv_desc, conv_attr, engine);
 
   // For now, assume that the src, weights, and dst memory layouts generated
   // by the primitive and the ones provided by the user are identical.
@@ -258,7 +267,7 @@ int main() {
     double expected = ci_onednn.dst_data[i];
     double actual = ci_sys_atl.dst_data[i];
     double relerr = fabs((actual - expected) / expected);
-    if (relerr > 1e-2) {
+    if (relerr > 1e-3) {
       fprintf(stderr,
               "Bad value at index %d - relative error = %.6f - actual = %.6f - "
               "expected = %.6f\n",

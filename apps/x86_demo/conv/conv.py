@@ -36,7 +36,5 @@ def conv(
                                 res += (weights[krow, kcol, kch, och] *
                                         inp[n, orow + krow, ocol + kcol, kch])
 
-                    # if act:
-                    #     res = relu(res)
-
+                    res = relu(res)
                     output[n, orow, ocol, och] = res * scale
