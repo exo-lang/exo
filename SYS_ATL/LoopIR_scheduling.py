@@ -2240,6 +2240,11 @@ class _DoSimplify(LoopIR_Rewrite):
         elif e.op == '-':
             if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
                 return lhs
+            if isinstance(lhs, LoopIR.BinOp) and lhs.op == '+':
+                if lhs.lhs == rhs:
+                    return lhs.rhs
+                if lhs.rhs == rhs:
+                    return lhs.lhs
         elif e.op == '*':
             if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
                 return LoopIR.Const(0, lhs.type, lhs.srcinfo)
