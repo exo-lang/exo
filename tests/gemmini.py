@@ -3,6 +3,85 @@ from __future__ import annotations
 from SYS_ATL import proc, instr, DRAM, config, QAST
 from SYS_ATL.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
 
+def inline_lift_config(gemmini):
+    gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
+    gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
+    gemmini = gemmini.inline_window("dst = res[_]")
+    gemmini = lift_config(gemmini, 'config_zero()')
+
+    gemmini = gemmini.call_eqv(ld_i8_block_id1_v2, "ld_i8_block_id1(_)")
+    gemmini = gemmini.inline("ld_i8_block_id1_v2(_, _, _, _, _)")
+    gemmini = gemmini.inline_window("src = A[_]")
+    gemmini = gemmini.inline_window("dst = a[_]")
+    gemmini = lift_config(gemmini, 'config_ld_i8_id1()')
+
+    gemmini = gemmini.call_eqv(ld_i8_block_id2_v2, "ld_i8_block_id2(_)")
+    gemmini = gemmini.inline("ld_i8_block_id2_v2(_, _, _, _, _)")
+    gemmini = gemmini.inline_window("src = B[_]")
+    gemmini = gemmini.inline_window("dst = b[_]")
+    gemmini = lift_config(gemmini, 'config_ld_i8_id2()')
+
+    gemmini = gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
+    gemmini = gemmini.inline("matmul_acc_i8_v2(_, _, _, _, _)")
+    gemmini = gemmini.inline_window("A = a[_]")
+    gemmini = gemmini.inline_window("B = b[_]")
+    gemmini = gemmini.inline_window("C = res[_]")
+    gemmini = lift_config(gemmini, 'config_matmul()')
+
+    gemmini = gemmini.call_eqv(st_acc_i8_v2, "st_acc_i8(_, _, _, _, _, _)")
+    gemmini = gemmini.inline("st_acc_i8_v2(_, _, _, _, _, _)")
+    gemmini = gemmini.inline_window("src = res[_]")
+    gemmini = gemmini.inline_window("dst = C[_]")
+    gemmini = lift_config(gemmini, 'config_st_acc_i8(_)')
+    return gemmini
+
+def replace_gemmini_calls(gemmini):
+    gemmini = gemmini.replace(zero_acc_i32, "for i_in in _:_ #0")
+    gemmini = gemmini.replace(ld_i8_block_id1, "for i_in in _:_ #0")
+    gemmini = gemmini.replace(ld_i8_block_id2, "for ki in _:_ #0")
+    gemmini = gemmini.replace(matmul_acc_i8, "for i_in in _:_ #0")
+    gemmini = gemmini.replace(st_acc_i8, "for i_in in _:_ #0")
+    return gemmini
+
+def fission_inner_blocks(gemmini):
+    gemmini = gemmini.split('k',64,['ko','k'], perfect=True)
+    gemmini = gemmini.split('k',16,['k','ki'], perfect=True)
+    gemmini = gemmini.lift_alloc('a : i8', n_lifts=3)
+    gemmini = gemmini.lift_alloc('a : _ #0', n_lifts=1, mode='col')
+    gemmini = gemmini.lift_alloc('a : _', n_lifts=2)
+    gemmini = gemmini.reorder('ki','j_in_o')
+    gemmini = gemmini.reorder('ki','j_in_i')
+    gemmini = gemmini.lift_alloc('b : i8', n_lifts=2)
+    gemmini = gemmini.lift_alloc('b : i8', n_lifts=1, mode='col')
+    gemmini = gemmini.lift_alloc('b : _', n_lifts=3)
+    gemmini = gemmini.fission_after('a[_] = _', n_lifts=5)
+    gemmini = gemmini.fission_after('b[_] = _', n_lifts=5)
+    gemmini = gemmini.reorder('j_in_i','i_in')
+    gemmini = gemmini.reorder('ki','i_in')
+    gemmini = gemmini.reorder('k','i_in')
+    gemmini = gemmini.reorder('j_in_i','ki')
+    gemmini = gemmini.reorder('j_in_o','ki')
+    gemmini = gemmini.reorder('j_in_i','i_in')
+    return gemmini
+
+def fission_outer_blocks(gemmini):
+    gemmini = gemmini.fission_after('res[_] = 0.0 #0', n_lifts=3)
+    gemmini = gemmini.fission_after('for k in _:_ #0', n_lifts=3)
+    gemmini = gemmini.reorder('j_in_i','j_in_o')
+    gemmini = gemmini.reorder('i_in','k')
+    gemmini = gemmini.reorder('j_in_i','k')
+    gemmini = gemmini.reorder('j_in_o','k')
+    return gemmini
+
+def tile_outer_loops(gemmini):
+    gemmini = gemmini.split('i',16,['i','i_in'], perfect=True)
+    gemmini = gemmini.reorder('i_in','j')
+    gemmini = gemmini.split('j',64,['j','j_in'], perfect=True)
+    gemmini = gemmini.split('j_in',16,['j_in_o','j_in_i'], perfect=True)
+    gemmini = gemmini.reorder('j_in_o', 'j_in_i')
+
+    return gemmini
+
 class QAST_Do():
     def __init__(self, proc):
         self.proc = proc
@@ -139,62 +218,6 @@ def lift_config(conv, string, nth=0):
 
     return conv
 
-def conv_replace_s1(conv):
-    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
-    conv = conv.reorder('och_i', 'kch_i')
-    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #1')
-    conv = conv.reorder('kch_i', 'och_i')
-    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #1')
-    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #1')
-
-    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
-    conv = conv.reorder('och_i', 'kch_i')
-    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #2')
-    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.reorder('kch_i', 'och_i')
-    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #2')
-    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #2')
-
-    conv = conv.set_memory('res', GEMM_ACCUM)
-    conv = conv.set_memory('i_s', GEMM_SCRATCH)
-    conv = conv.set_memory('w_s', GEMM_SCRATCH)
-
-    return conv
-
-def conv_basic_opt(conv, if1, if2, if3, if4, if5):
-    conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
-    conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
-    conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
-    conv = conv.reorder('ocol_i', 'och_o')
-    conv = conv.lift_alloc('res : _', n_lifts=2)
-    conv = conv.fission_after('res[_] = _', n_lifts=2)
-    conv = conv.fission_after('for krow in _:_', n_lifts=2)
-    conv = conv.reorder('och_i', 'krow')
-    conv = conv.reorder('och_i', 'kcol')
-    conv = conv.reorder('och_i', 'kch_o')
-    conv = conv.reorder('ocol_i', 'krow')
-    conv = conv.reorder('ocol_i', 'kcol')
-    conv = conv.reorder('ocol_i', 'kch_o')
-    conv = conv.lift_alloc('i_s : _', n_lifts=4)
-    conv = conv.lift_if(if1, n_lifts=3)
-    conv = conv.lift_alloc('w_s : _', n_lifts=1)
-    conv = conv.lift_alloc('w_s : _', n_lifts=1, mode='col')
-    conv = conv.lift_alloc('w_s : _', n_lifts=2)
-    conv = conv.fission_after('w_s = _', n_lifts=3)
-    conv = conv.fission_after(if2, n_lifts=3)
-    conv = conv.fission_after(if3, n_lifts=3)
-    conv = conv.partition_loop('ocol_i #1', 1)
-    conv = conv.unroll('ocol_i #1')
-    conv = conv.simplify()
-    conv = conv.lift_if(if4, n_lifts=1)
-    conv = conv.lift_if(if5, n_lifts=1)
-
-    return conv
 
 def inline_vector(conv):
     conv = conv.call_eqv(ld_acc_i32_vector_v2, "ld_acc_i32_vector(_)")
