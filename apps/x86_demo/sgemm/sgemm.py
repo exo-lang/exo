@@ -289,32 +289,10 @@ sgemm_above_kernel = (
 )
 
 
-class A_CACHE_MEM(DRAM):
-    @classmethod
-    def global_(cls):
-        return textwrap.dedent('''
-        static float A_cache[264 * 512];
-        ''')
-
+class DRAM_STATIC(DRAM):
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
-        return ''
-
-    @classmethod
-    def free(cls, new_name, prim_type, shape, srcinfo):
-        return ''
-
-
-class B_CACHE_MEM(DRAM):
-    @classmethod
-    def global_(cls):
-        return textwrap.dedent('''
-        static float B_cache[512 * 64]; 
-        ''')
-
-    @classmethod
-    def alloc(cls, new_name, prim_type, shape, srcinfo):
-        return ''
+        return f'static {prim_type} {new_name}[{" * ".join(shape)}];'
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
@@ -376,14 +354,14 @@ sgemm_sys_atl = (
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 7
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 8
         # Stage A
-        .stage_window('A_cache', 'A[_] #0', A_CACHE_MEM)
+        .stage_window('A_cache', 'A[_] #0', DRAM_STATIC)
         .par_to_seq('for ko in _: _ #0')
         .par_to_seq('for io in _: _ #0')
         .par_to_seq('for jo in _: _ #0')
         .lift_alloc('A_cache: _', n_lifts=3)
         .fission_after('for i0 in _: _')
         # Stage B
-        .stage_window('B_cache', 'B[_] #0', B_CACHE_MEM)
+        .stage_window('B_cache', 'B[_] #0', DRAM_STATIC)
         .par_to_seq('for ko in _: _ #0')
         .par_to_seq('for io in _: _ #0')
         .par_to_seq('for jo in _: _ #0')
@@ -394,6 +372,6 @@ sgemm_sys_atl = (
 
 if __name__ == '__main__':
     # print(sgemm_above_kernel)
-    print(sgemm_sys_atl)
+    print(sgemm_sys_atl.c_code_str())
 
 __all__ = ['sgemm_sys_atl']
