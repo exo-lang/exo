@@ -107,6 +107,7 @@ bottom_panel_kernel = (
     SGEMM_WINDOW
         .rename('bottom_panel_kernel')
         .partial_eval(N=N_REG_BLK)
+        .add_assertion('M < 6')
         .simplify()
 )
 
@@ -140,6 +141,7 @@ right_panel_kernel = (
     SGEMM_WINDOW
         .rename('right_panel_kernel')
         .partial_eval(M=M_REG_BLK)
+        .add_assertion('N / 16 < 4')
         .simplify()
 )
 
@@ -343,6 +345,6 @@ sgemm_sys_atl = (
 )
 
 if __name__ == '__main__':
-    print(sgemm_sys_atl)
+    print(sgemm_sys_atl.c_code_str())
 
 __all__ = ['sgemm_sys_atl']
