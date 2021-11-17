@@ -30,9 +30,9 @@ def SGEMM(
     assert stride(B, 1) == 1
     assert stride(C, 1) == 1
 
-    for i in par(0, M):
-        for j in par(0, N):
-            for k in par(0, K):
+    for k in par(0, K):
+        for i in par(0, M):
+            for j in par(0, N):
                 C[i, j] += A[i, k] * B[k, j]
 
 
@@ -51,16 +51,8 @@ K_L1_BLK = 512
 
 COPY_STREAMS = 3
 
-SGEMM_KIJ = (
-    SGEMM
-        .rename('SGEMM_KIJ')
-        # Make reduction dimension outermost
-        .reorder('j', 'k')
-        .reorder('i', 'k')
-)
-
 SGEMM_WINDOW = (
-    SGEMM_KIJ
+    SGEMM
         .rename('SGEMM_WINDOW')
         .set_window('A', True)
         .set_window('B', True)
@@ -262,32 +254,30 @@ right_panel_kernel_scheduled = (
 )
 
 sgemm_above_kernel = (
-    SGEMM
+    SGEMM_WINDOW
         .rename('sgemm_above_kernel')
-        .set_window('A', True)
-        .set_window('B', True)
-        .set_window('C', True)
         # Split up into cases
         .split('j', N_REG_BLK, ['jo', 'ji'], tail='cut_and_guard')
         .split('i', M_REG_BLK, ['io', 'ii'], tail='cut_and_guard')
         .fission_after('for jo in _: _ #0', n_lifts=2)
         .reorder('ii #0', 'jo')
-        .reorder('ji #0', 'k')
-        .reorder('ii #0', 'k')
-        .fission_after('for jo in _: _ #1')
-        .lift_if('if N % 64 > 0: _', n_lifts=2)
-        .fission_after('for ii in _: _ #2')
+        .fission_after('for io in _: _')
+        .reorder('k #0', 'io')
+        .reorder('k #0', 'jo')
+        .lift_if('if N % _ > 0: _ #0', n_lifts=3)
+        .reorder('k', 'io')
+        .lift_if('if M % _ > 0: _ #0')
+        .fission_after('for jo in _: _ #1', n_lifts=2)
+        .reorder('ii', 'jo')
+        .reorder('k', 'jo')
+        .lift_if('if N % _ > 0: _ #1', n_lifts=2)
         # Main block
         .replace_all(basic_kernel_Mx4[6])
         .call_eqv(sgemm_kernel_avx512_Mx4[6], 'basic_kernel_6x4(_)')
         # Right panel
-        .reorder('ji', 'k')
-        .reorder('ii', 'k')
         .replace_all(right_panel_kernel)
         .call_eqv(right_panel_kernel_scheduled, 'right_panel_kernel(_)')
         # Bottom panel
-        .reorder('ii', 'jo')
-        .reorder('ii', 'k')
         .replace_all(bottom_panel_kernel)
         .call_eqv(bottom_panel_kernel_scheduled, 'bottom_panel_kernel(_)')
         # TODO: bottom-right tile
@@ -297,74 +287,51 @@ sgemm_above_kernel = (
 sgemm_sys_atl = (
     SGEMM
         .rename('sgemm_sys_atl')
-        #
+        # Split all loops
         .split('k', K_L1_BLK, ['ko', 'ki'], tail='cut_and_guard')
-        .split('j', N_L1_BLK, ['jo', 'ji'], tail='cut_and_guard')
         .split('i', M_L1_BLK, ['io', 'ii'], tail='cut_and_guard')
-        #
-        .fission_after('for ko in _: _', n_lifts=4)
-        .reorder('ji #0', 'ko')
-        .reorder('ii #0', 'jo')
-        .reorder('ii #0', 'ko')
-        .reorder('ji #0', 'ki')
-        .reorder('ii #0', 'ki')
+        .split('j', N_L1_BLK, ['jo', 'ji'], tail='cut_and_guard')
+        # Explode into 8 cases
+        .fission_after('for io in _: _', n_lifts=2)
+        .fission_after('for jo in _: _', n_lifts=4)
+        # Case 1:
+        .reorder('ki', 'io')
+        .reorder('ii', 'jo')
+        .reorder('ki', 'jo')
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        #
-        .fission_after('for jo in _: _ #1')
-        .fission_after('for ii in _: _ #1')
-        .lift_if('if K % _ > 0: _', n_lifts=2)
-        .lift_if('if K % _ > 0: _ #0')
-        .lift_if('if K % _ > 0: _ #1')
-        .reorder('ii #0', 'jo')
-        .reorder('ji #0', 'ki')
-        .reorder('ii #0', 'ki')
+        # Case 2:
+        .lift_if('if N % _ > 0: _ #0', n_lifts=4)
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        #
-        .lift_if('if N % _ > 0: _ #0')
-        .reorder('ji #0', 'ko')
-        .reorder('ii #0', 'ko')
-        .reorder('ji #0', 'ki')
-        .reorder('ii #0', 'ki')
+        # Case 3:
+        .lift_if('if M % _ > 0: _ #0', n_lifts=2)
+        .reorder('ki', 'jo')
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        #
-        .reorder('ji #0', 'ki')
-        .reorder('ii #0', 'ki')
+        # Case 4:
+        .lift_if('if M % _ > 0: _ #1', n_lifts=2)
+        .lift_if('if N % _ > 0: _ #1', n_lifts=3)
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        #
-        .reorder('ii #0', 'jo')
-        .reorder('ji #0', 'ko')
-        .reorder('ii #0', 'ko')
-        .reorder('ji #0', 'ki')
-        .reorder('ii #0', 'ki')
+        # Case 5:
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        #
-        .fission_after('if K % _ > 0: _ #2')
-        .lift_if('if K % _ > 0: _ #2')
-        .reorder('ii #0', 'jo')
-        .reorder('ji #0', 'ki')
-        .reorder('ii #0', 'ki')
+        # Case 6:
+        .lift_if('if N % _ > 0: _ #2', n_lifts=3)
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        #
-        .lift_if('if N % _ > 0: _ #1')
-        .reorder('ji #0', 'ko')
-        .reorder('ii #0', 'ko')
-        .reorder('ji #0', 'ki')
-        .reorder('ii #0', 'ki')
+        # Case 7:
+        .lift_if('if M % _ > 0: _ #2')
+        .reorder('ki', 'jo')
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        #
-        .reorder('ji #0', 'ki')
-        .reorder('ii #0', 'ki')
+        # Case 8:
+        .lift_if('if M % _ > 0: _ #3')
+        .lift_if('if N % _ > 0: _ #3', n_lifts=2)
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        #
+        # Merge K ifs
+        .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
+        .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
+        .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
+        # Merge M ifs
+        .fuse_if('if M % _ > 0: _ #0', 'if M % _ > 0: _ #1')
+        # Clean up
         .simplify()
-        #
-        .fuse_loop('for io in _: _ #0', 'for io in _: _ #1')
-        .fuse_if('if M % _ > 0: _ #0', 'if M % _ > 0: _ #1')
-        .fuse_if('if M % _ > 0: _ #0', 'if M % _ > 0: _ #1')
-        #
-        .reorder_before('if K % _ > 0: _ #3')
-        .fuse_if('if K % _ > 0: _ #2', 'if K % _ > 0: _ #3')
-        #
+        # Replace SGEMM_WINDOW with optimized form
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 1
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 2
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 3
