@@ -2261,8 +2261,8 @@ class _DoSimplify(LoopIR_Rewrite):
     def map_e(self, e):
         # If we get a match, then replace it with the known constant right away.
         # No need to run further simplify steps on this node.
-        if sub := self.facts.get(str(e)):
-            return sub
+        if const := self.is_known_constant(e):
+            return const
 
         if isinstance(e, LoopIR.BinOp):
             e = self.map_binop(e)
@@ -2270,8 +2270,8 @@ class _DoSimplify(LoopIR_Rewrite):
             e = super().map_e(e)
 
         # After simplifying, we might match a known constant, so check again.
-        if sub := self.facts.get(str(e)):
-            return sub
+        if const := self.is_known_constant(e):
+            return const
 
         return e
 
@@ -2287,8 +2287,6 @@ class _DoSimplify(LoopIR_Rewrite):
         else:
             return
 
-        del cond  # prevent coding errors... use expr/const!
-
         self.facts[str(expr)] = const
 
         # if we know that X / M == 0 then we also know that X % M == X.
@@ -2297,6 +2295,11 @@ class _DoSimplify(LoopIR_Rewrite):
             mod_expr = LoopIR.BinOp('%', expr.lhs, expr.rhs, expr.type,
                                     expr.srcinfo)
             self.facts[str(mod_expr)] = expr.lhs
+
+    def is_known_constant(self, e):
+        if self.facts:
+            return self.facts.get(str(e))
+        return None
 
     def map_s(self, s):
         if isinstance(s, LoopIR.If):
