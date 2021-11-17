@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import textwrap
-
 from SYS_ATL import *
 from SYS_ATL.platforms.x86 import *
 from SYS_ATL.syntax import *
@@ -338,13 +336,54 @@ sgemm_sys_atl = (
         .lift_if('if M % _ > 0: _ #3')
         .lift_if('if N % _ > 0: _ #3', n_lifts=2)
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        # Merge K ifs
-        .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
-        .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
-        .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
-        # Merge M ifs
-        .fuse_if('if M % _ > 0: _ #0', 'if M % _ > 0: _ #1')
-        # Replace SGEMM_WINDOW with optimized form
+        ## Merge K ifs
+        # .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
+        # .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
+        # .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
+        ## Merge M ifs
+        # .fuse_if('if M % _ > 0: _ #0', 'if M % _ > 0: _ #1')
+        ## Case 1 memory staging
+        # Stage A
+        .stage_window('A1_cache', 'A[_] #0', DRAM_STATIC)
+        .par_to_seq('for ko in _: _ #0')
+        .par_to_seq('for io in _: _ #0')
+        .par_to_seq('for jo in _: _ #0')
+        .lift_alloc('A1_cache: _', n_lifts=3)
+        .fission_after('for i0 in _: _')
+        # Stage B
+        .stage_window('B1_cache', 'B[_] #0', DRAM_STATIC)
+        .par_to_seq('for ko in _: _ #0')
+        .par_to_seq('for io in _: _ #0')
+        .par_to_seq('for jo in _: _ #0')
+        .lift_alloc('B1_cache: _', n_lifts=3)
+        ## Case 2 memory staging
+        .stage_window('B2_cache', 'B[_] #1', DRAM_STATIC)
+        .bound_alloc('B2_cache: _', [None, '64'])
+        .par_to_seq('for io in _: _ #1')
+        .lift_alloc('B2_cache: _', )
+        .fission_after('for i0 in _: _ #2')
+        # This does not seem to be helpful here:
+        # .stage_window('A2_cache', 'A[_] #1', DRAM_STATIC)
+        ## Case 3 memory staging
+        .stage_window('B3_cache', 'B[_] #2', DRAM_STATIC)
+        ## Case 4 memory staging
+        .stage_window('B4_cache', 'B[_] #3', DRAM_STATIC)
+        .bound_alloc('B4_cache: _', [None, '64'])
+        ## Case 5 memory staging
+        .stage_window('B5_cache', 'B[_] #4', DRAM_STATIC)
+        .bound_alloc('B5_cache: _', ['512', None])
+        ## Case 6 memory staging
+        .stage_window('B6_cache', 'B[_] #5', DRAM_STATIC)
+        .bound_alloc('B6_cache: _', ['512', '64'])
+        ## Case 7 memory staging
+        .stage_window('B7_cache', 'B[_] #6', DRAM_STATIC)
+        .bound_alloc('B7_cache: _', ['512', None])
+        ## Case 8 memory staging
+        .stage_window('B8_cache', 'B[_] #7', DRAM_STATIC)
+        .bound_alloc('B8_cache: _', ['512', '64'])
+        ## Replace SGEMM_WINDOW with optimized form
+        # These must come AFTER bound_alloc since the internal check-effects
+        # is a whole program analysis that is VERY expensive
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 1
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 2
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 3
@@ -353,25 +392,12 @@ sgemm_sys_atl = (
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 6
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 7
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 8
-        # Stage A
-        .stage_window('A_cache', 'A[_] #0', DRAM_STATIC)
-        .par_to_seq('for ko in _: _ #0')
-        .par_to_seq('for io in _: _ #0')
-        .par_to_seq('for jo in _: _ #0')
-        .lift_alloc('A_cache: _', n_lifts=3)
-        .fission_after('for i0 in _: _')
-        # Stage B
-        .stage_window('B_cache', 'B[_] #0', DRAM_STATIC)
-        .par_to_seq('for ko in _: _ #0')
-        .par_to_seq('for io in _: _ #0')
-        .par_to_seq('for jo in _: _ #0')
-        .lift_alloc('B_cache: _', n_lifts=3)
         # Clean up
         .simplify()
 )
 
 if __name__ == '__main__':
     # print(sgemm_above_kernel)
-    print(sgemm_sys_atl.c_code_str())
+    print(sgemm_sys_atl)
 
 __all__ = ['sgemm_sys_atl']
