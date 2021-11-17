@@ -2461,7 +2461,8 @@ class _DoStageWindow(LoopIR_Rewrite):
             assert isinstance(idx, (LoopIR.Interval, LoopIR.Point))
 
             if isinstance(idx, LoopIR.Interval):
-                assert isinstance(idx.hi.type, T.Index)
+                assert isinstance(idx.hi.type, (T.Index, T.Size)), \
+                    f'{idx.hi.type}'
 
                 sym_i = Sym(f'i{len(staged_vars)}')
                 staged_vars.append(sym_i)

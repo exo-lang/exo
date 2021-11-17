@@ -18,19 +18,19 @@ class ParseFragmentError(Exception):
 # --------------------------------------------------------------------------- #
 # General Fragment Parsing
 
-def parse_fragment(proc, pattern_str, stmt, call_depth=0):
+def parse_fragment(proc, fragment, ctx_stmt, call_depth=0):
     # get source location where this is getting called from
     caller = inspect.getframeinfo(inspect.stack()[call_depth+1][0])
 
     # parse the pattern we're going to use to match
-    p_ast         = pyparser.pattern(pattern_str,
+    p_ast         = pyparser.pattern(fragment,
                                      filename=caller.filename,
                                      lineno=caller.lineno)
     if isinstance(p_ast, PAST.expr):
-        return ParseFragment(p_ast, proc, stmt).results()
+        return ParseFragment(p_ast, proc, ctx_stmt).results()
     else:
         assert len(p_ast) == 1
-        return ParseFragment(p_ast[0], proc, stmt).results()
+        return ParseFragment(p_ast[0], proc, ctx_stmt).results()
 
 
 _PAST_to_LoopIR = {

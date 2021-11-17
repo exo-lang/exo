@@ -207,6 +207,7 @@ class Procedure(ProcedureBase):
     def check_effects(self):
         self._loopir_proc = InferEffects(self._loopir_proc).result()
         CheckEffects(self._loopir_proc)
+        return self
 
     def name(self):
         return self._loopir_proc.name
