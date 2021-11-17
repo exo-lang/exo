@@ -1,6 +1,7 @@
 import ast as pyast
 import inspect
 import types
+from typing import Optional
 from weakref import WeakKeyDictionary
 
 from .API_types import ProcedureBase
@@ -378,7 +379,8 @@ class Procedure(ProcedureBase):
                                         mem=memory_type).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def _find_stmt(self, stmt_pattern, call_depth=2, default_match_no=0, body=None):
+    def _find_stmt(self, stmt_pattern, call_depth=2,
+                   default_match_no: Optional[int]=0, body=None):
         body = self._loopir_proc.body if body is None else body
         stmt_lists  = match_pattern(body, stmt_pattern,
                                     call_depth=call_depth,
@@ -445,8 +447,8 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoDataReuse(loopir, buf_s, rep_s).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-    
-    
+
+
     def configwrite_after(self, stmt_pattern, config, field, var_pattern):
         if not isinstance(config, Config):
             raise TypeError("Did not pass a config object")
@@ -577,10 +579,10 @@ class Procedure(ProcedureBase):
             raise TypeError("expected loop to be par or seq loop")
         if type(loop1) is not type(loop2):
             raise TypeError("expected loop type to match")
-        
+
         loopir = self._loopir_proc
         loopir = Schedules.DoFuseLoop(loopir, loop1, loop2).result()
-      
+
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def fuse_if(self, if1, if2):
@@ -696,7 +698,7 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoReorderStmt(loopir, first_stmt[0], second_stmt[0]).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-        
+
     def lift_if(self, if_pattern, n_lifts=1):
         if not isinstance(if_pattern, str):
             raise TypeError("expected first arg to be a string")
@@ -889,7 +891,7 @@ class Procedure(ProcedureBase):
         for i in range(0, stmts_len):
             s = self._find_stmt(stmt_pattern, body=loopir.body)
             if not isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-                raise ValueError(f"expected Assign or Reduce, got {match}")
+                raise ValueError(f"expected Assign or Reduce, got {s}")
             loopir = Schedules.DoStageAssn(loopir, new_name, s).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
