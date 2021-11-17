@@ -384,7 +384,8 @@ class Procedure(ProcedureBase):
                                     call_depth=call_depth,
                                     default_match_no=default_match_no)
         if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
-            raise TypeError("failed to find statement")
+            raise TypeError(f"failed to find statement.\n"
+                            f"Pattern was:\n{stmt_pattern}")
         elif default_match_no is None:
             return [ s[0] for s in stmt_lists ]
         else:
