@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import textwrap
+
 from SYS_ATL import *
 from SYS_ATL.platforms.x86 import *
 from SYS_ATL.syntax import *
@@ -286,6 +288,22 @@ sgemm_above_kernel = (
         .simplify()
 )
 
+class A_CACHE_MEM(DRAM):
+    @classmethod
+    def global_(cls):
+        return textwrap.dedent('''
+        static float A_cache[264 * 512];
+        ''')
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        return ''
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ''
+
+
 sgemm_sys_atl = (
     SGEMM
         .rename('sgemm_sys_atl')
@@ -331,8 +349,6 @@ sgemm_sys_atl = (
         .fuse_if('if K % _ > 0: _ #0', 'if K % _ > 0: _ #1')
         # Merge M ifs
         .fuse_if('if M % _ > 0: _ #0', 'if M % _ > 0: _ #1')
-        # Clean up
-        .simplify()
         # Replace SGEMM_WINDOW with optimized form
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 1
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 2
@@ -342,12 +358,19 @@ sgemm_sys_atl = (
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 6
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 7
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 8
-        #
-        .stage_window('A_cache', 'A[_] #0', DRAM)
+        # Stage A
+        .stage_window('A_cache', 'A[_] #0', A_CACHE_MEM)
+        .par_to_seq('for ko in _: _ #0')
+        .par_to_seq('for io in _: _ #0')
+        .par_to_seq('for jo in _: _ #0')
+        .lift_alloc('A_cache: _', n_lifts=3)
+        .fission_after('for i0 in _: _')
+        # Clean up
+        .simplify()
 )
 
 if __name__ == '__main__':
-    print(sgemm_above_kernel)
+    # print(sgemm_above_kernel)
     print(sgemm_sys_atl)
 
 __all__ = ['sgemm_sys_atl']

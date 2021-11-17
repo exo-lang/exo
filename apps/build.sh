@@ -21,7 +21,7 @@ cmake -G Ninja -S "${ROOT_DIR}/apps" -B build/apps \
   -DCMAKE_CXX_COMPILER=clang++-13 \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="${PWD}/build/_install" \
-  -DCMAKE_C_FLAGS="-march=skylake-avx512" \
-  -DCMAKE_CXX_FLAGS="-march=skylake-avx512"
+  -DCMAKE_C_FLAGS="-march=skylake-avx512 -g3" \
+  -DCMAKE_CXX_FLAGS="-march=skylake-avx512 -g3"
 
 cmake --build build/apps
