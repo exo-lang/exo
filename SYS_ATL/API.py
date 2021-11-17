@@ -314,13 +314,27 @@ class Procedure(ProcedureBase):
         _proc_prov_unify(self._loopir_proc, other_proc._loopir_proc)
         return self
 
-    def partial_eval(self, *args):
+    def partial_eval(self, *args, **kwargs):
+        if kwargs and args:
+            raise ValueError("Must provide EITHER ordered OR named arguments")
+        if not kwargs and not args:
+            # Nothing to do if empty partial eval
+            return self
+
         p = self._loopir_proc
-        if len(args) > len(p.args):
-            raise TypeError(f"expected no more than {len(p.args)} "
-                            f"arguments, but got {len(args)}")
-        p = Schedules.DoPartialEval(p, args).result()
-        return Procedure(p)
+
+        if args:
+            if len(args) > len(p.args):
+                raise TypeError(f"expected no more than {len(p.args)} "
+                                f"arguments, but got {len(args)}")
+            kwargs = {arg.name: val for arg, val in zip(p.args, args)}
+        else:
+            # Get the symbols corresponding to the names
+            params_map = {sym.name.name(): sym.name for sym in p.args}
+            kwargs = {params_map[k]: v for k, v in kwargs.items()}
+
+        p = Schedules.DoPartialEval(p, kwargs).result()
+        return Procedure(p)  # No provenance because signature changed
 
     def set_precision(self, name, typ_abbreviation):
         name, count = name_plus_count(name)
@@ -514,7 +528,9 @@ class Procedure(ProcedureBase):
             raise TypeError("expected second arg to be a string")
         if not isinstance(value, int):
             raise TypeError("expected third arg to be an int")
-        # TODO: what is going on here?
+        # TODO: refine this analysis or re-think the directive...
+        #  this is making sure that the condition will guarantee that the
+        #  guarded statement runs on the first iteration
         if value != 0:
             raise TypeError("expected third arg to be 0")
 
@@ -528,6 +544,25 @@ class Procedure(ProcedureBase):
             loopir = Schedules.DoAddGuard(loopir, s, iter_pat, value).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def bound_and_guard(self, loop):
+        """
+        Replace
+          for i in par(0, e): ...
+        with
+          for i in par(0, c):
+            if i < e: ...
+        where c is the tightest constant bound on e
+
+        This currently only works when e is of the form x % n
+        """
+        if not isinstance(loop, str):
+            raise TypeError("expected loop pattern")
+
+        loop = self._find_stmt(loop)
+        loopir = Schedules.DoBoundAndGuard(self._loopir_proc, loop).result()
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
 
     def fuse_loop(self, loop1, loop2):
         if not isinstance(loop1, str):
@@ -833,16 +868,26 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def par_to_seq(self, par_pattern):
-        stmts_len = len(self._find_stmt(par_pattern, default_match_no=None))
+        if not self._find_stmt(par_pattern, default_match_no=None):
+            raise TypeError('Matched no statements!')
+
         loopir = self._loopir_proc
-        for i in range(0, stmts_len):
-            s = self._find_stmt(par_pattern, body=loopir.body)
-            if not isinstance(s, LoopIR.ForAll):
-                raise TypeError("pattern did not describe a par loop")
-            loopir  = Schedules.DoParToSeq(loopir, s).result()
+
+        changed_any = True
+        while changed_any:
+            changed_any = False
+            stmts = self._find_stmt(par_pattern, body=loopir.body,
+                                    default_match_no=None)
+            for s in stmts:
+                if not isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+                    raise TypeError(f'Expected par loop. Got:\n{s}')
+
+                if isinstance(s, LoopIR.ForAll):
+                    loopir = Schedules.DoParToSeq(loopir, s).result()
+                    changed_any = True
+                    break
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-
 
     def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None,
                    keep_dims=False):

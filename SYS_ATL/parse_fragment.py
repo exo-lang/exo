@@ -120,7 +120,8 @@ class ParseFragment:
         elif isinstance(pat, PAST.BinOp):
             lhs = self.parse_e(pat.lhs)
             rhs = self.parse_e(pat.rhs)
-            return LoopIR.BinOp(pat.op, lhs, rhs, T.bool, self.stmt.srcinfo)
+            return LoopIR.BinOp(pat.op, lhs, rhs, self.type_for_binop(pat.op),
+                                self.stmt.srcinfo)
         elif isinstance(pat, PAST.StrideExpr):
             nm = self.find_sym(pat.name, self.env)
             return LoopIR.StrideExpr(nm, pat.dim, T.stride, self.stmt.srcinfo)
@@ -136,3 +137,21 @@ class ParseFragment:
 
     def results(self):
         return self._results
+
+    def type_for_binop(self, op):
+        return {
+            "+":   T.int,
+            "-":   T.int,
+            "*":   T.int,
+            "/":   T.int,
+            "%":   T.int,
+            #
+            "<":   T.bool,
+            ">":   T.bool,
+            "<=":  T.bool,
+            ">=":  T.bool,
+            "==":  T.bool,
+            #
+            "and": T.bool,
+            "or":  T.bool,
+        }[op]
