@@ -2554,6 +2554,31 @@ class _DoStageWindow(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+class _DoBoundAlloc(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_site, bounds):
+        self.alloc_site = alloc_site
+        self.bounds = bounds
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s is self.alloc_site:
+            assert isinstance(s.type, T.Tensor)
+            if len(self.bounds) != len(s.type.hi):
+                raise SchedulingError(
+                    f'bound_alloc: dimensions do not match: {len(self.bounds)} '
+                    f'!= {len(s.type.hi)} (expected)')
+
+            new_type = T.Tensor(
+                [(new if new else old)
+                 for old, new in zip(s.type.hi, self.bounds)],
+                s.type.is_window,
+                s.type.type,
+            )
+
+            return [LoopIR.Alloc(s.name, new_type, s.mem, s.eff, s.srcinfo)]
+
+        return super().map_s(s)
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # The Passes to export
@@ -2593,3 +2618,4 @@ class Schedules:
     DoDeleteConfig = _DoDeleteConfig
     DoFuseIf = _DoFuseIf
     DoStageWindow = _DoStageWindow
+    DoBoundAlloc = _DoBoundAlloc
