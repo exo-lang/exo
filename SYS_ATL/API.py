@@ -14,7 +14,7 @@ from .LoopIR_scheduling import (Schedules, name_plus_count,
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
-from .memory import Memory
+from .memory import Memory, DRAM
 from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern, get_match_no
 from .prelude import *
@@ -872,7 +872,7 @@ class Procedure(ProcedureBase):
 
     def bind_expr(self, new_name, expr_pattern, cse=False):
         if not is_valid_name(new_name):
-            raise TypeError("expected first argument to be a valid name")
+            raise ValueError(f"bind_expr: '{new_name}' is not a valid name")
         body    = self._loopir_proc.body
         matches = match_pattern(body, expr_pattern, call_depth=1)
 
@@ -892,7 +892,7 @@ class Procedure(ProcedureBase):
 
     def stage_assn(self, new_name, stmt_pattern):
         if not is_valid_name(new_name):
-            raise TypeError("expected first argument to be a valid name")
+            raise ValueError(f"stage_assn: '{new_name}' is not a valid name")
 
         stmts_len = len(self._find_stmt(stmt_pattern, default_match_no=None))
         if stmts_len == 0:
@@ -904,6 +904,24 @@ class Procedure(ProcedureBase):
                 raise ValueError(f"expected Assign or Reduce, got {s}")
             loopir = Schedules.DoStageAssn(loopir, new_name, s).result()
 
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def stage_window(self, new_name, window_pattern, memory=None):
+        if not is_valid_name(new_name):
+            raise ValueError(f"stage_window: '{new_name}' is not a valid name")
+
+        loopir = self._loopir_proc
+
+        expr = match_pattern(loopir.body, window_pattern, call_depth=1)
+        if not expr:
+            raise ValueError(f'could not find pattern: {window_pattern}')
+        if len(expr) > 1:
+            raise ValueError('stage_window: found multiple matches for '
+                             f'pattern: {window_pattern}')
+        expr = expr[0]
+
+        loopir = Schedules.DoStageWindow(loopir, new_name, memory,
+                                         expr).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def par_to_seq(self, par_pattern):

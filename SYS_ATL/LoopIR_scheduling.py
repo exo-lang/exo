@@ -2413,6 +2413,141 @@ class _DoDataReuse(LoopIR_Rewrite):
 
         return super().map_e(e)
 
+class _DoStageWindow(LoopIR_Rewrite):
+    def __init__(self, proc, new_name, memory, expr):
+        # Inputs
+        self.new_name = Sym(new_name)
+        self.memory = memory
+        self.target_expr = expr
+
+        # Visitor state
+        self._found_expr = False
+        self._complete = False
+        self._copy_code = None
+
+        proc = InferEffects(proc).result()
+
+        super().__init__(proc)
+
+    def _stmt_writes_to_window(self, s):
+        for eff in s.eff.reduces + s.eff.writes:
+            if self.target_expr.name == eff.buffer:
+                return True
+        return False
+
+    def _make_staged_alloc(self):
+        '''
+        proc(Win[0:10, N, lo:hi])
+        =>
+        Staged : ty[10, hi - lo]
+        for i0 in par(0, 10):
+          for i1 in par(0, hi - lo):
+            Staged[i0, i1] = Buf[0 + i0, N, lo + i1]
+        proc(Staged[0:10, 0:(hi - lo)])
+        '''
+
+        staged_extents = []  # e.g. 10, hi - lo
+        staged_vars = []  # e.g. i0, i1
+        staged_var_reads = []  # reads of staged_vars
+
+        buf_points = []  # e.g. 0 + i0, N, lo + i1
+
+        for idx in self.target_expr.idx:
+            assert isinstance(idx, (LoopIR.Interval, LoopIR.Point))
+
+            if isinstance(idx, LoopIR.Interval):
+                assert isinstance(idx.hi.type, T.Index)
+
+                sym_i = Sym(f'i{len(staged_vars)}')
+                staged_vars.append(sym_i)
+                staged_extents.append(
+                    LoopIR.BinOp('-', idx.hi, idx.lo, T.index, idx.srcinfo)
+                )
+                offset = LoopIR.Read(sym_i, [], T.index, idx.lo.srcinfo)
+                buf_points.append(
+                    LoopIR.BinOp('+', idx.lo, offset, T.index, idx.srcinfo)
+                )
+                staged_var_reads.append(
+                    LoopIR.Read(sym_i, [], T.index, idx.lo.srcinfo)
+                )
+            elif isinstance(idx, LoopIR.Point):
+                # TODO: test me!
+                buf_points.append(idx.pt)
+
+        assert staged_vars, "Window expression had no intervals"
+        assert len(staged_vars) == len(staged_extents)
+
+        # Staged : ty[10, hi - lo]
+        srcinfo = self.target_expr.srcinfo
+        data_type = self.target_expr.type.src_type.type
+        alloc_type = T.Tensor(staged_extents, False, data_type)
+        alloc = LoopIR.Alloc(self.new_name, alloc_type, self.memory, None,
+                             srcinfo)
+
+        # Staged[i0, i1] = Buf[0 + i0, N, lo + i1]
+        copy_stmt = LoopIR.Assign(
+            self.new_name,
+            data_type,
+            None,
+            staged_var_reads,
+            LoopIR.Read(self.target_expr.name, buf_points,
+                        data_type, srcinfo),
+            None,
+            srcinfo
+        )
+
+        # for i0 in par(0, 10):
+        #     for i1 in par(0, hi - lo):
+        for sym_i, extent_i in reversed(list(zip(staged_vars, staged_extents))):
+            copy_stmt = LoopIR.ForAll(sym_i, extent_i, [copy_stmt], None,
+                                      srcinfo)
+
+        # Staged[0:10, 0:(hi - lo)]
+        w_extents = [
+            LoopIR.Interval(LoopIR.Const(0, T.index, srcinfo), hi, srcinfo)
+            for hi in staged_extents
+        ]
+        new_window = LoopIR.WindowExpr(
+            self.new_name,
+            w_extents,
+            T.Window(
+                data_type,
+                alloc_type,
+                self.new_name,
+                w_extents
+            ),
+            srcinfo
+        )
+
+        return [alloc, copy_stmt], new_window
+
+    def map_stmts(self, stmts):
+        result = []
+        for s in stmts:
+            s = self.map_s(s)
+            if self._found_expr and not self._complete:
+                assert len(s) == 1
+                assert self._copy_code
+                s = s[0]
+
+                if self._stmt_writes_to_window(s):
+                    raise NotImplementedError('StageWindow does not handle '
+                                              'writes yet.')
+                s = self._copy_code + [s]
+                self._complete = True
+            result.extend(s)
+        return result
+
+    def map_e(self, e):
+        if self._found_expr:
+            return e
+        if e is self.target_expr:
+            self._found_expr = True
+            self._copy_code, new_window = self._make_staged_alloc()
+            return new_window
+        return super().map_e(e)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # The Passes to export
@@ -2451,3 +2586,4 @@ class Schedules:
     DoAddIfElse = _DoAddIfElse
     DoDeleteConfig = _DoDeleteConfig
     DoFuseIf = _DoFuseIf
+    DoStageWindow = _DoStageWindow

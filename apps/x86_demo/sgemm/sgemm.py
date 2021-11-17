@@ -342,9 +342,12 @@ sgemm_sys_atl = (
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 6
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 7
         .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 8
+        #
+        .stage_window('A_cache', 'A[_] #0', DRAM)
 )
 
 if __name__ == '__main__':
+    print(sgemm_above_kernel)
     print(sgemm_sys_atl)
 
 __all__ = ['sgemm_sys_atl']
