@@ -333,8 +333,8 @@ def do_ld_i8(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
-_gemm_do_ld_i8_id1 = ("gemmini_extended_mvin2( {src}.data, "+
-                              "((uint64_t) {dst}.data), {m}, {n} );")
+_gemm_do_ld_i8_id1 = ("gemmini_extended_mvin2( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), {m}, {n} );")
 @instr(_gemm_do_ld_i8_id1)
 def do_ld_i8_id1(
     n     : size,
@@ -353,8 +353,8 @@ def do_ld_i8_id1(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
-_gemm_do_ld_i8_id2 = ("gemmini_extended_mvin3( {src}.data, "+
-                              "((uint64_t) {dst}.data), {m}, {n} );")
+_gemm_do_ld_i8_id2 = ("gemmini_extended_mvin3( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), {m}, {n} );")
 @instr(_gemm_do_ld_i8_id2)
 def do_ld_i8_id2(
     n     : size,
@@ -375,8 +375,8 @@ def do_ld_i8_id2(
 
 _gemm_ld_i8   = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                  "1.0f, 0, 0);\n"+
-                 "gemmini_extended_mvin( {src}.data, "+
-                              "((uint64_t) {dst}.data), {m}, {n} );")
+                 "gemmini_extended_mvin( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), {m}, {n} );")
 @instr(_gemm_ld_i8)
 def ld_i8(
     n     : size,
@@ -399,8 +399,8 @@ def ld_i8(
 
 _gemm_ld_i8_block = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                      "1.0f, 0, 0);\n"+
-                     "gemmini_extended_mvin( {src}.data, "+
-                              "((uint64_t) {dst}.data), 16*{m}, {n} );")
+                     "gemmini_extended_mvin( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), 16*{m}, {n} );")
 @instr(_gemm_ld_i8_block)
 def ld_i8_block(
     n     : size,
@@ -421,8 +421,8 @@ def ld_i8_block(
             for k in par(0, 16):
                 dst[j,i,k] = src[i,16*j+k]
 
-_do_gemm_ld_i8_block_id1 = ("gemmini_extended_mvin2( {src}.data, "+
-                              "((uint64_t) {dst}.data), 16*{m}, {n} );")
+_do_gemm_ld_i8_block_id1 = ("gemmini_extended_mvin2( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), 16*{m}, {n} );")
 @instr(_do_gemm_ld_i8_block_id1)
 def do_ld_i8_block_id1(
     n     : size,
@@ -441,8 +441,8 @@ def do_ld_i8_block_id1(
             for k in par(0, 16):
                 dst[j,i,k] = src[i,16*j+k]
 
-_do_gemm_ld_i8_block_id2 = ("gemmini_extended_mvin3( {src}.data, "+
-                              "((uint64_t) {dst}.data), 16*{m}, {n} );")
+_do_gemm_ld_i8_block_id2 = ("gemmini_extended_mvin3( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), 16*{m}, {n} );")
 @instr(_do_gemm_ld_i8_block_id2)
 def do_ld_i8_block_id2(
     n     : size,
@@ -464,12 +464,11 @@ def do_ld_i8_block_id2(
 
 _gemm_ld_i8_block_id1 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                          "1.0f, 0, 1);\n"+
-                         "gemmini_extended_mvin2( {src}.data, "+
-                                  "((uint64_t) {dst}.data), 16*{m}, {n} );")
-_gemm_ld_i8_block_id2 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
-                         "1.0f, 0, 2);\n"+
-                         "gemmini_extended_mvin3( {src}.data, "+
-                                  "((uint64_t) {dst}.data), 16*{m}, {n} );")
+                         "gemmini_extended_mvin2( &{src_data}, "+
+                                  "((uint64_t) &{dst_data}), 16*{m}, {n} );")
+_gemm_ld_i8_block_id2 = ("gemmini_extended4_config_ld({src}.strides[0]*1, 1.0f, 0, {n}, 2);\n"+
+                         "gemmini_extended_mvin3( &{src_data}, "+
+                                  "((uint64_t) &{dst_data}), 16*{m}, {n} );")
 ld_i8_block_id1 = ld_i8_block.rename("ld_i8_block_id1").make_instr(_gemm_ld_i8_block_id1)
 ld_i8_block_id2 = ld_i8_block.rename("ld_i8_block_id2").make_instr(_gemm_ld_i8_block_id2)
 
@@ -501,14 +500,14 @@ ld_i8_v2 = ld_i8_v2.replace(config_ld_i8, 'ConfigLoad.src_stride = _')
 
 _gemm_ld_i8_id1 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                  "1.0f, 0, 1);\n"+
-                 "gemmini_extended_mvin2( {src}.data, "+
-                              "((uint64_t) {dst}.data), {m}, {n} );")
+                 "gemmini_extended_mvin2( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), {m}, {n} );")
 ld_i8_id1 = ld_i8.rename("ld_i8_id1").make_instr(_gemm_ld_i8_id1)
 
 _gemm_ld_i8_id2 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                  "1.0f, 0, 2);\n"+
-                 "gemmini_extended_mvin3( {src}.data, "+
-                              "((uint64_t) {dst}.data), {m}, {n} );")
+                 "gemmini_extended_mvin3( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), {m}, {n} );")
 ld_i8_id2 = ld_i8.rename("ld_i8_id2").make_instr(_gemm_ld_i8_id2)
 
 ld_i8_id1_v2 = ld_i8_id1.rename("ld_i8_id1_v2")
@@ -542,8 +541,8 @@ ld_i8_id2= ld_i8_id2.delete_pass().make_instr(_gemm_ld_i8_id2)
 
 _gemm_ld_i8_stride_2 = ("gemmini_extended3_config_ld({src}.strides[0]*2, "+
                         "1.0f, 0, 1);\n"+
-                        "gemmini_extended_mvin2( {src}.data, "+
-                              "((uint64_t) {dst}.data), {m}, {n} );")
+                        "gemmini_extended_mvin2( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), {m}, {n} );")
 @instr(_gemm_ld_i8_stride_2)
 def ld_i8_s2(
     n     : size,
@@ -569,8 +568,8 @@ def config_ld_i8_s2_id1(
 ):
     ConfigLoad_id1.src_stride = src_stride
 
-_do_gemm_ld_i8_stride_2 = ("gemmini_extended_mvin2( {src}.data, "+
-                              "((uint64_t) {dst}.data), {m}, {n} );")
+_do_gemm_ld_i8_stride_2 = ("gemmini_extended_mvin2( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), {m}, {n} );")
 @instr(_do_gemm_ld_i8_stride_2)
 def do_ld_i8_s2_id1(
     n     : size,
@@ -589,8 +588,8 @@ def do_ld_i8_s2_id1(
             dst[i,j] = src[i*2,j]
 
 _gemm_ld_i8_vec = ("gemmini_extended3_config_ld(1, 1.0f, 0, 0);\n"+
-                   "gemmini_extended_mvin( {src}.data, "+
-                              "((uint64_t) {dst}.data), 16, 1);")
+                   "gemmini_extended_mvin( &{src_data}, "+
+                              "((uint64_t) &{dst_data}), 16, 1);")
 @instr(_gemm_ld_i8_vec)
 def ld_i8_vector(
     src   : [i8][16] @ DRAM,
@@ -601,7 +600,7 @@ def ld_i8_vector(
     for i in par(0, 16):
         dst[i] = src[i]
 
-_do_gemm_ld_i8_vec = ("gemmini_extended_mvin( {src}.data, ((uint64_t) {dst}.data), 16, 1);")
+_do_gemm_ld_i8_vec = ("gemmini_extended_mvin( &{src_data}, ((uint64_t) &{dst_data}), 16, 1);")
 @instr(_do_gemm_ld_i8_vec)
 def do_ld_i8_vector(
     src   : [i8][16] @ DRAM,
@@ -620,8 +619,8 @@ def do_ld_i8_vector(
 # we must specify `shrunk=1` (3rd param of ..._config_ld)
 _gemm_ld_acc_i8 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                    "1.0f, 1, 0);\n"+
-                   "gemmini_extended_mvin( {src}.data, "+
-                                "((uint32_t) {dst}.data), {m}, {n} );")
+                   "gemmini_extended_mvin( &{src_data}, "+
+                                "((uint32_t) &{dst_data}), {m}, {n} );")
 ld_acc_i8 = (ld_i8.rename('ld_acc_i8')
                   .set_precision('dst', 'i32')
                   .set_memory('dst', GEMM_ACCUM)
@@ -638,8 +637,8 @@ ConfigLoadAcc = new_config_ld_acc()
 
 _gemm_ld_acc_i32   = ("gemmini_extended3_config_ld({src}.strides[0]*4, "+
                       "1.0f, 0, 0);\n"+
-                      "gemmini_extended_mvin( ((uint64_t) {src}.data), "+
-                               "((uint32_t) {dst}.data), {m}, {n} );")
+                      "gemmini_extended_mvin( ((uint64_t) &{src_data}), "+
+                               "((uint32_t) &{dst_data}), {m}, {n} );")
 @instr(_gemm_ld_acc_i32)
 def ld_acc_i32(
     n     : size,
@@ -657,8 +656,8 @@ def ld_acc_i32(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
-_gemm_do_ld_acc_i32   = ("gemmini_extended_mvin( ((uint64_t) {src}.data), "+
-                               "((uint32_t) {dst}.data), {m}, {n} );")
+_gemm_do_ld_acc_i32   = ("gemmini_extended_mvin( ((uint64_t) &{src_data}), "+
+                               "((uint32_t) &{dst_data}), {m}, {n} );")
 @instr(_gemm_do_ld_acc_i32)
 def do_ld_acc_i32(
     n     : size,
@@ -685,7 +684,7 @@ def config_ld_acc_i32_vector(
 
 _gemm_ld_acc_i32_vec   = ("gemmini_extended3_config_ld(4, 1.0f, 0, 0);\n"+
                           "gemmini_extended_mvin( ((uint64_t) &{src_data}), "+
-                               "((uint32_t) {dst}.data), 16, 1 );")
+                               "((uint32_t) &{dst_data}), 16, 1 );")
 @instr(_gemm_ld_acc_i32_vec)
 def ld_acc_i32_vector(
     src   : [i32][16] @ DRAM,
@@ -698,7 +697,7 @@ def ld_acc_i32_vector(
     for i in par(0, 16):
         dst[i] = src[i]
 
-_do_gemm_ld_acc_i32_vec   = ("gemmini_extended_mvin( ((uint64_t) &{src_data}), ((uint32_t) {dst}.data), 16, 1 );")
+_do_gemm_ld_acc_i32_vec   = ("gemmini_extended_mvin( ((uint64_t) &{src_data}), ((uint32_t) &{dst_data}), 16, 1 );")
 @instr(_do_gemm_ld_acc_i32_vec)
 def do_ld_acc_i32_vector(
     src   : [i32][16] @ DRAM,
@@ -721,7 +720,7 @@ ld_acc_i32_vector    = ld_acc_i32_vector.delete_pass().make_instr(_gemm_ld_acc_i
 
 _gemm_st_i8   = ("gemmini_extended_config_st({dst}.strides[0]*1, 0, 1.0f);\n"+
                  "gemmini_extended_mvout( "+
-                      "((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
+                      "((uint64_t) &{dst_data}), (uint32_t) &{src_data}, {m}, {n} );")
 @instr(_gemm_st_i8)
 def st_i8(
     n     : size,
@@ -762,7 +761,7 @@ def new_config_st():
 ConfigStore = new_config_st()
 
 _gemm_st_acc_i8   = ("gemmini_extended_config_st({dst}.strides[0]*1, {act}, {scale}[0]);\n"+
-                     "gemmini_extended_mvout( ((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
+                     "gemmini_extended_mvout( ((uint64_t) &{dst_data}), (uint32_t) &{src_data}, {m}, {n} );")
 @instr(_gemm_st_acc_i8)
 def st_acc_i8(
     n     : size,
@@ -801,7 +800,7 @@ def config_st_acc_i8(
     ConfigStore.dst_stride = dst_stride
     ConfigStore.act = act
 
-_gemm_st_acc_i8   = ("gemmini_extended_mvout( ((uint64_t) {dst}.data), (uint32_t) {src}.data, {m}, {n} );")
+_gemm_st_acc_i8   = ("gemmini_extended_mvout( ((uint64_t) &{dst_data}), (uint32_t) &{src_data}, {m}, {n} );")
 @instr(_gemm_st_acc_i8)
 def do_st_acc_i8(
     n     : size,
@@ -866,8 +865,8 @@ st_acc_i8_s2_v2 = st_acc_i8_s2_v2.replace(config_st_acc_i8, 'ConfigStore.scale =
 
 
 _gemm_st_acc_i32 = ("gemmini_extended_config_st({dst}.strides[0]*4, 0, 1.0f);\n"+
-                    "gemmini_extended_mvout( ((uint64_t) {dst}.data), "+
-                    "((uint32_t) {src}.data | 0x20000000), {m}, {n} );")
+                    "gemmini_extended_mvout( ((uint64_t) &{dst_data}), "+
+                    "((uint32_t) &{src_data} | 0x20000000), {m}, {n} );")
 @instr(_gemm_st_acc_i32)
 def st_acc_i32(
     n     : size,
@@ -894,7 +893,7 @@ _gemm_config_zero   = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n")
 def config_zero():
     ConfigLoad.src_stride = 0
 
-_gemm_do_zero = ("gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
+_gemm_do_zero = ("gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),"+
                                        "{m}, {n} );")
 @instr(_gemm_do_zero)
 def do_zero_i8(
@@ -912,7 +911,7 @@ def do_zero_i8(
             dst[i,j] = 0.0
 
 _gemm_zero = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
-                 "gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
+                 "gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),"+
                                        "{m}, {n} );")
 @instr(_gemm_zero)
 def zero_i8(
@@ -956,7 +955,7 @@ zero_acc_i32_v2 = zero_acc_i32_v2.delete_pass().make_instr(_gemm_zero)
 
 
 _gemm_zero_vec = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
-                 "gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
+                 "gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),"+
                                          "16, 1 );")
 @instr(_gemm_zero_vec)
 def zero_i8_vector(
@@ -968,7 +967,7 @@ def zero_i8_vector(
     for i in par(0, 16):
         dst[i] = 0.0
 
-_do_gemm_zero_vec = ("gemmini_extended_mvin( 0, ((uint64_t) {dst}.data),"+
+_do_gemm_zero_vec = ("gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),"+
                                          "16, 1 );")
 @instr(_do_gemm_zero_vec)
 def do_zero_i8_vector(
@@ -1005,12 +1004,12 @@ def config_matmul():
 
 _gemm_matmul = (
        "gemmini_extended_preload("+
-            "(uint32_t)({B}.data), (uint32_t)({C}.data), "+
+            "(uint32_t)(&{B_data}), (uint32_t)(&{C_data}), "+
             "{M}, {K}, "+
             "{M}, {N}"+
        ");\n"+
        "gemmini_extended_compute_preloaded("+
-            "(uint32_t)({A}.data), ~((uint32_t)0), "+
+            "(uint32_t)(&{A_data}), ~((uint32_t)0), "+
             "{K}, {N}, "+
             "16, 16"+
        ");")
@@ -1078,12 +1077,12 @@ matmul_i8    = matmul_i8.delete_pass().make_instr(_gemm_config_matmul + _gemm_ma
 
 _gemm_matmul_acc = (
        "gemmini_extended_preload("+
-            "(uint32_t)({B}.data), (uint32_t)({C}.data) | 0x40000000, "+
+            "(uint32_t)(&{B_data}), (uint32_t)(&{C_data}) | 0x40000000, "+
             "{M}, {K}, "+
             "{M}, {N}"+
        ");\n"+
        "gemmini_extended_compute_preloaded("+
-            "(uint32_t)({A}.data), ~((uint32_t)0), "+
+            "(uint32_t)(&{A_data}), ~((uint32_t)0), "+
             "{K}, {N}, "+
             "16, 16"+
        ");")

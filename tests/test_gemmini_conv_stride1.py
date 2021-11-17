@@ -95,8 +95,8 @@ def test_conv_3():
     T.alloc_dram_2i32('bias', 1, out_channel, '-10000')
     T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
     T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
-    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, '1')
-    T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, '1')
+    T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'j+k')
+    T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, 'i+k*3')
 
     conv = conv_on_cpu().rename("conv_3")
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
@@ -105,23 +105,28 @@ def test_conv_3():
     conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
     conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
     conv = conv.reorder('ocol_i', 'och_o')
-    conv = conv.lift_alloc('res : _', n_lifts=2)
-    conv = conv.fission_after('res[_] = _', n_lifts=2)
-    conv = conv.fission_after('for krow in _:_', n_lifts=2)
+    conv = conv.lift_alloc('res : _', n_lifts=3)
+    conv = conv.fission_after('res[_] = _', n_lifts=3)
+    conv = conv.fission_after('for krow in _:_', n_lifts=3)
     conv = conv.reorder('och_i', 'krow')
     conv = conv.reorder('och_i', 'kcol')
     conv = conv.reorder('och_i', 'kch_o')
     conv = conv.reorder('ocol_i', 'krow')
     conv = conv.reorder('ocol_i', 'kcol')
     conv = conv.reorder('ocol_i', 'kch_o')
-    conv = conv.lift_alloc('i_s : _', n_lifts=4)
-    conv = conv.lift_if('if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=3)
+    conv = conv.reorder('och_o', 'krow')
+    conv = conv.simplify()
+    conv = conv.lift_alloc('i_s : _', n_lifts=7)
+    conv = conv.lift_if('if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=6)
     conv = conv.lift_alloc('w_s : _', n_lifts=1)
     conv = conv.lift_alloc('w_s : _', n_lifts=1, mode='col')
-    conv = conv.lift_alloc('w_s : _', n_lifts=2)
-    conv = conv.fission_after('w_s = _', n_lifts=3)
-    conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1: _', n_lifts=3)
-    conv = conv.fission_after('if 0 <= ocol_i + 56 / 16 * 16 + kcol - 1: _', n_lifts=3)
+    conv = conv.reorder('och_o', 'kcol')
+    conv = conv.reorder('och_o', 'kch_o')
+    conv = conv.lift_alloc('w_s : _', n_lifts=5)
+    conv = conv.fission_after('w_s = _', n_lifts=5)
+    conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1: _', n_lifts=5)
+    conv = conv.fission_after('if 0 <= ocol_i + 48 + kcol - 1: _', n_lifts=5)
+    conv = conv.reorder('kch_o', 'ocol_i')
     conv = conv.add_ifelse('for ocol_i in _:_ #1', 'ocol_o == 0 and kcol == 0')
     conv = conv.partition_loop('ocol_i #1', 1)
     conv = conv.unroll('ocol_i #1')
@@ -140,20 +145,21 @@ def test_conv_3():
 
     conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
     conv = conv.reorder('och_i', 'kch_i')
-    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
+    conv = conv.reorder('och_o', 'kch_i')
+    conv = conv.replace(ld_i8_block_id1, 'for kch_i in _:_ #0')
     conv = conv.replace(do_zero_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #1')
-    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #1')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #1')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #1')
     conv = conv.reorder('kch_i', 'och_i')
     conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #1')
     conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #1')
 
     conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
     conv = conv.reorder('och_i', 'kch_i')
-    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #2')
+    conv = conv.replace(ld_i8_block_id1, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #2')
     conv = conv.replace(do_zero_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8, 'for ocol_i in _:_ #2')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #2')
     conv = conv.reorder('kch_i', 'och_i')
     conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #2')
     conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #2')
@@ -162,6 +168,41 @@ def test_conv_3():
     conv = conv.set_memory('i_s', GEMM_SCRATCH)
     conv = conv.set_memory('w_s', GEMM_SCRATCH)
 
+    cpu = conv_on_cpu()
+    cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
+    T.add_proc(cpu)
+    T.add_proc(conv)
+
+    T.start_timer('cpu')
+
+    T.add_body([f'conv_on_cpu_stride_1(ctxt, output_cpu, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('cpu', 'Cycles for CPU version')
+
+    T.start_timer('gemmini')
+    T.add_body([f'conv_3(ctxt, output_gemmini, bias, inp, weights, false, scale);',
+                f'gemmini_fence();'])
+    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
+
+    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
+                 '    printf("Correct\\n");',
+                 '} else {',
+                 '    printf("Results Don\'t Match\\n");',
+                 '    printf("Correct Result (output_cpu):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
+                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
+                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
+                 '    exit(1);',
+                 '}',
+                 ''])
+
+    T.compile().run()
+
+
+
+
+    print(conv)
+"""
     conv = inline_vector(conv)
     conv = lift_config(conv, 'config_ld_acc_i32_vector(_)')
 
@@ -205,41 +246,6 @@ def test_conv_3():
     conv = inline_st(conv)
     conv = conv.delete_config("config_st_acc_i8(_) #1")
     conv = conv.simplify()
-
-    cpu = conv_on_cpu()
-    cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-    T.add_proc(cpu)
-    T.add_proc(conv)
-
-    T.start_timer('cpu')
-
-    T.add_body([f'conv_on_cpu_stride_1(ctxt, output_cpu, bias, inp, weights, false, scale);',
-                f'gemmini_fence();'])
-    T.stop_timer('cpu', 'Cycles for CPU version')
-
-    T.start_timer('gemmini')
-    T.add_body([f'conv_3(ctxt, output_gemmini, bias, inp, weights, false, scale);',
-                f'gemmini_fence();'])
-    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
-    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
-                 '    printf("Correct\\n");',
-                 '} else {',
-                 '    printf("Results Don\'t Match\\n");',
-                 '    printf("Correct Result (output_cpu):\\n");',
-                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
-                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
-                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
-                 '    exit(1);',
-                 '}',
-                 ''])
-
-    T.compile().run()
-
-
-    print(conv)
-"""
-
 
 
 
