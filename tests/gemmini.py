@@ -374,22 +374,99 @@ def ld_i8(
             dst[i,j] = src[i,j]
 
 
-@instr(_gemm_ld_i8)
+_gemm_ld_i8_block = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
+                     "1.0f, 0, 0);\n"+
+                     "gemmini_extended_mvin( {src}.data, "+
+                              "((uint64_t) {dst}.data), 16*{m}, {n} );")
+@instr(_gemm_ld_i8_block)
 def ld_i8_block(
+    n     : size,
     m     : size,
-    src   : [i8][16, m] @ DRAM,
-    dst   : [i8][16*((m+15)/16), 16] @ GEMM_SCRATCH,
+    src   : [i8][n, 16*m] @ DRAM,
+    dst   : [i8][m, n, 16] @ GEMM_SCRATCH,
 ):
-    assert m <= 64
+    assert n <= 16
+    assert m <= 4
     assert stride(src, 1) == 1
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
     pass
 
-    for i in par(0, 16):
+    for i in par(0, n):
         for j in par(0, m):
-            dst[i + (j/16)*16, j%16] = src[i,j]
+            for k in par(0, 16):
+                dst[j,i,k] = src[i,16*j+k]
+
+_do_gemm_ld_i8_block_id1 = ("gemmini_extended_mvin2( {src}.data, "+
+                              "((uint64_t) {dst}.data), 16*{m}, {n} );")
+@instr(_do_gemm_ld_i8_block_id1)
+def do_ld_i8_block_id1(
+    n     : size,
+    m     : size,
+    src   : [i8][n, 16*m] @ DRAM,
+    dst   : [i8][m, n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 4
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            for k in par(0, 16):
+                dst[j,i,k] = src[i,16*j+k]
+
+_do_gemm_ld_i8_block_id2 = ("gemmini_extended_mvin3( {src}.data, "+
+                              "((uint64_t) {dst}.data), 16*{m}, {n} );")
+@instr(_do_gemm_ld_i8_block_id2)
+def do_ld_i8_block_id2(
+    n     : size,
+    m     : size,
+    src   : [i8][n, 16*m] @ DRAM,
+    dst   : [i8][m, n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 4
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            for k in par(0, 16):
+                dst[j,i,k] = src[i,16*j+k]
+
+
+_gemm_ld_i8_block_id1 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
+                         "1.0f, 0, 1);\n"+
+                         "gemmini_extended_mvin2( {src}.data, "+
+                                  "((uint64_t) {dst}.data), 16*{m}, {n} );")
+_gemm_ld_i8_block_id2 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
+                         "1.0f, 0, 2);\n"+
+                         "gemmini_extended_mvin3( {src}.data, "+
+                                  "((uint64_t) {dst}.data), 16*{m}, {n} );")
+ld_i8_block_id1 = ld_i8_block.rename("ld_i8_block_id1").make_instr(_gemm_ld_i8_block_id1)
+ld_i8_block_id2 = ld_i8_block.rename("ld_i8_block_id2").make_instr(_gemm_ld_i8_block_id2)
+
+ld_i8_block_id1_v2 = ld_i8_block_id1.rename("ld_i8_block_id1_v2")
+ld_i8_block_id1_v2 = ld_i8_block_id1_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 0)')
+ld_i8_block_id1_v2 = ld_i8_block_id1_v2.replace(do_ld_i8_block_id1, 'for i in _:_')
+ld_i8_block_id1_v2 = ld_i8_block_id1_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
+ld_i8_block_id1_v2 = ld_i8_block_id1_v2.delete_pass().make_instr(_gemm_ld_i8_block_id1)
+
+ld_i8_block_id2_v2 = ld_i8_block_id2.rename("ld_i8_block_id2_v2")
+ld_i8_block_id2_v2 = ld_i8_block_id2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 0)')
+ld_i8_block_id2_v2 = ld_i8_block_id2_v2.replace(do_ld_i8_block_id2, 'for i in _:_')
+ld_i8_block_id2_v2 = ld_i8_block_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
+ld_i8_block_id2_v2 = ld_i8_block_id2_v2.delete_pass().make_instr(_gemm_ld_i8_block_id2)
+
+ld_i8_block     = ld_i8_block.delete_pass().make_instr(_gemm_ld_i8_block)
+ld_i8_block_id1 = ld_i8_block_id1.delete_pass().make_instr(_gemm_ld_i8_block_id1)
+ld_i8_block_id2 = ld_i8_block_id2.delete_pass().make_instr(_gemm_ld_i8_block_id2)
+
+
 
 
 
