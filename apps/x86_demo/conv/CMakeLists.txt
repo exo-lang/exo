@@ -17,7 +17,7 @@ target_link_libraries(
 )
 target_compile_features(bench_conv PRIVATE cxx_std_17)
 
-add_executable(test_conv test_conv.cpp)
+add_executable(test_conv test_conv.cpp onednn_conv.cpp)
 target_link_libraries(
   test_conv
   PRIVATE
