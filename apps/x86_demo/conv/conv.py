@@ -19,7 +19,7 @@ def conv(
         batch_size: size,
         inp: f32[batch_size, in_h, in_w, in_channel],
         output: f32[batch_size, out_h, out_w, out_channel],
-        weights: f32[kernel_dim, kernel_dim, in_channel, out_channel],
+        weights: f32[in_channel, kernel_dim, kernel_dim, out_channel],
         bias: f32[out_channel],
 ):
     assert out_h == in_h - kernel_dim + 1
@@ -36,7 +36,7 @@ def conv(
                         for kcol in par(0, kernel_dim):
                             for kch in par(0, in_channel):
                                 # todo: add padding, stride
-                                res += (weights[krow, kcol, kch, och] *
+                                res += (weights[kch, krow, kcol, och] *
                                         inp[n, orow + krow, ocol + kcol, kch])
 
                     res = relu(res)

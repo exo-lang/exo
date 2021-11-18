@@ -34,6 +34,8 @@ int main() {
     return 1;
   }
 
+  int err_count = 0;
+
   auto n = ci_onednn.dst_data.size();
   for (int i = 0; i < n; ++i) {
     double expected = ci_onednn.dst_data[i];
@@ -45,6 +47,11 @@ int main() {
               "%.6f - "
               "expected = %.6f\n",
               i, relerr, actual, expected);
+      err_count++;
+    }
+    if (err_count > 100) {
+      fprintf(stderr, "Too many errors! Exiting early...\n");
+      return 1;
     }
   }
 }

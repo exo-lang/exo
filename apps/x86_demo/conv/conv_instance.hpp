@@ -23,15 +23,6 @@ struct conv_instance {
       OH,        // output height
       OW;        // output width
 
-  const std::vector<long> src_dims;
-  const std::vector<long> weights_dims;
-  const std::vector<long> bias_dims;
-  const std::vector<long> dst_dims;
-
-  const std::vector<long> strides_dims;
-  const std::vector<long> padding_dims_l;
-  const std::vector<long> padding_dims_r;
-
   std::vector<float> src_data;
   std::vector<float> weights_data;
   std::vector<float> bias_data;
@@ -54,17 +45,10 @@ struct conv_instance {
         SW(stride),
         OH((IH - KH + PH_L + PH_R) / SH + 1),
         OW((IW - KW + PW_L + PW_R) / SW + 1),
-        src_dims({N, IC, IH, IW}),
-        weights_dims({OC, IC, KH, KW}),
-        bias_dims({OC}),
-        dst_dims({N, OC, OH, OW}),
-        strides_dims({SH, SW}),
-        padding_dims_l({PH_L, PW_L}),
-        padding_dims_r({PH_R, PW_R}),
-        src_data(product(src_dims)),
-        weights_data(product(weights_dims)),
-        bias_data(product(bias_dims)),
-        dst_data(product(dst_dims)) {
+        src_data(N * IC * IH * IW),
+        weights_data(OC * IC * KH * KW),
+        bias_data(OC),
+        dst_data(N * OC * OH * OW) {
     // Initialize src, weights, and dst tensors.
     std::generate(src_data.begin(), src_data.end(),
                   [i = 0.0f]() mutable { return std::cos(i++ / 10.f); });

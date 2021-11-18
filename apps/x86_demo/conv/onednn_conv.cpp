@@ -5,6 +5,7 @@
 #include "onednn_conv.hpp"
 
 #include <cassert>
+#include <iostream>
 
 using namespace dnnl;
 using tag = memory::format_tag;
@@ -52,24 +53,43 @@ inline void write_to_dnnl_memory(void *handle, dnnl::memory &mem) {
   }
 }
 
+void print_vec(const std::vector<long> &vec) {
+  for (auto i : vec) {
+    std::cout << i << ", ";
+  }
+  std::cout << "\n";
+}
+
 OneDNN_Conv::OneDNN_Conv(conv_instance &ci) : ci(ci) {
+  // OneDNN expects dimension arguments in the following order, REGARDLESS
+  // of the actual memory layout.
+
+  memory::dims src_dims = {ci.N, ci.IC, ci.IH, ci.IW};
+  memory::dims weights_dims = {ci.OC, ci.IC, ci.KH, ci.KW};
+  memory::dims dst_dims = {ci.N, ci.OC, ci.OH, ci.OW};
+  memory::dims bias_dims = {ci.OC};
+
+  memory::dims strides_dims = {ci.SH, ci.SW};
+  memory::dims padding_dims_l = {ci.PH_L, ci.PW_L};
+  memory::dims padding_dims_r = {ci.PH_R, ci.PW_R};
+
   // Create memory objects for tensor data (src, weights, dst). In this
-  // example, NHWC layout is assumed for src and dst, and HWIO for
+  // example, NHWC layout is assumed for src and dst, and IHWO for
   // weights.
-  auto user_src_mem = memory({ci.src_dims, dt::f32, tag::nhwc}, engine);
-  auto user_weights_mem = memory({ci.weights_dims, dt::f32, tag::hwio}, engine);
-  user_dst_mem = memory({ci.dst_dims, dt::f32, tag::nhwc}, engine);
+  auto user_src_mem = memory({src_dims, dt::f32, tag::nhwc}, engine);
+  auto user_weights_mem = memory({weights_dims, dt::f32, tag::ihwo}, engine);
+  user_dst_mem = memory({dst_dims, dt::f32, tag::nhwc}, engine);
 
   // Create memory descriptors with format_tag::any for the primitive.
   // This enables the convolution primitive to choose memory layouts for
   // an optimized primitive implementation, and these layouts may differ
   // from the ones provided by the user.
-  auto conv_src_md = memory::desc(ci.src_dims, dt::f32, tag::any);
-  auto conv_weights_md = memory::desc(ci.weights_dims, dt::f32, tag::any);
-  auto conv_dst_md = memory::desc(ci.dst_dims, dt::f32, tag::any);
+  auto conv_src_md = memory::desc(src_dims, dt::f32, tag::any);
+  auto conv_weights_md = memory::desc(weights_dims, dt::f32, tag::any);
+  auto conv_dst_md = memory::desc(dst_dims, dt::f32, tag::any);
 
   // Create memory descriptor and memory object for input bias.
-  auto user_bias_md = memory::desc(ci.bias_dims, dt::f32, tag::a);
+  auto user_bias_md = memory::desc(bias_dims, dt::f32, tag::a);
   auto user_bias_mem = memory(user_bias_md, engine);
 
   // Write data to memory object's handle.
@@ -80,8 +100,8 @@ OneDNN_Conv::OneDNN_Conv(conv_instance &ci) : ci(ci) {
   // Create operation descriptor.
   auto conv_desc = convolution_forward::desc(
       prop_kind::forward_training, algorithm::convolution_direct, conv_src_md,
-      conv_weights_md, user_bias_md, conv_dst_md, ci.strides_dims,
-      ci.padding_dims_l, ci.padding_dims_r);
+      conv_weights_md, user_bias_md, conv_dst_md, strides_dims, padding_dims_l,
+      padding_dims_r);
 
   // Create primitive post-ops (ReLU).
   const float scale = 1.f;
