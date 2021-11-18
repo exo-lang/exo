@@ -698,39 +698,42 @@ def do_ld_acc_i32(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
-_gemm_config_ld_acc_i32_vector = ("gemmini_extended3_config_ld(4, 1.0f, 0, 0);\n")
+_gemm_config_ld_acc_i32_vector = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n")
 @instr(_gemm_config_ld_acc_i32_vector)
 def config_ld_acc_i32_vector(
     stride_set : bool
 ):
     ConfigLoadAcc.stride_set = stride_set
 
-_gemm_ld_acc_i32_vec   = ("gemmini_extended3_config_ld(4, 1.0f, 0, 0);\n"+
-                          "gemmini_extended_mvin( ((uint64_t) &{src_data}), "+
-                               "((uint32_t) &{dst_data}), 16, 1 );")
+_gemm_ld_acc_i32_vec   = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
+                          "gemmini_extended_mvin( ((uint64_t) &{src_data}), ((uint32_t) &{dst_data}), 16, {n} );")
 @instr(_gemm_ld_acc_i32_vec)
 def ld_acc_i32_vector(
-    src   : [i32][16] @ DRAM,
-    dst   : [i32][16] @ GEMM_ACCUM,
+    n     : size,
+    src   : [i32][1, 16] @ DRAM,
+    dst   : [i32][n, 16] @ GEMM_ACCUM,
 ):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
     pass
-    for i in par(0, 16):
-        dst[i] = src[i]
+    for i in par(0, n):
+        for j in par(0, 16):
+            dst[i,j] = src[0, j]
 
-_do_gemm_ld_acc_i32_vec   = ("gemmini_extended_mvin( ((uint64_t) &{src_data}), ((uint32_t) &{dst_data}), 16, 1 );")
+_do_gemm_ld_acc_i32_vec   = ("gemmini_extended_mvin( ((uint64_t) &{src_data}), ((uint32_t) &{dst_data}), 16, {n} );")
 @instr(_do_gemm_ld_acc_i32_vec)
 def do_ld_acc_i32_vector(
-    src   : [i32][16] @ DRAM,
-    dst   : [i32][16] @ GEMM_ACCUM,
+    n     : size,
+    src   : [i32][1, 16] @ DRAM,
+    dst   : [i32][n, 16] @ GEMM_ACCUM,
 ):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
-    for i in par(0, 16):
-        dst[i] = src[i]
+    for i in par(0, n):
+        for j in par(0, 16):
+            dst[i,j] = src[0, j]
 
 ld_acc_i32_vector_v2 = ld_acc_i32_vector.rename("ld_acc_i32_vector_v2")
 ld_acc_i32_vector_v2 = ld_acc_i32_vector_v2.configwrite_after('pass', ConfigLoadAcc, 'stride_set', 'True')

@@ -1171,6 +1171,53 @@ class _DoLiftIf(LoopIR_Rewrite):
 
 
 
+class _DoExpandDim(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, alloc_dim, indexing):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+        assert isinstance(alloc_dim, LoopIR.expr)
+        assert isinstance(indexing, LoopIR.expr)
+
+        self.orig_proc    = proc
+        self.alloc_stmt   = alloc_stmt
+        self.alloc_sym    = alloc_stmt.name
+        self.alloc_dim    = alloc_dim
+        self.indexing     = indexing
+        self.alloc_type   = None
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.alloc_stmt:
+            new_typ = s.type
+            new_rngs = [self.alloc_dim]
+
+            if isinstance(new_typ, T.Tensor):
+                new_rngs += new_typ.shape()
+
+            new_typ = new_typ.basetype()
+            new_typ = T.Tensor(new_rngs, False, new_typ)
+            self.alloc_type = new_typ
+
+            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
+            idx = [self.indexing] + e.idx
+            return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
+
+        if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
+            idx = [LoopIR.Point(self.indexing, e.srcinfo)] + e.idx
+            win_typ = T.Window(self.alloc_type, e.type.as_tensor, e.name, idx)
+            return LoopIR.WindowExpr(e.name, idx, win_typ, e.srcinfo)
+
+        # fall-through
+        return super().map_e(e)
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -2425,3 +2472,4 @@ class Schedules:
     DoAddIfElse = _DoAddIfElse
     DoAddUnsafeGuard = _DoAddUnsafeGuard
     DoDeleteConfig = _DoDeleteConfig
+    DoExpandDim    = _DoExpandDim

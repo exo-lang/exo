@@ -507,6 +507,24 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def expand_dim(self, stmt_pat, alloc_dim_pat, indexing_pat):
+        if not isinstance(stmt_pat, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(alloc_dim_pat, str):
+            raise TypeError("expected second arg to be a string")
+        if not isinstance(indexing_pat, str):
+            raise TypeError("expected second arg to be a string")
+
+        stmts_len = len(self._find_stmt(stmt_pat, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(stmt_pat, body=loopir.body, default_match_no=None)[i]
+            alloc_dim = parse_fragment(loopir, alloc_dim_pat, s)
+            indexing  = parse_fragment(loopir, indexing_pat, s)
+            loopir = Schedules.DoExpandDim(loopir, s, alloc_dim, indexing).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
     def add_unsafe_guard(self, stmt_pat, var_pattern):
         if not isinstance(stmt_pat, str):
             raise TypeError("expected first arg to be a string")
