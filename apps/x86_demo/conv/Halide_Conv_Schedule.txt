@@ -1,0 +1,32 @@
+produce relu:
+  parallel c.co in [0, 1]:
+    parallel n in [0, 4]:
+      parallel y in [0, 79]:
+        for x.xo in [0, 19]:
+          produce conv:
+            unrolled x:
+              unrolled c.c in [0, 3]:
+                vectorized c.v4 in [0, 15]:
+                  conv(...) = ...
+            for k in [0, 2]:
+              for k in [0, 2]:
+                for k.k in [0, 63]: // kc - input channels
+                  produce filter_im_global_wrapper:
+                    unrolled _3: // 2-unrolled kc
+                      unrolled _0._0 in [0, 3]: // oc - output channels (split)
+                        vectorized _0.v15 in [0, 15]:
+                          filter_im_global_wrapper(...) = ...
+                  consume filter_im_global_wrapper:
+                    unrolled k.r68 in [0, 1]: // 2-unrolled kc
+                      unrolled x:
+                        produce input_im_global_wrapper:
+                          input_im_global_wrapper(...) = ...
+                        consume input_im_global_wrapper:
+                          unrolled c.c in [0, 3]:
+                            vectorized c.v8 in [0, 15]:
+                              conv(...) = ...
+          consume conv:
+            unrolled x.xi in [0, 4]:
+              unrolled c.ci.ci in [0, 3]:
+                vectorized c.ci.v3 in [0, 15]:
+                  relu(...) = ...
