@@ -227,17 +227,10 @@ def inline_vector(conv):
     return conv
 
 def inline_ld_id1(conv):
-    conv = conv.call_eqv(ld_i8_id1_s2_v2, "ld_i8(_)")
-    conv = conv.inline("ld_i8_id1_s2_v2(_)")
+    conv = conv.call_eqv(ld_i8_block_id1_s2_v2, "ld_i8_block_id1(_)")
+    conv = conv.inline("ld_i8_block_id1_s2_v2(_)")
     conv = conv.inline_window("src = weights[_]")
     conv = conv.inline_window("dst = w_s[_]")
-    return conv
-
-def inline_ld_id2(conv):
-    conv = conv.call_eqv(ld_i8_id2_s2_v2, "ld_i8(_)")
-    conv = conv.inline("ld_i8_id2_s2_v2(_)")
-    conv = conv.inline_window("src = inp[_]")
-    conv = conv.inline_window("dst = i_s[_]")
     return conv
 
 def inline_matmul(conv):
@@ -478,16 +471,46 @@ ld_i8_block_id1_v2 = ld_i8_block_id1_v2.replace(do_ld_i8_block_id1, 'for i in _:
 ld_i8_block_id1_v2 = ld_i8_block_id1_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
 ld_i8_block_id1_v2 = ld_i8_block_id1_v2.delete_pass().make_instr(_gemm_ld_i8_block_id1)
 
+ld_i8_block_id1_s2_v2 = ld_i8_block_id1.rename("ld_i8_block_id1_s2_v2")
+ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 2)')
+ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.replace(do_ld_i8_block_id1, 'for i in _:_')
+ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
+ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.delete_pass().make_instr(_gemm_ld_i8_block_id1)
+
 ld_i8_block_id2_v2 = ld_i8_block_id2.rename("ld_i8_block_id2_v2")
 ld_i8_block_id2_v2 = ld_i8_block_id2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 0)')
 ld_i8_block_id2_v2 = ld_i8_block_id2_v2.replace(do_ld_i8_block_id2, 'for i in _:_')
 ld_i8_block_id2_v2 = ld_i8_block_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
 ld_i8_block_id2_v2 = ld_i8_block_id2_v2.delete_pass().make_instr(_gemm_ld_i8_block_id2)
 
+ld_i8_block_id2_s2_v2 = ld_i8_block_id2.rename("ld_i8_block_id2_s2_v2")
+ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 2)')
+ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.replace(do_ld_i8_block_id2, 'for i in _:_')
+ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
+ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.delete_pass().make_instr(_gemm_ld_i8_block_id2)
+
 ld_i8_block     = ld_i8_block.delete_pass().make_instr(_gemm_ld_i8_block)
 ld_i8_block_id1 = ld_i8_block_id1.delete_pass().make_instr(_gemm_ld_i8_block_id1)
 ld_i8_block_id2 = ld_i8_block_id2.delete_pass().make_instr(_gemm_ld_i8_block_id2)
 
+
+_gemm_zero_block_id2 = ("gemmini_extended4_config_ld(0, 1.0f, 0, {n}, 2);\n"+
+                        "gemmini_extended_mvin3( 0, ((uint64_t) &{dst_data}), 16*{m}, {n} );")
+@instr(_gemm_zero_block_id2)
+def zero_block_id2(
+    n     : size,
+    m     : size,
+    dst   : [i8][m, n, 16] @ GEMM_SCRATCH,
+):
+    assert n <= 16
+    assert m <= 4
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+
+    for i in par(0, n):
+        for j in par(0, m):
+            for k in par(0, 16):
+                dst[j,i,k] = 0.0
 
 
 

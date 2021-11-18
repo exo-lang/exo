@@ -507,6 +507,20 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def add_unsafe_guard(self, stmt_pat, var_pattern):
+        if not isinstance(stmt_pat, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(var_pattern, str):
+            raise TypeError("expected second arg to be a string")
+
+        stmt = self._find_stmt(stmt_pat)
+        loopir = self._loopir_proc
+        var_expr = parse_fragment(loopir, var_pattern, stmt)
+
+        loopir = Schedules.DoAddUnsafeGuard(loopir, stmt, var_expr).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
     def add_ifelse(self, stmt_pat, var_pattern):
         if not isinstance(stmt_pat, str):
             raise TypeError("expected first arg to be a string")
