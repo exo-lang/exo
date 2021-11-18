@@ -67,7 +67,7 @@ class ConvolutionLayer : public Halide::Generator<ConvolutionLayer> {
     int tile_h = 5;
     const int vec = natural_vector_size<float>();
 
-    Var co, ci, xo, xi, yo, yi, t;
+    Var co{"co"}, ci{"ci"}, xo{"xo"}, xi{"xi"}, yo{"yo"}, yi{"yi"}, t{"t"};
     relu.split(c, co, ci, vec * tile_w)
         .split(x, xo, xi, tile_h)
         .reorder(ci, xi, xo, y, n, co)
@@ -91,6 +91,8 @@ class ConvolutionLayer : public Halide::Generator<ConvolutionLayer> {
         .unroll(r.x, 2);
     filter.in().compute_at(conv, r.x).vectorize(_0, vec).unroll(_0).unroll(_3);
     input.in().compute_at(conv, x).unroll(_0);
+
+    relu.print_loop_nest();
   }
 };
 

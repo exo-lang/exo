@@ -10,11 +10,10 @@ def conv(
         out_h: size,
         out_w: size,
         out_channel: size,
-        kernel_dim: size,
-        in_channel: size,
         in_h: size,
         in_w: size,
-        scale: f32,
+        in_channel: size,
+        kernel_dim: size,
         # act: bool,
         batch_size: size,
         inp: f32[batch_size, in_h, in_w, in_channel],
@@ -40,4 +39,14 @@ def conv(
                                         inp[n, orow + krow, ocol + kcol, kch])
 
                     res = relu(res)
-                    output[n, orow, ocol, och] = res * scale
+                    output[n, orow, ocol, och] = res
+
+
+conv_specialized = (
+    conv
+        .rename('conv_specialized')
+        .partial_eval(80, 100, 128, 3, 128, 82, 102)
+)
+
+if __name__ == '__main__':
+    print(conv.c_code_str())
