@@ -8,11 +8,10 @@
 #include <cassert>
 #include <cmath>
 #include <numeric>
-#include <oneapi/dnnl/dnnl.hpp>
 #include <vector>
 
-#include "conv.h"
 #include "onednn_conv.hpp"
+#include "sys_atl_conv.hpp"
 
 void conv_oneDNN(benchmark::State &state) {
   const long                        // Benchmark inputs.
@@ -56,16 +55,8 @@ void conv_SYS_ATL(benchmark::State &state) {
   conv_instance ci{batch_size, in_h,    in_w, in_chan,
                    out_chan,   kern_sz, pad,  stride};
 
-  assert(ci.IW == ci.IH);
-  assert(ci.OW == ci.OH);
-  assert(ci.KW == ci.KH);
-
-  float scale = 1.0f;
-
   for ([[maybe_unused]] auto _ : state) {
-    conv(nullptr, (int)ci.OH, (int)ci.OW, (int)ci.OC, (int)ci.KW, (int)ci.IC,
-         (int)ci.IH, (int)ci.IW, &scale, (int)batch_size, ci.src_data.data(),
-         ci.dst_data.data(), ci.weights_data.data(), ci.bias_data.data());
+    conv_SYS_ATL(ci);
   }
 }
 

@@ -4,21 +4,9 @@
 #include <numeric>
 #include <vector>
 
-#include "conv.h"
 #include "conv_instance.hpp"
 #include "onednn_conv.hpp"
-
-void conv_SYS_ATL(conv_instance &ci) {
-  assert(ci.IW == ci.IH);
-  assert(ci.OW == ci.OH);
-  assert(ci.KW == ci.KH);
-
-  float scale = 1.0f;
-
-  conv(nullptr, (int)ci.OH, (int)ci.OW, (int)ci.OC, (int)ci.KW, (int)ci.IC,
-       (int)ci.IH, (int)ci.IW, &scale, (int)ci.N, ci.src_data.data(),
-       ci.dst_data.data(), ci.weights_data.data(), ci.bias_data.data());
-}
+#include "sys_atl_conv.hpp"
 
 int main() {
   conv_instance ci_onednn{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
