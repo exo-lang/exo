@@ -7,27 +7,16 @@
 #include "conv_instance.hpp"
 #include "onednn_conv.hpp"
 #include "sys_atl_conv.hpp"
+#include "halide_conv.hpp"
 
-int main() {
-  conv_instance ci_onednn{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
-  conv_instance ci_sys_atl{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
-
-  OneDNN_Conv reference{ci_onednn};
-  reference.run();
-
-  conv_SYS_ATL(ci_sys_atl);
-
-  if (ci_onednn.dst_data.size() != ci_sys_atl.dst_data.size()) {
-    fprintf(stderr, "Sizes do not match!\n");
-    return 1;
-  }
-
+void check_output(const std::vector<float> &expected_vec,
+                  const std::vector<float> &actual_vec) {
   int err_count = 0;
 
-  auto n = ci_onednn.dst_data.size();
+  auto n = expected_vec.size();
   for (int i = 0; i < n; ++i) {
-    double expected = ci_onednn.dst_data[i];
-    double actual = ci_sys_atl.dst_data[i];
+    double expected = expected_vec[i];
+    double actual = actual_vec[i];
     double relerr = fabs((actual - expected) / expected);
     if (relerr > 1e-1) {
       fprintf(stderr,
@@ -37,9 +26,29 @@ int main() {
               i, relerr, actual, expected);
       err_count++;
     }
-    if (err_count > 100) {
+    if (err_count > 20) {
       fprintf(stderr, "Too many errors! Exiting early...\n");
-      return 1;
+      return;
     }
   }
+}
+
+int main() {
+  conv_instance ci_onednn{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
+  conv_instance ci_sys_atl{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
+  conv_instance ci_halide{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
+
+  printf("Running OneDNN...\n");
+  OneDNN_Conv reference{ci_onednn};
+  reference.run();
+
+  printf("Running SYS_ATL...\n");
+  conv_SYS_ATL(ci_sys_atl);
+  printf("Checking SYS_ATL...\n");
+  check_output(ci_onednn.dst_data, ci_sys_atl.dst_data);
+
+  printf("Running Halide...\n");
+  halide_conv(ci_halide);
+  printf("Checking Halide...\n");
+  check_output(ci_onednn.dst_data, ci_halide.dst_data);
 }
