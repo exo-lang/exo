@@ -14,7 +14,7 @@ from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
-from .memory import Memory, DRAM
+from .memory import Memory
 from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern, get_match_no
 from .prelude import *
@@ -885,7 +885,8 @@ class Procedure(ProcedureBase):
         matches = match_pattern(body, expr_pattern, call_depth=1)
 
         if not matches:
-            raise TypeError("failed to find expression")
+            raise SchedulingError("failed to find expression",
+                                  pattern=expr_pattern)
 
         if any(not isinstance(m, LoopIR.expr) for m in matches):
             raise TypeError("pattern matched, but not to an expression")

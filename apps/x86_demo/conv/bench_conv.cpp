@@ -78,7 +78,7 @@ void conv_SYS_ATL(benchmark::State &state) {
 }
 
 BENCHMARK(conv_SYS_ATL)  // N in-dim in-chan out-chan kern-dim pad str
-    ->Args({4, 56, 56, 64, 64, 3, 0, 1})             // test size
+                         //    ->Args({4, 56, 56, 64, 64, 3, 0, 1}) // test size
     ->Args({5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1})  // Halide size
     ;
 

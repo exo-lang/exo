@@ -20,11 +20,14 @@ class ConvolutionLayer : public Halide::Generator<ConvolutionLayer> {
     Var x("x"), y("y"), c("c"), n("n");
 
     Func conv("conv");
-    RDom r(0, CI, 0, 3, 0, 3);
+    RDom r({{0, CI}, {0, 3}, {0, 3}}, "k");
+
+    RVar kc = r.x;
+    RVar kx = r.y;
+    RVar ky = r.z;
 
     conv(c, x, y, n) = bias(c);
-    conv(c, x, y, n) +=
-        filter(c, r.y, r.z, r.x) * input(r.x, x + r.y, y + r.z, n);
+    conv(c, x, y, n) += filter(c, kx, ky, kc) * input(kc, x + kx, y + ky, n);
 
     relu(c, x, y, n) = max(0, conv(c, x, y, n));
 
@@ -83,13 +86,13 @@ class ConvolutionLayer : public Halide::Generator<ConvolutionLayer> {
         .unroll(x)
         .unroll(y)
         .update()
-        .reorder(c, x, y, r.x, r.y, r.z, n)
+        .reorder(c, x, y, kc, kx, ky, n)
         .vectorize(c, vec)
         .unroll(c)
         .unroll(x)
         .unroll(y)
-        .unroll(r.x, 2);
-    filter.in().compute_at(conv, r.x).vectorize(_0, vec).unroll(_0).unroll(_3);
+        .unroll(kc, 2);
+    filter.in().compute_at(conv, kc).vectorize(_0, vec).unroll(_0).unroll(_3);
     input.in().compute_at(conv, x).unroll(_0);
 
     relu.print_loop_nest();
