@@ -25,6 +25,10 @@ from .typecheck import TypeChecker
 # --------------------------------------------------------------------------- #
 #   proc provenance tracking
 
+# Moved to new file
+from .proc_eqv import (decl_new_proc, derive_proc,
+                       assert_eqv_proc, check_eqv_proc)
+
 # every LoopIR.proc is either a root (not in this dictionary)
 # or there is some other LoopIR.proc which is its root
 _proc_root = WeakKeyDictionary()
@@ -136,18 +140,14 @@ class Procedure(ProcedureBase):
                 self._loopir_proc = InferEffects(self._loopir_proc).result()
                 CheckEffects(self._loopir_proc)
 
-        # find the root provenance
-        parent = _provenance_eq_Procedure
-        if parent is None:
-            pass # this is a new root; done
-        else:
-            parent = parent._loopir_proc
-            # if the provenance Procedure is not a root, find its root
-            if parent in _proc_root:
-                parent = _proc_root[parent]
-            assert parent not in _proc_root
-            # and then set this new proc's root
-            _proc_root[self._loopir_proc] = parent
+
+        # add this procedure into the equivalence tracking mechanism
+        if _testing != "UAST":
+            if _provenance_eq_Procedure:
+                derive_proc(_provenance_eq_Procedure._loopir_proc,
+                            self._loopir_proc)
+            else:
+                decl_new_proc(self._loopir_proc)
 
     def __str__(self):
         if hasattr(self,'_loopir_proc'):
@@ -270,7 +270,7 @@ class Procedure(ProcedureBase):
     def unsafe_assert_eq(self, other_proc):
         if not isinstance(other_proc, Procedure):
             raise TypeError("expected a procedure as argument")
-        _proc_prov_unify(self._loopir_proc, other_proc._loopir_proc)
+        assert_eqv_proc(self._loopir_proc, other_proc._loopir_proc)
         return self
 
     def partial_eval(self, *args):
@@ -701,14 +701,16 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def is_eq(self, proc):
-        return _proc_prov_eq(self._loopir_proc, proc._loopir_proc)
+        eqv_set = check_eqv_proc(self._loopir_proc, proc._loopir_proc)
+        return (eqv_set == frozenset())
 
     def call_eqv(self, other_Procedure, call_site_pattern):
         call_stmt = self._find_callsite(call_site_pattern)
 
         old_proc    = call_stmt.f
         new_proc    = other_Procedure._loopir_proc
-        if not _proc_prov_eq(old_proc, new_proc):
+        eqv_set     = check_eqv_proc(old_proc, new_proc)
+        if eqv_set != frozenset():
             raise TypeError("the procedures were not equivalent")
 
         loopir      = self._loopir_proc
