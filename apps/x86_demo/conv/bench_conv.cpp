@@ -60,7 +60,8 @@ void conv_SYS_ATL(benchmark::State &state) {
   float scale = 1.0f;
 
   for ([[maybe_unused]] auto _ : state) {
-    conv(nullptr, (int)ci.OW, (int)ci.OC, (int)ci.KW, (int)ci.IC, (int)ci.IW,
+    conv(nullptr, (int)ci.OH, (int)ci.OW, (int)ci.OC, (int)ci.KW, (int)ci.IC,
+    (int)ci.IH, (int)ci.IW,
          &scale, (int)batch_size, ci.src_data.data(), ci.dst_data.data(),
          ci.weights_data.data(), ci.bias_data.data());
   }
