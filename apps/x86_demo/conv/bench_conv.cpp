@@ -24,7 +24,8 @@ void conv_oneDNN(benchmark::State &state) {
       pad = state.range(5),         // e.g. 3
       stride = state.range(6);      // e.g. 2
 
-  conv_instance ci{batch_size, in_dim, in_chan, out_chan, kern_sz, pad, stride};
+  conv_instance ci{batch_size, in_dim, in_dim, in_chan, out_chan, kern_sz, pad,
+  stride};
 
   OneDNN_Conv reference{ci};
   for ([[maybe_unused]] auto _ : state) {
@@ -50,7 +51,7 @@ void conv_SYS_ATL(benchmark::State &state) {
       pad = state.range(5),         // e.g. 3
       stride = state.range(6);      // e.g. 2
 
-  conv_instance ci{batch_size, in_dim, in_chan, out_chan, kern_sz, pad, stride};
+  conv_instance ci{batch_size, in_dim, in_dim, in_chan, out_chan, kern_sz, pad, stride};
 
   assert(ci.IW == ci.IH);
   assert(ci.OW == ci.OH);

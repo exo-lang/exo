@@ -21,8 +21,8 @@ void conv_SYS_ATL(conv_instance &ci) {
 }
 
 int main() {
-  conv_instance ci_onednn{5, 100, 128, 128, 3, 0, 1};
-  conv_instance ci_sys_atl{5, 100, 128, 128, 3, 0, 1};
+  conv_instance ci_onednn{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
+  conv_instance ci_sys_atl{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
 
   OneDNN_Conv reference{ci_onednn};
   reference.run();

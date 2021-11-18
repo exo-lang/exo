@@ -37,12 +37,12 @@ struct conv_instance {
   std::vector<float> bias_data;
   std::vector<float> dst_data;
 
-  conv_instance(long batch_size, long in_dim, long in_chan, long out_chan,
-                long kern_sz, long pad, long stride)
+  conv_instance(long batch_size, long in_h, long in_w, long in_chan,
+                long out_chan, long kern_sz, long pad, long stride)
       : N(batch_size),
         IC(in_chan),
-        IH(in_dim),
-        IW(in_dim),
+        IH(in_h),
+        IW(in_w),
         OC(out_chan),
         KH(kern_sz),
         KW(kern_sz),
