@@ -109,7 +109,8 @@ def assert_eqv_proc(proc1, proc2, config_set=frozenset()):
 def check_eqv_proc(proc1,proc2):
     return _EqvManager.check_eqv(proc1,proc2)
 
-def get_representative(proc):
-    pass
+def get_repr_proc(proc, config_set=frozenset()):
+    node = _EqvManager.find(proc, config_set)
+    return node.proc
 
 

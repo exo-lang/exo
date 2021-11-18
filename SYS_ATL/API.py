@@ -29,31 +29,6 @@ from .typecheck import TypeChecker
 from .proc_eqv import (decl_new_proc, derive_proc,
                        assert_eqv_proc, check_eqv_proc)
 
-# every LoopIR.proc is either a root (not in this dictionary)
-# or there is some other LoopIR.proc which is its root
-_proc_root = WeakKeyDictionary()
-
-
-def _proc_prov_eq(lhs, rhs):
-    """ test whether two procs have the same provenance """
-    lhs = lhs if lhs not in _proc_root else _proc_root[lhs]
-    rhs = rhs if rhs not in _proc_root else _proc_root[rhs]
-    assert lhs not in _proc_root and rhs not in _proc_root
-    return lhs is rhs
-
-
-# TODO: This is a terrible hack that should be replaced by
-#       an actual Union Find data structure in the future
-def _proc_prov_unify(lhs, rhs):
-    # choose arbitrarily to reset the rhs root to refer to the lhs
-    overwrite_set = [p() for p in _proc_root.keyrefs()]
-    overwrite_set = [p for p in overwrite_set
-                     if p and _proc_root[p] is rhs]
-    for p in overwrite_set:
-        _proc_root[p] = lhs
-    _proc_root[rhs] = lhs
-
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Top-level decorator
