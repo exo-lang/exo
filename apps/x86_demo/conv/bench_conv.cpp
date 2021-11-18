@@ -10,9 +10,13 @@
 #include <numeric>
 #include <vector>
 
+#include "halide_conv.hpp"
 #include "onednn_conv.hpp"
 #include "sys_atl_conv.hpp"
-#include "halide_conv.hpp"
+
+static long num_fmas(conv_instance &ci) {
+  return ci.N * ci.OH * ci.OW * ci.OC * ci.KH * ci.KW * ci.IC;
+}
 
 void conv_oneDNN(benchmark::State &state) {
   const long                        // Benchmark inputs.
@@ -32,6 +36,12 @@ void conv_oneDNN(benchmark::State &state) {
   for ([[maybe_unused]] auto _ : state) {
     reference.run();
   }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations()) * num_fmas(ci),  //
+      benchmark::Counter::kIsRate,                             //
+      benchmark::Counter::kIs1000                              //
+  );
 }
 
 BENCHMARK(conv_oneDNN)  // N in-dim in-chan out-chan kern-dim pad str
@@ -59,6 +69,12 @@ void conv_SYS_ATL(benchmark::State &state) {
   for ([[maybe_unused]] auto _ : state) {
     sys_atl_conv(ci);
   }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations()) * num_fmas(ci),  //
+      benchmark::Counter::kIsRate,                             //
+      benchmark::Counter::kIs1000                              //
+  );
 }
 
 BENCHMARK(conv_SYS_ATL)  // N in-dim in-chan out-chan kern-dim pad str
@@ -83,6 +99,12 @@ void conv_Halide(benchmark::State &state) {
   for ([[maybe_unused]] auto _ : state) {
     halide_conv(ci);
   }
+
+  state.counters["flops"] = benchmark::Counter(
+      static_cast<double>(state.iterations()) * num_fmas(ci),  //
+      benchmark::Counter::kIsRate,                             //
+      benchmark::Counter::kIs1000                              //
+  );
 }
 
 BENCHMARK(conv_Halide)  // N in-dim in-chan out-chan kern-dim pad str

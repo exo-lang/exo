@@ -5,9 +5,9 @@
 #include <vector>
 
 #include "conv_instance.hpp"
+#include "halide_conv.hpp"
 #include "onednn_conv.hpp"
 #include "sys_atl_conv.hpp"
-#include "halide_conv.hpp"
 
 void check_output(const std::vector<float> &expected_vec,
                   const std::vector<float> &actual_vec) {
