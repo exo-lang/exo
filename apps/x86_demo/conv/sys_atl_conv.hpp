@@ -3,6 +3,6 @@
 
 #include "conv_instance.hpp"
 
-void conv_SYS_ATL(conv_instance &ci);
+void sys_atl_conv(conv_instance &ci);
 
 #endif

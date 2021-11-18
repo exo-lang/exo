@@ -12,6 +12,7 @@
 
 #include "onednn_conv.hpp"
 #include "sys_atl_conv.hpp"
+#include "halide_conv.hpp"
 
 void conv_oneDNN(benchmark::State &state) {
   const long                        // Benchmark inputs.
@@ -56,11 +57,34 @@ void conv_SYS_ATL(benchmark::State &state) {
                    out_chan,   kern_sz, pad,  stride};
 
   for ([[maybe_unused]] auto _ : state) {
-    conv_SYS_ATL(ci);
+    sys_atl_conv(ci);
   }
 }
 
 BENCHMARK(conv_SYS_ATL)  // N in-dim in-chan out-chan kern-dim pad str
     ->Args({4, 56, 56, 64, 64, 3, 0, 1})             // test size
+    ->Args({5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1})  // Halide size
+    ;
+
+void conv_Halide(benchmark::State &state) {
+  const long                        // Benchmark inputs.
+      batch_size = state.range(0),  // e.g. 4
+      in_h = state.range(1),        // e.g. 224
+      in_w = state.range(2),        // e.g. 224
+      in_chan = state.range(3),     // e.g. 3
+      out_chan = state.range(4),    // e.g. 64
+      kern_sz = state.range(5),     // e.g. 7
+      pad = state.range(6),         // e.g. 3
+      stride = state.range(7);      // e.g. 2
+
+  conv_instance ci{batch_size, in_h,    in_w, in_chan,
+                   out_chan,   kern_sz, pad,  stride};
+
+  for ([[maybe_unused]] auto _ : state) {
+    halide_conv(ci);
+  }
+}
+
+BENCHMARK(conv_Halide)  // N in-dim in-chan out-chan kern-dim pad str
     ->Args({5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1})  // Halide size
     ;

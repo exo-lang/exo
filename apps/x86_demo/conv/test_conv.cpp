@@ -43,7 +43,7 @@ int main() {
   reference.run();
 
   printf("Running SYS_ATL...\n");
-  conv_SYS_ATL(ci_sys_atl);
+  sys_atl_conv(ci_sys_atl);
   printf("Checking SYS_ATL...\n");
   check_output(ci_onednn.dst_data, ci_sys_atl.dst_data);
 
