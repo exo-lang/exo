@@ -21,11 +21,13 @@ void conv_SYS_ATL(conv_instance &ci) {
 }
 
 int main() {
-  conv_instance ci_onednn{4, 56, 64, 64, 3, 0, 1};
-  conv_instance ci_sys_atl{4, 56, 64, 64, 3, 0, 1};
+  conv_instance ci_onednn{5, 100, 128, 128, 3, 0, 1};
+  conv_instance ci_sys_atl{5, 100, 128, 128, 3, 0, 1};
 
   OneDNN_Conv reference{ci_onednn};
   reference.run();
+
+  return 0;
 
   conv_SYS_ATL(ci_sys_atl);
 
