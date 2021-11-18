@@ -25,19 +25,12 @@ target_compile_features(conv_impls PUBLIC cxx_std_17)
 # ---------------------------------------------------------------------------- #
 # Test harness
 
+# Benchmarking
 add_executable(bench_conv bench_conv.cpp)
-target_link_libraries(
-  bench_conv
-  PRIVATE
-  benchmark::benchmark_main
-  conv_impls
-)
+target_link_libraries(bench_conv PRIVATE benchmark::benchmark_main conv_impls)
 target_compile_features(bench_conv PRIVATE cxx_std_17)
 
+# Correctness test
 add_executable(test_conv test_conv.cpp)
-target_link_libraries(
-  test_conv
-  PRIVATE
-  conv_impls
-)
+target_link_libraries(test_conv PRIVATE conv_impls)
 target_compile_features(test_conv PRIVATE cxx_std_17)
