@@ -160,12 +160,6 @@ static void sgemm_micro_kernel_staged(const float *a, const float *b, float *c,
   case 6:
     sgemm_micro_kernel_staged_inner<6>(a, b, c, ldc, N, K);
     break;
-  case 7:
-    sgemm_micro_kernel_staged_inner<7>(a, b, c, ldc, N, K);
-    break;
-  case 8:
-    sgemm_micro_kernel_staged_inner<8>(a, b, c, ldc, N, K);
-    break;
   default:
     __builtin_unreachable();
   }

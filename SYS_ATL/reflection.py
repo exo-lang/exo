@@ -1,5 +1,70 @@
 from . import query_asts as QAST
 from .LoopIR import LoopIR, T
+from .prelude import *
+
+
+
+
+@extclass(QAST.Call)
+def __str__(self):
+    return f"{self.proc}(_)"
+del __str__
+
+@extclass(QAST.Alloc)
+def __str__(self):
+    return f"{self.name} : _"
+del __str__
+
+@extclass(QAST.WriteConfig)
+def __str__(self):
+    return f"{self.config.name()}.{self.field} = {str(self.rhs)}"
+del __str__
+
+@extclass(QAST.Assign)
+@extclass(QAST.Reduce)
+def __str__(self):
+    if len(self.idx) > 0:
+        return f"{self.name}[_] = {str(self.rhs)}"
+    else:
+        return f"{self.name} = {str(self.rhs)}"
+del __str__
+
+@extclass(QAST.For)
+def __str__(self):
+    return f"for {self.name} in par(0, {str(self.hi)}):_"
+del __str__
+
+@extclass(QAST.If)
+def __str__(self):
+    cond = str(self.cond)
+    return f"if {cond}:_"
+del __str__
+
+@extclass(QAST.Read)
+def __str__(self):
+    if len(self.idx) > 0:
+        return f"{self.name}[_]"
+    else:
+        return f"{self.name}"
+del __str__
+
+@extclass(QAST.Const)
+def __str__(self):
+    return f"{self.val}"
+del __str__
+
+@extclass(QAST.USub)
+def __str__(self):
+    return f"-{str(self.arg)}"
+del __str__
+
+@extclass(QAST.BinOp)
+def __str__(self):
+    lhs = str(self.lhs)
+    rhs = str(self.rhs)
+    return f"{lhs} {self.op} {rhs}"
+del __str__
+
 
 
 # --------------------------------------------------------------------------- #
@@ -68,7 +133,7 @@ class LoopIR_to_QAST:
     elif styp is LoopIR.Pass:
       return QAST.Pass()
     elif styp is LoopIR.If:
-      return QAST.If(self.map_expr(s.expr),
+      return QAST.If(self.map_expr(s.cond),
                      self.map_stmts(s.body),
                      self.map_stmts(s.orelse))
     elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
@@ -80,7 +145,7 @@ class LoopIR_to_QAST:
       name = self.bindname(s.name)
       return QAST.Alloc(name, self.map_type(s.type), s.mem)
     elif styp is LoopIR.Call:
-      return QAST.Call(s.f.name(), [ self.map_expr(a) for a in s.args ])
+      return QAST.Call(s.f.name, [ self.map_expr(a) for a in s.args ])
     elif styp is LoopIR.WindowStmt:
       name = self.bindname(s.name)
       return QAST.WindowStmt(name, self.map_expr(s.rhs))

@@ -124,24 +124,23 @@ class _DoReorderStmt(LoopIR_Rewrite):
     def map_stmts(self, stmts):
         new_stmts = []
 
-        for b in stmts:
-            for s in self.map_s(b):
-                if self.found_first:
-                    if s != self.s_stmt:
-                        raise SchedulingError("expected the second stmt to be "
-                                              "directly inside the first stmt")
-                    self.found_first = False
-                    continue #skip the second stmt because it's already reordered
+        for s in stmts:
+            if self.found_first:
+                if s != self.s_stmt:
+                    raise SchedulingError("expected the second stmt to be "
+                                          "directly inside the first stmt")
+                self.found_first = False
+                continue #skip the second stmt because it's already reordered
 
-                if s == self.f_stmt:
-                    self.found_first = True
-                    #TODO:...
-                    #self.check_commutes(self.f_stmt.eff, self.s_stmt.eff)
+            if s is self.f_stmt:
+                self.found_first = True
+                #TODO:...
+                #self.check_commutes(self.f_stmt.eff, self.s_stmt.eff)
 
-                    new_stmts.append(self.s_stmt)
-                    new_stmts.append(self.f_stmt)
-                else:
-                    new_stmts.append(s)
+                new_stmts += [self.s_stmt]
+                new_stmts += [self.f_stmt]
+            else:
+                new_stmts += self.map_s(s)
 
         return new_stmts
 
@@ -158,13 +157,13 @@ class _PartitionLoop(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        if s == self.stmt:
+        if s is self.stmt:
             assert isinstance(s, LoopIR.ForAll)
             if not isinstance(s.hi, LoopIR.Const):
                 raise SchedulingError("expected loop bound to be constant")
             if s.hi.val <= self.partition_by:
-                raise SchedulingError("expected loop bound to be larger than"+
-                                      " partitioning value")
+                raise SchedulingError("expected loop bound to be larger than "
+                                      "partitioning value")
 
             body        = self.map_stmts(s.body)
             first_loop  = LoopIR.ForAll(s.iter,
@@ -188,12 +187,12 @@ class _PartitionLoop(LoopIR_Rewrite):
 
     def map_e(self, e):
         if self.second:
-            if type(e) is LoopIR.Read and e.name == self.second_iter:
+            if type(e) == LoopIR.Read and e.name == self.second_iter:
                 assert e.type.is_indexable()
                 return LoopIR.BinOp("+", e, LoopIR.Const(self.partition_by, T.int, e.srcinfo), T.index, e.srcinfo)
 
         return super().map_e(e)
-    
+
 
 
 class _Reorder(LoopIR_Rewrite):
@@ -209,7 +208,7 @@ class _Reorder(LoopIR_Rewrite):
         super().__init__(proc)
 
     def map_s(self, s):
-        if s == self.stmt:
+        if s is self.stmt:
             # short-hands for sanity
             def boolop(op,lhs,rhs):
                 return LoopIR.BinOp(op,lhs,rhs,T.bool,s.srcinfo)
@@ -290,7 +289,7 @@ class _Split(LoopIR_Rewrite):
         return self._cut_tail_sub
 
     def map_s(self, s):
-        if s == self.split_loop:
+        if s is self.split_loop:
             # short-hands for sanity
             def boolop(op,lhs,rhs):
                 return LoopIR.BinOp(op,lhs,rhs,T.bool,s.srcinfo)
@@ -470,7 +469,7 @@ class _Unroll(LoopIR_Rewrite):
         super().__init__(proc)
 
     def map_s(self, s):
-        if s == self.unroll_loop:
+        if s is self.unroll_loop:
             # if isinstance(s, LoopIR.ForAll):
             #    # unroll this to loops!!
             #    if s.iter is self.unroll_var:
@@ -538,9 +537,10 @@ class _Inline(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        if s == self.call_stmt:
+        if s is self.call_stmt:
             # handle potential window expressions in call positions
-            win_binds   = []
+            win_binds = []
+
             def map_bind(nm, a):
                 if isinstance(a, LoopIR.WindowExpr):
                     stmt = LoopIR.WindowStmt(nm, a, eff_null(a.srcinfo),
@@ -552,22 +552,19 @@ class _Inline(LoopIR_Rewrite):
 
             # first, set-up a binding from sub-proc arguments
             # to supplied expressions at the call-site
-            call_bind   = { xd.name : map_bind(xd.name, a)
-                            for xd,a in zip(s.f.args,s.args) }
+            call_bind = {xd.name: map_bind(xd.name, a)
+                         for xd, a in zip(s.f.args, s.args)}
 
-
-            # whenever we copy code we need to alpha-rename for safety
-            body        = Alpha_Rename(s.f.body).result()
-
-            # then we will substitute the bindings for the call
-            body        = SubstArgs(body, call_bind).result()
+            # we will substitute the bindings for the call
+            body = SubstArgs(s.f.body, call_bind).result()
 
             # note that all sub-procedure assertions must be true
             # even if not asserted, or else this call being inlined
             # wouldn't have been valid to make in the first place
 
+            # whenever we copy code we need to alpha-rename for safety
             # the code to splice in at this point
-            return win_binds + body
+            return Alpha_Rename(win_binds + body).result()
 
         # fall-through
         return super().map_s(s)
@@ -589,29 +586,24 @@ class _Inline(LoopIR_Rewrite):
 
 class _PartialEval(LoopIR_Rewrite):
     def __init__(self, proc, arg_vals):
-        self.env = {}
-        arg_gap = len(proc.args) - len(arg_vals)
-        assert arg_gap >= 0
-        arg_vals = list(arg_vals) + [None for _ in range(arg_gap)]
+        assert arg_vals, "Don't call _PartialEval without any substitutions"
+        self.env = arg_vals
+
+        arg_types = {p.name: p.type for p in proc.args}
+
+        # Validate env:
+        for k, v in self.env.items():
+            if not arg_types[k].is_indexable():
+                raise SchedulingError("cannot partially evaluate "
+                                      "numeric (non-index) arguments")
+            if not isinstance(v, int):
+                raise SchedulingError("cannot partially evaluate "
+                                      "to a non-int value")
 
         self.orig_proc = proc
 
-        # bind values for partial evaluation
-        for v, a in zip(arg_vals, proc.args):
-            if v is None:
-                pass
-            elif a.type.is_indexable():
-                if isinstance(v, int):
-                    self.env[a.name] = v
-                else:
-                    raise SchedulingError("cannot partially evaluate "
-                                          "to a non-int value")
-            else:
-                raise SchedulingError("cannot partially evaluate "
-                                      "numeric (non-index) arguments")
-
-        args = [self.map_fnarg(a) for v, a in zip(arg_vals, proc.args)
-                if v is None]
+        args = [self.map_fnarg(a) for a in proc.args
+                if a.name not in self.env]
         preds = [self.map_e(p) for p in self.orig_proc.preds]
         body = self.map_stmts(self.orig_proc.body)
         eff = self.map_eff(self.orig_proc.eff)
@@ -771,7 +763,7 @@ class _CallSwap(LoopIR_Rewrite):
         super().__init__(proc)
 
     def map_s(self, s):
-        if s == self.call_stmt:
+        if s is self.call_stmt:
             return [ LoopIR.Call(self.new_subproc, s.args, None, s.srcinfo) ]
 
         # fall-through
@@ -800,7 +792,7 @@ class _InlineWindow(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        if s == self.win_stmt:
+        if s is self.win_stmt:
             return []
 
         return super().map_s(s)
@@ -829,9 +821,10 @@ class _InlineWindow(LoopIR_Rewrite):
                             new_idxs.append(ivl)
                         else:  # Point
                             p = LoopIR.Point(LoopIR.BinOp("+", w.lo, idxs[0].pt,
-                                                           T.index, w.srcinfo))
+                                                           T.index, w.srcinfo),
+                                             w.srcinfo)
                             new_idxs.append(p)
-                        idxs.pop()
+                        idxs = idxs[1:]
                     else:
                         new_idxs.append(w)
 
@@ -841,7 +834,7 @@ class _InlineWindow(LoopIR_Rewrite):
                                              old_typ.as_tensor,
                                              self.win_stmt.rhs.name,
                                              new_idxs)
-                            
+
 
                 return LoopIR.WindowExpr( self.win_stmt.rhs.name,
                                           new_idxs, new_type, e.srcinfo )
@@ -890,13 +883,12 @@ class _ConfigWriteAfter(LoopIR_Rewrite):
 
     def map_stmts(self, stmts):
         body = []
-        for b in stmts:
-            for s in self.map_s(b):
-                body.append(s)
-                if s == self.stmt:
-                    c_str = LoopIR.WriteConfig(self.config, self.field, self.expr,
-                                               None, s.srcinfo)
-                    body.append(c_str)
+        for s in stmts:
+            body += self.map_s(s)
+            if s is self.stmt:
+                c_str = LoopIR.WriteConfig(self.config, self.field, self.expr,
+                                           None, s.srcinfo)
+                body.append(c_str)
 
         return body
 
@@ -1113,7 +1105,7 @@ class _DoParToSeq(LoopIR_Rewrite):
         super().__init__(proc)
 
     def map_s(self, s):
-        if s == self.par_stmt:
+        if s is self.par_stmt:
             body = self.map_stmts(s.body)
             return [LoopIR.Seq(s.iter, s.hi, body, s.eff, s.srcinfo)]
         else:
@@ -1142,7 +1134,7 @@ class _DoLiftIf(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        if s == self.if_stmt:
+        if s is self.if_stmt:
             n_up = min(self.n_lifts, len(self.ctrl_ctxt))
             self.lift_sites = self.ctrl_ctxt[-n_up:]
 
@@ -1178,6 +1170,53 @@ class _DoLiftIf(LoopIR_Rewrite):
         return super().map_s(s)
 
 
+
+class _DoExpandDim(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, alloc_dim, indexing):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+        assert isinstance(alloc_dim, LoopIR.expr)
+        assert isinstance(indexing, LoopIR.expr)
+
+        self.orig_proc    = proc
+        self.alloc_stmt   = alloc_stmt
+        self.alloc_sym    = alloc_stmt.name
+        self.alloc_dim    = alloc_dim
+        self.indexing     = indexing
+        self.alloc_type   = None
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.alloc_stmt:
+            new_typ = s.type
+            new_rngs = [self.alloc_dim]
+
+            if isinstance(new_typ, T.Tensor):
+                new_rngs += new_typ.shape()
+
+            new_typ = new_typ.basetype()
+            new_typ = T.Tensor(new_rngs, False, new_typ)
+            self.alloc_type = new_typ
+
+            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
+            idx = [self.indexing] + e.idx
+            return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
+
+        if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
+            idx = [LoopIR.Point(self.indexing, e.srcinfo)] + e.idx
+            win_typ = T.Window(self.alloc_type, e.type.as_tensor, e.name, idx)
+            return LoopIR.WindowExpr(e.name, idx, win_typ, e.srcinfo)
+
+        # fall-through
+        return super().map_e(e)
 
 
 # --------------------------------------------------------------------------- #
@@ -1225,7 +1264,7 @@ class _LiftAlloc(LoopIR_Rewrite):
         assert False
 
     def map_s(self, s):
-        if s == self.alloc_stmt:
+        if s is self.alloc_stmt:
             # mark the point we want to lift this alloc-stmt to
             n_up = min(self.n_lifts, len(self.ctrl_ctxt))
             self.lift_site = self.ctrl_ctxt[-n_up]
@@ -1277,7 +1316,7 @@ class _LiftAlloc(LoopIR_Rewrite):
             self.ctrl_ctxt.pop()
 
             # splice in lifted statement at the point to lift-to
-            if s == self.lift_site:
+            if s is self.lift_site:
                 stmts = [self.lifted_stmt] + stmts
 
             return stmts
@@ -1285,7 +1324,7 @@ class _LiftAlloc(LoopIR_Rewrite):
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             # in this case, we may need to substitute the
             # buffer name on the lhs of the assignment/reduction
-            if s.name == self.alloc_sym:
+            if s.name is self.alloc_sym:
                 assert self.access_idxs is not None
                 idx = self.idx_mode(
                     [LoopIR.Read(i, [], T.index, s.srcinfo)
@@ -1572,10 +1611,10 @@ class _DoDoubleFission:
 
 
     def map_s(self, s):
-        if s == self.tgt_stmt1:
+        if s is self.tgt_stmt1:
             self.hit_fission1 = True
             return ([s],[],[])
-        elif s == self.tgt_stmt2:
+        elif s is self.tgt_stmt2:
             self.hit_fission2 = True
             return ([],[s],[])
 
@@ -1702,7 +1741,7 @@ class _FissionLoops:
 
     # see map_stmts comment
     def map_s(self, s):
-        if s == self.tgt_stmt:
+        if s is self.tgt_stmt:
             #assert self.hit_fission == False
             self.hit_fission = True
             # none-the-less make sure we return this statement in
@@ -1731,7 +1770,8 @@ class _FissionLoops:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
                 pre         = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
-                post        = LoopIR.If(s.cond, [], post, None, s.srcinfo)
+                post        = LoopIR.If(s.cond, [LoopIR.Pass(None, s.srcinfo)],
+                                                post, None, s.srcinfo)
                 return ([pre],[post])
 
             orelse = pre+post
@@ -1776,6 +1816,44 @@ class _FissionLoops:
         else:
             return ([single_stmt],[])
 
+
+class _DoAddUnsafeGuard(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, cond):
+        self.stmt = stmt
+        self.cond = cond
+        self.in_loop = False
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.stmt:
+            s1 = Alpha_Rename([s]).result()
+            return [LoopIR.If(self.cond, s1, [], None, s.srcinfo)]
+
+        return super().map_s(s)
+
+
+class _DoAddIfElse(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, cond):
+        self.stmt = stmt
+        self.cond = cond
+        self.in_loop = False
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.stmt:
+            s1 = Alpha_Rename([s]).result()
+            s2 = Alpha_Rename([s]).result()
+            return [LoopIR.If(self.cond, s1, s2, None, s.srcinfo)]
+
+        return super().map_s(s)
+
+
 class _DoAddGuard(LoopIR_Rewrite):
     def __init__(self, proc, stmt, itr_stmt, val):
         assert val == 0
@@ -1791,14 +1869,14 @@ class _DoAddGuard(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        if s == self.loop:
+        if s is self.loop:
             self.in_loop = True
             hi = self.map_e(s.hi)
             body = self.map_stmts(s.body)
             eff = self.map_eff(s.eff)
             self.in_loop = False
             return [type(s)( s.iter, hi, body, eff, s.srcinfo )]
-        if s == self.stmt:
+        if s is self.stmt:
             if not self.in_loop:
                 raise SchedulingError(f"statement is not inside the loop {self.itr}")
             if self.itr in _FV([s]):
@@ -1810,6 +1888,37 @@ class _DoAddGuard(LoopIR_Rewrite):
             cond = LoopIR.BinOp('==', LoopIR.Read(self.itr, [], T.index, s.srcinfo),
                                       LoopIR.Const(self.val, T.int, s.srcinfo), T.bool, s.srcinfo)
             return [LoopIR.If(cond, [s], [], None, s.srcinfo)]
+
+        return super().map_s(s)
+
+
+def _get_constant_bound(e):
+    if isinstance(e, LoopIR.BinOp) and e.op == '%':
+        return e.rhs
+    raise SchedulingError(f'Could not derive constant bound on {e}')
+
+
+class _DoBoundAndGuard(LoopIR_Rewrite):
+    def __init__(self, proc, loop):
+        self.loop = loop
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s == self.loop:
+            assert isinstance(s, LoopIR.ForAll)
+            bound = _get_constant_bound(s.hi)
+            guard = LoopIR.If(
+                LoopIR.BinOp('<',
+                             LoopIR.Read(s.iter, [], T.index, s.srcinfo),
+                             s.hi,
+                             T.bool,
+                             s.srcinfo),
+                s.body,
+                [],
+                None,
+                s.srcinfo
+            )
+            return [LoopIR.ForAll(s.iter, bound, [guard], None, s.srcinfo)]
 
         return super().map_s(s)
 
@@ -1833,7 +1942,7 @@ class _DoMergeGuard(LoopIR_Rewrite):
         for b in stmts:
             if self.found_first:
                 if b != self.stmt2:
-                    raise SchedulingError("expected the second stmt to be "+
+                    raise SchedulingError("expected the second stmt to be "
                                           "directly after the first stmt")
                 self.found_first = False
 
@@ -1841,7 +1950,7 @@ class _DoMergeGuard(LoopIR_Rewrite):
                 orelse = self.stmt1.orelse + self.stmt2.orelse
                 b = LoopIR.If(b.cond, body, orelse, None, b.srcinfo)
 
-            if b == self.stmt1:
+            if b is self.stmt1:
                 self.found_first = True
                 continue
 
@@ -1874,16 +1983,14 @@ class _DoFuseLoop(LoopIR_Rewrite):
                 # TODO: Is this enough??
                 # Check that loop is equivalent
                 if self.loop1.iter.name() != self.loop2.iter.name():
-                    raise SchedulingError("expected loop iteration variable " +
+                    raise SchedulingError("expected loop iteration variable "
                                           "to match")
-                # TODO: Handle more expressions!
-                if (not isinstance(self.loop1.hi, LoopIR.Const) or
-                        not isinstance(self.loop2.hi, LoopIR.Const)):
-                    raise SchedulingError("expected loop bound to be const " +
-                                          "for now!")
-                if self.loop1.hi.val != self.loop2.hi.val:
-                    raise SchedulingError("bound does not match!")
-                # TODO: Check sth about stmts?
+
+                # Structural match
+                if self.loop1.hi != self.loop2.hi:
+                    raise SchedulingError("Loop bounds do not match!")
+
+                # TODO: Check sth about stmts? Safe for Seq loops? etc. etc.
 
                 body1 = SubstArgs(
                     self.loop1.body,
@@ -1895,7 +2002,7 @@ class _DoFuseLoop(LoopIR_Rewrite):
                 b = type(self.loop1)(self.loop2.iter, self.loop2.hi, body, None,
                                      b.srcinfo)
 
-            if b == self.loop1:
+            if b is self.loop1:
                 self.found_first = True
                 continue
 
@@ -1903,7 +2010,7 @@ class _DoFuseLoop(LoopIR_Rewrite):
                 new_stmts.append(s)
 
         return new_stmts
-            
+
 
 class _DoAddLoop(LoopIR_Rewrite):
     def __init__(self, proc, stmt, var, hi):
@@ -1916,7 +2023,7 @@ class _DoAddLoop(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        if s == self.stmt:
+        if s is self.stmt:
             if not _is_idempotent([s]):
                 raise SchedulingError("expected stmt to be idempotent!")
 
@@ -1976,9 +2083,21 @@ class _DoInsertPass(LoopIR_Rewrite):
         super().__init__(proc)
 
     def map_s(self, s):
-        if s == self.stmt:
+        if s is self.stmt:
             return [LoopIR.Pass(eff_null(s.srcinfo), srcinfo=s.srcinfo), s]
         return super().map_s(s)
+
+
+class _DoDeleteConfig(LoopIR_Rewrite):
+    def __init__(self, proc, stmt):
+        self.stmt = stmt
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s is self.stmt:
+            return []
+        else:
+            return super().map_s(s)
 
 
 class _DoDeletePass(LoopIR_Rewrite):
@@ -2014,7 +2133,7 @@ class _DoExtractMethod(LoopIR_Rewrite):
         self.var_types = self.var_types.parents
 
     def map_s(self, s):
-        if s == self.match_stmt:
+        if s is self.match_stmt:
             subproc, args = _make_closure(self.sub_proc_name,
                                           [s], self.var_types)
             self.new_subproc = subproc
@@ -2045,6 +2164,7 @@ class _DoExtractMethod(LoopIR_Rewrite):
 
 class _DoSimplify(LoopIR_Rewrite):
     def __init__(self, proc):
+        self.facts = ChainMap()
         super().__init__(proc)
 
         self.proc = InferEffects(self.proc).result()
@@ -2079,52 +2199,168 @@ class _DoSimplify(LoopIR_Rewrite):
             return lhs.val == rhs.val
         raise ValueError(f'Unknown operator ({op})')
 
+    @staticmethod
+    def is_quotient_remainder(e):
+        """
+        Checks if e is of the form (up to commutativity):
+            N % K + K * (N / K)
+        and returns N if so. Otherwise, returns None.
+        """
+        assert isinstance(e, LoopIR.BinOp)
+        if e.op != '+':
+            return None
+
+        if isinstance(e.lhs, LoopIR.BinOp) and e.lhs.op == '%':
+            assert isinstance(e.lhs.rhs, LoopIR.Const)
+            num = e.lhs.lhs
+            mod: LoopIR.Const = e.lhs.rhs
+            rem = e.lhs
+            quot = e.rhs
+        elif isinstance(e.rhs, LoopIR.BinOp) and e.rhs.op == '%':
+            assert isinstance(e.rhs.rhs, LoopIR.Const)
+            num = e.rhs.lhs
+            mod: LoopIR.Const = e.rhs.rhs
+            rem = e.rhs
+            quot = e.lhs
+        else:
+            return None
+
+        # Validate form of remainder
+        if not (isinstance(rem, LoopIR.BinOp) and rem.op == '%'
+                and str(rem.lhs) == str(num) and str(rem.rhs) == str(mod)):
+            return None
+
+        # Validate form of quotient
+        if not (isinstance(quot, LoopIR.BinOp) and quot.op == '*'):
+            return None
+
+        def check_quot(const, div):
+            if (isinstance(const, LoopIR.Const)
+                    and (isinstance(div, LoopIR.BinOp) and div.op == '/')
+                    and (str(const) == str(mod))
+                    and (str(div.lhs) == str(num))
+                    and (str(div.rhs) == str(mod))):
+                return num
+            return None
+
+        return check_quot(quot.lhs, quot.rhs) or check_quot(quot.rhs, quot.lhs)
+
+    def map_binop(self, e: LoopIR.BinOp):
+        lhs = self.map_e(e.lhs)
+        rhs = self.map_e(e.rhs)
+
+        if isinstance(lhs, LoopIR.Const) and isinstance(rhs, LoopIR.Const):
+            return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type,
+                                lhs.srcinfo)
+
+        if e.op == '+':
+            if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
+                return rhs
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+                return lhs
+            if val := self.is_quotient_remainder(
+                    LoopIR.BinOp(e.op, lhs, rhs, lhs.type, lhs.srcinfo)):
+                return val
+        elif e.op == '-':
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+                return lhs
+        elif e.op == '*':
+            if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
+                return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+                return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+            if isinstance(lhs, LoopIR.Const) and lhs.val == 1:
+                return rhs
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+                return lhs
+        elif e.op == '/':
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+                return lhs
+        elif e.op == '%':
+            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+                return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+
+        return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
+
     def map_e(self, e):
+        # If we get a match, then replace it with the known constant right away.
+        # No need to run further simplify steps on this node.
+        if sub := self.facts.get(str(e)):
+            return sub
+
         if isinstance(e, LoopIR.BinOp):
-            lhs = self.map_e(e.lhs)
-            rhs = self.map_e(e.rhs)
-            if isinstance(lhs, LoopIR.Const) and isinstance(rhs, LoopIR.Const):
-                return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type,
-                                    lhs.srcinfo)
+            e = self.map_binop(e)
+        else:
+            e = super().map_e(e)
 
-            if e.op == '+':
-                if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
-                    return rhs
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
-                    return lhs
-            if e.op == '-':
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
-                    return lhs
-            if e.op == '*':
-                if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
-                    return LoopIR.Const(0, lhs.type, lhs.srcinfo)
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
-                    return LoopIR.Const(0, lhs.type, lhs.srcinfo)
-                if isinstance(lhs, LoopIR.Const) and lhs.val == 1:
-                    return rhs
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
-                    return lhs
-            if e.op == '/':
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
-                    return lhs
-            if e.op == '%':
-                if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
-                    return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+        # After simplifying, we might match a known constant, so check again.
+        if sub := self.facts.get(str(e)):
+            return sub
 
-            return e
+        return e
 
-        return super().map_e(e)
+    def add_fact(self, cond):
+        if (isinstance(cond, LoopIR.BinOp) and cond.op == '=='
+                and isinstance(cond.rhs, LoopIR.Const)):
+            expr = cond.lhs
+            const = cond.rhs
+        elif (isinstance(cond, LoopIR.BinOp) and cond.op == '=='
+              and isinstance(cond.lhs, LoopIR.Const)):
+            expr = cond.rhs
+            const = cond.lhs
+        else:
+            return
+
+        del cond  # prevent coding errors... use expr/const!
+
+        self.facts[str(expr)] = const
+
+        # if we know that X / M == 0 then we also know that X % M == X.
+        if (isinstance(expr, LoopIR.BinOp) and expr.op == '/'
+                and const.val == 0):
+            mod_expr = LoopIR.BinOp('%', expr.lhs, expr.rhs, expr.type,
+                                    expr.srcinfo)
+            self.facts[str(mod_expr)] = expr.lhs
 
     def map_s(self, s):
         if isinstance(s, LoopIR.If):
             cond = self.map_e(s.cond)
+
+            # If constant true or false, then drop the branch
             if isinstance(cond, LoopIR.Const):
                 if cond.val:
                     return super().map_stmts(s.body)
                 else:
                     return super().map_stmts(s.orelse)
 
-        return super().map_s(s)
+            # Try to use the condition while simplifying body
+            self.facts = self.facts.new_child()
+            self.add_fact(cond)
+            body = self.map_stmts(s.body)
+            self.facts = self.facts.parents
+
+            # Try to use the negation while simplifying orelse
+            self.facts = self.facts.new_child()
+            # TODO: negate fact here
+            orelse = self.map_stmts(s.orelse)
+            self.facts = self.facts.parents
+
+            return [LoopIR.If(cond, body, orelse, self.map_eff(s.eff),
+                              s.srcinfo)]
+        elif isinstance(s, LoopIR.ForAll):
+            hi = self.map_e(s.hi)
+            # Delete the loop if it would not run at all
+            if isinstance(hi, LoopIR.Const) and hi.val == 0:
+                return []
+
+            # Delete the loop if it would have an empty body
+            body = self.map_stmts(s.body)
+            if not body:
+                return []
+            return [LoopIR.ForAll(s.iter, hi, body, self.map_eff(s.eff),
+                                  s.srcinfo)]
+        else:
+            return super().map_s(s)
 
 
 class _AssertIf(LoopIR_Rewrite):
@@ -2140,7 +2376,7 @@ class _AssertIf(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        if s == self.if_stmt:
+        if s is self.if_stmt:
             # TODO: Gilbert's SMT thing should do this safely
             if self.cond:
                 return self.map_stmts(s.body)
@@ -2171,10 +2407,10 @@ class _DoDataReuse(LoopIR_Rewrite):
         # Check that buf_name is only used before the first assignment of rep_pat
         if self.first_assn:
             if self.buf_name in _FV([s]):
-                raise SchedulingError("buf_name should not be used after the first"+
-                                      " assignment of rep_pat")
+                raise SchedulingError("buf_name should not be used after the "
+                                      "first  assignment of rep_pat")
 
-        if s == self.rep_pat:
+        if s is self.rep_pat:
             self.found_rep = True
             return []
 
@@ -2203,32 +2439,37 @@ class _DoDataReuse(LoopIR_Rewrite):
 # The Passes to export
 
 class Schedules:
-    DoReorder           = _Reorder
-    DoSplit             = _Split
-    DoUnroll            = _Unroll
-    DoInline            = _Inline
-    DoPartialEval       = _PartialEval
-    SetTypAndMem        = _SetTypAndMem
-    DoCallSwap          = _CallSwap
-    DoBindExpr          = _BindExpr
-    DoBindConfig        = _BindConfig
-    DoStageAssn         = _DoStageAssn
-    DoLiftAlloc         = _LiftAlloc
-    DoFissionLoops      = _FissionLoops
-    DoExtractMethod     = _DoExtractMethod
-    DoParToSeq          = _DoParToSeq
-    DoReorderStmt       = _DoReorderStmt
-    DoConfigWriteAfter  = _ConfigWriteAfter
-    DoInlineWindow      = _InlineWindow
-    DoInsertPass        = _DoInsertPass
-    DoDeletePass        = _DoDeletePass
-    DoSimplify          = _DoSimplify
-    DoAddGuard          = _DoAddGuard
-    DoMergeGuard        = _DoMergeGuard
-    DoFuseLoop          = _DoFuseLoop
-    DoAddLoop           = _DoAddLoop
-    DoDataReuse         = _DoDataReuse
-    DoLiftIf            = _DoLiftIf
-    DoDoubleFission     = _DoDoubleFission
-    DoPartitionLoop     = _PartitionLoop
-    DoAssertIf          = _AssertIf
+    DoReorder = _Reorder
+    DoSplit = _Split
+    DoUnroll = _Unroll
+    DoInline = _Inline
+    DoPartialEval = _PartialEval
+    SetTypAndMem = _SetTypAndMem
+    DoCallSwap = _CallSwap
+    DoBindExpr = _BindExpr
+    DoBindConfig = _BindConfig
+    DoStageAssn = _DoStageAssn
+    DoLiftAlloc = _LiftAlloc
+    DoFissionLoops = _FissionLoops
+    DoExtractMethod = _DoExtractMethod
+    DoParToSeq = _DoParToSeq
+    DoReorderStmt = _DoReorderStmt
+    DoConfigWriteAfter = _ConfigWriteAfter
+    DoInlineWindow = _InlineWindow
+    DoInsertPass = _DoInsertPass
+    DoDeletePass = _DoDeletePass
+    DoSimplify = _DoSimplify
+    DoAddGuard = _DoAddGuard
+    DoBoundAndGuard = _DoBoundAndGuard
+    DoMergeGuard = _DoMergeGuard
+    DoFuseLoop = _DoFuseLoop
+    DoAddLoop = _DoAddLoop
+    DoDataReuse = _DoDataReuse
+    DoLiftIf = _DoLiftIf
+    DoDoubleFission = _DoDoubleFission
+    DoPartitionLoop = _PartitionLoop
+    DoAssertIf = _AssertIf
+    DoAddIfElse = _DoAddIfElse
+    DoAddUnsafeGuard = _DoAddUnsafeGuard
+    DoDeleteConfig = _DoDeleteConfig
+    DoExpandDim    = _DoExpandDim

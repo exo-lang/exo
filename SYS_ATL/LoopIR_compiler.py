@@ -66,30 +66,26 @@ class LoopIR_SubProcs(LoopIR_Do):
 
 
 def find_all_subprocs(proc_list):
-    to_visit = [p for p in reversed(proc_list)]  # ** see below
-    queued = set(to_visit)
-    proc_list = []
-    visited = set(proc_list)
+    all_procs = []
+    seen = set()
 
-    # ** to_visit is reversed so that in the simple case of requesting e.g.
-    # run_compile([p1, p2], ...) the generated C-code will list the def.
-    # of p1 before p2
+    def walk(proc, visited):
+        if proc in seen:
+            return
 
-    # flood-fill algorithm to produce a topological-sort/order
-    while len(to_visit) > 0:
-        p = to_visit.pop(0)  # de-queue
-        visited.add(p)
-        proc_list.append(p)
+        all_procs.append(proc)
+        seen.add(proc)
 
-        subp = LoopIR_SubProcs(p).result()
-        for sp in subp:
-            assert sp not in visited, "found cycle in the call graph"
-            if sp not in queued:
-                queued.add(sp)
-                to_visit.append(sp)  # en-queue
+        for sp in LoopIR_SubProcs(proc).result():
+            if sp in visited:
+                raise ValueError(f'found call cycle involving {sp.name}')
+            walk(sp, visited | {proc})
 
-    return [p for p in reversed(proc_list)]
+    for proc in proc_list:
+        walk(proc, set())
 
+    # Reverse for C declaration order.
+    return list(reversed(all_procs))
 
 class LoopIR_FindMems(LoopIR_Do):
     def __init__(self, proc):

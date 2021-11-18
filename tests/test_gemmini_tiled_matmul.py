@@ -574,67 +574,71 @@ def test_matmul_c_i8_perfect_hand():
 
     T.compile().run()
 
-@proc
-def matmul_c_i8_perfect(
-  N : size,
-  M : size,
-  K : size,
-  a_scale : f32,
-  b_scale : f32,
-  c_scale : f32,
-  acc     : bool,
-  A : i8[N,K] @ DRAM,
-  B : i8[K,M] @ DRAM,
-  C : i8[N,M] @ DRAM,
-):
 
-    for i in par(0,N):
-        for j in par(0,M):
-            res : i32 @ DRAM
-            res = 0.0
-            for k in par(0,K):
-                tmp_a : f32
-                tmp_a = A[i,k]
-                tmp_a = tmp_a * a_scale
-                a : i8 @ DRAM
-                a = tmp_a
+def matmul_cpu():
+    @proc
+    def matmul_c_i8_perfect(
+      N : size,
+      M : size,
+      K : size,
+      a_scale : f32,
+      b_scale : f32,
+      c_scale : f32,
+      acc     : bool,
+      A : i8[N,K] @ DRAM,
+      B : i8[K,M] @ DRAM,
+      C : i8[N,M] @ DRAM,
+    ):
 
-                tmp_b : f32
-                tmp_b = B[k,j]
-                tmp_b = tmp_b * b_scale
-                b : i8 @ DRAM
-                b = tmp_b
+        for i in par(0,N):
+            for j in par(0,M):
+                res : i32 @ DRAM
+                res = 0.0
+                for k in par(0,K):
+                    tmp_a : f32
+                    tmp_a = A[i,k]
+                    tmp_a = tmp_a * a_scale
+                    a : i8 @ DRAM
+                    a = tmp_a
 
-                a2 : i32
-                b2 : i32
-                a2 = a
-                b2 = b
-                res += a2*b2
+                    tmp_b : f32
+                    tmp_b = B[k,j]
+                    tmp_b = tmp_b * b_scale
+                    b : i8 @ DRAM
+                    b = tmp_b
 
-            tmp_res : i8
-            if acc == True:
-                tmp_res = relu(res)
-            else:
-                tmp_res = res
+                    a2 : i32
+                    b2 : i32
+                    a2 = a
+                    b2 = b
+                    res += a2*b2
 
-            tmp_res2 : f32
-            tmp_res2 = tmp_res
-            tmp_res2 = tmp_res2 * c_scale
-            clamp(tmp_res2, tmp_res)
-            C[i,j] = tmp_res
+                tmp_res : i8
+                if acc == True:
+                    tmp_res = relu(res)
+                else:
+                    tmp_res = res
 
-NN = 12544
-MM = 64
-KK = 64
-tile_size_I = 3136
-tile_size_J = 256
-K_SIZE = KK//16
+                tmp_res2 : f32
+                tmp_res2 = tmp_res
+                tmp_res2 = tmp_res2 * c_scale
+                clamp(tmp_res2, tmp_res)
+                C[i,j] = tmp_res
 
-matmul_c_i8_cpu = matmul_c_i8_perfect.rename("matmul_c_i8_cpu")
-matmul_c_i8_cpu = matmul_c_i8_cpu.partial_eval(NN, MM, KK)
+    return matmul_c_i8_perfect
 
-
+@pytest.mark.skip()
 def test_matmul_c_i8_12544x64x64():
+    NN = 12544
+    MM = 64
+    KK = 64
+    tile_size_I = 3136
+    tile_size_J = 256
+    K_SIZE = KK//16
+
+    matmul_c_i8_cpu = matmul_c_i8_perfect.rename("matmul_c_i8_cpu")
+    matmul_c_i8_cpu = matmul_c_i8_cpu.partial_eval(NN, MM, KK)
+
     T = GemmTestBuilder('matmul_c_i8_perfect')
     T.add_body(['gemm_init_mem();',
                 'gemm_acc_init_mem();',
@@ -1290,8 +1294,17 @@ def test_matmul_c_i8_4x128x128():
 
 
 # Best for 512x512x512
-@pytest.mark.skip()
 def test_matmul_c_i8_perfect():
+    NN = 512
+    MM = 512
+    KK = 512
+    tile_size_I = 128
+    tile_size_J = 128
+    K_SIZE = KK//16
+
+    matmul_c_i8_cpu = matmul_cpu().rename("matmul_c_i8_cpu")
+    matmul_c_i8_cpu = matmul_c_i8_cpu.partial_eval(NN, MM, KK)
+    
     T = GemmTestBuilder('matmul_c_i8_perfect')
     T.add_body(['gemm_init_mem();',
                 'gemm_acc_init_mem();',
@@ -1473,8 +1486,8 @@ def test_matmul_c_i8_perfect():
     T.compile().run()
 
 
-
     print(matmul_c_i8_perfect)
 """
+
 """
 
