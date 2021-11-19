@@ -864,6 +864,25 @@ class _InlineWindow(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+
+class _ConfigWriteRoot(LoopIR_Rewrite):
+    def __init__(self, proc, config, field, expr):
+        assert (isinstance(expr, LoopIR.Read)
+                or isinstance(expr, LoopIR.StrideExpr)
+                or isinstance(expr, LoopIR.Const))
+
+        self.orig_proc = proc
+
+        c_str = [LoopIR.WriteConfig(config, field, expr, None, self.orig_proc.srcinfo)]
+        proc.body = c_str + proc.body
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+
+
 class _ConfigWriteAfter(LoopIR_Rewrite):
     def __init__(self, proc, stmt, config, field, expr):
         assert (isinstance(expr, LoopIR.Read)
@@ -2455,6 +2474,7 @@ class Schedules:
     DoParToSeq = _DoParToSeq
     DoReorderStmt = _DoReorderStmt
     DoConfigWriteAfter = _ConfigWriteAfter
+    DoConfigWriteRoot = _ConfigWriteRoot
     DoInlineWindow = _InlineWindow
     DoInsertPass = _DoInsertPass
     DoDeletePass = _DoDeletePass

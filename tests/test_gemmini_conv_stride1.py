@@ -222,9 +222,9 @@ def test_conv_3():
     conv = conv.lift_alloc('res : _', n_lifts=1)
     conv = conv.par_to_seq('for orow_io in _:_')
     conv = conv.lift_alloc('res : _', n_lifts=4)
-    #conv = conv.unroll('ocol_i')
-    #conv = conv.unroll('och_o')
+    conv = conv.unroll('och_o')
     #conv = conv.unroll('kch_o')
+    #conv = conv.unroll('kcol')
     conv = conv.simplify()
 
     cpu = conv_on_cpu()

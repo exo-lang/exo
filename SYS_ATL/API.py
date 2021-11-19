@@ -445,6 +445,21 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
     
+    def configwrite_root(self, config, field, var_pattern):
+        if not isinstance(config, Config):
+            raise TypeError("Did not pass a config object")
+        if not isinstance(field, str):
+            raise TypeError("Did not pass a config field string")
+        if not config.has_field(field):
+            raise TypeError(f"expected '{field}' to be a field "
+                            f"in config '{config.name()}'")
+
+        loopir   = self._loopir_proc
+        var_expr = parse_fragment(loopir, var_pattern, None)
+        assert isinstance(var_expr, LoopIR.expr)
+        loopir   = Schedules.DoConfigWriteRoot(loopir, config, field, var_expr).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
     
     def configwrite_after(self, stmt_pattern, config, field, var_pattern):
         if not isinstance(config, Config):

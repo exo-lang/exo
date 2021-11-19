@@ -59,6 +59,9 @@ class BuildEnv(LoopIR_Do):
         for p in self.proc.preds:
             self.do_e(p)
 
+        # For configwrite_root
+        self.result = self.env.copy()
+
         self.do_stmts(self.proc.body)
 
     def result(self):
@@ -109,6 +112,10 @@ class ParseFragment:
         assert isinstance(pat, PAST.expr)
 
         self.stmt = stmt
+        if stmt is None:
+            self.srcinfo = proc.srcinfo
+        else:
+            self.srcinfo = stmt.srcinfo
         self.env = BuildEnv(proc, stmt).result
         self._results = self.parse_e(pat)
 
@@ -116,19 +123,19 @@ class ParseFragment:
         if isinstance(pat, PAST.Read):
             nm = self.find_sym(pat.name, self.env)
             idx = [self.find_sym(i) for i in pat.idx]
-            return LoopIR.Read(nm, idx, self.env[nm], self.stmt.srcinfo)
+            return LoopIR.Read(nm, idx, self.env[nm], self.srcinfo)
         elif isinstance(pat, PAST.BinOp):
             lhs = self.parse_e(pat.lhs)
             rhs = self.parse_e(pat.rhs)
             return LoopIR.BinOp(pat.op, lhs, rhs, self.type_for_binop(pat.op),
-                                self.stmt.srcinfo)
+                                self.srcinfo)
         elif isinstance(pat, PAST.StrideExpr):
             nm = self.find_sym(pat.name, self.env)
-            return LoopIR.StrideExpr(nm, pat.dim, T.stride, self.stmt.srcinfo)
+            return LoopIR.StrideExpr(nm, pat.dim, T.stride, self.srcinfo)
         elif isinstance(pat, PAST.Const):
             typ = {float: T.R, bool: T.bool, int: T.int}.get(type(pat.val))
             assert typ is not None, "bad type!"
-            return LoopIR.Const(pat.val, typ, self.stmt.srcinfo)
+            return LoopIR.Const(pat.val, typ, self.srcinfo)
 
     def find_sym(self, expr, env):
         for k in env.keys():
