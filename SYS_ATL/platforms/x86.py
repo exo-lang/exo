@@ -161,6 +161,18 @@ def mm512_mask_fmadd_ps(
             C[i] += A[i] * B[i]
 
 
+@instr('{dst_data} = _mm512_max_ps({src_data}, (__m512){{0}});')
+def mm512_relu_ps(
+        dst: [f32][16] @ AVX512,
+        src: [f32][16] @ AVX512
+):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in par(0, 16):
+        dst[i] = relu(src[i])
+
+
 # ---------------------------------------------------------------------------- #
 
 

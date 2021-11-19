@@ -747,6 +747,9 @@ class Compiler:
             rhs = self.comp_e(e.rhs, local_prec + 1)
 
             if int_div:
+                if isinstance(e.lhs.type, LoopIR.Size):
+                    # TODO: too many parens?
+                    return f'(({lhs}) / ({rhs}))'
                 return f"_floor_div({lhs}, {rhs})"
 
             s = f"{lhs} {op} {rhs}"

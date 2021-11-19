@@ -18,19 +18,19 @@ class ParseFragmentError(Exception):
 # --------------------------------------------------------------------------- #
 # General Fragment Parsing
 
-def parse_fragment(proc, pattern_str, stmt, call_depth=0):
+def parse_fragment(proc, fragment, ctx_stmt, call_depth=0):
     # get source location where this is getting called from
     caller = inspect.getframeinfo(inspect.stack()[call_depth+1][0])
 
     # parse the pattern we're going to use to match
-    p_ast         = pyparser.pattern(pattern_str,
+    p_ast         = pyparser.pattern(fragment,
                                      filename=caller.filename,
                                      lineno=caller.lineno)
     if isinstance(p_ast, PAST.expr):
-        return ParseFragment(p_ast, proc, stmt).results()
+        return ParseFragment(p_ast, proc, ctx_stmt).results()
     else:
         assert len(p_ast) == 1
-        return ParseFragment(p_ast[0], proc, stmt).results()
+        return ParseFragment(p_ast[0], proc, ctx_stmt).results()
 
 
 _PAST_to_LoopIR = {
@@ -121,7 +121,7 @@ class ParseFragment:
 
     def parse_e(self, pat):
         if isinstance(pat, PAST.Read):
-            nm = self.find_sym(pat.name, self.env)
+            nm = self.find_sym(pat.name)
             idx = [self.find_sym(i) for i in pat.idx]
             return LoopIR.Read(nm, idx, self.env[nm], self.srcinfo)
         elif isinstance(pat, PAST.BinOp):
@@ -130,15 +130,15 @@ class ParseFragment:
             return LoopIR.BinOp(pat.op, lhs, rhs, self.type_for_binop(pat.op),
                                 self.srcinfo)
         elif isinstance(pat, PAST.StrideExpr):
-            nm = self.find_sym(pat.name, self.env)
+            nm = self.find_sym(pat.name)
             return LoopIR.StrideExpr(nm, pat.dim, T.stride, self.srcinfo)
         elif isinstance(pat, PAST.Const):
             typ = {float: T.R, bool: T.bool, int: T.int}.get(type(pat.val))
             assert typ is not None, "bad type!"
             return LoopIR.Const(pat.val, typ, self.srcinfo)
 
-    def find_sym(self, expr, env):
-        for k in env.keys():
+    def find_sym(self, expr):
+        for k in self.env.keys():
             if expr == str(k):
                 return k
 
