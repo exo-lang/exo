@@ -43,5 +43,8 @@ set -e
 
 export HL_NUM_THREADS=1
 taskset -c 0 ./build/apps/x86_demo/conv/bench_conv --benchmark_filter=102
-taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm_openblas
-taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm
+taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm_openblas \
+  --benchmark_filter=sys_atl
+taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm_openblas \
+  --benchmark_filter=OpenBLAS
+taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm --benchmark_filter=MKL
