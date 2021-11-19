@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from SYS_ATL import *
+from SYS_ATL.libs.memories import DRAM_STATIC
 from SYS_ATL.platforms.x86 import *
 from SYS_ATL.syntax import *
-from SYS_ATL.libs.memories import DRAM_STATIC
 
 
 def trace(message):
@@ -81,16 +81,9 @@ for M in range(1, M_REG_BLK + 1):
             .set_memory('C_reg', AVX512)
             .lift_alloc('C_reg: _', n_lifts=4)
             .double_fission('C_reg[_] = C[_]', 'C_reg[_] += _', n_lifts=4)
-            # Stage A
-            .bind_expr('A_vec', 'A[_, _]')
-            .set_memory('A_vec', AVX512)
-            .lift_alloc('A_vec: _', keep_dims=True)
-            .fission_after('A_vec[_] = _')
-            # Stage B
-            .bind_expr('B_vec', 'B[_, _]')
-            .set_memory('B_vec', AVX512)
-            .lift_alloc('B_vec: _', keep_dims=True)
-            .fission_after('B_vec[_] = _')
+            # Stage A & B
+            .stage_expr('A_vec', 'A[_, _]', memory=AVX512)
+            .stage_expr('B_vec', 'B[_, _]', memory=AVX512)
             # Schedule ops
             .replace(mm512_loadu_ps, 'for ji in _: _ #0')
             .replace(mm512_storeu_ps, 'for ji in _: _ #3')
@@ -116,11 +109,8 @@ bottom_panel_kernel_scheduled = (
     bottom_panel_kernel
         .rename('bottom_panel_kernel_scheduled')
         # Specialize branches (simplify needed to unify with basic kernels)
-        .add_ifelse('for k in _: _ #0', 'M == 1')
-        .add_ifelse('for k in _: _ #1', 'M == 2')
-        .add_ifelse('for k in _: _ #2', 'M == 3')
-        .add_ifelse('for k in _: _ #3', 'M == 4')
-        .add_ifelse('for k in _: _ #4', 'M == 5')
+        .specialize('for k in _: _ #0',
+                    [f'M == {i}' for i in range(1, M_REG_BLK)])
         .simplify()
         #
         .replace_all(basic_kernel_Mx4[1])
@@ -170,15 +160,8 @@ right_panel_kernel_opt = (
         #
         .set_memory('C_reg', AVX512)
         #
-        .bind_expr('A_reg', 'A[_]')
-        .lift_alloc('A_reg: _', keep_dims=True)
-        .set_memory('A_reg', AVX512)
-        .fission_after('A_reg[_] = _')
-        #
-        .bind_expr('B_reg', 'B[_]')
-        .lift_alloc('B_reg: _', keep_dims=True)
-        .set_memory('B_reg', AVX512)
-        .fission_after('B_reg[_] = _')
+        .stage_expr('A_reg', 'A[_]', memory=AVX512)
+        .stage_expr('B_reg', 'B[_]', memory=AVX512)
         #
         .replace_all(mm512_set1_ps)
         .replace_all(mm512_fmadd_ps)
@@ -189,15 +172,8 @@ right_panel_kernel_opt = (
         .replace(mm512_maskz_loadu_ps, 'for ji in _: _ #0')
         .replace(mm512_mask_storeu_ps, 'for ji in _: _ #1')
         #
-        .bind_expr('A_reg2', 'A[_] #1')
-        .lift_alloc('A_reg2: _', keep_dims=True, n_lifts=2)
-        .set_memory('A_reg2', AVX512)
-        .fission_after('A_reg2[_] = _', n_lifts=2)
-        #
-        .bind_expr('B_reg2', 'B[_] #1')
-        .lift_alloc('B_reg2: _', keep_dims=True, n_lifts=2)
-        .set_memory('B_reg2', AVX512)
-        .fission_after('B_reg2[_] = _', n_lifts=2)
+        .stage_expr('A_reg2', 'A[_] #1', memory=AVX512, n_lifts=2)
+        .stage_expr('B_reg2', 'B[_] #1', memory=AVX512, n_lifts=2)
         #
         .replace_all(mm512_mask_set1_ps)
         .replace_all(mm512_mask_fmadd_ps)
@@ -217,10 +193,8 @@ right_panel_kernel_scheduled = (
         #
         .replace_all(right_panel_kernel)
         #
-        .add_ifelse('right_panel_kernel(_) #0', '(N / 16) == 0')
-        .add_ifelse('right_panel_kernel(_) #1', '(N / 16) == 1')
-        .add_ifelse('right_panel_kernel(_) #2', '(N / 16) == 2')
-        .add_ifelse('right_panel_kernel(_) #3', '(N / 16) == 3')
+        .specialize('right_panel_kernel(_) #0',
+                    [f'(N / 16) == {i}' for i in range(N_REG_BLK // VEC_W)])
         #
         .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
         .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')

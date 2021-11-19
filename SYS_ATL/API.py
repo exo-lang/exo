@@ -1,8 +1,7 @@
 import ast as pyast
 import inspect
 import types
-from typing import Optional
-from weakref import WeakKeyDictionary
+from typing import Optional, Union, List
 
 from .API_types import ProcedureBase
 from .LoopIR import LoopIR, T, UAST, LoopIR_Do
@@ -18,17 +17,17 @@ from .memory import Memory
 from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern, get_match_no
 from .prelude import *
+# Moved to new file
+from .proc_eqv import (decl_new_proc, derive_proc,
+                       assert_eqv_proc, check_eqv_proc)
 from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   proc provenance tracking
-
-# Moved to new file
-from .proc_eqv import (decl_new_proc, derive_proc,
-                       assert_eqv_proc, check_eqv_proc)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -540,18 +539,20 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def add_ifelse(self, stmt_pat, var_pattern):
+    def specialize(self, stmt_pat: str, conds: Union[str, List[str]]):
         if not isinstance(stmt_pat, str):
-            raise TypeError("expected first arg to be a string")
-        if not isinstance(var_pattern, str):
-            raise TypeError("expected second arg to be a string")
+            raise SchedulingError("argument 1: incorrect type",
+                                  expected=str,
+                                  actual=type(conds))
+        if isinstance(conds, str):
+            conds = [conds]
+        if not conds:
+            return self
 
         stmt = self._find_stmt(stmt_pat)
         loopir = self._loopir_proc
-        var_expr = parse_fragment(loopir, var_pattern, stmt)
-
-        loopir = Schedules.DoAddIfElse(loopir, stmt, var_expr).result()
-
+        var_exprs = [parse_fragment(loopir, expr, stmt) for expr in conds]
+        loopir = Schedules.DoSpecialize(loopir, stmt, var_exprs).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def add_assertion(self, assertion):
@@ -922,6 +923,14 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         loopir = Schedules.DoBindExpr(loopir, new_name, matches, cse).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def stage_expr(self, new_name, expr_pattern, memory=None, n_lifts=1):
+        return (
+            self.bind_expr(new_name, expr_pattern)
+                .lift_alloc(f'{new_name}: _', keep_dims=True, n_lifts=n_lifts)
+                .set_memory(new_name, memory)
+                .fission_after(f'{new_name} = _', n_lifts=n_lifts)
+        )
 
     def stage_assn(self, new_name, stmt_pattern):
         if not is_valid_name(new_name):

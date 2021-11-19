@@ -1883,10 +1883,11 @@ class _DoAddUnsafeGuard(LoopIR_Rewrite):
         return super().map_s(s)
 
 
-class _DoAddIfElse(LoopIR_Rewrite):
-    def __init__(self, proc, stmt, cond):
+class _DoSpecialize(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, conds):
+        assert conds, "Must add at least one condition"
         self.stmt = stmt
-        self.cond = cond
+        self.conds = conds
         self.in_loop = False
 
         super().__init__(proc)
@@ -1895,9 +1896,11 @@ class _DoAddIfElse(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.stmt:
-            s1 = Alpha_Rename([s]).result()
-            s2 = Alpha_Rename([s]).result()
-            return [LoopIR.If(self.cond, s1, s2, None, s.srcinfo)]
+            else_br = Alpha_Rename([s]).result()
+            for cond in reversed(self.conds):
+                then_br = Alpha_Rename([s]).result()
+                else_br = [LoopIR.If(cond, then_br, else_br, None, s.srcinfo)]
+            return else_br
 
         return super().map_s(s)
 
@@ -2728,7 +2731,7 @@ class Schedules:
     DoDoubleFission = _DoDoubleFission
     DoPartitionLoop = _PartitionLoop
     DoAssertIf = _AssertIf
-    DoAddIfElse = _DoAddIfElse
+    DoSpecialize = _DoSpecialize
     DoAddUnsafeGuard = _DoAddUnsafeGuard
     DoDeleteConfig = _DoDeleteConfig
     DoFuseIf = _DoFuseIf

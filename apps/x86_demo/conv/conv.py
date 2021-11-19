@@ -69,18 +69,16 @@ conv_specialized = (
         .split('oc_i', VEC_W, ['oc_u', 'oc_v'], perfect=True)
         #
         .lift_alloc('res: _', n_lifts=3)
+        .set_memory('res', AVX512)
         .fission_after('res[_] = bias[_]', n_lifts=3)
         .replace(mm512_loadu_ps, 'for oc_v in _: _ #0')
         #
         .fission_after('for ky in _: _', n_lifts=3)
         #
-        .set_memory('res', AVX512)
-        .set_memory('relu_v', AVX512)
-        #
         .lift_alloc('relu_v: _')
+        .set_memory('relu_v', AVX512)
         .fission_after('relu_v = _')
         .replace(mm512_storeu_ps, 'for oc_v in _: _ #2')
-        .replace(mm512_relu_ps, 'for oc_v in _: _ #1')
         #
         .reorder('ox_i', 'oc_u')
         .reorder('ox_i', 'oc_v')
@@ -99,19 +97,13 @@ conv_specialized = (
         .reorder('oc_v', 'ox_i')
         .reorder('oc_u', 'ox_i')
         #
-        .bind_expr('wt_vec', 'weights[_]')
-        .set_memory('wt_vec', AVX512)
-        .lift_alloc('wt_vec: _')
-        .bind_expr('in_vec', 'inp[_]')
-        .set_memory('in_vec', AVX512)
-        .lift_alloc('in_vec: _', keep_dims=True)
+        .stage_expr('wt_vec', 'weights[_]', memory=AVX512)
+        .stage_expr('in_vec', 'inp[_]', memory=AVX512)
         #
-        .fission_after('wt_vec[_] = _')
-        .fission_after('in_vec[_] = _')
-        #
-        .replace(mm512_loadu_ps, 'for oc_v in _: _ #0')
-        .replace(mm512_set1_ps, 'for oc_v in _: _ #0')
-        .replace(mm512_fmadd_ps, 'for oc_v in _: _ #0')
+        .replace_all(mm512_relu_ps)
+        .replace_all(mm512_set1_ps)
+        .replace_all(mm512_fmadd_ps)
+        .replace_all(mm512_loadu_ps)
         #
         .split('kc', 2, ['kc_o', 'kc_i'], perfect=True)
         #
@@ -120,3 +112,5 @@ conv_specialized = (
 
 if __name__ == '__main__':
     print(conv_specialized)
+
+__all__ = ['conv_specialized']
