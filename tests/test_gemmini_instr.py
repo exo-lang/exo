@@ -3,7 +3,10 @@ from __future__ import annotations
 from .gemmini import *
 from .harness_gemmini import GemmTestBuilder
 
+import pytest
 
+pytest.skip("skipping gemmini tests that are bitrotted",
+            allow_module_level=True)
 # --------------------------------------------------------------------------- #
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #

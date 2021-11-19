@@ -5,7 +5,8 @@ import pytest
 from .gemmini import *
 from .harness_gemmini import GemmTestBuilder
 
-
+pytest.skip("skipping gemmini tests that are bitrotted",
+            allow_module_level=True)
 # --------------------------------------------------------------------------- #
 #   Basic Conv Test
 # --------------------------------------------------------------------------- #

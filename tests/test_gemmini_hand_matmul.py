@@ -4,6 +4,10 @@ from SYS_ATL.libs.memories import MDRAM
 from .gemmini import *
 from .harness_gemmini import GemmTestBuilder
 
+import pytest
+
+pytest.skip("skipping gemmini tests that are bitrotted",
+            allow_module_level=True)
 # --------------------------------------------------------------------------- #
 #   Basic MatMul Test
 # --------------------------------------------------------------------------- #
