@@ -893,6 +893,25 @@ class _InlineWindow(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+
+class _ConfigWriteRoot(LoopIR_Rewrite):
+    def __init__(self, proc, config, field, expr):
+        assert (isinstance(expr, LoopIR.Read)
+                or isinstance(expr, LoopIR.StrideExpr)
+                or isinstance(expr, LoopIR.Const))
+
+        self.orig_proc = proc
+
+        c_str = [LoopIR.WriteConfig(config, field, expr, None, self.orig_proc.srcinfo)]
+        proc.body = c_str + proc.body
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+
+
 class _ConfigWriteAfter(LoopIR_Rewrite):
     def __init__(self, proc, stmt, config, field, expr):
         assert (isinstance(expr, LoopIR.Read)
@@ -1199,6 +1218,53 @@ class _DoLiftIf(LoopIR_Rewrite):
         return super().map_s(s)
 
 
+
+class _DoExpandDim(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, alloc_dim, indexing):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+        assert isinstance(alloc_dim, LoopIR.expr)
+        assert isinstance(indexing, LoopIR.expr)
+
+        self.orig_proc    = proc
+        self.alloc_stmt   = alloc_stmt
+        self.alloc_sym    = alloc_stmt.name
+        self.alloc_dim    = alloc_dim
+        self.indexing     = indexing
+        self.alloc_type   = None
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.alloc_stmt:
+            new_typ = s.type
+            new_rngs = [self.alloc_dim]
+
+            if isinstance(new_typ, T.Tensor):
+                new_rngs += new_typ.shape()
+
+            new_typ = new_typ.basetype()
+            new_typ = T.Tensor(new_rngs, False, new_typ)
+            self.alloc_type = new_typ
+
+            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
+            idx = [self.indexing] + e.idx
+            return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
+
+        if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
+            idx = [LoopIR.Point(self.indexing, e.srcinfo)] + e.idx
+            win_typ = T.Window(self.alloc_type, e.type.as_tensor, e.name, idx)
+            return LoopIR.WindowExpr(e.name, idx, win_typ, e.srcinfo)
+
+        # fall-through
+        return super().map_e(e)
 
 
 # --------------------------------------------------------------------------- #
@@ -1797,6 +1863,24 @@ class _FissionLoops:
             return ([],[single_stmt])
         else:
             return ([single_stmt],[])
+
+
+class _DoAddUnsafeGuard(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, cond):
+        self.stmt = stmt
+        self.cond = cond
+        self.in_loop = False
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.stmt:
+            s1 = Alpha_Rename([s]).result()
+            return [LoopIR.If(self.cond, s1, [], None, s.srcinfo)]
+
+        return super().map_s(s)
 
 
 class _DoAddIfElse(LoopIR_Rewrite):
@@ -2629,6 +2713,7 @@ class Schedules:
     DoParToSeq = _DoParToSeq
     DoReorderStmt = _DoReorderStmt
     DoConfigWriteAfter = _ConfigWriteAfter
+    DoConfigWriteRoot = _ConfigWriteRoot
     DoInlineWindow = _InlineWindow
     DoInsertPass = _DoInsertPass
     DoDeletePass = _DoDeletePass
@@ -2644,7 +2729,9 @@ class Schedules:
     DoPartitionLoop = _PartitionLoop
     DoAssertIf = _AssertIf
     DoAddIfElse = _DoAddIfElse
+    DoAddUnsafeGuard = _DoAddUnsafeGuard
     DoDeleteConfig = _DoDeleteConfig
     DoFuseIf = _DoFuseIf
     DoStageWindow = _DoStageWindow
     DoBoundAlloc = _DoBoundAlloc
+    DoExpandDim    = _DoExpandDim

@@ -26,30 +26,9 @@ from .typecheck import TypeChecker
 # --------------------------------------------------------------------------- #
 #   proc provenance tracking
 
-# every LoopIR.proc is either a root (not in this dictionary)
-# or there is some other LoopIR.proc which is its root
-_proc_root = WeakKeyDictionary()
-
-
-def _proc_prov_eq(lhs, rhs):
-    """ test whether two procs have the same provenance """
-    lhs = lhs if lhs not in _proc_root else _proc_root[lhs]
-    rhs = rhs if rhs not in _proc_root else _proc_root[rhs]
-    assert lhs not in _proc_root and rhs not in _proc_root
-    return lhs is rhs
-
-
-# TODO: This is a terrible hack that should be replaced by
-#       an actual Union Find data structure in the future
-def _proc_prov_unify(lhs, rhs):
-    # choose arbitrarily to reset the rhs root to refer to the lhs
-    overwrite_set = [p() for p in _proc_root.keyrefs()]
-    overwrite_set = [p for p in overwrite_set
-                     if p and _proc_root[p] is rhs]
-    for p in overwrite_set:
-        _proc_root[p] = lhs
-    _proc_root[rhs] = lhs
-
+# Moved to new file
+from .proc_eqv import (decl_new_proc, derive_proc,
+                       assert_eqv_proc, check_eqv_proc)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -175,18 +154,14 @@ class Procedure(ProcedureBase):
                 self._loopir_proc = InferEffects(self._loopir_proc).result()
                 CheckEffects(self._loopir_proc)
 
-        # find the root provenance
-        parent = _provenance_eq_Procedure
-        if parent is None:
-            pass # this is a new root; done
-        else:
-            parent = parent._loopir_proc
-            # if the provenance Procedure is not a root, find its root
-            if parent in _proc_root:
-                parent = _proc_root[parent]
-            assert parent not in _proc_root
-            # and then set this new proc's root
-            _proc_root[self._loopir_proc] = parent
+
+        # add this procedure into the equivalence tracking mechanism
+        if _testing != "UAST":
+            if _provenance_eq_Procedure:
+                derive_proc(_provenance_eq_Procedure._loopir_proc,
+                            self._loopir_proc)
+            else:
+                decl_new_proc(self._loopir_proc)
 
     def __str__(self):
         if hasattr(self,'_loopir_proc'):
@@ -320,7 +295,7 @@ class Procedure(ProcedureBase):
     def unsafe_assert_eq(self, other_proc):
         if not isinstance(other_proc, Procedure):
             raise TypeError("expected a procedure as argument")
-        _proc_prov_unify(self._loopir_proc, other_proc._loopir_proc)
+        assert_eqv_proc(self._loopir_proc, other_proc._loopir_proc)
         return self
 
     def partial_eval(self, *args, **kwargs):
@@ -455,7 +430,22 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoDataReuse(loopir, buf_s, rep_s).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
+    
+    def configwrite_root(self, config, field, var_pattern):
+        if not isinstance(config, Config):
+            raise TypeError("Did not pass a config object")
+        if not isinstance(field, str):
+            raise TypeError("Did not pass a config field string")
+        if not config.has_field(field):
+            raise TypeError(f"expected '{field}' to be a field "
+                            f"in config '{config.name()}'")
 
+        loopir   = self._loopir_proc
+        var_expr = parse_fragment(loopir, var_pattern, None)
+        assert isinstance(var_expr, LoopIR.expr)
+        loopir   = Schedules.DoConfigWriteRoot(loopir, config, field, var_expr).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def configwrite_after(self, stmt_pattern, config, field, var_pattern):
         if not isinstance(config, Config):
@@ -515,6 +505,38 @@ class Procedure(ProcedureBase):
                                         hi=out_vars[0], lo=out_vars[1],
                                         tail=tail,
                                         perfect=perfect).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def expand_dim(self, stmt_pat, alloc_dim_pat, indexing_pat):
+        if not isinstance(stmt_pat, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(alloc_dim_pat, str):
+            raise TypeError("expected second arg to be a string")
+        if not isinstance(indexing_pat, str):
+            raise TypeError("expected second arg to be a string")
+
+        stmts_len = len(self._find_stmt(stmt_pat, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(stmt_pat, body=loopir.body, default_match_no=None)[i]
+            alloc_dim = parse_fragment(loopir, alloc_dim_pat, s)
+            indexing  = parse_fragment(loopir, indexing_pat, s)
+            loopir = Schedules.DoExpandDim(loopir, s, alloc_dim, indexing).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def add_unsafe_guard(self, stmt_pat, var_pattern):
+        if not isinstance(stmt_pat, str):
+            raise TypeError("expected first arg to be a string")
+        if not isinstance(var_pattern, str):
+            raise TypeError("expected second arg to be a string")
+
+        stmt = self._find_stmt(stmt_pat)
+        loopir = self._loopir_proc
+        var_expr = parse_fragment(loopir, var_pattern, stmt)
+
+        loopir = Schedules.DoAddUnsafeGuard(loopir, stmt, var_expr).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
@@ -863,14 +885,16 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def is_eq(self, proc):
-        return _proc_prov_eq(self._loopir_proc, proc._loopir_proc)
+        eqv_set = check_eqv_proc(self._loopir_proc, proc._loopir_proc)
+        return (eqv_set == frozenset())
 
     def call_eqv(self, other_Procedure, call_site_pattern):
         call_stmt = self._find_callsite(call_site_pattern)
 
         old_proc    = call_stmt.f
         new_proc    = other_Procedure._loopir_proc
-        if not _proc_prov_eq(old_proc, new_proc):
+        eqv_set     = check_eqv_proc(old_proc, new_proc)
+        if eqv_set != frozenset():
             raise TypeError("the procedures were not equivalent")
 
         loopir      = self._loopir_proc

@@ -36,12 +36,11 @@ def conv_on_cpu():
                         for krow in par(0, kernel_dim):
                             for kcol in par(0, kernel_dim):
                                 for kch in par(0, in_channel):
+                                    w_s : i8 @ DRAM
+                                    w_s = weights[krow,kcol,kch,och]
+
+                                    i_s : i8 @ DRAM
                                     if (0 <= orow+krow-padding  and orow+krow-padding < in_dim):
-                                        w_s : i8 @ DRAM
-                                        i_s : i8 @ DRAM
-
-                                        w_s = weights[krow,kcol,kch,och]
-
                                         if (0 <= ocol+kcol-padding):
                                             if (ocol+kcol-padding < in_dim):
                                                 i_s = inp[b,orow+krow-padding,ocol+kcol-padding,kch]
@@ -49,13 +48,15 @@ def conv_on_cpu():
                                                 i_s = 0.0
                                         else:
                                             i_s = 0.0
+                                    else:
+                                        i_s = 0.0
 
-                                        a2 : i32
-                                        b2 : i32
-                                        a2 = i_s
-                                        b2 = w_s
+                                    a2 : i32
+                                    b2 : i32
+                                    a2 = i_s
+                                    b2 = w_s
 
-                                        res += a2 * b2
+                                    res += a2 * b2
 
                         src_tmp : i32
                         src_tmp = res
@@ -92,7 +93,7 @@ def test_conv_3():
     assert out_dim == 56
 
     T.alloc_dram_f32('scale', '1.0')
-    T.alloc_dram_2i32('bias', 1, out_channel, '-10000')
+    T.alloc_dram_2i32('bias', 1, out_channel, '-1*j')
     T.alloc_dram_4i8('output_cpu', batch_size, out_dim, out_dim, out_channel, '0')
     T.alloc_dram_4i8('output_gemmini', batch_size, out_dim, out_dim, out_channel, '0')
     T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'j+k')
@@ -116,16 +117,15 @@ def test_conv_3():
     conv = conv.reorder('ocol_i', 'kch_o')
     conv = conv.reorder('och_o', 'krow')
     conv = conv.simplify()
-    conv = conv.lift_alloc('i_s : _', n_lifts=7)
-    conv = conv.lift_if('if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=6)
+    conv = conv.lift_alloc('i_s : _', n_lifts=6)
     conv = conv.lift_alloc('w_s : _', n_lifts=1)
     conv = conv.lift_alloc('w_s : _', n_lifts=1, mode='col')
     conv = conv.reorder('och_o', 'kcol')
     conv = conv.reorder('och_o', 'kch_o')
     conv = conv.lift_alloc('w_s : _', n_lifts=5)
     conv = conv.fission_after('w_s = _', n_lifts=5)
-    conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1: _', n_lifts=5)
-    conv = conv.fission_after('if 0 <= ocol_i + 48 + kcol - 1: _', n_lifts=5)
+    conv = conv.fission_after('if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=5)
+    conv = conv.lift_if('if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=3)
     conv = conv.reorder('kch_o', 'ocol_i')
     conv = conv.add_ifelse('for ocol_i in _:_ #1', 'ocol_o == 0 and kcol == 0')
     conv = conv.partition_loop('ocol_i #1', 1)
@@ -137,36 +137,95 @@ def test_conv_3():
     conv = conv.assert_if('if _:_ #2', True)
     conv = conv.assert_if('if _:_ #2', True)
     conv = conv.assert_if('if 0 <= ocol_i + 48 + kcol - 1:_', True)
-    conv = conv.add_ifelse('for ocol_i in _:_ #6', 'kcol == 2')
-    conv = conv.partition_loop('ocol_i #6', 7)
+    conv = conv.add_ifelse('for ocol_i in _:_ #7', 'kcol == 2')
+    conv = conv.partition_loop('ocol_i #7', 7)
     conv = conv.assert_if('if ocol_i + 48 + kcol - 1 < 56:_', True)
-    conv = conv.unroll('ocol_i #7')
+    conv = conv.unroll('ocol_i #8')
     conv = conv.assert_if('if 0 + 7 + 48 + kcol - 1 < 56:_', False)
 
-    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
+    conv = conv.replace(ld_acc_i32_vector, 'for ocol_i in _:_ #0')
     conv = conv.reorder('och_i', 'kch_i')
     conv = conv.reorder('och_o', 'kch_i')
     conv = conv.replace(ld_i8_block_id1, 'for kch_i in _:_ #0')
-    conv = conv.replace(do_zero_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #1')
-    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #1')
+    conv = conv.replace(do_zero_i8, 'for kch_o in _:_ #1')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #0')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #0')
+    conv = conv.replace(zero_block_id2, 'for ocol_i in _:_ #0')
     conv = conv.reorder('kch_i', 'och_i')
-    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #1')
-    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #1')
+    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #0')
+    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #0')
 
-    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
+    conv = conv.replace(ld_acc_i32_vector, 'for ocol_i in _:_ #0')
     conv = conv.reorder('och_i', 'kch_i')
     conv = conv.replace(ld_i8_block_id1, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #2')
-    conv = conv.replace(do_zero_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #2')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #0')
+    conv = conv.replace(do_zero_i8, 'for kch_o in _:_ #3')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #0')
+    conv = conv.replace(zero_block_id2, 'for ocol_i in _:_ #0')
     conv = conv.reorder('kch_i', 'och_i')
-    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #2')
-    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #2')
+    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #0')
+    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #0')
 
     conv = conv.set_memory('res', GEMM_ACCUM)
     conv = conv.set_memory('i_s', GEMM_SCRATCH)
     conv = conv.set_memory('w_s', GEMM_SCRATCH)
+
+    conv = inline_vector(conv)
+    conv = lift_config(conv, 'config_ld_acc_i32_vector(_)')
+
+    conv = inline_ld_id1(conv)
+    conv = lift_config(conv, 'config_ld_i8_id1(_)')
+
+    conv = inline_matmul(conv)
+    conv = lift_config(conv, 'config_matmul(_)')
+
+    conv = inline_st(conv)
+    conv = lift_config(conv, 'config_st_acc_i8(_)')
+
+    conv = inline_vector(conv)
+    conv = inline_ld_id1(conv)
+    conv = inline_matmul(conv)
+    conv = inline_st(conv)
+    conv = conv.delete_config("config_ld_acc_i32_vector(_) #1")
+    conv = conv.delete_config("config_ld_i8_id1(_) #1")
+    conv = conv.delete_config("config_matmul(_) #1")
+    conv = conv.delete_config("config_st_acc_i8(_) #1")
+    conv = conv.simplify()
+
+    # Real optimization
+    conv = conv.fission_after('for ocol_o in _:_ #0')
+    conv = conv.reorder('orow', 'ocol_o')
+    conv = conv.split('orow', 28, ['orow_o', 'orow_i'], perfect=True)
+    conv = conv.expand_dim('i_s: i8[_]', '30', 'krow + orow_i')
+    conv = conv.par_to_seq('for krow in _:_')
+    conv = conv.par_to_seq('for b in _:_')
+    conv = conv.par_to_seq('for orow_o in _:_')
+    conv = conv.par_to_seq('for orow_i in _:_')
+    conv = conv.par_to_seq('for ocol_o in _:_')
+    conv = conv.lift_alloc('i_s : _', n_lifts=5)
+    conv = conv.lift_alloc('w_s : _', n_lifts=4)
+
+    conv = conv.add_guard('for kch_o in _:_', 'ocol_o', 0)
+    conv = conv.add_guard('for kch_o in _:_', 'b', 0)
+    conv = conv.add_guard('for kch_o in _:_ #2', 'b', 0)
+    conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
+    conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
+    conv = conv.add_guard('for kch_o in _:_ #2', 'orow_o #1', 0)
+    conv = conv.add_guard('for kch_o in _:_ #2', 'orow_i #1', 0)
+    conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #0', 'orow_i == 0 or krow == 2')
+    conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #1', 'orow_i == 0 or krow == 2')
+    conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #2', 'orow_i == 0 or krow == 2')
+    conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #3', 'orow_i == 0 or krow == 2')
+
+
+    conv = conv.split('orow_i', 7, ['orow_io', 'orow_ii'], perfect=True)
+    conv = conv.lift_alloc('res : _', n_lifts=1)
+    conv = conv.par_to_seq('for orow_io in _:_')
+    conv = conv.lift_alloc('res : _', n_lifts=4)
+    conv = conv.unroll('och_o')
+    #conv = conv.unroll('kch_o')
+    #conv = conv.unroll('kcol')
+    conv = conv.simplify()
 
     cpu = conv_on_cpu()
     cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
@@ -198,55 +257,10 @@ def test_conv_3():
 
     T.compile().run()
 
+
     print(conv)
 """
 
-
-
-
-    conv = inline_vector(conv)
-    conv = lift_config(conv, 'config_ld_acc_i32_vector(_)')
-
-    conv = inline_ld_id1(conv)
-    conv = conv.fission_after('config_ld_i8_id1(_)')
-    conv = conv.assert_if('if _:_ #0', True)
-    conv = lift_config(conv, 'config_ld_i8_id1(_)')
-
-    conv = inline_ld_id2(conv)
-    conv = conv.reorder_before("config_ld_i8_id2(_)")
-    conv = conv.fission_after("config_ld_i8_id2(_)")
-    conv = conv.assert_if("if ocol_o == 0 and kcol == 0:_ #0", True)
-    conv = conv.reorder_before("config_ld_i8_id2(_)")
-    conv = conv.fission_after("config_ld_i8_id2(_)")
-    conv = conv.assert_if('if _:_ #0', True)
-    conv = lift_config(conv, 'config_ld_i8_id2(_)')
-
-    conv = inline_ld_id2(conv)
-    conv = conv.delete_config("config_ld_i8_id2(_) #1") #Unsafe, need to reason about config shadow
-
-    conv = inline_matmul(conv)
-    conv = conv.reorder_before("config_matmul(_)")
-    conv = conv.reorder_before("config_matmul(_)")
-    conv = conv.fission_after("config_matmul(_)")
-    conv = conv.assert_if('if _:_ #0', True)
-    conv = lift_config(conv, 'config_matmul(_)')
-
-    conv = inline_vector(conv)
-    conv = inline_ld_id1(conv)
-    conv = inline_ld_id2(conv)
-    conv = inline_ld_id2(conv)
-    conv = inline_matmul(conv)
-    conv = conv.delete_config("config_ld_acc_i32_vector(_) #1")
-    conv = conv.delete_config("config_ld_i8_id1(_) #1")
-    conv = conv.delete_config("config_ld_i8_id2(_) #1")
-    conv = conv.delete_config("config_ld_i8_id2(_) #1")
-    conv = conv.delete_config("config_matmul(_) #1")
-
-    conv = inline_st(conv)
-    conv = lift_config(conv, 'config_st_acc_i8(_)')
-    conv = inline_st(conv)
-    conv = conv.delete_config("config_st_acc_i8(_) #1")
-    conv = conv.simplify()
 
 
 

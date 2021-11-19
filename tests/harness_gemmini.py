@@ -9,41 +9,47 @@ GEMMINI_ROOT = os.getenv('GEMMINI_ROOT')
 if GEMMINI_ROOT is None:
     RISCV = os.getenv('RISCV')
     if RISCV is None:
-        pytest.skip("skipping gemmini tests; could not find chipyard",
-                    allow_module_level=True)
-    GEMMINI_ROOT = os.path.join(RISCV,'..','generators','gemmini')
-GEMMINI_ROOT        = os.path.abspath(GEMMINI_ROOT)
-CHIPYARD_ROOT       = os.path.abspath(os.path.join(GEMMINI_ROOT,'..','..'))
-SIMS_VCS_DIR        = os.path.join(CHIPYARD_ROOT,'sims','vcs')
-GEMMINI_ROCC_TESTS  = os.path.join(GEMMINI_ROOT,'software',
-                                                'gemmini-rocc-tests')
-ROOT                = GEMMINI_ROCC_TESTS
-BCOMMON             = os.path.join(ROOT,'riscv-tests','benchmarks','common')
+        pass
+        #pytest.skip("skipping gemmini tests; could not find chipyard",
+        #            allow_module_level=True)
+    else:
+        GEMMINI_ROOT  = os.path.join(RISCV,'..','generators','gemmini')
 
-CC_BAREMETAL        = 'riscv64-unknown-elf-gcc'
-CFLAGS_BAREMETAL    = ' '.join([
-                        f'-DPREALLOCATE=1',
-                        f'-DMULTITHREAD=1',
-                        f'-mcmodel=medany',
-                        f'-std=gnu99',
-                        f'-O2',
-                        f'-ffast-math',
-                        f'-fno-common',
-                        f'-fno-builtin-printf',
-                        f'-march=rv64gc -Wa,-march=rv64gcxhwacha',
-                        f'-lm',
-                        f'-lgcc',
-                        f'-I{ROOT}/riscv-tests',
-                        f'-I{ROOT}/riscv-tests/env',
-                        f'-I{ROOT}',
-                        f'-I{BCOMMON}',
-                        f'-DID_STRING=',
-                        f'-nostdlib',
-                        f'-nostartfiles',
-                        f'-static',
-                        f'-T {BCOMMON}/test.ld',
-                        f'-DBAREMETAL=1',
-                      ])
+
+if RISCV is not None:
+    GEMMINI_ROOT        = os.path.abspath(GEMMINI_ROOT)
+    CHIPYARD_ROOT       = os.path.abspath(os.path.join(GEMMINI_ROOT,'..','..'))
+    SIMS_VCS_DIR        = os.path.join(CHIPYARD_ROOT,'sims','vcs')
+    GEMMINI_ROCC_TESTS  = os.path.join(GEMMINI_ROOT,'software',
+                                                    'gemmini-rocc-tests')
+    ROOT                = GEMMINI_ROCC_TESTS
+    BCOMMON             = os.path.join(ROOT,'riscv-tests','benchmarks',
+                                            'common')
+
+    CC_BAREMETAL        = 'riscv64-unknown-elf-gcc'
+    CFLAGS_BAREMETAL    = ' '.join([
+                            f'-DPREALLOCATE=1',
+                            f'-DMULTITHREAD=1',
+                            f'-mcmodel=medany',
+                            f'-std=gnu99',
+                            f'-O2',
+                            f'-ffast-math',
+                            f'-fno-common',
+                            f'-fno-builtin-printf',
+                            f'-march=rv64gc -Wa,-march=rv64gcxhwacha',
+                            f'-lm',
+                            f'-lgcc',
+                            f'-I{ROOT}/riscv-tests',
+                            f'-I{ROOT}/riscv-tests/env',
+                            f'-I{ROOT}',
+                            f'-I{BCOMMON}',
+                            f'-DID_STRING=',
+                            f'-nostdlib',
+                            f'-nostartfiles',
+                            f'-static',
+                            f'-T {BCOMMON}/test.ld',
+                            f'-DBAREMETAL=1',
+                          ])
 
 _HERE_              = os.path.dirname(os.path.abspath(__file__))
 SYSTL_ROOT          = os.path.abspath(os.path.join(_HERE_,'..'))
@@ -52,8 +58,9 @@ TMP_DIR             = os.path.join(DIR_TEST_ROOT,'tmp')
 
 GEMM_BUILD_DIR      = os.path.join(DIR_TEST_ROOT,'gemmini_build')
 
-COMPILE             = (f"{CC_BAREMETAL} {CFLAGS_BAREMETAL} "+
-                       f"{BCOMMON}/*.c {BCOMMON}/*.S")
+if RISCV is not None:
+    COMPILE             = (f"{CC_BAREMETAL} {CFLAGS_BAREMETAL} "+
+                           f"{BCOMMON}/*.c {BCOMMON}/*.S")
 
 # make sure the build directory exists
 os.makedirs(GEMM_BUILD_DIR, exist_ok=True)
@@ -61,15 +68,17 @@ os.makedirs(GEMM_BUILD_DIR, exist_ok=True)
 class ENV:
     pass
 
-ENV.GEMMINI_ROOT        = GEMMINI_ROOT
-ENV.CHIPYARD_ROOT       = CHIPYARD_ROOT
-ENV.SIMS_VCS_DIR        = SIMS_VCS_DIR
-ENV.GEMMINI_ROCC_TESTS  = GEMMINI_ROCC_TESTS
-ENV.ROOT                = ROOT
-ENV.BCOMMON             = BCOMMON
 
-ENV.CC_BAREMETAL        = CC_BAREMETAL
-ENV.CFLAGS_BAREMETAL    = CFLAGS_BAREMETAL
+if RISCV is not None:
+    ENV.GEMMINI_ROOT        = GEMMINI_ROOT
+    ENV.CHIPYARD_ROOT       = CHIPYARD_ROOT
+    ENV.SIMS_VCS_DIR        = SIMS_VCS_DIR
+    ENV.GEMMINI_ROCC_TESTS  = GEMMINI_ROCC_TESTS
+    ENV.ROOT                = ROOT
+    ENV.BCOMMON             = BCOMMON
+
+    ENV.CC_BAREMETAL        = CC_BAREMETAL
+    ENV.CFLAGS_BAREMETAL    = CFLAGS_BAREMETAL
 
 ENV.SYSTL_ROOT          = SYSTL_ROOT
 ENV.DIR_TEST_ROOT       = DIR_TEST_ROOT
@@ -77,7 +86,8 @@ ENV.TMP_DIR             = TMP_DIR
 
 ENV.GEMM_BUILD_DIR      = GEMM_BUILD_DIR
 
-ENV.COMPILE             = COMPILE
+if RISCV is not None:
+    ENV.COMPILE             = COMPILE
 
 
 
@@ -234,15 +244,18 @@ class GemmTestBuilder:
         main_src  = gemmini_test_template(h_file, self.glob, self.body)
         gemmini_write_test_main(main_file, main_src)
 
-        gemmini_compile(main_file, lib_file, bin_file)
+        if RISCV is not None:
+            gemmini_compile(main_file, lib_file, bin_file)
 
         return self
 
     def run(self):
-        gemmini_run(self.test_name)
+        if RISCV is not None:
+            gemmini_run(self.test_name)
 
     def vcs(self):
-        gemmini_run_on_vcs(self.test_name)
+        if RISCV is not None:
+            gemmini_run_on_vcs(self.test_name)
 
     def alloc_dram_4i8(self, name, N, M, K, R, init):
         self.glob += [f'static int8_t {name}[{N}*{M}*{K}*{R}];','']
