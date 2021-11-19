@@ -1,7 +1,7 @@
 import os
+from pathlib import Path
 
 from SYS_ATL.memory import Memory, DRAM, MemGenError
-from pathlib import Path
 
 
 def _is_const_size(sz, c):
@@ -43,6 +43,26 @@ class MDRAM(DRAM):
             return ""
 
         return f"free_dram({new_name});"
+
+
+# ----------- DRAM using static memory ----------------
+
+class DRAM_STATIC(DRAM):
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        # Error checking only
+        for extent in shape:
+            try:
+                int(extent)
+            except ValueError as e:
+                raise MemGenError(f'DRAM_STATIC requires constant shapes. '
+                                  f'Saw: {extent}') from e
+
+        return f'static {prim_type} {new_name}[{" * ".join(shape)}];'
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ''
 
 
 # ----------- GEMMINI scratchpad ----------------

@@ -3,6 +3,7 @@ from __future__ import annotations
 from SYS_ATL import *
 from SYS_ATL.platforms.x86 import *
 from SYS_ATL.syntax import *
+from SYS_ATL.libs.memories import DRAM_STATIC
 
 
 def trace(message):
@@ -285,17 +286,6 @@ sgemm_above_kernel = (
         # TODO: bottom-right tile
         .simplify()
 )
-
-
-class DRAM_STATIC(DRAM):
-    @classmethod
-    def alloc(cls, new_name, prim_type, shape, srcinfo):
-        return f'static {prim_type} {new_name}[{" * ".join(shape)}];'
-
-    @classmethod
-    def free(cls, new_name, prim_type, shape, srcinfo):
-        return ''
-
 
 sgemm_sys_atl = (
     SGEMM

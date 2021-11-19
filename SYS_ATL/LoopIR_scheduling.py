@@ -1709,7 +1709,7 @@ class _FissionLoops:
                                   "in a different scope than some use-site")
 
     # returns a pair of stmt-lists
-    # for those statements occuring before and
+    # for those statements occurring before and
     # after the fission point
     def map_stmts(self, stmts):
         pre_stmts           = []

@@ -113,8 +113,10 @@ conv_specialized = (
         .replace(mm512_set1_ps, 'for oc_v in _: _ #0')
         .replace(mm512_fmadd_ps, 'for oc_v in _: _ #0')
         #
+        .split('kc', 2, ['kc_o', 'kc_i'], perfect=True)
+        #
         .simplify()
 )
 
 if __name__ == '__main__':
-    print(conv_specialized.c_code_str())
+    print(conv_specialized)
