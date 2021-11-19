@@ -15,7 +15,6 @@ def conv(
         in_w: size,
         in_channel: size,
         kernel_dim: size,
-        # act: bool,
         batch_size: size,
         inp: f32[batch_size, in_h, in_w, in_channel],
         output: f32[batch_size, out_h, out_w, out_channel],
@@ -44,14 +43,8 @@ def conv(
 
 
 VEC_W = 16
-H = 80
-W = 100
-C = 128
-K = 3
-N = 5
-
-TILE_W = 4
-TILE_H = 5
+H, W, C, K, N = 80, 100, 128, 3, 5
+TILE_W, TILE_H = 4, 5
 
 conv_specialized = (
     conv
