@@ -713,6 +713,7 @@ def ld_acc_i32_vector(
     src   : [i32][1, 16] @ DRAM,
     dst   : [i32][n, 16] @ GEMM_ACCUM,
 ):
+    assert n <= 16
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
@@ -728,6 +729,7 @@ def do_ld_acc_i32_vector(
     src   : [i32][1, 16] @ DRAM,
     dst   : [i32][n, 16] @ GEMM_ACCUM,
 ):
+    assert n <= 16
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 

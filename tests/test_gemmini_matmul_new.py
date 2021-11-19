@@ -95,6 +95,7 @@ def test_matmul_512x512x512():
     gemmini = inline_lift_config(gemmini)
 
     # Real optimization
+    # tile
     gemmini = gemmini.split('j', 4, ['jo', 'ji'], perfect=True)
     gemmini = gemmini.split('i', 8, ['io', 'i'], perfect=True)
     gemmini = gemmini.split('io', 2, ['ioo', 'io'], perfect=True)
@@ -114,6 +115,7 @@ def test_matmul_512x512x512():
     gemmini = gemmini.lift_alloc('res : _', n_lifts=4)
 
     gemmini = gemmini.par_to_seq('for ji in _:_')
+    #for l in ['ji','jo','i
     gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'ji', 0)
     gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'jo', 0)
     gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
