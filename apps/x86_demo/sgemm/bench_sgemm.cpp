@@ -5,6 +5,8 @@
 #include <random>
 #include <vector>
 
+#include "alex_sgemm.h"
+
 #ifndef CBLAS_NAME
 #error Must set CBLAS_NAME
 #endif
@@ -64,6 +66,28 @@ struct cblas_square {
 
 BENCHMARK_TEMPLATE(BM_square_sgemm, cblas_square)
     ->Name("sgemm_" CBLAS_NAME)
+    ->DenseRange(64, 1984, 128)
+    ->Arg(221)
+    ->Arg(256)
+    ->Arg(397)
+    ->Arg(412)
+    ->Arg(512)
+    ->Arg(732)
+    ->Arg(911)
+    ->Arg(1024)
+    ->Arg(2048);
+
+// ----------------------------------------------------------------------------
+// Handwritten C++ SGEMM benchmark
+
+struct alex_square {
+  void operator()(const float *a, const float *b, float *c, long n) {
+    sgemm_square(a, b, c, n);
+  }
+};
+
+BENCHMARK_TEMPLATE(BM_square_sgemm, alex_square)
+    ->Name("sgemm_alex")
     ->DenseRange(64, 1984, 128)
     ->Arg(221)
     ->Arg(256)
