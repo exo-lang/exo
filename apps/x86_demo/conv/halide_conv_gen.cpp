@@ -94,8 +94,6 @@ class ConvolutionLayer : public Halide::Generator<ConvolutionLayer> {
         .unroll(kc, 2);
     filter.in().compute_at(conv, kc).vectorize(_0, vec).unroll(_0).unroll(_3);
     input.in().compute_at(conv, x).unroll(_0);
-
-    relu.print_loop_nest();
   }
 };
 

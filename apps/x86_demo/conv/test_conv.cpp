@@ -9,7 +9,7 @@
 #include "onednn_conv.hpp"
 #include "sys_atl_conv.hpp"
 
-void check_output(const std::vector<float> &expected_vec,
+bool check_output(const std::vector<float> &expected_vec,
                   const std::vector<float> &actual_vec) {
   int err_count = 0;
 
@@ -28,9 +28,10 @@ void check_output(const std::vector<float> &expected_vec,
     }
     if (err_count > 20) {
       fprintf(stderr, "Too many errors! Exiting early...\n");
-      return;
+      return false;
     }
   }
+  return true;
 }
 
 int main() {
@@ -45,10 +46,16 @@ int main() {
   printf("Running SYS_ATL...\n");
   sys_atl_conv(ci_sys_atl);
   printf("Checking SYS_ATL...\n");
-  check_output(ci_onednn.dst_data, ci_sys_atl.dst_data);
+  if (!check_output(ci_onednn.dst_data, ci_sys_atl.dst_data)) {
+    return 1;
+  }
 
   printf("Running Halide...\n");
   halide_conv(ci_halide);
   printf("Checking Halide...\n");
-  check_output(ci_onednn.dst_data, ci_halide.dst_data);
+  if (!check_output(ci_onednn.dst_data, ci_halide.dst_data)) {
+    return 1;
+  }
+
+  return 0;
 }
