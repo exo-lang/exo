@@ -196,36 +196,15 @@ right_panel_kernel_scheduled = (
         .specialize('right_panel_kernel(_) #0',
                     [f'(N / 16) == {i}' for i in range(N_REG_BLK // VEC_W)])
         #
-        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
-        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
-        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
-        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
-        .call_eqv(right_panel_kernel_opt, 'right_panel_kernel(_)')
-        .inline('right_panel_kernel_opt(_)')
-        .inline('right_panel_kernel_opt(_)')
-        .inline('right_panel_kernel_opt(_)')
-        .inline('right_panel_kernel_opt(_)')
-        .inline('right_panel_kernel_opt(_)')
+        .repeat(Procedure.call_eqv, right_panel_kernel_opt,
+                'right_panel_kernel(_)')
+        .repeat(Procedure.inline, 'right_panel_kernel_opt(_)')
         #
         .simplify()
         #
-        .inline_window('A = _')
-        .inline_window('A = _')
-        .inline_window('A = _')
-        .inline_window('A = _')
-        .inline_window('A = _')
-        #
-        .inline_window('B = _')
-        .inline_window('B = _')
-        .inline_window('B = _')
-        .inline_window('B = _')
-        .inline_window('B = _')
-        #
-        .inline_window('C = _')
-        .inline_window('C = _')
-        .inline_window('C = _')
-        .inline_window('C = _')
-        .inline_window('C = _')
+        .repeat(Procedure.inline_window, 'A = _')
+        .repeat(Procedure.inline_window, 'B = _')
+        .repeat(Procedure.inline_window, 'C = _')
         #
         .simplify()
 )
@@ -337,14 +316,7 @@ sgemm_sys_atl = (
         ## Replace SGEMM_WINDOW with optimized form
         # These must come AFTER bound_alloc since the internal check-effects
         # is a whole program analysis that is VERY expensive
-        .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 1
-        .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 2
-        .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 3
-        .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 4
-        .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 5
-        .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 6
-        .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 7
-        .call_eqv(sgemm_above_kernel, 'SGEMM_WINDOW(_)')  # 8
+        .repeat(Procedure.call_eqv, sgemm_above_kernel, 'SGEMM_WINDOW(_)')
         # Clean up
         .simplify()
 )

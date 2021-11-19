@@ -885,22 +885,21 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoInline(loopir, call_stmt).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def is_eq(self, proc):
+    def is_eq(self, proc: 'Procedure'):
         eqv_set = check_eqv_proc(self._loopir_proc, proc._loopir_proc)
-        return (eqv_set == frozenset())
+        return eqv_set == frozenset()
 
-    def call_eqv(self, other_Procedure, call_site_pattern):
+    def call_eqv(self, eqv_proc: 'Procedure', call_site_pattern):
         call_stmt = self._find_callsite(call_site_pattern)
 
-        old_proc    = call_stmt.f
-        new_proc    = other_Procedure._loopir_proc
-        eqv_set     = check_eqv_proc(old_proc, new_proc)
+        old_proc = call_stmt.f
+        new_proc = eqv_proc._loopir_proc
+        eqv_set = check_eqv_proc(old_proc, new_proc)
         if eqv_set != frozenset():
             raise TypeError("the procedures were not equivalent")
 
-        loopir      = self._loopir_proc
-        loopir      = Schedules.DoCallSwap(loopir, call_stmt,
-                                                   new_proc).result()
+        loopir = self._loopir_proc
+        loopir = Schedules.DoCallSwap(loopir, call_stmt, new_proc).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def bind_expr(self, new_name, expr_pattern, cse=False):
@@ -923,6 +922,14 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         loopir = Schedules.DoBindExpr(loopir, new_name, matches, cse).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def repeat(self, directive, *args):
+        p = self
+        while True:
+            try:
+                p = directive(p, *args)
+            except SchedulingError:
+                return p
 
     def stage_expr(self, new_name, expr_pattern, memory=None, n_lifts=1):
         return (
