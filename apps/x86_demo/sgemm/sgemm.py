@@ -280,15 +280,14 @@ sgemm_sys_atl = (
         .lift_if('if N % _ > 0: _ #3', n_lifts=2)
         .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
         ## Case 1 memory staging
-        # Stage A
         .stage_window('A1_cache', 'A[_] #0', DRAM_STATIC)
+        .stage_window('B1_cache', 'B[_] #0', DRAM_STATIC)
         .par_to_seq('for ko in _: _ #0')
         .par_to_seq('for io in _: _ #0')
         .par_to_seq('for jo in _: _ #0')
-        .lift_alloc('A1_cache: _')
+        .lift_alloc('A1_cache: _', n_lifts=3)
+        .lift_alloc('B1_cache: _', n_lifts=3)
         .fission_after('for i0 in _: _ #0')
-        # Stage B
-        .stage_window('B1_cache', 'B[_] #0', DRAM_STATIC)
         ## Case 2 memory staging
         .stage_window('B2_cache', 'B[_] #1', DRAM_STATIC)
         .bound_alloc('B2_cache: _', [None, '64'])
@@ -305,8 +304,8 @@ sgemm_sys_atl = (
         ## Case 6 memory staging
         .stage_window('B6_cache', 'B[_] #5', DRAM_STATIC)
         .bound_alloc('B6_cache: _', ['512', '64'])
-        .lift_alloc('B6_cache: _')
-        .fission_after('for i0 in _: _ #6')
+        # .lift_alloc('B6_cache: _')
+        # .fission_after('for i0 in _: _ #6')
         ## Case 7 memory staging
         .stage_window('B7_cache', 'B[_] #6', DRAM_STATIC)
         .bound_alloc('B7_cache: _', ['512', None])
