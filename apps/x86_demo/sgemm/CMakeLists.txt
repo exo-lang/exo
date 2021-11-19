@@ -20,6 +20,7 @@ target_link_libraries(
   alex_sgemm
 )
 target_compile_features(bench_sgemm PRIVATE cxx_std_17)
+target_compile_definitions(bench_sgemm PRIVATE CBLAS_NAME="MKL")
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(OpenBLAS REQUIRED IMPORTED_TARGET
@@ -35,6 +36,7 @@ target_link_libraries(
   alex_sgemm
 )
 target_compile_features(bench_sgemm_openblas PRIVATE cxx_std_17)
+target_compile_definitions(bench_sgemm_openblas PRIVATE CBLAS_NAME="OpenBLAS")
 
 # ---------------------------------------------------------------------------- #
 # CTest configuration
