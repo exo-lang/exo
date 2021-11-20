@@ -1,5 +1,6 @@
 import inspect
 import re
+from typing import Optional
 
 from . import pyparser
 from .LoopIR import LoopIR, PAST
@@ -30,32 +31,43 @@ A <pattern-string> has the following form:
                          -- specified by LoopIR.PAST
 """
 
-def get_match_no(pattern_str):
-    # break-down pattern_str for possible #<num> post-fix
-    match = re.search(r"^([^\#]+)\#(\d+)\s*$", pattern_str)
-    if match:
-        pattern_str = match[1]
-        match_no    = int(match[2]) if match[2] is not None else None
-    else:
-        match_no    = None
-    return match_no
+
+def get_match_no(pattern_str: str) -> Optional[int]:
+    """
+    Search for a trailing # sign in a pattern string and return the following
+    number, or None if it does no # sign exists. Uses `int` to parse the number,
+    so is not sensitive to spaces
+    >>> get_match_no('foo #34')
+    34
+    >>> get_match_no('baz # 42 ')
+    42
+    >>> get_match_no('foo') is None
+    True
+    >>> get_match_no('foo #bar')
+    Traceback (most recent call last):
+      ...
+    ValueError: invalid literal for int() with base 10: 'bar'
+    """
+    if (pos := pattern_str.rfind('#')) == -1:
+        return None
+    return int(pattern_str[pos + 1:])
+
 
 def match_pattern(ast, pattern_str, call_depth=0, default_match_no=None):
     # get source location where this is getting called from
-    caller = inspect.getframeinfo(inspect.stack()[call_depth+1][0])
+    caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
 
     # break-down pattern_str for possible #<num> post-fix
-    match = re.search(r"^([^\#]+)\#(\d+)\s*$", pattern_str)
-    if match:
+    if match := re.search(r"^([^\#]+)\#(\d+)\s*$", pattern_str):
         pattern_str = match[1]
-        match_no    = int(match[2]) if match[2] is not None else None
+        match_no = int(match[2]) if match[2] is not None else None
     else:
-        match_no    = default_match_no # None means match-all
+        match_no = default_match_no  # None means match-all
 
     # parse the pattern we're going to use to match
-    p_ast         = pyparser.pattern(pattern_str,
-                                     filename=caller.filename,
-                                     lineno=caller.lineno)
+    p_ast = pyparser.pattern(pattern_str,
+                             filename=caller.filename,
+                             lineno=caller.lineno)
 
     # do the pattern match, to find the nodes in ast
     return PatternMatch(p_ast, ast, match_no=match_no).results()

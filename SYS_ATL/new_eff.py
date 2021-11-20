@@ -1116,7 +1116,32 @@ class ES(Enum):
 
 
 class SchedulingError(Exception):
-    pass
+    def __init__(self, message, **kwargs):
+        ops = self._get_scheduling_ops()
+        # TODO: include outer ops in message
+        message = f'{ops[0]}: {message}'
+        for name, blob in kwargs.items():
+            message += self._format_named_blob(name.title(), blob)
+        super().__init__(message)
+
+    @staticmethod
+    def _format_named_blob(name, blob):
+        blob = str(blob).rstrip()
+        n = len(name) + 2
+        blob = textwrap.indent(blob, ' ' * n).strip()
+        return f'\n{name}: ' + blob
+
+    @staticmethod
+    def _get_scheduling_ops():
+        ops = []
+        for frame in inspect.stack():
+            if obj := frame[0].f_locals.get('self'):
+                fn = frame.function
+                if isinstance(obj, ProcedureBase) and not fn.startswith('_'):
+                    ops.append(fn)
+        if not ops:
+            ops = ['<<<unknown directive>>>']
+        return ops
 
 
 def Check_ReorderStmts(proc, s1, s2):

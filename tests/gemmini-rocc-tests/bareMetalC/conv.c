@@ -9,11 +9,11 @@
 #include "include/gemmini_testutils.h"
 
 #define BATCH_SIZE 4
-#define IN_DIM 56
-#define IN_CHANNELS 64
-#define OUT_CHANNELS 64
+#define IN_DIM 30
+#define IN_CHANNELS 128
+#define OUT_CHANNELS 128
 #define KERNEL_DIM 3
-#define PADDING 1
+#define PADDING 0
 #define STRIDE 1
 
 #define NO_BIAS false
@@ -21,6 +21,7 @@
 #define OUT_DIM ((IN_DIM + 2*PADDING - KERNEL_DIM) / STRIDE + 1)
 #define PATCH_SIZE (KERNEL_DIM * KERNEL_DIM * IN_CHANNELS)
 #define N_PATCHES (BATCH_SIZE * OUT_DIM * OUT_DIM)
+
 
 
 bool vec_is_equal(elem_t * a, elem_t * b, int len) {
@@ -93,6 +94,12 @@ int main() {
 
     static elem_t output2[BATCH_SIZE][OUT_DIM][OUT_DIM][OUT_CHANNELS] row_align(1);
 
+    /*
+    conv_30_lib_Context *ctxt;
+    float scale = 1.0f;
+    conv_on_cpu(ctxt, output, bias, input, weights, false, &scale);
+    */
+
     printf("our conv...\n");
     uint64_t start_gemmini = read_cycles();
     tiled_conv_A_stride_auto(
@@ -112,6 +119,15 @@ int main() {
     uint64_t end_gemmini = read_cycles();
     printf("our conv took %llu cycles\n", end_gemmini - start_gemmini);
 
+    /*
+    bool success = vec_is_equal(&output[0][0][0][0], &output2[0][0][0][0], sizeof(output) / sizeof(elem_t));
+
+    if (success == true) {
+      printf("success!\n");
+    } else {
+      printf("fail!\n");
+    }
+    */
 
     return 0;
 }

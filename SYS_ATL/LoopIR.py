@@ -832,7 +832,6 @@ class Alpha_Rename(LoopIR_Rewrite):
             return LoopIR.Read( nm, [ self.map_e(a) for a in e.idx ],
                                 self.map_t(e.type), e.srcinfo )
         elif etyp is LoopIR.WindowExpr:
-            win_e = super().map_e(e)
             nm = self.env[e.name] if e.name in self.env else e.name
             return LoopIR.WindowExpr(nm,
                                [self.map_w_access(a) for a in e.idx],

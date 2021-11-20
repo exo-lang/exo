@@ -21,9 +21,9 @@ typedef acc_t ACC_T;
 typedef elem_t ACC_T;
 #endif
 
-#define MAT_DIM_I 512
-#define MAT_DIM_K 512
-#define MAT_DIM_J 512
+#define MAT_DIM_I 784
+#define MAT_DIM_J 1024
+#define MAT_DIM_K 256
 
 void print_tile(elem_t* in, int tile_dim) {
   for (size_t r = 0; r < tile_dim; r++) {
@@ -154,7 +154,6 @@ int main() {
     unsigned long end = read_cycles();
     printf("Cycles taken: %u\n", end-start);
 
-#if CHECK_RESULT == 1
     if (!full_is_equal(full_C, gold)) {
       printf("C:\n");
       full_printMatrix(full_C);
@@ -163,8 +162,9 @@ int main() {
       printf("\n");
 
       exit(1);
+    } else {
+      printf("success!\n");
     }
-#endif
 
   exit(0);
 }
