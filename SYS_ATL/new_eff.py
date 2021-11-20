@@ -1114,6 +1114,10 @@ class ES(Enum):
 # --------------------------------------------------------------------------- #
 # Scheduling Checks
 
+import inspect
+import textwrap
+from .API_types import ProcedureBase
+
 
 class SchedulingError(Exception):
     def __init__(self, message, **kwargs):
