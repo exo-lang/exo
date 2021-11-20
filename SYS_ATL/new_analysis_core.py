@@ -1,6 +1,4 @@
 from adt import ADT
-from . import LoopIR
-from .configs import Config
 from .prelude import *
 
 from collections    import ChainMap, OrderedDict
@@ -12,13 +10,26 @@ from .LoopIR import T
 
 import pysmt
 from pysmt import shortcuts as SMT
+from pysmt import logics
+import z3 as z3lib
 
-
+_first_run = True
 def _get_smt_solver():
+    #global _first_run
+    #if _first_run:
+    #    _first_run = False
+    #    env = SMT.get_env()
+    #    env.factory.add_generic_solver('foobar_z3',
+    #        #'/Users/gilbo/.pyenv/shims/z3',
+    #        '/Users/gilbo/code/SYS_ATL/z3test/dump_smt.sh',
+    #        [logics.LIA])
+    #return SMT.Solver(name='foobar_z3', logic=logics.LIA)
     factory = pysmt.factory.Factory(pysmt.shortcuts.get_env())
-    slvs    = factory.all_solvers()
+    slvs    = factory.all_solvers(logic=logics.LIA)
     if len(slvs) == 0: raise OSError("Could not find any SMT solvers")
     return pysmt.shortcuts.Solver(name=next(iter(slvs)))
+
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -51,7 +62,7 @@ module AExpr {
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
             | Stride( sym name, int dim )
-            | LetStrides( sym name, expr* strides )
+            | LetStrides( sym name, expr* strides, expr body )
             | Select( expr cond, expr tcase, expr fcase )
             | ForAll( sym name, expr arg )
             | Exists( sym name, expr arg )
@@ -63,9 +74,8 @@ module AExpr {
             attributes( type type, srcinfo srcinfo )
 } """, {
     'sym':     lambda x: isinstance(x, Sym),
-    'type':    lambda x: type(x) is tuple or LoopIR.T.is_type(x),
+    'type':    lambda x: type(x) is tuple or T.is_type(x),
     'binop':   lambda x: x in front_ops,
-    'config':  lambda x: isinstance(x, Config),
     'srcinfo': lambda x: isinstance(x, SrcInfo),
 })
 
@@ -83,18 +93,39 @@ def ABool(x):
         return A.Var(x, T.bool, null_srcinfo())
     else: assert False, f"bad type {type(x)}"
 
-def ALet(nm,rhs,body):
-    assert isinstance(nm, Sym)
-    names   = [nm]
-    rhs     = [rhs]
+def ALet(names,rhs,body):
+    assert isinstance(names, list) and isinstance(rhs, list)
+    assert all(isinstance(n,Sym) for n in names)
+    assert all(isinstance(r,A.expr) for r in rhs)
     if isinstance(body, A.Let):
         names   = names + body.names
         rhs     = rhs   + body.rhs
         body    = body.body
-    return A.Let(names, rhs, body, body.type, body.srcinfo)
+    if len(names) == 0:
+        return body
+    else:
+        return A.Let(names, rhs, body, body.type, body.srcinfo)
 
 def ALetStride(nm,strides,body):
-    return A.LetStrides(nm, strides, body, body.type, body.srcinfo)
+    if len(strides) == 0:
+        return body
+    else:
+        return A.LetStrides(nm, strides, body, body.type, body.srcinfo)
+
+def ALetTuple(names,rhs,body):
+    if len(names) == 0:
+        return body
+    else:
+        return A.LetTuple(names, rhs, body, body.type, body.srcinfo)
+
+def AForAll(names, body):
+    for nm in reversed(names):
+        body = A.ForAll(nm, body, T.bool, body.srcinfo)
+    return body
+def AExists(names, body):
+    for nm in reversed(names):
+        body = A.Exists(nm, body, T.bool, body.srcinfo)
+    return body
 
 def ANot(x):
     return A.Not(x, T.bool, x.srcinfo)
@@ -103,20 +134,24 @@ def AAnd(*args):
         return A.Const(True,T.bool,null_srcinfo())
     res = args[0]
     for a in args[1:]:
-        res = A.And(res, a, T.bool, a.srcinfo)
+        res = A.BinOp('and', res, a, T.bool, a.srcinfo)
     return res
 def AOr(*args):
     if len(args) == 0:
         return A.Const(False,T.bool,null_srcinfo())
     res = args[0]
     for a in args[1:]:
-        res = A.Or(res, a, T.bool, a.srcinfo)
+        res = A.BinOp('or', res, a, T.bool, a.srcinfo)
     return res
 def AImplies(lhs,rhs):
     return A.BinOp('==>', lhs, rhs, T.bool, lhs.srcinfo)
 def AEq(lhs,rhs):
     return A.BinOp('==', lhs, rhs, T.bool, lhs.srcinfo)
 
+def AMay(arg):
+    return A.Maybe(arg, T.bool, arg.srcinfo)
+def ADef(arg):
+    return A.Definitely(arg, T.bool, arg.srcinfo)
 
 @extclass(A.expr)
 def __neg__(arg):
@@ -220,7 +255,7 @@ def _estr(e, prec=0, tab=""):
         return f"stride({e.name},{e.dim})"
     elif isinstance(e, A.LetStrides):
         strides = ','.join([ _estr(s,tab=tab+'  ') for s in e.strides ])
-        bind    = f"{tab}{e.name} = ({strides})"
+        bind    = f"{e.name} = ({strides})"
         body    = _estr(e.body,tab=tab+"  ")
         s = f"letStride {bind}\n{tab}in {body}"
         return f"({s}\n{tab})" if prec > 0 else s
@@ -255,8 +290,8 @@ def _estr(e, prec=0, tab=""):
         args    = ', '.join([ _estr(a,tab=tab) for a in e.args ])
         return f"({args})"
     elif isinstance(e, A.LetTuple):
-        names   = ','.join(e.names)
-        bind    = f"{tab}{names} = {_estr(e.rhs,tab=tab+'  ')}"
+        names   = ','.join([ str(n) for n in e.names])
+        bind    = f"{names} = {_estr(e.rhs,tab=tab+'  ')}"
         body    = _estr(e.body,tab=tab+"  ")
         s = f"let_tuple {bind}\n{tab}in {body}"
         return f"({s}\n{tab})" if prec > 0 else s
@@ -266,6 +301,81 @@ def _estr(e, prec=0, tab=""):
 @extclass(A.expr)
 def __str__(e):
     return _estr(e)
+
+
+
+def aeFV(e,env=None):
+    env     = env or ChainMap()
+    def push():
+        nonlocal env
+        env = env.new_child()
+    def pop():
+        nonlocal env
+        env = env.parents
+
+    if isinstance(e, A.Var):
+        if e.name not in env:
+            return {e.name : e.type}
+        else:
+            return dict()
+    elif isinstance(e, (A.Unk,A.Const)):
+        return dict()
+    elif isinstance(e, (A.Not,A.USub,A.Definitely, A.Maybe)):
+        return aeFV(e.arg,env)
+    elif isinstance(e, A.BinOp):
+        return aeFV(e.lhs,env) | aeFV(e.rhs,env)
+    elif isinstance(e, A.Stride):
+        # stride symbol gets encoded as a tuple
+        key = (e.name,e.dim)
+        if key not in env:
+            return {key : T.stride}
+        else:
+            return dict()
+    elif isinstance(e, A.LetStrides):
+        push()
+        res = dict()
+        for s in e.strides:
+            res = res | aeFV(s,env)
+        for i,_ in enumerate(e.strides):
+            env[(e.name,i)] = True
+        res = res | aeFV(e.body,env)
+        pop()
+        return res
+    elif isinstance(e, A.Select):
+        return aeFV(e.cond,env) | aeFV(e.tcase,env) | aeFV(e.fcase,env)
+    elif isinstance(e, (A.ForAll, A.Exists)):
+        push()
+        env[e.name] = True
+        res = aeFV(e.arg,env)
+        pop()
+        return res
+    elif isinstance(e, A.Let):
+        push()
+        res = dict()
+        for r in e.rhs:
+            res = res | aeFV(r,env)
+        for nm in e.names:
+            env[nm] = True
+        res = res | aeFV(e.body,env)
+        pop()
+        return res
+    elif isinstance(e, A.Tuple):
+        res = dict()
+        for a in e.args:
+            res = res | aeFV(a,env)
+        return res
+    elif isinstance(e, A.LetTuple):
+        push()
+        res = dict()
+        res = aeFV(e.rhs,env)
+        for nm in e.names:
+            env[nm] = True
+        res = res | aeFV(e.body,env)
+        pop()
+        return res
+    else:
+        assert False, "bad case"
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -325,10 +435,12 @@ def to_ternary(x):
     return x if is_ternary(x) else TernVal(x,SMT.Bool(True))
 
 class SMTSolver:
-    def __init__(self):
+    def __init__(self, verbose=False):
         self.env            = ChainMap()
         self.stride_sym     = ChainMap()
         self.solver         = _get_smt_solver()
+        self.verbose        = verbose
+        self.z3             = Z3SubProc()
 
         # used during lowering
         self.mod_div_tmps   = []
@@ -338,10 +450,12 @@ class SMTSolver:
 
     def push(self):
         self.solver.push()
+        self.z3.push()
         self.internal_push()
 
     def pop(self):
         self.internal_pop()
+        self.z3.pop()
         self.solver.pop()
 
     def internal_push(self):
@@ -416,25 +530,52 @@ class SMTSolver:
         for x,e in zip(names, smt_rhs):
             self.env[x] = e
 
+    def _add_free_vars(self, e):
+        fv = aeFV(e)
+        for x,typ in fv.items():
+            if type(x) is tuple:
+                x = self._get_stride_sym(*x)
+            if x in self.env:
+                pass # already defined; no worries
+            else:
+                v = self._getvar(x,typ) # force adding to environment
+                self.z3.add_var(v.symbol_name(),typ)
+
     def assume(self, e):
         assert e.type is T.bool
+        self._add_free_vars(e)
         smt_e       = self._lower(e)
-        self.frames[-1].add_assumption(e, smt_e)
         assert not is_ternary(smt_e), "assumptions must be classical"
+        self.frames[-1].add_assumption(e, smt_e)
         self.solver.add_assertion(smt_e)
 
     def satisfy(self, e):
         assert e.type is T.bool
+        self.push()
+        self._add_free_vars(e)
         smt_e       = self._lower(e)
         assert not is_ternary(smt_e), "formulas must be classical"
-        is_sat      = self.solver.is_sat(smt_e)
+        self.z3.add_assertion(smt_e)
+        is_sat      = self.z3.run_check_sat()
+        #is_sat      = self.solver.is_sat(smt_e)
+        self.pop()
         return is_sat
 
     def verify(self, e):
         assert e.type is T.bool
+        self.push()
+        self._add_free_vars(e)
         smt_e       = self._lower(e)
         assert not is_ternary(smt_e), "formulas must be classical"
-        is_valid    = self.solver.is_valid(smt_e)
+        self.z3.add_assertion(SMT.Not(smt_e))
+        if self.verbose:
+            print(self.debug_str(smt=True))
+            print('to verify')
+            print(SMT.to_smtlib(smt_e))
+
+        is_valid    = not self.z3.run_check_sat()
+        #is_valid    = self.solver.is_valid(smt_e)
+        self.pop()
         return is_valid
 
     def counter_example(self):
@@ -442,8 +583,8 @@ class SMTSolver:
             if type(s) is tuple:
                 return True
             else:
-                return (smt.get_type() == SMT.INT or
-                        smt.get_type() == SMT.BOOL)
+                return (s.get_type() == SMT.INT or
+                        s.get_type() == SMT.BOOL)
         env_syms = [ (sym,smt) for sym,smt in self.env.items()
                      if keep_sym(smt) ]
         smt_syms = []
@@ -466,7 +607,7 @@ class SMTSolver:
     def _get_stride_sym(self, name, dim):
         key     = (name, dim)
         if key not in self.stride_sym:
-            self.stride_sym[key] = Sym(f"{e.name}_stride_{e.dim}")
+            self.stride_sym[key] = Sym(f"{name}_stride_{dim}")
         sym     = self.stride_sym[key]
         return sym
 
@@ -549,8 +690,8 @@ class SMTSolver:
                 c   = to_ternary(cond)
                 t   = to_ternary(tcase)
                 f   = to_ternary(fcase)
-                return (SMT.Ite(c.v,t.v,f.v),
-                        SMT.And(c.d,SMT.Ite(c.v,t.d,f.d)))
+                return TernVal(SMT.Ite(c.v,t.v,f.v),
+                               SMT.And(c.d,SMT.Ite(c.v,t.d,f.d)))
             else:
                 return SMT.Ite(cond, tcase, fcase)
         elif isinstance(e, (A.ForAll,A.Exists)):
@@ -564,13 +705,13 @@ class SMTSolver:
                 # forall defined when (forall nm. d) \/ (exists nm. ¬a /\ d)
                 # exists defined when (forall nm. d) \/ (exists nm. a /\ d)
                 short_a = a.v if isinstance(e, A.Exists) else SMT.Not(a.v)
-                return ( OP([nm],a.v),
-                         SMT.Or( SMT.ForAll([nm], a.d),
-                                 SMT.Exists([nm], SMT.And(short_a, a.d)) ) )
+                is_def  = SMT.Or( SMT.ForAll([nm], a.d),
+                                  SMT.Exists([nm], SMT.And(short_a, a.d)) )
+                return TernVal( OP([nm],a.v), is_def )
             else:
                 return OP([nm],a)
         elif isinstance(e, (A.Definitely,A.Maybe)):
-            assert a.arg.type == T.bool
+            assert e.arg.type == T.bool
             a       = self._lower(e.arg)
             if is_ternary(a):
                 if isinstance(e, A.Definitely):
@@ -683,5 +824,44 @@ class SMTSolver:
             return TernVal(val,dval) if tern else val
 
         else: assert False, f"bad case: {type(e)}"
+
+
+
+
+
+class Z3SubProc:
+    def __init__(self):
+        self.stack_lines = [ [] ] # list(i.e. stack) of lists
+        pass
+
+    def push(self):
+        self.stack_lines.append([])
+
+    def pop(self):
+        self.stack_lines.pop()
+
+    def _get_whole_str(self):
+        return '\n'.join([ line for frame in self.stack_lines
+                                for line in frame ])
+
+    def add_var(self, varname, vartyp):
+        sort = 'Bool' if vartyp == T.bool else 'Int'
+        self.stack_lines[-1].append(f"(declare-const {varname} {sort})")
+
+    def add_assertion(self, smt_formula):
+        smtstr = SMT.to_smtlib(smt_formula)
+        self.stack_lines[-1].append(f"(assert {smtstr})")
+
+    def run_check_sat(self):
+        slv = z3lib.Solver()
+        slv.from_string(self._get_whole_str())
+        result = slv.check()
+        if result == z3lib.z3.sat:
+            return True
+        elif result == z3lib.z3.unsat:
+            return False
+        else:
+            raise Error("unknown result from z3")
+
 
 

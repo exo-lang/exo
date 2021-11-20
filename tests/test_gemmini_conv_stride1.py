@@ -105,6 +105,7 @@ def test_conv_3():
     conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
     conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
     conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
+    print(conv)
     conv = conv.reorder('ocol_i', 'och_o')
     conv = conv.lift_alloc('res : _', n_lifts=3)
     conv = conv.fission_after('res[_] = _', n_lifts=3)
