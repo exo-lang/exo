@@ -5,7 +5,7 @@ import textwrap
 import pytest
 
 from SYS_ATL import proc
-from SYS_ATL.LoopIR_scheduling import SchedulingError
+from SYS_ATL import SchedulingError
 from SYS_ATL.syntax import *
 
 

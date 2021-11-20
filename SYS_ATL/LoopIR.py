@@ -938,7 +938,7 @@ class SubstArgs(LoopIR_Rewrite):
         elif isinstance(e, LoopIR.StrideExpr):
             if e.name in self.env:
                 sub_e = self.env[e.name]
-            return LoopIR.StrideExpr(sub_e.name, e.dim, e.type, e.srcinfo)
+                return LoopIR.StrideExpr(sub_e.name, e.dim, e.type, e.srcinfo)
 
         return super().map_e(e)
 

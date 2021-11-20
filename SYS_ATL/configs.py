@@ -88,7 +88,7 @@ class Config:
                             for i,(nm,typ) in enumerate(fields) }
 
         self._field_syms    = { nm : Sym(f"{name}_{nm}")
-                                for (nm,typ) in enumerate(fields) }
+                                for nm,typ in fields }
 
     def name(self):
         return self._name
