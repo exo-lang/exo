@@ -6,24 +6,9 @@ from SYS_ATL.platforms.x86 import *
 from SYS_ATL.syntax import *
 
 
-def trace(message):
-    @instr(f'puts("{message}");')
-    def trace_impl():
-        pass
-
-    return trace_impl.rename(f'trace_{message}')
-
-
 # noinspection PyPep8Naming
 @proc
-def SGEMM(
-        M: size,
-        N: size,
-        K: size,
-        A: f32[M, K],
-        B: f32[K, N],
-        C: f32[M, N],
-):
+def SGEMM(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):
     assert M >= 1
     assert N >= 1
     assert K >= 1
@@ -36,6 +21,11 @@ def SGEMM(
             for j in par(0, N):
                 C[i, j] += A[i, k] * B[k, j]
 
+
+SGEMM_WINDOW = (SGEMM.rename('SGEMM_WINDOW')
+                .set_window('A', True)
+                .set_window('B', True)
+                .set_window('C', True))
 
 # Constants for scheduling
 VEC_W = 16
@@ -51,14 +41,6 @@ N_L1_BLK = N_REG_BLK * N_L1_FAC
 K_L1_BLK = 512
 
 COPY_STREAMS = 3
-
-SGEMM_WINDOW = (
-    SGEMM
-        .rename('SGEMM_WINDOW')
-        .set_window('A', True)
-        .set_window('B', True)
-        .set_window('C', True)
-)
 
 basic_kernel_Mx4 = {}
 sgemm_kernel_avx512_Mx4 = {}

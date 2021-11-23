@@ -3,8 +3,6 @@
 ## Constants
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
-: "${CC:=clang-13}"
-: "${CXX:=clang++-13}"
 
 ## Build dependencies
 
@@ -24,12 +22,12 @@ cmake --build build/benchmark --target install
 
 rm -rf build/apps
 cmake -G Ninja -S "${ROOT_DIR}/apps" -B build/apps \
+  -DCMAKE_C_COMPILER=clang-13 \
+  -DCMAKE_CXX_COMPILER=clang++-13 \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="${PWD}/build/_install" \
-  -DCMAKE_C_COMPILER="$CC" \
-  -DCMAKE_CXX_COMPILER="$CXX" \
-  -DCMAKE_C_FLAGS="-march=skylake-avx512 $CFLAGS" \
-  -DCMAKE_CXX_FLAGS="-march=skylake-avx512 $CXXFLAGS"
+  -DCMAKE_C_FLAGS="-march=skylake-avx512" \
+  -DCMAKE_CXX_FLAGS="-march=skylake-avx512"
 
 cmake --build build/apps
 
@@ -41,10 +39,10 @@ set -e
 
 ## Run benchmarks
 
-export HL_NUM_THREADS=1
-taskset -c 0 ./build/apps/x86_demo/conv/bench_conv --benchmark_filter=102
-taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm_openblas \
-  --benchmark_filter=sys_atl
+./build/apps/x86_demo/sgemm/bench_sgemm --benchmark_filter=sys
+./build/apps/x86_demo/sgemm/bench_sgemm --benchmark_filter=MKL
 taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm_openblas \
   --benchmark_filter=OpenBLAS
-taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm --benchmark_filter=MKL
+
+export HL_NUM_THREADS=1
+taskset -c 0 ./build/apps/x86_demo/conv/bench_conv --benchmark_filter=102

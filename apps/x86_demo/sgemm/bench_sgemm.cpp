@@ -5,6 +5,8 @@
 #include <random>
 #include <vector>
 
+#include "alex_sgemm.h"
+
 #ifndef CBLAS_NAME
 #error Must set CBLAS_NAME
 #endif
@@ -64,15 +66,67 @@ struct cblas_square {
 
 BENCHMARK_TEMPLATE(BM_square_sgemm, cblas_square)
     ->Name("sgemm_" CBLAS_NAME)
-    ->DenseRange(64, 1984, 128)
+    ->Arg(64)
+    ->Arg(192)
     ->Arg(221)
     ->Arg(256)
+    ->Arg(320)
     ->Arg(397)
     ->Arg(412)
+    ->Arg(448)
     ->Arg(512)
+    ->Arg(576)
+    ->Arg(704)
     ->Arg(732)
+    ->Arg(832)
     ->Arg(911)
+    ->Arg(960)
     ->Arg(1024)
+    ->Arg(1088)
+    ->Arg(1216)
+    ->Arg(1344)
+    ->Arg(1472)
+    ->Arg(1600)
+    ->Arg(1728)
+    ->Arg(1856)
+    ->Arg(1984)
+    ->Arg(2048);
+
+// ----------------------------------------------------------------------------
+// Handwritten C++ SGEMM benchmark
+
+struct alex_square {
+  void operator()(const float *a, const float *b, float *c, long n) {
+    sgemm_square(a, b, c, n);
+  }
+};
+
+BENCHMARK_TEMPLATE(BM_square_sgemm, alex_square)
+    ->Name("sgemm_alex")
+    ->Arg(64)
+    ->Arg(192)
+    ->Arg(221)
+    ->Arg(256)
+    ->Arg(320)
+    ->Arg(397)
+    ->Arg(412)
+    ->Arg(448)
+    ->Arg(512)
+    ->Arg(576)
+    ->Arg(704)
+    ->Arg(732)
+    ->Arg(832)
+    ->Arg(911)
+    ->Arg(960)
+    ->Arg(1024)
+    ->Arg(1088)
+    ->Arg(1216)
+    ->Arg(1344)
+    ->Arg(1472)
+    ->Arg(1600)
+    ->Arg(1728)
+    ->Arg(1856)
+    ->Arg(1984)
     ->Arg(2048);
 
 // ----------------------------------------------------------------------------
@@ -86,13 +140,28 @@ struct sys_atl_square {
 
 BENCHMARK_TEMPLATE(BM_square_sgemm, sys_atl_square)
     ->Name("sgemm_sys_atl")
-    ->DenseRange(64, 1984, 128)
+    ->Arg(64)
+    ->Arg(192)
     ->Arg(221)
     ->Arg(256)
+    ->Arg(320)
     ->Arg(397)
     ->Arg(412)
+    ->Arg(448)
     ->Arg(512)
+    ->Arg(576)
+    ->Arg(704)
     ->Arg(732)
+    ->Arg(832)
     ->Arg(911)
+    ->Arg(960)
     ->Arg(1024)
+    ->Arg(1088)
+    ->Arg(1216)
+    ->Arg(1344)
+    ->Arg(1472)
+    ->Arg(1600)
+    ->Arg(1728)
+    ->Arg(1856)
+    ->Arg(1984)
     ->Arg(2048);

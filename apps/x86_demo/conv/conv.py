@@ -8,14 +8,8 @@ from SYS_ATL.syntax import *
 
 @proc
 def conv(
-        out_h: size,
-        out_w: size,
-        out_channel: size,
-        in_h: size,
-        in_w: size,
-        in_channel: size,
-        kernel_dim: size,
-        batch_size: size,
+        out_h: size, out_w: size, out_channel: size, in_h: size, in_w: size,
+        in_channel: size, kernel_dim: size, batch_size: size,
         inp: f32[batch_size, in_h, in_w, in_channel],
         output: f32[batch_size, out_h, out_w, out_channel],
         weights: f32[in_channel, kernel_dim, kernel_dim, out_channel],
