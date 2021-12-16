@@ -13,9 +13,11 @@ from .helper import TMP_DIR, generate_lib, nparray, cvt_c
 from ctypes import POINTER, c_int
 import numpy as np
 
-if platform.system() == 'Darwin':
-    pytest.skip("skipping x86 tests on Apple machines for now",
-                allow_module_level=True)
+def check_platform():
+    return platform.system() == 'Darwin'
+    #if platform.system() == 'Darwin':
+    #    pytest.skip("skipping x86 tests on Apple machines for now",
+    #                allow_module_level=True)
 
 def test_avx2_memcpy():
     """
@@ -41,6 +43,8 @@ def test_avx2_memcpy():
 
     memcpy_avx2.compile_c(TMP_DIR, basename)
 
+    if check_platform():
+        return
     # TODO: -march=skylake here is a hack. Such flags should be somehow handled
     #   automatically. Maybe this should be inferred by the use of AVX2, but
     #   "skylake" isn't right anyway. We might need a first-class notion of
@@ -80,6 +84,8 @@ def test_avx2_simple_math():
         f.write(str(simple_math_avx2))
 
     simple_math_avx2.compile_c(TMP_DIR, basename)
+    if check_platform():
+        return
     library = generate_lib(basename, extra_flags="-march=skylake")
 
     for n in (8, 16, 24, 32, 64, 128):
@@ -143,6 +149,8 @@ def test_avx2_simple_math_scheduling():
         f.write(str(simple_math_avx2_sched))
 
     simple_math_avx2_sched.compile_c(TMP_DIR, basename)
+    if check_platform():
+        return
     library = generate_lib(basename, extra_flags="-march=skylake")
 
     for n in (8, 16, 24, 32, 64, 128):
@@ -317,6 +325,8 @@ def test_avx2_sgemm_full():
     basename = test_avx2_sgemm_full.__name__
 
     avx_sgemm_full.compile_c(TMP_DIR, basename)
+    if check_platform():
+        return
     library = generate_lib(basename, extra_flags="-march=skylake")
 
     sgemm_test_cases(library.avx_sgemm_full,
@@ -346,6 +356,8 @@ def test_avx2_sgemm_6x16():
     basename = test_avx2_sgemm_6x16.__name__
 
     avx2_sgemm_6x16_wrapper.compile_c(TMP_DIR, basename)
+    if check_platform():
+        return
     library = generate_lib(basename, extra_flags="-march=skylake")
 
     sgemm_test_cases(library.avx2_sgemm_6x16_wrapper, M=[6], N=[16],
@@ -434,6 +446,8 @@ def test_avx512_sgemm_full():
     basename = test_avx512_sgemm_full.__name__
 
     sgemm_full.compile_c(TMP_DIR, basename)
+    if check_platform():
+        return
     library = generate_lib(basename, extra_flags="-march=skylake-avx512")
 
     sgemm_test_cases(library.sgemm_full,
