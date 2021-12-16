@@ -187,20 +187,21 @@ class AEnv:
 
     def __call__(self, arg):
         if isinstance(arg, A.expr):
+            res = arg
             for bd in reversed(self.bindings):
                 if isinstance(bd, TupleBinding):
-                    arg = ALetTuple(bd.names, bd.rhs, arg)
+                    res = ALetTuple(bd.names, bd.rhs, res)
                 elif isinstance(bd, WinBind):
                     # bind strides...
-                    arg = ALetStride(bd.name, bd.rhs.strides, arg)
+                    res = ALetStride(bd.name, bd.rhs.strides, res)
                     # TODO: Probably need to introduce let bindings
                     # for coordinates in a way to get the values of globals
                     # at the site of windowing correct
                     #raise NotImplementedError("TODO: how to handle?")
                 elif isinstance(bd, BindingList):
-                    arg = ALet(bd.names, bd.rhs, arg)
+                    res = ALet(bd.names, bd.rhs, res)
                 else: assert False, "bad case"
-            return arg
+            return res
         else: assert False, f"Cannot apply AEnv to {type(arg)}"
 
     def translate_win(self, winmap):
@@ -431,7 +432,8 @@ def globenv_proc(proc):
 LS = ADT("""
 module LocSet {
     locset  = Empty     ()
-            | Point     ( sym name, aexpr* coords )
+            | Point     ( sym name,   aexpr* coords )
+            | WholeBuf  ( sym name,   int ndim )
             | Union     ( locset lhs, locset rhs )
             | Isct      ( locset lhs, locset rhs )
             | Diff      ( locset lhs, locset rhs )
@@ -508,7 +510,10 @@ def _lsstr(ls, prec=0):
         return "∅"
     elif isinstance(ls, LS.Point):
         coords = ','.join([str(a) for a in ls.coords])
-        return f"{{{ls.name},{coords}}}"
+        return f"{{({ls.name},{coords})}}"
+    elif isinstance(ls, LS.WholeBuf):
+        coords = ','.join([str(a) for a in ls.coords])
+        return f"{{{ls.name}|{ls.ndim}}}"
     elif isinstance(ls, (LS.Union,LS.Isct,LS.Diff)):
         if isinstance(ls, LS.Union):
             op, local_prec = '∪', ls_prec['union']
@@ -557,6 +562,11 @@ def is_elem(pt, ls, win_map=None, alloc_masks=None):
         assert len(pt.coords) == len(lspt.coords)
         eqs = [ AEq(q,p) for q,p in zip(pt.coords,lspt.coords) ]
         return AAnd(*eqs)
+    elif isinstance(ls, LS.WholeBuf):
+        bufname     = ls.name
+        if bufname in win_map:
+            bufnane = win_map[bufname].name
+        return ABool(pt.name == bufname)
     elif isinstance(ls, (LS.Union,LS.Isct,LS.Diff)):
         lhs = is_elem(pt, ls.lhs, win_map=win_map, alloc_masks=alloc_masks)
         rhs = is_elem(pt, ls.rhs, win_map=win_map, alloc_masks=alloc_masks)
@@ -601,6 +611,12 @@ def is_empty(ls):
 
             if lspt.name not in alloc_masks:
                 all_bufs[lspt.name] = len(lspt.coords)
+        elif isinstance(ls, LS.WholeBuf):
+            bufname     = ls.name
+            if bufname in win_map:
+                bufnane = win_map[bufname].name
+            if bufname not in alloc_masks:
+                all_bufs[bufname] = ls.ndim
         elif isinstance(ls, (LS.Union,LS.Isct,LS.Diff)):
             _collect_buf(ls.lhs, win_map=win_map, alloc_masks=alloc_masks)
             _collect_buf(ls.rhs, win_map=win_map, alloc_masks=alloc_masks)
@@ -642,7 +658,7 @@ module Effects {
          | Write        ( sym name, aexpr* coords )
          | Reduce       ( sym name, aexpr* coords )
          --
-         | Alloc        ( sym name )
+         | Alloc        ( sym name, int ndim )
 } """, {
     'sym':      lambda x: isinstance(x, Sym),
     'aexpr':    lambda x: isinstance(x, A.expr),
@@ -673,7 +689,7 @@ def _effstr(eff,tab=""):
         coords = ','.join([ str(a) for a in eff.coords ])
         return f"{tab}{nm}({eff.name},{coords})"
     elif isinstance(eff, E.Alloc):
-        return f"{tab}Alloc({eff.name})"
+        return f"{tab}Alloc({eff.name}|{eff.ndim})"
     else: assert False, f"bad case: {type(eff)}"
 
 @extclass(E.eff)
@@ -689,7 +705,7 @@ class ES(Enum):
     WRITE_H     = 4
     PRE_REDUCE  = 5
 
-    DERIVED     = 6
+    _DERIVED    = 6
 
     READ_ALL    = 7
     WRITE_ALL   = 8
@@ -698,12 +714,15 @@ class ES(Enum):
     MODIFY      = 11
     READ_WRITE  = 12
 
+    ALLOC       = 13
+
 def get_basic_locsets(effs):
     RG = LS.Empty()
     WG = LS.Empty()
     RH = LS.Empty()
     WH = LS.Empty()
     Red = LS.Empty()
+    Alc = LS.Empty()
     for eff in reversed(effs):
         if isinstance(eff, E.Empty):
             pass
@@ -732,6 +751,7 @@ def get_basic_locsets(effs):
             RH  = LHideAlloc(eff.name, RH)
             WH  = LHideAlloc(eff.name, WH)
             Red = LHideAlloc(eff.name, Red)
+            Alc = LUnion(Alc, LS.WholeBuf(eff.name, eff.ndim))
 
         elif isinstance(eff, E.BindEnv):
             RG  = LLetEnv(eff.env, RG)
@@ -746,7 +766,7 @@ def get_basic_locsets(effs):
                 bodyLs = tuple( LFilter(eff.cond, Ls) for Ls in bodyLs )
             else:
                 bodyLs = tuple( LBigUnion(eff.name, Ls) for Ls in bodyLs )
-            bRG, bWG, bRH, bWH, bRed = bodyLs
+            bRG, bWG, bRH, bWH, bRed, bAlc= bodyLs
 
             # now do the full interaction updates...
             RG  = LUnion(bRG, LDiff(RG, bWG))
@@ -757,11 +777,11 @@ def get_basic_locsets(effs):
 
         else: assert False, f"bad case: {type(eff)}"
 
-    return (RG,WG,RH,WH,Red)
+    return (RG,WG,RH,WH,Red,Alc)
 
 
 def getsets(codes, effs):
-    RG, WG, RH, WH, preRed = get_basic_locsets(effs)
+    RG, WG, RH, WH, preRed, Alc = get_basic_locsets(effs)
     RAll    = LUnion(RG, RH)
     WAll    = LUnion(WG, WH)
     Red     = LDiff(preRed, WH)
@@ -791,6 +811,8 @@ def getsets(codes, effs):
             return Mod
         elif code == ES.READ_WRITE:
             return RW
+        elif code == ES.ALLOC:
+            return Alc
         else: assert False, f"bad case: {code}"
 
     return [get_code(c) for c in codes]
@@ -866,7 +888,7 @@ def stmts_effs(stmts):
         elif isinstance(s, LoopIR.Alloc):
             if isinstance(s.type, T.Tensor):
                 effs += list_expr_effs(s.type.hi)
-            effs       += [E.Alloc(s.name)]
+            effs       += [E.Alloc(s.name, len(s.type.shape()))]
         elif isinstance(s, LoopIR.WindowStmt):
             effs += expr_effs(s.rhs)
         elif isinstance(s, (LoopIR.Free,LoopIR.Pass)):
@@ -1091,6 +1113,18 @@ def Commutes(a1, a2):
 
     return pred
 
+def AllocCommutes(a1, a2):
+
+    Alc1, All1 = getsets([ES.ALLOC, ES.ALL], a1)
+    Alc2, All2 = getsets([ES.ALLOC, ES.ALL], a2)
+    pred = AAnd( ADef(is_empty(LIsct(Alc1, All2))),
+                 ADef(is_empty(LIsct(Alc2, All1))) )
+    return pred
+
+def Shadows(a1, a2):
+
+    blah = None
+
 """
 # Here are codes for different location sets...
 class ES(Enum):
@@ -1161,7 +1195,7 @@ def Check_ReorderStmts(proc, s1, s2):
     a1      = stmts_effs([s1])
     a2      = stmts_effs([s2])
 
-    pred    = G(Commutes(a1, a2))
+    pred    = G(AAnd(Commutes(a1, a2), AllocCommutes(a1,a2)))
     is_ok   = slv.verify(pred)
     slv.pop()
     if not is_ok:
