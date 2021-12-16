@@ -145,7 +145,7 @@ def set_memory(conv):
 
     return conv
 
-@pytest.mark.skip()
+
 def test_conv_3():
     T = GemmTestBuilder('conv_3')
     T.add_body(['gemm_init_mem();',
@@ -189,24 +189,25 @@ def test_conv_3():
     conv = conv.reorder('orow', 'ocol_o')
     conv = conv.split('orow', 28, ['orow_o', 'orow_i'], perfect=True)
     conv = conv.expand_dim('i_s: i8[_]', '30', 'krow + orow_i')
-    conv = conv.par_to_seq('for krow in _:_')
-    conv = conv.par_to_seq('for b in _:_')
-    conv = conv.par_to_seq('for orow_o in _:_')
-    conv = conv.par_to_seq('for orow_i in _:_')
-    conv = conv.par_to_seq('for ocol_o in _:_')
+    #conv = conv.par_to_seq('for krow in _:_')
+    #conv = conv.par_to_seq('for b in _:_')
+    #conv = conv.par_to_seq('for orow_o in _:_')
+    #conv = conv.par_to_seq('for orow_i in _:_')
+    #conv = conv.par_to_seq('for ocol_o in _:_')
+    [ (conv := conv.par_to_seq(s)) for s in ['for krow in _:_', 'for b in _:_', 'for orow_o in _:_', 'for orow_i in _:_', 'for ocol_o in _:_'] ]
     conv = conv.lift_alloc('i_s : _', n_lifts=5)
     conv = conv.lift_alloc('w_s : _', n_lifts=4)
 
-    conv = conv.add_guard('for kch_o in _:_', 'ocol_o', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'b', 0)
-    conv = conv.add_guard('for kch_o in _:_ #2', 'b', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
-    conv = conv.add_guard('for kch_o in _:_ #2', 'orow_o #1', 0)
-    conv = conv.add_guard('for kch_o in _:_ #2', 'orow_i #1', 0)
+    [ (conv := conv.add_guard(s, i, 0)) for (s,i) in [('for kch_o in _:_', 'ocol_o'), ('for kch_o in _:_', 'b'), ('for kch_o in _:_ #2', 'b'), ('for kch_o in _:_', 'orow_o'), ('for kch_o in _:_', 'orow_i'), ('for kch_o in _:_ #2', 'orow_o #1'), ('for kch_o in _:_ #2', 'orow_i #1')] ]
+    #conv = conv.add_guard('for kch_o in _:_', 'ocol_o', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'b', 0)
+    #conv = conv.add_guard('for kch_o in _:_ #2', 'b', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
+    #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_o #1', 0)
+    #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_i #1', 0)
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #0', 'orow_i == 0 or krow == 2')
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #1', 'orow_i == 0 or krow == 2')
-
 
     conv = conv.split('orow_i', 7, ['orow_io', 'orow_ii'], perfect=True)
     conv = conv.lift_alloc('res : _', n_lifts=1)
@@ -247,6 +248,8 @@ def test_conv_3():
 
     T.compile().run()
 
+    print(conv)
+"""
 
 @pytest.mark.skip()
 def test_conv_17():
@@ -365,6 +368,7 @@ def test_conv_17():
     T.compile().run()
 
 
+@pytest.mark.skip()
 def test_conv_30():
     T = GemmTestBuilder('conv_30')
     T.add_body(['gemm_init_mem();',
@@ -455,7 +459,5 @@ def test_conv_30():
     T.compile().run()
 
 
-    print(conv)
-"""
 
 """

@@ -47,9 +47,15 @@ def matmul_cpu():
 
     return matmul_on_cpu
 
+def split_and_reorder(gemmini):
+    gemmini = gemmini.split('j', 4, ['jo', 'ji'], perfect=True)
+    gemmini = gemmini.split('i', 8, ['io', 'i'], perfect=True)
+    gemmini = gemmini.split('io', 2, ['ioo', 'io'], perfect=True)
+    gemmini = gemmini.reorder('i','jo')
+    gemmini = gemmini.reorder('io','jo')
+    return gemmini
 
 # Best for 512x512x512
-@pytest.mark.skip()
 def test_matmul_512x512x512():
     NN = 512
     MM = 512
@@ -72,9 +78,7 @@ def test_matmul_512x512x512():
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
     gemmini = cpu.rename("matmul_on_gemmini")
-    gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
-                                     .set_memory('a', GEMM_SCRATCH)
-                                     .set_memory('b', GEMM_SCRATCH))
+    gemmini = (gemmini.set_memory('res', GEMM_ACCUM).set_memory('a', GEMM_SCRATCH).set_memory('b', GEMM_SCRATCH))
 
     # Tile outer loops
     gemmini = tile_outer_loops(gemmini)
@@ -97,30 +101,32 @@ def test_matmul_512x512x512():
 
     # Real optimization
     # tile
-    gemmini = gemmini.split('j', 4, ['jo', 'ji'], perfect=True)
-    gemmini = gemmini.split('i', 8, ['io', 'i'], perfect=True)
-    gemmini = gemmini.split('io', 2, ['ioo', 'io'], perfect=True)
-    gemmini = gemmini.reorder('i','jo')
-    gemmini = gemmini.reorder('io','jo')
+    gemmini = split_and_reorder(gemmini)
+
     gemmini = gemmini.lift_alloc('res : _', n_lifts=1)
     gemmini = gemmini.lift_alloc('a : _', n_lifts=4)
     gemmini = gemmini.lift_alloc('b : _', n_lifts=3)
 
-    gemmini = gemmini.par_to_seq('for ioo in _:_')
-    gemmini = gemmini.par_to_seq('for io in _:_')
-    gemmini = gemmini.par_to_seq('for jo in _:_')
-    gemmini = gemmini.par_to_seq('for i in _:_')
+    #gemmini = gemmini.par_to_seq('for ioo in _:_')
+    #gemmini = gemmini.par_to_seq('for io in _:_')
+    #gemmini = gemmini.par_to_seq('for jo in _:_')
+    #gemmini = gemmini.par_to_seq('for i in _:_')
 
-    gemmini = gemmini.lift_alloc('a : i8', n_lifts=1)
-    gemmini = gemmini.lift_alloc('b : i8', n_lifts=2)
-    gemmini = gemmini.lift_alloc('res : _', n_lifts=4)
+    [ (gemmini := gemmini.par_to_seq(s)) for s in ['for ioo in _:_', 'for io in _:_', 'for jo in _:_', 'for i in _:_'] ]
+
+    [ (gemmini := gemmini.lift_alloc(s, n_lifts=n)) for (s,n) in [('a : i8', 1), ('b : i8', 2), ('res : _', 4)] ]
+
+    #gemmini = gemmini.lift_alloc('a : i8', n_lifts=1)
+    #gemmini = gemmini.lift_alloc('b : i8', n_lifts=2)
+    #gemmini = gemmini.lift_alloc('res : _', n_lifts=4)
 
     gemmini = gemmini.par_to_seq('for ji in _:_')
-    #for l in ['ji','jo','i
-    gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'ji', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'jo', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
+
+    [ (gemmini := gemmini.add_guard(s, i, 0)) for (s,i) in [('do_ld_i8_block_id1(_)', 'ji'), ('do_ld_i8_block_id1(_)', 'jo'), ('do_ld_i8_block_id2(_)', 'i'), ('do_ld_i8_block_id2(_)', 'io')] ]
+    #gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'ji', 0)
+    #gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'jo', 0)
+    #gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
+    #gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
 
     gemmini = gemmini.fuse_loop('for k in _:_ #0', 'for k in _:_ #1')
     gemmini = gemmini.unroll('j_in_o')
@@ -155,6 +161,8 @@ def test_matmul_512x512x512():
 
     T.compile().run()
 
+    print(gemmini)
+"""
 
 @pytest.mark.skip()
 def test_matmul_4():
@@ -640,8 +648,6 @@ def test_matmul_27():
 
     T.compile().run()
 
-    print(gemmini)
-"""
 
 
 """
