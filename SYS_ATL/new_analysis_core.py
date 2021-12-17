@@ -443,7 +443,7 @@ class SMTSolver:
         self.z3             = Z3SubProc()
 
         # used during lowering
-        self.mod_div_tmps   = []
+        self.mod_div_tmp_bins = []
 
         # debug info
         self.frames         = [DebugSolverFrame()]
@@ -569,8 +569,10 @@ class SMTSolver:
         assert not is_ternary(smt_e), "formulas must be classical"
         self.z3.add_assertion(SMT.Not(smt_e))
         if self.verbose:
-            print(self.debug_str(smt=True))
+            print('*******\n*******\n*******')
+            print(self.debug_str(smt=False))
             print('to verify')
+            print(e)
             print(SMT.to_smtlib(smt_e))
 
         is_valid    = not self.z3.run_check_sat()
@@ -632,16 +634,20 @@ class SMTSolver:
         return self.env[sym]
 
     def _add_mod_div_eq(self, new_sym, eq):
-        self.mod_div_tmps.append((new_sym,eq))
+        self.mod_div_tmp_bins[-1].append((new_sym,eq))
 
     def _lower(self, e):
+        if e.type == T.bool:
+            self.mod_div_tmp_bins.append([])
         smt_e = self._lower_body(e)
-        # possibly empty the definition queue
-        if len(self.mod_div_tmps) > 0 and e.type == T.bool:
-            for sym,eq in self.mod_div_tmps:
-                smt_e = SMT.ForAll([sym],SMT.Implies(eq,smt_e))
-            self.mod_div_tmps = []
-        # pass up the result
+        if e.type == T.bool:
+            tmp_bin = self.mod_div_tmp_bins.pop()
+            # possibly wrap some definitions of temporaries
+            if len(tmp_bin) > 0:
+                assert not is_ternary(smt_e), "TODO: handle ternary"
+                all_syms    = [ sym for sym,eq in tmp_bin ]
+                all_eq      = SMT.And(*[ eq  for sym,eq in tmp_bin])
+                smt_e       = SMT.ForAll(all_syms,SMT.Implies(all_eq,smt_e))
         return smt_e
 
     def _lower_body(self, e):
@@ -854,6 +860,7 @@ class Z3SubProc:
 
     def run_check_sat(self):
         slv = z3lib.Solver()
+        #print(self.stack_lines)
         slv.from_string(self._get_whole_str())
         result = slv.check()
         if result == z3lib.z3.sat:
