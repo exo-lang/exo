@@ -139,7 +139,9 @@ def compile_procs(proc_list, path, c_file, h_file):
 
 
 class Procedure(ProcedureBase):
-    def __init__(self, proc, _testing=None, _provenance_eq_Procedure=None):
+    def __init__(self, proc, _testing=None,
+                 _provenance_eq_Procedure=None,
+                 _mod_config=frozenset()):
         super().__init__()
 
         if isinstance(proc, LoopIR.proc):
@@ -158,7 +160,8 @@ class Procedure(ProcedureBase):
         if _testing != "UAST":
             if _provenance_eq_Procedure:
                 derive_proc(_provenance_eq_Procedure._loopir_proc,
-                            self._loopir_proc)
+                            self._loopir_proc,
+                            frozenset(_mod_config))
             else:
                 decl_new_proc(self._loopir_proc)
 
@@ -714,10 +717,13 @@ class Procedure(ProcedureBase):
         stmt = self._find_stmt(stmt_pat, default_match_no=None)
         assert len(stmt) == 1 #Don't want to accidentally delete other configs
 
-        loopir = self._loopir_proc
-        loopir = Schedules.DoDeleteConfig(loopir, stmt[0]).result()
+        loopir          = self._loopir_proc
+        rewrite_pass    = Schedules.DoDeleteConfig(loopir, stmt[0])
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
 
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def reorder_stmts(self, first_pat, second_pat):
         if not isinstance(first_pat, str):

@@ -202,6 +202,10 @@ class AEnv:
                     res = ALet(bd.names, bd.rhs, res)
                 else: assert False, "bad case"
             return res
+        elif isinstance(arg, list) and len(arg) == 0:
+            return []
+        elif isinstance(arg, list) and isinstance(arg[0], E.eff):
+            return [E.BindEnv(self)] + arg
         else: assert False, f"Cannot apply AEnv to {type(arg)}"
 
     def translate_win(self, winmap):
@@ -595,9 +599,9 @@ def is_elem(pt, ls, win_map=None, alloc_masks=None):
         return res
     else: assert False, f"bad case: {type(ls)}"
 
-def is_empty(ls):
+def get_point_exprs(ls):
     all_bufs = dict()
-    def _collect_buf(ls, win_map=None, alloc_masks=None):
+    def _collect_buf(ls, win_map, alloc_masks):
         # default arg
         win_map = win_map or dict()
         alloc_masks = alloc_masks or []
@@ -618,21 +622,27 @@ def is_empty(ls):
             if bufname not in alloc_masks:
                 all_bufs[bufname] = ls.ndim
         elif isinstance(ls, (LS.Union,LS.Isct,LS.Diff)):
-            _collect_buf(ls.lhs, win_map=win_map, alloc_masks=alloc_masks)
-            _collect_buf(ls.rhs, win_map=win_map, alloc_masks=alloc_masks)
+            _collect_buf(ls.lhs, win_map, alloc_masks)
+            _collect_buf(ls.rhs, win_map, alloc_masks)
         elif isinstance(ls, (LS.BigUnion, LS.Filter, LS.LetEnv)):
-            _collect_buf(ls.arg, win_map=win_map, alloc_masks=alloc_masks)
+            _collect_buf(ls.arg, win_map, alloc_masks)
         elif isinstance(ls, LS.HideAlloc):
             alloc_masks.append(ls.name)
-            _collect_buf(ls.arg, win_map=win_map, alloc_masks=alloc_masks)
+            _collect_buf(ls.arg, win_map, alloc_masks)
             alloc_masks.pop()
-    _collect_buf(ls)
+    _collect_buf(ls, dict(), [])
+
+    points = [ APoint(nm, [ AInt(Sym(f"i{i}")) for i in range(ndim) ])
+               for nm,ndim in all_bufs.items() ]
+    return points
+
+def is_empty(ls):
+    points  = get_point_exprs(ls)
 
     terms = []
-    for nm,ndim in all_bufs.items():
-        coords  = [ AInt(Sym(f"i{i}")) for i in range(ndim) ]
-        term    = A.Not(is_elem(APoint(nm,coords),ls), T.bool, null_srcinfo())
-        for iv in reversed(coords):
+    for pt in points:
+        term    = A.Not(is_elem(pt,ls), T.bool, null_srcinfo())
+        for iv in reversed(pt.coords):
             term = A.ForAll(iv.name, term, T.bool, null_srcinfo())
         terms.append(term)
 
@@ -992,35 +1002,33 @@ class ContextExtraction:
         else:
             return None
 
-    def posteffs_stmts(self, stmts):
+    def posteff_stmts(self, stmts):
         for i,s in enumerate(stmts):
             if s == self.stmts[0]:
                 effs = [ E.BindEnv(globenv(self.stmts)) ]
                 post_stmts  = stmts[i+len(self.stmts):]
             else:
-                effs = self.posteffs_s(s)
+                effs = self.posteff_s(s)
                 post_stmts  = stmts[i+1:]
 
             if effs is not None: # found the focused sub-tree
                 preG    = globenv(stmts[0:i])
                 return ([ E.BindEnv(preG) ] +
-                        effs,
+                        effs +
                         stmts_effs(post_stmts))
         return None
 
-    def posteffs_s(self, s):
-        if s == self.stmt:
-            return []
-        elif isinstance(s, LoopIR.If):
-            effs = self.posteffs_stmts(s.body)
+    def posteff_s(self, s):
+        if isinstance(s, LoopIR.If):
+            effs = self.posteff_stmts(s.body)
             if effs is not None:
                 return [E.Guard( lift_e(s.cond), effs )]
-            effs = self.posteffs_stmts(s.orelse)
+            effs = self.posteff_stmts(s.orelse)
             if effs is not None:
                 return [E.Guard( ANot(lift_e(s.cond)), effs )]
             return None
         elif isinstance(s, (LoopIR.ForAll,LoopIR.Seq)):
-            body = self.posteffs_stmts(s.body)
+            body = self.posteff_stmts(s.body)
             if body is None:
                 return None
             else:
@@ -1122,8 +1130,19 @@ def AllocCommutes(a1, a2):
     return pred
 
 def Shadows(a1, a2):
+    Alc1, Mod1              = getsets([ES.ALLOC, ES.MODIFY], a1)
+    Rd2, Wr2, Red2, All2    = getsets([ES.READ_ALL, ES.WRITE_ALL,
+                                       ES.REDUCE, ES.ALL], a2)
 
-    blah = None
+    # predicate via constituent conditions
+    alloc_is_dead   = ADef(is_empty(LIsct(Alc1,All2)))
+    mod_is_unread   = ADef(is_empty(LIsct(Mod1,LUnion(Rd2,Red2))))
+    mod_is_shadowed = ADef(is_empty(LDiff(Mod1,Wr2)))
+
+    pred            = AAnd(alloc_is_dead,
+                           mod_is_unread,
+                           mod_is_shadowed)
+    return pred
 
 """
 # Here are codes for different location sets...
@@ -1261,7 +1280,78 @@ def Check_ReorderLoops(proc, s):
             f"Loops {x} and {y} at {s.srcinfo} cannot be reordered.")
 
 
+def Check_DeleteConfigWrite(proc, stmts):
+    assert len(stmts) > 0
+    ctxt = ContextExtraction(proc, stmts)
+
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+    ap      = ctxt.get_posteffs()
+    a       = G(stmts_effs(stmts))
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    # extract effects
+    WrG, Mod    = getsets([ES.WRITE_G, ES.MODIFY], a)
+    WrGp, RdGp  = getsets([ES.WRITE_G, ES.READ_G], ap)
+
+    # check that `stmts` does not modify any non-global data
+    only_mod_glob   = ADef(is_empty(LDiff(Mod,WrG)))
+    is_ok           = slv.verify(only_mod_glob)
+    if not is_ok:
+        slv.pop()
+        raise SchedulingError(
+            f"Cannot delete or insert statements at {stmts[0].srcinfo} "
+            f"because they may modify non-configuration data")
+
+    # check that any modified config values are not subsequently read
+    new_val_unread  = ADef(is_empty(LIsct(WrG,RdGp)))
+    is_ok           = slv.verify(new_val_unread)
+    if not is_ok:
+        slv.pop()
+        raise SchedulingError(
+            f"Cannot change configuration values at {stmts[0].srcinfo}; "
+            f"the new (and different) values might be read later in "
+            f"this procedure")
+
+    # build the set of possibly modified configuration variables
+    WrG_visible = LDiff(WrG, WrGp)
+    def is_cfg_unmod(pt):
+        cfg_unwritten = ADef(ANot(is_elem(pt, WrG_visible)))
+        return slv.verify(cfg_unwritten)
+
+    cfg_mod = set( pt.name
+                   for pt in get_point_exprs(WrG)
+                   if not is_cfg_unmod(pt) )
+
+    slv.pop()
+    return cfg_mod
 
 
+# Note that this isn't quite the right concept of whether or not a
+# statement can be deleted
+def Check_DeleteStmt(proc, s):
+    ctxt = ContextExtraction(proc, [s])
+
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+    a_post  = ctxt.get_posteffs()
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    a       = G(stmts_effs([s]))
+
+    deletion_is_safe = Shadows(a, a_post)
+
+    is_ok   = slv.verify(deletion_is_safe)
+    slv.pop()
+    if not is_ok:
+        raise SchedulingError(
+            f"Statement at {s.srcinfo} cannot be deleted; "
+            f"it might affect something")
 
 

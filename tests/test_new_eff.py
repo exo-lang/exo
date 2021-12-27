@@ -4,7 +4,7 @@ import pytest
 
 from SYS_ATL.new_eff import *
 
-from SYS_ATL import proc, DRAM, SchedulingError
+from SYS_ATL import proc, config, DRAM, SchedulingError
 
 
 print()
@@ -151,4 +151,95 @@ def test_reorder_loops_failing_seq():
 # does in fact count as a READ effect for the procedure, but not
 # for its body.  This can probably distinguish whether certain
 # rewrites are allowed or not.
+
+
+
+
+def test_delete_config_basic():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 3
+        for i in seq(0,N):
+            x[i] = x[i] + 1.0
+
+    foo = foo.delete_config('CFG.a = _')
+    print(foo)
+
+
+def test_delete_config_subproc_basic():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def do_config():
+        CFG.a = 3
+        CFG.b = 5
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        do_config()
+        for i in seq(0,N):
+            x[i] = x[i] + 1.0
+
+    foo = foo.delete_config('do_config()')
+    print(foo)
+
+def test_delete_config_fail():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 3
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    with pytest.raises(SchedulingError,
+                       match='Cannot change configuration values'):
+        foo = foo.delete_config('CFG.a = _')
+        print(foo)
+    
+def test_delete_config_subproc_fail():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def do_config():
+        CFG.a = 3
+        CFG.b = 5
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        do_config()
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    with pytest.raises(SchedulingError,
+                       match='Cannot change configuration values'):
+        foo = foo.delete_config('do_config()')
+        print(foo)
+
+
+
+
+
+
+
+
+
+
+
 

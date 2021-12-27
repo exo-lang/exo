@@ -21,6 +21,7 @@ from .new_eff import (
     SchedulingError,
     Check_ReorderStmts,
     Check_ReorderLoops,
+    Check_DeleteConfigWrite,
 )
 
 # --------------------------------------------------------------------------- #
@@ -2113,11 +2114,17 @@ class _DoInsertPass(LoopIR_Rewrite):
 
 class _DoDeleteConfig(LoopIR_Rewrite):
     def __init__(self, proc, stmt):
-        self.stmt = stmt
+        self.stmt           = stmt
+        self.eq_mod_config  = set()
         super().__init__(proc)
+
+    def mod_eq(self):
+        return self.eq_mod_config
 
     def map_s(self, s):
         if s is self.stmt:
+            mod_cfg = Check_DeleteConfigWrite(self.orig_proc, [self.stmt])
+            self.eq_mod_config = mod_cfg
             return []
         else:
             return super().map_s(s)
