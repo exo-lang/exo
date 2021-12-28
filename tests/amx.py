@@ -97,8 +97,26 @@ def st_i32(
         for j in par(0, m):
             dst[i, j] = src[i, j]
 
+_amx_zero_i32 = ("_tile_zero({tile_int});")
+@instr(_amx_zero_i32)
+def zero_i32(
+    n: size,
+    m: size,
+    tile: [i32][n, m] @ AMX_TILE,
+):
+    for i in par(0, n):
+        for j in par(0, m):
+            tile[i, j] = 0.0
 
-_amx_dpbuud = ("_tile_dpbuud({dst_int}, {src1_int}, {src2_int});")
+"""
+dpbuud(2, 0, 1) // tile2 = tile0*tile1
+// tile2 [i32][m,n]
+st_i32(2, dram)
+ld_i8(dram, 2)
+dpbuud(3, 2, 2) // tile3 = tile2*tile2
+"""
+
+_amx_dpbuud = "_tile_dpbuud({dst_int}, {src1_int}, {src2_int});"
 @instr(_amx_dpbuud)
 def dpbuud(
     M: size,
