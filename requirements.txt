@@ -12,5 +12,6 @@ sympy==1.9
 tox==3.24.4
 yapf==0.31.0
 z3-solver==4.8.12.0
+torch
 
 -e dependencies/asdl
