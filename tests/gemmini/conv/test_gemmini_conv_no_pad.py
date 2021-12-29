@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from .gemmini import *
-from .harness_gemmini import GemmTestBuilder
+from ..gemmini import *
+from ..harness_gemmini import GemmTestBuilder
 
 
 def conv_on_cpu():
@@ -249,9 +249,9 @@ def test_conv_3():
     T.compile().run()
 
     print(conv)
-"""
 
-@pytest.mark.skip()
+
+
 def test_conv_17():
     T = GemmTestBuilder('conv_17')
     T.add_body(['gemm_init_mem();',
@@ -368,7 +368,8 @@ def test_conv_17():
     T.compile().run()
 
 
-@pytest.mark.skip()
+
+
 def test_conv_30():
     T = GemmTestBuilder('conv_30')
     T.add_body(['gemm_init_mem();',
@@ -460,4 +461,3 @@ def test_conv_30():
 
 
 
-"""
