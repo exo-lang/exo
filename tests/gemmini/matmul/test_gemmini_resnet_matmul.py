@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from .gemmini import *
-from .harness_gemmini import GemmTestBuilder
+from ..gemmini import *
+from ..harness_gemmini import GemmTestBuilder
 
 def matmul_cpu():
     @proc
@@ -162,9 +162,8 @@ def test_matmul_512x512x512():
     T.compile().run()
 
     print(gemmini)
-"""
 
-@pytest.mark.skip()
+
 def test_matmul_4():
     NN = 12544
     MM = 256
@@ -262,7 +261,8 @@ def test_matmul_4():
 
     T.compile().run()
 
-@pytest.mark.skip()
+
+
 def test_matmul_6():
     NN = 12544
     MM = 64
@@ -357,7 +357,9 @@ def test_matmul_6():
 
     T.compile().run()
 
-@pytest.mark.skip()
+
+
+
 def test_matmul_14():
     NN = 3136
     MM = 512
@@ -453,7 +455,8 @@ def test_matmul_14():
 
     T.compile().run()
 
-@pytest.mark.skip()
+
+
 def test_matmul_16():
     NN = 3136
     MM = 128
@@ -548,6 +551,7 @@ def test_matmul_16():
                  ''])
 
     T.compile().run()
+
 
 def test_matmul_27():
     NN = 784
@@ -650,4 +654,3 @@ def test_matmul_27():
 
 
 
-"""
