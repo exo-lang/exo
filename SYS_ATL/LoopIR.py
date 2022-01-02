@@ -361,6 +361,10 @@ def is_numeric(t):
     return t.is_real_scalar() or isinstance(t, (T.Tensor, T.Window))
 del is_numeric
 
+@extclass(LoopIR.type)
+def is_bool(t):
+    return isinstance(t, (T.Bool))
+del is_bool
 
 @extclass(LoopIR.type)
 def is_indexable(t):

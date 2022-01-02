@@ -118,6 +118,18 @@ def test_simple_partial_eval():
     bar = bar.partial_eval(N)
     print("new\n", bar)
 
+def test_bool_partial_eval():
+    @proc
+    def bar(b : bool, n : size, A : i8[n]):
+        tmp : i8[n]
+        for i in par(0, n):
+            if b == True:
+                tmp[i] = A[i]
+
+    print("old\n", bar)
+    bar = bar.partial_eval(False)
+    print("new\n", bar)
+
 def test_simple_typ_and_mem():
     @proc
     def bar(n : size, A : R[n]):
