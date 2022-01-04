@@ -701,10 +701,13 @@ class Unification:
                                      stmt_block[0].srcinfo)
             elif fa.type == T.bool:
                 if fa.name in self.bool_holes:
-                    return self.bool_holes[fa.name]
+                    if self.bool_holes[fa.name] is False:
+                        return LoopIR.Const(False, T.bool, stmt_block[0].srcinfo)
+                    else:
+                        return self.bool_holes[fa.name]
                 else:
-                    # doesn't matter; argument un-used
-                    return LoopIR.Const(True, T.bool, stmt_block[0].srcinfo)
+                    # subprocedure argument must be consistent
+                    assert False, "bad case"
             elif fa.type == T.stride:
                 if fa.name in self.stride_holes:
                     return self.stride_holes[fa.name]
