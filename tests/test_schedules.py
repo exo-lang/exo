@@ -6,6 +6,19 @@ from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 from .helper import TMP_DIR, generate_lib
 
+
+def test_lift_alloc_simple():
+    @proc
+    def bar(n : size, A : i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a : i8
+                tmp_a = A[i]
+
+    bar = bar.lift_alloc('tmp_a : _', n_lifts=2)
+    print(bar)
+
+
 def test_expand_dim():
     @proc
     def foo(n : size, m : size, x : i8):
