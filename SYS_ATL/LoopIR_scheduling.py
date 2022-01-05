@@ -876,6 +876,26 @@ class _ConfigWriteAfter(LoopIR_Rewrite):
 # --------------------------------------------------------------------------- #
 # Bind Expression scheduling directive
 
+class _BindConfig_AnalysisSubst(LoopIR_Rewrite):
+    def __init__(self, proc, keep_s, old_e, new_e):
+        self.orig_proc  = proc
+        self.keep_s     = keep_s
+        self.old_e      = old_e
+        self.new_e      = new_e
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s is self.keep_s:
+            return [s]
+        else:
+            return super().map_s(s)
+
+    def map_e(self, e):
+        if e is self.old_e:
+            return self.new_e
+        else:
+            return super().map_e(e)
+
 class _BindConfig(LoopIR_Rewrite):
     def __init__(self, proc, config, field, expr):
         assert isinstance(expr, LoopIR.Read)
@@ -888,10 +908,23 @@ class _BindConfig(LoopIR_Rewrite):
         self.placed_writeconfig = False
         self.sub_over  = False
 
+        self.cfg_write_s    = None
+        self.cfg_read_e     = None
+
         super().__init__(proc)
+
+        proc_analysis = _BindConfig_AnalysisSubst(self.proc,
+                                                  self.cfg_write_s,
+                                                  self.cfg_read_e,
+                                                  self.expr).result()
+        mod_cfg = Check_DeleteConfigWrite(proc_analysis,[self.cfg_write_s])
+        self.eq_mod_config = mod_cfg
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+
+    def mod_eq(self):
+        return self.eq_mod_config
 
     def process_block(self, block):
         if self.sub_over:
@@ -909,6 +942,7 @@ class _BindConfig(LoopIR_Rewrite):
                 wc = LoopIR.WriteConfig( self.config, self.field,
                                          self.expr, None,
                                          self.expr.srcinfo )
+                self.cfg_write_s        = wc
                 new_block.extend([wc])
 
             new_block.extend(stmt)
@@ -939,7 +973,9 @@ class _BindConfig(LoopIR_Rewrite):
             assert not self.found_expr
             self.found_expr = True
 
-            return LoopIR.ReadConfig( self.config, self.field, e.type, e.srcinfo)
+            self.cfg_read_e = LoopIR.ReadConfig( self.config, self.field,
+                                                 e.type, e.srcinfo )
+            return self.cfg_read_e
         else:
             return super().map_e(e)
 

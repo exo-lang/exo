@@ -411,9 +411,13 @@ class Procedure(ProcedureBase):
                             "not match")
 
         loopir = self._loopir_proc
-        loopir = Schedules.DoBindConfig(loopir, config, field, matches[0]).result()
+        rewrite_pass = Schedules.DoBindConfig(loopir, config, field,
+                                              matches[0])
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
 
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def data_reuse(self, buf_pattern, replace_pattern):
         if not isinstance(buf_pattern, str):

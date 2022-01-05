@@ -357,11 +357,11 @@ def globenv(stmts):
             # We must now construct an environment that defines the
             # new value for variables `x` among the possibilities
             newbinds    = dict()
-            for nm,oldv in oldvars:
+            for nm,oldv in oldvars.items():
                 # default to old-value
                 tcase   = bvarmap.get(nm,oldv)
                 fcase   = evarmap.get(nm,oldv)
-                val     = A.Select(condvar, tcase, fcase, typ, s.srcinfo)
+                val     = A.Select(condvar, tcase, fcase, oldv.type, s.srcinfo)
                 newbinds[nm] = val
             aenvs.append(AEnvPar(newbinds,addnames=True))
 
