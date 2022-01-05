@@ -1149,24 +1149,6 @@ def Shadows(a1, a2):
                            mod_is_shadowed)
     return pred
 
-"""
-# Here are codes for different location sets...
-class ES(Enum):
-    READ_G      = 1
-    WRITE_G     = 2
-    READ_H      = 3
-    WRITE_H     = 4
-    PRE_REDUCE  = 5
-
-    DERIVED     = 6
-
-    READ_ALL    = 7
-    WRITE_ALL   = 8
-    REDUCE      = 9
-    ALL         = 10
-    MODIFY      = 11
-    READ_WRITE  = 12
-"""
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

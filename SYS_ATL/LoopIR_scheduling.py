@@ -554,12 +554,12 @@ class _PartialEval(LoopIR_Rewrite):
 
         # Validate env:
         for k, v in self.env.items():
-            if not arg_types[k].is_indexable():
+            if not arg_types[k].is_indexable() and not arg_types[k].is_bool():
                 raise SchedulingError("cannot partially evaluate "
-                                      "numeric (non-index) arguments")
+                                      "numeric (non-index, non-bool) arguments")
             if not isinstance(v, int):
                 raise SchedulingError("cannot partially evaluate "
-                                      "to a non-int value")
+                                      "to a non-int, non-bool value")
 
         self.orig_proc = proc
 
@@ -583,6 +583,9 @@ class _PartialEval(LoopIR_Rewrite):
                 assert len(e.idx) == 0
                 if e.name in self.env:
                     return LoopIR.Const(self.env[e.name], T.int, e.srcinfo)
+            elif e.type.is_bool():
+                if e.name in self.env:
+                    return LoopIR.Const(self.env[e.name], T.bool, e.srcinfo)
 
         return super().map_e(e)
 
@@ -590,6 +593,8 @@ class _PartialEval(LoopIR_Rewrite):
         if isinstance(e, E.Var):
             if e.type.is_indexable() and e.name in self.env:
                 return E.Const(self.env[e.name], T.int, e.srcinfo)
+            elif e.type.is_bool() and e.name in self.env:
+                return E.Const(self.env[e.name], T.bool, e.srcinfo)
 
         return super().map_eff_e(e)
 

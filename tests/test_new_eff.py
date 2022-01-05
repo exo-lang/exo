@@ -90,7 +90,6 @@ def test_alloc_success():
     foo = foo.reorder('i','j')
     print(foo)
 
-
 def test_reorder_loops_requiring_seq():
     # the stencil pattern here looks like
     #     o     o
@@ -151,8 +150,6 @@ def test_reorder_loops_failing_seq():
 # does in fact count as a READ effect for the procedure, but not
 # for its body.  This can probably distinguish whether certain
 # rewrites are allowed or not.
-
-
 
 
 def test_delete_config_basic():
@@ -286,11 +283,6 @@ def test_delete_config_fail_bc_not_redundant():
                        match='Cannot change configuration value of CFG_a'):
         foo = foo.delete_config('CFG.a = _ #1')
         print(foo)
-
-
-
-
-
 
 
 
