@@ -133,6 +133,7 @@ def inline_mod_part(conv):
     conv = conv.delete_config("config_ld_acc_i32_vector(_) #1")
     conv = conv.delete_config("config_ld_i8_id1(_) #1")
     conv = conv.delete_config("config_matmul(_) #1")
+    print(conv)
     conv = conv.delete_config("config_st_acc_i8(_) #1")
     conv = conv.simplify()
 

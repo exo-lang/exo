@@ -205,7 +205,7 @@ def test_delete_config_fail():
                 x[i] = x[i] + 1.0
 
     with pytest.raises(SchedulingError,
-                       match='Cannot change configuration values'):
+                       match='Cannot change configuration value of CFG_a'):
         foo = foo.delete_config('CFG.a = _')
         print(foo)
     
@@ -228,10 +228,64 @@ def test_delete_config_subproc_fail():
                 x[i] = x[i] + 1.0
 
     with pytest.raises(SchedulingError,
-                       match='Cannot change configuration values'):
+                       match='Cannot change configuration value of CFG_a'):
         foo = foo.delete_config('do_config()')
         print(foo)
 
+
+def test_delete_config_bc_shadow():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 34
+        CFG.a = 3
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    foo = foo.delete_config('CFG.a = _ #0')
+    print(foo)
+
+
+def test_delete_config_bc_redundant():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 3
+        CFG.a = 3
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    foo = foo.delete_config('CFG.a = _ #1')
+    print(foo)
+
+def test_delete_config_fail_bc_not_redundant():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 34
+        CFG.a = 3
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    with pytest.raises(SchedulingError,
+                       match='Cannot change configuration value of CFG_a'):
+        foo = foo.delete_config('CFG.a = _ #1')
+        print(foo)
 
 
 

@@ -30,6 +30,7 @@ def get_simple_proc(proc):
 class APoint:
     name    : Sym
     coords  : list[A.expr]
+    typ     : Any
 
 @dataclass
 class AWinCoord:
@@ -83,7 +84,7 @@ class AWin:
             else:
                 coords.append( wc.val + pt.coords[pi] )
                 pi += 1
-        return APoint(self.name, coords)
+        return APoint(self.name, coords, pt.typ)
 
     # get a stride
     def get_stride(self, ndim):
@@ -157,6 +158,8 @@ class AEnv:
         else: assert False, "bad case"
 
     def __str__(self):
+        if len(self.bindings) == 0:
+            return '[]'
         def bstr(bd):
             if isinstance(bd, TupleBinding):
                 nm = ','.join([str(n) for n in bd.names])
@@ -436,7 +439,7 @@ def globenv_proc(proc):
 LS = ADT("""
 module LocSet {
     locset  = Empty     ()
-            | Point     ( sym name,   aexpr* coords )
+            | Point     ( sym name,   aexpr* coords,  type? type )
             | WholeBuf  ( sym name,   int ndim )
             | Union     ( locset lhs, locset rhs )
             | Isct      ( locset lhs, locset rhs )
@@ -449,6 +452,7 @@ module LocSet {
     'sym':      lambda x: isinstance(x, Sym),
     'aexpr':    lambda x: isinstance(x, A.expr),
     'aenv':     lambda x: isinstance(x, AEnv),
+    'type':     lambda x: type(x) is tuple or T.is_type(x),
     #'srcinfo': lambda x: isinstance(x, SrcInfo),
 })
 
@@ -514,7 +518,8 @@ def _lsstr(ls, prec=0):
         return "∅"
     elif isinstance(ls, LS.Point):
         coords = ','.join([str(a) for a in ls.coords])
-        return f"{{({ls.name},{coords})}}"
+        typ    = f":{ls.type}" if ls.type else ""
+        return f"{{({ls.name},{coords}{typ})}}"
     elif isinstance(ls, LS.WholeBuf):
         coords = ','.join([str(a) for a in ls.coords])
         return f"{{{ls.name}|{ls.ndim}}}"
@@ -557,7 +562,7 @@ def is_elem(pt, ls, win_map=None, alloc_masks=None):
     if isinstance(ls, LS.Empty):
         return ABool(False)
     elif isinstance(ls, LS.Point):
-        lspt        = APoint(ls.name, ls.coords)
+        lspt        = APoint(ls.name, ls.coords, ls.type)
         if ls.name in win_map:
             lspt    = win_map[ls.name](lspt)
 
@@ -609,18 +614,18 @@ def get_point_exprs(ls):
         if isinstance(ls, LS.Empty):
             pass
         elif isinstance(ls, LS.Point):
-            lspt        = APoint(ls.name, ls.coords)
+            lspt        = APoint(ls.name, ls.coords, ls.type)
             if ls.name in win_map:
                 lspt    = win_map[ls.name](lspt)
 
             if lspt.name not in alloc_masks:
-                all_bufs[lspt.name] = len(lspt.coords)
+                all_bufs[lspt.name] = (len(lspt.coords),ls.type)
         elif isinstance(ls, LS.WholeBuf):
             bufname     = ls.name
             if bufname in win_map:
                 bufnane = win_map[bufname].name
             if bufname not in alloc_masks:
-                all_bufs[bufname] = ls.ndim
+                all_bufs[bufname] = (ls.ndim,T.R)
         elif isinstance(ls, (LS.Union,LS.Isct,LS.Diff)):
             _collect_buf(ls.lhs, win_map, alloc_masks)
             _collect_buf(ls.rhs, win_map, alloc_masks)
@@ -632,8 +637,9 @@ def get_point_exprs(ls):
             alloc_masks.pop()
     _collect_buf(ls, dict(), [])
 
-    points = [ APoint(nm, [ AInt(Sym(f"i{i}")) for i in range(ndim) ])
-               for nm,ndim in all_bufs.items() ]
+    points = [ APoint(nm, [ AInt(Sym(f"i{i}")) for i in range(ndim) ],
+                      typ)
+               for nm,(ndim,typ) in all_bufs.items() ]
     return points
 
 def is_empty(ls):
@@ -662,8 +668,8 @@ module Effects {
          --
          | BindEnv      ( aenv env )
          --
-         | GlobalRead   ( sym name )
-         | GlobalWrite  ( sym name )
+         | GlobalRead   ( sym name, type   type   )
+         | GlobalWrite  ( sym name, type   type   )
          | Read         ( sym name, aexpr* coords )
          | Write        ( sym name, aexpr* coords )
          | Reduce       ( sym name, aexpr* coords )
@@ -673,6 +679,7 @@ module Effects {
     'sym':      lambda x: isinstance(x, Sym),
     'aexpr':    lambda x: isinstance(x, A.expr),
     'aenv':     lambda x: isinstance(x, AEnv),
+    'type':     lambda x: type(x) is tuple or T.is_type(x),
     #'srcinfo': lambda x: isinstance(x, SrcInfo),
 })
 
@@ -691,7 +698,7 @@ def _effstr(eff,tab=""):
         return f"{tab}{eff.env}"
     elif isinstance(eff, (E.GlobalRead, E.GlobalWrite)):
         nm = 'GlobalRead' if isinstance(eff, E.GlobalRead) else 'GlobalWrite'
-        return f"{tab}{nm}({eff.name})"
+        return f"{tab}{nm}({eff.name},{eff.type})"
     elif isinstance(eff, (E.Read, E.Write, E.Reduce)):
         nm = ('Read'    if isinstance(eff, E.Read) else
               'Write'   if isinstance(eff, E.Write) else
@@ -738,21 +745,21 @@ def get_basic_locsets(effs):
             pass
 
         elif isinstance(eff, E.GlobalRead):
-            ls1 = LS.Point(eff.name, [])
+            ls1 = LS.Point(eff.name, [], eff.type)
             RG  = LUnion(ls1, RG)
         elif isinstance(eff, E.GlobalWrite):
-            ls1 = LS.Point(eff.name, [])
+            ls1 = LS.Point(eff.name, [], eff.type)
             RG  = LDiff(RG, ls1)
             WG  = LUnion(ls1, WG)
         elif isinstance(eff, E.Read):
-            ls1 = LS.Point(eff.name, eff.coords)
+            ls1 = LS.Point(eff.name, eff.coords, None)
             RH  = LUnion(ls1, RH)
         elif isinstance(eff, E.Write):
-            ls1 = LS.Point(eff.name, eff.coords)
+            ls1 = LS.Point(eff.name, eff.coords, None)
             RH  = LDiff(RH, ls1)
             WH  = LUnion(ls1, WH)
         elif isinstance(eff, E.Reduce):
-            ls1 = LS.Point(eff.name, eff.coords)
+            ls1 = LS.Point(eff.name, eff.coords, None)
             Red = LUnion(ls1, Red)
 
         elif isinstance(eff, E.Alloc):
@@ -858,7 +865,7 @@ def expr_effs(e):
         return []
     elif isinstance(e, LoopIR.ReadConfig):
         globname = e.config._INTERNAL_sym(e.field)
-        return [ E.GlobalRead(globname) ]
+        return [ E.GlobalRead(globname, e.config.lookup(e.field)[1]) ]
     else: assert False, f"bad case: {type(e)}"
 
 def list_expr_effs(es):
@@ -875,7 +882,7 @@ def stmts_effs(stmts):
         elif isinstance(s, LoopIR.WriteConfig):
             effs += expr_effs(s.rhs)
             globname = s.config._INTERNAL_sym(s.field)
-            effs.append( E.GlobalWrite(globname) )
+            effs.append( E.GlobalWrite(globname, s.config.lookup(s.field)[1]) )
         elif isinstance(s, LoopIR.If):
             effs += expr_effs(s.cond)
             effs += [ E.Guard( lift_e(s.cond), stmts_effs(s.body) ),
@@ -923,8 +930,6 @@ def proc_effs(proc):
 # --------------------------------------------------------------------------- #
 # Context Processing
 
-
-
 class ContextExtraction:
     def __init__(self, proc, stmts):
         self.proc   = proc
@@ -943,7 +948,7 @@ class ContextExtraction:
 
     def ctrlp_stmts(self, stmts):
         for i,s in enumerate(stmts):
-            if s == self.stmts[0]:
+            if s is self.stmts[0]:
                 return ABool(True)
             else:
                 p = self.ctrlp_s(s)
@@ -974,7 +979,7 @@ class ContextExtraction:
 
     def preenv_stmts(self, stmts):
         for i,s in enumerate(stmts):
-            if s == self.stmts[0]:
+            if s is self.stmts[0]:
                 preG = AEnv()
             else:
                 preG = self.preenv_s(s)
@@ -1004,7 +1009,7 @@ class ContextExtraction:
 
     def posteff_stmts(self, stmts):
         for i,s in enumerate(stmts):
-            if s == self.stmts[0]:
+            if s is self.stmts[0]:
                 effs = [ E.BindEnv(globenv(self.stmts)) ]
                 post_stmts  = stmts[i+len(self.stmts):]
             else:
@@ -1288,6 +1293,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     G       = ctxt.get_pre_globenv()
     ap      = ctxt.get_posteffs()
     a       = G(stmts_effs(stmts))
+    stmtsG  = globenv(stmts)
 
     slv     = SMTSolver(verbose=False)
     slv.push()
@@ -1306,52 +1312,50 @@ def Check_DeleteConfigWrite(proc, stmts):
             f"Cannot delete or insert statements at {stmts[0].srcinfo} "
             f"because they may modify non-configuration data")
 
-    # check that any modified config values are not subsequently read
-    new_val_unread  = ADef(is_empty(LIsct(WrG,RdGp)))
-    is_ok           = slv.verify(new_val_unread)
-    if not is_ok:
-        slv.pop()
-        raise SchedulingError(
-            f"Cannot change configuration values at {stmts[0].srcinfo}; "
-            f"the new (and different) values might be read later in "
-            f"this procedure")
+    # get the set of config variables potentially modified by
+    # the statement block being focused on.  Filter out any
+    # such configuration variables whose values are definitely unchanged
+    def is_cfg_unmod_by_stmts(pt):
+        pt_e    = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name) 
+        #cfg_unwritten = ADef( ANot(is_elem(pt, WrG)) )
+        cfg_unchanged = ADef( G(AEq(pt_e, stmtsG(pt_e))) )
+        return slv.verify(cfg_unchanged)
+    cfg_mod = set( pt.name for pt in get_point_exprs(WrG)
+                           if not is_cfg_unmod_by_stmts(pt) )
 
-    # build the set of possibly modified configuration variables
-    WrG_visible = LDiff(WrG, WrGp)
-    def is_cfg_unmod(pt):
-        cfg_unwritten = ADef(ANot(is_elem(pt, WrG_visible)))
-        return slv.verify(cfg_unwritten)
+    # consider every global that might be modified
+    cfg_mod_visible = set()
+    for pt in get_point_exprs(WrG):
+        pt_e    = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name) 
+        is_written      = is_elem(pt, WrG)
+        is_unchanged    = G(AEq(pt_e, stmtsG(pt_e)))
+        is_read_post    = is_elem(pt, RdGp)
+        is_overwritten  = is_elem(pt, WrGp)
 
-    cfg_mod = set( pt.name
-                   for pt in get_point_exprs(WrG)
-                   if not is_cfg_unmod(pt) )
+        # if the value of the global might be read,
+        # then it must not have been changed.
+        safe_write  = AImplies( AMay(is_read_post), ADef(is_unchanged) )
+        if not slv.verify(safe_write):
+            # for s in stmts:
+            #     print(s)
+            # print('####')
+            # print(safe_write)
+            # print('***')
+            # print(G)
+            # print('***')
+            # print(stmtsG)
+            slv.pop()
+            raise SchedulingError(
+                f"Cannot change configuration value of {pt.name} "
+                f"at {stmts[0].srcinfo}; the new (and different) "
+                f"values might be read later in this procedure")
+        # the write is invisible if its definitely unchanged or definitely
+        # overwritten
+        invisible   = ADef( AOr( is_unchanged, is_overwritten ) )
+        if not slv.verify(invisible):
+            cfg_mod_visible.add( pt.name )
 
     slv.pop()
-    return cfg_mod
-
-
-# Note that this isn't quite the right concept of whether or not a
-# statement can be deleted
-def Check_DeleteStmt(proc, s):
-    ctxt = ContextExtraction(proc, [s])
-
-    p       = ctxt.get_control_predicate()
-    G       = ctxt.get_pre_globenv()
-    a_post  = ctxt.get_posteffs()
-
-    slv     = SMTSolver(verbose=False)
-    slv.push()
-    slv.assume(AMay(p))
-
-    a       = G(stmts_effs([s]))
-
-    deletion_is_safe = Shadows(a, a_post)
-
-    is_ok   = slv.verify(deletion_is_safe)
-    slv.pop()
-    if not is_ok:
-        raise SchedulingError(
-            f"Statement at {s.srcinfo} cannot be deleted; "
-            f"it might affect something")
+    return cfg_mod_visible
 
 
