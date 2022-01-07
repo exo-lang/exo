@@ -17,6 +17,7 @@ from .harness_amx import ENV, AMXTestBuilder
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #
 
+@pytest.mark.skip()
 def test_ldst_i8_16x64():
     T = AMXTestBuilder('ldst_i8_16x64')
     T.add_body(["ldst_i8_16x64_lib_Context *ctxt;"])
@@ -54,29 +55,30 @@ def test_ldst_i8_16x64():
     T.compile().run()
 
 
-def test_dpbuud_i8_16x64():
-    T = AMXTestBuilder('dpbuud_i8_16x64')
-    T.add_body(["dpbuud_i8_16x64_lib_Context *ctxt;"])
+@pytest.mark.skip()
+def test_dpbssd_i8_16x64():
+    T = AMXTestBuilder('dpbssd_i8_16x64')
+    T.add_body(["dpbssd_i8_16x64_lib_Context *ctxt;"])
 
     @proc
-    def dpbuud_i8_16x64(x: i8[16, 64] @ DRAM, y: i8[16, 64] @ DRAM, z: i32[16, 16] @ DRAM):
+    def dpbssd_i8_16x64(x: i8[16, 64] @ DRAM, y: i8[16, 64] @ DRAM, z: i32[16, 16] @ DRAM):
         config()
         tile0: i8[16, 64] @ AMX_TILE
         tile1: i8[16, 64] @ AMX_TILE
         tile2: i32[16, 16] @ AMX_TILE
         ld_i8(16, 64, x, tile0)
         ld_i8(16, 64, y, tile1)
-        dpbuud(16, 16, 16, tile0, tile1, tile2)
+        dpbssd(16, 16, 16, tile0, tile1, tile2)
         st_i32(16, 16, tile2, z)
 
-    T.add_proc(dpbuud_i8_16x64)
+    T.add_proc(dpbssd_i8_16x64)
 
     T.alloc_dram_2i8('x', 16, 64, '1')
     T.alloc_dram_2i8('y', 16, 64, '1')
     T.alloc_dram_2i32('z', 16, 16, '64')  # expected result
     T.alloc_dram_2i32('res', 16, 16, '0')
 
-    T.add_body(['dpbuud_i8_16x64(ctxt, x, y, res);',
+    T.add_body(['dpbssd_i8_16x64(ctxt, x, y, res);',
                 '',
                 'if(check_eq_2i32(16, 16, z, res)) {',
                 '    printf("Correct\\n");',
@@ -93,10 +95,12 @@ def test_dpbuud_i8_16x64():
     T.compile().run()
 
 
+@pytest.mark.skip()
 def test_transform_memory():
     T = AMXTestBuilder('transform_memory')
     T.add_body(["transform_memory_lib_Context *ctxt;"])
 
+    # TODO: make this transform_memory same as the one below
     @proc
     def call_transform_memory(
         m: size,
@@ -134,16 +138,16 @@ def test_matmul_c_i8():
     T.add_body(["matmul_c_i8_lib_Context *ctxt;"])
 
     @proc
-    def matmul_on_cpu(
-        N: size,
+    def matmul_on_cpu_i8(
         M: size,
         K: size,
-        A: [i8][N, K] @ DRAM,
-        B: [i8][K, M] @ DRAM,
-        C: [i8][N, M] @ DRAM,
+        N: size,
+        A: i8[M, K] @ DRAM,
+        B: i8[K, N] @ DRAM,
+        C: i32[M, N] @ DRAM,
     ):
-        for i in par(0, N):
-            for j in par(0, M):
+        for i in par(0, M):
+            for j in par(0, N):
                 C[i, j] = 0.0
                 for k in par(0, K):
                     a: i32
@@ -155,55 +159,71 @@ def test_matmul_c_i8():
                     C[i, j] += a * b
 
     @proc
+    def transform_memory(
+        m: size,
+        n: size,
+        src: i8[m, n] @ DRAM,
+        dest: i8[m/4, 4*n] @ DRAM,
+    ):
+        assert m % 4 == 0
+        for i in par(0, m/4):
+            for j in par(0, n):
+                for k in par(0, 4):
+                    dest[i, 4*j+k] = src[4*i + k, j]
+
+    @proc
     def matmul_c_i8(
         M: size,
         K: size,
         N: size,
-        # TODO: can't make this windowed. Might be because of the cast I added in memory.py?
-        A: i8[M, K] @ DRAM,
-        B: i8[K, N] @ DRAM,
+        A: i8[M, 4*K] @ DRAM,
+        B: i8[K, 4*N] @ DRAM,
         C: i32[M, N] @ DRAM,
     ):
+        assert M % 16 == 0
+        assert N % 16 == 0
+        assert K % 16 == 0
         config()
         for i in par(0, M/16):
             for j in par(0, N/16):
                 tileC: i32[16, 16] @ AMX_TILE
-                zero_i32(16, 16, tileC)
+                zero_i32(16, 16, tileC)  # bind_expr, expand_dim
+                # use partial_eval to work with constants
 
-                for k in par(0, K/64):
-                    Bcopy: i8[16, 64] @ DRAM
-
-                    # TODO: any way to separate this into its own function?
-                    for x in par(0, 16):
-                        for y in par(0, 16):
-                            for z in par(0, 4):
-                                Bcopy[x, 4*y+z] = B[64*k + 4*x + z, 16*j + y]
-
+                for k in par(0, K/16):
                     tileA: i8[16, 64] @ AMX_TILE
                     tileB: i8[16, 64] @ AMX_TILE
                     ld_i8(16, 64, A[16*i:16*(i+1), 64*k:64*(k+1)], tileA)
-                    ld_i8(16, 64, Bcopy, tileB)
-                    dpbuud(16, 16, 16, tileA, tileB, tileC)
+                    ld_i8(16, 64, B[16*k:16*(k+1), 64*j:64*(j+1)], tileB)
+                    dpbssd(16, 16, 16, tileA, tileB, tileC)
 
-                temp: i32[16, 16] @ DRAM
-                st_i32(16, 16, tileC, temp)
-                for x in par(0, 16):
-                    for y in par(0, 16):
-                        C[16*i+x, 16*j+y] += temp[x, y]
+                st_i32(16, 16, tileC, C[16*i:16*(i+1), 16*j:16*(j+1)])
 
-    T.add_proc(matmul_on_cpu)
+    T.add_proc(transform_memory)
+    T.add_proc(matmul_on_cpu_i8)
     T.add_proc(matmul_c_i8)
 
-    size1 = 512
-    size2 = 512
-    T.alloc_dram_2i8('x', size1, size2, '1')
-    T.alloc_dram_2i8('y', size2, size1, '1')
-    T.alloc_dram_2i32('z', size1, size1, f'{size2}')  # expected result
+    size1 = 256
+    size2 = 256
+
+    T.alloc_dram_2i8('x', size1, size2, 'i+j')
+    T.alloc_dram_2i8('y_orig', size2, size1, 'j')  # before transform_memory
+    T.alloc_dram_2i8('y', size2//4, 4*size1, '0')  # after transform_memory
+
+    T.add_body([f'transform_memory(ctxt, {size2}, {size1}, y_orig, y);'])
+
+    T.add_body([f'print_2i8({size2}, {size1}, y_orig);',
+                f'print_2i8({size2//4}, {4*size1}, y);'])
+
+    T.alloc_dram_2i32('z', size1, size1, '0')  # expected result
     T.alloc_dram_2i32('res', size1, size1, '0')
 
-    T.add_body([f'matmul_c_i8(ctxt, {size1}, {size2}, {size1}, x, y, res);',
-                '',
-                'if(check_eq_2i32(16, 16, z, res)) {',
+    T.add_body(
+        [f'matmul_on_cpu_i8(ctxt, {size1}, {size2}, {size1}, x, y_orig, z);'])
+    T.add_body(
+        [f'matmul_c_i8(ctxt, {size1}, {size2//4}, {size1}, x, y, res);'])
+
+    T.add_body([f'if(check_eq_2i32({size1}, {size1}, z, res)) {{',
                 '    printf("Correct\\n");',
                 '} else {',
                 '    printf("Results Don\'t Match\\n");',

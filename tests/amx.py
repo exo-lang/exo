@@ -84,7 +84,6 @@ def st_i8(
         for j in par(0, m):
             dst[i, j] = src[i, j]
 
-
 _amx_st_i32 = ("_tile_stored({src_int}, {dst}.data, 4*{dst}.strides[0]);")
 @instr(_amx_st_i32)
 def st_i32(
@@ -109,16 +108,16 @@ def zero_i32(
             tile[i, j] = 0.0
 
 """
-dpbuud(2, 0, 1) // tile2 = tile0*tile1
+dpbssd(2, 0, 1) // tile2 = tile0*tile1
 // tile2 [i32][m,n]
 st_i32(2, dram)
 ld_i8(dram, 2)
-dpbuud(3, 2, 2) // tile3 = tile2*tile2
+dpbssd(3, 2, 2) // tile3 = tile2*tile2
 """
 
-_amx_dpbuud = "_tile_dpbuud({dst_int}, {src1_int}, {src2_int});"
-@instr(_amx_dpbuud)
-def dpbuud(
+_amx_dpbssd = "_tile_dpbssd({dst_int}, {src1_int}, {src2_int});"
+@instr(_amx_dpbssd)
+def dpbssd(
     M: size,
     K: size,
     N: size,
