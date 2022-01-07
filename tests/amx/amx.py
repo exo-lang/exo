@@ -103,6 +103,8 @@ def zero_i32(
     m: size,
     tile: [i32][n, m] @ AMX_TILE,
 ):
+    assert n <= 16
+    assert m <= 16
     for i in par(0, n):
         for j in par(0, m):
             tile[i, j] = 0.0
@@ -115,6 +117,7 @@ ld_i8(dram, 2)
 dpbssd(3, 2, 2) // tile3 = tile2*tile2
 """
 
+# TODO: make a 3D input version
 _amx_dpbssd = "_tile_dpbssd({dst_int}, {src1_int}, {src2_int});"
 @instr(_amx_dpbssd)
 def dpbssd(
@@ -125,6 +128,9 @@ def dpbssd(
     src2: [i8][K, 4*N] @ AMX_TILE,
     dst: [i32][M, N] @ AMX_TILE,
 ):
+    assert M <= 16
+    assert K <= 16
+    assert M <= 16
     for m in par(0, M):
         for n in par(0, N):
             for k in par(0, K):
