@@ -5,6 +5,17 @@ import pytest
 from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 
+def test_expand_dim():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        a : i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x = a
+
+    foo = foo.expand_dim('a : i8', 'n', 'i')
+    print(foo)
+
 
 def test_double_fission():
     @proc
@@ -352,3 +363,4 @@ def test_unify6():
 
     bar = bar.replace(load, "for i in _:_")
     assert 'load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])' in str(bar)
+

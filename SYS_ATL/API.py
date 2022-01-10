@@ -519,9 +519,12 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         for i in range(0, stmts_len):
             s = self._find_stmt(stmt_pat, body=loopir.body, default_match_no=None)[i]
-            alloc_dim = parse_fragment(loopir, alloc_dim_pat, s)
-            indexing  = parse_fragment(loopir, indexing_pat, s)
+            alloc_dim = parse_fragment(loopir, alloc_dim_pat, None)
+            indexing  = parse_fragment(loopir, indexing_pat, None)
             loopir = Schedules.DoExpandDim(loopir, s, alloc_dim, indexing).result()
+
+        # Running checkeffect here is necessary for bounds checking
+        CheckEffects(loopir)
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 

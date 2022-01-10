@@ -48,6 +48,7 @@ _PAST_to_LoopIR = {
 class BuildEnv(LoopIR_Do):
     def __init__(self, proc, stmt):
         self.env       = ChainMap()
+        self.env_all   = dict()
         self.result    = None
         self.found_trg = False
         self.trg       = stmt
@@ -55,14 +56,16 @@ class BuildEnv(LoopIR_Do):
 
         for a in self.proc.args:
             self.env[a.name] = a.type
+            self.env_all[a.name] = a.type
             self.do_t(a.type)
         for p in self.proc.preds:
             self.do_e(p)
 
-        # For configwrite_root
-        self.result = self.env.copy()
-
         self.do_stmts(self.proc.body)
+
+        # We need an env which records globally
+        if self.result is None:
+            self.result = self.env_all.copy()
 
     def result(self):
         return self.result
@@ -80,6 +83,7 @@ class BuildEnv(LoopIR_Do):
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             self.env[s.name] = s.type
+            self.env_all[s.name] = s.type
             for e in s.idx:
                 self.do_e(e)
             self.do_e(s.rhs)
@@ -87,6 +91,7 @@ class BuildEnv(LoopIR_Do):
         elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
             self.push()
             self.env[s.iter] = T.index
+            self.env_all[s.iter] = T.index
             self.do_e(s.hi)
             self.do_stmts(s.body)
             self.pop()
@@ -99,6 +104,7 @@ class BuildEnv(LoopIR_Do):
             self.pop()
         elif styp is LoopIR.Alloc:
             self.env[s.name] = s.type
+            self.env_all[s.name] = s.type
             self.do_t(s.type)
         else:
             super().do_s(s)
