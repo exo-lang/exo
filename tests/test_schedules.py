@@ -5,7 +5,20 @@ import pytest
 from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 
+def test_rearrange_dim():
+    @proc
+    def foo(N : size, M : size, K : size, x : i8[N, M, K]):
+        a : i8[N,M,K]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[n, m, k] = x[n, m, k]
 
+    foo = foo.rearrange_dim('a : i8[_]', [1, 2, 0])
+    print(foo)
+
+
+"""
 def test_double_fission():
     @proc
     def foo(N : size, a : f32[N], b : f32[N], out : f32[N]):
@@ -370,6 +383,6 @@ def test_unify7():
     foo = foo.replace(bar, "for i in _ : _")
     print(foo)
     assert 'bar(False, 5, y, x, 0)' in str(foo)
-
+"""
 
 

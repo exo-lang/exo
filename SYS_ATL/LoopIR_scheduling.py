@@ -1203,6 +1203,16 @@ class _DoExpandDim(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+class _DoRearrangeDim(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, dimensions):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s is self.alloc_stmt:
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
@@ -2674,3 +2684,4 @@ class Schedules:
     DoStageWindow = _DoStageWindow
     DoBoundAlloc = _DoBoundAlloc
     DoExpandDim    = _DoExpandDim
+    DoRearrangeDim  = _DoRearrangeDim

@@ -1026,6 +1026,31 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def rearrange_dim(self, alloc_pattern, dimensions):
+        if not isinstance(alloc_pattern, str):
+            raise TypeError("expected first argument to be allocation "+
+                            "pattern string")
+        if not isinstance(dimensions, list):
+            raise TypeError("expected second argument to be integer list of "+
+                            "dimensions")
+
+        stmts_len = len(self._find_stmt(alloc_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(alloc_pattern, body=loopir.body, default_match_no=None)[i]
+            if not isinstance(s, LoopIR.Alloc):
+                raise TypeError("pattern did not describe an alloc statement")
+            # Check that the number of dimensions matches with alloc size
+            assert s.type is T.Tensor
+            if len(s.type.hi) != len(dimensions):
+                raise TypeError("dimension does not match with the dimension of "+
+                                "the alloc statement")
+
+            loopir  = Schedules.DoRearrangeDim( loopir, s, dimensions ).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
     def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None,
                    keep_dims=False):
         if not is_pos_int(n_lifts):
