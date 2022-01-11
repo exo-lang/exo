@@ -364,3 +364,23 @@ def test_unify6():
     bar = bar.replace(load, "for i in _:_")
     assert 'load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])' in str(bar)
 
+
+# Unused arguments
+def test_unify7():
+    @proc
+    def bar(unused_b : bool, n : size, src : R[n,n], dst : R[n,n], unused_m : index):
+        for i in par(0,n):
+            for j in par(0,n):
+                dst[i,j] = src[i,j]
+
+    @proc
+    def foo(x : R[5,5], y : R[5,5]):
+        for i in par(0,5):
+            for j in par(0,5):
+                x[i,j] = y[i,j]
+
+    foo = foo.replace(bar, "for i in _ : _")
+    print(foo)
+    assert 'bar(False, 5, y, x, 0)' in str(foo)
+
+
