@@ -18,7 +18,6 @@ from .harness_amx import ENV, AMXTestBuilder
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.skip()
 def test_ldst_i8_16x64():
     T = AMXTestBuilder('ldst_i8_16x64')
     T.add_body(["ldst_i8_16x64_lib_Context *ctxt;"])
@@ -56,7 +55,6 @@ def test_ldst_i8_16x64():
     T.compile().run()
 
 
-@pytest.mark.skip()
 def test_dpbssd_i8_16x64():
     T = AMXTestBuilder('dpbssd_i8_16x64')
     T.add_body(["dpbssd_i8_16x64_lib_Context *ctxt;"])
@@ -96,12 +94,10 @@ def test_dpbssd_i8_16x64():
     T.compile().run()
 
 
-@pytest.mark.skip()
 def test_transform_memory():
     T = AMXTestBuilder('transform_memory')
     T.add_body(["transform_memory_lib_Context *ctxt;"])
 
-    # TODO: make this transform_memory same as the one below
     @proc
     def call_transform_memory(
         m: size,
@@ -159,6 +155,7 @@ def matmul_algorithm_i8():
 
     return matmul_on_cpu_i8
 
+
 def modified_matmul_algorithm_i8():
     @proc
     def modified_matmul_on_cpu_i8(
@@ -169,12 +166,22 @@ def modified_matmul_algorithm_i8():
         B: i8[K, 4*N] @ DRAM,
         C: i32[M, N] @ DRAM,
     ):
-        assert K%4 == 0
+        assert K % 4 == 0
         for i in par(0, M):
             for j in par(0, N):
-                # C_tile: i32
-                # C_tile = 0.0
-                C[i, j] = 0.0
+                # C[i, j] = 0.0
+                # for k in par(0, K):
+                #     for byte in par(0, 4):
+                #         a: i32
+                #         b: i32
+
+                #         a = A[i, 4*k+byte]
+                #         b = B[k, 4*j+byte]
+
+                #         C[i, j] += a * b
+
+                C_tile: i32
+                C_tile = 0.0
                 for k in par(0, K):
                     for byte in par(0, 4):
                         a: i32
@@ -183,11 +190,11 @@ def modified_matmul_algorithm_i8():
                         a = A[i, 4*k+byte]
                         b = B[k, 4*j+byte]
 
-                        C[i, j] += a * b
-                        # C_tile += a * b
-                # C[i, j] = C_tile
+                        C_tile += a * b
+                C[i, j] = C_tile
 
     return modified_matmul_on_cpu_i8
+
 
 def get_transform_memory_i8():
     @proc
@@ -204,7 +211,7 @@ def get_transform_memory_i8():
                     dest[i, 4*j+k] = src[4*i + k, j]
     return transform_memory_i8
 
-@pytest.mark.skip()
+
 def test_matmul_on_amx_by_hand_i8():
     size1 = 256
     size2 = 256
@@ -228,8 +235,7 @@ def test_matmul_on_amx_by_hand_i8():
         for i in par(0, M/16):
             for j in par(0, N/16):
                 tileC: i32[16, 16] @ AMX_TILE
-                zero_i32(16, 16, tileC)  # bind_expr, expand_dim
-                # use partial_eval to work with constants
+                zero_i32(16, 16, tileC)
 
                 for k in par(0, K/16):
                     tileA: i8[16, 64] @ AMX_TILE
@@ -288,41 +294,55 @@ def test_matmul_on_amx_scheduled_i8():
     print("Base Implementation: ")
     print(amx)
 
+    print("Loop splitting and reordering:")
     amx = amx.split('i', 16, ['io', 'ii'], perfect=True)
     amx = amx.split('j', 16, ['jo', 'ji'], perfect=True)
     amx = amx.reorder('ii', 'jo')
-
-    print("After loop splitting and reordering:")
     print(amx)
 
-    # Attempt to use an AMX tile to aggregate results for C
-    amx = amx.stage_assn('C_tile', 'C[_] = 0.0')
-    amx = amx.stage_assn('C_tile_2', 'C[_] += _')
-    amx = amx.data_reuse('C_tile:_', 'C_tile_2:_')
+    print("Introducing tiles:")
+    amx = amx.lift_alloc('C_tile:_', n_lifts=2)
+    amx = amx.fission_after('C_tile[_] = 0.0', n_lifts=2)
+    amx = amx.fission_after('for k in _:_', n_lifts=2)
+    amx = amx.split('k', 16, ['ko', 'ki'], perfect=True)
+    amx = amx.reorder('ji', 'ko')
+    amx = amx.reorder('ii', 'ko')
+    amx = amx.lift_alloc('a:_', n_lifts=4)
+    amx = amx.reorder('ji', 'ki')
+    amx = amx.lift_alloc('b:_', n_lifts=4)
+    amx = amx.fission_after('a[_] = A[_]', n_lifts=4)
+    amx = amx.fission_after('b[_] = B[_]', n_lifts=4)
+    print(amx)
 
-    # amx = amx.fission_after('C[_] = 0.0', n_lifts=2)
-    # amx = amx.split('k', 16, ['ko', 'ki'], perfect=True)
-    # amx = amx.reorder('ji', 'ko')
-    # amx = amx.reorder('ii', 'ko')
+    '''
+    Attempt to use an AMX tile to aggregate results for C
+    in the first implementation of modified matmul
+    '''
+    # amx = amx.stage_assn('C_tile', 'C[_] = 0.0')
+    # amx = amx.stage_assn('C_tile_2', 'C[_] += _')
+    # amx = amx.data_reuse('C_tile:_', 'C_tile_2:_')
 
-    # amx = amx.lift_alloc('a:_', n_lifts=4)
-    # amx = amx.lift_alloc('b:_', n_lifts=4)
+    print("Replacing with AMX memory commands:")
+    amx = amx.replace(zero_i32, "for ii in _: _ #0")
+    amx = amx.replace(ld_i8_3d, "for ii in _: _ #0")
+    amx = amx.replace(ld_i8_3d, "for ki in _: _ #0")
+    amx = amx.replace(st_i32, "for ii in _: _ #1")
+    amx = amx.set_memory('a',  AMX_TILE)
+    amx = amx.set_memory('b',  AMX_TILE)
+    amx = amx.set_memory('C_tile',  AMX_TILE)
+    print(amx)
 
-    # par_to_seq hack deals with allocating too much memory
-    # amx = amx.par_to_seq('for ki in _:_')
-    # amx = amx.par_to_seq('for byte in _:_')
-
-    # amx = amx.stage_assn('C_tile', 'C[_] += _')
-    # amx = amx.lift_alloc('C_tile:_', n_lifts=4)
-    # amx = amx.set_memory('C_tile',  AMX_TILE)
-    # amx = amx.set_precision('C_tile', 'i32')
+    print("DPBSSD:")
+    amx = amx.reorder('ki', 'ji')
+    amx = amx.bind_expr('A_temp', 'a[_] #1')
+    amx = amx.bind_expr('B_temp', 'b[_] #1')
+    amx = amx.reorder_before('B_temp:_')
+    amx = amx.replace(dpbssd_3d, 'for ii in _: _ #0')
+    print(amx)
 
     T.add_proc(cpu.rename("matmul_on_cpu"))
     T.add_proc(transform_memory.rename("transform_memory"))
     T.add_proc(amx.rename("matmul_on_amx"))
-
-    print("Post scheduling: ")
-    print(amx)
 
     T.alloc_dram_2i8('x', size1, size2, 'i+j')
     T.alloc_dram_2i8('y_orig', size2, size1, 'j')  # before transform_memory

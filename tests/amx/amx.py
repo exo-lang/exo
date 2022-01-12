@@ -54,59 +54,82 @@ _tile_loadconfig(config);
 
 @instr(_amx_config)
 def config():
-    pass  # TODO: implement actually configuring tile size
+    pass
 
 
 # TODO: Handle custom read_stride
 _amx_ld_i8 = ("_tile_loadd({dst_int}, {src}.data, {src}.strides[0]);")
 @instr(_amx_ld_i8)
 def ld_i8(
-    n: size,
     m: size,
-    src: [i8][n, m] @ DRAM,
-    dst: [i8][n, m] @ AMX_TILE,
+    n: size,
+    src: [i8][m, n] @ DRAM,
+    dst: [i8][m, n] @ AMX_TILE,
 ):
-    for i in par(0, n):
-        for j in par(0, m):
+    assert m <= 16
+    assert n <= 64
+    for i in par(0, m):
+        for j in par(0, n):
             dst[i, j] = src[i, j]
 
+"""
+Need this because idk how to rearrange memory
+using SYSATL commands when scheduling and lift_allocing
+"""
+@instr(_amx_ld_i8)
+def ld_i8_3d(
+    n: size,
+    m: size,
+    src: [i8][m, 4*n] @ DRAM,
+    dst: [i8][m, n, 4] @ AMX_TILE,
+):
+    assert n <= 16
+    assert m <= 16
+    for i in par(0, m):
+        for j in par(0, n):
+            for k in par(0, 4):
+                dst[i, j, k] = src[i, 4*j+k]
 
 # TODO: Handle custom write_stride
 _amx_st_i8 = ("_tile_stored({src_int}, {dst}.data, {dst}.strides[0]);")
 @instr(_amx_st_i8)
 def st_i8(
-    n: size,
     m: size,
-    src: [i8][n, m] @ AMX_TILE,
-    dst: [i8][n, m] @ DRAM,
+    n: size,
+    src: [i8][m, n] @ AMX_TILE,
+    dst: [i8][m, n] @ DRAM,
 ):
-    for i in par(0, n):
-        for j in par(0, m):
+    assert m <= 16
+    assert n <= 64
+    for i in par(0, m):
+        for j in par(0, n):
             dst[i, j] = src[i, j]
 
 _amx_st_i32 = ("_tile_stored({src_int}, {dst}.data, 4*{dst}.strides[0]);")
 @instr(_amx_st_i32)
 def st_i32(
-    n: size,
     m: size,
-    src: [i32][n, m] @ AMX_TILE,
-    dst: [i32][n, m] @ DRAM,
+    n: size,
+    src: [i32][m, n] @ AMX_TILE,
+    dst: [i32][m, n] @ DRAM,
 ):
-    for i in par(0, n):
-        for j in par(0, m):
+    assert m <= 16
+    assert n <= 16
+    for i in par(0, m):
+        for j in par(0, n):
             dst[i, j] = src[i, j]
 
 _amx_zero_i32 = ("_tile_zero({tile_int});")
 @instr(_amx_zero_i32)
 def zero_i32(
-    n: size,
     m: size,
-    tile: [i32][n, m] @ AMX_TILE,
+    n: size,
+    tile: [i32][m, n] @ AMX_TILE,
 ):
-    assert n <= 16
     assert m <= 16
-    for i in par(0, n):
-        for j in par(0, m):
+    assert n <= 16
+    for i in par(0, m):
+        for j in par(0, n):
             tile[i, j] = 0.0
 
 """
@@ -117,7 +140,6 @@ ld_i8(dram, 2)
 dpbssd(3, 2, 2) // tile3 = tile2*tile2
 """
 
-# TODO: make a 3D input version
 _amx_dpbssd = "_tile_dpbssd({dst_int}, {src1_int}, {src2_int});"
 @instr(_amx_dpbssd)
 def dpbssd(
@@ -140,5 +162,29 @@ def dpbssd(
 
                     a = src1[m, 4*k + byte]
                     b = src2[k, 4*n + byte]
+
+                    dst[m, n] += a * b
+
+@instr(_amx_dpbssd)
+def dpbssd_3d(
+    M: size,
+    K: size,
+    N: size,
+    src1: [i8][M, K, 4] @ AMX_TILE,
+    src2: [i8][K, N, 4] @ AMX_TILE,
+    dst: [i32][M, N] @ AMX_TILE,
+):
+    assert M <= 16
+    assert K <= 16
+    assert M <= 16
+    for m in par(0, M):
+        for n in par(0, N):
+            for k in par(0, K):
+                for byte in par(0, 4):
+                    a: i32
+                    b: i32
+
+                    a = src1[m, k, byte]
+                    b = src2[k, n, byte]
 
                     dst[m, n] += a * b
