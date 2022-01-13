@@ -6,6 +6,7 @@ from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 from .helper import TMP_DIR, generate_lib
 
+
 def test_rearrange_dim():
     @proc
     def foo(N : size, M : size, K : size, x : i8[N, M, K]):
@@ -16,10 +17,9 @@ def test_rearrange_dim():
                     a[n, m, k] = x[n, m, k]
 
     foo = foo.rearrange_dim('a : i8[_]', [1, 2, 0])
+    # should be i8[M, K, N]
     print(foo)
 
-
-"""
 
 def test_expand_dim():
     @proc
@@ -477,6 +477,4 @@ def test_unify7():
     foo = foo.replace(bar, "for i in _ : _")
     print(foo)
     assert 'bar(False, 5, y, x, 0)' in str(foo)
-
-"""
 

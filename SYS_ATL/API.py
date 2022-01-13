@@ -1046,7 +1046,7 @@ class Procedure(ProcedureBase):
             if not isinstance(s, LoopIR.Alloc):
                 raise TypeError("pattern did not describe an alloc statement")
             # Check that the number of dimensions matches with alloc size
-            assert s.type is T.Tensor
+            assert type(s.type) is T.Tensor
             if len(s.type.hi) != len(dimensions):
                 raise TypeError("dimension does not match with the dimension of "+
                                 "the alloc statement")
