@@ -13,7 +13,6 @@ jobs:
       - name: Checkout sources (including submodules)
         uses: actions/checkout@v2
         with:
-          token: ${{ secrets.MY_REPO_PAT }}
           submodules: recursive
 
       - name: Setup Python environment
