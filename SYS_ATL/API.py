@@ -507,7 +507,8 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def expand_dim(self, stmt_pat, alloc_dim_pat, indexing_pat):
+    def expand_dim(self, stmt_pat, alloc_dim_pat, indexing_pat,
+                                         unsafe_disable_checks=False):
         if not isinstance(stmt_pat, str):
             raise TypeError("expected first arg to be a string")
         if not isinstance(alloc_dim_pat, str):
@@ -519,9 +520,13 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         for i in range(0, stmts_len):
             s = self._find_stmt(stmt_pat, body=loopir.body, default_match_no=None)[i]
-            alloc_dim = parse_fragment(loopir, alloc_dim_pat, s)
-            indexing  = parse_fragment(loopir, indexing_pat, s)
+            alloc_dim = parse_fragment(loopir, alloc_dim_pat, s, scope="before")
+            indexing  = parse_fragment(loopir, indexing_pat, s, scope="before_after")
             loopir = Schedules.DoExpandDim(loopir, s, alloc_dim, indexing).result()
+
+        if not unsafe_disable_checks:
+            # Running checkeffect here is necessary for bounds checking
+            CheckEffects(loopir)
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 

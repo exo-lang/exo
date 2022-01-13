@@ -4,6 +4,99 @@ import pytest
 
 from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
+from .helper import TMP_DIR, generate_lib
+
+def test_expand_dim():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        a : i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x = a
+
+    foo = foo.expand_dim('a : i8', 'n', 'i')
+    print(foo)
+
+def test_expand_dim2():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        for i in seq(0, n):
+            a : i8
+            for j in seq(0, m):
+                x = a
+
+        for i in seq(0, n):
+            for k in seq(0, m):
+                pass
+
+    with pytest.raises(Exception,
+                       match='k not found in'):
+        foo = foo.expand_dim('a : i8', 'n', 'k') # should be error
+    print(foo)
+
+def test_expand_dim3():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+        for i in seq(0, n):
+            a : i8
+            for j in seq(0, m):
+                x = a
+
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+    foo = foo.expand_dim('a : i8', 'n', 'i') # did it pick the right i?
+    foo.compile_c(TMP_DIR, "test_expand_dim3")
+    print(foo)
+
+def test_expand_dim4():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+        for q in seq(0, 30):
+            a : i8
+            for i in seq(0, n):
+                for j in seq(0, m):
+                    x = a
+
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+    bar = foo.expand_dim('a : i8', 'n', 'i') # did it pick the right i?
+
+    bar = foo.expand_dim('a : i8', '40 + 1', '10') # this is fine
+
+    with pytest.raises(Exception,
+                       match='effect checking'):
+        bar = foo.expand_dim('a : i8', '10-20', '10') # this is not fine
+
+    bar = foo.expand_dim('a : i8', 'n + m', 'i') # fine
+
+    with pytest.raises(Exception,
+                       match='effect checking'):
+        bar = foo.expand_dim('a : i8', 'n - m', 'i') # out of bounds
+
+    with pytest.raises(Exception,
+                       match='not found in'):
+        bar = foo.expand_dim('a : i8', 'hoge', 'i') # does not exist
+
+    bar = foo.expand_dim('a : i8', 'n', 'n-1')
+
+    with pytest.raises(Exception,
+                       match='effect checking'):
+        bar = foo.expand_dim('a : i8', 'n', 'i-j') # bound check should fail
+
+    print(bar)
+
 
 
 def test_double_fission():
@@ -353,6 +446,7 @@ def test_unify6():
     bar = bar.replace(load, "for i in _:_")
     assert 'load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])' in str(bar)
 
+
 # Unused arguments
 def test_unify7():
     @proc
@@ -370,6 +464,4 @@ def test_unify7():
     foo = foo.replace(bar, "for i in _ : _")
     print(foo)
     assert 'bar(False, 5, y, x, 0)' in str(foo)
-
-
 
