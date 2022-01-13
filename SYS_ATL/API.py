@@ -524,7 +524,7 @@ class Procedure(ProcedureBase):
             indexing  = parse_fragment(loopir, indexing_pat, s, scope="before_after")
             loopir = Schedules.DoExpandDim(loopir, s, alloc_dim, indexing).result()
 
-        if unsafe_disable_checks == False:
+        if not unsafe_disable_checks:
             # Running checkeffect here is necessary for bounds checking
             CheckEffects(loopir)
 

@@ -197,6 +197,7 @@ def test_conv_3():
     conv = conv.fission_after('for ocol_o in _:_ #0')
     conv = conv.reorder('orow', 'ocol_o')
     conv = conv.split('orow', 28, ['orow_o', 'orow_i'], perfect=True)
+    # FIXME: Remove unsafe_disable_checks once we have new effectcheck working
     conv = conv.expand_dim('i_s: i8[_]', '30', 'krow + orow_i', unsafe_disable_checks=True)
     conv = conv.par_to_seq('for krow in _:_')
     conv = conv.par_to_seq('for b in _:_')
