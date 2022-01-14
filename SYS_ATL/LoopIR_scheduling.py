@@ -1740,13 +1740,15 @@ class _DoRemoveLoop(LoopIR_Rewrite):
             # 1. Body does not depend on the loop iteration variable
             # 2. Body is idemopotent
             # 3. The loop runs at least once
-            # we should run something similar to old effectcheck's
-            # is_pos_int to check 3, but that's a TODO.
-            # for now, we'll check 1 and 2.
+            # TODO: (3) could be checked statically using something similar to the legacy is_pos_int.
+
             if s.iter not in _FV(s.body):
                 if _is_idempotent(s.body):
+                    cond  = LoopIR.BinOp('>', s.hi, LoopIR.Const(0, T.int, s.srcinfo),
+                                         T.bool, s.srcinfo)
+                    guard = LoopIR.If(cond, self.map_stmts(s.body), [], None, s.srcinfo)
                     # remove loop and alpha rename
-                    new_body = Alpha_Rename(s.body).result()
+                    new_body = Alpha_Rename([guard]).result()
                     return new_body
                 else:
                     raise SchedulingError("Cannot remove loop, loop body is "+

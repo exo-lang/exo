@@ -18,6 +18,21 @@ def test_remove_loop():
     assert "for i in seq(0, n)" not in str(foo)
     print(foo)
 
+    @proc
+    def bar(n : size, m : size, x : i8):
+        a : i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x = a
+
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+    bar = bar.remove_loop('for i in _:_')
+    assert "for i in seq(0, n)" not in str(bar)
+    print(bar)
+
 
 def test_lift_alloc_simple():
     @proc

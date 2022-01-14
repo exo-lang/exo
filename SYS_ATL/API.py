@@ -1093,7 +1093,7 @@ class Procedure(ProcedureBase):
         stmts_len = len(self._find_stmt(loop_pattern, default_match_no=None))
         loopir = self._loopir_proc
         for i in range(0, stmts_len):
-            s = self._find_stmt(loop_pattern, body=loopir.body, default_match_no=None)[i]
+            s = self._find_stmt(loop_pattern, body=loopir.body)
             if not (isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq)):
                 raise TypeError("expected first argument to be a loop pattern")
             loopir = Schedules.DoRemoveLoop(loopir, s).result()
