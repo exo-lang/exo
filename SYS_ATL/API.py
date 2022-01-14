@@ -1031,6 +1031,22 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def lift_alloc_simple(self, alloc_site_pattern, n_lifts=1):
+        if not is_pos_int(n_lifts):
+            raise TypeError("expected second argument 'n_lifts' to be "
+                            "a positive integer")
+
+        stmts_len = len(self._find_stmt(alloc_site_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(alloc_site_pattern, body=loopir.body, default_match_no=None)[i]
+            if not isinstance(s, LoopIR.Alloc):
+                raise TypeError("pattern did not describe an alloc statement")
+            loopir  = Schedules.DoLiftAllocSimple( loopir, s, n_lifts ).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
     def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None,
                    keep_dims=False):
         if not is_pos_int(n_lifts):
