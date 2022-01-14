@@ -1725,6 +1725,40 @@ class _DoDoubleFission:
             return ([single_stmt],[],[])
 
 
+class _DoRemoveLoop(LoopIR_Rewrite):
+    def __init__(self, proc, stmt):
+        assert isinstance(stmt, LoopIR.stmt)
+        self.stmt = stmt
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.stmt:
+            # Check if we can remove the loop
+            # Conditions are:
+            # 1. Body does not depend on the loop iteration variable
+            # 2. Body is idemopotent
+            # 3. The loop runs at least once
+            # TODO: (3) could be checked statically using something similar to the legacy is_pos_int.
+
+            if s.iter not in _FV(s.body):
+                if _is_idempotent(s.body):
+                    cond  = LoopIR.BinOp('>', s.hi, LoopIR.Const(0, T.int, s.srcinfo),
+                                         T.bool, s.srcinfo)
+                    guard = LoopIR.If(cond, self.map_stmts(s.body), [], None, s.srcinfo)
+                    # remove loop and alpha rename
+                    new_body = Alpha_Rename([guard]).result()
+                    return new_body
+                else:
+                    raise SchedulingError("Cannot remove loop, loop body is "+
+                                          "not idempotent")
+            else:
+                raise SchedulingError("Cannot remove loop, {s.iter} is not "+
+                                      "free in the loop body.")
+
+        return super().map_s(s)
+
 
 # structure is weird enough to skip using the Rewrite-pass super-class
 class _FissionLoops:
@@ -2720,4 +2754,5 @@ class Schedules:
     DoStageWindow = _DoStageWindow
     DoBoundAlloc = _DoBoundAlloc
     DoExpandDim    = _DoExpandDim
+    DoRemoveLoop   = _DoRemoveLoop
     DoLiftAllocSimple  = _DoLiftAllocSimple
