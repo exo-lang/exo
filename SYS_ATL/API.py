@@ -1048,10 +1048,10 @@ class Procedure(ProcedureBase):
             # Check that the number of dimensions matches with alloc size
             assert type(s.type) is T.Tensor
             if len(s.type.hi) != len(dimensions):
-                raise TypeError("dimension does not match with the dimension of "+
+                raise TypeError("dimension does not match with the dimension of "
                                 "the alloc statement")
 
-            loopir  = Schedules.DoRearrangeDim( loopir, s, dimensions ).result()
+            loopir = Schedules.DoRearrangeDim(loopir, s, dimensions).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 

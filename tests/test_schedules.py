@@ -17,8 +17,25 @@ def test_rearrange_dim():
                     a[n, m, k] = x[n, m, k]
 
     foo = foo.rearrange_dim('a : i8[_]', [1, 2, 0])
-    # should be i8[M, K, N]
-    print(foo)
+    assert "i8[M, K, N]" in str(foo)
+
+    @proc
+    def bar(N : size, M : size, K : size, x : i8[N, M, K]):
+        a : i8[N,M,K]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[n, m, k] = x[n, m, k]
+
+        a : i8[M,K,N]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[m, k, n] = x[n, m, k]
+
+    res = bar.rearrange_dim('a : i8[_]', [1, 0, 2])
+    assert "i8[M, N, K]" in str(res)
+    assert "i8[K, M, N]" in str(res)
 
 
 def test_expand_dim():
