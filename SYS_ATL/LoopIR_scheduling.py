@@ -1224,8 +1224,11 @@ class _DoLiftAllocSimple(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.alloc_stmt:
-            n_up = min(self.n_lifts, len(self.ctrl_ctxt))
-            self.lift_site = self.ctrl_ctxt[-n_up]
+            if self.n_lifts > len(self.ctrl_ctxt):
+                raise SchedulingError("specified lift level {self.n_lifts} "+
+                                      "is higher than the number of loop "+
+                                      "{len(self.ctrl_ctxt)}")
+            self.lift_site = self.ctrl_ctxt[-self.n_lifts]
 
             return []
 

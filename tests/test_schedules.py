@@ -15,8 +15,59 @@ def test_lift_alloc_simple():
                 tmp_a : i8
                 tmp_a = A[i]
 
-    bar = bar.lift_alloc('tmp_a : _', n_lifts=2)
-    print(bar)
+    res = bar.lift_alloc_simple('tmp_a : _', n_lifts=2)
+
+    @proc
+    def bar(n : size, A : i8[n]):
+        tmp_a : i8
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a = A[i]
+    ref = bar
+
+    assert str(res) == str(ref)
+
+def test_lift_alloc_simple2():
+    @proc
+    def bar(n : size, A : i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a : i8
+                tmp_a = A[i]
+
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a : i8
+                tmp_a = A[i]
+
+    res = bar.lift_alloc_simple('tmp_a : _', n_lifts=2)
+
+    @proc
+    def bar(n : size, A : i8[n]):
+        tmp_a : i8
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a = A[i]
+
+        tmp_a : i8
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a = A[i]
+    ref = bar
+
+    assert str(res) == str(ref)
+
+def test_lift_alloc_simple_error():
+    @proc
+    def bar(n : size, A : i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a : i8
+                tmp_a = A[i]
+
+    with pytest.raises(Exception,
+                       match='specified lift level'):
+        bar.lift_alloc_simple('tmp_a : _', n_lifts=3)
 
 
 def test_expand_dim():
