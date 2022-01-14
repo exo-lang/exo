@@ -1203,6 +1203,52 @@ class _DoExpandDim(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# *Only* lifting an allocation
+
+class _DoLiftAllocSimple(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, n_lifts):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+        assert is_pos_int(n_lifts)
+
+        self.alloc_stmt = alloc_stmt
+        self.n_lifts = n_lifts
+        self.ctrl_ctxt = []
+        self.lift_site = None
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.alloc_stmt:
+            if self.n_lifts > len(self.ctrl_ctxt):
+                raise SchedulingError("specified lift level {self.n_lifts} "+
+                                      "is higher than the number of loop "+
+                                      "{len(self.ctrl_ctxt)}")
+            self.lift_site = self.ctrl_ctxt[-self.n_lifts]
+
+            return []
+
+        elif isinstance(s, (LoopIR.If, LoopIR.ForAll, LoopIR.Seq)):
+            self.ctrl_ctxt.append(s)
+            stmts = super().map_s(s)
+            self.ctrl_ctxt.pop()
+
+            if s is self.lift_site:
+                new_alloc = LoopIR.Alloc( self.alloc_stmt.name,
+                            self.alloc_stmt.type, self.alloc_stmt.mem,
+                            None, s.srcinfo )
+                stmts = [new_alloc] + stmts
+
+            return stmts
+
+        return super().map_s(s)
+
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
@@ -2707,3 +2753,4 @@ class Schedules:
     DoBoundAlloc = _DoBoundAlloc
     DoExpandDim    = _DoExpandDim
     DoRemoveLoop   = _DoRemoveLoop
+    DoLiftAllocSimple  = _DoLiftAllocSimple
