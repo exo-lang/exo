@@ -1070,6 +1070,19 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def remove_loop(self, loop_pattern):
+        if not isinstance(loop_pattern, str):
+            raise TypeError("expected first arg to be a string")
+
+        stmts_len = len(self._find_stmt(loop_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(loop_pattern, body=loopir.body, default_match_no=None)[i]
+            if not (isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq)):
+                raise TypeError("expected first argument to be a loop pattern")
+            loopir = Schedules.DoRemoveLoop(loopir, s).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def fission_after(self, stmt_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):

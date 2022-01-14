@@ -6,6 +6,18 @@ from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 from .helper import TMP_DIR, generate_lib
 
+def test_remove_loop():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        a : i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x = a
+
+    foo = foo.remove_loop('for i in _:_')
+    assert "for i in seq(0, n)" not in str(foo)
+    print(foo)
+
 def test_expand_dim():
     @proc
     def foo(n : size, m : size, x : i8):
