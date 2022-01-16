@@ -1031,6 +1031,7 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+
     def rearrange_dim(self, alloc_pattern, dimensions):
         if not isinstance(alloc_pattern, str):
             raise TypeError("expected first argument to be allocation "+
@@ -1052,6 +1053,22 @@ class Procedure(ProcedureBase):
                                 "the alloc statement")
 
             loopir = Schedules.DoRearrangeDim(loopir, s, dimensions).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
+    def lift_alloc_simple(self, alloc_site_pattern, n_lifts=1):
+        if not is_pos_int(n_lifts):
+            raise TypeError("expected second argument 'n_lifts' to be "
+                            "a positive integer")
+
+        stmts_len = len(self._find_stmt(alloc_site_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(alloc_site_pattern, body=loopir.body, default_match_no=None)[i]
+            if not isinstance(s, LoopIR.Alloc):
+                raise TypeError("pattern did not describe an alloc statement")
+            loopir  = Schedules.DoLiftAllocSimple( loopir, s, n_lifts ).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
@@ -1095,6 +1112,19 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def remove_loop(self, loop_pattern):
+        if not isinstance(loop_pattern, str):
+            raise TypeError("expected first arg to be a string")
+
+        stmts_len = len(self._find_stmt(loop_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(loop_pattern, body=loopir.body)
+            if not (isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq)):
+                raise TypeError("expected first argument to be a loop pattern")
+            loopir = Schedules.DoRemoveLoop(loopir, s).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def fission_after(self, stmt_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):

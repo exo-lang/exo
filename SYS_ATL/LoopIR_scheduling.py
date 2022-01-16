@@ -1243,6 +1243,51 @@ class _DoRearrangeDim(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# *Only* lifting an allocation
+
+class _DoLiftAllocSimple(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, n_lifts):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+        assert is_pos_int(n_lifts)
+
+        self.alloc_stmt = alloc_stmt
+        self.n_lifts = n_lifts
+        self.ctrl_ctxt = []
+        self.lift_site = None
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.alloc_stmt:
+            if self.n_lifts > len(self.ctrl_ctxt):
+                raise SchedulingError("specified lift level {self.n_lifts} "+
+                                      "is higher than the number of loop "+
+                                      "{len(self.ctrl_ctxt)}")
+            self.lift_site = self.ctrl_ctxt[-self.n_lifts]
+
+            return []
+
+        elif isinstance(s, (LoopIR.If, LoopIR.ForAll, LoopIR.Seq)):
+            self.ctrl_ctxt.append(s)
+            stmts = super().map_s(s)
+            self.ctrl_ctxt.pop()
+
+            if s is self.lift_site:
+                new_alloc = LoopIR.Alloc( self.alloc_stmt.name,
+                            self.alloc_stmt.type, self.alloc_stmt.mem,
+                            None, s.srcinfo )
+                stmts = [new_alloc] + stmts
+
+            return stmts
+
+        return super().map_s(s)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
@@ -1718,6 +1763,40 @@ class _DoDoubleFission:
         else:
             return ([single_stmt],[],[])
 
+
+class _DoRemoveLoop(LoopIR_Rewrite):
+    def __init__(self, proc, stmt):
+        assert isinstance(stmt, LoopIR.stmt)
+        self.stmt = stmt
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        if s is self.stmt:
+            # Check if we can remove the loop
+            # Conditions are:
+            # 1. Body does not depend on the loop iteration variable
+            # 2. Body is idemopotent
+            # 3. The loop runs at least once
+            # TODO: (3) could be checked statically using something similar to the legacy is_pos_int.
+
+            if s.iter not in _FV(s.body):
+                if _is_idempotent(s.body):
+                    cond  = LoopIR.BinOp('>', s.hi, LoopIR.Const(0, T.int, s.srcinfo),
+                                         T.bool, s.srcinfo)
+                    guard = LoopIR.If(cond, self.map_stmts(s.body), [], None, s.srcinfo)
+                    # remove loop and alpha rename
+                    new_body = Alpha_Rename([guard]).result()
+                    return new_body
+                else:
+                    raise SchedulingError("Cannot remove loop, loop body is "+
+                                          "not idempotent")
+            else:
+                raise SchedulingError("Cannot remove loop, {s.iter} is not "+
+                                      "free in the loop body.")
+
+        return super().map_s(s)
 
 
 # structure is weird enough to skip using the Rewrite-pass super-class
@@ -2715,3 +2794,5 @@ class Schedules:
     DoBoundAlloc = _DoBoundAlloc
     DoExpandDim    = _DoExpandDim
     DoRearrangeDim  = _DoRearrangeDim
+    DoRemoveLoop   = _DoRemoveLoop
+    DoLiftAllocSimple  = _DoLiftAllocSimple
