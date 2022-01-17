@@ -1203,6 +1203,46 @@ class _DoExpandDim(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+class _DoRearrangeDim(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, dimensions):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+
+        self.alloc_stmt = alloc_stmt
+        self.dimensions = dimensions
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_s(self, s):
+        # simply change the dimension
+        if s is self.alloc_stmt:
+            # construct new_hi
+            new_hi   = [s.type.hi[i] for i in self.dimensions]
+            # construct new_type
+            new_type = LoopIR.Tensor(new_hi, s.type.is_window, s.type.type)
+
+            return [LoopIR.Alloc(s.name, new_type, s.mem, None, s.srcinfo)]
+
+        # Adjust the use-site
+        if isinstance(s, LoopIR.Assign) or isinstance(s, LoopIR.Reduce):
+            if s.name is self.alloc_stmt.name:
+                # shuffle
+                new_idx = [s.idx[i] for i in self.dimensions]
+                return [type(s)(s.name, s.type, s.cast, new_idx, s.rhs, None, s.srcinfo)]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        # TODO: I am not sure what rearrange_dim should do in terms of StrideExpr
+        if isinstance(e, LoopIR.Read) or isinstance(e, LoopIR.WindowExpr):
+            if e.name is self.alloc_stmt.name:
+                new_idx = [e.idx[i] for i in self.dimensions]
+                return type(e)(e.name, new_idx, e.type, e.srcinfo)
+
+        return super().map_e(e)
+
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -1246,7 +1286,6 @@ class _DoLiftAllocSimple(LoopIR_Rewrite):
             return stmts
 
         return super().map_s(s)
-
 
 
 # --------------------------------------------------------------------------- #
@@ -2754,5 +2793,6 @@ class Schedules:
     DoStageWindow = _DoStageWindow
     DoBoundAlloc = _DoBoundAlloc
     DoExpandDim    = _DoExpandDim
+    DoRearrangeDim  = _DoRearrangeDim
     DoRemoveLoop   = _DoRemoveLoop
     DoLiftAllocSimple  = _DoLiftAllocSimple
