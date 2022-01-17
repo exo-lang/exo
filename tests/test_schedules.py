@@ -27,7 +27,7 @@ def test_rearrange_dim():
                 for k in seq(0, K):
                     a[n, m, k] = x[n, m, k]
 
-        a : i8[M,K,N]
+        a : i8[M, K, N]
         for n in seq(0, N):
             for m in seq(0, M):
                 for k in seq(0, K):
