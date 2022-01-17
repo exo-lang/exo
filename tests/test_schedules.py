@@ -10,7 +10,7 @@ from .helper import TMP_DIR, generate_lib
 def test_rearrange_dim():
     @proc
     def foo(N : size, M : size, K : size, x : i8[N, M, K]):
-        a : i8[N,M,K]
+        a : i8[N, M, K]
         for n in seq(0, N):
             for m in seq(0, M):
                 for k in seq(0, K):
@@ -21,7 +21,7 @@ def test_rearrange_dim():
 
     @proc
     def bar(N : size, M : size, K : size, x : i8[N, M, K]):
-        a : i8[N,M,K]
+        a : i8[N, M, K]
         for n in seq(0, N):
             for m in seq(0, M):
                 for k in seq(0, K):
