@@ -6,6 +6,7 @@ from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 from .helper import TMP_DIR, generate_lib
 
+
 def test_fission_after_simple():
 
     # Test 1
@@ -76,6 +77,36 @@ def test_fission_after_simple():
     assert str(res) == str(ref)
 
 
+
+def test_rearrange_dim():
+    @proc
+    def foo(N : size, M : size, K : size, x : i8[N, M, K]):
+        a : i8[N, M, K]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[n, m, k] = x[n, m, k]
+
+    foo = foo.rearrange_dim('a : i8[_]', [1, 2, 0])
+    assert "i8[M, K, N]" in str(foo)
+
+    @proc
+    def bar(N : size, M : size, K : size, x : i8[N, M, K]):
+        a : i8[N, M, K]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[n, m, k] = x[n, m, k]
+
+        a : i8[M, K, N]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[m, k, n] = x[n, m, k]
+
+    res = bar.rearrange_dim('a : i8[_]', [1, 0, 2])
+    assert "i8[M, N, K]" in str(res)
+    assert "i8[K, M, N]" in str(res)
 
 
 def test_remove_loop():
@@ -259,8 +290,6 @@ def test_expand_dim4():
         bar = foo.expand_dim('a : i8', 'n', 'i-j') # bound check should fail
 
     print(bar)
-
-
 
 def test_double_fission():
     @proc
