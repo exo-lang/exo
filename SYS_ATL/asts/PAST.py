@@ -3,7 +3,7 @@ from typing import List
 import attrs
 from attrs import validators
 
-from . import front_ops
+from . import OP_STRINGS
 from ..prelude import *
 
 
@@ -56,7 +56,7 @@ class USub(expr):
 
 @attrs.frozen
 class BinOp(expr):
-    op: str = attrs.field(validator=validators.in_(front_ops))
+    op: str = attrs.field(validator=validators.in_(OP_STRINGS))
     lhs: expr
     rhs: expr
     srcinfo: SrcInfo

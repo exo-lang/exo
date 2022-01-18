@@ -4,7 +4,7 @@ from typing import List, Optional, Type
 import attrs
 from attrs import validators
 
-from . import front_ops
+from . import OP_STRINGS
 from ..configs import Config
 from ..memory import Memory
 from ..prelude import Sym, is_valid_name, SrcInfo
@@ -160,7 +160,7 @@ class USub(expr):
 
 @attrs.frozen
 class BinOp(expr):
-    op: str = attrs.field(validator=validators.in_(front_ops))
+    op: str = attrs.field(validator=validators.in_(OP_STRINGS))
     lhs: expr
     rhs: expr
     srcinfo: SrcInfo
