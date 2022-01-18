@@ -4,7 +4,221 @@ import pytest
 
 from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
+from .helper import TMP_DIR, generate_lib
 
+
+def test_rearrange_dim():
+    @proc
+    def foo(N : size, M : size, K : size, x : i8[N, M, K]):
+        a : i8[N, M, K]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[n, m, k] = x[n, m, k]
+
+    foo = foo.rearrange_dim('a : i8[_]', [1, 2, 0])
+    assert "i8[M, K, N]" in str(foo)
+
+    @proc
+    def bar(N : size, M : size, K : size, x : i8[N, M, K]):
+        a : i8[N, M, K]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[n, m, k] = x[n, m, k]
+
+        a : i8[M, K, N]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[m, k, n] = x[n, m, k]
+
+    res = bar.rearrange_dim('a : i8[_]', [1, 0, 2])
+    assert "i8[M, N, K]" in str(res)
+    assert "i8[K, M, N]" in str(res)
+
+
+def test_remove_loop():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        a : i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x = a
+
+    foo = foo.remove_loop('for i in _:_')
+    assert "for i in seq(0, n)" not in str(foo)
+    print(foo)
+
+    @proc
+    def bar(n : size, m : size, x : i8):
+        a : i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x = a
+
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+    bar = bar.remove_loop('for i in _:_')
+    assert "for i in seq(0, n)" not in str(bar)
+    print(bar)
+
+
+def test_lift_alloc_simple():
+    @proc
+    def bar(n : size, A : i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a : i8
+                tmp_a = A[i]
+
+    res = bar.lift_alloc_simple('tmp_a : _', n_lifts=2)
+
+    @proc
+    def bar(n : size, A : i8[n]):
+        tmp_a : i8
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a = A[i]
+    ref = bar
+
+    assert str(res) == str(ref)
+
+def test_lift_alloc_simple2():
+    @proc
+    def bar(n : size, A : i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a : i8
+                tmp_a = A[i]
+
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a : i8
+                tmp_a = A[i]
+
+    res = bar.lift_alloc_simple('tmp_a : _', n_lifts=2)
+
+    @proc
+    def bar(n : size, A : i8[n]):
+        tmp_a : i8
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a = A[i]
+
+        tmp_a : i8
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a = A[i]
+    ref = bar
+
+    assert str(res) == str(ref)
+
+def test_lift_alloc_simple_error():
+    @proc
+    def bar(n : size, A : i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a : i8
+                tmp_a = A[i]
+
+    with pytest.raises(Exception,
+                       match='specified lift level'):
+        bar.lift_alloc_simple('tmp_a : _', n_lifts=3)
+
+
+def test_expand_dim():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        a : i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x = a
+
+    foo = foo.expand_dim('a : i8', 'n', 'i')
+    print(foo)
+
+def test_expand_dim2():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        for i in seq(0, n):
+            a : i8
+            for j in seq(0, m):
+                x = a
+
+        for i in seq(0, n):
+            for k in seq(0, m):
+                pass
+
+    with pytest.raises(Exception,
+                       match='k not found in'):
+        foo = foo.expand_dim('a : i8', 'n', 'k') # should be error
+    print(foo)
+
+def test_expand_dim3():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+        for i in seq(0, n):
+            a : i8
+            for j in seq(0, m):
+                x = a
+
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+    foo = foo.expand_dim('a : i8', 'n', 'i') # did it pick the right i?
+    foo.compile_c(TMP_DIR, "test_expand_dim3")
+    print(foo)
+
+def test_expand_dim4():
+    @proc
+    def foo(n : size, m : size, x : i8):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+        for q in seq(0, 30):
+            a : i8
+            for i in seq(0, n):
+                for j in seq(0, m):
+                    x = a
+
+        for i in seq(0, n):
+            for j in seq(0, m):
+                pass
+
+    bar = foo.expand_dim('a : i8', 'n', 'i') # did it pick the right i?
+
+    bar = foo.expand_dim('a : i8', '40 + 1', '10') # this is fine
+
+    with pytest.raises(Exception,
+                       match='effect checking'):
+        bar = foo.expand_dim('a : i8', '10-20', '10') # this is not fine
+
+    bar = foo.expand_dim('a : i8', 'n + m', 'i') # fine
+
+    with pytest.raises(Exception,
+                       match='effect checking'):
+        bar = foo.expand_dim('a : i8', 'n - m', 'i') # out of bounds
+
+    with pytest.raises(Exception,
+                       match='not found in'):
+        bar = foo.expand_dim('a : i8', 'hoge', 'i') # does not exist
+
+    bar = foo.expand_dim('a : i8', 'n', 'n-1')
+
+    with pytest.raises(Exception,
+                       match='effect checking'):
+        bar = foo.expand_dim('a : i8', 'n', 'i-j') # bound check should fail
+
+    print(bar)
 
 def test_double_fission():
     @proc
@@ -353,6 +567,7 @@ def test_unify6():
     bar = bar.replace(load, "for i in _:_")
     assert 'load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])' in str(bar)
 
+
 # Unused arguments
 def test_unify7():
     @proc
@@ -370,6 +585,4 @@ def test_unify7():
     foo = foo.replace(bar, "for i in _ : _")
     print(foo)
     assert 'bar(False, 5, y, x, 0)' in str(foo)
-
-
 
