@@ -4,10 +4,10 @@ from typing import List, Optional, Type
 import attrs
 from attrs import validators
 
-from .configs import Config
-from .memory import Memory
-from .prelude import Sym, is_valid_name, SrcInfo
-from .query_asts import BuiltIn as QueryBuiltIn
+from ..configs import Config
+from ..memory import Memory
+from ..prelude import Sym, is_valid_name, SrcInfo
+from ..query_asts import BuiltIn as QueryBuiltIn
 
 front_ops = {'+', '-', '*', '/', '%', '<', '>', '<=', '>=', '==', 'and', 'or'}
 

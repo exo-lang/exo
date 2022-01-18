@@ -1,6 +1,7 @@
 from . import LoopIR
-
+from .asts import UAST
 from .prelude import *
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -74,14 +75,14 @@ class Config:
         self._rw_ok     = not disable_rw
 
         uast_to_type = {
-            LoopIR.UAST.Size()      : LoopIR.T.size,
-            LoopIR.UAST.Bool()      : LoopIR.T.bool,
-            LoopIR.UAST.Index()     : LoopIR.T.index,
-            LoopIR.UAST.Stride()    : LoopIR.T.stride,
-            LoopIR.UAST.F32()       : LoopIR.T.f32,
-            LoopIR.UAST.F64()       : LoopIR.T.f64,
-            LoopIR.UAST.INT8()      : LoopIR.T.i8,
-            LoopIR.UAST.INT32()     : LoopIR.T.i32,
+            UAST.Size():   LoopIR.T.size,
+            UAST.Bool():   LoopIR.T.bool,
+            UAST.Index():  LoopIR.T.index,
+            UAST.Stride(): LoopIR.T.stride,
+            UAST.F32():    LoopIR.T.f32,
+            UAST.F64():    LoopIR.T.f64,
+            UAST.INT8():   LoopIR.T.i8,
+            UAST.INT32():  LoopIR.T.i32,
         }
 
         self._lookup    = { nm : (i,uast_to_type[typ])

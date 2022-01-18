@@ -3,6 +3,7 @@ from collections import ChainMap
 from adt import ADT
 from adt import memo as ADTmemo
 
+from .asts import UAST
 from .LoopIR_effects import Effects as E
 from .builtins import BuiltIn
 from .configs import Config
@@ -13,8 +14,6 @@ from .prelude import *
 # --------------------------------------------------------------------------- #
 # Untyped AST
 
-# TODO: update other imports
-from . import UAST
 UAST = UAST
 
 # --------------------------------------------------------------------------- #
