@@ -660,9 +660,9 @@ class SMTSolver:
         assert not is_ternary(smt_e), "assumptions must be classical"
         self.frames[-1].add_assumption(e, smt_e)
         self.solver.add_assertion(smt_e)
-        print("--------\nADDASSUME")
-        print(e)
-        print("+------+")
+        #print("--------\nADDASSUME")
+        #print(e)
+        #print("+------+")
 
     def satisfy(self, e):
         assert e.type is T.bool
@@ -684,10 +684,10 @@ class SMTSolver:
         self.negative_pos = aeNegPos(e, '+')
         smt_e       = self._lower(e)
         assert not is_ternary(smt_e), "formulas must be classical"
-        print(e)
-        print('+-+-+\nSMT')
-        print(smt_e.to_smtlib())
-        print('+-+-+')
+        #print(e)
+        #print('+-+-+\nSMT')
+        #print(smt_e.to_smtlib())
+        #print('+-+-+')
         self.z3.add_assertion(SMT.Not(smt_e))
         if self.verbose:
             print('*******\n*******\n*******')
@@ -696,9 +696,9 @@ class SMTSolver:
             print(e)
             print(SMT.to_smtlib(smt_e))
 
-        print('start_solve')
+        #print('start_solve')
         is_valid    = not self.z3.run_check_sat()
-        print('end_solve')
+        #print('end_solve')
         #is_valid    = self.solver.is_valid(smt_e)
         self.pop()
         return is_valid
