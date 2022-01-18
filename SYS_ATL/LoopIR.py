@@ -3,12 +3,14 @@ from collections import ChainMap
 from adt import ADT
 from adt import memo as ADTmemo
 
-from .asts import UAST
+from .asts import UAST, PAST
 from .LoopIR_effects import Effects as E
 from .builtins import BuiltIn
 from .configs import Config
 from .memory import Memory
 from .prelude import *
+
+front_ops = {'+', '-', '*', '/', '%', '<', '>', '<=', '>=', '==', 'and', 'or'}
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -19,38 +21,8 @@ UAST = UAST
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern AST
-#   - used to specify pattern-matches
 
-front_ops = {'+', '-', '*', '/', '%', '<', '>', '<=', '>=', '==', 'and', 'or'}
-
-PAST = ADT("""
-module PAST {
-
-    stmt    = Assign  ( name name, expr* idx, expr rhs )
-            | Reduce  ( name name, expr* idx, expr rhs )
-            | Pass    ()
-            | If      ( expr cond, stmt* body,  stmt* orelse )
-            | ForAll  ( name iter, expr hi,     stmt* body )
-            | Seq     ( name iter, expr hi,     stmt* body )
-            | Alloc   ( name name ) -- may want to add type & mem back in?
-            | Call    ( name f, expr* args )
-            | WriteConfig ( name config, name field )
-            | S_Hole  ()
-            attributes( srcinfo srcinfo )
-
-    expr    = Read    ( name name, expr* idx )
-            | StrideExpr( name name, int dim )
-            | E_Hole  ()
-            | Const   ( object val )
-            | USub    ( expr arg ) -- i.e.  -(...)
-            | BinOp   ( op op, expr lhs, expr rhs )
-            attributes( srcinfo srcinfo )
-
-} """, {
-    'name':    lambda x: x == '_' or is_valid_name(x),
-    'op':      lambda x: x in front_ops,
-    'srcinfo': lambda x: isinstance(x, SrcInfo),
-})
+PAST = PAST
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

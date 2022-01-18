@@ -4,12 +4,11 @@ from typing import List, Optional, Type
 import attrs
 from attrs import validators
 
+from . import front_ops
 from ..configs import Config
 from ..memory import Memory
 from ..prelude import Sym, is_valid_name, SrcInfo
 from ..query_asts import BuiltIn as QueryBuiltIn
-
-front_ops = {'+', '-', '*', '/', '%', '<', '>', '<=', '>=', '==', 'and', 'or'}
 
 
 # Put common types first for subsequent type annotations
