@@ -120,7 +120,7 @@ class DRAM(Memory):
         if len(shape) == 0:
             return f"{prim_type} {new_name};"
 
-        return (f"{prim_type} *{new_name} = "
+        return (f"{prim_type} *{new_name} = ({prim_type} *)"
                 f"malloc({' * '.join(shape)} * sizeof(*{new_name}));")
 
     @classmethod
