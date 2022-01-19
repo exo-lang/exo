@@ -9,16 +9,7 @@ from .prelude import *
 # --------------------------------------------------------------------------- #
 # Substitution of Effect Variables in an effect
 
-@extclass(Effects.expr)
-def negate(e: Effects.expr):
-    assert e.type == LoopIR.T.bool
-    return _negate(e)
-
-
-del negate
-
-
-def _negate(e: Effects.expr):
+def eff_negate(e: Effects.expr):
     match e:
         case Effects.Const(val, _, _):
             return attrs.evolve(e, val=not val)
@@ -27,11 +18,14 @@ def _negate(e: Effects.expr):
         case Effects.Not(arg, _, _):
             return arg
         case Effects.Select(_, tcase, fcase, _, _):
-            return attrs.evolve(e, tcase=_negate(tcase), fcase=_negate(fcase))
+            return attrs.evolve(e, tcase=eff_negate(tcase),
+                                fcase=eff_negate(fcase))
         case Effects.BinOp('and', lhs, rhs, _, _):
-            return attrs.evolve(e, op='or', lhs=_negate(lhs), rhs=_negate(rhs))
+            return attrs.evolve(e, op='or', lhs=eff_negate(lhs),
+                                rhs=eff_negate(rhs))
         case Effects.BinOp('or', lhs, rhs, _, _):
-            return attrs.evolve(e, op='and', lhs=_negate(lhs), rhs=_negate(rhs))
+            return attrs.evolve(e, op='and', lhs=eff_negate(lhs),
+                                rhs=eff_negate(rhs))
         case Effects.BinOp(op='>'):
             return attrs.evolve(e, op='<=')
         case Effects.BinOp(op='<'):
@@ -45,8 +39,8 @@ def _negate(e: Effects.expr):
                 # L == R ~> (L && !R) || (!L && R) <~> L != R
                 return attrs.evolve(
                     e, op='or',
-                    lhs=attrs.evolve(e, op='and', rhs=_negate(rhs)),
-                    rhs=attrs.evolve(e, op='and', lhs=_negate(lhs)))
+                    lhs=attrs.evolve(e, op='and', rhs=eff_negate(rhs)),
+                    rhs=attrs.evolve(e, op='and', lhs=eff_negate(lhs)))
             elif lhs.type.is_indexable() and rhs.type.is_indexable():
                 # L == R ~> (L < R) || (L > R) <~> L != R
                 return attrs.evolve(
@@ -57,17 +51,7 @@ def _negate(e: Effects.expr):
     assert False, f'bad case: {type(e).__name__}'
 
 
-@extclass(Effects.effect)
-@extclass(Effects.effset)
-@extclass(Effects.expr)
-def subst(self, env):
-    return _eff_subst(env, self)
-
-
-del subst
-
-
-def _eff_subst(env, eff):
+def eff_subst(env, eff):
     match eff:
         case None:
             return None
@@ -75,88 +59,78 @@ def _eff_subst(env, eff):
             assert all(nm not in env for nm in names)
             return attrs.evolve(eff,
                                 buffer=env.get(buffer, buffer),
-                                loc=[_eff_subst(env, e) for e in loc],
-                                pred=_eff_subst(env, pred))
+                                loc=[eff_subst(env, e) for e in loc],
+                                pred=eff_subst(env, pred))
         case Effects.config_eff(_, _, value, pred, _):
             return attrs.evolve(eff,
-                                value=_eff_subst(env, value),
-                                pred=_eff_subst(env, pred))
+                                value=eff_subst(env, value),
+                                pred=eff_subst(env, pred))
         case Effects.Var(name, _, _):
             return env.get(name, eff)
         case Effects.Not(arg, _, _):
-            return attrs.evolve(eff, arg=_eff_subst(env, arg))
+            return attrs.evolve(eff, arg=eff_subst(env, arg))
         case Effects.Const() | Effects.ConfigField():
             return eff
         case Effects.BinOp(_, lhs, rhs, _, _):
             return attrs.evolve(eff,
-                                lhs=_eff_subst(env, lhs),
-                                rhs=_eff_subst(env, rhs))
+                                lhs=eff_subst(env, lhs),
+                                rhs=eff_subst(env, rhs))
         case Effects.Stride(name, _, _, _):
             return attrs.evolve(eff, name=env.get(name, name))
         case Effects.Select(cond, tcase, fcase, _, _):
             return attrs.evolve(eff,
-                                cond=_eff_subst(env, cond),
-                                tcase=_eff_subst(env, tcase),
-                                fcase=_eff_subst(env, fcase))
+                                cond=eff_subst(env, cond),
+                                tcase=eff_subst(env, tcase),
+                                fcase=eff_subst(env, fcase))
         case Effects.effect(reads, writes, reduces, config_reads,
                             config_writes, _):
             return attrs.evolve(
                 eff,
-                reads=[_eff_subst(env, e) for e in reads],
-                writes=[_eff_subst(env, e) for e in writes],
-                reduces=[_eff_subst(env, e) for e in reduces],
-                config_reads=[_eff_subst(env, e) for e in config_reads],
-                config_writes=[_eff_subst(env, e) for e in config_writes]
+                reads=[eff_subst(env, e) for e in reads],
+                writes=[eff_subst(env, e) for e in writes],
+                reduces=[eff_subst(env, e) for e in reduces],
+                config_reads=[eff_subst(env, e) for e in config_reads],
+                config_writes=[eff_subst(env, e) for e in config_writes]
             )
     assert False, f'bad case: {type(eff).__name__}'
 
 
-@extclass(Effects.effect)
-@extclass(Effects.effset)
-@extclass(Effects.expr)
-def config_subst(self, env):
-    return _subcfg(env, self)
-
-
-del config_subst
-
-
-def _subcfg(env, eff):
+def eff_config_subst(env, eff):
     match eff:
         case None:
             return None
         case Effects.effset(_, loc, _, pred, _):
             return attrs.evolve(eff,
-                                loc=[_subcfg(env, e) for e in loc],
-                                pred=_subcfg(env, pred))
+                                loc=[eff_config_subst(env, e) for e in loc],
+                                pred=eff_config_subst(env, pred))
         case Effects.config_eff(_, _, value, pred, _):
             return attrs.evolve(eff,
-                                value=_subcfg(env, value),
-                                pred=_subcfg(env, pred))
+                                value=eff_config_subst(env, value),
+                                pred=eff_config_subst(env, pred))
         case Effects.Var() | Effects.Const() | Effects.Stride():
             return eff
         case Effects.Not(arg, _, _):
-            return attrs.evolve(eff, arg=_subcfg(env, arg))
+            return attrs.evolve(eff, arg=eff_config_subst(env, arg))
         case Effects.BinOp(_, lhs, rhs, _, _):
             return attrs.evolve(eff,
-                                lhs=_subcfg(env, lhs),
-                                rhs=_subcfg(env, rhs))
+                                lhs=eff_config_subst(env, lhs),
+                                rhs=eff_config_subst(env, rhs))
         case Effects.Select(cond, tcase, fcase, _, _):
             return attrs.evolve(eff,
-                                cond=_subcfg(env, cond),
-                                tcase=_subcfg(env, tcase),
-                                fcase=_subcfg(env, fcase))
+                                cond=eff_config_subst(env, cond),
+                                tcase=eff_config_subst(env, tcase),
+                                fcase=eff_config_subst(env, fcase))
         case Effects.ConfigField(config, field, _, _):
             return env.get((config, field), eff)
         case Effects.effect(reads, writes, reduces, config_reads,
                             config_writes, _):
             return attrs.evolve(
                 eff,
-                reads=[_subcfg(env, e) for e in reads],
-                writes=[_subcfg(env, e) for e in writes],
-                reduces=[_subcfg(env, e) for e in reduces],
-                config_reads=[_subcfg(env, e) for e in config_reads],
-                config_writes=[_subcfg(env, e) for e in config_writes]
+                reads=[eff_config_subst(env, e) for e in reads],
+                writes=[eff_config_subst(env, e) for e in writes],
+                reduces=[eff_config_subst(env, e) for e in reduces],
+                config_reads=[eff_config_subst(env, e) for e in config_reads],
+                config_writes=[eff_config_subst(env, e) for e in config_writes]
             )
 
     assert False, f"bad case: {type(eff).__name__}"
@@ -253,7 +227,7 @@ def eff_concat(e1, e2, srcinfo=None):
     # substitute on the basis of writes in the first effect
     env = {(ce.config, ce.field): write_val(ce)
            for ce in e1.config_writes}
-    e2 = e2.config_subst(env)
+    e2 = eff_config_subst(env, e2)
 
     # Step 2: merge writes from the two effects to the same field
     def merge_writes(config_writes_1, config_writes_2):
@@ -302,7 +276,7 @@ def eff_concat(e1, e2, srcinfo=None):
                 pass
             else:
                 # conditional write, so guard the read
-                pred = _and_preds(read.pred, write.pred.negate())
+                pred = _and_preds(read.pred, eff_negate(write.pred))
                 results.append(Effects.config_eff(read.config, read.field,
                                                   None, pred, read.srcinfo))
 
@@ -316,7 +290,7 @@ def eff_concat(e1, e2, srcinfo=None):
 
             loc = []
             for l1, l2 in zip(write.loc, read.loc):
-                loc += [boolop("==", l1, l2).negate()]
+                loc += [eff_negate(boolop("==", l1, l2))]
 
             # construct loc predicate
             loc_e = (loc[0] if loc
@@ -328,7 +302,7 @@ def eff_concat(e1, e2, srcinfo=None):
             if write.pred is None:
                 pred = loc_e
             else:
-                pred = boolop("or", loc_e, write.pred.negate())
+                pred = boolop("or", loc_e, eff_negate(write.pred))
 
             pred = _and_preds(read.pred, pred)
 

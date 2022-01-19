@@ -11,7 +11,7 @@ from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (eff_null, eff_read, eff_write, eff_reduce,
                              eff_config_read, eff_config_write,
                              eff_concat, eff_union, eff_remove_buf,
-                             eff_filter, eff_bind)
+                             eff_filter, eff_bind, eff_negate, eff_subst)
 from .prelude import *
 
 
@@ -160,7 +160,7 @@ class InferEffects:
             orelse = stmt.orelse
             if len(stmt.orelse) > 0:
                 orelse, orelse_effects = self.map_stmts(stmt.orelse)
-                orelse_effects = eff_filter(cond.negate(), orelse_effects)
+                orelse_effects = eff_filter(eff_negate(cond), orelse_effects)
             # union is appropriate because guards on effects are disjoint
             effects = eff_union(body_effects, orelse_effects)
 
@@ -209,7 +209,7 @@ class InferEffects:
                 else: assert False, "bad case"
 
             eff = stmt.f.eff
-            eff = eff.subst(subst)
+            eff = eff_subst(subst, eff)
 
             # translate effects occuring on windowed arguments
             for sig,arg in zip(stmt.f.args, stmt.args):
@@ -798,16 +798,16 @@ class CheckEffects:
         sub2[iter] = E.Var(iter2, T.index, null_srcinfo())
         
         if e1.pred is not None:
-            pred1   = e1.pred.subst(sub1)
+            pred1 = eff_subst(sub1, e1.pred)
             self.solver.add_assertion(self.expr_to_smt(pred1))
         if e2.pred is not None:
-            pred2   = e2.pred.subst(sub2)
+            pred2 = eff_subst(sub2, e2.pred)
             self.solver.add_assertion(self.expr_to_smt(pred2))
 
-        loc1    = [ self.expr_to_smt(i.subst(sub1))
-                    for i in e1.loc ]
-        loc2    = [ self.expr_to_smt(i.subst(sub2))
-                    for i in e2.loc ]
+        loc1 = [self.expr_to_smt(eff_subst(sub1, i))
+                for i in e1.loc]
+        loc2 = [self.expr_to_smt(eff_subst(sub2, i))
+                for i in e2.loc]
         loc_neq = SMT.Bool(False)
         for i1, i2 in zip(loc1,loc2):
             loc_neq = SMT.Or(loc_neq, SMT.NotEquals(i1, i2))
@@ -997,7 +997,7 @@ class CheckEffects:
                 # then the else-branch
                 if len(stmt.orelse) > 0:
                     self.push()
-                    neg_cond = lift_expr(stmt.cond).negate()
+                    neg_cond = eff_negate(lift_expr(stmt.cond))
                     self.solver.add_assertion(self.expr_to_smt(neg_cond))
                     self.map_stmts(stmt.orelse)
                     self.pop()
