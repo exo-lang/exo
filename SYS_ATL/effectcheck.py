@@ -200,7 +200,7 @@ class InferEffects:
                         pass #?
                     else:
                         assert False, "bad case"
-                elif sig.type.is_indexable() or sig.type is T.bool:
+                elif sig.type.is_indexable() or sig.type == T.bool:
                     # in this case we have a LoopIR expression...
                     subst[sig.name] = lift_expr(arg)
                 elif sig.type.is_stridable():
@@ -553,7 +553,7 @@ class CheckEffects:
         if sym not in self.env:
             if typ.is_indexable() or typ.is_stridable():
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
-            elif typ is T.bool:
+            elif typ == T.bool:
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
         return self.env[sym]
 
@@ -562,9 +562,9 @@ class CheckEffects:
         if c not in self.config_env:
             if typ.is_indexable() or typ.is_stridable():
                 self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.INT)
-            elif typ is T.bool:
+            elif typ.is_bool():
                 self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.BOOL)
-            elif typ.is_scalar():
+            elif typ.is_real_scalar():
                 self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.REAL)
             else:
                 assert False, "bad case!"

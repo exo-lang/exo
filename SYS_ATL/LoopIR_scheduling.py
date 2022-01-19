@@ -1,6 +1,8 @@
 import re
 from collections import ChainMap
 
+import attrs
+
 from .LoopIR import (LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do,
                      SubstArgs, T, lift_to_eff_expr)
 from .LoopIR_dataflow import LoopIR_Dependencies
@@ -383,7 +385,7 @@ class _Split(LoopIR_Rewrite):
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):
-            if e.type is T.index:
+            if e.type == T.index:
                 # This is a split variable, substitute it!
                 if e.name is self.split_var:
                     if self._in_cut_tail:
@@ -396,7 +398,7 @@ class _Split(LoopIR_Rewrite):
 
     def map_eff_e(self, e):
         if isinstance(e, E.Var):
-            if e.type is T.index:
+            if e.type == T.index:
                 # This is a split variable, substitute it!
                 if e.name is self.split_var:
                     if self._in_cut_tail:
@@ -457,7 +459,7 @@ class _Unroll(LoopIR_Rewrite):
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):
-            if e.type is T.index:
+            if e.type == T.index:
                 # This is an unrolled variable, substitute it!
                 if e.name is self.unroll_var:
                     return LoopIR.Const(self.unroll_itr, T.index, e.srcinfo)
@@ -467,7 +469,7 @@ class _Unroll(LoopIR_Rewrite):
 
     def map_eff_e(self, e):
         if isinstance(e, E.Var):
-            if e.type is T.index:
+            if e.type == T.index:
                 # This is an unrolled variable, substitute it!
                 if e.name is self.unroll_var:
                     return E.Const(self.unroll_itr, T.index, e.srcinfo)
@@ -848,7 +850,7 @@ class _ConfigWriteRoot(LoopIR_Rewrite):
         self.orig_proc = proc
 
         c_str = [LoopIR.WriteConfig(config, field, expr, None, self.orig_proc.srcinfo)]
-        proc.body = c_str + proc.body
+        proc = attrs.evolve(proc, body=c_str + proc.body)
 
         super().__init__(proc)
 
@@ -2328,9 +2330,9 @@ def _make_closure(name, stmts, var_types):
     sizes = set()
     for v in FVs:
         typ = var_types[v]
-        if typ is T.size:
+        if typ == T.size:
             sizes.add(v)
-        elif typ is T.index:
+        elif typ == T.index:
             args.append(LoopIR.Read(v, [], typ, info))
             fnargs.append(LoopIR.fnarg(v, typ, None, info))
         else:

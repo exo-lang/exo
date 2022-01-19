@@ -1,3 +1,5 @@
+import attrs
+
 from .LoopIR import LoopIR, LoopIR_Rewrite, T
 
 # --------------------------------------------------------------------------- #
@@ -80,61 +82,63 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         # and then possibly patch up the results
         # in a post-traversal sort of way below
         # before returning
-        result  = super().map_s(s)
-        styp    = type(s)
-
-        if styp is LoopIR.Call:
+        result = super().map_s(s)
+        if isinstance(s, LoopIR.Call):
             assert len(result) == 1
 
             # check call arguments for precision consistency...
             args = result[0].args
             for call_a, sig_a in zip(args, s.f.args):
-                ct  = call_a.type.basetype()
-                st  = sig_a.type.basetype()
-                st  = self.default if st == T.R else st
+                ct = call_a.type.basetype()
+                st = sig_a.type.basetype()
+                st = self.default if st == T.R else st
                 if st.is_numeric() and st != ct:
                     self.err(call_a, f"expected precision {st}, but got {ct}")
 
-        elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             rtyp = result[0].rhs.type
             ltyp = self.get_type(s.name).basetype()
             assert ltyp != T.err and ltyp != T.R
 
             # update the type annotation here if needed
-            result[0].type = ltyp
+            result[0] = attrs.evolve(result[0], type=ltyp)
 
             # potentially coerce the entire right-hand-side
             if rtyp != T.err:
                 # potentially coerce the entire right-hand-side
                 if rtyp == T.R:
-                    result[0].rhs = self.coerce_e(result[0].rhs, ltyp)
+                    result[0] = attrs.evolve(
+                        result[0],
+                        rhs=self.coerce_e(result[0].rhs, ltyp)
+                    )
                     rtyp = ltyp
 
                 # TODO: remove the `cast` field entirely
                 if ltyp != rtyp:
                     # then we have an implicit cast at this point
-                    result[0].cast = "yup, cast!"
+                    result[0] = attrs.evolve(result[0], cast='yup, cast!')
 
-        elif styp is LoopIR.WriteConfig:
+        elif isinstance(s, LoopIR.WriteConfig):
             rtyp = result[0].rhs.type
             ltyp = s.config.lookup(s.field)[1]
             assert ltyp != T.err and ltyp != T.R
 
             # potentially coerce the entire right-hand-side
-            if rtyp != T.err:
-                if rtyp == T.R:
-                    result[0].rhs = self.coerce_e(result[0].rhs, ltyp)
-                    rtyp = ltyp
+            if rtyp == T.R:
+                result[0] = attrs.evolve(
+                    result[0],
+                    rhs=self.coerce_e(result[0].rhs, ltyp)
+                )
 
-        elif styp is LoopIR.WindowStmt:
+        elif isinstance(s, LoopIR.WindowStmt):
             # update the type binding for this symbol...
             self.set_type(result[0].lhs, result[0].rhs.type)
 
-        elif styp is LoopIR.Alloc:
+        elif isinstance(s, LoopIR.Alloc):
             typ = result[0].type
             if s.type.basetype() == T.R:
                 typ = self.splice_type(s.type, self.default)
-            result[0].type = typ
+            result[0] = attrs.evolve(result[0], type=typ)
             self.set_type(s.name, typ)
 
         return result
@@ -190,7 +194,6 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             else:
                 typ = lhs.type
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
-
 
         return super().map_e(e)
 

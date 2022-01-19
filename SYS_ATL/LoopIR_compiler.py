@@ -700,9 +700,9 @@ class Compiler:
                 assert len(e.idx) == 0
                 if rtyp.is_indexable():
                     return self.env[e.name]
-                elif rtyp is T.bool:
+                elif rtyp == T.bool:
                     return self.env[e.name]
-                elif rtyp is T.stride:
+                elif rtyp == T.stride:
                     return self.env[e.name]
                 elif e.name in self._scalar_refs:
                     return self.env[e.name]
@@ -712,7 +712,7 @@ class Compiler:
                     assert rtyp.is_real_scalar()
                     return f"&{self.env[e.name]}"
             else:
-                if rtyp.is_indexable() or rtyp is T.bool or rtyp == T.stride:
+                if rtyp.is_indexable() or rtyp == T.bool or rtyp == T.stride:
                     return self.env[e.name]
 
                 mem: Memory = self.mems[e.name]

@@ -192,10 +192,10 @@ class LoopIR_Rewrite:
 
     def map_t(self, t):
         ttyp = type(t)
-        if ttyp is T.Tensor:
+        if ttyp == T.Tensor:
             return T.Tensor([self.map_e(r) for r in t.hi],
                             t.is_window, self.map_t(t.type))
-        elif ttyp is T.Window:
+        elif ttyp == T.Window:
             return T.Window(self.map_t(t.src_type), self.map_t(t.as_tensor),
                             t.src_buf,
                             [self.map_w_access(w) for w in t.idx])
@@ -552,7 +552,7 @@ class Alpha_Rename(LoopIR_Rewrite):
 
     def map_t(self, t):
         ttyp = type(t)
-        if ttyp is T.Window:
+        if ttyp == T.Window:
             src_buf = t.src_buf
             if t.src_buf in self.env:
                 src_buf = self.env[t.src_buf]
@@ -654,7 +654,7 @@ class SubstArgs(LoopIR_Rewrite):
 
     def map_t(self, t):
         ttyp = type(t)
-        if ttyp is T.Window:
+        if ttyp == T.Window:
             src_buf = t.src_buf
             if t.src_buf in self.env:
                 src_buf = self.env[t.src_buf].name

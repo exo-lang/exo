@@ -542,7 +542,7 @@ class SMTSolver:
                 self.z3.add_var(v.symbol_name(),typ)
 
     def assume(self, e):
-        assert e.type is T.bool
+        assert e.type == T.bool
         self._add_free_vars(e)
         smt_e       = self._lower(e)
         assert not is_ternary(smt_e), "assumptions must be classical"
@@ -550,7 +550,7 @@ class SMTSolver:
         self.solver.add_assertion(smt_e)
 
     def satisfy(self, e):
-        assert e.type is T.bool
+        assert e.type == T.bool
         self.push()
         self._add_free_vars(e)
         smt_e       = self._lower(e)
@@ -562,7 +562,7 @@ class SMTSolver:
         return is_sat
 
     def verify(self, e):
-        assert e.type is T.bool
+        assert e.type == T.bool
         self.push()
         self._add_free_vars(e)
         smt_e       = self._lower(e)
@@ -617,7 +617,7 @@ class SMTSolver:
         if sym not in self.env:
             if typ.is_indexable() or typ.is_stridable():
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
-            elif typ is T.bool:
+            elif typ == T.bool:
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
         return self.env[sym]
 
@@ -869,6 +869,3 @@ class Z3SubProc:
             return False
         else:
             raise Error("unknown result from z3")
-
-
-

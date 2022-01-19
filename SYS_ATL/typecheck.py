@@ -89,7 +89,7 @@ class TypeChecker:
 
         # check compatibility with buffer type
         typ     = self.env[nm]
-        if typ is T.err:
+        if typ == T.err:
             pass
         elif typ.is_numeric():
             if len(idx) > len(typ.shape()):
@@ -150,7 +150,7 @@ class TypeChecker:
 
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx,
                                          lvalue=True)
-            assert (typ.is_real_scalar() or typ is T.err)
+            assert (typ.is_real_scalar() or typ == T.err)
 
             IRnode = (LoopIR.Assign if isinstance(stmt, UAST.Assign) else
                       LoopIR.Reduce)
@@ -240,18 +240,18 @@ class TypeChecker:
             for call_a, sig_a in zip(args, stmt.f.args):
                 if call_a.type == T.err:
                     pass
-                elif sig_a.type is T.size or sig_a.type is T.index:
+                elif sig_a.type == T.size or sig_a.type == T.index:
                     if not call_a.type.is_indexable():
                         self.err(call_a, "expected size or index type "
                                          "expression, "
                                          f"but got type {call_a.type}")
 
-                elif sig_a.type is T.bool:
-                    if not call_a.type is T.bool:
+                elif sig_a.type == T.bool:
+                    if not call_a.type == T.bool:
                         self.err(call_a, "expected bool-type variable, "
                                          f"but got type {call_a.type}")
 
-                elif sig_a.type is T.stride:
+                elif sig_a.type == T.stride:
                     if not call_a.type.is_stridable():
                         self.err(call_a, "expected stride-type variable, "
                                          f"but got type {call_a.type}")
@@ -385,9 +385,9 @@ class TypeChecker:
             if lhs.type == T.err or rhs.type == T.err:
                 typ = T.err
             elif e.op == "and" or e.op == "or":
-                if lhs.type is not T.bool:
+                if lhs.type != T.bool:
                     self.err(lhs, "expected 'bool' argument to logical op")
-                if rhs.type is not T.bool:
+                if rhs.type != T.bool:
                     self.err(rhs, "expected 'bool' argument to logical op")
                 typ = T.bool
             elif e.op == "==" and lhs.type == T.bool and rhs.type == T.bool:
