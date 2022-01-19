@@ -1,5 +1,6 @@
 from . import LoopIR
 
+from weakref import WeakKeyDictionary
 from .prelude import *
 
 # --------------------------------------------------------------------------- #
@@ -67,6 +68,11 @@ def ctyp(typ):
     else:
         assert False, f"bad case! {typ}"
 
+_reverse_symbol_lookup = WeakKeyDictionary()
+
+def reverse_config_lookup(sym):
+    return _reverse_symbol_lookup[sym]
+
 class Config:
     def __init__(self, name, fields, disable_rw):
         self._name      = name
@@ -89,6 +95,8 @@ class Config:
 
         self._field_syms    = { nm : Sym(f"{name}_{nm}")
                                 for nm,typ in fields }
+        for fname,sym in self._field_syms.items():
+            _reverse_symbol_lookup[sym] = (self,fname)
 
     def name(self):
         return self._name

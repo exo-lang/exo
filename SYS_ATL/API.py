@@ -446,12 +446,16 @@ class Procedure(ProcedureBase):
             raise TypeError(f"expected '{field}' to be a field "
                             f"in config '{config.name()}'")
 
-        loopir   = self._loopir_proc
-        var_expr = parse_fragment(loopir, var_pattern, None)
+        loopir          = self._loopir_proc
+        var_expr        = parse_fragment(loopir, var_pattern, None)
         assert isinstance(var_expr, LoopIR.expr)
-        loopir   = Schedules.DoConfigWriteRoot(loopir, config, field, var_expr).result()
+        rewrite_pass    = Schedules.DoConfigWriteRoot(loopir, config, field,
+                                                      var_expr)
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
 
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def configwrite_after(self, stmt_pattern, config, field, var_pattern):
         if not isinstance(config, Config):
@@ -466,12 +470,17 @@ class Procedure(ProcedureBase):
             raise TypeError("expected second argument to be a string var")
 
         stmt     = self._find_stmt(stmt_pattern)
-        loopir   = self._loopir_proc
-        var_expr = parse_fragment(loopir, var_pattern, stmt)
+        loopir          = self._loopir_proc
+        var_expr        = parse_fragment(loopir, var_pattern, stmt)
         assert isinstance(var_expr, LoopIR.expr)
-        loopir   = Schedules.DoConfigWriteAfter(loopir, stmt, config, field, var_expr).result()
+        rewrite_pass    = Schedules.DoConfigWriteAfter(loopir, stmt,
+                                                       config, field,
+                                                       var_expr)
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
 
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def inline_window(self, stmt_pattern):
         if not isinstance(stmt_pattern, str):
@@ -900,17 +909,15 @@ class Procedure(ProcedureBase):
         return eqv_set == frozenset()
 
     def call_eqv(self, eqv_proc: 'Procedure', call_site_pattern):
-        call_stmt = self._find_callsite(call_site_pattern)
+        call_stmt       = self._find_callsite(call_site_pattern)
+        new_proc        = eqv_proc._loopir_proc
 
-        old_proc = call_stmt.f
-        new_proc = eqv_proc._loopir_proc
-        eqv_set = check_eqv_proc(old_proc, new_proc)
-        if eqv_set != frozenset():
-            raise TypeError("the procedures were not equivalent")
-
-        loopir = self._loopir_proc
-        loopir = Schedules.DoCallSwap(loopir, call_stmt, new_proc).result()
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        loopir          = self._loopir_proc
+        rewrite_pass    = Schedules.DoCallSwap(loopir, call_stmt, new_proc)
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def bind_expr(self, new_name, expr_pattern, cse=False):
         if not is_valid_name(new_name):

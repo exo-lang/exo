@@ -14,6 +14,7 @@ from .LoopIR import SubstArgs
 
 from .new_analysis_core import *
 from .proc_eqv import get_repr_proc
+from .configs import reverse_config_lookup
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -944,7 +945,11 @@ class ContextExtraction:
         return self.preenv_stmts(self.proc.body)
 
     def get_posteffs(self):
-        return self.posteff_stmts(self.proc.body)
+        a           = self.posteff_stmts(self.proc.body)
+        if len(self.proc.preds) > 0:
+            assumed = AAnd(*[ lift_e(p) for p in self.proc.preds ])
+            a       = [E.Guard(assumed, a)]
+        return a
 
     def ctrlp_stmts(self, stmts):
         for i,s in enumerate(stmts):
@@ -1279,7 +1284,7 @@ def Check_DeleteConfigWrite(proc, stmts):
 
     slv     = SMTSolver(verbose=False)
     slv.push()
-    slv.assume(AMay(p))
+    a       = [E.Guard(AMay(p), a)]
 
     # extract effects
     WrG, Mod    = getsets([ES.WRITE_G, ES.MODIFY], a)
@@ -1340,4 +1345,59 @@ def Check_DeleteConfigWrite(proc, stmts):
     slv.pop()
     return cfg_mod_visible
 
+
+# This equivalence check assumes that we can
+# externally verify that substituting stmts with something else
+# is equivalent modulo the keys in `cfg_mod`, so
+# the only thing we want to check is whether that can be
+# extended, and if so, modulo what set of output globals?
+def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
+    assert len(stmts0) > 0
+    assert len(stmts1) > 0
+    ctxt = ContextExtraction(proc, stmts0)
+
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+    ap      = ctxt.get_posteffs()
+    #a       = G(stmts_effs(stmts))
+    sG0     = globenv(stmts0)
+    sG1     = globenv(stmts1)
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    #slv.assume(AMay(p))
+
+    # extract effects
+    #WrG, Mod    = getsets([ES.WRITE_G, ES.MODIFY], a)
+    WrGp, RdGp  = getsets([ES.WRITE_G, ES.READ_G], ap)
+
+    # check that none of the configuration variables which might have
+    # changed are being observed.
+    def make_point(key):
+        cfg, fld    = reverse_config_lookup(key)
+        typ         = cfg.lookup(fld)[1]
+        return APoint(key, [], typ)
+    cfg_mod_pts = [ make_point(key) for key in cfg_mod ]
+    cfg_mod_visible = set()
+    for pt in cfg_mod_pts:
+        pt_e = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name)
+        is_unchanged    = AImplies(p, G(AEq(sG0(pt_e), sG1(pt_e))))
+        is_read_post    = is_elem(pt, RdGp)
+        is_overwritten  = is_elem(pt, WrGp)
+
+        safe_write  = AImplies( AMay(is_read_post), ADef(is_unchanged) )
+        if not slv.verify(safe_write):
+            slv.pop()
+            raise SchedulingError(
+                f"Cannot rewrite at {stmts[0].srcinfo} because the "
+                f"configuration field {pt.name} might be read "
+                f"subsequently")
+
+        shadowed        = ADef( is_overwritten )
+        if not slv.verify(shadowed):
+            cfg_mod_visible.add(pt.name)
+
+    slv.pop()
+    return cfg_mod_visible
+    
 

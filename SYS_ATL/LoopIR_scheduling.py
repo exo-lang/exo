@@ -12,6 +12,7 @@ from .LoopIR_effects import (Effects as E, eff_filter, eff_bind, eff_null,
 from .effectcheck import InferEffects
 from .prelude import *
 
+from .proc_eqv import get_strictest_eqv_proc
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -22,6 +23,7 @@ from .new_eff import (
     Check_ReorderStmts,
     Check_ReorderLoops,
     Check_DeleteConfigWrite,
+    Check_ExtendEqv,
 )
 
 # --------------------------------------------------------------------------- #
@@ -728,9 +730,23 @@ class _CallSwap(LoopIR_Rewrite):
 
         super().__init__(proc)
 
+    def mod_eq(self):
+        return self.eq_mod_config
+
     def map_s(self, s):
         if s is self.call_stmt:
-            return [ LoopIR.Call(self.new_subproc, s.args, None, s.srcinfo) ]
+            old_f = s.f
+            new_f = self.new_subproc
+            s_new = LoopIR.Call(new_f, s.args, None, s.srcinfo)
+            is_eqv, configkeys = get_strictest_eqv_proc(old_f, new_f)
+            if not is_eqv:
+                raise SchedulingError(
+                    f"{s.srcinfo}: Cannot swap call because the two "
+                    f"procedures are not equivalent")
+            mod_cfg = Check_ExtendEqv(self.orig_proc, [s], [s_new], configkeys)
+            self.eq_mod_config = mod_cfg
+
+            return [ s_new ]
 
         # fall-through
         return super().map_s(s)
@@ -839,13 +855,26 @@ class _ConfigWriteRoot(LoopIR_Rewrite):
 
         self.orig_proc = proc
 
-        c_str = [LoopIR.WriteConfig(config, field, expr, None, self.orig_proc.srcinfo)]
-        proc.body = c_str + proc.body
+        cw_s    = LoopIR.WriteConfig(config, field, expr, None, proc.srcinfo)
+        body    = [cw_s] + proc.body
 
-        super().__init__(proc)
+        self.proc = LoopIR.proc(name    = proc.name,
+                                args    = proc.args,
+                                preds   = proc.preds,
+                                body    = body,
+                                instr   = proc.instr,
+                                eff     = proc.eff,
+                                srcinfo = proc.srcinfo)
+
+        # check safety...
+        mod_cfg = Check_DeleteConfigWrite(self.proc,[cw_s])
+        self.eq_mod_config = mod_cfg
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+
+    def mod_eq(self):
+        return self.eq_mod_config
 
 
 
@@ -861,19 +890,30 @@ class _ConfigWriteAfter(LoopIR_Rewrite):
         self.field = field
         self.expr = expr
 
+        self._new_cfgwrite_stmt = None
+
         super().__init__(proc)
+
+        # check safety...
+        mod_cfg = Check_DeleteConfigWrite(self.proc,
+                                          [self._new_cfgwrite_stmt])
+        self.eq_mod_config = mod_cfg
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+
+    def mod_eq(self):
+        return self.eq_mod_config
 
     def map_stmts(self, stmts):
         body = []
         for s in stmts:
             body += self.map_s(s)
             if s is self.stmt:
-                c_str = LoopIR.WriteConfig(self.config, self.field, self.expr,
-                                           None, s.srcinfo)
-                body.append(c_str)
+                cw_s = LoopIR.WriteConfig(self.config, self.field, self.expr,
+                                          None, s.srcinfo)
+                self._new_cfgwrite_stmt = cw_s
+                body.append(cw_s)
 
         return body
 
@@ -2465,6 +2505,9 @@ class _AssertIf(LoopIR_Rewrite):
         return super().map_s(s)
 
 
+# Note: This analysis is overly conservative.
+# However, it might be a bit involved to come up with
+# a more precise analysis.  TODO
 class _DoDataReuse(LoopIR_Rewrite):
     def __init__(self, proc, buf_pat, rep_pat):
         assert type(buf_pat) is LoopIR.Alloc
