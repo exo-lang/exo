@@ -7,6 +7,77 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH
 from .helper import TMP_DIR, generate_lib
 
 
+def test_fission_after_simple():
+
+    # Test 1
+    @proc
+    def bar(n : size, m : size):
+        for i in par(0,n):
+            for j in par(0,m):
+                x : f32
+                x = 0.0
+                y : f32
+                y = 1.1
+    res = bar.fission_after_simple('x = _', n_lifts=2)
+
+    @proc
+    def bar(n : size, m : size):
+        for i in par(0,n):
+            for j in par(0,m):
+                x : f32
+                x = 0.0
+
+        for i in par(0,n):
+            for j in par(0,m):
+                y : f32
+                y = 1.1
+    ref = bar
+
+    assert str(res) == str(ref)
+
+    # Test 2
+    @proc
+    def bar(n : size, m : size):
+        for i in par(0,n):
+            for j in par(0,m):
+                x : f32
+                x = 0.0
+                y : f32
+                y = 1.1
+
+        for k in par(0,30):
+            for l in par(0,100):
+                x : i8
+                x = 4.0
+                y : f32
+                y = 1.1
+    res = bar.fission_after_simple('x = _', n_lifts=2)
+
+    @proc
+    def bar(n : size, m : size):
+        for i in par(0,n):
+            for j in par(0,m):
+                x : f32
+                x = 0.0
+        for i in par(0,n):
+            for j in par(0,m):
+                y : f32
+                y = 1.1
+
+        for k in par(0,30):
+            for l in par(0,100):
+                x : i8
+                x = 4.0
+        for k in par(0,30):
+            for l in par(0,100):
+                y : f32
+                y = 1.1
+    ref = bar
+
+    assert str(res) == str(ref)
+
+
+
 def test_rearrange_dim():
     @proc
     def foo(N : size, M : size, K : size, x : i8[N, M, K]):

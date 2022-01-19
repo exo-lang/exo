@@ -1799,6 +1799,122 @@ class _DoRemoveLoop(LoopIR_Rewrite):
         return super().map_s(s)
 
 
+# This is same as original FissionAfter, except that
+# this does not remove loop. We have separate remove_loop
+# operator for that purpose.
+class _DoFissionAfterSimple:
+    def __init__(self, proc, stmt, n_lifts):
+        assert isinstance(stmt, LoopIR.stmt)
+        assert is_pos_int(n_lifts)
+        self.orig_proc      = proc
+        self.tgt_stmt       = stmt
+        self.n_lifts        = n_lifts
+
+        self.hit_fission    = False     # signal to map_stmts
+
+        pre_body, post_body = self.map_stmts(proc.body)
+        self.proc = LoopIR.proc(name    = self.orig_proc.name,
+                                args    = self.orig_proc.args,
+                                preds   = self.orig_proc.preds,
+                                body    = pre_body + post_body,
+                                instr   = None,
+                                eff     = self.orig_proc.eff,
+                                srcinfo = self.orig_proc.srcinfo)
+        self.proc = InferEffects(self.proc).result()
+
+    def result(self):
+        return self.proc
+
+    def alloc_check(self, pre, post):
+        if not _is_alloc_free(pre, post):
+            raise SchedulingError("Will not fission here, because "
+                                  "an allocation might be buried "
+                                  "in a different scope than some use-site")
+
+    # returns a pair of stmt-lists
+    # for those statements occurring before and
+    # after the fission point
+    def map_stmts(self, stmts):
+        pre_stmts           = []
+        post_stmts          = []
+        for orig_s in stmts:
+            pre, post       = self.map_s(orig_s)
+            pre_stmts      += pre
+            post_stmts     += post
+
+        return (pre_stmts, post_stmts)
+
+    # see map_stmts comment
+    def map_s(self, s):
+        if s is self.tgt_stmt:
+            assert self.hit_fission == False
+            self.hit_fission = True
+            # none-the-less make sure we return this statement in
+            # the pre-fission position
+            return ([s],[])
+
+        elif isinstance(s, LoopIR.If):
+
+            # first, check if we need to split the body
+            pre, post = self.map_stmts(s.body)
+            if pre and post and self.n_lifts > 0:
+                self.n_lifts -= 1
+                self.alloc_check(pre, post)
+                pre = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
+                post = LoopIR.If(s.cond, post, s.orelse, None, s.srcinfo)
+                return ([pre],[post])
+
+            body = pre+post
+
+            # if we don't, then check if we need to split the or-else
+            pre, post       = self.map_stmts(s.orelse)
+            if pre and post and self.n_lifts > 0:
+                self.n_lifts -= 1
+                self.alloc_check(pre, post)
+                pre         = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
+                post        = LoopIR.If(s.cond, [LoopIR.Pass(None, s.srcinfo)],
+                                                post, None, s.srcinfo)
+                return ([pre],[post])
+
+            orelse = pre+post
+
+            # if we neither split the body nor the or-else,
+            # then we need to gather together the pre and post.
+            single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
+
+        elif isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq):
+
+            # check if we need to split the loop
+            pre, post = self.map_stmts(s.body)
+            if pre and post and self.n_lifts > 0:
+                self.n_lifts -= 1
+                self.alloc_check(pre, post)
+
+                # we can skip the loop iteration if the
+                # body doesn't depend on the loop
+                # and the body is idempotent
+                pre  = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
+                pre  = Alpha_Rename(pre).result()
+                post = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
+                post = Alpha_Rename(post).result()
+
+                return (pre,post)
+
+            # if we didn't split, then compose pre and post of the body
+            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, None, s.srcinfo)
+
+        else:
+            # all other statements cannot recursively
+            # contain statements, so...
+            single_stmt = s
+
+        if self.hit_fission:
+            return ([],[single_stmt])
+        else:
+            return ([single_stmt],[])
+
+
+
 # structure is weird enough to skip using the Rewrite-pass super-class
 class _FissionLoops:
     def __init__(self, proc, stmt, n_lifts):
@@ -2796,3 +2912,4 @@ class Schedules:
     DoRearrangeDim  = _DoRearrangeDim
     DoRemoveLoop   = _DoRemoveLoop
     DoLiftAllocSimple  = _DoLiftAllocSimple
+    DoFissionAfterSimple  = _DoFissionAfterSimple
