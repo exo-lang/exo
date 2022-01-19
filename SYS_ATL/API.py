@@ -11,7 +11,7 @@ from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
                                 iter_name_to_pattern,
                                 nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace, UnificationError
-from .configs import Config
+from .asts.configs import Config
 from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment

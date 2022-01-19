@@ -1,14 +1,7 @@
 from collections import ChainMap
 
-from adt import ADT
-from adt import memo as ADTmemo
-
-from .asts import UAST, PAST
 from .LoopIR_effects import Effects as E
-from .builtins import BuiltIn
-from .configs import Config
-from .memory import Memory
-from .prelude import *
+from .asts import UAST, PAST, LoopIR
 
 front_ops = {'+', '-', '*', '/', '%', '<', '>', '<=', '>=', '==', 'and', 'or'}
 
@@ -28,93 +21,7 @@ PAST = PAST
 # --------------------------------------------------------------------------- #
 # Loop IR
 
-bin_ops = {"+", "-", "*", "/", "%", "and", "or", "<", ">", "<=", ">=", "=="}
-
-LoopIR = ADT("""
-module LoopIR {
-    proc    = ( name            name,
-                fnarg*          args,
-                expr*           preds,
-                stmt*           body,
-                string?         instr,
-                effect?         eff,
-                srcinfo         srcinfo )
-
-    fnarg   = ( sym             name,
-                type            type,
-                mem?            mem,
-                srcinfo         srcinfo )
-
-    stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
-            | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
-            | WriteConfig ( config config, string field, expr rhs )
-            | Pass   ()
-            | If     ( expr cond, stmt* body, stmt* orelse )
-            | ForAll ( sym iter, expr hi, stmt* body )
-            | Seq    ( sym iter, expr hi, stmt* body )
-            | Alloc  ( sym name, type type, mem? mem )
-            | Free   ( sym name, type type, mem? mem )
-            | Call   ( proc f, expr* args )
-            | WindowStmt( sym lhs, expr rhs )
-            attributes( effect? eff, srcinfo srcinfo )
-
-    expr    = Read( sym name, expr* idx )
-            | Const( object val )
-            | USub( expr arg )  -- i.e.  -(...)
-            | BinOp( binop op, expr lhs, expr rhs )
-            | BuiltIn( builtin f, expr* args )
-            | WindowExpr( sym name, w_access* idx )
-            | StrideExpr( sym name, int dim )
-            | ReadConfig( config config, string field )
-            attributes( type type, srcinfo srcinfo )
-
-    -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
-    w_access= Interval( expr lo, expr hi )
-            | Point( expr pt )
-            attributes( srcinfo srcinfo )
-
-    type    = Num   ()
-            | F32   ()
-            | F64   ()
-            | INT8  ()
-            | INT32 ()
-            | Bool  ()
-            | Int   ()
-            | Index ()
-            | Size  ()
-            | Stride()
-            | Error ()
-            | Tensor     ( expr* hi, bool is_window, type type )
-            -- src          - type of the tensor
-            --                from which the window was created
-            -- as_tensor    - tensor type as if this window were simply
-            --                a tensor itself
-            -- window       - the expression that created this window
-            | WindowType ( type src_type, type as_tensor,
-                           sym src_buf, w_access *idx )
-
-} """, {
-    'name':    is_valid_name,
-    'sym':     lambda x: isinstance(x, Sym),
-    'effect':  lambda x: isinstance(x, E.effect),
-    'mem':     lambda x: issubclass(x, Memory),
-    'builtin': lambda x: isinstance(x, BuiltIn),
-    'config':  lambda x: isinstance(x, Config),
-    'binop':   lambda x: x in bin_ops,
-    'srcinfo': lambda x: isinstance(x, SrcInfo),
-})
-
-ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'INT32' 'Bool', 'Int', 'Index',
-                 'Size', 'Stride', 'Error'])
-
-
-# make proc be a hashable object
-@extclass(LoopIR.proc)
-def __hash__(self):
-    return id(self)
-
-
-del __hash__
+LoopIR = LoopIR
 
 
 # --------------------------------------------------------------------------- #
@@ -149,129 +56,8 @@ class T:
     stride = Stride()
     err = Error()
 
-    def is_type(obj):
-        return isinstance(obj, LoopIR.type)
-
-
-# --------------------------------------------------------------------------- #
-# type helper functions
-
-@extclass(T.Tensor)
-@extclass(T.Window)
-@extclass(T.Num)
-@extclass(T.F32)
-@extclass(T.F64)
-@extclass(T.INT8)
-@extclass(T.INT32)
-def shape(t):
-    if isinstance(t, T.Window):
-        return t.as_tensor.shape()
-    elif isinstance(t, T.Tensor):
-        assert not isinstance(t.type, T.Tensor), "expect no nesting"
-        return t.hi
-    else:
-        return []
-
-
-del shape
-
-
-@extclass(T.Num)
-@extclass(T.F32)
-@extclass(T.F64)
-@extclass(T.INT8)
-@extclass(T.INT32)
-@extclass(T.Bool)
-@extclass(T.Int)
-@extclass(T.Index)
-@extclass(T.Size)
-@extclass(T.Stride)
-def ctype(t):
-    if isinstance(t, T.Num):
-        assert False, "Don't ask for ctype of Num"
-    elif isinstance(t, T.F32):
-        return "float"
-    elif isinstance(t, T.F64):
-        return "double"
-    elif isinstance(t, T.INT8):
-        return "int8_t"
-    elif isinstance(t, T.INT32):
-        return "int32_t"
-    elif isinstance(t, T.Bool):
-        return "bool"
-    elif isinstance(t, (T.Int, T.Index, T.Size, T.Stride)):
-        return "int_fast32_t"
-
-
-del ctype
-
-
-@extclass(LoopIR.type)
-def is_real_scalar(t):
-    return isinstance(t, (T.Num, T.F32, T.F64, T.INT8, T.INT32))
-
-
-del is_real_scalar
-
-
-@extclass(LoopIR.type)
-def is_tensor_or_window(t):
-    return isinstance(t, (T.Tensor, T.Window))
-
-
-del is_tensor_or_window
-
-
-@extclass(LoopIR.type)
-def is_win(t):
-    return ((isinstance(t, T.Tensor) and t.is_window) or
-            isinstance(t, T.Window))
-
-
-del is_win
-
-
-@extclass(LoopIR.type)
-def is_numeric(t):
-    return t.is_real_scalar() or isinstance(t, (T.Tensor, T.Window))
-
-
-del is_numeric
-
-
-@extclass(LoopIR.type)
-def is_bool(t):
-    return isinstance(t, (T.Bool))
-
-
-del is_bool
-
-
-@extclass(LoopIR.type)
-def is_indexable(t):
-    return isinstance(t, (T.Int, T.Index, T.Size))
-
-
-del is_indexable
-
-
-@extclass(LoopIR.type)
-def is_stridable(t):
-    return isinstance(t, (T.Int, T.Stride))
-
-
-@extclass(LoopIR.type)
-def basetype(t):
-    if isinstance(t, T.Window):
-        return t.as_tensor.basetype()
-    elif isinstance(t, T.Tensor):
-        assert not t.type.is_tensor_or_window()
-        return t.type
-    else:
-        return t
-
-
-del basetype
+    def is_type(self):
+        return isinstance(self, LoopIR.type)
 
 
 # --------------------------------------------------------------------------- #

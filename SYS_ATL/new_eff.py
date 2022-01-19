@@ -1,17 +1,9 @@
+from enum import Enum
+
 from adt import ADT
+
 from .LoopIR import LoopIR, Alpha_Rename
-from .configs import Config
-from .prelude import *
-
-from collections    import ChainMap, OrderedDict
-from itertools      import chain
-from dataclasses    import dataclass
-from typing         import Any
-from enum           import Enum
-
-from .LoopIR import T
 from .LoopIR import SubstArgs
-
 from .new_analysis_core import *
 from .proc_eqv import get_repr_proc
 
@@ -1259,9 +1251,3 @@ def Check_ReorderLoops(proc, s):
     if not is_ok:
         raise SchedulingError(
             f"Loops {x} and {y} at {s.srcinfo} cannot be reordered.")
-
-
-
-
-
-

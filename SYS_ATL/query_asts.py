@@ -55,7 +55,7 @@ from dataclasses import dataclass as _dataclass
 from typing import Any as _Any
 from typing import Optional as _Optional
 
-from .configs import Config as _Config
+from .asts.configs import Config as _Config
 from .memory import Memory as _Memory
 
 
@@ -266,5 +266,3 @@ class Proc(QueryAST):
   assertions  : list[Expr]
   body        : list[Stmt]
   instruction : _Optional[str]
-
-

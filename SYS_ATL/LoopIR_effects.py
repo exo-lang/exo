@@ -1,6 +1,6 @@
 from adt import ADT
 from . import LoopIR
-from .configs import Config
+from .asts.configs import Config
 from .prelude import *
 
 # --------------------------------------------------------------------------- #

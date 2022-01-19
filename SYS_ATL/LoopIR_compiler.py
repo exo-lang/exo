@@ -3,14 +3,17 @@ import re
 from collections import ChainMap
 from collections import defaultdict
 
-from .LoopIR import LoopIR, LoopIR_Do
-from .LoopIR import T
-from .configs import ConfigError
+from .LoopIR import LoopIR, LoopIR_Do, T
 from .mem_analysis import MemoryAnalysis
 from .memory import MemGenError, Memory
 from .prec_analysis import PrecisionAnalysis
 from .prelude import *
 from .win_analysis import WindowAnalysis
+
+
+class ConfigError(Exception):
+    def __init__(self, msg):
+        super().__init__(msg)
 
 
 def sanitize_str(s):

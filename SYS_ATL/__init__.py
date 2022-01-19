@@ -1,7 +1,7 @@
 from . import LoopIR_pprint
 from .API import Procedure, compile_procs, proc, instr, config
 from .LoopIR_scheduling import SchedulingError
-from .configs import Config
+from .asts.configs import Config
 from .memory import Memory, DRAM
 from . import query_asts as QAST
 

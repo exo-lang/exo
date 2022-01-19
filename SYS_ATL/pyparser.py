@@ -11,8 +11,8 @@ import astor
 
 from .API_types import ProcedureBase
 from .LoopIR import UAST, front_ops, PAST
+from .asts.configs import Config
 from .builtins import *
-from .configs import Config
 from .prelude import *
 
 

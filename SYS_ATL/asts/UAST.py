@@ -5,7 +5,7 @@ import attrs
 from attrs import validators
 
 from . import OP_STRINGS
-from ..configs import Config
+from .configs import Config
 from ..memory import Memory
 from ..prelude import Sym, is_valid_name, SrcInfo
 from ..query_asts import BuiltIn as QueryBuiltIn

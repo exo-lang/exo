@@ -1,4 +1,11 @@
+from ..prelude import is_valid_name
+
 OP_STRINGS = frozenset(
     {'%', '*', '+', '-', '/', '<', '<=', '==', '>', '>=', 'and', 'or'})
 
-__all__ = ['UAST', 'PAST']
+
+def _name_validator(_0, _1, name):
+    return is_valid_name(name)
+
+
+__all__ = ['UAST', 'PAST', 'OP_STRINGS']

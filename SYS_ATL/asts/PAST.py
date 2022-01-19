@@ -3,12 +3,8 @@ from typing import List
 import attrs
 from attrs import validators
 
-from . import OP_STRINGS
-from ..prelude import *
-
-
-def _name_validator(_0, _1, name):
-    return is_valid_name(name)
+from . import OP_STRINGS, _name_validator
+from ..prelude import SrcInfo
 
 
 @attrs.frozen
