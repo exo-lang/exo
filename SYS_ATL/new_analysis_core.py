@@ -1,17 +1,16 @@
-from adt import ADT
-from .prelude import *
-
-from collections    import ChainMap, OrderedDict
-from itertools      import chain
-from dataclasses    import dataclass
-from typing         import Any
-
-from .LoopIR import T
+from collections import ChainMap
+from dataclasses import dataclass
+from typing import Any
 
 import pysmt
-from pysmt import shortcuts as SMT
-from pysmt import logics
 import z3 as z3lib
+from adt import ADT
+from pysmt import logics
+from pysmt import shortcuts as SMT
+
+from .asts import LoopIR
+from .LoopIR import T
+from .prelude import *
 
 _first_run = True
 def _get_smt_solver():
@@ -74,7 +73,7 @@ module AExpr {
             attributes( type type, srcinfo srcinfo )
 } """, {
     'sym':     lambda x: isinstance(x, Sym),
-    'type':    lambda x: type(x) is tuple or T.is_type(x),
+    'type':    lambda x: isinstance(x, (tuple, LoopIR.type)),
     'binop':   lambda x: x in front_ops,
     'srcinfo': lambda x: isinstance(x, SrcInfo),
 })

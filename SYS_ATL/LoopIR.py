@@ -5,8 +5,6 @@ import attrs
 from .LoopIR_effects import Effects as E
 from .asts import UAST, PAST, LoopIR
 
-front_ops = {'+', '-', '*', '/', '%', '<', '>', '<=', '>=', '==', 'and', 'or'}
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Untyped AST
@@ -57,9 +55,6 @@ class T:
     size = Size()
     stride = Stride()
     err = Error()
-
-    def is_type(self):
-        return isinstance(self, LoopIR.type)
 
 
 # --------------------------------------------------------------------------- #

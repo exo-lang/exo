@@ -28,32 +28,32 @@ from .prelude import *
 # expose functions; therefore hide all variables as local
 __all__ = []
 
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Operator Precedence
 
 op_prec = {
-    "or":     10,
+    "or":  10,
     #
-    "and":    20,
+    "and": 20,
     #
-    "<":      30,
-    ">":      30,
-    "<=":     30,
-    ">=":     30,
-    "==":     30,
+    "<":   30,
+    ">":   30,
+    "<=":  30,
+    ">=":  30,
+    "==":  30,
     #
-    "+":      40,
-    "-":      40,
+    "+":   40,
+    "-":   40,
     #
-    "*":      50,
-    "/":      50,
-    "%":      50,
+    "*":   50,
+    "/":   50,
+    "%":   50,
     #
     # unary minus
-    "~":      60,
+    "~":   60,
 }
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -68,6 +68,8 @@ op_prec = {
 @extclass(UAST.w_access)
 def __str__(self):
     return UAST_PPrinter(self).str()
+
+
 del __str__
 
 
@@ -304,6 +306,7 @@ class UAST_PPrinter:
         else:
             assert False, "impossible type case"
 
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # LoopIR Pretty Printing
@@ -315,6 +318,8 @@ class UAST_PPrinter:
 @extclass(LoopIR.type)
 def __str__(self):
     return LoopIR_PPrinter(self).str()
+
+
 del __str__
 
 
@@ -344,13 +349,13 @@ class LoopIR_PPrinter:
                              f"{self.pexpr(node.hi)})")
             elif isinstance(node, LoopIR.Point):
                 self.addline(f"Point({self.pexpr(node.pt)})")
-            else: assert False, "bad case"
+            else:
+                assert False, "bad case"
         else:
             assert False, f"cannot print a {type(node)}"
 
     def str(self):
-        if (isinstance(self._node, LoopIR.type) or
-            isinstance(self._node, LoopIR.w_access)):
+        if isinstance(self._node, (LoopIR.type, LoopIR.w_access)):
             assert len(self._lines) == 1
             return self._lines[0]
 
@@ -397,15 +402,15 @@ class LoopIR_PPrinter:
     def pproc(self, p):
         assert p.name
 
-        args = [ self.pfnarg(a) for a in p.args ]
+        args = [self.pfnarg(a) for a in p.args]
 
         self.addline(f"def {p.name}({','.join(args)}):")
 
         self.push()
         if p.instr:
             instr_lines = p.instr.split('\n')
-            instr_lines = ([f'# @instr {instr_lines[0]}']+
-                           [f'#        {l}' for l in instr_lines[1:] ])
+            instr_lines = ([f'# @instr {instr_lines[0]}'] +
+                           [f'#        {l}' for l in instr_lines[1:]])
             for l in instr_lines:
                 self.addline(l)
         for pred in p.preds:
@@ -439,8 +444,8 @@ class LoopIR_PPrinter:
 
             self.addline(f"{lhs} {op} {rhs}")
         elif isinstance(stmt, LoopIR.WriteConfig):
-            cname   = stmt.config.name()
-            rhs     = self.pexpr(stmt.rhs)
+            cname = stmt.config.name()
+            rhs = self.pexpr(stmt.rhs)
             self.addline(f"{cname}.{stmt.field} = {rhs}")
         elif isinstance(stmt, LoopIR.WindowStmt):
             rhs = self.pexpr(stmt.rhs)
@@ -450,10 +455,10 @@ class LoopIR_PPrinter:
             self.addline(f"{self.get_name(stmt.name)} : "
                          f"{self.ptype(stmt.type)}{mem}")
         elif isinstance(stmt, LoopIR.Free):
-            mem = f" @{stmt.mem.name()}" if stmt.mem else ""
-            self.addline(f"free({self.get_name(stmt.name)})")
+            mem = f"@{stmt.mem.name()}" if stmt.mem else ""
+            self.addline(f"free{mem}({self.get_name(stmt.name)})")
         elif isinstance(stmt, LoopIR.Call):
-            args    = [ self.pexpr(a) for a in stmt.args ]
+            args = [self.pexpr(a) for a in stmt.args]
             self.addline(f"{stmt.f.name}({','.join(args)})")
         elif isinstance(stmt, LoopIR.If):
             cond = self.pexpr(stmt.cond)
@@ -498,7 +503,7 @@ class LoopIR_PPrinter:
             local_prec = op_prec[e.op]
             # increment rhs by 1 to account for left-associativity
             lhs = self.pexpr(e.lhs, prec=local_prec)
-            rhs = self.pexpr(e.rhs, prec=local_prec+1)
+            rhs = self.pexpr(e.rhs, prec=local_prec + 1)
             s = f"{lhs} {e.op} {rhs}"
             # if we have a lower precedence than the environment...
             if local_prec < prec:
@@ -510,11 +515,11 @@ class LoopIR_PPrinter:
         elif isinstance(e, LoopIR.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
         elif isinstance(e, LoopIR.BuiltIn):
-            pname   = e.f.name() or "_anon_"
-            args    = [ self.pexpr(a) for a in e.args ]
+            pname = e.f.name() or "_anon_"
+            args = [self.pexpr(a) for a in e.args]
             return f"{pname}({','.join(args)})"
         elif isinstance(e, LoopIR.ReadConfig):
-            cname   = e.config.name()
+            cname = e.config.name()
             return f"{cname}.{e.field}"
         else:
             assert False, f"unrecognized expr: {type(e)}"
@@ -524,7 +529,8 @@ class LoopIR_PPrinter:
             return self.pexpr(w.pt)
         elif isinstance(w, LoopIR.Interval):
             return f"{self.pexpr(w.lo)}:{self.pexpr(w.hi)}"
-        else: assert False, "bad case"
+        else:
+            assert False, "bad case"
 
     def ptype(self, t):
         if isinstance(t, T.Num):
