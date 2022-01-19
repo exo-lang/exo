@@ -1847,7 +1847,7 @@ class _DoFissionAfterSimple:
     # see map_stmts comment
     def map_s(self, s):
         if s is self.tgt_stmt:
-            #assert self.hit_fission == False
+            assert self.hit_fission == False
             self.hit_fission = True
             # none-the-less make sure we return this statement in
             # the pre-fission position
@@ -1857,8 +1857,7 @@ class _DoFissionAfterSimple:
 
             # first, check if we need to split the body
             pre, post = self.map_stmts(s.body)
-            fission_body = (len(pre) > 0 and len(post) > 0 and self.n_lifts > 0)
-            if fission_body:
+            if pre and post and self.n_lifts > 0:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
                 pre = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
@@ -1869,9 +1868,7 @@ class _DoFissionAfterSimple:
 
             # if we don't, then check if we need to split the or-else
             pre, post       = self.map_stmts(s.orelse)
-            fission_orelse  = (len(pre) > 0 and len(post) > 0 and
-                               self.n_lifts > 0)
-            if fission_orelse:
+            if pre and post and self.n_lifts > 0:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
                 pre         = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
@@ -1889,9 +1886,7 @@ class _DoFissionAfterSimple:
 
             # check if we need to split the loop
             pre, post = self.map_stmts(s.body)
-            do_fission = (len(pre) > 0 and len(post) > 0 and
-                          self.n_lifts > 0)
-            if do_fission:
+            if pre and post and self.n_lifts > 0:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
 
