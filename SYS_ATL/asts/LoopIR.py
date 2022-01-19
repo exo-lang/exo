@@ -1,11 +1,12 @@
+from __future__ import annotations
+
 from typing import List, Optional, Type
 
 import attrs
 from attrs import validators
 
-from . import _name_validator, OP_STRINGS
+from . import _name_validator, OP_STRINGS, Effects as E
 from .configs import Config
-from ..LoopIR_effects import Effects as E
 from ..memory import Memory
 from ..prelude import SrcInfo, Sym
 from ..query_asts import BuiltIn as QueryBuiltIn
