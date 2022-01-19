@@ -85,8 +85,8 @@ def lift_to_eff_expr(e):
     elif isinstance(e, LoopIR.StrideExpr):
         return E.Stride(e.name, e.dim, e.type, e.srcinfo)
     elif isinstance(e, LoopIR.ReadConfig):
-        return E.ConfigField(e.config, e.field,
-                             e.config.lookup(e.field)[1], e.srcinfo)
+        return E.ConfigField(e.config, e.field, e.config.lookup(e.field),
+                             e.srcinfo)
 
     else:
         assert False, "bad case, e is " + str(type(e))

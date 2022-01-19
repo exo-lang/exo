@@ -266,8 +266,8 @@ def eff_concat(e1, e2, srcinfo=None):
             if w2.pred is None:
                 return w2
             else:
-                typ = w1.config.lookup(w1.field)[1]
-                assert typ == w2.config.lookup(w2.field)[1]
+                typ = w1.config.lookup(w1.field)
+                assert typ == w2.config.lookup(w2.field)
 
                 pred = _or_preds(w1.pred, w2.pred)
                 val = Effects.Select(w2.pred, w2.value, w1.value,

@@ -163,7 +163,7 @@ class TypeChecker:
                          f"expected '{stmt.field}'  to be a field "
                          f"in config '{stmt.config.name()}'")
 
-            ftyp = stmt.config.lookup(stmt.field)[1]
+            ftyp = stmt.config.lookup(stmt.field)
             rhs = self.check_e(stmt.rhs)
 
             if rhs.type != T.err:
@@ -513,7 +513,7 @@ class TypeChecker:
                 self.err(e.field, f"'{e.field}' has to be a field in config "
                                   f"'{e.config.name()}'")
 
-            ftyp = e.config.lookup(e.field)[1]
+            ftyp = e.config.lookup(e.field)
             return LoopIR.ReadConfig(e.config, e.field,
                                      ftyp, e.srcinfo)
         else:

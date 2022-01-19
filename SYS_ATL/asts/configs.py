@@ -26,9 +26,7 @@ class Config:
         self._fields = fields
         self._rw_ok = not disable_rw
 
-        self._lookup = {nm: (i, uast_to_type(typ))
-                        for i, (nm, typ) in enumerate(fields)}
-
+        self._lookup = {nm: uast_to_type(typ) for nm, typ in fields}
         self._field_syms = {nm: Sym(f"{name}_{nm}")
                             for nm, typ in fields}
 
@@ -54,7 +52,7 @@ class Config:
         lines = []
         lines += [f"struct {self._name} {{"]
         for f in self._fields:
-            ltyp = self.lookup(f[0])[1]
+            ltyp = self.lookup(f[0])
             lines += [f"    {ltyp.ctype()} {f[0]};"]
         lines += [f"}} {self._name};"]
         return lines

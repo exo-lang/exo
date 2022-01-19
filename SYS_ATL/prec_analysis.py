@@ -120,7 +120,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
 
         elif isinstance(s, LoopIR.WriteConfig):
             rtyp = result[0].rhs.type
-            ltyp = s.config.lookup(s.field)[1]
+            ltyp = s.config.lookup(s.field)
             assert ltyp != T.err and ltyp != T.R
 
             # potentially coerce the entire right-hand-side

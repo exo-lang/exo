@@ -403,7 +403,7 @@ class Procedure(ProcedureBase):
             raise TypeError(f"expected a single Read")
 
         # Check that the type of config field and read are the same
-        if matches[0].type != config.lookup(field)[1]:
+        if matches[0].type != config.lookup(field):
             raise TypeError("types of config and a read variable does "
                             "not match")
 
