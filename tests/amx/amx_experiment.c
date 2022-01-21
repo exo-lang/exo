@@ -73,9 +73,9 @@ void amx_dpbuud(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
 
     _tile_loadconfig(config);
 
-    int tile_num = 2;
+    // const int tile_num = 2;
 
-    _tile_zero(tile_num);
+    _tile_zero(2);
     _tile_loadd(0, A, 4*K);
     _tile_loadd(1, B, 4*N);
 
@@ -83,12 +83,12 @@ void amx_dpbuud(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
 
     _tile_stored(2, C, 4*N);
 }
-  
+
 /*
   Takes a matrix old_B, and converts it from its 4M x N representation
   to a M x 4N representation, which matches AMX's tile format.
    - old_B = 4M x N,
-   - new_B = M x 4N, 
+   - new_B = M x 4N,
 */
 void transform(int M, int N, uint8_t* new_B, uint8_t* old_B) {
  for (int m=0; m<M; m++) {
@@ -99,9 +99,9 @@ void transform(int M, int N, uint8_t* new_B, uint8_t* old_B) {
   }
  }
 }
-  
+
 /*
-  Makes use of AMX's tile instruction to perform matmul on uint8_t matrices. 
+  Makes use of AMX's tile instruction to perform matmul on uint8_t matrices.
   Requires a memory transform prior to loading data into the tile.
    - A = M x 4K
    - B = 4K x N
@@ -120,7 +120,7 @@ void ref_matmul_8(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
   for (int m=0; m<M; m++) {
     for (int k=0; k<K; k++) {
       for (int n=0; n<N; n++) {
-        // TODO: do I need the 1ul? 
+        // TODO: do I need the 1ul?
         C[m * N + n] += 1ul * A[m * K + k] * B[k * N + n];
       }
     }
