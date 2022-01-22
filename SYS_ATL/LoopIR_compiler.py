@@ -680,6 +680,7 @@ class Compiler:
                         assert isinstance(s.args[i], LoopIR.WindowExpr)
                         data, _ = self.window_struct_fields(s.args[i])
                         d[f'{arg_name}_data'] = data
+                        d[f'{arg_name}_int'] = self.env[s.args[i].name]
                     else:
                         d[f'{arg_name}_data'] = f"({args[i]})"
 

@@ -231,6 +231,7 @@ class AVX512(Memory):
 
 # ----------- AMX tile! ----------------
 
+num_amx_tiles_alloced = 0
 class AMX_TILE(Memory):
     @classmethod
     def global_(cls):
@@ -238,8 +239,12 @@ class AMX_TILE(Memory):
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
-        return f"{prim_type} *{new_name} = ({prim_type}*) 0;"
+        global num_amx_tiles_alloced
+        num_amx_tiles_alloced += 1
+        return f"constexpr int {new_name} = {num_amx_tiles_alloced-1};"
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
+        global num_amx_tiles_alloced
+        num_amx_tiles_alloced -= 1
         return ""

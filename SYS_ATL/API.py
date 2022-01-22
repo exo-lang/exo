@@ -523,7 +523,8 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def expand_dim(self, stmt_pat, alloc_dim_pat, indexing_pat):
+    def expand_dim(self, stmt_pat, alloc_dim_pat, indexing_pat,
+                                         unsafe_disable_checks=False):
         if not isinstance(stmt_pat, str):
             raise TypeError("expected first arg to be a string")
         if not isinstance(alloc_dim_pat, str):
@@ -535,9 +536,13 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         for i in range(0, stmts_len):
             s = self._find_stmt(stmt_pat, body=loopir.body, default_match_no=None)[i]
-            alloc_dim = parse_fragment(loopir, alloc_dim_pat, s)
-            indexing  = parse_fragment(loopir, indexing_pat, s)
+            alloc_dim = parse_fragment(loopir, alloc_dim_pat, s, scope="before")
+            indexing  = parse_fragment(loopir, indexing_pat, s, scope="before_after")
             loopir = Schedules.DoExpandDim(loopir, s, alloc_dim, indexing).result()
+
+        if not unsafe_disable_checks:
+            # Running checkeffect here is necessary for bounds checking
+            CheckEffects(loopir)
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
@@ -1043,6 +1048,48 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+
+    def rearrange_dim(self, alloc_pattern, dimensions):
+        if not isinstance(alloc_pattern, str):
+            raise TypeError("expected first argument to be allocation "+
+                            "pattern string")
+        if not isinstance(dimensions, list):
+            raise TypeError("expected second argument to be integer list of "+
+                            "dimensions")
+
+        stmts_len = len(self._find_stmt(alloc_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(alloc_pattern, body=loopir.body, default_match_no=None)[i]
+            if not isinstance(s, LoopIR.Alloc):
+                raise TypeError("pattern did not describe an alloc statement")
+            # Check that the number of dimensions matches with alloc size
+            assert type(s.type) is T.Tensor
+            if len(s.type.hi) != len(dimensions):
+                raise TypeError("dimension does not match with the dimension of "
+                                "the alloc statement")
+
+            loopir = Schedules.DoRearrangeDim(loopir, s, dimensions).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
+    def lift_alloc_simple(self, alloc_site_pattern, n_lifts=1):
+        if not is_pos_int(n_lifts):
+            raise TypeError("expected second argument 'n_lifts' to be "
+                            "a positive integer")
+
+        stmts_len = len(self._find_stmt(alloc_site_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(alloc_site_pattern, body=loopir.body, default_match_no=None)[i]
+            if not isinstance(s, LoopIR.Alloc):
+                raise TypeError("pattern did not describe an alloc statement")
+            loopir  = Schedules.DoLiftAllocSimple( loopir, s, n_lifts ).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
     def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None,
                    keep_dims=False):
         if not is_pos_int(n_lifts):
@@ -1082,6 +1129,32 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def remove_loop(self, loop_pattern):
+        if not isinstance(loop_pattern, str):
+            raise TypeError("expected first arg to be a string")
+
+        stmts_len = len(self._find_stmt(loop_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(loop_pattern, body=loopir.body)
+            if not (isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq)):
+                raise TypeError("expected first argument to be a loop pattern")
+            loopir = Schedules.DoRemoveLoop(loopir, s).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def fission_after_simple(self, stmt_pattern, n_lifts=1):
+        if not is_pos_int(n_lifts):
+            raise TypeError("expected second argument 'n_lifts' to be "
+                            "a positive integer")
+
+        stmts_len = len(self._find_stmt(stmt_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(stmt_pattern, body=loopir.body, default_match_no=None)[i]
+            loopir = Schedules.DoFissionAfterSimple(loopir, s, n_lifts).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def fission_after(self, stmt_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):
