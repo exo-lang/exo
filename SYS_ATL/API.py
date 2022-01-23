@@ -1126,6 +1126,19 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def fission_after_simple(self, stmt_pattern, n_lifts=1):
+        if not is_pos_int(n_lifts):
+            raise TypeError("expected second argument 'n_lifts' to be "
+                            "a positive integer")
+
+        stmts_len = len(self._find_stmt(stmt_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(stmt_pattern, body=loopir.body, default_match_no=None)[i]
+            loopir = Schedules.DoFissionAfterSimple(loopir, s, n_lifts).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
     def fission_after(self, stmt_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "
