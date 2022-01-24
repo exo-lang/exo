@@ -2,6 +2,7 @@ Pillow==9.0.0
 PySMT==0.9.0
 asdl==0.1.5
 astor==0.8.1
+attrs==21.4.0
 build==0.7.0
 coverage==6.3
 cpufeature==0.2.0
@@ -9,11 +10,11 @@ jupyter-contrib-nbextensions==0.5.1
 numpy==1.21.2
 pytest-cov==3.0.0
 pytest==6.2.5
-scipy==1.7.1
+scipy==1.7.3
 sympy==1.9
-torch==1.10.1
 tox==3.24.4
 yapf==0.31.0
 z3-solver==4.8.12.0
+# torch==1.10.1  # warning! does not support Python 3.10
 
 -e dependencies/asdl
