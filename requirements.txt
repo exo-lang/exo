@@ -1,6 +1,7 @@
 asdl==0.1.5
 astor==0.8.1
 build==0.7.0
+coverage==6.2.0
 jupyter-contrib-nbextensions==0.5.1
 numpy==1.21.2
 Pillow==9.0.0
