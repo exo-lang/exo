@@ -167,6 +167,7 @@ def modified_matmul_algorithm_i8():
         C: i32[M, N] @ DRAM,
     ):
         assert K % 4 == 0
+        config()  # TODO: how to insert this via SYS_ATL
         for i in par(0, M):
             for j in par(0, N):
                 # C[i, j] = 0.0
@@ -293,6 +294,11 @@ def test_matmul_on_amx_scheduled_i8():
 
     print("Base Implementation: ")
     print(amx)
+    amx = amx.set_memory('a',  AMX_TILE)
+    amx = amx.set_precision('a', 'i8')
+    amx = amx.set_memory('b',  AMX_TILE)
+    amx = amx.set_precision('b', 'i8')
+    amx = amx.set_memory('C_tile',  AMX_TILE)
 
     print("Loop splitting and reordering:")
     amx = amx.split('i', 16, ['io', 'ii'], perfect=True)
@@ -314,30 +320,23 @@ def test_matmul_on_amx_scheduled_i8():
     amx = amx.fission_after('b[_] = B[_]', n_lifts=4)
     print(amx)
 
-    '''
-    Attempt to use an AMX tile to aggregate results for C
-    in the first implementation of modified matmul
-    '''
-    # amx = amx.stage_assn('C_tile', 'C[_] = 0.0')
-    # amx = amx.stage_assn('C_tile_2', 'C[_] += _')
-    # amx = amx.data_reuse('C_tile:_', 'C_tile_2:_')
+    print("Matching the implementation of DPBSSD:")
+    amx = amx.reorder('ki #1', 'ji')
+    amx = amx.bind_expr('A_temp', 'a[_] #0')
+    amx = amx.bind_expr('B_temp', 'b[_] #0')
+    amx = amx.set_memory('A_temp', DRAM)
+    amx = amx.set_memory('B_temp', DRAM)
+    amx = amx.set_precision('A_temp', 'i32')
+    amx = amx.set_precision('B_temp', 'i32')
+    amx = amx.reorder_before('B_temp:_')
+    print(amx)
 
     print("Replacing with AMX memory commands:")
     amx = amx.replace(zero_i32, "for ii in _: _ #0")
     amx = amx.replace(ld_i8_3d, "for ii in _: _ #0")
     amx = amx.replace(ld_i8_3d, "for ki in _: _ #0")
-    amx = amx.replace(st_i32, "for ii in _: _ #1")
-    amx = amx.set_memory('a',  AMX_TILE)
-    amx = amx.set_memory('b',  AMX_TILE)
-    amx = amx.set_memory('C_tile',  AMX_TILE)
-    print(amx)
-
-    print("DPBSSD:")
-    amx = amx.reorder('ki', 'ji')
-    amx = amx.bind_expr('A_temp', 'a[_] #1')
-    amx = amx.bind_expr('B_temp', 'b[_] #1')
-    amx = amx.reorder_before('B_temp:_')
     amx = amx.replace(dpbssd_3d, 'for ii in _: _ #0')
+    amx = amx.replace(st_i32, "for ii in _: _ #0")
     print(amx)
 
     T.add_proc(cpu.rename("matmul_on_cpu"))
@@ -354,7 +353,7 @@ def test_matmul_on_amx_scheduled_i8():
     T.add_body(
         [f'matmul_on_cpu(ctxt, {size1}, {size2}, {size1}, x, y_orig, z);'])
     T.add_body(
-        [f'matmul_on_amx(ctxt, {size1}, {size2//4}, {size1}, x, y, res);'])
+        [f'matmul_on_amx(ctxt, x, y, res);'])
 
     T.add_body([f'if(check_eq_2i32({size1}, {size1}, z, res)) {{',
                 '    printf("Correct\\n");',
@@ -367,3 +366,4 @@ def test_matmul_on_amx_scheduled_i8():
                 '    exit(1);',
                 '}',
                 ''])
+    T.compile().run()

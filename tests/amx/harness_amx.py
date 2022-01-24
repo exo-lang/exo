@@ -13,10 +13,8 @@ if not SDE:
     pytest.skip("skipping AMX tests; could not find sde",
                 allow_module_level=True)
 
-# CC_BAREMETAL        = os.getenv('CLANG') or os.getenv('CC', 'clang-13')
-CC_BAREMETAL = "clang++"
+CC_BAREMETAL        = os.getenv('CLANG') or os.getenv('CC', 'clang-13')
 CFLAGS_BAREMETAL    = ' '.join([
-                        f'-std=c++11',
                         f'-mamx-int8',
                         f'-mamx-tile',
                       ])
