@@ -24,6 +24,7 @@ from .new_eff import (
     Check_ReorderLoops,
     Check_DeleteConfigWrite,
     Check_ExtendEqv,
+    Check_ExprEqvInContext,
 )
 
 # --------------------------------------------------------------------------- #
@@ -2125,6 +2126,9 @@ class _DoAddUnsafeGuard(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.stmt:
+            Check_ExprEqvInContext(self.orig_proc, [s],
+                                   self.cond,
+                                   LoopIR.Const(True, T.bool, s.srcinfo))
             s1 = Alpha_Rename([s]).result()
             return [LoopIR.If(self.cond, s1, [], None, s.srcinfo)]
 

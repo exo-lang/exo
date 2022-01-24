@@ -1399,5 +1399,26 @@ def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
 
     slv.pop()
     return cfg_mod_visible
-    
+
+def Check_ExprEqvInContext(proc, stmts, expr0, expr1):
+    assert len(stmts) > 0
+    ctxt = ContextExtraction(proc, stmts)
+
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    e0 = lift_e(expr0)
+    e1 = lift_e(expr1)
+
+    test    = G(AEq(e0, e1))
+    is_ok   = slv.verify(test)
+    slv.pop()
+    if not test:
+        raise SchedulingError(
+            f"Expressions are not equivalent:\n{expr0}\nvs.\n{expr1}")
+
 
