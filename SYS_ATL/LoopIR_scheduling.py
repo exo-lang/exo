@@ -756,9 +756,33 @@ class _InlineWindow(LoopIR_Rewrite):
         # repair effects...
         self.proc = InferEffects(self.proc).result()
 
+
+    def calc_idx(self, idxs):
+        assert (len([w for w in self.win_stmt.rhs.idx
+                     if isinstance(w, LoopIR.Interval)]) == len(idxs))
+
+        new_idxs = []
+        for w in self.win_stmt.rhs.idx:
+            if isinstance(w, LoopIR.Interval):
+                new_idxs.append(
+                    LoopIR.BinOp("+", w.lo, idxs[0], T.index,
+                                 w.srcinfo))
+                idxs.pop()
+            else:
+                new_idxs.append(w.pt)
+
+        return new_idxs
+
     def map_s(self, s):
         if s is self.win_stmt:
             return []
+
+        if isinstance(s, LoopIR.Assign) or isinstance(s, LoopIR.Reduce):
+            if self.win_stmt.lhs == s.name:
+                new_idxs = self.calc_idx(s.idx)
+
+                return [type(s)( self.win_stmt.rhs.name, s.type, s.cast, new_idxs,
+                                 s.rhs, None, s.srcinfo )]
 
         return super().map_s(s)
 
@@ -806,18 +830,7 @@ class _InlineWindow(LoopIR_Rewrite):
 
         elif etyp is LoopIR.Read:
             if self.win_stmt.lhs == e.name:
-                assert (len([w for w in self.win_stmt.rhs.idx
-                             if isinstance(w, LoopIR.Interval)]) == len(e.idx))
-                idxs     = e.idx
-                new_idxs = []
-                for w in self.win_stmt.rhs.idx:
-                    if isinstance(w, LoopIR.Interval):
-                        new_idxs.append(
-                            LoopIR.BinOp("+", w.lo, idxs[0], T.index,
-                                         w.srcinfo))
-                        idxs.pop()
-                    else:
-                        new_idxs.append(w.pt)
+                new_idxs = self.calc_idx(e.idx)
 
                 return LoopIR.Read( self.win_stmt.rhs.name,
                                     new_idxs, e.type, e.srcinfo )
