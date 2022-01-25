@@ -46,7 +46,4 @@ To run pytest with coverage tests, execute
 ```
 pytest --cov=./ --cov-report=html
 ```
-Then, if you want to see annotated source files, run
-```
-coverage html
-```
+Then, if you want to see annotated source files, open `./htmlcov/index.html`.
