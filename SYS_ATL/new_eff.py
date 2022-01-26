@@ -1272,6 +1272,59 @@ def Check_ReorderLoops(proc, s):
             f"Loops {x} and {y} at {s.srcinfo} cannot be reordered.")
 
 
+
+# Formal Statement
+#       for i in e: (s1 ; s2)  -->  (for i in e: s1); (for i in e: s2)
+#
+#   Let a1' = [i -> i']a1
+#
+#   (forall i. May(InBound(i,e)) ==> Commutes(ae, a1) /\ Commutes(ae, a2))
+#   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i')  =>
+#                     Commutes(a1', a2) )
+#
+def Check_FissionLoop(proc, loop, stmts1, stmts2):
+    ctxt    = ContextExtraction(proc, [loop])
+
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    assert isinstance(loop, (LoopIR.ForAll,LoopIR.Seq))
+    i       = loop.iter
+    j       = i.copy()
+    hi      = loop.hi
+    subenv  = { i : LoopIR.Read(j, [], T.index, null_srcinfo()) }
+    stmts1_j= SubstArgs(stmts1, subenv).result()
+
+    a_bd    = expr_effs(hi)
+    a1      = stmts_effs(stmts1)
+    a1_j    = stmts_effs(stmts1_j)
+    a2      = stmts_effs(stmts2)
+
+    def bds(x,hi):
+        return AAnd(AInt(0) <= AInt(x), AInt(x) < lift_e(hi))
+
+    no_bound_change = (
+        AForAll([i], AImplies( AMay(bds(i,hi)),
+            AAnd(Commutes(a_bd, a1), Commutes(a_bd, a2))  )))
+    stmts_commute = (
+        AForAll([i,j], AImplies( AMay(AAnd( bds(i,hi), bds(j,hi),
+                                            AInt(i) < AInt(j) )),
+                                 Commutes(a1_j, a2) )))
+
+    pred    = G(AAnd(no_bound_change, stmts_commute))
+    is_ok   = slv.verify(pred)
+    slv.pop()
+    if not is_ok:
+        raise SchedulingError(
+            f"Cannot fission loop over {i} at {loop.srcinfo}.")
+
+
+
+
 def Check_DeleteConfigWrite(proc, stmts):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)

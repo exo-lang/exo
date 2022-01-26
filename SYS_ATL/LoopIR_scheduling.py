@@ -22,6 +22,7 @@ from .new_eff import (
     SchedulingError,
     Check_ReorderStmts,
     Check_ReorderLoops,
+    Check_FissionLoop,
     Check_DeleteConfigWrite,
     Check_ExtendEqv,
     Check_ExprEqvInContext,
@@ -2267,52 +2268,45 @@ class _DoFuseLoop(LoopIR_Rewrite):
     def __init__(self, proc, loop1, loop2):
         self.loop1 = loop1
         self.loop2 = loop2
-        self.found_first = False
+        self.modified_stmts = None
 
         super().__init__(proc)
+
+        loop, body1, body2 = self.modified_stmts
+        Check_FissionLoop(self.proc, loop, body1, body2)
 
         self.proc = InferEffects(self.proc).result()
 
     def map_stmts(self, stmts):
         new_stmts = []
 
-        for b in stmts:
-            if self.found_first:
-                if b != self.loop2:
-                    raise SchedulingError("expected the second stmt to be "
-                                          "directly after the first stmt")
-                self.found_first = False
-
-                # TODO: Is this enough??
-                # Check that loop is equivalent
-                if self.loop1.iter.name() != self.loop2.iter.name():
-                    raise SchedulingError("expected loop iteration variable "
-                                          "to match")
-
-                # Structural match
-                if self.loop1.hi != self.loop2.hi:
-                    raise SchedulingError("Loop bounds do not match!")
-
-                # TODO: Check sth about stmts? Safe for Seq loops? etc. etc.
-
-                body1 = SubstArgs(
-                    self.loop1.body,
-                    {self.loop1.iter: LoopIR.Read(self.loop2.iter, [], T.index,
-                                                  self.loop2.srcinfo)}
-                ).result()
-                body = body1 + self.loop2.body
-
-                b = type(self.loop1)(self.loop2.iter, self.loop2.hi, body, None,
-                                     b.srcinfo)
-
+        for i,b in enumerate(stmts):
             if b is self.loop1:
-                self.found_first = True
-                continue
+                if i+1 >= len(stmts) or stmts[i+1] is not self.loop2:
+                    raise SchedulingError("expected the two loops to be "
+                        "fused to come one right after the other")
 
-            for s in self.map_s(b):
-                new_stmts.append(s)
+                loop1, loop2 = self.loop1, self.loop2
 
-        return new_stmts
+                # check if the loop bounds are equivalent
+                Check_ExprEqvInContext(self.orig_proc, [loop1, loop2],
+                                       loop1.hi, loop2.hi)
+
+                x     = loop1.iter
+                y     = loop2.iter
+                hi    = loop1.hi
+                body1 = loop1.body
+                body2 = SubstArgs(loop2.body,
+                    { y : LoopIR.Read(x, [], T.index, loop1.srcinfo) }
+                ).result()
+                loop  = type(loop1)(x, hi, body1+body2, None, loop1.srcinfo)
+                self.modified_stmts = (loop, body1, body2)
+
+                return (stmts[:i] + [loop] + stmts[i+2:])
+
+        # if we reached this point, we didn't find the loop
+        return super().map_stmts(stmts)
+
 
 class _DoFuseIf(LoopIR_Rewrite):
     def __init__(self, proc, if1, if2):
