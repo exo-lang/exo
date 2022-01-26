@@ -1280,7 +1280,7 @@ def Check_ReorderLoops(proc, s):
 #
 #   (forall i. May(InBound(i,e)) ==> Commutes(ae, a1) /\ Commutes(ae, a2))
 #   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i')  =>
-#                     Commutes(a1', a2) )
+#                     Commutes(a1', a2) /\ AllocCommutes(a1, a2) )
 #
 def Check_FissionLoop(proc, loop, stmts1, stmts2):
     ctxt    = ContextExtraction(proc, [loop])
@@ -1313,7 +1313,8 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
     stmts_commute = (
         AForAll([i,j], AImplies( AMay(AAnd( bds(i,hi), bds(j,hi),
                                             AInt(i) < AInt(j) )),
-                                 Commutes(a1_j, a2) )))
+                                 AAnd(Commutes(a1_j, a2),
+                                      AllocCommutes(a1, a2)) )))
 
     pred    = G(AAnd(no_bound_change, stmts_commute))
     is_ok   = slv.verify(pred)
