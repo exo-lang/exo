@@ -6,7 +6,6 @@ from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 from .helper import TMP_DIR, generate_lib
 
-
 def test_fission_after_simple():
 
     # Test 1
@@ -290,6 +289,18 @@ def test_expand_dim4():
         bar = foo.expand_dim('a : i8', 'n', 'i-j') # bound check should fail
 
     print(bar)
+
+
+def test_expand_dim5():
+    @proc
+    def foo(n : size, x : i8):
+        a : i8
+        for i in seq(0, n):
+            a = x
+
+    foo = foo.expand_dim('a : i8', 'n', 'i')
+    print(foo)
+
 
 def test_double_fission():
     @proc
