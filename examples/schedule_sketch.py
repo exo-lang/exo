@@ -1,3 +1,82 @@
+# Issues that needs to be resoved
+# 1. How to return statement with proc from a scheduling operator?
+#    e.g., we want to return stmt_gap (or stmt) from simple_fission_after, so that we can
+#          further fission or remove loop using that stmt
+# 2. How to pattern match / point to statement blocks?
+#      Currently, our pointing scheme is not very suitable for expressing statement blocks.
+#      We need to point to statement blocks with new stage_memory
+
+# The previous fission_after semantics was this:
+# for i in seq(0, n):
+#   s1
+#   s2
+# ----->
+# for i in seq(0, n):
+#   s1
+# for i in seq(0, n):
+#   s2
+# .remove_loop('for i in _:_ #0')
+# .remove_loop('for i in _:_ #1')
+
+# To be able to construct user-defined scheduling function like this from primitive operators
+# like fission_simple and remove_loop, notice that we need to have a systematic way of saying
+# '... #0' and '... #1'. In another words, I think we need a way for a user to address statement
+# order, or line number.
+
+
+# We will record the statement in proc.
+@proc
+def foo():
+    ...
+foo = foo.simple_fission('a = b[_]')
+
+def fission(proc, stmt, n_lifts): # This is Python
+    for i in range(0, n_lifts):
+        # I think we will need to have branch like this, if our semantics is:
+        # 1. If scheduling operator is called with a pattern, use that pattern
+        # 2. If the operator is called without a pattern, use the recorded stmt in proc
+        if i == 0:
+            proc = proc.simple_fission(stmt)
+        else:
+            proc = proc.simple_fission()
+
+
+OR 
+
+# More explicit ???
+def fission(proc, stmt, n_lifts):
+    for i in range(0, n_lifts):
+        (proc, stmt) = proc.simple_fission(stmt)
+
+
+# We need to do something like this!
+def fission(proc, stmt, n_lifts):
+    for i in range(0, n_lifts):
+        (proc, stmt) = proc.simple_fission(stmt)
+        (proc, stmt) = proc.remove_loop(stmt) # This removes the "pre" loop
+        (proc, stmt) = proc.remove_loop(stmt+1) # This should remove the "post" loop
+
+
+# Make primitive operators always return stmtgap or linenum 
+@sched
+def fission(g : stmtgap, n : int):
+    for i in par(0, n):
+        g = simple_fission(g)
+        remove_loop(g)
+        remove_loop(g+1)
+    
+    return g
+
+foo = foo.schedule(fission, ['for i in _:_', 3])
+
+foo = foo.schedule(bind_expr, ['a = b[_]', 'tmp'])
+
+
+# To specify statement blocks, we can use window ish experession
+g   = get_gap('fori in _:_')
+foo = foo.stage_mem(g : 10) # We can maybe do something like this with 
+
+
 
 
 @proc
