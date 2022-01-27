@@ -1,4 +1,90 @@
 
+# Limitations of current scheduling front end and the issues that needs to be resoved
+# 1. How to return statement with proc from a scheduling operator?
+#    e.g., we want to return stmt_gap (or stmt) from simple_fission_after, so that we can
+#          further fission or remove loop using that stmt
+# 2. How to pattern match / point to a statement block (instead of just a single stmt)?
+#      Currently, our pointing scheme is not very suitable for expressing statement blocks.
+#      We need to point to statement blocks with new stage_memory directive.
+# 3. How to modify the pointer with respect to the statement, by gap value or line number?
+#    e.g., We want to be able to say "this statement after that statement" (such as "g+1")
+
+# To motivate why we need 3, the previous fission_after semantics was this:
+for i in seq(0, n):
+  s1
+  s2
+----->
+for i in seq(0, n): # This is "pre"
+  s1
+for i in seq(0, n): # "post"
+  s2
+.remove_loop('for i in _:_ #0')
+.remove_loop('for i in _:_ #1')
+# To construct user-defined scheduling function like this from primitive operators
+# such as fission_simple and remove_loop, notice that we need to have a systematic way of saying
+# '... #0' and '... #1', instead of just giving a string.
+# In another words, I think we need a way for a user to address statement order or a line number.
+
+# -----------------------------------------------------------------------------------------
+# Proposal 1 is to record the previously added statement in proc.
+# Example code:
+@proc
+def foo():
+    ...
+foo = foo.simple_fission('a = b[_]') # We don't need to modify the existing interface
+
+def fission(proc, stmt, n_lifts): # Users can write user-defined schedule in Python
+    for i in range(0, n_lifts):
+        # I think we will need to have branch like this, if our semantics is:
+        # 1. If scheduling operator is called with a pattern, use that pattern
+        # 2. If the operator is called without a pattern, use the recorded stmt in proc
+        if i == 0:
+            proc = proc.simple_fission(stmt)
+        else:
+            proc = proc.simple_fission()
+
+# -----------------------------------------------------------------------------------------
+# Proposal 2 is to return the tuple of added statement and proc from scheduling directives.
+# Example code:
+def fission(proc, stmt, n_lifts):
+    # I guess this is more explicit, but can confuse users
+    for i in range(0, n_lifts):
+        (proc, stmt) = proc.simple_fission(stmt)
+
+# -----------------------------------------------------------------------------------------
+# Proposal 3 is to make primitive operators always return statement gap (stmtgap) or line number
+# We need a new function decorator @sched to capture proc.
+@sched
+def fission(g : stmtgap, n_lifts : int):
+    for i in par(0, n_lifts):
+        g = simple_fission(g)
+        g = remove_loop(g) # remove "pre" loop
+        remove_loop(g+1) # remove "post" loop
+    return g
+
+# We cannot directly call the user-defined scheduling function but will need to wrap that around
+# "schedule" or something like that
+foo = foo.schedule(fission, ['for i in _:_', 3])
+
+# -----------------------------------------------------------------------------------------
+# The advantage of Proposal 2 and 3 are that the pointer (stmt and g) is explicit to the user,
+# so they can implement full fission with remove_loop like this. This is using Proposal 2 syntax.
+def fission(proc, stmt, n_lifts):
+    for i in range(0, n_lifts):
+        (proc, stmt) = proc.simple_fission(stmt)
+        (proc, stmt) = proc.remove_loop(stmt) # This removes the "pre" loop
+        (proc, stmt) = proc.remove_loop(stmt+1) # This should remove the "post" loop
+
+# -----------------------------------------------------------------------------------------
+# Proposal 4 is to implement a "gap" or "stmt" class in Python with operator overloading
+# with that, we can create a statement block like this with window ish experession
+g   = get_gap('for i in _:_')
+# Stage the `weight` to `weight_scratch` in statement block of "g:10"
+# g:10 means "10 statements from g"
+foo = foo.stage_mem(g:10, 'weight', 'weight_scratch')
+
+
+
 
 @proc
 ld_config(...):
