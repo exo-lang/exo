@@ -31,8 +31,8 @@ jobs:
 #      - name: Get latest CMake and ninja
 #        uses: lukka/get-cmake@latest
 #
-#      - name: Setup SDE binaries
-#        uses: petarpetrovt/setup-sde@v1.2
+      - name: Setup SDE binaries
+        uses: petarpetrovt/setup-sde@v1.2
 
       - name: Install Clang 13
         run: |
