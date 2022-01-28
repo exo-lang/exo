@@ -10,32 +10,34 @@ from SYS_ATL import proc
 # R - width of the filter kernel
 def gen_conv1d():
     @proc
-    def conv1d(K : size, C : size, W : size, R : size,
-               w : R[K,C,R],
-               x : R[C,W],
-               res : R[K,W],
-              ):
+    def conv1d(K: size, C: size, W: size, R: size,
+               w: R[K, C, R],
+               x: R[C, W],
+               res: R[K, W],
+               ):
         # zero out the result memory
-        for k_init in par(0,K):
-            for i_init in par(0,W):
+        for k_init in par(0, K):
+            for i_init in par(0, W):
                 res[k_init, i_init] = 0.0
 
         # do the convolution
-        for k in par(0,K):
-            for c in par(0,C):
-                for i in par(0,W):
-                    for r in par(0,R):
-                        if 0 <= i-r:
-                            res[k,i] += w[k,c,r] * x[c,i-r]
+        for k in par(0, K):
+            for c in par(0, C):
+                for i in par(0, W):
+                    for r in par(0, R):
+                        if 0 <= i - r:
+                            res[k, i] += w[k, c, r] * x[c, i - r]
+
     return conv1d
+
 
 def test_im2col():
     conv1d = gen_conv1d()
 
     # Let's start applying scheduling
     im2col_conv = conv1d.rename('im2col_conv')
-    im2col_conv = im2col_conv.reorder('i','r')
-    im2col_conv = im2col_conv.bind_expr('y','x[c, i-r]')
+    im2col_conv = im2col_conv.reorder('i', 'r')
+    im2col_conv = im2col_conv.bind_expr('y', 'x[c, i-r]')
 
     # next, we can start to lift that allocation
     # up and out of the loop
@@ -45,7 +47,7 @@ def test_im2col():
     # separating what is now a data-marshalling statement from
     # the actual compute statement in two subsequent
     # loop nests via fissioning
-    im2col_conv = im2col_conv.fission_after('y[c,r,i] = _',5)
+    im2col_conv = im2col_conv.fission_after('y[c,r,i] = _', 5)
 
     # Now, in order to expose these two parts of the computation as
     # re-usable sub-procedures, we want a way to factor them out.
@@ -54,19 +56,21 @@ def test_im2col():
 
     # Given this factoring, we can then proceed
     # to schedule these sub-procedures themselves.
-    tiled_matmul =      (matmul.rename('tiled_matmul')
-                         # split the loops we want to tile together
-                         .reorder('r','i')
-                         .split('k',8,['khi','klo'], tail='cut')
-                         .reorder('klo #0','c').reorder('klo #0','i')
-                         .split('c #0',8,['chi','clo'], tail='cut')
-                         .reorder('clo #0','i').reorder('clo #0','klo')
-                         .split('i #0', 8, ['ihi','ilo'], tail='cut')
-                         .reorder('ilo #0','klo').reorder('ilo #0','clo'))
+    tiled_matmul = (matmul.rename('tiled_matmul')
+                    # split the loops we want to tile together
+                    .reorder('r', 'i')
+                    .split('k', 8, ['khi', 'klo'], tail='cut')
+                    .reorder('klo #0', 'c').reorder('klo #0', 'i')
+                    .split('c #0', 8, ['chi', 'clo'], tail='cut')
+                    .reorder('clo #0', 'i').reorder('clo #0', 'klo')
+                    .split('i #0', 8, ['ihi', 'ilo'], tail='cut')
+                    .reorder('ilo #0', 'klo').reorder('ilo #0', 'clo'))
 
     # We can invoke another scheduling directive
     # to change which version of the matmul gets scheduled
     im2col_conv = im2col_conv.call_eqv(tiled_matmul, 'matmul(_,_,_,_,_,_,_)')
+
+
 """
     filename = "test_im2col"
 
