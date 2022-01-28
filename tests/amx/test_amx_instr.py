@@ -123,7 +123,7 @@ def test_transform_memory(compiler, sde64):
 
 def matmul_algorithm_i8():
     @proc
-    def matmul_on_cpu_i8(
+    def matmul_on_cpu(
             M: size,
             K: size,
             N: size,
@@ -145,12 +145,12 @@ def matmul_algorithm_i8():
 
                     C[i, j] += a * b
 
-    return matmul_on_cpu_i8
+    return matmul_on_cpu
 
 
 def modified_matmul_algorithm_i8():
     @proc
-    def modified_matmul_on_cpu_i8(
+    def matmul_on_amx(
             M: size,
             K: size,
             N: size,
@@ -186,12 +186,12 @@ def modified_matmul_algorithm_i8():
                         C_tile += a * b
                 C[i, j] = C_tile
 
-    return modified_matmul_on_cpu_i8
+    return matmul_on_amx
 
 
 def get_transform_memory_i8():
     @proc
-    def transform_memory_i8(
+    def transform_memory(
             m: size,
             n: size,
             src: i8[m, n] @ DRAM,
@@ -203,7 +203,7 @@ def get_transform_memory_i8():
                 for k in par(0, 4):
                     dest[i, 4 * j + k] = src[4 * i + k, j]
 
-    return transform_memory_i8
+    return transform_memory
 
 
 def test_matmul_on_amx_by_hand_i8(compiler, sde64):
@@ -268,18 +268,13 @@ def test_matmul_on_amx_by_hand_i8(compiler, sde64):
                 r''])
 
     _run_amx(compiler, sde64, [
-        matmul_algorithm_i8().rename("matmul_on_cpu"),
-        get_transform_memory_i8().rename("transform_memory"),
-        matmul_on_amx,
+        matmul_algorithm_i8(), get_transform_memory_i8(), matmul_on_amx
     ], t)
 
 
 def test_matmul_on_amx_scheduled_i8(compiler, sde64):
     size1 = 512
     size2 = 512
-
-    cpu = matmul_algorithm_i8()
-    transform_memory = get_transform_memory_i8()
 
     amx = modified_matmul_algorithm_i8().partial_eval(size1, size2 // 4, size1)
 
@@ -358,9 +353,7 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64):
                 ''])
 
     _run_amx(compiler, sde64, [
-        cpu.rename("matmul_on_cpu"),
-        transform_memory.rename("transform_memory"),
-        amx.rename("matmul_on_amx"),
+        matmul_algorithm_i8(), get_transform_memory_i8(), amx,
     ], t)
 
 
