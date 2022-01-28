@@ -70,7 +70,7 @@ def test_avx2_simple_math(compiler):
         expected = x * y * y
 
         fn(None, n, x, y)
-        assert np.allclose(x, expected)
+        np.testing.assert_almost_equal(x, expected)
 
 
 def test_avx2_simple_math_scheduling(compiler):
@@ -124,10 +124,10 @@ def test_avx2_simple_math_scheduling(compiler):
         expected = x * y * y
 
         fn(None, n, x, y)
-        assert np.allclose(x, expected)
+        np.testing.assert_almost_equal(x, expected)
 
 
-def sgemm_test_cases(fn, M, N, K):
+def _sgemm_test_cases(fn, M, N, K):
     for m, n, k in itertools.product(M, N, K):
         A = np.random.rand(m, k).astype(np.float32)
         B = np.random.rand(k, n).astype(np.float32)
@@ -136,7 +136,7 @@ def sgemm_test_cases(fn, M, N, K):
         C_out = np.zeros_like(C)
 
         fn(None, m, n, k, C_out, A, B)
-        assert np.allclose(C, C_out), f"sgemm failed for m={m} n={n} k={k}"
+        np.testing.assert_almost_equal(C, C_out, decimal=3)
 
 
 def gen_rank_k_reduce_6x16():
@@ -265,10 +265,10 @@ def test_avx2_sgemm_full(compiler):
                           skip_on_fail=True,
                           CMAKE_C_FLAGS="-march=skylake")
 
-    sgemm_test_cases(fn,
-                     M=range(10, 600, 200),
-                     N=range(20, 400, 120),
-                     K=range(1, 512, 160))
+    _sgemm_test_cases(fn,
+                      M=range(10, 600, 200),
+                      N=range(20, 400, 120),
+                      K=range(1, 512, 160))
 
 
 def test_avx2_sgemm_6x16(compiler):
@@ -289,7 +289,7 @@ def test_avx2_sgemm_6x16(compiler):
                           skip_on_fail=True,
                           CMAKE_C_FLAGS="-march=skylake")
 
-    sgemm_test_cases(fn, M=[6], N=[16], K=range(1, 512))
+    _sgemm_test_cases(fn, M=[6], N=[16], K=range(1, 512))
 
 
 def test_avx512_sgemm_full(compiler):
@@ -368,7 +368,7 @@ def test_avx512_sgemm_full(compiler):
                           skip_on_fail=True,
                           CMAKE_C_FLAGS="-march=skylake-avx512")
 
-    sgemm_test_cases(fn,
-                     M=range(10, 600, 200),
-                     N=range(20, 400, 120),
-                     K=range(1, 512, 160))
+    _sgemm_test_cases(fn,
+                      M=range(10, 600, 200),
+                      N=range(20, 400, 120),
+                      K=range(1, 512, 160))
