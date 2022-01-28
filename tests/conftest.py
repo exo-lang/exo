@@ -67,9 +67,9 @@ def sde64():
     if not sde:
         pytest.skip('could not find SDE')
 
-    def run(cmd: Union[str, List[str]], **kwargs):
-        if isinstance(cmd, str):
-            cmd = shlex.split(cmd)
+    def run(cmd, **kwargs):
+        if not isinstance(cmd, list):
+            cmd = shlex.split(str(cmd))
         return subprocess.run([sde, '-future', '--', *cmd],
                               check=True, **kwargs)
 
