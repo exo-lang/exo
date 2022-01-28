@@ -227,7 +227,7 @@ def test_expand_dim4(golden):
     assert '\n'.join(map(str, cases)) == golden
 
 
-def test_expand_dim5():
+def test_expand_dim5(golden):
     @proc
     def foo(n: size, x: i8):
         a: i8
@@ -235,8 +235,7 @@ def test_expand_dim5():
             a = x
 
     foo = foo.expand_dim('a : i8', 'n', 'i')
-    assert "a[i]" in str(foo)
-    print(foo)
+    assert str(foo) == golden
 
 
 def test_double_fission(golden):
