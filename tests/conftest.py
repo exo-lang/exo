@@ -1,14 +1,22 @@
 import ctypes
+import distutils.spawn
 import os
 import subprocess
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Dict, Union, List
 
 import numpy as np
 import pytest
 from _pytest.config import argparsing
+
+from SYS_ATL import Procedure, compile_procs
+
+
+# ---------------------------------------------------------------------------- #
+# Pytest hooks                                                                 #
+# ---------------------------------------------------------------------------- #
 
 
 def pytest_addoption(parser: argparsing.Parser):
@@ -20,10 +28,53 @@ def pytest_addoption(parser: argparsing.Parser):
     )
 
 
-def _nodeid_to_path(nodeid: str) -> Path:
-    nodeid = nodeid.replace('::', '/')
-    nodeid = nodeid.replace('.py/', '/')
-    return Path(nodeid)
+# ---------------------------------------------------------------------------- #
+# Pytest fixtures                                                              #
+# ---------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def golden(request):
+    """
+    A fixture to load the golden output for the requesting test. Should be
+    checked against some actual output in at least one assertion.
+    """
+
+    basedir = Path(request.config.invocation_dir)
+    testpath = Path(request.fspath)
+
+    p = (Path('golden') /
+         testpath.relative_to(basedir).with_suffix('') /
+         request.node.name).with_suffix('.txt')
+
+    update = request.config.getoption("--update-golden")
+    if p.exists():
+        yield GoldenOutput(p, p.read_text(), update)
+    else:
+        yield GoldenOutput(p, None, update)
+
+
+@pytest.fixture
+def compiler(tmp_path, request):
+    return Compiler(tmp_path, request.node.name)
+
+
+@pytest.fixture
+def sde64():
+    sde = (distutils.spawn.find_executable("sde64", os.getenv('SDE_PATH')) or
+           distutils.spawn.find_executable("sde64"))
+    if not sde:
+        pytest.skip('could not find SDE')
+
+    def run(cmd):
+        subprocess.run(f"{sde} -future -- {cmd}", shell=True, check=True)
+
+    return run
+
+
+# ---------------------------------------------------------------------------- #
+# Implementation classes                                                       #
+# ---------------------------------------------------------------------------- #
 
 
 @dataclass
@@ -56,27 +107,6 @@ class GoldenOutput:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(str(other))
         return result or self.update
-
-
-@pytest.fixture
-def golden(request):
-    """
-    A fixture to load the golden output for the requesting test. Should be
-    checked against some actual output in at least one assertion.
-    """
-
-    basedir = Path(request.config.invocation_dir)
-    testpath = Path(request.fspath)
-
-    p = (Path('golden') /
-         testpath.relative_to(basedir).with_suffix('') /
-         request.node.name).with_suffix('.txt')
-
-    update = request.config.getoption("--update-golden")
-    if p.exists():
-        yield GoldenOutput(p, p.read_text(), update)
-    else:
-        yield GoldenOutput(p, None, update)
 
 
 @dataclass
@@ -119,27 +149,29 @@ class Compiler:
     workdir: Path
     basename: str
 
-    def compile(self, proc, *, compile_only=False, skip_on_fail=False,
-                **kwargs):
-        atl = self.workdir / f'{proc.name()}_pretty.atl'
-        atl.write_text(str(proc))
+    def compile(
+            self,
+            procs: Union[Procedure, List[Procedure]],
+            *,
+            test_files: Optional[Dict[str, str]] = None,
+            compile_only: bool = False,
+            skip_on_fail: bool = False,
+            **kwargs
+    ):
+        test_files = test_files or {}
+        if isinstance(procs, Procedure):
+            procs = [procs]
 
-        proc.compile_c(self.workdir, self.basename)
+        compile_procs(procs, self.workdir, f'{self.basename}.c',
+                      f'{self.basename}.h')
 
-        cml = (self.workdir / 'CMakeLists.txt')
-        cml.write_text(textwrap.dedent(
-            f'''
-            cmake_minimum_required(VERSION 3.22)
-            project({self.basename} LANGUAGES C)
-            
-            add_library({self.basename} SHARED "{self.basename}.c")
-            
-            file(GENERATE OUTPUT "$<CONFIG>/lib_path.txt"
-                 CONTENT "$<TARGET_FILE:{self.basename}>")
-            '''
-        ))
+        atl = self.workdir / f'{self.basename}_pretty.atl'
+        atl.write_text('\n'.join(map(str, procs)))
 
-        cm_build = [
+        (self.workdir / 'CMakeLists.txt').write_text(
+            self._generate_cml(test_files))
+
+        self._run_command([
             f'ctest',
             f'-C',
             f'Release',
@@ -151,31 +183,69 @@ class Compiler:
             f'--build-options',
             *(f'-D{arg}={value}'
               for arg, value in kwargs.items())
-        ]
+        ], skip_on_fail)
 
+        artifact_path = Path((self.workdir / 'build' / 'Release' /
+                              'artifact_path.txt').read_text()
+                             ).resolve(strict=True)
+
+        if compile_only or test_files:
+            return artifact_path
+
+        return LibWrapper(
+            ctypes.CDLL(artifact_path),
+            procs[0].name()
+        )
+
+    @staticmethod
+    def _run_command(build_command, skip_on_fail):
         skip = False
-
         try:
-            subprocess.run(cm_build, check=True)
+            subprocess.run(build_command, check=True)
         except subprocess.CalledProcessError:
             if skip_on_fail:
                 skip = True
             else:
                 raise
-
         if skip:
             pytest.skip('Compile failure converted to skip')
 
-        if not compile_only:
-            lib_rsp = self.workdir / 'build' / 'Release' / 'lib_path.txt'
-            return LibWrapper(
-                ctypes.CDLL(lib_rsp.read_text()),
-                proc.name()
-            )
+    def _generate_cml(self, test_files: Dict[str, str]):
+        cml_body = textwrap.dedent(
+            f'''
+            cmake_minimum_required(VERSION 3.22)
+            project({self.basename} LANGUAGES C)
+            
+            option(BUILD_SHARED_LIBS "Build shared libraries by default" ON)
+            
+            add_library({self.basename} "{self.basename}.c")
+            add_library({self.basename}::{self.basename} ALIAS {self.basename})
+            
+            '''
+        )
+
+        lib_name = f'{self.basename}::{self.basename}'
+        if not test_files:
+            artifact = lib_name
         else:
-            return None
+            artifact = 'main::main'
 
+            for filename, contents in test_files.items():
+                (self.workdir / filename).write_text(contents)
 
-@pytest.fixture
-def compiler(tmp_path, request):
-    return Compiler(tmp_path, request.node.name)
+            cml_body += textwrap.dedent(
+                f'''
+                add_executable(main {' '.join(test_files.keys())})
+                add_executable({artifact} ALIAS main)
+                target_link_libraries(main PRIVATE {lib_name})
+                
+                '''
+            )
+
+        cml_body += textwrap.dedent(
+            f'''
+            file(GENERATE OUTPUT "$<CONFIG>/artifact_path.txt"
+                 CONTENT "$<TARGET_FILE:{artifact}>")
+            '''
+        )
+        return cml_body
