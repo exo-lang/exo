@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL import proc, DRAM
+from SYS_ATL import proc, DRAM, SchedulingError
 from SYS_ATL.libs.memories import GEMM_SCRATCH
-from .helper import TMP_DIR
+from SYS_ATL.parse_fragment import ParseFragmentError
 
 
-def test_fission_after_simple():
-    # Test 1
+def test_fission_after_simple(golden):
     @proc
-    def bar(n: size, m: size):
+    def foo(n: size, m: size):
         for i in par(0, n):
             for j in par(0, m):
                 x: f32
@@ -18,25 +17,6 @@ def test_fission_after_simple():
                 y: f32
                 y = 1.1
 
-    res = bar.fission_after_simple('x = _', n_lifts=2)
-
-    @proc
-    def bar(n: size, m: size):
-        for i in par(0, n):
-            for j in par(0, m):
-                x: f32
-                x = 0.0
-
-        for i in par(0, n):
-            for j in par(0, m):
-                y: f32
-                y = 1.1
-
-    ref = bar
-
-    assert str(res) == str(ref)
-
-    # Test 2
     @proc
     def bar(n: size, m: size):
         for i in par(0, n):
@@ -53,34 +33,15 @@ def test_fission_after_simple():
                 y: f32
                 y = 1.1
 
-    res = bar.fission_after_simple('x = _', n_lifts=2)
+    cases = [
+        foo.fission_after_simple('x = _', n_lifts=2),
+        bar.fission_after_simple('x = _', n_lifts=2),
+    ]
 
-    @proc
-    def bar(n: size, m: size):
-        for i in par(0, n):
-            for j in par(0, m):
-                x: f32
-                x = 0.0
-        for i in par(0, n):
-            for j in par(0, m):
-                y: f32
-                y = 1.1
-
-        for k in par(0, 30):
-            for l in par(0, 100):
-                x: i8
-                x = 4.0
-        for k in par(0, 30):
-            for l in par(0, 100):
-                y: f32
-                y = 1.1
-
-    ref = bar
-
-    assert str(res) == str(ref)
+    assert '\n'.join(map(str, cases)) == golden
 
 
-def test_rearrange_dim():
+def test_rearrange_dim(golden):
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
         a: i8[N, M, K]
@@ -88,9 +49,6 @@ def test_rearrange_dim():
             for m in seq(0, M):
                 for k in seq(0, K):
                     a[n, m, k] = x[n, m, k]
-
-    foo = foo.rearrange_dim('a : i8[_]', [1, 2, 0])
-    assert "i8[M, K, N]" in str(foo)
 
     @proc
     def bar(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -106,22 +64,21 @@ def test_rearrange_dim():
                 for k in seq(0, K):
                     a[m, k, n] = x[n, m, k]
 
-    res = bar.rearrange_dim('a : i8[_]', [1, 0, 2])
-    assert "i8[M, N, K]" in str(res)
-    assert "i8[K, M, N]" in str(res)
+    cases = [
+        foo.rearrange_dim('a : i8[_]', [1, 2, 0]),
+        bar.rearrange_dim('a : i8[_]', [1, 0, 2]),
+    ]
+
+    assert '\n'.join(map(str, cases)) == golden
 
 
-def test_remove_loop():
+def test_remove_loop(golden):
     @proc
     def foo(n: size, m: size, x: i8):
         a: i8
         for i in seq(0, n):
             for j in seq(0, m):
                 x = a
-
-    foo = foo.remove_loop('for i in _:_')
-    assert "for i in seq(0, n)" not in str(foo)
-    print(foo)
 
     @proc
     def bar(n: size, m: size, x: i8):
@@ -134,12 +91,15 @@ def test_remove_loop():
             for j in seq(0, m):
                 pass
 
-    bar = bar.remove_loop('for i in _:_')
-    assert "for i in seq(0, n)" not in str(bar)
-    print(bar)
+    cases = [
+        foo.remove_loop('for i in _:_'),
+        bar.remove_loop('for i in _:_'),
+    ]
+
+    assert '\n'.join(map(str, cases)) == golden
 
 
-def test_lift_alloc_simple():
+def test_lift_alloc_simple(golden):
     @proc
     def bar(n: size, A: i8[n]):
         for i in seq(0, n):
@@ -147,21 +107,11 @@ def test_lift_alloc_simple():
                 tmp_a: i8
                 tmp_a = A[i]
 
-    res = bar.lift_alloc_simple('tmp_a : _', n_lifts=2)
-
-    @proc
-    def bar(n: size, A: i8[n]):
-        tmp_a: i8
-        for i in seq(0, n):
-            for j in seq(0, n):
-                tmp_a = A[i]
-
-    ref = bar
-
-    assert str(res) == str(ref)
+    bar = bar.lift_alloc_simple('tmp_a : _', n_lifts=2)
+    assert str(bar) == golden
 
 
-def test_lift_alloc_simple2():
+def test_lift_alloc_simple2(golden):
     @proc
     def bar(n: size, A: i8[n]):
         for i in seq(0, n):
@@ -174,23 +124,8 @@ def test_lift_alloc_simple2():
                 tmp_a: i8
                 tmp_a = A[i]
 
-    res = bar.lift_alloc_simple('tmp_a : _', n_lifts=2)
-
-    @proc
-    def bar(n: size, A: i8[n]):
-        tmp_a: i8
-        for i in seq(0, n):
-            for j in seq(0, n):
-                tmp_a = A[i]
-
-        tmp_a: i8
-        for i in seq(0, n):
-            for j in seq(0, n):
-                tmp_a = A[i]
-
-    ref = bar
-
-    assert str(res) == str(ref)
+    bar = bar.lift_alloc_simple('tmp_a : _', n_lifts=2)
+    assert str(bar) == golden
 
 
 def test_lift_alloc_simple_error():
@@ -201,12 +136,11 @@ def test_lift_alloc_simple_error():
                 tmp_a: i8
                 tmp_a = A[i]
 
-    with pytest.raises(Exception,
-                       match='specified lift level'):
+    with pytest.raises(SchedulingError, match='specified lift level'):
         bar.lift_alloc_simple('tmp_a : _', n_lifts=3)
 
 
-def test_expand_dim():
+def test_expand_dim(golden):
     @proc
     def foo(n: size, m: size, x: i8):
         a: i8
@@ -215,7 +149,7 @@ def test_expand_dim():
                 x = a
 
     foo = foo.expand_dim('a : i8', 'n', 'i')
-    print(foo)
+    assert str(foo) == golden
 
 
 def test_expand_dim2():
@@ -230,13 +164,11 @@ def test_expand_dim2():
             for k in seq(0, m):
                 pass
 
-    with pytest.raises(Exception,
-                       match='k not found in'):
-        foo = foo.expand_dim('a : i8', 'n', 'k')  # should be error
-    print(foo)
+    with pytest.raises(ParseFragmentError, match='k not found in'):
+        foo.expand_dim('a : i8', 'n', 'k')  # should be error
 
 
-def test_expand_dim3():
+def test_expand_dim3(golden):
     @proc
     def foo(n: size, m: size, x: i8):
         for i in seq(0, n):
@@ -253,11 +185,10 @@ def test_expand_dim3():
                 pass
 
     foo = foo.expand_dim('a : i8', 'n', 'i')  # did it pick the right i?
-    foo.compile_c(TMP_DIR, "test_expand_dim3")
-    print(foo)
+    assert foo.c_code_str() == golden
 
 
-def test_expand_dim4():
+def test_expand_dim4(golden):
     @proc
     def foo(n: size, m: size, x: i8):
         for i in seq(0, n):
@@ -274,34 +205,29 @@ def test_expand_dim4():
             for j in seq(0, m):
                 pass
 
-    bar = foo.expand_dim('a : i8', 'n', 'i')  # did it pick the right i?
+    with pytest.raises(TypeError, match='effect checking'):
+        foo.expand_dim('a : i8', '10-20', '10')  # this is not fine
 
-    bar = foo.expand_dim('a : i8', '40 + 1', '10')  # this is fine
+    with pytest.raises(TypeError, match='effect checking'):
+        foo.expand_dim('a : i8', 'n - m', 'i')  # out of bounds
 
-    with pytest.raises(Exception,
-                       match='effect checking'):
-        bar = foo.expand_dim('a : i8', '10-20', '10')  # this is not fine
+    with pytest.raises(ParseFragmentError, match='not found in'):
+        foo.expand_dim('a : i8', 'hoge', 'i')  # does not exist
 
-    bar = foo.expand_dim('a : i8', 'n + m', 'i')  # fine
+    with pytest.raises(TypeError, match='effect checking'):
+        foo.expand_dim('a : i8', 'n', 'i-j')  # bound check should fail
 
-    with pytest.raises(Exception,
-                       match='effect checking'):
-        bar = foo.expand_dim('a : i8', 'n - m', 'i')  # out of bounds
+    cases = [
+        foo.expand_dim('a : i8', 'n', 'i'),  # did it pick the right i?
+        foo.expand_dim('a : i8', '40 + 1', '10'),  # this is fine
+        foo.expand_dim('a : i8', 'n + m', 'i'),  # fine
+        foo.expand_dim('a : i8', 'n', 'n-1'),
+    ]
 
-    with pytest.raises(Exception,
-                       match='not found in'):
-        bar = foo.expand_dim('a : i8', 'hoge', 'i')  # does not exist
-
-    bar = foo.expand_dim('a : i8', 'n', 'n-1')
-
-    with pytest.raises(Exception,
-                       match='effect checking'):
-        bar = foo.expand_dim('a : i8', 'n', 'i-j')  # bound check should fail
-
-    print(bar)
+    assert '\n'.join(map(str, cases)) == golden
 
 
-def test_double_fission():
+def test_double_fission(golden):
     @proc
     def foo(N: size, a: f32[N], b: f32[N], out: f32[N]):
         for i in par(0, N):
@@ -314,10 +240,10 @@ def test_double_fission():
 
     foo = foo.lift_alloc('res : _')
     foo = foo.double_fission('res = _ #0', 'res += _ #0')
-    print(foo)
+    assert str(foo) == golden
 
 
-def test_data_reuse():
+def test_data_reuse(golden):
     @proc
     def foo(a: f32 @ DRAM, b: f32 @ DRAM):
         aa: f32
@@ -330,10 +256,10 @@ def test_data_reuse():
         b = c
 
     foo = foo.data_reuse('bb:_', 'c:_')
-    print(foo)
+    assert str(foo) == golden
 
 
-def test_bind_lhs():
+def test_bind_lhs(golden):
     @proc
     def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
         for ii in par(0, 1):
@@ -344,22 +270,21 @@ def test_bind_lhs():
 
     myfunc_cpu = myfunc_cpu.bind_expr('inp_ram', 'inp[_]', cse=True)
     myfunc_cpu = myfunc_cpu.bind_expr('out_ram', 'out[_]', cse=True)
-    print(myfunc_cpu)
+    assert str(myfunc_cpu) == golden
 
 
-def test_simple_split():
+def test_simple_split(golden):
     @proc
     def bar(n: size, A: i8[n]):
         tmp: i8[n]
         for i in par(0, n):
             tmp[i] = A[i]
 
-    print("old\n", bar)
     bar = bar.split('i', 4, ['io', 'ii'], tail='guard')
-    print("new\n", bar)
+    assert str(bar) == golden
 
 
-def test_simple_reorder():
+def test_simple_reorder(golden):
     @proc
     def bar(n: size, m: size, A: i8[n, m]):
         tmp: i8[n, m]
@@ -367,24 +292,22 @@ def test_simple_reorder():
             for j in par(0, m):
                 tmp[i, j] = A[i, j]
 
-    print("old\n", bar)
     bar = bar.reorder('i', 'j')
-    print("new\n", bar)
+    assert str(bar) == golden
 
 
-def test_simple_unroll():
+def test_simple_unroll(golden):
     @proc
     def bar(A: i8[10]):
         tmp: i8[10]
         for i in par(0, 10):
             tmp[i] = A[i]
 
-    print("old\n", bar)
     bar = bar.unroll('i')
-    print("new\n", bar)
+    assert str(bar) == golden
 
 
-def test_simple_inline():
+def test_simple_inline(golden):
     @proc
     def foo(x: i8, y: i8, z: i8):
         z = x + y
@@ -398,29 +321,29 @@ def test_simple_inline():
             tmp_dst = dst[i]
             foo(tmp_src, tmp_src, tmp_dst)
 
-    print("old\n", bar)
-    # TODO: This should fail
-    # bar = bar.inline('foo(_)')
-    # TODO: This should fail
-    # bar = bar.inline('foo(io, i1, i2)')
+    # TODO: these should fail
+    # with pytest.raises(SchedulingError, match='blah'):
+    #     bar.inline('foo(_)')
+    #
+    # with pytest.raises(SchedulingError, match='blah'):
+    #     bar.inline('foo(io, i1, i2)')
+
     bar = bar.inline('foo(_, _, _)')
-    print("new\n", bar)
+    assert str(bar) == golden
 
 
-def test_simple_partial_eval():
+def test_simple_partial_eval(golden):
     @proc
     def bar(n: size, A: i8[n]):
         tmp: i8[n]
         for i in par(0, n):
             tmp[i] = A[i]
 
-    print("old\n", bar)
-    N = 10
-    bar = bar.partial_eval(N)
-    print("new\n", bar)
+    bar = bar.partial_eval(10)
+    assert str(bar) == golden
 
 
-def test_bool_partial_eval():
+def test_bool_partial_eval(golden):
     @proc
     def bar(b: bool, n: size, A: i8[n]):
         tmp: i8[n]
@@ -428,55 +351,50 @@ def test_bool_partial_eval():
             if b == True:
                 tmp[i] = A[i]
 
-    print("old\n", bar)
     bar = bar.partial_eval(False)
-    print("new\n", bar)
+    assert str(bar) == golden
 
 
-def test_simple_typ_and_mem():
+def test_simple_typ_and_mem(golden):
     @proc
     def bar(n: size, A: R[n]):
         pass
 
-    print("old\n", bar)
     bar = (bar.set_precision('A', 'i32')
            .set_memory('A', GEMM_SCRATCH))
-    print("new\n", bar)
+    assert str(bar) == golden
 
 
-def test_simple_bind_expr():
+def test_simple_bind_expr(golden):
     @proc
     def bar(n: size, x: i8[n], y: i8[n], z: i8[n]):
         for i in par(0, n):
             z[i] = x[i] + y[i]
 
-    print("old\n", bar)
     bar = bar.bind_expr('z_tmp', 'x[_] + y[_]')
-    print("new\n", bar)
+    assert str(bar) == golden
 
 
-def test_simple_lift_alloc():
+def test_simple_lift_alloc(golden):
     @proc
     def bar(n: size, A: i8[n]):
         for i in par(0, n):
             tmp_a: i8
             tmp_a = A[i]
 
-    print("old\n", bar)
     bar = bar.lift_alloc('tmp_a : _', n_lifts=1)
-    print("new\n", bar)
+    assert str(bar) == golden
 
 
-def test_simple_fission():
+def test_simple_fission(golden):
     @proc
     def bar(n: size, A: i8[n], B: i8[n], C: i8[n]):
         for i in par(0, n):
             C[i] += A[i]
             C[i] += B[i]
 
-    print("old\n", bar)
     bar = bar.fission_after('C[_] += A[_]')
-    print("new\n", bar)
+    assert str(bar) == golden
 
 
 @pytest.mark.skip()
@@ -495,7 +413,7 @@ def test_partition():
             tmp = A[i]
 
 
-def test_fission():
+def test_fission(golden):
     @proc
     def bar(n: size, m: size):
         for i in par(0, n):
@@ -506,25 +424,26 @@ def test_fission():
                 y = 1.1
 
     bar = bar.fission_after('x = _', n_lifts=2)
+    assert str(bar) == golden
 
 
 def test_fission2():
+    @proc
+    def bar(n: size, m: size):
+        for i in par(0, n):
+            for j in par(0, m):
+                x: f32
+                x = 0.0
+                y: f32
+                y = 1.1
+                y = x
+
     with pytest.raises(Exception,
                        match='Will not fission here'):
-        @proc
-        def bar(n: size, m: size):
-            for i in par(0, n):
-                for j in par(0, m):
-                    x: f32
-                    x = 0.0
-                    y: f32
-                    y = 1.1
-                    y = x
-
-        bar = bar.fission_after('x = _', n_lifts=2)
+        bar.fission_after('x = _', n_lifts=2)
 
 
-def test_lift():
+def test_lift(golden):
     @proc
     def bar(A: i8[16, 10]):
         for i in par(0, 10):
@@ -533,9 +452,10 @@ def test_lift():
                 a[k] = A[k, i]
 
     bar = bar.lift_alloc('a: i8[_]', n_lifts=1, mode='col', size=20)
+    assert str(bar) == golden
 
 
-def test_unify1():
+def test_unify1(golden):
     @proc
     def bar(n: size, src: R[n, n], dst: R[n, n]):
         for i in par(0, n):
@@ -549,10 +469,10 @@ def test_unify1():
                 x[i, j] = y[i, j]
 
     foo = foo.replace(bar, "for i in _ : _")
-    assert 'bar(5, y, x)' in str(foo)
+    assert str(foo) == golden
 
 
-def test_unify2():
+def test_unify2(golden):
     @proc
     def bar(n: size, src: [R][n, n], dst: [R][n, n]):
         for i in par(0, n):
@@ -566,10 +486,10 @@ def test_unify2():
                 x[i + 3, j + 1] = y[i + 5, j + 2]
 
     foo = foo.replace(bar, "for i in _ : _")
-    assert 'bar(5, y[5:10, 2:7], x[3:8, 1:6])' in str(foo)
+    assert str(foo) == golden
 
 
-def test_unify3():
+def test_unify3(golden):
     @proc
     def simd_add4(dst: [R][4], a: [R][4], b: [R][4]):
         for i in par(0, 4):
@@ -584,15 +504,10 @@ def test_unify3():
                 z[4 * i + j] = x[4 * i + j] + y[4 * i + j]
 
     foo = foo.replace(simd_add4, "for j in _ : _")
-
-    expected = '''
-        simd_add4(z[4 * i + 0:4 * i + 4], x[4 * i + 0:4 * i + 4],
-                  y[4 * i + 0:4 * i + 4])
-'''
-    assert expected in str(foo)
+    assert str(foo) == golden
 
 
-def test_unify4():
+def test_unify4(golden):
     @proc
     def bar(n: size, src: [R][n], dst: [R][n]):
         for i in par(0, n):
@@ -606,10 +521,10 @@ def test_unify4():
                 x[j, 1] = x[j, 0] + x[j + 1, 0]
 
     foo = foo.replace(bar, "for j in _ : _")
-    assert 'bar(50, x[0:50, 0], x[0:50, 1])' in str(foo)
+    assert str(foo) == golden
 
 
-def test_unify5():
+def test_unify5(golden):
     @proc
     def bar(n: size, src: R[n, n], dst: R[n, n]):
         for i in par(0, n):
@@ -627,10 +542,10 @@ def test_unify5():
                 x[i, j] = c
 
     foo = foo.replace(bar, "for i in _ : _")
-    assert 'bar(5, y, x)' in str(foo)
+    assert str(foo) == golden
 
 
-def test_unify6():
+def test_unify6(golden):
     @proc
     def load(
             n: size,
@@ -655,12 +570,11 @@ def test_unify6():
                     a[i, k_in] = A[i, 16 * k + k_in]
 
     bar = bar.replace(load, "for i in _:_")
-    assert 'load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])' in str(
-        bar)
+    assert str(bar) == golden
 
 
 # Unused arguments
-def test_unify7():
+def test_unify7(golden):
     @proc
     def bar(unused_b: bool, n: size, src: R[n, n], dst: R[n, n],
             unused_m: index):
@@ -675,8 +589,7 @@ def test_unify7():
                 x[i, j] = y[i, j]
 
     foo = foo.replace(bar, "for i in _ : _")
-    print(foo)
-    assert 'bar(False, 5, y, x, 0)' in str(foo)
+    assert str(foo) == golden
 
 
 def test_inline_window(golden):

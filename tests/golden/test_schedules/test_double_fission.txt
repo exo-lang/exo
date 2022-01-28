@@ -1,0 +1,8 @@
+def foo(N: size, a: f32[N] @ DRAM, b: f32[N] @ DRAM, out: f32[N] @ DRAM):
+    res: f32[N + 1] @ DRAM
+    for i in par(0, N):
+        res[i] = 0.0
+    for i in par(0, N):
+        res[i] += a[i] * b[i]
+    for i in par(0, N):
+        out[i] = res[i]
