@@ -1,0 +1,5 @@
+[report]
+exclude_lines =
+    @proc
+    @instr
+    pragma: no cover
