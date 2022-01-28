@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from SYS_ATL import proc, Procedure
-from .helper import nparray
 
 
 # ------- Precision casting tests ------
@@ -56,14 +55,14 @@ def test_good_prec1(compiler):
 
     fn = compiler.compile(good_prec1)
 
-    x = nparray([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]])
-    y = nparray([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]])
+    x = np.array([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]], dtype=np.float32)
+    y = np.array([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]], dtype=np.float32)
     res = np.zeros_like(x, dtype=np.float64)
 
     fn(None, *x.shape, x, y, res)
 
-    np.testing.assert_almost_equal(res, nparray(
-        [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]], typ=np.float64), decimal=6)
+    np.testing.assert_almost_equal(res, np.array(
+        [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]), decimal=6)
 
 
 def gen_dot():

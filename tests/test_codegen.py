@@ -8,7 +8,6 @@ from scipy import stats as st
 
 from SYS_ATL import proc, Procedure, DRAM
 from SYS_ATL.libs.memories import MDRAM
-from .helper import nparray
 
 
 # --- Start Blur Test ---
@@ -124,15 +123,15 @@ def test_conv1d(compiler):
     n_size = 5
     m_size = 3
     r_size = n_size + m_size - 1
-    x = nparray([0.2, 0.5, -0.4, 1.0, 0.0])
-    w = nparray([0.6, 1.9, -2.2])
+    x = np.array([0.2, 0.5, -0.4, 1.0, 0.0], dtype=np.float32)
+    w = np.array([0.6, 1.9, -2.2], dtype=np.float32)
     res = np.zeros(shape=r_size, dtype=np.float32)
 
     fn = compiler.compile(conv1d)
     fn(None, n_size, m_size, r_size, x, w, res)
 
-    np.testing.assert_almost_equal(res, nparray(
-        [0.12, 0.68, 0.27, -1.26, 2.78, -2.2, 0]))
+    np.testing.assert_almost_equal(res, np.array(
+        [0.12, 0.68, 0.27, -1.26, 2.78, -2.2, 0], dtype=np.float32))
 
 
 # ------- Nested alloc test for normal DRAM ------
@@ -159,15 +158,15 @@ def test_alloc_nest(compiler, tmp_path):
         str(alloc_nest.show_effects())
     )
 
-    x = nparray([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]])
-    y = nparray([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]])
+    x = np.array([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]], dtype=np.float32)
+    y = np.array([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]], dtype=np.float32)
     res = np.zeros_like(x)
 
     fn = compiler.compile(alloc_nest)
     fn(None, *x.shape, x, y, res)
 
-    np.testing.assert_almost_equal(res, nparray(
-        [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]))
+    np.testing.assert_almost_equal(res, np.array(
+        [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]], dtype=np.float32))
 
 
 # ------- Nested alloc test for custom malloc DRAM ------
@@ -190,8 +189,8 @@ def test_alloc_nest_malloc(compiler):
             for j in par(0, m):
                 res[i, j] = rloc[j]
 
-    x = nparray([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]])
-    y = nparray([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]])
+    x = np.array([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]], dtype=np.float32)
+    y = np.array([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]], dtype=np.float32)
     res = np.zeros_like(x)
 
     lib = compiler.compile(alloc_nest_malloc)
@@ -200,8 +199,8 @@ def test_alloc_nest_malloc(compiler):
     lib.init_mem()
     lib(None, *x.shape, x, y, res)
 
-    np.testing.assert_almost_equal(res, nparray(
-        [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]))
+    np.testing.assert_almost_equal(res, np.array(
+        [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]], dtype=np.float32))
 
 
 def test_unary_neg(compiler):
@@ -210,7 +209,7 @@ def test_unary_neg(compiler):
         for i in par(0, n):
             res[i] = -x[i] + -(x[i]) - -(x[i] + 0.0)
 
-    x = nparray([1.0, 2.0, 3.0, 4.0])
+    x = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
     res = np.zeros_like(x)
 
     fn = compiler.compile(negate_array)
@@ -253,7 +252,7 @@ def test_sin1(compiler):
     def sin1(x: f32):
         x = sin(x)
 
-    buf = nparray([4.0])
+    buf = np.array([4.0], dtype=np.float32)
     out = np.sin(buf)
 
     fn = compiler.compile(sin1)
@@ -267,7 +266,7 @@ def test_relu1(compiler):
     def relu1(x: f32):
         x = relu(x)
 
-    actual = nparray([-4.0, 0.0, 4.0])
+    actual = np.array([-4.0, 0.0, 4.0], dtype=np.float32)
     expected = actual * (actual > 0)
 
     fn = compiler.compile(relu1)
@@ -286,7 +285,7 @@ def test_select1(compiler):
         # x < zero ? 2.0 : x
         x = select(x, zero, two, x)
 
-    actual = nparray([-4.0, 0.0, 4.0])
+    actual = np.array([-4.0, 0.0, 4.0], dtype=np.float32)
     expected = (actual < 0) * 2.0 + (actual >= 0) * actual
 
     fn = compiler.compile(select1)
