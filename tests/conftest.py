@@ -213,7 +213,7 @@ class Compiler:
     def _generate_cml(self, test_files: Dict[str, str]):
         cml_body = textwrap.dedent(
             f'''
-            cmake_minimum_required(VERSION 3.22)
+            cmake_minimum_required(VERSION 3.21)
             project({self.basename} LANGUAGES C)
             
             option(BUILD_SHARED_LIBS "Build shared libraries by default" ON)
