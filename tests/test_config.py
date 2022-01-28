@@ -91,7 +91,7 @@ def new_control_config():
     return ConfigControl
 
 
-def test_basic_config():
+def test_basic_config(golden):
     ConfigAB = new_config_f32()
 
     @proc
@@ -99,8 +99,10 @@ def test_basic_config():
         ConfigAB.a = 32.0
         x = ConfigAB.a
 
+    assert str(foo) == golden
 
-def test_write_loop_const_number():
+
+def test_write_loop_const_number(golden):
     ConfigAB = new_config_f32()
 
     @proc
@@ -108,14 +110,18 @@ def test_write_loop_const_number():
         for i in par(0, n):
             ConfigAB.a = 0.0
 
+    assert str(foo) == golden
 
-def test_write_loop_builtin():
+
+def test_write_loop_builtin(golden):
     ConfigAB = new_config_f32()
 
     @proc
     def foo(n: size):
         for i in par(0, n):
             ConfigAB.a = sin(1.0)
+
+    assert str(foo) == golden
 
 
 # Config loop dependency tests
@@ -159,7 +165,7 @@ def test_write_loop_syntax_check_fail():
                 CTRL.i = i - i
 
 
-def test_write_all_control():
+def test_write_all_control(golden):
     CTRL = new_control_config()
 
     @proc
@@ -168,10 +174,12 @@ def test_write_all_control():
         CTRL.s = s
         CTRL.b = b
 
+    assert str(set_all) == golden
+
 
 # Should the following succeed or fail?
 # I think it probably should succeed
-def test_loop_complex_guards():
+def test_loop_complex_guards(golden):
     CTRL = new_control_config()
 
     @proc
@@ -181,6 +189,8 @@ def test_loop_complex_guards():
                 CTRL.i = 4
             if n == n - 1:
                 CTRL.i = 3
+
+    assert str(foo) == golden
 
 
 @pytest.mark.skip()
@@ -220,7 +230,7 @@ def new_config_ld():
     return ConfigLoad
 
 
-def test_stride_with_config():
+def test_stride_with_config(golden):
     ConfigLoad = new_config_ld()
 
     @proc
@@ -233,8 +243,10 @@ def test_stride_with_config():
         assert stride(src, 0) == ConfigLoad.src_stride
         bar(n, src)
 
+    assert f'{bar}\n{foo}' == golden
 
-def test_config_bind():
+
+def test_config_bind(golden):
     ConfigLoad = new_config_ld()
 
     @proc
@@ -245,10 +257,11 @@ def test_config_bind():
             tmp = tmp * scale
 
     foo = foo.bind_config('scale', ConfigLoad, 'scale')
-    print(foo)
+
+    assert str(foo) == golden
 
 
-def test_config_fission():
+def test_config_fission(golden):
     ConfigLoad = new_config_ld()
 
     @proc
@@ -261,10 +274,11 @@ def test_config_fission():
                 tmp = tmp * ConfigLoad.scale
 
     foo = foo.fission_after('ConfigLoad.scale = _', n_lifts=2)
-    print(foo)
+
+    assert str(foo) == golden
 
 
-def test_ld():
+def test_ld(golden):
     ConfigLoad = new_config_ld()
 
     _gemm_config_ld_i8 = ("gemmini_extended3_config_ld({src_stride}, " +
@@ -336,8 +350,8 @@ def test_ld():
                                     'src_stride', 'stride(src, 0)')
     ld_i8 = ld_i8.replace(do_ld_i8, 'for i in _:_')
     ld_i8 = ld_i8.replace(config_ld_i8, 'ConfigLoad.scale = scale')
-    print(config_ld_i8)
-    print(ld_i8)
+
+    assert f'{config_ld_i8}\n{ld_i8}' == golden
 
 
 """
