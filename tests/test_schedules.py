@@ -6,6 +6,7 @@ from SYS_ATL import proc, DRAM
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 from .helper import TMP_DIR, generate_lib
 
+
 def test_fission_after_simple():
 
     # Test 1
@@ -299,6 +300,7 @@ def test_expand_dim5():
             a = x
 
     foo = foo.expand_dim('a : i8', 'n', 'i')
+    assert "a[i]" in str(foo)
     print(foo)
 
 
