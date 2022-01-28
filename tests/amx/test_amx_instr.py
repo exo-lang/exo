@@ -361,8 +361,8 @@ def _run_amx(compiler, sde64, procs, test_source):
     test_exe = compiler.compile(
         procs,
         test_files={'main.c': str(test_source)},
+        CMAKE_C_COMPILER=os.getenv('CLANG', os.getenv('CC', 'clang-13')),
         CMAKE_C_FLAGS='-mamx-int8 -mamx-tile',
-        CMAKE_C_COMPILER=os.getenv('CLANG', 'clang-13')
     )
 
     sde64(test_exe)
