@@ -30,14 +30,27 @@ def _nodeid_to_path(nodeid: str) -> Path:
 class GoldenOutput:
     path: Path
     text: Optional[str]
+    update: bool
 
-    def __eq__(self, other):
+    def _compare(self, other):
         if isinstance(other, GoldenOutput):
             return self.path == other.path and self.text == other.text
         elif isinstance(other, str):
             return self.text == other
         else:
             return False
+
+    def __str__(self):
+        if isinstance(self.text, str):
+            return self.text
+        raise ValueError(f'No golden output for {self.path}')
+
+    def __eq__(self, other):
+        result = self._compare(other)
+        if not result and self.update:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(str(other))
+        return result or self.update
 
 
 @pytest.fixture
@@ -50,17 +63,15 @@ def golden(request):
     basedir = Path(request.config.invocation_dir)
     testpath = Path(request.fspath)
 
-    p = (testpath.relative_to(basedir).with_suffix('') /
+    p = (Path('golden') /
+         testpath.relative_to(basedir).with_suffix('') /
          request.node.name).with_suffix('.txt')
 
-    print(f'Looking for golden output in {p}')
-
+    update = request.config.getoption("--update-golden")
     if p.exists():
-        yield GoldenOutput(p, p.read_text())
+        yield GoldenOutput(p, p.read_text(), update)
     else:
-        yield GoldenOutput(p, None)
-
-    print('Tear down')
+        yield GoldenOutput(p, None, update)
 
 
 @dataclass
