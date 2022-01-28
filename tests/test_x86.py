@@ -1,25 +1,14 @@
 from __future__ import annotations
 
 import itertools
-import os
-import platform
 
-import pytest
+import numpy as np
 
 from SYS_ATL import proc
 from SYS_ATL.platforms.x86 import *
 
-from .helper import TMP_DIR, generate_lib, nparray, cvt_c
-from ctypes import POINTER, c_int
-import numpy as np
 
-def check_platform():
-    return platform.system() == 'Darwin'
-    #if platform.system() == 'Darwin':
-    #    pytest.skip("skipping x86 tests on Apple machines for now",
-    #                allow_module_level=True)
-
-def test_avx2_memcpy():
+def test_avx2_memcpy(compiler):
     """
     Compute dst = src
     """
@@ -36,31 +25,24 @@ def test_avx2_memcpy():
                 for j in par(0, n - 8 * i):
                     dst[8 * i + j] = src[8 * i + j]
 
-    basename = test_avx2_memcpy.__name__
-
-    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
-        f.write(str(memcpy_avx2))
-
-    memcpy_avx2.compile_c(TMP_DIR, basename)
-
-    if check_platform():
-        return
     # TODO: -march=skylake here is a hack. Such flags should be somehow handled
     #   automatically. Maybe this should be inferred by the use of AVX2, but
     #   "skylake" isn't right anyway. We might need a first-class notion of
     #   a Target, which has certain memories available. Then we can say that
     #   e.g. Skylake-X has AVX2, AVX512, etc.
-    library = generate_lib(basename, extra_flags="-march=skylake")
+    fn = compiler.compile(memcpy_avx2,
+                          skip_on_fail=True,
+                          CMAKE_C_FLAGS="-march=skylake")
 
     for n in (7, 8, 9, 31, 32, 33, 127, 128, 129):
-        inp = nparray([float(i) for i in range(n)])
-        out = nparray([float(0) for _ in range(n)])
-        library.memcpy_avx2(POINTER(c_int)(), n, cvt_c(out), cvt_c(inp))
+        inp = np.array([float(i) for i in range(n)], dtype=np.float32)
+        out = np.array([float(0) for _ in range(n)], dtype=np.float32)
+        fn(None, n, out, inp)
 
         assert np.array_equal(inp, out)
 
 
-def test_avx2_simple_math():
+def test_avx2_simple_math(compiler):
     """
     Compute x = x * y^2
     """
@@ -78,26 +60,20 @@ def test_avx2_simple_math():
             mm256_mul_ps(xVec, xVec, yVec)
             mm256_storeu_ps(x[8 * i:8 * i + 8], xVec)
 
-    basename = test_avx2_simple_math.__name__
-
-    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
-        f.write(str(simple_math_avx2))
-
-    simple_math_avx2.compile_c(TMP_DIR, basename)
-    if check_platform():
-        return
-    library = generate_lib(basename, extra_flags="-march=skylake")
+    fn = compiler.compile(simple_math_avx2,
+                          skip_on_fail=True,
+                          CMAKE_C_FLAGS="-march=skylake")
 
     for n in (8, 16, 24, 32, 64, 128):
-        x = nparray([float(i) for i in range(n)])
-        y = nparray([float(3 * i) for i in range(n)])
+        x = np.array([float(i) for i in range(n)], dtype=np.float32)
+        y = np.array([float(3 * i) for i in range(n)], dtype=np.float32)
         expected = x * y * y
 
-        library.simple_math_avx2(POINTER(c_int)(), n, cvt_c(x), cvt_c(y))
+        fn(None, n, x, y)
         assert np.allclose(x, expected)
 
 
-def test_avx2_simple_math_scheduling():
+def test_avx2_simple_math_scheduling(compiler):
     """
     Compute x = x * y^2
     """
@@ -107,9 +83,6 @@ def test_avx2_simple_math_scheduling():
                                y: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, n):
             x[i] = x[i] * y[i] * y[i]
-
-    print()
-    print()
 
     simple_math_avx2_sched = (
         simple_math_avx2_sched
@@ -141,29 +114,20 @@ def test_avx2_simple_math_scheduling():
             .replace_all(mm256_mul_ps)
     )
 
-    print(simple_math_avx2_sched)
-
-    basename = test_avx2_simple_math_scheduling.__name__
-
-    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
-        f.write(str(simple_math_avx2_sched))
-
-    simple_math_avx2_sched.compile_c(TMP_DIR, basename)
-    if check_platform():
-        return
-    library = generate_lib(basename, extra_flags="-march=skylake")
+    fn = compiler.compile(simple_math_avx2_sched,
+                          skip_on_fail=True,
+                          CMAKE_C_FLAGS="-march=skylake")
 
     for n in (8, 16, 24, 32, 64, 128):
-        x = nparray([float(i) for i in range(n)])
-        y = nparray([float(3 * i) for i in range(n)])
+        x = np.array([float(i) for i in range(n)], dtype=np.float32)
+        y = np.array([float(3 * i) for i in range(n)], dtype=np.float32)
         expected = x * y * y
 
-        int_ptr = POINTER(c_int)()
-        library.simple_math_avx2_sched(int_ptr, n, cvt_c(x), cvt_c(y))
+        fn(None, n, x, y)
         assert np.allclose(x, expected)
 
 
-def sgemm_test_cases(proc, M, N, K):
+def sgemm_test_cases(fn, M, N, K):
     for m, n, k in itertools.product(M, N, K):
         A = np.random.rand(m, k).astype(np.float32)
         B = np.random.rand(k, n).astype(np.float32)
@@ -171,42 +135,17 @@ def sgemm_test_cases(proc, M, N, K):
 
         C_out = np.zeros_like(C)
 
-        ctxt = POINTER(c_int)()
-        proc(ctxt, m, n, k, cvt_c(C_out), cvt_c(A), cvt_c(B))
+        fn(None, m, n, k, C_out, A, B)
         assert np.allclose(C, C_out), f"sgemm failed for m={m} n={n} k={k}"
-
-
-def gen_rank_k_reduce_6x16_zero():
-    @proc
-    def rank_k_reduce_6x16(
-        K: size,
-        C: [f32][6, 16] @ DRAM,
-        A: [f32][6, K] @ DRAM,
-        B: [f32][K, 16] @ DRAM,
-    ):
-        for i in par(0, 6):
-            for j in par(0, 16):
-                C[i, j] = 0.0
-                for k in par(0, K):
-                    C[i, j] += A[i, k] * B[k, j]
-
-    avx = rank_k_reduce_6x16
-    avx = avx.stage_assn('tmp', 'C[i,j] += _')
-    avx = avx.stage_assn('C_reg', 'C[i,j] = 0.0')
-    avx = avx.double_fission('tmp = _', 'tmp += _')
-    avx = avx.data_reuse('C_reg : _', 'tmp : _')
-    avx = avx.simplify()
-    # TODO: Need to implement data constant propagation and
-    # deadcode elimination
 
 
 def gen_rank_k_reduce_6x16():
     @proc
     def rank_k_reduce_6x16(
-        K: size,
-        C: [f32][6, 16] @ DRAM,
-        A: [f32][6, K] @ DRAM,
-        B: [f32][K, 16] @ DRAM,
+            K: size,
+            C: [f32][6, 16] @ DRAM,
+            A: [f32][6, K] @ DRAM,
+            B: [f32][K, 16] @ DRAM,
     ):
         for i in par(0, 6):
             for j in par(0, 16):
@@ -257,6 +196,8 @@ def gen_sgemm_6x16_avx():
             #
             .unroll('jo')
             .unroll('i')
+            #
+            .simplify()
     )
 
     return rank_k_reduce_6x16, avx2_sgemm_6x16
@@ -268,17 +209,17 @@ def test_print_avx2_sgemm_kernel():
     print(avx2_sgemm_kernel)
 
 
-def test_avx2_sgemm_full():
+def test_avx2_sgemm_full(compiler):
     sgemm_6x16, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
 
     @proc
     def sgemm_full(
-        N: size,
-        M: size,
-        K: size,
-        C: f32[N, M] @ DRAM,
-        A: f32[N, K] @ DRAM,
-        B: f32[K, M] @ DRAM,
+            N: size,
+            M: size,
+            K: size,
+            C: f32[N, M] @ DRAM,
+            A: f32[N, K] @ DRAM,
+            B: f32[K, M] @ DRAM,
     ):
         assert K > 0
 
@@ -319,61 +260,47 @@ def test_avx2_sgemm_full():
             .reorder('jm # 0', 'ko')
             .reorder('im # 0', 'ko')
     )
-    print()
-    print(avx_sgemm_full)
 
-    basename = test_avx2_sgemm_full.__name__
+    fn = compiler.compile(avx_sgemm_full,
+                          skip_on_fail=True,
+                          CMAKE_C_FLAGS="-march=skylake")
 
-    avx_sgemm_full.compile_c(TMP_DIR, basename)
-    if check_platform():
-        return
-    library = generate_lib(basename, extra_flags="-march=skylake")
-
-    sgemm_test_cases(library.avx_sgemm_full,
+    sgemm_test_cases(fn,
                      M=range(10, 600, 200),
                      N=range(20, 400, 120),
                      K=range(1, 512, 160))
 
 
-
-def test_avx2_sgemm_6x16():
+def test_avx2_sgemm_6x16(compiler):
     _, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
-
-    print()
-    print(avx2_sgemm_6x16)
 
     @proc
     def avx2_sgemm_6x16_wrapper(
-        M: size,
-        N: size,
-        K: size,
-        C: f32[6, 16] @ DRAM,
-        A: f32[6, K] @ DRAM,
-        B: f32[K, 16] @ DRAM,
+            M: size,
+            N: size,
+            K: size,
+            C: f32[6, 16] @ DRAM,
+            A: f32[6, K] @ DRAM,
+            B: f32[K, 16] @ DRAM,
     ):
         avx2_sgemm_6x16(K, C, A, B)
 
-    basename = test_avx2_sgemm_6x16.__name__
+    fn = compiler.compile(avx2_sgemm_6x16_wrapper,
+                          skip_on_fail=True,
+                          CMAKE_C_FLAGS="-march=skylake")
 
-    avx2_sgemm_6x16_wrapper.compile_c(TMP_DIR, basename)
-    if check_platform():
-        return
-    library = generate_lib(basename, extra_flags="-march=skylake")
-
-    sgemm_test_cases(library.avx2_sgemm_6x16_wrapper, M=[6], N=[16],
-                     K=range(1, 512))
+    sgemm_test_cases(fn, M=[6], N=[16], K=range(1, 512))
 
 
-
-def test_avx512_sgemm_full():
+def test_avx512_sgemm_full(compiler):
     @proc
     def sgemm_micro_kernel_staged(
-        M: size,
-        N: size,
-        K: size,
-        A: f32[M, K],
-        B: f32[K, 16 * ((N + 15) / 16)],
-        C: [f32][M, N],
+            M: size,
+            N: size,
+            K: size,
+            A: f32[M, K],
+            B: f32[K, 16 * ((N + 15) / 16)],
+            C: [f32][M, N],
     ):
         assert M >= 1
         assert N >= 1
@@ -412,9 +339,6 @@ def test_avx512_sgemm_full():
                     C_reg[i, N / 16, :]
                 )
 
-    print("old")
-    print(sgemm_micro_kernel_staged)
-
     spec_kernel = (
         sgemm_micro_kernel_staged
             .partial_eval(6, 64)
@@ -424,35 +348,27 @@ def test_avx512_sgemm_full():
             .simplify()
     )
 
-    print("new")
-    print(spec_kernel)
-
-    spec_kernel.compile_c(TMP_DIR, 'spec_kernel')
+    spec_kernel.c_code_str()
 
     @proc
     def sgemm_full(
-        N: size,
-        M: size,
-        K: size,
-        C: f32[N, M] @ DRAM,
-        A: f32[N, K] @ DRAM,
-        B: f32[K, M] @ DRAM,
+            N: size,
+            M: size,
+            K: size,
+            C: f32[N, M] @ DRAM,
+            A: f32[N, K] @ DRAM,
+            B: f32[K, M] @ DRAM,
     ):
         for i in par(0, N):
             for j in par(0, M):
                 for k in par(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
-    basename = test_avx512_sgemm_full.__name__
+    fn = compiler.compile(sgemm_full,
+                          skip_on_fail=True,
+                          CMAKE_C_FLAGS="-march=skylake-avx512")
 
-    sgemm_full.compile_c(TMP_DIR, basename)
-    if check_platform():
-        return
-    library = generate_lib(basename, extra_flags="-march=skylake-avx512")
-
-    sgemm_test_cases(library.sgemm_full,
+    sgemm_test_cases(fn,
                      M=range(10, 600, 200),
                      N=range(20, 400, 120),
                      K=range(1, 512, 160))
-
-
