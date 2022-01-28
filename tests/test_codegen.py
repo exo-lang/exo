@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from PIL import Image
+from scipy import stats as st
 
 from SYS_ATL import proc, Procedure, DRAM
 from SYS_ATL.libs.memories import MDRAM
-from .helper import gkern, IMAGE, nprand, nparray
+from .helper import nparray
 
 
 # --- Start Blur Test ---
@@ -32,9 +35,18 @@ def _test_blur(compiler, tmp_path, blur):
     fn = compiler.compile(blur)
 
     k_size = 5
-    res = np.zeros_like(IMAGE)
 
-    fn(None, *IMAGE.shape, k_size, IMAGE, gkern(k_size, 1), res)
+    image = np.asarray(Image.open(Path(__file__).parent / 'input.png'),
+                       dtype="float32")
+
+    x = np.linspace(-1, 1, k_size + 1)
+    kern1d = np.diff(st.norm.cdf(x))
+    kern2d = np.outer(kern1d, kern1d)
+    kern = np.asarray(kern2d / kern2d.sum(), dtype=np.float32)
+
+    res = np.zeros_like(image)
+
+    fn(None, *image.shape, k_size, image, kern, res)
 
     out = Image.fromarray(res.astype(np.uint8))
     out.save(tmp_path / 'out.png')
@@ -114,7 +126,7 @@ def test_conv1d(compiler):
     r_size = n_size + m_size - 1
     x = nparray([0.2, 0.5, -0.4, 1.0, 0.0])
     w = nparray([0.6, 1.9, -2.2])
-    res = nprand(size=r_size)
+    res = np.zeros(shape=r_size, dtype=np.float32)
 
     fn = compiler.compile(conv1d)
     fn(None, n_size, m_size, r_size, x, w, res)

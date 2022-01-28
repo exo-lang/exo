@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from SYS_ATL import proc, Procedure
-from .helper import nprand, nparray
+from .helper import nparray
 
 
 # ------- Precision casting tests ------
@@ -58,7 +58,7 @@ def test_good_prec1(compiler):
 
     x = nparray([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]])
     y = nparray([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]])
-    res = nprand(size=x.shape, typ=np.float64)
+    res = np.zeros_like(x, dtype=np.float64)
 
     fn(None, *x.shape, x, y, res)
 

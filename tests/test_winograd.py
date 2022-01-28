@@ -5,7 +5,6 @@ import torch
 import torch.nn.functional as F
 
 from SYS_ATL import proc
-from .helper import nprand
 
 
 def wconv_3x3():
@@ -102,7 +101,7 @@ def test_winograd(compiler):
 
     kernel = kernel.detach().numpy()
     inp = inp.detach().numpy()
-    res = nprand(size=(2, 2))
+    res = np.zeros(shape=(2, 2), dtype=np.float32)
 
     wconv(None, inp, kernel, res, B_T, G, A_T)
     print(res)
