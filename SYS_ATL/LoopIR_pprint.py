@@ -113,17 +113,17 @@ class UAST_PPrinter:
 
     def push(self, only=None):
         if only is None:
-            self.env.new_child()
+            self.env = self.env.new_child()
             self._tab = self._tab + "  "
         elif only == 'env':
-            self.env.new_child()
+            self.env = self.env.new_child()
         elif only == 'tab':
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env.parents
+        self.env = self.env.parents
         self._tab = self._tab[:-2]
 
     def addline(self, line):

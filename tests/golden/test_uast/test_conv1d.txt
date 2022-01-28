@@ -2,7 +2,7 @@ def conv1d(n: size, m: size, r: size, x: R[n_1], w: R[m_2], res: R[r_3]):
     # @instr TEST
     for i in par(0, r):
         res[i] = 0.0
-    for i_1 in par(0, r):
+    for i in par(0, r):
         for j in par(0, n):
-            if i_1 <= j and j < i_1 + m:
-                res[i_1] += x[j] * w[i_1 - j + m - 1]
+            if i <= j and j < i + m:
+                res[i] += x[j] * w[i - j + m - 1]

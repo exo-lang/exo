@@ -7,9 +7,9 @@ def alloc_nest(n: size, m: size, x: R[n_14, m_15], y: R[n_14, m_15] @ DRAM,
         yloc: R[m_15] @ DRAM
         for j in par(0, m):
             xloc[j] = x[i, j]
-        for j_1 in par(0, m):
-            yloc[j_1] = y[i, j_1]
-        for j_2 in par(0, m):
-            rloc[j_2] = xloc[j_2] + yloc[j_2]
-        for j_3 in par(0, m):
-            res[i, j_3] = rloc[j_3]
+        for j in par(0, m):
+            yloc[j] = y[i, j]
+        for j in par(0, m):
+            rloc[j] = xloc[j] + yloc[j]
+        for j in par(0, m):
+            res[i, j] = rloc[j]
