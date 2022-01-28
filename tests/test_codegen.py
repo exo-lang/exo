@@ -24,10 +24,12 @@ def gen_blur():
             for j in par(0, m):
                 for k in par(0, k_size):
                     for l in par(0, k_size):
-                        if i+k >= 1 and i+k-n < 1 and j+l >= 1 and j+l-m < 1:
-                            res[i, j] += kernel[k, l] * image[i+k-1, j+l-1]
+                        if i + k >= 1 and i + k - n < 1 and j + l >= 1 and j + l - m < 1:
+                            res[i, j] += kernel[k, l] * image[
+                                i + k - 1, j + l - 1]
 
     return blur
+
 
 def test_simple_blur():
     blur = gen_blur()
@@ -58,21 +60,24 @@ def test_simple_blur():
     out = Image.fromarray(res_c)
     out.save(os.path.join(TMP_DIR, filename + '_out.png'))
 
+
 def test_simple_blur_split():
     @proc
     def simple_blur_split(n: size, m: size, k_size: size,
-             image: R[n, m], kernel: R[k_size, k_size], res: R[n, m]):
+                          image: R[n, m], kernel: R[k_size, k_size],
+                          res: R[n, m]):
         for i in par(0, n):
-            for j1 in par(0, m/2):
-                for j2 in par(0,2):
-                    res[i, j1*2+j2] = 0.0
+            for j1 in par(0, m / 2):
+                for j2 in par(0, 2):
+                    res[i, j1 * 2 + j2] = 0.0
         for i in par(0, n):
-            for j1 in par(0, m/2):
+            for j1 in par(0, m / 2):
                 for j2 in par(0, 2):
                     for k in par(0, k_size):
                         for l in par(0, k_size):
                             if i + k >= 1 and i + k - n < 1 and j1 * 2 + j2 + l >= 1 and j1 * 2 + j2 + l - m < 1:
-                                res[i, j1 * 2 + j2] += kernel[k, l] * image[i + k - 1, j1 * 2 + j2 + l - 1]
+                                res[i, j1 * 2 + j2] += kernel[k, l] * image[
+                                    i + k - 1, j1 * 2 + j2 + l - 1]
 
     assert isinstance(simple_blur_split, Procedure)
     filename = "test_simple_blur_split"
@@ -93,12 +98,13 @@ def test_simple_blur_split():
     out = Image.fromarray(res_c)
     out.save(os.path.join(TMP_DIR, filename + '_out.png'))
 
-def test_split_blur():
-    blur        = gen_blur()
-    orig_blur   = blur
 
-    blur = blur.split('j',4,['j1','j2'])
-    blur = blur.split('i#1',4,['i1','i2'])
+def test_split_blur():
+    blur = gen_blur()
+    orig_blur = blur
+
+    blur = blur.split('j', 4, ['j1', 'j2'])
+    blur = blur.split('i#1', 4, ['i1', 'i2'])
 
     assert isinstance(blur, Procedure)
     filename = "test_split_blur"
@@ -123,12 +129,13 @@ def test_split_blur():
     out = Image.fromarray(res_c)
     out.save(os.path.join(TMP_DIR, filename + '_out.png'))
 
-def test_reorder_blur():
-    blur        = gen_blur()
-    orig_blur   = blur
 
-    blur = blur.reorder('k','l')
-    blur = blur.reorder('i','j')
+def test_reorder_blur():
+    blur = gen_blur()
+    orig_blur = blur
+
+    blur = blur.reorder('k', 'l')
+    blur = blur.reorder('i', 'j')
 
     assert isinstance(blur, Procedure)
     filename = "test_reorder_blur"
@@ -155,12 +162,13 @@ def test_reorder_blur():
     out = Image.fromarray(res_c)
     out.save(os.path.join(TMP_DIR, filename + '_out.png'))
 
-def test_unroll_blur():
-    blur        = gen_blur()
-    orig_blur   = blur
 
-#    blur = blur.split('i',6,['i','iunroll']).simpler_unroll('iunroll')
-    blur = blur.split('j',4,['j1','j2'])
+def test_unroll_blur():
+    blur = gen_blur()
+    orig_blur = blur
+
+    #    blur = blur.split('i',6,['i','iunroll']).simpler_unroll('iunroll')
+    blur = blur.split('j', 4, ['j1', 'j2'])
     blur = blur.unroll('j2')
 
     assert isinstance(blur, Procedure)
@@ -186,6 +194,7 @@ def test_unroll_blur():
     out = Image.fromarray(res_c)
     out.save(os.path.join(TMP_DIR, filename + '_out.png'))
 
+
 # --- End Blur Test ---
 
 
@@ -198,8 +207,8 @@ def test_conv1d():
             res[i] = 0.0
         for i in par(0, r):
             for j in par(0, n):
-                if j < i+1 and j >= i-m+1:
-                    res[i] += x[j]*w[i-j]
+                if j < i + 1 and j >= i - m + 1:
+                    res[i] += x[j] * w[i - j]
 
     assert isinstance(conv1d, Procedure)
     filename = "test_conv1d"
@@ -219,24 +228,25 @@ def test_conv1d():
     np.testing.assert_almost_equal(res_c, nparray(
         [0.12, 0.68, 0.27, -1.26, 2.78, -2.2, 0]))
 
+
 # ------- Nested alloc test for normal DRAM ------
 
 def test_alloc_nest():
     @proc
-    def alloc_nest(n : size, m : size,
-                   x : R[n,m], y: R[n,m] @ DRAM, res : R[n,m] @ DRAM):
-        for i in par(0,n):
-            rloc : R[m] @DRAM
-            xloc : R[m] @DRAM
-            yloc : R[m] @DRAM
-            for j in par(0,m):
-                xloc[j] = x[i,j]
-            for j in par(0,m):
-                yloc[j] = y[i,j]
-            for j in par(0,m):
+    def alloc_nest(n: size, m: size,
+                   x: R[n, m], y: R[n, m] @ DRAM, res: R[n, m] @ DRAM):
+        for i in par(0, n):
+            rloc: R[m] @ DRAM
+            xloc: R[m] @ DRAM
+            yloc: R[m] @ DRAM
+            for j in par(0, m):
+                xloc[j] = x[i, j]
+            for j in par(0, m):
+                yloc[j] = y[i, j]
+            for j in par(0, m):
                 rloc[j] = xloc[j] + yloc[j]
-            for j in par(0,m):
-                res[i,j] = rloc[j]
+            for j in par(0, m):
+                res[i, j] = rloc[j]
 
     assert isinstance(alloc_nest, Procedure)
 
@@ -271,25 +281,25 @@ def test_alloc_nest():
         [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]))
 
 
-
 # ------- Nested alloc test for custom malloc DRAM ------
 
 def test_alloc_nest_malloc():
     @proc
-    def alloc_nest_malloc(n : size, m : size,
-                   x : R[n,m] @ MDRAM, y: R[n,m] @ MDRAM, res : R[n,m] @ MDRAM):
-        for i in par(0,n):
-            rloc : R[m] @MDRAM
-            xloc : R[m] @MDRAM
-            yloc : R[m] @MDRAM
-            for j in par(0,m):
-                xloc[j] = x[i,j]
-            for j in par(0,m):
-                yloc[j] = y[i,j]
-            for j in par(0,m):
+    def alloc_nest_malloc(n: size, m: size,
+                          x: R[n, m] @ MDRAM, y: R[n, m] @ MDRAM,
+                          res: R[n, m] @ MDRAM):
+        for i in par(0, n):
+            rloc: R[m] @ MDRAM
+            xloc: R[m] @ MDRAM
+            yloc: R[m] @ MDRAM
+            for j in par(0, m):
+                xloc[j] = x[i, j]
+            for j in par(0, m):
+                yloc[j] = y[i, j]
+            for j in par(0, m):
                 rloc[j] = xloc[j] + yloc[j]
-            for j in par(0,m):
-                res[i,j] = rloc[j]
+            for j in par(0, m):
+                res[i, j] = rloc[j]
 
     assert isinstance(alloc_nest_malloc, Procedure)
 
@@ -347,17 +357,18 @@ def test_unary_neg():
     np.testing.assert_almost_equal(res, res_c)
     np.testing.assert_almost_equal(res_c, -x)
 
+
 def test_bool1():
     @proc
-    def foo(x : bool):
+    def foo(x: bool):
         pass
 
     @proc
-    def bool1(a : bool, b : bool):
+    def bool1(a: bool, b: bool):
         assert b == True
 
         foo(False)
-        x : f32
+        x: f32
         if b == True:
             x = 0.0
         else:
@@ -369,7 +380,7 @@ def test_bool1():
         if False:
             x = 0.0
 
-        x : f32
+        x: f32
         if a:
             x = 0.0
 
@@ -387,9 +398,10 @@ def test_bool1():
     test_lib.bool1(POINTER(c_int)(), c_bool(inp1), c_bool(inp2))
     bool1.interpret(a=inp1, b=inp2)
 
+
 def test_sin1():
     @proc
-    def sin1(x : f32):
+    def sin1(x: f32):
         x = sin(x)
 
     assert isinstance(sin1, Procedure)
@@ -412,7 +424,7 @@ def test_sin1():
 
 def test_relu1():
     @proc
-    def relu1(x : f32):
+    def relu1(x: f32):
         x = relu(x)
 
     assert isinstance(relu1, Procedure)
@@ -435,8 +447,8 @@ def test_relu1():
 
 def test_select1():
     @proc
-    def select1(x : f32):
-        zero : f32
+    def select1(x: f32):
+        zero: f32
         zero = 0.0
         x = select(x, zero, zero, x)
 
