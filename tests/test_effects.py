@@ -8,15 +8,17 @@ from SYS_ATL.libs.memories import GEMM_SCRATCH
 
 # ------- Effect check tests ---------
 
-def test_seq_write1():
+def test_seq_write1(golden):
     @proc
     def foo(n: size, A: i8[n]):
         a: i8
         for i in seq(0, n):
             a = A[i]
 
+    assert foo.show_effects() == golden
 
-def test_new_stride1():
+
+def test_new_stride1(golden):
     @proc
     def foo(s: stride, scale: f32):
         assert s == 1
@@ -27,6 +29,8 @@ def test_new_stride1():
         scale: f32
         scale = 0.0
         foo(stride(A, 0), scale)
+
+    assert bar.show_effects() == golden
 
 
 # Should be an error!
@@ -52,15 +56,17 @@ def test_write_write2():
                 a = tmp_a
 
 
-def test_write_write3():
+def test_write_write3(golden):
     @proc
     def foo(n: size, A: i8[n]):
         a: i8
         for i in par(0, n):
             a = 3.0
 
+    assert foo.show_effects() == golden
 
-def test_different_id():
+
+def test_different_id(golden):
     @proc
     def foo(n: size):
         for ihi in par(0, n):
@@ -70,6 +76,8 @@ def test_different_id():
         if False:
             b: i8 @ DRAM
             b = 0.0
+
+    assert foo.show_effects() == golden
 
 
 # Should be an error!
@@ -147,12 +155,14 @@ def test_index2():
                     a = A[i, j - 1]
 
 
-def test_index3():
+def test_index3(golden):
     @proc
     def foo():
         for i in par(0, 0):
             a: i8
             a = 0.0
+
+    assert foo.show_effects() == golden
 
 
 def test_index4():
@@ -166,14 +176,17 @@ def test_index4():
 
 
 # For-loop bound non-negative check tests
-@proc
-def test_good_bound1(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
-    for i in par(0, (n + 7) / 8):
-        if n - 8 * i >= 8:
-            pass
-        else:
-            for j in par(0, n - 8 * i):
-                dst[8 * i + j] = src[8 * i + j]
+def test_good_bound1(golden):
+    @proc
+    def good_bound1(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
+        for i in par(0, (n + 7) / 8):
+            if n - 8 * i >= 8:
+                pass
+            else:
+                for j in par(0, n - 8 * i):
+                    dst[8 * i + j] = src[8 * i + j]
+
+    assert good_bound1.show_effects() == golden
 
 
 def test_bad_bound1():
@@ -307,16 +320,18 @@ def test_race1():
 
 
 # Data Race? No
-def test_race2():
+def test_race2(golden):
     @proc
     def foo(n: size, x: R[n, n]):
         for i in par(0, n):
             if i + 1 < n:
                 x[i, i] = x[i + 1, i]
 
+    assert foo.show_effects() == golden
+
 
 # Data Race? No
-def test_race3():
+def test_race3(golden):
     @proc
     def foo(n: size, x: R[n, n]):
         y = x[1:, :]
@@ -324,10 +339,12 @@ def test_race3():
             if i + 1 < n:
                 x[i, i] = y[i, i]
 
+    assert foo.show_effects() == golden
+
 
 # one big issue is aliasing in sub-procedure arguments
 # TODO: Think about this behaviour
-def test_race4():
+def test_race4(golden):
     @proc
     def foo(n: size, x: [R][n, n], y: [R][n, n]):
         for i in par(0, n):
@@ -338,8 +355,10 @@ def test_race4():
     def bar(n: size, z: R[n, n]):
         foo(n, z, z)
 
+    assert bar.show_effects() == golden
 
-def test_div1():
+
+def test_div1(golden):
     @proc
     def foo(n: size):
         assert n == 3
@@ -349,8 +368,10 @@ def test_div1():
     def bar():
         foo(10 / 3)
 
+    assert bar.show_effects() == golden
 
-def test_mod1():
+
+def test_mod1(golden):
     @proc
     def foo(n: size):
         assert n == 1
@@ -360,9 +381,11 @@ def test_mod1():
     def bar():
         foo(10 % 3)
 
+    assert bar.show_effects() == golden
+
 
 # Callee has a window but caller has a tensor case
-def test_stride_assert1():
+def test_stride_assert1(golden):
     @proc
     def foo(
             n: size,
@@ -378,6 +401,8 @@ def test_stride_assert1():
     @proc
     def bar(x: i8[30, 10] @ DRAM, y: i8[30, 16] @ GEMM_SCRATCH):
         foo(30, 10, x, y)
+
+    assert bar.show_effects() == golden
 
 
 # Both callee and caller has a window case
@@ -402,7 +427,7 @@ def test_stride_assert2():
 
 
 # Both callee and caller has a window case, but with top level assert
-def test_stride_assert3():
+def test_stride_assert3(golden):
     @proc
     def foo(
             n: size,
@@ -420,6 +445,8 @@ def test_stride_assert3():
         assert stride(y, 0) == 16
         assert stride(y, 1) == 1
         foo(30, 10, x, y)
+
+    assert bar.show_effects() == golden
 
 
 # callee is Tensor case and caller is a window case.
@@ -455,15 +482,17 @@ def test_stride_assert5():
 
 
 # Tensor asserting last dimension is fine
-def test_stride_assert6():
+def test_stride_assert6(golden):
     @proc
     def bar(n: size, m: size, x: i8[n, m] @ DRAM):
         assert stride(x, 1) == 1
         pass
 
+    assert bar.show_effects() == golden
+
 
 # Test Tensor having insufficient information (sizes)
-def test_stride_assert7():
+def test_stride_assert7(golden):
     # with changes, this should not trigger an error
     # since it might be true, even if it is highly unlikely
     # i.e. this would have to be always called with m == 10
@@ -472,9 +501,11 @@ def test_stride_assert7():
         assert stride(x, 0) == 10
         pass
 
+    assert bar.show_effects() == golden
+
 
 # Test Windowstmt
-def test_stride_assert8():
+def test_stride_assert8(golden):
     @proc
     def foo(
             n: size,
@@ -494,9 +525,11 @@ def test_stride_assert8():
 
         foo(30, 10, xx, yy)
 
+    assert bar.show_effects() == golden
+
 
 # Test Windowexpr within call arg
-def test_stride_assert9():
+def test_stride_assert9(golden):
     @proc
     def foo(
             n: size,
@@ -513,9 +546,11 @@ def test_stride_assert9():
     def bar(x: i8[8, 30, 10] @ DRAM, y: i8[50, 4, 100, 16] @ GEMM_SCRATCH):
         foo(30, 10, x[0, :, :], y[3, 1, 3:33, :])
 
+    assert bar.show_effects() == golden
+
 
 # Test Alloc
-def test_stride_assert10():
+def test_stride_assert10(golden):
     @proc
     def foo(
             n: size,
@@ -535,9 +570,11 @@ def test_stride_assert10():
 
         foo(30, 10, x[0, :, :], y[3, 1, 3:33, :])
 
+    assert bar.show_effects() == golden
+
 
 # Test stride arguments
-def test_stride_assert11():
+def test_stride_assert11(golden):
     @proc
     def foo(
             n: size,
@@ -558,6 +595,8 @@ def test_stride_assert11():
         y: i8[50, 4, 100, 16] @ GEMM_SCRATCH
 
         foo(30, 10, stride(x, 1), x[0, :, :], y[3, 1, 3:33, :])
+
+    assert bar.show_effects() == golden
 
 
 # are we testing a case of an else branch?
