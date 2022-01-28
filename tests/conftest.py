@@ -1,6 +1,7 @@
 import ctypes
 import distutils.spawn
 import os
+import shlex
 import subprocess
 import textwrap
 from dataclasses import dataclass
@@ -66,8 +67,11 @@ def sde64():
     if not sde:
         pytest.skip('could not find SDE')
 
-    def run(cmd):
-        subprocess.run(f"{sde} -future -- {cmd}", shell=True, check=True)
+    def run(cmd: Union[str, List[str]], **kwargs):
+        if isinstance(cmd, str):
+            cmd = shlex.split(cmd)
+        return subprocess.run([sde, '-future', '--', *cmd],
+                              check=True, **kwargs)
 
     return run
 
@@ -115,18 +119,18 @@ class ProcWrapper:
 
     @staticmethod
     def _convert(arg):
+        if arg is None:
+            return ctypes.POINTER(ctypes.c_int)()
         if isinstance(arg, np.ndarray):
             return arg.ctypes.get_as_parameter()
         if isinstance(arg, int):
             return arg
-        if isinstance(arg, type(None)):
-            return ctypes.POINTER(ctypes.c_int)()
 
         raise ValueError(f'unrecognized type {type(arg)}')
 
     def __call__(self, *args, **kwargs):
         if kwargs:
-            raise ValueError('cannot call DllWrapper with kwargs')
+            raise ValueError('cannot call with kwargs')
         args = [self._convert(arg) for arg in args]
         return self.fn_ptr(*args)
 
