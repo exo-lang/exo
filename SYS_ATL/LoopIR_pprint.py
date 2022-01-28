@@ -96,13 +96,13 @@ class UAST_PPrinter:
                 self.addline(f"Interval({lo},{hi})")
             elif isinstance(node, UAST.Point):
                 self.addline(f"Point({self.pexpr(node.pt)})")
-            else: assert False, "bad case"
+            else:
+                assert False, "bad case"
         else:
             assert False, f"cannot print a {type(node)}"
 
     def str(self):
-        if (isinstance(self._node, UAST.type) or
-            isinstance(self._node, UAST.w_access)):
+        if isinstance(self._node, (UAST.type, UAST.w_access)):
             assert len(self._lines) == 1
             return self._lines[0]
 
@@ -130,7 +130,7 @@ class UAST_PPrinter:
         self._lines.append(f"{self._tab}{line}")
 
     def new_name(self, nm):
-        strnm   = str(nm)
+        strnm = str(nm)
         if strnm not in self.env:
             self.env[strnm] = strnm
             return strnm
@@ -154,14 +154,14 @@ class UAST_PPrinter:
 
     def pproc(self, p):
         name = p.name or "_anon_"
-        args = [ self.pfnarg(a) for a in p.args ]
+        args = [self.pfnarg(a) for a in p.args]
         self.addline(f"def {name}({','.join(args)}):")
 
         self.push()
         if p.instr:
             instr_lines = p.instr.split('\n')
-            instr_lines = ([f'# @instr {instr_lines[0]}']+
-                           [f'#        {l}' for l in instr_lines[1:] ])
+            instr_lines = ([f'# @instr {instr_lines[0]}'] +
+                           [f'#        {l}' for l in instr_lines[1:]])
             for l in instr_lines:
                 self.addline(l)
         for pred in p.preds:
@@ -171,7 +171,7 @@ class UAST_PPrinter:
 
     def pfnarg(self, a):
         mem = f" @{a.mem.name()}" if a.mem else ""
-        return f"{self.new_name(a.name)} : {a.type}{mem}"
+        return f"{self.new_name(a.name)} : {self.ptype(a.type)}{mem}"
 
     def pstmts(self, body):
         for stmt in body:
@@ -190,18 +190,20 @@ class UAST_PPrinter:
 
                 self.addline(f"{lhs} {op} {rhs}")
             elif isinstance(stmt, LoopIR.WriteConfig):
-                cname   = stmt.config.name()
-                rhs     = self.pexpr(stmt.rhs)
+                cname = stmt.config.name()
+                rhs = self.pexpr(stmt.rhs)
                 self.addline(f"{cname}.{stmt.field} = {rhs}")
             elif isinstance(stmt, UAST.FreshAssign):
                 rhs = self.pexpr(stmt.rhs)
                 self.addline(f"{self.new_name(stmt.name)} = {rhs}")
             elif isinstance(stmt, UAST.Alloc):
                 mem = f" @{stmt.mem.name()}" if stmt.mem else ""
-                self.addline(f"{self.new_name(stmt.name)} : {stmt.type}{mem}")
+                self.addline(
+                    f"{self.new_name(stmt.name)} : {self.ptype(stmt.type)}{mem}"
+                )
             elif isinstance(stmt, UAST.Call):
-                pname   = stmt.f.name or "_anon_"
-                args    = [ self.pexpr(a) for a in p.args ]
+                pname = stmt.f.name or "_anon_"
+                args = [self.pexpr(a) for a in stmt.args]
                 self.addline(f"{pname}({','.join(args)})")
             elif isinstance(stmt, UAST.If):
                 cond = self.pexpr(stmt.cond)
@@ -237,14 +239,14 @@ class UAST_PPrinter:
             local_prec = op_prec[e.op]
             # increment rhs by 1 to account for left-associativity
             lhs = self.pexpr(e.lhs, prec=local_prec)
-            rhs = self.pexpr(e.rhs, prec=local_prec+1)
+            rhs = self.pexpr(e.rhs, prec=local_prec + 1)
             s = f"{lhs} {e.op} {rhs}"
             # if we have a lower precedence than the environment...
             if local_prec < prec:
                 s = f"({s})"
             return s
         elif isinstance(e, UAST.USub):
-            return f"-{self.pexpr(e.arg,prec=op_prec['~'])}"
+            return f"-{self.pexpr(e.arg, prec=op_prec['~'])}"
         elif isinstance(e, UAST.ParRange):
             return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
         elif isinstance(e, UAST.SeqRange):
@@ -257,17 +259,19 @@ class UAST_PPrinter:
                     lo = self.pexpr(w.lo) if w.lo else ""
                     hi = self.pexpr(w.hi) if w.hi else ""
                     return f"{lo}:{hi}"
-                else: assert False, "bad case"
+                else:
+                    assert False, "bad case"
+
             return (f"{self.get_name(e.name)}"
                     f"[{', '.join([pacc(w) for w in e.idx])}]")
         elif isinstance(e, UAST.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
         elif isinstance(e, UAST.BuiltIn):
-            pname   = e.f.name() or "_anon_"
-            args    = [ self.pexpr(a) for a in e.args ]
+            pname = e.f.name() or "_anon_"
+            args = [self.pexpr(a) for a in e.args]
             return f"{pname}({','.join(args)})"
         elif isinstance(e, LoopIR.ReadConfig):
-            cname   = e.config.name()
+            cname = e.config.name()
             return f"{cname}.{e.field}"
         else:
             assert False, "unrecognized expr type"

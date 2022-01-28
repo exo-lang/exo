@@ -1,10 +1,10 @@
-def alloc_nest(n: size, m: size, x: R[n_14, m_15], y: R[n_14, m_15] @ DRAM,
-               res: R[n_14, m_15] @ DRAM):
+def alloc_nest(n: size, m: size, x: R[n, m], y: R[n, m] @ DRAM,
+               res: R[n, m] @ DRAM):
     # @instr TEST
     for i in par(0, n):
-        rloc: R[m_15] @ DRAM
-        xloc: R[m_15] @ DRAM
-        yloc: R[m_15] @ DRAM
+        rloc: R[m] @ DRAM
+        xloc: R[m] @ DRAM
+        yloc: R[m] @ DRAM
         for j in par(0, m):
             xloc[j] = x[i, j]
         for j in par(0, m):

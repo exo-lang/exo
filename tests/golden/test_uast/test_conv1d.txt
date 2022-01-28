@@ -1,4 +1,4 @@
-def conv1d(n: size, m: size, r: size, x: R[n_1], w: R[m_2], res: R[r_3]):
+def conv1d(n: size, m: size, r: size, x: R[n], w: R[m], res: R[r]):
     # @instr TEST
     for i in par(0, r):
         res[i] = 0.0
