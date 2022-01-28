@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL import proc, Procedure, DRAM
-from .helper import TMP_DIR
+from SYS_ATL import proc, DRAM
 
 
 # ------- Window related tests ---------
@@ -71,7 +70,7 @@ def test_input4():
         foo(x, x)
 
 
-def test_window():
+def test_window(golden):
     @proc
     def window(
             n: size,
@@ -86,13 +85,10 @@ def test_window():
             for j in par(0, m):
                 dst[i, j] = src[i, j]
 
-    assert isinstance(window, Procedure)
-
-    filename = "test_window_window"
-    window.compile_c(TMP_DIR, filename)
+    assert window.c_code_str() == golden
 
 
-def test_stride_assert():
+def test_stride_assert(golden):
     @proc
     def stride_assert(
             n: size,
@@ -110,13 +106,10 @@ def test_stride_assert():
             for j in par(0, m):
                 dst[i, j] = src[i, j]
 
-    assert isinstance(stride_assert, Procedure)
-
-    filename = "test_window_stride_assert"
-    stride_assert.compile_c(TMP_DIR, filename)
+    assert stride_assert.c_code_str() == golden
 
 
-def test_window_stmt():
+def test_window_stmt(golden):
     @proc
     def window_stmt(n: size, m: size, x: f32[n, m]):
         y = x[:, 0]
@@ -124,13 +117,10 @@ def test_window_stmt():
         for i in par(0, n):
             z[i] = y[i]
 
-    assert isinstance(window_stmt, Procedure)
-
-    filename = "test_window_stmt"
-    window_stmt.compile_c(TMP_DIR, filename)
+    assert window_stmt.c_code_str() == golden
 
 
-def test_normalize():
+def test_normalize(golden):
     @proc
     def dot(m: size, x: [f32][m], y: [f32][m], r: f32):
         r = 0.0
@@ -146,7 +136,4 @@ def test_normalize():
         dot(m, x[1, :], y[:, 2], xy)
         dot(m, y[:, 3], y[:, 3], y2)
 
-    assert isinstance(dot, Procedure)
-    assert isinstance(proj, Procedure)
-    filename = "test_window_proj"
-    proj.compile_c(TMP_DIR, filename)
+    assert proj.c_code_str() == golden
