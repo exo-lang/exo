@@ -141,7 +141,6 @@ class Compiler:
             lib_rsp = self.workdir / 'build' / 'Release' / 'lib_path.txt'
             dll = ctypes.CDLL(lib_rsp.read_text())
             fn_ptr = getattr(dll, proc.name())
-            print(type(fn_ptr))
             return ProcWrapper(fn_ptr)
         else:
             return None
