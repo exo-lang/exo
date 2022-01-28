@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from SYS_ATL import instr, Procedure, DRAM
+from SYS_ATL import instr, DRAM
 
 
 # Merge this file to frontend?
@@ -19,22 +19,18 @@ def gen_conv1d():
     return conv1d
 
 
-def test_conv1d():
+def test_conv1d(golden):
     conv1d = gen_conv1d()
-    assert isinstance(conv1d, Procedure)
-    print(conv1d)
+    assert str(conv1d) == golden
 
 
-def test_unary_neg():
+def test_unary_neg(golden):
     @instr("TEST", _testing="UAST")
     def negate_array(n: size, x: R[n], res: R[n] @ DRAM):  # pragma: no cover
         for i in par(0, n):
             res[i] = -x[i] + -(x[i]) - -(x[i] + 0.0)
 
-    assert isinstance(negate_array, Procedure)
-    code = str(negate_array)
-    print(code)
-    assert 'res[i] = -x[i] + -x[i] - -(x[i] + 0.0)' in code
+    assert str(negate_array) == golden
 
 
 def gen_alloc_nest():
@@ -57,7 +53,6 @@ def gen_alloc_nest():
     return alloc_nest
 
 
-def test_alloc_nest():
+def test_alloc_nest(golden):
     alloc = gen_alloc_nest()
-    assert isinstance(alloc, Procedure)
-    print(alloc)
+    assert str(alloc) == golden
