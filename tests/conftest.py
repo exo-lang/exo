@@ -45,6 +45,11 @@ class GoldenOutput:
             return self.text
         raise ValueError(f'No golden output for {self.path}')
 
+    def __repr__(self):
+        if self.text is None:
+            return f'GoldenOutput({repr(self.path)}, None, {repr(self.update)})'
+        return repr(self.text)
+
     def __eq__(self, other):
         result = self._compare(other)
         if not result and self.update:
