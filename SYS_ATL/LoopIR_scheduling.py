@@ -1196,6 +1196,11 @@ class _DoExpandDim(LoopIR_Rewrite):
 
             return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
 
+        if (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
+                and s.name == self.alloc_sym):
+            idx = [self.indexing] + s.idx
+            return [type(s)( s.name, s.type, s.cast, idx, s.rhs, None, s.srcinfo )]
+
         return super().map_s(s)
 
     def map_e(self, e):
