@@ -86,13 +86,26 @@ class ProcWrapper:
 
 
 @dataclass
+class LibWrapper:
+    dll: ctypes.CDLL
+    default_proc: str
+
+    def __getattr__(self, item):
+        return ProcWrapper(getattr(self.dll, item))
+
+    def __call__(self, *args, **kwargs):
+        fn_ptr = getattr(self.dll, self.default_proc)
+        return ProcWrapper(fn_ptr)(*args, **kwargs)
+
+
+@dataclass
 class Compiler:
     workdir: Path
     basename: str
 
     def compile(self, proc, *, compile_only=False, skip_on_fail=False,
                 **kwargs):
-        atl = self.workdir / f'{self.basename}.atl'
+        atl = self.workdir / f'{proc.name()}_pretty.atl'
         atl.write_text(str(proc))
 
         proc.compile_c(self.workdir, self.basename)
@@ -139,9 +152,10 @@ class Compiler:
 
         if not compile_only:
             lib_rsp = self.workdir / 'build' / 'Release' / 'lib_path.txt'
-            dll = ctypes.CDLL(lib_rsp.read_text())
-            fn_ptr = getattr(dll, proc.name())
-            return ProcWrapper(fn_ptr)
+            return LibWrapper(
+                ctypes.CDLL(lib_rsp.read_text()),
+                proc.name()
+            )
         else:
             return None
 
