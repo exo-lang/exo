@@ -40,12 +40,12 @@ def golden(request):
     checked against some actual output in at least one assertion.
     """
 
-    basedir = Path(request.config.invocation_dir)
+    basedir = request.config.rootpath / 'tests'
     testpath = Path(request.fspath)
 
-    p = (Path('golden') /
-         testpath.relative_to(basedir).with_suffix('') /
-         request.node.name).with_suffix('.txt')
+    p = basedir / 'golden' / (
+            testpath.relative_to(basedir).with_suffix('') /
+            request.node.name).with_suffix('.txt')
 
     update = request.config.getoption("--update-golden")
     if p.exists():
