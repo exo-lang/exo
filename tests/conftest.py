@@ -122,7 +122,7 @@ class ProcWrapper:
         if arg is None:
             return ctypes.POINTER(ctypes.c_int)()
         if isinstance(arg, np.ndarray):
-            return arg.ctypes.get_as_parameter()
+            return arg.ctypes._as_parameter_
         if isinstance(arg, int):
             return arg
 
