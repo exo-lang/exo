@@ -3,9 +3,9 @@ from __future__ import annotations  # make Python behave
 from SYS_ATL import proc
 
 
-# I'm going to define a 1-d version of a standard convolutional layer, like in CuDNN
-# K - # of output channels
-# C - # of input channels
+# I'm going to define a 1D version of a standard convolutional layer (cf. CuDNN)
+# K - number of output channels
+# C - number of input channels
 # W - length of the input signal/tensor
 # R - width of the filter kernel
 def gen_conv1d():
@@ -31,7 +31,7 @@ def gen_conv1d():
     return conv1d
 
 
-def test_im2col():
+def test_im2col(golden):
     conv1d = gen_conv1d()
 
     # Let's start applying scheduling
@@ -69,6 +69,7 @@ def test_im2col():
     # We can invoke another scheduling directive
     # to change which version of the matmul gets scheduled
     im2col_conv = im2col_conv.call_eqv(tiled_matmul, 'matmul(_,_,_,_,_,_,_)')
+    assert f'{im2col}\n{matmul}\n{im2col_conv}' == golden
 
 
 """
