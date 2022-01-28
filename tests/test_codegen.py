@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 from PIL import Image
 
@@ -30,7 +28,7 @@ def gen_blur() -> Procedure:
     return blur
 
 
-def _test_blur(compiler, tmpdir, blur):
+def _test_blur(compiler, tmp_path, blur):
     fn = compiler.compile(blur)
 
     k_size = 5
@@ -39,15 +37,15 @@ def _test_blur(compiler, tmpdir, blur):
     fn(None, *IMAGE.shape, k_size, IMAGE, gkern(k_size, 1), res)
 
     out = Image.fromarray(res.astype(np.uint8))
-    out.save(Path(tmpdir) / 'out.png')
+    out.save(tmp_path / 'out.png')
 
 
-def test_simple_blur(compiler, tmpdir):
+def test_simple_blur(compiler, tmp_path):
     blur = gen_blur()
-    _test_blur(compiler, tmpdir, blur)
+    _test_blur(compiler, tmp_path, blur)
 
 
-def test_simple_blur_split(compiler, tmpdir):
+def test_simple_blur_split(compiler, tmp_path):
     @proc
     def simple_blur_split(n: size, m: size, k_size: size,
                           image: R[n, m], kernel: R[k_size, k_size],
@@ -65,35 +63,35 @@ def test_simple_blur_split(compiler, tmpdir):
                                 res[i, j1 * 2 + j2] += kernel[k, l] * image[
                                     i + k - 1, j1 * 2 + j2 + l - 1]
 
-    _test_blur(compiler, tmpdir, simple_blur_split)
+    _test_blur(compiler, tmp_path, simple_blur_split)
 
 
-def test_split_blur(compiler, tmpdir):
+def test_split_blur(compiler, tmp_path):
     blur = gen_blur()
 
     blur = blur.split('j', 4, ['j1', 'j2'])
     blur = blur.split('i#1', 4, ['i1', 'i2'])
 
-    _test_blur(compiler, tmpdir, blur)
+    _test_blur(compiler, tmp_path, blur)
 
 
-def test_reorder_blur(compiler, tmpdir):
+def test_reorder_blur(compiler, tmp_path):
     blur = gen_blur()
 
     blur = blur.reorder('k', 'l')
     blur = blur.reorder('i', 'j')
 
-    _test_blur(compiler, tmpdir, blur)
+    _test_blur(compiler, tmp_path, blur)
 
 
-def test_unroll_blur(compiler, tmpdir):
+def test_unroll_blur(compiler, tmp_path):
     blur = gen_blur()
 
     #    blur = blur.split('i',6,['i','iunroll']).simpler_unroll('iunroll')
     blur = blur.split('j', 4, ['j1', 'j2'])
     blur = blur.unroll('j2')
 
-    _test_blur(compiler, tmpdir, blur)
+    _test_blur(compiler, tmp_path, blur)
 
 
 # --- End Blur Test ---
@@ -127,7 +125,7 @@ def test_conv1d(compiler):
 
 # ------- Nested alloc test for normal DRAM ------
 
-def test_alloc_nest(compiler, tmpdir):
+def test_alloc_nest(compiler, tmp_path):
     @proc
     def alloc_nest(n: size, m: size,
                    x: R[n, m], y: R[n, m] @ DRAM, res: R[n, m] @ DRAM):
@@ -145,7 +143,7 @@ def test_alloc_nest(compiler, tmpdir):
                 res[i, j] = rloc[j]
 
     # Write effect printing to a file
-    (Path(tmpdir) / f'{alloc_nest.name()}_effect.atl').write_text(
+    (tmp_path / f'{alloc_nest.name()}_effect.atl').write_text(
         str(alloc_nest.show_effects())
     )
 

@@ -172,5 +172,5 @@ class Compiler:
 
 
 @pytest.fixture
-def compiler(tmpdir, request):
-    return Compiler(Path(tmpdir), request.node.name)
+def compiler(tmp_path, request):
+    return Compiler(tmp_path, request.node.name)
