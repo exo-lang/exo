@@ -291,6 +291,19 @@ def test_expand_dim4():
 
     print(bar)
 
+
+def test_expand_dim5():
+    @proc
+    def foo(n : size, x : i8):
+        a : i8
+        for i in seq(0, n):
+            a = x
+
+    foo = foo.expand_dim('a : i8', 'n', 'i')
+    assert "a[i]" in str(foo)
+    print(foo)
+
+
 def test_double_fission():
     @proc
     def foo(N : size, a : f32[N], b : f32[N], out : f32[N]):
