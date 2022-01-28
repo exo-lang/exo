@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-import pytest
-import platform
+from SYS_ATL import proc
+from .amx import *
+from .harness_amx import AMXTestBuilder
+
+
 # if platform.system() == 'Darwin':
 #     pytest.skip("skipping x86 tests on Apple machines for now",
 #                 allow_module_level=True)
-
-import sys
-from SYS_ATL import proc, instr, Procedure, DRAM, compile_procs
-from SYS_ATL.libs.memories import AMX_TILE
-from tests.gemmini.matmul.test_gemmini_matmul_paper import matmul
-from .amx import *
-from .harness_amx import ENV, AMXTestBuilder
 
 
 # --------------------------------------------------------------------------- #
@@ -23,7 +19,8 @@ def test_ldst_i8_16x64():
     T.add_body(["ldst_i8_16x64_lib_Context *ctxt;"])
 
     @proc
-    def ldst_i8_16x64(x: i8[16, 64] @ DRAM, y: i8[16, 64] @ DRAM, z: i8[16, 64] @ DRAM):
+    def ldst_i8_16x64(x: i8[16, 64] @ DRAM, y: i8[16, 64] @ DRAM,
+                      z: i8[16, 64] @ DRAM):
         config()
         tile0: i8[16, 64] @ AMX_TILE
         tile1: i8[16, 64] @ AMX_TILE
@@ -60,7 +57,8 @@ def test_dpbssd_i8_16x64():
     T.add_body(["dpbssd_i8_16x64_lib_Context *ctxt;"])
 
     @proc
-    def dpbssd_i8_16x64(x: i8[16, 64] @ DRAM, y: i8[16, 64] @ DRAM, z: i32[16, 16] @ DRAM):
+    def dpbssd_i8_16x64(x: i8[16, 64] @ DRAM, y: i8[16, 64] @ DRAM,
+                        z: i32[16, 16] @ DRAM):
         config()
         tile0: i8[16, 64] @ AMX_TILE
         tile1: i8[16, 64] @ AMX_TILE
@@ -100,15 +98,15 @@ def test_transform_memory():
 
     @proc
     def call_transform_memory(
-        m: size,
-        n: size,
-        src: i8[4*m, n] @ DRAM,
-        dest: i8[m, 4*n] @ DRAM,
+            m: size,
+            n: size,
+            src: i8[4 * m, n] @ DRAM,
+            dest: i8[m, 4 * n] @ DRAM,
     ):
         for i in par(0, m):
             for j in par(0, n):
                 for k in par(0, 4):
-                    dest[i, 4*j+k] = src[4*i + k, j]
+                    dest[i, 4 * j + k] = src[4 * i + k, j]
 
     T.add_proc(call_transform_memory)
     T.alloc_dram_2i8('src', 64, 16, '5')
@@ -133,18 +131,19 @@ def test_transform_memory():
 def matmul_algorithm_i8():
     @proc
     def matmul_on_cpu_i8(
-        M: size,
-        K: size,
-        N: size,
-        A: i8[M, K] @ DRAM,
-        B: i8[K, N] @ DRAM,
-        C: i32[M, N] @ DRAM,
+            M: size,
+            K: size,
+            N: size,
+            A: i8[M, K] @ DRAM,
+            B: i8[K, N] @ DRAM,
+            C: i32[M, N] @ DRAM,
     ):
         for i in par(0, M):
             for j in par(0, N):
                 C[i, j] = 0.0
                 for k in par(0, K):
-                    # Casts the i8s to i32s before multiplying (note that i8 is signed).
+                    # Casts the i8s to i32s before multiplying
+                    # (note that i8 is signed).
                     a: i32
                     b: i32
 
@@ -159,12 +158,12 @@ def matmul_algorithm_i8():
 def modified_matmul_algorithm_i8():
     @proc
     def modified_matmul_on_cpu_i8(
-        M: size,
-        K: size,
-        N: size,
-        A: i8[M, 4*K] @ DRAM,
-        B: i8[K, 4*N] @ DRAM,
-        C: i32[M, N] @ DRAM,
+            M: size,
+            K: size,
+            N: size,
+            A: i8[M, 4 * K] @ DRAM,
+            B: i8[K, 4 * N] @ DRAM,
+            C: i32[M, N] @ DRAM,
     ):
         assert K % 4 == 0
         config()  # TODO: how to insert this via SYS_ATL
@@ -188,8 +187,8 @@ def modified_matmul_algorithm_i8():
                         a: i32
                         b: i32
 
-                        a = A[i, 4*k+byte]
-                        b = B[k, 4*j+byte]
+                        a = A[i, 4 * k + byte]
+                        b = B[k, 4 * j + byte]
 
                         C_tile += a * b
                 C[i, j] = C_tile
@@ -200,16 +199,17 @@ def modified_matmul_algorithm_i8():
 def get_transform_memory_i8():
     @proc
     def transform_memory_i8(
-        m: size,
-        n: size,
-        src: i8[m, n] @ DRAM,
-        dest: i8[m/4, 4*n] @ DRAM,
+            m: size,
+            n: size,
+            src: i8[m, n] @ DRAM,
+            dest: i8[m / 4, 4 * n] @ DRAM,
     ):
         assert m % 4 == 0
-        for i in par(0, m/4):
+        for i in par(0, m / 4):
             for j in par(0, n):
                 for k in par(0, 4):
-                    dest[i, 4*j+k] = src[4*i + k, j]
+                    dest[i, 4 * j + k] = src[4 * i + k, j]
+
     return transform_memory_i8
 
 
@@ -222,30 +222,33 @@ def test_matmul_on_amx_by_hand_i8():
 
     @proc
     def matmul_on_amx_i8(
-        M: size,
-        K: size,
-        N: size,
-        A: i8[M, 4*K] @ DRAM,
-        B: i8[K, 4*N] @ DRAM,
-        C: i32[M, N] @ DRAM,
+            M: size,
+            K: size,
+            N: size,
+            A: i8[M, 4 * K] @ DRAM,
+            B: i8[K, 4 * N] @ DRAM,
+            C: i32[M, N] @ DRAM,
     ):
         assert M % 16 == 0
         assert N % 16 == 0
         assert K % 16 == 0
         config()
-        for i in par(0, M/16):
-            for j in par(0, N/16):
+        for i in par(0, M / 16):
+            for j in par(0, N / 16):
                 tileC: i32[16, 16] @ AMX_TILE
                 zero_i32(16, 16, tileC)
 
-                for k in par(0, K/16):
+                for k in par(0, K / 16):
                     tileA: i8[16, 64] @ AMX_TILE
                     tileB: i8[16, 64] @ AMX_TILE
-                    ld_i8(16, 64, A[16*i:16*(i+1), 64*k:64*(k+1)], tileA)
-                    ld_i8(16, 64, B[16*k:16*(k+1), 64*j:64*(j+1)], tileB)
+                    ld_i8(16, 64, A[16 * i:16 * (i + 1), 64 * k:64 * (k + 1)],
+                          tileA)
+                    ld_i8(16, 64, B[16 * k:16 * (k + 1), 64 * j:64 * (j + 1)],
+                          tileB)
                     dpbssd(16, 16, 16, tileA, tileB, tileC)
 
-                st_i32(16, 16, tileC, C[16*i:16*(i+1), 16*j:16*(j+1)])
+                st_i32(16, 16, tileC,
+                       C[16 * i:16 * (i + 1), 16 * j:16 * (j + 1)])
 
     cpu = matmul_algorithm_i8()
     transform_memory = get_transform_memory_i8()
@@ -255,7 +258,7 @@ def test_matmul_on_amx_by_hand_i8():
 
     T.alloc_dram_2i8('x', size1, size2, 'i+j')
     T.alloc_dram_2i8('y_orig', size2, size1, 'j')  # before transform_memory
-    T.alloc_dram_2i8('y', size2//4, 4*size1, '0')  # after transform_memory
+    T.alloc_dram_2i8('y', size2 // 4, 4 * size1, '0')  # after transform_memory
     T.alloc_dram_2i32('z', size1, size1, '0')  # expected result
     T.alloc_dram_2i32('res', size1, size1, '0')
 
@@ -263,7 +266,7 @@ def test_matmul_on_amx_by_hand_i8():
     T.add_body(
         [f'matmul_on_cpu(ctxt, {size1}, {size2}, {size1}, x, y_orig, z);'])
     T.add_body(
-        [f'matmul_on_amx(ctxt, {size1}, {size2//4}, {size1}, x, y, res);'])
+        [f'matmul_on_amx(ctxt, {size1}, {size2 // 4}, {size1}, x, y, res);'])
 
     T.add_body([f'if(check_eq_2i32({size1}, {size1}, z, res)) {{',
                 '    printf("Correct\\n");',
@@ -290,15 +293,15 @@ def test_matmul_on_amx_scheduled_i8():
     cpu = matmul_algorithm_i8()
     transform_memory = get_transform_memory_i8()
 
-    amx = modified_matmul_algorithm_i8().partial_eval(size1, size2//4, size1)
+    amx = modified_matmul_algorithm_i8().partial_eval(size1, size2 // 4, size1)
 
     print("Base Implementation: ")
     print(amx)
-    amx = amx.set_memory('a',  AMX_TILE)
+    amx = amx.set_memory('a', AMX_TILE)
     amx = amx.set_precision('a', 'i8')
-    amx = amx.set_memory('b',  AMX_TILE)
+    amx = amx.set_memory('b', AMX_TILE)
     amx = amx.set_precision('b', 'i8')
-    amx = amx.set_memory('C_tile',  AMX_TILE)
+    amx = amx.set_memory('C_tile', AMX_TILE)
 
     print("Loop splitting and reordering:")
     amx = amx.split('i', 16, ['io', 'ii'], perfect=True)
@@ -345,7 +348,7 @@ def test_matmul_on_amx_scheduled_i8():
 
     T.alloc_dram_2i8('x', size1, size2, 'i+j')
     T.alloc_dram_2i8('y_orig', size2, size1, 'j')  # before transform_memory
-    T.alloc_dram_2i8('y', size2//4, 4*size1, '0')  # after transform_memory
+    T.alloc_dram_2i8('y', size2 // 4, 4 * size1, '0')  # after transform_memory
     T.alloc_dram_2i32('z', size1, size1, '0')  # expected result
     T.alloc_dram_2i32('res', size1, size1, '0')
 
