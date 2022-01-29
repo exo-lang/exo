@@ -7,7 +7,7 @@ jobs:
   build:
     strategy:
       matrix:
-        runner: [ ubuntu-latest ]
+        runner: [ ubuntu-latest, macos-latest ]
     env:
       CC: clang-13
       CXX: clang++-13
