@@ -42,6 +42,7 @@ jobs:
         uses: lukka/get-cmake@v3.21.2
 
       - name: Setup SDE binaries
+        if: runner.os != 'macOS'
         uses: petarpetrovt/setup-sde@v1.2
 
       - name: Install Clang 13 (Linux)
