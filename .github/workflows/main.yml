@@ -8,9 +8,19 @@ jobs:
     strategy:
       matrix:
         runner: [ ubuntu-latest, macos-latest ]
+        include:
+          - runner: ubuntu-latest
+            CC: clang-13
+            CXX: clang++-13
+            CLANG: clang-13
+          - runner: macos-latest
+            CC: clang # This will be system AppleClang
+            CXX: clang++ # This will be system AppleClang
+            CLANG: /usr/local/opt/llvm/bin/clang
     env:
-      CC: clang-13
-      CXX: clang++-13
+      CC: ${{matrix.CC}}
+      CXX: ${{matrix.CXX}}
+      CLANG: ${{matrix.CLANG}}
     runs-on: ${{matrix.runner}}
     steps:
       - name: Checkout sources (including submodules)
@@ -34,11 +44,16 @@ jobs:
       - name: Setup SDE binaries
         uses: petarpetrovt/setup-sde@v1.2
 
-      - name: Install Clang 13
+      - name: Install Clang 13 (Linux)
+        if: runner.os == 'Linux'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 13
+
+      - name: Install Clang 13 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm@13
 
       - name: Run tox
         run: tox
