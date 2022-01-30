@@ -1,3 +1,183 @@
+# Points of discussions
+# stmt, or gap?
+# How to handle "outdated" pointers?
+# try, repeat, maybe?
+
+# Motivating examples
+# -----------------------------------------------------------------------------------------
+# 1. fission_after
+# (old) fission_after was this
+for i in seq(0, n):
+   s1
+   s2
+ ----->
+ for i in seq(0, n): # This is "pre" loop
+   s1
+ for i in seq(0, n): # This is "post" loop
+   s2
+.remove_loop('for i in _:_ #0')
+.remove_loop('for i in _:_ #1')
+# remove_loop removes the loop if:
+# 1. Body does not depend on the loop iteration variable
+# 2. Body is idemopotent
+# 3. The loop runs at least once
+
+
+# new fission_after_simple and remove_loop implements this separately.
+@proc
+def foo():
+    ...
+foo = foo.simple_fission('a = b[_]')
+
+
+# We would like to implement fission_after using fission_after_simple and remove_loop
+
+# -----------------------------------------------------------------------------------------
+
+# return an introduced statement
+def fission(proc, stmt, n_lifts):
+    for i in range(0, n_lifts):
+        (proc, stmt) = proc.simple_fission(stmt)
+        (proc, stmt) = proc.remove_loop(stmt) # This removes the "pre" loop
+        (proc, _) = proc.remove_loop(stmt.next()) # This should remove the "post" loop
+
+for j:
+  for i in seq(0, n):
+    s1 <--- stmt
+    s2
+----------->
+for j:
+  for i in seq(0, n): <---- stmt
+    s1
+  for i in seq(0, n): <---- stmt.next() # Quick note here that this is not obvious to users..
+    s2
+----------->
+for j: <---- stmt
+  for i in seq(0, n):
+    s1
+for j:
+  for i in seq(0, n):
+    s2
+
+
+# -----------------------------------------------------------------------------------------
+# The example above could be a gap instead of a statment
+
+def fission(proc, gap, n_lifts):
+    for i in range(0, n_lifts):
+        (proc, gap) = proc.simple_fission(gap)
+        (proc, _) = proc.remove_loop(gap.before()) # This removes the "pre" loop
+        (proc, _) = proc.remove_loop(gap.after())  # This removes the "post" loop
+
+for j:
+  for i in seq(0, n):
+    s1
+                      <--- gap
+    s2
+----------->
+for j:
+  for i in seq(0, n): <---- gap.before()
+    s1
+                      <---- gap
+  for i in seq(0, n): <---- gap.after()
+    s2
+----------->
+for j:
+  for i in seq(0, n):
+    s1
+                      <---- gap
+for j:
+  for i in seq(0, n):
+    s2
+
+
+# -----------------------------------------------------------------------------------------
+
+# Make primitive operators always return stmtgap
+@sched
+def fission(g : stmtgap, n : int):
+    for i in par(0, n):
+        g = simple_fission(g)
+        remove_loop(g)
+        remove_loop(g.next())
+    
+    return g
+
+# With "try" we can do something like..
+@sched
+def fission(g : stmtgap, n : int):
+    for i in par(0, n):
+        g = simple_fission(g)
+        try: # Instead of "try", it could be "maybe"
+            remove_loop(g)
+        try:
+            remove_loop(g.next())
+    
+    return g
+
+foo = foo.schedule(fission, ['for i in _:_', 3])
+foo = foo.schedule(bind_expr, ['a = b[_]', 'tmp'])
+
+# -----------------------------------------------------------------------------------------
+# 2. lift_alloc
+
+# This is the "old" lift_alloc signature
+def lift_alloc(self, alloc_site_pattern, n_lifts=1, mode='row', size=None, keep_dims=False):
+
+# New lift_alloc primitives
+foo = foo.rearrange_dim('a : i8[_]', [1, 2, 0])
+foo = foo.expand_dim('a : i8', 'n', 'i')
+foo = foo.lift_alloc_simple('tmp_a : _')
+
+# lift alloc up as much as possible
+def lift_alloc_rep(proc, stmt):
+    while repeat(): # ?????
+        (proc, stmt) = proc.lift_alloc_simple(stmt)
+    return proc
+
+# -----------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------
+# 3. stage_memory
+
+x = a[_] * b[_]  #s0
+a[_] = ...       #s1
+...              #s2
+ ----->
+for i in ...: # initialization loop
+    new_a[...] = a[...]
+x = new_a[_] * b[_] #s0
+new_a[_] = ...      #s1
+...                 #s2
+for i in ...: # write back
+    a[...] = new_a[...]
+
+# How shold stage_memory directive looks like?
+# We need a way to specify "statement blocks"!
+.stage_memory(['s0', 's1', 's2'], 'a', 'new_a', ['n', 'm']) #???
+# ----- OR ------
+.stage_memory('s0':'s0'+2, 'a', 'new_a', ['n', 'm']) #???
+# ----- OR ------
+g = get_gap('s0')
+.stage_memory(g : g + 2, 'a', 'new_a', ['n', 'm']) #???
+
+# -----------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Issues that needs to be resoved
 # 1. How to return statement with proc from a scheduling operator?
 #    e.g., we want to return stmt_gap (or stmt) from simple_fission_after, so that we can
@@ -24,58 +204,9 @@
 # order, or line number.
 
 
-# We will record the statement in proc.
-@proc
-def foo():
-    ...
-foo = foo.simple_fission('a = b[_]')
-
-def fission(proc, stmt, n_lifts): # This is Python
-    for i in range(0, n_lifts):
-        # I think we will need to have branch like this, if our semantics is:
-        # 1. If scheduling operator is called with a pattern, use that pattern
-        # 2. If the operator is called without a pattern, use the recorded stmt in proc
-        if i == 0:
-            proc = proc.simple_fission(stmt)
-        else:
-            proc = proc.simple_fission()
-
-
-OR 
-
-# More explicit ???
-def fission(proc, stmt, n_lifts):
-    for i in range(0, n_lifts):
-        (proc, stmt) = proc.simple_fission(stmt)
-
-
-# We need to do something like this!
-def fission(proc, stmt, n_lifts):
-    for i in range(0, n_lifts):
-        (proc, stmt) = proc.simple_fission(stmt)
-        (proc, stmt) = proc.remove_loop(stmt) # This removes the "pre" loop
-        (proc, stmt) = proc.remove_loop(stmt+1) # This should remove the "post" loop
-
-
-# Make primitive operators always return stmtgap or linenum 
-@sched
-def fission(g : stmtgap, n : int):
-    for i in par(0, n):
-        g = simple_fission(g)
-        remove_loop(g)
-        remove_loop(g+1)
-    
-    return g
-
-foo = foo.schedule(fission, ['for i in _:_', 3])
-
-foo = foo.schedule(bind_expr, ['a = b[_]', 'tmp'])
-
-
 # To specify statement blocks, we can use window ish experession
 g   = get_gap('fori in _:_')
 foo = foo.stage_mem(g : 10) # We can maybe do something like this with 
-
 
 
 # Limitations of current scheduling front end and the issues that needs to be resoved
