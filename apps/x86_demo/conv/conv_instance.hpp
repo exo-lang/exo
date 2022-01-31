@@ -60,7 +60,7 @@ struct conv_instance {
                   [i = 0.0f]() mutable { return std::tanh(i++); });
   }
 
- private:
+private:
   inline long product(const std::vector<long> &dims) {
     return std::accumulate(dims.begin(), dims.end(), 1, std::multiplies<>());
   }
