@@ -38,13 +38,6 @@ target_link_libraries(
 target_compile_features(bench_sgemm_openblas PRIVATE cxx_std_17)
 target_compile_definitions(bench_sgemm_openblas PRIVATE CBLAS_NAME="OpenBLAS")
 
-# ---------------------------------------------------------------------------- #
-# CTest configuration
-
-if (BUILD_TESTING)
-  add_test(NAME sgemm_100 COMMAND bench_sgemm 100)
-  set_tests_properties(sgemm_100 PROPERTIES ENVIRONMENT "${MKL_ENV}")
-endif ()
 
 # ---------------------------------------------------------------------------- #
 # Tiny harness
@@ -57,3 +50,21 @@ target_link_libraries(
   alex_sgemm
 )
 target_compile_features(run_systl PRIVATE cxx_std_17)
+
+
+# ---------------------------------------------------------------------------- #
+# CTest configuration
+
+if (BUILD_TESTING)
+  add_test(NAME bench_sgemm_sys
+           COMMAND bench_sgemm --benchmark_filter=sys)
+  add_test(NAME bench_sgemm_mkl
+           COMMAND bench_sgemm --benchmark_filter=MKL)
+  add_test(NAME bench_sgemm_openblas
+           COMMAND bench_sgemm_openblas --benchmark_filter=OpenBLAS)
+
+  add_test(NAME run_systl
+           COMMAND run_systl 1000)
+
+  # set_tests_properties(sgemm_100 PROPERTIES ENVIRONMENT "${MKL_ENV}")
+endif ()

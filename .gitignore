@@ -22,3 +22,4 @@ dist/
 build
 autom4te.cache
 configure
+.local/

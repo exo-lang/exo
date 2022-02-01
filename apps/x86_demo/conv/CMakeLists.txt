@@ -35,3 +35,15 @@ target_compile_features(bench_conv PRIVATE cxx_std_17)
 add_executable(test_conv test_conv.cpp)
 target_link_libraries(test_conv PRIVATE conv_impls)
 target_compile_features(test_conv PRIVATE cxx_std_17)
+
+
+# ---------------------------------------------------------------------------- #
+# CTest configuration
+
+if (BUILD_TESTING)
+  add_test(NAME test_conv
+           COMMAND test_conv)
+
+  add_test(NAME bench_conv
+           COMMAND bench_conv --benchmark_filter=102)
+endif ()
