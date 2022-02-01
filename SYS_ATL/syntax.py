@@ -49,6 +49,13 @@ def par(lo, hi):
     """
 
 
+def seq(lo, hi):
+    """
+    Sequential range between lo (must be 0) and hi (exclusive). May only be
+    used in a for-loop bound. Iterations proceed in increasing order.
+    """
+
+
 # Common tensor names:
 # A = _TypeVar('A', bound=size)
 # B = _TypeVar('B', bound=size)
