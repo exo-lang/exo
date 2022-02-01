@@ -3,11 +3,13 @@ from __future__ import annotations
 import itertools
 
 import numpy as np
+import pytest
 
 from SYS_ATL import proc
 from SYS_ATL.platforms.x86 import *
 
 
+@pytest.mark.isa('AVX2')
 def test_avx2_memcpy(compiler):
     """
     Compute dst = src
@@ -42,6 +44,7 @@ def test_avx2_memcpy(compiler):
         assert np.array_equal(inp, out)
 
 
+@pytest.mark.isa('AVX2')
 def test_avx2_simple_math(compiler):
     """
     Compute x = x * y^2
@@ -73,6 +76,7 @@ def test_avx2_simple_math(compiler):
         np.testing.assert_almost_equal(x, expected)
 
 
+@pytest.mark.isa('AVX2')
 def test_avx2_simple_math_scheduling(compiler):
     """
     Compute x = x * y^2
@@ -203,12 +207,12 @@ def gen_sgemm_6x16_avx():
     return rank_k_reduce_6x16, avx2_sgemm_6x16
 
 
-def test_print_avx2_sgemm_kernel():
+def test_print_avx2_sgemm_kernel(golden):
     _, avx2_sgemm_kernel = gen_sgemm_6x16_avx()
-    print()
-    print(avx2_sgemm_kernel)
+    assert str(avx2_sgemm_kernel) == golden
 
 
+@pytest.mark.isa('AVX2')
 def test_avx2_sgemm_full(compiler):
     sgemm_6x16, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
 
@@ -271,6 +275,7 @@ def test_avx2_sgemm_full(compiler):
                       K=range(1, 512, 160))
 
 
+@pytest.mark.isa('AVX2')
 def test_avx2_sgemm_6x16(compiler):
     _, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
 
@@ -292,6 +297,7 @@ def test_avx2_sgemm_6x16(compiler):
     _sgemm_test_cases(fn, M=[6], N=[16], K=range(1, 512))
 
 
+@pytest.mark.isa('AVX512f')
 def test_avx512_sgemm_full(compiler):
     @proc
     def sgemm_micro_kernel_staged(
