@@ -3,6 +3,8 @@
 #ifndef UTIL_H
 #define UTIL_H
 
+#include <cmath>
+#include <iostream>
 #include <random>
 #include <vector>
 
@@ -19,11 +21,16 @@ bool all_close(const std::vector<T> &actual, const std::vector<T> &desired) {
     return false;
   }
 
-  constexpr double atol = 0.0;
-  constexpr double rtol = 1e-7;
+  constexpr double atol = 1e-4;
+  constexpr double rtol = 1e-3;
 
-  for (decltype(actual.size()) i = 0; i < actual.size(); ++i) {
-    if (absd(actual[i], desired[i]) > atol + rtol * desired[i]) {
+  for (unsigned i = 0; i < actual.size(); ++i) {
+    T diff = absd(actual[i], desired[i]);
+    T threshold = atol + rtol * std::abs(desired[i]);
+    if (diff > threshold) {
+      std::cout << "i = " << i << ": " << actual[i] << " (actual) vs. "
+                << desired[i] << " (expected)\n";
+      std::cout << "diff = " << diff << " ; threshold = " << threshold << "\n";
       return false;
     }
   }
