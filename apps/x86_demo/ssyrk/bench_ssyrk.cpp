@@ -4,6 +4,8 @@
 #include <random>
 #include <vector>
 
+#include <util.hpp>
+
 // ----------------------------------------------------------------------------
 // Utilities
 
@@ -12,24 +14,13 @@ static double num_flops(long n, long k) {
   return static_cast<double>(k * n * (n + 1));
 }
 
-static std::vector<float> gen_matrix(long m, long n) {
-  static std::random_device rd;
-  static std::mt19937 rng{rd()};
-  std::uniform_real_distribution<> rv{-1.0f, 1.0f};
-
-  std::vector<float> mat(m * n);
-  std::generate(std::begin(mat), std::end(mat), [&]() { return rv(rng); });
-
-  return mat;
-}
-
 template <typename SsyrkFn>
 static void BM_ssyrk(benchmark::State &state) {
   long n = state.range(0);
   long k = state.range(1);
 
-  auto a = gen_matrix(n, k);
-  auto c = gen_matrix(n, n);
+  auto a = util::gen_matrix<float>(n, k);
+  auto c = util::gen_matrix<float>(n, n);
 
   for (auto _ : state) {
     SsyrkFn{}(a.data(), c.data(), n, k);

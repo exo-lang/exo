@@ -39,6 +39,8 @@ find_package(dnnl REQUIRED)
 ## Google Benchmark
 find_package(benchmark REQUIRED)
 
+## Google Test
+find_package(GTest REQUIRED)
 
 # ---------------------------------------------------------------------------- #
 # Benchmarks
