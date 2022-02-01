@@ -8,9 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Any, Dict, Union, List
 
+import cpufeature
 import numpy as np
 import pytest
-from _pytest.config import argparsing
+from _pytest.config import argparsing, Config
+from _pytest.nodes import Node
 
 from SYS_ATL import Procedure, compile_procs
 
@@ -27,6 +29,20 @@ def pytest_addoption(parser: argparsing.Parser):
         default=False,
         help="Update golden outputs.",
     )
+
+
+def pytest_configure(config: Config):
+    config.addinivalue_line(
+        'markers',
+        'isa(name): mark test to run only when required ISA is available'
+    )
+
+
+def pytest_runtest_setup(item: Node):
+    for mark in item.iter_markers(name='isa'):
+        isa = mark.args[0]
+        if not cpufeature.CPUFeature.get(isa, False):
+            pytest.skip(f'skipping test because {isa} is not available')
 
 
 # ---------------------------------------------------------------------------- #
