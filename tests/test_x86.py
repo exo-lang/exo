@@ -207,6 +207,8 @@ def gen_sgemm_6x16_avx():
     return rank_k_reduce_6x16, avx2_sgemm_6x16
 
 
+@pytest.mark.skip(reason='apparently unifying the broadcast is '
+                         'non-deterministic')
 def test_print_avx2_sgemm_kernel(golden):
     _, avx2_sgemm_kernel = gen_sgemm_6x16_avx()
     assert str(avx2_sgemm_kernel) == golden
