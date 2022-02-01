@@ -1,0 +1,71 @@
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define SYS_ATL_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define SYS_ATL_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if SYS_ATL_HAS_BUILTIN(__builtin_assume)
+#  define SYS_ATL_ASSUME(expr) __builtin_assume(expr)
+#elif SYS_ATL_HAS_BUILTIN(__builtin_unreachable)
+#  define SYS_ATL_ASSUME(expr) \
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define SYS_ATL_ASSUME(expr) ((void)(expr))
+#endif
+
+struct systl_win_2i8{
+    int8_t *data;
+    int_fast32_t strides[2];
+};
+typedef struct c_code_str_Context { 
+
+} c_code_str_Context;
+
+
+// stride_assert(
+//     n : size,
+//     m : size,
+//     src : [i8][n,m]  @DRAM,
+//     dst : [i8][n,16]  @DRAM
+// )
+void stride_assert( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, struct systl_win_2i8 src, struct systl_win_2i8 dst );
+
+
+static int _floor_div(int num, int quot) {
+  int off = (num>=0)? 0 : quot-1;
+  return (num-off)/quot;
+}
+
+static int8_t _clamp_32to8(int32_t x) {
+  return (x < -128)? -128 : ((x > 127)? 127 : x);
+}
+
+#include <stdio.h>
+#include <stdlib.h>
+
+
+// stride_assert(
+//     n : size,
+//     m : size,
+//     src : [i8][n,m]  @DRAM,
+//     dst : [i8][n,16]  @DRAM
+// )
+void stride_assert( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, struct systl_win_2i8 src, struct systl_win_2i8 dst ) {
+SYS_ATL_ASSUME(n <= 16);
+SYS_ATL_ASSUME(m <= 16);
+SYS_ATL_ASSUME(src.strides[1] == 1);
+SYS_ATL_ASSUME(dst.strides[0] == 16);
+SYS_ATL_ASSUME(dst.strides[1] == 1);
+for (int i = 0; i < n; i++) {
+  for (int j = 0; j < m; j++) {
+    dst.data[(i) * (dst.strides[0]) + (j) * (dst.strides[1])] = src.data[(i) * (src.strides[0]) + (j) * (src.strides[1])];
+  }
+}
+}

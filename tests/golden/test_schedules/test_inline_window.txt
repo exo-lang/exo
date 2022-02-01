@@ -1,0 +1,8 @@
+def foo(n: size, m: size, x: R[n, m] @ DRAM):
+    assert n > 4
+    assert m > 4
+    for i in seq(0, n - 4):
+        for j in seq(0, m - 4):
+            a: R @ DRAM
+            a = x[i, j] * x[2 + i, 1 + i]
+            x[2 + i, 1 + i] = a + x[i + 1, j + 1]

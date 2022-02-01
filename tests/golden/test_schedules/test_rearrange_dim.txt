@@ -1,0 +1,18 @@
+def foo(N: size, M: size, K: size, x: i8[N, M, K] @ DRAM):
+    a: i8[M, K, N] @ DRAM
+    for n in seq(0, N):
+        for m in seq(0, M):
+            for k in seq(0, K):
+                a[m, k, n] = x[n, m, k]
+
+def bar(N: size, M: size, K: size, x: i8[N, M, K] @ DRAM):
+    a: i8[M, N, K] @ DRAM
+    for n in seq(0, N):
+        for m in seq(0, M):
+            for k in seq(0, K):
+                a[m, n, k] = x[n, m, k]
+    a_1: i8[K, M, N] @ DRAM
+    for n in seq(0, N):
+        for m in seq(0, M):
+            for k in seq(0, K):
+                a_1[k, m, n] = x[n, m, k]

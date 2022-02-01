@@ -1,27 +1,23 @@
-import inspect
 import re
-import textwrap
 from collections import ChainMap
 
-from .API_types import ProcedureBase
 from .LoopIR import (LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do,
                      SubstArgs, T, lift_to_eff_expr)
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_effects import (Effects as E, eff_filter, eff_bind, eff_null,
                              get_effect_of_stmts)
 from .effectcheck import InferEffects
+from .new_eff import (
+    SchedulingError,
+    Check_ReorderStmts,
+    Check_ReorderLoops,
+)
 from .prelude import *
 
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Scheduling Errors
-
-from .new_eff import (
-    SchedulingError,
-    Check_ReorderStmts,
-    Check_ReorderLoops,
-)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -2320,16 +2316,16 @@ class _DoAddLoop(LoopIR_Rewrite):
 #   Factor out a sub-statement as a Procedure scheduling directive
 
 def _make_closure(name, stmts, var_types):
-    FVs     = _FV(stmts)
-    info    = stmts[0].srcinfo
+    FVs = list(sorted(_FV(stmts)))
+    info = stmts[0].srcinfo
 
     # work out the calling arguments (args) and sub-proc args (fnargs)
-    args    = []
-    fnargs  = []
+    args = []
+    fnargs = []
 
     # first, scan over all the arguments and convert them.
     # accumulate all size symbols separately
-    sizes   = set()
+    sizes = set()
     for v in FVs:
         typ = var_types[v]
         if typ is T.size:
@@ -2346,12 +2342,12 @@ def _make_closure(name, stmts, var_types):
             fnargs.append(LoopIR.fnarg(v, typ, None, info))
 
     # now prepend all sizes to the argument list
-    sizes   = list(sizes)
-    args    = [ LoopIR.Read(sz, [], T.size, info) for sz in sizes ] + args
-    fnargs  = [ LoopIR.fnarg(sz, T.size, None, info)
-                for sz in sizes ] + fnargs
+    sizes = list(sorted(sizes))
+    args = [LoopIR.Read(sz, [], T.size, info) for sz in sizes] + args
+    fnargs = [LoopIR.fnarg(sz, T.size, None, info)
+              for sz in sizes] + fnargs
 
-    eff     = None
+    eff = None
     # TODO: raise NotImplementedError("need to figure out effect of new closure")
     closure = LoopIR.proc(name, fnargs, [], stmts, None, eff, info)
 

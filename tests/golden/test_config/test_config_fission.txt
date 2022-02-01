@@ -1,0 +1,7 @@
+def foo(scale: f32 @ DRAM, n: size, m: size, A: f32[n, m] @ DRAM):
+    ConfigLoad.scale = scale
+    for i in par(0, n):
+        for j in par(0, m):
+            tmp: f32 @ DRAM
+            tmp = A[i, j]
+            tmp = tmp * ConfigLoad.scale

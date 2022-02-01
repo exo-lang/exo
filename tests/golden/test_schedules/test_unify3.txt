@@ -1,0 +1,5 @@
+def foo(n: size, z: R[n] @ DRAM, x: R[n] @ DRAM, y: R[n] @ DRAM):
+    assert n % 4 == 0
+    for i in par(0, n / 4):
+        simd_add4(z[4 * i + 0:4 * i + 4], x[4 * i + 0:4 * i + 4],
+                  y[4 * i + 0:4 * i + 4])
