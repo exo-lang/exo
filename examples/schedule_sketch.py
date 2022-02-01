@@ -163,6 +163,123 @@ g = get_gap('s0')
 
 # -----------------------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------------------
+# 4. add_guard
+
+# add_guard semantics is:
+for i in seq(0, N):
+    for j in seq(0, M):
+        for k in seq(0, K):
+            ...
+            C[_] += A[j,k] * B[_]
+            ...
+ ----->
+a : R[M, K]
+... # load to a
+for i in seq(0, N):
+    for j in seq(0, M):
+        for k in seq(0, K):
+            ...
+            if i == 0:
+                a[j,k] = A[j,k] # This statement does not depend on i
+            C[_] += a[j,k] * B[_]
+            ...
+
+# Trying to implement add_guard semantics with stage_memory, add_loop and fuse_loop requires handling of multiple "pointers"
+
+# First, let's do stage_memory
+...
+for i in seq(0, N):
+    for j in seq(0, M):
+        for k in seq(0, K):
+            ...
+            C[_] += A[j,k] * B[_]
+            ...
+ -----> (proc, stmt) = foo.stage_memory(..., 'A', 'a', ['M','K']) ----->
+...
+a : R[M, K]
+                    <------ stmt.before()
+for j in seq(0, M): <------ stmt
+    for k in seq(0, K):
+        a[j,k] = A[j,k]
+for i in seq(0, N):
+    for j in seq(0, M):
+        for k in seq(0, K):
+            ...
+            C[_] += a[j,k] * B[_]
+            ...
+for j in seq(0, M): # This statement is redundant if we don't have write to new_A in the above loop
+    for k in seq(0, K):
+        A[j,k] = a[j,k]
+
+
+# Now, we want to use add_loop to add a loop at stmt.before()
+...
+a : R[M, K]
+                    <------ stmt.before()
+for j in seq(0, M): <------ stmt
+    for k in seq(0, K):
+        a[j,k] = A[j,k]
+for i in seq(0, N):
+    for j in seq(0, M):
+        for k in seq(0, K):
+            ...
+            C[_] += a[j,k] * B[_]
+            ...
+ -----> (proc, stmt) = foo.add_loop(stmt.before(), 'i', 'N') -----> # memo: we can potentially break add_loop to add_single_iter & expand_hi
+...
+for i in seq(0, N): <------ stmt
+    if i == 0:
+        for j in seq(0, M):
+            for k in seq(0, K):
+                a[j,k] = A[j,k]
+for i in seq(0, N):
+    for j in seq(0, M):
+        for k in seq(0, K):
+            ...
+            C[_] += a[j,k] * B[_]
+            ...
+
+# Now we can apply fuse_loop to fuse the loops
+for i in seq(0, N): <------ stmt
+    if i == 0:
+        for j in seq(0, M):
+            for k in seq(0, K):
+                a[j,k] = A[j,k]
+for i in seq(0, N): <------ stmt.next()
+    for j in seq(0, M):
+        for k in seq(0, K):
+            ...
+            C[_] += a[j,k] * B[_]
+            ...
+ -----> (proc, stmt) = foo.fuse_loop(stmt, stmt.next()) ----->
+for i in seq(0, N): <------ stmt
+    if i == 0:
+        for j in seq(0, M):
+            for k in seq(0, K):
+                a[j,k] = A[j,k]
+    for j in seq(0, M):
+        for k in seq(0, K):
+            ...
+            C[_] += a[j,k] * B[_]
+            ...
+
+# And the scheduling continues...
+
+for i in seq(0, N):
+    for j in seq(0, M):
+        for k in seq(0, K):
+            if i == 0:
+                a[j,k] = A[j,k]
+            ...
+            C[_] += a[j,k] * B[_]
+            ...
+
+# Yay!
+
+
+
+
 
 
 
