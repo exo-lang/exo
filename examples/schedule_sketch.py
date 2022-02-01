@@ -62,6 +62,9 @@ for j:
 
 # -----------------------------------------------------------------------------------------
 # The example above could be a gap instead of a statment
+# MEMO: Think about how to debug the scheduling directives
+#       Also, we need to print the pointer
+# MEMO: Label statements? Learn from CSS, tree selector languages, XPATH?
 
 def fission(proc, gap, n_lifts):
     for i in range(0, n_lifts):
@@ -92,13 +95,14 @@ for j:
 
 
 # -----------------------------------------------------------------------------------------
+# MEMO: Why not just use @extclass when we're just threading the one extra argument?
 
 # Make primitive operators always return stmtgap
 @sched
 def fission(g : stmtgap, n : int):
-    for i in par(0, n):
+    for i in range(0, n):
         g = simple_fission(g)
-        remove_loop(g)
+        g = remove_loop(g)
         remove_loop(g.next())
     
     return g
@@ -106,10 +110,10 @@ def fission(g : stmtgap, n : int):
 # With "try" we can do something like..
 @sched
 def fission(g : stmtgap, n : int):
-    for i in par(0, n):
+    for i in seq(0, n):
         g = simple_fission(g)
         try: # Instead of "try", it could be "maybe"
-            remove_loop(g)
+            g = remove_loop(g)
         try:
             remove_loop(g.next())
     
@@ -129,6 +133,8 @@ foo = foo.rearrange_dim('a : i8[_]', [1, 2, 0])
 foo = foo.expand_dim('a : i8', 'n', 'i')
 foo = foo.lift_alloc_simple('tmp_a : _')
 
+# MEMO: kleene star ish, potentially a custom syntax advantage?
+#       Could be functional, maybe just try that
 # lift alloc up as much as possible
 def lift_alloc_rep(proc, stmt):
     while repeat(): # ?????
@@ -144,6 +150,8 @@ x = a[_] * b[_]  #s0
 a[_] = ...       #s1
 ...              #s2
  ----->
+s-1
+new_a : R[_]
 for i in ...: # initialization loop
     new_a[...] = a[...]
 x = new_a[_] * b[_] #s0
@@ -151,6 +159,7 @@ new_a[_] = ...      #s1
 ...                 #s2
 for i in ...: # write back
     a[...] = new_a[...]
+s3
 
 # How shold stage_memory directive looks like?
 # We need a way to specify "statement blocks"!
@@ -160,6 +169,10 @@ for i in ...: # write back
 # ----- OR ------
 g = get_gap('s0')
 .stage_memory(g : g + 2, 'a', 'new_a', ['n', 'm']) #???
+
+# MEMO: Noun phrases? More examples, add_guard?
+# auto_lift_alloc thing in gemmini
+# errorhandling? sequence of tries? Nested try catch? maybe local bool variable?
 
 # -----------------------------------------------------------------------------------------
 
