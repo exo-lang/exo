@@ -618,3 +618,224 @@ def test_inline_window(golden):
 
     foo = foo.inline_window('y = _')
     assert str(foo) == golden
+
+
+def test_lift_if_second_statement_in_then_error():
+    @proc
+    def foo(m: size, x: R[m]):
+        for i in seq(0, m):
+            if m > 12:
+                x[0] = 1.0
+                if i < 10:
+                    x[i] = 2.0
+
+    with pytest.raises(SchedulingError,
+                       match='expected if statement to be directly nested in '
+                             'parents'):
+        foo = foo.lift_if('if i < 10: _')
+        print(foo)
+
+
+def test_lift_if_second_statement_in_else_error():
+    @proc
+    def foo(m: size, x: R[m]):
+        for i in seq(0, m):
+            if m > 12:
+                pass
+            else:
+                x[0] = 1.0
+                if i < 10:
+                    x[i] = 2.0
+
+    with pytest.raises(SchedulingError,
+                       match='expected if statement to be directly nested in '
+                             'parents'):
+        foo = foo.lift_if('if i < 10: _')
+        print(foo)
+
+
+def test_lift_if_second_statement_in_for_error():
+    @proc
+    def foo(m: size, x: R[m]):
+        for i in seq(0, m):
+            x[0] = 1.0
+            if m > 12:
+                pass
+
+    with pytest.raises(SchedulingError,
+                       match='expected if statement to be directly nested in '
+                             'parents'):
+        foo = foo.lift_if('if m > 12: _')
+        print(foo)
+
+
+def test_lift_if_too_high_error():
+    @proc
+    def foo(m: size, x: R[m], j: size):
+        for i in seq(0, m):
+            if j < 10:
+                x[i] = 2.0
+
+    with pytest.raises(SchedulingError, match=r'1 lift\(s\) remain!'):
+        foo = foo.lift_if('if j < 10: _', n_lifts=2)
+        print(foo)
+
+
+def test_lift_if_dependency_error():
+    @proc
+    def foo(m: size, x: R[m]):
+        for i in seq(0, m):
+            if i < 10:
+                x[i] = 2.0
+
+    with pytest.raises(SchedulingError,
+                       match=r'if statement depends on iteration variable'):
+        foo = foo.lift_if('if i < 10: _')
+        print(foo)
+
+
+def test_lift_if_past_if(golden):
+    @proc
+    def foo(n: size, x: R[n], i: index):
+        assert i > 0
+        if i < n:
+            if i < 10:
+                x[i] = 1.0
+
+    foo = foo.lift_if('if i < 10: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_past_for(golden):
+    @proc
+    def foo(n: size, x: R[n], i: index):
+        for j in seq(0, n):
+            if i < 10:
+                x[j] = 1.0
+
+    foo = foo.lift_if('if i < 10: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_halfway(golden):
+    @proc
+    def foo(n: size, x: R[n], i: index):
+        for j in seq(0, n):
+            if n > 20:
+                if i < 10:
+                    x[j] = 1.0
+
+    foo = foo.lift_if('if i < 10: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_past_if_then_for(golden):
+    @proc
+    def foo(n: size, x: R[n], i: index):
+        for j in seq(0, n):
+            if n > 20:
+                if i < 10:
+                    x[j] = 1.0
+
+    foo = foo.lift_if('if i < 10: _', n_lifts=2)
+    assert str(foo) == golden
+
+
+def test_lift_if_middle(golden):
+    @proc
+    def foo(n: size, x: R[n], i: index):
+        for j in seq(0, n):
+            if n > 20:
+                if i < 10:
+                    x[j] = 1.0
+
+    foo = foo.lift_if('if n > 20: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_with_else_past_if(golden):
+    @proc
+    def foo(n: size, x: R[n], i: size):
+        assert n > 10
+        if i < 10:
+            if n > 20:
+                x[i] = 1.0
+            else:
+                x[i] = 2.0
+
+    foo = foo.lift_if('if n > 20: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_with_else_past_if_with_else(golden):
+    @proc
+    def foo(n: size, x: R[n], i: size):
+        assert n > 10
+        assert i < n
+        if i < 10:
+            if n > 20:
+                x[i] = 1.0
+            else:
+                x[i] = 2.0
+        else:
+            x[i] = 3.0
+
+    foo = foo.lift_if('if n > 20: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_with_pass_body(golden):
+    @proc
+    def foo(n: size):
+        if 10 < n:
+            if n < 20:
+                pass
+
+    foo = foo.lift_if('if n < 20: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_with_pass_body_and_else(golden):
+    @proc
+    def foo(n: size):
+        if 10 < n:
+            if n < 20:
+                pass
+            else:
+                pass
+
+    foo = foo.lift_if('if n < 20: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_in_else_branch_of_parent(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        if 10 < n:
+            x[0] = 1.0
+        else:
+            if n < 20:
+                x[0] = 2.0
+            else:
+                x[0] = 3.0
+
+    foo = foo.lift_if('if n < 20: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_in_full_nest(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        if 10 < n:
+            if n < 15:
+                x[0] = 1.0
+            else:
+                x[0] = 2.0
+        else:
+            if n < 20:
+                x[0] = 3.0
+            else:
+                x[0] = 4.0
+
+    foo = foo.lift_if('if n < 20: _')
+    assert str(foo) == golden
