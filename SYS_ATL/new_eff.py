@@ -1156,8 +1156,8 @@ from .API_types import ProcedureBase
 class SchedulingError(Exception):
     def __init__(self, message, **kwargs):
         ops = self._get_scheduling_ops()
-        ops_msg = ': '.join(map(str, reversed(ops)))
-        message = f'{ops_msg}: {message}'
+        # TODO: include outer ops in message
+        message = f'{ops[0]}: {message}'
         for name, blob in kwargs.items():
             message += self._format_named_blob(name.title(), blob)
         super().__init__(message)
