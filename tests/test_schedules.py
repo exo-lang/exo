@@ -620,7 +620,7 @@ def test_inline_window(golden):
     assert str(foo) == golden
 
 
-def test_lift_if_second_statement_error():
+def test_lift_if_second_statement_in_then_error():
     @proc
     def foo(m: size, x: R[m]):
         for i in seq(0, m):
@@ -633,6 +633,39 @@ def test_lift_if_second_statement_error():
                        match='expected if statement to be directly nested in '
                              'parents'):
         foo = foo.lift_if('if i < 10: _')
+        print(foo)
+
+
+def test_lift_if_second_statement_in_else_error():
+    @proc
+    def foo(m: size, x: R[m]):
+        for i in seq(0, m):
+            if m > 12:
+                pass
+            else:
+                x[0] = 1.0
+                if i < 10:
+                    x[i] = 2.0
+
+    with pytest.raises(SchedulingError,
+                       match='expected if statement to be directly nested in '
+                             'parents'):
+        foo = foo.lift_if('if i < 10: _')
+        print(foo)
+
+
+def test_lift_if_second_statement_in_for_error():
+    @proc
+    def foo(m: size, x: R[m]):
+        for i in seq(0, m):
+            x[0] = 1.0
+            if m > 12:
+                pass
+
+    with pytest.raises(SchedulingError,
+                       match='expected if statement to be directly nested in '
+                             'parents'):
+        foo = foo.lift_if('if m > 12: _')
         print(foo)
 
 
