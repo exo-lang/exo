@@ -1,14 +1,16 @@
 import ctypes
 import distutils.spawn
+import functools
 import os
+import platform
+import re
 import shlex
 import subprocess
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Any, Dict, Union, List
+from typing import Optional, Any, Dict, Union, List, Set
 
-import cpufeature
 import numpy as np
 import pytest
 from _pytest.config import argparsing, Config
@@ -40,8 +42,8 @@ def pytest_configure(config: Config):
 
 def pytest_runtest_setup(item: Node):
     for mark in item.iter_markers(name='isa'):
-        isa = mark.args[0]
-        if not cpufeature.CPUFeature.get(isa, False):
+        isa = mark.args[0].lower()
+        if isa not in get_cpu_features():
             pytest.skip(f'skipping test because {isa} is not available')
 
 
@@ -269,3 +271,29 @@ class Compiler:
             '''
         )
         return cml_body
+
+
+@functools.cache
+def get_cpu_features() -> Set[str]:
+    def get_cpuinfo_string() -> str:
+        if cpuinfo := os.getenv('SYSTL_OVERRIDE_CPUINFO'):
+            return cpuinfo
+
+        if platform.system() == 'Linux':
+            try:
+                cpuinfo = Path('/proc/cpuinfo').read_text()
+                if m := re.search(r'^flags\s*:(.+)$', cpuinfo, re.MULTILINE):
+                    return m.group(1)
+            except IOError:
+                return ''
+        elif platform.system() == 'Darwin':
+            return subprocess.run([
+                'sysctl', '-n', 'machdep.cpu.features',
+                'machdep.cpu.leaf7_features'
+            ], capture_output=True).stdout.decode()
+        elif platform.system() == 'Windows':
+            return ''  # TODO: implement checking for Windows
+        else:
+            return ''
+
+    return set(get_cpuinfo_string().lower().split())
