@@ -821,3 +821,21 @@ def test_lift_if_in_else_branch_of_parent(golden):
 
     foo = foo.lift_if('if n < 20: _')
     assert str(foo) == golden
+
+
+def test_lift_if_in_full_nest(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        if 10 < n:
+            if n < 15:
+                x[0] = 1.0
+            else:
+                x[0] = 2.0
+        else:
+            if n < 20:
+                x[0] = 3.0
+            else:
+                x[0] = 4.0
+
+    foo = foo.lift_if('if n < 20: _')
+    assert str(foo) == golden
