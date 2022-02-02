@@ -751,7 +751,7 @@ def test_lift_if_with_else_past_if_with_else(golden):
     assert str(foo) == golden
 
 
-def test_lift_with_pass_body(golden):
+def test_lift_if_with_pass_body(golden):
     @proc
     def foo(n: size):
         if 10 < n:
@@ -762,7 +762,7 @@ def test_lift_with_pass_body(golden):
     assert str(foo) == golden
 
 
-def test_lift_with_pass_body_and_else(golden):
+def test_lift_if_with_pass_body_and_else(golden):
     @proc
     def foo(n: size):
         if 10 < n:
@@ -770,6 +770,21 @@ def test_lift_with_pass_body_and_else(golden):
                 pass
             else:
                 pass
+
+    foo = foo.lift_if('if n < 20: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_in_else_branch_of_parent(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        if 10 < n:
+            x[0] = 1.0
+        else:
+            if n < 20:
+                x[0] = 2.0
+            else:
+                x[0] = 3.0
 
     foo = foo.lift_if('if n < 20: _')
     assert str(foo) == golden
