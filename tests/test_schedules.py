@@ -749,3 +749,14 @@ def test_lift_if_with_else_past_if_with_else(golden):
 
     foo = foo.lift_if('if n > 20: _')
     assert str(foo) == golden
+
+
+def test_lift_with_pass_body(golden):
+    @proc
+    def foo(n: size):
+        if 10 < n:
+            if n < 20:
+                pass
+
+    foo = foo.lift_if('if n < 20: _')
+    assert str(foo) == golden
