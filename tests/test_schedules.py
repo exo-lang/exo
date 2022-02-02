@@ -718,3 +718,34 @@ def test_lift_if_middle(golden):
 
     foo = foo.lift_if('if n > 20: _')
     assert str(foo) == golden
+
+
+def test_lift_if_with_else_past_if(golden):
+    @proc
+    def foo(n: size, x: R[n], i: size):
+        assert n > 10
+        if i < 10:
+            if n > 20:
+                x[i] = 1.0
+            else:
+                x[i] = 2.0
+
+    foo = foo.lift_if('if n > 20: _')
+    assert str(foo) == golden
+
+
+def test_lift_if_with_else_past_if_with_else(golden):
+    @proc
+    def foo(n: size, x: R[n], i: size):
+        assert n > 10
+        assert i < n
+        if i < 10:
+            if n > 20:
+                x[i] = 1.0
+            else:
+                x[i] = 2.0
+        else:
+            x[i] = 3.0
+
+    foo = foo.lift_if('if n > 20: _')
+    assert str(foo) == golden
