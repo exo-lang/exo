@@ -1156,8 +1156,8 @@ from .API_types import ProcedureBase
 class SchedulingError(Exception):
     def __init__(self, message, **kwargs):
         ops = self._get_scheduling_ops()
-        # TODO: include outer ops in message
-        message = f'{ops[0]}: {message}'
+        ops_msg = ': '.join(map(str, reversed(ops)))
+        message = f'{ops_msg}: {message}'
         for name, blob in kwargs.items():
             message += self._format_named_blob(name.title(), blob)
         super().__init__(message)
@@ -1259,9 +1259,3 @@ def Check_ReorderLoops(proc, s):
     if not is_ok:
         raise SchedulingError(
             f"Loops {x} and {y} at {s.srcinfo} cannot be reordered.")
-
-
-
-
-
-
