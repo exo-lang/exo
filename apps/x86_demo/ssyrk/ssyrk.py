@@ -15,10 +15,10 @@ def SSYRK(M: size, K: size, A: f32[M, K], C: f32[M, M]):
 
     for i in seq(0, M):  # row i
         for j in seq(0, M):  # column j
-            c_acc: R[16]
-            for k in seq(0, 16):
-                c_acc[k] = 0.0
             if j >= i:
+                c_acc: R[16]
+                for k in seq(0, 16):
+                    c_acc[k] = 0.0
                 for ko in seq(0, K / 16):
                     for ki in seq(0, 16):
                         c_acc[ki] += A[i, 16 * ko + ki] * A[j, 16 * ko + ki]
@@ -26,20 +26,20 @@ def SSYRK(M: size, K: size, A: f32[M, K], C: f32[M, M]):
                     for ki in seq(0, K % 16):
                         c_acc[ki] += (A[i, 16 * (K / 16) + ki] *
                                       A[j, 16 * (K / 16) + ki])
-            for k in seq(0, 16):
-                C[i, j] += c_acc[k]
+                for k in seq(0, 16):
+                    C[i, j] += c_acc[k]
 
 
 systl_ssyrk = (
     SSYRK
         .rename('systl_ssyrk')
-        .lift_alloc('c_acc: _', n_lifts=2)
+        .lift_alloc('c_acc: _', n_lifts=3)
         .expand_dim('c_acc: _', 'M', 'j')
         .expand_dim('c_acc: _', 'M', 'i')
         .set_memory('c_acc', AVX512)
 
-        .fission_after('for k in _: _ #0', n_lifts=2)
-        .fission_after('if j >= i: _', n_lifts=2)
+        .fission_after('for k in _: _ #0', n_lifts=3)
+        .fission_after('if K % _ > 0: _', n_lifts=3)
 
         .stage_expr('A_vec', 'A[_] #0', memory=AVX512)
         .stage_expr('At_vec', 'A[_] #1', memory=AVX512)
