@@ -1,0 +1,6 @@
+Reads:
+  { x : (i + 1,i) for (i) in Z if
+    0 <= i and i < n and i + 1 < n }
+Writes:
+    { x : (i,i) for (i) in Z if
+    0 <= i and i < n and i + 1 < n }

@@ -35,7 +35,9 @@ class Sym:
 
     def __hash__(self): return id(self)
 
-    def __lt__(lhs, rhs): return (lhs._nm, lhs._id) < (rhs._nm, rhs._id)
+    def __lt__(self, rhs):
+        assert isinstance(rhs, Sym)
+        return (self._nm, self._id) < (rhs._nm, rhs._id)
 
     def name(self):
         return self._nm

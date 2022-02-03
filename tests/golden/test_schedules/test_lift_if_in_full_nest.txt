@@ -1,0 +1,17 @@
+def foo(n: size, x: R[n] @ DRAM):
+    if n < 20:
+        if 10 < n:
+            if n < 15:
+                x[0] = 1.0
+            else:
+                x[0] = 2.0
+        else:
+            x[0] = 3.0
+    else:
+        if 10 < n:
+            if n < 15:
+                x[0] = 1.0
+            else:
+                x[0] = 2.0
+        else:
+            x[0] = 4.0

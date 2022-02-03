@@ -1,0 +1,6 @@
+def foo(scale: f32 @ DRAM):
+    for i in par(0, 10):
+        tmp: f32 @ DRAM
+        tmp = 0.0
+        ConfigLoad.scale = scale
+        tmp = tmp * ConfigLoad.scale

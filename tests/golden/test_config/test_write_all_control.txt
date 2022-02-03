@@ -1,0 +1,4 @@
+def set_all(i: index, s: stride @ DRAM, b: bool @ DRAM):
+    ConfigControl.i = i
+    ConfigControl.s = s
+    ConfigControl.b = b
