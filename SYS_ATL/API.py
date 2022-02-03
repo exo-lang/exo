@@ -953,6 +953,22 @@ class Procedure(ProcedureBase):
             except SchedulingError:
                 return p
 
+    def stage_mem(self, buf_name, new_name, stmt_start, stmt_end=None):
+        if not is_valid_name(new_name):
+            raise ValueError(f"stage_mem: '{new_name}' is not a valid name")
+        if not is_valid_name(buf_name):
+            raise ValueError(f"stage_mem: '{buf_name}' is not a valid name")
+
+        stmt_start  = self._find_stmt(stmt_start)
+        stmt_end    = (stmt_start if stmt_end is None else
+                       self._find_stmt(stmt_end))
+        loopir      = self._loopir_proc
+        loopir      = Schedules.DoStageMem(loopir, buf_name, new_name,
+                                           stmt_start, stmt_end).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+
     def stage_expr(self, new_name, expr_pattern, memory=None, n_lifts=1):
         return (
             self.bind_expr(new_name, expr_pattern)

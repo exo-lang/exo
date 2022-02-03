@@ -26,6 +26,7 @@ from .new_eff import (
     Check_DeleteConfigWrite,
     Check_ExtendEqv,
     Check_ExprEqvInContext,
+    Check_BufferRW,
 )
 
 # --------------------------------------------------------------------------- #
@@ -2789,6 +2790,185 @@ class _DoDataReuse(LoopIR_Rewrite):
 
         return super().map_e(e)
 
+
+# Note: This can probably be re-factored into a generic
+# "Live Variables" analysis w.r.t. a context/stmt separation?
+class _DoStageMem_FindBufData(LoopIR_Do):
+    def __init__(self, proc, buf_name, stmt_start):
+        self.buf_str    = buf_name
+        self.buf_sym    = None
+        self.buf_typ    = None
+        self.buf_mem    = None
+
+        self.stmt_start = stmt_start
+
+        self.buf_map    = ChainMap()
+
+        for fa in proc.args:
+            if fa.type.is_numeric():
+                self.buf_map[str(fa.name)] = (fa.name, fa.type, fa.mem)
+
+        super().__init__(proc)
+
+    def result(self):
+        return self.buf_sym, self.buf_typ, self.buf_mem
+
+    def push(self):
+        self.buf_map = self.buf_map.new_child()
+
+    def pop(self):
+        self.buf_map = self.buf_map.parents
+
+    def do_s(self, s):
+        if s is self.stmt_start:
+            if self.buf_str not in self.buf_map:
+                raise SchedulingError(f"no buffer or window "
+                                      f"named {self.buf_str} was live "
+                                      f"in the indicated statement block")
+            nm, typ, mem    = self.buf_map[self.buf_str]
+            self.buf_sym    = nm
+            self.buf_typ    = typ
+            self.buf_mem    = mem
+
+        if isinstance(s, LoopIR.Alloc):
+            self.buf_map[str(s.name)]    = (s.name, s.type, s.mem)
+        if isinstance(s, LoopIR.WindowStmt):
+            nm, typ, mem            = self.buf_map[s.rhs.name]
+            self.buf_map[str(s.name)]    = (s.name, s.rhs.type, mem)
+        elif isinstance(s, LoopIR.If):
+            self.push()
+            self.do_stmts(s.body)
+            self.pop()
+            self.push()
+            self.do_stmts(s.orelse)
+            self.pop()
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            self.push()
+            self.do_stmts(s.body)
+            self.pop()
+        else:
+            super().do_s(s)
+
+    # short-circuit
+    def do_e(self, e):
+        pass
+
+class _DoStageMem(LoopIR_Rewrite):
+    def __init__(self, proc, buf_name, new_name, stmt_start, stmt_end):
+
+        self.stmt_start = stmt_start
+        self.stmt_end   = stmt_end
+
+        self.new_name   = Sym(new_name)
+        nm, typ, mem = _DoStageMem_FindBufData(proc, buf_name,
+                                               stmt_start).result()
+        self.buf_name   = nm # this is a symbol
+        self.buf_typ    = ( typ if not isinstance(typ, T.Window) else
+                            typ.as_tensor )
+        self.buf_mem    = mem
+
+        self.found_stmt = False
+        self.in_block   = False
+        super().__init__(proc)
+        assert self.found_stmt
+
+        self.proc   = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        # all this control flow is just trying to find the block
+        if not self.in_block:
+            for i,s1 in enumerate(stmts):
+                if s1 is self.stmt_start:
+                    for j,s2 in enumerate(stmts):
+                        if s2 is self.stmt_end:
+                            self.found_stmt = True
+                            assert j >= i
+                            pre     = stmts[:i]
+                            block   = stmts[i:j+1]
+                            post    = stmts[j+1:]
+
+                            return (pre + self.wrap_block(block) + post)
+
+        # fall through
+        return super().map_stmts(stmts)
+
+    def wrap_block(self, block):
+        typ         = self.buf_typ
+        basetyp     = typ.basetype()
+        shape       = typ.shape()
+        mem         = self.buf_mem
+
+        isR, isW    = Check_BufferRW(self.orig_proc, block,
+                                     self.buf_name, len(shape))
+        srcinfo     = block[0].srcinfo
+
+
+        new_alloc   = [LoopIR.Alloc(self.new_name, typ, mem, None, srcinfo)]
+
+        load_nest   = []
+        store_nest  = []
+
+        if isR:
+            load_iter   = [ Sym(f"i{i}") for i,_ in enumerate(shape) ]
+            load_idx    = [ LoopIR.Read(s,[],T.index,srcinfo)
+                            for s in load_iter ]
+            load_rhs    = LoopIR.Read(self.buf_name, load_idx,
+                                      basetyp, srcinfo)
+            load_nest   = [LoopIR.Assign(self.new_name, basetyp, None,
+                                         load_idx, load_rhs, None, srcinfo)]
+
+            for i,n in reversed(list(zip(load_iter,shape))):
+                loop    = LoopIR.Seq(i, n, load_nest, None, srcinfo)
+                load_nest = [loop]
+
+        if isW:
+            store_iter  = [ Sym(f"i{i}") for i,_ in enumerate(shape) ]
+            store_idx   = [ LoopIR.Read(s,[],T.index,srcinfo)
+                            for s in store_iter ]
+            store_rhs   = LoopIR.Read(self.new_name, store_idx,
+                                      basetyp, srcinfo)
+            store_nest  = [LoopIR.Assign(self.buf_name, basetyp, None,
+                                         store_idx, store_rhs, None, srcinfo)]
+
+            for i,n in reversed(list(zip(load_iter,shape))):
+                loop    = LoopIR.Seq(i, n, store_nest, None, srcinfo)
+                store_nest = [loop]
+
+        self.in_block = True
+        block       = self.map_stmts(block)
+        self.in_block = False
+
+        return (new_alloc + load_nest + block + store_nest)
+
+    def map_s(self, s):
+        new_s = super().map_s(s)
+
+        if self.in_block:
+            if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+                if s.name is self.buf_name:
+                    assert len(new_s) == 1
+                    new_s[0].name = self.new_name
+
+        return new_s
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        new_e = super().map_e(e)
+
+        if self.in_block:
+            if isinstance(e, LoopIR.Read):
+                if e.name is self.buf_name:
+                    new_e.name = self.new_name
+            elif isinstance(e, LoopIR.WindowExpr):
+                if e.name is self.buf_name:
+                    new_e.type  = T.Window(self.buf_typ, e.typ.as_tensor,
+                                           self.new_name, e.typ.idx)
+                    new_e.name  = self.new_name
+
+        return new_e
+
+
 class _DoStageWindow(LoopIR_Rewrite):
     def __init__(self, proc, new_name, memory, expr):
         # Inputs
@@ -2990,6 +3170,7 @@ class Schedules:
     DoAddUnsafeGuard = _DoAddUnsafeGuard
     DoDeleteConfig = _DoDeleteConfig
     DoFuseIf = _DoFuseIf
+    DoStageMem = _DoStageMem
     DoStageWindow = _DoStageWindow
     DoBoundAlloc = _DoBoundAlloc
     DoExpandDim    = _DoExpandDim

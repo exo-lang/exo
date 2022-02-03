@@ -657,3 +657,24 @@ def test_unify7():
     print(foo)
     assert 'bar(False, 5, y, x, 0)' in str(foo)
 
+
+def test_stage_mem():
+    @proc
+    def sqmat(n : size, A : R[n,n], B : R[n,n]):
+        assert n % 4 == 0
+        for i in seq(0,n/4):
+            for j in seq(0,n/4):
+                for k in seq(0,n/4):
+                    for ii in seq(0,4):
+                        for jj in seq(0,4):
+                            for kk in seq(0,4):
+                                A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
+                                                      B[4*k+kk,4*j+jj] )
+
+    sqmat = sqmat.stage_mem('B', 'Btile', 'for ii in _: _')
+    sqmat = sqmat.stage_mem('A', 'Atile', 'for k in _: _')
+    print(sqmat)
+
+
+
+
