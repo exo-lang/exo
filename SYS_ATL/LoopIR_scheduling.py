@@ -27,6 +27,7 @@ from .new_eff import (
     Check_ExtendEqv,
     Check_ExprEqvInContext,
     Check_BufferRW,
+    Check_Bounds,
 )
 
 # --------------------------------------------------------------------------- #
@@ -954,7 +955,7 @@ class _BindConfig(LoopIR_Rewrite):
         self.expr      = expr
         self.found_expr= False
         self.placed_writeconfig = False
-        self.sub_over  = False
+        self.sub_done  = False
 
         self.cfg_write_s    = None
         self.cfg_read_e     = None
@@ -975,7 +976,7 @@ class _BindConfig(LoopIR_Rewrite):
         return self.eq_mod_config
 
     def process_block(self, block):
-        if self.sub_over:
+        if self.sub_done:
             return block
 
         new_block = []
@@ -996,12 +997,12 @@ class _BindConfig(LoopIR_Rewrite):
             new_block.extend(stmt)
 
         if is_writeconfig_block:
-            self.sub_over = True
+            self.sub_done = True
 
         return new_block
 
     def map_s(self, s):
-        if self.sub_over:
+        if self.sub_done:
             return super().map_s(s)
 
         if isinstance(s, LoopIR.ForAll):
@@ -1017,7 +1018,7 @@ class _BindConfig(LoopIR_Rewrite):
         return super().map_s(s)
 
     def map_e(self, e):
-        if e is self.expr and not self.sub_over:
+        if e is self.expr and not self.sub_done:
             assert not self.found_expr
             self.found_expr = True
 
@@ -1035,13 +1036,13 @@ class _BindExpr(LoopIR_Rewrite):
         assert all(expr.type.is_numeric() for expr in exprs)
         assert exprs
 
-        self.orig_proc = proc
-        self.new_name = Sym(new_name)
-        self.exprs = exprs if cse else [exprs[0]]
-        self.cse = cse
-        self.found_expr = None
-        self.placed_alloc = False
-        self.sub_over = False
+        self.orig_proc      = proc
+        self.new_name       = Sym(new_name)
+        self.exprs          = exprs if cse else [exprs[0]]
+        self.use_cse        = cse
+        self.found_expr     = None
+        self.placed_alloc   = False
+        self.sub_done       = False
 
         super().__init__(proc)
 
@@ -1049,7 +1050,7 @@ class _BindExpr(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def process_block(self, block):
-        if self.sub_over:
+        if self.sub_done:
             return block
 
         new_block = []
@@ -1073,15 +1074,15 @@ class _BindExpr(LoopIR_Rewrite):
 
         # If this is the block containing the new alloc, stop substituting
         if is_alloc_block:
-            self.sub_over = True
+            self.sub_done = True
 
         return new_block
 
     def map_s(self, s):
-        if self.sub_over:
+        if self.sub_done:
             return super().map_s(s)
 
-        if isinstance(s, LoopIR.ForAll):
+        if isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
             body = self.process_block(s.body)
             return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
 
@@ -1095,8 +1096,8 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             e = self.exprs[0]
-            # bind LHS when self.cse == True
-            if (self.cse and
+            # bind LHS when self.use_cse == True
+            if (self.use_cse and
                     isinstance(e, LoopIR.Read) and
                     e.name == s.name and
                     e.type == s.type and
@@ -1109,7 +1110,7 @@ class _BindExpr(LoopIR_Rewrite):
         return super().map_s(s)
 
     def map_e(self, e):
-        if e in self.exprs and not self.sub_over:
+        if e in self.exprs and not self.sub_done:
             if not self.found_expr:
                 # TODO: dirty hack. need real CSE-equality (i.e. modulo srcinfo)
                 self.exprs = [x for x in self.exprs if str(e) == str(x)]
@@ -2854,28 +2855,45 @@ class _DoStageMem_FindBufData(LoopIR_Do):
         pass
 
 class _DoStageMem(LoopIR_Rewrite):
-    def __init__(self, proc, buf_name, new_name, stmt_start, stmt_end):
+    def __init__(self, proc, buf_name, new_name, w_exprs,
+                 stmt_start, stmt_end):
 
         self.stmt_start = stmt_start
         self.stmt_end   = stmt_end
 
-        self.new_name   = Sym(new_name)
-        nm, typ, mem = _DoStageMem_FindBufData(proc, buf_name,
-                                               stmt_start).result()
+        nm, typ, mem    = _DoStageMem_FindBufData(proc, buf_name,
+                                                  stmt_start).result()
         self.buf_name   = nm # this is a symbol
         self.buf_typ    = ( typ if not isinstance(typ, T.Window) else
                             typ.as_tensor )
         self.buf_mem    = mem
 
+        self.w_exprs    = w_exprs
+        if len(w_exprs) != len(self.buf_typ.shape()):
+            raise SchedulingError(f"expected windowing of '{buf_name}' "
+                    f"to have {len(self.buf_typ.shape())} indices, "
+                    f"but only got {len(w_exprs)}")
+        if any( isinstance(w, LoopIR.expr) for w in w_exprs ):
+            raise SchedulingError(f"memory staging requires windowing, "
+                    f"not point accessing, every dimension")
+        self.new_sizes  = [ LoopIR.BinOp('-', hi, lo, T.index, lo.srcinfo)
+                            for lo,hi in w_exprs ]
+        self.new_offset = [ lo for lo,hi in w_exprs ]
+        self.new_name   = Sym(new_name)
+        self.new_typ    = T.Tensor(self.new_sizes, False, typ.basetype())
+
         self.found_stmt = False
+        self.new_block  = []
         self.in_block   = False
         super().__init__(proc)
         assert self.found_stmt
 
+        Check_Bounds(self.proc, self.new_block[0], self.new_block[1:])
+
         self.proc   = InferEffects(self.proc).result()
 
     def map_stmts(self, stmts):
-        # all this control flow is just trying to find the block
+        """ This method overload simply tries to find the indicated block """
         if not self.in_block:
             for i,s1 in enumerate(stmts):
                 if s1 is self.stmt_start:
@@ -2887,35 +2905,48 @@ class _DoStageMem(LoopIR_Rewrite):
                             block   = stmts[i:j+1]
                             post    = stmts[j+1:]
 
-                            return (pre + self.wrap_block(block) + post)
+                            block = self.wrap_block(block)
+                            self.new_block = block
+
+                            return (pre + block + post)
 
         # fall through
         return super().map_stmts(stmts)
 
     def wrap_block(self, block):
-        typ         = self.buf_typ
-        basetyp     = typ.basetype()
-        shape       = typ.shape()
+        """ This method rewrites the structure around the block.
+            `map_s` and `map_e` below substitute the buffer
+            name within the block. """
+        orig_typ    = self.buf_typ
+        new_typ     = self.new_typ
         mem         = self.buf_mem
+        shape       = self.new_sizes
+        offsets     = self.new_offset
+
+        n_dims      = len(orig_typ.shape())
+        basetyp     = new_typ.basetype()
 
         isR, isW    = Check_BufferRW(self.orig_proc, block,
-                                     self.buf_name, len(shape))
+                                     self.buf_name, n_dims)
         srcinfo     = block[0].srcinfo
 
 
-        new_alloc   = [LoopIR.Alloc(self.new_name, typ, mem, None, srcinfo)]
+        new_alloc   = [LoopIR.Alloc(self.new_name, new_typ, mem,
+                                    None, srcinfo)]
 
         load_nest   = []
         store_nest  = []
 
         if isR:
             load_iter   = [ Sym(f"i{i}") for i,_ in enumerate(shape) ]
-            load_idx    = [ LoopIR.Read(s,[],T.index,srcinfo)
+            load_widx   = [ LoopIR.Read(s,[],T.index,srcinfo)
                             for s in load_iter ]
-            load_rhs    = LoopIR.Read(self.buf_name, load_idx,
+            load_ridx   = [ LoopIR.BinOp('+', idx, off, T.index, srcinfo)
+                            for idx,off in zip(load_widx, offsets) ]
+            load_rhs    = LoopIR.Read(self.buf_name, load_ridx,
                                       basetyp, srcinfo)
             load_nest   = [LoopIR.Assign(self.new_name, basetyp, None,
-                                         load_idx, load_rhs, None, srcinfo)]
+                                         load_widx, load_rhs, None, srcinfo)]
 
             for i,n in reversed(list(zip(load_iter,shape))):
                 loop    = LoopIR.Seq(i, n, load_nest, None, srcinfo)
@@ -2923,14 +2954,17 @@ class _DoStageMem(LoopIR_Rewrite):
 
         if isW:
             store_iter  = [ Sym(f"i{i}") for i,_ in enumerate(shape) ]
-            store_idx   = [ LoopIR.Read(s,[],T.index,srcinfo)
+            store_ridx  = [ LoopIR.Read(s,[],T.index,srcinfo)
                             for s in store_iter ]
-            store_rhs   = LoopIR.Read(self.new_name, store_idx,
+            store_widx  = [ LoopIR.BinOp('+', idx, off, T.index, srcinfo)
+                            for idx,off in zip(store_ridx, offsets) ]
+            store_rhs   = LoopIR.Read(self.new_name, store_ridx,
                                       basetyp, srcinfo)
             store_nest  = [LoopIR.Assign(self.buf_name, basetyp, None,
-                                         store_idx, store_rhs, None, srcinfo)]
+                                         store_widx, store_rhs,
+                                         None, srcinfo)]
 
-            for i,n in reversed(list(zip(load_iter,shape))):
+            for i,n in reversed(list(zip(store_iter,shape))):
                 loop    = LoopIR.Seq(i, n, store_nest, None, srcinfo)
                 store_nest = [loop]
 
@@ -2949,6 +2983,10 @@ class _DoStageMem(LoopIR_Rewrite):
                     assert len(new_s) == 1
                     new_s[0].name = self.new_name
 
+                    idx = [ LoopIR.BinOp('-', i, off, T.index, s.srcinfo)
+                            for i,off in zip(new_s[0].idx, self.new_offset) ]
+                    new_s[0].idx = idx
+
         return new_s
 
         return super().map_s(s)
@@ -2960,11 +2998,30 @@ class _DoStageMem(LoopIR_Rewrite):
             if isinstance(e, LoopIR.Read):
                 if e.name is self.buf_name:
                     new_e.name = self.new_name
+
+                    idx = [ LoopIR.BinOp('-', i, off, T.index, e.srcinfo)
+                            for i,off in zip(new_e.idx, self.new_offset) ]
+                    new_e.idx = idx
+
             elif isinstance(e, LoopIR.WindowExpr):
                 if e.name is self.buf_name:
-                    new_e.type  = T.Window(self.buf_typ, e.typ.as_tensor,
-                                           self.new_name, e.typ.idx)
+                    def off_w(w,off):
+                        if isinstance(w, LoopIR.Interval):
+                            lo = LoopIR.BinOp('-',w.lo,off,T.index,w.srcinfo)
+                            hi = LoopIR.BinOp('-',w.hi,off,T.index,w.srcinfo)
+                            return LoopIR.Interval(lo, hi, w.srcinfo)
+                        else:
+                            assert isinstance(w, LoopIR.Point)
+                            pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
+                            return LoopIR.Point(pt, w.srcinfo)
+
+                    w_idx       = [ off_w(w,off)
+                                    for w,off in zip(new_e.idx,
+                                                     self.new_offset) ]
                     new_e.name  = self.new_name
+                    new_e.idx   = w_idx
+                    new_e.type  = T.Window(self.new_typ, e.typ.as_tensor,
+                                           self.new_name, w_idx)
 
         return new_e
 

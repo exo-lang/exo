@@ -1499,3 +1499,42 @@ def Check_BufferRW(proc, stmts, buf, ndim):
     return (not no_read), (not no_write)
 
 
+def Check_Bounds(proc, alloc_stmt, block):
+    if len(block) == 0:
+        return
+    ctxt    = ContextExtraction(proc, block)
+
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    # build a location set describing
+    # the allocated region of the buffer
+    shape = alloc_stmt.type.shape()
+    if len(shape) == 0:
+        alloc_set = LS.Point(alloc_stmt.name, [],
+                             alloc_stmt.type.basetype())
+    else:
+        coords      = [ Sym(f"i{i}") for i,_ in enumerate(shape) ]
+        bounds      = AAnd(*[ AAnd( AInt(0) <= AInt(i),
+                                    AInt(i) <  lift_e(n) )
+                              for i,n in zip(coords,shape) ])
+        pt          = LS.Point(alloc_stmt.name, [ AInt(i) for i in coords ],
+                               alloc_stmt.type.basetype())
+        alloc_set   = LFilter(bounds, pt)
+        for i in reversed(coords):
+            alloc_set = LBigUnion(i, alloc_set)
+
+    a       = G(stmts_effs(block))
+    All     = getsets([ES.ALL], a)[0]
+    All_inbuf = LIsct(All, LS.WholeBuf(alloc_stmt.name, len(shape)))
+    is_ok   = slv.verify( ADef(is_empty(LDiff(All_inbuf,alloc_set))) )
+    slv.pop()
+    if not is_ok:
+        raise SchedulingError(
+            f"The buffer {alloc_stmt.name} is accessed out-of-bounds")
+
+

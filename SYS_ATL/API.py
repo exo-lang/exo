@@ -3,6 +3,8 @@ import inspect
 import types
 from typing import Optional, Union, List
 
+import re
+
 from .API_types import ProcedureBase
 from .LoopIR import LoopIR, T, UAST, LoopIR_Do
 from .LoopIR_compiler import run_compile, compile_to_strings
@@ -24,10 +26,6 @@ from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-#   proc provenance tracking
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -953,17 +951,49 @@ class Procedure(ProcedureBase):
             except SchedulingError:
                 return p
 
-    def stage_mem(self, buf_name, new_name, stmt_start, stmt_end=None):
-        if not is_valid_name(new_name):
-            raise ValueError(f"stage_mem: '{new_name}' is not a valid name")
+    def _parse_win_expr(self, expr_str, ctxt_stmt, scope="before"):
+        # degenerate case of a scalar value
+        if is_valid_name(expr_str):
+            return expr_str, []
+
+        # otherwise, we have multiple dimensions
+        match = re.match(r'(\w+)\[([^\]]+)\]', expr_str)
+        if not match:
+            raise ValueError(f"expected windowing string of the form "
+                             f"'name[args]', but got '{expr_str}'")
+        buf_name, args = match.groups()
         if not is_valid_name(buf_name):
-            raise ValueError(f"stage_mem: '{buf_name}' is not a valid name")
+            raise ValueError(f"'{buf_name}' is not a valid name")
+
+        loopir = self._loopir_proc
+        def parse_arg(a):
+            match = re.match(r'\s*([^:]+)\s*:\s*([^:]+)\s*', a)
+            if not match:
+                pt = parse_fragment(loopir, a, ctxt_stmt, scope=scope)
+                return pt
+            else:
+                lo, hi = match.groups()
+                lo = parse_fragment(loopir, lo, ctxt_stmt, scope=scope)
+                hi = parse_fragment(loopir, hi, ctxt_stmt, scope=scope)
+                return (lo,hi)
+        args = [ parse_arg(a) for a in args.split(',') ]
+
+        return buf_name, args
+
+    def stage_mem(self, win_expr, new_name, stmt_start, stmt_end=None):
 
         stmt_start  = self._find_stmt(stmt_start)
         stmt_end    = (stmt_start if stmt_end is None else
                        self._find_stmt(stmt_end))
+        buf_name, w_exprs = self._parse_win_expr(win_expr, stmt_start)
+
+        if not is_valid_name(new_name):
+            raise ValueError(f"stage_mem: '{new_name}' is not a valid name")
+
+
         loopir      = self._loopir_proc
         loopir      = Schedules.DoStageMem(loopir, buf_name, new_name,
+                                           w_exprs,
                                            stmt_start, stmt_end).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)

@@ -659,6 +659,8 @@ def test_unify7():
 
 
 def test_stage_mem():
+    # This test stages a buffer being accumulated in
+    # on a per-tile basis
     @proc
     def sqmat(n : size, A : R[n,n], B : R[n,n]):
         assert n % 4 == 0
@@ -671,9 +673,54 @@ def test_stage_mem():
                                 A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
                                                       B[4*k+kk,4*j+jj] )
 
-    sqmat = sqmat.stage_mem('B', 'Btile', 'for ii in _: _')
-    sqmat = sqmat.stage_mem('A', 'Atile', 'for k in _: _')
-    print(sqmat)
+    sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
+                            'Atile', 'for k in _: _')
+    print(sqmat.simplify())
+
+def test_fail_stage_mem():
+    # This test fails to stage the buffer B
+    # because it's not just being read in a single way
+    # therefore the bounds check will fail
+    @proc
+    def sqmat(n : size, A : R[n,n], B : R[n,n]):
+        assert n % 4 == 0
+        for i in seq(0,n/4):
+            for j in seq(0,n/4):
+                for k in seq(0,n/4):
+                    for ii in seq(0,4):
+                        for jj in seq(0,4):
+                            for kk in seq(0,4):
+                                A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
+                                                      B[4*k+kk,4*j+jj] )
+
+    with pytest.raises(Exception,
+                       match='accessed out-of-bounds'):
+        sqmat = sqmat.stage_mem('B[4*i:4*i+4, 4*k:4*k+4]',
+                                'Btile', 'for ii in _: _')
+
+def test_stage_mem_twice():
+    # This test now finds a way to stage the buffer B twice
+    @proc
+    def sqmat(n : size, A : R[n,n], B : R[n,n]):
+        assert n % 4 == 0
+        for i in seq(0,n/4):
+            for j in seq(0,n/4):
+                for k in seq(0,n/4):
+                    for ii in seq(0,4):
+                        for jj in seq(0,4):
+                            for kk in seq(0,4):
+                                A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
+                                                      B[4*k+kk,4*j+jj] )
+
+    sqmat = (sqmat
+        .bind_expr('B1', 'B[4*i+ii,4*k+kk]')
+        .lift_alloc('B1 : _', n_lifts=3)
+        .fission_after('B1[_] = _', n_lifts=3)
+        .stage_mem('B[4*k:4*k+4, 4*j:4*j+4]',
+                   'B2', 'for ii in _: _ #1')
+    )
+    print(sqmat.simplify())
+
 
 
 
