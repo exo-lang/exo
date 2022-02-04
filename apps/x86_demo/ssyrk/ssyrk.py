@@ -40,6 +40,8 @@ systl_ssyrk = (
 
         .fission_after('for k in _: _ #0', n_lifts=3)
         .fission_after('if K % _ > 0: _', n_lifts=3)
+        .replace_all(mm512_set0_ps)
+        .replace_all(mm512_reduce_add_ps)
 
         .stage_expr('A_vec', 'A[_] #0', memory=AVX512)
         .stage_expr('At_vec', 'A[_] #1', memory=AVX512)
@@ -56,6 +58,9 @@ systl_ssyrk = (
 
         .fission_after('for ko in _: _', n_lifts=3)
         .lift_if('if K % _ > 0: _', n_lifts=3)
+
+        .partial_eval(6)
+        .simplify()
 )
 
 if __name__ == '__main__':
