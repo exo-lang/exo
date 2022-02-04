@@ -841,7 +841,7 @@ def test_lift_if_in_full_nest(golden):
     assert str(foo) == golden
                 
 
-def test_stage_mem():
+def test_stage_mem(golden):
     # This test stages a buffer being accumulated in
     # on a per-tile basis
     @proc
@@ -858,7 +858,7 @@ def test_stage_mem():
 
     sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
                             'Atile', 'for k in _: _')
-    print(sqmat.simplify())
+    assert str(sqmat.simplify()) == golden
 
 def test_fail_stage_mem():
     # This test fails to stage the buffer B
@@ -881,7 +881,7 @@ def test_fail_stage_mem():
         sqmat = sqmat.stage_mem('B[4*i:4*i+4, 4*k:4*k+4]',
                                 'Btile', 'for ii in _: _')
 
-def test_stage_mem_twice():
+def test_stage_mem_twice(golden):
     # This test now finds a way to stage the buffer B twice
     @proc
     def sqmat(n : size, A : R[n,n], B : R[n,n]):
@@ -902,7 +902,7 @@ def test_stage_mem_twice():
         .stage_mem('B[4*k:4*k+4, 4*j:4*j+4]',
                    'B2', 'for ii in _: _ #1')
     )
-    print(sqmat.simplify())
+    assert str(sqmat.simplify()) == golden
 
 
 
