@@ -1,0 +1,5 @@
+def foo(n: size, x: R[n] @ DRAM, i: index):
+    assert i > 0
+    if i < 10:
+        if i < n:
+            x[i] = 1.0

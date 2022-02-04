@@ -1,0 +1,6 @@
+def foo(n: size):
+    for i in par(0, n):
+        if ConfigControl.i == 3:
+            ConfigControl.i = 4
+        if n == n - 1:
+            ConfigControl.i = 3

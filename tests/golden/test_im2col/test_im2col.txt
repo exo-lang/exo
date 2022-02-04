@@ -1,0 +1,24 @@
+def im2col(C: size, R: size, W: size, x: R[C, W], y: R[C + 1, R + 1, W + 1]):
+    for c in par(0, C):
+        for r in par(0, R):
+            for i in par(0, W):
+                if 0 <= i - r:
+                    y[c, r, i] = x[c, i - r]
+
+def matmul(C: size, K: size, R: size, W: size, res: R[K, W], w: R[K, C, R],
+           y: R[C + 1, R + 1, W + 1]):
+    for k in par(0, K):
+        for c in par(0, C):
+            for r in par(0, R):
+                for i in par(0, W):
+                    if 0 <= i - r:
+                        res[k, i] += w[k, c, r] * y[c, r, i]
+
+def im2col_conv(K: size, C: size, W: size, R: size, w: R[K, C, R] @ DRAM,
+                x: R[C, W] @ DRAM, res: R[K, W] @ DRAM):
+    for k_init in par(0, K):
+        for i_init in par(0, W):
+            res[k_init, i_init] = 0.0
+    y: R[C + 1, R + 1, W + 1]
+    im2col(C, R, W, x, y)
+    tiled_matmul(C, K, R, W, res, w, y)

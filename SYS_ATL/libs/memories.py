@@ -241,10 +241,10 @@ class AMX_TILE(Memory):
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         global num_amx_tiles_alloced
         num_amx_tiles_alloced += 1
-        return f"constexpr int {new_name} = {num_amx_tiles_alloced-1};"
+        return f"#define {new_name} {num_amx_tiles_alloced-1}"
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         global num_amx_tiles_alloced
         num_amx_tiles_alloced -= 1
-        return ""
+        return f"#undef {new_name}"

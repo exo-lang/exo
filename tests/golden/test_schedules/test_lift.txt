@@ -1,0 +1,5 @@
+def bar(A: i8[16, 10] @ DRAM):
+    a: i8[16, 20] @ DRAM
+    for i in par(0, 10):
+        for k in par(0, 16):
+            a[k, i] = A[k, i]

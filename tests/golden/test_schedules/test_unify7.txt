@@ -1,0 +1,2 @@
+def foo(x: R[5, 5] @ DRAM, y: R[5, 5] @ DRAM):
+    bar(False, 5, y, x, 0)

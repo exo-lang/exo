@@ -1,0 +1,4 @@
+def negate_array(n: size, x: R[n], res: R[n] @ DRAM):
+    # @instr TEST
+    for i in par(0, n):
+        res[i] = -x[i] + -x[i] - -(x[i] + 0.0)

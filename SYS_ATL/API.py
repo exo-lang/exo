@@ -32,7 +32,7 @@ from .typecheck import TypeChecker
 # Top-level decorator
 
 
-def proc(f, _instr=None, _testing=None):
+def proc(f, _instr=None, _testing=None) -> 'Procedure':
     if not isinstance(f, types.FunctionType):
         raise TypeError("@proc decorator must be applied to a function")
 
