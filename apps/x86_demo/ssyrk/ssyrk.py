@@ -31,9 +31,14 @@ def SSYRK(M: size, K: size, A: f32[M, K], C: f32[M, M]):
 
 
 SSYRK = SSYRK.rename('systl_ssyrk')
+SSYRK_WINDOW = (
+    SSYRK.rename('systl_ssyrk_window')
+        .set_window('A', True)
+        .set_window('C', True)
+)
 
 ssyrk_edge_kernel = (
-    SSYRK
+    SSYRK_WINDOW
         .rename('ssyrk_edge_kernel')
         .lift_alloc('c_acc: _', n_lifts=3)
         .expand_dim('c_acc: _', 'M', 'j')
