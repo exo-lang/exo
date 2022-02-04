@@ -4,6 +4,21 @@ from SYS_ATL import *
 from SYS_ATL.platforms.x86 import *
 
 
+# This is the reference code we _actually_ want to schedule.
+@proc
+def SSYRK_SIMPLE(M: size, K: size, A: f32[M, K], C: f32[M, M]):
+    assert M >= 1
+    assert K >= 1
+    assert stride(A, 1) == 1
+    assert stride(C, 1) == 1
+
+    for i in seq(0, M):  # row i
+        for j in seq(0, M):  # column j
+            if j >= i:
+                for k in seq(0, K):
+                    C[i, j] += A[i, k] * A[j, k]
+
+
 # row-major, upper-triangular, C := C + A @ A^T.
 # noinspection PyPep8Naming
 @proc
@@ -29,6 +44,8 @@ def SSYRK(M: size, K: size, A: f32[M, K], C: f32[M, M]):
                 for k in seq(0, 16):
                     C[i, j] += c_acc[k]
 
+
+SSYRK.unsafe_assert_eq(SSYRK_SIMPLE)
 
 SSYRK = SSYRK.rename('systl_ssyrk')
 SSYRK_WINDOW = (
