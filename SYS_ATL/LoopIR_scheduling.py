@@ -2795,9 +2795,9 @@ class _AssertIf(LoopIR_Rewrite):
         return super().map_s(s)
 
 
-# Note: This analysis is overly conservative.
+# TODO: This analysis is overly conservative.
 # However, it might be a bit involved to come up with
-# a more precise analysis.  TODO
+# a more precise analysis.
 class _DoDataReuse(LoopIR_Rewrite):
     def __init__(self, proc, buf_pat, rep_pat):
         assert type(buf_pat) is LoopIR.Alloc
@@ -2847,7 +2847,7 @@ class _DoDataReuse(LoopIR_Rewrite):
         return super().map_e(e)
 
 
-# Note: This can probably be re-factored into a generic
+# TODO: This can probably be re-factored into a generic
 # "Live Variables" analysis w.r.t. a context/stmt separation?
 class _DoStageMem_FindBufData(LoopIR_Do):
     def __init__(self, proc, buf_name, stmt_start):
