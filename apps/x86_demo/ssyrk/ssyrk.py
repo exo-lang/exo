@@ -60,10 +60,17 @@ systl_ssyrk = (
         .lift_if('if K % _ > 0: _', n_lifts=3)
 
         .partial_eval(6)
+
+        # TODO: need a way of hoisting a for past an if. This is a hack!
+        .unroll('i')
+        .unroll('j')
         .simplify()
+
+        # TODO: slow!!
+        .repeat(Procedure.fuse_loop, 'for ko in _: _ #0', 'for ko in _: _ #1')
 )
 
 if __name__ == '__main__':
-    print(systl_ssyrk)
+    print(systl_ssyrk.c_code_str())
 
 __all__ = ['SSYRK']
