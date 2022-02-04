@@ -30,9 +30,11 @@ def SSYRK(M: size, K: size, A: f32[M, K], C: f32[M, M]):
                     C[i, j] += c_acc[k]
 
 
-systl_ssyrk = (
+SSYRK = SSYRK.rename('systl_ssyrk')
+
+ssyrk_edge_kernel = (
     SSYRK
-        .rename('systl_ssyrk')
+        .rename('ssyrk_edge_kernel')
         .lift_alloc('c_acc: _', n_lifts=3)
         .expand_dim('c_acc: _', 'M', 'j')
         .expand_dim('c_acc: _', 'M', 'i')
@@ -71,6 +73,6 @@ systl_ssyrk = (
 )
 
 if __name__ == '__main__':
-    print(systl_ssyrk.c_code_str())
+    print(ssyrk_edge_kernel)
 
-__all__ = ['SSYRK']
+__all__ = ['SSYRK', 'ssyrk_edge_kernel']
