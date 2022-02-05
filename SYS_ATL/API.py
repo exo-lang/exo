@@ -980,7 +980,8 @@ class Procedure(ProcedureBase):
 
         return buf_name, args
 
-    def stage_mem(self, win_expr, new_name, stmt_start, stmt_end=None):
+    def stage_mem(self, win_expr, new_name, stmt_start,
+                  stmt_end=None, accum=False):
 
         stmt_start  = self._find_stmt(stmt_start)
         stmt_end    = (stmt_start if stmt_end is None else
@@ -994,7 +995,8 @@ class Procedure(ProcedureBase):
         loopir      = self._loopir_proc
         loopir      = Schedules.DoStageMem(loopir, buf_name, new_name,
                                            w_exprs,
-                                           stmt_start, stmt_end).result()
+                                           stmt_start, stmt_end,
+                                           use_accum_zero=accum).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 

@@ -1498,6 +1498,28 @@ def Check_BufferRW(proc, stmts, buf, ndim):
 
     return (not no_read), (not no_write)
 
+def Check_BufferReduceOnly(proc, stmts, buf, ndim):
+    assert len(stmts) > 0
+    ctxt = ContextExtraction(proc, stmts)
+
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    wholebuf    = LS.WholeBuf(buf, ndim)
+    a           = G(stmts_effs(stmts))
+    RW          = getsets([ES.READ_WRITE], a)[0]
+    readwrite   = LIsct(wholebuf, RW)
+
+    no_rw       = slv.verify(ADef(is_empty(readwrite)))
+    slv.pop()
+    if not no_rw:
+        raise SchedulingError(
+            f"The buffer {buf} is accessed in a way other than "
+            f"simply reducing into it")
 
 def Check_Bounds(proc, alloc_stmt, block):
     if len(block) == 0:

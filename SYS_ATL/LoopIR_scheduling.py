@@ -16,6 +16,7 @@ from .new_eff import (
     Check_ExtendEqv,
     Check_ExprEqvInContext,
     Check_BufferRW,
+    Check_BufferReduceOnly,
     Check_Bounds,
 )
 from .prelude import *
@@ -2911,10 +2912,11 @@ class _DoStageMem_FindBufData(LoopIR_Do):
 
 class _DoStageMem(LoopIR_Rewrite):
     def __init__(self, proc, buf_name, new_name, w_exprs,
-                 stmt_start, stmt_end):
+                 stmt_start, stmt_end, use_accum_zero=False):
 
         self.stmt_start = stmt_start
         self.stmt_end   = stmt_end
+        self.use_accum_zero = use_accum_zero
 
         nm, typ, mem    = _DoStageMem_FindBufData(proc, buf_name,
                                                   stmt_start).result()
@@ -2960,6 +2962,11 @@ class _DoStageMem(LoopIR_Rewrite):
                             block   = stmts[i:j+1]
                             post    = stmts[j+1:]
 
+                            if self.use_accum_zero:
+                                n_dims = len(self.buf_typ.shape())
+                                Check_BufferReduceOnly(self.orig_proc, block,
+                                                       self.buf_name, n_dims)
+
                             block = self.wrap_block(block)
                             self.new_block = block
 
@@ -2998,8 +3005,11 @@ class _DoStageMem(LoopIR_Rewrite):
                             for s in load_iter ]
             load_ridx   = [ LoopIR.BinOp('+', idx, off, T.index, srcinfo)
                             for idx,off in zip(load_widx, offsets) ]
-            load_rhs    = LoopIR.Read(self.buf_name, load_ridx,
-                                      basetyp, srcinfo)
+            if self.use_accum_zero:
+                load_rhs = LoopIR.Const(0.0, basetyp, srcinfo)
+            else:
+                load_rhs = LoopIR.Read(self.buf_name, load_ridx,
+                                       basetyp, srcinfo)
             load_nest   = [LoopIR.Assign(self.new_name, basetyp, None,
                                          load_widx, load_rhs, None, srcinfo)]
 
@@ -3015,9 +3025,11 @@ class _DoStageMem(LoopIR_Rewrite):
                             for idx,off in zip(store_ridx, offsets) ]
             store_rhs   = LoopIR.Read(self.new_name, store_ridx,
                                       basetyp, srcinfo)
-            store_nest  = [LoopIR.Assign(self.buf_name, basetyp, None,
-                                         store_widx, store_rhs,
-                                         None, srcinfo)]
+            store_stmt  = (LoopIR.Reduce if self.use_accum_zero else
+                           LoopIR.Assign)
+            store_nest  = [store_stmt(self.buf_name, basetyp, None,
+                                      store_widx, store_rhs,
+                                      None, srcinfo)]
 
             for i,n in reversed(list(zip(store_iter,shape))):
                 loop    = LoopIR.Seq(i, n, store_nest, None, srcinfo)

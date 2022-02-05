@@ -905,6 +905,24 @@ def test_stage_mem_twice(golden):
     assert str(sqmat.simplify()) == golden
 
 
+def test_stage_mem_accum(golden):
+    # This test stages a buffer being accumulated in
+    # on a per-tile basis
+    @proc
+    def sqmat(n : size, A : R[n,n], B : R[n,n]):
+        assert n % 4 == 0
+        for i in seq(0,n/4):
+            for j in seq(0,n/4):
+                for k in seq(0,n/4):
+                    for ii in seq(0,4):
+                        for jj in seq(0,4):
+                            for kk in seq(0,4):
+                                A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
+                                                      B[4*k+kk,4*j+jj] )
+
+    sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
+                            'Atile', 'for k in _: _', accum=True)
+    assert str(sqmat.simplify()) == golden
 
 
 
