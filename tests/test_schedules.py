@@ -449,7 +449,7 @@ def test_fission2():
                 y = 1.1
                 y = x
 
-    with pytest.raises(Exception,
+    with pytest.raises(SchedulingError,
                        match='Will not fission here'):
         bar.fission_after('x = _', n_lifts=2)
 
@@ -876,7 +876,7 @@ def test_fail_stage_mem():
                                 A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
                                                       B[4*k+kk,4*j+jj] )
 
-    with pytest.raises(Exception,
+    with pytest.raises(SchedulingError,
                        match='accessed out-of-bounds'):
         sqmat = sqmat.stage_mem('B[4*i:4*i+4, 4*k:4*k+4]',
                                 'Btile', 'for ii in _: _')

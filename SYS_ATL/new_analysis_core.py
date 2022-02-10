@@ -395,13 +395,6 @@ def aeNegPos(e,pos,env=None,res=None):
             elif nm in env:
                 del env[nm]
 
-    def push():
-        nonlocal env
-        env = env.new_child()
-    def pop():
-        nonlocal env
-        env = env.parents
-
     # set the result for this node independent of cases
     res[id(e)]  = pos
 
@@ -660,9 +653,6 @@ class SMTSolver:
         assert not is_ternary(smt_e), "assumptions must be classical"
         self.frames[-1].add_assumption(e, smt_e)
         self.solver.add_assertion(smt_e)
-        #print("--------\nADDASSUME")
-        #print(e)
-        #print("+------+")
 
     def satisfy(self, e):
         assert e.type is T.bool
@@ -684,10 +674,6 @@ class SMTSolver:
         self.negative_pos = aeNegPos(e, '+')
         smt_e       = self._lower(e)
         assert not is_ternary(smt_e), "formulas must be classical"
-        #print(e)
-        #print('+-+-+\nSMT')
-        #print(smt_e.to_smtlib())
-        #print('+-+-+')
         self.z3.add_assertion(SMT.Not(smt_e))
         if self.verbose:
             print('*******\n*******\n*******')
@@ -696,9 +682,7 @@ class SMTSolver:
             print(e)
             print(SMT.to_smtlib(smt_e))
 
-        #print('start_solve')
         is_valid    = not self.z3.run_check_sat()
-        #print('end_solve')
         #is_valid    = self.solver.is_valid(smt_e)
         self.pop()
         return is_valid
@@ -986,7 +970,6 @@ class Z3SubProc:
 
     def run_check_sat(self):
         slv = z3lib.Solver()
-        #print(self.stack_lines)
         slv.from_string(self._get_whole_str())
         result = slv.check()
         if result == z3lib.z3.sat:

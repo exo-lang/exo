@@ -96,8 +96,6 @@ class _DoReorderStmt(LoopIR_Rewrite):
                             [ self.s_stmt, self.f_stmt ] +
                             stmts[i+2:])
                 else:
-                    for k in stmts:
-                        print(k)
                     raise SchedulingError("expected the second stmt to be "
                                           "directly after the first stmt")
 

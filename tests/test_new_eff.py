@@ -283,9 +283,3 @@ def test_delete_config_fail_bc_not_redundant():
                        match='Cannot change configuration value of CFG_a'):
         foo = foo.delete_config('CFG.a = _ #1')
         print(foo)
-
-
-
-
-
-

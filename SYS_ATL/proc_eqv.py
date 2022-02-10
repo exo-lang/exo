@@ -60,12 +60,13 @@ from .LoopIR import LoopIR, T, Alpha_Rename
 #
 
 # This whole scheme will almost certainly scale empirically as
-#  O(#P * #G) where #E is the number of procedures being tracked
+#  O(a(#P) * #G) where #P is the number of procedures being tracked
 # for equivalence, and #G is the number of global variables being tracked
 # for the sake of equivalence modulo that global.
-# This seems like it must be sub-optimal, but it's probably a practical
-# enough solution for a long time, so long as the number of globals
-# in programs remains small enough to be treated as a constant factor
+# Because #G does not get very large and because a(#P) is
+# significantly sublinear, we expect that this scheme will suffice
+# for a good long while.  (Although note that memory consumption
+# is O(#P * #G))
 
 
 
@@ -94,7 +95,7 @@ class _UnionFind:
         p1, p2 = self.find(val1), self.find(val2)
 
         if p1 is p2:
-            pass
+            pass # then val1 and val2 are already unified
         else:
             self.lookup[p2] = p1
 
@@ -136,7 +137,7 @@ def assert_eqv_proc(proc1, proc2, config_set=frozenset()):
         if key not in _UF_Unv_key:
             new_uf_by_eqv_key(key)
     # then do the appropriate union operations
-    if len(config_set) == 0:
+    if not config_set:
         _UF_Strict.union(proc1, proc2)
     _UF_Unv.union(proc1, proc2)
     for key,uf in _UF_Unv_key.items():
