@@ -1,0 +1,15 @@
+def config_ld_i8(scale: f32 @ DRAM, src_stride: stride @ DRAM):
+    # @instr gemmini_extended3_config_ld({src_stride}, {scale}[0], 0, 0);
+    #
+    ConfigLoad.scale = scale
+    ConfigLoad.src_stride = src_stride
+
+def ld_i8(n: size, m: size, scale: f32 @ DRAM, src: i8[n, m] @ DRAM,
+          dst: i8[n, 16] @ GEMM_SCRATCH):
+    assert n <= 16
+    assert m <= 16
+    assert stride(src, 1) == 1
+    assert stride(dst, 0) == 16
+    assert stride(dst, 1) == 1
+    config_ld_i8(scale, stride(src, 0))
+    do_ld_i8(n + 0, m + 0, src, dst)

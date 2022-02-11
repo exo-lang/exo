@@ -1,27 +1,28 @@
-import inspect
 import re
-import textwrap
 from collections import ChainMap
 
-from .API_types import ProcedureBase
 from .LoopIR import (LoopIR, LoopIR_Rewrite, Alpha_Rename, LoopIR_Do,
                      SubstArgs, T, lift_to_eff_expr)
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_effects import (Effects as E, eff_filter, eff_bind, eff_null,
                              get_effect_of_stmts)
 from .effectcheck import InferEffects
-from .prelude import *
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Scheduling Errors
-
 from .new_eff import (
     SchedulingError,
     Check_ReorderStmts,
     Check_ReorderLoops,
+    Check_FissionLoop,
+    Check_DeleteConfigWrite,
+    Check_ExtendEqv,
+    Check_ExprEqvInContext,
+    Check_BufferRW,
+    Check_BufferReduceOnly,
+    Check_Bounds,
 )
+from .prelude import *
+
+from .proc_eqv import get_strictest_eqv_proc
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -95,8 +96,6 @@ class _DoReorderStmt(LoopIR_Rewrite):
                             [ self.s_stmt, self.f_stmt ] +
                             stmts[i+2:])
                 else:
-                    for k in stmts:
-                        print(k)
                     raise SchedulingError("expected the second stmt to be "
                                           "directly after the first stmt")
 
@@ -727,9 +726,23 @@ class _CallSwap(LoopIR_Rewrite):
 
         super().__init__(proc)
 
+    def mod_eq(self):
+        return self.eq_mod_config
+
     def map_s(self, s):
         if s is self.call_stmt:
-            return [ LoopIR.Call(self.new_subproc, s.args, None, s.srcinfo) ]
+            old_f = s.f
+            new_f = self.new_subproc
+            s_new = LoopIR.Call(new_f, s.args, None, s.srcinfo)
+            is_eqv, configkeys = get_strictest_eqv_proc(old_f, new_f)
+            if not is_eqv:
+                raise SchedulingError(
+                    f"{s.srcinfo}: Cannot swap call because the two "
+                    f"procedures are not equivalent")
+            mod_cfg = Check_ExtendEqv(self.orig_proc, [s], [s_new], configkeys)
+            self.eq_mod_config = mod_cfg
+
+            return [ s_new ]
 
         # fall-through
         return super().map_s(s)
@@ -851,13 +864,26 @@ class _ConfigWriteRoot(LoopIR_Rewrite):
 
         self.orig_proc = proc
 
-        c_str = [LoopIR.WriteConfig(config, field, expr, None, self.orig_proc.srcinfo)]
-        proc.body = c_str + proc.body
+        cw_s    = LoopIR.WriteConfig(config, field, expr, None, proc.srcinfo)
+        body    = [cw_s] + proc.body
 
-        super().__init__(proc)
+        self.proc = LoopIR.proc(name    = proc.name,
+                                args    = proc.args,
+                                preds   = proc.preds,
+                                body    = body,
+                                instr   = proc.instr,
+                                eff     = proc.eff,
+                                srcinfo = proc.srcinfo)
+
+        # check safety...
+        mod_cfg = Check_DeleteConfigWrite(self.proc,[cw_s])
+        self.eq_mod_config = mod_cfg
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+
+    def mod_eq(self):
+        return self.eq_mod_config
 
 
 
@@ -873,25 +899,56 @@ class _ConfigWriteAfter(LoopIR_Rewrite):
         self.field = field
         self.expr = expr
 
+        self._new_cfgwrite_stmt = None
+
         super().__init__(proc)
+
+        # check safety...
+        mod_cfg = Check_DeleteConfigWrite(self.proc,
+                                          [self._new_cfgwrite_stmt])
+        self.eq_mod_config = mod_cfg
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+
+    def mod_eq(self):
+        return self.eq_mod_config
 
     def map_stmts(self, stmts):
         body = []
         for s in stmts:
             body += self.map_s(s)
             if s is self.stmt:
-                c_str = LoopIR.WriteConfig(self.config, self.field, self.expr,
-                                           None, s.srcinfo)
-                body.append(c_str)
+                cw_s = LoopIR.WriteConfig(self.config, self.field, self.expr,
+                                          None, s.srcinfo)
+                self._new_cfgwrite_stmt = cw_s
+                body.append(cw_s)
 
         return body
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Bind Expression scheduling directive
+
+class _BindConfig_AnalysisSubst(LoopIR_Rewrite):
+    def __init__(self, proc, keep_s, old_e, new_e):
+        self.orig_proc  = proc
+        self.keep_s     = keep_s
+        self.old_e      = old_e
+        self.new_e      = new_e
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s is self.keep_s:
+            return [s]
+        else:
+            return super().map_s(s)
+
+    def map_e(self, e):
+        if e is self.old_e:
+            return self.new_e
+        else:
+            return super().map_e(e)
 
 class _BindConfig(LoopIR_Rewrite):
     def __init__(self, proc, config, field, expr):
@@ -903,15 +960,28 @@ class _BindConfig(LoopIR_Rewrite):
         self.expr      = expr
         self.found_expr= False
         self.placed_writeconfig = False
-        self.sub_over  = False
+        self.sub_done  = False
+
+        self.cfg_write_s    = None
+        self.cfg_read_e     = None
 
         super().__init__(proc)
+
+        proc_analysis = _BindConfig_AnalysisSubst(self.proc,
+                                                  self.cfg_write_s,
+                                                  self.cfg_read_e,
+                                                  self.expr).result()
+        mod_cfg = Check_DeleteConfigWrite(proc_analysis,[self.cfg_write_s])
+        self.eq_mod_config = mod_cfg
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
 
+    def mod_eq(self):
+        return self.eq_mod_config
+
     def process_block(self, block):
-        if self.sub_over:
+        if self.sub_done:
             return block
 
         new_block = []
@@ -926,17 +996,18 @@ class _BindConfig(LoopIR_Rewrite):
                 wc = LoopIR.WriteConfig( self.config, self.field,
                                          self.expr, None,
                                          self.expr.srcinfo )
+                self.cfg_write_s        = wc
                 new_block.extend([wc])
 
             new_block.extend(stmt)
 
         if is_writeconfig_block:
-            self.sub_over = True
+            self.sub_done = True
 
         return new_block
 
     def map_s(self, s):
-        if self.sub_over:
+        if self.sub_done:
             return super().map_s(s)
 
         if isinstance(s, LoopIR.ForAll):
@@ -952,11 +1023,13 @@ class _BindConfig(LoopIR_Rewrite):
         return super().map_s(s)
 
     def map_e(self, e):
-        if e is self.expr and not self.sub_over:
+        if e is self.expr and not self.sub_done:
             assert not self.found_expr
             self.found_expr = True
 
-            return LoopIR.ReadConfig( self.config, self.field, e.type, e.srcinfo)
+            self.cfg_read_e = LoopIR.ReadConfig( self.config, self.field,
+                                                 e.type, e.srcinfo )
+            return self.cfg_read_e
         else:
             return super().map_e(e)
 
@@ -968,13 +1041,13 @@ class _BindExpr(LoopIR_Rewrite):
         assert all(expr.type.is_numeric() for expr in exprs)
         assert exprs
 
-        self.orig_proc = proc
-        self.new_name = Sym(new_name)
-        self.exprs = exprs if cse else [exprs[0]]
-        self.cse = cse
-        self.found_expr = None
-        self.placed_alloc = False
-        self.sub_over = False
+        self.orig_proc      = proc
+        self.new_name       = Sym(new_name)
+        self.exprs          = exprs if cse else [exprs[0]]
+        self.use_cse        = cse
+        self.found_expr     = None
+        self.placed_alloc   = False
+        self.sub_done       = False
 
         super().__init__(proc)
 
@@ -982,7 +1055,7 @@ class _BindExpr(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def process_block(self, block):
-        if self.sub_over:
+        if self.sub_done:
             return block
 
         new_block = []
@@ -1006,15 +1079,15 @@ class _BindExpr(LoopIR_Rewrite):
 
         # If this is the block containing the new alloc, stop substituting
         if is_alloc_block:
-            self.sub_over = True
+            self.sub_done = True
 
         return new_block
 
     def map_s(self, s):
-        if self.sub_over:
+        if self.sub_done:
             return super().map_s(s)
 
-        if isinstance(s, LoopIR.ForAll):
+        if isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
             body = self.process_block(s.body)
             return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
 
@@ -1028,8 +1101,8 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             e = self.exprs[0]
-            # bind LHS when self.cse == True
-            if (self.cse and
+            # bind LHS when self.use_cse == True
+            if (self.use_cse and
                     isinstance(e, LoopIR.Read) and
                     e.name == s.name and
                     e.type == s.type and
@@ -1042,7 +1115,7 @@ class _BindExpr(LoopIR_Rewrite):
         return super().map_s(s)
 
     def map_e(self, e):
-        if e in self.exprs and not self.sub_over:
+        if e in self.exprs and not self.sub_done:
             if not self.found_expr:
                 # TODO: dirty hack. need real CSE-equality (i.e. modulo srcinfo)
                 self.exprs = [x for x in self.exprs if str(e) == str(x)]
@@ -1109,63 +1182,107 @@ class _DoParToSeq(LoopIR_Rewrite):
             return super().map_s(s)
 
 
-
-#Lift if no variable dependency
+# Lift if no variable dependency
 class _DoLiftIf(LoopIR_Rewrite):
     def __init__(self, proc, if_stmt, n_lifts):
         assert isinstance(if_stmt, LoopIR.If)
         assert is_pos_int(n_lifts)
 
-        self.orig_proc    = proc
-        self.if_stmt      = if_stmt
-        self.if_deps      = vars_in_expr(if_stmt.cond)
+        self.target = if_stmt
+        self.loop_deps = vars_in_expr(if_stmt.cond)
 
-        self.n_lifts      = n_lifts
-
-        self.ctrl_ctxt    = []
-        self.lift_sites   = []
+        self.n_lifts = n_lifts
 
         super().__init__(proc)
+
+        if self.n_lifts:
+            raise SchedulingError(f'Could not lift if statement all the way! '
+                                  f'{self.n_lifts} lift(s) remain!',
+                                  orig=self.orig_proc,
+                                  proc=self.proc)
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
-        if s is self.if_stmt:
-            n_up = min(self.n_lifts, len(self.ctrl_ctxt))
-            self.lift_sites = self.ctrl_ctxt[-n_up:]
-
-            # erase the statement from this location
+    def upd_if(self, if_s, body, orelse):
+        if not body and not orelse:
             return []
+        cond = self.map_e(if_s.cond)
+        body = body or [LoopIR.Pass(None, if_s.srcinfo)]
+        return [LoopIR.If(cond, body, orelse, None, if_s.srcinfo)]
 
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)): #TODO: Need to lift if??
-            # handle recursive part of pass at this statement
-            self.ctrl_ctxt.append(s)
-            orig_body = super().map_stmts(s.body)
-            self.ctrl_ctxt.pop()
+    def upd_loop(self, s, body):
+        if not body:
+            return []
+        ctor = type(s)
+        return [ctor(s.iter, self.map_e(s.hi), body, None, s.srcinfo)]
 
-            # splice in lifted statement at the point to lift-to
-            if s in self.lift_sites:
-                if s.iter in self.if_deps:
-                    raise SchedulingError("If statement condition should not depend on "+
-                                          "loop variable")
-                if len(s.body) != 1:
-                    raise SchedulingError("expected if statement to be directly inside "+
-                                          "the loop")
+    def resolve_lift(self, new_if):
+        assert new_if, 'if statement was deleted during lifting'
+        self.target = new_if[0]
+        self.n_lifts -= 1
+        return new_if
 
-                body   = [type(s)(s.iter, s.hi, self.if_stmt.body, None, s.srcinfo)]
-                orelse = []
-                if len(self.if_stmt.orelse) > 0:
-                    orelse = [type(s)(s.iter, s.hi, self.if_stmt.orelse, None, s.srcinfo)]
-                self.if_stmt = LoopIR.If(self.if_stmt.cond, body, orelse, None, s.srcinfo)
+    def map_s(self, s):
+        if s is self.target:
+            return [s]
 
-                return [self.if_stmt]
+        if isinstance(s, LoopIR.If):
+            body = self.map_stmts(s.body)
+            orelse = self.map_stmts(s.orelse)
 
-            return [type(s)(s.iter, s.hi, orig_body, None, s.srcinfo)]
+            if self.target in body and self.n_lifts:
+                if len(body) != 1:
+                    raise SchedulingError('expected if statement to be '
+                                          'directly nested in parents')
+                inner_if = body[0]
+                new_if = self.upd_if(
+                    inner_if,
+                    self.upd_if(s, inner_if.body, orelse),
+                    self.upd_if(s, inner_if.orelse, self.map_stmts(orelse))
+                )
 
-        # fall-through
-        return super().map_s(s)
+                return self.resolve_lift(new_if)
 
+            if self.target in orelse and self.n_lifts:
+                if len(orelse) != 1:
+                    raise SchedulingError('expected if statement to be '
+                                          'directly nested in parents')
+                inner_if = orelse[0]
+                new_if = self.upd_if(
+                    inner_if,
+                    self.upd_if(s, body, inner_if.body),
+                    self.upd_if(s, self.map_stmts(body), inner_if.orelse)
+                )
+
+                return self.resolve_lift(new_if)
+
+            return self.upd_if(s, body, orelse)
+
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            body = super().map_stmts(s.body)
+
+            if self.target in body and self.n_lifts:
+                if len(body) != 1:
+                    raise SchedulingError('expected if statement to be '
+                                          'directly nested in parents')
+                if s.iter in self.loop_deps:
+                    raise SchedulingError(
+                        'if statement depends on iteration variable')
+
+                inner_if = body[0]
+                new_if = self.upd_if(
+                    inner_if,
+                    self.upd_loop(s, inner_if.body),
+                    self.upd_loop(s, inner_if.orelse)
+                )
+
+                return self.resolve_lift(new_if)
+
+            return self.upd_loop(s, body)
+
+        else:
+            return super().map_s(s)
 
 
 class _DoExpandDim(LoopIR_Rewrite):
@@ -1199,6 +1316,11 @@ class _DoExpandDim(LoopIR_Rewrite):
             self.alloc_type = new_typ
 
             return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
+
+        if (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
+                and s.name == self.alloc_sym):
+            idx = [self.indexing] + s.idx
+            return [type(s)( s.name, s.type, s.cast, idx, s.rhs, None, s.srcinfo )]
 
         return super().map_s(s)
 
@@ -2061,6 +2183,9 @@ class _DoAddUnsafeGuard(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.stmt:
+            #Check_ExprEqvInContext(self.orig_proc, [s],
+            #                       self.cond,
+            #                       LoopIR.Const(True, T.bool, s.srcinfo))
             s1 = Alpha_Rename([s]).result()
             return [LoopIR.If(self.cond, s1, [], None, s.srcinfo)]
 
@@ -2199,52 +2324,45 @@ class _DoFuseLoop(LoopIR_Rewrite):
     def __init__(self, proc, loop1, loop2):
         self.loop1 = loop1
         self.loop2 = loop2
-        self.found_first = False
+        self.modified_stmts = None
 
         super().__init__(proc)
+
+        loop, body1, body2 = self.modified_stmts
+        Check_FissionLoop(self.proc, loop, body1, body2)
 
         self.proc = InferEffects(self.proc).result()
 
     def map_stmts(self, stmts):
         new_stmts = []
 
-        for b in stmts:
-            if self.found_first:
-                if b != self.loop2:
-                    raise SchedulingError("expected the second stmt to be "
-                                          "directly after the first stmt")
-                self.found_first = False
-
-                # TODO: Is this enough??
-                # Check that loop is equivalent
-                if self.loop1.iter.name() != self.loop2.iter.name():
-                    raise SchedulingError("expected loop iteration variable "
-                                          "to match")
-
-                # Structural match
-                if self.loop1.hi != self.loop2.hi:
-                    raise SchedulingError("Loop bounds do not match!")
-
-                # TODO: Check sth about stmts? Safe for Seq loops? etc. etc.
-
-                body1 = SubstArgs(
-                    self.loop1.body,
-                    {self.loop1.iter: LoopIR.Read(self.loop2.iter, [], T.index,
-                                                  self.loop2.srcinfo)}
-                ).result()
-                body = body1 + self.loop2.body
-
-                b = type(self.loop1)(self.loop2.iter, self.loop2.hi, body, None,
-                                     b.srcinfo)
-
+        for i,b in enumerate(stmts):
             if b is self.loop1:
-                self.found_first = True
-                continue
+                if i+1 >= len(stmts) or stmts[i+1] is not self.loop2:
+                    raise SchedulingError("expected the two loops to be "
+                        "fused to come one right after the other")
 
-            for s in self.map_s(b):
-                new_stmts.append(s)
+                loop1, loop2 = self.loop1, self.loop2
 
-        return new_stmts
+                # check if the loop bounds are equivalent
+                Check_ExprEqvInContext(self.orig_proc, [loop1, loop2],
+                                       loop1.hi, loop2.hi)
+
+                x     = loop1.iter
+                y     = loop2.iter
+                hi    = loop1.hi
+                body1 = loop1.body
+                body2 = SubstArgs(loop2.body,
+                    { y : LoopIR.Read(x, [], T.index, loop1.srcinfo) }
+                ).result()
+                loop  = type(loop1)(x, hi, body1+body2, None, loop1.srcinfo)
+                self.modified_stmts = (loop, body1, body2)
+
+                return (stmts[:i] + [loop] + stmts[i+2:])
+
+        # if we reached this point, we didn't find the loop
+        return super().map_stmts(stmts)
+
 
 class _DoFuseIf(LoopIR_Rewrite):
     def __init__(self, proc, if1, if2):
@@ -2315,16 +2433,16 @@ class _DoAddLoop(LoopIR_Rewrite):
 #   Factor out a sub-statement as a Procedure scheduling directive
 
 def _make_closure(name, stmts, var_types):
-    FVs     = _FV(stmts)
-    info    = stmts[0].srcinfo
+    FVs = list(sorted(_FV(stmts)))
+    info = stmts[0].srcinfo
 
     # work out the calling arguments (args) and sub-proc args (fnargs)
-    args    = []
-    fnargs  = []
+    args = []
+    fnargs = []
 
     # first, scan over all the arguments and convert them.
     # accumulate all size symbols separately
-    sizes   = set()
+    sizes = set()
     for v in FVs:
         typ = var_types[v]
         if typ is T.size:
@@ -2341,12 +2459,12 @@ def _make_closure(name, stmts, var_types):
             fnargs.append(LoopIR.fnarg(v, typ, None, info))
 
     # now prepend all sizes to the argument list
-    sizes   = list(sizes)
-    args    = [ LoopIR.Read(sz, [], T.size, info) for sz in sizes ] + args
-    fnargs  = [ LoopIR.fnarg(sz, T.size, None, info)
-                for sz in sizes ] + fnargs
+    sizes = list(sorted(sizes))
+    args = [LoopIR.Read(sz, [], T.size, info) for sz in sizes] + args
+    fnargs = [LoopIR.fnarg(sz, T.size, None, info)
+              for sz in sizes] + fnargs
 
-    eff     = None
+    eff = None
     # TODO: raise NotImplementedError("need to figure out effect of new closure")
     closure = LoopIR.proc(name, fnargs, [], stmts, None, eff, info)
 
@@ -2366,11 +2484,17 @@ class _DoInsertPass(LoopIR_Rewrite):
 
 class _DoDeleteConfig(LoopIR_Rewrite):
     def __init__(self, proc, stmt):
-        self.stmt = stmt
+        self.stmt           = stmt
+        self.eq_mod_config  = set()
         super().__init__(proc)
+
+    def mod_eq(self):
+        return self.eq_mod_config
 
     def map_s(self, s):
         if s is self.stmt:
+            mod_cfg = Check_DeleteConfigWrite(self.orig_proc, [self.stmt])
+            self.eq_mod_config = mod_cfg
             return []
         else:
             return super().map_s(s)
@@ -2670,6 +2794,9 @@ class _AssertIf(LoopIR_Rewrite):
         return super().map_s(s)
 
 
+# TODO: This analysis is overly conservative.
+# However, it might be a bit involved to come up with
+# a more precise analysis.
 class _DoDataReuse(LoopIR_Rewrite):
     def __init__(self, proc, buf_pat, rep_pat):
         assert type(buf_pat) is LoopIR.Alloc
@@ -2717,6 +2844,252 @@ class _DoDataReuse(LoopIR_Rewrite):
             return LoopIR.Read(self.buf_name, e.idx, e.type, e.srcinfo)
 
         return super().map_e(e)
+
+
+# TODO: This can probably be re-factored into a generic
+# "Live Variables" analysis w.r.t. a context/stmt separation?
+class _DoStageMem_FindBufData(LoopIR_Do):
+    def __init__(self, proc, buf_name, stmt_start):
+        self.buf_str    = buf_name
+        self.buf_sym    = None
+        self.buf_typ    = None
+        self.buf_mem    = None
+
+        self.stmt_start = stmt_start
+
+        self.buf_map    = ChainMap()
+
+        for fa in proc.args:
+            if fa.type.is_numeric():
+                self.buf_map[str(fa.name)] = (fa.name, fa.type, fa.mem)
+
+        super().__init__(proc)
+
+    def result(self):
+        return self.buf_sym, self.buf_typ, self.buf_mem
+
+    def push(self):
+        self.buf_map = self.buf_map.new_child()
+
+    def pop(self):
+        self.buf_map = self.buf_map.parents
+
+    def do_s(self, s):
+        if s is self.stmt_start:
+            if self.buf_str not in self.buf_map:
+                raise SchedulingError(f"no buffer or window "
+                                      f"named {self.buf_str} was live "
+                                      f"in the indicated statement block")
+            nm, typ, mem    = self.buf_map[self.buf_str]
+            self.buf_sym    = nm
+            self.buf_typ    = typ
+            self.buf_mem    = mem
+
+        if isinstance(s, LoopIR.Alloc):
+            self.buf_map[str(s.name)]    = (s.name, s.type, s.mem)
+        if isinstance(s, LoopIR.WindowStmt):
+            nm, typ, mem            = self.buf_map[s.rhs.name]
+            self.buf_map[str(s.name)]    = (s.name, s.rhs.type, mem)
+        elif isinstance(s, LoopIR.If):
+            self.push()
+            self.do_stmts(s.body)
+            self.pop()
+            self.push()
+            self.do_stmts(s.orelse)
+            self.pop()
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            self.push()
+            self.do_stmts(s.body)
+            self.pop()
+        else:
+            super().do_s(s)
+
+    # short-circuit
+    def do_e(self, e):
+        pass
+
+class _DoStageMem(LoopIR_Rewrite):
+    def __init__(self, proc, buf_name, new_name, w_exprs,
+                 stmt_start, stmt_end, use_accum_zero=False):
+
+        self.stmt_start = stmt_start
+        self.stmt_end   = stmt_end
+        self.use_accum_zero = use_accum_zero
+
+        nm, typ, mem    = _DoStageMem_FindBufData(proc, buf_name,
+                                                  stmt_start).result()
+        self.buf_name   = nm # this is a symbol
+        self.buf_typ    = ( typ if not isinstance(typ, T.Window) else
+                            typ.as_tensor )
+        self.buf_mem    = mem
+
+        self.w_exprs    = w_exprs
+        if len(w_exprs) != len(self.buf_typ.shape()):
+            raise SchedulingError(f"expected windowing of '{buf_name}' "
+                    f"to have {len(self.buf_typ.shape())} indices, "
+                    f"but only got {len(w_exprs)}")
+        if any( isinstance(w, LoopIR.expr) for w in w_exprs ):
+            raise SchedulingError(f"memory staging requires windowing, "
+                    f"not point accessing, every dimension")
+        self.new_sizes  = [ LoopIR.BinOp('-', hi, lo, T.index, lo.srcinfo)
+                            for lo,hi in w_exprs ]
+        self.new_offset = [ lo for lo,hi in w_exprs ]
+        self.new_name   = Sym(new_name)
+        self.new_typ    = T.Tensor(self.new_sizes, False, typ.basetype())
+
+        self.found_stmt = False
+        self.new_block  = []
+        self.in_block   = False
+        super().__init__(proc)
+        assert self.found_stmt
+
+        Check_Bounds(self.proc, self.new_block[0], self.new_block[1:])
+
+        self.proc   = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        """ This method overload simply tries to find the indicated block """
+        if not self.in_block:
+            for i,s1 in enumerate(stmts):
+                if s1 is self.stmt_start:
+                    for j,s2 in enumerate(stmts):
+                        if s2 is self.stmt_end:
+                            self.found_stmt = True
+                            assert j >= i
+                            pre     = stmts[:i]
+                            block   = stmts[i:j+1]
+                            post    = stmts[j+1:]
+
+                            if self.use_accum_zero:
+                                n_dims = len(self.buf_typ.shape())
+                                Check_BufferReduceOnly(self.orig_proc, block,
+                                                       self.buf_name, n_dims)
+
+                            block = self.wrap_block(block)
+                            self.new_block = block
+
+                            return (pre + block + post)
+
+        # fall through
+        return super().map_stmts(stmts)
+
+    def wrap_block(self, block):
+        """ This method rewrites the structure around the block.
+            `map_s` and `map_e` below substitute the buffer
+            name within the block. """
+        orig_typ    = self.buf_typ
+        new_typ     = self.new_typ
+        mem         = self.buf_mem
+        shape       = self.new_sizes
+        offsets     = self.new_offset
+
+        n_dims      = len(orig_typ.shape())
+        basetyp     = new_typ.basetype()
+
+        isR, isW    = Check_BufferRW(self.orig_proc, block,
+                                     self.buf_name, n_dims)
+        srcinfo     = block[0].srcinfo
+
+
+        new_alloc   = [LoopIR.Alloc(self.new_name, new_typ, mem,
+                                    None, srcinfo)]
+
+        load_nest   = []
+        store_nest  = []
+
+        if isR:
+            load_iter   = [ Sym(f"i{i}") for i,_ in enumerate(shape) ]
+            load_widx   = [ LoopIR.Read(s,[],T.index,srcinfo)
+                            for s in load_iter ]
+            load_ridx   = [ LoopIR.BinOp('+', idx, off, T.index, srcinfo)
+                            for idx,off in zip(load_widx, offsets) ]
+            if self.use_accum_zero:
+                load_rhs = LoopIR.Const(0.0, basetyp, srcinfo)
+            else:
+                load_rhs = LoopIR.Read(self.buf_name, load_ridx,
+                                       basetyp, srcinfo)
+            load_nest   = [LoopIR.Assign(self.new_name, basetyp, None,
+                                         load_widx, load_rhs, None, srcinfo)]
+
+            for i,n in reversed(list(zip(load_iter,shape))):
+                loop    = LoopIR.Seq(i, n, load_nest, None, srcinfo)
+                load_nest = [loop]
+
+        if isW:
+            store_iter  = [ Sym(f"i{i}") for i,_ in enumerate(shape) ]
+            store_ridx  = [ LoopIR.Read(s,[],T.index,srcinfo)
+                            for s in store_iter ]
+            store_widx  = [ LoopIR.BinOp('+', idx, off, T.index, srcinfo)
+                            for idx,off in zip(store_ridx, offsets) ]
+            store_rhs   = LoopIR.Read(self.new_name, store_ridx,
+                                      basetyp, srcinfo)
+            store_stmt  = (LoopIR.Reduce if self.use_accum_zero else
+                           LoopIR.Assign)
+            store_nest  = [store_stmt(self.buf_name, basetyp, None,
+                                      store_widx, store_rhs,
+                                      None, srcinfo)]
+
+            for i,n in reversed(list(zip(store_iter,shape))):
+                loop    = LoopIR.Seq(i, n, store_nest, None, srcinfo)
+                store_nest = [loop]
+
+        self.in_block = True
+        block       = self.map_stmts(block)
+        self.in_block = False
+
+        return (new_alloc + load_nest + block + store_nest)
+
+    def map_s(self, s):
+        new_s = super().map_s(s)
+
+        if self.in_block:
+            if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+                if s.name is self.buf_name:
+                    assert len(new_s) == 1
+                    new_s[0].name = self.new_name
+
+                    idx = [ LoopIR.BinOp('-', i, off, T.index, s.srcinfo)
+                            for i,off in zip(new_s[0].idx, self.new_offset) ]
+                    new_s[0].idx = idx
+
+        return new_s
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        new_e = super().map_e(e)
+
+        if self.in_block:
+            if isinstance(e, LoopIR.Read):
+                if e.name is self.buf_name:
+                    new_e.name = self.new_name
+
+                    idx = [ LoopIR.BinOp('-', i, off, T.index, e.srcinfo)
+                            for i,off in zip(new_e.idx, self.new_offset) ]
+                    new_e.idx = idx
+
+            elif isinstance(e, LoopIR.WindowExpr):
+                if e.name is self.buf_name:
+                    def off_w(w,off):
+                        if isinstance(w, LoopIR.Interval):
+                            lo = LoopIR.BinOp('-',w.lo,off,T.index,w.srcinfo)
+                            hi = LoopIR.BinOp('-',w.hi,off,T.index,w.srcinfo)
+                            return LoopIR.Interval(lo, hi, w.srcinfo)
+                        else:
+                            assert isinstance(w, LoopIR.Point)
+                            pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
+                            return LoopIR.Point(pt, w.srcinfo)
+
+                    w_idx       = [ off_w(w,off)
+                                    for w,off in zip(new_e.idx,
+                                                     self.new_offset) ]
+                    new_e.name  = self.new_name
+                    new_e.idx   = w_idx
+                    new_e.type  = T.Window(self.new_typ, e.typ.as_tensor,
+                                           self.new_name, w_idx)
+
+        return new_e
+
 
 class _DoStageWindow(LoopIR_Rewrite):
     def __init__(self, proc, new_name, memory, expr):
@@ -2919,6 +3292,7 @@ class Schedules:
     DoAddUnsafeGuard = _DoAddUnsafeGuard
     DoDeleteConfig = _DoDeleteConfig
     DoFuseIf = _DoFuseIf
+    DoStageMem = _DoStageMem
     DoStageWindow = _DoStageWindow
     DoBoundAlloc = _DoBoundAlloc
     DoExpandDim    = _DoExpandDim

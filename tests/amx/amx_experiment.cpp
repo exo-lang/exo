@@ -4,18 +4,18 @@
 #include <string.h>
 
 // General way to output a matrix.
-#define print_matrix(M, N, A)         \
-  for (int i = 0; i < M; i++) {       \
-    for (int j = 0; j < 4 * K; j++) { \
-      printf("%u\t", A[i][j]);        \
-    }                                 \
-    printf("\n");                     \
+#define print_matrix(M, N, A)                                                  \
+  for (int i = 0; i < M; i++) {                                                \
+    for (int j = 0; j < 4 * K; j++) {                                          \
+      printf("%u\t", A[i][j]);                                                 \
+    }                                                                          \
+    printf("\n");                                                              \
   }
 
 /*
   Reference implementation of AMX's dpbuud. Same signature as amx_dpbuud below.
 */
-void ref_dpbuud(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
+void ref_dpbuud(int M, int K, int N, uint8_t *A, uint8_t *B, uint32_t *C) {
   for (int m = 0; m < M; m++) {
     for (int k = 0; k < K; k++) {
       for (int n = 0; n < N; n++) {
@@ -34,44 +34,44 @@ void ref_dpbuud(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
    - B = K x 4N
    - C = M x N (but is uint32_t)
 */
-void amx_dpbuud(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
+void amx_dpbuud(int M, int K, int N, uint8_t *A, uint8_t *B, uint32_t *C) {
   unsigned char config[] = {
-      0x01,  // ID
-      0x00,  // start row
-      0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // reserved
-      static_cast<unsigned char>(4 * K), 0x00,                                // bytes per row tile 0
-      static_cast<unsigned char>(4 * N), 0x00,                                // bytes per row tile 1
-      static_cast<unsigned char>(4 * N), 0x00,                                // bytes per row tile 2
-      0x01,  0x00,                                // bytes per row tile 3
-      0x00,  0x00,                                // bytes per row tile 4
-      0x00,  0x00,                                // bytes per row tile 5
-      0x00,  0x00,                                // bytes per row tile 6
-      0x00,  0x00,                                // bytes per row tile 7
-      0x00,  0x00,                                // bytes per row tile 8
-      0x00,  0x00,                                // bytes per row tile 9
-      0x00,  0x00,                                // bytes per row tile 10
-      0x00,  0x00,                                // bytes per row tile 11
-      0x00,  0x00,                                // bytes per row tile 12
-      0x00,  0x00,                                // bytes per row tile 13
-      0x00,  0x00,                                // bytes per row tile 14
-      0x00,  0x00,                                // bytes per row tile 15
-      static_cast<unsigned char>(M),                                          // rows tile 0
-      static_cast<unsigned char>(K),                                          // rows tile 1
-      static_cast<unsigned char>(M),                                          // rows tile 2
-      0x01,                                       // rows tile 3
-      0x00,                                       // rows tile 4
-      0x00,                                       // rows tile 5
-      0x00,                                       // rows tile 6
-      0x00,                                       // rows tile 7
-      0x00,                                       // rows tile 8
-      0x00,                                       // rows tile 9
-      0x00,                                       // rows tile 10
-      0x00,                                       // rows tile 11
-      0x00,                                       // rows tile 12
-      0x00,                                       // rows tile 13
-      0x00,                                       // rows tile 14
-      0x00                                        // rows tile 15
+      0x01,                                     // ID
+      0x00,                                     // start row
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved
+      static_cast<unsigned char>(4 * K), 0x00,  // bytes per row tile 0
+      static_cast<unsigned char>(4 * N), 0x00,  // bytes per row tile 1
+      static_cast<unsigned char>(4 * N), 0x00,  // bytes per row tile 2
+      0x01, 0x00,                               // bytes per row tile 3
+      0x00, 0x00,                               // bytes per row tile 4
+      0x00, 0x00,                               // bytes per row tile 5
+      0x00, 0x00,                               // bytes per row tile 6
+      0x00, 0x00,                               // bytes per row tile 7
+      0x00, 0x00,                               // bytes per row tile 8
+      0x00, 0x00,                               // bytes per row tile 9
+      0x00, 0x00,                               // bytes per row tile 10
+      0x00, 0x00,                               // bytes per row tile 11
+      0x00, 0x00,                               // bytes per row tile 12
+      0x00, 0x00,                               // bytes per row tile 13
+      0x00, 0x00,                               // bytes per row tile 14
+      0x00, 0x00,                               // bytes per row tile 15
+      static_cast<unsigned char>(M),            // rows tile 0
+      static_cast<unsigned char>(K),            // rows tile 1
+      static_cast<unsigned char>(M),            // rows tile 2
+      0x01,                                     // rows tile 3
+      0x00,                                     // rows tile 4
+      0x00,                                     // rows tile 5
+      0x00,                                     // rows tile 6
+      0x00,                                     // rows tile 7
+      0x00,                                     // rows tile 8
+      0x00,                                     // rows tile 9
+      0x00,                                     // rows tile 10
+      0x00,                                     // rows tile 11
+      0x00,                                     // rows tile 12
+      0x00,                                     // rows tile 13
+      0x00,                                     // rows tile 14
+      0x00                                      // rows tile 15
   };
 
   _tile_loadconfig(config);
@@ -93,7 +93,7 @@ void amx_dpbuud(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
    - old_B = 4M x N,
    - new_B = M x 4N,
 */
-void transform(int M, int N, uint8_t* new_B, uint8_t* old_B) {
+void transform(int M, int N, uint8_t *new_B, uint8_t *old_B) {
   for (int m = 0; m < M; m++) {
     for (int n = 0; n < N; n++) {
       for (int m_in = 0; m_in < 4; m_in++) {
@@ -110,16 +110,16 @@ void transform(int M, int N, uint8_t* new_B, uint8_t* old_B) {
    - B = 4K x N
    - C = M x N (but is uint32_t)
 */
-void amx_matmul(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
+void amx_matmul(int M, int K, int N, uint8_t *A, uint8_t *B, uint32_t *C) {
   uint8_t new_B[K][4 * N];
-  transform(K, N, (uint8_t*)new_B, B);
-  amx_dpbuud(M, K, N, A, (uint8_t*)new_B, C);
+  transform(K, N, (uint8_t *)new_B, B);
+  amx_dpbuud(M, K, N, A, (uint8_t *)new_B, C);
 }
 
 /*
   Reference implementation of matmul on uint8_t matrices.
 */
-void ref_matmul_8(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
+void ref_matmul_8(int M, int K, int N, uint8_t *A, uint8_t *B, uint32_t *C) {
   for (int m = 0; m < M; m++) {
     for (int k = 0; k < K; k++) {
       for (int n = 0; n < N; n++) {
@@ -133,7 +133,7 @@ void ref_matmul_8(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
 /*
   Reference implementation of matmul on uint32_t matrices.
 */
-void ref_matmul_32(int M, int K, int N, uint32_t* A, uint32_t* B, uint32_t* C) {
+void ref_matmul_32(int M, int K, int N, uint32_t *A, uint32_t *B, uint32_t *C) {
   for (int m = 0; m < M; m++) {
     for (int k = 0; k < K; k++) {
       for (int n = 0; n < N; n++) {
@@ -147,7 +147,7 @@ void ref_matmul_32(int M, int K, int N, uint32_t* A, uint32_t* B, uint32_t* C) {
   Performs matmul on uint8_t matrices, except it interprets 4 consecutive bytes
   as a uint32.
 */
-void my_matmul_32(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
+void my_matmul_32(int M, int K, int N, uint8_t *A, uint8_t *B, uint32_t *C) {
   /*
     A = M x 4K
     B = K x 4N
@@ -175,7 +175,7 @@ void my_matmul_32(int M, int K, int N, uint8_t* A, uint8_t* B, uint32_t* C) {
    - A_in = M x 4N
    - A_out = M x N
 */
-void convert_to_uint32_t(int M, int N, uint8_t* A_in, uint32_t* A_out) {
+void convert_to_uint32_t(int M, int N, uint8_t *A_in, uint32_t *A_out) {
   for (int i = 0; i < M; i++) {
     for (int j = 0; j < N; j++) {
       A_out[i * N + j] = 0;
@@ -207,8 +207,8 @@ void test_dpbuud(int M, int K, int N) {
   memset(C_amx, 0, 4 * M * N);
   memset(C_ref, 0, 4 * M * N);
 
-  ref_dpbuud(M, K, N, (uint8_t*)A, (uint8_t*)B, (uint32_t*)C_ref);
-  amx_dpbuud(M, K, N, (uint8_t*)A, (uint8_t*)B, (uint32_t*)C_amx);
+  ref_dpbuud(M, K, N, (uint8_t *)A, (uint8_t *)B, (uint32_t *)C_ref);
+  amx_dpbuud(M, K, N, (uint8_t *)A, (uint8_t *)B, (uint32_t *)C_amx);
 
   int match = 1;
   for (int i = 0; i < M; i++) {
@@ -237,8 +237,8 @@ void test_dpbuud(int M, int K, int N) {
 void test_matmul_8(int M, int K, int N) {
   uint8_t A[M][4 * K];
   uint8_t B[4 * K][N];
-  uint32_t C_ref[M][N];  // output of a reference matmul
-  uint32_t C_amx[M][N];  // output of dpbuud after an initial transformation
+  uint32_t C_ref[M][N]; // output of a reference matmul
+  uint32_t C_amx[M][N]; // output of dpbuud after an initial transformation
 
   for (int i = 0; i < M; i++) {
     for (int j = 0; j < 4 * K; j++) {
@@ -254,8 +254,8 @@ void test_matmul_8(int M, int K, int N) {
   memset(C_ref, 0, 4 * M * N);
   memset(C_amx, 0, 4 * M * N);
 
-  ref_matmul_8(M, 4 * K, N, (uint8_t*)A, (uint8_t*)B, (uint32_t*)C_ref);
-  amx_matmul(M, K, N, (uint8_t*)A, (uint8_t*)B, (uint32_t*)C_amx);
+  ref_matmul_8(M, 4 * K, N, (uint8_t *)A, (uint8_t *)B, (uint32_t *)C_ref);
+  amx_matmul(M, K, N, (uint8_t *)A, (uint8_t *)B, (uint32_t *)C_amx);
 
   int match = 1;
   for (int i = 0; i < M; i++) {
@@ -276,10 +276,11 @@ void test_matmul_8(int M, int K, int N) {
   printf("Matmul_8 test succeeded!\n");
 }
 
-template <int N>
-struct A {
+template <int N> struct A {
   constexpr A() : arr() {
-    for (auto i = 0; i != N; ++i) arr[i] = i;
+    for (auto i = 0; i != N; ++i) {
+      arr[i] = i;
+    }
   }
   int arr[N];
 };
@@ -291,14 +292,14 @@ int main() {
     std::cout << x << '\n';
   }
 
-  // int M = 10;
-  // int K = 5;
-  // int N = 7;
+#if 0
+  int M = 10;
+  int K = 5;
+  int N = 7;
 
-  // test_dpbuud(M, K, N);
-  // test_matmul_8(M, K, N);
+  test_dpbuud(M, K, N);
+  test_matmul_8(M, K, N);
 
-  /*
   uint32_t C_matmul1[M][N];
   uint32_t C_matmul2[M][N];
   for (int i=0; i<M; i++) {
@@ -376,7 +377,7 @@ int main() {
   }
 
   printf("My matmul succeeded!\n");
-  */
+#endif
 
   return 0;
 }

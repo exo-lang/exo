@@ -1,0 +1,5 @@
+def foo(n: size, m: size, x: i8 @ DRAM):
+    a: i8[n] @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = a[i]

@@ -1,0 +1,7 @@
+def foo(n: size):
+    if n < 20:
+        if 10 < n:
+            pass
+    else:
+        if 10 < n:
+            pass
