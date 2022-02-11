@@ -1,0 +1,4 @@
+def foo(N: size, x: R[N, N] @ DRAM):
+    for j in par(0, N):
+        for i in par(0, N):
+            x[i, j] = x[i, j] * 2.0

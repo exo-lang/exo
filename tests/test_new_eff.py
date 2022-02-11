@@ -4,7 +4,7 @@ import pytest
 
 from SYS_ATL.new_eff import *
 
-from SYS_ATL import proc, DRAM, SchedulingError
+from SYS_ATL import proc, config, DRAM, SchedulingError
 
 
 print()
@@ -55,7 +55,7 @@ def test_reorder_alloc_fail():
         foo = foo.reorder_stmts('y : R', 'y = 4.0')
         print(foo)
 
-def test_reorder_loops_success():
+def test_reorder_loops_success(golden):
     @proc
     def foo( N : size, x : R[N,N] ):
         for i in seq(0,N):
@@ -63,7 +63,7 @@ def test_reorder_loops_success():
                 x[i,j] = x[i,j] * 2.0
 
     foo = foo.reorder('i','j')
-    print(foo)
+    assert str(foo) == golden
 
 
 def test_reorder_loops_fail():
@@ -78,7 +78,7 @@ def test_reorder_loops_fail():
         foo = foo.reorder('i','j')
         print(foo)
 
-def test_alloc_success():
+def test_alloc_success(golden):
     @proc
     def foo( N : size, x : R[N,N] ):
         for i in seq(0,N):
@@ -88,10 +88,9 @@ def test_alloc_success():
                 x[i,j] = tmp
 
     foo = foo.reorder('i','j')
-    print(foo)
+    assert str(foo) == golden
 
-
-def test_reorder_loops_requiring_seq():
+def test_reorder_loops_requiring_seq(golden):
     # the stencil pattern here looks like
     #     o     o
     #       \   |
@@ -110,9 +109,9 @@ def test_reorder_loops_requiring_seq():
                     x[i,j] += -1.0/3.0 * (x[i-1,j] + x[i-1,j-1] + x[i,j-1])
 
     foo = foo.reorder('i','j')
-    print(foo)
+    assert str(foo) == golden
 
-def test_reorder_loops_4pt_stencil_succeed():
+def test_reorder_loops_4pt_stencil_succeed(golden):
     # Also, a 4-point stencil being
     # used in e.g. a Gauss-Seidel scheme can be reordered
 
@@ -125,7 +124,7 @@ def test_reorder_loops_4pt_stencil_succeed():
                                           x[i,j-1] + x[i,j+1])
 
     foo = foo.reorder('i','j')
-    print(foo)
+    assert str(foo) == golden
 
 
 
@@ -152,3 +151,135 @@ def test_reorder_loops_failing_seq():
 # for its body.  This can probably distinguish whether certain
 # rewrites are allowed or not.
 
+
+def test_delete_config_basic(golden):
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 3
+        for i in seq(0,N):
+            x[i] = x[i] + 1.0
+
+    foo = foo.delete_config('CFG.a = _')
+    assert str(foo) == golden
+
+
+def test_delete_config_subproc_basic(golden):
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def do_config():
+        CFG.a = 3
+        CFG.b = 5
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        do_config()
+        for i in seq(0,N):
+            x[i] = x[i] + 1.0
+
+    foo = foo.delete_config('do_config()')
+    assert str(foo) == golden
+
+def test_delete_config_fail():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 3
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    with pytest.raises(SchedulingError,
+                       match='Cannot change configuration value of CFG_a'):
+        foo = foo.delete_config('CFG.a = _')
+        print(foo)
+    
+def test_delete_config_subproc_fail():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def do_config():
+        CFG.a = 3
+        CFG.b = 5
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        do_config()
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    with pytest.raises(SchedulingError,
+                       match='Cannot change configuration value of CFG_a'):
+        foo = foo.delete_config('do_config()')
+        print(foo)
+
+
+def test_delete_config_bc_shadow(golden):
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 34
+        CFG.a = 3
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    foo = foo.delete_config('CFG.a = _ #0')
+    assert str(foo) == golden
+
+
+def test_delete_config_bc_redundant(golden):
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 3
+        CFG.a = 3
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    foo = foo.delete_config('CFG.a = _ #1')
+    assert str(foo) == golden
+
+def test_delete_config_fail_bc_not_redundant():
+    @config
+    class CFG:
+        a : index
+        b : size
+
+    @proc
+    def foo( N : size, x : R[N] ):
+        CFG.a = 34
+        CFG.a = 3
+        for i in seq(0,N):
+            if i < CFG.a:
+                x[i] = x[i] + 1.0
+
+    with pytest.raises(SchedulingError,
+                       match='Cannot change configuration value of CFG_a'):
+        foo = foo.delete_config('CFG.a = _ #1')
+        print(foo)

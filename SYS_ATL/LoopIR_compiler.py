@@ -7,7 +7,7 @@ from .LoopIR import LoopIR, LoopIR_Do
 from .LoopIR import T
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
-from .memory import MemGenError, Memory
+from .memory import MemGenError, Memory, DRAM
 from .prec_analysis import PrecisionAnalysis
 from .prelude import *
 from .win_analysis import WindowAnalysis
@@ -481,6 +481,8 @@ class Compiler:
         self.envtyp[symbol] = typ
         if mem is not None:
             self.mems[symbol] = mem
+        else:
+            self.mems[symbol] = DRAM
         return strnm
 
     def push(self, only=None):
@@ -646,20 +648,22 @@ class Compiler:
             assert s.type.basetype().is_real_scalar()
             assert s.type.basetype() != T.R
             ctype = s.type.basetype().ctype()
-            line = s.mem.alloc(name,
-                               ctype,
-                               self.shape_strs(s.type.shape()),
-                               s.srcinfo)
+            mem = s.mem or DRAM
+            line = mem.alloc(name,
+                             ctype,
+                             self.shape_strs(s.type.shape()),
+                             s.srcinfo)
 
             self.add_line(line)
         elif styp is LoopIR.Free:
             name = self.env[s.name]
             assert s.type.basetype().is_real_scalar()
             ctype = s.type.basetype().ctype()
-            line = s.mem.free(name,
-                              ctype,
-                              self.shape_strs(s.type.shape()),
-                              s.srcinfo)
+            mem = s.mem or DRAM
+            line = mem.free(name,
+                            ctype,
+                            self.shape_strs(s.type.shape()),
+                            s.srcinfo)
             self.add_line(line)
         elif styp is LoopIR.Call:
             assert all(a.type.is_win() == fna.type.is_win()

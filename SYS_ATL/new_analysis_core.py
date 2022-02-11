@@ -269,8 +269,12 @@ def _estr(e, prec=0, tab=""):
         else:
             return f"({cond})? {tcase} : {fcase}"
     elif isinstance(e, (A.ForAll, A.Exists)):
-        op = "∀" if isinstance(e, A.ForAll) else "∃"
-        return f"{op}{e.name},{_estr(e.arg,op_prec['forall'],tab=tab)}"
+        op          = "∀" if isinstance(e, A.ForAll) else "∃"
+        local_prec  = op_prec['forall' if isinstance(e,A.ForAll) else 'exists']
+        s = f"{op}{e.name},{_estr(e.arg,op_prec['forall'],tab=tab)}"
+        if local_prec < prec:
+            s = f"({s})"
+        return s
     elif isinstance(e, (A.Definitely, A.Maybe)):
         op = "D" if isinstance(e, A.Definitely) else "M"
         return f"{op}{_estr(e.arg,op_prec['unary'],tab=tab)}"
@@ -377,6 +381,105 @@ def aeFV(e,env=None):
         assert False, "bad case"
 
 
+def aeNegPos(e,pos,env=None,res=None):
+    res     = res or dict()
+    env     = env or dict()#ChainMap()
+    def save_and_shadow(names):
+        nonlocal env
+        return { nm : env.pop(nm, None) for nm in names }
+    def restore_shadowed(saved):
+        nonlocal env
+        for nm,save_val in saved.items():
+            if save_val is not None:
+                env[nm] = save_val
+            elif nm in env:
+                del env[nm]
+
+    # set the result for this node independent of cases
+    res[id(e)]  = pos
+
+    if isinstance(e, A.Var):
+        # backwards propagate through variable references
+        if e.name not in env:
+            env[e.name] = pos
+        else:
+            old_pos     = env[e.name]
+            if pos != old_pos:
+                env[e.name] = '0'
+    elif isinstance(e, A.Stride):
+        # stride symbol gets encoded as a tuple
+        key = (e.name,e.dim)
+        if key not in env:
+            env[key] = pos
+        else:
+            old_pos     = env[e.name]
+            if pos != old_pos:
+                env[e.name] = '0'
+    elif isinstance(e, (A.Unk,A.Const,A.Stride)):
+        pass
+    elif isinstance(e, A.Not):
+        negpos = ('-' if pos == '+' else
+                  '+' if pos == '-' else
+                  '0')
+        aeNegPos(e.arg, negpos, env, res)
+    elif isinstance(e, (A.USub,A.Definitely, A.Maybe)):
+        aeNegPos(e.arg, pos, env, res)
+    elif isinstance(e, A.BinOp):
+        aeNegPos(e.lhs, pos, env, res)
+        aeNegPos(e.rhs, pos, env, res)
+    elif isinstance(e, A.LetStrides):
+        keys    = [ (e.name,i) for i,_ in enumerate(e.strides) ]
+        # propagate negation-position flags through body
+        saved   = save_and_shadow(keys)
+        aeNegPos(e.body, pos, env, res)
+        key_pos = { k : env.get(k, pos) for k in keys }
+        restore_shadowed(saved)
+
+        # propagate values pushed onto strides in the body back to
+        # their definitions
+        for k,s,kp in zip(keys, e.strides, key_pos):
+            aeNegPos(s, kp, env, res)
+
+    elif isinstance(e, A.Select):
+        aeNegPos(e.cond,  pos, env, res)
+        aeNegPos(e.tcase, pos, env, res)
+        aeNegPos(e.fcase, pos, env, res)
+    elif isinstance(e, (A.ForAll, A.Exists)):
+        saved   = save_and_shadow([e.name])
+        aeNegPos(e.arg, pos, env, res)
+        restore_shadowed(saved)
+    elif isinstance(e, A.Let):
+        save_stack = [ save_and_shadow([nm]) for nm in e.names ]
+        aeNegPos(e.body, pos, env, res)
+        for nm,rhs,save in reversed(list(zip(e.names, e.rhs, save_stack))):
+            nm_pos = env.get(nm, pos)
+            restore_shadowed(save)
+            aeNegPos(rhs, nm_pos, env, res)
+
+    elif isinstance(e, A.Tuple):
+        for a in e.args:
+            aeNegPos(a, pos, env, res)
+
+    elif isinstance(e, A.LetTuple):
+        # propagate negation-position flags through body
+        saved   = save_and_shadow(e.names)
+        aeNegPos(e.body, pos, env, res)
+        # merge negation position of the tuple variables
+        nm_pos  = [ env[nm] for nm in e.names if nm in env ]
+        if len(nm_pos) > 0:
+            pos = nm_pos[0]
+            for p in nm_pos[1:]:
+                if p != pos:
+                    pos = '0'
+        # now back-propagate to the right-hand-side
+        aeNegPos(e.rhs, pos, env, res)
+
+    else:
+        assert False, "bad case"
+
+    return res
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # SMT Solver wrapper; handles ternary logic etc.
@@ -444,6 +547,7 @@ class SMTSolver:
 
         # used during lowering
         self.mod_div_tmp_bins = []
+        self.negative_pos   = None
 
         # debug info
         self.frames         = [DebugSolverFrame()]
@@ -544,6 +648,7 @@ class SMTSolver:
     def assume(self, e):
         assert e.type is T.bool
         self._add_free_vars(e)
+        self.negative_pos = aeNegPos(e, '-')
         smt_e       = self._lower(e)
         assert not is_ternary(smt_e), "assumptions must be classical"
         self.frames[-1].add_assumption(e, smt_e)
@@ -553,6 +658,7 @@ class SMTSolver:
         assert e.type is T.bool
         self.push()
         self._add_free_vars(e)
+        self.negative_pos = aeNegPos(e, '-')
         smt_e       = self._lower(e)
         assert not is_ternary(smt_e), "formulas must be classical"
         self.z3.add_assertion(smt_e)
@@ -565,6 +671,7 @@ class SMTSolver:
         assert e.type is T.bool
         self.push()
         self._add_free_vars(e)
+        self.negative_pos = aeNegPos(e, '+')
         smt_e       = self._lower(e)
         assert not is_ternary(smt_e), "formulas must be classical"
         self.z3.add_assertion(SMT.Not(smt_e))
@@ -647,7 +754,10 @@ class SMTSolver:
                 assert not is_ternary(smt_e), "TODO: handle ternary"
                 all_syms    = [ sym for sym,eq in tmp_bin ]
                 all_eq      = SMT.And(*[ eq  for sym,eq in tmp_bin])
-                smt_e       = SMT.ForAll(all_syms,SMT.Implies(all_eq,smt_e))
+                if self.negative_pos[id(e)] == '+':
+                    smt_e   = SMT.ForAll(all_syms,SMT.Implies(all_eq,smt_e))
+                else:
+                    smt_e   = SMT.Exists(all_syms,SMT.And(all_eq,smt_e))
         return smt_e
 
     def _lower_body(self, e):
@@ -860,7 +970,6 @@ class Z3SubProc:
 
     def run_check_sat(self):
         slv = z3lib.Solver()
-        #print(self.stack_lines)
         slv.from_string(self._get_whole_str())
         result = slv.check()
         if result == z3lib.z3.sat:

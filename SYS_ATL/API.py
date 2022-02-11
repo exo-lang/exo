@@ -3,6 +3,8 @@ import inspect
 import types
 from typing import Optional, Union, List
 
+import re
+
 from .API_types import ProcedureBase
 from .LoopIR import LoopIR, T, UAST, LoopIR_Do
 from .LoopIR_compiler import run_compile, compile_to_strings
@@ -24,10 +26,6 @@ from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-#   proc provenance tracking
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -139,7 +137,9 @@ def compile_procs(proc_list, path, c_file, h_file):
 
 
 class Procedure(ProcedureBase):
-    def __init__(self, proc, _testing=None, _provenance_eq_Procedure=None):
+    def __init__(self, proc, _testing=None,
+                 _provenance_eq_Procedure=None,
+                 _mod_config=frozenset()):
         super().__init__()
 
         if isinstance(proc, LoopIR.proc):
@@ -158,7 +158,8 @@ class Procedure(ProcedureBase):
         if _testing != "UAST":
             if _provenance_eq_Procedure:
                 derive_proc(_provenance_eq_Procedure._loopir_proc,
-                            self._loopir_proc)
+                            self._loopir_proc,
+                            frozenset(_mod_config))
             else:
                 decl_new_proc(self._loopir_proc)
 
@@ -408,9 +409,13 @@ class Procedure(ProcedureBase):
                             "not match")
 
         loopir = self._loopir_proc
-        loopir = Schedules.DoBindConfig(loopir, config, field, matches[0]).result()
+        rewrite_pass = Schedules.DoBindConfig(loopir, config, field,
+                                              matches[0])
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
 
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def data_reuse(self, buf_pattern, replace_pattern):
         if not isinstance(buf_pattern, str):
@@ -439,12 +444,16 @@ class Procedure(ProcedureBase):
             raise TypeError(f"expected '{field}' to be a field "
                             f"in config '{config.name()}'")
 
-        loopir   = self._loopir_proc
-        var_expr = parse_fragment(loopir, var_pattern, None)
+        loopir          = self._loopir_proc
+        var_expr        = parse_fragment(loopir, var_pattern, None)
         assert isinstance(var_expr, LoopIR.expr)
-        loopir   = Schedules.DoConfigWriteRoot(loopir, config, field, var_expr).result()
+        rewrite_pass    = Schedules.DoConfigWriteRoot(loopir, config, field,
+                                                      var_expr)
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
 
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def configwrite_after(self, stmt_pattern, config, field, var_pattern):
         if not isinstance(config, Config):
@@ -459,12 +468,17 @@ class Procedure(ProcedureBase):
             raise TypeError("expected second argument to be a string var")
 
         stmt     = self._find_stmt(stmt_pattern)
-        loopir   = self._loopir_proc
-        var_expr = parse_fragment(loopir, var_pattern, stmt)
+        loopir          = self._loopir_proc
+        var_expr        = parse_fragment(loopir, var_pattern, stmt)
         assert isinstance(var_expr, LoopIR.expr)
-        loopir   = Schedules.DoConfigWriteAfter(loopir, stmt, config, field, var_expr).result()
+        rewrite_pass    = Schedules.DoConfigWriteAfter(loopir, stmt,
+                                                       config, field,
+                                                       var_expr)
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
 
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def inline_window(self, stmt_pattern):
         if not isinstance(stmt_pattern, str):
@@ -719,10 +733,13 @@ class Procedure(ProcedureBase):
         stmt = self._find_stmt(stmt_pat, default_match_no=None)
         assert len(stmt) == 1 #Don't want to accidentally delete other configs
 
-        loopir = self._loopir_proc
-        loopir = Schedules.DoDeleteConfig(loopir, stmt[0]).result()
+        loopir          = self._loopir_proc
+        rewrite_pass    = Schedules.DoDeleteConfig(loopir, stmt[0])
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
 
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def reorder_stmts(self, first_pat, second_pat):
         if not isinstance(first_pat, str):
@@ -895,17 +912,15 @@ class Procedure(ProcedureBase):
         return eqv_set == frozenset()
 
     def call_eqv(self, eqv_proc: 'Procedure', call_site_pattern):
-        call_stmt = self._find_callsite(call_site_pattern)
+        call_stmt       = self._find_callsite(call_site_pattern)
+        new_proc        = eqv_proc._loopir_proc
 
-        old_proc = call_stmt.f
-        new_proc = eqv_proc._loopir_proc
-        eqv_set = check_eqv_proc(old_proc, new_proc)
-        if eqv_set != frozenset():
-            raise TypeError("the procedures were not equivalent")
-
-        loopir = self._loopir_proc
-        loopir = Schedules.DoCallSwap(loopir, call_stmt, new_proc).result()
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        loopir          = self._loopir_proc
+        rewrite_pass    = Schedules.DoCallSwap(loopir, call_stmt, new_proc)
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def bind_expr(self, new_name, expr_pattern, cse=False):
         if not is_valid_name(new_name):
@@ -935,6 +950,56 @@ class Procedure(ProcedureBase):
                 p = directive(p, *args)
             except SchedulingError:
                 return p
+
+    def _parse_win_expr(self, expr_str, ctxt_stmt, scope="before"):
+        # degenerate case of a scalar value
+        if is_valid_name(expr_str):
+            return expr_str, []
+
+        # otherwise, we have multiple dimensions
+        match = re.match(r'(\w+)\[([^\]]+)\]', expr_str)
+        if not match:
+            raise ValueError(f"expected windowing string of the form "
+                             f"'name[args]', but got '{expr_str}'")
+        buf_name, args = match.groups()
+        if not is_valid_name(buf_name):
+            raise ValueError(f"'{buf_name}' is not a valid name")
+
+        loopir = self._loopir_proc
+        def parse_arg(a):
+            match = re.match(r'\s*([^:]+)\s*:\s*([^:]+)\s*', a)
+            if not match:
+                pt = parse_fragment(loopir, a, ctxt_stmt, scope=scope)
+                return pt
+            else:
+                lo, hi = match.groups()
+                lo = parse_fragment(loopir, lo, ctxt_stmt, scope=scope)
+                hi = parse_fragment(loopir, hi, ctxt_stmt, scope=scope)
+                return (lo,hi)
+        args = [ parse_arg(a) for a in args.split(',') ]
+
+        return buf_name, args
+
+    def stage_mem(self, win_expr, new_name, stmt_start,
+                  stmt_end=None, accum=False):
+
+        stmt_start  = self._find_stmt(stmt_start)
+        stmt_end    = (stmt_start if stmt_end is None else
+                       self._find_stmt(stmt_end))
+        buf_name, w_exprs = self._parse_win_expr(win_expr, stmt_start)
+
+        if not is_valid_name(new_name):
+            raise ValueError(f"stage_mem: '{new_name}' is not a valid name")
+
+
+        loopir      = self._loopir_proc
+        loopir      = Schedules.DoStageMem(loopir, buf_name, new_name,
+                                           w_exprs,
+                                           stmt_start, stmt_end,
+                                           use_accum_zero=accum).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
 
     def stage_expr(self, new_name, expr_pattern, memory=None, n_lifts=1):
         return (
