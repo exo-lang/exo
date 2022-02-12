@@ -1,3 +1,84 @@
+
+# Auto-tile
+
+def tile(proc, stmt):
+    assert type(stmt) == QAST.Seq
+
+
+# Can be just lift_stmt
+@sched
+def lift_config(proc, config_stmt):
+    # config_stmt = repeat(reorder_before(...))
+    while repeat():
+        while repeat():
+            proc, config_stmt = proc.reorder_before(config_stmt)
+        proc, config_stmt = proc.fission_after(config_stmt)
+    while repeat():
+        proc, config_stmt = proc.reorder_before(config_stmt)
+
+    return proc
+
+
+# Example of replace_all_in
+def replace_all_in(proc, subproc, s_block):
+    for s in s_block: # What type is s_block?
+        try:
+            proc,_ = proc.replace(s, subproc)
+        except:
+            if type(s) == QAST.If or type(s) == QAST.Seq:
+                proc = replace_all_in(proc, subproc, s.body())
+            else:
+                pass #if it couldn't replace this stmt, that's cool
+
+    return proc
+
+
+# Example of replace_everywhere
+def replace_everywhere(proc, subproc):
+    for s in proc.body(): # We need to get body somehow, only difference between replace_all_in
+        try:
+            proc,_ = proc.replace(s, subproc)
+        except:
+            if type(s) == QAST.If or type(s) == QAST.Seq:
+                proc = replace_all_in(proc, subproc, s.body())
+            else:
+                pass
+    return proc
+
+
+# recompose lift_alloc would be like...
+# Assuming that everything is Seq
+def lift_alloc(proc, alloc_site_pattern, n_lifts=1, mode='row', size=None, keep_dims=False):
+    s = get_stmt_cursor(alloc_site_pattern)
+
+    for i in range(0, n_lifts):
+        proc, s = proc.lift_alloc_simple(s)
+        #
+        # assert s.is_alloc()
+        # assert type(s) == QAST.Alloc # We probably want to be able to do something like this
+        if keep_dims: # expand_dim
+            if size:
+                # TODO: How do we get 'i' here????
+                # Can we assume that loop is always next of lift_alloc?
+                proc, s = proc.expand_dim(s, size, s.next().iter) # s.next().iter should be 'i' or sth like that
+            else:
+                proc, s = proc.expand_dim(s, s.next().hi, s.next().iter)
+
+            assert type(s) == QAST.Alloc # again
+            if mode == 'col':
+                sizes = [ i for i in range(0, s.size()) ]
+                sizes = sizes[s.size()-1] + sizes[:s.size()-1] # rotate
+                proc, s = proc.rearrange_dim(s, sizes) # We definitely need some introspection
+
+        else: # Just return proc
+            pass
+
+    return proc
+
+
+
+
+
 # Points of discussions
 # stmt, or gap?
 # How to handle "outdated" pointers?
@@ -134,6 +215,7 @@ def lift_alloc_rep(proc, stmt):
     while repeat(): # ?????
         (proc, stmt) = proc.lift_alloc_simple(stmt)
     return proc
+
 
 # -----------------------------------------------------------------------------------------
 
