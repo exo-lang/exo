@@ -8,11 +8,12 @@ import textwrap
 from collections import ChainMap
 
 import astor
+from asdl_adt.validators import ValidationError
 
 from .API_types import ProcedureBase
 from .builtins import *
 from .configs import Config
-from .grammars import UAST, PAST, front_ops
+from .LoopIR import UAST, PAST, front_ops
 from .prelude import *
 
 
@@ -154,8 +155,9 @@ class Parser:
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # parser helper routines
 
-    def err(self, node, errstr):
-        raise ParseError(f"{self.getsrcinfo(node)}: {errstr}")
+    def err(self, node, errstr, origin=None):
+        raise ParseError(f"{self.getsrcinfo(node)}: {errstr}") from origin
+
 
     def eval_expr(self, expr):
         assert isinstance(expr, pyast.expr)
@@ -757,10 +759,10 @@ class Parser:
                 op = "@"
             else:
                 assert False, "unrecognized op"
-            if op not in front_ops:
-                self.err(e, f"unsupported binary operator: {op}")
-
-            return UAST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
+            try:
+                return UAST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
+            except ValidationError as exn:
+                self.err(e, f"unsupported binary operator: {op}", exn)
 
         elif isinstance(e, pyast.BoolOp):
             assert len(e.values) > 1

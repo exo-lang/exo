@@ -9,8 +9,7 @@ from pysmt import shortcuts as SMT
 
 from asdl_adt import ADT, validators
 from asdl_adt.validators import ValidationError
-from .LoopIR import T
-from .grammars import LoopIR
+from .LoopIR import T, LoopIR
 from .prelude import *
 
 _first_run = True
