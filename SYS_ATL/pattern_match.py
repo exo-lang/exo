@@ -3,7 +3,7 @@ import re
 from typing import Optional
 
 from . import pyparser
-from .LoopIR import LoopIR, PAST
+from .grammars import LoopIR, PAST
 
 
 # --------------------------------------------------------------------------- #

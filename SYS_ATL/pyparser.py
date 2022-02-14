@@ -10,9 +10,9 @@ from collections import ChainMap
 import astor
 
 from .API_types import ProcedureBase
-from .LoopIR import UAST, front_ops, PAST
 from .builtins import *
 from .configs import Config
+from .grammars import UAST, PAST, front_ops
 from .prelude import *
 
 

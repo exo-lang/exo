@@ -1,101 +1,7 @@
 from collections import ChainMap
 
-from adt import ADT
-from adt import memo as ADTmemo
-
-from .LoopIR_effects import Effects as E
-from .builtins import BuiltIn
-from .configs import Config
-from .memory import Memory
+from .grammars import UAST, Effects as E, LoopIR
 from .prelude import *
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Untyped AST
-
-front_ops = {
-    "+":    True,
-    "-":    True,
-    "*":    True,
-    "/":    True,
-    "%":    True,
-    #
-    "<":    True,
-    ">":    True,
-    "<=":   True,
-    ">=":   True,
-    "==":   True,
-    #
-    "and":  True,
-    "or":   True,
-}
-
-UAST = ADT("""
-module UAST {
-    proc    = ( name?           name,
-                fnarg*          args,
-                expr*           preds,
-                stmt*           body,
-                string?         instr,
-                srcinfo         srcinfo )
-
-    fnarg   = ( sym             name,
-                type            type,
-                mem?            mem,
-                srcinfo         srcinfo )
-
-    stmt    = Assign  ( sym name, expr* idx, expr rhs )
-            | Reduce  ( sym name, expr* idx, expr rhs )
-            | WriteConfig ( config config, string field, expr rhs )
-            | FreshAssign( sym name, expr rhs )
-            | Pass    ()
-            | If      ( expr cond, stmt* body,  stmt* orelse )
-            | ForAll  ( sym iter,  expr cond,   stmt* body )
-            | Alloc   ( sym name, type type, mem? mem )
-            | Call    ( loopir_proc f, expr* args )
-            attributes( srcinfo srcinfo )
-
-    expr    = Read    ( sym name, expr* idx )
-            | Const   ( object val )
-            | USub    ( expr arg ) -- i.e.  -(...)
-            | BinOp   ( op op, expr lhs, expr rhs )
-            | BuiltIn( builtin f, expr* args )
-            | WindowExpr( sym name, w_access* idx )
-            | StrideExpr( sym name, int dim )
-            | ParRange( expr lo, expr hi ) -- only use for loop cond
-            | SeqRange( expr lo, expr hi ) -- only use for loop cond
-            | ReadConfig( config config, string field )
-            attributes( srcinfo srcinfo )
-
-    w_access= Interval( expr? lo, expr? hi )
-            | Point( expr pt )
-            attributes( srcinfo srcinfo )
-
-    type    = Num   ()
-            | F32   ()
-            | F64   ()
-            | INT8  ()
-            | INT32 ()
-            | Bool  ()
-            | Int   ()
-            | Size  ()
-            | Index ()
-            | Stride()
-            | Tensor( expr *hi, bool is_window, type type )
-} """, {
-    'name':        is_valid_name,
-    'sym':         lambda x: isinstance(x, Sym),
-    'mem':         lambda x: issubclass(x, Memory),
-    'builtin':     lambda x: isinstance(x, BuiltIn),
-    'config':      lambda x: isinstance(x, Config),
-    'loopir_proc': lambda x: isinstance(x, LoopIR.proc),
-    'op':          lambda x: x in front_ops,
-    'srcinfo':     lambda x: isinstance(x, SrcInfo)
-})
-
-ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'INT32',
-               'Bool', 'Int', 'Size', 'Index', 'Stride'], {
-})
 
 
 @extclass(UAST.Tensor)
@@ -116,137 +22,6 @@ def basetype(t):
     return t
 del basetype
 
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Pattern AST
-#   - used to specify pattern-matches
-
-PAST = ADT("""
-module PAST {
-
-    stmt    = Assign  ( name name, expr* idx, expr rhs )
-            | Reduce  ( name name, expr* idx, expr rhs )
-            | Pass    ()
-            | If      ( expr cond, stmt* body,  stmt* orelse )
-            | ForAll  ( name iter, expr hi,     stmt* body )
-            | Seq     ( name iter, expr hi,     stmt* body )
-            | Alloc   ( name name ) -- may want to add type & mem back in?
-            | Call    ( name f, expr* args )
-            | WriteConfig ( name config, name field )
-            | S_Hole  ()
-            attributes( srcinfo srcinfo )
-
-    expr    = Read    ( name name, expr* idx )
-            | StrideExpr( name name, int dim )
-            | E_Hole  ()
-            | Const   ( object val )
-            | USub    ( expr arg ) -- i.e.  -(...)
-            | BinOp   ( op op, expr lhs, expr rhs )
-            attributes( srcinfo srcinfo )
-
-} """, {
-    'name':    lambda x: x == '_' or is_valid_name(x),
-    'op':      lambda x: x in front_ops,
-    'srcinfo': lambda x: isinstance(x, SrcInfo),
-})
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Loop IR
-
-bin_ops = {
-    "+":    True,
-    "-":    True,
-    "*":    True,
-    "/":    True,
-    "%":    True,
-
-    "and":  True,
-    "or":   True,
-
-    "<":    True,
-    ">":    True,
-    "<=":   True,
-    ">=":   True,
-    "==":   True,
-}
-
-LoopIR = ADT("""
-module LoopIR {
-    proc    = ( name            name,
-                fnarg*          args,
-                expr*           preds,
-                stmt*           body,
-                string?         instr,
-                effect?         eff,
-                srcinfo         srcinfo )
-
-    fnarg   = ( sym             name,
-                type            type,
-                mem?            mem,
-                srcinfo         srcinfo )
-
-    stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
-            | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
-            | WriteConfig ( config config, string field, expr rhs )
-            | Pass   ()
-            | If     ( expr cond, stmt* body, stmt* orelse )
-            | ForAll ( sym iter, expr hi, stmt* body )
-            | Seq    ( sym iter, expr hi, stmt* body )
-            | Alloc  ( sym name, type type, mem? mem )
-            | Free   ( sym name, type type, mem? mem )
-            | Call   ( proc f, expr* args )
-            | WindowStmt( sym lhs, expr rhs )
-            attributes( effect? eff, srcinfo srcinfo )
-
-    expr    = Read( sym name, expr* idx )
-            | Const( object val )
-            | USub( expr arg )  -- i.e.  -(...)
-            | BinOp( binop op, expr lhs, expr rhs )
-            | BuiltIn( builtin f, expr* args )
-            | WindowExpr( sym name, w_access* idx )
-            | StrideExpr( sym name, int dim )
-            | ReadConfig( config config, string field )
-            attributes( type type, srcinfo srcinfo )
-
-    -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
-    w_access= Interval( expr lo, expr hi )
-            | Point( expr pt )
-            attributes( srcinfo srcinfo )
-
-    type    = Num   ()
-            | F32   ()
-            | F64   ()
-            | INT8  ()
-            | INT32 ()
-            | Bool  ()
-            | Int   ()
-            | Index ()
-            | Size  ()
-            | Stride()
-            | Error ()
-            | Tensor     ( expr* hi, bool is_window, type type )
-            -- src          - type of the tensor
-            --                from which the window was created
-            -- as_tensor    - tensor type as if this window were simply
-            --                a tensor itself
-            -- window       - the expression that created this window
-            | WindowType ( type src_type, type as_tensor,
-                           sym src_buf, w_access *idx )
-
-} """, {
-    'name':    is_valid_name,
-    'sym':     lambda x: isinstance(x, Sym),
-    'effect':  lambda x: isinstance(x, E.effect),
-    'mem':     lambda x: issubclass(x, Memory),
-    'builtin': lambda x: isinstance(x, BuiltIn),
-    'config':  lambda x: isinstance(x, Config),
-    'binop':   lambda x: x in bin_ops,
-    'srcinfo': lambda x: isinstance(x, SrcInfo),
-})
-
-ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'INT32' 'Bool', 'Int', 'Index',
-                 'Size', 'Stride', 'Error'])
 
 # make proc be a hashable object
 @extclass(LoopIR.proc)
@@ -273,6 +48,7 @@ class T:
     Error   = LoopIR.Error
     Tensor  = LoopIR.Tensor
     Window  = LoopIR.WindowType
+    type    = LoopIR.type
     R       = Num()
     f32     = F32()
     int8    = INT8()
@@ -287,8 +63,6 @@ class T:
     stride  = Stride()
     err     = Error()
 
-    def is_type(obj):
-        return isinstance(obj, LoopIR.type)
 
 # --------------------------------------------------------------------------- #
 # type helper functions
@@ -938,7 +712,7 @@ class SubstArgs(LoopIR_Rewrite):
                     return LoopIR.WindowExpr(sub_e.name,
                                        [self.map_w_access(a) for a in e.idx],
                                        self.map_t(e.type), e.srcinfo)
-            
+
         elif isinstance(e, LoopIR.StrideExpr):
             if e.name in self.env:
                 sub_e = self.env[e.name]

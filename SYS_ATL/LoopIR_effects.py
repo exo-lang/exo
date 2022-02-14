@@ -1,93 +1,6 @@
-from adt import ADT
 from . import LoopIR
-from .configs import Config
+from .grammars import Effects
 from .prelude import *
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Effect grammar
-
-front_ops = {
-    "+":    True,
-    "-":    True,
-    "*":    True,
-    "/":    True,
-    "%":    True,
-    #
-    "<":    True,
-    ">":    True,
-    "<=":   True,
-    ">=":   True,
-    "==":   True,
-    #
-    "and":  True,
-    "or":   True,
-}
-
-Effects = ADT("""
-module Effects {
-    effect      = ( effset*     reads,
-                    effset*     writes,
-                    effset*     reduces,
-                    config_eff* config_reads,
-                    config_eff* config_writes,
-                    srcinfo     srcinfo )
-
-    -- JRK: the notation of this comprehension is confusing -
-    ---     maybe just use math:
-    -- this corresponds to `{ buffer : loc for *names in int if pred }`
-    effset      = ( sym         buffer,
-                    expr*       loc,    -- e.g. reading at (i+1,j+1)
-                    sym*        names,
-                    expr?       pred,
-                    srcinfo     srcinfo )
-
-    config_eff  = ( config      config, -- blah
-                    string      field,
-                    expr?       value, -- need not be supplied for reads
-                    expr?       pred,
-                    srcinfo     srcinfo )
-
-    expr        = Var( sym name )
-                | Not( expr arg )
-                | Const( object val )
-                | BinOp( binop op, expr lhs, expr rhs )
-                | Stride( sym name, int dim )
-                | Select( expr cond, expr tcase, expr fcase )
-                | ConfigField( config config, string field )
-                attributes( type type, srcinfo srcinfo )
-
-} """, {
-    'sym':     lambda x: isinstance(x, Sym),
-    'type':    lambda x: LoopIR.T.is_type(x),
-    'binop':   lambda x: x in front_ops,
-    'config':  lambda x: isinstance(x, Config),
-    'srcinfo': lambda x: isinstance(x, SrcInfo),
-})
-
-
-# Unused Proposal
-
-# Effects = ADT("""
-# module Effects {
-#     effect  = PrimEff( mode mode, expr* loc )
-#             | Guard( expr cond, effect* effs )
-#             | ForAll( sym name, expr cond, effect* effs )
-#             attributes( srcinfo srcinfo )
-#
-#     mode = READ() | WRITE() | REDUCE()
-#
-#     expr    = Var( sym name )
-#             | Const( object val )
-#             | BinOp( binop op, expr lhs, expr rhs )
-#             attributes( type type, srcinfo srcinfo )
-#
-# } """, {
-#     'sym':          lambda x: isinstance(x, Sym),
-#     'type':         T.is_type,
-#     'binop':        lambda x: x in bin_ops,
-#     'srcinfo':      lambda x: isinstance(x, SrcInfo),
-# })
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -530,7 +443,7 @@ def eff_concat(e1, e2, srcinfo=None):
                 loc_e = loc[0]
             for l in loc[1:]:
                 loc_e = boolop("or", loc_e, l)
-                
+
             # loc_e /\ not write.pred
             if write.pred is None:
                 pred = loc_e
