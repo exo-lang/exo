@@ -1,21 +1,51 @@
 
 # Auto-tile
 
-def tile(proc, stmt):
-    assert type(stmt) == QAST.Seq
+
+# simple tile
+# .tile(proc, stmt, [4, 8], [['io', 'ii'], ['jo', 'ji']])
+def tile(proc, stmt, iter_sizes, new_names, tail='guard'):
+    assert stmt.is_seq() # i loop
+    assert stmt.body()[0].is_seq() # j loop
+    assert len(iter_sizes) == 2
+    assert len(new_names) == 2
+    assert len(new_names[0]) == 2
+    assert len(new_names[1]) == 2
+
+    i_loop_var = stmt.iter
+    j_loop_var = stmt.body()[0].iter
+    proc, i_loop_out = proc.split(i_loop_var, iter_sizes[0], new_names[0], tail=tail)
+    proc, j_loop_out = proc.split(j_loop_var, iter_sizes[1], new_names[1], tail=tail)
+    i_loop_in = i_loop_out.body()[0]
+    proc, _ = proc.reorder(i_loop_in.iter, j_loop_out.iter)
+
+    return proc
 
 
-# Can be just lift_stmt
-@sched
-def lift_config(proc, config_stmt):
+# Lift this statement as up as possible (is this English?)
+def lift_stmt(proc, stmt):
     # config_stmt = repeat(reorder_before(...))
     while repeat():
         while repeat():
-            proc, config_stmt = proc.reorder_before(config_stmt)
-        proc, config_stmt = proc.fission_after(config_stmt)
+            proc, stmt = proc.reorder_before(stmt)
+        proc, stmt = proc.fission_after(stmt)
     while repeat():
-        proc, config_stmt = proc.reorder_before(config_stmt)
+        proc, stmt = proc.reorder_before(stmt)
 
+    return proc
+
+
+# repeat whatever op
+def repeat_all_in(proc, op, arg_list, s_block):
+    for s in s_block:
+        try:
+            # unpack by *
+            proc, _ = op(proc, s, *arg_list) # Would proc.op work? op(...) is more robust?
+        except:
+            if s.is_if() or s.is_seq:
+                proc = repeat_all_in(proc, op, arg_list, s.body())
+            else:
+                pass
     return proc
 
 
@@ -39,7 +69,8 @@ def replace_everywhere(proc, subproc):
         try:
             proc,_ = proc.replace(s, subproc)
         except:
-            if type(s) == QAST.If or type(s) == QAST.Seq:
+            # if type(s) == QAST.If or type(s) == QAST.Seq: OR
+            if s.is_if() or s.is_seq():
                 proc = replace_all_in(proc, subproc, s.body())
             else:
                 pass
@@ -53,13 +84,11 @@ def lift_alloc(proc, alloc_site_pattern, n_lifts=1, mode='row', size=None, keep_
 
     for i in range(0, n_lifts):
         proc, s = proc.lift_alloc_simple(s)
-        #
+        # Assert the statement type
         # assert s.is_alloc()
-        # assert type(s) == QAST.Alloc # We probably want to be able to do something like this
+        # assert type(s) == QAST.Alloc
         if keep_dims: # expand_dim
             if size:
-                # TODO: How do we get 'i' here????
-                # Can we assume that loop is always next of lift_alloc?
                 proc, s = proc.expand_dim(s, size, s.next().iter) # s.next().iter should be 'i' or sth like that
             else:
                 proc, s = proc.expand_dim(s, s.next().hi, s.next().iter)
