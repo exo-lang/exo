@@ -11,7 +11,7 @@
 # We can generalize it like
 def inline_and_lift(proc, instr, instr_v2):
     proc = repeat_everywhere(proc, call_eqv, [instr, instr_v2])
-    proc = repeat_everywhere(proc, inine, instr_v2)
+    proc = repeat_everywhere(proc, inline, instr_v2)
     # TODO: How to get a window stmt? e.g., 'A = a[_]'
     # repeat_everywhere can return a list of added window stmts,
     # or inline op introducing the window stmt by default may be just
@@ -27,6 +27,8 @@ def tile(proc, stmt, iter_sizes, new_names, tail='guard'):
     assert len(new_names) == 2
     assert len(new_names[0]) == 2
     assert len(new_names[1]) == 2
+    # Can make new_names optional?
+    # TODO: How to construct a new name??
 
     i_loop_var = stmt.iter
     j_loop_var = stmt.body()[0].iter
@@ -39,24 +41,38 @@ def tile(proc, stmt, iter_sizes, new_names, tail='guard'):
 
 
 # Lift this statement as up as possible (is this English?)
+# TODO: Lookup context manager? with, yield
+# Explicit v.s. Monadic thing
 def lift_stmt(proc, stmt):
     # config_stmt = repeat(reorder_before(...))
     while repeat():
         while repeat():
             proc, stmt = proc.reorder_before(stmt)
-        proc, stmt = proc.fission_after(stmt)
+        if stmt.before().is_seq() or stmt.before().is_if():
+            proc, stmt = proc.fission_after(stmt)
+        else:
+            # raise SchedulingError("couldn't reorder...")
+            break
     while repeat():
         proc, stmt = proc.reorder_before(stmt)
 
     return proc
 
+```
+s0
+s1
+...
+config_matmul()
+for i in par(0, n):
+    for j in par(0, m):
+        ....
+```
 
 # repeat whatever op
-def repeat_all_in(proc, op, arg_list, s_block):
+def repeat_everywhere(proc, s_block, op, *args):
     for s in s_block:
         try:
-            # unpack by *
-            proc, _ = op(proc, s, *arg_list) # Would proc.op work? op(...) is more robust?
+            proc, _ = op(proc, s, *args) # Would proc.op work? op(...) is more robust?
         except:
             if s.is_if() or s.is_seq:
                 proc = repeat_all_in(proc, op, arg_list, s.body())
@@ -64,16 +80,8 @@ def repeat_all_in(proc, op, arg_list, s_block):
                 pass
     return proc
 
-def repeat_everywhere(proc, op, arg_list):
-    for s in proc.body():
-        try:
-            proc, _ = op(proc, s, *arg_list)
-        except:
-            if s.is_if() or s.is_seq:
-                proc = repeat_all_in(proc, op, arg_list, s.body())
-            else:
-                pass
-    return proc
+#def repeat_everywhere(proc, op, arg_list):
+#    return repeat_all_in(proc, op, arg_list, proc.body())
 
 
 # Example of replace_all_in
@@ -106,30 +114,30 @@ def replace_everywhere(proc, subproc):
 
 # recompose lift_alloc would be like...
 # Assuming that everything is Seq
-def lift_alloc(proc, alloc_site_pattern, n_lifts=1, mode='row', size=None, keep_dims=False):
-    s = get_stmt_cursor(alloc_site_pattern)
-
+@schedule
+def lift_alloc(s, n_lifts=1, mode='row', size=None, keep_dims=False):
     for i in range(0, n_lifts):
-        proc, s = proc.lift_alloc_simple(s)
+        s = lift_alloc_simple(s)
         # Assert the statement type
-        # assert s.is_alloc()
+        assert s.is_alloc()
+        assert s.next().is_seq()
         # assert type(s) == QAST.Alloc
         if keep_dims: # expand_dim
             if size:
-                proc, s = proc.expand_dim(s, size, s.next().iter) # s.next().iter should be 'i' or sth like that
+                s = expand_dim(s, size, s.next().iter) # s.next().iter should be 'i' or sth like that
             else:
-                proc, s = proc.expand_dim(s, s.next().hi, s.next().iter)
+                s = expand_dim(s, s.next().hi, s.next().iter)
 
             assert type(s) == QAST.Alloc # again
             if mode == 'col':
                 sizes = [ i for i in range(0, s.size()) ]
                 sizes = sizes[s.size()-1] + sizes[:s.size()-1] # rotate
-                proc, s = proc.rearrange_dim(s, sizes) # We definitely need some introspection
+                s = rearrange_dim(s, sizes) # We definitely need some introspection
 
         else: # Just return proc
             pass
 
-    return proc
+    return
 
 
 
