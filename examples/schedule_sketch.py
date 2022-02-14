@@ -1,6 +1,22 @@
 
 # Auto-tile
 
+# Previous gemmini code, inlining matmul_acc_i8
+    gemmini = gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
+    gemmini = gemmini.inline("matmul_acc_i8_v2(_, _, _, _, _)")
+    gemmini = gemmini.inline_window("A = a[_]")
+    gemmini = gemmini.inline_window("B = b[_]")
+    gemmini = gemmini.inline_window("C = res[_]")
+    gemmini = lift_config(gemmini, 'config_matmul()')
+# We can generalize it like
+def inline_and_lift(proc, instr, instr_v2):
+    proc = repeat_everywhere(proc, call_eqv, [instr, instr_v2])
+    proc = repeat_everywhere(proc, inine, instr_v2)
+    # TODO: How to get a window stmt? e.g., 'A = a[_]'
+    # repeat_everywhere can return a list of added window stmts,
+    # or inline op introducing the window stmt by default may be just
+    # a bad decision
+
 
 # simple tile
 # .tile(proc, stmt, [4, 8], [['io', 'ii'], ['jo', 'ji']])
@@ -41,6 +57,17 @@ def repeat_all_in(proc, op, arg_list, s_block):
         try:
             # unpack by *
             proc, _ = op(proc, s, *arg_list) # Would proc.op work? op(...) is more robust?
+        except:
+            if s.is_if() or s.is_seq:
+                proc = repeat_all_in(proc, op, arg_list, s.body())
+            else:
+                pass
+    return proc
+
+def repeat_everywhere(proc, op, arg_list):
+    for s in proc.body():
+        try:
+            proc, _ = op(proc, s, *arg_list)
         except:
             if s.is_if() or s.is_seq:
                 proc = repeat_all_in(proc, op, arg_list, s.body())
