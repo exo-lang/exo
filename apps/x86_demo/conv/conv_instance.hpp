@@ -29,7 +29,7 @@ struct conv_instance {
   std::vector<float> dst_data;
 
   conv_instance(long batch_size, long in_h, long in_w, long in_chan,
-                long out_chan, long kern_sz, long pad, long stride)
+      long out_chan, long kern_sz, long pad, long stride)
       : N(batch_size),
         IC(in_chan),
         IH(in_h),
@@ -51,16 +51,16 @@ struct conv_instance {
         dst_data(N * OC * OH * OW) {
     // Initialize src, weights, and dst tensors.
     std::generate(src_data.begin(), src_data.end(),
-                  [i = 0.0f]() mutable { return std::cos(i++ / 10.f); });
+        [i = 0.0f]() mutable { return std::cos(i++ / 10.f); });
 
     std::generate(weights_data.begin(), weights_data.end(),
-                  [i = 0.0f]() mutable { return std::sin(i++ * 2.f); });
+        [i = 0.0f]() mutable { return std::sin(i++ * 2.f); });
 
     std::generate(bias_data.begin(), bias_data.end(),
-                  [i = 0.0f]() mutable { return std::tanh(i++); });
+        [i = 0.0f]() mutable { return std::tanh(i++); });
   }
 
- private:
+private:
   inline long product(const std::vector<long> &dims) {
     return std::accumulate(dims.begin(), dims.end(), 1, std::multiplies<>());
   }

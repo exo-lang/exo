@@ -1,7 +1,7 @@
 #include <immintrin.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdint.h>
 
 // General way to output a matrix.
 #define print_matrix(M, N, A)                                                  \
@@ -36,42 +36,42 @@ void ref_dpbuud(int M, int K, int N, uint8_t *A, uint8_t *B, uint32_t *C) {
 */
 void amx_dpbuud(int M, int K, int N, uint8_t *A, uint8_t *B, uint32_t *C) {
   unsigned char config[] = {
-      0x01,                                     // ID
-      0x00,                                     // start row
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved
-      4 * K, 0x00,                              // bytes per row tile 0
-      4 * N, 0x00,                              // bytes per row tile 1
-      4 * N, 0x00,                              // bytes per row tile 2
-      0x01, 0x00,                               // bytes per row tile 3
-      0x00, 0x00,                               // bytes per row tile 4
-      0x00, 0x00,                               // bytes per row tile 5
-      0x00, 0x00,                               // bytes per row tile 6
-      0x00, 0x00,                               // bytes per row tile 7
-      0x00, 0x00,                               // bytes per row tile 8
-      0x00, 0x00,                               // bytes per row tile 9
-      0x00, 0x00,                               // bytes per row tile 10
-      0x00, 0x00,                               // bytes per row tile 11
-      0x00, 0x00,                               // bytes per row tile 12
-      0x00, 0x00,                               // bytes per row tile 13
-      0x00, 0x00,                               // bytes per row tile 14
-      0x00, 0x00,                               // bytes per row tile 15
-      M,                                        // rows tile 0
-      K,                                        // rows tile 1
-      M,                                        // rows tile 2
-      0x01,                                     // rows tile 3
-      0x00,                                     // rows tile 4
-      0x00,                                     // rows tile 5
-      0x00,                                     // rows tile 6
-      0x00,                                     // rows tile 7
-      0x00,                                     // rows tile 8
-      0x00,                                     // rows tile 9
-      0x00,                                     // rows tile 10
-      0x00,                                     // rows tile 11
-      0x00,                                     // rows tile 12
-      0x00,                                     // rows tile 13
-      0x00,                                     // rows tile 14
-      0x00                                      // rows tile 15
+      0x01,                                      // ID
+      0x00,                                      // start row
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // reserved
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // reserved
+      4 * K, 0x00,                               // bytes per row tile 0
+      4 * N, 0x00,                               // bytes per row tile 1
+      4 * N, 0x00,                               // bytes per row tile 2
+      0x01, 0x00,                                // bytes per row tile 3
+      0x00, 0x00,                                // bytes per row tile 4
+      0x00, 0x00,                                // bytes per row tile 5
+      0x00, 0x00,                                // bytes per row tile 6
+      0x00, 0x00,                                // bytes per row tile 7
+      0x00, 0x00,                                // bytes per row tile 8
+      0x00, 0x00,                                // bytes per row tile 9
+      0x00, 0x00,                                // bytes per row tile 10
+      0x00, 0x00,                                // bytes per row tile 11
+      0x00, 0x00,                                // bytes per row tile 12
+      0x00, 0x00,                                // bytes per row tile 13
+      0x00, 0x00,                                // bytes per row tile 14
+      0x00, 0x00,                                // bytes per row tile 15
+      M,                                         // rows tile 0
+      K,                                         // rows tile 1
+      M,                                         // rows tile 2
+      0x01,                                      // rows tile 3
+      0x00,                                      // rows tile 4
+      0x00,                                      // rows tile 5
+      0x00,                                      // rows tile 6
+      0x00,                                      // rows tile 7
+      0x00,                                      // rows tile 8
+      0x00,                                      // rows tile 9
+      0x00,                                      // rows tile 10
+      0x00,                                      // rows tile 11
+      0x00,                                      // rows tile 12
+      0x00,                                      // rows tile 13
+      0x00,                                      // rows tile 14
+      0x00                                       // rows tile 15
   };
 
   _tile_loadconfig(config);
@@ -237,8 +237,8 @@ void test_dpbuud(int M, int K, int N) {
 void test_matmul_8(int M, int K, int N) {
   uint8_t A[M][4 * K];
   uint8_t B[4 * K][N];
-  uint32_t C_ref[M][N]; // output of a reference matmul
-  uint32_t C_amx[M][N]; // output of dpbuud after an initial transformation
+  uint32_t C_ref[M][N];  // output of a reference matmul
+  uint32_t C_amx[M][N];  // output of dpbuud after an initial transformation
 
   for (int i = 0; i < M; i++) {
     for (int j = 0; j < 4 * K; j++) {

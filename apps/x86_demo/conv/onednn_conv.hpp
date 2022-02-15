@@ -16,7 +16,7 @@ class OneDNN_Conv {
   std::unordered_map<int, dnnl::memory> conv_args;
   dnnl::convolution_forward conv_prim;
 
- public:
+public:
   OneDNN_Conv(conv_instance &ci);
   void run();
 };

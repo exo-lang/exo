@@ -14,6 +14,6 @@ void sys_atl_conv(conv_instance &ci) {
        ci.dst_data.data(), ci.weights_data.data(), ci.bias_data.data());
 #else
   conv_specialized(nullptr, ci.src_data.data(), ci.dst_data.data(),
-                   ci.weights_data.data(), ci.bias_data.data());
+      ci.weights_data.data(), ci.bias_data.data());
 #endif
 }

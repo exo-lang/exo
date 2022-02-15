@@ -48,11 +48,11 @@ static void BM_ssyrk(benchmark::State &state) {
 struct mkl_functor {
   void operator()(const float *a, float *c, int n, int k) {
     cblas_ssyrk(CblasRowMajor, CblasUpper, CblasNoTrans,  // layout
-                n, k,                                     // dimensions
-                1.0,                                      // alpha
-                a, k,                                     // A (lda)
-                1.0,                                      // beta
-                c, n                                      // C (ldc)
+        n, k,                                             // dimensions
+        1.0,                                              // alpha
+        a, k,                                             // A (lda)
+        1.0,                                              // beta
+        c, n                                              // C (ldc)
     );
   }
 };
