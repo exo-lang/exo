@@ -1,5 +1,7 @@
-#define HEAP_SIZE                                                              \
-  { heap_size }
+// clang-format off
+// these are filled in by Python's str.format()
+#define HEAP_SIZE {heap_size}
+// clang-format on
 
 #include <stdint.h>
 #include <stdio.h>

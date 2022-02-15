@@ -1,7 +1,8 @@
-#define HEAP_SIZE                                                              \
-  { heap_size }
-#define DIM                                                                    \
-  { dim }
+// clang-format off
+// these are filled in by Python's str.format()
+#define HEAP_SIZE {heap_size}
+#define DIM {dim}
+// clang-format on
 
 #include "include/gemmini.h"
 #include <assert.h>
