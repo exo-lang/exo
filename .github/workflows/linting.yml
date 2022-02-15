@@ -13,7 +13,7 @@ jobs:
           source: '.'
           exclude: './dependencies ./tests/gemmini/gemmini-rocc-tests'
           clangFormatVersion: 12
-          inplace: True
+          inplace: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
       # Only push to internal PRs
       - uses: EndBug/add-and-commit@v4
         if: github.event.pull_request.head.repo.full_name == github.repository
