@@ -5,7 +5,7 @@ namespace {
 using namespace Halide;
 
 class ConvolutionLayer : public Halide::Generator<ConvolutionLayer> {
- public:
+public:
   Input<Buffer<float>> input{"input", 4};
   Input<Buffer<float>> filter{"filter", 4};
   Input<Buffer<float>> bias{"bias", 1};

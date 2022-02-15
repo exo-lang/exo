@@ -1,55 +1,61 @@
+// clang-format off
+// these are filled in by Python's str.format()
 #define HEAP_SIZE {heap_size}
 #define DIM {dim}
+// clang-format on
 
 #include "include/gemmini.h"
-#include <stdio.h>
-#include <stdint.h>
 #include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
 
 typedef struct __attribute__((__packed__)) NewBlock {
-    uint32_t size;
-    uint32_t loc;
-    uint8_t is_used;
+  uint32_t size;
+  uint32_t loc;
+  uint8_t is_used;
 } NewBlock;
 
 NewBlock BLOCKS[HEAP_SIZE / sizeof(NewBlock)];
 uint32_t gemm_last_ptr;
 
 void gemm_init_mem() {
-    for(uint32_t i=0; i<sizeof(BLOCKS); i++)
-        ((uint8_t*)BLOCKS)[i] = 0;
-    gemm_last_ptr = 0;
+  for (uint32_t i = 0; i < sizeof(BLOCKS); i++)
+    ((uint8_t *)BLOCKS)[i] = 0;
+  gemm_last_ptr = 0;
 }
 
 uint32_t gemm_malloc(long unsigned int size) {
-    if(size == 0) return -1;
-    size = (size + DIM - 1) / DIM;
-    int i;
-    for(i=0; i < HEAP_SIZE / sizeof(NewBlock) && BLOCKS[i].size > 0; i++) {
-        if(BLOCKS[i].is_used) continue;
-        if(BLOCKS[i].size < size) continue;
-        break;
-    }
-    if(BLOCKS[i].size == 0) {
-        BLOCKS[i].loc = gemm_last_ptr;
-        BLOCKS[i].size = size;
-        BLOCKS[i].is_used = 1;
-        gemm_last_ptr += size;
-        return BLOCKS[i].loc;
-    }
-
+  if (size == 0)
+    return -1;
+  size = (size + DIM - 1) / DIM;
+  int i;
+  for (i = 0; i < HEAP_SIZE / sizeof(NewBlock) && BLOCKS[i].size > 0; i++) {
+    if (BLOCKS[i].is_used)
+      continue;
+    if (BLOCKS[i].size < size)
+      continue;
+    break;
+  }
+  if (BLOCKS[i].size == 0) {
+    BLOCKS[i].loc = gemm_last_ptr;
+    BLOCKS[i].size = size;
     BLOCKS[i].is_used = 1;
+    gemm_last_ptr += size;
     return BLOCKS[i].loc;
+  }
+
+  BLOCKS[i].is_used = 1;
+  return BLOCKS[i].loc;
 }
 
 void gemm_free(uint32_t addr) {
-    for(int i=0; BLOCKS[i].size > 0; i++) {
-        if(BLOCKS[i].is_used && BLOCKS[i].loc == addr) {
-            BLOCKS[i].is_used = 0;
-            return;
-        }
+  for (int i = 0; BLOCKS[i].size > 0; i++) {
+    if (BLOCKS[i].is_used && BLOCKS[i].loc == addr) {
+      BLOCKS[i].is_used = 0;
+      return;
     }
-    return;
+  }
+  return;
 }
 
 /*

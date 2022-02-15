@@ -54,12 +54,12 @@ static void BM_square_sgemm(benchmark::State &state) {
 struct cblas_square {
   void operator()(const float *a, const float *b, float *c, int n) {
     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,  // layout
-                n, n, n,                                    // m, n, k
-                1.0,                                        // alpha
-                a, n,                                       // A (lda)
-                b, n,                                       // B (ldb)
-                1.0,                                        // beta
-                c, n                                        // C (ldc)
+        n, n, n,                                            // m, n, k
+        1.0,                                                // alpha
+        a, n,                                               // A (lda)
+        b, n,                                               // B (ldb)
+        1.0,                                                // beta
+        c, n                                                // C (ldc)
     );
   }
 };

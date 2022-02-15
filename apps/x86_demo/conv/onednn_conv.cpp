@@ -98,10 +98,9 @@ OneDNN_Conv::OneDNN_Conv(conv_instance &ci) : ci(ci) {
   write_to_dnnl_memory(ci.bias_data.data(), user_bias_mem);
 
   // Create operation descriptor.
-  auto conv_desc = convolution_forward::desc(
-      prop_kind::forward_training, algorithm::convolution_direct, conv_src_md,
-      conv_weights_md, user_bias_md, conv_dst_md, strides_dims, padding_dims_l,
-      padding_dims_r);
+  auto conv_desc = convolution_forward::desc(prop_kind::forward_training,
+      algorithm::convolution_direct, conv_src_md, conv_weights_md, user_bias_md,
+      conv_dst_md, strides_dims, padding_dims_l, padding_dims_r);
 
   // Create primitive post-ops (ReLU).
   const float scale = 1.f;

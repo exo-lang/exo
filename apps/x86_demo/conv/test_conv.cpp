@@ -10,7 +10,7 @@
 #include "sys_atl_conv.hpp"
 
 bool check_output(const std::vector<float> &expected_vec,
-                  const std::vector<float> &actual_vec) {
+    const std::vector<float> &actual_vec) {
   int err_count = 0;
 
   auto n = expected_vec.size();
@@ -20,10 +20,10 @@ bool check_output(const std::vector<float> &expected_vec,
     double relerr = fabs((actual - expected) / expected);
     if (relerr > 1e-1) {
       fprintf(stderr,
-              "Bad value at index %d - relative error = %.6f - actual = "
-              "%.6f - "
-              "expected = %.6f\n",
-              i, relerr, actual, expected);
+          "Bad value at index %d - relative error = %.6f - actual = "
+          "%.6f - "
+          "expected = %.6f\n",
+          i, relerr, actual, expected);
       err_count++;
     }
     if (err_count > 20) {
