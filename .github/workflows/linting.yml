@@ -18,6 +18,6 @@ jobs:
       - uses: EndBug/add-and-commit@v4
         if: github.event.pull_request.head.repo.full_name == github.repository
         with:
-          message: 'GHA: committing linter changes'
+          message: '🤖 apply linter changes (will not trigger CI)'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
