@@ -101,19 +101,20 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             assert ltyp != T.err and ltyp != T.R
 
             # update the type annotation here if needed
-            result[0].type = ltyp
+            result[0] = result[0].update(type=ltyp)
 
             # potentially coerce the entire right-hand-side
             if rtyp != T.err:
                 # potentially coerce the entire right-hand-side
                 if rtyp == T.R:
-                    result[0].rhs = self.coerce_e(result[0].rhs, ltyp)
+                    result[0] = result[0].update(
+                        rhs=self.coerce_e(result[0].rhs, ltyp))
                     rtyp = ltyp
 
                 # TODO: remove the `cast` field entirely
                 if ltyp != rtyp:
                     # then we have an implicit cast at this point
-                    result[0].cast = "yup, cast!"
+                    result[0] = result[0].update(cast="yup, cast!")
 
         elif styp is LoopIR.WriteConfig:
             rtyp = result[0].rhs.type
@@ -123,8 +124,8 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             # potentially coerce the entire right-hand-side
             if rtyp != T.err:
                 if rtyp == T.R:
-                    result[0].rhs = self.coerce_e(result[0].rhs, ltyp)
-                    rtyp = ltyp
+                    result[0] = result[0].update(
+                        rhs=self.coerce_e(result[0].rhs, ltyp))
 
         elif styp is LoopIR.WindowStmt:
             # update the type binding for this symbol...
@@ -134,7 +135,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             typ = result[0].type
             if s.type.basetype() == T.R:
                 typ = self.splice_type(s.type, self.default)
-            result[0].type = typ
+            result[0] = result[0].update(type=typ)
             self.set_type(s.name, typ)
 
         return result

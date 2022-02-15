@@ -1,20 +1,11 @@
-from adt import ADT
-from .LoopIR import LoopIR, Alpha_Rename
-from .configs import Config
-from .prelude import *
+from collections import OrderedDict
+from enum import Enum
+from itertools import chain
 
-from collections    import ChainMap, OrderedDict
-from itertools      import chain
-from dataclasses    import dataclass
-from typing         import Any
-from enum           import Enum
-
-from .LoopIR import T
-from .LoopIR import SubstArgs
-
+from .LoopIR import Alpha_Rename, SubstArgs
+from .configs import reverse_config_lookup
 from .new_analysis_core import *
 from .proc_eqv import get_repr_proc
-from .configs import reverse_config_lookup
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -71,7 +62,7 @@ class AWin:
                 rc = rhs.coords[ri]
                 ri += 1
                 coords.append( AWinCoord(rc.is_pt, rc.val + lc.val) )
-        return AWin(lhs.name, coords, lhs.strides) 
+        return AWin(lhs.name, coords, lhs.strides)
 
     # apply to a point
     def __call__(self, pt):
@@ -443,6 +434,12 @@ def globenv_proc(proc):
 # --------------------------------------------------------------------------- #
 # Location Sets
 
+def is_type_bound(val):
+    if isinstance(val, (tuple, LoopIR.type)):
+        return val
+    raise ValidationError(Union[tuple, LoopIR.type], type(val))
+
+
 LS = ADT("""
 module LocSet {
     locset  = Empty     ()
@@ -456,11 +453,10 @@ module LocSet {
             | LetEnv    ( aenv   env, locset arg )
             | HideAlloc ( sym   name, locset arg )
 } """, {
-    'sym':      lambda x: isinstance(x, Sym),
-    'aexpr':    lambda x: isinstance(x, A.expr),
-    'aenv':     lambda x: isinstance(x, AEnv),
-    'type':     lambda x: isinstance(x, (tuple, LoopIR.type)),
-    #'srcinfo': lambda x: isinstance(x, SrcInfo),
+    'sym':   Sym,
+    'aexpr': A.expr,
+    'aenv':  AEnv,
+    'type':  is_type_bound,
 })
 
 
@@ -669,7 +665,7 @@ def is_empty(ls):
 
 
 E = ADT("""
-module Effects {
+module EffectsNew {
     eff  = Empty        ()
          | Guard        ( aexpr cond, eff* body )
          | Loop         ( sym name,   eff* body )
@@ -684,11 +680,11 @@ module Effects {
          --
          | Alloc        ( sym name, int ndim )
 } """, {
-    'sym':      lambda x: isinstance(x, Sym),
-    'aexpr':    lambda x: isinstance(x, A.expr),
-    'aenv':     lambda x: isinstance(x, AEnv),
-    'type':     lambda x: isinstance(x, (tuple, LoopIR.type)),
-    #'srcinfo': lambda x: isinstance(x, SrcInfo),
+    'sym':   Sym,
+    'aexpr': A.expr,
+    'aenv':  AEnv,
+    'type':  is_type_bound,
+    # 'srcinfo': lambda x: isinstance(x, SrcInfo),
 })
 
 # pretty printing
@@ -1339,7 +1335,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     # the statement block being focused on.  Filter out any
     # such configuration variables whose values are definitely unchanged
     def is_cfg_unmod_by_stmts(pt):
-        pt_e    = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name) 
+        pt_e    = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name)
         #cfg_unwritten = ADef( ANot(is_elem(pt, WrG)) )
         cfg_unchanged = ADef( G(AEq(pt_e, stmtsG(pt_e))) )
         return slv.verify(cfg_unchanged)
@@ -1349,7 +1345,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     # consider every global that might be modified
     cfg_mod_visible = set()
     for _,pt in cfg_mod.items():
-        pt_e    = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name) 
+        pt_e    = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name)
         is_written      = is_elem(pt, WrG)
         is_unchanged    = G(AEq(pt_e, stmtsG(pt_e)))
         is_read_post    = is_elem(pt, RdGp)
@@ -1532,5 +1528,3 @@ def Check_Bounds(proc, alloc_stmt, block):
     if not is_ok:
         raise SchedulingError(
             f"The buffer {alloc_stmt.name} is accessed out-of-bounds")
-
-

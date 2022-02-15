@@ -1,34 +1,132 @@
 from collections import ChainMap
 
-from adt import ADT
-from adt import memo as ADTmemo
+import re
+from typing import Type
 
-from .LoopIR_effects import Effects as E
+from asdl_adt import ADT, validators
 from .builtins import BuiltIn
 from .configs import Config
 from .memory import Memory
-from .prelude import *
+from .prelude import Sym, SrcInfo, extclass
+
 
 # --------------------------------------------------------------------------- #
+# Validated string subtypes
+# --------------------------------------------------------------------------- #
+
+class Identifier(str):
+    _valid_re = re.compile(r"^(?:_\w|[a-zA-Z])\w*$")
+
+    def __new__(cls, name):
+        name = str(name)
+        if Identifier._valid_re.match(name):
+            return super().__new__(cls, name)
+        raise ValueError(f'invalid identifier: {name}')
+
+
+class IdentifierOrHole(str):
+    _valid_re = re.compile(r"^[a-zA-Z_]\w*$")
+
+    def __new__(cls, name):
+        name = str(name)
+        if IdentifierOrHole._valid_re.match(name):
+            return super().__new__(cls, name)
+        raise ValueError(f'invalid identifier: {name}')
+
+
+front_ops = {"+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "and", "or"}
+
+
+class Operator(str):
+    def __new__(cls, op):
+        op = str(op)
+        if op in front_ops:
+            return super().__new__(cls, op)
+        raise ValueError(f'invalid operator: {op}')
+
+
+# --------------------------------------------------------------------------- #
+# Loop IR
+# --------------------------------------------------------------------------- #
+
+
+LoopIR = ADT("""
+module LoopIR {
+    proc = ( name    name,
+             fnarg*  args,
+             expr*   preds,
+             stmt*   body,
+             string? instr,
+             effect? eff,
+             srcinfo srcinfo )
+
+    fnarg  = ( sym     name,
+               type    type,
+               mem?    mem,
+               srcinfo srcinfo )
+
+    stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
+         | Reduce( sym name, type type, string? cast, expr* idx, expr rhs )
+         | WriteConfig( config config, string field, expr rhs )
+         | Pass()
+         | If( expr cond, stmt* body, stmt* orelse )
+         | ForAll( sym iter, expr hi, stmt* body )
+         | Seq( sym iter, expr hi, stmt* body )
+         | Alloc( sym name, type type, mem? mem )
+         | Free( sym name, type type, mem? mem )
+         | Call( proc f, expr* args )
+         | WindowStmt( sym lhs, expr rhs )
+         attributes( effect? eff, srcinfo srcinfo )
+
+    expr = Read( sym name, expr* idx )
+         | Const( object val )
+         | USub( expr arg )  -- i.e.  -(...)
+         | BinOp( binop op, expr lhs, expr rhs )
+         | BuiltIn( builtin f, expr* args )
+         | WindowExpr( sym name, w_access* idx )
+         | StrideExpr( sym name, int dim )
+         | ReadConfig( config config, string field )
+         attributes( type type, srcinfo srcinfo )
+
+    -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
+    w_access = Interval( expr lo, expr hi )
+             | Point( expr pt )
+             attributes( srcinfo srcinfo )
+
+    type = Num()
+         | F32()
+         | F64()
+         | INT8()
+         | INT32()
+         | Bool()
+         | Int()
+         | Index()
+         | Size()
+         | Stride()
+         | Error()
+         | Tensor( expr* hi, bool is_window, type type )
+         -- src       - type of the tensor from which the window was created
+         -- as_tensor - tensor type as if this window were simply a tensor 
+         --             itself
+         -- window    - the expression that created this window
+         | WindowType( type src_type, type as_tensor,
+                       sym src_buf, w_access *idx )
+
+}""", ext_types={
+    'name':    validators.instance_of(Identifier, convert=True),
+    'sym':     Sym,
+    'effect':  (lambda x: validators.instance_of(Effects.effect)(x)),
+    'mem':     Type[Memory],
+    'builtin': BuiltIn,
+    'config':  Config,
+    'binop':   validators.instance_of(Operator, convert=True),
+    'srcinfo': SrcInfo,
+}, memoize={'Num', 'F32', 'F64', 'INT8', 'INT32' 'Bool', 'Int', 'Index',
+            'Size', 'Stride', 'Error'})
+
 # --------------------------------------------------------------------------- #
 # Untyped AST
-
-front_ops = {
-    "+":    True,
-    "-":    True,
-    "*":    True,
-    "/":    True,
-    "%":    True,
-    #
-    "<":    True,
-    ">":    True,
-    "<=":   True,
-    ">=":   True,
-    "==":   True,
-    #
-    "and":  True,
-    "or":   True,
-}
+# --------------------------------------------------------------------------- #
 
 UAST = ADT("""
 module UAST {
@@ -82,44 +180,22 @@ module UAST {
             | Index ()
             | Stride()
             | Tensor( expr *hi, bool is_window, type type )
-} """, {
-    'name':        is_valid_name,
-    'sym':         lambda x: isinstance(x, Sym),
-    'mem':         lambda x: issubclass(x, Memory),
-    'builtin':     lambda x: isinstance(x, BuiltIn),
-    'config':      lambda x: isinstance(x, Config),
-    'loopir_proc': lambda x: isinstance(x, LoopIR.proc),
-    'op':          lambda x: x in front_ops,
-    'srcinfo':     lambda x: isinstance(x, SrcInfo)
-})
+} """, ext_types={
+    'name':        validators.instance_of(Identifier, convert=True),
+    'sym':         Sym,
+    'mem':         Type[Memory],
+    'builtin':     BuiltIn,
+    'config':      Config,
+    'loopir_proc': LoopIR.proc,
+    'op':          validators.instance_of(Operator, convert=True),
+    'srcinfo':     SrcInfo,
+}, memoize={'Num', 'F32', 'F64', 'INT8', 'INT32',
+            'Bool', 'Int', 'Size', 'Index', 'Stride'})
 
-ADTmemo(UAST, ['Num', 'F32', 'F64', 'INT8', 'INT32',
-               'Bool', 'Int', 'Size', 'Index', 'Stride'], {
-})
-
-
-@extclass(UAST.Tensor)
-@extclass(UAST.Num)
-@extclass(UAST.F32)
-@extclass(UAST.F64)
-@extclass(UAST.INT8)
-@extclass(UAST.INT32)
-def shape(t):
-    shp = t.hi if isinstance(t, UAST.Tensor) else []
-    return shp
-del shape
-
-@extclass(UAST.type)
-def basetype(t):
-    if isinstance(t, UAST.Tensor):
-        t = t.type
-    return t
-del basetype
-
-# --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern AST
 #   - used to specify pattern-matches
+# --------------------------------------------------------------------------- #
 
 PAST = ADT("""
 module PAST {
@@ -144,109 +220,79 @@ module PAST {
             | BinOp   ( op op, expr lhs, expr rhs )
             attributes( srcinfo srcinfo )
 
-} """, {
-    'name':    lambda x: x == '_' or is_valid_name(x),
-    'op':      lambda x: x in front_ops,
-    'srcinfo': lambda x: isinstance(x, SrcInfo),
+} """, ext_types={
+    'name':    validators.instance_of(IdentifierOrHole, convert=True),
+    'op':      validators.instance_of(Operator, convert=True),
+    'srcinfo': SrcInfo,
 })
 
 # --------------------------------------------------------------------------- #
+# Effects
 # --------------------------------------------------------------------------- #
-# Loop IR
 
-bin_ops = {
-    "+":    True,
-    "-":    True,
-    "*":    True,
-    "/":    True,
-    "%":    True,
+Effects = ADT("""
+module Effects {
+    effect      = ( effset*     reads,
+                    effset*     writes,
+                    effset*     reduces,
+                    config_eff* config_reads,
+                    config_eff* config_writes,
+                    srcinfo     srcinfo )
 
-    "and":  True,
-    "or":   True,
+    -- JRK: the notation of this comprehension is confusing -
+    ---     maybe just use math:
+    -- this corresponds to `{ buffer : loc for *names in int if pred }`
+    effset      = ( sym         buffer,
+                    expr*       loc,    -- e.g. reading at (i+1,j+1)
+                    sym*        names,
+                    expr?       pred,
+                    srcinfo     srcinfo )
 
-    "<":    True,
-    ">":    True,
-    "<=":   True,
-    ">=":   True,
-    "==":   True,
-}
+    config_eff  = ( config      config, -- blah
+                    string      field,
+                    expr?       value, -- need not be supplied for reads
+                    expr?       pred,
+                    srcinfo     srcinfo )
 
-LoopIR = ADT("""
-module LoopIR {
-    proc    = ( name            name,
-                fnarg*          args,
-                expr*           preds,
-                stmt*           body,
-                string?         instr,
-                effect?         eff,
-                srcinfo         srcinfo )
-
-    fnarg   = ( sym             name,
-                type            type,
-                mem?            mem,
-                srcinfo         srcinfo )
-
-    stmt    = Assign ( sym name, type type, string? cast, expr* idx, expr rhs )
-            | Reduce ( sym name, type type, string? cast, expr* idx, expr rhs )
-            | WriteConfig ( config config, string field, expr rhs )
-            | Pass   ()
-            | If     ( expr cond, stmt* body, stmt* orelse )
-            | ForAll ( sym iter, expr hi, stmt* body )
-            | Seq    ( sym iter, expr hi, stmt* body )
-            | Alloc  ( sym name, type type, mem? mem )
-            | Free   ( sym name, type type, mem? mem )
-            | Call   ( proc f, expr* args )
-            | WindowStmt( sym lhs, expr rhs )
-            attributes( effect? eff, srcinfo srcinfo )
-
-    expr    = Read( sym name, expr* idx )
-            | Const( object val )
-            | USub( expr arg )  -- i.e.  -(...)
-            | BinOp( binop op, expr lhs, expr rhs )
-            | BuiltIn( builtin f, expr* args )
-            | WindowExpr( sym name, w_access* idx )
-            | StrideExpr( sym name, int dim )
-            | ReadConfig( config config, string field )
-            attributes( type type, srcinfo srcinfo )
-
-    -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
-    w_access= Interval( expr lo, expr hi )
-            | Point( expr pt )
-            attributes( srcinfo srcinfo )
-
-    type    = Num   ()
-            | F32   ()
-            | F64   ()
-            | INT8  ()
-            | INT32 ()
-            | Bool  ()
-            | Int   ()
-            | Index ()
-            | Size  ()
-            | Stride()
-            | Error ()
-            | Tensor     ( expr* hi, bool is_window, type type )
-            -- src          - type of the tensor
-            --                from which the window was created
-            -- as_tensor    - tensor type as if this window were simply
-            --                a tensor itself
-            -- window       - the expression that created this window
-            | WindowType ( type src_type, type as_tensor,
-                           sym src_buf, w_access *idx )
+    expr        = Var( sym name )
+                | Not( expr arg )
+                | Const( object val )
+                | BinOp( binop op, expr lhs, expr rhs )
+                | Stride( sym name, int dim )
+                | Select( expr cond, expr tcase, expr fcase )
+                | ConfigField( config config, string field )
+                attributes( type type, srcinfo srcinfo )
 
 } """, {
-    'name':    is_valid_name,
-    'sym':     lambda x: isinstance(x, Sym),
-    'effect':  lambda x: isinstance(x, E.effect),
-    'mem':     lambda x: issubclass(x, Memory),
-    'builtin': lambda x: isinstance(x, BuiltIn),
-    'config':  lambda x: isinstance(x, Config),
-    'binop':   lambda x: x in bin_ops,
-    'srcinfo': lambda x: isinstance(x, SrcInfo),
+    'sym':     Sym,
+    'type':    LoopIR.type,
+    'binop':   validators.instance_of(Operator, convert=True),
+    'config':  Config,
+    'srcinfo': SrcInfo,
 })
 
-ADTmemo(LoopIR, ['Num', 'F32', 'F64', 'INT8', 'INT32' 'Bool', 'Int', 'Index',
-                 'Size', 'Stride', 'Error'])
+# --------------------------------------------------------------------------- #
+# Extension methods
+# --------------------------------------------------------------------------- #
+
+@extclass(UAST.Tensor)
+@extclass(UAST.Num)
+@extclass(UAST.F32)
+@extclass(UAST.F64)
+@extclass(UAST.INT8)
+@extclass(UAST.INT32)
+def shape(t):
+    shp = t.hi if isinstance(t, UAST.Tensor) else []
+    return shp
+del shape
+
+@extclass(UAST.type)
+def basetype(t):
+    if isinstance(t, UAST.Tensor):
+        t = t.type
+    return t
+del basetype
+
 
 # make proc be a hashable object
 @extclass(LoopIR.proc)
@@ -273,6 +319,7 @@ class T:
     Error   = LoopIR.Error
     Tensor  = LoopIR.Tensor
     Window  = LoopIR.WindowType
+    type    = LoopIR.type
     R       = Num()
     f32     = F32()
     int8    = INT8()
@@ -287,8 +334,6 @@ class T:
     stride  = Stride()
     err     = Error()
 
-    def is_type(obj):
-        return isinstance(obj, LoopIR.type)
 
 # --------------------------------------------------------------------------- #
 # type helper functions
@@ -393,24 +438,24 @@ del basetype
 def lift_to_eff_expr(e):
     if isinstance(e, LoopIR.Read):
         assert len(e.idx) == 0
-        return E.Var(e.name, e.type, e.srcinfo)
+        return Effects.Var(e.name, e.type, e.srcinfo)
     elif isinstance(e, LoopIR.Const):
-        return E.Const(e.val, e.type, e.srcinfo)
+        return Effects.Const(e.val, e.type, e.srcinfo)
     elif isinstance(e, LoopIR.BinOp):
-        return E.BinOp(e.op,
-                       lift_to_eff_expr(e.lhs),
-                       lift_to_eff_expr(e.rhs),
-                       e.type, e.srcinfo)
+        return Effects.BinOp(e.op,
+                             lift_to_eff_expr(e.lhs),
+                             lift_to_eff_expr(e.rhs),
+                             e.type, e.srcinfo)
     elif isinstance(e, LoopIR.USub):
-        return E.BinOp('-',
-                       E.Const(0, e.type, e.srcinfo),
-                       lift_to_eff_expr(e.arg),
-                       e.type, e.srcinfo)
+        return Effects.BinOp('-',
+                             Effects.Const(0, e.type, e.srcinfo),
+                             lift_to_eff_expr(e.arg),
+                             e.type, e.srcinfo)
     elif isinstance(e, LoopIR.StrideExpr):
-        return E.Stride(e.name, e.dim, e.type, e.srcinfo)
+        return Effects.Stride(e.name, e.dim, e.type, e.srcinfo)
     elif isinstance(e, LoopIR.ReadConfig):
-        return E.ConfigField(e.config, e.field,
-                             e.config.lookup(e.field)[1], e.srcinfo)
+        return Effects.ConfigField(e.config, e.field,
+                                   e.config.lookup(e.field)[1], e.srcinfo)
 
     else:
         assert False, "bad case, e is " + str(type(e))
@@ -530,31 +575,26 @@ class LoopIR_Rewrite:
     def map_eff(self, eff):
         if eff is None:
             return eff
-        return E.effect( [ self.map_eff_es(es) for es in eff.reads ],
-                         [ self.map_eff_es(es) for es in eff.writes ],
-                         [ self.map_eff_es(es) for es in eff.reduces ],
-                         [ self.map_eff_ce(ce) for ce in eff.config_reads ],
-                         [ self.map_eff_ce(ce) for ce in eff.config_writes ],
-                         eff.srcinfo )
+        return eff.update(
+            reads=[self.map_eff_es(es) for es in eff.reads],
+            writes=[self.map_eff_es(es) for es in eff.writes],
+            reduces=[self.map_eff_es(es) for es in eff.reduces],
+            config_reads=[self.map_eff_ce(ce) for ce in eff.config_reads],
+            config_writes=[self.map_eff_ce(ce) for ce in eff.config_writes],
+        )
 
     def map_eff_es(self, es):
-        return E.effset( es.buffer,
-                         [ self.map_eff_e(i) for i in es.loc ],
-                         es.names,
-                         self.map_eff_e(es.pred) if es.pred else None,
-                         es.srcinfo )
+        return es.update(loc=[self.map_eff_e(i) for i in es.loc],
+                         pred=self.map_eff_e(es.pred) if es.pred else None)
 
     def map_eff_ce(self, ce):
-        return E.config_eff( ce.config,
-                             ce.field,
-                             self.map_eff_e(ce.value) if ce.value else None,
-                             self.map_eff_e(ce.pred)  if ce.pred  else None,
-                             ce.srcinfo )
+        return ce.update(value=self.map_eff_e(ce.value) if ce.value else None,
+                         pred=self.map_eff_e(ce.pred) if ce.pred else None)
 
     def map_eff_e(self, e):
-        if isinstance(e, E.BinOp):
-            return E.BinOp(e.op, self.map_eff_e(e.lhs),
-                           self.map_eff_e(e.rhs), e.type, e.srcinfo)
+        if isinstance(e, Effects.BinOp):
+            return e.update(lhs=self.map_eff_e(e.lhs),
+                            rhs=self.map_eff_e(e.rhs))
         else:
             return e
 
@@ -660,7 +700,7 @@ class LoopIR_Do:
             self.do_eff_e(es.pred)
 
     def do_eff_e(self, e):
-        if isinstance(e, E.BinOp):
+        if isinstance(e, Effects.BinOp):
             self.do_eff_e(e.lhs)
             self.do_eff_e(e.rhs)
 
@@ -676,7 +716,7 @@ class FreeVars(LoopIR_Do):
                 self.do_s(n)
             elif isinstance(n, LoopIR.expr):
                 self.do_e(n)
-            elif isinstance(n, E.effect):
+            elif isinstance(n, Effects.effect):
                 self.do_eff(n)
             else: assert False, "expected stmt, expr, or effect"
 
@@ -745,7 +785,7 @@ class FreeVars(LoopIR_Do):
         self.pop()
 
     def do_eff_e(self, e):
-        if isinstance(e, E.Var) and e.name not in self.env:
+        if isinstance(e, Effects.Var) and e.name not in self.env:
             self.fv.add(e.name)
 
         super().do_eff_e(e)
@@ -764,7 +804,7 @@ class Alpha_Rename(LoopIR_Rewrite):
                     self.node += self.map_s(n)
                 elif isinstance(n, LoopIR.expr):
                     self.node += [self.map_e(n)]
-                elif isinstance(n, E.effect):
+                elif isinstance(n, Effects.effect):
                     self.node += [self.map_eff(n)]
                 else: assert False, "expected stmt or expr or effect"
 
@@ -849,23 +889,22 @@ class Alpha_Rename(LoopIR_Rewrite):
 
     def map_eff_es(self, es):
         self.push()
-        names = [ nm.copy() for nm in es.names ]
-        for orig,new in zip(es.names, names):
+        names = [nm.copy() for nm in es.names]
+        for orig, new in zip(es.names, names):
             self.env[orig] = new
 
-        buf = self.env[es.buffer] if es.buffer in self.env else es.buffer
-        eset = E.effset( buf,
-                         [ self.map_eff_e(i) for i in es.loc ],
-                         names,
-                         self.map_eff_e(es.pred) if es.pred else None,
-                         es.srcinfo )
+        eset = es.update(
+            buffer=self.env.get(es.buffer, es.buffer),
+            loc=[self.map_eff_e(i) for i in es.loc],
+            names=names,
+            pred=self.map_eff_e(es.pred) if es.pred else None,
+        )
         self.pop()
         return eset
 
     def map_eff_e(self, e):
-        if isinstance(e, E.Var):
-            nm = self.env[e.name] if e.name in self.env else e.name
-            return E.Var(nm, e.type, e.srcinfo)
+        if isinstance(e, Effects.Var):
+            return e.update(name=self.env.get(e.name, e.name))
 
         return super().map_eff_e(e)
 
@@ -938,7 +977,7 @@ class SubstArgs(LoopIR_Rewrite):
                     return LoopIR.WindowExpr(sub_e.name,
                                        [self.map_w_access(a) for a in e.idx],
                                        self.map_t(e.type), e.srcinfo)
-            
+
         elif isinstance(e, LoopIR.StrideExpr):
             if e.name in self.env:
                 sub_e = self.env[e.name]
@@ -956,7 +995,7 @@ class SubstArgs(LoopIR_Rewrite):
         return new_es
 
     def map_eff_e(self, e):
-        if isinstance(e, E.Var):
+        if isinstance(e, Effects.Var):
             if e.name in self.env:
                 if e.type.is_indexable():
                     sub_e = self.env[e.name]

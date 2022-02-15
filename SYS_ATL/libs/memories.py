@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from SYS_ATL.memory import Memory, DRAM, MemGenError
+from ..memory import Memory, DRAM, MemGenError
 
 
 def _is_const_size(sz, c):

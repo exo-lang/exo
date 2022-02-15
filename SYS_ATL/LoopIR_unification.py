@@ -6,7 +6,7 @@ from collections import ChainMap
 import pysmt
 from pysmt import shortcuts as SMT
 
-from adt import ADT
+from asdl_adt import ADT
 from .LoopIR import (LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars,
                      Alpha_Rename)
 from .LoopIR_dataflow import LoopIR_Dependencies
@@ -168,7 +168,7 @@ module UEq {
           |  Scale( int coeff, expr e )
 
 } """, {
-    'sym': lambda x: isinstance(x, Sym),
+    'sym': Sym,
 })
 
 
@@ -612,7 +612,7 @@ class Unification:
 
         self.stride_holes   = { fa.name : False for fa in subproc.args
                                                 if fa.type == T.stride }
-        
+
 
         # keep track of all buffer names we might need to unify,
         # not just the unknown arguments, but also temporary allocated bufs

@@ -1,17 +1,16 @@
-from adt import ADT
-from .prelude import *
-
-from collections    import ChainMap, OrderedDict
-from itertools      import chain
-from dataclasses    import dataclass
-from typing         import Any
-
-from .LoopIR import T
+from collections import ChainMap
+from dataclasses import dataclass
+from typing import Any, Union
 
 import pysmt
-from pysmt import shortcuts as SMT
-from pysmt import logics
 import z3 as z3lib
+from pysmt import logics
+from pysmt import shortcuts as SMT
+
+from asdl_adt import ADT, validators
+from asdl_adt.validators import ValidationError
+from .LoopIR import T, LoopIR
+from .prelude import *
 
 _first_run = True
 def _get_smt_solver():
@@ -30,28 +29,26 @@ def _get_smt_solver():
     return pysmt.shortcuts.Solver(name=next(iter(slvs)))
 
 
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Analysis Expr
 
-front_ops = {
-    "+":    True,
-    "-":    True,
-    "*":    True,
-    "/":    True,
-    "%":    True,
-    #
-    "<":    True,
-    ">":    True,
-    "<=":   True,
-    ">=":   True,
-    "==":   True,
-    #
-    "and":  True,
-    "or":   True,
-    "==>":  True,
-}
+def is_type_bound(val):
+    if isinstance(val, (tuple, LoopIR.type)):
+        return val
+    raise ValidationError(Union[tuple, LoopIR.type], type(val))
+
+
+class AOp(str):
+    front_ops = {"+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "and",
+                 "or", "==>"}
+
+    def __new__(cls, op):
+        op = str(op)
+        if op in AOp.front_ops:
+            return super().__new__(cls, op)
+        raise ValueError(f'invalid operator: {op}')
+
 
 A = ADT("""
 module AExpr {
@@ -73,10 +70,10 @@ module AExpr {
             | Let( sym* names, expr* rhs, expr body )
             attributes( type type, srcinfo srcinfo )
 } """, {
-    'sym':     lambda x: isinstance(x, Sym),
-    'type':    lambda x: type(x) is tuple or T.is_type(x),
-    'binop':   lambda x: x in front_ops,
-    'srcinfo': lambda x: isinstance(x, SrcInfo),
+    'sym':     Sym,
+    'type':    is_type_bound,
+    'binop':   validators.instance_of(AOp, convert=True),
+    'srcinfo': SrcInfo,
 })
 
 # constructor helpers...
@@ -978,6 +975,3 @@ class Z3SubProc:
             return False
         else:
             raise Error("unknown result from z3")
-
-
-

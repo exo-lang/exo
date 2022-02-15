@@ -1,93 +1,5 @@
-from adt import ADT
-from . import LoopIR
-from .configs import Config
+from .LoopIR import LoopIR, T, Effects
 from .prelude import *
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Effect grammar
-
-front_ops = {
-    "+":    True,
-    "-":    True,
-    "*":    True,
-    "/":    True,
-    "%":    True,
-    #
-    "<":    True,
-    ">":    True,
-    "<=":   True,
-    ">=":   True,
-    "==":   True,
-    #
-    "and":  True,
-    "or":   True,
-}
-
-Effects = ADT("""
-module Effects {
-    effect      = ( effset*     reads,
-                    effset*     writes,
-                    effset*     reduces,
-                    config_eff* config_reads,
-                    config_eff* config_writes,
-                    srcinfo     srcinfo )
-
-    -- JRK: the notation of this comprehension is confusing -
-    ---     maybe just use math:
-    -- this corresponds to `{ buffer : loc for *names in int if pred }`
-    effset      = ( sym         buffer,
-                    expr*       loc,    -- e.g. reading at (i+1,j+1)
-                    sym*        names,
-                    expr?       pred,
-                    srcinfo     srcinfo )
-
-    config_eff  = ( config      config, -- blah
-                    string      field,
-                    expr?       value, -- need not be supplied for reads
-                    expr?       pred,
-                    srcinfo     srcinfo )
-
-    expr        = Var( sym name )
-                | Not( expr arg )
-                | Const( object val )
-                | BinOp( binop op, expr lhs, expr rhs )
-                | Stride( sym name, int dim )
-                | Select( expr cond, expr tcase, expr fcase )
-                | ConfigField( config config, string field )
-                attributes( type type, srcinfo srcinfo )
-
-} """, {
-    'sym':     lambda x: isinstance(x, Sym),
-    'type':    lambda x: LoopIR.T.is_type(x),
-    'binop':   lambda x: x in front_ops,
-    'config':  lambda x: isinstance(x, Config),
-    'srcinfo': lambda x: isinstance(x, SrcInfo),
-})
-
-
-# Unused Proposal
-
-# Effects = ADT("""
-# module Effects {
-#     effect  = PrimEff( mode mode, expr* loc )
-#             | Guard( expr cond, effect* effs )
-#             | ForAll( sym name, expr cond, effect* effs )
-#             attributes( srcinfo srcinfo )
-#
-#     mode = READ() | WRITE() | REDUCE()
-#
-#     expr    = Var( sym name )
-#             | Const( object val )
-#             | BinOp( binop op, expr lhs, expr rhs )
-#             attributes( type type, srcinfo srcinfo )
-#
-# } """, {
-#     'sym':          lambda x: isinstance(x, Sym),
-#     'type':         T.is_type,
-#     'binop':        lambda x: x in bin_ops,
-#     'srcinfo':      lambda x: isinstance(x, SrcInfo),
-# })
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -230,7 +142,7 @@ def negate(self):
 del negate
 
 def negate_expr(e):
-    Tbool = LoopIR.T.bool
+    Tbool = T.bool
     assert e.type == Tbool, "can only negate predicates"
     if isinstance(e, Effects.Const):
         return Effects.Const(not e.val, e.type, e.srcinfo)
@@ -386,7 +298,7 @@ def get_effect_of_stmts(body):
     assert len(body) > 0
     eff   = eff_null(body[0].srcinfo)
     for s in reversed(body):
-        if isinstance(s, LoopIR.LoopIR.Alloc):
+        if isinstance(s, LoopIR.Alloc):
             eff = eff_remove_buf(s.name, eff)
         elif s.eff is not None:
             eff = eff_concat(s.eff, eff)
@@ -422,11 +334,11 @@ def eff_config_write(config, field, value, srcinfo = null_srcinfo()):
 def _and_preds(a,b):
     return (a   if b is None else
             b   if a is None else
-            Effects.BinOp("and", a, b, LoopIR.T.bool, a.srcinfo))
+            Effects.BinOp("and", a, b, T.bool, a.srcinfo))
 
 def _or_preds(a,b):
     return (None    if a is None or b is None else
-            Effects.BinOp("or", a, b, LoopIR.T.bool, a.srcinfo))
+            Effects.BinOp("or", a, b, T.bool, a.srcinfo))
 
 def eff_union(e1, e2, srcinfo=None):
     srcinfo = srcinfo or e1.srcinfo
@@ -451,8 +363,8 @@ def eff_concat(e1, e2, srcinfo=None):
             return ce.value
         else:
             # TODO: Fix! I'm not sure what is the intent here..
-            old_val = Effects.ConfigField( ce.config, ce.field, LoopIR.T.bool, srcinfo )
-            return Effects.Select(ce.pred, ce.value, old_val, LoopIR.T.bool, srcinfo )
+            old_val = Effects.ConfigField( ce.config, ce.field, T.bool, srcinfo )
+            return Effects.Select(ce.pred, ce.value, old_val, T.bool, srcinfo )
 
     # substitute on the basis of writes in the first effect
     env = { (ce.config,ce.field) : write_val(ce)
@@ -517,7 +429,7 @@ def eff_concat(e1, e2, srcinfo=None):
 
         def shadow_read_by_write(write, read):
             def boolop(op, lhs, rhs):
-                return Effects.BinOp(op, lhs, rhs, LoopIR.T.bool, write.srcinfo)
+                return Effects.BinOp(op, lhs, rhs, T.bool, write.srcinfo)
 
             loc = []
             for l1,l2 in zip(write.loc, read.loc):
@@ -525,12 +437,12 @@ def eff_concat(e1, e2, srcinfo=None):
 
             # construct loc predicate
             if loc == []:
-                loc_e = Effects.Const(False, LoopIR.T.bool, write.srcinfo)
+                loc_e = Effects.Const(False, T.bool, write.srcinfo)
             else:
                 loc_e = loc[0]
             for l in loc[1:]:
                 loc_e = boolop("or", loc_e, l)
-                
+
             # loc_e /\ not write.pred
             if write.pred is None:
                 pred = loc_e

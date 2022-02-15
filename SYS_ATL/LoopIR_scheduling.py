@@ -3046,15 +3046,13 @@ class _DoStageMem(LoopIR_Rewrite):
             if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
                 if s.name is self.buf_name:
                     assert len(new_s) == 1
-                    new_s[0].name = self.new_name
+                    new_s[0] = new_s[0].update(name=self.new_name)
 
                     idx = [ LoopIR.BinOp('-', i, off, T.index, s.srcinfo)
                             for i,off in zip(new_s[0].idx, self.new_offset) ]
-                    new_s[0].idx = idx
+                    new_s[0] = new_s[0].update(idx=idx)
 
         return new_s
-
-        return super().map_s(s)
 
     def map_e(self, e):
         new_e = super().map_e(e)
@@ -3062,11 +3060,11 @@ class _DoStageMem(LoopIR_Rewrite):
         if self.in_block:
             if isinstance(e, LoopIR.Read):
                 if e.name is self.buf_name:
-                    new_e.name = self.new_name
+                    new_e = new_e.update(name=self.new_name)
 
                     idx = [ LoopIR.BinOp('-', i, off, T.index, e.srcinfo)
                             for i,off in zip(new_e.idx, self.new_offset) ]
-                    new_e.idx = idx
+                    new_e = new_e.update(idx=idx)
 
             elif isinstance(e, LoopIR.WindowExpr):
                 if e.name is self.buf_name:
@@ -3080,13 +3078,15 @@ class _DoStageMem(LoopIR_Rewrite):
                             pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
                             return LoopIR.Point(pt, w.srcinfo)
 
-                    w_idx       = [ off_w(w,off)
-                                    for w,off in zip(new_e.idx,
-                                                     self.new_offset) ]
-                    new_e.name  = self.new_name
-                    new_e.idx   = w_idx
-                    new_e.type  = T.Window(self.new_typ, e.typ.as_tensor,
-                                           self.new_name, w_idx)
+                    w_idx = [off_w(w, off)
+                             for w, off in zip(new_e.idx, self.new_offset)]
+
+                    new_e = new_e.update(
+                        name=self.new_name,
+                        idx=w_idx,
+                        type=T.Window(self.new_typ, e.typ.as_tensor,
+                                      self.new_name, w_idx)
+                    )
 
         return new_e
 
