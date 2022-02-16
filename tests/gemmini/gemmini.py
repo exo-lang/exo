@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from SYS_ATL import proc, instr, DRAM, config, QAST
-from SYS_ATL.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
+from exo import proc, instr, DRAM, config, QAST
+from exo.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
 
 def inline_lift_config(gemmini):
     gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from SYS_ATL import instr, DRAM
+from exo import instr, DRAM
 
 
 # Merge this file to frontend?

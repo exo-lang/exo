@@ -9,7 +9,7 @@ gemmini_build/
 amx_build/
 
 .ipynb_checkpoints
-.sys_atl_c_cache
+.exo_c_cache
 
 venv/
 dist/

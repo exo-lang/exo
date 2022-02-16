@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from SYS_ATL import proc, DRAM, QAST
+from exo import proc, DRAM, QAST
 
 
 # ------- Reflection tests ---------

@@ -12,9 +12,9 @@ endif ()
 # ---------------------------------------------------------------------------- #
 # Dependencies
 
-## SYS_ATL
+## Exo
 find_package(Python3 REQUIRED)
-find_package(SYS_ATL REQUIRED HINTS "${Python3_SITELIB}")
+find_package(Exo REQUIRED HINTS "${Python3_SITELIB}")
 
 ## oneAPI MKL
 set(MKL_ARCH "intel64"

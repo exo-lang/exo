@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from SYS_ATL import proc
+from exo import proc
 
 
 def wconv_3x3():

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL.new_eff import *
+from exo.new_eff import *
 
-from SYS_ATL import proc, config, DRAM, SchedulingError
+from exo import proc, config, DRAM, SchedulingError
 
 
 print()

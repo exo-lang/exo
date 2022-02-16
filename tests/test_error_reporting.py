@@ -4,9 +4,9 @@ import textwrap
 
 import pytest
 
-from SYS_ATL import SchedulingError
-from SYS_ATL import proc
-from SYS_ATL.syntax import *
+from exo import SchedulingError
+from exo import proc
+from exo.syntax import *
 
 
 def test_bad_reorder():

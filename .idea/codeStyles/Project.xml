@@ -1,9 +1,0 @@
-<component name="ProjectCodeStyleConfiguration">
-  <code_scheme name="Project" version="173">
-    <option name="RIGHT_MARGIN" value="80" />
-    <option name="WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN" value="true" />
-    <Python>
-      <option name="DICT_ALIGNMENT" value="1" />
-    </Python>
-  </code_scheme>
-</component>

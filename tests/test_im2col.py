@@ -1,6 +1,6 @@
 from __future__ import annotations  # make Python behave
 
-from SYS_ATL import proc
+from exo import proc
 
 
 # I'm going to define a 1D version of a standard convolutional layer (cf. CuDNN)

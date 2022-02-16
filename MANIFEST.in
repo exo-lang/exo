@@ -7,7 +7,7 @@ include *.md
 include setup.py
 
 # Include CMake support files
-recursive-include SYS_ATL/cmake *
+recursive-include src/exo/cmake *
 
-# Include C source resources from SYS_ATL.libs
-recursive-include SYS_ATL/libs *
+# Include C source resources from exo.libs
+recursive-include src/exo/libs *

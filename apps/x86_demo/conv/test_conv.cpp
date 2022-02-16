@@ -7,7 +7,7 @@
 #include "conv_instance.hpp"
 #include "halide_conv.hpp"
 #include "onednn_conv.hpp"
-#include "sys_atl_conv.hpp"
+#include "exo_conv.hpp"
 
 bool check_output(const std::vector<float> &expected_vec,
     const std::vector<float> &actual_vec) {
@@ -36,17 +36,17 @@ bool check_output(const std::vector<float> &expected_vec,
 
 int main() {
   conv_instance ci_onednn{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
-  conv_instance ci_sys_atl{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
+  conv_instance ci_exo{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
   conv_instance ci_halide{5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1};
 
   printf("Running OneDNN...\n");
   OneDNN_Conv reference{ci_onednn};
   reference.run();
 
-  printf("Running SYS_ATL...\n");
-  sys_atl_conv(ci_sys_atl);
-  printf("Checking SYS_ATL...\n");
-  if (!check_output(ci_onednn.dst_data, ci_sys_atl.dst_data)) {
+  printf("Running Exo...\n");
+  exo_conv(ci_exo);
+  printf("Checking Exo...\n");
+  if (!check_output(ci_onednn.dst_data, ci_exo.dst_data)) {
     return 1;
   }
 

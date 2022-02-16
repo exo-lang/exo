@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from SYS_ATL import proc
+from exo import proc
 
 
 # Test 1 is Full 1D convolution

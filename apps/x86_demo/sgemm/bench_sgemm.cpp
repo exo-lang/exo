@@ -130,16 +130,16 @@ BENCHMARK_TEMPLATE(BM_square_sgemm, alex_square)
     ->Arg(2048);
 
 // ----------------------------------------------------------------------------
-// SYS_ATL SGEMM benchmark
+// Exo SGEMM benchmark
 
-struct sys_atl_square {
+struct exo_square {
   void operator()(float *a, float *b, float *c, int n) {
-    sgemm_sys_atl(nullptr, n, n, n, a, b, c);
+    sgemm_exo(nullptr, n, n, n, a, b, c);
   }
 };
 
-BENCHMARK_TEMPLATE(BM_square_sgemm, sys_atl_square)
-    ->Name("sgemm_sys_atl")
+BENCHMARK_TEMPLATE(BM_square_sgemm, exo_square)
+    ->Name("sgemm_exo")
     ->Arg(64)
     ->Arg(192)
     ->Arg(221)
