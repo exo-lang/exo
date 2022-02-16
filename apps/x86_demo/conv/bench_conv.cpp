@@ -10,9 +10,9 @@
 #include <numeric>
 #include <vector>
 
+#include "exo_conv.hpp"
 #include "halide_conv.hpp"
 #include "onednn_conv.hpp"
-#include "exo_conv.hpp"
 
 static long num_fmas(conv_instance &ci) {
   return ci.N * ci.OH * ci.OW * ci.OC * ci.KH * ci.KW * ci.IC;
@@ -78,7 +78,7 @@ void conv_exo(benchmark::State &state) {
 }
 
 BENCHMARK(conv_exo)  // N in-dim in-chan out-chan kern-dim pad str
-                         //    ->Args({4, 56, 56, 64, 64, 3, 0, 1}) // test size
+                     //    ->Args({4, 56, 56, 64, 64, 3, 0, 1}) // test size
     ->Args({5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1})  // Halide size
     ;
 
