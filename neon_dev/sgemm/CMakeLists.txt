@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 project(neon_dev_sgemm)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=apple-a14 -save-temps=obj")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=apple-a14 -save-temps=obj")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -mcpu=apple-a14 -save-temps=obj")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffast-math -mcpu=apple-a14 -save-temps=obj")
 
 if (EXISTS "$ENV{PYENV_ROOT}")
   execute_process(

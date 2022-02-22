@@ -47,9 +47,18 @@ sgemm_win = (
         .set_window('C', True)
 )
 
-kernel_6x32 = (
-    sgemm_win.rename('kernel_6x32')
-        .partial_eval(6,32)
+
+micro_N = 2
+micro_M = 16
+assert micro_M % 4 == 0
+
+L1_N = 16
+L1_M = 2
+L1_K = 64
+
+microkernel = (
+    sgemm_win.rename('microkernel')
+        .partial_eval(micro_N,micro_M)
         .simplify()
 )
 
@@ -57,17 +66,23 @@ kernel_6x32 = (
 sgemm_tiled = (
     SGEMM.rename('sgemm_tiled')
         # tile i & j for the kernel
-        .split('i', 6, ['io', 'ii'], tail='cut_and_guard')
-        .split('j #0', 32, ['jo', 'ji'], tail='cut_and_guard')
+        .split('i', micro_N, ['io', 'ii'], tail='cut_and_guard')
+        .split('j #0', micro_M, ['jo', 'ji'], tail='cut_and_guard')
         # isolate the main chunk of work
         .fission_after('for jo in _: _', n_lifts=2)
         .reorder('ii','jo')
-        .replace_all(kernel_6x32)
+        # tile k now, before we do the microkernel replacement
+        .split('k #0', L1_K, ['ko', 'ki'], tail='cut_and_guard')
+        .fission_after('for ko in _: _', n_lifts=2)
+        .reorder('ji','ko')
+        .reorder('ii','ko')
+        .replace_all(microkernel)
         .simplify()
 )
+print(sgemm_tiled)
 
-neon_kernel_6x32 = (
-    kernel_6x32.rename('neon_kernel_6x32')
+neon_microkernel = (
+    microkernel.rename('neon_microkernel')
         # Move k to the outermost loop
         .reorder('j','k')
         .reorder('i','k')
@@ -75,27 +90,36 @@ neon_kernel_6x32 = (
         .split('j', 4, ['jo','ji'], perfect=True)
 )
 
-neon_kernel_6x32 = ( stage_C(neon_kernel_6x32)
+neon_microkernel = ( stage_C(neon_microkernel)
     .replace(neon_vld_4xf32, 'for ji in _: _ #0')
     .replace(neon_vst_4xf32, 'for ji in _: _ #1')
     .set_memory('C_reg', Neon4f)
 )
 
-neon_kernel_6x32 = ( stage_A_and_B(neon_kernel_6x32)
+neon_microkernel = ( stage_A_and_B(neon_microkernel)
     .replace_all(neon_vld_4xf32)
     .replace_all(neon_broadcast_4xf32)
-    .replace_all(neon_vfmadd_4xf32)
+    .replace_all(neon_vfmadd_4xf32_4xf32)
+    #.replace_all(neon_vfmadd_1xf32_4xf32)
     .lift_alloc('A_vec : _', n_lifts=2)
     .fission_after('neon_broadcast_4xf32(_)', n_lifts=2)
     .lift_alloc('B_vec : _', n_lifts=2)
     .fission_after('neon_vld_4xf32(_) #1', n_lifts=2)
 )
 
-neon_kernel_6x32 = neon_kernel_6x32.simplify()
-print(neon_kernel_6x32)
+neon_microkernel = neon_microkernel.simplify()
+print(neon_microkernel)
 
 sgemm_tiled = (sgemm_tiled
-    .call_eqv(neon_kernel_6x32, 'kernel_6x32(_)')
+    .call_eqv(neon_microkernel, 'microkernel(_)')
+    #.call_eqv(neon_microkernel, 'microkernel(_)')
+    # actually tile for L1 cache
+    .split('io #0', L1_N, ['io', 'im'], tail='cut')
+    .split('jo #0', L1_M, ['jo', 'jm'], tail='cut')
+    .fission_after('for jo in _: _ #0', n_lifts=1)
+    .reorder('im','jm')
+    .reorder('im','jo')
+    .simplify()
 )
 
 sgemm_systl = sgemm_tiled.rename('sgemm_systl')

@@ -131,7 +131,7 @@ def neon_vmul_4xf32(
 
 
 @instr('{dst_data} = vmlaq_f32({dst_data}, {lhs_data}, {rhs_data});')
-def neon_vfmadd_4xf32(
+def neon_vfmadd_4xf32_4xf32(
         dst: [f32][4] @ Neon4f,
         lhs: [f32][4] @ Neon4f,
         rhs: [f32][4] @ Neon4f
@@ -143,6 +143,30 @@ def neon_vfmadd_4xf32(
     for i in par(0, 4):
         dst[i] += lhs[i] * rhs[i]
 
+
+@instr('{dst_data} = vmlaq_n_f32({dst_data}, {lhs_data}, {rhs_data});')
+def neon_vfmadd_4xf32_1xf32(
+        dst: [f32][4] @ Neon4f,
+        lhs: [f32][4] @ Neon4f,
+        rhs: [f32][1] @ DRAM
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+
+    for i in par(0, 4):
+        dst[i] += lhs[i] * rhs[0]
+
+@instr('{dst_data} = vmlaq_n_f32({dst_data}, {rhs_data}, {lhs_data});')
+def neon_vfmadd_1xf32_4xf32(
+        dst: [f32][4] @ Neon4f,
+        lhs: [f32][1] @ DRAM,
+        rhs: [f32][4] @ Neon4f
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+
+    for i in par(0, 4):
+        dst[i] += lhs[0] * rhs[i]
 
 
 

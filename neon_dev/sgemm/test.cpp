@@ -41,30 +41,61 @@ int main(int argc, char *argv[]) {
   printf("\n\n\n\n");
   printf("Multiplying two %d x %d matrices\n", n, n);
   long FLOP_C = long(n)*long(n)*long(n);
-  int N_TIMES = 3;
 
+  int N_TIMES_NAIVE = 1;
   auto begin = std::chrono::steady_clock::now();
-  for(int times = 0; times<N_TIMES; times++) {
+  for(int times = 0; times<N_TIMES_NAIVE; times++) {
     naive_sgemm_square(a.data(), b.data(), c2.data(), n);
   }
   auto end = std::chrono::steady_clock::now();
   double duration = std::chrono::duration<double>(end - begin).count();
+  double ms_per_gemm = duration/N_TIMES_NAIVE*1.0e3;
   printf("-----------------------------------------------------------\n");
   printf("Naive SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
-         duration/N_TIMES*1.0e3, (FLOP_C*1.0e-9)/duration);
+         ms_per_gemm, (FLOP_C*1.0e-6)/ms_per_gemm);
   
+  int N_TIMES_SYSTL = 50;
   begin = std::chrono::steady_clock::now();
-  for(int times = 0; times<N_TIMES; times++) {
+  for(int times = 0; times<N_TIMES_SYSTL; times++) {
     sgemm_systl(nullptr, n, n, n, a.data(), b.data(), c.data());
   }
   end = std::chrono::steady_clock::now();
   duration = std::chrono::duration<double>(end - begin).count();
+  ms_per_gemm = duration/N_TIMES_SYSTL*1.0e3;
   printf("-----------------------------------------------------------\n");
   printf("SYSTL SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
-         duration/N_TIMES*1.0e3, (FLOP_C*1.0e-9)/duration);
+         ms_per_gemm, (FLOP_C*1.0e-6)/ms_per_gemm);
   printf("-----------------------------------------------------------\n");
   
 
+  /*
+    Notes for Apple M1 Mac
+    Cache line size : 128 bytes = 32 floats
+    L1 Cache size   : 64 KB
+    L2 Cache size   :  4 MB
+    
+
+     453 M FMAdds per launch * 30 launches
+     = 13.6 B FMAdds total
+    576 KB of data per A, B, C matrix
+
+    Old Information (30 runs)
+    8.0  B L1 Data Cache Accesses
+    5.7  M L1 Data Store Miss
+    0.57 B L1 Data Load Miss
+
+    Improved SGEMM (50 runs)
+    2.7  B L1 Data Cache Accesses
+    7.1  M L1 Data Store Miss
+    2.7  B L1 Data Load Miss
+
+
+  */
+
+
+
+
+  /*
   for (int i = 0; i < c2.size(); i++) {
     float expected = c2[i];
     float actual = c[i];
@@ -75,4 +106,5 @@ int main(int argc, char *argv[]) {
   }
 
   printf("both methods produced consistent output\n\n\n\n");
+  */
 }
