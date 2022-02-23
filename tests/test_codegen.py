@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy import stats as st
 
 from SYS_ATL import proc, Procedure, DRAM
 from SYS_ATL.libs.memories import MDRAM
