@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 try:
     import torch
     import torch.nn.functional as F
 except ImportError:
-    pytest.skip("pytorch is not available, skipping winograd")
+    pytest.skip("pytorch is not available, skipping winograd",
+                allow_module_level=True)
 
 from SYS_ATL import proc
 
