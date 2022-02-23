@@ -969,7 +969,8 @@ class Procedure(ProcedureBase):
         def parse_arg(a):
             match = re.match(r'\s*([^:]+)\s*:\s*([^:]+)\s*', a)
             if not match:
-                pt = parse_fragment(loopir, a, ctxt_stmt, scope=scope)
+                # a.strip() to remove whitespace
+                pt = parse_fragment(loopir, a.strip(), ctxt_stmt, scope=scope)
                 return pt
             else:
                 lo, hi = match.groups()

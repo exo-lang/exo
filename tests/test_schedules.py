@@ -860,6 +860,17 @@ def test_stage_mem(golden):
                             'Atile', 'for k in _: _')
     assert str(sqmat.simplify()) == golden
 
+def test_stage_mem_point(golden):
+    @proc
+    def matmul(n : size, A : R[n,n], B : R[n,n], C : R[n,n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                for k in seq(0, n):
+                    C[i,j] += A[i,k] * B[k,j]
+
+    matmul = matmul.stage_mem('C[i, j]', 'res', 'for k in _:_')
+    assert str(matmul.simplify()) == golden
+
 def test_fail_stage_mem():
     # This test fails to stage the buffer B
     # because it's not just being read in a single way
