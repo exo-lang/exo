@@ -9,7 +9,6 @@ jupyter-contrib-nbextensions==0.5.1
 numpy==1.21.2
 pytest-cov==3.0.0
 pytest==6.2.5
-sympy==1.9
 tox==3.24.4
 yapf==0.31.0
 z3-solver==4.8.12.0
