@@ -39,7 +39,7 @@ def _test_blur(compiler, tmp_path, blur):
                        dtype="float32")
 
     x = np.linspace(-1, 1, k_size + 1)
-    kern1d = np.diff(st.norm.cdf(x))
+    kern1d = np.diff(np.random.normal(x))
     kern2d = np.outer(kern1d, kern1d)
     kern = np.asarray(kern2d / kern2d.sum(), dtype=np.float32)
 

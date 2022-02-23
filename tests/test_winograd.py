@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import numpy as np
-import torch
-import torch.nn.functional as F
+
+try:
+    import torch
+    import torch.nn.functional as F
+except ImportError:
+    pytest.skip("pytorch is not available, skipping winograd")
 
 from SYS_ATL import proc
 
