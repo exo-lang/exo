@@ -292,7 +292,12 @@ class PatternMatch:
                      self.match_e(pat.hi, stmt.hi) and
                      self.match_stmts(pat.body, stmt.body) )
         elif styp is LoopIR.Alloc:
-            return ( self.match_name(pat.name, stmt.name) )
+            if isinstance(stmt.type, LoopIR.Tensor):
+                return ( all( self.match_e(pi,si)
+                              for pi,si in zip(pat.sizes, stmt.type.hi) )
+                         and self.match_name(pat.name, stmt.name) )
+            else: # scalar
+                return ( self.match_name(pat.name, stmt.name) )
         elif styp is LoopIR.Call:
             return ( self.match_name(pat.f, stmt.f.name) )
         elif styp is LoopIR.WriteConfig:
