@@ -6,6 +6,16 @@ from SYS_ATL import proc, DRAM, SchedulingError
 from SYS_ATL.libs.memories import GEMM_SCRATCH
 from SYS_ATL.parse_fragment import ParseFragmentError
 
+def test_pattern_match():
+    @proc
+    def foo(N1 : size, M1 : size, K1 : size, N2: size, M2: size, K2: size):
+        x : R[N1, M1, K1]
+        x : R[N2, M2, K2]
+
+    res1 = foo.rearrange_dim('x : _', [2,1,0])
+    res2 = foo.rearrange_dim('x : R[N1, M1, K1]', [2,1,0])
+
+    assert str(res1) != str(res2)
 
 def test_fission_after_simple(golden):
     @proc

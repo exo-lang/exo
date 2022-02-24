@@ -206,7 +206,7 @@ module PAST {
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | ForAll  ( name iter, expr hi,     stmt* body )
             | Seq     ( name iter, expr hi,     stmt* body )
-            | Alloc   ( name name ) -- may want to add type & mem back in?
+            | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
             | Call    ( name f, expr* args )
             | WriteConfig ( name config, name field )
             | S_Hole  ()
