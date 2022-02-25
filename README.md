@@ -1,5 +1,5 @@
-[![CI](https://github.com/ChezJrk/exo-lang/actions/workflows/main.yml/badge.svg)](https://github.com/ChezJrk/exo-lang/actions/workflows/main.yml)
-[![codecov](https://codecov.io/gh/ChezJrk/exo-lang/branch/master/graph/badge.svg?token=BFIZ0WKP4I)](https://codecov.io/gh/ChezJrk/exo-lang)
+[![CI](https://github.com/ChezJrk/exo/actions/workflows/main.yml/badge.svg)](https://github.com/ChezJrk/exo/actions/workflows/main.yml)
+[![codecov](https://codecov.io/gh/ChezJrk/exo/branch/master/graph/badge.svg?token=BFIZ0WKP4I)](https://codecov.io/gh/ChezJrk/exo)
 
 # Setup
 
