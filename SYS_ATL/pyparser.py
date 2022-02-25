@@ -925,7 +925,8 @@ class PatternParser:
                     nm = name_node.id
                     if nm != '_' and not is_valid_name(nm):
                         self.err(name_node, "expected valid name or _")
-                    rstmts.append(PAST.Alloc(nm, self.getsrcinfo(s)))
+                    _, sizes = self.parse_array_indexing(s.annotation)
+                    rstmts.append(PAST.Alloc(nm, sizes, self.getsrcinfo(s)))
                     continue # escape rest of case
                 else:
                     rhs = self.parse_expr(s.value)
