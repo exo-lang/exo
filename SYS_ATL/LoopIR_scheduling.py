@@ -2928,14 +2928,17 @@ class _DoStageMem(LoopIR_Rewrite):
             raise SchedulingError(f"expected windowing of '{buf_name}' "
                     f"to have {len(self.buf_typ.shape())} indices, "
                     f"but only got {len(w_exprs)}")
-        if any( isinstance(w, LoopIR.expr) for w in w_exprs ):
-            raise SchedulingError(f"memory staging requires windowing, "
-                    f"not point accessing, every dimension")
-        self.new_sizes  = [ LoopIR.BinOp('-', hi, lo, T.index, lo.srcinfo)
-                            for lo,hi in w_exprs ]
-        self.new_offset = [ lo for lo,hi in w_exprs ]
+
+        self.new_sizes  = [ LoopIR.BinOp('-', w[1], w[0], T.index, w[0].srcinfo)
+                            for w in w_exprs if isinstance(w, tuple) ]
+        self.new_offset = [ w[0] for w in w_exprs if isinstance(w, tuple) ]
+
         self.new_name   = Sym(new_name)
-        self.new_typ    = T.Tensor(self.new_sizes, False, typ.basetype())
+
+        if all( isinstance(w, LoopIR.expr) for w in w_exprs ):
+            self.new_typ    = typ.basetype()
+        else:
+            self.new_typ    = T.Tensor(self.new_sizes, False, typ.basetype())
 
         self.found_stmt = False
         self.new_block  = []
@@ -2981,10 +2984,9 @@ class _DoStageMem(LoopIR_Rewrite):
         new_typ     = self.new_typ
         mem         = self.buf_mem
         shape       = self.new_sizes
-        offsets     = self.new_offset
 
         n_dims      = len(orig_typ.shape())
-        basetyp     = new_typ.basetype()
+        basetyp = new_typ.basetype() if isinstance(new_typ, T.Tensor) else new_typ
 
         isR, isW    = Check_BufferRW(self.orig_proc, block,
                                      self.buf_name, n_dims)
@@ -3001,8 +3003,16 @@ class _DoStageMem(LoopIR_Rewrite):
             load_iter   = [ Sym(f"i{i}") for i,_ in enumerate(shape) ]
             load_widx   = [ LoopIR.Read(s,[],T.index,srcinfo)
                             for s in load_iter ]
-            load_ridx   = [ LoopIR.BinOp('+', idx, off, T.index, srcinfo)
-                            for idx,off in zip(load_widx, offsets) ]
+
+            cp_load_widx= load_widx.copy()
+            load_ridx = []
+            for w in self.w_exprs:
+                if isinstance(w, tuple):
+                    load_ridx.append(LoopIR.BinOp('+', cp_load_widx.pop(0), w[0],
+                                                       T.index, srcinfo))
+                else:
+                    load_ridx.append(w)
+
             if self.use_accum_zero:
                 load_rhs = LoopIR.Const(0.0, basetyp, srcinfo)
             else:
@@ -3019,8 +3029,15 @@ class _DoStageMem(LoopIR_Rewrite):
             store_iter  = [ Sym(f"i{i}") for i,_ in enumerate(shape) ]
             store_ridx  = [ LoopIR.Read(s,[],T.index,srcinfo)
                             for s in store_iter ]
-            store_widx  = [ LoopIR.BinOp('+', idx, off, T.index, srcinfo)
-                            for idx,off in zip(store_ridx, offsets) ]
+            cp_store_ridx=store_ridx.copy()
+            store_widx = []
+            for w in self.w_exprs:
+                if isinstance(w, tuple):
+                    store_widx.append(LoopIR.BinOp('+', cp_store_ridx.pop(0), w[0],
+                                                       T.index, srcinfo))
+                else:
+                    store_widx.append(w)
+
             store_rhs   = LoopIR.Read(self.new_name, store_ridx,
                                       basetyp, srcinfo)
             store_stmt  = (LoopIR.Reduce if self.use_accum_zero else

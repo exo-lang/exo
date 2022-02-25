@@ -1,0 +1,8 @@
+def matmul(n: size, A: R[n, n] @ DRAM, B: R[n, n] @ DRAM, C: R[n, n] @ DRAM):
+    for i in seq(0, n):
+        for j in seq(0, n):
+            res: R @ DRAM
+            res = C[i, j]
+            for k in seq(0, n):
+                res += A[i, k] * B[k, j]
+            C[i, j] = res
