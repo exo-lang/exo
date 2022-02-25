@@ -22,3 +22,5 @@ dist/
 build
 autom4te.cache
 configure
+
+dependencies/chipyard
