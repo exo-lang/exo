@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL import proc, DRAM
-from SYS_ATL.libs.memories import GEMM_SCRATCH
+from exo import proc, DRAM
+from exo.libs.memories import GEMM_SCRATCH
 
 
 # ------- Effect check tests ---------

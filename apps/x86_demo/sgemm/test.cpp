@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
   auto c = gen_matrix(n, n);
   auto c2 = c;
 
-  sgemm_sys_atl(nullptr, n, n, n, a.data(), b.data(), c.data());
+  sgemm_exo(nullptr, n, n, n, a.data(), b.data(), c.data());
   sgemm_square(a.data(), b.data(), c2.data(), n);
 
   for (int i = 0; i < c2.size(); i++) {

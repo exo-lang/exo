@@ -16,7 +16,7 @@ import pytest
 from _pytest.config import argparsing, Config
 from _pytest.nodes import Node
 
-from SYS_ATL import Procedure, compile_procs
+from exo import Procedure, compile_procs
 
 
 # ---------------------------------------------------------------------------- #
@@ -276,7 +276,7 @@ class Compiler:
 @functools.cache
 def get_cpu_features() -> Set[str]:
     def get_cpuinfo_string() -> str:
-        if cpuinfo := os.getenv('SYSTL_OVERRIDE_CPUINFO'):
+        if cpuinfo := os.getenv('EXO_OVERRIDE_CPUINFO'):
             return cpuinfo
 
         if platform.system() == 'Linux':

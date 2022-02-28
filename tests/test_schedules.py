@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL import proc, DRAM, SchedulingError
-from SYS_ATL.libs.memories import GEMM_SCRATCH
-from SYS_ATL.parse_fragment import ParseFragmentError
+from exo import proc, DRAM, SchedulingError
+from exo.libs.memories import GEMM_SCRATCH
+from exo.parse_fragment import ParseFragmentError
 
+def test_pattern_match():
+    @proc
+    def foo(N1 : size, M1 : size, K1 : size, N2: size, M2: size, K2: size):
+        x : R[N1, M1, K1]
+        x : R[N2, M2, K2]
+
+    res1 = foo.rearrange_dim('x : _', [2,1,0])
+    res2 = foo.rearrange_dim('x : R[N1, M1, K1]', [2,1,0])
+
+    assert str(res1) != str(res2)
 
 def test_fission_after_simple(golden):
     @proc
@@ -859,6 +869,17 @@ def test_stage_mem(golden):
     sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
                             'Atile', 'for k in _: _')
     assert str(sqmat.simplify()) == golden
+
+def test_stage_mem_point(golden):
+    @proc
+    def matmul(n : size, A : R[n,n], B : R[n,n], C : R[n,n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                for k in seq(0, n):
+                    C[i,j] += A[i,k] * B[k,j]
+
+    matmul = matmul.stage_mem('C[i, j]', 'res', 'for k in _:_')
+    assert str(matmul.simplify()) == golden
 
 def test_fail_stage_mem():
     # This test fails to stage the buffer B

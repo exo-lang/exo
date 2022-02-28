@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from SYS_ATL import proc, Procedure
+from exo import proc, Procedure
 
 
 # ------- Precision casting tests ------

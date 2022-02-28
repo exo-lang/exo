@@ -10,7 +10,7 @@ except ImportError:
     pytest.skip("pytorch is not available, skipping winograd",
                 allow_module_level=True)
 
-from SYS_ATL import proc
+from exo import proc
 
 
 def wconv_3x3():

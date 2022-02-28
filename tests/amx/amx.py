@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from SYS_ATL import instr, DRAM
-from SYS_ATL.libs.memories import AMX_TILE
+from exo import instr, DRAM
+from exo.libs.memories import AMX_TILE
 
 # ---------------------------------------------------------------------------- #
 # Config                                                                       #
@@ -80,7 +80,7 @@ def ld_i8(
 
 """
 Need this because idk how to rearrange memory
-using SYSATL commands when scheduling and lift_allocing
+using Exo commands when scheduling and lift_allocing
 """
 
 

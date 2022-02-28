@@ -5,8 +5,8 @@ import itertools
 import numpy as np
 import pytest
 
-from SYS_ATL import proc
-from SYS_ATL.platforms.x86 import *
+from exo import proc
+from exo.platforms.x86 import *
 
 
 @pytest.mark.isa('AVX2')

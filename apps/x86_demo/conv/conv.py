@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from SYS_ATL import *
-from SYS_ATL.builtins import *
-from SYS_ATL.platforms.x86 import *
-from SYS_ATL.syntax import *
+from exo import *
+from exo.builtins import *
+from exo.platforms.x86 import *
+from exo.syntax import *
 
 
 @proc

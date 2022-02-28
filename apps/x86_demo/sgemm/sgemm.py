@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from SYS_ATL import *
-from SYS_ATL.libs.memories import DRAM_STATIC
-from SYS_ATL.platforms.x86 import *
-from SYS_ATL.syntax import *
+from exo import *
+from exo.libs.memories import DRAM_STATIC
+from exo.platforms.x86 import *
+from exo.syntax import *
 
 
 # noinspection PyPep8Naming
@@ -222,9 +222,9 @@ sgemm_above_kernel = (
         .simplify()
 )
 
-sgemm_sys_atl = (
+sgemm_exo = (
     SGEMM
-        .rename('sgemm_sys_atl')
+        .rename('sgemm_exo')
         # Split all loops
         .split('k', K_L1_BLK, ['ko', 'ki'], tail='cut_and_guard')
         .split('i', M_L1_BLK, ['io', 'ii'], tail='cut_and_guard')
@@ -304,6 +304,6 @@ sgemm_sys_atl = (
 
 if __name__ == '__main__':
     # print(sgemm_above_kernel)
-    print(sgemm_sys_atl)
+    print(sgemm_exo)
 
-__all__ = ['sgemm_sys_atl']
+__all__ = ['sgemm_exo']
