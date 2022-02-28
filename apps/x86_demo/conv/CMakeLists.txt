@@ -3,8 +3,8 @@
 
 find_package(Halide REQUIRED)
 
-## SYS_ATL
-add_sys_atl_library(conv conv.py)
+## Exo
+add_exo_library(conv conv.py)
 
 ## Halide
 add_executable(halide_conv.gen halide_conv_gen.cpp)
@@ -14,7 +14,7 @@ add_halide_library(halide_conv_kernel FROM halide_conv.gen
                    STMT_HTML _)
 
 ## Common object library
-add_library(conv_impls OBJECT sys_atl_conv.cpp onednn_conv.cpp halide_conv.cpp)
+add_library(conv_impls OBJECT exo_conv.cpp onednn_conv.cpp halide_conv.cpp)
 target_link_libraries(
   conv_impls
   PUBLIC DNNL::dnnl

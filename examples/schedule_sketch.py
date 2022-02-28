@@ -104,7 +104,7 @@ just checking the sig
 
 # Try few example?
 # scalar floats are special case
-import GEMMINI from SYS_ATL.libs.state 
+import GEMMINI from exo.libs.state 
 @instr("gemmini_extended3_config_ld({a}, {b}, {GEMMINI.c}, {d}, {e});")
 def extended_load_config(
         a : ..,
@@ -491,11 +491,11 @@ static void tiled_matmul_auto(
         transpose_A == 0 && transpose_B == 0 && full_C == 1 && low_D == 0 &&
         weightA == 3 && tiled_matmul_type == 2 )
     {
-        matmul_systl(dim_I, dim_J, dim_K,
-                     systl_win_2f32 { A, {stride_A,1} },
-                     systl_win_2f32 { B, {stride_B,1} },
-                     systl_win_2f32 { C, {stride_C,1} },
-                     systl_win_2f32 { D, {stride_D,1} },
+        matmul_exo(dim_I, dim_J, dim_K,
+                     exo_win_2f32 { A, {stride_A,1} },
+                     exo_win_2f32 { B, {stride_B,1} },
+                     exo_win_2f32 { C, {stride_C,1} },
+                     exo_win_2f32 { D, {stride_D,1} },
                      A_scale_factor, B_scale_factor,
                      scale, D_scale_factor);
     }

@@ -1,19 +1,19 @@
-[![CI](https://github.com/ChezJrk/SYS_ATL/actions/workflows/main.yml/badge.svg)](https://github.com/ChezJrk/SYS_ATL/actions/workflows/main.yml)
-[![codecov](https://codecov.io/gh/ChezJrk/SYS_ATL/branch/master/graph/badge.svg?token=BFIZ0WKP4I)](https://codecov.io/gh/ChezJrk/SYS_ATL)
+[![CI](https://github.com/ChezJrk/exo/actions/workflows/main.yml/badge.svg)](https://github.com/ChezJrk/exo/actions/workflows/main.yml)
+[![codecov](https://codecov.io/gh/ChezJrk/exo/branch/master/graph/badge.svg?token=BFIZ0WKP4I)](https://codecov.io/gh/ChezJrk/exo)
 
 # Setup
 
 We make active use of newer Python 3.x features, so please use the same version
 of Python as our CI if you're getting errors about unsupported features.
 
-Setting up SYS_ATL for development is like any other Python project. We _
+Setting up Exo for development is like any other Python project. We _
 strongly_ recommend you use a virtual environment.
 
 ```
-$ python -m venv ~/.venv/SYS_ATL
-$ . ~/.venv/SYS_ATL
-(SYS_ATL) $ python -m pip install -U pip setuptools wheel
-(SYS_ATL) $ python -m pip install -r requirements.txt
+$ python -m venv ~/.venv/exo
+$ . ~/.venv/exo
+(exo) $ python -m pip install -U pip setuptools wheel
+(exo) $ python -m pip install -r requirements.txt
 ```
 
 ## PySMT
@@ -39,7 +39,7 @@ git submodule update --init --recursive
 
 ### Build system (required)
 
-The SYSTL test harness generates C code and as such needs to compile and link
+The Exo test harness generates C code and as such needs to compile and link
 using an unknown (i.e. system) compiler. To do this, it generates CMake build
 files and invokes CMake behind the scenes.
 

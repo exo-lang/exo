@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from SYS_ATL import proc
+from exo import proc
 from .amx import *
 from .harness_amx import AMXTestBuilder
 
@@ -159,7 +159,7 @@ def modified_matmul_algorithm_i8():
             C: i32[M, N] @ DRAM,
     ):
         assert K % 4 == 0
-        config()  # TODO: how to insert this via SYS_ATL
+        config()  # TODO: how to insert this via Exo 
         for i in par(0, M):
             for j in par(0, N):
                 # C[i, j] = 0.0

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL import proc, DRAM, config, instr
-from SYS_ATL.libs.memories import GEMM_SCRATCH
+from exo import proc, DRAM, config, instr
+from exo.libs.memories import GEMM_SCRATCH
 
 
 # ------- Configuration tests ---------

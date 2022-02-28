@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL import proc, DRAM, SchedulingError
-from SYS_ATL.libs.memories import GEMM_SCRATCH
-from SYS_ATL.parse_fragment import ParseFragmentError
+from exo import proc, DRAM, SchedulingError
+from exo.libs.memories import GEMM_SCRATCH
+from exo.parse_fragment import ParseFragmentError
 
 def test_pattern_match():
     @proc

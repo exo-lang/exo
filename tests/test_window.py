@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL import proc, DRAM
+from exo import proc, DRAM
 
 
 # ------- Window related tests ---------

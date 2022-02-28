@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL import proc, config
-from SYS_ATL.libs.memories import GEMM_SCRATCH
+from exo import proc, config
+from exo.libs.memories import GEMM_SCRATCH
 
 
 # --- Typechecking tests ---
