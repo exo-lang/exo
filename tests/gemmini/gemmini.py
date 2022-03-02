@@ -3,7 +3,16 @@ from __future__ import annotations
 from exo import proc, instr, DRAM, config, QAST
 from exo.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
 
+def tile(gemmini):
+    gemmini = gemmini.split('j', 4, ['jo', 'ji'], perfect=True)
+    gemmini = gemmini.split('i', 8, ['io', 'i'], perfect=True)
+    gemmini = gemmini.split('io', 2, ['ioo', 'io'], perfect=True)
+    gemmini = gemmini.reorder('i','jo')
+    gemmini = gemmini.reorder('io','jo')
+    return gemmini
+
 def inline_lift_config(gemmini):
+    # part of scheduling count, 25
     gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
     gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
     gemmini = gemmini.inline_window("dst = res[_]")
