@@ -3,6 +3,7 @@ import pytest
 from ..gemmini import *
 from ..harness_gemmini import GemmTestBuilder
 
+
 def matmul_algorithm():
     @proc
     def matmul(
@@ -16,8 +17,7 @@ def matmul_algorithm():
       C : i8[N,M] @ DRAM,
     ):
 
-        # Artifact evaluation
-        # Algorithm is here, 23? LOC
+        # Algorithm starts here
         for i in par(0,N):
             for j in par(0,M):
                 res : i32 @ DRAM
@@ -44,68 +44,44 @@ def matmul_algorithm():
                 if act == True:
                     tmp_res2 = relu(tmp_res2)
                 C[i,j] = tmp_res2
+        # Algorithm ends here. 23 lines excluding newlines
 
     return matmul
 
-def inline_lift_config(gemmini):
-    # part of scheduling count, 25
-    gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
-    gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
-    gemmini = gemmini.inline_window("dst = res[_]")
-    gemmini = lift_config(gemmini, 'config_zero()')
 
-    gemmini = gemmini.call_eqv(ld_i8_block_id1_v2, "ld_i8_block_id1(_)")
-    gemmini = gemmini.inline("ld_i8_block_id1_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = A[_]")
-    gemmini = gemmini.inline_window("dst = a[_]")
-    gemmini = lift_config(gemmini, 'config_ld_i8_id1()')
-
-    gemmini = gemmini.call_eqv(ld_i8_block_id2_v2, "ld_i8_block_id2(_)")
-    gemmini = gemmini.inline("ld_i8_block_id2_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = B[_]")
-    gemmini = gemmini.inline_window("dst = b[_]")
-    gemmini = lift_config(gemmini, 'config_ld_i8_id2()')
-
-    gemmini = gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
-    gemmini = gemmini.inline("matmul_acc_i8_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("A = a[_]")
-    gemmini = gemmini.inline_window("B = b[_]")
-    gemmini = gemmini.inline_window("C = res[_]")
-    gemmini = lift_config(gemmini, 'config_matmul()')
-
-    gemmini = gemmini.call_eqv(st_acc_i8_v2, "st_acc_i8(_, _, _, _, _, _)")
-    gemmini = gemmini.inline("st_acc_i8_v2(_, _, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = res[_]")
-    gemmini = gemmini.inline_window("dst = C[_]")
-    gemmini = lift_config(gemmini, 'config_st_acc_i8(_)')
-    return gemmini
-
-
-# Best for 512x512x512
+# Matmul test for artifact evaluation. The same algorithm and schedule
+# was used for Table 2 (512x521x512) and Table 3 (code size)
 def test_matmul_ae():
     NN = 512
     MM = 512
     KK = 512
 
-    cpu = matmul_algorithm().rename("matmul_on_cpu")
+    cpu = matmul_algorithm().rename("matmul_on_cpu") # Rename "matmul" to "matmul_on_cpu"
     cpu = cpu.partial_eval(NN, MM, KK)
     
+    # These lines are relevant if you have GEMMINI environment set up
     T = GemmTestBuilder('matmul_ae')
     T.add_body(['gemm_init_mem();',
                 'gemm_acc_init_mem();',
                 'gemmini_flush(0);',
                 ''])
     T.add_body(["matmul_ae_lib_Context *ctxt;"])
-
     T.alloc_dram_2i8('x', NN, KK, 'i+j')
     T.alloc_dram_2i8('y', KK, MM, 'j*3')
     T.alloc_dram_f32('c_scale', '2.0f')
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    # Rename the procedure and set gemmini memory
+    # Rename the procedure to "matmul_on_gemmini"
     gemmini = cpu.rename("matmul_on_gemmini")
-    # Schedule starts here!
+
+    print("")
+    print("===== THIS IS THE ORIGINAL MATMUL ALGORITHM BEFORE SCHEDULING ====")
+    print(gemmini)
+    print("===== THIS IS THE ORIGINAL MATMUL ALGORITHM BEFORE SCHEDULING ====")
+    print("")
+
+    # Schedule starts here. Below sets buffer to use GEMMINI memories.
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM).set_memory('a', GEMM_SCRATCH).set_memory('b', GEMM_SCRATCH))
 
     # Tile outer loops
@@ -115,22 +91,51 @@ def test_matmul_ae():
     gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=2)
     gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16)
 
-    # fission loops to zero accum code block, main block, and store block and reorder k up
+    # Fission loops to zero accum code block, main block, and store block and reorder k up
     gemmini = fission_outer_blocks(gemmini)
 
-    # fission the main block to 4x16x16 blocks, so that we can use gemmini instr
+    # Fission the main block to 4x16x16 blocks, so that we can use gemmini instr
     gemmini = fission_inner_blocks(gemmini)
 
-    # replace to gemmini calls
+    # Replace to gemmini calls
     gemmini = replace_gemmini_calls(gemmini)
 
-    # inline and lift config
-    gemmini = inline_lift_config(gemmini)
+    # Inline and lift the configuration as high as possible
+    # Lift config_zero
+    gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
+    gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
+    gemmini = gemmini.inline_window("dst = res[_]")
+    gemmini = lift_config(gemmini, 'config_zero()')
+    # Lift config_ld_i8_id1
+    gemmini = gemmini.call_eqv(ld_i8_block_id1_v2, "ld_i8_block_id1(_)")
+    gemmini = gemmini.inline("ld_i8_block_id1_v2(_, _, _, _, _)")
+    gemmini = gemmini.inline_window("src = A[_]")
+    gemmini = gemmini.inline_window("dst = a[_]")
+    gemmini = lift_config(gemmini, 'config_ld_i8_id1()')
+    # Lift config_ld_i8_id2
+    gemmini = gemmini.call_eqv(ld_i8_block_id2_v2, "ld_i8_block_id2(_)")
+    gemmini = gemmini.inline("ld_i8_block_id2_v2(_, _, _, _, _)")
+    gemmini = gemmini.inline_window("src = B[_]")
+    gemmini = gemmini.inline_window("dst = b[_]")
+    gemmini = lift_config(gemmini, 'config_ld_i8_id2()')
+    # Lift config_matmul
+    gemmini = gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
+    gemmini = gemmini.inline("matmul_acc_i8_v2(_, _, _, _, _)")
+    gemmini = gemmini.inline_window("A = a[_]")
+    gemmini = gemmini.inline_window("B = b[_]")
+    gemmini = gemmini.inline_window("C = res[_]")
+    gemmini = lift_config(gemmini, 'config_matmul()')
+    # Lift config_st_acc_i8
+    gemmini = gemmini.call_eqv(st_acc_i8_v2, "st_acc_i8(_, _, _, _, _, _)")
+    gemmini = gemmini.inline("st_acc_i8_v2(_, _, _, _, _, _)")
+    gemmini = gemmini.inline_window("src = res[_]")
+    gemmini = gemmini.inline_window("dst = C[_]")
+    gemmini = lift_config(gemmini, 'config_st_acc_i8(_)')
 
-    # Real optimization
-    # tile
+    # Futher tile the innner loops
     gemmini = tile(gemmini)
 
+    # Lift the allocations
     gemmini = gemmini.lift_alloc('res : _', n_lifts=1)
     gemmini = gemmini.lift_alloc('a : _', n_lifts=4)
     gemmini = gemmini.lift_alloc('b : _', n_lifts=3)
@@ -147,8 +152,9 @@ def test_matmul_ae():
     gemmini = gemmini.unroll('j_in_o')
     gemmini = gemmini.simplify()
 
-    # Schedule ends here!
+    # Schedule ends here. 43 lines excluding comments and newlines
 
+    # These lines are relevant if you want to run the generated C code with GEMMINI simulator
     T.add_proc(gemmini)
     T.add_proc(cpu)
 
@@ -177,4 +183,9 @@ def test_matmul_ae():
 
     T.compile().run()
 
+    print("")
+    print("============= THIS IS THE SCHEDULED MATMUL ===============")
     print(gemmini)
+    print("============= THIS IS THE SCHEDULED MATMUL ===============")
+    print("")
+
