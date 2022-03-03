@@ -47,13 +47,6 @@ def matmul_cpu():
 
     return matmul_on_cpu
 
-def split_and_reorder(gemmini):
-    gemmini = gemmini.split('j', 4, ['jo', 'ji'], perfect=True)
-    gemmini = gemmini.split('i', 8, ['io', 'i'], perfect=True)
-    gemmini = gemmini.split('io', 2, ['ioo', 'io'], perfect=True)
-    gemmini = gemmini.reorder('i','jo')
-    gemmini = gemmini.reorder('io','jo')
-    return gemmini
 
 # Best for 512x512x512
 def test_matmul_512x512x512():
@@ -101,7 +94,7 @@ def test_matmul_512x512x512():
 
     # Real optimization
     # tile
-    gemmini = split_and_reorder(gemmini)
+    gemmini = tile(gemmini)
 
     gemmini = gemmini.lift_alloc('res : _', n_lifts=1)
     gemmini = gemmini.lift_alloc('a : _', n_lifts=4)
