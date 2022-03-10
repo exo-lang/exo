@@ -70,7 +70,7 @@ def test_matmul_512x512x512():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_on_gemmini")
+    gemmini = cpu.rename("matmul_512x512x512")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM).set_memory('a', GEMM_SCRATCH).set_memory('b', GEMM_SCRATCH))
 
     # Tile outer loops
@@ -135,7 +135,7 @@ def test_matmul_512x512x512():
     T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'matmul_on_gemmini(ctxt, c_scale, false, x, y, z_gemmini);',
+    T.add_body([f'matmul_512x512x512(ctxt, c_scale, false, x, y, z_gemmini);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
@@ -178,7 +178,7 @@ def test_matmul_4():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_on_gemmini")
+    gemmini = cpu.rename("matmul_4")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
@@ -235,7 +235,7 @@ def test_matmul_4():
     T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'matmul_on_gemmini(ctxt, c_scale, false, x, y, z_gemmini);',
+    T.add_body([f'matmul_4(ctxt, c_scale, false, x, y, z_gemmini);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
@@ -277,7 +277,7 @@ def test_matmul_6():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_on_gemmini")
+    gemmini = cpu.rename("matmul_6")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
@@ -331,7 +331,7 @@ def test_matmul_6():
     T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'matmul_on_gemmini(ctxt, c_scale, false, x, y, z_gemmini);',
+    T.add_body([f'matmul_6(ctxt, c_scale, false, x, y, z_gemmini);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
@@ -374,7 +374,7 @@ def test_matmul_14():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_on_gemmini")
+    gemmini = cpu.rename("matmul_14")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
@@ -429,7 +429,7 @@ def test_matmul_14():
     T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'matmul_on_gemmini(ctxt, c_scale, false, x, y, z_gemmini);',
+    T.add_body([f'matmul_14(ctxt, c_scale, false, x, y, z_gemmini);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
@@ -471,7 +471,7 @@ def test_matmul_16():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_on_gemmini")
+    gemmini = cpu.rename("matmul_16")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
@@ -526,7 +526,7 @@ def test_matmul_16():
     T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'matmul_on_gemmini(ctxt, c_scale, false, x, y, z_gemmini);',
+    T.add_body([f'matmul_16(ctxt, c_scale, false, x, y, z_gemmini);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
@@ -567,7 +567,7 @@ def test_matmul_27():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_on_gemmini")
+    gemmini = cpu.rename("matmul_27")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
@@ -626,7 +626,7 @@ def test_matmul_27():
     T.stop_timer('cpu', 'Cycles for CPU version')
 
     T.start_timer('gemmini')
-    T.add_body([f'matmul_on_gemmini(ctxt, c_scale, false, x, y, z_gemmini);',
+    T.add_body([f'matmul_27(ctxt, c_scale, false, x, y, z_gemmini);',
                 f'gemmini_fence();'])
     T.stop_timer('gemmini', 'Cycles for GEMMINI version')
 
