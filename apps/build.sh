@@ -39,7 +39,7 @@ set -e
 
 ## Run benchmarks
 
-./build/apps/x86_demo/sgemm/bench_sgemm --benchmark_filter=sys
+./build/apps/x86_demo/sgemm/bench_sgemm --benchmark_filter=exo
 ./build/apps/x86_demo/sgemm/bench_sgemm --benchmark_filter=MKL
 taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm_openblas \
   --benchmark_filter=OpenBLAS
