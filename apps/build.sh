@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 ## Constants
 
@@ -26,23 +27,29 @@ cmake -G Ninja -S "${ROOT_DIR}/apps" -B build/apps \
   -DCMAKE_CXX_COMPILER=clang++-13 \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="${PWD}/build/_install" \
-  -DCMAKE_C_FLAGS="-march=skylake-avx512" \
-  -DCMAKE_CXX_FLAGS="-march=skylake-avx512"
+  -DCMAKE_C_FLAGS="-march=native" \
+  -DCMAKE_CXX_FLAGS="-march=native"
 
 cmake --build build/apps
 
 ## Run correctness checks
 
-set -e
-./build/apps/x86_demo/sgemm/run_exo 1000
-./build/apps/x86_demo/conv/test_conv
+# ./build/apps/x86_demo/sgemm/run_exo 1000
+# ./build/apps/x86_demo/conv/test_conv
 
 ## Run benchmarks
 
-./build/apps/x86_demo/sgemm/bench_sgemm --benchmark_filter=exo
-./build/apps/x86_demo/sgemm/bench_sgemm --benchmark_filter=MKL
-taskset -c 0 ./build/apps/x86_demo/sgemm/bench_sgemm_openblas \
-  --benchmark_filter=OpenBLAS
-
 export HL_NUM_THREADS=1
-taskset -c 0 ./build/apps/x86_demo/conv/bench_conv --benchmark_filter=102
+export MKL_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+
+./build/apps/x86_demo/sgemm/bench_sgemm \
+  --benchmark_filter=exo --benchmark_out=sgemm_exo.json
+./build/apps/x86_demo/sgemm/bench_sgemm \
+  --benchmark_filter=MKL --benchmark_out=sgemm_mkl.json
+./build/apps/x86_demo/sgemm/bench_sgemm_openblas \
+  --benchmark_filter=OpenBLAS --benchmark_out=sgemm_openblas.json
+
+./build/apps/x86_demo/conv/bench_conv \
+  --benchmark_filter=102 --benchmark_out=conv.json
