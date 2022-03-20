@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 from collections import defaultdict
@@ -37,6 +38,12 @@ for series, points in aspect_plots.items():
         *sorted(zip(points['ratio'], points['flops'])))
 
 ##
+# Get peak flops
+
+if flops := os.getenv('MAX_GFLOPS'):
+    flops = float(flops) * 1e9
+
+##
 # Create aspect ratio plots
 
 fig, ax = plt.subplots(figsize=(12, 8))
@@ -47,9 +54,14 @@ for series, points in aspect_plots.items():
 ax.set(xlabel='aspect ratio (m/n)', ylabel='flops',
        title='SGEMM performance with fixed workload and\nvariable output aspect ratio\n')
 ax.set_xscale('log')
-ax.set_ybound(lower=0, upper=None)
+ax.set_ybound(lower=0, upper=flops)
 ax.grid()
 ax.legend()
+
+if flops:
+    ax_right = ax.twinx()
+    ax_right.set_ylabel('% of peak')
+    ax_right.set_ylim(0, 100)
 
 plt.savefig('sgemm_aspect_ratio.png')
 
@@ -63,8 +75,13 @@ for series, points in square_plots.items():
 
 ax.set(xlabel='dimension (n)', ylabel='flops',
        title='SGEMM performance with square matrices')
-ax.set_ybound(lower=0, upper=None)
+ax.set_ybound(lower=0, upper=flops)
 ax.grid()
 ax.legend()
+
+if flops:
+    ax_right = ax.twinx()
+    ax_right.set_ylabel('% of peak')
+    ax_right.set_ylim(0, 100)
 
 plt.savefig('sgemm_square.png')
