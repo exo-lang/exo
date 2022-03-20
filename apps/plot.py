@@ -3,9 +3,12 @@ import os
 import re
 import sys
 from collections import defaultdict
+import numpy as np
 
 import matplotlib.pyplot as plt
-import numpy as np
+import matplotlib
+
+matplotlib.rcParams.update({'font.size': 20})
 
 matcher = re.compile(r'^sgemm_(?P<name>\w+)/(?P<m>\d+)/(?P<n>\d+)/(?P<k>\d+)$')
 
@@ -48,13 +51,13 @@ if flops := os.getenv('MAX_GFLOPS'):
 ##
 # Plotting function
 
-def plot_perf(data, filename, title, xkey, xlabel, xscale, ykey, ylabel):
-    fig, ax1 = plt.subplots(figsize=(12, 8))
+def plot_perf(data, filename, xkey, xlabel, xscale, ykey, ylabel):
+    fig, ax1 = plt.subplots(figsize=(12, 7))
 
     for series, points in data.items():
         ax1.plot(points[xkey], points[ykey], label=series)
 
-    ax1.set(xlabel=xlabel, ylabel=ylabel, title=title)
+    ax1.set(xlabel=xlabel, ylabel=ylabel)
     ax1.set_xscale(xscale)
     ax1.set_ybound(lower=0, upper=flops)
     ax1.grid()
@@ -79,7 +82,6 @@ def plot_perf(data, filename, title, xkey, xlabel, xscale, ykey, ylabel):
 plot_perf(
     data=aspect_plots,
     filename='sgemm_aspect_ratio.png',
-    title='SGEMM performance with fixed workload and\nvariable output aspect ratio\n',
     xkey='ratio',
     xlabel='aspect ratio (m/n)',
     xscale='log',
@@ -93,7 +95,6 @@ plot_perf(
 plot_perf(
     data=square_plots,
     filename='sgemm_square.png',
-    title='SGEMM performance with square matrices',
     xkey='n',
     xlabel='dimension (n)',
     xscale='linear',
