@@ -5,6 +5,7 @@ import sys
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 matcher = re.compile(r'^sgemm_(?P<name>\w+)/(?P<m>\d+)/(?P<n>\d+)/(?P<k>\d+)$')
 
@@ -48,23 +49,26 @@ if flops := os.getenv('MAX_GFLOPS'):
 # Plotting function
 
 def plot_perf(data, filename, title, xkey, xlabel, xscale, ykey, ylabel):
-    fig, ax = plt.subplots(figsize=(12, 8))
+    fig, ax1 = plt.subplots(figsize=(12, 8))
 
     for series, points in data.items():
-        ax.plot(points[xkey], points[ykey], label=series)
+        ax1.plot(points[xkey], points[ykey], label=series)
 
-    ax.set(xlabel=xlabel, ylabel=ylabel, title=title)
-    ax.set_xscale(xscale)
-    ax.set_ybound(lower=0, upper=flops)
-    ax.grid()
-    ax.legend()
+    ax1.set(xlabel=xlabel, ylabel=ylabel, title=title)
+    ax1.set_xscale(xscale)
+    ax1.set_ybound(lower=0, upper=flops)
+    ax1.grid()
+    ax1.legend()
 
-    ax.yaxis.set_major_formatter(lambda x, _: f'{x / 1e9:g}')
+    ax1.yaxis.set_major_formatter(lambda x, _: f'{x / 1e9:.2f}')
 
     if flops:
-        ax_right = ax.twinx()
-        ax_right.set_ylabel('% of peak')
-        ax_right.yaxis.set_major_formatter(lambda x, _: f'{x:.0%}')
+        ax2 = ax1.twinx()
+        ax2.set_ylabel('% of peak')
+        ax2.yaxis.set_major_formatter(lambda x, _: f'{x:.0%}')
+
+        ax1.set_yticks(np.linspace(ax1.get_ybound()[0], ax1.get_ybound()[1], 7))
+        ax2.set_yticks(np.linspace(ax2.get_ybound()[0], ax2.get_ybound()[1], 7))
 
     plt.savefig(filename)
 
