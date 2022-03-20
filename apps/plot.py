@@ -5,9 +5,6 @@ import sys
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
-import matplotlib
-
-matplotlib.rcParams.update({'font.size': 20})
 
 matcher = re.compile(r'^sgemm_(?P<name>\w+)/(?P<m>\d+)/(?P<n>\d+)/(?P<k>\d+)$')
 
@@ -46,43 +43,56 @@ for series, points in aspect_plots.items():
 if flops := os.getenv('MAX_GFLOPS'):
     flops = float(flops) * 1e9
 
+
+##
+# Plotting function
+
+def plot_perf(data, filename, title, xkey, xlabel, xscale, ykey, ylabel):
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    for series, points in data.items():
+        ax.plot(points[xkey], points[ykey], label=series)
+
+    ax.set(xlabel=xlabel, ylabel=ylabel, title=title)
+    ax.set_xscale(xscale)
+    ax.set_ybound(lower=0, upper=flops)
+    ax.grid()
+    ax.legend()
+
+    ax.yaxis.set_major_formatter(lambda x, _: f'{x / 1e9:g}')
+
+    if flops:
+        ax_right = ax.twinx()
+        ax_right.set_ylabel('% of peak')
+        ax_right.yaxis.set_major_formatter(lambda x, _: f'{x:.0%}')
+
+    plt.savefig(filename)
+
+
 ##
 # Create aspect ratio plots
 
-fig, ax = plt.subplots(figsize=(11, 7))
-
-for series, points in aspect_plots.items():
-    ax.plot(points['ratio'], points['flops'], label=series)
-
-ax.set(xlabel='aspect ratio (m/n)', ylabel='flops')
-ax.set_xscale('log')
-ax.set_ybound(lower=0, upper=flops)
-ax.grid()
-ax.legend()
-
-if flops:
-    ax_right = ax.twinx()
-    ax_right.set_ylabel('% of peak')
-    ax_right.set_ylim(0, 100)
-
-plt.savefig('sgemm_aspect_ratio.png')
+plot_perf(
+    data=aspect_plots,
+    filename='sgemm_aspect_ratio.png',
+    title='SGEMM performance with fixed workload and\nvariable output aspect ratio\n',
+    xkey='ratio',
+    xlabel='aspect ratio (m/n)',
+    xscale='log',
+    ykey='flops',
+    ylabel='GFLOP/s',
+)
 
 ##
 # Create square ratio plots
 
-fig, ax = plt.subplots(figsize=(11, 7))
-
-for series, points in square_plots.items():
-    ax.plot(points['n'], points['flops'], label=series)
-
-ax.set(xlabel='dimension (n)', ylabel='flops')
-ax.set_ybound(lower=0, upper=flops)
-ax.grid()
-ax.legend()
-
-if flops:
-    ax_right = ax.twinx()
-    ax_right.set_ylabel('% of peak')
-    ax_right.set_ylim(0, 100)
-
-plt.savefig('sgemm_square.png')
+plot_perf(
+    data=square_plots,
+    filename='sgemm_square.png',
+    title='SGEMM performance with square matrices',
+    xkey='n',
+    xlabel='dimension (n)',
+    xscale='linear',
+    ykey='flops',
+    ylabel='GFLOP/s',
+)
