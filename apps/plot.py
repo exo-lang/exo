@@ -5,6 +5,9 @@ import sys
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.rcParams.update({'font.size': 20})
 
 matcher = re.compile(r'^sgemm_(?P<name>\w+)/(?P<m>\d+)/(?P<n>\d+)/(?P<k>\d+)$')
 
@@ -46,13 +49,12 @@ if flops := os.getenv('MAX_GFLOPS'):
 ##
 # Create aspect ratio plots
 
-fig, ax = plt.subplots(figsize=(12, 8))
+fig, ax = plt.subplots(figsize=(11, 7))
 
 for series, points in aspect_plots.items():
     ax.plot(points['ratio'], points['flops'], label=series)
 
-ax.set(xlabel='aspect ratio (m/n)', ylabel='flops',
-       title='SGEMM performance with fixed workload and\nvariable output aspect ratio\n')
+ax.set(xlabel='aspect ratio (m/n)', ylabel='flops')
 ax.set_xscale('log')
 ax.set_ybound(lower=0, upper=flops)
 ax.grid()
@@ -68,13 +70,12 @@ plt.savefig('sgemm_aspect_ratio.png')
 ##
 # Create square ratio plots
 
-fig, ax = plt.subplots(figsize=(12, 8))
+fig, ax = plt.subplots(figsize=(11, 7))
 
 for series, points in square_plots.items():
     ax.plot(points['n'], points['flops'], label=series)
 
-ax.set(xlabel='dimension (n)', ylabel='flops',
-       title='SGEMM performance with square matrices')
+ax.set(xlabel='dimension (n)', ylabel='flops')
 ax.set_ybound(lower=0, upper=flops)
 ax.grid()
 ax.legend()
