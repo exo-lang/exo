@@ -3,12 +3,19 @@ import os
 import re
 import sys
 from collections import defaultdict
+
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 
-import matplotlib.pyplot as plt
-import matplotlib
+##
+# Get peak flops
 
-matplotlib.rcParams.update({'font.size': 20})
+if flops := os.getenv('MAX_GFLOPS'):
+    flops = float(flops) * 1e9
+
+##
+# Load and clean data
 
 matcher = re.compile(r'^sgemm_(?P<name>\w+)/(?P<m>\d+)/(?P<n>\d+)/(?P<k>\d+)$')
 
@@ -42,20 +49,49 @@ for series, points in aspect_plots.items():
         *sorted(zip(points['ratio'], points['flops'])))
 
 ##
-# Get peak flops
+# Common plotting styles for ACM one-column figure in two-column layout.
 
-if flops := os.getenv('MAX_GFLOPS'):
-    flops = float(flops) * 1e9
+# compute size
+pts_per_inch = 72.27
+golden_ratio = (5 ** .5 - 1) / 2
+
+latex_textwidth_pts = 240.94499
+width = latex_textwidth_pts / pts_per_inch
+height = width * golden_ratio
+
+matplotlib.rcParams.update({
+    'axes.labelpad': 0,
+    'axes.linewidth': 0.4,
+    'font.size': 6.25,
+    'grid.linewidth': 0.5,
+    'lines.linewidth': 0.75,
+    'pgf.rcfonts': False,
+    'pgf.texsystem': 'pdflatex',
+    'text.usetex': True,
+    'xtick.major.pad': 0.4,
+    'xtick.major.width': 0.4,
+    'ytick.major.pad': 0.4,
+    'ytick.major.width': 0.4,
+    'figure.figsize': (width, height),
+})
 
 
 ##
 # Plotting function
 
 def plot_perf(data, filename, xkey, xlabel, xscale, ykey, ylabel):
-    fig, ax1 = plt.subplots(figsize=(12, 7))
+    fig, ax1 = plt.subplots()
+
+    color_table = {
+        'exo': 'tab:orange',
+        'MKL': 'tab:blue',
+        'OpenBLAS': 'tab:green',
+    }
 
     for series, points in data.items():
-        ax1.plot(points[xkey], points[ykey], label=series)
+        ax1.plot(points[xkey], points[ykey],
+                 label=series,
+                 color=color_table.get(series, None))
 
     ax1.set(xlabel=xlabel, ylabel=ylabel)
     ax1.set_xscale(xscale)
@@ -67,13 +103,16 @@ def plot_perf(data, filename, xkey, xlabel, xscale, ykey, ylabel):
 
     if flops:
         ax2 = ax1.twinx()
-        ax2.set_ylabel('% of peak')
-        ax2.yaxis.set_major_formatter(lambda x, _: f'{x:.0%}')
+        ax2.set_ylabel('$\\%$ of peak')
+        ax2.yaxis.set_major_formatter(lambda x, _: f'${x:.0%}$'.replace('%', '\\%'))
 
         ax1.set_yticks(np.linspace(ax1.get_ybound()[0], ax1.get_ybound()[1], 7))
         ax2.set_yticks(np.linspace(ax2.get_ybound()[0], ax2.get_ybound()[1], 7))
 
-    plt.savefig(filename)
+    fig.tight_layout(pad=0)
+
+    plt.savefig(f'{filename}.png')
+    plt.savefig(f'{filename}.pgf')
 
 
 ##
@@ -81,7 +120,7 @@ def plot_perf(data, filename, xkey, xlabel, xscale, ykey, ylabel):
 
 plot_perf(
     data=aspect_plots,
-    filename='sgemm_aspect_ratio.png',
+    filename='sgemm_aspect_ratio',
     xkey='ratio',
     xlabel='aspect ratio (m/n)',
     xscale='log',
@@ -90,11 +129,11 @@ plot_perf(
 )
 
 ##
-# Create square ratio plots
+# Create square-size plots
 
 plot_perf(
     data=square_plots,
-    filename='sgemm_square.png',
+    filename='sgemm_square',
     xkey='n',
     xlabel='dimension (n)',
     xscale='linear',
