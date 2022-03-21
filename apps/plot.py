@@ -51,17 +51,22 @@ for series, points in aspect_plots.items():
 ##
 # Common plotting styles for ACM one-column figure in two-column layout.
 
-# compute size
+# Size constants
 pts_per_inch = 72.27
 golden_ratio = (5 ** .5 - 1) / 2
 
+# Get from LaTeX by writing \showthe\textwidth (prints points in log)
 latex_textwidth_pts = 240.94499
+
+# Compute figure size
 width = latex_textwidth_pts / pts_per_inch
 height = width * golden_ratio
 
 matplotlib.rcParams.update({
     'axes.labelpad': 0,
+    'axes.labelsize': 7,
     'axes.linewidth': 0.4,
+    'figure.figsize': (width, height),
     'font.size': 6.25,
     'grid.linewidth': 0.5,
     'lines.linewidth': 0.75,
@@ -72,7 +77,6 @@ matplotlib.rcParams.update({
     'xtick.major.width': 0.4,
     'ytick.major.pad': 0.4,
     'ytick.major.width': 0.4,
-    'figure.figsize': (width, height),
 })
 
 
