@@ -93,9 +93,13 @@ def plot_perf(data, filename, xkey, xlabel, xscale, ykey, ylabel):
     }
 
     for series, points in data.items():
-        ax1.plot(points[xkey], points[ykey],
-                 label=series,
-                 color=color_table.get(series, None))
+        ax1.plot(
+            points[xkey],
+            points[ykey],
+            label=series,
+            color=color_table.get(series, None),
+            zorder=100 if series == 'exo' else 1,
+        )
 
     ax1.set(xlabel=xlabel, ylabel=ylabel)
     ax1.set_xscale(xscale)
