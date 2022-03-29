@@ -49,7 +49,10 @@ expressions (basically need to traverse LoopIR stmt to get LoopIR.expr):
     iter
     name
     idx
-"""
+
+@config
+class ConfigLoad:
+    stride: ...
 
 
 def test_cursor_loop_bound():
