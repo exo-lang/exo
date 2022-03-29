@@ -5,7 +5,7 @@ import weakref
 import exo
 from exo import proc
 from exo.LoopIR import LoopIR
-from exo.pattern_match import Cursor
+from exo.cursors import Cursor
 from exo.syntax import size, par, f32
 
 
@@ -21,23 +21,39 @@ def foo(n: size, m: size):
 
 def test_get_root():
     cursor = Cursor.root(foo)
-    assert isinstance(cursor.proc, weakref.ReferenceType)
-    assert isinstance(cursor.proc(), exo.Procedure)
-    assert isinstance(cursor.node, weakref.ReferenceType)
-    assert isinstance(cursor.node(), LoopIR.proc)
-    assert cursor.node() is foo._loopir_proc
+    assert isinstance(cursor._proc, weakref.ReferenceType)
+    assert isinstance(cursor._proc(), exo.Procedure)
+    assert isinstance(cursor._node, weakref.ReferenceType)
+    assert isinstance(cursor._node(), LoopIR.proc)
+    assert cursor._node() is foo._loopir_proc
 
 
 def test_get_child():
     cursor = Cursor.root(foo).child(0)
-    assert cursor.node() is foo._loopir_proc.body[0]
+    assert cursor._node() is foo._loopir_proc.body[0]
 
 
-def test_basic_prune():
-    cursor = Cursor.root(foo).child(0)
-    cursor = cursor.child(1)
-    cursor = cursor.child(4)
-    assert cursor.node() is foo._loopir_proc.body[0].body[0].body[3]
+# fwd(proc)
+"""
+stmt.next() # stmt
+prev() # stmt
+after() # gap
+before() # gap
 
-    # n, m, x: f32, x = 0.0, y: f32
-    assert len(cursor.prune) == 5
+body()
+ast_type() OR is_seq() is_if() is_alloc()...
+expressions (basically need to traverse LoopIR stmt to get LoopIR.expr):
+    hi
+    cond
+    basetype
+    iter
+    name
+    idx
+"""
+
+
+def test_cursor_loop_bound():
+    c_proc = Cursor.root(foo)
+    c_fori = c_proc.child(0)
+    c_bound = c_fori.child(0)
+    assert isinstance(c_bound._node(), LoopIR.Read)

@@ -14,6 +14,7 @@ from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
                                 nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
+from .cursors import Cursor
 from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
@@ -232,6 +233,9 @@ class Procedure(ProcedureBase):
             else:
                 assert len(results) == 1
                 return results[0]
+
+    def body(self):
+        return Cursor.root(self).body()
 
     # ---------------------------------------------- #
     #     execution / interpretation operations
