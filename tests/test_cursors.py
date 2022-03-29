@@ -85,6 +85,53 @@ def test_cursor_gap():
     _c3_ = g2.after()
     assert c3 is _c3_
 
+@pytest.mark.skip()
+def test_explicit_fwd():
+    #for i in par(0, n):
+    #    for j in par(0, m):
+    #        x: f32 <- c1
+    #        x = 0.0
+    #               <- g1
+    #        y: f32
+    #        y = 1.1
+    c1 = foo.find_cursor('x : f32')
+    g1 = c1.after(2)
+    new_foo = foo.fission_at(g1)
+    _c1_ = new_foo.fwd(c1)
+    assert c1._node is _c1_._node
+
+@pytest.mark.skip()
+def test_implicit_fwd():
+    c1 = foo.find_cursor('x : f32')
+    g1 = c1.after(2)
+    foo = foo.fission_at(g1)
+    #for i in par(0, n):
+    #    for j in par(0, m):
+    #        x: f32 <- c1
+    #        x = 0.0
+    #               <- g1
+    #for i in par(0, n):
+    #    for j in par(0, m):
+    #        y: f32
+    #        y = 1.1
+
+    foo = foo.lift_alloc(c1, n_lifts=2)
+    # This should give the following:
+    #x : f32[n,m] <- c1
+    #for i in par(0, n):
+    #    for j in par(0, m):
+    #        x[i,j] = 0.0
+    #               <- g1
+    #for i in par(0, n):
+    #    for j in par(0, m):
+    #        y: f32
+    #        y = 1.1
+
+@pytest.mark.skip()
+def test_cursor_print():
+    # I am not sure how exactly this should look like,
+    # but print(foo) should print cursors like the comments above
+    pass
 
 # fwd(proc)
 """
