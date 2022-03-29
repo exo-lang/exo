@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import weakref
+import pytest
 
 import exo
 from exo import proc
@@ -33,6 +34,58 @@ def test_get_child():
     assert cursor._node() is foo._loopir_proc.body[0]
 
 
+@pytest.mark.skip()
+def test_find_cursor():
+    c = foo.find_cursor('for j in _:_')
+    assert c._node() is foo._loopir_proc.body[0].body[0]
+
+@pytest.mark.skip()
+def test_cursor_move():
+    c = foo.find_cursor('for j in _:_')
+
+    c_list = c.body() # list of j's body
+    assert c_list.is_list()
+    c_list_par = c_list.parent() # for j in _:_
+    assert c is c_list_par
+
+    c1 = c_list[0] # x : f32
+    assert c._node() is foo._loopir_proc.body[0].body[0].body[0]
+    c2 = c1.next() # x = 0.0
+    assert c._node() is foo._loopir_proc.body[0].body[0].body[1]
+    c3 = c1.next(2) # y : f32
+    assert c._node() is foo._loopir_proc.body[0].body[0].body[2]
+
+    _c2_ = c3.prev()
+    assert c2 is _c2_
+    _c1_ = c2.prev(2)
+    assert c1 is _c1_
+
+@pytest.mark.skip()
+def test_cursor_gap():
+    #for i in par(0, n):
+    #    for j in par(0, m):
+    #        x: f32
+    #               <- g1
+    #        x = 0.0
+    #        y: f32
+    #               <- g2
+    #        y = 1.1
+    c = foo.find_cursor('for j in _:_').body()[0] # x : f32
+    g1 = c.after()
+    c1 = foo.find_cursor('x = 0.0')
+    _g1_ = c1.before()
+    assert g1 is _g1_
+
+    g2 = g1.next(2)
+    _g2_ = c1.after(2)
+    assert g2 is _g2_
+
+    # Testing gap -> stmt
+    c3 = foo.find_cursor('y = 1.1')
+    _c3_ = g2.after()
+    assert c3 is _c3_
+
+
 # fwd(proc)
 """
 stmt.next() # stmt
@@ -40,8 +93,9 @@ prev() # stmt
 after() # gap
 before() # gap
 
+parent()
 body()
-ast_type() OR is_seq() is_if() is_alloc()...
+ast_type() OR is_seq() is_if() is_alloc() is_list()... \Yuka{I think is_seq() is nicer}
 expressions (basically need to traverse LoopIR stmt to get LoopIR.expr):
     hi
     cond
@@ -60,3 +114,4 @@ def test_cursor_loop_bound():
     c_fori = c_proc.child(0)
     c_bound = c_fori.child(0)
     assert isinstance(c_bound._node(), LoopIR.Read)
+"""
