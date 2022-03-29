@@ -59,7 +59,7 @@ def match_pattern(ast, pattern_str, call_depth=0, default_match_no=None):
     caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
 
     # break-down pattern_str for possible #<num> post-fix
-    if match := re.search(r"^([^\#]+)\#(\d+)\s*$", pattern_str):
+    if match := re.search(r"^([^#]+)#(\d+)\s*$", pattern_str):
         pattern_str = match[1]
         match_no = int(match[2]) if match[2] is not None else None
     else:
@@ -117,8 +117,8 @@ class PatternMatch:
     def results(self):
         return self._results
 
-    ## -------------------
-    ##  finding methods
+    # -------------------
+    #  finding methods
 
     def find_e_in_stmts(self, pat, stmts):
         for s in stmts:
@@ -129,19 +129,18 @@ class PatternMatch:
         if self._match_i is not None and self._match_i < 0:
             return
 
-        styp = type(stmt)
-        if styp is LoopIR.Assign or styp is LoopIR.Reduce:
+        if isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
             for e in stmt.idx:
                 self.find_e_in_e(pat, e)
             self.find_e_in_e(pat, stmt.rhs)
-        elif styp is LoopIR.If:
+        elif isinstance(stmt, LoopIR.If):
             self.find_e_in_e(pat, stmt.cond)
             self.find_e_in_stmts(pat, stmt.body)
             self.find_e_in_stmts(pat, stmt.orelse)
-        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
+        elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
             self.find_e_in_e(pat, stmt.hi)
             self.find_e_in_stmts(pat, stmt.body)
-        elif styp is LoopIR.Call:
+        elif isinstance(stmt, LoopIR.Call):
             for e in stmt.args:
                 self.find_e_in_e(pat, e)
         else:
@@ -164,12 +163,11 @@ class PatternMatch:
                     return
 
         # if we need to look for more matches, recurse structurally
-        etyp = type(e)
-        if etyp is LoopIR.BinOp:
+        if isinstance(e, LoopIR.BinOp):
             self.find_e_in_e(pat, e.lhs)
             self.find_e_in_e(pat, e.rhs)
 
-        if etyp is LoopIR.USub:
+        if isinstance(e, LoopIR.USub):
             self.find_e_in_e(pat, e.arg)
 
     def find_stmts_in_stmts(self, pat, stmts):
@@ -195,11 +193,10 @@ class PatternMatch:
 
         # first, look for any subsequences of statements in the first
         # statement of the sequence `stmts`
-        styp = type(stmts[0])
-        if styp is LoopIR.If:
+        if isinstance(stmts[0], LoopIR.If):
             self.find_stmts_in_stmts(pat, stmts[0].body)
             self.find_stmts_in_stmts(pat, stmts[0].orelse)
-        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
+        elif isinstance(stmts[0], (LoopIR.ForAll, LoopIR.Seq)):
             self.find_stmts_in_stmts(pat, stmts[0].body)
         else:
             pass  # other forms of statement do not contain stmt blocks
@@ -207,8 +204,8 @@ class PatternMatch:
         # second, recurse on the tail of this sequence...
         self.find_stmts_in_stmts(pat, stmts[1:])
 
-    ## -------------------
-    ##  matching methods
+    # -------------------
+    #  matching methods
 
     def match_stmts(self, pats, stmts):
         # variable for keeping track of whether we
@@ -256,25 +253,26 @@ class PatternMatch:
         return True
 
     def match_stmt(self, pat, stmt):
-        assert not isinstance(pat, PAST.S_Hole), (
-            "holes should be handled " "in match_stmts"
-        )
+        assert not isinstance(
+            pat, PAST.S_Hole
+        ), "holes should be handled in match_stmts"
 
-        # first ensure that we the pattern and statement
+        # first ensure that the pattern and statement
         # are the same constructor
-        styp = type(stmt)
 
-        if styp not in _PAST_to_LoopIR[type(pat)] and styp is not LoopIR.WindowStmt:
+        if not isinstance(
+            stmt, (LoopIR.WindowStmt,) + tuple(_PAST_to_LoopIR[type(pat)])
+        ):
             return False
 
         # then handle each constructor as a structural case
-        if styp is LoopIR.Assign or styp is LoopIR.Reduce:
+        if isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
             return (
                 self.match_name(pat.name, stmt.name)
                 and all(self.match_e(pi, si) for pi, si in zip(pat.idx, stmt.idx))
                 and self.match_e(pat.rhs, stmt.rhs)
             )
-        elif styp is LoopIR.WindowStmt:
+        elif isinstance(stmt, LoopIR.WindowStmt):
             if isinstance(pat, PAST.Assign):
                 return (
                     self.match_name(pat.name, stmt.lhs)
@@ -283,53 +281,51 @@ class PatternMatch:
                 )
             else:
                 return False
-        elif styp is LoopIR.Pass:
+        elif isinstance(stmt, LoopIR.Pass):
             return True
-        elif styp is LoopIR.If:
+        elif isinstance(stmt, LoopIR.If):
             return (
                 self.match_e(pat.cond, stmt.cond)
                 and self.match_stmts(pat.body, stmt.body)
                 and self.match_stmts(pat.orelse, stmt.orelse)
             )
-        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
+        elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
             return (
                 self.match_name(pat.iter, stmt.iter)
                 and self.match_e(pat.hi, stmt.hi)
                 and self.match_stmts(pat.body, stmt.body)
             )
-        elif styp is LoopIR.Alloc:
+        elif isinstance(stmt, LoopIR.Alloc):
             if isinstance(stmt.type, LoopIR.Tensor):
                 return all(
                     self.match_e(pi, si) for pi, si in zip(pat.sizes, stmt.type.hi)
                 ) and self.match_name(pat.name, stmt.name)
             else:  # scalar
                 return self.match_name(pat.name, stmt.name)
-        elif styp is LoopIR.Call:
+        elif isinstance(stmt, LoopIR.Call):
             return self.match_name(pat.f, stmt.f.name)
-        elif styp is LoopIR.WriteConfig:
+        elif isinstance(stmt, LoopIR.WriteConfig):
             return self.match_name(stmt.config.name(), pat.config) and self.match_name(
                 stmt.field, pat.field
             )
         else:
-            assert False, f"bad case: {styp}"
+            assert False, f"bad case: {type(stmt)}"
 
     def match_e(self, pat, e):
-        # expression holes can match anything
-        # and we don't have to worry about Kleene-Star behavior
+        # expression holes can match anything, and we
+        # don't have to worry about Kleene-Star behavior
         if isinstance(pat, PAST.E_Hole):
             return True
 
-        # first ensure that we the pattern and statement
-        # are the same constructor
-        etyp = type(e)
-        if etyp not in _PAST_to_LoopIR[type(pat)] and etyp is not LoopIR.WindowExpr:
+        # first ensure that the pattern and statement are the same constructor
+        if not isinstance(e, (LoopIR.WindowExpr,) + tuple(_PAST_to_LoopIR[type(pat)])):
             return False
 
-        if etyp is LoopIR.Read:
+        if isinstance(e, LoopIR.Read):
             return self.match_name(pat.name, e.name) and all(
                 self.match_e(pi, si) for pi, si in zip(pat.idx, e.idx)
             )
-        elif etyp is LoopIR.WindowExpr:
+        elif isinstance(e, LoopIR.WindowExpr):
             if isinstance(pat, PAST.Read):
                 # TODO: Should we be able to handle window slicing matching? Nah..
                 if len(pat.idx) != 1 or not isinstance(pat.idx[0], PAST.E_Hole):
@@ -337,18 +333,19 @@ class PatternMatch:
                 return self.match_name(pat.name, e.name)
             else:
                 return False
-        elif etyp is LoopIR.Const:
+        elif isinstance(e, LoopIR.Const):
             return pat.val == e.val
-        elif etyp is LoopIR.BinOp:
+        elif isinstance(e, LoopIR.BinOp):
             return (
                 pat.op == e.op
                 and self.match_e(pat.lhs, e.lhs)
                 and self.match_e(pat.rhs, e.rhs)
             )
-        elif etyp is LoopIR.USub:
+        elif isinstance(e, LoopIR.USub):
             return self.match_e(pat.arg, e.arg)
         else:
             assert False, "bad case"
 
-    def match_name(self, pat_nm, ir_sym):
+    @staticmethod
+    def match_name(pat_nm, ir_sym):
         return pat_nm == "_" or pat_nm == str(ir_sym)
