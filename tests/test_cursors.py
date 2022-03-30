@@ -147,6 +147,8 @@ def test_cursor_print():
 
 # fwd(proc)
 """
+find_cursor()
+
 stmt.next() # stmt
 prev() # stmt
 after() # gap
@@ -167,6 +169,19 @@ expressions (basically need to traverse LoopIR stmt to get LoopIR.expr):
 class ConfigLoad:
     stride: ...
 
+def foo(src_stride: stride):
+    pass
+    x : i8
+    ...
+configwrite_at(c, )
+configwrite_after('pass', ConfigLoad.stride, foo.arg()[0]._loopir())
+def foo(src_stride: stride):
+    pass
+    ConfigLoad.stride = src_stride
+    x : i8
+    ...
+configwrite_after('stride', None)
+"""
 
 
 def test_cursor_loop_bound():
