@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from SYS_ATL import Memory, DRAM, instr
+from exo import Memory, DRAM, instr
 
 def _is_const_size(sz, c):
     return sz.isdecimal() and int(sz) == c
