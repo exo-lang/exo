@@ -1,123 +1,113 @@
 from __future__ import annotations
 
-from ctypes import POINTER, c_int, c_bool
-
 import numpy as np
-from PIL import Image
-
-from SYS_ATL import proc, Procedure, DRAM
-from SYS_ATL.libs.memories import MDRAM
-from .helper import gkern, TMP_DIR, IMAGE, nprand, generate_lib, cvt_c, nparray
-
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+
+from exo import proc
+
 
 def wconv_3x3():
     # res <- A @ B @ A^T
     @proc
-    def multiply(n : size, m : size,
-                 A : f32[n,m],
-                 B : f32[m,m],
-                 res : f32[n,n]):
+    def multiply(n: size, m: size,
+                 A: f32[n, m],
+                 B: f32[m, m],
+                 res: f32[n, n]):
 
-        tmp : f32[n,m]
+        tmp: f32[n, m]
         for i in seq(0, n):
             for j in seq(0, m):
-                tmp[i,j] = 0.0
+                tmp[i, j] = 0.0
                 for k in seq(0, m):
-                    tmp[i,j] += A[i,k] * B[k,j] 
+                    tmp[i, j] += A[i, k] * B[k, j]
 
         for i in seq(0, n):
             for j in seq(0, n):
-                res[i,j] = 0.0
+                res[i, j] = 0.0
                 for k in seq(0, m):
-                    res[i,j] += tmp[i,k] * A[j,k] 
+                    res[i, j] += tmp[i, k] * A[j, k]
 
-    # C <- A @ B (element wise)
+                    # C <- A @ B (element wise)
+
     @proc
-    def element(n : size,
-                A : f32[n,n],
-                B : f32[n,n],
-                C : f32[n,n]):
+    def element(n: size,
+                A: f32[n, n],
+                B: f32[n, n],
+                C: f32[n, n]):
 
-        for i in seq(0,n):
-            for j in seq(0,n):
-                C[i,j] = A[i,j] * B[i,j]
-
+        for i in seq(0, n):
+            for j in seq(0, n):
+                C[i, j] = A[i, j] * B[i, j]
 
     @proc
     def wconv(
-        inp       : f32[4,4],
-        kernel    : f32[3,3],
-        res       : f32[2,2],
-        B_T       : f32[4,4],
-        G         : f32[4,3],
-        A_T       : f32[2,4] ):
+            inp: f32[4, 4],
+            kernel: f32[3, 3],
+            res: f32[2, 2],
+            B_T: f32[4, 4],
+            G: f32[4, 3],
+            A_T: f32[2, 4]):
 
         # Cannot do this
-        #B_T = [1,	0,	-1,	0, \
+        # B_T = [1,	0,	-1,	0, \
         #       0,	1,	1,	0, \
         #       0,	-1,	1,	0, \
         #       0,	1,	0,	-1]
 
-        U : f32[4,4]
+        U: f32[4, 4]
         # U <- G @ kernel @ G^T
         multiply(4, 3, G, kernel, U)
 
-        V : f32[4,4]
+        V: f32[4, 4]
         # V <- B^T @ inp @ B
         multiply(4, 4, B_T, inp, V)
 
-        M : f32[4,4]
+        M: f32[4, 4]
         # M <- U @ V (element wise)
         element(4, U, V, M)
 
         # res <- A^T @ M @ A
         multiply(2, 4, A_T, M, res)
 
-
     return wconv
 
 
-def test_winograd():
+def test_winograd(compiler):
     conv = wconv_3x3()
 
-    filename = "test_winograd"
+    wconv = compiler.compile(conv)
 
-    conv.compile_c(TMP_DIR, filename)
+    B_T = np.array([(1, 0, -1, 0),
+                    (0, 1, 1, 0),
+                    (0, -1, 1, 0),
+                    (0, 1, 0, -1)])
 
-    B_T = np.array([(1,	0, -1, 0), \
-                    (0,	1,  1, 0), \
-                    (0, -1, 1, 0), \
-                    (0,	1,  0, -1)])
+    G = np.array([(1, 0, 0),
+                  (1 / 2, 1 / 2, 1 / 2),
+                  (1 / 2, -1 / 2, 1 / 2),
+                  (0, 0, 1)])
 
-    G =   np.array([(1,	0, 0), \
-                    (1/2,1/2,1/2), \
-                    (1/2,-1/2,1/2), \
-                    (0, 0, 1)])
-
-    A_T = np.array([(1, 1, 1, 0), \
-                    (0,	1, -1, -1)])
+    A_T = np.array([(1, 1, 1, 0),
+                    (0, 1, -1, -1)])
 
     n = 4
     m = 3
     # batch, channel = 1
     kernel = torch.randint(high=100, size=(1, 1, m, m)).float()
-    inp    = torch.randint(high=100, size=(1, 1, n, n)).float()
+    inp = torch.randint(high=100, size=(1, 1, n, n)).float()
 
-    ref    = F.conv2d(inp, kernel)
+    ref = F.conv2d(inp, kernel)
 
     kernel = kernel.detach().numpy()
-    inp    = inp.detach().numpy()
-    res    = nprand(size=(2, 2))
+    inp = inp.detach().numpy()
+    res = np.zeros(shape=(2, 2), dtype=np.float32)
 
-    res_c = cvt_c(res)
-    test_lib = generate_lib(filename)
-    test_lib.wconv(POINTER(c_int)(), cvt_c(inp), cvt_c(kernel), cvt_c(res),
-                  cvt_c(B_T), cvt_c(G), cvt_c(A_T))
-    res_c = np.ctypeslib.as_array(res_c, shape=(2,2))
-    print(res_c)
+    wconv(None, inp, kernel, res, B_T, G, A_T)
+    print(res)
+
+    # TODO: finish test, validate output (returns NaN right now)
+
 
 """
     n_size = IMAGE.shape[0]
@@ -134,4 +124,3 @@ def test_winograd():
     out = Image.fromarray(res_c)
     out.save(os.path.join(TMP_DIR, filename + '_out.png'))
 """
-

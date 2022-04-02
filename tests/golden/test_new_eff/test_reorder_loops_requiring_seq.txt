@@ -1,0 +1,6 @@
+def foo(N: size, x: R[N, N] @ DRAM):
+    for j in par(0, N):
+        for i in par(0, N):
+            if i > 0 and j > 0:
+                x[i, j] += -1.0 / 3.0 * (x[i - 1, j] + x[i - 1, j - 1] +
+                                         x[i, j - 1])

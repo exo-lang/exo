@@ -6,8 +6,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 
 ## Build dependencies
 
-# Ensure SYS_ATL is up to date
-(cd "${ROOT_DIR}" && pip uninstall -y SYS_ATL && python -m build &&
+# Ensure Exo is up to date
+(cd "${ROOT_DIR}" && pip uninstall -y exo-lang && python -m build &&
   pip install dist/*.whl)
 
 # Build and stage Google Benchmark
@@ -34,7 +34,7 @@ cmake --build build/apps
 ## Run correctness checks
 
 set -e
-./build/apps/x86_demo/sgemm/run_systl 1000
+./build/apps/x86_demo/sgemm/run_exo 1000
 ./build/apps/x86_demo/conv/test_conv
 
 ## Run benchmarks

@@ -1,0 +1,68 @@
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define EXO_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define EXO_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if EXO_HAS_BUILTIN(__builtin_assume)
+#  define EXO_ASSUME(expr) __builtin_assume(expr)
+#elif EXO_HAS_BUILTIN(__builtin_unreachable)
+#  define EXO_ASSUME(expr) \
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define EXO_ASSUME(expr) ((void)(expr))
+#endif
+
+struct exo_win_2i8{
+    int8_t *data;
+    int_fast32_t strides[2];
+};
+typedef struct c_code_str_Context { 
+
+} c_code_str_Context;
+
+
+// window(
+//     n : size,
+//     m : size,
+//     src : [i8][n,m]  @DRAM,
+//     dst : [i8][n,16]  @DRAM
+// )
+void window( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8 src, struct exo_win_2i8 dst );
+
+
+static int _floor_div(int num, int quot) {
+  int off = (num>=0)? 0 : quot-1;
+  return (num-off)/quot;
+}
+
+static int8_t _clamp_32to8(int32_t x) {
+  return (x < -128)? -128 : ((x > 127)? 127 : x);
+}
+
+#include <stdio.h>
+#include <stdlib.h>
+
+
+// window(
+//     n : size,
+//     m : size,
+//     src : [i8][n,m]  @DRAM,
+//     dst : [i8][n,16]  @DRAM
+// )
+void window( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8 src, struct exo_win_2i8 dst ) {
+EXO_ASSUME(n <= 16);
+EXO_ASSUME(m <= 16);
+for (int i = 0; i < n; i++) {
+  for (int j = 0; j < m; j++) {
+    dst.data[(i) * (dst.strides[0]) + (j) * (dst.strides[1])] = src.data[(i) * (src.strides[0]) + (j) * (src.strides[1])];
+  }
+}
+}

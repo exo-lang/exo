@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------- #
-# SYS_ATL libraries
+# Exo libraries
 
-add_sys_atl_library(sgemm sgemm.py)
+add_exo_library(sgemm sgemm.py)
 
 
 # ---------------------------------------------------------------------------- #
@@ -49,11 +49,11 @@ endif ()
 # ---------------------------------------------------------------------------- #
 # Tiny harness
 
-add_executable(run_systl test.cpp)
+add_executable(run_exo test.cpp)
 target_link_libraries(
-  run_systl
+  run_exo
   PRIVATE
   x86_demo::sgemm
   alex_sgemm
 )
-target_compile_features(run_systl PRIVATE cxx_std_17)
+target_compile_features(run_exo PRIVATE cxx_std_17)

@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from SYS_ATL import compile_procs
+from exo import compile_procs
 
 GEMMINI_ROOT = os.getenv('GEMMINI_ROOT')
 if GEMMINI_ROOT is None:
@@ -52,7 +52,7 @@ if RISCV is not None:
                           ])
 
 _HERE_              = os.path.dirname(os.path.abspath(__file__))
-SYSTL_ROOT          = os.path.abspath(os.path.join(_HERE_,'..'))
+EXO_ROOT          = os.path.abspath(os.path.join(_HERE_,'..'))
 DIR_TEST_ROOT       = _HERE_
 TMP_DIR             = os.path.join(DIR_TEST_ROOT,'tmp')
 
@@ -80,7 +80,7 @@ if RISCV is not None:
     ENV.CC_BAREMETAL        = CC_BAREMETAL
     ENV.CFLAGS_BAREMETAL    = CFLAGS_BAREMETAL
 
-ENV.SYSTL_ROOT          = SYSTL_ROOT
+ENV.EXO_ROOT          = EXO_ROOT
 ENV.DIR_TEST_ROOT       = DIR_TEST_ROOT
 ENV.TMP_DIR             = TMP_DIR
 

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
 from .gemmini import *
 from .harness_gemmini import GemmTestBuilder
 
-import pytest
-
 pytest.skip("skipping gemmini tests that are bitrotted",
             allow_module_level=True)
+
+
 # --------------------------------------------------------------------------- #
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #
@@ -24,34 +26,36 @@ def test_ldst_acc_i8_16():
     T.alloc_dram_2i8('z', 16, 16, '0')
 
     @instr("{dst}[0] = ACC_SCALE({src}[0], {scale}[0]);")
-    def acc_scale(src : i32, dst : f32, scale : f32):
+    def acc_scale(src: i32, dst: f32, scale: f32):
         pass
 
     @proc
-    def ldst_cpu( x : i8[16,16] @DRAM, z : i8[16,16] @DRAM, scale : f32, act : bool ):
+    def ldst_cpu(x: i8[16, 16] @ DRAM, z: i8[16, 16] @ DRAM, scale: f32,
+                 act: bool):
         for i in par(0, 16):
             for j in par(0, 16):
-                res : i32 @ DRAM
-                res = x[i,j]
+                res: i32 @ DRAM
+                res = x[i, j]
 
-                tmp_res1 : f32
-                #tmp_res1 = res
-                #tmp_res1 = tmp_res1 * scale
+                tmp_res1: f32
+                # tmp_res1 = res
+                # tmp_res1 = tmp_res1 * scale
                 acc_scale(res, tmp_res1, scale)
-                tmp_res2 : i8
+                tmp_res2: i8
                 clamp(tmp_res1, tmp_res2)
                 if act == True:
                     tmp_res2 = relu(tmp_res2)
 
-                z[i,j] = tmp_res1
+                z[i, j] = tmp_res1
 
     @proc
-    def ldst_acc_i8_16( x : i8[16,16] @ DRAM, y : i8[16,16] @ DRAM, scale : f32, act : bool ):
-        tmp : i32[16,16] @ GEMM_ACCUM
-        one : f32
+    def ldst_acc_i8_16(x: i8[16, 16] @ DRAM, y: i8[16, 16] @ DRAM, scale: f32,
+                       act: bool):
+        tmp: i32[16, 16] @ GEMM_ACCUM
+        one: f32
         one = 1.0
-        ld_acc_i8(16,16, one, x, tmp)
-        st_acc_i8(16,16, scale, act, tmp, y)
+        ld_acc_i8(16, 16, one, x, tmp)
+        st_acc_i8(16, 16, scale, act, tmp, y)
 
     T.add_proc(ldst_acc_i8_16)
     T.add_proc(ldst_cpu)
@@ -73,7 +77,7 @@ def test_ldst_acc_i8_16():
                 ''])
 
     T.compile().run()
-    
+
 
 """
 def test_ldst_i8_16():

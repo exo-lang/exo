@@ -1,0 +1,23 @@
+name: Lint
+on:
+  pull_request:
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - uses: DoozyX/clang-format-lint-action@v0.13
+        with:
+          source: '.'
+          exclude: './dependencies ./tests/gemmini/gemmini-rocc-tests'
+          clangFormatVersion: 12
+          inplace: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+      # Only push to internal PRs
+      - uses: EndBug/add-and-commit@v4
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          message: '🤖 apply linter changes (will not trigger CI)'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

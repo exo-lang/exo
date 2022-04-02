@@ -1,0 +1,3 @@
+def foo(x: f32 @ DRAM):
+    ConfigAB.a = 32.0
+    x = ConfigAB.a

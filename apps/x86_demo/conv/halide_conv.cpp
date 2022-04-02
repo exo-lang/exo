@@ -1,7 +1,7 @@
 #include "halide_conv.hpp"
 
-#include <halide_conv_kernel.h>
 #include <HalideBuffer.h>
+#include <halide_conv_kernel.h>
 
 using namespace Halide::Runtime;
 

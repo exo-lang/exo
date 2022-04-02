@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from SYS_ATL.new_eff import *
+from exo.new_eff import *
 
-from SYS_ATL import proc, config, DRAM, SchedulingError
+from exo import proc, config, DRAM, SchedulingError
 
 
 print()
@@ -55,7 +55,7 @@ def test_reorder_alloc_fail():
         foo = foo.reorder_stmts('y : R', 'y = 4.0')
         print(foo)
 
-def test_reorder_loops_success():
+def test_reorder_loops_success(golden):
     @proc
     def foo( N : size, x : R[N,N] ):
         for i in seq(0,N):
@@ -63,7 +63,7 @@ def test_reorder_loops_success():
                 x[i,j] = x[i,j] * 2.0
 
     foo = foo.reorder('i','j')
-    print(foo)
+    assert str(foo) == golden
 
 
 def test_reorder_loops_fail():
@@ -78,7 +78,7 @@ def test_reorder_loops_fail():
         foo = foo.reorder('i','j')
         print(foo)
 
-def test_alloc_success():
+def test_alloc_success(golden):
     @proc
     def foo( N : size, x : R[N,N] ):
         for i in seq(0,N):
@@ -88,9 +88,9 @@ def test_alloc_success():
                 x[i,j] = tmp
 
     foo = foo.reorder('i','j')
-    print(foo)
+    assert str(foo) == golden
 
-def test_reorder_loops_requiring_seq():
+def test_reorder_loops_requiring_seq(golden):
     # the stencil pattern here looks like
     #     o     o
     #       \   |
@@ -109,9 +109,9 @@ def test_reorder_loops_requiring_seq():
                     x[i,j] += -1.0/3.0 * (x[i-1,j] + x[i-1,j-1] + x[i,j-1])
 
     foo = foo.reorder('i','j')
-    print(foo)
+    assert str(foo) == golden
 
-def test_reorder_loops_4pt_stencil_succeed():
+def test_reorder_loops_4pt_stencil_succeed(golden):
     # Also, a 4-point stencil being
     # used in e.g. a Gauss-Seidel scheme can be reordered
 
@@ -124,7 +124,7 @@ def test_reorder_loops_4pt_stencil_succeed():
                                           x[i,j-1] + x[i,j+1])
 
     foo = foo.reorder('i','j')
-    print(foo)
+    assert str(foo) == golden
 
 
 
@@ -152,7 +152,7 @@ def test_reorder_loops_failing_seq():
 # rewrites are allowed or not.
 
 
-def test_delete_config_basic():
+def test_delete_config_basic(golden):
     @config
     class CFG:
         a : index
@@ -165,10 +165,10 @@ def test_delete_config_basic():
             x[i] = x[i] + 1.0
 
     foo = foo.delete_config('CFG.a = _')
-    print(foo)
+    assert str(foo) == golden
 
 
-def test_delete_config_subproc_basic():
+def test_delete_config_subproc_basic(golden):
     @config
     class CFG:
         a : index
@@ -186,7 +186,7 @@ def test_delete_config_subproc_basic():
             x[i] = x[i] + 1.0
 
     foo = foo.delete_config('do_config()')
-    print(foo)
+    assert str(foo) == golden
 
 def test_delete_config_fail():
     @config
@@ -230,7 +230,7 @@ def test_delete_config_subproc_fail():
         print(foo)
 
 
-def test_delete_config_bc_shadow():
+def test_delete_config_bc_shadow(golden):
     @config
     class CFG:
         a : index
@@ -245,10 +245,10 @@ def test_delete_config_bc_shadow():
                 x[i] = x[i] + 1.0
 
     foo = foo.delete_config('CFG.a = _ #0')
-    print(foo)
+    assert str(foo) == golden
 
 
-def test_delete_config_bc_redundant():
+def test_delete_config_bc_redundant(golden):
     @config
     class CFG:
         a : index
@@ -263,7 +263,7 @@ def test_delete_config_bc_redundant():
                 x[i] = x[i] + 1.0
 
     foo = foo.delete_config('CFG.a = _ #1')
-    print(foo)
+    assert str(foo) == golden
 
 def test_delete_config_fail_bc_not_redundant():
     @config
@@ -283,9 +283,3 @@ def test_delete_config_fail_bc_not_redundant():
                        match='Cannot change configuration value of CFG_a'):
         foo = foo.delete_config('CFG.a = _ #1')
         print(foo)
-
-
-
-
-
-

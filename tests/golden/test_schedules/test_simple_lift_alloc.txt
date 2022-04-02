@@ -1,0 +1,4 @@
+def bar(n: size, A: i8[n] @ DRAM):
+    tmp_a: i8[n + 1] @ DRAM
+    for i in par(0, n):
+        tmp_a[i] = A[i]

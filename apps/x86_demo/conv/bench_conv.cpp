@@ -10,9 +10,9 @@
 #include <numeric>
 #include <vector>
 
+#include "exo_conv.hpp"
 #include "halide_conv.hpp"
 #include "onednn_conv.hpp"
-#include "sys_atl_conv.hpp"
 
 static long num_fmas(conv_instance &ci) {
   return ci.N * ci.OH * ci.OW * ci.OC * ci.KH * ci.KW * ci.IC;
@@ -29,8 +29,8 @@ void conv_oneDNN(benchmark::State &state) {
       pad = state.range(6),         // e.g. 3
       stride = state.range(7);      // e.g. 2
 
-  conv_instance ci{batch_size, in_h,    in_w, in_chan,
-                   out_chan,   kern_sz, pad,  stride};
+  conv_instance ci{
+      batch_size, in_h, in_w, in_chan, out_chan, kern_sz, pad, stride};
 
   OneDNN_Conv reference{ci};
   for ([[maybe_unused]] auto _ : state) {
@@ -52,7 +52,7 @@ BENCHMARK(conv_oneDNN)  // N in-dim in-chan out-chan kern-dim pad str
     ->Args({5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1})  // Halide size
     ;
 
-void conv_SYS_ATL(benchmark::State &state) {
+void conv_exo(benchmark::State &state) {
   const long                        // Benchmark inputs.
       batch_size = state.range(0),  // e.g. 4
       in_h = state.range(1),        // e.g. 224
@@ -63,11 +63,11 @@ void conv_SYS_ATL(benchmark::State &state) {
       pad = state.range(6),         // e.g. 3
       stride = state.range(7);      // e.g. 2
 
-  conv_instance ci{batch_size, in_h,    in_w, in_chan,
-                   out_chan,   kern_sz, pad,  stride};
+  conv_instance ci{
+      batch_size, in_h, in_w, in_chan, out_chan, kern_sz, pad, stride};
 
   for ([[maybe_unused]] auto _ : state) {
-    sys_atl_conv(ci);
+    exo_conv(ci);
   }
 
   state.counters["flops"] = benchmark::Counter(
@@ -77,8 +77,8 @@ void conv_SYS_ATL(benchmark::State &state) {
   );
 }
 
-BENCHMARK(conv_SYS_ATL)  // N in-dim in-chan out-chan kern-dim pad str
-                         //    ->Args({4, 56, 56, 64, 64, 3, 0, 1}) // test size
+BENCHMARK(conv_exo)  // N in-dim in-chan out-chan kern-dim pad str
+                     //    ->Args({4, 56, 56, 64, 64, 3, 0, 1}) // test size
     ->Args({5, 80 + 2, 100 + 2, 128, 128, 3, 0, 1})  // Halide size
     ;
 
@@ -93,8 +93,8 @@ void conv_Halide(benchmark::State &state) {
       pad = state.range(6),         // e.g. 3
       stride = state.range(7);      // e.g. 2
 
-  conv_instance ci{batch_size, in_h,    in_w, in_chan,
-                   out_chan,   kern_sz, pad,  stride};
+  conv_instance ci{
+      batch_size, in_h, in_w, in_chan, out_chan, kern_sz, pad, stride};
 
   for ([[maybe_unused]] auto _ : state) {
     halide_conv(ci);

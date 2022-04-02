@@ -26,7 +26,7 @@ static float a_l2[I_L2_BLK * K_L2_BLK] __attribute__((aligned(64)));
 static float b_l2[K_L2_BLK * J_L2_BLK] __attribute__((aligned(64)));
 
 static void copy_and_pad(float *__restrict b, long ldb,
-                         const float *__restrict a, long lda, long M, long N) {
+    const float *__restrict a, long lda, long M, long N) {
   __mmask16 mask = (1 << (N % 16)) - 1;
   constexpr auto streams = 3;
 
@@ -37,16 +37,14 @@ static void copy_and_pad(float *__restrict b, long ldb,
       if (io + streams < M) {
         for (long i = io; i < io + streams; i++) {
           _mm512_storeu_ps(&b[i * ldb + j],
-                           j + 16 > N
-                               ? _mm512_maskz_loadu_ps(mask, &a[i * lda + j])
-                               : _mm512_loadu_ps(&a[i * lda + j]));
+              j + 16 > N ? _mm512_maskz_loadu_ps(mask, &a[i * lda + j])
+                         : _mm512_loadu_ps(&a[i * lda + j]));
         }
       } else {
         for (long i = io; i < M; i++) {
           _mm512_storeu_ps(&b[i * ldb + j],
-                           j + 16 > N
-                               ? _mm512_maskz_loadu_ps(mask, &a[i * lda + j])
-                               : _mm512_loadu_ps(&a[i * lda + j]));
+              j + 16 > N ? _mm512_maskz_loadu_ps(mask, &a[i * lda + j])
+                         : _mm512_loadu_ps(&a[i * lda + j]));
         }
       }
     }
@@ -54,8 +52,8 @@ static void copy_and_pad(float *__restrict b, long ldb,
 }
 
 template <int I_REG, int J_REG>
-static void sgemm_padded_load(vec_type (&inner_c)[I_REG][J_REG], float *c,
-                              long ldc, short mask) {
+static void sgemm_padded_load(
+    vec_type (&inner_c)[I_REG][J_REG], float *c, long ldc, short mask) {
   for (long i = 0; i < I_REG; i++) {
     long jo = 0;
     for (; jo < J_REG - 1; jo++) {
@@ -67,8 +65,8 @@ static void sgemm_padded_load(vec_type (&inner_c)[I_REG][J_REG], float *c,
 }
 
 template <int I_REG, int J_REG>
-static void sgemm_padded_store(vec_type (&inner_c)[I_REG][J_REG], float *c,
-                               long ldc, short mask) {
+static void sgemm_padded_store(
+    vec_type (&inner_c)[I_REG][J_REG], float *c, long ldc, short mask) {
   // Write back to C
   for (long i = 0; i < I_REG; i++) {
     long jo = 0;
@@ -81,8 +79,8 @@ static void sgemm_padded_store(vec_type (&inner_c)[I_REG][J_REG], float *c,
 }
 
 template <int I_REG, int J_REG>
-static void sgemm_accumulate(const float *a, const float *b,
-                             vec_type (&inner_c)[I_REG][J_REG], long K) {
+static void sgemm_accumulate(
+    const float *a, const float *b, vec_type (&inner_c)[I_REG][J_REG], long K) {
   // Accumulate into registers
   long k = -K;
   do {
@@ -100,7 +98,7 @@ static void sgemm_accumulate(const float *a, const float *b,
 
 template <int I_REG, int J_REG>
 void sgemm_micro_kernel_staged_M_N(const float *a, const float *b, float *c,
-                                   long ldc, const long N, const long K) {
+    long ldc, const long N, const long K) {
   vec_type inner_c[I_REG][J_REG] = {0};
 
   const auto Nb = N - 16 * (J_REG - 1);
@@ -111,15 +109,15 @@ void sgemm_micro_kernel_staged_M_N(const float *a, const float *b, float *c,
   sgemm_padded_store(inner_c, c, ldc, mask);
 }
 
-static void sgemm_micro_kernel(const float *a, const float *b, float *c,
-                               long ldc, long K) {
-  sgemm_micro_kernel_staged_M_N<I_REG_BLK, J_REG_BLK / 16>(a, b, c, ldc,
-                                                           J_REG_BLK, K);
+static void sgemm_micro_kernel(
+    const float *a, const float *b, float *c, long ldc, long K) {
+  sgemm_micro_kernel_staged_M_N<I_REG_BLK, J_REG_BLK / 16>(
+      a, b, c, ldc, J_REG_BLK, K);
 }
 
 template <int M>
 void sgemm_micro_kernel_staged_inner(const float *a, const float *b, float *c,
-                                     long ldc, const long N, const long K) {
+    long ldc, const long N, const long K) {
   switch ((N + 15) / 16) {
   case 1:
     sgemm_micro_kernel_staged_M_N<M, 1>(a, b, c, ldc, N, K);
@@ -139,8 +137,7 @@ void sgemm_micro_kernel_staged_inner(const float *a, const float *b, float *c,
 }
 
 static void sgemm_micro_kernel_staged(const float *a, const float *b, float *c,
-                                      long ldc, const long M, const long N,
-                                      const long K) {
+    long ldc, const long M, const long N, const long K) {
   switch (M) {
   case 1:
     sgemm_micro_kernel_staged_inner<1>(a, b, c, ldc, N, K);
@@ -166,7 +163,7 @@ static void sgemm_micro_kernel_staged(const float *a, const float *b, float *c,
 }
 
 static void sgemm_l1_blocked(const float *a, const float *b, float *c, long ldc,
-                             const long M, const long N, const long K) {
+    const long M, const long N, const long K) {
   long i;
   long j = 0;
   // In the common case, stream directly from memory
@@ -178,23 +175,22 @@ static void sgemm_l1_blocked(const float *a, const float *b, float *c, long ldc,
   // Handle the right unaligned panel.
   if (j < N) {
     for (long ii = 0; ii <= M - I_REG_BLK; ii += I_REG_BLK) {
-      sgemm_micro_kernel_staged(&a[ii * K_L2_BLK], &b[j], &c[ii * ldc + j], ldc,
-                                I_REG_BLK, N - j, K);
+      sgemm_micro_kernel_staged(
+          &a[ii * K_L2_BLK], &b[j], &c[ii * ldc + j], ldc, I_REG_BLK, N - j, K);
     }
   }
   // Handle the bottom unaligned panel.
   if (i < M) {
     for (long jj = 0; jj < N; jj += J_REG_BLK) {
       sgemm_micro_kernel_staged(&a[i * K_L2_BLK], &b[jj], &c[i * ldc + jj], ldc,
-                                M - i, std::min((long)J_REG_BLK, N - jj), K);
+          M - i, std::min((long)J_REG_BLK, N - jj), K);
     }
   }
 }
 
 static void sgemm_l2_blocked(const float *__restrict a, const long lda,
-                             const float *__restrict b, const long ldb,
-                             float *__restrict c, const long ldc, const long M,
-                             const long N, const long K) {
+    const float *__restrict b, const long ldb, float *__restrict c,
+    const long ldc, const long M, const long N, const long K) {
   for (long k = 0; k < K; k += K_L2_BLK) {
     long Kb = std::min((long)K_L2_BLK, K - k);
     for (long i = 0; i < M; i += I_L2_BLK) {

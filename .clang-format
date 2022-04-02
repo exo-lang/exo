@@ -1,0 +1,7 @@
+---
+BasedOnStyle: LLVM
+AlignAfterOpenBracket: DontAlign
+SpacesBeforeTrailingComments: 2
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+AlignAfterOpenBracket: DontAlign
+AlwaysBreakTemplateDeclarations: Yes

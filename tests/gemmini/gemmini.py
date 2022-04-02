@@ -1,9 +1,69 @@
 from __future__ import annotations
 
-from SYS_ATL import proc, instr, DRAM, config, QAST
-from SYS_ATL.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
+from exo import proc, instr, DRAM, config, QAST
+from exo.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
+
+def split_fission_dim(conv):
+    conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
+    conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
+    conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
+    conv = conv.reorder('ocol_i', 'och_o')
+    conv = conv.lift_alloc('res : _', n_lifts=3)
+    conv = conv.fission_after('res[_] = _', n_lifts=3)
+    conv = conv.fission_after('for krow in _:_', n_lifts=3)
+    conv = conv.reorder('och_i', 'krow')
+    conv = conv.reorder('och_i', 'kcol')
+    conv = conv.reorder('och_i', 'kch_o')
+    conv = conv.reorder('ocol_i', 'krow')
+    conv = conv.reorder('ocol_i', 'kcol')
+    conv = conv.reorder('ocol_i', 'kch_o')
+    conv = conv.reorder('och_o', 'krow')
+    conv = conv.simplify()
+    conv = conv.lift_alloc('i_s : _', n_lifts=6)
+    conv = conv.lift_alloc('w_s : _', n_lifts=1)
+    conv = conv.lift_alloc('w_s : _', n_lifts=1, mode='col')
+    conv = conv.reorder('och_o', 'kcol')
+    conv = conv.reorder('och_o', 'kch_o')
+    conv = conv.lift_alloc('w_s : _', n_lifts=3)
+    conv = conv.fission_after('w_s = _', n_lifts=5)
+    conv = conv.fission_after('i_s = _', n_lifts=5)
+
+    return conv
+
+def replace_div_part(conv):
+    conv = conv.replace(ld_acc_i32_vector, 'for ocol_i in _:_ #0')
+    conv = conv.reorder('och_i', 'kch_i')
+    conv = conv.reorder('och_o', 'kch_i')
+    conv = conv.replace(ld_i8_block_id1, 'for kch_i in _:_ #0')
+    conv = conv.reorder('kch_o', 'ocol_i')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #0')
+    conv = conv.reorder('kch_i', 'och_i')
+    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #0')
+    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #0')
+
+    return conv
+
+def replace_mod_part(conv):
+    conv = conv.replace(ld_acc_i32_vector, 'for ocol_i in _:_ #0')
+    conv = conv.reorder('och_i', 'kch_i')
+    conv = conv.replace(ld_i8_block_id1, 'for kch_i in _:_ #0')
+    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #0')
+    conv = conv.reorder('kch_i', 'och_i')
+    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #0')
+    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #0')
+
+    return conv
+
+def tile(gemmini):
+    gemmini = gemmini.split('j', 4, ['jo', 'ji'], perfect=True)
+    gemmini = gemmini.split('i', 8, ['io', 'i'], perfect=True)
+    gemmini = gemmini.split('io', 2, ['ioo', 'io'], perfect=True)
+    gemmini = gemmini.reorder('i','jo')
+    gemmini = gemmini.reorder('io','jo')
+    return gemmini
 
 def inline_lift_config(gemmini):
+    # part of scheduling count, 25
     gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
     gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
     gemmini = gemmini.inline_window("dst = res[_]")

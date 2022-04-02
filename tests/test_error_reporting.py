@@ -4,9 +4,9 @@ import textwrap
 
 import pytest
 
-from SYS_ATL import proc
-from SYS_ATL import SchedulingError
-from SYS_ATL.syntax import *
+from exo import SchedulingError
+from exo import proc
+from exo.syntax import *
 
 
 def test_bad_reorder():
@@ -15,13 +15,11 @@ def test_bad_reorder():
         for i in par(0, N):
             A[i] = 0.0
 
-    with pytest.raises(SchedulingError) as e:
-        example.reorder('i', 'j')
-
     expected_error = textwrap.dedent('''
-reorder: failed to find statement
-Pattern: for i in _:
-           for j in _: _
-''').strip()
+    reorder: failed to find statement
+    Pattern: for i in _:
+               for j in _: _
+    ''').strip()
 
-    assert str(e.value) == expected_error
+    with pytest.raises(SchedulingError, match=expected_error):
+        example.reorder('i', 'j')

@@ -343,21 +343,9 @@ def test_matmul_paper():
     gemmini = gemmini.replace(st_acc, 'for ii in _:_ #0')
     gemmini = gemmini.simplify()
 
-
     # inline and lift config
     gemmini = inline_lift_config(gemmini)
     gemmini = gemmini.simplify()
 
     print(gemmini)
-"""
 
-
-    gemmini = gemmini.set_memory('res', GEMM_ACCUM)
-    gemmini = gemmini.set_memory('a', GEMM_SCRATCH)
-    gemmini = gemmini.set_memory('b', GEMM_SCRATCH)
-    gemmini = gemmini.set_precision('res', 'i32')
-    gemmini = gemmini.set_precision('a', 'i8')
-    gemmini = gemmini.set_precision('b', 'i8')
-
-
-"""
