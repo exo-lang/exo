@@ -60,29 +60,47 @@ class Cursor:
         return Cursor(weakref.ref(proc), weakref.ref(proc.INTERNAL_proc()), [])
 
     def _from_path(self, path):
-        if node := self._proc():
+        if (node := self._proc()) is None:
+            raise InvalidCursorError()
+
+        try:
             node = node.INTERNAL_proc()
             for i in path:
                 node = self._get_children(node)[i]
             return Cursor(self._proc, weakref.ref(node), path)
-        else:
-            raise InvalidCursorError()
+        except IndexError as e:
+            raise InvalidCursorError() from e
 
     def body(self):
-        ir = self._node()
-        if not isinstance(ir, (LoopIR.ForAll, LoopIR.Seq)):
-            raise TypeError(f"AST {type(ir)} does not have a body")
+        if (node := self._node()) is None:
+            raise InvalidCursorError()
+
+        if not isinstance(node, (LoopIR.ForAll, LoopIR.Seq)):
+            raise TypeError(f"AST {type(node)} does not have a body")
         return self.child(1)
 
     def child(self, idx) -> Cursor:
-        if self._kind == CursorKind.Node:
-            return self._from_path(self._path + [idx])
-        else:
+        if (node := self._node()) is None:
+            raise InvalidCursorError()
+
+        children = self._get_children(node)
+        if idx >= len(children):
+            raise InvalidCursorError()
+
+        if self._kind != CursorKind.Node:
             raise TypeError(f"Cursor kind {self._kind} does not have children")
+
+        return Cursor(
+            self._proc,
+            weakref.ref(children[idx]),
+            self._path + [idx],
+            self._kind
+        )
 
     def parent(self) -> Cursor:
         return self._from_path(self._path[:-1])
 
+    # TODO: this should be a feature of ASDL-ADT
     @staticmethod
     def _get_children(node):
         # Procs

@@ -1,2 +1,3 @@
 class ProcedureBase:
-    pass
+    def INTERNAL_proc(self):
+        raise NotImplementedError()
