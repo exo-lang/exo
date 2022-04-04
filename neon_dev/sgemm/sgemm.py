@@ -114,11 +114,11 @@ sgemm_tiled = (sgemm_tiled
     .call_eqv(neon_microkernel, 'microkernel(_)')
     #.call_eqv(neon_microkernel, 'microkernel(_)')
     # actually tile for L1 cache
-    .split('io #0', L1_N, ['io', 'im'], tail='cut')
-    .split('jo #0', L1_M, ['jo', 'jm'], tail='cut')
-    .fission_after('for jo in _: _ #0', n_lifts=1)
-    .reorder('im','jm')
-    .reorder('im','jo')
+    #.split('io #0', L1_N, ['io', 'im'], tail='cut')
+    #.split('jo #0', L1_M, ['jo', 'jm'], tail='cut')
+    #.fission_after('for jo in _: _ #0', n_lifts=1)
+    #.reorder('im','jm')
+    #.reorder('im','jo')
     .simplify()
 )
 

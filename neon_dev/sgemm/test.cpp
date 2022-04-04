@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
 
   printf("\n\n\n\n");
   printf("Multiplying two %d x %d matrices\n", n, n);
-  long FLOP_C = long(n)*long(n)*long(n);
+  long FLOP_C = 2 * long(n)*long(n)*long(n);
 
   int N_TIMES_NAIVE = 1;
   auto begin = std::chrono::steady_clock::now();
