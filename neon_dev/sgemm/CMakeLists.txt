@@ -15,12 +15,13 @@ if (EXISTS "$ENV{PYENV_ROOT}")
 endif ()
 
 find_package(Python3 REQUIRED)
-find_package(SYS_ATL REQUIRED HINTS "${Python3_SITELIB}")
+message("STATUS" "${Python3_ROOT_DIR}")
+find_package(Exo REQUIRED HINTS "${Python3_SITELIB}")
 
 # ---------------------------------------------------------------------------- #
-# SYS_ATL libraries
+# Exo libraries
 
-add_sys_atl_library(sgemm sgemm.py)
+add_exo_library(sgemm sgemm.py)
 
 # ---------------------------------------------------------------------------- #
 

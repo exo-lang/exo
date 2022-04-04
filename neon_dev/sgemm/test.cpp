@@ -54,16 +54,16 @@ int main(int argc, char *argv[]) {
   printf("Naive SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
          ms_per_gemm, (FLOP_C*1.0e-6)/ms_per_gemm);
   
-  int N_TIMES_SYSTL = 50;
+  int N_TIMES_EXO = 50;
   begin = std::chrono::steady_clock::now();
-  for(int times = 0; times<N_TIMES_SYSTL; times++) {
-    sgemm_systl(nullptr, n, n, n, a.data(), b.data(), c.data());
+  for(int times = 0; times<N_TIMES_EXO; times++) {
+    sgemm_exo(nullptr, n, n, n, a.data(), b.data(), c.data());
   }
   end = std::chrono::steady_clock::now();
   duration = std::chrono::duration<double>(end - begin).count();
-  ms_per_gemm = duration/N_TIMES_SYSTL*1.0e3;
+  ms_per_gemm = duration/N_TIMES_EXO*1.0e3;
   printf("-----------------------------------------------------------\n");
-  printf("SYSTL SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
+  printf("  Exo SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
          ms_per_gemm, (FLOP_C*1.0e-6)/ms_per_gemm);
   printf("-----------------------------------------------------------\n");
   

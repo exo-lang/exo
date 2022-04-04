@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from SYS_ATL import *
-from SYS_ATL.platforms.neon import *
+from exo import *
+from exo.platforms.neon import *
 
 
 def stage_C(kernel):
@@ -122,7 +122,7 @@ sgemm_tiled = (sgemm_tiled
     .simplify()
 )
 
-sgemm_systl = sgemm_tiled.rename('sgemm_systl')
-print(sgemm_systl)
+sgemm_exo = sgemm_tiled.rename('sgemm_exo')
+print(sgemm_exo)
 
-__all__ = ['sgemm_systl']
+__all__ = ['sgemm_exo']
