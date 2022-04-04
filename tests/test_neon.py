@@ -9,17 +9,10 @@ import pytest
 from exo import proc
 from exo.platforms.neon import *
 
-from ctypes import POINTER, c_int
 import numpy as np
 
-def check_platform():
-    return platform.system() != 'Darwin'
-    #if platform.system() == 'Darwin':
-    #    pytest.skip("skipping Neon tests on non-Apple machines for now",
-    #                allow_module_level=True)
-
-@pytest.mark.skip()
-def test_neon_memcpy():
+@pytest.mark.isa('neon')
+def test_neon_memcpy(compiler):
     """
     Compute dst = src
     """
@@ -36,28 +29,19 @@ def test_neon_memcpy():
                 for j in par(0, n - 4 * i):
                     dst[4 * i + j] = src[4 * i + j]
 
-    basename = test_neon_memcpy.__name__
-
-    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
-        f.write(str(memcpy_neon))
-
-    memcpy_neon.compile_c(TMP_DIR, basename)
-
-    if check_platform():
-        return
-    # TODO: -mcpu=apple-a14 here is a hack. Such flags should be
-    #   somehow handled automatically
-    library = generate_lib(basename, extra_flags="-mcpu=apple-a14")
+    fn = compiler.compile(memcpy_neon,
+                          skip_on_fail=True,
+                          CMAKE_C_FLAGS="-mcpu=apple-a14")
 
     for n in (7, 8, 9, 31, 32, 33, 127, 128, 129):
-        inp = nparray([float(i) for i in range(n)])
-        out = nparray([float(0) for _ in range(n)])
-        library.memcpy_neon(POINTER(c_int)(), n, cvt_c(out), cvt_c(inp))
+        inp = np.array([float(i) for i in range(n)], dtype=np.float32)
+        out = np.array([float(0) for _ in range(n)], dtype=np.float32)
+        fn(None, n, out, inp)
 
         assert np.array_equal(inp, out)
 
-@pytest.mark.skip()
-def test_neon_simple_math():
+@pytest.mark.isa('neon')
+def test_neon_simple_math(compiler):
     """
     Compute x = x * y^2
     """
@@ -76,26 +60,20 @@ def test_neon_simple_math():
             neon_vmul_4xf32(xVec, xVec, yVec)
             neon_vst_4xf32(x[4 * i:4 * i + 4], xVec)
 
-    basename = test_neon_simple_math.__name__
-
-    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
-        f.write(str(simple_math_neon))
-
-    simple_math_neon.compile_c(TMP_DIR, basename)
-    if check_platform():
-        return
-    library = generate_lib(basename, extra_flags="-mcpu=apple-a14")
+    fn = compiler.compile(simple_math_neon,
+                          skip_on_fail=True,
+                          CMAKE_C_FLAGS="-mcpu=apple-a14")
 
     for n in (4, 8, 12, 16, 24, 32, 64, 128):
-        x = nparray([float(i) for i in range(n)])
-        y = nparray([float(3 * i) for i in range(n)])
+        x = np.array([float(i) for i in range(n)], dtype=np.float32)
+        y = np.array([float(3 * i) for i in range(n)], dtype=np.float32)
         expected = x * y * y
 
-        library.simple_math_neon(POINTER(c_int)(), n, cvt_c(x), cvt_c(y))
+        fn(None, n, x, y)
         assert np.allclose(x, expected)
 
-@pytest.mark.skip()
-def test_neon_simple_math_scheduling():
+@pytest.mark.isa('neon')
+def test_neon_simple_math_scheduling(compiler):
     """
     Compute x = x * y^2
     """
@@ -140,23 +118,17 @@ def test_neon_simple_math_scheduling():
 
     print(simple_math_neon_sched)
 
-    basename = test_neon_simple_math_scheduling.__name__
 
-    with open(os.path.join(TMP_DIR, f'{basename}_pretty.atl'), 'w') as f:
-        f.write(str(simple_math_neon_sched))
-
-    simple_math_neon_sched.compile_c(TMP_DIR, basename)
-    if check_platform():
-        return
-    library = generate_lib(basename, extra_flags="-mcpu=apple-a14")
+    fn = compiler.compile(simple_math_neon_sched,
+                          skip_on_fail=True,
+                          CMAKE_C_FLAGS="-mcpu=apple-a14")
 
     for n in (4, 8, 12, 16, 24, 32, 64, 128):
-        x = nparray([float(i) for i in range(n)])
-        y = nparray([float(3 * i) for i in range(n)])
+        x = np.array([float(i) for i in range(n)], dtype=np.float32)
+        y = np.array([float(3 * i) for i in range(n)], dtype=np.float32)
         expected = x * y * y
 
-        int_ptr = POINTER(c_int)()
-        library.simple_math_neon_sched(int_ptr, n, cvt_c(x), cvt_c(y))
+        fn(None, n, x, y)
         assert np.allclose(x, expected)
 
 

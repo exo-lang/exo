@@ -296,7 +296,7 @@ def get_cpu_features() -> Set[str]:
                 ['sysctl', 'hw.optional'],
                 capture_output=True
             ).stdout.decode()
-            arm_features = re.findall(r'^hw\.optional\.([^:]+): 1$',
+            arm_features = re.findall(r'^hw\.optional\.([^:]+): [^0]\d*$',
                                       arm_features, re.MULTILINE)
 
             return x86_features + ' ' + ' '.join(arm_features)
