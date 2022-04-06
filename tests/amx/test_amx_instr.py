@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import pytest
 
 from exo import proc
 from .amx import *
@@ -11,6 +12,7 @@ from .harness_amx import AMXTestBuilder
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #
 
+@pytest.mark.skip()
 def test_ldst_i8_16x64(compiler, sde64):
     @proc
     def ldst_i8_16x64(x: i8[16, 64] @ DRAM, y: i8[16, 64] @ DRAM,
@@ -46,7 +48,7 @@ def test_ldst_i8_16x64(compiler, sde64):
 
     _run_amx(compiler, sde64, [ldst_i8_16x64], t)
 
-
+@pytest.mark.skip()
 def test_dpbssd_i8_16x64(compiler, sde64):
     @proc
     def dpbssd_i8_16x64(x: i8[16, 64] @ DRAM, y: i8[16, 64] @ DRAM,
@@ -84,7 +86,7 @@ def test_dpbssd_i8_16x64(compiler, sde64):
 
     _run_amx(compiler, sde64, [dpbssd_i8_16x64], t)
 
-
+@pytest.mark.skip()
 def test_transform_memory(compiler, sde64):
     @proc
     def call_transform_memory(
@@ -93,9 +95,9 @@ def test_transform_memory(compiler, sde64):
             src: i8[4 * m, n] @ DRAM,
             dest: i8[m, 4 * n] @ DRAM,
     ):
-        for i in par(0, m):
-            for j in par(0, n):
-                for k in par(0, 4):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                for k in seq(0, 4):
                     dest[i, 4 * j + k] = src[4 * i + k, j]
 
     t = AMXTestBuilder(compiler.basename)
@@ -131,19 +133,14 @@ def matmul_algorithm_i8():
             B: i8[K, N] @ DRAM,
             C: i32[M, N] @ DRAM,
     ):
-        for i in par(0, M):
-            for j in par(0, N):
+        for i in seq(0, M):
+            for j in seq(0, N):
                 C[i, j] = 0.0
-                for k in par(0, K):
+                for k in seq(0, K):
                     # Casts the i8s to i32s before multiplying
                     # (note that i8 is signed).
-                    a: i32
-                    b: i32
 
-                    a = A[i, k]
-                    b = B[k, j]
-
-                    C[i, j] += a * b
+                    C[i, j] += A[i,k] * B[k,j]
 
     return matmul_on_cpu
 
@@ -159,24 +156,13 @@ def modified_matmul_algorithm_i8():
             C: i32[M, N] @ DRAM,
     ):
         assert K % 4 == 0
-        config()  # TODO: how to insert this via Exo 
-        for i in par(0, M):
-            for j in par(0, N):
-                # C[i, j] = 0.0
-                # for k in par(0, K):
-                #     for byte in par(0, 4):
-                #         a: i32
-                #         b: i32
-
-                #         a = A[i, 4*k+byte]
-                #         b = B[k, 4*j+byte]
-
-                #         C[i, j] += a * b
-
+        config()  # TODO: how to insert this via Exo
+        for i in seq(0, M):
+            for j in seq(0, N):
                 C_tile: i32
                 C_tile = 0.0
-                for k in par(0, K):
-                    for byte in par(0, 4):
+                for k in seq(0, K):
+                    for byte in seq(0, 4):
                         a: i32
                         b: i32
 
@@ -198,14 +184,14 @@ def get_transform_memory_i8():
             dest: i8[m / 4, 4 * n] @ DRAM,
     ):
         assert m % 4 == 0
-        for i in par(0, m / 4):
-            for j in par(0, n):
-                for k in par(0, 4):
+        for i in seq(0, m / 4):
+            for j in seq(0, n):
+                for k in seq(0, 4):
                     dest[i, 4 * j + k] = src[4 * i + k, j]
 
     return transform_memory
 
-
+# @pytest.mark.skip()
 def test_matmul_on_amx_by_hand_i8(compiler, sde64):
     @proc
     def matmul_on_amx(
@@ -216,26 +202,45 @@ def test_matmul_on_amx_by_hand_i8(compiler, sde64):
             B: i8[K, 4 * N] @ DRAM,
             C: i32[M, N] @ DRAM,
     ):
-        assert M % 16 == 0
-        assert N % 16 == 0
+        assert M % 32 == 0
+        assert N % 32 == 0
         assert K % 16 == 0
         config()
-        for i in par(0, M / 16):
-            for j in par(0, N / 16):
-                tileC: i32[16, 16] @ AMX_TILE
-                zero_i32(16, 16, tileC)
+        for i in seq(0, M / 32):
+            for j in seq(0, N / 32):
+                tileC1: i32[16, 16] @ AMX_TILE
+                tileC2: i32[16, 16] @ AMX_TILE
+                tileC3: i32[16, 16] @ AMX_TILE
+                tileC4: i32[16, 16] @ AMX_TILE
 
-                for k in par(0, K / 16):
-                    tileA: i8[16, 64] @ AMX_TILE
-                    tileB: i8[16, 64] @ AMX_TILE
-                    ld_i8(16, 64, A[16 * i:16 * (i + 1), 64 * k:64 * (k + 1)],
-                          tileA)
-                    ld_i8(16, 64, B[16 * k:16 * (k + 1), 64 * j:64 * (j + 1)],
-                          tileB)
-                    dpbssd(16, 16, 16, tileA, tileB, tileC)
+                zero_i32(16, 16, tileC1)
+                zero_i32(16, 16, tileC2)
+                zero_i32(16, 16, tileC3)
+                zero_i32(16, 16, tileC4)
 
-                st_i32(16, 16, tileC,
-                       C[16 * i:16 * (i + 1), 16 * j:16 * (j + 1)])
+                for k in seq(0, K / 16):
+                    tileA1: i8[16, 64] @ AMX_TILE
+                    tileA2: i8[16, 64] @ AMX_TILE
+                    tileB1: i8[16, 64] @ AMX_TILE
+                    tileB2: i8[16, 64] @ AMX_TILE
+
+                    ld_i8(16, 64, A[16 * 2*i:16 * (2*i+1), 64 * k:64 * (k + 1)],
+                        tileA1)
+                    ld_i8(16, 64, A[16 * (2*i+1):16 * (2*i+2), 64 * k:64 * (k + 1)],
+                        tileA2)
+                    ld_i8(16, 64, B[16 * k:16 * (k + 1), 64 * 2*j:64 * (2*j+1)],
+                        tileB1)
+                    ld_i8(16, 64, B[16 * k:16 * (k + 1), 64 * (2*j+1):64 * (2*j+2)],
+                        tileB2)
+                    dpbssd(16, 16, 16, tileA1, tileB1, tileC1)
+                    dpbssd(16, 16, 16, tileA1, tileB2, tileC2)
+                    dpbssd(16, 16, 16, tileA2, tileB1, tileC3)
+                    dpbssd(16, 16, 16, tileA2, tileB2, tileC4)
+
+                st_i32(16, 16, tileC1, C[16 * 2*i:16 * (2*i+1), 16 * 2*j:16 * (2*j+1)])
+                st_i32(16, 16, tileC2, C[16 * 2*i:16 * (2*i+1), 16 * (2*j+1):16 * (2*j+2)])
+                st_i32(16, 16, tileC3, C[16 * (2*i+1):16 * (2*i+2), 16 * 2*j:16 * (2*j+1)])
+                st_i32(16, 16, tileC4, C[16 * (2*i+1):16 * (2*i+2), 16 * (2*j+1):16 * (2*j+2)])
 
     size1 = 256
     size2 = 256
@@ -244,7 +249,7 @@ def test_matmul_on_amx_by_hand_i8(compiler, sde64):
     t.add_body([f"{compiler.basename}_Context *ctxt;"])
 
     t.alloc_dram_2i8('x', size1, size2, 'i+j')
-    t.alloc_dram_2i8('y_orig', size2, size1, 'j')  # before transform_memory
+    t.alloc_dram_2i8('y_orig', size2, size1, 'j+1')  # before transform_memory
     t.alloc_dram_2i8('y', size2 // 4, 4 * size1, '0')  # after transform_memory
     t.alloc_dram_2i32('z', size1, size1, '0')  # expected result
     t.alloc_dram_2i32('res', size1, size1, '0')
@@ -271,7 +276,7 @@ def test_matmul_on_amx_by_hand_i8(compiler, sde64):
         matmul_algorithm_i8(), get_transform_memory_i8(), matmul_on_amx
     ], t)
 
-
+@pytest.mark.skip()
 def test_matmul_on_amx_scheduled_i8(compiler, sde64):
     size1 = 512
     size2 = 512

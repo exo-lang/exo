@@ -16,11 +16,11 @@ unsigned char config[] = {{
     64, 0x00,                                 // bytes per row tile 0
     64, 0x00,                                 // bytes per row tile 1
     64, 0x00,                                 // bytes per row tile 2
-    0x00, 0x00,                               // bytes per row tile 3
-    0x00, 0x00,                               // bytes per row tile 4
-    0x00, 0x00,                               // bytes per row tile 5
-    0x00, 0x00,                               // bytes per row tile 6
-    0x00, 0x00,                               // bytes per row tile 7
+    64, 0x00,                                 // bytes per row tile 3
+    64, 0x00,                                 // bytes per row tile 4
+    64, 0x00,                                 // bytes per row tile 5
+    64, 0x00,                                 // bytes per row tile 6
+    64, 0x00,                                 // bytes per row tile 7
     0x00, 0x00,                               // bytes per row tile 8
     0x00, 0x00,                               // bytes per row tile 9
     0x00, 0x00,                               // bytes per row tile 10
@@ -32,11 +32,11 @@ unsigned char config[] = {{
     16,                                       // rows tile 0
     16,                                       // rows tile 1
     16,                                       // rows tile 2
-    0x00,                                     // rows tile 3
-    0x00,                                     // rows tile 4
-    0x00,                                     // rows tile 5
-    0x00,                                     // rows tile 6
-    0x00,                                     // rows tile 7
+    16,                                       // rows tile 3
+    16,                                       // rows tile 4
+    16,                                       // rows tile 5
+    16,                                       // rows tile 6
+    16,                                       // rows tile 7
     0x00,                                     // rows tile 8
     0x00,                                     // rows tile 9
     0x00,                                     // rows tile 10
