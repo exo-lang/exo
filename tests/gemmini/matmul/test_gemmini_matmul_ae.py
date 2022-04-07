@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pytest
 from exo.platforms.gemmini import *
-from exo.platforms.harness_gemmini import GemmTestBuilder
+from ..harness_gemmini import GemmTestBuilder
 
 
 def matmul_algorithm():
