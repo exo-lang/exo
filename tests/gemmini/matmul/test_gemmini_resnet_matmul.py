@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ..gemmini import *
+from exo.platforms.gemmini import *
 from ..harness_gemmini import GemmTestBuilder
 
 def matmul_cpu():
