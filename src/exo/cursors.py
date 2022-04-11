@@ -3,16 +3,11 @@ from __future__ import annotations
 import weakref
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union, List
+from typing import Union, List, Iterable
 from weakref import ReferenceType
 
 from .API_types import ProcedureBase
 from .LoopIR import LoopIR
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Cursors
 
 
 class CursorKind(Enum):
@@ -35,15 +30,6 @@ class ExoIR(Enum):
     WindowStmt = 8
 
 
-@dataclass
-class _CursorNodeFound(Exception):
-    """
-    Together with Cursor._run_find, implements an early-return finding monad.
-    """
-
-    node: Union[LoopIR.proc, LoopIR.stmt, LoopIR.expr]
-
-
 class InvalidCursorError(Exception):
     pass
 
@@ -55,50 +41,86 @@ class Cursor:
     _path: List[int]
     _kind: CursorKind = CursorKind.Node
 
+    # ------------------------------------------------------------------------ #
+    # Static constructors
+    # ------------------------------------------------------------------------ #
+
     @staticmethod
     def root(proc):
-        return Cursor(weakref.ref(proc), weakref.ref(proc.INTERNAL_proc()), [])
+        return Cursor.from_node(proc, proc.INTERNAL_proc(), [])
 
-    def _from_path(self, path):
-        if (node := self._proc()) is None:
+    @staticmethod
+    def from_node(proc, node, path):
+        return Cursor(weakref.ref(proc), weakref.ref(node), path)
+
+    # ------------------------------------------------------------------------ #
+    # Validating getters
+    # ------------------------------------------------------------------------ #
+
+    def proc(self):
+        if (proc := self._proc()) is None:
             raise InvalidCursorError()
+        return proc
 
-        try:
-            node = node.INTERNAL_proc()
-            for i in path:
-                node = self._get_children(node)[i]
-            return Cursor(self._proc, weakref.ref(node), path)
-        except IndexError as e:
-            raise InvalidCursorError() from e
-
-    def body(self):
+    def node(self):
         if (node := self._node()) is None:
             raise InvalidCursorError()
+        return node
 
+    # ------------------------------------------------------------------------ #
+    # Generic navigation
+    # ------------------------------------------------------------------------ #
+
+    def child(self, idx) -> Cursor:
+        if self._kind != CursorKind.Node:
+            raise TypeError(f"Cursor kind {self._kind} does not have children")
+
+        return self._from_path(self._path + [idx])
+
+    def children(self) -> Iterable[Cursor]:
+        for i, node in enumerate(self._get_children(self._node())):
+            yield Cursor(self._proc, weakref.ref(node), self._path + [i])
+
+    def parent(self) -> Cursor:
+        return self._from_path(self._path[:-1])
+
+    # ------------------------------------------------------------------------ #
+    # Type-dependent navigation
+    # ------------------------------------------------------------------------ #
+
+    def body(self):
+        node = self.node()
         if not isinstance(node, (LoopIR.ForAll, LoopIR.Seq)):
             raise TypeError(f"AST {type(node)} does not have a body")
         return self.child(1)
 
-    def child(self, idx) -> Cursor:
-        if (node := self._node()) is None:
-            raise InvalidCursorError()
+    # ------------------------------------------------------------------------ #
+    # Internal implementation
+    # ------------------------------------------------------------------------ #
 
-        children = self._get_children(node)
-        if idx >= len(children):
-            raise InvalidCursorError()
+    def _follow_path(self, node, path):
+        for i in path:
+            node = self._get_children(node)[i]
+        return node
 
+    def _is_valid(self):
         if self._kind != CursorKind.Node:
-            raise TypeError(f"Cursor kind {self._kind} does not have children")
+            raise NotImplementedError('Only node cursors are currently supported')
 
-        return Cursor(
-            self._proc,
-            weakref.ref(children[idx]),
-            self._path + [idx],
-            self._kind
-        )
+        try:
+            node = self.proc().INTERNAL_proc()
+            node = self._follow_path(node, self._path)
+            return node is self._node()
+        except IndexError:
+            return False
 
-    def parent(self) -> Cursor:
-        return self._from_path(self._path[:-1])
+    def _from_path(self, path):
+        try:
+            node = self.proc().INTERNAL_proc()
+            node = self._follow_path(node, path)
+            return Cursor(self._proc, weakref.ref(node), path)
+        except IndexError as e:
+            raise InvalidCursorError() from e
 
     # TODO: this should be a feature of ASDL-ADT
     @staticmethod
