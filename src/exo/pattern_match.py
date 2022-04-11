@@ -109,15 +109,15 @@ class PatternMatch:
         elif isinstance(pat, list) and all(isinstance(p, PAST.S_Hole) for p in pat):
             raise PatternMatchError("pattern match on 'anything' unsupported")
 
-        body = proc.INTERNAL_proc().body
+        ast = [proc.INTERNAL_proc()]
         # cur = [Cursor.root(proc)]
 
         if isinstance(pat, list):
             assert len(pat) > 0
-            self.find_stmts(pat, body)
+            self.find_stmts(pat, ast)
         else:
             assert isinstance(pat, PAST.expr)
-            self.find_e_in_stmts(pat, body)
+            self.find_e_in_stmts(pat, ast)
 
     def results(self):
         return self._results
@@ -134,7 +134,9 @@ class PatternMatch:
         if self._match_i is not None and self._match_i < 0:
             return
 
-        if isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
+        if isinstance(stmt, LoopIR.proc):
+            self.find_e_in_stmts(pat, stmt.body)
+        elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
             for e in stmt.idx:
                 self.find_e_in_e(pat, e)
             self.find_e_in_e(pat, stmt.rhs)
