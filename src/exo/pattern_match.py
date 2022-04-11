@@ -56,10 +56,7 @@ def get_match_no(pattern_str: str) -> Optional[int]:
     return int(pattern_str[pos + 1 :])
 
 
-def match_pattern(ast, pattern_str, call_depth=0, default_match_no=None):
-    # get source location where this is getting called from
-    caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
-
+def match_pattern(proc, pattern_str, call_depth=0, default_match_no=None):
     # break-down pattern_str for possible #<num> post-fix
     if match := re.search(r"^([^#]+)#(\d+)\s*$", pattern_str):
         pattern_str = match[1]
@@ -67,7 +64,8 @@ def match_pattern(ast, pattern_str, call_depth=0, default_match_no=None):
     else:
         match_no = default_match_no  # None means match-all
 
-    ast = ast.INTERNAL_proc().body
+    # get source location where this is getting called from
+    caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
 
     # parse the pattern we're going to use to match
     p_ast = pyparser.pattern(
@@ -75,7 +73,7 @@ def match_pattern(ast, pattern_str, call_depth=0, default_match_no=None):
     )
 
     # do the pattern match, to find the nodes in ast
-    return PatternMatch(p_ast, ast, match_no=match_no).results()
+    return PatternMatch(proc, p_ast, match_no=match_no).results()
 
 
 _PAST_to_LoopIR = {
@@ -101,7 +99,7 @@ _PAST_to_LoopIR = {
 
 
 class PatternMatch:
-    def __init__(self, pat, src_stmts, match_no=None):
+    def __init__(self, proc, pat, match_no=None):
         self._match_i = match_no
         self._results = []
 
@@ -111,12 +109,14 @@ class PatternMatch:
         elif isinstance(pat, list) and all(isinstance(p, PAST.S_Hole) for p in pat):
             raise PatternMatchError("pattern match on 'anything' unsupported")
 
+        body = proc.INTERNAL_proc().body
+
         if isinstance(pat, list):
             assert len(pat) > 0
-            self.find_stmts_in_stmts(pat, src_stmts)
+            self.find_stmts_in_stmts(pat, body)
         else:
             assert isinstance(pat, PAST.expr)
-            self.find_e_in_stmts(pat, src_stmts)
+            self.find_e_in_stmts(pat, body)
 
     def results(self):
         return self._results
