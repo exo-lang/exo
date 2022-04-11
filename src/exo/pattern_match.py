@@ -6,8 +6,6 @@ from typing import Optional
 
 from . import pyparser
 from .LoopIR import LoopIR, PAST
-
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern Matching Errors
@@ -110,18 +108,18 @@ class PatternMatch:
         elif isinstance(pat, list) and all(isinstance(p, PAST.S_Hole) for p in pat):
             raise PatternMatchError("pattern match on 'anything' unsupported")
 
-        ast = [proc.INTERNAL_proc()]
         cur = Cursor.root(proc)
 
         if isinstance(pat, list):
             assert len(pat) > 0
-            self.find_stmts(pat, ast)
+            self.find_stmts(pat, [cur])
         else:
             assert isinstance(pat, PAST.expr)
             self.find_expr(pat, cur)
 
     def results(self):
-        return self._results
+        return [[sub.node() for sub in cur] if isinstance(cur, list) else cur.node()
+                for cur in self._results]
 
     # -------------------
     #  finding methods
@@ -134,51 +132,52 @@ class PatternMatch:
         # try to match
         if self.match_e(pat, cur.node()):
             if self._match_i is None:
-                self._results.append(cur.node())
+                self._results.append(cur)
             else:
                 i = self._match_i
                 self._match_i -= 1
                 if i == 0:
-                    self._results.append(cur.node())
+                    self._results.append(cur)
                     return
 
         for child in cur.children():
             self.find_expr(pat, child)
 
-    def find_stmts(self, pat, stmts):
+    def find_stmts(self, pats, curs):
         # short-circuit if we have our one match already...
         if self._match_i is not None and self._match_i < 0:
             return
 
         # may encounter empty statement blocks, which we should ignore
-        if len(stmts) == 0:
+        if len(curs) == 0:
             return
 
         # try to match exactly this sequence of statements
-        if self.match_stmts(pat, stmts):
+        match_nodes = [cur.node() for cur in curs]
+        if self.match_stmts(pats, match_nodes):
             if self._match_i is None:
-                self._results.append(stmts)
+                self._results.append(curs)
             else:
                 i = self._match_i
                 self._match_i -= 1
                 if i == 0:
-                    self._results.append(stmts)
+                    self._results.append(curs)
                     return
 
         # if we need to look for more matches, recurse structurally ...
 
         # first, look for any subsequences of statements in the first
         # statement of the sequence `stmts`
-        if isinstance(stmts[0], LoopIR.If):
-            self.find_stmts(pat, stmts[0].body)
-            self.find_stmts(pat, stmts[0].orelse)
-        elif isinstance(stmts[0], (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq)):
-            self.find_stmts(pat, stmts[0].body)
+        if isinstance(curs[0].node(), LoopIR.If):
+            self.find_stmts(pats, curs[0].body())
+            self.find_stmts(pats, curs[0].orelse())
+        elif isinstance(curs[0].node(), (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq)):
+            self.find_stmts(pats, curs[0].body())
         else:
             pass  # other forms of statement do not contain stmt blocks
 
         # second, recurse on the tail of this sequence...
-        self.find_stmts(pat, stmts[1:])
+        self.find_stmts(pats, curs[1:])
 
     # -------------------
     #  matching methods

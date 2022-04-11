@@ -78,6 +78,9 @@ class Cursor:
         return self._from_path(self._path + [idx])
 
     def children(self) -> Iterable[Cursor]:
+        if self._kind != CursorKind.Node:
+            raise TypeError(f"Cursor kind {self._kind} does not have children")
+
         for i, node in enumerate(self._get_children(self._node())):
             yield Cursor(self._proc, weakref.ref(node), self._path + [i])
 
@@ -90,15 +93,19 @@ class Cursor:
 
     def body(self):
         node = self.node()
-        if not isinstance(node, (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq, LoopIR.If)):
+        if isinstance(node, LoopIR.proc):
+            return list(self.children())
+        elif isinstance(node, (LoopIR.ForAll, LoopIR.Seq, LoopIR.If)):
+            return list(self.children())[1:1 + len(node.body)]
+        else:
             raise TypeError(f"AST {type(node)} does not have a body")
-        return list(self.children())[1:len(node.body) + 1]
 
     def orelse(self):
         node = self.node()
-        if not isinstance(node, LoopIR.If):
+        if isinstance(node, LoopIR.If):
+            return list(self.children())[1 + len(node.body):]
+        else:
             raise TypeError(f"AST {type(node)} does not have an orelse branch")
-        return list(self.children())[1 + len(node.body):]
 
     # ------------------------------------------------------------------------ #
     # Internal implementation
@@ -133,7 +140,7 @@ class Cursor:
     def _get_children(node):
         # Procs
         if isinstance(node, LoopIR.proc):
-            return node.preds + node.body
+            return node.body
 
         # Statements
         elif isinstance(node, (LoopIR.Assign, LoopIR.Reduce)):
