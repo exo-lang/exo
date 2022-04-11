@@ -67,6 +67,8 @@ def match_pattern(ast, pattern_str, call_depth=0, default_match_no=None):
     else:
         match_no = default_match_no  # None means match-all
 
+    ast = ast.INTERNAL_proc().body
+
     # parse the pattern we're going to use to match
     p_ast = pyparser.pattern(
         pattern_str, filename=caller.filename, lineno=caller.lineno
