@@ -52,8 +52,8 @@ micro_N = 2
 micro_M = 16
 assert micro_M % 4 == 0
 
-L1_N = 16
-L1_M = 2
+L1_N = 32
+L1_M = 4
 L1_K = 64
 
 microkernel = (
@@ -113,12 +113,18 @@ print(neon_microkernel)
 sgemm_tiled = (sgemm_tiled
     .call_eqv(neon_microkernel, 'microkernel(_)')
     #.call_eqv(neon_microkernel, 'microkernel(_)')
+    # clean up tail case from earlier
+    .fission_after('for ko in _: _ #0', n_lifts=2)
     # actually tile for L1 cache
-    #.split('io #0', L1_N, ['io', 'im'], tail='cut')
-    #.split('jo #0', L1_M, ['jo', 'jm'], tail='cut')
-    #.fission_after('for jo in _: _ #0', n_lifts=1)
-    #.reorder('im','jm')
-    #.reorder('im','jo')
+    .reorder('jo #0','ko')
+    .reorder('io #0','ko')
+    .split('io #0', L1_N, ['io', 'im'], tail='cut')
+    .split('jo #0', L1_M, ['jo', 'jm'], tail='cut')
+    .fission_after('for jo in _: _ #0', n_lifts=3)
+    .reorder('im','jm')
+    .reorder('im','jo')
+    .reorder('ko #0', 'io')
+    .reorder('ko #0', 'jo')
     .simplify()
 )
 
