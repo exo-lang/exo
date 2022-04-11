@@ -90,9 +90,15 @@ class Cursor:
 
     def body(self):
         node = self.node()
-        if not isinstance(node, (LoopIR.ForAll, LoopIR.Seq)):
+        if not isinstance(node, (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq, LoopIR.If)):
             raise TypeError(f"AST {type(node)} does not have a body")
-        return self.child(1)
+        return list(self.children())[1:len(node.body)+1]
+
+    def orelse(self):
+        node = self.node()
+        if not isinstance(node, LoopIR.If):
+            raise TypeError(f"AST {type(node)} does not have an orelse branch")
+        return list(self.children())[1+len(node.body):]
 
     # ------------------------------------------------------------------------ #
     # Internal implementation

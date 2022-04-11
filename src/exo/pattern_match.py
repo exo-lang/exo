@@ -53,7 +53,7 @@ def get_match_no(pattern_str: str) -> Optional[int]:
     """
     if (pos := pattern_str.rfind("#")) == -1:
         return None
-    return int(pattern_str[pos + 1 :])
+    return int(pattern_str[pos + 1:])
 
 
 def match_pattern(proc, pattern_str, call_depth=0, default_match_no=None):
@@ -110,10 +110,11 @@ class PatternMatch:
             raise PatternMatchError("pattern match on 'anything' unsupported")
 
         body = proc.INTERNAL_proc().body
+        # cur = [Cursor.root(proc)]
 
         if isinstance(pat, list):
             assert len(pat) > 0
-            self.find_stmts_in_stmts(pat, body)
+            self.find_stmts(pat, body)
         else:
             assert isinstance(pat, PAST.expr)
             self.find_e_in_stmts(pat, body)
@@ -174,12 +175,13 @@ class PatternMatch:
         if isinstance(e, LoopIR.USub):
             self.find_e_in_e(pat, e.arg)
 
-    def find_stmts_in_stmts(self, pat, stmts):
-        # may encounter empty statement blocks, which we should ignore
-        if len(stmts) == 0:
-            return
+    def find_stmts(self, pat, stmts):
         # short-circuit if we have our one match already...
         if self._match_i is not None and self._match_i < 0:
+            return
+
+        # may encounter empty statement blocks, which we should ignore
+        if len(stmts) == 0:
             return
 
         # try to match exactly this sequence of statements
@@ -198,15 +200,15 @@ class PatternMatch:
         # first, look for any subsequences of statements in the first
         # statement of the sequence `stmts`
         if isinstance(stmts[0], LoopIR.If):
-            self.find_stmts_in_stmts(pat, stmts[0].body)
-            self.find_stmts_in_stmts(pat, stmts[0].orelse)
-        elif isinstance(stmts[0], (LoopIR.ForAll, LoopIR.Seq)):
-            self.find_stmts_in_stmts(pat, stmts[0].body)
+            self.find_stmts(pat, stmts[0].body)
+            self.find_stmts(pat, stmts[0].orelse)
+        elif isinstance(stmts[0], (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq)):
+            self.find_stmts(pat, stmts[0].body)
         else:
             pass  # other forms of statement do not contain stmt blocks
 
         # second, recurse on the tail of this sequence...
-        self.find_stmts_in_stmts(pat, stmts[1:])
+        self.find_stmts(pat, stmts[1:])
 
     # -------------------
     #  matching methods
