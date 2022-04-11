@@ -165,6 +165,7 @@ class _Reorder(LoopIR_Rewrite):
         super().__init__(proc)
 
     def map_s(self, s):
+        s_type = type(s)
         if s is self.stmt:
             Check_ReorderLoops(self.orig_proc, self.stmt)
 
@@ -190,8 +191,8 @@ class _Reorder(LoopIR_Rewrite):
             # blah
             inner_eff   = do_bind(s.iter, s.hi, body_eff)
             outer_eff   = do_bind(s.body[0].iter, s.body[0].hi, inner_eff)
-            return [LoopIR.ForAll(s.body[0].iter, s.body[0].hi,
-                        [LoopIR.ForAll(s.iter, s.hi,
+            return [s_type(s.body[0].iter, s.body[0].hi,
+                        [s_type(s.iter, s.hi,
                             body,
                             inner_eff, s.srcinfo)],
                         outer_eff, s.body[0].srcinfo)]
@@ -248,6 +249,7 @@ class _Split(LoopIR_Rewrite):
         return self._cut_tail_sub
 
     def map_s(self, s):
+        s_type = type(s)
         if s is self.split_loop:
             # short-hands for sanity
             def boolop(op,lhs,rhs):
@@ -288,8 +290,8 @@ class _Split(LoopIR_Rewrite):
                 # pred for inner loop is: 0 <= lo <= lo_rng
                 inner_eff   = do_bind(self.lo_i, lo_rng, body_eff)
 
-                return [LoopIR.ForAll(self.hi_i, hi_rng,
-                            [LoopIR.ForAll(self.lo_i, lo_rng,
+                return [s_type(self.hi_i, hi_rng,
+                            [s_type(self.lo_i, lo_rng,
                                 body,
                                 inner_eff, s.srcinfo)],
                             s.eff, s.srcinfo)]
@@ -325,27 +327,27 @@ class _Split(LoopIR_Rewrite):
                 tail_eff    = do_bind(self.cut_i, Ntail, tail_eff)
 
                 if self._tail_strategy == 'cut_and_guard':
-                    body = [LoopIR.ForAll(self.cut_i, Ntail,
+                    body = [s_type(self.cut_i, Ntail,
                             tail_body,
                             tail_eff, s.srcinfo)]
                     body_eff= get_effect_of_stmts(body)
                     cond = boolop(">", Ntail, LoopIR.Const(0, T.int, s.srcinfo))
                     body_eff= eff_filter(lift_to_eff_expr(cond), body_eff)
 
-                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
-                                [LoopIR.ForAll(self.lo_i, Q,
+                    loops = [s_type(self.hi_i, Ncut,
+                                [s_type(self.lo_i, Q,
                                     main_body,
                                     lo_eff, s.srcinfo)],
                                 hi_eff, s.srcinfo),
                              LoopIR.If(cond, body, [], body_eff, s.srcinfo)]
 
                 else:
-                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
-                                [LoopIR.ForAll(self.lo_i, Q,
+                    loops = [s_type(self.hi_i, Ncut,
+                                [s_type(self.lo_i, Q,
                                     main_body,
                                     lo_eff, s.srcinfo)],
                                 hi_eff, s.srcinfo),
-                             LoopIR.ForAll(self.cut_i, Ntail,
+                             s_type(self.cut_i, Ntail,
                                 tail_body,
                                 tail_eff, s.srcinfo)]
 
@@ -372,8 +374,8 @@ class _Split(LoopIR_Rewrite):
                 # pred for inner loop is: 0 <= lo <= lo_rng
                 inner_eff   = do_bind(self.lo_i, lo_rng, body_eff)
 
-                return [LoopIR.ForAll(self.hi_i, hi_rng,
-                            [LoopIR.ForAll(self.lo_i, lo_rng,
+                return [s_type(self.hi_i, hi_rng,
+                            [s_type(self.lo_i, lo_rng,
                                 body,
                                 inner_eff, s.srcinfo)],
                             s.eff, s.srcinfo)]
