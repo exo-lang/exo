@@ -11,6 +11,7 @@ from .LoopIR import LoopIR, PAST
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern Matching Errors
+from .cursors import Cursor
 
 
 class PatternMatchError(Exception):
@@ -110,14 +111,14 @@ class PatternMatch:
             raise PatternMatchError("pattern match on 'anything' unsupported")
 
         ast = [proc.INTERNAL_proc()]
-        # cur = [Cursor.root(proc)]
+        cur = Cursor.root(proc)
 
         if isinstance(pat, list):
             assert len(pat) > 0
             self.find_stmts(pat, ast)
         else:
             assert isinstance(pat, PAST.expr)
-            self.find_e_in_stmts(pat, ast)
+            self.find_expr(pat, cur)
 
     def results(self):
         return self._results
@@ -125,57 +126,24 @@ class PatternMatch:
     # -------------------
     #  finding methods
 
-    def find_e_in_stmts(self, pat, stmts):
-        for s in stmts:
-            self.find_e_in_stmt(pat, s)
-
-    def find_e_in_stmt(self, pat, stmt):
-        # short-circuit if we have our one match already...
-        if self._match_i is not None and self._match_i < 0:
-            return
-
-        if isinstance(stmt, LoopIR.proc):
-            self.find_e_in_stmts(pat, stmt.body)
-        elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
-            for e in stmt.idx:
-                self.find_e_in_e(pat, e)
-            self.find_e_in_e(pat, stmt.rhs)
-        elif isinstance(stmt, LoopIR.If):
-            self.find_e_in_e(pat, stmt.cond)
-            self.find_e_in_stmts(pat, stmt.body)
-            self.find_e_in_stmts(pat, stmt.orelse)
-        elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
-            self.find_e_in_e(pat, stmt.hi)
-            self.find_e_in_stmts(pat, stmt.body)
-        elif isinstance(stmt, LoopIR.Call):
-            for e in stmt.args:
-                self.find_e_in_e(pat, e)
-        else:
-            pass  # ignore other statements
-
-    def find_e_in_e(self, pat, e):
+    def find_expr(self, pat, cur):
         # short-circuit if we have our one match already...
         if self._match_i is not None and self._match_i < 0:
             return
 
         # try to match
-        if self.match_e(pat, e):
+        if self.match_e(pat, cur.node()):
             if self._match_i is None:
-                self._results.append(e)
+                self._results.append(cur.node())
             else:
                 i = self._match_i
                 self._match_i -= 1
                 if i == 0:
-                    self._results.append(e)
+                    self._results.append(cur.node())
                     return
 
-        # if we need to look for more matches, recurse structurally
-        if isinstance(e, LoopIR.BinOp):
-            self.find_e_in_e(pat, e.lhs)
-            self.find_e_in_e(pat, e.rhs)
-
-        if isinstance(e, LoopIR.USub):
-            self.find_e_in_e(pat, e.arg)
+        for child in cur.children():
+            self.find_expr(pat, child)
 
     def find_stmts(self, pat, stmts):
         # short-circuit if we have our one match already...

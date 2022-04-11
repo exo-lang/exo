@@ -85,20 +85,20 @@ class Cursor:
         return self._from_path(self._path[:-1])
 
     # ------------------------------------------------------------------------ #
-    # Type-dependent navigation
+    # Type-specific navigation
     # ------------------------------------------------------------------------ #
 
     def body(self):
         node = self.node()
         if not isinstance(node, (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq, LoopIR.If)):
             raise TypeError(f"AST {type(node)} does not have a body")
-        return list(self.children())[1:len(node.body)+1]
+        return list(self.children())[1:len(node.body) + 1]
 
     def orelse(self):
         node = self.node()
         if not isinstance(node, LoopIR.If):
             raise TypeError(f"AST {type(node)} does not have an orelse branch")
-        return list(self.children())[1+len(node.body):]
+        return list(self.children())[1 + len(node.body):]
 
     # ------------------------------------------------------------------------ #
     # Internal implementation
@@ -140,6 +140,8 @@ class Cursor:
             return node.idx + [node.rhs]
         elif isinstance(node, LoopIR.WriteConfig):
             return [node.rhs]
+        elif isinstance(node, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+            return []
         elif isinstance(node, LoopIR.If):
             return [node.cond] + node.body + node.orelse
         elif isinstance(node, (LoopIR.ForAll, LoopIR.Seq)):
@@ -157,4 +159,10 @@ class Cursor:
         elif isinstance(node, LoopIR.BinOp):
             return [node.lhs, node.rhs]
         elif isinstance(node, LoopIR.BuiltIn):
-            return [node.lhs, node.args]
+            return node.args
+        elif isinstance(node,
+                        (LoopIR.Const, LoopIR.WindowExpr, LoopIR.StrideExpr,
+                         LoopIR.ReadConfig)):
+            return []
+
+        assert False, f"base case: {type(node)}"
