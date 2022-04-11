@@ -17,7 +17,7 @@ from .cursors import Cursor
 from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
-from .pattern_match import match_pattern, get_match_no
+from .pattern_match import match_pattern, get_match_no, match_cursors
 from .prelude import *
 # Moved to new file
 from .proc_eqv import (decl_new_proc, derive_proc,
@@ -199,6 +199,11 @@ class Procedure(ProcedureBase):
 
     def get_instr(self):
         return self._loopir_proc.instr
+
+    def find_cursor(self, pattern):
+        cursors = match_cursors(self, pattern, call_depth=1)
+        assert isinstance(cursors, list) and all(len(c) == 1 for c in cursors)
+        return [c[0] for c in cursors]
 
     def get_ast(self, pattern=None):
         if pattern is None:
@@ -434,7 +439,7 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoDataReuse(loopir, buf_s, rep_s).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-    
+
     def configwrite_root(self, config, field, var_pattern):
         if not isinstance(config, Config):
             raise TypeError("Did not pass a config object")

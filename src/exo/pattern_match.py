@@ -56,6 +56,16 @@ def get_match_no(pattern_str: str) -> Optional[int]:
 
 
 def match_pattern(proc, pattern_str, call_depth=0, default_match_no=None):
+    return _match_pattern_impl(proc, pattern_str, call_depth,
+                               default_match_no).results()
+
+
+def match_cursors(proc, pattern_str, call_depth=0, default_match_no=None):
+    return _match_pattern_impl(proc, pattern_str, call_depth,
+                               default_match_no).cursors()
+
+
+def _match_pattern_impl(proc, pattern_str, call_depth, default_match_no):
     # break-down pattern_str for possible #<num> post-fix
     if match := re.search(r"^([^#]+)#(\d+)\s*$", pattern_str):
         pattern_str = match[1]
@@ -64,7 +74,7 @@ def match_pattern(proc, pattern_str, call_depth=0, default_match_no=None):
         match_no = default_match_no  # None means match-all
 
     # get source location where this is getting called from
-    caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
+    caller = inspect.getframeinfo(inspect.stack()[call_depth + 2][0])
 
     # parse the pattern we're going to use to match
     p_ast = pyparser.pattern(
@@ -72,7 +82,7 @@ def match_pattern(proc, pattern_str, call_depth=0, default_match_no=None):
     )
 
     # do the pattern match, to find the nodes in ast
-    return PatternMatch(proc, p_ast, match_no=match_no).results()
+    return PatternMatch(proc, p_ast, match_no=match_no)
 
 
 _PAST_to_LoopIR = {
@@ -120,6 +130,9 @@ class PatternMatch:
     def results(self):
         return [[sub.node() for sub in cur] if isinstance(cur, list) else cur.node()
                 for cur in self._results]
+
+    def cursors(self):
+        return self._results
 
     # -------------------
     #  finding methods

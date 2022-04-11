@@ -35,7 +35,6 @@ def test_get_child():
     assert cursor._node() is foo._loopir_proc.body[0]
 
 
-@pytest.mark.skip()
 def test_find_cursor():
     c = foo.find_cursor("for j in _:_")
     assert len(c) == 1
@@ -44,6 +43,7 @@ def test_find_cursor():
     assert c._node() is foo._loopir_proc.body[0].body[0]
 
 
+# TODO: needs selection cursors
 @pytest.mark.skip()
 def test_cursor_move():
     c = foo.find_cursor("for j in _:_")
