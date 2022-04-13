@@ -2562,11 +2562,146 @@ class _DoExtractMethod(LoopIR_Rewrite):
         return e
 
 
+
+class _DoNormalize(LoopIR_Rewrite):
+    def __init__(self, proc):
+        self.C = Sym("temporary_constant_symbol")
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def concat_map(self, op, lhs, rhs):
+        if op == '+':
+            # if has same key: add value
+            common = { key: (lhs[key]+rhs[key]) for key in lhs if key in rhs }
+            return lhs | rhs | common
+        elif op == '-':
+            # has same key: sub value
+            common = { key: (lhs[key]-rhs[key]) for key in lhs if key in rhs }
+            # else, negate the rhs and cat map
+            neg_rhs = { key: -rhs[key] for key in rhs }
+            return lhs | neg_rhs | common
+        elif op == '*':
+            # rhs or lhs NEEDS to be constant
+            assert len(rhs) == 1 or len(lhs) == 1
+            # multiply the other one's value by that constant
+            if len(rhs) == 1 and self.C in rhs:
+                return { key: lhs[key]*rhs[self.C] for key in lhs }
+            else:
+                assert self.C in lhs
+                return { key: rhs[key]*lhs[self.C] for key in rhs }
+        else:
+            assert False, "bad case"
+
+    def normalize_e(self, e):
+        if isinstance(e, LoopIR.Read):
+            assert e.type.is_indexable()
+            assert len(e.idx) == 0, "Indexing inside indexing does not make any sense"
+            return { e.name : 1 }
+        elif isinstance(e, LoopIR.Const):
+            return { self.C : e.val }
+        elif isinstance(e, LoopIR.USub):
+            e_map = self.normalize_e(e.arg)
+            return { key: -e_map[key] for key in e_map }
+        elif isinstance(e, LoopIR.BinOp):
+            lhs_map = self.normalize_e(e.lhs)
+            rhs_map = self.normalize_e(e.rhs)
+            return self.concat_map(e.op, lhs_map, rhs_map)
+        else:
+            assert False, ("index_start should only be called by"+
+                           f" an indexing expression. e was {e}")
+
+    def has_div_mod(self, e):
+        if isinstance(e, LoopIR.Read):
+            return False
+        elif isinstance(e, LoopIR.Const):
+            return False
+        elif isinstance(e, LoopIR.USub):
+            return self.has_div_mod(e.arg)
+        elif isinstance(e, LoopIR.BinOp):
+            if e.op == '/' or e.op == '%':
+                return True
+            else:
+                lhs = self.has_div_mod(e.lhs)
+                rhs = self.has_div_mod(e.rhs)
+                return lhs or rhs
+        else:
+            assert False, "bad case"
+
+    # Call this when e is one indexing expression
+    # e should be an indexing expression
+    def index_start(self, e):
+        assert isinstance(e, LoopIR.expr)
+        # Div and mod need more subtle handling. Don't normalize for now.
+        if self.has_div_mod(e):
+            return e
+
+        # Make a map of symbols and coefficients
+        n_map = self.normalize_e(e)
+
+        # Write back to LoopIR.expr
+        def get_loopir(key, value):
+            vconst = LoopIR.Const(value, T.int, e.srcinfo)
+            if key == self.C:
+                return vconst
+            else:
+                readkey = LoopIR.Read(key, [], e.type, e.srcinfo)
+                return LoopIR.BinOp('*', vconst, readkey, e.type, e.srcinfo)
+        
+        delete_zero = { key: n_map[key] for key in n_map if n_map[key] != 0 }
+        new_e = LoopIR.Const(0, T.int, e.srcinfo)
+        for key, val in delete_zero.items():
+            if val > 0:
+                # add
+                new_e = LoopIR.BinOp('+', new_e, get_loopir(key, val), e.type, e.srcinfo)
+            else:
+                # sub
+                new_e = LoopIR.BinOp('-', new_e, get_loopir(key, val), e.type, e.srcinfo)
+
+        return new_e
+
+
+    def map_e(self, e):
+        if isinstance(e, LoopIR.Read):
+            if len(e.idx) > 0:
+                # This is a Tensor read
+                new_idx = [ self.index_start(ei) for ei in e.idx ]
+                return LoopIR.Read(e.name, new_idx, e.type, e.srcinfo)
+
+        return super().map_e(e)
+
+    def map_w_access(self, w):
+        if isinstance(w, LoopIR.Interval):
+            return LoopIR.Interval(self.index_start(w.lo),
+                                   self.index_start(w.hi), w.srcinfo)
+        else:
+            return LoopIR.Point(self.index_start(w.pt), w.srcinfo)
+
+    def map_s(self, s):
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            new_idx = [ self.index_start(e) for e in s.idx ]
+            return [type(s)(s.name, s.type, s.cast, new_idx, self.map_e(s.rhs),
+                            s.eff, s.srcinfo)]
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            new_hi = self.index_start(s.hi)
+            return [type(s)(s.iter, new_hi, s.body, s.eff, s.srcinfo)]
+        elif isinstance(s, LoopIR.Alloc):
+            if isinstance(s.type, T.Tensor):
+                new_hi = [ self.index_start(e) for e in s.type.hi ]
+                new_typ = T.Tensor(new_hi, False, s.type.basetype())
+                return [LoopIR.Alloc(s.name, new_typ, s.mem, s.eff, s.srcinfo)]
+
+        return super().map_s(s)
+
+
+
+
 class _DoSimplify(LoopIR_Rewrite):
     def __init__(self, proc):
         self.facts = ChainMap()
-        super().__init__(proc)
+        proc = _DoNormalize(proc).result()
 
+        super().__init__(proc)
         self.proc = InferEffects(self.proc).result()
 
     def cfold(self, op, lhs, rhs):
