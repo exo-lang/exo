@@ -6,6 +6,17 @@ from exo import proc, DRAM, SchedulingError
 from exo.libs.memories import GEMM_SCRATCH
 from exo.parse_fragment import ParseFragmentError
 
+def test_simplify(golden):
+    @proc
+    def foo(n : size, m : size):
+        x : R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
+        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
+            pass
+        y : R[10]
+        y[n*4 - n*4 + 1] = 0.0
+
+    assert str(foo.simplify()) == golden
+
 def test_pattern_match():
     @proc
     def foo(N1 : size, M1 : size, K1 : size, N2: size, M2: size, K2: size):
