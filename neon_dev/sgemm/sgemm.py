@@ -52,9 +52,15 @@ micro_N = 2
 micro_M = 16
 assert micro_M % 4 == 0
 
-L1_N = 32
-L1_M = 4
+L1_N = 64
+L1_M = 64
 L1_K = 64
+
+assert L1_N % micro_N == 0
+assert L1_M % micro_M == 0
+mid_N = L1_N // micro_N
+mid_M = L1_M // micro_M
+mid_K = L1_K
 
 microkernel = (
     sgemm_win.rename('microkernel')
@@ -72,7 +78,7 @@ sgemm_tiled = (
         .fission_after('for jo in _: _', n_lifts=2)
         .reorder('ii','jo')
         # tile k now, before we do the microkernel replacement
-        .split('k #0', L1_K, ['ko', 'ki'], tail='cut_and_guard')
+        .split('k #0', mid_K, ['ko', 'ki'], tail='cut_and_guard')
         .fission_after('for ko in _: _', n_lifts=2)
         .reorder('ji','ko')
         .reorder('ii','ko')
@@ -118,13 +124,19 @@ sgemm_tiled = (sgemm_tiled
     # actually tile for L1 cache
     .reorder('jo #0','ko')
     .reorder('io #0','ko')
-    .split('io #0', L1_N, ['io', 'im'], tail='cut')
-    .split('jo #0', L1_M, ['jo', 'jm'], tail='cut')
+    .split('io #0', mid_N, ['io', 'im'], tail='cut')
+    .split('jo #0', mid_M, ['jo', 'jm'], tail='cut')
     .fission_after('for jo in _: _ #0', n_lifts=3)
     .reorder('im','jm')
     .reorder('im','jo')
-    .reorder('ko #0', 'io')
-    .reorder('ko #0', 'jo')
+    #.reorder('ko #0', 'io')
+    #.reorder('ko #0', 'jo')
+    .simplify()
+    # stage per-tile memory at appropriate levels
+    .stage_mem(f'A[{L1_N}*io : {L1_N}*io + {L1_N},'
+               f'  {L1_K}*ko : {L1_K}*ko + {L1_K}]',
+               'Atile', 'for jo in _: _ #0')
+    # cleanup
     .simplify()
 )
 
