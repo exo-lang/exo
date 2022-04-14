@@ -2686,7 +2686,8 @@ class _DoNormalize(LoopIR_Rewrite):
                             s.eff, s.srcinfo)]
         elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
             new_hi = self.index_start(s.hi)
-            return [type(s)(s.iter, new_hi, s.body, s.eff, s.srcinfo)]
+            new_body = self.map_stmts(s.body)
+            return [type(s)(s.iter, new_hi, new_body, s.eff, s.srcinfo)]
         elif isinstance(s, LoopIR.Alloc):
             if isinstance(s.type, T.Tensor):
                 new_hi = [ self.index_start(e) for e in s.type.hi ]

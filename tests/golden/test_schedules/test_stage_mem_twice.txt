@@ -14,6 +14,5 @@ def sqmat(n: size, A: R[n, n] @ DRAM, B: R[n, n] @ DRAM):
                 for ii in par(0, 4):
                     for jj in par(0, 4):
                         for kk in par(0, 4):
-                            A[4 * i + ii, 4 * j +
-                              jj] += B1[ii, kk] * B2[4 * k + kk - 4 * k,
-                                                     4 * j + jj - 4 * j]
+                            A[4 * i + ii,
+                              4 * j + jj] += B1[ii, kk] * B2[kk, jj]
