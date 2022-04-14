@@ -10,9 +10,8 @@ def sqmat(n: size, A: R[n, n] @ DRAM, B: R[n, n] @ DRAM):
                 for ii in seq(0, 4):
                     for jj in seq(0, 4):
                         for kk in seq(0, 4):
-                            Atile[4 * i + ii - 4 * i, 4 * j + jj -
-                                  4 * j] += B[4 * i + ii, 4 * k +
-                                              kk] * B[4 * k + kk, 4 * j + jj]
+                            Atile[ii, jj] += B[4 * i + ii, 4 * k +
+                                               kk] * B[4 * k + kk, 4 * j + jj]
             for i0 in seq(0, 4):
                 for i1 in seq(0, 4):
                     A[i0 + 4 * i, i1 + 4 * j] = Atile[i0, i1]

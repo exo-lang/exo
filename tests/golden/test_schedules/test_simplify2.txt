@@ -1,0 +1,8 @@
+def foo(A: i8[32, 64] @ DRAM, B: i8[16, 128] @ DRAM, C: i32[32, 32] @ DRAM,
+        ko: size, ji_unroll: size, ii_unroll: size):
+    for io in seq(0, 1):
+        for jo in seq(0, 1):
+            Btile1: i8[16, 64] @ DRAM
+            Btile0: i8[16, 64] @ DRAM
+            Atile0: i8[16, 64] @ DRAM
+            Atile1: i8[16, 64] @ DRAM
