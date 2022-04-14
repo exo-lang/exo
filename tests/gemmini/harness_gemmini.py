@@ -1,8 +1,6 @@
 import os
 import subprocess
 
-import pytest
-
 from exo import compile_procs
 
 GEMMINI_ROOT = os.getenv('GEMMINI_ROOT')
@@ -10,8 +8,6 @@ if GEMMINI_ROOT is None:
     RISCV = os.getenv('RISCV')
     if RISCV is None:
         pass
-        #pytest.skip("skipping gemmini tests; could not find chipyard",
-        #            allow_module_level=True)
     else:
         GEMMINI_ROOT  = os.path.join(RISCV,'..','generators','gemmini')
 
