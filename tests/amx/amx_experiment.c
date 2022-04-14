@@ -276,13 +276,120 @@ void test_matmul_8(int M, int K, int N) {
   printf("Matmul_8 test succeeded!\n");
 }
 
-int main() {
-  int M = 10;
-  int K = 5;
-  int N = 7;
+void simple_transform_memory() {
+  uint8_t src[4*16] __attribute__ ((aligned (512)));
+  uint8_t dest[4*16] __attribute__ ((aligned (512)));
+  for (int i=0; i<4*16; i++) {
+    src[i] = i;
+  }
+  __m512i a = _mm512_load_epi32(src);
+  for (int i=0; i<4*16; i++) {
+    printf("%2d ", src[i]);
+    if ((i+1)%16 == 0) {
+      printf("\n");
+    }
+  }
 
-  test_dpbuud(M, K, N);
-  test_matmul_8(M, K, N);
+  // step 1: permute across lanes
+  uint32_t permute_indices[16] = {
+    0, 4, 8, 12,
+    1, 5, 9, 13,
+    2, 6, 10, 14,
+    3, 7, 11, 15
+  };
+  __m512i b = _mm512_load_epi32(permute_indices);
+  __m512i c = _mm512_permutevar_epi32(b, a);
+
+  // step 2: shuffle within lanes
+  uint8_t shuffle_indices[4*16] = {
+    0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15,
+    0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15,
+    0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15,
+    0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15,
+  };
+  __m512i d = _mm512_load_epi32(shuffle_indices);
+  __m512i e =_mm512_shuffle_epi8(c, d);
+
+  _mm512_store_epi32(dest, e);
+  for (int i=0; i<4*16; i++) {
+    printf("%2d ", dest[i]);
+    if ((i+1)%16 == 0) {
+      printf("\n");
+    }
+  }
+}
+
+int main() {
+  unsigned char config[] = {
+      0x01,                                      // ID
+      0x00,                                      // start row
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // reserved
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // reserved
+      64, 0x00,                               // bytes per row tile 0
+      64, 0x00,                               // bytes per row tile 1
+      64, 0x00,                               // bytes per row tile 2
+      0x01, 0x00,                                // bytes per row tile 3
+      0x00, 0x00,                                // bytes per row tile 4
+      0x00, 0x00,                                // bytes per row tile 5
+      0x00, 0x00,                                // bytes per row tile 6
+      0x00, 0x00,                                // bytes per row tile 7
+      0x00, 0x00,                                // bytes per row tile 8
+      0x00, 0x00,                                // bytes per row tile 9
+      0x00, 0x00,                                // bytes per row tile 10
+      0x00, 0x00,                                // bytes per row tile 11
+      0x00, 0x00,                                // bytes per row tile 12
+      0x00, 0x00,                                // bytes per row tile 13
+      0x00, 0x00,                                // bytes per row tile 14
+      0x00, 0x00,                                // bytes per row tile 15
+      16,                                         // rows tile 0
+      16,                                         // rows tile 1
+      16,                                         // rows tile 2
+      0x01,                                      // rows tile 3
+      0x00,                                      // rows tile 4
+      0x00,                                      // rows tile 5
+      0x00,                                      // rows tile 6
+      0x00,                                      // rows tile 7
+      0x00,                                      // rows tile 8
+      0x00,                                      // rows tile 9
+      0x00,                                      // rows tile 10
+      0x00,                                      // rows tile 11
+      0x00,                                      // rows tile 12
+      0x00,                                      // rows tile 13
+      0x00,                                      // rows tile 14
+      0x00                                       // rows tile 15
+  };
+
+  _tile_loadconfig(config);
+
+  uint8_t A[16*64];
+  uint32_t B[16*16];
+  uint8_t C[16*64];
+  for (int i=0; i<16*64; i++) {
+    A[i] = 1;
+  }
+  for (int i=0; i<16*16; i++) {
+    B[i] = 2;
+  }
+
+  _tile_loadd(0, A, 64);
+  _tile_loadd(1, A, 64);
+  _tile_loadd(2, B, 64);
+  _tile_dpbssd(2, 1, 0);
+  _tile_stored(2, C, 64);
+
+  for (int i=0; i<16*64; i++) {
+    printf("%2d ", C[i]);
+    if ((i+1)%64== 0) {
+      printf("\n");
+    }
+  }
+
+  // int M = 10;
+  // int K = 5;
+  // int N = 7;
+
+  // test_dpbuud(M, K, N);
+  // test_matmul_8(M, K, N);
 
   /*
   uint32_t C_matmul1[M][N];
@@ -363,6 +470,8 @@ int main() {
 
   printf("My matmul succeeded!\n");
   */
+
+
 
   return 0;
 }
