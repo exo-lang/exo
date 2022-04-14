@@ -136,6 +136,11 @@ sgemm_tiled = (sgemm_tiled
     .stage_mem(f'A[{L1_N}*io : {L1_N}*io + {L1_N},'
                f'  {L1_K}*ko : {L1_K}*ko + {L1_K}]',
                'Atile', 'for jo in _: _ #0')
+    .lift_alloc_simple('Atile : _', n_lifts=2)
+    .stage_mem(f'B[{L1_K}*ko : {L1_K}*ko + {L1_K},'
+               f'  {L1_M}*jo : {L1_M}*jo + {L1_M}]',
+               'Btile', 'for im in _: _ #0')
+    .lift_alloc_simple('Btile : _', n_lifts=3)
     # cleanup
     .simplify()
 )

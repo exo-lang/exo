@@ -10,6 +10,7 @@
 #include "sgemm.h"
 //#include "alex_sgemm.h"
 #include "naive_sgemm.h"
+#include<Accelerate/Accelerate.h>
 
 static std::vector<float> gen_matrix(long m, long n) {
   static std::random_device rd;
@@ -52,6 +53,28 @@ int main(int argc, char *argv[]) {
   double ms_per_gemm = duration/N_TIMES_NAIVE*1.0e3;
   printf("-----------------------------------------------------------\n");
   printf("Naive SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
+         ms_per_gemm, (FLOP_C*1.0e-6)/ms_per_gemm);
+  
+  int N_TIMES_ACCELERATE = 1000;
+  begin = std::chrono::steady_clock::now();
+  for(int times = 0; times<N_TIMES_ACCELERATE; times++) {
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                n, n, n, // M N K
+                1.0, // alpha
+                a.data(),
+                n, // M
+                b.data(),
+                n, // K
+                1.0, // beta
+                c.data(),
+                n  // M
+                );
+  }
+  end = std::chrono::steady_clock::now();
+  duration = std::chrono::duration<double>(end - begin).count();
+  ms_per_gemm = duration/N_TIMES_ACCELERATE*1.0e3;
+  printf("-----------------------------------------------------------\n");
+  printf("Apple SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
          ms_per_gemm, (FLOP_C*1.0e-6)/ms_per_gemm);
   
   int N_TIMES_EXO = 50;

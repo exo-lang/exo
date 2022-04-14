@@ -3104,7 +3104,7 @@ class _DoStageMem(LoopIR_Rewrite):
                     new_e = new_e.update(
                         name=self.new_name,
                         idx=w_idx,
-                        type=T.Window(self.new_typ, e.typ.as_tensor,
+                        type=T.Window(self.new_typ, e.type.as_tensor,
                                       self.new_name, w_idx)
                     )
 
