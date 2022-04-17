@@ -70,6 +70,8 @@ matplotlib.rcParams.update({
     'font.size': 6.25,
     'grid.linewidth': 0.5,
     'lines.linewidth': 0.75,
+    'font.family' : "serif",
+    'font.serif': 'Linux Libertine O',
     'pgf.rcfonts': False,
     'pgf.texsystem': 'pdflatex',
     'text.usetex': True,
