@@ -44,28 +44,28 @@ def test_find_cursor():
 
 
 # TODO: needs selection cursors
-@pytest.mark.skip()
 def test_cursor_move():
     c = foo.find_cursor("for j in _:_")
     assert len(c) == 1
     c = c[0]
 
     c_list = c.body()  # list of j's body
-    assert c_list.is_list()
-    c_list_par = c_list.parent()  # for j in _:_
-    assert c is c_list_par
+    assert isinstance(c_list, list)
+    #TODO: subscriptable class probably shouldn't have a parent() method?
+    #c_list_par = c_list.parent()  # for j in _:_
+    #assert c is c_list_par
 
     c1 = c_list[0]  # x : f32
-    assert c._node() is foo._loopir_proc.body[0].body[0].body[0]
+    assert c1._node() is foo._loopir_proc.body[0].body[0].body[0]
     c2 = c1.next()  # x = 0.0
-    assert c._node() is foo._loopir_proc.body[0].body[0].body[1]
+    assert c2._node() is foo._loopir_proc.body[0].body[0].body[1]
     c3 = c1.next(2)  # y : f32
-    assert c._node() is foo._loopir_proc.body[0].body[0].body[2]
+    assert c3._node() is foo._loopir_proc.body[0].body[0].body[2]
 
     _c2_ = c3.prev()
-    assert c2 is _c2_
-    _c1_ = c2.prev(2)
-    assert c1 is _c1_
+    assert c2 == _c2_
+    _c1_ = c3.prev(2)
+    assert c1 == _c1_
 
 
 @pytest.mark.skip()

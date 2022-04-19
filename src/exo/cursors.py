@@ -14,8 +14,8 @@ class CursorKind(Enum):
     Node = 0  # Pointing directly at a node
     # BlockFront = 1  # Gap before the first statement of a block
     # BlockEnd = 2  # Gap after the last statement of a block
-    BeforeNode = 3  # Gap before the node in a block
-    AfterNode = 4  # Gap after the node in a block
+    GapBefore = 3  # Gap before the node in a block
+    GapAfter  = 4  # Gap after the node in a block
 
 
 class ExoIR(Enum):
@@ -87,10 +87,17 @@ class Cursor:
     def parent(self) -> Cursor:
         return self._from_path(self._path[:-1])
 
+    def next(self, idx=1) -> Cursor:
+        return self._from_path(self._path[:-1] + [self._path[-1]+idx])
+
+    def prev(self, idx=1) -> Cursor:
+        return self._from_path(self._path[:-1] + [self._path[-1]-idx])
+
     # ------------------------------------------------------------------------ #
     # Type-specific navigation
     # ------------------------------------------------------------------------ #
 
+    #TODO: Should body also return selection cursor?
     def body(self):
         node = self.node()
         if isinstance(node, LoopIR.proc):
