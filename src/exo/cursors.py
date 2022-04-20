@@ -88,10 +88,56 @@ class Cursor:
         return self._from_path(self._path[:-1])
 
     def next(self, idx=1) -> Cursor:
-        return self._from_path(self._path[:-1] + [self._path[-1]+idx])
+        new_c = self._from_path(self._path[:-1] + [self._path[-1]+idx])
+        new_c._kind = self._kind
+        return new_c
 
     def prev(self, idx=1) -> Cursor:
-        return self._from_path(self._path[:-1] + [self._path[-1]-idx])
+        new_c = self._from_path(self._path[:-1] + [self._path[-1]-idx])
+        new_c._kind = self._kind
+        return new_c
+
+    def after(self, idx=0) -> Cursor:
+        new_c = self._from_path(self._path[:-1] + [self._path[-1]+idx])
+        if self._kind == CursorKind.Node:
+            new_c._kind = CursorKind.GapAfter
+        elif self._kind == CursorKind.GapBefore:
+            new_c._kind = CursorKind.Node
+        elif self._kind == CursorKind.GapAfter:
+            new_c = self._from_path(self._path[:-1] + [self._path[-1]+idx+1])
+            new_c._kind = CursorKind.Node
+        else:
+            assert False, "bad case!"
+        return new_c
+
+    def before(self, idx=0) -> Cursor:
+        new_c = self._from_path(self._path[:-1] + [self._path[-1]-idx])
+        if self._kind == CursorKind.Node:
+            new_c._kind = CursorKind.GapBefore
+        elif self._kind == CursorKind.GapAfter:
+            new_c._kind = CursorKind.Node
+        elif self._kind == CursorKind.GapBefore:
+            new_c = self._from_path(self._path[:-1] + [self._path[-1]-idx-1])
+            new_c._kind = CursorKind.Node
+        else:
+            assert False, "bad case!"
+        return new_c
+
+    def __eq__(self, other):
+        if self._kind == other._kind:
+            return (self._proc == other._proc
+                    and self._path == other._path
+                    and self._node == other._node)
+        elif self._kind == CursorKind.GapAfter and other._kind == CursorKind.GapBefore:
+            return (self._proc == other._proc
+                    and self._path[:-1] == other._path[:-1]
+                    and self._path[-1]+1 == other._path[-1])
+        elif self._kind == CursorKind.GapBefore and other._kind == CursorKind.GapAfter:
+            return (self._proc == other._proc
+                    and self._path[:-1] == other._path[:-1]
+                    and self._path[-1]-1 == other._path[-1])
+        else:
+            return False
 
     # ------------------------------------------------------------------------ #
     # Type-specific navigation

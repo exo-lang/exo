@@ -68,7 +68,6 @@ def test_cursor_move():
     assert c1 == _c1_
 
 
-@pytest.mark.skip()
 def test_cursor_gap():
     # for i in par(0, n):
     #    for j in par(0, m):
@@ -78,20 +77,20 @@ def test_cursor_gap():
     #        y: f32
     #               <- g2
     #        y = 1.1
-    c = foo.find_cursor("for j in _:_").body()[0]  # x : f32
+    c = foo.find_cursor("for j in _:_")[0].body()[0]  # x : f32
     g1 = c.after()
-    c1 = foo.find_cursor("x = 0.0")
+    c1 = foo.find_cursor("x = 0.0")[0]
     _g1_ = c1.before()
-    assert g1 is _g1_
+    assert g1 == _g1_
 
     g2 = g1.next(2)
-    _g2_ = c1.after(2)
-    assert g2 is _g2_
+    _g2_ = c1.after(1)
+    assert g2 == _g2_
 
     # Testing gap -> stmt
-    c3 = foo.find_cursor("y = 1.1")
+    c3 = foo.find_cursor("y = 1.1")[0]
     _c3_ = g2.after()
-    assert c3 is _c3_
+    assert c3 == _c3_
 
 
 @pytest.mark.skip()
