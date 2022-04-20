@@ -6,8 +6,8 @@
 We make active use of newer Python 3.x features, so please use the same version
 of Python as our CI if you're getting errors about unsupported features.
 
-Setting up Exo for development is like any other Python project. We _
-strongly_ recommend you use a virtual environment.
+Setting up Exo for development is like any other Python project. We
+_strongly_ recommend you use a virtual environment.
 
 ```
 $ python -m venv ~/.venv/exo

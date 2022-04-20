@@ -7,3 +7,4 @@ filterwarnings = [
     'ignore:lib2to3 package is deprecated:PendingDeprecationWarning'
 ]
 norecursedirs = ['dependencies']
+pythonpath = "src/"
