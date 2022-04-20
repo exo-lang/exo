@@ -1,6 +1,6 @@
 def foo(N: size, x: R[N, N] @ DRAM):
-    for j in par(0, N):
-        for i in par(0, N):
+    for j in seq(0, N):
+        for i in seq(0, N):
             if 0 < i and i < N - 1 and (0 < j and j < N - 1):
                 x[i, j] += -1.0 / 4.0 * (x[i - 1, j] + x[i + 1, j] +
                                          x[i, j - 1] + x[i, j + 1])
