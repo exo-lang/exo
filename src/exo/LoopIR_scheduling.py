@@ -328,7 +328,11 @@ class _Split(LoopIR_Rewrite):
                 tail_eff    = do_bind(self.cut_i, Ntail, tail_eff)
 
                 if self._tail_strategy == 'cut_and_guard':
+<<<<<<< HEAD
                     body = [styp(self.cut_i, Ntail,
+=======
+                    body = [s_type(self.cut_i, Ntail,
+>>>>>>> master
                             tail_body,
                             tail_eff, s.srcinfo)]
                     body_eff= get_effect_of_stmts(body)
