@@ -2566,6 +2566,18 @@ class _DoExtractMethod(LoopIR_Rewrite):
 
 
 class _DoNormalize(LoopIR_Rewrite):
+    # This class operates on an idea of creating a coefficient map for each
+    # indexing expression (normalize_e), and writing the map back to LoopIR
+    # (get_loopir in index_start).
+    # For example, when you have Assign statement:
+    # y[n*4 - n*4 + 1] = 0.0
+    # index_start will be called with e : n*4 - n*4 + 1.
+    # Then, normalize_e will create a map of symbols and its coefficients.
+    # The map for the expression `n*4 + 1` is:
+    # { temporary_constant_symbol : 1, n : 4 }
+    # and the map for the expression `n*4 - n*4 + 1` is:
+    # { temporary_constant_symbol : 1, n : 0 }
+    # This map concatnation is handled by concat_map function.
     def __init__(self, proc):
         self.C = Sym("temporary_constant_symbol")
         super().__init__(proc)
@@ -2590,14 +2602,15 @@ class _DoNormalize(LoopIR_Rewrite):
             if len(rhs) == 1 and self.C in rhs:
                 return { key: lhs[key]*rhs[self.C] for key in lhs }
             else:
-                assert self.C in lhs
+                assert len(lhs) == 1 and self.C in lhs
                 return { key: rhs[key]*lhs[self.C] for key in rhs }
         else:
             assert False, "bad case"
 
     def normalize_e(self, e):
+        assert e.type.is_indexable(), f"{e} is not indexable!"
+
         if isinstance(e, LoopIR.Read):
-            assert e.type.is_indexable()
             assert len(e.idx) == 0, "Indexing inside indexing does not make any sense"
             return { e.name : 1 }
         elif isinstance(e, LoopIR.Const):
