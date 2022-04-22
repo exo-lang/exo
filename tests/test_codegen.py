@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy import stats as st
 
 from exo import proc, Procedure, DRAM
 from exo.libs.memories import MDRAM
@@ -39,7 +38,7 @@ def _test_blur(compiler, tmp_path, blur):
                        dtype="float32")
 
     x = np.linspace(-1, 1, k_size + 1)
-    kern1d = np.diff(st.norm.cdf(x))
+    kern1d = np.diff(np.random.normal(x))
     kern2d = np.outer(kern1d, kern1d)
     kern = np.asarray(kern2d / kern2d.sum(), dtype=np.float32)
 
