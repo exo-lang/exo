@@ -6,6 +6,15 @@ from exo import proc, DRAM, SchedulingError
 from exo.libs.memories import GEMM_SCRATCH
 from exo.parse_fragment import ParseFragmentError
 
+def test_simplify3(golden):
+    @proc
+    def foo(n : size, m : size):
+        assert m == 1 and n == 1
+        y : R[10]
+        y[10*m - 10*n + 2*n] = 2.0
+
+    assert str(foo.simplify()) == golden
+
 def test_simplify2(golden):
     @proc
     def foo(A: i8[32, 64] @ DRAM, B: i8[16, 128] @ DRAM,

@@ -2626,20 +2626,22 @@ class _DoNormalize(LoopIR_Rewrite):
             assert False, ("index_start should only be called by"+
                            f" an indexing expression. e was {e}")
 
-    def has_div_mod(self, e):
+    def has_div_mod_config(self, e):
         if isinstance(e, LoopIR.Read):
             return False
         elif isinstance(e, LoopIR.Const):
             return False
         elif isinstance(e, LoopIR.USub):
-            return self.has_div_mod(e.arg)
+            return self.has_div_mod_config(e.arg)
         elif isinstance(e, LoopIR.BinOp):
             if e.op == '/' or e.op == '%':
                 return True
             else:
-                lhs = self.has_div_mod(e.lhs)
-                rhs = self.has_div_mod(e.rhs)
+                lhs = self.has_div_mod_config(e.lhs)
+                rhs = self.has_div_mod_config(e.rhs)
                 return lhs or rhs
+        elif isinstance(e, LoopIR.ReadConfig):
+            return True
         else:
             assert False, "bad case"
 
@@ -2648,7 +2650,8 @@ class _DoNormalize(LoopIR_Rewrite):
     def index_start(self, e):
         assert isinstance(e, LoopIR.expr)
         # Div and mod need more subtle handling. Don't normalize for now.
-        if self.has_div_mod(e):
+        # Skip ReadConfigs, they needs careful handling because they're not Sym.
+        if self.has_div_mod_config(e):
             return e
 
         # Make a map of symbols and coefficients
@@ -2671,44 +2674,16 @@ class _DoNormalize(LoopIR_Rewrite):
                 new_e = LoopIR.BinOp('+', new_e, get_loopir(key, val), e.type, e.srcinfo)
             else:
                 # sub
-                new_e = LoopIR.BinOp('-', new_e, get_loopir(key, val), e.type, e.srcinfo)
+                new_e = LoopIR.BinOp('-', new_e, get_loopir(key, -val), e.type, e.srcinfo)
 
         return new_e
 
 
     def map_e(self, e):
-        if isinstance(e, LoopIR.Read):
-            if len(e.idx) > 0:
-                # This is a Tensor read
-                new_idx = [ self.index_start(ei) for ei in e.idx ]
-                return LoopIR.Read(e.name, new_idx, e.type, e.srcinfo)
+        if e.type.is_indexable():
+            return self.index_start(e)
 
         return super().map_e(e)
-
-    def map_w_access(self, w):
-        if isinstance(w, LoopIR.Interval):
-            return LoopIR.Interval(self.index_start(w.lo),
-                                   self.index_start(w.hi), w.srcinfo)
-        else:
-            return LoopIR.Point(self.index_start(w.pt), w.srcinfo)
-
-    def map_s(self, s):
-        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            new_idx = [ self.index_start(e) for e in s.idx ]
-            return [type(s)(s.name, s.type, s.cast, new_idx, self.map_e(s.rhs),
-                            s.eff, s.srcinfo)]
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
-            new_hi = self.index_start(s.hi)
-            new_body = self.map_stmts(s.body)
-            return [type(s)(s.iter, new_hi, new_body, s.eff, s.srcinfo)]
-        elif isinstance(s, LoopIR.Alloc):
-            if isinstance(s.type, T.Tensor):
-                new_hi = [ self.index_start(e) for e in s.type.hi ]
-                new_typ = T.Tensor(new_hi, False, s.type.basetype())
-                return [LoopIR.Alloc(s.name, new_typ, s.mem, s.eff, s.srcinfo)]
-
-        return super().map_s(s)
-
 
 
 
