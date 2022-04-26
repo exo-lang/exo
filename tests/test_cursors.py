@@ -27,12 +27,12 @@ def test_get_root():
     assert isinstance(cursor._proc(), exo.Procedure)
     assert isinstance(cursor._node, weakref.ReferenceType)
     assert isinstance(cursor._node(), LoopIR.proc)
-    assert cursor._node() is foo._loopir_proc
+    assert cursor.node() is foo._loopir_proc
 
 
 def test_get_child():
     cursor = Cursor.root(foo).child(0)
-    assert cursor._node() is foo._loopir_proc.body[0]
+    assert cursor.node() is foo._loopir_proc.body[0]
 
 
 def test_find_cursor():
@@ -40,7 +40,7 @@ def test_find_cursor():
     assert len(c) == 1
     c = c[0]
 
-    assert c._node() is foo._loopir_proc.body[0].body[0]
+    assert c.node() is foo._loopir_proc.body[0].body[0]
 
 
 # TODO: needs selection cursors
@@ -51,16 +51,16 @@ def test_cursor_move():
 
     c_list = c.body()  # list of j's body
     assert isinstance(c_list, list)
-    #TODO: subscriptable class probably shouldn't have a parent() method?
-    #c_list_par = c_list.parent()  # for j in _:_
-    #assert c is c_list_par
+    # TODO: subscriptable class probably shouldn't have a parent() method?
+    # c_list_par = c_list.parent()  # for j in _:_
+    # assert c is c_list_par
 
     c1 = c_list[0]  # x : f32
-    assert c1._node() is foo._loopir_proc.body[0].body[0].body[0]
+    assert c1.node() is foo._loopir_proc.body[0].body[0].body[0]
     c2 = c1.next()  # x = 0.0
-    assert c2._node() is foo._loopir_proc.body[0].body[0].body[1]
+    assert c2.node() is foo._loopir_proc.body[0].body[0].body[1]
     c3 = c1.next(2)  # y : f32
-    assert c3._node() is foo._loopir_proc.body[0].body[0].body[2]
+    assert c3.node() is foo._loopir_proc.body[0].body[0].body[2]
 
     _c2_ = c3.prev()
     assert c2 == _c2_
@@ -78,6 +78,7 @@ def test_cursor_gap():
     #               <- g2
     #        y = 1.1
     c = foo.find_cursor("for j in _:_")[0].body()[0]  # x : f32
+    assert str(c.node()) == 'x: f32 @ DRAM\n'
     g1 = c.after()
     c1 = foo.find_cursor("x = 0.0")[0]
     _g1_ = c1.before()
@@ -106,7 +107,7 @@ def test_explicit_fwd():
     g1 = c1.after(2)
     new_foo = foo.fission_at(g1)
     _c1_ = new_foo.fwd(c1)
-    assert c1._node is _c1_._node
+    assert c1.node() is _c1_.node()
 
 
 @pytest.mark.skip()
@@ -187,4 +188,4 @@ def test_cursor_loop_bound():
     c_proc = Cursor.root(foo)
     c_fori = c_proc.child(0)
     c_bound = c_fori.child(0)
-    assert isinstance(c_bound._node(), LoopIR.Read)
+    assert isinstance(c_bound.node(), LoopIR.Read)
