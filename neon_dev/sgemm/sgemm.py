@@ -48,7 +48,7 @@ sgemm_win = (
 )
 
 
-micro_N = 2
+micro_N = 4
 micro_M = 16
 assert micro_M % 4 == 0
 
