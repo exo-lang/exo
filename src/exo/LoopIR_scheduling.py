@@ -2564,11 +2564,135 @@ class _DoExtractMethod(LoopIR_Rewrite):
         return e
 
 
+
+class _DoNormalize(LoopIR_Rewrite):
+    # This class operates on an idea of creating a coefficient map for each
+    # indexing expression (normalize_e), and writing the map back to LoopIR
+    # (get_loopir in index_start).
+    # For example, when you have Assign statement:
+    # y[n*4 - n*4 + 1] = 0.0
+    # index_start will be called with e : n*4 - n*4 + 1.
+    # Then, normalize_e will create a map of symbols and its coefficients.
+    # The map for the expression `n*4 + 1` is:
+    # { temporary_constant_symbol : 1, n : 4 }
+    # and the map for the expression `n*4 - n*4 + 1` is:
+    # { temporary_constant_symbol : 1, n : 0 }
+    # This map concatnation is handled by concat_map function.
+    def __init__(self, proc):
+        self.C = Sym("temporary_constant_symbol")
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def concat_map(self, op, lhs, rhs):
+        if op == '+':
+            # if has same key: add value
+            common = { key: (lhs[key]+rhs[key]) for key in lhs if key in rhs }
+            return lhs | rhs | common
+        elif op == '-':
+            # has same key: sub value
+            common = { key: (lhs[key]-rhs[key]) for key in lhs if key in rhs }
+            # else, negate the rhs and cat map
+            neg_rhs = { key: -rhs[key] for key in rhs }
+            return lhs | neg_rhs | common
+        elif op == '*':
+            # rhs or lhs NEEDS to be constant
+            assert len(rhs) == 1 or len(lhs) == 1
+            # multiply the other one's value by that constant
+            if len(rhs) == 1 and self.C in rhs:
+                return { key: lhs[key]*rhs[self.C] for key in lhs }
+            else:
+                assert len(lhs) == 1 and self.C in lhs
+                return { key: rhs[key]*lhs[self.C] for key in rhs }
+        else:
+            assert False, "bad case"
+
+    def normalize_e(self, e):
+        assert e.type.is_indexable(), f"{e} is not indexable!"
+
+        if isinstance(e, LoopIR.Read):
+            assert len(e.idx) == 0, "Indexing inside indexing does not make any sense"
+            return { e.name : 1 }
+        elif isinstance(e, LoopIR.Const):
+            return { self.C : e.val }
+        elif isinstance(e, LoopIR.USub):
+            e_map = self.normalize_e(e.arg)
+            return { key: -e_map[key] for key in e_map }
+        elif isinstance(e, LoopIR.BinOp):
+            lhs_map = self.normalize_e(e.lhs)
+            rhs_map = self.normalize_e(e.rhs)
+            return self.concat_map(e.op, lhs_map, rhs_map)
+        else:
+            assert False, ("index_start should only be called by"+
+                           f" an indexing expression. e was {e}")
+
+    def has_div_mod_config(self, e):
+        if isinstance(e, LoopIR.Read):
+            return False
+        elif isinstance(e, LoopIR.Const):
+            return False
+        elif isinstance(e, LoopIR.USub):
+            return self.has_div_mod_config(e.arg)
+        elif isinstance(e, LoopIR.BinOp):
+            if e.op == '/' or e.op == '%':
+                return True
+            else:
+                lhs = self.has_div_mod_config(e.lhs)
+                rhs = self.has_div_mod_config(e.rhs)
+                return lhs or rhs
+        elif isinstance(e, LoopIR.ReadConfig):
+            return True
+        else:
+            assert False, "bad case"
+
+    # Call this when e is one indexing expression
+    # e should be an indexing expression
+    def index_start(self, e):
+        assert isinstance(e, LoopIR.expr)
+        # Div and mod need more subtle handling. Don't normalize for now.
+        # Skip ReadConfigs, they needs careful handling because they're not Sym.
+        if self.has_div_mod_config(e):
+            return e
+
+        # Make a map of symbols and coefficients
+        n_map = self.normalize_e(e)
+
+        # Write back to LoopIR.expr
+        def get_loopir(key, value):
+            vconst = LoopIR.Const(value, T.int, e.srcinfo)
+            if key == self.C:
+                return vconst
+            else:
+                readkey = LoopIR.Read(key, [], e.type, e.srcinfo)
+                return LoopIR.BinOp('*', vconst, readkey, e.type, e.srcinfo)
+        
+        delete_zero = { key: n_map[key] for key in n_map if n_map[key] != 0 }
+        new_e = LoopIR.Const(0, T.int, e.srcinfo)
+        for key, val in delete_zero.items():
+            if val > 0:
+                # add
+                new_e = LoopIR.BinOp('+', new_e, get_loopir(key, val), e.type, e.srcinfo)
+            else:
+                # sub
+                new_e = LoopIR.BinOp('-', new_e, get_loopir(key, -val), e.type, e.srcinfo)
+
+        return new_e
+
+
+    def map_e(self, e):
+        if e.type.is_indexable():
+            return self.index_start(e)
+
+        return super().map_e(e)
+
+
+
 class _DoSimplify(LoopIR_Rewrite):
     def __init__(self, proc):
         self.facts = ChainMap()
-        super().__init__(proc)
+        proc = _DoNormalize(proc).result()
 
+        super().__init__(proc)
         self.proc = InferEffects(self.proc).result()
 
     def cfold(self, op, lhs, rhs):
