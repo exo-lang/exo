@@ -68,6 +68,13 @@ class Cursor:
         return node
 
     # ------------------------------------------------------------------------ #
+    # Cursor introspection
+    # ------------------------------------------------------------------------ #
+
+    def is_gap(self):
+        return self._kind != CursorKind.Node
+
+    # ------------------------------------------------------------------------ #
     # Generic navigation
     # ------------------------------------------------------------------------ #
 
@@ -123,6 +130,12 @@ class Cursor:
             assert False, "bad case!"
         return new_c
 
+    # ------------------------------------------------------------------------ #
+    # Python magic function overloads
+    # ------------------------------------------------------------------------ #
+
+    # TODO: must never implement __eq__ without __hash__
+
     def __eq__(self, other: Cursor):
         if self._kind == other._kind:
             return (self._proc == other._proc
@@ -166,13 +179,41 @@ class Cursor:
     # ------------------------------------------------------------------------ #
 
     def insert_ast(self, ast):
-        pass
+        if self._kind == CursorKind.GapBefore:
+            pass
+        elif self._kind == CursorKind.GapAfter:
+            pass
+        else:
+            raise InvalidCursorError('Must insert at a gap')
 
     def delete_ast(self):
-        pass
+        if self.is_gap():
+            raise InvalidCursorError('Must delete a node')
 
-    def move_to(self, dst):
-        pass
+    def replace_ast(self, replacement):
+        """
+        Replaces the pointed-to node with "ast", which can be either a single
+        node or a list of nodes.
+        """
+        if self.is_gap():
+            raise InvalidCursorError('Must replace a node, not a gap')
+
+        if not isinstance(replacement, list):
+            replacement = [replacement]
+
+        def do_edit(ast, path):
+            if not path:
+                return ast
+
+        new_ast = do_edit(self.proc().INTERNAL_proc(), self._path)
+        fwd_fn = _make_replace_fwd(self._path, len(replacement))
+        return new_ast, fwd_fn
+
+    def move_to(self, dst: Cursor):
+        if not dst.is_gap():
+            raise InvalidCursorError('Must move to a gap')
+        if self.is_gap():
+            raise InvalidCursorError('Cannot move a gap')
 
     # ------------------------------------------------------------------------ #
     # Internal implementation
@@ -240,3 +281,32 @@ class Cursor:
             return []
 
         assert False, f"base case: {type(node)}"
+
+
+# ---------------------------------------------------------------------------- #
+# Cursor forwarding function generators
+#   These functions reside at the top-level to prevent them from capturing local
+#   state in the cursor editing operations, which could unintentionally extend
+#   the lifetimes of nodes. This also reduces the overall memory usage of the
+#   closures containing only the relevant information.
+# ---------------------------------------------------------------------------- #
+
+def _make_replace_fwd(sub_path, n_sub):
+    n_path = len(sub_path)
+
+    def fwd(path):
+        # Cursors to the replaced node and below are invalidated.
+        if path[:n_path] == sub_path:
+            raise InvalidCursorError('Cursor has been invalidated')
+
+        # Cursors to siblings of the replaced node get adjusted based on the
+        # substitution size
+        sibling_level = path[:n_path - 1]
+        if sibling_level == sub_path[:-1]:
+            last = path[-1]
+            return sibling_level + [last if last < sub_path[-1] else last + n_sub - 1]
+
+        # Otherwise, we're pointing somewhere unrelated and the path is still valid.
+        return path
+
+    return fwd
