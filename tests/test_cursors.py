@@ -111,7 +111,7 @@ def test_explicit_fwd():
 
 
 @pytest.mark.skip()
-def test_implicit_fwd():
+def test_fwd_fission_at():
     c1 = foo.find_cursor("x : f32")
     g1 = c1.after(2)
     bar = foo.fission_at(g1)
@@ -125,6 +125,11 @@ def test_implicit_fwd():
     #        y: f32
     #        y = 1.1
 
+
+@pytest.mark.skip()
+def test_fwd_lift_alloc():
+    c1 = foo.find_cursor("x : f32")
+    g1 = c1.after(2)
     bar = foo.lift_alloc(c1, n_lifts=2)
     # This should give the following:
     # x : f32[n,m] <- c1

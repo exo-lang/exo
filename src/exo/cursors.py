@@ -134,6 +134,7 @@ class Cursor:
                     and self._path[-1] + 1 == other._path[-1])
         elif self._kind == CursorKind.GapBefore and other._kind == CursorKind.GapAfter:
             return (self._proc == other._proc
+
                     and self._path[:-1] == other._path[:-1]
                     and self._path[-1] - 1 == other._path[-1])
         else:
@@ -159,6 +160,19 @@ class Cursor:
             return list(self.children())[1 + len(node.body):]
         else:
             raise TypeError(f"AST {type(node)} does not have an orelse branch")
+
+    # ------------------------------------------------------------------------ #
+    # Forwarding-aware, persistent, edits
+    # ------------------------------------------------------------------------ #
+
+    def insert_ast(self, ast):
+        pass
+
+    def delete_ast(self):
+        pass
+
+    def move_to(self, dst):
+        pass
 
     # ------------------------------------------------------------------------ #
     # Internal implementation
