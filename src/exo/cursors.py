@@ -78,6 +78,10 @@ class Cursor:
     # Generic navigation
     # ------------------------------------------------------------------------ #
 
+    # TODO: these navigation functions need to take if-statement body/orelse
+    #   distinctions into account. "After" the end of the body should not be
+    #   the beginning of the orelse.
+
     def child(self, idx) -> Cursor:
         if self._kind != CursorKind.Node:
             raise TypeError(f"Cursor kind {self._kind} does not have children")
