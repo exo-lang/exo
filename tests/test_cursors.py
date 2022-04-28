@@ -145,45 +145,6 @@ def test_cursor_print():
     pass
 
 
-# fwd(proc)
-"""
-find_cursor()
-
-stmt.next() # stmt
-prev() # stmt
-after() # gap
-before() # gap
-
-parent()
-body()
-ast_type() OR is_seq() is_if() is_alloc() is_list()... \Yuka{I think is_seq() is nicer}
-expressions (basically need to traverse LoopIR stmt to get LoopIR.expr):
-    hi
-    cond
-    basetype
-    iter
-    name
-    idx
-
-@config
-class ConfigLoad:
-    stride: ...
-
-def foo(src_stride: stride):
-    pass
-    x : i8
-    ...
-configwrite_at(c, )
-configwrite_after('pass', ConfigLoad.stride, foo.arg()[0]._loopir())
-def foo(src_stride: stride):
-    pass
-    ConfigLoad.stride = src_stride
-    x : i8
-    ...
-configwrite_after('stride', None)
-"""
-
-
 def test_cursor_loop_bound():
     c_proc = Cursor.root(foo)
     c_fori = c_proc.child(0)
