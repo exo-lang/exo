@@ -92,26 +92,13 @@ class Selection(Cursor):
         raise NotImplementedError('Selection.next')
 
     def __iter__(self):
-        """
-        There are a few things special about the implementation here. First, it avoids
-        the O(log n) lookup for the child by setting child._node directly. Python
-        @cached_property-ies are settable, which overrides the lookup function backing
-        them. Second, the iterator is careful to not keep the selection object itself
-        alive, but does keep the proc alive. This is a somewhat minor optimization, but
-        we often care only about the iterator anyway, so letting the selection temporary
-        die quickly seems like an advantage.
-        """
         blk = self._block
         attr = self._attr
-        stmts = getattr(blk.node(), attr)
-        rng = range(*self._range)
-        p = self.proc()
+        rng = self._range
 
         def impl():
-            for i in rng:
-                child = Node(weakref.ref(p), blk._path + [(attr, i)])
-                child._node = weakref.ref(stmts[i])
-                yield child
+            for i in range(*rng):
+                yield blk.child(attr, i)
 
         return impl()
 
@@ -122,6 +109,17 @@ class Selection(Cursor):
 @dataclass
 class Node(Cursor):
     _path: list[tuple[str, Optional[int]]]
+
+    def child(self, attr, i=None) -> Node:
+        if (_node := getattr(self.node(), attr, None)) is None:
+            raise ValueError(f'no such attribute {attr}')
+        if i is not None:
+            _node = _node[i]
+        cur = Node(self._proc, self._path + [(attr, i)])
+        # noinspection PyPropertyAccess
+        # cached_property is settable, bug in static analysis
+        cur._node = weakref.ref(_node)
+        return cur
 
     def parent(self) -> Node:
         if not self._path:
