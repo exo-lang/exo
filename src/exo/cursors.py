@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
-from typing import Union, List, Iterable, Optional
+from typing import Optional
 from weakref import ReferenceType
 
 from .API_types import ProcedureBase
@@ -53,20 +53,18 @@ class Cursor(ABC):
     def parent(self) -> Node:
         pass
 
-    @abstractmethod
-    def before(self, dist=0) -> Cursor:
-        pass
+    def before(self, dist=1) -> Cursor:
+        return self.after(-dist)
 
     @abstractmethod
-    def after(self, dist=0) -> Cursor:
+    def after(self, dist=1) -> Cursor:
         pass
 
-    @abstractmethod
-    def next(self, dist=0) -> Cursor:
-        pass
+    def prev(self, dist=1) -> Cursor:
+        return self.next(-dist)
 
     @abstractmethod
-    def prev(self, dist=0) -> Cursor:
+    def next(self, dist=1) -> Cursor:
         pass
 
     @staticmethod
@@ -80,9 +78,42 @@ class Cursor(ABC):
 
 @dataclass
 class Selection(Cursor):
-    _path: list[tuple[str, int]]  # leads to block parent (e.g. "if")
+    _block: Node  # leads to block parent (e.g. "if")
     _attr: str  # which block (e.g. "orelse")
     _range: tuple[int, int]  # [lo, hi) of block elements
+
+    def parent(self) -> Node:
+        return self._block
+
+    def after(self, dist=0) -> Cursor:
+        raise NotImplementedError('Selection.after')
+
+    def next(self, dist=0) -> Cursor:
+        raise NotImplementedError('Selection.next')
+
+    def __iter__(self):
+        """
+        There are a few things special about the implementation here. First, it avoids
+        the O(log n) lookup for the child by setting child._node directly. Python
+        @cached_property-ies are settable, which overrides the lookup function backing
+        them. Second, the iterator is careful to not keep the selection object itself
+        alive, but does keep the proc alive. This is a somewhat minor optimization, but
+        we often care only about the iterator anyway, so letting the selection temporary
+        die quickly seems like an advantage.
+        """
+        blk = self._block
+        attr = self._attr
+        stmts = getattr(blk.node(), attr)
+        rng = range(*self._range)
+        p = self.proc()
+
+        def impl():
+            for i in rng:
+                child = Node(weakref.ref(p), blk._path + [(attr, i)])
+                child._node = weakref.ref(stmts[i])
+                yield child
+
+        return impl()
 
     def replace(self):
         pass
@@ -97,27 +128,19 @@ class Node(Cursor):
             raise InvalidCursorError('cursor does not have a parent')
         return Node(self._proc, self._path[:-1])
 
-    def before(self, dist=0) -> Gap:
+    def after(self, dist=1) -> Gap:
+        return self._hop_idx(Gap, dist)
+
+    def next(self, dist=1) -> Node:
+        return self._hop_idx(Node, dist)
+
+    def _hop_idx(self, ty, dist):
         if not self._path:
-            raise InvalidCursorError('cursor has no gap before')
+            raise InvalidCursorError('cannot move root cursor')
         attr, i = self._path[-1]
         if i is None:
-            raise InvalidCursorError('cursor does not point to a block')
-        return Gap(self._proc, self._path[:-1] + [(attr, i - dist)])
-
-    def after(self, dist=0) -> Gap:
-        return self.before(-1 - dist)
-
-    def next(self, dist=0) -> Node:
-        if not self._path:
-            raise InvalidCursorError('cursor has no next node')
-        attr, i = self._path[-1]
-        if i is None:
-            raise InvalidCursorError('cursor does not point to a block')
-        return Node(self._proc, self._path[:-1] + [(attr, i + dist + 1)])
-
-    def prev(self, dist=0) -> Node:
-        return self.next(-2 - dist)
+            raise InvalidCursorError('cursor is not inside block')
+        return ty(self._proc, self._path[:-1] + [(attr, i + dist)])
 
     def node(self):
         if (n := self._node()) is None:
@@ -175,10 +198,17 @@ class Node(Cursor):
                 for i in range(len(children))]
 
     def body(self) -> Selection:
-        raise NotImplementedError()
+        return self._select_attr('body')
 
     def orelse(self) -> Selection:
-        raise NotImplementedError()
+        return self._select_attr('orelse')
+
+    def _select_attr(self, attr):
+        n = self.node()
+        if (stmts := getattr(n, attr, None)) is None:
+            raise InvalidCursorError()
+        assert isinstance(stmts, list)
+        return Selection(self._proc, self, attr, (0, len(stmts)))
 
 
 @dataclass

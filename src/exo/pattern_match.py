@@ -182,10 +182,10 @@ class PatternMatch:
         # first, look for any subsequences of statements in the first
         # statement of the sequence `stmts`
         if isinstance(curs[0].node(), LoopIR.If):
-            self.find_stmts(pats, curs[0].body())
-            self.find_stmts(pats, curs[0].orelse())
+            self.find_stmts(pats, list(curs[0].body()))
+            self.find_stmts(pats, list(curs[0].orelse()))
         elif isinstance(curs[0].node(), (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq)):
-            self.find_stmts(pats, curs[0].body())
+            self.find_stmts(pats, list(curs[0].body()))
         else:
             pass  # other forms of statement do not contain stmt blocks
 

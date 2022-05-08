@@ -62,8 +62,7 @@ def test_cursor_move():
     assert len(c) == 1
     c = c[0]
 
-    c_list = c.body()  # list of j's body
-    assert isinstance(c_list, list)
+    c_list = list(c.body())  # list of j's body
     # TODO: subscriptable class probably shouldn't have a parent() method?
     # c_list_par = c_list.parent()  # for j in _:_
     # assert c is c_list_par
