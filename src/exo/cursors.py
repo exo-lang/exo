@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import weakref
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union, List, Iterable
+from functools import cached_property
+from typing import Union, List, Iterable, Optional
 from weakref import ReferenceType
 
 from .API_types import ProcedureBase
@@ -35,282 +37,150 @@ class InvalidCursorError(Exception):
 
 
 @dataclass
-class Cursor:
+class Cursor(ABC):
     _proc: ReferenceType[ProcedureBase]
-    _node: ReferenceType[Union[LoopIR.proc, LoopIR.stmt, LoopIR.expr]]
-    _path: List[int]
-    _kind: CursorKind = CursorKind.Node
-
-    # ------------------------------------------------------------------------ #
-    # Static constructors
-    # ------------------------------------------------------------------------ #
 
     @staticmethod
-    def root(proc):
-        return Cursor.from_node(proc, proc.INTERNAL_proc(), [])
-
-    @staticmethod
-    def from_node(proc, node, path):
-        return Cursor(weakref.ref(proc), weakref.ref(node), path)
-
-    # ------------------------------------------------------------------------ #
-    # Validating getters
-    # ------------------------------------------------------------------------ #
+    def root(proc: ProcedureBase):
+        return Node(weakref.ref(proc), [])
 
     def proc(self):
-        if (proc := self._proc()) is None:
+        if (p := self._proc()) is None:
             raise InvalidCursorError()
-        return proc
+        return p
+
+    @abstractmethod
+    def parent(self) -> Node:
+        pass
+
+    @abstractmethod
+    def before(self, dist=0) -> Cursor:
+        pass
+
+    @abstractmethod
+    def after(self, dist=0) -> Cursor:
+        pass
+
+    @abstractmethod
+    def next(self, dist=0) -> Cursor:
+        pass
+
+    @abstractmethod
+    def prev(self, dist=0) -> Cursor:
+        pass
+
+    @staticmethod
+    def _walk_path(n, path):
+        for attr, idx in path:
+            n = getattr(n, attr)
+            if idx is not None:
+                n = n[idx]
+        return n
+
+
+@dataclass
+class Selection(Cursor):
+    _path: list[tuple[str, int]]  # leads to block parent (e.g. "if")
+    _attr: str  # which block (e.g. "orelse")
+    _range: tuple[int, int]  # [lo, hi) of block elements
+
+    def replace(self):
+        pass
+
+
+@dataclass
+class Node(Cursor):
+    _path: list[tuple[str, Optional[int]]]
+
+    def parent(self) -> Node:
+        if not self._path:
+            raise InvalidCursorError('cursor does not have a parent')
+        return Node(self._proc, self._path[:-1])
+
+    def before(self, dist=0) -> Gap:
+        if not self._path:
+            raise InvalidCursorError('cursor has no gap before')
+        attr, i = self._path[-1]
+        if i is None:
+            raise InvalidCursorError('cursor does not point to a block')
+        return Gap(self._proc, self._path[:-1] + [(attr, i - dist)])
+
+    def after(self, dist=0) -> Gap:
+        return self.before(-1 - dist)
+
+    def next(self, dist=0) -> Node:
+        if not self._path:
+            raise InvalidCursorError('cursor has no next node')
+        attr, i = self._path[-1]
+        if i is None:
+            raise InvalidCursorError('cursor does not point to a block')
+        return Node(self._proc, self._path[:-1] + [(attr, i + dist + 1)])
+
+    def prev(self, dist=0) -> Node:
+        return self.next(-2 - dist)
 
     def node(self):
-        if (node := self._node()) is None:
+        if (n := self._node()) is None:
             raise InvalidCursorError()
-        return node
+        return n
 
-    # ------------------------------------------------------------------------ #
-    # Cursor introspection
-    # ------------------------------------------------------------------------ #
+    @cached_property
+    def _node(self):
+        n = self.proc().INTERNAL_proc()
+        n = self._walk_path(n, self._path)
+        return weakref.ref(n)
 
-    def is_gap(self):
-        return self._kind != CursorKind.Node
-
-    # ------------------------------------------------------------------------ #
-    # Generic navigation
-    # ------------------------------------------------------------------------ #
-
-    # TODO: these navigation functions need to take if-statement body/orelse
-    #   distinctions into account. "After" the end of the body should not be
-    #   the beginning of the orelse.
-
-    def child(self, idx) -> Cursor:
-        if self._kind != CursorKind.Node:
-            raise TypeError(f"Cursor kind {self._kind} does not have children")
-
-        return self._from_path(self._path + [idx])
-
-    def children(self) -> Iterable[Cursor]:
-        if self._kind != CursorKind.Node:
-            raise TypeError(f"Cursor kind {self._kind} does not have children")
-
-        for i, node in enumerate(self._get_children(self._node())):
-            yield Cursor(self._proc, weakref.ref(node), self._path + [i])
-
-    def parent(self) -> Cursor:
-        return self._from_path(self._path[:-1])
-
-    def next(self, idx=1) -> Cursor:
-        new_c = self._from_path(self._path[:-1] + [self._path[-1] + idx])
-        new_c._kind = self._kind
-        return new_c
-
-    def prev(self, idx=1) -> Cursor:
-        return self.next(-idx)
-
-    def after(self, idx=0) -> Cursor:
-        if self._kind == CursorKind.Node:
-            new_c = self._from_path(self._path[:-1] + [self._path[-1] + idx])
-            new_c._kind = CursorKind.GapAfter
-        elif self._kind == CursorKind.GapBefore:
-            new_c = self._from_path(self._path[:-1] + [self._path[-1] + idx])
-            new_c._kind = CursorKind.Node
-        elif self._kind == CursorKind.GapAfter:
-            new_c = self._from_path(self._path[:-1] + [self._path[-1] + idx + 1])
-            new_c._kind = CursorKind.Node
-        else:
-            assert False, "bad case!"
-        return new_c
-
-    def before(self, idx=0) -> Cursor:
-        if self._kind == CursorKind.Node:
-            new_c = self._from_path(self._path[:-1] + [self._path[-1] - idx])
-            new_c._kind = CursorKind.GapBefore
-        elif self._kind == CursorKind.GapAfter:
-            new_c = self._from_path(self._path[:-1] + [self._path[-1] - idx])
-            new_c._kind = CursorKind.Node
-        elif self._kind == CursorKind.GapBefore:
-            new_c = self._from_path(self._path[:-1] + [self._path[-1] - (idx + 1)])
-            new_c._kind = CursorKind.Node
-        else:
-            assert False, "bad case!"
-        return new_c
-
-    # ------------------------------------------------------------------------ #
-    # Python magic function overloads
-    # ------------------------------------------------------------------------ #
-
-    # TODO: must never implement __eq__ without __hash__
-
-    def __eq__(self, other: Cursor):
-        if self._kind == other._kind:
-            return (self._proc == other._proc
-                    and self._path == other._path
-                    and self._node == other._node)
-        elif self._kind == CursorKind.GapAfter and other._kind == CursorKind.GapBefore:
-            return (self._proc == other._proc
-                    and self._path[:-1] == other._path[:-1]
-                    and self._path[-1] + 1 == other._path[-1])
-        elif self._kind == CursorKind.GapBefore and other._kind == CursorKind.GapAfter:
-            return (self._proc == other._proc
-
-                    and self._path[:-1] == other._path[:-1]
-                    and self._path[-1] - 1 == other._path[-1])
-        else:
-            return False
-
-    # ------------------------------------------------------------------------ #
-    # Type-specific navigation
-    # ------------------------------------------------------------------------ #
-
-    # TODO: Should body also return selection cursor?
-    def body(self):
-        node = self.node()
-        if isinstance(node, LoopIR.proc):
-            return list(self.children())
-        elif isinstance(node, (LoopIR.ForAll, LoopIR.Seq, LoopIR.If)):
-            return list(self.children())[1:1 + len(node.body)]
-        else:
-            raise TypeError(f"AST {type(node)} does not have a body")
-
-    def orelse(self):
-        node = self.node()
-        if isinstance(node, LoopIR.If):
-            return list(self.children())[1 + len(node.body):]
-        else:
-            raise TypeError(f"AST {type(node)} does not have an orelse branch")
-
-    # ------------------------------------------------------------------------ #
-    # Forwarding-aware, persistent, edits
-    # ------------------------------------------------------------------------ #
-
-    def insert_ast(self, ast):
-        if self._kind == CursorKind.GapBefore:
-            pass
-        elif self._kind == CursorKind.GapAfter:
-            pass
-        else:
-            raise InvalidCursorError('Must insert at a gap')
-
-    def delete_ast(self):
-        if self.is_gap():
-            raise InvalidCursorError('Must delete a node')
-
-    def replace_ast(self, replacement):
-        """
-        Replaces the pointed-to node with "ast", which can be either a single
-        node or a list of nodes.
-        """
-        if self.is_gap():
-            raise InvalidCursorError('Must replace a node, not a gap')
-
-        if not isinstance(replacement, list):
-            replacement = [replacement]
-
-        def do_edit(ast, path):
-            if not path:
-                return ast
-
-        new_ast = do_edit(self.proc().INTERNAL_proc(), self._path)
-        fwd_fn = _make_replace_fwd(self._path, len(replacement))
-        return new_ast, fwd_fn
-
-    def move_to(self, dst: Cursor):
-        if not dst.is_gap():
-            raise InvalidCursorError('Must move to a gap')
-        if self.is_gap():
-            raise InvalidCursorError('Cannot move a gap')
-
-    # ------------------------------------------------------------------------ #
-    # Internal implementation
-    # ------------------------------------------------------------------------ #
-
-    def _follow_path(self, node, path):
-        for i in path:
-            node = self._get_children(node)[i]
-        return node
-
-    def _is_valid(self):
-        if self._kind != CursorKind.Node:
-            raise NotImplementedError('Only node cursors are currently supported')
-
-        try:
-            node = self.proc().INTERNAL_proc()
-            node = self._follow_path(node, self._path)
-            return node is self._node()
-        except IndexError:
-            return False
-
-    def _from_path(self, path):
-        try:
-            node = self.proc().INTERNAL_proc()
-            node = self._follow_path(node, path)
-            return Cursor(self._proc, weakref.ref(node), path)
-        except IndexError as e:
-            raise InvalidCursorError() from e
-
-    # TODO: this should be a feature of ASDL-ADT
-    @staticmethod
-    def _get_children(node):
-        # Procs
-        if isinstance(node, LoopIR.proc):
-            return node.body
-
+    def children(self) -> list[Node]:
+        n = self.node()
+        # Top-level proc
+        if isinstance(n, LoopIR.proc):
+            return self._children_from_attrs(n, 'body')
         # Statements
-        elif isinstance(node, (LoopIR.Assign, LoopIR.Reduce)):
-            return node.idx + [node.rhs]
-        elif isinstance(node, LoopIR.WriteConfig):
-            return [node.rhs]
-        elif isinstance(node, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+        elif isinstance(n, (LoopIR.Assign, LoopIR.Reduce)):
+            return self._children_from_attrs(n, 'idx', 'rhs')
+        elif isinstance(n, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
+            return self._children_from_attrs(n, 'rhs')
+        elif isinstance(n, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
             return []
-        elif isinstance(node, LoopIR.If):
-            return [node.cond] + node.body + node.orelse
-        elif isinstance(node, (LoopIR.ForAll, LoopIR.Seq)):
-            return [node.hi] + node.body
-        elif isinstance(node, LoopIR.Call):
-            return node.args
-        elif isinstance(node, LoopIR.WindowStmt):
-            return node.rhs
-
+        elif isinstance(n, LoopIR.If):
+            return self._children_from_attrs(n, 'cond', 'body', 'orelse')
+        elif isinstance(n, (LoopIR.ForAll, LoopIR.Seq)):
+            return self._children_from_attrs(n, 'hi', 'body')
+        elif isinstance(n, LoopIR.Call):
+            return self._children_from_attrs(n, 'args')
         # Expressions
-        elif isinstance(node, LoopIR.Read):
-            return node.idx
-        elif isinstance(node, LoopIR.USub):
-            return [node.arg]
-        elif isinstance(node, LoopIR.BinOp):
-            return [node.lhs, node.rhs]
-        elif isinstance(node, LoopIR.BuiltIn):
-            return node.args
-        elif isinstance(node,
-                        (LoopIR.Const, LoopIR.WindowExpr, LoopIR.StrideExpr,
-                         LoopIR.ReadConfig)):
+        elif isinstance(n, LoopIR.Read):
+            return self._children_from_attrs(n, 'idx')
+        elif isinstance(n, (LoopIR.Const, LoopIR.WindowExpr, LoopIR.StrideExpr,
+                            LoopIR.ReadConfig)):
             return []
+        elif isinstance(n, LoopIR.USub):
+            return self._children_from_attrs(n, 'arg')
+        elif isinstance(n, LoopIR.BinOp):
+            return self._children_from_attrs(n, 'lhs', 'rhs')
+        elif isinstance(n, LoopIR.BuiltIn):
+            return self._children_from_attrs(n, 'args')
 
-        assert False, f"base case: {type(node)}"
+    def _children_from_attrs(self, n, *args):
+        children = []
+        for attr in args:
+            children.extend(self._children_from_attr(n, attr))
+        return children
+
+    def _children_from_attr(self, n, attr):
+        children = getattr(n, attr)
+        if not isinstance(children, list):
+            return [Node(self._proc, self._path + [(attr, None)])]
+        return [Node(self._proc, self._path + [(attr, i)])
+                for i in range(len(children))]
+
+    def body(self) -> Selection:
+        raise NotImplementedError()
+
+    def orelse(self) -> Selection:
+        raise NotImplementedError()
 
 
-# ---------------------------------------------------------------------------- #
-# Cursor forwarding function generators
-#   These functions reside at the top-level to prevent them from capturing local
-#   state in the cursor editing operations, which could unintentionally extend
-#   the lifetimes of nodes. This also reduces the overall memory usage of the
-#   closures containing only the relevant information.
-# ---------------------------------------------------------------------------- #
-
-def _make_replace_fwd(sub_path, n_sub):
-    n_path = len(sub_path)
-
-    def fwd(path):
-        # Cursors to the replaced node and below are invalidated.
-        if path[:n_path] == sub_path:
-            raise InvalidCursorError('Cursor has been invalidated')
-
-        # Cursors to siblings of the replaced node get adjusted based on the
-        # substitution size
-        sibling_level = path[:n_path - 1]
-        if sibling_level == sub_path[:-1]:
-            last = path[-1]
-            return sibling_level + [last if last < sub_path[-1] else last + n_sub - 1]
-
-        # Otherwise, we're pointing somewhere unrelated and the path is still valid.
-        return path
-
-    return fwd
+@dataclass
+class Gap(Cursor):
+    _path: list[tuple[str, int]]

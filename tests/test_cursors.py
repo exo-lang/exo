@@ -21,6 +21,19 @@ def foo(n: size, m: size):
             y = 1.1
 
 
+@proc
+def bar(n: size, m: size):
+    x: f32
+    for i in par(0, n):
+        for j in par(0, m):
+            x = 0.0
+            x = 1.0
+            x = 2.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+
+
 def test_get_root():
     cursor = Cursor.root(foo)
     assert isinstance(cursor._proc, weakref.ReferenceType)
@@ -31,7 +44,7 @@ def test_get_root():
 
 
 def test_get_child():
-    cursor = Cursor.root(foo).child(0)
+    cursor = Cursor.root(foo).children()[0]
     assert cursor.node() is foo._loopir_proc.body[0]
 
 
