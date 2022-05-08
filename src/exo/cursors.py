@@ -32,19 +32,29 @@ class Cursor(ABC):
     def parent(self) -> Node:
         pass
 
+    @abstractmethod
     def before(self, dist=1) -> Cursor:
-        return self.after(-dist)
+        pass
 
     @abstractmethod
     def after(self, dist=1) -> Cursor:
         pass
 
+    @abstractmethod
     def prev(self, dist=1) -> Cursor:
-        return self.next(-dist)
+        pass
 
     @abstractmethod
     def next(self, dist=1) -> Cursor:
         pass
+
+    def _hop_idx(self, ty, path, dist):
+        if not path:
+            raise InvalidCursorError('cannot move root cursor')
+        attr, i = path[-1]
+        if i is None:
+            raise InvalidCursorError('cursor is not inside block')
+        return ty(self._proc, path[:-1] + [(attr, i + dist)])
 
     @staticmethod
     def _walk_path(n, path):
@@ -64,8 +74,14 @@ class Selection(Cursor):
     def parent(self) -> Node:
         return self._block
 
+    def before(self, dist=0) -> Cursor:
+        raise NotImplementedError('Selection.before')
+
     def after(self, dist=0) -> Cursor:
         raise NotImplementedError('Selection.after')
+
+    def prev(self, dist=0) -> Cursor:
+        raise NotImplementedError('Selection.prev')
 
     def next(self, dist=0) -> Cursor:
         raise NotImplementedError('Selection.next')
@@ -115,19 +131,17 @@ class Node(Cursor):
             raise InvalidCursorError('cursor does not have a parent')
         return Node(self._proc, self._path[:-1])
 
+    def before(self, dist=1) -> Gap:
+        return self._hop_idx(Gap, self._path, 1 - dist)
+
     def after(self, dist=1) -> Gap:
-        return self._hop_idx(Gap, dist)
+        return self._hop_idx(Gap, self._path, dist)
+
+    def prev(self, dist=1) -> Node:
+        return self._hop_idx(Node, self._path, -dist)
 
     def next(self, dist=1) -> Node:
-        return self._hop_idx(Node, dist)
-
-    def _hop_idx(self, ty, dist):
-        if not self._path:
-            raise InvalidCursorError('cannot move root cursor')
-        attr, i = self._path[-1]
-        if i is None:
-            raise InvalidCursorError('cursor is not inside block')
-        return ty(self._proc, self._path[:-1] + [(attr, i + dist)])
+        return self._hop_idx(Node, self._path, dist)
 
     def node(self):
         if (n := self._node()) is None:
@@ -201,3 +215,19 @@ class Node(Cursor):
 @dataclass
 class Gap(Cursor):
     _path: list[tuple[str, int]]
+
+    def parent(self) -> Node:
+        assert self._path
+        return Node(self._proc, self._path[:-1])
+
+    def before(self, dist=1) -> Node:
+        return self._hop_idx(Node, self._path, -dist + 1)
+
+    def after(self, dist=1) -> Node:
+        return self._hop_idx(Node, self._path, dist - 1)
+
+    def prev(self, dist=1) -> Gap:
+        return self._hop_idx(Gap, self._path, -dist)
+
+    def next(self, dist=1) -> Gap:
+        return self._hop_idx(Gap, self._path, dist)

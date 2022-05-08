@@ -86,20 +86,22 @@ def test_cursor_gap():
     # for i in par(0, n):
     #    for j in par(0, m):
     #        x: f32
-    #               <- g1
-    #        x = 0.0
+    #                 <- g1
+    #        x = 0.0  <- c1
     #        y: f32
-    #               <- g2
+    #                 <- g2
     #        y = 1.1
     c = foo.find_cursor("for j in _:_")[0].body()[0]  # x : f32
     assert str(c.node()) == 'x: f32 @ DRAM\n'
     g1 = c.after()
+    assert g1._path[-1] == ('body', 1)
     c1 = foo.find_cursor("x = 0.0")[0]
+    assert c1._path[-1] == ('body', 1)
     _g1_ = c1.before()
     assert g1 == _g1_
 
     g2 = g1.next(2)
-    _g2_ = c1.after(1)
+    _g2_ = c1.after(2)
     assert g2 == _g2_
 
     # Testing gap -> stmt
