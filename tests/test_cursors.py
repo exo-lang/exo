@@ -7,7 +7,7 @@ import pytest
 import exo
 from exo import proc
 from exo.LoopIR import LoopIR
-from exo.cursors import Cursor
+from exo.cursors import Cursor, Selection
 from exo.syntax import size, par, f32
 
 
@@ -62,7 +62,9 @@ def test_cursor_move():
     assert len(c) == 1
     c = c[0]
 
-    c_list = list(c.body())  # list of j's body
+    c_list = c.body()  # list of j's body
+    assert isinstance(c_list, Selection)
+    assert len(c_list) == 4
     # TODO: subscriptable class probably shouldn't have a parent() method?
     # c_list_par = c_list.parent()  # for j in _:_
     # assert c is c_list_par

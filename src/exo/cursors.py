@@ -3,33 +3,12 @@ from __future__ import annotations
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum
 from functools import cached_property
 from typing import Optional
 from weakref import ReferenceType
 
 from .API_types import ProcedureBase
 from .LoopIR import LoopIR
-
-
-class CursorKind(Enum):
-    Node = 0  # Pointing directly at a node
-    # BlockFront = 1  # Gap before the first statement of a block
-    # BlockEnd = 2  # Gap after the last statement of a block
-    GapBefore = 3  # Gap before the node in a block
-    GapAfter = 4  # Gap after the node in a block
-
-
-class ExoIR(Enum):
-    Assign = 0
-    Reduce = 1
-    WriteConfig = 2
-    Pass = 3
-    If = 4
-    For = 5
-    Alloc = 6
-    Call = 7
-    WindowStmt = 8
 
 
 class InvalidCursorError(Exception):
@@ -101,6 +80,16 @@ class Selection(Cursor):
                 yield blk.child(attr, i)
 
         return impl()
+
+    def __getitem__(self, i):
+        lo, hi = self._range
+        if i < 0 or lo + i >= hi:
+            return IndexError(f'index {i} out of range')
+        return self._block.child(self._attr, lo + i)
+
+    def __len__(self):
+        lo, hi = self._range
+        return hi - lo
 
     def replace(self):
         pass
