@@ -168,6 +168,6 @@ def test_cursor_print():
 
 def test_cursor_loop_bound():
     c_proc = Cursor.root(foo)
-    c_fori = c_proc.child(0)
-    c_bound = c_fori.child(0)
+    c_fori = c_proc.body()[0]
+    c_bound = c_fori.child('hi')
     assert isinstance(c_bound.node(), LoopIR.Read)
