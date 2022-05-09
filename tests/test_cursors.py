@@ -5,8 +5,7 @@ import weakref
 
 import pytest
 
-import exo
-from exo import proc
+from exo import proc, Procedure
 from exo.LoopIR import LoopIR, T
 from exo.cursors import Cursor, Selection, InvalidCursorError
 from exo.syntax import size, par, f32
@@ -38,16 +37,16 @@ def bar(n: size, m: size):
 def test_get_root():
     cursor = Cursor.root(foo)
     assert isinstance(cursor._proc, weakref.ReferenceType)
-    assert isinstance(cursor._proc(), exo.Procedure)
+    assert isinstance(cursor._proc(), Procedure)
     assert isinstance(cursor._node, weakref.ReferenceType)
     assert isinstance(cursor._node(), LoopIR.proc)
-    assert cursor.node() is foo._loopir_proc
+    assert cursor.node() is foo.INTERNAL_proc()
 
 
 def test_get_child():
     cursor = Cursor.root(foo).children()
     cursor = next(iter(cursor))
-    assert cursor.node() is foo._loopir_proc.body[0]
+    assert cursor.node() is foo.INTERNAL_proc().body[0]
 
 
 def test_find_cursor():
@@ -56,7 +55,7 @@ def test_find_cursor():
     c = c[0]  # One match
     c = c[0]  # First/only node in the selection
 
-    assert c.node() is foo._loopir_proc.body[0].body[0]
+    assert c.node() is foo.INTERNAL_proc().body[0].body[0]
 
 
 def test_gap_insert_pass(golden):
@@ -129,11 +128,11 @@ def test_cursor_move():
     assert c_list.parent() == c
 
     c1 = c_list[0]  # x : f32
-    assert c1.node() is foo._loopir_proc.body[0].body[0].body[0]
+    assert c1.node() is foo.INTERNAL_proc().body[0].body[0].body[0]
     c2 = c1.next()  # x = 0.0
-    assert c2.node() is foo._loopir_proc.body[0].body[0].body[1]
+    assert c2.node() is foo.INTERNAL_proc().body[0].body[0].body[1]
     c3 = c1.next(2)  # y : f32
-    assert c3.node() is foo._loopir_proc.body[0].body[0].body[2]
+    assert c3.node() is foo.INTERNAL_proc().body[0].body[0].body[2]
 
     _c2_ = c3.prev()
     assert c2 == _c2_
@@ -174,62 +173,6 @@ def test_cursor_replace_expr(golden):
     foo2 = c.replace(LoopIR.Const(42, T.size, c.node().srcinfo))
     print(foo2)
     assert str(foo2) == golden
-
-
-@pytest.mark.skip()
-def test_explicit_fwd():
-    # for i in par(0, n):
-    #    for j in par(0, m):
-    #        x: f32 <- c1
-    #        x = 0.0
-    #               <- g1
-    #        y: f32
-    #        y = 1.1
-    c1 = foo.find_cursor("x : f32")
-    g1 = c1.after(2)
-    new_foo = foo.fission_at(g1)
-    _c1_ = new_foo.fwd(c1)
-    assert c1.node() is _c1_.node()
-
-
-@pytest.mark.skip()
-def test_fwd_fission_at():
-    c1 = foo.find_cursor("x : f32")
-    g1 = c1.after(2)
-    bar = foo.fission_at(g1)
-    # for i in par(0, n):
-    #    for j in par(0, m):
-    #        x: f32 <- c1
-    #        x = 0.0
-    #               <- g1
-    # for i in par(0, n):
-    #    for j in par(0, m):
-    #        y: f32
-    #        y = 1.1
-
-
-@pytest.mark.skip()
-def test_fwd_lift_alloc():
-    c1 = foo.find_cursor("x : f32")
-    g1 = c1.after(2)
-    bar = foo.lift_alloc(c1, n_lifts=2)
-    # This should give the following:
-    # x : f32[n,m] <- c1
-    # for i in par(0, n):
-    #    for j in par(0, m):
-    #        x[i,j] = 0.0
-    #               <- g1
-    # for i in par(0, n):
-    #    for j in par(0, m):
-    #        y: f32
-    #        y = 1.1
-
-
-@pytest.mark.skip()
-def test_cursor_print():
-    # I am not sure how exactly this should look like,
-    # but print(foo) should print cursors like the comments above
-    pass
 
 
 def test_cursor_loop_bound():
