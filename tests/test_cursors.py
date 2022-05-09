@@ -139,10 +139,15 @@ def test_cursor_move():
     assert c_list.parent() == c
 
     c1 = c_list[0]  # x : f32
+    assert c1.parent() == c
     assert c1.node() is foo.INTERNAL_proc().body[0].body[0].body[0]
+
     c2 = c1.next()  # x = 0.0
+    assert c2.parent() == c
     assert c2.node() is foo.INTERNAL_proc().body[0].body[0].body[1]
+
     c3 = c1.next(2)  # y : f32
+    assert c3.parent() == c
     assert c3.node() is foo.INTERNAL_proc().body[0].body[0].body[2]
 
     _c2_ = c3.prev()
