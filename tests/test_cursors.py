@@ -53,13 +53,14 @@ def test_get_child():
 def test_find_cursor():
     c = foo.find_cursor("for j in _:_")
     assert len(c) == 1
-    c = c[0]
+    c = c[0]  # One match
+    c = c[0]  # First/only node in the selection
 
     assert c.node() is foo._loopir_proc.body[0].body[0]
 
 
 def test_gap_insert_pass(golden):
-    c = foo.find_cursor('x = 0.0')[0]
+    c = foo.find_cursor('x = 0.0')[0][0]
     assn = c.node()
     g = c.after()
     foo2 = g.insert([LoopIR.Pass(None, assn.srcinfo)])
@@ -81,15 +82,15 @@ def test_insert_root_end(golden):
 def test_selection_gaps():
     c = bar.find_cursor('for j in _: _')
     assert len(c) == 1
-    c = c[0]
+    c = c[0][0]
 
     body = c.body()
     assert len(body) == 6
     subset = body[1:4]
     assert len(subset) == 3
 
-    cx1 = bar.find_cursor('x = 1.0')[0]
-    cx3 = bar.find_cursor('x = 3.0')[0]
+    cx1 = bar.find_cursor('x = 1.0')[0][0]
+    cx3 = bar.find_cursor('x = 3.0')[0][0]
     assert subset[0] == cx1
     assert subset[2] == cx3
 
@@ -98,7 +99,7 @@ def test_selection_gaps():
 
 
 def test_selection_delete(golden):
-    c = bar.find_cursor('for j in _: _')[0]
+    c = bar.find_cursor('for j in _: _')[0][0]
     stmts = c.body()[1:4]
 
     bar2 = stmts.delete()
@@ -106,7 +107,7 @@ def test_selection_delete(golden):
 
 
 def test_selection_replace(golden):
-    c = bar.find_cursor('for j in _: _')[0]
+    c = bar.find_cursor('for j in _: _')[0][0]
     stmts = c.body()[1:4]
 
     bar2 = stmts.replace([LoopIR.Pass(None, c.node().srcinfo)])
@@ -114,15 +115,13 @@ def test_selection_replace(golden):
 
 
 def test_selection_delete_whole_block(golden):
-    c = bar.find_cursor('for j in _: _')[0]
+    c = bar.find_cursor('for j in _: _')[0][0]
     bar2 = c.body().delete()
     assert str(bar2) == golden
 
 
 def test_cursor_move():
-    c = foo.find_cursor("for j in _:_")
-    assert len(c) == 1
-    c = c[0]
+    c = foo.find_cursor("for j in _:_")[0][0]
 
     c_list = c.body()  # list of j's body
     assert isinstance(c_list, Selection)
@@ -151,11 +150,11 @@ def test_cursor_gap():
     #        y: f32
     #                 <- g2
     #        y = 1.1
-    c = foo.find_cursor("for j in _:_")[0].body()[0]  # x : f32
+    c = foo.find_cursor("for j in _:_")[0][0].body()[0]  # x : f32
     assert str(c.node()) == 'x: f32 @ DRAM\n'
     g1 = c.after()
     assert g1._path[-1] == ('body', 1)
-    c1 = foo.find_cursor("x = 0.0")[0]
+    c1 = foo.find_cursor("x = 0.0")[0][0]
     assert c1._path[-1] == ('body', 1)
     _g1_ = c1.before()
     assert g1 == _g1_
@@ -165,13 +164,13 @@ def test_cursor_gap():
     assert g2 == _g2_
 
     # Testing gap -> stmt
-    c3 = foo.find_cursor("y = 1.1")[0]
+    c3 = foo.find_cursor("y = 1.1")[0][0]
     _c3_ = g2.after()
     assert c3 == _c3_
 
 
 def test_cursor_replace_expr(golden):
-    c = foo.find_cursor('m')
+    c = foo.find_cursor('m')[0]
     foo2 = c.replace(LoopIR.Const(42, T.size, c.node().srcinfo))
     print(foo2)
     assert str(foo2) == golden
@@ -246,7 +245,7 @@ def test_cursor_lifetime():
         x: f32
         x = 0.0
 
-    cur = delete_me.find_cursor('x = _')[0]
+    cur = delete_me.find_cursor('x = _')[0][0]
     assert isinstance(cur.node(), LoopIR.Assign)
 
     del delete_me

@@ -203,10 +203,9 @@ class Procedure(ProcedureBase):
     def find_cursor(self, pattern):
         cursors = match_cursors(self, pattern, call_depth=1)
         assert isinstance(cursors, list)
-        if len(cursors) == 0 or len(cursors[0]) == 0:
+        if not cursors:
             raise SchedulingError('failed to find statement', pattern=pattern)
-        else:
-            return [c[0] for c in cursors]
+        return cursors
 
     def get_ast(self, pattern=None):
         if pattern is None:
