@@ -67,17 +67,30 @@ class Cursor(ABC):
         return n
 
     def _rewrite_node(self, fn):
+        """
+        Applies `fn` to the AST node containing the cursor. The callback gets
+        the following arguments:
+        1. The parent node
+        2. The relevant list of children
+        3. The last step in the path (the attribute and index info)
+        The callback is expected to return a single, updated node to be placed
+        in the new tree.
+        """
         assert isinstance(self, (Node, Selection, Gap))
 
         def impl(node, path):
             (attr, i), path = path[0], path[1:]
             children = getattr(node, attr)
-            if path:
-                return node.update(**{
-                    attr: children[:i] + [impl(children[i], path)] + children[i + 1:]
-                })
-            else:
+
+            if not path:
                 return fn(node, children, (attr, i))
+
+            if i is None:
+                return node.update(**{attr: impl(children, path)})
+
+            return node.update(**{
+                attr: children[:i] + [impl(children[i], path)] + children[i + 1:]
+            })
 
         return impl(self.proc().INTERNAL_proc(), self._path)
 
