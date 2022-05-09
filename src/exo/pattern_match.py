@@ -9,7 +9,7 @@ from .LoopIR import LoopIR, PAST
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern Matching Errors
-from .cursors import Cursor
+from .cursors import Cursor, Node
 
 
 class PatternMatchError(Exception):
@@ -107,6 +107,10 @@ _PAST_to_LoopIR = {
 }
 
 
+class _MatchComplete(Exception):
+    pass
+
+
 class PatternMatch:
     def __init__(self, proc, pat, match_no=None):
         self._match_i = match_no
@@ -120,12 +124,15 @@ class PatternMatch:
 
         cur = Cursor.root(proc)
 
-        if isinstance(pat, list):
-            assert len(pat) > 0
-            self.find_stmts(pat, [cur])
-        else:
-            assert isinstance(pat, PAST.expr)
-            self.find_expr(pat, cur)
+        try:
+            if isinstance(pat, list):
+                assert len(pat) > 0
+                self.find_stmts(pat, [cur])
+            else:
+                assert isinstance(pat, PAST.expr)
+                self.find_expr(pat, cur)
+        except _MatchComplete:
+            pass
 
     def results(self):
         return [[sub.node() for sub in cur] if isinstance(cur, list) else cur.node()
@@ -133,6 +140,19 @@ class PatternMatch:
 
     def cursors(self):
         return self._results
+
+    def _add_result(self, result):
+        assert isinstance(result, (Node, list))
+
+        if self._match_i is None:
+            self._results.append(result)
+            return
+
+        i = self._match_i
+        self._match_i -= 1
+        if i == 0:
+            self._results.append(result)
+            raise _MatchComplete()
 
     # -------------------
     #  finding methods
@@ -144,14 +164,7 @@ class PatternMatch:
 
         # try to match
         if self.match_e(pat, cur.node()):
-            if self._match_i is None:
-                self._results.append(cur)
-            else:
-                i = self._match_i
-                self._match_i -= 1
-                if i == 0:
-                    self._results.append(cur)
-                    return
+            self._add_result(cur)
 
         for child in cur.children():
             self.find_expr(pat, child)
@@ -168,14 +181,7 @@ class PatternMatch:
         # try to match exactly this sequence of statements
         match_nodes = [cur.node() for cur in curs]
         if self.match_stmts(pats, match_nodes):
-            if self._match_i is None:
-                self._results.append(curs)
-            else:
-                i = self._match_i
-                self._match_i -= 1
-                if i == 0:
-                    self._results.append(curs)
-                    return
+            self._add_result(curs)
 
         # if we need to look for more matches, recurse structurally ...
 
