@@ -318,7 +318,7 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
 
     def select(self) -> Selection:
-        attr, i = self._path
+        attr, i = self._path[-1]
         if i is None:
             raise InvalidCursorError('cannot select nodes outside of a block')
         return Selection(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
