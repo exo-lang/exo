@@ -379,4 +379,54 @@ class Gap(Cursor):
             return node.update(**{attr: children[:i] + stmts + children[i:]})
 
         from .API import Procedure
-        return Procedure(self._rewrite_node(update))
+        p = Procedure(self._rewrite_node(update))
+
+        forward = self._forward_insert(weakref.ref(p), len(stmts))
+        return p, forward
+
+    def _forward_insert(self, new_proc, ins_len):
+        depth = len(self._path) - 1
+
+        def forward(cursor: Cursor) -> Cursor:
+            assert isinstance(cursor, (Node, Gap, Selection))
+
+            if cursor._proc != self._proc:
+                raise InvalidCursorError('cannot forward unknown procs')
+
+            # TODO: use attrs + attrs.evolve
+            def evolve(p):
+                return type(cursor)(new_proc, p)
+
+            old_path = cursor._path
+            ins_path = self._path
+
+            if len(old_path) < len(ins_path):
+                # Too shallow
+                return evolve(old_path)
+
+            if old_path[depth][0] != ins_path[depth][0]:
+                # At least as deep, but wrong branch
+                return evolve(old_path)
+
+            attr, ins_idx = self._path[depth]
+            _, old_idx = old_path[depth]
+
+            if len(old_path) > len(ins_path) or isinstance(cursor, Node):
+                # Updating a node (either internal or in edited block)
+                assert old_idx is not None, "somehow inserted into non-block"
+                new_idx = old_idx + ins_len * (old_idx >= ins_idx)
+            elif isinstance(cursor, Gap):
+                # Updating gap in edited block
+                assert old_idx is not None, "somehow inserted into non-block"
+                # this implements "anchor-pre" policy
+                new_idx = old_idx + ins_len * (old_idx > ins_idx)
+            elif isinstance(cursor, Selection):
+                # Updating selection in edited block
+                assert isinstance(old_idx, range)
+                new_idx = range(
+                    old_idx.start + ins_len * (old_idx.start >= ins_idx),
+                    old_idx.stop + ins_len * (old_idx.stop > ins_idx),
+                )
+            return evolve(old_path[:depth] + [(attr, new_idx)] + old_path[depth + 1:])
+
+        return forward

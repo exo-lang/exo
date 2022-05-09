@@ -57,19 +57,19 @@ def test_gap_insert_pass(golden):
     c = foo.find_cursor('x = 0.0')[0][0]
     assn = c.node()
     g = c.after()
-    foo2 = g.insert([LoopIR.Pass(None, assn.srcinfo)])
+    foo2, _ = g.insert([LoopIR.Pass(None, assn.srcinfo)])
     assert str(foo2) == golden
 
 
 def test_insert_root_front(golden):
     c = Cursor.root(foo)
-    foo2 = c.body().before().insert([LoopIR.Pass(None, c.node().srcinfo)])
+    foo2, _ = c.body().before().insert([LoopIR.Pass(None, c.node().srcinfo)])
     assert str(foo2) == golden
 
 
 def test_insert_root_end(golden):
     c = Cursor.root(foo)
-    foo2 = c.body().after().insert([LoopIR.Pass(None, c.node().srcinfo)])
+    foo2, _ = c.body().after().insert([LoopIR.Pass(None, c.node().srcinfo)])
     assert str(foo2) == golden
 
 
@@ -194,3 +194,69 @@ def test_cursor_lifetime():
     #   they keep references to them in the values.
     # with pytest.raises(InvalidCursorError, match='underlying node was destroyed'):
     #     cur.node()
+
+
+def test_insert_forwarding():
+    @proc
+    def example_old():
+        x: f32
+        x = 0.0
+        for i in par(0, 10):
+            x = 1.0
+            for j in par(0, 20):
+                x = 2.0
+                x = 3.0
+                # pass (ins_gap)
+                x = 4.0
+                x = 5.0
+            x = 6.0
+        x = 7.0
+
+    x_old = [example_old.find_cursor(f'x = {n}.0')[0][0] for n in range(8)]
+    stmt = [LoopIR.Pass(None, x_old[0].node().srcinfo)]
+
+    ins_gap = x_old[3].after()
+
+    example_new, fwd = ins_gap.insert(stmt)
+    x_new = [example_new.find_cursor(f'x = {n}.0')[0][0] for n in range(8)]
+
+    # Check that the root is forwarded:
+    assert fwd(Cursor.root(example_old)) == Cursor.root(example_new)
+
+    # Check that the assignment nodes are forwarded:
+    for cur_old, cur_new in zip(x_old, x_new):
+        assert fwd(cur_old) == cur_new
+
+    # Check that non-insertion before-gaps (i.e. exclude 4) are forwarded:
+    for i in (0, 1, 2, 3, 5, 6, 7):
+        assert fwd(x_old[i].before()) == x_new[i].before()
+
+    # Check that non-insertion after-gaps (i.e. exclude 3) are forwarded:
+    for i in (0, 1, 2, 4, 5, 6, 7):
+        assert fwd(x_old[i].after()) == x_new[i].after()
+
+    # Check that for loops are forwarded:
+    for_i_old = example_old.find_cursor('for i in _: _')[0][0]
+    for_i_new = example_new.find_cursor('for i in _: _')[0][0]
+    assert fwd(for_i_old) == for_i_new
+
+    for_j_old = example_old.find_cursor('for j in _: _')[0][0]
+    for_j_new = example_new.find_cursor('for j in _: _')[0][0]
+    assert fwd(for_j_old) == for_j_new
+
+    # Check that for loop bodies are forwarded:
+    assert fwd(for_i_old.body()) == for_i_new.body()
+    assert fwd(for_j_old.body()) == for_j_new.body()
+
+    # Check that all inserted-body selections (n > 1) are forwarded:
+    test_cases = [
+        (slice(0, 2), slice(0, 2)),
+        (slice(1, 3), slice(1, 4)),
+        (slice(2, 4), slice(3, 5)),
+        (slice(0, 3), slice(0, 4)),
+        (slice(1, 4), slice(1, 5)),
+        # full body already tested above.
+    ]
+    for old_range, new_range in test_cases:
+        print(old_range, new_range)
+        assert fwd(for_j_old.body()[old_range]) == for_j_new.body()[new_range]
