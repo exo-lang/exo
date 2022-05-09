@@ -140,6 +140,9 @@ def test_cursor_move_invalid():
     with pytest.raises(InvalidCursorError, match='cannot move root cursor'):
         c.next()
 
+    with pytest.raises(InvalidCursorError, match='cursor does not have a parent'):
+        c.parent()
+
     c = foo.find_cursor('m')[0]
     with pytest.raises(InvalidCursorError, match='cursor is not inside block'):
         c.next()
