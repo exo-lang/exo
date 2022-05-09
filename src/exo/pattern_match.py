@@ -194,46 +194,25 @@ class PatternMatch:
     #  matching methods
 
     def match_stmts(self, pats, stmts):
-        # variable for keeping track of whether we
-        # can currently match arbitrary statements
-        # into a statement hole
-        in_hole = False
+        i, j = 0, 0
+        while i < len(pats) and j < len(stmts):
+            if isinstance(pats[i], PAST.S_Hole):
+                if i + 1 == len(pats):
+                    return True
+                else:
+                    if self.match_stmt(pats[i + 1], stmts[j]):
+                        i += 2
+                        j += 1
+                    else:
+                        j += 1
+            else:
+                if self.match_stmt(pats[i], stmts[j]):
+                    i += 1
+                    j += 1
+                else:
+                    return False
 
-        stmt_idx = 0
-        for p in pats:
-            if isinstance(p, PAST.S_Hole):
-                in_hole = True
-                continue
-
-            if stmt_idx >= len(stmts):
-                # fail match because there are no more statements to match
-                # this non-hole pattern
-                return False
-
-            # otherwise, if we're in a hole try to find the first match
-            if in_hole:
-                while not self.match_stmt(p, stmts[stmt_idx]):
-                    stmt_idx += 1
-                # now stmt_idx is a match
-
-            # if we're not in a hole, failing to match is a failure
-            # of matching the entire stmt block
-            elif not self.match_stmt(p, stmts[stmt_idx]):
-                return False
-
-            # If we successfully matched a statement to a non-hole pattern
-            # then we've moved past any statement hole---if we were in one.
-            # If we weren't in a hole, this operation has no effect.
-            if not isinstance(p, PAST.S_Hole):
-                in_hole = False
-
-            # finally, if we're here we found a match and can advance the
-            # stmt_idx counter
-            stmt_idx += 1
-
-        # if we made it to the end of the function, then
-        # the match was successful
-        return True
+        return i == len(pats)
 
     def match_stmt(self, pat, stmt):
         assert not isinstance(
