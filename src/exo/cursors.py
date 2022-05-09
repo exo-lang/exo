@@ -239,3 +239,21 @@ class Gap(Cursor):
 
     def next(self, dist=1) -> Gap:
         return self._translate(Gap, self._path, dist)
+
+    def insert(self, stmts: list[LoopIR.stmt]):
+        assert self._path
+
+        def impl(node, path):
+            (attr, i), path = path[0], path[1:]
+            children = getattr(node, attr)
+            if path:
+                return node.update(**{
+                    attr: children[:i] + [impl(children[i], path)] + children[i + 1:]
+                })
+            else:
+                return node.update(**{attr: children[:i] + stmts + children[i:]})
+
+        ast = impl(self.proc().INTERNAL_proc(), self._path[:])
+
+        from .API import Procedure
+        return Procedure(ast)

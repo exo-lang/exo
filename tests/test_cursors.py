@@ -58,6 +58,14 @@ def test_find_cursor():
     assert c.node() is foo._loopir_proc.body[0].body[0]
 
 
+def test_gap_insert_pass(golden):
+    c = foo.find_cursor('x = 0.0')[0]
+    assn = c.node()
+    g = c.after()
+    foo2 = g.insert([LoopIR.Pass(None, assn.srcinfo)])
+    assert str(foo2) == golden
+
+
 def test_selection_gaps():
     c = bar.find_cursor('for j in _: _')
     assert len(c) == 1
