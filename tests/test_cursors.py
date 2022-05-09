@@ -195,7 +195,12 @@ def test_cursor_lifetime():
     #     cur.node()
 
 
-def test_insert_forwarding():
+@pytest.mark.parametrize("policy", [
+    ForwardingPolicy.EagerInvalidation,
+    ForwardingPolicy.AnchorPost,
+    ForwardingPolicy.AnchorPre,
+])
+def test_insert_forwarding(policy):
     @proc
     def example_old():
         x: f32
@@ -216,7 +221,7 @@ def test_insert_forwarding():
 
     ins_gap = x_old[3].after()
 
-    example_new, fwd = ins_gap.insert(stmt)
+    example_new, fwd = ins_gap.insert(stmt, policy)
     x_new = [example_new.find_cursor(f'x = {n}.0')[0][0] for n in range(8)]
 
     # Check that the root is forwarded:
