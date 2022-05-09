@@ -4,7 +4,7 @@ import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Optional
+from typing import Optional, Iterable
 from weakref import ReferenceType
 
 from .API_types import ProcedureBase
@@ -126,17 +126,6 @@ class Selection(Cursor):
 class Node(Cursor):
     _path: list[tuple[str, Optional[int]]]
 
-    def child(self, attr, i=None) -> Node:
-        if (_node := getattr(self.node(), attr, None)) is None:
-            raise ValueError(f'no such attribute {attr}')
-        if i is not None:
-            _node = _node[i]
-        cur = Node(self._proc, self._path + [(attr, i)])
-        # noinspection PyPropertyAccess
-        # cached_property is settable, bug in static analysis
-        cur._node = weakref.ref(_node)
-        return cur
-
     def parent(self) -> Node:
         if not self._path:
             raise InvalidCursorError('cursor does not have a parent')
@@ -165,49 +154,56 @@ class Node(Cursor):
         n = self._walk_path(n, self._path)
         return weakref.ref(n)
 
-    def children(self) -> list[Node]:
+    def child(self, attr, i=None) -> Node:
+        if (_node := getattr(self.node(), attr, None)) is None:
+            raise ValueError(f'no such attribute {attr}')
+        if i is not None:
+            _node = _node[i]
+        cur = Node(self._proc, self._path + [(attr, i)])
+        # noinspection PyPropertyAccess
+        # cached_property is settable, bug in static analysis
+        cur._node = weakref.ref(_node)
+        return cur
+
+    def children(self) -> Iterable[Node]:
         n = self.node()
         # Top-level proc
         if isinstance(n, LoopIR.proc):
-            return self._children_from_attrs(n, 'body')
+            yield from self._children_from_attrs(n, 'body')
         # Statements
         elif isinstance(n, (LoopIR.Assign, LoopIR.Reduce)):
-            return self._children_from_attrs(n, 'idx', 'rhs')
+            yield from self._children_from_attrs(n, 'idx', 'rhs')
         elif isinstance(n, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
-            return self._children_from_attrs(n, 'rhs')
+            yield from self._children_from_attrs(n, 'rhs')
         elif isinstance(n, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
-            return []
+            yield from []
         elif isinstance(n, LoopIR.If):
-            return self._children_from_attrs(n, 'cond', 'body', 'orelse')
+            yield from self._children_from_attrs(n, 'cond', 'body', 'orelse')
         elif isinstance(n, (LoopIR.ForAll, LoopIR.Seq)):
-            return self._children_from_attrs(n, 'hi', 'body')
+            yield from self._children_from_attrs(n, 'hi', 'body')
         elif isinstance(n, LoopIR.Call):
-            return self._children_from_attrs(n, 'args')
+            yield from self._children_from_attrs(n, 'args')
         # Expressions
         elif isinstance(n, LoopIR.Read):
-            return self._children_from_attrs(n, 'idx')
+            yield from self._children_from_attrs(n, 'idx')
         elif isinstance(n, (LoopIR.Const, LoopIR.WindowExpr, LoopIR.StrideExpr,
                             LoopIR.ReadConfig)):
-            return []
+            yield from []
         elif isinstance(n, LoopIR.USub):
-            return self._children_from_attrs(n, 'arg')
+            yield from self._children_from_attrs(n, 'arg')
         elif isinstance(n, LoopIR.BinOp):
-            return self._children_from_attrs(n, 'lhs', 'rhs')
+            yield from self._children_from_attrs(n, 'lhs', 'rhs')
         elif isinstance(n, LoopIR.BuiltIn):
-            return self._children_from_attrs(n, 'args')
+            yield from self._children_from_attrs(n, 'args')
 
-    def _children_from_attrs(self, n, *args):
-        children = []
+    def _children_from_attrs(self, n, *args) -> Iterable[Node]:
         for attr in args:
-            children.extend(self._children_from_attr(n, attr))
-        return children
-
-    def _children_from_attr(self, n, attr):
-        children = getattr(n, attr)
-        if not isinstance(children, list):
-            return [Node(self._proc, self._path + [(attr, None)])]
-        return [Node(self._proc, self._path + [(attr, i)])
-                for i in range(len(children))]
+            children = getattr(n, attr)
+            if isinstance(children, list):
+                for i in range(len(children)):
+                    yield self.child(attr, i)
+            else:
+                yield self.child(attr, None)
 
     def body(self) -> Selection:
         return self._select_attr('body')

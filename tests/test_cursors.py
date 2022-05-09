@@ -45,7 +45,8 @@ def test_get_root():
 
 
 def test_get_child():
-    cursor = Cursor.root(foo).children()[0]
+    cursor = Cursor.root(foo).children()
+    cursor = next(iter(cursor))
     assert cursor.node() is foo._loopir_proc.body[0]
 
 
