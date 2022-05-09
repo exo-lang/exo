@@ -84,14 +84,14 @@ class Selection(Cursor):
         assert lo < hi
         return self._block.child(self._attr, hi - 1).after(dist)
 
-    def prev(self, dist=0) -> Cursor:
+    def prev(self, dist=1) -> Cursor:
         # TODO: what should this mean?
         #  1. The node after the selection?
         #  2. The selection shifted over?
         #  3. The selection of nodes leading up to the start?
         raise NotImplementedError('Selection.prev')
 
-    def next(self, dist=0) -> Cursor:
+    def next(self, dist=1) -> Cursor:
         # TODO: what should this mean?
         #  1. The node after the selection?
         #  2. The selection shifted over?
