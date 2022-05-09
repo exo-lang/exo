@@ -214,6 +214,13 @@ def test_cursor_replace_expr(golden):
     assert str(foo2) == golden
 
 
+def test_cursor_cannot_select_expr():
+    c = foo.find_cursor('m')[0]
+    with pytest.raises(InvalidCursorError,
+                       match='cannot select nodes outside of a block'):
+        c.select()
+
+
 def test_cursor_replace_expr_deep(golden):
     @proc
     def example():
@@ -411,3 +418,6 @@ def test_double_insert_forwarding(golden):
 
     if_pat = 'if _: _\nelse: _'
     assert fwd_13(proc_s1.find_stmt(if_pat)) == proc_s3.find_stmt(if_pat)
+
+    with pytest.raises(InvalidCursorError, match='cannot forward unknown procs'):
+        fwd_23(x1_s1)
