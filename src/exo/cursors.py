@@ -19,14 +19,26 @@ class InvalidCursorError(Exception):
 class Cursor(ABC):
     _proc: ReferenceType[ProcedureBase]
 
+    # ------------------------------------------------------------------------ #
+    # Static constructors
+    # ------------------------------------------------------------------------ #
+
     @staticmethod
     def root(proc: ProcedureBase):
         return Node(weakref.ref(proc), [])
+
+    # ------------------------------------------------------------------------ #
+    # Validating accessors
+    # ------------------------------------------------------------------------ #
 
     def proc(self):
         if (p := self._proc()) is None:
             raise InvalidCursorError("underlying proc was destroyed")
         return p
+
+    # ------------------------------------------------------------------------ #
+    # Navigation (abstract)
+    # ------------------------------------------------------------------------ #
 
     @abstractmethod
     def parent(self) -> Node:
@@ -49,6 +61,10 @@ class Cursor(ABC):
     @abstractmethod
     def next(self, dist=1) -> Cursor:
         """Get the next node/gap in the block. Undefined for selections."""
+
+    # ------------------------------------------------------------------------ #
+    # Protected path / mutation helpers
+    # ------------------------------------------------------------------------ #
 
     def _translate(self, ty, path, dist):
         if not path:
@@ -99,6 +115,10 @@ class Cursor(ABC):
 class Selection(Cursor):
     _path: list[tuple[str, Union[int, range]]]  # is range iff last entry
 
+    # ------------------------------------------------------------------------ #
+    # Navigation (implementation)
+    # ------------------------------------------------------------------------ #
+
     def parent(self) -> Node:
         return Node(self._proc, self._path[:-1])
 
@@ -126,14 +146,15 @@ class Selection(Cursor):
         #  3. The selection of nodes past the end?
         raise NotImplementedError('Selection.next')
 
-    def __iter__(self):
-        def impl():
-            attr, _range = self._path[-1]
-            block = self.parent()
-            for i in _range:
-                yield block.child(attr, i)
+    # ------------------------------------------------------------------------ #
+    # Sequence interface implementation
+    # ------------------------------------------------------------------------ #
 
-        return impl()
+    def __iter__(self):
+        attr, _range = self._path[-1]
+        block = self.parent()
+        for i in _range:
+            yield block.child(attr, i)
 
     def __getitem__(self, i):
         attr, r = self._path[-1]
@@ -148,6 +169,10 @@ class Selection(Cursor):
     def __len__(self):
         _, _range = self._path[-1]
         return len(_range)
+
+    # ------------------------------------------------------------------------ #
+    # AST mutation
+    # ------------------------------------------------------------------------ #
 
     def replace(self, stmts: list) -> ProcedureBase:
         assert self._path
@@ -179,6 +204,25 @@ class Selection(Cursor):
 class Node(Cursor):
     _path: list[tuple[str, Optional[int]]]
 
+    # ------------------------------------------------------------------------ #
+    # Validating accessors
+    # ------------------------------------------------------------------------ #
+
+    def node(self):
+        if (n := self._node()) is None:
+            raise InvalidCursorError('underlying node was destroyed')
+        return n
+
+    @cached_property
+    def _node(self):
+        n = self.proc().INTERNAL_proc()
+        n = self._walk_path(n, self._path)
+        return weakref.ref(n)
+
+    # ------------------------------------------------------------------------ #
+    # Navigation (implementation)
+    # ------------------------------------------------------------------------ #
+
     def parent(self) -> Node:
         if not self._path:
             raise InvalidCursorError('cursor does not have a parent')
@@ -196,16 +240,9 @@ class Node(Cursor):
     def next(self, dist=1) -> Node:
         return self._translate(Node, self._path, dist)
 
-    def node(self):
-        if (n := self._node()) is None:
-            raise InvalidCursorError('underlying node was destroyed')
-        return n
-
-    @cached_property
-    def _node(self):
-        n = self.proc().INTERNAL_proc()
-        n = self._walk_path(n, self._path)
-        return weakref.ref(n)
+    # ------------------------------------------------------------------------ #
+    # Navigation (children)
+    # ------------------------------------------------------------------------ #
 
     def child(self, attr, i=None) -> Node:
         if (_node := getattr(self.node(), attr, None)) is None:
@@ -258,6 +295,10 @@ class Node(Cursor):
             else:
                 yield self.child(attr, None)
 
+    # ------------------------------------------------------------------------ #
+    # Navigation (block selectors)
+    # ------------------------------------------------------------------------ #
+
     def body(self) -> Selection:
         return self._select_attr('body')
 
@@ -272,15 +313,23 @@ class Node(Cursor):
         assert isinstance(stmts, list)
         return Selection(self._proc, self._path + [(attr, range(len(stmts)))])
 
-    def as_selection(self) -> Selection:
+    # ------------------------------------------------------------------------ #
+    # Conversions
+    # ------------------------------------------------------------------------ #
+
+    def select(self) -> Selection:
         attr, i = self._path
         if i is None:
             raise InvalidCursorError('cannot select nodes outside of a block')
         return Selection(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
 
+    # ------------------------------------------------------------------------ #
+    # AST mutation
+    # ------------------------------------------------------------------------ #
+
     def replace(self, ast) -> ProcedureBase:
         if self._path[-1][1] is not None:
-            return self.as_selection().replace(ast)
+            return self.select().replace(ast)
 
         # replacing a single expression, or something not in a block
         def update(node, _, nav):
@@ -294,6 +343,10 @@ class Node(Cursor):
 @dataclass
 class Gap(Cursor):
     _path: list[tuple[str, int]]
+
+    # ------------------------------------------------------------------------ #
+    # Navigation (implementation)
+    # ------------------------------------------------------------------------ #
 
     def parent(self) -> Node:
         assert self._path
@@ -310,6 +363,10 @@ class Gap(Cursor):
 
     def next(self, dist=1) -> Gap:
         return self._translate(Gap, self._path, dist)
+
+    # ------------------------------------------------------------------------ #
+    # AST mutation
+    # ------------------------------------------------------------------------ #
 
     def insert(self, stmts: list[LoopIR.stmt]):
         assert self._path
