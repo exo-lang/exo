@@ -141,8 +141,6 @@ class Selection(Cursor):
         if isinstance(r, range):
             if r.step != 1:
                 raise IndexError('cursor selections must be contiguous')
-            if len(r) == 0:
-                raise IndexError('cannot construct an empty selection')
             return Selection(self._proc, self._path[:-1] + [(attr, r)])
         else:
             return self.parent().child(attr, r)
@@ -153,6 +151,7 @@ class Selection(Cursor):
 
     def replace(self, stmts: list) -> ProcedureBase:
         assert self._path
+        assert len(self) > 0
         assert stmts
 
         def update(node, children, nav):
@@ -164,6 +163,7 @@ class Selection(Cursor):
 
     def delete(self) -> ProcedureBase:
         assert self._path
+        assert len(self) > 0
 
         def update(node, children, nav):
             attr, i = nav

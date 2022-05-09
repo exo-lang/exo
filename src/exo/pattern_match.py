@@ -9,7 +9,7 @@ from .LoopIR import LoopIR, PAST
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern Matching Errors
-from .cursors import Cursor, Node
+from .cursors import Cursor, Node, Selection
 
 
 class PatternMatchError(Exception):
@@ -127,7 +127,7 @@ class PatternMatch:
         try:
             if isinstance(pat, list):
                 assert len(pat) > 0
-                self.find_stmts(pat, [cur])
+                self.find_stmts(pat, cur.body())
             else:
                 assert isinstance(pat, PAST.expr)
                 self.find_expr(pat, cur)
@@ -135,14 +135,14 @@ class PatternMatch:
             pass
 
     def results(self):
-        return [[sub.node() for sub in cur] if isinstance(cur, list) else cur.node()
+        return [[n.node() for n in cur] if isinstance(cur, Selection) else cur.node()
                 for cur in self._results]
 
     def cursors(self):
         return self._results
 
     def _add_result(self, result):
-        assert isinstance(result, (Node, list))
+        assert isinstance(result, (Node, Selection))
 
         if self._match_i is None:
             self._results.append(result)
@@ -180,10 +180,10 @@ class PatternMatch:
         # first, look for any subsequences of statements in the first
         # statement of the sequence `stmts`
         if isinstance(curs[0].node(), LoopIR.If):
-            self.find_stmts(pats, list(curs[0].body()))
-            self.find_stmts(pats, list(curs[0].orelse()))
+            self.find_stmts(pats, curs[0].body())
+            self.find_stmts(pats, curs[0].orelse())
         elif isinstance(curs[0].node(), (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq)):
-            self.find_stmts(pats, list(curs[0].body()))
+            self.find_stmts(pats, curs[0].body())
         else:
             pass  # other forms of statement do not contain stmt blocks
 
