@@ -93,6 +93,12 @@ def test_selection_delete(golden):
     assert str(bar2) == golden
 
 
+def test_selection_delete_whole_block(golden):
+    c = bar.find_cursor('for j in _: _')[0]
+    bar2 = c.body().delete()
+    assert str(bar2) == golden
+
+
 def test_cursor_move():
     c = foo.find_cursor("for j in _:_")
     assert len(c) == 1
