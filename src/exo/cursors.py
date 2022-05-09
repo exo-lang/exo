@@ -364,7 +364,7 @@ class Gap(Cursor):
         return Node(self._proc, self._path[:-1])
 
     def before(self, dist=1) -> Node:
-        return self._translate(Node, self._path, 1 - dist)
+        return self._translate(Node, self._path, -dist)
 
     def after(self, dist=1) -> Node:
         return self._translate(Node, self._path, dist - 1)

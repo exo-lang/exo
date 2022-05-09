@@ -172,27 +172,32 @@ def test_cursor_move_invalid():
 def test_cursor_gap():
     # for i in par(0, n):
     #    for j in par(0, m):
-    #        x: f32
+    #        x: f32   <- x_alloc
     #                 <- g1
-    #        x = 0.0  <- c1
+    #        x = 0.0  <- x_assn
     #        y: f32
     #                 <- g2
-    #        y = 1.1
-    c = foo.find_cursor("for j in _:_")[0][0].body()[0]  # x : f32
-    assert str(c.node()) == 'x: f32 @ DRAM\n'
-    g1 = c.after()
-    c1 = foo.find_cursor("x = 0.0")[0][0]
-    _g1_ = c1.before()
-    assert g1 == _g1_
+    #        y = 1.1  <- y_assn
+    for_j = foo.find_cursor("for j in _:_")[0][0]
+    x_alloc = foo.find_cursor("x: f32")[0][0]
+    x_assn = foo.find_cursor("x = 0.0")[0][0]
+    y_assn = foo.find_cursor("y = 1.1")[0][0]
+
+    assert str(x_alloc.node()) == 'x: f32 @ DRAM\n'
+
+    g1 = x_alloc.after()
+    assert g1 == x_assn.before()
+    assert g1.before() == x_alloc
+    assert g1.after() == x_assn
+    assert g1.parent() == for_j
 
     g2 = g1.next(2)
-    _g2_ = c1.after(2)
-    assert g2 == _g2_
+    assert g2 == x_assn.after(2)
+    assert g2.before(2) == x_assn
+    assert g2.after() == y_assn
+    assert g2.parent() == for_j
 
-    # Testing gap -> stmt
-    c3 = foo.find_cursor("y = 1.1")[0][0]
-    _c3_ = g2.after()
-    assert c3 == _c3_
+    assert g2.prev(2) == g1
 
 
 def test_cursor_replace_expr(golden):
