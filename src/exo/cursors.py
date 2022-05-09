@@ -66,6 +66,21 @@ class Cursor(ABC):
                 n = n[idx]
         return n
 
+    def _rewrite_node(self, fn):
+        assert isinstance(self, (Node, Selection, Gap))
+
+        def impl(node, path):
+            (attr, i), path = path[0], path[1:]
+            children = getattr(node, attr)
+            if path:
+                return node.update(**{
+                    attr: children[:i] + [impl(children[i], path)] + children[i + 1:]
+                })
+            else:
+                return fn(node, children, (attr, i))
+
+        return impl(self.proc().INTERNAL_proc(), self._path)
+
 
 @dataclass
 class Selection(Cursor):
@@ -126,24 +141,14 @@ class Selection(Cursor):
     def delete(self) -> ProcedureBase:
         assert self._path
 
-        def impl(node, path):
-            (attr, i), path = path[0], path[1:]
-            children = getattr(node, attr)
-            if path:
-                i: int
-                return node.update(**{
-                    attr: children[:i] + [impl(children[i], path)] + children[i + 1:]
-                })
-            else:
-                i: range
-                new_children = children[:i.start] + children[i.stop:]
-                new_children = new_children or [LoopIR.Pass(None, node.srcinfo)]
-                return node.update(**{attr: new_children})
-
-        ast = impl(self.proc().INTERNAL_proc(), self._path)
+        def update(node, children, nav):
+            attr, i = nav
+            new_children = children[:i.start] + children[i.stop:]
+            new_children = new_children or [LoopIR.Pass(None, node.srcinfo)]
+            return node.update(**{attr: new_children})
 
         from .API import Procedure
-        return Procedure(ast)
+        return Procedure(self._rewrite_node(update))
 
 
 @dataclass
@@ -267,17 +272,9 @@ class Gap(Cursor):
     def insert(self, stmts: list[LoopIR.stmt]):
         assert self._path
 
-        def impl(node, path):
-            (attr, i), path = path[0], path[1:]
-            children = getattr(node, attr)
-            if path:
-                return node.update(**{
-                    attr: children[:i] + [impl(children[i], path)] + children[i + 1:]
-                })
-            else:
-                return node.update(**{attr: children[:i] + stmts + children[i:]})
-
-        ast = impl(self.proc().INTERNAL_proc(), self._path)
+        def update(node, children, nav):
+            attr, i = nav
+            return node.update(**{attr: children[:i] + stmts + children[i:]})
 
         from .API import Procedure
-        return Procedure(ast)
+        return Procedure(self._rewrite_node(update))
