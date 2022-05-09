@@ -171,8 +171,7 @@ class PatternMatch:
             return
 
         # try to match exactly this sequence of statements
-        match_nodes = [cur.node() for cur in curs]
-        if self.match_stmts(pats, match_nodes):
+        if self.match_stmts(pats, curs):
             self._add_result(curs)
 
         # if we need to look for more matches, recurse structurally ...
@@ -193,15 +192,15 @@ class PatternMatch:
     # -------------------
     #  matching methods
 
-    def match_stmts(self, pats, stmts):
+    def match_stmts(self, pats, cur):
         i, j = 0, 0
-        while i < len(pats) and j < len(stmts):
+        while i < len(pats) and j < len(cur):
             if isinstance(pats[i], PAST.S_Hole):
                 if i + 1 == len(pats):
                     return True  # No lookahead, guaranteed match
-                if self.match_stmt(pats[i + 1], stmts[j]):
+                if self.match_stmt(pats[i + 1], cur[j]):
                     i += 2  # Lookahead matches, skip hole and lookahead
-            elif self.match_stmt(pats[i], stmts[j]):
+            elif self.match_stmt(pats[i], cur[j]):
                 i += 1
             else:
                 return False
@@ -209,13 +208,13 @@ class PatternMatch:
 
         return i == len(pats)
 
-    def match_stmt(self, pat, stmt):
-        assert not isinstance(
-            pat, PAST.S_Hole
-        ), "holes should be handled in match_stmts"
+    def match_stmt(self, pat, cur):
+        assert not isinstance(pat, PAST.S_Hole), "holes must be handled in match_stmts"
 
         # first ensure that the pattern and statement
         # are the same constructor
+
+        stmt = cur.node()
 
         if not isinstance(
             stmt, (LoopIR.WindowStmt,) + tuple(_PAST_to_LoopIR[type(pat)])
@@ -243,14 +242,14 @@ class PatternMatch:
         elif isinstance(stmt, LoopIR.If):
             return (
                 self.match_e(pat.cond, stmt.cond)
-                and self.match_stmts(pat.body, stmt.body)
-                and self.match_stmts(pat.orelse, stmt.orelse)
+                and self.match_stmts(pat.body, cur.body())
+                and self.match_stmts(pat.orelse, cur.orelse())
             )
         elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
             return (
                 self.match_name(pat.iter, stmt.iter)
                 and self.match_e(pat.hi, stmt.hi)
-                and self.match_stmts(pat.body, stmt.body)
+                and self.match_stmts(pat.body, cur.body())
             )
         elif isinstance(stmt, LoopIR.Alloc):
             if isinstance(stmt.type, LoopIR.Tensor):
