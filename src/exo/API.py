@@ -13,7 +13,7 @@ from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
                                 nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
-from .cursors import Cursor
+from .cursors import Cursor, Selection
 from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
@@ -206,6 +206,16 @@ class Procedure(ProcedureBase):
         if not cursors:
             raise SchedulingError('failed to find statement', pattern=pattern)
         return cursors
+
+    def find_stmt(self, pattern):
+        curs = self.find_cursor(pattern)
+        assert len(curs) == 1
+        curs = curs[0]
+        assert isinstance(curs, Selection)
+        if len(curs) != 1:
+            raise SchedulingError('pattern did not match a single statement',
+                                  pattern=pattern)
+        return curs[0]
 
     def get_ast(self, pattern=None):
         if pattern is None:
