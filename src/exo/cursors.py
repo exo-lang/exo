@@ -95,11 +95,11 @@ class Cursor(ABC):
         assert isinstance(self, (Node, Selection, Gap))
 
         def impl(node, path):
+            if len(path) == 1:
+                return fn(node)
+
             (attr, i), path = path[0], path[1:]
             children = getattr(node, attr)
-
-            if not path:
-                return fn(node, children, (attr, i))
 
             if i is None:
                 return node.update(**{attr: impl(children, path)})
@@ -179,8 +179,9 @@ class Selection(Cursor):
         assert len(self) > 0
         assert stmts
 
-        def update(node, children, nav):
-            attr, i = nav
+        def update(node):
+            attr, i = self._path[-1]
+            children = getattr(node, attr)
             return node.update(**{attr: children[:i.start] + stmts + children[i.stop:]})
 
         from .API import Procedure
@@ -190,8 +191,9 @@ class Selection(Cursor):
         assert self._path
         assert len(self) > 0
 
-        def update(node, children, nav):
-            attr, i = nav
+        def update(node):
+            attr, i = self._path[-1]
+            children = getattr(node, attr)
             new_children = children[:i.start] + children[i.stop:]
             new_children = new_children or [LoopIR.Pass(None, node.srcinfo)]
             return node.update(**{attr: new_children})
@@ -332,8 +334,8 @@ class Node(Cursor):
             return self.select().replace(ast)
 
         # replacing a single expression, or something not in a block
-        def update(node, _, nav):
-            attr, _ = nav
+        def update(node):
+            attr, _ = self._path[-1]
             return node.update(**{attr: ast})
 
         from .API import Procedure
@@ -371,8 +373,9 @@ class Gap(Cursor):
     def insert(self, stmts: list[LoopIR.stmt]):
         assert self._path
 
-        def update(node, children, nav):
-            attr, i = nav
+        def update(node):
+            attr, i = self._path[-1]
+            children = getattr(node, attr)
             return node.update(**{attr: children[:i] + stmts + children[i:]})
 
         from .API import Procedure
