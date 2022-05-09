@@ -4,7 +4,7 @@ import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Union
 from weakref import ReferenceType
 
 from .API_types import ProcedureBase
@@ -69,22 +69,20 @@ class Cursor(ABC):
 
 @dataclass
 class Selection(Cursor):
-    _block: Node  # leads to block parent (e.g. "if")
-    _attr: str  # which block (e.g. "orelse")
-    _range: tuple[int, int]  # [lo, hi) of block elements
+    _path: list[tuple[str, Union[int, range]]]  # is range iff last entry
 
     def parent(self) -> Node:
-        return self._block
+        return Node(self._proc, self._path[:-1])
 
     def before(self, dist=1) -> Gap:
-        lo, hi = self._range
-        assert lo < hi
-        return self._block.child(self._attr, lo).before(dist)
+        attr, _range = self._path[-1]
+        assert len(_range) > 0
+        return self.parent().child(attr, _range.start).before(dist)
 
     def after(self, dist=1) -> Gap:
-        lo, hi = self._range
-        assert lo < hi
-        return self._block.child(self._attr, hi - 1).after(dist)
+        attr, _range = self._path[-1]
+        assert len(_range) > 0
+        return self.parent().child(attr, _range.stop - 1).after(dist)
 
     def prev(self, dist=1) -> Cursor:
         # TODO: what should this mean?
@@ -102,24 +100,50 @@ class Selection(Cursor):
 
     def __iter__(self):
         def impl():
-            for i in range(*self._range):
-                yield self._block.child(self._attr, i)
+            attr, _range = self._path[-1]
+            block = self.parent()
+            for i in _range:
+                yield block.child(attr, i)
 
         return impl()
 
     def __getitem__(self, i):
-        r = range(*self._range)[i]
+        attr, r = self._path[-1]
+        r = r[i]
         if isinstance(r, range):
             if r.step != 1:
                 raise IndexError('cursor selections must be contiguous')
             if len(r) == 0:
                 raise IndexError('cannot construct an empty selection')
-            return Selection(self._proc, self._block, self._attr, (r.start, r.stop))
+            return Selection(self._proc, self._path[:-1] + [(attr, r)])
         else:
-            return self._block.child(self._attr, r)
+            return self.parent().child(attr, r)
 
     def __len__(self):
-        return len(range(*self._range))
+        _, _range = self._path[-1]
+        return len(_range)
+
+    def delete(self) -> ProcedureBase:
+        assert self._path
+
+        def impl(node, path):
+            (attr, i), path = path[0], path[1:]
+            children = getattr(node, attr)
+            if path:
+                i: int
+                return node.update(**{
+                    attr: children[:i] + [impl(children[i], path)] + children[i + 1:]
+                })
+            else:
+                i: range
+                new_children = children[:i.start] + children[i.stop:]
+                new_children = new_children or [LoopIR.Pass(None, node.srcinfo)]
+                return node.update(**{attr: new_children})
+
+        ast = impl(self.proc().INTERNAL_proc(), self._path)
+
+        from .API import Procedure
+        return Procedure(ast)
 
 
 @dataclass
@@ -211,13 +235,13 @@ class Node(Cursor):
     def orelse(self) -> Selection:
         return self._select_attr('orelse')
 
-    def _select_attr(self, attr):
+    def _select_attr(self, attr: str):
         n = self.node()
         if (stmts := getattr(n, attr, None)) is None:
             raise InvalidCursorError(
                 f'node type {type(n).__name__} does not have attribute "{attr}"')
         assert isinstance(stmts, list)
-        return Selection(self._proc, self, attr, (0, len(stmts)))
+        return Selection(self._proc, self._path + [(attr, range(len(stmts)))])
 
 
 @dataclass
@@ -253,7 +277,7 @@ class Gap(Cursor):
             else:
                 return node.update(**{attr: children[:i] + stmts + children[i:]})
 
-        ast = impl(self.proc().INTERNAL_proc(), self._path[:])
+        ast = impl(self.proc().INTERNAL_proc(), self._path)
 
         from .API import Procedure
         return Procedure(ast)

@@ -85,6 +85,14 @@ def test_selection_gaps():
     assert subset.after() == cx3.after()
 
 
+def test_selection_delete(golden):
+    c = bar.find_cursor('for j in _: _')[0]
+    stmts = c.body()[1:4]
+
+    bar2 = stmts.delete()
+    assert str(bar2) == golden
+
+
 def test_cursor_move():
     c = foo.find_cursor("for j in _:_")
     assert len(c) == 1
