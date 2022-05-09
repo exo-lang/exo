@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import gc
-import weakref
 
 import pytest
 
-from exo import proc, Procedure
+from exo import proc
 from exo.LoopIR import LoopIR, T
 from exo.cursors import Cursor, Selection, InvalidCursorError
 from exo.syntax import size, par, f32
@@ -36,10 +35,6 @@ def bar(n: size, m: size):
 
 def test_get_root():
     cursor = Cursor.root(foo)
-    assert isinstance(cursor._proc, weakref.ReferenceType)
-    assert isinstance(cursor._proc(), Procedure)
-    assert isinstance(cursor._node, weakref.ReferenceType)
-    assert isinstance(cursor._node(), LoopIR.proc)
     assert cursor.node() is foo.INTERNAL_proc()
 
 
@@ -152,9 +147,7 @@ def test_cursor_gap():
     c = foo.find_cursor("for j in _:_")[0][0].body()[0]  # x : f32
     assert str(c.node()) == 'x: f32 @ DRAM\n'
     g1 = c.after()
-    assert g1._path[-1] == ('body', 1)
     c1 = foo.find_cursor("x = 0.0")[0][0]
-    assert c1._path[-1] == ('body', 1)
     _g1_ = c1.before()
     assert g1 == _g1_
 
