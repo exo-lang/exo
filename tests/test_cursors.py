@@ -135,6 +135,16 @@ def test_cursor_move():
     assert c1 == _c1_
 
 
+def test_cursor_move_invalid():
+    c = Cursor.root(foo)
+    with pytest.raises(InvalidCursorError, match='cannot move root cursor'):
+        c.next()
+
+    c = foo.find_cursor('m')[0]
+    with pytest.raises(InvalidCursorError, match='cursor is not inside block'):
+        c.next()
+
+
 def test_cursor_gap():
     # for i in par(0, n):
     #    for j in par(0, m):
