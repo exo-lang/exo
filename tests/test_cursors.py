@@ -130,6 +130,14 @@ def test_selection_delete_whole_block(golden):
     assert str(bar2) == golden
 
 
+def test_node_replace(golden):
+    c = bar.find_cursor('x = 3.0')[0][0]
+    assert isinstance(c, Node)
+
+    bar2 = c.replace([LoopIR.Pass(None, c.node().srcinfo)])
+    assert str(bar2) == golden
+
+
 def test_cursor_move():
     c = foo.find_cursor("for j in _:_")[0][0]
 
