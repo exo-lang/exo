@@ -30,23 +30,25 @@ class Cursor(ABC):
 
     @abstractmethod
     def parent(self) -> Node:
-        pass
+        """Get the node containing the current cursor"""
 
     @abstractmethod
     def before(self, dist=1) -> Cursor:
-        pass
+        """For gaps, get the node before the gap. Otherwise, get the gap before the node
+        or selection"""
 
     @abstractmethod
     def after(self, dist=1) -> Cursor:
-        pass
+        """For gaps, get the node after the gap. Otherwise, get the gap after the node
+        or selection"""
 
     @abstractmethod
     def prev(self, dist=1) -> Cursor:
-        pass
+        """Get the previous node/gap in the block. Undefined for selections."""
 
     @abstractmethod
     def next(self, dist=1) -> Cursor:
-        pass
+        """Get the next node/gap in the block. Undefined for selections."""
 
     def _hop_idx(self, ty, path, dist):
         if not path:
@@ -118,9 +120,6 @@ class Selection(Cursor):
 
     def __len__(self):
         return len(range(*self._range))
-
-    def replace(self):
-        pass
 
 
 @dataclass

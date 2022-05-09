@@ -76,7 +76,6 @@ def test_selection_gaps():
     assert subset.after() == cx3.after()
 
 
-# TODO: needs selection cursors
 def test_cursor_move():
     c = foo.find_cursor("for j in _:_")
     assert len(c) == 1
@@ -85,9 +84,7 @@ def test_cursor_move():
     c_list = c.body()  # list of j's body
     assert isinstance(c_list, Selection)
     assert len(c_list) == 4
-    # TODO: subscriptable class probably shouldn't have a parent() method?
-    # c_list_par = c_list.parent()  # for j in _:_
-    # assert c is c_list_par
+    assert c_list.parent() == c
 
     c1 = c_list[0]  # x : f32
     assert c1.node() is foo._loopir_proc.body[0].body[0].body[0]
