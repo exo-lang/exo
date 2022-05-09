@@ -255,10 +255,11 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
 
     def child(self, attr, i=None) -> Node:
-        if (_node := getattr(self.node(), attr, None)) is None:
-            raise ValueError(f'no such attribute {attr}')
+        _node = getattr(self.node(), attr)
         if i is not None:
             _node = _node[i]
+        elif isinstance(_node, list):
+            raise ValueError('must index into block attribute')
         cur = Node(self._proc, self._path + [(attr, i)])
         # noinspection PyPropertyAccess
         # cached_property is settable, bug in static analysis

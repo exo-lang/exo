@@ -216,10 +216,25 @@ def test_cursor_replace_expr_deep(golden):
 
 
 def test_cursor_loop_bound():
-    c_proc = Cursor.root(foo)
-    c_fori = c_proc.body()[0]
-    c_bound = c_fori.child('hi')
+    c_for_i = Cursor.root(foo).body()[0]
+    c_bound = c_for_i.child('hi')
     assert isinstance(c_bound.node(), LoopIR.Read)
+
+
+def test_cursor_invalid_child():
+    c = Cursor.root(foo)
+
+    # Quick sanity check
+    assert c.child('body', 0) == c.body()[0]
+
+    with pytest.raises(AttributeError, match="has no attribute '_invalid'"):
+        c.child('_invalid', None)
+
+    with pytest.raises(ValueError, match='must index into block attribute'):
+        c.child('body', None)
+
+    with pytest.raises(IndexError, match='list index out of range'):
+        c.child('body', 42)
 
 
 def test_cursor_lifetime():
