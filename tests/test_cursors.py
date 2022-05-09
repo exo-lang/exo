@@ -377,3 +377,36 @@ def test_insert_forward_orelse():
     x2_new = example_new.find_cursor('x = 2.0')[0][0]
 
     assert fwd(x2_old) == x2_new
+
+
+def test_double_insert_forwarding():
+    @proc
+    def proc_s1():
+        x: f32
+        if 1 < 2:
+            x = 1.0
+            # x = 2.0
+        else:
+            x = 3.0
+            # x = 4.0
+
+    x1_s1 = proc_s1.find_cursor('x = 1.0')[0][0]
+    x3_s1 = proc_s1.find_cursor('x = 3.0')[0][0]
+
+    x2_stmt = x1_s1.node().update(rhs=LoopIR.Const(2.0, T.f32, x1_s1.node().srcinfo))
+    x4_stmt = x1_s1.node().update(rhs=LoopIR.Const(4.0, T.f32, x1_s1.node().srcinfo))
+
+    proc_s2, fwd_12 = x1_s1.after().insert([x2_stmt])
+    x3_s2 = fwd_12(x3_s1)
+
+    proc_s3, fwd_23 = x3_s2.after().insert([x4_stmt])
+    print(proc_s3)
+
+    x1_s3 = proc_s3.find_cursor('x = 1.0')[0][0]
+    assert fwd_23(fwd_12(x1_s1)) == x1_s3
+
+    x3_s3 = proc_s3.find_cursor('x = 3.0')[0][0]
+    assert fwd_23(fwd_12(x3_s1)) == x3_s3
+
+    if_pat = 'if _: _\nelse: _'
+    assert fwd_23(fwd_12(proc_s1.find_cursor(if_pat)[0])) == proc_s3.find_cursor(if_pat)[0]
