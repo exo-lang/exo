@@ -53,6 +53,12 @@ def test_find_cursor():
     assert c.node() is foo.INTERNAL_proc().body[0].body[0]
 
 
+def test_find_hole_in_middle():
+    c_body_1_5 = bar.find_cursor('x = 1.0 ; _ ; x = 4.0')[0]
+    for_j = bar.find_cursor('for j in _: _')[0][0]
+    assert c_body_1_5 == for_j.body()[1:5]
+
+
 def test_gap_insert_pass(golden):
     c = foo.find_cursor('x = 0.0')[0][0]
     assn = c.node()
