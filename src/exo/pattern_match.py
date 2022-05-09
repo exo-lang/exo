@@ -199,9 +199,6 @@ class PatternMatch:
         # into a statement hole
         in_hole = False
 
-        # shallow copy of the stmt list that we can
-        stmts = stmts.copy()
-
         stmt_idx = 0
         for p in pats:
             if isinstance(p, PAST.S_Hole):
