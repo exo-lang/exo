@@ -170,9 +170,9 @@ class PatternMatch:
         if len(curs) == 0:
             return
 
-        # try to match exactly this sequence of statements
-        if self.match_stmts(pats, curs):
-            self._add_result(curs)
+        # try to match a prefix of this sequence of statements
+        if m := self.match_stmts(pats, curs):
+            self._add_result(m)
 
         # if we need to look for more matches, recurse structurally ...
 
