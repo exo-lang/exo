@@ -199,18 +199,13 @@ class PatternMatch:
             if isinstance(pats[i], PAST.S_Hole):
                 if i + 1 == len(pats):
                     return True
-                else:
-                    if self.match_stmt(pats[i + 1], stmts[j]):
-                        i += 2
-                        j += 1
-                    else:
-                        j += 1
+                if self.match_stmt(pats[i + 1], stmts[j]):
+                    i += 2
             else:
-                if self.match_stmt(pats[i], stmts[j]):
-                    i += 1
-                    j += 1
-                else:
+                if not self.match_stmt(pats[i], stmts[j]):
                     return False
+                i += 1
+            j += 1
 
         return i == len(pats)
 
