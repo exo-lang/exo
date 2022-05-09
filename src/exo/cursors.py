@@ -74,38 +74,50 @@ class Selection(Cursor):
     def parent(self) -> Node:
         return self._block
 
-    def before(self, dist=0) -> Cursor:
-        raise NotImplementedError('Selection.before')
+    def before(self, dist=1) -> Gap:
+        lo, hi = self._range
+        assert lo < hi
+        return self._block.child(self._attr, lo).before(dist)
 
-    def after(self, dist=0) -> Cursor:
-        raise NotImplementedError('Selection.after')
+    def after(self, dist=1) -> Gap:
+        lo, hi = self._range
+        assert lo < hi
+        return self._block.child(self._attr, hi - 1).after(dist)
 
     def prev(self, dist=0) -> Cursor:
+        # TODO: what should this mean?
+        #  1. The node after the selection?
+        #  2. The selection shifted over?
+        #  3. The selection of nodes leading up to the start?
         raise NotImplementedError('Selection.prev')
 
     def next(self, dist=0) -> Cursor:
+        # TODO: what should this mean?
+        #  1. The node after the selection?
+        #  2. The selection shifted over?
+        #  3. The selection of nodes past the end?
         raise NotImplementedError('Selection.next')
 
     def __iter__(self):
-        blk = self._block
-        attr = self._attr
-        rng = self._range
-
         def impl():
-            for i in range(*rng):
-                yield blk.child(attr, i)
+            for i in range(*self._range):
+                yield self._block.child(self._attr, i)
 
         return impl()
 
     def __getitem__(self, i):
-        lo, hi = self._range
-        if i < 0 or lo + i >= hi:
-            return IndexError(f'index {i} out of range')
-        return self._block.child(self._attr, lo + i)
+        r = range(*self._range)[i]
+        if isinstance(r, range):
+            if r.step != 1:
+                raise IndexError('cursor selections must be contiguous')
+            if len(r) == 0:
+                raise IndexError('cannot construct an empty selection')
+            return Selection(self._proc, self._block, self._attr, (r.start, r.stop))
+        else:
+            return self._block.child(self._attr, r)
 
     def __len__(self):
-        lo, hi = self._range
-        return hi - lo
+        return len(range(*self._range))
 
     def replace(self):
         pass

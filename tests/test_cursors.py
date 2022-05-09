@@ -57,6 +57,25 @@ def test_find_cursor():
     assert c.node() is foo._loopir_proc.body[0].body[0]
 
 
+def test_selection_gaps():
+    c = bar.find_cursor('for j in _: _')
+    assert len(c) == 1
+    c = c[0]
+
+    body = c.body()
+    assert len(body) == 6
+    subset = body[1:4]
+    assert len(subset) == 3
+
+    cx1 = bar.find_cursor('x = 1.0')[0]
+    cx3 = bar.find_cursor('x = 3.0')[0]
+    assert subset[0] == cx1
+    assert subset[2] == cx3
+
+    assert subset.before() == cx1.before()
+    assert subset.after() == cx3.after()
+
+
 # TODO: needs selection cursors
 def test_cursor_move():
     c = foo.find_cursor("for j in _:_")
