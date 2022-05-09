@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import weakref
 
 import pytest
@@ -7,7 +8,7 @@ import pytest
 import exo
 from exo import proc
 from exo.LoopIR import LoopIR
-from exo.cursors import Cursor, Selection
+from exo.cursors import Cursor, Selection, InvalidCursorError
 from exo.syntax import size, par, f32
 
 
@@ -171,3 +172,24 @@ def test_cursor_loop_bound():
     c_fori = c_proc.body()[0]
     c_bound = c_fori.child('hi')
     assert isinstance(c_bound.node(), LoopIR.Read)
+
+
+def test_cursor_lifetime():
+    @proc
+    def delete_me():
+        x: f32
+        x = 0.0
+
+    cur = delete_me.find_cursor('x = _')[0]
+    assert isinstance(cur.node(), LoopIR.Assign)
+
+    del delete_me
+    gc.collect()
+
+    with pytest.raises(InvalidCursorError, match='underlying proc was destroyed'):
+        cur.proc()
+
+    # TODO: The WeakKeyDictionary-ies in other modules seem to keep the IR alive as
+    #   they keep references to them in the values.
+    # with pytest.raises(InvalidCursorError, match='underlying node was destroyed'):
+    #     cur.node()

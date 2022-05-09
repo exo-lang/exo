@@ -25,7 +25,7 @@ class Cursor(ABC):
 
     def proc(self):
         if (p := self._proc()) is None:
-            raise InvalidCursorError()
+            raise InvalidCursorError("underlying proc was destroyed")
         return p
 
     @abstractmethod
@@ -145,7 +145,7 @@ class Node(Cursor):
 
     def node(self):
         if (n := self._node()) is None:
-            raise InvalidCursorError()
+            raise InvalidCursorError('underlying node was destroyed')
         return n
 
     @cached_property
@@ -207,7 +207,8 @@ class Node(Cursor):
     def _select_attr(self, attr):
         n = self.node()
         if (stmts := getattr(n, attr, None)) is None:
-            raise InvalidCursorError()
+            raise InvalidCursorError(
+                f'node type {type(n).__name__} does not have attribute "{attr}"')
         assert isinstance(stmts, list)
         return Selection(self._proc, self, attr, (0, len(stmts)))
 
