@@ -66,6 +66,18 @@ def test_gap_insert_pass(golden):
     assert str(foo2) == golden
 
 
+def test_insert_root_front(golden):
+    c = Cursor.root(foo)
+    foo2 = c.body().before().insert([LoopIR.Pass(None, c.node().srcinfo)])
+    assert str(foo2) == golden
+
+
+def test_insert_root_end(golden):
+    c = Cursor.root(foo)
+    foo2 = c.body().after().insert([LoopIR.Pass(None, c.node().srcinfo)])
+    assert str(foo2) == golden
+
+
 def test_selection_gaps():
     c = bar.find_cursor('for j in _: _')
     assert len(c) == 1
