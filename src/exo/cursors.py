@@ -50,7 +50,7 @@ class Cursor(ABC):
     def next(self, dist=1) -> Cursor:
         """Get the next node/gap in the block. Undefined for selections."""
 
-    def _hop_idx(self, ty, path, dist):
+    def _translate(self, ty, path, dist):
         if not path:
             raise InvalidCursorError('cannot move root cursor')
         attr, i = path[-1]
@@ -132,16 +132,16 @@ class Node(Cursor):
         return Node(self._proc, self._path[:-1])
 
     def before(self, dist=1) -> Gap:
-        return self._hop_idx(Gap, self._path, 1 - dist)
+        return self._translate(Gap, self._path, 1 - dist)
 
     def after(self, dist=1) -> Gap:
-        return self._hop_idx(Gap, self._path, dist)
+        return self._translate(Gap, self._path, dist)
 
     def prev(self, dist=1) -> Node:
-        return self._hop_idx(Node, self._path, -dist)
+        return self._translate(Node, self._path, -dist)
 
     def next(self, dist=1) -> Node:
-        return self._hop_idx(Node, self._path, dist)
+        return self._translate(Node, self._path, dist)
 
     def node(self):
         if (n := self._node()) is None:
@@ -229,13 +229,13 @@ class Gap(Cursor):
         return Node(self._proc, self._path[:-1])
 
     def before(self, dist=1) -> Node:
-        return self._hop_idx(Node, self._path, 1 - dist)
+        return self._translate(Node, self._path, 1 - dist)
 
     def after(self, dist=1) -> Node:
-        return self._hop_idx(Node, self._path, dist - 1)
+        return self._translate(Node, self._path, dist - 1)
 
     def prev(self, dist=1) -> Gap:
-        return self._hop_idx(Gap, self._path, -dist)
+        return self._translate(Gap, self._path, -dist)
 
     def next(self, dist=1) -> Gap:
-        return self._hop_idx(Gap, self._path, dist)
+        return self._translate(Gap, self._path, dist)
