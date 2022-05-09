@@ -80,9 +80,7 @@ def test_insert_root_end(golden):
 
 
 def test_selection_gaps():
-    c = bar.find_cursor('for j in _: _')
-    assert len(c) == 1
-    c = c[0][0]
+    c = bar.find_cursor('for j in _: _')[0][0]
 
     body = c.body()
     assert len(body) == 6
@@ -96,6 +94,18 @@ def test_selection_gaps():
 
     assert subset.before() == cx1.before()
     assert subset.after() == cx3.after()
+
+
+def test_selection_sequence_interface():
+    for_j_body = bar.find_cursor('for j in _: _')[0][0].body()
+    assert for_j_body[:] is not for_j_body
+    assert for_j_body[:] == for_j_body
+    assert len(list(for_j_body)) == 6
+
+    with pytest.raises(IndexError, match='cursor selections must be contiguous'):
+        # noinspection PyStatementEffect
+        # Sequence's __getitem__ should throw here, so this does have a side effect
+        for_j_body[::2]
 
 
 def test_selection_delete(golden):
