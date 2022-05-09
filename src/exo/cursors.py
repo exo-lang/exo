@@ -3,6 +3,7 @@ from __future__ import annotations
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import Enum
 from functools import cached_property
 from typing import Optional, Iterable, Union
 from weakref import ReferenceType
@@ -13,6 +14,13 @@ from .LoopIR import LoopIR
 
 class InvalidCursorError(Exception):
     pass
+
+
+class ForwardingPolicy(Enum):
+    EagerInvalidation = 0
+    AnchorPre = 1
+    AnchorPost = 2
+    AnchorNearest = 3
 
 
 @dataclass
@@ -370,7 +378,7 @@ class Gap(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def insert(self, stmts: list[LoopIR.stmt]):
+    def insert(self, stmts: list[LoopIR.stmt], policy=ForwardingPolicy.AnchorPre):
         assert self._path
 
         def update(node):
@@ -381,10 +389,12 @@ class Gap(Cursor):
         from .API import Procedure
         p = Procedure(self._rewrite_node(update))
 
-        forward = self._forward_insert(weakref.ref(p), len(stmts))
+        forward = self._forward_insert(weakref.ref(p), len(stmts), policy)
         return p, forward
 
-    def _forward_insert(self, new_proc, ins_len):
+    def _forward_insert(self, new_proc, ins_len, policy):
+        assert policy != ForwardingPolicy.AnchorNearest
+
         depth = len(self._path) - 1
 
         def forward(cursor: Cursor) -> Cursor:
@@ -418,8 +428,15 @@ class Gap(Cursor):
             elif isinstance(cursor, Gap):
                 # Updating gap in edited block
                 assert old_idx is not None, "somehow inserted into non-block"
-                # this implements "anchor-pre" policy
-                new_idx = old_idx + ins_len * (old_idx > ins_idx)
+                if policy == ForwardingPolicy.AnchorPre:
+                    new_idx = old_idx + ins_len * (old_idx > ins_idx)
+                elif policy == ForwardingPolicy.AnchorPost:
+                    new_idx = old_idx + ins_len * (old_idx >= ins_idx)
+                else:
+                    assert policy == ForwardingPolicy.EagerInvalidation
+                    if old_idx == ins_idx:
+                        raise InvalidCursorError('insertion gap was invalidated')
+                    new_idx = old_idx + ins_len * (old_idx > ins_idx)
             elif isinstance(cursor, Selection):
                 # Updating selection in edited block
                 assert isinstance(old_idx, range)

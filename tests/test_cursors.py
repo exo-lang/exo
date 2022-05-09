@@ -6,7 +6,7 @@ import pytest
 
 from exo import proc
 from exo.LoopIR import LoopIR, T
-from exo.cursors import Cursor, Selection, InvalidCursorError
+from exo.cursors import Cursor, Selection, InvalidCursorError, ForwardingPolicy
 from exo.syntax import size, par, f32
 
 
@@ -164,7 +164,6 @@ def test_cursor_gap():
 def test_cursor_replace_expr(golden):
     c = foo.find_cursor('m')[0]
     foo2 = c.replace(LoopIR.Const(42, T.size, c.node().srcinfo))
-    print(foo2)
     assert str(foo2) == golden
 
 
@@ -258,5 +257,21 @@ def test_insert_forwarding():
         # full body already tested above.
     ]
     for old_range, new_range in test_cases:
-        print(old_range, new_range)
         assert fwd(for_j_old.body()[old_range]) == for_j_new.body()[new_range]
+
+
+def test_insert_forwarding_policy():
+    x2 = bar.find_cursor('x = 2.0')[0][0]
+    gap = x2.after()
+
+    stmt = [LoopIR.Pass(None, x2.node().srcinfo)]
+
+    bar_pre, fwd_pre = gap.insert(stmt, ForwardingPolicy.AnchorPre)
+    assert fwd_pre(gap) == bar_pre.find_cursor('x = 2.0')[0][0].after()
+
+    bar_post, fwd_post = gap.insert(stmt, ForwardingPolicy.AnchorPost)
+    assert fwd_post(gap) == bar_post.find_cursor('x = 3.0')[0][0].before()
+
+    bar_invalid, fwd_invalid = gap.insert(stmt, ForwardingPolicy.EagerInvalidation)
+    with pytest.raises(InvalidCursorError, match='insertion gap was invalidated'):
+        fwd_invalid(gap)
