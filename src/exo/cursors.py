@@ -278,6 +278,18 @@ class Node(Cursor):
             raise InvalidCursorError('cannot select nodes outside of a block')
         return Selection(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
 
+    def replace(self, ast) -> ProcedureBase:
+        if self._path[-1][1] is not None:
+            return self.as_selection().replace(ast)
+
+        # replacing a single expression, or something not in a block
+        def update(node, _, nav):
+            attr, _ = nav
+            return node.update(**{attr: ast})
+
+        from .API import Procedure
+        return Procedure(self._rewrite_node(update))
+
 
 @dataclass
 class Gap(Cursor):

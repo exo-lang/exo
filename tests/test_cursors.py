@@ -7,7 +7,7 @@ import pytest
 
 import exo
 from exo import proc
-from exo.LoopIR import LoopIR
+from exo.LoopIR import LoopIR, T
 from exo.cursors import Cursor, Selection, InvalidCursorError
 from exo.syntax import size, par, f32
 
@@ -168,6 +168,13 @@ def test_cursor_gap():
     c3 = foo.find_cursor("y = 1.1")[0]
     _c3_ = g2.after()
     assert c3 == _c3_
+
+
+def test_cursor_replace_expr(golden):
+    c = foo.find_cursor('m')
+    foo2 = c.replace(LoopIR.Const(42, T.size, c.node().srcinfo))
+    print(foo2)
+    assert str(foo2) == golden
 
 
 @pytest.mark.skip()
