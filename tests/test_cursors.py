@@ -105,6 +105,14 @@ def test_selection_delete(golden):
     assert str(bar2) == golden
 
 
+def test_selection_replace(golden):
+    c = bar.find_cursor('for j in _: _')[0]
+    stmts = c.body()[1:4]
+
+    bar2 = stmts.replace([LoopIR.Pass(None, c.node().srcinfo)])
+    assert str(bar2) == golden
+
+
 def test_selection_delete_whole_block(golden):
     c = bar.find_cursor('for j in _: _')[0]
     bar2 = c.body().delete()

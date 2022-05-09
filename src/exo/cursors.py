@@ -151,6 +151,17 @@ class Selection(Cursor):
         _, _range = self._path[-1]
         return len(_range)
 
+    def replace(self, stmts: list) -> ProcedureBase:
+        assert self._path
+        assert stmts
+
+        def update(node, children, nav):
+            attr, i = nav
+            return node.update(**{attr: children[:i.start] + stmts + children[i.stop:]})
+
+        from .API import Procedure
+        return Procedure(self._rewrite_node(update))
+
     def delete(self) -> ProcedureBase:
         assert self._path
 
@@ -260,6 +271,12 @@ class Node(Cursor):
                 f'node type {type(n).__name__} does not have attribute "{attr}"')
         assert isinstance(stmts, list)
         return Selection(self._proc, self._path + [(attr, range(len(stmts)))])
+
+    def as_selection(self) -> Selection:
+        attr, i = self._path
+        if i is None:
+            raise InvalidCursorError('cannot select nodes outside of a block')
+        return Selection(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
 
 
 @dataclass

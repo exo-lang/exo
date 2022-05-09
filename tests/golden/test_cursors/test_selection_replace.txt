@@ -1,0 +1,8 @@
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in par(0, n):
+        for j in par(0, m):
+            x = 0.0
+            pass
+            x = 4.0
+            x = 5.0
