@@ -379,7 +379,7 @@ def test_insert_forward_orelse():
     assert fwd(x2_old) == x2_new
 
 
-def test_double_insert_forwarding():
+def test_double_insert_forwarding(golden):
     @proc
     def proc_s1():
         x: f32
@@ -400,7 +400,7 @@ def test_double_insert_forwarding():
     x3_s2 = fwd_12(x3_s1)
 
     proc_s3, fwd_23 = x3_s2.after().insert([x4_stmt])
-    print(proc_s3)
+    assert str(proc_s3) == golden
 
     x1_s3 = proc_s3.find_stmt('x = 1.0')
     assert fwd_23(fwd_12(x1_s1)) == x1_s3
