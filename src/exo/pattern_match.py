@@ -198,13 +198,13 @@ class PatternMatch:
         while i < len(pats) and j < len(stmts):
             if isinstance(pats[i], PAST.S_Hole):
                 if i + 1 == len(pats):
-                    return True
+                    return True  # No lookahead, guaranteed match
                 if self.match_stmt(pats[i + 1], stmts[j]):
-                    i += 2
-            else:
-                if not self.match_stmt(pats[i], stmts[j]):
-                    return False
+                    i += 2  # Lookahead matches, skip hole and lookahead
+            elif self.match_stmt(pats[i], stmts[j]):
                 i += 1
+            else:
+                return False
             j += 1
 
         return i == len(pats)
