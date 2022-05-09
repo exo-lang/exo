@@ -158,10 +158,6 @@ class PatternMatch:
     #  finding methods
 
     def find_expr(self, pat, cur):
-        # short-circuit if we have our one match already...
-        if self._match_i is not None and self._match_i < 0:
-            return
-
         # try to match
         if self.match_e(pat, cur.node()):
             self._add_result(cur)
@@ -170,10 +166,6 @@ class PatternMatch:
             self.find_expr(pat, child)
 
     def find_stmts(self, pats, curs):
-        # short-circuit if we have our one match already...
-        if self._match_i is not None and self._match_i < 0:
-            return
-
         # may encounter empty statement blocks, which we should ignore
         if len(curs) == 0:
             return
