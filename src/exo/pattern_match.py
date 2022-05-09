@@ -197,16 +197,17 @@ class PatternMatch:
         while i < len(pats) and j < len(cur):
             if isinstance(pats[i], PAST.S_Hole):
                 if i + 1 == len(pats):
-                    return True  # No lookahead, guaranteed match
+                    return cur  # No lookahead, guaranteed match
                 if self.match_stmt(pats[i + 1], cur[j]):
                     i += 2  # Lookahead matches, skip hole and lookahead
             elif self.match_stmt(pats[i], cur[j]):
                 i += 1
             else:
-                return False
+                return None
             j += 1
 
-        return i == len(pats)
+        # Return the matched portion on success
+        return cur[:j] if i == len(pats) else None
 
     def match_stmt(self, pat, cur):
         assert not isinstance(pat, PAST.S_Hole), "holes must be handled in match_stmts"
@@ -242,14 +243,14 @@ class PatternMatch:
         elif isinstance(stmt, LoopIR.If):
             return (
                 self.match_e(pat.cond, stmt.cond)
-                and self.match_stmts(pat.body, cur.body())
-                and self.match_stmts(pat.orelse, cur.orelse())
+                and self.match_stmts(pat.body, cur.body()) is not None
+                and self.match_stmts(pat.orelse, cur.orelse()) is not None
             )
         elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
             return (
                 self.match_name(pat.iter, stmt.iter)
                 and self.match_e(pat.hi, stmt.hi)
-                and self.match_stmts(pat.body, cur.body())
+                and self.match_stmts(pat.body, cur.body()) is not None
             )
         elif isinstance(stmt, LoopIR.Alloc):
             if isinstance(stmt.type, LoopIR.Tensor):
