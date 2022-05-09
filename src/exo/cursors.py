@@ -317,10 +317,7 @@ class Node(Cursor):
         return self._select_attr('orelse')
 
     def _select_attr(self, attr: str):
-        n = self.node()
-        if (stmts := getattr(n, attr, None)) is None:
-            raise InvalidCursorError(
-                f'node type {type(n).__name__} does not have attribute "{attr}"')
+        stmts = getattr(self.node(), attr)
         assert isinstance(stmts, list)
         return Selection(self._proc, self._path + [(attr, range(len(stmts)))])
 

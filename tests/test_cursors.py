@@ -356,3 +356,24 @@ def test_insert_forwarding_policy():
     bar_invalid, fwd_invalid = gap.insert(stmt, ForwardingPolicy.EagerInvalidation)
     with pytest.raises(InvalidCursorError, match='insertion gap was invalidated'):
         fwd_invalid(gap)
+
+
+def test_insert_forward_orelse():
+    @proc
+    def example_old():
+        x: f32
+        if 1 < 2:
+            x = 1.0
+        else:
+            x = 2.0
+
+    x1_old = example_old.find_cursor('x = 1.0')[0][0]
+    x2_old = example_old.find_cursor('x = 2.0')[0][0]
+    gap = x1_old.after()
+
+    stmt = [LoopIR.Pass(None, x1_old.node().srcinfo)]
+
+    example_new, fwd = gap.insert(stmt)
+    x2_new = example_new.find_cursor('x = 2.0')[0][0]
+
+    assert fwd(x2_old) == x2_new
