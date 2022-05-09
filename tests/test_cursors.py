@@ -6,7 +6,7 @@ import pytest
 
 from exo import proc
 from exo.LoopIR import LoopIR, T
-from exo.cursors import Cursor, Selection, InvalidCursorError, ForwardingPolicy
+from exo.cursors import Cursor, Selection, InvalidCursorError, ForwardingPolicy, Node
 from exo.syntax import size, par, f32
 
 
@@ -175,6 +175,20 @@ def test_cursor_replace_expr(golden):
     c = foo.find_cursor('m')[0]
     foo2 = c.replace(LoopIR.Const(42, T.size, c.node().srcinfo))
     assert str(foo2) == golden
+
+
+def test_cursor_replace_expr_deep(golden):
+    @proc
+    def example():
+        x: f32
+        x = 1.0 * (2.0 + 3.0)
+        # x = 1.0 * (4.0 + 3.0)
+
+    c: Node = example.find_cursor('2.0')[0]
+    four = LoopIR.Const(4.0, T.f32, c.node().srcinfo)
+
+    example_new = c.replace(four)
+    assert str(example_new) == golden
 
 
 def test_cursor_loop_bound():
