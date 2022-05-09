@@ -409,5 +409,4 @@ def test_double_insert_forwarding():
     assert fwd_23(fwd_12(x3_s1)) == x3_s3
 
     if_pat = 'if _: _\nelse: _'
-    assert fwd_23(fwd_12(proc_s1.find_cursor(if_pat)[0])) == \
-           proc_s3.find_cursor(if_pat)[0]
+    assert fwd_23(fwd_12(proc_s1.find_stmt(if_pat))) == proc_s3.find_stmt(if_pat)
