@@ -385,10 +385,10 @@ def test_double_insert_forwarding(golden):
         x: f32
         if 1 < 2:
             x = 1.0
-            # x = 2.0
+            # x = 2.0  (added in s2)
         else:
             x = 3.0
-            # x = 4.0
+            # x = 4.0  (added in s3)
 
     x1_s1 = proc_s1.find_stmt('x = 1.0')
     x3_s1 = proc_s1.find_stmt('x = 3.0')
@@ -397,16 +397,17 @@ def test_double_insert_forwarding(golden):
     x4_stmt = x1_s1.node().update(rhs=LoopIR.Const(4.0, T.f32, x1_s1.node().srcinfo))
 
     proc_s2, fwd_12 = x1_s1.after().insert([x2_stmt])
-    x3_s2 = fwd_12(x3_s1)
-
-    proc_s3, fwd_23 = x3_s2.after().insert([x4_stmt])
+    proc_s3, fwd_23 = fwd_12(x3_s1).after().insert([x4_stmt])
     assert str(proc_s3) == golden
 
+    def fwd_13(cur):
+        return fwd_23(fwd_12(cur))
+
     x1_s3 = proc_s3.find_stmt('x = 1.0')
-    assert fwd_23(fwd_12(x1_s1)) == x1_s3
+    assert fwd_13(x1_s1) == x1_s3
 
     x3_s3 = proc_s3.find_stmt('x = 3.0')
-    assert fwd_23(fwd_12(x3_s1)) == x3_s3
+    assert fwd_13(x3_s1) == x3_s3
 
     if_pat = 'if _: _\nelse: _'
-    assert fwd_23(fwd_12(proc_s1.find_stmt(if_pat))) == proc_s3.find_stmt(if_pat)
+    assert fwd_13(proc_s1.find_stmt(if_pat)) == proc_s3.find_stmt(if_pat)
