@@ -1307,32 +1307,35 @@ class _DoExpandDim(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.alloc_stmt:
-            new_typ = s.type
+            old_typ = s.type
             new_rngs = [self.alloc_dim]
 
-            if isinstance(new_typ, T.Tensor):
-                new_rngs += new_typ.shape()
+            if isinstance(old_typ, T.Tensor):
+                new_rngs += old_typ.shape()
 
-            new_typ = new_typ.basetype()
-            new_typ = T.Tensor(new_rngs, False, new_typ)
+            basetyp = old_typ.basetype()
+            new_typ = T.Tensor(new_rngs, False, basetyp)
             self.alloc_type = new_typ
 
             return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
 
         if (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
                 and s.name == self.alloc_sym):
-            idx = [self.indexing] + s.idx
-            return [type(s)( s.name, s.type, s.cast, idx, s.rhs, None, s.srcinfo )]
+            idx = [self.indexing] + [ self.map_e(i) for i in s.idx ]
+            rhs = self.map_e(s.rhs)
+            return [type(s)( s.name, s.type, s.cast,
+                             idx, rhs, None, s.srcinfo )]
 
         return super().map_s(s)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            idx = [self.indexing] + e.idx
+            idx = [self.indexing] + [ self.map_e(i) for i in e.idx ]
             return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
 
         if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
-            idx = [LoopIR.Point(self.indexing, e.srcinfo)] + e.idx
+            idx = ([ LoopIR.Point(self.indexing, e.srcinfo) ] +
+                   [ self.map_w_access(w) for w in e.idx ])
             win_typ = T.Window(self.alloc_type, e.type.as_tensor, e.name, idx)
             return LoopIR.WindowExpr(e.name, idx, win_typ, e.srcinfo)
 
@@ -2199,7 +2202,6 @@ class _DoSpecialize(LoopIR_Rewrite):
         assert conds, "Must add at least one condition"
         self.stmt = stmt
         self.conds = conds
-        self.in_loop = False
 
         super().__init__(proc)
 
@@ -2941,7 +2943,8 @@ class _DoDataReuse(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        # Check that buf_name is only used before the first assignment of rep_pat
+        # Check that buf_name is only used
+        # before the first assignment of rep_pat
         if self.first_assn:
             if self.buf_name in _FV([s]):
                 raise SchedulingError("buf_name should not be used after the "
