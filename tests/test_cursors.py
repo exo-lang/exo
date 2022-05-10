@@ -448,6 +448,7 @@ def test_delete_forward_node(old, new):
     ((0, Node.before), (0, Node.before)),
     ((0, Node.after), (0, Node.after)),
     ((1, Node.after), (1, Node.after)),
+    ((2, Node.after), None),
     ((3, Node.after), (1, Node.after)),
     ((4, Node.before), (1, Node.after)),
     ((4, Node.after), (2, Node.after)),
@@ -459,9 +460,13 @@ def test_delete_forward_gap(old, new):
     for_j_new = bar_new.find_stmt('for j in _: _').body()
 
     old_i, old_gap = old
-    new_i, new_gap = new
 
-    assert fwd(old_gap(for_j[old_i])) == new_gap(for_j_new[new_i])
+    if new is None:
+        with pytest.raises(InvalidCursorError):
+            fwd(for_j[old_i])
+    else:
+        new_i, new_gap = new
+        assert fwd(old_gap(for_j[old_i])) == new_gap(for_j_new[new_i])
 
 
 @pytest.mark.parametrize('old, new', [
