@@ -549,3 +549,25 @@ def test_forward_lifetime():
 
     assert for_j_weak() is None
     assert bar_new_weak() is None
+
+
+@pytest.mark.parametrize('old, new', [
+    (0, 0),
+    (1, None),
+    (2, None),
+    (3, None),
+    (4, 3),
+    (5, 4),
+])
+def test_selection_replace_forward_node(old, new):
+    for_j = bar.find_stmt('for j in _: _').body()
+    bar_new, fwd = for_j[1:4].replace(
+        [LoopIR.Pass(None, for_j.parent().node().srcinfo),
+         LoopIR.Pass(None, for_j.parent().node().srcinfo)])
+    for_j_new = bar_new.find_stmt('for j in _: _').body()
+
+    if new is None:
+        with pytest.raises(InvalidCursorError):
+            fwd(for_j[old])
+    else:
+        assert fwd(for_j[old]) == for_j_new[new]

@@ -233,13 +233,24 @@ class Selection(Cursor):
         from .API import Procedure
         p = Procedure(self._rewrite_node(update))
 
-        return p, self._forward_replace(weakref.ref(p))
+        return p, self._forward_replace(weakref.ref(p), len(stmts))
 
-    def _forward_replace(self, new_proc):
-        def forward(cursor: Cursor):
-            raise NotImplementedError('Selection.replace+fwd')
+    def _forward_replace(self, new_proc, n_ins):
+        del_range = self._path[-1][1]
+        n_diff = n_ins - len(del_range)
 
-        return forward
+        def fwd_node(i):
+            if i in del_range:
+                raise InvalidCursorError('cannot forward deleted node')
+            return i + n_diff * (i >= del_range.stop)
+
+        def fwd_gap(i):
+            raise NotImplementedError('gaps')
+
+        def fwd_sel(rng):
+            raise NotImplementedError('selections')
+
+        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
 
     def delete(self):
         assert self._path
