@@ -54,13 +54,13 @@ class Cursor(ABC):
 
     @abstractmethod
     def before(self, dist=1) -> Cursor:
-        """For gaps, get the node before the gap. Otherwise, get the gap before the node
-        or selection"""
+        """For gaps, get the node before the gap. Otherwise, get the gap before
+        the node or selection"""
 
     @abstractmethod
     def after(self, dist=1) -> Cursor:
-        """For gaps, get the node after the gap. Otherwise, get the gap after the node
-        or selection"""
+        """For gaps, get the node after the gap. Otherwise, get the gap after
+        the node or selection"""
 
     @abstractmethod
     def prev(self, dist=1) -> Cursor:
@@ -227,8 +227,8 @@ class Selection(Cursor):
 
         def update(node):
             attr, i = self._path[-1]
-            children = getattr(node, attr)
-            return node.update(**{attr: children[:i.start] + stmts + children[i.stop:]})
+            desc = getattr(node, attr)
+            return node.update(**{attr: desc[:i.start] + stmts + desc[i.stop:]})
 
         from .API import Procedure
         p = Procedure(self._rewrite_node(update))
