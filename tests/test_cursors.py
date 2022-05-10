@@ -236,7 +236,7 @@ def test_cursor_replace_expr_deep(golden):
     assert str(example_new) == golden
 
 
-def test_cursor_forward_expr_deep(golden):
+def test_cursor_forward_expr_deep():
     @proc
     def example():
         x: f32
@@ -244,10 +244,16 @@ def test_cursor_forward_expr_deep(golden):
         # x = 1.0 * (4.0 + 3.0)
 
     c2: Node = example.find_cursor('2.0')[0]
-    c3: Node = example.find_cursor('3.0')[0]
     four = LoopIR.Const(4.0, T.f32, c2.node().srcinfo)
 
     example_new, fwd = c2.replace(four)
+    with pytest.raises(InvalidCursorError, match='cannot forward replaced nodes'):
+        fwd(c2)
+
+    assert fwd(example.find_stmt('x = _')) == example_new.find_stmt('x = _')
+    assert fwd(example.find_cursor('_ + _')[0]) == example_new.find_cursor('_ + _')[0]
+    assert fwd(example.find_cursor('1.0')[0]) == example_new.find_cursor('1.0')[0]
+    assert fwd(example.find_cursor('3.0')[0]) == example_new.find_cursor('3.0')[0]
 
 
 def test_cursor_loop_bound():

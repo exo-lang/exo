@@ -426,10 +426,18 @@ class Node(Cursor):
         return p, self._forward_replace(weakref.ref(p))
 
     def _forward_replace(self, new_proc):
-        def forward(cur):
-            raise NotImplementedError('Node.replace+fwd')
+        assert self._path[-1][1] is None
 
-        return forward
+        def fwd_node(_):
+            raise InvalidCursorError('cannot forward replaced nodes')
+
+        def fwd_gap(_):
+            assert False, "should never get here"
+
+        def fwd_sel(_):
+            assert False, "should never get here"
+
+        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
 
 
 @dataclass
