@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import weakref
 
 import pytest
 
@@ -495,3 +496,30 @@ def test_delete_forward_selections(old, new):
             fwd(for_j[old])
     else:
         assert fwd(for_j[old]) == for_j_new[new]
+
+
+def test_forward_lifetime():
+    """
+    Make sure that forwarding functions do not keep the cursors that created them
+    alive.
+    """
+
+    for_j = bar.find_stmt('for j in _: _').body()[2:4]
+    for_j_weak = weakref.ref(for_j)
+
+    bar_new, fwd = for_j.delete()
+    bar_new_weak = weakref.ref(bar_new)
+
+    c = Cursor.root(bar_new).body()[0]
+    assert c.node() is not None
+
+    gc.collect()
+
+    assert for_j_weak() is not None
+    assert bar_new_weak() is not None
+
+    del for_j, bar_new
+    gc.collect()
+
+    assert for_j_weak() is None
+    assert bar_new_weak() is None
