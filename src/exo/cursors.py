@@ -267,7 +267,7 @@ class Selection(Cursor):
 
         def fwd_gap(i):
             if del_range.start < i < del_range.stop:
-                raise InvalidCursorError('cannot forward deleted node')
+                raise InvalidCursorError('cannot forward deleted gap')
             return i - len(del_range) * (i >= del_range.stop)
 
         def fwd_sel(rng):

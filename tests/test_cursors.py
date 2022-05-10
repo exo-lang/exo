@@ -482,8 +482,8 @@ def test_delete_forward_gap(old, new):
     old_i, old_gap = old
 
     if new is None:
-        with pytest.raises(InvalidCursorError):
-            fwd(for_j[old_i])
+        with pytest.raises(InvalidCursorError, match='cannot forward deleted gap'):
+            fwd(old_gap(for_j[old_i]))
     else:
         new_i, new_gap = new
         assert fwd(old_gap(for_j[old_i])) == new_gap(for_j_new[new_i])
