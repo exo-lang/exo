@@ -121,7 +121,7 @@ def test_selection_replace(golden):
     c = bar.find_stmt('for j in _: _')
     stmts = c.body()[1:4]
 
-    bar2 = stmts.replace([LoopIR.Pass(None, c.node().srcinfo)])
+    bar2, _ = stmts.replace([LoopIR.Pass(None, c.node().srcinfo)])
     assert str(bar2) == golden
 
 
@@ -135,7 +135,7 @@ def test_node_replace(golden):
     c = bar.find_stmt('x = 3.0')
     assert isinstance(c, Node)
 
-    bar2 = c.replace([LoopIR.Pass(None, c.node().srcinfo)])
+    bar2, _ = c.replace([LoopIR.Pass(None, c.node().srcinfo)])
     assert str(bar2) == golden
 
 
@@ -211,7 +211,7 @@ def test_cursor_gap():
 
 def test_cursor_replace_expr(golden):
     c = foo.find_cursor('m')[0]
-    foo2 = c.replace(LoopIR.Const(42, T.size, c.node().srcinfo))
+    foo2, _ = c.replace(LoopIR.Const(42, T.size, c.node().srcinfo))
     assert str(foo2) == golden
 
 
@@ -232,8 +232,22 @@ def test_cursor_replace_expr_deep(golden):
     c: Node = example.find_cursor('2.0')[0]
     four = LoopIR.Const(4.0, T.f32, c.node().srcinfo)
 
-    example_new = c.replace(four)
+    example_new, _ = c.replace(four)
     assert str(example_new) == golden
+
+
+def test_cursor_forward_expr_deep(golden):
+    @proc
+    def example():
+        x: f32
+        x = 1.0 * (2.0 + 3.0)
+        # x = 1.0 * (4.0 + 3.0)
+
+    c2: Node = example.find_cursor('2.0')[0]
+    c3: Node = example.find_cursor('3.0')[0]
+    four = LoopIR.Const(4.0, T.f32, c2.node().srcinfo)
+
+    example_new, fwd = c2.replace(four)
 
 
 def test_cursor_loop_bound():

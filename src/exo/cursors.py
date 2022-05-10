@@ -220,7 +220,7 @@ class Selection(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def replace(self, stmts: list) -> ProcedureBase:
+    def replace(self, stmts: list):
         assert self._path
         assert len(self) > 0
         assert stmts
@@ -231,7 +231,15 @@ class Selection(Cursor):
             return node.update(**{attr: children[:i.start] + stmts + children[i.stop:]})
 
         from .API import Procedure
-        return Procedure(self._rewrite_node(update))
+        p = Procedure(self._rewrite_node(update))
+
+        return p, self._forward_replace(weakref.ref(p))
+
+    def _forward_replace(self, new_proc):
+        def forward(cursor: Cursor):
+            raise NotImplementedError('Selection.replace+fwd')
+
+        return forward
 
     def delete(self):
         assert self._path
@@ -403,7 +411,7 @@ class Node(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def replace(self, ast) -> ProcedureBase:
+    def replace(self, ast):
         if self._path[-1][1] is not None:
             return self.select().replace(ast)
 
@@ -413,7 +421,15 @@ class Node(Cursor):
             return node.update(**{attr: ast})
 
         from .API import Procedure
-        return Procedure(self._rewrite_node(update))
+        p = Procedure(self._rewrite_node(update))
+
+        return p, self._forward_replace(weakref.ref(p))
+
+    def _forward_replace(self, new_proc):
+        def forward(cur):
+            raise NotImplementedError('Node.replace+fwd')
+
+        return forward
 
 
 @dataclass
