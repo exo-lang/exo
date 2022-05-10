@@ -195,7 +195,7 @@ class Selection(Cursor):
         from .API import Procedure
         return Procedure(self._rewrite_node(update))
 
-    def delete(self) -> ProcedureBase:
+    def delete(self):
         assert self._path
         assert len(self) > 0
 
@@ -207,7 +207,68 @@ class Selection(Cursor):
             return node.update(**{attr: new_children})
 
         from .API import Procedure
-        return Procedure(self._rewrite_node(update))
+        p = Procedure(self._rewrite_node(update))
+
+        forward = self._forward_delete(weakref.ref(p))
+        return p, forward
+
+    def _forward_delete(self, new_proc):
+        orig_proc = self._proc
+        del_path = self._path
+        depth = len(del_path)
+        attr, del_range = del_path[depth - 1]
+
+        def forward(cursor: Cursor) -> Cursor:
+            assert isinstance(cursor, (Node, Gap, Selection))
+
+            if cursor._proc != orig_proc:
+                raise InvalidCursorError('cannot forward unknown procs')
+
+            # TODO: use attrs + attrs.evolve
+            def evolve(p):
+                return type(cursor)(new_proc, p)
+
+            old_path = cursor._path
+
+            if len(old_path) < depth:
+                # Too shallow
+                return evolve(old_path)
+
+            old_attr, old_idx = old_path[depth - 1]
+
+            if old_attr != attr:
+                # At least as deep, but wrong branch
+                return evolve(old_path)
+
+            if len(old_path) > depth or isinstance(cursor, Node):
+                # Updating a node (either internal or in edited block)
+                if old_idx in del_range:
+                    raise InvalidCursorError('cannot forward deleted node')
+                idx = old_idx - len(del_range) * (old_idx >= del_range.stop)
+            elif isinstance(cursor, Gap):
+                # Updating gap in edited block
+                assert old_idx is not None, "somehow inserted into non-block"
+                if del_range.start < old_idx < del_range.stop:
+                    raise InvalidCursorError('cannot forward deleted node')
+                idx = old_idx - len(del_range) * (old_idx >= del_range.stop)
+            else:
+                # Updating selection in edited block
+                assert isinstance(old_idx, range)
+                start = old_idx.start
+                if old_idx.start in del_range:
+                    start = del_range.start
+                stop = old_idx.stop
+                if old_idx.stop in del_range:
+                    stop = del_range.stop
+                if range(start, stop) == del_range:
+                    raise InvalidCursorError('cannot forward deleted selection')
+                start = start - len(del_range) * (start >= del_range.stop)
+                stop = stop - len(del_range) * (stop >= del_range.stop)
+                idx = range(start, stop)
+
+            return evolve(old_path[:depth - 1] + [(attr, idx)] + old_path[depth:])
+
+        return forward
 
 
 @dataclass
@@ -393,12 +454,15 @@ class Gap(Cursor):
     def _forward_insert(self, new_proc, ins_len, policy):
         assert policy != ForwardingPolicy.AnchorNearest
 
-        depth = len(self._path) - 1
+        ins_proc = self._proc
+        ins_path = self._path
+        depth = len(ins_path)
+        attr, ins_idx = ins_path[depth - 1]
 
         def forward(cursor: Cursor) -> Cursor:
             assert isinstance(cursor, (Node, Gap, Selection))
 
-            if cursor._proc != self._proc:
+            if cursor._proc != ins_proc:
                 raise InvalidCursorError('cannot forward unknown procs')
 
             # TODO: use attrs + attrs.evolve
@@ -406,42 +470,40 @@ class Gap(Cursor):
                 return type(cursor)(new_proc, p)
 
             old_path = cursor._path
-            ins_path = self._path
 
-            if len(old_path) < len(ins_path):
+            if len(old_path) < depth:
                 # Too shallow
                 return evolve(old_path)
 
-            if old_path[depth][0] != ins_path[depth][0]:
+            old_attr, old_idx = old_path[depth - 1]
+
+            if old_attr != attr:
                 # At least as deep, but wrong branch
                 return evolve(old_path)
 
-            attr, ins_idx = self._path[depth]
-            _, old_idx = old_path[depth]
-
-            if len(old_path) > len(ins_path) or isinstance(cursor, Node):
+            if len(old_path) > depth or isinstance(cursor, Node):
                 # Updating a node (either internal or in edited block)
                 assert old_idx is not None, "somehow inserted into non-block"
-                new_idx = old_idx + ins_len * (old_idx >= ins_idx)
+                idx = old_idx + ins_len * (old_idx >= ins_idx)
             elif isinstance(cursor, Gap):
                 # Updating gap in edited block
                 assert old_idx is not None, "somehow inserted into non-block"
                 if policy == ForwardingPolicy.AnchorPre:
-                    new_idx = old_idx + ins_len * (old_idx > ins_idx)
+                    idx = old_idx + ins_len * (old_idx > ins_idx)
                 elif policy == ForwardingPolicy.AnchorPost:
-                    new_idx = old_idx + ins_len * (old_idx >= ins_idx)
+                    idx = old_idx + ins_len * (old_idx >= ins_idx)
                 else:
                     assert policy == ForwardingPolicy.EagerInvalidation
                     if old_idx == ins_idx:
                         raise InvalidCursorError('insertion gap was invalidated')
-                    new_idx = old_idx + ins_len * (old_idx > ins_idx)
-            elif isinstance(cursor, Selection):
+                    idx = old_idx + ins_len * (old_idx > ins_idx)
+            else:
                 # Updating selection in edited block
                 assert isinstance(old_idx, range)
-                new_idx = range(
+                idx = range(
                     old_idx.start + ins_len * (old_idx.start >= ins_idx),
                     old_idx.stop + ins_len * (old_idx.stop > ins_idx),
                 )
-            return evolve(old_path[:depth] + [(attr, new_idx)] + old_path[depth + 1:])
+            return evolve(old_path[:depth - 1] + [(attr, idx)] + old_path[depth:])
 
         return forward

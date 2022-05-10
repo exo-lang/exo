@@ -112,7 +112,7 @@ def test_selection_delete(golden):
     c = bar.find_stmt('for j in _: _')
     stmts = c.body()[1:4]
 
-    bar2 = stmts.delete()
+    bar2, _ = stmts.delete()
     assert str(bar2) == golden
 
 
@@ -126,7 +126,7 @@ def test_selection_replace(golden):
 
 def test_selection_delete_whole_block(golden):
     c = bar.find_stmt('for j in _: _')
-    bar2 = c.body().delete()
+    bar2, _ = c.body().delete()
     assert str(bar2) == golden
 
 
@@ -421,3 +421,77 @@ def test_double_insert_forwarding(golden):
 
     with pytest.raises(InvalidCursorError, match='cannot forward unknown procs'):
         fwd_23(x1_s1)
+
+
+@pytest.mark.parametrize('old, new', [
+    (0, 0),
+    (1, 1),
+    (2, None),
+    (3, None),
+    (4, 2),
+    (5, 3),
+])
+def test_delete_forward_node(old, new):
+    for_j = bar.find_stmt('for j in _: _').body()
+    bar_new, fwd = for_j[2:4].delete()
+    for_j_new = bar_new.find_stmt('for j in _: _').body()
+
+    if new is None:
+        with pytest.raises(InvalidCursorError):
+            fwd(for_j[old])
+    else:
+        assert fwd(for_j[old]) == for_j_new[new]
+
+
+@pytest.mark.parametrize('old, new', [
+    ((0, Node.before), (0, Node.before)),
+    ((0, Node.after), (0, Node.after)),
+    ((1, Node.after), (1, Node.after)),
+    ((3, Node.after), (1, Node.after)),
+    ((4, Node.before), (1, Node.after)),
+    ((4, Node.after), (2, Node.after)),
+    ((5, Node.after), (3, Node.after)),
+])
+def test_delete_forward_gap(old, new):
+    for_j = bar.find_stmt('for j in _: _').body()
+    bar_new, fwd = for_j[2:4].delete()
+    for_j_new = bar_new.find_stmt('for j in _: _').body()
+
+    old_i, old_gap = old
+    new_i, new_gap = new
+
+    assert fwd(old_gap(for_j[old_i])) == new_gap(for_j_new[new_i])
+
+
+@pytest.mark.parametrize('old, new', [
+    # length 2
+    (slice(0, 2), slice(0, 2)),
+    (slice(1, 3), slice(1, 2)),
+    (slice(2, 4), None),
+    (slice(3, 5), slice(2, 3)),
+    (slice(4, 6), slice(2, 4)),
+    # length 3
+    (slice(0, 3), slice(0, 2)),
+    (slice(1, 4), slice(1, 2)),
+    (slice(2, 5), slice(2, 3)),
+    (slice(3, 6), slice(2, 4)),
+    # length 4
+    (slice(0, 4), slice(0, 2)),
+    (slice(1, 5), slice(1, 3)),
+    (slice(2, 6), slice(2, 4)),
+    # length 5
+    (slice(0, 5), slice(0, 3)),
+    (slice(1, 6), slice(1, 4)),
+    # length 6
+    (slice(0, 6), slice(0, 4)),
+])
+def test_delete_forward_selections(old, new):
+    for_j = bar.find_stmt('for j in _: _').body()
+    bar_new, fwd = for_j[2:4].delete()
+    for_j_new = bar_new.find_stmt('for j in _: _').body()
+
+    if new is None:
+        with pytest.raises(InvalidCursorError):
+            fwd(for_j[old])
+    else:
+        assert fwd(for_j[old]) == for_j_new[new]
