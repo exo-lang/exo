@@ -2948,6 +2948,7 @@ class _DoDataReuse(LoopIR_Rewrite):
             self.found_rep_alloc = True
             return []
 
+        # make replacements after the first write to the buffer
         if self.found_rep_alloc:
             if ( (type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce) and
                     s.name == self.rep_name ):
