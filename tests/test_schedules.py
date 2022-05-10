@@ -320,6 +320,23 @@ def test_data_reuse(golden):
     foo = foo.data_reuse('bb:_', 'c:_')
     assert str(foo) == golden
 
+def test_data_reuse_loop_fail():
+    @proc
+    def foo(a: f32 @ DRAM, b: f32 @ DRAM):
+        aa: f32
+        bb: f32
+        aa = a
+        bb = b
+
+        c: f32
+        for i in par(0,10):
+            c = aa + bb
+        b = c
+
+    with pytest.raises(SchedulingError,
+                       match='The variable bb can potentially be used after'):
+        foo = foo.data_reuse('bb:_', 'c:_')
+
 
 def test_bind_lhs(golden):
     @proc

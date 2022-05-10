@@ -1528,3 +1528,36 @@ def Check_Bounds(proc, alloc_stmt, block):
     if not is_ok:
         raise SchedulingError(
             f"The buffer {alloc_stmt.name} is accessed out-of-bounds")
+
+def Check_IsDeadAfter(proc, stmts, bufname, ndim):
+    assert len(stmts) > 0
+    ctxt = ContextExtraction(proc, stmts)
+
+    #p       = ctxt.get_control_predicate()
+    #G       = ctxt.get_pre_globenv()
+    ap      = ctxt.get_posteffs()
+    #a       = G(stmts_effs(stmts))
+    #stmtsG  = globenv(stmts)
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    #a       = [E.Guard(AMay(p), a)]
+
+    # extract effects
+    #WrG, Mod    = getsets([ES.WRITE_G, ES.MODIFY], a)
+    Allp    = getsets([ES.ALL], ap)[0]
+
+    wholebuf = LS.WholeBuf(bufname, ndim)
+    is_dead = slv.verify( ADef(is_empty(LIsct(Allp, wholebuf))) )
+    slv.pop()
+    if not is_dead:
+        raise SchedulingError(
+            f"The variable {bufname} can potentially be used after "+
+            f"the statement at {stmts[0].srcinfo} executes.")
+
+
+
+
+
+
+
