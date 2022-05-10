@@ -458,7 +458,7 @@ def test_delete_forward_node(old, new):
     for_j_new = bar_new.find_stmt('for j in _: _').body()
 
     if new is None:
-        with pytest.raises(InvalidCursorError):
+        with pytest.raises(InvalidCursorError, match='cannot forward deleted node'):
             fwd(for_j[old])
     else:
         assert fwd(for_j[old]) == for_j_new[new]
@@ -511,13 +511,14 @@ def test_delete_forward_gap(old, new):
     # length 6
     (slice(0, 6), slice(0, 4)),
 ])
-def test_delete_forward_selections(old, new):
+def test_delete_forward_selection(old, new):
     for_j = bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[2:4].delete()
     for_j_new = bar_new.find_stmt('for j in _: _').body()
 
     if new is None:
-        with pytest.raises(InvalidCursorError):
+        with pytest.raises(InvalidCursorError,
+                           match='cannot forward deleted selection'):
             fwd(for_j[old])
     else:
         assert fwd(for_j[old]) == for_j_new[new]
