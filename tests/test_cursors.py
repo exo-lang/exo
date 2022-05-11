@@ -567,7 +567,52 @@ def test_selection_replace_forward_node(old, new):
     for_j_new = bar_new.find_stmt('for j in _: _').body()
 
     if new is None:
-        with pytest.raises(InvalidCursorError):
+        with pytest.raises(InvalidCursorError, match='cannot forward replaced node'):
             fwd(for_j[old])
     else:
         assert fwd(for_j[old]) == for_j_new[new]
+
+
+@pytest.mark.parametrize('old, new', [
+    # x = 0
+    ((0, Node.before), (0, Node.before)),
+    ((0, Node.after), (0, Node.after)),
+    ((0, Node.after), (1, Node.before)),
+    # x = 1
+    ((1, Node.before), (0, Node.after)),
+    ((1, Node.before), (1, Node.before)),
+    ((1, Node.after), None),
+    # x = 2
+    ((2, Node.before), None),
+    ((2, Node.after), None),
+    # x = 3
+    ((3, Node.before), None),
+    ((3, Node.after), (2, Node.after)),
+    ((3, Node.after), (3, Node.before)),
+    # x = 4
+    ((4, Node.before), (2, Node.after)),
+    ((4, Node.before), (3, Node.before)),
+    ((4, Node.after), (3, Node.after)),
+    ((4, Node.after), (4, Node.before)),
+    # x = 5
+    ((5, Node.before), (3, Node.after)),
+    ((5, Node.before), (4, Node.before)),
+    ((5, Node.after), (4, Node.after)),
+])
+def test_selection_replace_forward_gap(old, new):
+    for_j = bar.find_stmt('for j in _: _').body()
+    bar_new, fwd = for_j[1:4].replace(
+        [LoopIR.Pass(None, for_j.parent().node().srcinfo),
+         LoopIR.Pass(None, for_j.parent().node().srcinfo)])
+    for_j_new = bar_new.find_stmt('for j in _: _').body()
+
+    old_i, old_gap = old
+
+    print(bar_new)
+
+    if new is None:
+        with pytest.raises(InvalidCursorError, match='cannot forward replaced gap'):
+            fwd(old_gap(for_j[old_i]))
+    else:
+        new_i, new_gap = new
+        assert fwd(old_gap(for_j[old_i])) == new_gap(for_j_new[new_i])
