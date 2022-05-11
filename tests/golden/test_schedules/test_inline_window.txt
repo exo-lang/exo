@@ -4,5 +4,5 @@ def foo(n: size, m: size, x: R[n, m] @ DRAM):
     for i in seq(0, n - 4):
         for j in seq(0, m - 4):
             a: R @ DRAM
-            a = x[i, j] * x[2 + i, 1 + j]
-            x[2 + i, 1 + j] = a + x[i + 1, j + 1]
+            a = x[i, j] * x[i + 2, j + 1]
+            x[i + 2, j + 1] = a + x[i + 1, j + 1]
