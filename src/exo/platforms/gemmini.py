@@ -287,6 +287,9 @@ def inline_vector(conv):
     return conv
 
 def inline_ld_id1(conv):
+    print("\n*\nPRE INLINE\n*")
+    print(conv)
+    print(ld_i8_block_id1_s2_v2)
     conv = conv.call_eqv(ld_i8_block_id1_s2_v2, "ld_i8_block_id1(_)")
     conv = conv.inline("ld_i8_block_id1_s2_v2(_)")
     conv = conv.inline_window("src = weights[_]")
@@ -532,7 +535,7 @@ ld_i8_block_id1_v2 = ld_i8_block_id1_v2.replace(config_ld_i8_id1, 'ConfigLoad_id
 ld_i8_block_id1_v2 = ld_i8_block_id1_v2.delete_pass().make_instr(_gemm_ld_i8_block_id1)
 
 ld_i8_block_id1_s2_v2 = ld_i8_block_id1.rename("ld_i8_block_id1_s2_v2")
-ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 2)')
+ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 1)')
 ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.replace(do_ld_i8_block_id1, 'for i in _:_')
 ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
 ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.delete_pass().make_instr(_gemm_ld_i8_block_id1)
@@ -544,7 +547,7 @@ ld_i8_block_id2_v2 = ld_i8_block_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id
 ld_i8_block_id2_v2 = ld_i8_block_id2_v2.delete_pass().make_instr(_gemm_ld_i8_block_id2)
 
 ld_i8_block_id2_s2_v2 = ld_i8_block_id2.rename("ld_i8_block_id2_s2_v2")
-ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 2)')
+ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 1)')
 ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.replace(do_ld_i8_block_id2, 'for i in _:_')
 ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
 ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.delete_pass().make_instr(_gemm_ld_i8_block_id2)
@@ -600,7 +603,7 @@ ld_i8_id1_v2 = ld_i8_id1_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride
 ld_i8_id1_v2 = ld_i8_id1_v2.delete_pass().make_instr(_gemm_ld_i8)
 
 ld_i8_id1_s2_v2 = ld_i8_id1.rename("ld_i8_id1_s2_v2")
-ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 2)')
+ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 1)')
 ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.replace(do_ld_i8_id1, 'for i in _:_')
 ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
 ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.delete_pass().make_instr(_gemm_ld_i8)
@@ -612,7 +615,7 @@ ld_i8_id2_v2 = ld_i8_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride
 ld_i8_id2_v2 = ld_i8_id2_v2.delete_pass().make_instr(_gemm_ld_i8)
 
 ld_i8_id2_s2_v2 = ld_i8_id2.rename("ld_i8_id2_s2_v2")
-ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 2)')
+ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 1)')
 ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.replace(do_ld_i8_id2, 'for i in _:_')
 ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
 ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.delete_pass().make_instr(_gemm_ld_i8)
@@ -939,7 +942,7 @@ st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('tmp : _', 'ConfigStore.scale = 
 st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp = _', 'ConfigStore.scale = _')
 st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp : _', 'ConfigStore.scale = _')
 st_acc_i8_s2_v2 = st_acc_i8_s2_v2.fission_after('ConfigStore.scale = _', n_lifts=2)
-st_acc_i8_s2_v2 = st_acc_i8_s2_v2.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 2)')
+st_acc_i8_s2_v2 = st_acc_i8_s2_v2.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 1)')
 st_acc_i8_s2_v2 = st_acc_i8_s2_v2.bind_config('act', ConfigStore, 'act')
 st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('clamp(_)', 'ConfigStore.act = _')
 st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('tmp2 : _', 'ConfigStore.act = _')

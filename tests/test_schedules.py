@@ -338,6 +338,7 @@ def test_data_reuse_loop_fail():
         foo = foo.data_reuse('bb:_', 'c:_')
 
 
+
 def test_bind_lhs(golden):
     @proc
     def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):

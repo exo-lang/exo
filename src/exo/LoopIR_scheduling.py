@@ -768,6 +768,7 @@ class _InlineWindow(LoopIR_Rewrite):
         self.orig_proc = proc
         self.win_stmt  = stmt
 
+        print(proc)
         super().__init__(proc)
 
         # repair effects...
@@ -804,6 +805,7 @@ class _InlineWindow(LoopIR_Rewrite):
     def calc_dim(self, dim):
         # we want to find the dim-th interval access in the w-access array
         win_idx     = self.win_stmt.rhs.idx
+        print(win_idx, dim)
         ivl_count   = 0
         for i,w in enumerate(win_idx):
             if isinstance(w, LoopIR.Interval):
