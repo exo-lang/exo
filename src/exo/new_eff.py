@@ -1424,21 +1424,25 @@ def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
     slv.pop()
     return cfg_mod_visible
 
-def Check_ExprEqvInContext(proc, stmts, expr0, expr1):
-    assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
+def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
+    assert len(stmts0) > 0
+    stmts1  = stmts1 or stmts0
+    ctxt0   = ContextExtraction(proc, stmts0)
+    ctxt1   = ContextExtraction(proc, stmts1)
 
-    p       = ctxt.get_control_predicate()
-    G       = ctxt.get_pre_globenv()
+    p0      = ctxt0.get_control_predicate()
+    G0      = ctxt0.get_pre_globenv()
+    p1      = ctxt1.get_control_predicate()
+    G1      = ctxt1.get_pre_globenv()
 
     slv     = SMTSolver(verbose=False)
     slv.push()
-    slv.assume(AMay(p))
+    slv.assume(AMay(AAnd(p0, p1)))
 
-    e0 = lift_e(expr0)
-    e1 = lift_e(expr1)
+    e0 = G0(lift_e(expr0))
+    e1 = G1(lift_e(expr1))
 
-    test    = G(AEq(e0, e1))
+    test    = AEq(e0, e1)
     is_ok   = slv.verify(test)
     slv.pop()
     if not is_ok:

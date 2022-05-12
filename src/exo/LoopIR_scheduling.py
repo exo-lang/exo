@@ -2188,8 +2188,8 @@ class _DoAddUnsafeGuard(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.stmt:
-            #Check_ExprEqvInContext(self.orig_proc, [s],
-            #                       self.cond,
+            #Check_ExprEqvInContext(self.orig_proc,
+            #                       self.cond, [s],
             #                       LoopIR.Const(True, T.bool, s.srcinfo))
             s1 = Alpha_Rename([s]).result()
             return [LoopIR.If(self.cond, s1, [], None, s.srcinfo)]
@@ -2349,8 +2349,8 @@ class _DoFuseLoop(LoopIR_Rewrite):
                 loop1, loop2 = self.loop1, self.loop2
 
                 # check if the loop bounds are equivalent
-                Check_ExprEqvInContext(self.orig_proc, [loop1, loop2],
-                                       loop1.hi, loop2.hi)
+                Check_ExprEqvInContext(self.orig_proc,
+                                       loop1.hi, [loop1], loop2.hi, [loop2])
 
                 x     = loop1.iter
                 y     = loop2.iter
@@ -2380,34 +2380,32 @@ class _DoFuseIf(LoopIR_Rewrite):
     def map_stmts(self, stmts):
         new_stmts = []
 
-        found_first = False
-        for stmt in stmts:
-            if stmt is self.if1:
-                found_first = True
-                continue
+        for i,s in enumerate(stmts):
+            if s is self.if1:
 
-            if found_first:
-                found_first = False  # Must have been set on previous iteration
+                if i+1 >= len(stmts) or stmts[i+1] is not self.if2:
+                    raise SchedulingError(
+                        "expected the two if statements to be "
+                        "fused to come one right after the other")
 
-                if stmt is not self.if2:
-                    raise SchedulingError("expected the second stmt to be "
-                                          "directly after the first stmt")
+                if1, if2 = self.if1, self.if2
 
-                # Check that conditions are identical
-                if self.if1.cond != self.if2.cond:
-                    raise SchedulingError("expected conditions to match")
+                # check if the loop bounds are equivalent
+                Check_ExprEqvInContext(self.orig_proc,
+                                       if1.cond, [if1], if2.cond, [if2])
 
-                stmt = LoopIR.If(
-                    self.if1.cond,
-                    self.if1.body + self.if2.body,
-                    self.if1.orelse + self.if2.orelse,
-                    None,
-                    self.if1.srcinfo
-                )
+                cond    = if1.cond
+                body1   = if1.body
+                body2   = if2.body
+                orelse1 = if1.orelse
+                orelse2 = if2.orelse
+                ifstmt  = LoopIR.If(cond, body1+body2, orelse1+orelse2,
+                                    None, if1.srcinfo)
 
-            new_stmts.extend(self.map_s(stmt))
+                return (stmts[:i] + [ifstmt] + stmts[i+2:])
 
-        return new_stmts
+        # if we reached this point, we didn't find the if statement
+        return super().map_stmts(stmts)
 
 
 class _DoAddLoop(LoopIR_Rewrite):
