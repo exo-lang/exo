@@ -393,8 +393,6 @@ class Parser:
                     if isinstance(node.slice, pyast.Tuple):
                         dims = node.slice.elts
                     else:
-                        assert isinstance(node.slice,
-                                          (pyast.Name, pyast.Constant))
                         dims = [node.slice]
             else:
                 if isinstance(node.slice, (pyast.Slice, pyast.ExtSlice)):

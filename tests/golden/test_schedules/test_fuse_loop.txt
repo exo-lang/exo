@@ -1,0 +1,5 @@
+def foo(n: size, x: R[n] @ DRAM):
+    y: R[n] @ DRAM
+    for i in seq(0, n):
+        y[i] = x[i]
+        x[i] = y[i] + 1.0
