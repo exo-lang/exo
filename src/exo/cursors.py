@@ -288,7 +288,7 @@ class Selection(Cursor):
             if rng.start in del_range:
                 start = del_range.start
             stop = rng.stop
-            if rng.stop in del_range:
+            if rng.stop in del_range[1:]:
                 stop = del_range.stop
             if range(start, stop) == del_range:
                 raise InvalidCursorError('cannot forward deleted selection')

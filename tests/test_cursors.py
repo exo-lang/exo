@@ -493,7 +493,7 @@ def test_delete_forward_gap(old, new):
     # length 2
     (slice(0, 2), slice(0, 2)),
     (slice(1, 3), slice(1, 2)),
-    (slice(2, 4), None),
+    (slice(2, 4), None),  # policy? map deleted selection to gap
     (slice(3, 5), slice(2, 3)),
     (slice(4, 6), slice(2, 4)),
     # length 3
@@ -522,6 +522,41 @@ def test_delete_forward_selection(old, new):
             fwd(for_j[old])
     else:
         assert fwd(for_j[old]) == for_j_new[new]
+
+
+@pytest.mark.parametrize('old, new', [
+    # length 2
+    ('x = 0.0 ; x = 1.0', 'x = 0.0 ; x = 1.0'),
+    ('x = 1.0 ; x = 2.0', 'x = 1.0'),
+    ('x = 2.0 ; x = 3.0', None),  # policy? map deleted selection to gap
+    ('x = 3.0 ; x = 4.0', 'x = 4.0'),
+    ('x = 4.0 ; x = 5.0', 'x = 4.0 ; x = 5.0'),
+    # length 3
+    ('x = 0.0 ; _ ; x = 2.0', 'x = 0.0 ; x = 1.0'),
+    ('x = 1.0 ; _ ; x = 3.0', 'x = 1.0'),
+    ('x = 2.0 ; _ ; x = 4.0', 'x = 4.0'),
+    ('x = 3.0 ; _ ; x = 5.0', 'x = 4.0 ; x = 5.0'),
+    # # length 4
+    ('x = 0.0 ; _ ; x = 3.0', 'x = 0.0 ; x = 1.0'),
+    ('x = 1.0 ; _ ; x = 4.0', 'x = 1.0 ; x = 4.0'),
+    ('x = 2.0 ; _ ; x = 5.0', 'x = 4.0 ; x = 5.0'),
+    # length 5
+    ('x = 0.0 ; _ ; x = 4.0', 'x = 0.0 ; x = 1.0 ; x = 4.0'),
+    ('x = 1.0 ; _ ; x = 5.0', 'x = 1.0 ; x = 4.0 ; x = 5.0'),
+    # length 6
+    ('x = 0.0 ; _ ; x = 5.0', 'x = 0.0 ; x = 1.0 ; x = 4.0 ; x = 5.0'),
+])
+def test_delete_forward_selection_with_patterns(old, new):
+    for_j = bar.find_stmt('for j in _: _').body()
+    bar_new, fwd = for_j[2:4].delete()
+
+    old_c = bar.find_cursor(old)[0]
+    if new is None:
+        with pytest.raises(InvalidCursorError,
+                           match='cannot forward deleted selection'):
+            fwd(old_c)
+    else:
+        assert fwd(old_c) == bar_new.find_cursor(new)[0]
 
 
 def test_forward_lifetime():
