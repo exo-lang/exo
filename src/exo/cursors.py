@@ -298,6 +298,11 @@ class Selection(Cursor):
         del_range = self._path[-1][1]
         n_diff = n_ins - len(del_range)
 
+        # TODO: unify this with _forward_delete's forwarding functions, which are
+        #  nearly identical. The only difference is that deleting forwards selections
+        #  with a deleted portion on one side by truncating it, rather than invalidating
+        #  it.
+
         def fwd_node(i):
             if i in del_range:
                 raise InvalidCursorError('cannot forward replaced node')
@@ -311,6 +316,12 @@ class Selection(Cursor):
         def fwd_sel(rng: range):
             if _is_sub_range(rng, del_range) or _overlaps_one_side(rng, del_range):
                 raise InvalidCursorError('cannot forward replaced sub-selection')
+
+            # rng = range(
+            #     del_range.start if rng.start in del_range else rng.start,
+            #     del_range.stop if rng.stop in del_range[1:] else rng.stop
+            # )
+
             start = rng.start + n_diff * (rng.start >= del_range.stop)
             stop = rng.stop + n_diff * (rng.stop >= del_range.stop)
             return range(start, stop)
@@ -335,28 +346,29 @@ class Selection(Cursor):
 
     def _forward_delete(self, new_proc):
         del_range = self._path[-1][1]
+        n_diff = -len(del_range)
 
         def fwd_node(i):
             if i in del_range:
                 raise InvalidCursorError('cannot forward deleted node')
-            return i - len(del_range) * (i >= del_range.stop)
+            return i + n_diff * (i >= del_range.stop)
 
         def fwd_gap(i):
             if i in del_range[1:]:
                 raise InvalidCursorError('cannot forward deleted gap')
-            return i - len(del_range) * (i >= del_range.stop)
+            return i + n_diff * (i >= del_range.stop)
 
         def fwd_sel(rng):
-            start = rng.start
-            if rng.start in del_range:
-                start = del_range.start
-            stop = rng.stop
-            if rng.stop in del_range[1:]:
-                stop = del_range.stop
-            if range(start, stop) == del_range:
+            if _is_sub_range(rng, del_range) or rng == del_range:
                 raise InvalidCursorError('cannot forward deleted selection')
-            start = start - len(del_range) * (start >= del_range.stop)
-            stop = stop - len(del_range) * (stop >= del_range.stop)
+
+            rng = range(
+                del_range.start if rng.start in del_range else rng.start,
+                del_range.stop if rng.stop in del_range[1:] else rng.stop
+            )
+
+            start = rng.start + n_diff * (rng.start >= del_range.stop)
+            stop = rng.stop + n_diff * (rng.stop >= del_range.stop)
             return range(start, stop)
 
         return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
