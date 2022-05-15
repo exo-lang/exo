@@ -651,3 +651,42 @@ def test_selection_replace_forward_gap(old, new):
         new_pat, new_gap = new
         new_c = bar_new.find_stmt(new_pat)
         assert fwd(old_gap(old_c)) == new_gap(new_c)
+
+
+@pytest.mark.parametrize('old, new', [
+    # length 2
+    ('x = 0.0 ; x = 1.0', None),
+    ('x = 1.0 ; x = 2.0', None),
+    ('x = 2.0 ; x = 3.0', None),
+    ('x = 3.0 ; x = 4.0', None),
+    ('x = 4.0 ; x = 5.0', 'x = 4.0 ; x = 5.0'),
+    # length 3
+    ('x = 0.0 ; _ ; x = 2.0', None),
+    ('x = 1.0 ; _ ; x = 3.0', 'pass ; pass'),
+    ('x = 2.0 ; _ ; x = 4.0', None),
+    ('x = 3.0 ; _ ; x = 5.0', None),
+    # length 4
+    ('x = 0.0 ; _ ; x = 3.0', 'x = 0.0 ; pass ; pass'),
+    ('x = 1.0 ; _ ; x = 4.0', 'pass ; pass ; x = 4.0'),
+    ('x = 2.0 ; _ ; x = 5.0', None),
+    # length 5
+    ('x = 0.0 ; _ ; x = 4.0', 'x = 0.0 ; pass ; pass ; x = 4.0'),
+    ('x = 1.0 ; _ ; x = 5.0', 'pass ; pass ; x = 4.0 ; x = 5.0'),
+    # length 6
+    ('x = 0.0 ; _ ; x = 5.0', 'x = 0.0 ; pass ; pass ; x = 4.0 ; x = 5.0'),
+])
+def test_selection_replace_forward_selection(old, new):
+    for_j = bar.find_stmt('for j in _: _').body()
+    bar_new, fwd = for_j[1:4].replace(
+        [LoopIR.Pass(None, for_j.parent().node().srcinfo),
+         LoopIR.Pass(None, for_j.parent().node().srcinfo)])
+
+    print(bar_new)
+
+    old_c = bar.find_cursor(old)[0]
+    if new is None:
+        with pytest.raises(InvalidCursorError,
+                           match=r'cannot forward replaced sub-selection'):
+            fwd(old_c)
+    else:
+        assert fwd(old_c) == bar_new.find_cursor(new)[0]

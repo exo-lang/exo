@@ -28,6 +28,60 @@ class ForwardingPolicy(Enum):
     AnchorPost = auto()
 
 
+def _is_sub_range(a: range, b: range):
+    """
+    Returns true if `a` is a STRICT sub-range of `b`.
+    Only applies to step-1 ranges.
+    >>> _is_sub_range(range(1, 4), range(1, 4))
+    False
+    >>> _is_sub_range(range(0, 3), range(3, 6))
+    False
+    >>> _is_sub_range(range(2, 4), range(2, 5))
+    True
+    >>> _is_sub_range(range(2, 4), range(1, 4))
+    True
+    >>> _is_sub_range(range(2, 4), range(1, 5))
+    True
+    >>> _is_sub_range(range(0, 4), range(1, 4))
+    False
+    """
+    assert a.step == b.step and a.step in (1, None)
+    return (a.start >= b.start) and (a.stop <= b.stop) and a != b
+
+
+def _overlaps_one_side(a: range, b: range):
+    """
+    Returns True if `a` overlaps `b` on exactly one side, without containing `b`.
+    Only applies to step-1 ranges.
+    >>> _overlaps_one_side(range(0, 4), range(4, 8))  # fully to left
+    False
+    >>> _overlaps_one_side(range(0, 5), range(4, 8))  # rightmost overlaps leftmost
+    True
+    >>> _overlaps_one_side(range(0, 7), range(4, 8))  # almost contains on right side
+    True
+    >>> _overlaps_one_side(range(0, 8), range(4, 8))  # contains on right side
+    False
+    >>> _overlaps_one_side(range(4, 7), range(4, 8))  # contained, left-aligned
+    True
+    >>> _overlaps_one_side(range(4, 8), range(4, 8))  # equal
+    False
+    >>> _overlaps_one_side(range(5, 8), range(4, 8))  # contained, right-aligned
+    False
+    >>> _overlaps_one_side(range(4, 12), range(4, 8))  # contains on left side
+    False
+    >>> _overlaps_one_side(range(5, 12), range(4, 8))  # almost contains on left side
+    True
+    >>> _overlaps_one_side(range(7, 12), range(4, 8))  # leftmost overlaps rightmost
+    True
+    >>> _overlaps_one_side(range(8, 12), range(4, 8))  # fully to right
+    False
+    """
+    assert a.step == b.step and a.step in (1, None)
+    return (a.start < b.start < a.stop < b.stop or
+            a.start == b.start < a.stop < b.stop or
+            b.start < a.start < b.stop < a.stop)
+
+
 @dataclass
 class Cursor(ABC):
     _proc: ReferenceType[ProcedureBase]
@@ -254,8 +308,12 @@ class Selection(Cursor):
                 raise InvalidCursorError('cannot forward replaced gap')
             return i + n_diff * (i >= del_range.stop)
 
-        def fwd_sel(rng):
-            raise NotImplementedError('selections')
+        def fwd_sel(rng: range):
+            if _is_sub_range(rng, del_range) or _overlaps_one_side(rng, del_range):
+                raise InvalidCursorError('cannot forward replaced sub-selection')
+            start = rng.start + n_diff * (rng.start >= del_range.stop)
+            stop = rng.stop + n_diff * (rng.stop >= del_range.stop)
+            return range(start, stop)
 
         return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
 
