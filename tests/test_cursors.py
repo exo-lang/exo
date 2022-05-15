@@ -300,7 +300,7 @@ def test_cursor_lifetime():
 
 
 @pytest.mark.parametrize("policy", [
-    ForwardingPolicy.EagerInvalidation,
+    ForwardingPolicy.PreferInvalidation,
     ForwardingPolicy.AnchorPost,
     ForwardingPolicy.AnchorPre,
 ])
@@ -381,7 +381,7 @@ def test_insert_forwarding_policy():
     bar_post, fwd_post = gap.insert(stmt, ForwardingPolicy.AnchorPost)
     assert fwd_post(gap) == bar_post.find_stmt('x = 3.0').before()
 
-    bar_invalid, fwd_invalid = gap.insert(stmt, ForwardingPolicy.EagerInvalidation)
+    bar_invalid, fwd_invalid = gap.insert(stmt, ForwardingPolicy.PreferInvalidation)
     with pytest.raises(InvalidCursorError, match='insertion gap was invalidated'):
         fwd_invalid(gap)
 

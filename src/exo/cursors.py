@@ -3,7 +3,7 @@ from __future__ import annotations
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from functools import cached_property
 from typing import Optional, Iterable, Union
 from weakref import ReferenceType
@@ -17,10 +17,15 @@ class InvalidCursorError(Exception):
 
 
 class ForwardingPolicy(Enum):
-    EagerInvalidation = 0
-    AnchorPre = 1
-    AnchorPost = 2
-    AnchorNearest = 3
+    # Invalidate any cursor that could be forwarded reasonably in more than one
+    # way.
+    PreferInvalidation = auto()
+    # When forwarding insertions, prefer to forward the insertion gap to the gap
+    # BEFORE the inserted block, rather than invalidating it.
+    AnchorPre = auto()
+    # When forwarding insertions, prefer to forward the insertion gap to the gap
+    # AFTER the inserted block, rather than invalidating it.
+    AnchorPost = auto()
 
 
 @dataclass
