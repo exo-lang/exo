@@ -6,6 +6,47 @@ from exo import proc, DRAM, SchedulingError
 from exo.libs.memories import GEMM_SCRATCH
 from exo.parse_fragment import ParseFragmentError
 
+def test_simplify3(golden):
+    @proc
+    def foo(n : size, m : size):
+        assert m == 1 and n == 1
+        y : R[10]
+        y[10*m - 10*n + 2*n] = 2.0
+
+    assert str(foo.simplify()) == golden
+
+def test_simplify2(golden):
+    @proc
+    def foo(A: i8[32, 64] @ DRAM, B: i8[16, 128] @ DRAM,
+            C: i32[32, 32] @ DRAM, ko : size, ji_unroll : size, ii_unroll : size):
+        for io in seq(0, 1):
+            for jo in seq(0, 1):
+                Btile1: i8[16 * (ko + 1) - 16 * ko, 128 * jo + 64 *
+                           (ji_unroll + 1 + 1) - (128 * jo + 64 *
+                                                  (ji_unroll + 1))] @ DRAM
+                Btile0: i8[16 * (ko + 1) - 16 * ko, 128 * jo + 64 *
+                           (ji_unroll + 1) -
+                           (128 * jo + 64 * ji_unroll)] @ DRAM
+                Atile0: i8[32 * io + 16 * (ii_unroll + 1) -
+                           (32 * io + 16 * ii_unroll), 64 *
+                           (ko + 1) - 64 * ko] @ DRAM
+                Atile1: i8[32 * io + 16 * (ii_unroll + 1 + 1) -
+                           (32 * io + 16 *
+                            (ii_unroll + 1)), 64 * (ko + 1) - 64 * ko] @ DRAM
+
+    assert str(foo.simplify()) == golden
+
+def test_simplify(golden):
+    @proc
+    def foo(n : size, m : size):
+        x : R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
+        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
+            pass
+        y : R[10]
+        y[n*4 - n*4 + 1] = 0.0
+
+    assert str(foo.simplify()) == golden
+
 def test_pattern_match():
     @proc
     def foo(N1 : size, M1 : size, K1 : size, N2: size, M2: size, K2: size):

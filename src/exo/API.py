@@ -434,23 +434,21 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self,
                                  _mod_config=mod_config)
 
-    def data_reuse(self, buf_pattern, replace_pattern):
-        if not isinstance(buf_pattern, str):
-            raise TypeError("expected first argument to be alloc pattern")
-        if not isinstance(replace_pattern, str):
-            raise TypeError("expected second argument to be alloc that you want to replace")
+    def delete_config(self, stmt_pat):
+        if not isinstance(stmt_pat, str):
+            raise TypeError("expected first arg to be a pattern in string")
 
-        buf_s = self._find_stmt(buf_pattern)
-        rep_s = self._find_stmt(replace_pattern)
+        stmt = self._find_stmt(stmt_pat, default_match_no=None)
+        assert len(stmt) == 1  # Don't want to accidentally delete other configs
 
-        if not isinstance(buf_s, LoopIR.Alloc) or not isinstance(rep_s, LoopIR.Alloc):
-            raise TypeError("expected both arguments to be alloc pattern,"+
-                            f" got {type(buf_s)} and {type(rep_s)}")
+        loopir          = self._loopir_proc
+        rewrite_pass    = Schedules.DoDeleteConfig(loopir, stmt[0])
+        mod_config      = rewrite_pass.mod_eq()
+        loopir          = rewrite_pass.result()
 
-        loopir = self._loopir_proc
-        loopir = Schedules.DoDataReuse(loopir, buf_s, rep_s).result()
-
-        return Procedure(loopir, _provenance_eq_Procedure=self)
+        return Procedure(loopir,
+                         _provenance_eq_Procedure=self,
+                         _mod_config=mod_config)
 
     def configwrite_root(self, config, field, var_pattern):
         if not isinstance(config, Config):
@@ -496,6 +494,24 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self,
                                  _mod_config=mod_config)
+
+    def data_reuse(self, buf_pattern, replace_pattern):
+        if not isinstance(buf_pattern, str):
+            raise TypeError("expected first argument to be alloc pattern")
+        if not isinstance(replace_pattern, str):
+            raise TypeError("expected second argument to be alloc that you want to replace")
+
+        buf_s = self._find_stmt(buf_pattern)
+        rep_s = self._find_stmt(replace_pattern)
+
+        if not isinstance(buf_s, LoopIR.Alloc) or not isinstance(rep_s, LoopIR.Alloc):
+            raise TypeError("expected both arguments to be alloc pattern,"+
+                            f" got {type(buf_s)} and {type(rep_s)}")
+
+        loopir = self._loopir_proc
+        loopir = Schedules.DoDataReuse(loopir, buf_s, rep_s).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def inline_window(self, stmt_pattern):
         if not isinstance(stmt_pattern, str):
@@ -747,21 +763,6 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoReorderStmt(loopir, first_stmt, second_stmt).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-
-    def delete_config(self, stmt_pat):
-        if not isinstance(stmt_pat, str):
-            raise TypeError("expected first arg to be a pattern in string")
-
-        stmt = self._find_stmt(stmt_pat, default_match_no=None)
-        assert len(stmt) == 1 #Don't want to accidentally delete other configs
-
-        loopir          = self._loopir_proc
-        rewrite_pass    = Schedules.DoDeleteConfig(loopir, stmt[0])
-        mod_config      = rewrite_pass.mod_eq()
-        loopir          = rewrite_pass.result()
-
-        return Procedure(loopir, _provenance_eq_Procedure=self,
-                                 _mod_config=mod_config)
 
     def reorder_stmts(self, first_pat, second_pat):
         if not isinstance(first_pat, str):

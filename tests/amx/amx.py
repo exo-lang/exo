@@ -16,11 +16,11 @@ unsigned char config[] = {{
     64, 0x00,                                 // bytes per row tile 0
     64, 0x00,                                 // bytes per row tile 1
     64, 0x00,                                 // bytes per row tile 2
-    0x00, 0x00,                               // bytes per row tile 3
-    0x00, 0x00,                               // bytes per row tile 4
-    0x00, 0x00,                               // bytes per row tile 5
-    0x00, 0x00,                               // bytes per row tile 6
-    0x00, 0x00,                               // bytes per row tile 7
+    64, 0x00,                                 // bytes per row tile 3
+    64, 0x00,                                 // bytes per row tile 4
+    64, 0x00,                                 // bytes per row tile 5
+    64, 0x00,                                 // bytes per row tile 6
+    64, 0x00,                                 // bytes per row tile 7
     0x00, 0x00,                               // bytes per row tile 8
     0x00, 0x00,                               // bytes per row tile 9
     0x00, 0x00,                               // bytes per row tile 10
@@ -32,11 +32,11 @@ unsigned char config[] = {{
     16,                                       // rows tile 0
     16,                                       // rows tile 1
     16,                                       // rows tile 2
-    0x00,                                     // rows tile 3
-    0x00,                                     // rows tile 4
-    0x00,                                     // rows tile 5
-    0x00,                                     // rows tile 6
-    0x00,                                     // rows tile 7
+    16,                                       // rows tile 3
+    16,                                       // rows tile 4
+    16,                                       // rows tile 5
+    16,                                       // rows tile 6
+    16,                                       // rows tile 7
     0x00,                                     // rows tile 8
     0x00,                                     // rows tile 9
     0x00,                                     // rows tile 10
@@ -56,15 +56,15 @@ def config():
 
 
 # ---------------------------------------------------------------------------- #
-# ld_i8, ld_i8_3d                                                              #
+# ld_i8, ld_i32, ld_i8_3d                                                              #
 # ---------------------------------------------------------------------------- #
 
 
 # TODO: Handle custom read_stride
-_amx_ld_i8 = "_tile_loadd({dst_int}, {src}.data, {src}.strides[0]);"
+_amx_ld = "_tile_loadd({dst_int}, {src}.data, {src}.strides[0]);"
 
 
-@instr(_amx_ld_i8)
+@instr(_amx_ld)
 def ld_i8(
         m: size,
         n: size,
@@ -73,8 +73,22 @@ def ld_i8(
 ):
     assert m <= 16
     assert n <= 64
-    for i in par(0, m):
-        for j in par(0, n):
+    for i in seq(0, m):
+        for j in seq(0, n):
+            dst[i, j] = src[i, j]
+
+
+@instr("_tile_loadd({dst_int}, {src}.data, 4*{src}.strides[0]);")
+def ld_i32(
+        m: size,
+        n: size,
+        src: [i32][m, n] @ DRAM,
+        dst: [i32][m, n] @ AMX_TILE,
+):
+    assert m <= 16
+    assert n <= 16
+    for i in seq(0, m):
+        for j in seq(0, n):
             dst[i, j] = src[i, j]
 
 
@@ -82,9 +96,7 @@ def ld_i8(
 Need this because idk how to rearrange memory
 using Exo commands when scheduling and lift_allocing
 """
-
-
-@instr(_amx_ld_i8)
+@instr(_amx_ld)
 def ld_i8_3d(
         n: size,
         m: size,
@@ -93,9 +105,9 @@ def ld_i8_3d(
 ):
     assert n <= 16
     assert m <= 16
-    for i in par(0, m):
-        for j in par(0, n):
-            for k in par(0, 4):
+    for i in seq(0, m):
+        for j in seq(0, n):
+            for k in seq(0, 4):
                 dst[i, j, k] = src[i, 4 * j + k]
 
 
@@ -113,8 +125,8 @@ def st_i8(
 ):
     assert m <= 16
     assert n <= 64
-    for i in par(0, m):
-        for j in par(0, n):
+    for i in seq(0, m):
+        for j in seq(0, n):
             dst[i, j] = src[i, j]
 
 
@@ -127,8 +139,8 @@ def st_i32(
 ):
     assert m <= 16
     assert n <= 16
-    for i in par(0, m):
-        for j in par(0, n):
+    for i in seq(0, m):
+        for j in seq(0, n):
             dst[i, j] = src[i, j]
 
 
@@ -140,8 +152,8 @@ def zero_i32(
 ):
     assert m <= 16
     assert n <= 16
-    for i in par(0, m):
-        for j in par(0, n):
+    for i in seq(0, m):
+        for j in seq(0, n):
             tile[i, j] = 0.0
 
 
@@ -172,10 +184,10 @@ def dpbssd(
     assert M <= 16
     assert K <= 16
     assert M <= 16
-    for m in par(0, M):
-        for n in par(0, N):
-            for k in par(0, K):
-                for byte in par(0, 4):
+    for m in seq(0, M):
+        for n in seq(0, N):
+            for k in seq(0, K):
+                for byte in seq(0, 4):
                     a: i32
                     b: i32
 
@@ -197,10 +209,10 @@ def dpbssd_3d(
     assert M <= 16
     assert K <= 16
     assert M <= 16
-    for m in par(0, M):
-        for n in par(0, N):
-            for k in par(0, K):
-                for byte in par(0, 4):
+    for m in seq(0, M):
+        for n in seq(0, N):
+            for k in seq(0, K):
+                for byte in seq(0, 4):
                     a: i32
                     b: i32
 

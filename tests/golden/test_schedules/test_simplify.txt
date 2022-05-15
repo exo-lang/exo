@@ -1,0 +1,6 @@
+def foo(n: size, m: size):
+    x: R[n, 16, 10] @ DRAM
+    for i in seq(0, 5 * n + 8):
+        pass
+    y: R[10] @ DRAM
+    y[1] = 0.0
