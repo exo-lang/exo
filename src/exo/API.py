@@ -249,9 +249,6 @@ class Procedure(ProcedureBase):
                 assert len(results) == 1
                 return results[0]
 
-    def body(self):
-        return Cursor.root(self).body()
-
     # ---------------------------------------------- #
     #     execution / interpretation operations
     # ---------------------------------------------- #
