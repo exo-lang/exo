@@ -46,7 +46,7 @@ def test_get_child():
 
 
 def test_find_cursor():
-    c = foo.find_cursor("for j in _:_")
+    c = foo.find_cursors("for j in _:_")
     assert len(c) == 1
     c = c[0]  # One match
     c = c[0]  # First/only node in the selection
@@ -55,7 +55,7 @@ def test_find_cursor():
 
 
 def test_find_hole_in_middle():
-    c_body_1_5 = bar.find_cursor('x = 1.0 ; _ ; x = 4.0')[0]
+    c_body_1_5 = bar.find_cursors('x = 1.0 ; _ ; x = 4.0')[0]
     for_j = bar.find_stmt('for j in _: _')
     assert c_body_1_5 == for_j.body()[1:5]
 
@@ -173,7 +173,7 @@ def test_cursor_move_invalid():
     with pytest.raises(InvalidCursorError, match='cursor does not have a parent'):
         c.parent()
 
-    c = foo.find_cursor('m')[0]
+    c = foo.find_cursors('m')[0]
     with pytest.raises(InvalidCursorError, match='cursor is not inside block'):
         c.next()
 
@@ -210,13 +210,13 @@ def test_cursor_gap():
 
 
 def test_cursor_replace_expr(golden):
-    c = foo.find_cursor('m')[0]
+    c = foo.find_cursors('m')[0]
     foo2, _ = c.replace(LoopIR.Const(42, T.size, c.node().srcinfo))
     assert str(foo2) == golden
 
 
 def test_cursor_cannot_select_expr():
-    c = foo.find_cursor('m')[0]
+    c = foo.find_cursors('m')[0]
     with pytest.raises(InvalidCursorError,
                        match='cannot select nodes outside of a block'):
         c.select()
@@ -229,7 +229,7 @@ def test_cursor_replace_expr_deep(golden):
         x = 1.0 * (2.0 + 3.0)
         # x = 1.0 * (4.0 + 3.0)
 
-    c: Node = example.find_cursor('2.0')[0]
+    c: Node = example.find_cursors('2.0')[0]
     four = LoopIR.Const(4.0, T.f32, c.node().srcinfo)
 
     example_new, _ = c.replace(four)
@@ -243,7 +243,7 @@ def test_cursor_forward_expr_deep():
         x = 1.0 * (2.0 + 3.0)
         # x = 1.0 * (4.0 + 3.0)
 
-    c2: Node = example.find_cursor('2.0')[0]
+    c2: Node = example.find_cursors('2.0')[0]
     four = LoopIR.Const(4.0, T.f32, c2.node().srcinfo)
 
     example_new, fwd = c2.replace(four)
@@ -251,9 +251,9 @@ def test_cursor_forward_expr_deep():
         fwd(c2)
 
     assert fwd(example.find_stmt('x = _')) == example_new.find_stmt('x = _')
-    assert fwd(example.find_cursor('_ + _')[0]) == example_new.find_cursor('_ + _')[0]
-    assert fwd(example.find_cursor('1.0')[0]) == example_new.find_cursor('1.0')[0]
-    assert fwd(example.find_cursor('3.0')[0]) == example_new.find_cursor('3.0')[0]
+    assert fwd(example.find_cursors('_ + _')[0]) == example_new.find_cursors('_ + _')[0]
+    assert fwd(example.find_cursors('1.0')[0]) == example_new.find_cursors('1.0')[0]
+    assert fwd(example.find_cursors('3.0')[0]) == example_new.find_cursors('3.0')[0]
 
 
 def test_cursor_loop_bound():
@@ -550,13 +550,13 @@ def test_delete_forward_selection_with_patterns(old, new):
     for_j = bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[2:4].delete()
 
-    old_c = bar.find_cursor(old)[0]
+    old_c = bar.find_cursors(old)[0]
     if new is None:
         with pytest.raises(InvalidCursorError,
                            match='cannot forward deleted selection'):
             fwd(old_c)
     else:
-        assert fwd(old_c) == bar_new.find_cursor(new)[0]
+        assert fwd(old_c) == bar_new.find_cursors(new)[0]
 
 
 def test_forward_lifetime():
@@ -683,10 +683,10 @@ def test_selection_replace_forward_selection(old, new):
 
     print(bar_new)
 
-    old_c = bar.find_cursor(old)[0]
+    old_c = bar.find_cursors(old)[0]
     if new is None:
         with pytest.raises(InvalidCursorError,
                            match=r'cannot forward replaced sub-selection'):
             fwd(old_c)
     else:
-        assert fwd(old_c) == bar_new.find_cursor(new)[0]
+        assert fwd(old_c) == bar_new.find_cursors(new)[0]

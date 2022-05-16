@@ -200,7 +200,7 @@ class Procedure(ProcedureBase):
     def get_instr(self):
         return self._loopir_proc.instr
 
-    def find_cursor(self, pattern):
+    def find_cursors(self, pattern):
         cursors = match_cursors(self, pattern, call_depth=1)
         assert isinstance(cursors, list)
         if not cursors:
@@ -208,7 +208,7 @@ class Procedure(ProcedureBase):
         return cursors
 
     def find_stmt(self, pattern):
-        curs = self.find_cursor(pattern)
+        curs = self.find_cursors(pattern)
         assert len(curs) == 1
         curs = curs[0]
         assert isinstance(curs, Selection)
