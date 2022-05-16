@@ -204,7 +204,7 @@ class Procedure(ProcedureBase):
         cursors = match_cursors(self, pattern, call_depth=1)
         assert isinstance(cursors, list)
         if not cursors:
-            raise SchedulingError('failed to find statement', pattern=pattern)
+            raise SchedulingError('failed to find matches', pattern=pattern)
         return cursors
 
     def find_stmt(self, pattern):
