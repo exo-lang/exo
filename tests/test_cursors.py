@@ -11,85 +11,93 @@ from exo.cursors import Cursor, Selection, InvalidCursorError, ForwardingPolicy,
 from exo.syntax import size, par, f32
 
 
-@proc
-def foo(n: size, m: size):
-    for i in par(0, n):
-        for j in par(0, m):
-            x: f32
-            x = 0.0
-            y: f32
-            y = 1.1
+@pytest.fixture(scope='session')
+def proc_foo():
+    @proc
+    def foo(n: size, m: size):
+        for i in par(0, n):
+            for j in par(0, m):
+                x: f32
+                x = 0.0
+                y: f32
+                y = 1.1
+
+    yield foo
 
 
-@proc
-def bar(n: size, m: size):
-    x: f32
-    for i in par(0, n):
-        for j in par(0, m):
-            x = 0.0
-            x = 1.0
-            x = 2.0
-            x = 3.0
-            x = 4.0
-            x = 5.0
+@pytest.fixture(scope='session')
+def proc_bar():
+    @proc
+    def bar(n: size, m: size):
+        x: f32
+        for i in par(0, n):
+            for j in par(0, m):
+                x = 0.0
+                x = 1.0
+                x = 2.0
+                x = 3.0
+                x = 4.0
+                x = 5.0
+
+    yield bar
 
 
-def test_get_root():
-    cursor = Cursor.root(foo)
-    assert cursor.node() is foo.INTERNAL_proc()
+def test_get_root(proc_foo):
+    cursor = Cursor.root(proc_foo)
+    assert cursor.node() is proc_foo.INTERNAL_proc()
 
 
-def test_get_child():
-    cursor = Cursor.root(foo).children()
+def test_get_child(proc_foo):
+    cursor = Cursor.root(proc_foo).children()
     cursor = next(iter(cursor))
-    assert cursor.node() is foo.INTERNAL_proc().body[0]
+    assert cursor.node() is proc_foo.INTERNAL_proc().body[0]
 
 
-def test_find_cursor():
-    c = foo.find_cursors("for j in _:_")
+def test_find_cursor(proc_foo):
+    c = proc_foo.find_cursors("for j in _:_")
     assert len(c) == 1
     c = c[0]  # One match
     c = c[0]  # First/only node in the selection
 
-    assert c.node() is foo.INTERNAL_proc().body[0].body[0]
+    assert c.node() is proc_foo.INTERNAL_proc().body[0].body[0]
 
 
-def test_find_hole_in_middle():
-    c_body_1_5 = bar.find_cursors('x = 1.0 ; _ ; x = 4.0')[0]
-    for_j = bar.find_stmt('for j in _: _')
+def test_find_hole_in_middle(proc_bar):
+    c_body_1_5 = proc_bar.find_cursors('x = 1.0 ; _ ; x = 4.0')[0]
+    for_j = proc_bar.find_stmt('for j in _: _')
     assert c_body_1_5 == for_j.body()[1:5]
 
 
-def test_gap_insert_pass(golden):
-    c = foo.find_stmt('x = 0.0')
+def test_gap_insert_pass(proc_foo, golden):
+    c = proc_foo.find_stmt('x = 0.0')
     assn = c.node()
     g = c.after()
     foo2, _ = g.insert([LoopIR.Pass(None, assn.srcinfo)])
     assert str(foo2) == golden
 
 
-def test_insert_root_front(golden):
-    c = Cursor.root(foo)
+def test_insert_root_front(proc_foo, golden):
+    c = Cursor.root(proc_foo)
     foo2, _ = c.body().before().insert([LoopIR.Pass(None, c.node().srcinfo)])
     assert str(foo2) == golden
 
 
-def test_insert_root_end(golden):
-    c = Cursor.root(foo)
+def test_insert_root_end(proc_foo, golden):
+    c = Cursor.root(proc_foo)
     foo2, _ = c.body().after().insert([LoopIR.Pass(None, c.node().srcinfo)])
     assert str(foo2) == golden
 
 
-def test_selection_gaps():
-    c = bar.find_stmt('for j in _: _')
+def test_selection_gaps(proc_bar):
+    c = proc_bar.find_stmt('for j in _: _')
 
     body = c.body()
     assert len(body) == 6
     subset = body[1:4]
     assert len(subset) == 3
 
-    cx1 = bar.find_stmt('x = 1.0')
-    cx3 = bar.find_stmt('x = 3.0')
+    cx1 = proc_bar.find_stmt('x = 1.0')
+    cx3 = proc_bar.find_stmt('x = 3.0')
     assert subset[0] == cx1
     assert subset[2] == cx3
 
@@ -97,8 +105,8 @@ def test_selection_gaps():
     assert subset.after() == cx3.after()
 
 
-def test_selection_sequence_interface():
-    for_j_body = bar.find_stmt('for j in _: _').body()
+def test_selection_sequence_interface(proc_bar):
+    for_j_body = proc_bar.find_stmt('for j in _: _').body()
     assert for_j_body[:] is not for_j_body
     assert for_j_body[:] == for_j_body
     assert len(list(for_j_body)) == 6
@@ -109,38 +117,38 @@ def test_selection_sequence_interface():
         for_j_body[::2]
 
 
-def test_selection_delete(golden):
-    c = bar.find_stmt('for j in _: _')
+def test_selection_delete(proc_bar, golden):
+    c = proc_bar.find_stmt('for j in _: _')
     stmts = c.body()[1:4]
 
     bar2, _ = stmts.delete()
     assert str(bar2) == golden
 
 
-def test_selection_replace(golden):
-    c = bar.find_stmt('for j in _: _')
+def test_selection_replace(proc_bar, golden):
+    c = proc_bar.find_stmt('for j in _: _')
     stmts = c.body()[1:4]
 
     bar2, _ = stmts.replace([LoopIR.Pass(None, c.node().srcinfo)])
     assert str(bar2) == golden
 
 
-def test_selection_delete_whole_block(golden):
-    c = bar.find_stmt('for j in _: _')
+def test_selection_delete_whole_block(proc_bar, golden):
+    c = proc_bar.find_stmt('for j in _: _')
     bar2, _ = c.body().delete()
     assert str(bar2) == golden
 
 
-def test_node_replace(golden):
-    c = bar.find_stmt('x = 3.0')
+def test_node_replace(proc_bar, golden):
+    c = proc_bar.find_stmt('x = 3.0')
     assert isinstance(c, Node)
 
     bar2, _ = c.replace([LoopIR.Pass(None, c.node().srcinfo)])
     assert str(bar2) == golden
 
 
-def test_cursor_move():
-    c = foo.find_stmt("for j in _:_")
+def test_cursor_move(proc_foo):
+    c = proc_foo.find_stmt("for j in _:_")
 
     c_list = c.body()  # list of j's body
     assert isinstance(c_list, Selection)
@@ -149,15 +157,15 @@ def test_cursor_move():
 
     c1 = c_list[0]  # x : f32
     assert c1.parent() == c
-    assert c1.node() is foo.INTERNAL_proc().body[0].body[0].body[0]
+    assert c1.node() is proc_foo.INTERNAL_proc().body[0].body[0].body[0]
 
     c2 = c1.next()  # x = 0.0
     assert c2.parent() == c
-    assert c2.node() is foo.INTERNAL_proc().body[0].body[0].body[1]
+    assert c2.node() is proc_foo.INTERNAL_proc().body[0].body[0].body[1]
 
     c3 = c1.next(2)  # y : f32
     assert c3.parent() == c
-    assert c3.node() is foo.INTERNAL_proc().body[0].body[0].body[2]
+    assert c3.node() is proc_foo.INTERNAL_proc().body[0].body[0].body[2]
 
     _c2_ = c3.prev()
     assert c2 == _c2_
@@ -165,20 +173,20 @@ def test_cursor_move():
     assert c1 == _c1_
 
 
-def test_cursor_move_invalid():
-    c = Cursor.root(foo)
+def test_cursor_move_invalid(proc_foo):
+    c = Cursor.root(proc_foo)
     with pytest.raises(InvalidCursorError, match='cannot move root cursor'):
         c.next()
 
     with pytest.raises(InvalidCursorError, match='cursor does not have a parent'):
         c.parent()
 
-    c = foo.find_cursors('m')[0]
+    c = proc_foo.find_cursors('m')[0]
     with pytest.raises(InvalidCursorError, match='cursor is not inside block'):
         c.next()
 
 
-def test_cursor_gap():
+def test_cursor_gap(proc_foo):
     # for i in par(0, n):
     #    for j in par(0, m):
     #        x: f32   <- x_alloc
@@ -187,10 +195,10 @@ def test_cursor_gap():
     #        y: f32
     #                 <- g2
     #        y = 1.1  <- y_assn
-    for_j = foo.find_stmt("for j in _:_")
-    x_alloc = foo.find_stmt("x: f32")
-    x_assn = foo.find_stmt("x = 0.0")
-    y_assn = foo.find_stmt("y = 1.1")
+    for_j = proc_foo.find_stmt("for j in _:_")
+    x_alloc = proc_foo.find_stmt("x: f32")
+    x_assn = proc_foo.find_stmt("x = 0.0")
+    y_assn = proc_foo.find_stmt("y = 1.1")
 
     assert str(x_alloc.node()) == 'x: f32 @ DRAM\n'
 
@@ -209,14 +217,14 @@ def test_cursor_gap():
     assert g2.prev(2) == g1
 
 
-def test_cursor_replace_expr(golden):
-    c = foo.find_cursors('m')[0]
+def test_cursor_replace_expr(proc_foo, golden):
+    c = proc_foo.find_cursors('m')[0]
     foo2, _ = c.replace(LoopIR.Const(42, T.size, c.node().srcinfo))
     assert str(foo2) == golden
 
 
-def test_cursor_cannot_select_expr():
-    c = foo.find_cursors('m')[0]
+def test_cursor_cannot_select_expr(proc_foo):
+    c = proc_foo.find_cursors('m')[0]
     with pytest.raises(InvalidCursorError,
                        match='cannot select nodes outside of a block'):
         c.select()
@@ -256,14 +264,14 @@ def test_cursor_forward_expr_deep():
     assert fwd(example.find_cursors('3.0')[0]) == example_new.find_cursors('3.0')[0]
 
 
-def test_cursor_loop_bound():
-    c_for_i = Cursor.root(foo).body()[0]
+def test_cursor_loop_bound(proc_foo):
+    c_for_i = Cursor.root(proc_foo).body()[0]
     c_bound = c_for_i.child('hi')
     assert isinstance(c_bound.node(), LoopIR.Read)
 
 
-def test_cursor_invalid_child():
-    c = Cursor.root(foo)
+def test_cursor_invalid_child(proc_foo):
+    c = Cursor.root(proc_foo)
 
     # Quick sanity check
     assert c.child('body', 0) == c.body()[0]
@@ -369,8 +377,8 @@ def test_insert_forwarding(policy):
         assert fwd(for_j_old.body()[old_range]) == for_j_new.body()[new_range]
 
 
-def test_insert_forwarding_policy():
-    x2 = bar.find_stmt('x = 2.0')
+def test_insert_forwarding_policy(proc_bar):
+    x2 = proc_bar.find_stmt('x = 2.0')
     gap = x2.after()
 
     stmt = [LoopIR.Pass(None, x2.node().srcinfo)]
@@ -452,8 +460,8 @@ def test_double_insert_forwarding(golden):
     (4, 2),
     (5, 3),
 ])
-def test_delete_forward_node(old, new):
-    for_j = bar.find_stmt('for j in _: _').body()
+def test_delete_forward_node(proc_bar, old, new):
+    for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[2:4].delete()
     for_j_new = bar_new.find_stmt('for j in _: _').body()
 
@@ -474,8 +482,8 @@ def test_delete_forward_node(old, new):
     ((4, Node.after), (2, Node.after)),
     ((5, Node.after), (3, Node.after)),
 ])
-def test_delete_forward_gap(old, new):
-    for_j = bar.find_stmt('for j in _: _').body()
+def test_delete_forward_gap(proc_bar, old, new):
+    for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[2:4].delete()
     for_j_new = bar_new.find_stmt('for j in _: _').body()
 
@@ -511,8 +519,8 @@ def test_delete_forward_gap(old, new):
     # length 6
     (slice(0, 6), slice(0, 4)),
 ])
-def test_delete_forward_selection(old, new):
-    for_j = bar.find_stmt('for j in _: _').body()
+def test_delete_forward_selection(proc_bar, old, new):
+    for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[2:4].delete()
     for_j_new = bar_new.find_stmt('for j in _: _').body()
 
@@ -546,11 +554,11 @@ def test_delete_forward_selection(old, new):
     # length 6
     ('x = 0.0 ; _ ; x = 5.0', 'x = 0.0 ; x = 1.0 ; x = 4.0 ; x = 5.0'),
 ])
-def test_delete_forward_selection_with_patterns(old, new):
-    for_j = bar.find_stmt('for j in _: _').body()
+def test_delete_forward_selection_with_patterns(proc_bar, old, new):
+    for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[2:4].delete()
 
-    old_c = bar.find_cursors(old)[0]
+    old_c = proc_bar.find_cursors(old)[0]
     if new is None:
         with pytest.raises(InvalidCursorError,
                            match='cannot forward deleted selection'):
@@ -559,13 +567,13 @@ def test_delete_forward_selection_with_patterns(old, new):
         assert fwd(old_c) == bar_new.find_cursors(new)[0]
 
 
-def test_forward_lifetime():
+def test_forward_lifetime(proc_bar):
     """
     Make sure that forwarding functions do not keep the cursors that created them
     alive.
     """
 
-    for_j = bar.find_stmt('for j in _: _').body()[2:4]
+    for_j = proc_bar.find_stmt('for j in _: _').body()[2:4]
     for_j_weak = weakref.ref(for_j)
 
     bar_new, fwd = for_j.delete()
@@ -594,13 +602,13 @@ def test_forward_lifetime():
     ('x = 4.0', 'x = 4.0'),
     ('x = 5.0', 'x = 5.0'),
 ])
-def test_selection_replace_forward_node(old, new):
-    for_j = bar.find_stmt('for j in _: _').body()
+def test_selection_replace_forward_node(proc_bar, old, new):
+    for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[1:4].replace(
         [LoopIR.Pass(None, for_j.parent().node().srcinfo),
          LoopIR.Pass(None, for_j.parent().node().srcinfo)])
 
-    old_c = bar.find_stmt(old)
+    old_c = proc_bar.find_stmt(old)
 
     if new is None:
         with pytest.raises(InvalidCursorError, match='cannot forward replaced node'):
@@ -635,14 +643,14 @@ def test_selection_replace_forward_node(old, new):
     (('x = 5.0', Node.before), ('x = 5.0', Node.before)),
     (('x = 5.0', Node.after), ('x = 5.0', Node.after)),
 ])
-def test_selection_replace_forward_gap(old, new):
-    for_j = bar.find_stmt('for j in _: _').body()
+def test_selection_replace_forward_gap(proc_bar, old, new):
+    for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[1:4].replace(
         [LoopIR.Pass(None, for_j.parent().node().srcinfo),
          LoopIR.Pass(None, for_j.parent().node().srcinfo)])
 
     old_pat, old_gap = old
-    old_c = bar.find_stmt(old_pat)
+    old_c = proc_bar.find_stmt(old_pat)
 
     if new is None:
         with pytest.raises(InvalidCursorError, match='cannot forward replaced gap'):
@@ -675,15 +683,15 @@ def test_selection_replace_forward_gap(old, new):
     # length 6
     ('x = 0.0 ; _ ; x = 5.0', 'x = 0.0 ; pass ; pass ; x = 4.0 ; x = 5.0'),
 ])
-def test_selection_replace_forward_selection(old, new):
-    for_j = bar.find_stmt('for j in _: _').body()
+def test_selection_replace_forward_selection(proc_bar, old, new):
+    for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[1:4].replace(
         [LoopIR.Pass(None, for_j.parent().node().srcinfo),
          LoopIR.Pass(None, for_j.parent().node().srcinfo)])
 
     print(bar_new)
 
-    old_c = bar.find_cursors(old)[0]
+    old_c = proc_bar.find_cursors(old)[0]
     if new is None:
         with pytest.raises(InvalidCursorError,
                            match=r'cannot forward replaced sub-selection'):
