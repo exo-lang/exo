@@ -19,6 +19,8 @@ from .new_eff import (
     Check_BufferReduceOnly,
     Check_Bounds,
     Check_IsDeadAfter,
+    Check_IsIdempotent,
+    Check_IsPositiveExpr,
 )
 from .prelude import *
 
@@ -768,7 +770,6 @@ class _InlineWindow(LoopIR_Rewrite):
         self.orig_proc = proc
         self.win_stmt  = stmt
 
-        print(proc)
         super().__init__(proc)
 
         # repair effects...
@@ -805,7 +806,6 @@ class _InlineWindow(LoopIR_Rewrite):
     def calc_dim(self, dim):
         # we want to find the dim-th interval access in the w-access array
         win_idx     = self.win_stmt.rhs.idx
-        print(win_idx, dim)
         ivl_count   = 0
         for i,w in enumerate(win_idx):
             if isinstance(w, LoopIR.Interval):
@@ -1191,13 +1191,13 @@ class _DoLiftIf(LoopIR_Rewrite):
         assert is_pos_int(n_lifts)
 
         self.target = if_stmt
-        self.loop_deps = vars_in_expr(if_stmt.cond)
+        self.loop_deps = _FV(if_stmt.cond)
 
         self.n_lifts = n_lifts
 
         super().__init__(proc)
 
-        if self.n_lifts:
+        if self.n_lifts > 0:
             raise SchedulingError(f'Could not lift if statement all the way! '
                                   f'{self.n_lifts} lift(s) remain!',
                                   orig=self.orig_proc,
@@ -1708,7 +1708,10 @@ class _FreeVars(LoopIR_Do):
         self._fvs     = set()
         self._bound   = set()
 
-        self.do_stmts(stmts)
+        if isinstance(stmts, LoopIR.expr):
+            self.do_e(stmts)
+        else:
+            self.do_stmts(stmts)
 
     def result(self):
         return self._fvs
@@ -1736,26 +1739,8 @@ def _FV(stmts):
     return _FreeVars(stmts).result()
 
 
-class _VarsInExpr(LoopIR_Do):
-    def __init__(self, expr):
-        assert isinstance(expr, LoopIR.expr)
 
-        self.vars = set()
-        self.do_e(expr)
-
-    def result(self):
-        return self.vars
-
-    def do_e(self, e):
-        if isinstance(e, LoopIR.Read):
-            self.vars.add(e.name)
-
-        super().do_e(e)
-
-def vars_in_expr(expr):
-    return _VarsInExpr(expr).result()
-
-
+# remove when _DoDoubleFission is removed
 def _is_idempotent(stmts):
     def _stmt(s):
         styp = type(s)
@@ -1917,27 +1902,24 @@ class _DoRemoveLoop(LoopIR_Rewrite):
             # Check if we can remove the loop
             # Conditions are:
             # 1. Body does not depend on the loop iteration variable
-            # 2. Body is idemopotent
-            # 3. The loop runs at least once
-            # TODO: (3) could be checked statically using something similar to the legacy is_pos_int.
-
-            if s.iter not in _FV(s.body):
-                if _is_idempotent(s.body):
-                    cond  = LoopIR.BinOp('>', s.hi, LoopIR.Const(0, T.int, s.srcinfo),
-                                         T.bool, s.srcinfo)
-                    guard = LoopIR.If(cond, self.map_stmts(s.body), [], None, s.srcinfo)
-                    # remove loop and alpha rename
-                    new_body = Alpha_Rename([guard]).result()
-                    return new_body
-                else:
-                    raise SchedulingError("Cannot remove loop, loop body is "+
-                                          "not idempotent")
-            else:
+            if s.iter in _FV(s.body):
                 raise SchedulingError("Cannot remove loop, {s.iter} is not "+
                                       "free in the loop body.")
+            # 2. Body is idemopotent
+            Check_IsIdempotent(self.orig_proc, [s])
+            # 3. The loop runs at least once;
+            #    If not, then place a guard around the statement
+            body        = Alpha_Rename(s.body).result()
+            try:
+                Check_IsPositiveExpr(self.orig_proc, [s], s.hi)
+            except SchedulingError:
+                zero    = LoopIR.Const(0, T.int, s.srcinfo)
+                cond    = LoopIR.BinOp('>', s.hi, zero, T.bool, s.srcinfo)
+                body    = [LoopIR.If(cond, body, [], None, s.srcinfo)]
+
+            return body
 
         return super().map_s(s)
-
 
 # This is same as original FissionAfter, except that
 # this does not remove loop. We have separate remove_loop
@@ -2411,7 +2393,7 @@ class _DoFuseIf(LoopIR_Rewrite):
 class _DoAddLoop(LoopIR_Rewrite):
     def __init__(self, proc, stmt, var, hi):
         self.stmt = stmt
-        self.var  = var
+        self.var  = Sym(var)
         self.hi   = hi
 
         super().__init__(proc)
@@ -2420,11 +2402,11 @@ class _DoAddLoop(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.stmt:
-            if not _is_idempotent([s]):
-                raise SchedulingError("expected stmt to be idempotent!")
+            Check_IsIdempotent(self.orig_proc, [s])
+            Check_IsPositiveExpr(self.orig_proc, [s], self.hi)
 
-            sym = Sym(self.var)
-            hi  = LoopIR.Const(self.hi, T.int, s.srcinfo)
+            sym = self.var
+            hi  = self.hi
             ir  = LoopIR.ForAll(sym, hi, [s], None, s.srcinfo)
             return [ir]
 
@@ -2911,7 +2893,10 @@ class _AssertIf(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.if_stmt:
-            # TODO: Gilbert's SMT thing should do this safely
+            # check if the condition matches the asserted constant
+            cond_node = LoopIR.Const(self.cond, T.bool, s.srcinfo)
+            Check_ExprEqvInContext(self.orig_proc, s.cond, [s], cond_node)
+            # if so, then we can simplify away the guard
             if self.cond:
                 return self.map_stmts(s.body)
             else:

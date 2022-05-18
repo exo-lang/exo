@@ -149,6 +149,17 @@ def test_remove_loop(golden):
 
     assert '\n'.join(map(str, cases)) == golden
 
+def test_remove_loop_fail(golden):
+    @proc
+    def foo(n: size, m: size, x: i8):
+        a: i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x += a
+
+    with pytest.raises(SchedulingError,
+                       match="The statement at .* is not idempotent"):
+        foo = foo.remove_loop('for i in _:_')
 
 def test_lift_alloc_simple(golden):
     @proc
@@ -387,6 +398,39 @@ def test_fuse_if_fail():
     with pytest.raises(SchedulingError,
                        match='Expressions are not equivalent'):
         foo = foo.fuse_if('if a==b:_', 'if _==0: _')
+
+def test_add_loop(golden):
+    @proc
+    def foo(x : R):
+        x = 1.0
+        x = 2.0
+        x = 3.0
+
+    foo = foo.add_loop('x = 2.0', 'i', 5)
+    assert str(foo) == golden
+
+def test_add_loop_fail():
+    @proc
+    def foo(x : R):
+        x += 1.0
+        x += 2.0
+        x += 3.0
+
+    with pytest.raises(SchedulingError,
+                       match='The statement at .* is not idempotent'):
+        foo = foo.add_loop('x += 2.0', 'i', 5)
+
+def test_add_loop_runs_fail():
+    @proc
+    def foo(x : R):
+        x = 1.0
+        x = 2.0
+        x = 3.0
+
+    with pytest.raises(SchedulingError,
+                       match="The expression 0 is not "
+                             "guaranteed to be positive"):
+        foo = foo.add_loop('x = 2.0', 'i', 0)
 
 def test_bind_lhs(golden):
     @proc

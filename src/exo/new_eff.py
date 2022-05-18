@@ -948,8 +948,11 @@ class ContextExtraction:
 
     def get_control_predicate(self):
         assumed     = AAnd(*[ lift_e(p) for p in self.proc.preds ])
+        # collect assumptions that size arguments are positive
+        pos_sizes   = AAnd(*[ AInt(a.name) > AInt(0)
+                              for a in self.proc.args if a.type == T.size ])
         ctrlp       = self.ctrlp_stmts(self.proc.body)
-        return AAnd(assumed, ctrlp)
+        return AAnd(assumed, pos_sizes, ctrlp)
 
     def get_pre_globenv(self):
         return self.preenv_stmts(self.proc.body)
@@ -1129,17 +1132,14 @@ def AllocCommutes(a1, a2):
     return pred
 
 def Shadows(a1, a2):
-    Alc1, Mod1              = getsets([ES.ALLOC, ES.MODIFY], a1)
-    Rd2, Wr2, Red2, All2    = getsets([ES.READ_ALL, ES.WRITE_ALL,
-                                       ES.REDUCE, ES.ALL], a2)
+    Mod1            = getsets([ES.MODIFY], a1)[0]
+    Rd2, Wr2, Red2  = getsets([ES.READ_ALL, ES.WRITE_ALL, ES.REDUCE], a2)
 
     # predicate via constituent conditions
-    alloc_is_dead   = ADef(is_empty(LIsct(Alc1,All2)))
     mod_is_unread   = ADef(is_empty(LIsct(Mod1,LUnion(Rd2,Red2))))
     mod_is_shadowed = ADef(is_empty(LDiff(Mod1,Wr2)))
 
-    pred            = AAnd(alloc_is_dead,
-                           mod_is_unread,
+    pred            = AAnd(mod_is_unread,
                            mod_is_shadowed)
     return pred
 
@@ -1537,18 +1537,12 @@ def Check_IsDeadAfter(proc, stmts, bufname, ndim):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
 
-    #p       = ctxt.get_control_predicate()
-    #G       = ctxt.get_pre_globenv()
     ap      = ctxt.get_posteffs()
-    #a       = G(stmts_effs(stmts))
-    #stmtsG  = globenv(stmts)
 
     slv     = SMTSolver(verbose=False)
     slv.push()
-    #a       = [E.Guard(AMay(p), a)]
 
-    # extract effects
-    #WrG, Mod    = getsets([ES.WRITE_G, ES.MODIFY], a)
+    # extract effect location sets
     Allp    = getsets([ES.ALL], ap)[0]
 
     wholebuf = LS.WholeBuf(bufname, ndim)
@@ -1559,9 +1553,43 @@ def Check_IsDeadAfter(proc, stmts, bufname, ndim):
             f"The variable {bufname} can potentially be used after "+
             f"the statement at {stmts[0].srcinfo} executes.")
 
+def Check_IsIdempotent(proc, stmts):
+    assert len(stmts) > 0
+    ctxt    = ContextExtraction(proc, stmts)
 
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+    ap      = ctxt.get_posteffs()
+    a       = G(stmts_effs(stmts))
 
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
 
+    is_idempotent = slv.verify( ADef(Shadows(a, a)) )
+    slv.pop()
+    if not is_idempotent:
+        raise SchedulingError(
+            f"The statement at {stmts[0].srcinfo} is not idempotent.")
 
+def Check_IsPositiveExpr(proc, stmts, expr):
+    assert len(stmts) > 0
+    ctxt    = ContextExtraction(proc, stmts)
 
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    e       = G(lift_e(expr))
+    is_pos  = slv.verify( ADef(e > AInt(0)) )
+    slv.pop()
+    if not is_pos:
+        estr = str(expr)
+        if estr[-1] == '\n':
+            estr = estr[:-1]
+        raise SchedulingError(
+            f"The expression {estr} is not guaranteed to be positive.")
 

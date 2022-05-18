@@ -640,6 +640,7 @@ class SMTSolver:
         smt_e       = self._lower(e)
         assert not is_ternary(smt_e), "assumptions must be classical"
         self.frames[-1].add_assumption(e, smt_e)
+        self.z3.add_assertion(smt_e)
         self.solver.add_assertion(smt_e)
 
     def satisfy(self, e):

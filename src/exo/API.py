@@ -684,15 +684,32 @@ class Procedure(ProcedureBase):
             raise TypeError("expected first arg to be a string")
         if not isinstance(var, str):
             raise TypeError("expected second arg to be a string")
-        if not isinstance(hi, int):
-            raise TypeError("currently, only constant bound is supported")
+        if isinstance(hi, int):
+            hi = str(hi)
+        elif not isinstance(hi, str):
+            raise TypeError("expected third argument to be a string "
+                            "of the loop upper bound expression")
 
-        stmt = self._find_stmt(stmt)
-        loopir = self._loopir_proc
-        loopir = Schedules.DoAddLoop(loopir, stmt, var, hi).result()
+        stmt    = self._find_stmt(stmt)
+        loopir  = self._loopir_proc
+        hi      = parse_fragment(loopir, hi, stmt)
+        loopir  = Schedules.DoAddLoop(loopir, stmt, var, hi).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def remove_loop(self, loop_pattern):
+        if not isinstance(loop_pattern, str):
+            raise TypeError("expected first arg to be a string")
+
+        stmts_len = len(self._find_stmt(loop_pattern, default_match_no=None))
+        loopir = self._loopir_proc
+        for i in range(0, stmts_len):
+            s = self._find_stmt(loop_pattern, body=loopir.body)
+            if not (isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq)):
+                raise TypeError("expected first argument to be a loop pattern")
+            loopir = Schedules.DoRemoveLoop(loopir, s).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def merge_guard(self, stmt1, stmt2):
         if not isinstance(stmt1, str):
@@ -1175,20 +1192,6 @@ class Procedure(ProcedureBase):
         stmt2  = self._find_stmt(stmt_pat2)
         loopir = self._loopir_proc
         loopir = Schedules.DoDoubleFission(loopir, stmt1, stmt2, n_lifts).result()
-
-        return Procedure(loopir, _provenance_eq_Procedure=self)
-
-    def remove_loop(self, loop_pattern):
-        if not isinstance(loop_pattern, str):
-            raise TypeError("expected first arg to be a string")
-
-        stmts_len = len(self._find_stmt(loop_pattern, default_match_no=None))
-        loopir = self._loopir_proc
-        for i in range(0, stmts_len):
-            s = self._find_stmt(loop_pattern, body=loopir.body)
-            if not (isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq)):
-                raise TypeError("expected first argument to be a loop pattern")
-            loopir = Schedules.DoRemoveLoop(loopir, s).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
