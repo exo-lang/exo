@@ -679,17 +679,19 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def add_loop(self, stmt, var, hi):
+    def add_loop(self, stmt, var, hi, guard=False):
         if not isinstance(stmt, str):
             raise TypeError("expected first arg to be a string")
         if not isinstance(var, str):
             raise TypeError("expected second arg to be a string")
         if not isinstance(hi, int):
             raise TypeError("currently, only constant bound is supported")
+        if not isinstance(guard, bool):
+            raise TypeError("guard needs to be True or False")
 
         stmt = self._find_stmt(stmt)
         loopir = self._loopir_proc
-        loopir = Schedules.DoAddLoop(loopir, stmt, var, hi).result()
+        loopir = Schedules.DoAddLoop(loopir, stmt, var, hi, guard).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 

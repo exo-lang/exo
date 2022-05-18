@@ -6,6 +6,22 @@ from exo import proc, DRAM, SchedulingError
 from exo.libs.memories import GEMM_SCRATCH
 from exo.parse_fragment import ParseFragmentError
 
+def test_add_loop1(golden):
+    @proc
+    def foo():
+        x : R
+        x = 0.0
+
+    assert str(foo.add_loop('x = _', 'i', 10)) == golden
+
+def test_add_loop2(golden):
+    @proc
+    def foo():
+        x : R
+        x = 0.0
+
+    assert str(foo.add_loop('x = _', 'i', 10, guard=True)) == golden
+
 def test_simplify3(golden):
     @proc
     def foo(n : size, m : size):
@@ -985,6 +1001,5 @@ def test_stage_mem_accum(golden):
     sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
                             'Atile', 'for k in _: _', accum=True)
     assert str(sqmat.simplify()) == golden
-
 
 

@@ -2412,10 +2412,11 @@ class _DoFuseIf(LoopIR_Rewrite):
 
 
 class _DoAddLoop(LoopIR_Rewrite):
-    def __init__(self, proc, stmt, var, hi):
+    def __init__(self, proc, stmt, var, hi, guard):
         self.stmt = stmt
         self.var  = var
         self.hi   = hi
+        self.guard = guard
 
         super().__init__(proc)
 
@@ -2427,8 +2428,15 @@ class _DoAddLoop(LoopIR_Rewrite):
                 raise SchedulingError("expected stmt to be idempotent!")
 
             sym = Sym(self.var)
-            hi  = LoopIR.Const(self.hi, T.int, s.srcinfo)
-            ir  = LoopIR.ForAll(sym, hi, [s], None, s.srcinfo)
+
+            new_s = s
+            if self.guard:
+                cond = LoopIR.BinOp('==', LoopIR.Read(sym, [], T.index, s.srcinfo),
+                                          LoopIR.Const(0, T.int, s.srcinfo), T.bool, s.srcinfo)
+                new_s = LoopIR.If(cond, [s], [], None, s.srcinfo)
+
+            hi  = LoopIR.Const(self.hi, T.int, new_s.srcinfo)
+            ir  = LoopIR.ForAll(sym, hi, [new_s], None, new_s.srcinfo)
             return [ir]
 
         return super().map_s(s)
