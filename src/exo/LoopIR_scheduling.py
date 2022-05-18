@@ -109,8 +109,6 @@ class _PartitionLoop(LoopIR_Rewrite):
     def __init__(self, proc, loop_stmt, num):
         self.stmt         = loop_stmt
         self.partition_by = num
-        #self.second       = False
-        #self.second_iter  = None
 
         super().__init__(proc)
 
