@@ -109,8 +109,8 @@ class _PartitionLoop(LoopIR_Rewrite):
     def __init__(self, proc, loop_stmt, num):
         self.stmt         = loop_stmt
         self.partition_by = num
-        self.second       = False
-        self.second_iter  = None
+        #self.second       = False
+        #self.second_iter  = None
 
         super().__init__(proc)
 
@@ -121,39 +121,28 @@ class _PartitionLoop(LoopIR_Rewrite):
         if s is self.stmt:
             assert isinstance(s, (LoopIR.ForAll, LoopIR.Seq))
             if not isinstance(s.hi, LoopIR.Const):
-                raise SchedulingError("expected loop bound to be constant")
+                raise SchedulingError("expected loop bound to be a literal")
             if s.hi.val <= self.partition_by:
                 raise SchedulingError("expected loop bound to be larger than "
                                       "partitioning value")
 
-            body        = self.map_stmts(s.body)
-            first_loop  = styp(s.iter,
-                            LoopIR.Const(self.partition_by, T.int, s.srcinfo),
-                            body, None, s.srcinfo)
+            part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
+            loop1   = styp(s.iter, part_by, s.body, None, s.srcinfo)
 
-            # Should add partition_by to everything in body
-            self.second = True
-            new_iter = s.iter.copy()
-            self.second_iter = new_iter
-            second_body = SubstArgs(body,
-                    {s.iter: LoopIR.Read(new_iter, [], T.index, s.srcinfo)}).result()
-            second_body = self.map_stmts(second_body)
-            second_loop = styp(new_iter,
-                            LoopIR.Const(s.hi.val - self.partition_by, T.int, s.srcinfo),
-                            second_body, None, s.srcinfo)
+            # all uses of the loop iteration in the second body need
+            # to be offset by the partition value
+            iter2   = s.iter.copy()
+            hi2     = LoopIR.Const(s.hi.val - part_by.val, T.int, s.srcinfo)
+            iter2_node  = LoopIR.Read(iter2, [], T.index, s.srcinfo)
+            iter_off    = LoopIR.BinOp("+", iter2_node,
+                                            part_by, T.index, s.srcinfo)
+            env     = {s.iter: iter_off}
+            body2   = SubstArgs(s.body, env).result()
+            loop2   = styp(iter2, hi2, body2, None, s.srcinfo)
 
-            return [first_loop] + [second_loop]
+            return [loop1, loop2]
 
         return super().map_s(s)
-
-    def map_e(self, e):
-        if self.second:
-            if type(e) == LoopIR.Read and e.name == self.second_iter:
-                assert e.type.is_indexable()
-                return LoopIR.BinOp("+", e, LoopIR.Const(self.partition_by, T.int, e.srcinfo), T.index, e.srcinfo)
-
-        return super().map_e(e)
-
 
 
 class _Reorder(LoopIR_Rewrite):
