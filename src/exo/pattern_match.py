@@ -9,7 +9,7 @@ from .LoopIR import LoopIR, PAST
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern Matching Errors
-from .cursors import Cursor, Node, Selection
+from .cursors import Cursor, Node, Block
 
 
 class PatternMatchError(Exception):
@@ -135,14 +135,14 @@ class PatternMatch:
             pass
 
     def results(self):
-        return [[n.node() for n in cur] if isinstance(cur, Selection) else cur.node()
+        return [[n.node() for n in cur] if isinstance(cur, Block) else cur.node()
                 for cur in self._results]
 
     def cursors(self):
         return self._results
 
     def _add_result(self, result):
-        assert isinstance(result, (Node, Selection))
+        assert isinstance(result, (Node, Block))
 
         if self._match_i is None:
             self._results.append(result)

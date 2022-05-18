@@ -7,7 +7,7 @@ import pytest
 
 from exo import proc
 from exo.LoopIR import LoopIR, T
-from exo.cursors import Cursor, Selection, InvalidCursorError, ForwardingPolicy, Node
+from exo.cursors import Cursor, Block, InvalidCursorError, ForwardingPolicy, Node
 from exo.syntax import size, par, f32
 
 
@@ -57,7 +57,7 @@ def test_find_cursor(proc_foo):
     c = proc_foo.find_cursors("for j in _:_")
     assert len(c) == 1
     c = c[0]  # One match
-    c = c[0]  # First/only node in the selection
+    c = c[0]  # First/only node in the block
 
     assert c.node() is proc_foo.INTERNAL_proc().body[0].body[0]
 
@@ -88,7 +88,7 @@ def test_insert_root_end(proc_foo, golden):
     assert str(foo2) == golden
 
 
-def test_selection_gaps(proc_bar):
+def test_block_gaps(proc_bar):
     c = proc_bar.find_stmt('for j in _: _')
 
     body = c.body()
@@ -105,19 +105,19 @@ def test_selection_gaps(proc_bar):
     assert subset.after() == cx3.after()
 
 
-def test_selection_sequence_interface(proc_bar):
+def test_block_sequence_interface(proc_bar):
     for_j_body = proc_bar.find_stmt('for j in _: _').body()
     assert for_j_body[:] is not for_j_body
     assert for_j_body[:] == for_j_body
     assert len(list(for_j_body)) == 6
 
-    with pytest.raises(IndexError, match='cursor selections must be contiguous'):
+    with pytest.raises(IndexError, match='block cursors must be contiguous'):
         # noinspection PyStatementEffect
         # Sequence's __getitem__ should throw here, so this does have a side effect
         for_j_body[::2]
 
 
-def test_selection_delete(proc_bar, golden):
+def test_block_delete(proc_bar, golden):
     c = proc_bar.find_stmt('for j in _: _')
     stmts = c.body()[1:4]
 
@@ -125,7 +125,7 @@ def test_selection_delete(proc_bar, golden):
     assert str(bar2) == golden
 
 
-def test_selection_replace(proc_bar, golden):
+def test_block_replace(proc_bar, golden):
     c = proc_bar.find_stmt('for j in _: _')
     stmts = c.body()[1:4]
 
@@ -133,7 +133,7 @@ def test_selection_replace(proc_bar, golden):
     assert str(bar2) == golden
 
 
-def test_selection_delete_whole_block(proc_bar, golden):
+def test_block_delete_whole_block(proc_bar, golden):
     c = proc_bar.find_stmt('for j in _: _')
     bar2, _ = c.body().delete()
     assert str(bar2) == golden
@@ -151,7 +151,7 @@ def test_cursor_move(proc_foo):
     c = proc_foo.find_stmt("for j in _:_")
 
     c_list = c.body()  # list of j's body
-    assert isinstance(c_list, Selection)
+    assert isinstance(c_list, Block)
     assert len(c_list) == 4
     assert c_list.parent() == c
 
@@ -223,11 +223,10 @@ def test_cursor_replace_expr(proc_foo, golden):
     assert str(foo2) == golden
 
 
-def test_cursor_cannot_select_expr(proc_foo):
+def test_cursor_cannot_convert_expr_to_block(proc_foo):
     c = proc_foo.find_cursors('m')[0]
-    with pytest.raises(InvalidCursorError,
-                       match='cannot select nodes outside of a block'):
-        c.select()
+    with pytest.raises(InvalidCursorError, match='node is not inside a block'):
+        c.as_block()
 
 
 def test_cursor_replace_expr_deep(golden):
@@ -364,7 +363,7 @@ def test_insert_forwarding(policy):
     assert fwd(for_i_old.body()) == for_i_new.body()
     assert fwd(for_j_old.body()) == for_j_new.body()
 
-    # Check that all inserted-body selections (n > 1) are forwarded:
+    # Check that all inserted-body blocks (n > 1) are forwarded:
     test_cases = [
         (slice(0, 2), slice(0, 2)),
         (slice(1, 3), slice(1, 4)),
@@ -501,7 +500,7 @@ def test_delete_forward_gap(proc_bar, old, new):
     # length 2
     (slice(0, 2), slice(0, 2)),
     (slice(1, 3), slice(1, 2)),
-    (slice(2, 4), None),  # policy? map deleted selection to gap
+    (slice(2, 4), None),  # policy? map deleted block to gap
     (slice(3, 5), slice(2, 3)),
     (slice(4, 6), slice(2, 4)),
     # length 3
@@ -519,14 +518,14 @@ def test_delete_forward_gap(proc_bar, old, new):
     # length 6
     (slice(0, 6), slice(0, 4)),
 ])
-def test_delete_forward_selection(proc_bar, old, new):
+def test_delete_forward_block(proc_bar, old, new):
     for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[2:4].delete()
     for_j_new = bar_new.find_stmt('for j in _: _').body()
 
     if new is None:
         with pytest.raises(InvalidCursorError,
-                           match='cannot forward deleted selection'):
+                           match='cannot forward deleted block'):
             fwd(for_j[old])
     else:
         assert fwd(for_j[old]) == for_j_new[new]
@@ -536,7 +535,7 @@ def test_delete_forward_selection(proc_bar, old, new):
     # length 2
     ('x = 0.0 ; x = 1.0', 'x = 0.0 ; x = 1.0'),
     ('x = 1.0 ; x = 2.0', 'x = 1.0'),
-    ('x = 2.0 ; x = 3.0', None),  # policy? map deleted selection to gap
+    ('x = 2.0 ; x = 3.0', None),  # policy? map deleted block to gap
     ('x = 3.0 ; x = 4.0', 'x = 4.0'),
     ('x = 4.0 ; x = 5.0', 'x = 4.0 ; x = 5.0'),
     # length 3
@@ -554,14 +553,14 @@ def test_delete_forward_selection(proc_bar, old, new):
     # length 6
     ('x = 0.0 ; _ ; x = 5.0', 'x = 0.0 ; x = 1.0 ; x = 4.0 ; x = 5.0'),
 ])
-def test_delete_forward_selection_with_patterns(proc_bar, old, new):
+def test_delete_forward_block_with_patterns(proc_bar, old, new):
     for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[2:4].delete()
 
     old_c = proc_bar.find_cursors(old)[0]
     if new is None:
         with pytest.raises(InvalidCursorError,
-                           match='cannot forward deleted selection'):
+                           match='cannot forward deleted block'):
             fwd(old_c)
     else:
         assert fwd(old_c) == bar_new.find_cursors(new)[0]
@@ -602,7 +601,7 @@ def test_forward_lifetime(proc_bar):
     ('x = 4.0', 'x = 4.0'),
     ('x = 5.0', 'x = 5.0'),
 ])
-def test_selection_replace_forward_node(proc_bar, old, new):
+def test_block_replace_forward_node(proc_bar, old, new):
     for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[1:4].replace(
         [LoopIR.Pass(None, for_j.parent().node().srcinfo),
@@ -643,7 +642,7 @@ def test_selection_replace_forward_node(proc_bar, old, new):
     (('x = 5.0', Node.before), ('x = 5.0', Node.before)),
     (('x = 5.0', Node.after), ('x = 5.0', Node.after)),
 ])
-def test_selection_replace_forward_gap(proc_bar, old, new):
+def test_block_replace_forward_gap(proc_bar, old, new):
     for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[1:4].replace(
         [LoopIR.Pass(None, for_j.parent().node().srcinfo),
@@ -683,7 +682,7 @@ def test_selection_replace_forward_gap(proc_bar, old, new):
     # length 6
     ('x = 0.0 ; _ ; x = 5.0', 'x = 0.0 ; pass ; pass ; x = 4.0 ; x = 5.0'),
 ])
-def test_selection_replace_forward_selection(proc_bar, old, new):
+def test_block_replace_forward_block(proc_bar, old, new):
     for_j = proc_bar.find_stmt('for j in _: _').body()
     bar_new, fwd = for_j[1:4].replace(
         [LoopIR.Pass(None, for_j.parent().node().srcinfo),
@@ -694,7 +693,7 @@ def test_selection_replace_forward_selection(proc_bar, old, new):
     old_c = proc_bar.find_cursors(old)[0]
     if new is None:
         with pytest.raises(InvalidCursorError,
-                           match=r'cannot forward replaced sub-selection'):
+                           match=r'cannot forward replaced sub-block'):
             fwd(old_c)
     else:
         assert fwd(old_c) == bar_new.find_cursors(new)[0]

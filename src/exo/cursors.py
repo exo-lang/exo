@@ -114,20 +114,20 @@ class Cursor(ABC):
     @abstractmethod
     def before(self, dist=1) -> Cursor:
         """For gaps, get the node before the gap. Otherwise, get the gap before
-        the node or selection"""
+        the node or block"""
 
     @abstractmethod
     def after(self, dist=1) -> Cursor:
         """For gaps, get the node after the gap. Otherwise, get the gap after
-        the node or selection"""
+        the node or block"""
 
     @abstractmethod
     def prev(self, dist=1) -> Cursor:
-        """Get the previous node/gap in the block. Undefined for selections."""
+        """Get the previous node/gap in the block. Undefined for blocks."""
 
     @abstractmethod
     def next(self, dist=1) -> Cursor:
-        """Get the next node/gap in the block. Undefined for selections."""
+        """Get the next node/gap in the block. Undefined for blocks."""
 
     # ------------------------------------------------------------------------ #
     # Protected path / mutation helpers
@@ -159,7 +159,7 @@ class Cursor(ABC):
         The callback is expected to return a single, updated node to be placed
         in the new tree.
         """
-        assert isinstance(self, (Node, Selection, Gap))
+        assert isinstance(self, (Node, Block, Gap))
 
         def impl(node, path):
             if len(path) == 1:
@@ -208,7 +208,7 @@ class Cursor(ABC):
             elif isinstance(cursor, Gap):
                 idx = fwd_gap(old_idx)
             else:
-                assert isinstance(cursor, Selection)
+                assert isinstance(cursor, Block)
                 idx = fwd_sel(old_idx)
 
             return evolve(old_path[:depth - 1] + [(attr, idx)] + old_path[depth:])
@@ -217,7 +217,7 @@ class Cursor(ABC):
 
 
 @dataclass
-class Selection(Cursor):
+class Block(Cursor):
     _path: list[tuple[str, Union[int, range]]]  # is range iff last entry
 
     # ------------------------------------------------------------------------ #
@@ -239,17 +239,17 @@ class Selection(Cursor):
 
     def prev(self, dist=1) -> Cursor:
         # TODO: what should this mean?
-        #  1. The node after the selection?
-        #  2. The selection shifted over?
-        #  3. The selection of nodes leading up to the start?
-        raise NotImplementedError('Selection.prev')
+        #  1. The node after the block?
+        #  2. The block shifted over?
+        #  3. The block of nodes leading up to the start?
+        raise NotImplementedError('Block.prev')
 
     def next(self, dist=1) -> Cursor:
         # TODO: what should this mean?
-        #  1. The node after the selection?
-        #  2. The selection shifted over?
-        #  3. The selection of nodes past the end?
-        raise NotImplementedError('Selection.next')
+        #  1. The node after the block?
+        #  2. The block shifted over?
+        #  3. The block of nodes past the end?
+        raise NotImplementedError('Block.next')
 
     # ------------------------------------------------------------------------ #
     # Sequence interface implementation
@@ -266,8 +266,8 @@ class Selection(Cursor):
         r = r[i]
         if isinstance(r, range):
             if r.step != 1:
-                raise IndexError('cursor selections must be contiguous')
-            return Selection(self._proc, self._path[:-1] + [(attr, r)])
+                raise IndexError('block cursors must be contiguous')
+            return Block(self._proc, self._path[:-1] + [(attr, r)])
         else:
             return self.parent().child(attr, r)
 
@@ -299,9 +299,9 @@ class Selection(Cursor):
         n_diff = n_ins - len(del_range)
 
         # TODO: unify this with _forward_delete's forwarding functions, which are
-        #  nearly identical. The only difference is that deleting forwards selections
-        #  with a deleted portion on one side by truncating it, rather than invalidating
-        #  it.
+        #  nearly identical. The only difference is that deleting forwards blocks
+        #  with a deleted portion on one side by truncating it, rather than
+        #  invalidating it.
 
         def fwd_node(i):
             if i in del_range:
@@ -315,7 +315,7 @@ class Selection(Cursor):
 
         def fwd_sel(rng: range):
             if _is_sub_range(rng, del_range) or _overlaps_one_side(rng, del_range):
-                raise InvalidCursorError('cannot forward replaced sub-selection')
+                raise InvalidCursorError('cannot forward replaced sub-block')
 
             # rng = range(
             #     del_range.start if rng.start in del_range else rng.start,
@@ -360,7 +360,7 @@ class Selection(Cursor):
 
         def fwd_sel(rng):
             if _is_sub_range(rng, del_range) or rng == del_range:
-                raise InvalidCursorError('cannot forward deleted selection')
+                raise InvalidCursorError('cannot forward deleted block')
 
             rng = range(
                 del_range.start if rng.start in del_range else rng.start,
@@ -474,26 +474,26 @@ class Node(Cursor):
     # Navigation (block selectors)
     # ------------------------------------------------------------------------ #
 
-    def body(self) -> Selection:
-        return self._select_attr('body')
+    def body(self) -> Block:
+        return self._attr_block('body')
 
-    def orelse(self) -> Selection:
-        return self._select_attr('orelse')
+    def orelse(self) -> Block:
+        return self._attr_block('orelse')
 
-    def _select_attr(self, attr: str):
+    def _attr_block(self, attr: str):
         stmts = getattr(self.node(), attr)
         assert isinstance(stmts, list)
-        return Selection(self._proc, self._path + [(attr, range(len(stmts)))])
+        return Block(self._proc, self._path + [(attr, range(len(stmts)))])
 
     # ------------------------------------------------------------------------ #
     # Conversions
     # ------------------------------------------------------------------------ #
 
-    def select(self) -> Selection:
+    def as_block(self) -> Block:
         attr, i = self._path[-1]
         if i is None:
-            raise InvalidCursorError('cannot select nodes outside of a block')
-        return Selection(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
+            raise InvalidCursorError('node is not inside a block')
+        return Block(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
 
     # ------------------------------------------------------------------------ #
     # AST mutation
@@ -501,7 +501,7 @@ class Node(Cursor):
 
     def replace(self, ast):
         if self._path[-1][1] is not None:
-            return self.select().replace(ast)
+            return self.as_block().replace(ast)
 
         # replacing a single expression, or something not in a block
         def update(node):
