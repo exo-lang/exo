@@ -1052,23 +1052,18 @@ class Procedure(ProcedureBase):
             raise ValueError(f'bound_alloc: must provide some new bounds')
 
         alloc_site = self._find_stmt(alloc_site)
-        if not alloc_site:
-            raise ValueError(f'bound_alloc: could not find pattern: '
-                             f'{alloc_site}')
-
         if not isinstance(alloc_site, LoopIR.Alloc):
             raise ValueError(f'bound_alloc: pattern must match an allocation '
                              f'site. Matched:\n{alloc_site}')
+        if not isinstance(alloc_site.type, T.Tensor):
+            raise ValueError('bound_alloc: can only be applied to '
+                             'array/tensor-type allocations, not scalars')
 
         proc = self._loopir_proc
 
-        bounds = []
-        for bound in new_bounds:
-            if bound is None:
-                bounds.append(bound)
-            else:
-                bounds.append(parse_fragment(proc, bound, alloc_site))
-
+        bounds = [ (None if bound is None
+                    else parse_fragment(proc, bound, alloc_site))
+                    for bound in new_bounds ]
         proc = Schedules.DoBoundAlloc(proc, alloc_site, bounds).result()
         # Relies on effect checking to verify the proposed new bounds, this
         # will notice out-of-bounds reads and writes.
