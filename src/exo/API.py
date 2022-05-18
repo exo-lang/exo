@@ -191,7 +191,7 @@ class Procedure(ProcedureBase):
         return str(self._loopir_proc.eff)
 
     def show_effect(self, stmt_pattern):
-        stmt = self._find_stmt(stmt_pattern)
+        stmt        = self._find_stmt(stmt_pattern)
         return str(stmt.eff)
 
     def is_instr(self):
@@ -222,8 +222,8 @@ class Procedure(ProcedureBase):
             return LoopIR_to_QAST(self._loopir_proc).result()
         else:
             # do pattern matching
-            match_no = get_match_no(pattern)
-            match    = match_pattern(self, pattern, call_depth=1)
+            match_no    = get_match_no(pattern)
+            match       = match_pattern(self, pattern, call_depth=1)
 
             # convert matched sub-trees to QAST
             assert isinstance(match, list)
@@ -436,16 +436,15 @@ class Procedure(ProcedureBase):
             raise TypeError("expected first arg to be a pattern in string")
 
         stmt = self._find_stmt(stmt_pat, default_match_no=None)
-        assert len(stmt) == 1  # Don't want to accidentally delete other configs
+        assert len(stmt) == 1 #Don't want to accidentally delete other configs
 
         loopir          = self._loopir_proc
         rewrite_pass    = Schedules.DoDeleteConfig(loopir, stmt[0])
         mod_config      = rewrite_pass.mod_eq()
         loopir          = rewrite_pass.result()
 
-        return Procedure(loopir,
-                         _provenance_eq_Procedure=self,
-                         _mod_config=mod_config)
+        return Procedure(loopir, _provenance_eq_Procedure=self,
+                                 _mod_config=mod_config)
 
     def configwrite_root(self, config, field, var_pattern):
         if not isinstance(config, Config):
@@ -539,21 +538,21 @@ class Procedure(ProcedureBase):
             raise ValueError(f'unknown tail strategy "{tail}"')
 
         p = self
-        pattern = iter_name_to_pattern(split_var)
+        pattern   = iter_name_to_pattern(split_var)
         stmts_len = len(self._find_stmt(pattern, default_match_no=None))
 
         for i in range(0, stmts_len):
             s = p._find_stmt(pattern)
-            loopir = Schedules.DoSplit(p._loopir_proc, s, quot=split_const,
-                                       hi=out_vars[0], lo=out_vars[1],
-                                       tail=tail,
-                                       perfect=perfect).result()
+            loopir  = Schedules.DoSplit(p._loopir_proc, s, quot=split_const,
+                                        hi=out_vars[0], lo=out_vars[1],
+                                        tail=tail,
+                                        perfect=perfect).result()
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
         return p
 
     def expand_dim(self, stmt_pat, alloc_dim_pat, indexing_pat,
-                   unsafe_disable_checks=False):
+                                         unsafe_disable_checks=False):
         if not isinstance(stmt_pat, str):
             raise TypeError("expected first arg to be a string")
         if not isinstance(alloc_dim_pat, str):
@@ -569,7 +568,7 @@ class Procedure(ProcedureBase):
             s = p._find_stmt(stmt_pat, default_match_no=None)[i]
             loopir = p._loopir_proc
             alloc_dim = parse_fragment(loopir, alloc_dim_pat, s, scope="before")
-            indexing = parse_fragment(loopir, indexing_pat, s, scope="before_after")
+            indexing  = parse_fragment(loopir, indexing_pat, s, scope="before_after")
             loopir = Schedules.DoExpandDim(loopir, s, alloc_dim, indexing).result()
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
@@ -826,7 +825,7 @@ class Procedure(ProcedureBase):
         stmts_len = len(self._find_stmt(pattern, default_match_no=None))
         for i in range(0, stmts_len):
             s = p._find_stmt(pattern)
-            loopir = Schedules.DoPartitionLoop(p._loopir_proc, s, num).result()
+            loopir  = Schedules.DoPartitionLoop(p._loopir_proc, s, num).result()
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
         return p
@@ -839,11 +838,11 @@ class Procedure(ProcedureBase):
 
         p = self
 
-        pattern   = nested_iter_names_to_pattern(out_var, in_var)
+        pattern     = nested_iter_names_to_pattern(out_var, in_var)
         stmts_len = len(self._find_stmt(pattern, default_match_no=None))
         for i in range(0, stmts_len):
             s = p._find_stmt(pattern)
-            loopir = Schedules.DoReorder(p._loopir_proc, s).result()
+            loopir  = Schedules.DoReorder(p._loopir_proc, s).result()
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
         return p
@@ -856,12 +855,12 @@ class Procedure(ProcedureBase):
 
         pattern   = iter_name_to_pattern(unroll_var)
         stmts_len = len(p._find_stmt(pattern, default_match_no=None))
-        if not stmts_len:
+        if stmts_len == 0:
             raise ValueError("failed to find Assign or Reduce")
 
         for i in range(0, stmts_len):
             s = p._find_stmt(pattern)
-            loopir = Schedules.DoUnroll(p._loopir_proc, s).result()
+            loopir  = Schedules.DoUnroll(p._loopir_proc, s).result()
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
         return p
@@ -872,8 +871,8 @@ class Procedure(ProcedureBase):
         elif not isinstance(pattern, str):
             raise TypeError("expected second arg to be a string")
 
-        stmt_lists = match_pattern(self, pattern, call_depth=1)
-        if not stmt_lists:
+        stmt_lists  = match_pattern(self, pattern, call_depth=1)
+        if len(stmt_lists) == 0:
             raise TypeError("failed to find statement")
 
         loopir = self._loopir_proc
@@ -1164,7 +1163,7 @@ class Procedure(ProcedureBase):
             s = p._find_stmt(alloc_site_pattern, default_match_no=None)[i]
             if not isinstance(s, LoopIR.Alloc):
                 raise TypeError("pattern did not describe an alloc statement")
-            loopir = Schedules.DoLiftAllocSimple(p._loopir_proc, s, n_lifts).result()
+            loopir  = Schedules.DoLiftAllocSimple(p._loopir_proc, s, n_lifts).result()
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
         return p
@@ -1188,7 +1187,7 @@ class Procedure(ProcedureBase):
             s = p._find_stmt(alloc_site_pattern, default_match_no=None)[i]
             if not isinstance(s, LoopIR.Alloc):
                 raise TypeError("pattern did not describe an alloc statement")
-            loopir = Schedules.DoLiftAlloc(
+            loopir  = Schedules.DoLiftAlloc(
                 p._loopir_proc, s, n_lifts, mode, size, keep_dims).result()
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
