@@ -181,7 +181,6 @@ class Cursor(ABC):
         orig_proc = self._proc
         depth = len(self._path)
         attr = self._path[depth - 1][0]
-        del self
 
         def forward(cursor: Cursor) -> Cursor:
             if cursor._proc != orig_proc:
@@ -582,8 +581,6 @@ class Gap(Cursor):
                 if i == ins_idx:
                     raise InvalidCursorError('insertion gap was invalidated')
                 return i + ins_len * (i > ins_idx)
-
-        del policy
 
         def fwd_sel(rng):
             return range(
