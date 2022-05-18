@@ -13,7 +13,6 @@ from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
                                 nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
-from .cursors import Block
 from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
@@ -211,7 +210,6 @@ class Procedure(ProcedureBase):
         curs = self.find_cursors(pattern)
         assert len(curs) == 1
         curs = curs[0]
-        assert isinstance(curs, Block)
         if len(curs) != 1:
             raise SchedulingError('pattern did not match a single statement',
                                   pattern=pattern)
