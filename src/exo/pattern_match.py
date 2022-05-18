@@ -138,7 +138,7 @@ class PatternMatch:
             pass
 
     def results(self):
-        return [[n.node() for n in cur] if isinstance(cur, Block) else cur.node()
+        return [[n._node() for n in cur] if isinstance(cur, Block) else cur.node()
                 for cur in self._results]
 
     def cursors(self):
@@ -162,7 +162,7 @@ class PatternMatch:
 
     def find_expr(self, pat, cur):
         # try to match
-        if self.match_e(pat, cur.node()):
+        if self.match_e(pat, cur._node()):
             self._add_result(cur)
 
         for child in cur.children():
@@ -181,10 +181,10 @@ class PatternMatch:
 
         # first, look for any subsequences of statements in the first
         # statement of the sequence `stmts`
-        if isinstance(curs[0].node(), LoopIR.If):
+        if isinstance(curs[0]._node(), LoopIR.If):
             self.find_stmts(pats, curs[0].body())
             self.find_stmts(pats, curs[0].orelse())
-        elif isinstance(curs[0].node(), (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(curs[0]._node(), (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq)):
             self.find_stmts(pats, curs[0].body())
         else: pass # other forms of statement do not contain stmt blocks
 
@@ -217,7 +217,7 @@ class PatternMatch:
         # first ensure that the pattern and statement
         # are the same constructor
 
-        stmt = cur.node()
+        stmt = cur._node()
 
         if not isinstance(
             stmt, (LoopIR.WindowStmt,) + tuple(_PAST_to_LoopIR[type(pat)])

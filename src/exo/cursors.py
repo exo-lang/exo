@@ -396,13 +396,18 @@ class Node(Cursor):
     # Validating accessors
     # ------------------------------------------------------------------------ #
 
-    def node(self):
-        if (n := self._node()) is None:
+    def _node(self):
+        """
+        Gets the raw underlying node that's pointed-to. This is meant to be
+        compiler-internal, not class-private, so other parts of the compiler
+        may call this, while users should not.
+        """
+        if (n := self._node_ref()) is None:
             raise InvalidCursorError('underlying node was destroyed')
         return n
 
     @cached_property
-    def _node(self):
+    def _node_ref(self):
         n = self.proc().INTERNAL_proc()
         n = self._walk_path(n, self._path)
         return weakref.ref(n)
@@ -433,7 +438,7 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
 
     def child(self, attr, i=None) -> Node:
-        _node = getattr(self.node(), attr)
+        _node = getattr(self._node(), attr)
         if i is not None:
             _node = _node[i]
         elif isinstance(_node, list):
@@ -441,11 +446,11 @@ class Node(Cursor):
         cur = Node(self._proc, self._path + [(attr, i)])
         # noinspection PyPropertyAccess
         # cached_property is settable, bug in static analysis
-        cur._node = weakref.ref(_node)
+        cur._node_ref = weakref.ref(_node)
         return cur
 
     def children(self) -> Iterable[Node]:
-        n = self.node()
+        n = self._node()
         # Top-level proc
         if isinstance(n, LoopIR.proc):
             yield from self._children_from_attrs(n, 'body')
@@ -495,7 +500,7 @@ class Node(Cursor):
         return self._attr_block('orelse')
 
     def _attr_block(self, attr: str):
-        stmts = getattr(self.node(), attr)
+        stmts = getattr(self._node(), attr)
         assert isinstance(stmts, list)
         return Block(self._proc, self._path + [(attr, range(len(stmts)))])
 
