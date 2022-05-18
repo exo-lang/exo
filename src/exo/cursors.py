@@ -312,25 +312,31 @@ class Block(Cursor):
 
         def fwd_node(i):
             if i in del_range:
-                raise InvalidCursorError('cannot forward replaced node')
+                raise InvalidCursorError('node no longer exists')
             return i + n_diff * (i >= del_range.stop)
 
         def fwd_gap(i):
             if i in del_range[1:]:
-                raise InvalidCursorError('cannot forward replaced gap')
+                raise InvalidCursorError('gap no longer exists')
             return i + n_diff * (i >= del_range.stop)
 
         def fwd_sel(rng: range):
-            if _is_sub_range(rng, del_range) or _overlaps_one_side(rng, del_range):
-                raise InvalidCursorError('cannot forward replaced sub-block')
+            if _is_sub_range(rng, del_range):
+                raise InvalidCursorError('block no longer exists')
+            if _overlaps_one_side(rng, del_range):
+                raise InvalidCursorError('block was partially destroyed')
 
-            # rng = range(
-            #     del_range.start if rng.start in del_range else rng.start,
-            #     del_range.stop if rng.stop in del_range[1:] else rng.stop
-            # )
+            rng = range(
+                del_range.start if rng.start in del_range else rng.start,
+                del_range.stop if rng.stop in del_range[1:] else rng.stop
+            )
 
             start = rng.start + n_diff * (rng.start >= del_range.stop)
             stop = rng.stop + n_diff * (rng.stop >= del_range.stop)
+
+            if start >= stop:
+                raise InvalidCursorError('block no longer exists')
+
             return range(start, stop)
 
         return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
@@ -356,36 +362,7 @@ class Block(Cursor):
         from .API import Procedure
         p = Procedure(self._rewrite_node(update))
 
-        return p, self._forward_delete(weakref.ref(p))
-
-    def _forward_delete(self, new_proc):
-        del_range = self._path[-1][1]
-        n_diff = -len(del_range)
-
-        def fwd_node(i):
-            if i in del_range:
-                raise InvalidCursorError('cannot forward deleted node')
-            return i + n_diff * (i >= del_range.stop)
-
-        def fwd_gap(i):
-            if i in del_range[1:]:
-                raise InvalidCursorError('cannot forward deleted gap')
-            return i + n_diff * (i >= del_range.stop)
-
-        def fwd_sel(rng):
-            if _is_sub_range(rng, del_range) or rng == del_range:
-                raise InvalidCursorError('cannot forward deleted block')
-
-            rng = range(
-                del_range.start if rng.start in del_range else rng.start,
-                del_range.stop if rng.stop in del_range[1:] else rng.stop
-            )
-
-            start = rng.start + n_diff * (rng.start >= del_range.stop)
-            stop = rng.stop + n_diff * (rng.stop >= del_range.stop)
-            return range(start, stop)
-
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return p, self._forward_replace(weakref.ref(p), 0)
 
 
 @dataclass

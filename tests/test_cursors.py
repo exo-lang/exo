@@ -465,7 +465,7 @@ def test_delete_forward_node(proc_bar, old, new):
     for_j_new = bar_new.find_stmt('for j in _: _').body()
 
     if new is None:
-        with pytest.raises(InvalidCursorError, match='cannot forward deleted node'):
+        with pytest.raises(InvalidCursorError, match='node no longer exists'):
             fwd(for_j[old])
     else:
         assert fwd(for_j[old]) == for_j_new[new]
@@ -489,7 +489,7 @@ def test_delete_forward_gap(proc_bar, old, new):
     old_i, old_gap = old
 
     if new is None:
-        with pytest.raises(InvalidCursorError, match='cannot forward deleted gap'):
+        with pytest.raises(InvalidCursorError, match='gap no longer exists'):
             fwd(old_gap(for_j[old_i]))
     else:
         new_i, new_gap = new
@@ -499,15 +499,15 @@ def test_delete_forward_gap(proc_bar, old, new):
 @pytest.mark.parametrize('old, new', [
     # length 2
     (slice(0, 2), slice(0, 2)),
-    (slice(1, 3), slice(1, 2)),
+    (slice(1, 3), None),
     (slice(2, 4), None),  # policy? map deleted block to gap
-    (slice(3, 5), slice(2, 3)),
+    (slice(3, 5), None),
     (slice(4, 6), slice(2, 4)),
     # length 3
-    (slice(0, 3), slice(0, 2)),
+    (slice(0, 3), None),
     (slice(1, 4), slice(1, 2)),
     (slice(2, 5), slice(2, 3)),
-    (slice(3, 6), slice(2, 4)),
+    (slice(3, 6), None),
     # length 4
     (slice(0, 4), slice(0, 2)),
     (slice(1, 5), slice(1, 3)),
@@ -525,7 +525,7 @@ def test_delete_forward_block(proc_bar, old, new):
 
     if new is None:
         with pytest.raises(InvalidCursorError,
-                           match='cannot forward deleted block'):
+                           match='block (was partially destroyed|no longer exists)'):
             fwd(for_j[old])
     else:
         assert fwd(for_j[old]) == for_j_new[new]
@@ -534,15 +534,15 @@ def test_delete_forward_block(proc_bar, old, new):
 @pytest.mark.parametrize('old, new', [
     # length 2
     ('x = 0.0 ; x = 1.0', 'x = 0.0 ; x = 1.0'),
-    ('x = 1.0 ; x = 2.0', 'x = 1.0'),
+    ('x = 1.0 ; x = 2.0', None),
     ('x = 2.0 ; x = 3.0', None),  # policy? map deleted block to gap
-    ('x = 3.0 ; x = 4.0', 'x = 4.0'),
+    ('x = 3.0 ; x = 4.0', None),
     ('x = 4.0 ; x = 5.0', 'x = 4.0 ; x = 5.0'),
     # length 3
-    ('x = 0.0 ; _ ; x = 2.0', 'x = 0.0 ; x = 1.0'),
+    ('x = 0.0 ; _ ; x = 2.0', None),
     ('x = 1.0 ; _ ; x = 3.0', 'x = 1.0'),
     ('x = 2.0 ; _ ; x = 4.0', 'x = 4.0'),
-    ('x = 3.0 ; _ ; x = 5.0', 'x = 4.0 ; x = 5.0'),
+    ('x = 3.0 ; _ ; x = 5.0', None),
     # # length 4
     ('x = 0.0 ; _ ; x = 3.0', 'x = 0.0 ; x = 1.0'),
     ('x = 1.0 ; _ ; x = 4.0', 'x = 1.0 ; x = 4.0'),
@@ -560,7 +560,7 @@ def test_delete_forward_block_with_patterns(proc_bar, old, new):
     old_c = proc_bar.find_cursors(old)[0]
     if new is None:
         with pytest.raises(InvalidCursorError,
-                           match='cannot forward deleted block'):
+                           match='block (was partially destroyed|no longer exists)'):
             fwd(old_c)
     else:
         assert fwd(old_c) == bar_new.find_cursors(new)[0]
@@ -610,7 +610,7 @@ def test_block_replace_forward_node(proc_bar, old, new):
     old_c = proc_bar.find_stmt(old)
 
     if new is None:
-        with pytest.raises(InvalidCursorError, match='cannot forward replaced node'):
+        with pytest.raises(InvalidCursorError, match='node no longer exists'):
             fwd(old_c)
     else:
         assert fwd(old_c) == bar_new.find_stmt(new)
@@ -652,7 +652,7 @@ def test_block_replace_forward_gap(proc_bar, old, new):
     old_c = proc_bar.find_stmt(old_pat)
 
     if new is None:
-        with pytest.raises(InvalidCursorError, match='cannot forward replaced gap'):
+        with pytest.raises(InvalidCursorError, match='gap no longer exists'):
             fwd(old_gap(old_c))
     else:
         new_pat, new_gap = new
@@ -693,7 +693,7 @@ def test_block_replace_forward_block(proc_bar, old, new):
     old_c = proc_bar.find_cursors(old)[0]
     if new is None:
         with pytest.raises(InvalidCursorError,
-                           match=r'cannot forward replaced sub-block'):
+                           match=r'block (was partially destroyed|no longer exists)'):
             fwd(old_c)
     else:
         assert fwd(old_c) == bar_new.find_cursors(new)[0]
