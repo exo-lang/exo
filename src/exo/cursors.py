@@ -279,7 +279,7 @@ class Block(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def _replace(self, stmts: list):
+    def _replace(self, nodes: list, *, empty_default=None):
         """
         This is an UNSAFE internal function for replacing a block in an AST with
         a list of statements and providing a forwarding function as collateral.
@@ -289,26 +289,22 @@ class Block(Cursor):
         """
         assert self._path
         assert len(self) > 0
-        assert stmts
 
         def update(node):
             attr, i = self._path[-1]
-            desc = getattr(node, attr)
-            return node.update(**{attr: desc[:i.start] + stmts + desc[i.stop:]})
+            children = getattr(node, attr)
+            new_children = children[:i.start] + nodes + children[i.stop:]
+            new_children = new_children or empty_default or []
+            return node.update(**{attr: new_children})
 
         from .API import Procedure
         p = Procedure(self._rewrite_node(update))
 
-        return p, self._forward_replace(weakref.ref(p), len(stmts))
+        return p, self._forward_replace(weakref.ref(p), len(nodes))
 
     def _forward_replace(self, new_proc, n_ins):
         del_range = self._path[-1][1]
         n_diff = n_ins - len(del_range)
-
-        # TODO: unify this with _forward_delete's forwarding functions, which are
-        #  nearly identical. The only difference is that deleting forwards blocks
-        #  with a deleted portion on one side by truncating it, rather than
-        #  invalidating it.
 
         def fwd_node(i):
             if i in del_range:
@@ -348,21 +344,8 @@ class Block(Cursor):
         package-private, not class-private, so it may be called from other
         internal classes and modules, but not from end-user code.
         """
-        assert self._path
-        assert len(self) > 0
-
-        def update(node):
-            attr, i = self._path[-1]
-            children = getattr(node, attr)
-            new_children = children[:i.start] + children[i.stop:]
-            # TODO: make LoopIR.Pass configurable for use in expr lists
-            new_children = new_children or [LoopIR.Pass(None, node.srcinfo)]
-            return node.update(**{attr: new_children})
-
-        from .API import Procedure
-        p = Procedure(self._rewrite_node(update))
-
-        return p, self._forward_replace(weakref.ref(p), 0)
+        pass_stmt = [LoopIR.Pass(None, self.parent()._node().srcinfo)]
+        return self._replace([], empty_default=pass_stmt)
 
 
 @dataclass
