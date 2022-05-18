@@ -279,7 +279,14 @@ class Block(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def replace(self, stmts: list):
+    def _replace(self, stmts: list):
+        """
+        This is an UNSAFE internal function for replacing a block in an AST with
+        a list of statements and providing a forwarding function as collateral.
+        It is meant to be package-private, not class-private, so it may be
+        called from other internal classes and modules, but not from end-user
+        code.
+        """
         assert self._path
         assert len(self) > 0
         assert stmts
@@ -328,7 +335,13 @@ class Block(Cursor):
 
         return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
 
-    def delete(self):
+    def _delete(self):
+        """
+        This is an UNSAFE internal function for deleting a block in an AST and
+        providing a forwarding function as collateral. It is meant to be
+        package-private, not class-private, so it may be called from other
+        internal classes and modules, but not from end-user code.
+        """
         assert self._path
         assert len(self) > 0
 
@@ -336,6 +349,7 @@ class Block(Cursor):
             attr, i = self._path[-1]
             children = getattr(node, attr)
             new_children = children[:i.start] + children[i.stop:]
+            # TODO: make LoopIR.Pass configurable for use in expr lists
             new_children = new_children or [LoopIR.Pass(None, node.srcinfo)]
             return node.update(**{attr: new_children})
 
@@ -499,9 +513,18 @@ class Node(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def replace(self, ast):
+    def _replace(self, ast):
+        """
+        This is an UNSAFE internal function for replacing a node in an AST with
+        either a list of statements or another single node and providing a
+        forwarding function as collateral. It is meant to be package-private,
+        not class-private, so it may be called from other internal classes and
+        modules, but not from end-user code.
+        """
         if self._path[-1][1] is not None:
-            return self.as_block().replace(ast)
+            # noinspection PyProtectedMember
+            # delegate block replacement to the Block class
+            return self.as_block()._replace(ast)
 
         # replacing a single expression, or something not in a block
         def update(node):
@@ -556,7 +579,14 @@ class Gap(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def insert(self, stmts: list[LoopIR.stmt], policy=ForwardingPolicy.AnchorPre):
+    def _insert(self, stmts: list, policy=ForwardingPolicy.AnchorPre):
+        """
+        This is an UNSAFE internal function for inserting a list of nodes at a
+        particular gap in an AST block and providing a forwarding function as
+        collateral. It is meant to be package-private, not class-private, so it
+        may be called from other internal classes and modules, but not from
+        end-user code.
+        """
         assert self._path
 
         def update(node):
