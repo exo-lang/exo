@@ -303,7 +303,7 @@ def test_cursor_lifetime():
     # TODO: The WeakKeyDictionary-ies in other modules seem to keep the IR alive as
     #   they keep references to them in the values.
     # with pytest.raises(InvalidCursorError, match='underlying node was destroyed'):
-    #     cur.node()
+    #     cur._node()
 
 
 @pytest.mark.parametrize("policy", [

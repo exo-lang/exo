@@ -138,7 +138,7 @@ class PatternMatch:
             pass
 
     def results(self):
-        return [[n._node() for n in cur] if isinstance(cur, Block) else cur.node()
+        return [[n._node() for n in cur] if isinstance(cur, Block) else cur._node()
                 for cur in self._results]
 
     def cursors(self):
