@@ -1116,19 +1116,25 @@ class Procedure(ProcedureBase):
                             "pattern string")
         if not isinstance(dimensions, list):
             raise TypeError("expected second argument to be integer list of "+
-                            "dimensions")
+                            "dimension indices, representing a permutation")
 
         stmts_len = len(self._find_stmt(alloc_pattern, default_match_no=None))
         loopir = self._loopir_proc
         for i in range(0, stmts_len):
-            s = self._find_stmt(alloc_pattern, body=loopir.body, default_match_no=None)[i]
+            s = self._find_stmt(alloc_pattern, body=loopir.body,
+                                default_match_no=None)[i]
             if not isinstance(s, LoopIR.Alloc):
-                raise TypeError("pattern did not describe an alloc statement")
+                raise ValueError("pattern did not describe an alloc statement")
             # Check that the number of dimensions matches with alloc size
-            assert type(s.type) is T.Tensor
+            if not type(s.type) is T.Tensor:
+                raise ValueError("pattern did not describe allocation of a "
+                                 "tensor-type buffer")
             if len(s.type.hi) != len(dimensions):
-                raise TypeError("dimension does not match with the dimension of "
-                                "the alloc statement")
+                raise ValueError("length of permutation vector "
+                                 "does not match the number of dimensions "
+                                 "in the allocation statement")
+            if set(dimensions) != set(range(len(dimensions))):
+                raise ValueError("the permutation vector is not a permutation")
 
             loopir = Schedules.DoRearrangeDim(loopir, s, dimensions).result()
 
