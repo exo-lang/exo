@@ -285,6 +285,7 @@ class Block(Cursor):
         """
         assert self._path
         assert len(self) > 0
+        assert isinstance(nodes, list)
 
         def update(parent):
             attr, i = self._path[-1]
@@ -497,6 +498,8 @@ class Node(Cursor):
             return self.as_block()._replace(ast)
 
         # replacing a single expression, or something not in a block
+        assert not isinstance(ast, list), "replaced node is not in a block"
+
         def update(parent):
             return parent.update(**{attr: ast})
 
