@@ -98,9 +98,6 @@ def sde64():
 # Implementation classes                                                       #
 # ---------------------------------------------------------------------------- #
 
-class _GoldenOutputError(Exception):
-    pass
-
 
 class GoldenOutput(str):
     def __new__(cls, path, text, update):
@@ -115,7 +112,8 @@ class GoldenOutput(str):
             return False
 
         if super().__eq__('\0'):
-            raise _GoldenOutputError(f'Golden output undefined for {self.path}')
+            pytest.fail(f'Golden output undefined for {self.path}.\n'
+                        'Did you forget to run with --update-golden?')
 
         equal = super().__eq__(other)
         if not equal and self.update:
