@@ -100,8 +100,10 @@ def sde64():
 
 
 class GoldenOutput(str):
+    _missing = '\0'
+
     def __new__(cls, path, text, update):
-        return str.__new__(cls, text or '\0')
+        return str.__new__(cls, cls._missing if text is None else text)
 
     def __init__(self, path, _, update):
         self.path = path
@@ -111,7 +113,7 @@ class GoldenOutput(str):
         if isinstance(other, GoldenOutput) and self.path != other.path:
             return False
 
-        if super().__eq__('\0'):
+        if super().__eq__(self._missing):
             pytest.fail(f'Golden output undefined for {self.path}.\n'
                         'Did you forget to run with --update-golden?')
 
