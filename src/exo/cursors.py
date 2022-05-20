@@ -298,7 +298,7 @@ class Block(Cursor):
         return p, self._forward_replace(weakref.ref(p), len(nodes))
 
     def _forward_replace(self, new_proc, n_ins):
-        del_range = self._path[-1][1]
+        _, del_range = self._path[-1]
         n_diff = n_ins - len(del_range)
 
         def fwd_node(i):
@@ -481,14 +481,14 @@ class Node(Cursor):
         not class-private, so it may be called from other internal classes and
         modules, but not from end-user code.
         """
-        if self._path[-1][1] is not None:
+        attr, idx = self._path[-1]
+        if idx is not None:
             # noinspection PyProtectedMember
             # delegate block replacement to the Block class
             return self.as_block()._replace(ast)
 
         # replacing a single expression, or something not in a block
         def update(parent):
-            attr, _ = self._path[-1]
             return parent.update(**{attr: ast})
 
         from .API import Procedure
@@ -497,7 +497,8 @@ class Node(Cursor):
         return p, self._forward_replace(weakref.ref(p))
 
     def _forward_replace(self, new_proc):
-        assert self._path[-1][1] is None
+        _, idx = self._path[-1]
+        assert idx is None
 
         def fwd_node(_):
             raise InvalidCursorError('cannot forward replaced nodes')
@@ -561,7 +562,7 @@ class Gap(Cursor):
         return p, forward
 
     def _forward_insert(self, new_proc, ins_len, policy):
-        ins_idx = self._path[-1][1]
+        _, ins_idx = self._path[-1]
 
         def fwd_node(i):
             return i + ins_len * (i >= ins_idx)
