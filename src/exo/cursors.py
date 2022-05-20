@@ -285,12 +285,12 @@ class Block(Cursor):
         assert self._path
         assert len(self) > 0
 
-        def update(node):
+        def update(parent):
             attr, i = self._path[-1]
-            children = getattr(node, attr)
+            children = getattr(parent, attr)
             new_children = children[:i.start] + nodes + children[i.stop:]
             new_children = new_children or empty_default or []
-            return node.update(**{attr: new_children})
+            return parent.update(**{attr: new_children})
 
         from .API import Procedure
         p = Procedure(self._rewrite_node(update))
@@ -487,9 +487,9 @@ class Node(Cursor):
             return self.as_block()._replace(ast)
 
         # replacing a single expression, or something not in a block
-        def update(node):
+        def update(parent):
             attr, _ = self._path[-1]
-            return node.update(**{attr: ast})
+            return parent.update(**{attr: ast})
 
         from .API import Procedure
         p = Procedure(self._rewrite_node(update))
@@ -549,10 +549,10 @@ class Gap(Cursor):
         """
         assert self._path
 
-        def update(node):
+        def update(parent):
             attr, i = self._path[-1]
-            children = getattr(node, attr)
-            return node.update(**{attr: children[:i] + stmts + children[i:]})
+            children = getattr(parent, attr)
+            return parent.update(**{attr: children[:i] + stmts + children[i:]})
 
         from .API import Procedure
         p = Procedure(self._rewrite_node(update))
