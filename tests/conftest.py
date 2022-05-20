@@ -98,37 +98,30 @@ def sde64():
 # Implementation classes                                                       #
 # ---------------------------------------------------------------------------- #
 
+class _GoldenOutputError(Exception):
+    pass
 
-@dataclass
-class GoldenOutput:
-    path: Path
-    text: Optional[str]
-    update: bool
 
-    def _compare(self, other):
-        if isinstance(other, GoldenOutput):
-            return self.path == other.path and self.text == other.text
-        elif isinstance(other, str):
-            return self.text == other
-        else:
-            return False
+class GoldenOutput(str):
+    def __new__(cls, path, text, update):
+        return str.__new__(cls, text or '\0')
 
-    def __str__(self):
-        if isinstance(self.text, str):
-            return self.text
-        raise ValueError(f'No golden output for {self.path}')
-
-    def __repr__(self):
-        if self.text is None:
-            return f'GoldenOutput({repr(self.path)}, None, {repr(self.update)})'
-        return repr(self.text)
+    def __init__(self, path, _, update):
+        self.path = path
+        self.update = update
 
     def __eq__(self, other):
-        result = self._compare(other)
-        if not result and self.update:
+        if isinstance(other, GoldenOutput) and self.path != other.path:
+            return False
+
+        if super().__eq__('\0'):
+            raise _GoldenOutputError(f'Golden output undefined for {self.path}')
+
+        equal = super().__eq__(other)
+        if not equal and self.update:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(str(other))
-        return result or self.update
+        return equal or self.update
 
 
 @dataclass
