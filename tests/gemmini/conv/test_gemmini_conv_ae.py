@@ -141,14 +141,24 @@ def test_conv_ae():
     gemmini = gemmini.lift_alloc('i_s : _', n_lifts=5)
     gemmini = gemmini.lift_alloc('w_s : _', n_lifts=4)
 
-    [ (gemmini := gemmini.add_guard(s, i, 0)) for (s,i) in [('for kch_o in _:_', 'ocol_o'), ('for kch_o in _:_', 'b'), ('for kch_o in _:_ #2', 'b'), ('for kch_o in _:_', 'orow_o'), ('for kch_o in _:_', 'orow_i'), ('for kch_o in _:_ #2', 'orow_o #1'), ('for kch_o in _:_ #2', 'orow_i #1')] ]
+    gemmini = gemmini.lift_alloc('res : _', n_lifts=4)
+    print(gemmini)
+    gemmini = gemmini.fission_after('for kch_o in _:_ #0', n_lifts=5)
+    gemmini = gemmini.fission_after('for kch_o in _:_ #2', n_lifts=4)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id1(_)', 'orow_i', 28, guard=True)
+    gemmini = gemmini.add_loop('if orow_i == 0:_', 'orow_o', 2, guard=True)
+    print(gemmini)
+
+    #[ (gemmini := gemmini.add_guard(s, i, 0)) for (s,i) in [('for kch_o in _:_', 'ocol_o'), ('for kch_o in _:_', 'b'), ('for kch_o in _:_ #2', 'b'), ('for kch_o in _:_', 'orow_o'), ('for kch_o in _:_', 'orow_i'), ('for kch_o in _:_ #2', 'orow_o #1'), ('for kch_o in _:_ #2', 'orow_i #1')] ]
+    #print(gemmini)
+
+"""
     gemmini = gemmini.add_unsafe_guard('ld_i8_block_id2(_) #0', 'orow_i == 0 or krow == 2')
     gemmini = gemmini.add_unsafe_guard('ld_i8_block_id2(_) #1', 'orow_i == 0 or krow == 2')
 
     gemmini = gemmini.split('orow_i', 7, ['orow_io', 'orow_ii'], perfect=True)
     gemmini = gemmini.lift_alloc('res : _', n_lifts=1)
     gemmini = gemmini.par_to_seq('for orow_io in _:_')
-    gemmini = gemmini.lift_alloc('res : _', n_lifts=4)
     gemmini = gemmini.unroll('och_o')
     gemmini = gemmini.unroll('kch_o')
     gemmini = gemmini.unroll('kcol')
@@ -196,3 +206,4 @@ def test_conv_ae():
     print(gemmini)
     print("============= THIS IS THE SCHEDULED CONV ===============")
     print("")
+"""
