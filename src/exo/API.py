@@ -157,10 +157,7 @@ class Procedure(ProcedureBase):
             decl_new_proc(self._loopir_proc)
 
     def __str__(self):
-        if hasattr(self,'_loopir_proc'):
-            return str(self._loopir_proc)
-        else:
-            return str(self._uast_proc)
+        return str(self._loopir_proc)
 
     def _repr_markdown_(self):
         return ("```python\n"+self.__str__()+"\n```")
