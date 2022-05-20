@@ -181,7 +181,6 @@ def test_matmul_ae():
     gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
     gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
-    #[ (gemmini := gemmini.add_guard(s, i, 0)) for (s,i) in [('do_ld_i8_block_id1(_)', 'ji'), ('do_ld_i8_block_id1(_)', 'jo'), ('do_ld_i8_block_id2(_)', 'i'), ('do_ld_i8_block_id2(_)', 'io')] ]
 
     gemmini = gemmini.fuse_loop('for k in _:_ #0', 'for k in _:_ #1')
     gemmini = gemmini.unroll('j_in_o')
