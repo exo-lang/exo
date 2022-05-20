@@ -136,25 +136,26 @@ def compile_procs(proc_list, path, c_file, h_file):
 
 
 class Procedure(ProcedureBase):
-    def __init__(self, proc, _provenance_eq_Procedure=None, _mod_config=frozenset()):
+    def __init__(self, proc,
+                 _provenance_eq_Procedure: 'Procedure'=None, _mod_config=frozenset()):
         super().__init__()
 
-        if isinstance(proc, LoopIR.proc):
-            self._loopir_proc = proc
-        else:
-            assert isinstance(proc, UAST.proc)
+        if isinstance(proc, UAST.proc):
+            proc = TypeChecker(proc).get_loopir()
+            proc = InferEffects(proc).result()
+            CheckEffects(proc)
 
-            self._loopir_proc = TypeChecker(proc).get_loopir()
-            self._loopir_proc = InferEffects(self._loopir_proc).result()
-            CheckEffects(self._loopir_proc)
+        assert isinstance(proc, LoopIR.proc)
 
         # add this procedure into the equivalence tracking mechanism
         if _provenance_eq_Procedure:
-            derive_proc(_provenance_eq_Procedure._loopir_proc,
-                        self._loopir_proc,
-                        frozenset(_mod_config))
+            derive_proc(
+                _provenance_eq_Procedure._loopir_proc, proc, frozenset(_mod_config)
+            )
         else:
-            decl_new_proc(self._loopir_proc)
+            decl_new_proc(proc)
+
+        self._loopir_proc = proc
 
     def __str__(self):
         return str(self._loopir_proc)
