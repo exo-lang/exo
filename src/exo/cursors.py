@@ -8,7 +8,7 @@ from functools import cached_property
 from typing import Optional, Iterable, Union
 from weakref import ReferenceType
 
-from .API_types import ProcedureBase
+from . import API
 from .LoopIR import LoopIR
 
 
@@ -84,14 +84,14 @@ def _overlaps_one_side(a: range, b: range):
 
 @dataclass
 class Cursor(ABC):
-    _proc: ReferenceType[ProcedureBase]
+    _proc: ReferenceType[API.Procedure]
 
     # ------------------------------------------------------------------------ #
     # Static constructors
     # ------------------------------------------------------------------------ #
 
     @staticmethod
-    def root(proc: ProcedureBase):
+    def root(proc: API.Procedure):
         return Node(weakref.ref(proc), [])
 
     # ------------------------------------------------------------------------ #
@@ -292,8 +292,7 @@ class Block(Cursor):
             new_children = new_children or empty_default or []
             return parent.update(**{attr: new_children})
 
-        from .API import Procedure
-        p = Procedure(self._rewrite_node(update))
+        p = API.Procedure(self._rewrite_node(update))
 
         return p, self._forward_replace(weakref.ref(p), len(nodes))
 
@@ -491,8 +490,7 @@ class Node(Cursor):
         def update(parent):
             return parent.update(**{attr: ast})
 
-        from .API import Procedure
-        p = Procedure(self._rewrite_node(update))
+        p = API.Procedure(self._rewrite_node(update))
 
         return p, self._forward_replace(weakref.ref(p))
 
@@ -555,8 +553,7 @@ class Gap(Cursor):
             children = getattr(parent, attr)
             return parent.update(**{attr: children[:i] + stmts + children[i:]})
 
-        from .API import Procedure
-        p = Procedure(self._rewrite_node(update))
+        p = API.Procedure(self._rewrite_node(update))
 
         forward = self._forward_insert(weakref.ref(p), len(stmts), policy)
         return p, forward
