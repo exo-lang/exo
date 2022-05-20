@@ -151,13 +151,9 @@ class Cursor(ABC):
 
     def _rewrite_node(self, fn):
         """
-        Applies `fn` to the AST node containing the cursor. The callback gets
-        the following arguments:
-        1. The parent node
-        2. The relevant list of children
-        3. The last step in the path (the attribute and index info)
-        The callback is expected to return a single, updated node to be placed
-        in the new tree.
+        Applies `fn` to the AST node containing the cursor. The callback is
+        passed the raw parent of the pointed-to node/block/gap. The callback is
+        expected to return a single, updated node to be placed in the new tree.
         """
         assert isinstance(self, (Node, Block, Gap))
 
