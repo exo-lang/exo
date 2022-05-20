@@ -285,7 +285,7 @@ def test_cursor_forward_expr_deep():
 
 def test_cursor_loop_bound(proc_foo):
     c_for_i = Cursor.root(proc_foo).body()[0]
-    c_bound = c_for_i.child('hi')
+    c_bound = c_for_i._child_node('hi')
     assert isinstance(c_bound._node(), LoopIR.Read)
 
 
@@ -293,16 +293,16 @@ def test_cursor_invalid_child(proc_foo):
     c = Cursor.root(proc_foo)
 
     # Quick sanity check
-    assert c.child('body', 0) == c.body()[0]
+    assert c._child_node('body', 0) == c.body()[0]
 
     with pytest.raises(AttributeError, match="has no attribute '_invalid'"):
-        c.child('_invalid', None)
+        c._child_node('_invalid', None)
 
     with pytest.raises(ValueError, match='must index into block attribute'):
-        c.child('body', None)
+        c._child_node('body', None)
 
     with pytest.raises(InvalidCursorError, match='cursor is out of range'):
-        c.child('body', 42)
+        c._child_node('body', 42)
 
 
 def test_cursor_lifetime():

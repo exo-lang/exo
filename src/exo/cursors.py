@@ -225,12 +225,12 @@ class Block(Cursor):
     def before(self, dist=1) -> Gap:
         attr, _range = self._path[-1]
         assert len(_range) > 0
-        return self.parent().child(attr, _range.start).before(dist)
+        return self.parent()._child_node(attr, _range.start).before(dist)
 
     def after(self, dist=1) -> Gap:
         attr, _range = self._path[-1]
         assert len(_range) > 0
-        return self.parent().child(attr, _range.stop - 1).after(dist)
+        return self.parent()._child_node(attr, _range.stop - 1).after(dist)
 
     def prev(self, dist=1) -> Cursor:
         # TODO: what should this mean?
@@ -254,7 +254,7 @@ class Block(Cursor):
         attr, _range = self._path[-1]
         block = self.parent()
         for i in _range:
-            yield block.child(attr, i)
+            yield block._child_node(attr, i)
 
     def __getitem__(self, i):
         attr, r = self._path[-1]
@@ -264,7 +264,7 @@ class Block(Cursor):
                 raise IndexError('block cursors must be contiguous')
             return Block(self._proc, self._path[:-1] + [(attr, r)])
         else:
-            return self.parent().child(attr, r)
+            return self.parent()._child_node(attr, r)
 
     def __len__(self):
         _, _range = self._path[-1]
@@ -385,13 +385,13 @@ class Node(Cursor):
         attr, i = self._path[-1]
         if i is None:
             raise InvalidCursorError('cursor is not inside block')
-        return self.parent().child(attr, i + dist)
+        return self.parent()._child_node(attr, i + dist)
 
     # ------------------------------------------------------------------------ #
     # Navigation (children)
     # ------------------------------------------------------------------------ #
 
-    def child(self, attr, i=None) -> Node:
+    def _child_node(self, attr, i=None) -> Node:
         _node = getattr(self._node(), attr)
         if i is not None:
             if 0 <= i < len(_node):
@@ -405,6 +405,11 @@ class Node(Cursor):
         # cached_property is settable, bug in static analysis
         cur._node_ref = weakref.ref(_node)
         return cur
+
+    def _child_block(self, attr: str):
+        stmts = getattr(self._node(), attr)
+        assert isinstance(stmts, list)
+        return Block(self._proc, self._path + [(attr, range(len(stmts)))])
 
     def children(self) -> Iterable[Node]:
         n = self._node()
@@ -442,24 +447,19 @@ class Node(Cursor):
             children = getattr(n, attr)
             if isinstance(children, list):
                 for i in range(len(children)):
-                    yield self.child(attr, i)
+                    yield self._child_node(attr, i)
             else:
-                yield self.child(attr, None)
+                yield self._child_node(attr, None)
 
     # ------------------------------------------------------------------------ #
     # Navigation (block selectors)
     # ------------------------------------------------------------------------ #
 
     def body(self) -> Block:
-        return self._attr_block('body')
+        return self._child_block('body')
 
     def orelse(self) -> Block:
-        return self._attr_block('orelse')
-
-    def _attr_block(self, attr: str):
-        stmts = getattr(self._node(), attr)
-        assert isinstance(stmts, list)
-        return Block(self._proc, self._path + [(attr, range(len(stmts)))])
+        return self._child_block('orelse')
 
     # ------------------------------------------------------------------------ #
     # Conversions
