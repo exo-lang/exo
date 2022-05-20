@@ -377,10 +377,15 @@ class Node(Cursor):
         return self._translate(Gap, self._path, dist)
 
     def prev(self, dist=1) -> Node:
-        return self._translate(Node, self._path, -dist)
+        return self.next(-dist)
 
     def next(self, dist=1) -> Node:
-        return self._translate(Node, self._path, dist)
+        if not self._path:
+            raise InvalidCursorError('cannot move root cursor')
+        attr, i = self._path[-1]
+        if i is None:
+            raise InvalidCursorError('cursor is not inside block')
+        return self.parent().child(attr, i + dist)
 
     # ------------------------------------------------------------------------ #
     # Navigation (children)
@@ -389,7 +394,10 @@ class Node(Cursor):
     def child(self, attr, i=None) -> Node:
         _node = getattr(self._node(), attr)
         if i is not None:
-            _node = _node[i]
+            if 0 <= i < len(_node):
+                _node = _node[i]
+            else:
+                raise InvalidCursorError('cursor is out of range')
         elif isinstance(_node, list):
             raise ValueError('must index into block attribute')
         cur = Node(self._proc, self._path + [(attr, i)])

@@ -174,16 +174,36 @@ def test_cursor_move(proc_foo):
 
 
 def test_cursor_move_invalid(proc_foo):
+    # Edge cases near the root
     c = Cursor.root(proc_foo)
-    with pytest.raises(InvalidCursorError, match='cannot move root cursor'):
+    with pytest.raises(InvalidCursorError, match="cannot move root cursor"):
         c.next()
 
     with pytest.raises(InvalidCursorError, match='cursor does not have a parent'):
         c.parent()
 
+    # Edge cases near expressions
     c = proc_foo.find_cursors('m')[0]
     with pytest.raises(InvalidCursorError, match='cursor is not inside block'):
         c.next()
+
+    # Edge cases near first statement in block
+    c = proc_foo.find_stmt('x: f32')
+    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
+        c.prev()
+
+    c.before()  # ok
+    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
+        c.before(2)
+
+    # Edge cases near last statement in block
+    c = proc_foo.find_stmt('y = 1.1')
+    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
+        c.next()
+
+    c.after()  # ok
+    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
+        c.after(2)
 
 
 def test_cursor_gap(proc_foo):
@@ -281,7 +301,7 @@ def test_cursor_invalid_child(proc_foo):
     with pytest.raises(ValueError, match='must index into block attribute'):
         c.child('body', None)
 
-    with pytest.raises(IndexError, match='list index out of range'):
+    with pytest.raises(InvalidCursorError, match='cursor is out of range'):
         c.child('body', 42)
 
 
