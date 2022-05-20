@@ -316,11 +316,6 @@ class Block(Cursor):
             if _overlaps_one_side(rng, del_range):
                 raise InvalidCursorError('block was partially destroyed')
 
-            rng = range(
-                del_range.start if rng.start in del_range else rng.start,
-                del_range.stop if rng.stop in del_range[1:] else rng.stop
-            )
-
             start = rng.start + n_diff * (rng.start >= del_range.stop)
             stop = rng.stop + n_diff * (rng.stop >= del_range.stop)
 
