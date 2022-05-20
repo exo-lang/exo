@@ -446,6 +446,8 @@ class Node(Cursor):
             yield from self._children_from_attrs(n, 'lhs', 'rhs')
         elif isinstance(n, LoopIR.BuiltIn):
             yield from self._children_from_attrs(n, 'args')
+        else:
+            assert False, f'case {type(n)} unsupported'
 
     def _children_from_attrs(self, n, *args) -> Iterable[Node]:
         for attr in args:
