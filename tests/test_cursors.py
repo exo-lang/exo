@@ -194,7 +194,10 @@ def test_cursor_move_invalid(proc_foo):
 
     c.before()  # ok
     with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.before(2)
+        c.before(2)  # would return gap
+
+    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
+        c.before().before()  # would return node
 
     # Edge cases near last statement in block
     c = proc_foo.find_stmt('y = 1.1')
@@ -203,7 +206,10 @@ def test_cursor_move_invalid(proc_foo):
 
     c.after()  # ok
     with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.after(2)
+        c.after(2)  # would return gap
+
+    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
+        c.after().after()  # would return node
 
 
 def test_cursor_gap(proc_foo):

@@ -133,13 +133,14 @@ class Cursor(ABC):
     # Protected path / mutation helpers
     # ------------------------------------------------------------------------ #
 
-    def _translate(self, ty, path, dist):
-        if not path:
+    def _translate(self, ty, dist):
+        assert isinstance(self, (Node, Gap))
+        if not self._path:
             raise InvalidCursorError('cannot move root cursor')
-        attr, i = path[-1]
+        attr, i = self._path[-1]
         if i is None:
             raise InvalidCursorError('cursor is not inside block')
-        return ty(self._proc, path[:-1] + [(attr, i + dist)])
+        return ty(self.parent(), attr, i + dist)
 
     @staticmethod
     def _walk_path(n, path):
@@ -371,21 +372,16 @@ class Node(Cursor):
         return Node(self._proc, self._path[:-1])
 
     def before(self, dist=1) -> Gap:
-        return self._translate(Gap, self._path, 1 - dist)
+        return self._translate(Node._child_gap, 1 - dist)
 
     def after(self, dist=1) -> Gap:
-        return self._translate(Gap, self._path, dist)
+        return self._translate(Node._child_gap, dist)
 
     def prev(self, dist=1) -> Node:
-        return self.next(-dist)
+        return self._translate(Node._child_node, -dist)
 
     def next(self, dist=1) -> Node:
-        if not self._path:
-            raise InvalidCursorError('cannot move root cursor')
-        attr, i = self._path[-1]
-        if i is None:
-            raise InvalidCursorError('cursor is not inside block')
-        return self.parent()._child_node(attr, i + dist)
+        return self._translate(Node._child_node, dist)
 
     # ------------------------------------------------------------------------ #
     # Navigation (children)
@@ -405,6 +401,15 @@ class Node(Cursor):
         # cached_property is settable, bug in static analysis
         cur._node_ref = weakref.ref(_node)
         return cur
+
+    def _child_gap(self, attr, i=None) -> Gap:
+        _node = getattr(self._node(), attr)
+        if i is not None:
+            if not 0 <= i <= len(_node):
+                raise InvalidCursorError('cursor is out of range')
+        elif isinstance(_node, list):
+            raise ValueError('must index into block attribute')
+        return Gap(self._proc, self._path + [(attr, i)])
 
     def _child_block(self, attr: str):
         stmts = getattr(self._node(), attr)
@@ -526,16 +531,16 @@ class Gap(Cursor):
         return Node(self._proc, self._path[:-1])
 
     def before(self, dist=1) -> Node:
-        return self._translate(Node, self._path, -dist)
+        return self._translate(Node._child_node, -dist)
 
     def after(self, dist=1) -> Node:
-        return self._translate(Node, self._path, dist - 1)
+        return self._translate(Node._child_node, dist - 1)
 
     def prev(self, dist=1) -> Gap:
-        return self._translate(Gap, self._path, -dist)
+        return self._translate(Node._child_gap, -dist)
 
     def next(self, dist=1) -> Gap:
-        return self._translate(Gap, self._path, dist)
+        return self._translate(Node._child_gap, dist)
 
     # ------------------------------------------------------------------------ #
     # AST mutation
