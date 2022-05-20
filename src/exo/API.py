@@ -160,6 +160,11 @@ class Procedure(ProcedureBase):
     def __str__(self):
         return str(self._loopir_proc)
 
+    def __eq__(self, other):
+        if not isinstance(other, Procedure):
+            return False
+        return self._loopir_proc == other._loopir_proc
+
     def _repr_markdown_(self):
         return ("```python\n"+self.__str__()+"\n```")
 
