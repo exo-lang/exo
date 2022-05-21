@@ -225,7 +225,7 @@ def test_lift_alloc_simple_error():
         bar.lift_alloc_simple('tmp_a : _', n_lifts=3)
 
 
-def test_expand_dim(golden):
+def test_expand_dim_bad_scope():
     @proc
     def foo(n: size, m: size, x: i8):
         a: i8
@@ -233,11 +233,11 @@ def test_expand_dim(golden):
             for j in seq(0, m):
                 x = a
 
-    foo = foo.expand_dim('a : i8', 'n', 'i')
-    assert str(foo) == golden
+    with pytest.raises(ParseFragmentError, match='i not found in'):
+        foo.expand_dim('a : i8', 'n', 'i')  # should be error
 
 
-def test_expand_dim2():
+def test_expand_dim_bad_scope2():
     @proc
     def foo(n: size, m: size, x: i8):
         for i in seq(0, n):
@@ -281,9 +281,9 @@ def test_expand_dim4(golden):
                 pass
 
         for q in seq(0, 30):
-            a: i8
             for i in seq(0, n):
                 for j in seq(0, m):
+                    a: i8
                     x = a
 
         for i in seq(0, n):
@@ -308,6 +308,8 @@ def test_expand_dim4(golden):
         foo.expand_dim('a : i8', 'n + m', 'i'),  # fine
         foo.expand_dim('a : i8', 'n', 'n-1'),
     ]
+    for x in cases:
+        print(x)
 
     assert '\n'.join(map(str, cases)) == golden
 
@@ -315,8 +317,8 @@ def test_expand_dim4(golden):
 def test_expand_dim5(golden):
     @proc
     def foo(n: size, x: i8):
-        a: i8
         for i in seq(0, n):
+            a: i8
             a = x
 
     foo = foo.expand_dim('a : i8', 'n', 'i')

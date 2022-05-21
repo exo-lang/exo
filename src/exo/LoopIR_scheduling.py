@@ -1437,9 +1437,10 @@ class _DoLiftAllocSimple(LoopIR_Rewrite):
     def map_s(self, s):
         if s is self.alloc_stmt:
             if self.n_lifts > len(self.ctrl_ctxt):
-                raise SchedulingError("specified lift level {self.n_lifts} "+
-                                      "is higher than the number of loop "+
-                                      "{len(self.ctrl_ctxt)}")
+                raise SchedulingError(f"specified lift level {self.n_lifts} "
+                                      f"is more than {len(self.ctrl_ctxt)}, "
+                                      f"the number of loops "
+                                      f"and ifs above the allocation")
             self.lift_site = self.ctrl_ctxt[-self.n_lifts]
 
             return []
@@ -1448,6 +1449,9 @@ class _DoLiftAllocSimple(LoopIR_Rewrite):
             self.ctrl_ctxt.append(s)
             stmts = super().map_s(s)
             self.ctrl_ctxt.pop()
+            # TODO: it is technically possible to end up with for-loops
+            # and if-statements that have empty bodies.  We should check
+            # for this situation, even if it's extremely unlikely.
 
             if s is self.lift_site:
                 new_alloc = LoopIR.Alloc( self.alloc_stmt.name,
