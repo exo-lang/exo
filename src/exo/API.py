@@ -616,30 +616,6 @@ class Procedure(ProcedureBase):
                         p.instr, p.eff, p.srcinfo)
         return Procedure(p, _provenance_eq_Procedure=None)
 
-    def add_guard(self, stmt_pat, iter_pat, value):
-        if not isinstance(stmt_pat, str):
-            raise TypeError("expected first arg to be a string")
-        if not isinstance(iter_pat, str):
-            raise TypeError("expected second arg to be a string")
-        if not isinstance(value, int):
-            raise TypeError("expected third arg to be an int")
-        # TODO: refine this analysis or re-think the directive...
-        #  this is making sure that the condition will guarantee that the
-        #  guarded statement runs on the first iteration
-        if value != 0:
-            raise TypeError("expected third arg to be 0")
-
-        iter_pat = iter_name_to_pattern(iter_pat)
-        iter_pat = self._find_stmt(iter_pat)
-        if not isinstance(iter_pat, LoopIR.Seq):
-            raise TypeError("expected the loop to be sequential")
-        stmts = self._find_stmt(stmt_pat, default_match_no=None)
-        loopir = self._loopir_proc
-        for s in stmts:
-            loopir = Schedules.DoAddGuard(loopir, s, iter_pat, value).result()
-
-        return Procedure(loopir, _provenance_eq_Procedure=self)
-
     def bound_and_guard(self, loop):
         """
         Replace
