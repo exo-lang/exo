@@ -142,22 +142,55 @@ def test_conv_ae():
     gemmini = gemmini.lift_alloc('w_s : _', n_lifts=4)
 
     gemmini = gemmini.lift_alloc('res : _', n_lifts=4)
-    print(gemmini)
-    gemmini = gemmini.fission_after('for kch_o in _:_ #0', n_lifts=5)
-    gemmini = gemmini.fission_after('for kch_o in _:_ #2', n_lifts=4)
-    gemmini = gemmini.add_loop('do_ld_i8_block_id1(_)', 'orow_i', 28, guard=True)
+
+    gemmini = gemmini.fission_after('for kch_o in _:_ #0', n_lifts=6)
+    gemmini = gemmini.fission_after('for kch_o in _:_ #2', n_lifts=5)
+    gemmini = gemmini.fission_after('for och_o in _:_ #3')
+    gemmini = gemmini.add_loop('for kch_o in _:_ #0', 'orow_i', 28, guard=True)
     gemmini = gemmini.add_loop('if orow_i == 0:_', 'orow_o', 2, guard=True)
-    print(gemmini)
+    gemmini = gemmini.add_loop('if orow_o == 0:_', 'b', 4, guard=True)
+    gemmini = gemmini.add_loop('if b == 0:_', 'ocol_o', 3, guard=True)
+    gemmini = gemmini.add_loop('for kch_o in _:_ #2', 'orow_i', 28, guard=True)
+    gemmini = gemmini.add_loop('if orow_i == 0:_ #1', 'orow_o', 2, guard=True)
+    gemmini = gemmini.add_loop('if orow_o == 0:_ #1', 'b', 4, guard=True)
+    # Start fissioning loops
+    gemmini = gemmini.add_loop('for och_o in _:_ #0', 'b', 4)
+    gemmini = gemmini.reorder('orow_o','b').reorder('orow_i','b').reorder('kcol','b').reorder('krow','b')
+    gemmini = gemmini.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    gemmini = gemmini.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    gemmini = gemmini.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    gemmini = gemmini.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    gemmini = gemmini.add_loop('for och_o in _:_ #0', 'ocol_o', 3)
+    gemmini = gemmini.reorder('orow_o','ocol_o').reorder('orow_i','ocol_o').reorder('kcol','ocol_o').reorder('krow','ocol_o')
+    gemmini = gemmini.fuse_loop('for ocol_o in _:_ #0', 'for ocol_o in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ocol_o in _:_ #0', 'for ocol_o in _:_ #1')
+    gemmini = gemmini.add_loop('for och_o in _:_ #0', 'orow_o', 2)
+    gemmini = gemmini.reorder('orow_i','orow_o').reorder('kcol','orow_o').reorder('krow','orow_o')
+    gemmini = gemmini.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    gemmini = gemmini.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    gemmini = gemmini.add_loop('for och_o in _:_ #0', 'orow_i', 28)
+    gemmini = gemmini.reorder('kcol','orow_i').reorder('krow','orow_i')
+    gemmini = gemmini.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
 
-    #[ (gemmini := gemmini.add_guard(s, i, 0)) for (s,i) in [('for kch_o in _:_', 'ocol_o'), ('for kch_o in _:_', 'b'), ('for kch_o in _:_ #2', 'b'), ('for kch_o in _:_', 'orow_o'), ('for kch_o in _:_', 'orow_i'), ('for kch_o in _:_ #2', 'orow_o #1'), ('for kch_o in _:_ #2', 'orow_i #1')] ]
-    #print(gemmini)
+    gemmini = gemmini.add_loop('for och_o in _:_ #3', 'orow_o', 2)
+    gemmini = gemmini.fuse_loop('for orow_o in _:_ #1', 'for orow_o in _:_ #2')
+    gemmini = gemmini.fuse_loop('for orow_o in _:_ #1', 'for orow_o in _:_ #2')
+    gemmini = gemmini.add_loop('for och_o in _:_ #3', 'orow_i', 28)
+    gemmini = gemmini.fuse_loop('for orow_i in _:_ #1', 'for orow_i in _:_ #2')
+    gemmini = gemmini.fuse_loop('for orow_i in _:_ #1', 'for orow_i in _:_ #2')
 
-"""
+    gemmini = gemmini.fuse_loop('for krow in _:_ #0', 'for krow in _:_ #1')
+    gemmini = gemmini.fuse_loop('for kcol in _:_ #0', 'for kcol in _:_ #1')
+    gemmini = gemmini.fuse_loop('for krow in _:_ #1', 'for krow in _:_ #2')
+    gemmini = gemmini.fuse_loop('for kcol in _:_ #1', 'for kcol in _:_ #2')
+
+
     gemmini = gemmini.add_unsafe_guard('ld_i8_block_id2(_) #0', 'orow_i == 0 or krow == 2')
     gemmini = gemmini.add_unsafe_guard('ld_i8_block_id2(_) #1', 'orow_i == 0 or krow == 2')
 
     gemmini = gemmini.split('orow_i', 7, ['orow_io', 'orow_ii'], perfect=True)
-    gemmini = gemmini.lift_alloc('res : _', n_lifts=1)
+    #gemmini = gemmini.lift_alloc('res : _', n_lifts=1)
     gemmini = gemmini.par_to_seq('for orow_io in _:_')
     gemmini = gemmini.unroll('och_o')
     gemmini = gemmini.unroll('kch_o')
@@ -206,4 +239,4 @@ def test_conv_ae():
     print(gemmini)
     print("============= THIS IS THE SCHEDULED CONV ===============")
     print("")
-"""
+
