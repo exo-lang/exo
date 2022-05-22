@@ -349,7 +349,10 @@ def test_ld(golden):
     ld_i8 = ld_i8.configwrite_after('ConfigLoad.scale = _', ConfigLoad,
                                     'src_stride', 'stride(src, 0)')
     ld_i8 = ld_i8.replace(do_ld_i8, 'for i in _:_')
-    ld_i8 = ld_i8.replace(config_ld_i8, 'ConfigLoad.scale = scale')
+    ld_i8 = ld_i8.replace(
+        config_ld_i8,
+        'ConfigLoad.scale = _ ; ConfigLoad.src_stride = _'
+    )
 
     assert f'{config_ld_i8}\n{ld_i8}' == golden
 
