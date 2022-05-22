@@ -2,9 +2,32 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc, DRAM, SchedulingError
+from exo import proc, DRAM, SchedulingError, Procedure
 from exo.libs.memories import GEMM_SCRATCH
 from exo.parse_fragment import ParseFragmentError
+
+
+def test_proc_equal():
+    def make_foo():
+        @proc
+        def foo(n: size, m: size):
+            assert m == 1 and n == 1
+            y: R[10]
+            y[10 * m - 10 * n + 2 * n] = 2.0
+
+        return foo
+
+    foo = make_foo()
+    foo2 = Procedure(foo.INTERNAL_proc())
+
+    assert foo != 3  # check that wrong type doesn't crash, but returns false
+    assert foo == foo  # reflexivity
+    assert foo == foo2  # same underlying LoopIR.proc
+    assert foo2 == foo  # symmetric
+
+    # Coincidentally identical procs created from scratch should not be
+    # considered equal.
+    assert foo != make_foo()
 
 def test_simplify3(golden):
     @proc
@@ -985,6 +1008,3 @@ def test_stage_mem_accum(golden):
     sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
                             'Atile', 'for k in _: _', accum=True)
     assert str(sqmat.simplify()) == golden
-
-
-
