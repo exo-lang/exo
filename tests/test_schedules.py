@@ -7,6 +7,31 @@ from exo.libs.memories import GEMM_SCRATCH
 from exo.parse_fragment import ParseFragmentError
 
 
+def test_add_loop1(golden):
+    @proc
+    def foo():
+        x : R
+        x = 0.0
+
+    assert str(foo.add_loop('x = _', 'i', 10)) == golden
+
+def test_add_loop2(golden):
+    @proc
+    def foo():
+        x : R
+        x = 0.0
+
+    assert str(foo.add_loop('x = _', 'i', 10, guard=True)) == golden
+
+def test_add_loop3():
+    @proc
+    def foo():
+        x : R
+        x = 0.0
+
+    with pytest.raises(TypeError, match='guard needs to be True or False'):
+        foo.add_loop('x = _', 'i', 10, guard=100)
+
 def test_proc_equal():
     def make_foo():
         @proc
