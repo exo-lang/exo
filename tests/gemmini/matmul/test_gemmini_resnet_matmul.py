@@ -115,11 +115,40 @@ def test_matmul_512x512x512():
 
     gemmini = gemmini.par_to_seq('for ji in _:_')
 
-    [ (gemmini := gemmini.add_guard(s, i, 0)) for (s,i) in [('do_ld_i8_block_id1(_)', 'ji'), ('do_ld_i8_block_id1(_)', 'jo'), ('do_ld_i8_block_id2(_)', 'i'), ('do_ld_i8_block_id2(_)', 'io')] ]
-    #gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'ji', 0)
-    #gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'jo', 0)
-    #gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
-    #gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
+    gemmini = gemmini.simplify()
+    gemmini = gemmini.fission_after('for j_in_o in _:_', n_lifts=5)
+    gemmini = gemmini.fission_after('do_ld_i8_block_id1(_)', n_lifts=6)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id1(_)', 'ji', 4, guard=True)
+    gemmini = gemmini.add_loop('if ji == 0: _', 'jo', 2, guard=True)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id2(_)', 'i', 8, guard=True)
+    gemmini = gemmini.add_loop('if i == 0: _', 'io', 2, guard=True)
+    # Fuse_loop cleanup
+    gemmini = gemmini.add_loop('for jo in _:_ #1', 'ioo', 2)
+    gemmini = gemmini.add_loop('for ji in _:_ #0', 'ioo', 2)
+    gemmini = gemmini.fuse_loop('for ioo in _:_ #0', 'for ioo in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ioo in _:_ #0', 'for ioo in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ioo in _:_ #0', 'for ioo in _:_ #1')
+    gemmini = gemmini.add_loop('for ji in _:_ #0', 'jo', 2)
+    gemmini = gemmini.reorder('ji', 'jo').reorder('ko', 'jo').reorder('i', 'jo').reorder('io', 'jo')
+    gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
+    gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
+    gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
+    gemmini = gemmini.reorder('i', 'io').reorder('k', 'io').reorder('ko', 'io').reorder('ji', 'io')
+    gemmini = gemmini.add_loop('for ji in _:_ #0', 'io', 2)
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.reorder('k', 'i').reorder('ko', 'i').reorder('ji', 'i')
+    gemmini = gemmini.add_loop('for ji in _:_ #0', 'i', 8)
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.reorder('ko', 'ji')
+    gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
 
     gemmini = gemmini.fuse_loop('for k in _:_ #0', 'for k in _:_ #1')
     gemmini = gemmini.unroll('j_in_o')
@@ -153,9 +182,6 @@ def test_matmul_512x512x512():
                  ''])
 
     T.compile().run()
-
-    print(gemmini)
-
 
 def test_matmul_4():
     NN = 12544
@@ -219,9 +245,28 @@ def test_matmul_4():
     gemmini = gemmini.lift_alloc('res : _', n_lifts=2)
 
     gemmini = gemmini.par_to_seq('for j in _:_')
-    gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'j', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
+
+    # Previously add_guard
+    gemmini = gemmini.simplify()
+    gemmini = gemmini.fission_after('for j_in_o in _:_', n_lifts=5)
+    gemmini = gemmini.fission_after('do_ld_i8_block_id1(_)', n_lifts=6)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id1(_)', 'j', 4, guard=True)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id2(_)', 'i', 196, guard=True)
+    gemmini = gemmini.add_loop('if i == 0: _', 'io', 4, guard=True)
+    # Fuse_loop cleanup
+    gemmini = gemmini.reorder('i', 'io').reorder('k', 'io').reorder('j', 'io')
+    gemmini = gemmini.add_loop('for j in _:_ #0', 'io', 4)
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.add_loop('for j_in_o in _:_ #0', 'i', 196)
+    gemmini = gemmini.reorder('k', 'i').reorder('j', 'i')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
 
     gemmini = gemmini.unroll('j_in_o')
     gemmini = gemmini.unroll('k')
@@ -253,7 +298,6 @@ def test_matmul_4():
                  ''])
 
     T.compile().run()
-
 
 
 def test_matmul_6():
@@ -316,8 +360,25 @@ def test_matmul_6():
     gemmini = gemmini.lift_alloc('a : _')
     gemmini = gemmini.lift_alloc('b : _')
 
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
+    gemmini = gemmini.simplify()
+
+    # Previously add_guard
+    gemmini = gemmini.fission_after('for j_in_o in _:_', n_lifts=2)
+    gemmini = gemmini.fission_after('do_ld_i8_block_id1(_)', n_lifts=3)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id2(_)', 'i', 8, guard=True)
+    gemmini = gemmini.add_loop('if i == 0: _', 'io', 98, guard=True)
+    # Fuse_loop cleanup
+    gemmini = gemmini.reorder('i', 'io').reorder('k', 'io').reorder('ko', 'io')
+    gemmini = gemmini.add_loop('for i in _:_ #0', 'io', 98)
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.reorder('k', 'i').reorder('ko', 'i')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
 
     gemmini = gemmini.unroll('j_in_o')
     gemmini = gemmini.unroll('k')
@@ -349,7 +410,6 @@ def test_matmul_6():
                  ''])
 
     T.compile().run()
-
 
 
 
@@ -413,9 +473,31 @@ def test_matmul_14():
     gemmini = gemmini.lift_alloc('a : _')
     gemmini = gemmini.lift_alloc('b : _')
 
-    gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'j', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
+    gemmini = gemmini.simplify()
+
+    # Previously add_guard
+    gemmini = gemmini.fission_after('for j_in_o in _:_', n_lifts=3)
+    gemmini = gemmini.fission_after('do_ld_i8_block_id1(_)', n_lifts=4)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id1(_)', 'j', 8, guard=True)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id2(_)', 'i', 49, guard=True)
+    gemmini = gemmini.add_loop('if i == 0: _', 'io', 4, guard=True)
+    # Fuse_loop cleanup
+    gemmini = gemmini.add_loop('for j in _:_ #0', 'io', 4)
+    gemmini = gemmini.reorder('i', 'io').reorder('k', 'io').reorder('ko', 'io').reorder('j', 'io')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.add_loop('for j in _:_ #0', 'i', 49)
+    gemmini = gemmini.reorder('k', 'i').reorder('ko', 'i').reorder('j', 'i')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.reorder('ko', 'j')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
 
     gemmini = gemmini.unroll('j_in_o')
     gemmini = gemmini.unroll('k')
@@ -447,7 +529,6 @@ def test_matmul_14():
                  ''])
 
     T.compile().run()
-
 
 
 def test_matmul_16():
@@ -510,9 +591,31 @@ def test_matmul_16():
     gemmini = gemmini.lift_alloc('a : _')
     gemmini = gemmini.lift_alloc('b : _')
 
-    gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'j', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
+    gemmini = gemmini.simplify()
+
+    # Previously add_guard
+    gemmini = gemmini.fission_after('for j_in_o in _:_', n_lifts=3)
+    gemmini = gemmini.fission_after('do_ld_i8_block_id1(_)', n_lifts=4)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id1(_)', 'j', 2, guard=True)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id2(_)', 'i', 14, guard=True)
+    gemmini = gemmini.add_loop('if i == 0: _', 'io', 14, guard=True)
+    # Fuse_loop cleanup
+    gemmini = gemmini.add_loop('for j in _:_ #0', 'io', 14)
+    gemmini = gemmini.reorder('i', 'io').reorder('k', 'io').reorder('ko', 'io').reorder('j', 'io')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.add_loop('for j in _:_ #0', 'i', 14)
+    gemmini = gemmini.reorder('k', 'i').reorder('ko', 'i').reorder('j', 'i')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.reorder('ko', 'j')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
 
     gemmini = gemmini.unroll('j_in_o')
     gemmini = gemmini.unroll('k')
@@ -609,10 +712,36 @@ def test_matmul_27():
     gemmini = gemmini.lift_alloc('a : _', n_lifts=2)
     gemmini = gemmini.lift_alloc('b : _', n_lifts=2)
 
-    gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'j', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id1(_)', 'jo', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'i', 0)
-    #gemmini = gemmini.add_guard('do_ld_i8_block_id2(_)', 'io', 0)
+    gemmini = gemmini.simplify()
+
+    # Previously add_guard
+    gemmini = gemmini.fission_after('for j_in_o in _:_', n_lifts=4)
+    gemmini = gemmini.fission_after('do_ld_i8_block_id1(_)', n_lifts=5)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id1(_)', 'j', 8, guard=True)
+    gemmini = gemmini.add_loop('if j == 0: _', 'jo', 2, guard=True)
+    gemmini = gemmini.add_loop('do_ld_i8_block_id2(_)', 'i', 7, guard=True)
+    # Fuse_loop cleanup
+    gemmini = gemmini.add_loop('for jo in _:_ #1', 'io', 7)
+    gemmini = gemmini.add_loop('for j in _:_ #0', 'io', 7)
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = gemmini.add_loop('for j in _:_ #0', 'jo', 2)
+    gemmini = gemmini.reorder('j', 'jo').reorder('ko', 'jo').reorder('i', 'jo')
+    gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
+    gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
+    gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
+    gemmini = gemmini.reorder('k', 'i').reorder('ko', 'i').reorder('j', 'i')
+    gemmini = gemmini.add_loop('for j in _:_ #0', 'i', 7)
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = gemmini.reorder('ko', 'j')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for j in _:_ #0', 'for j in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
+    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
 
     gemmini = gemmini.unroll('j_in_o')
     gemmini = gemmini.unroll('k')
@@ -644,6 +773,4 @@ def test_matmul_27():
                  ''])
 
     T.compile().run()
-
-
 
