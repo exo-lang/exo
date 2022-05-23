@@ -112,6 +112,9 @@ class GoldenOutput(str):
             return False
 
         if super().__eq__(self._missing):
+            # Hides this stack frame in the PyTest traceback.
+            __tracebackhide__ = True
+
             message = f'golden output missing: {self.path}.\n'
 
             if self.verbose:
