@@ -672,7 +672,7 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def add_loop(self, stmt, var, hi, guard=False):
+    def add_loop(self, stmt, var, hi, *, guard=False):
         if not isinstance(stmt, str):
             raise TypeError("expected first arg to be a string")
         if not isinstance(var, str):
