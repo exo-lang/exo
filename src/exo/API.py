@@ -31,7 +31,7 @@ from .typecheck import TypeChecker
 # Top-level decorator
 
 
-def proc(f, _instr=None, _testing=None) -> 'Procedure':
+def proc(f, _instr=None) -> 'Procedure':
     if not isinstance(f, types.FunctionType):
         raise TypeError("@proc decorator must be applied to a function")
 
@@ -41,10 +41,10 @@ def proc(f, _instr=None, _testing=None) -> 'Procedure':
     parser = Parser(body, f.__globals__,
                     get_src_locals(depth=3 if _instr else 2),
                     getsrcinfo, instr=_instr, as_func=True)
-    return Procedure(parser.result(), _testing=_testing)
+    return Procedure(parser.result())
 
 
-def instr(instruction, _testing=None):
+def instr(instruction):
     if not isinstance(instruction, str):
         raise TypeError("@instr decorator must be @instr(<your instuction>)")
 
@@ -52,7 +52,7 @@ def instr(instruction, _testing=None):
         if not isinstance(f, types.FunctionType):
             raise TypeError("@instr decorator must be applied to a function")
 
-        return proc(f, _instr=instruction, _testing=_testing)
+        return proc(f, _instr=instruction)
 
     return inner
 
@@ -136,37 +136,34 @@ def compile_procs(proc_list, path, c_file, h_file):
 
 
 class Procedure(ProcedureBase):
-    def __init__(self, proc, _testing=None,
-                 _provenance_eq_Procedure=None,
-                 _mod_config=frozenset()):
+    def __init__(self, proc,
+                 _provenance_eq_Procedure: 'Procedure'=None, _mod_config=frozenset()):
         super().__init__()
 
-        if isinstance(proc, LoopIR.proc):
-            self._loopir_proc = proc
-        else:
-            assert isinstance(proc, UAST.proc)
+        if isinstance(proc, UAST.proc):
+            proc = TypeChecker(proc).get_loopir()
+            proc = InferEffects(proc).result()
+            CheckEffects(proc)
 
-            self._uast_proc = proc
-            if _testing != "UAST":
-                self._loopir_proc = TypeChecker(proc).get_loopir()
-                self._loopir_proc = InferEffects(self._loopir_proc).result()
-                CheckEffects(self._loopir_proc)
-
+        assert isinstance(proc, LoopIR.proc)
 
         # add this procedure into the equivalence tracking mechanism
-        if _testing != "UAST":
-            if _provenance_eq_Procedure:
-                derive_proc(_provenance_eq_Procedure._loopir_proc,
-                            self._loopir_proc,
-                            frozenset(_mod_config))
-            else:
-                decl_new_proc(self._loopir_proc)
+        if _provenance_eq_Procedure:
+            derive_proc(
+                _provenance_eq_Procedure._loopir_proc, proc, frozenset(_mod_config)
+            )
+        else:
+            decl_new_proc(proc)
+
+        self._loopir_proc = proc
 
     def __str__(self):
-        if hasattr(self,'_loopir_proc'):
-            return str(self._loopir_proc)
-        else:
-            return str(self._uast_proc)
+        return str(self._loopir_proc)
+
+    def __eq__(self, other):
+        if not isinstance(other, Procedure):
+            return False
+        return self._loopir_proc == other._loopir_proc
 
     def _repr_markdown_(self):
         return ("```python\n"+self.__str__()+"\n```")
