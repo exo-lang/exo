@@ -66,11 +66,8 @@ def golden(request):
             testpath.relative_to(basedir).with_suffix('') /
             request.node.name).with_suffix('.txt')
 
-    update = request.config.getoption("--update-golden")
-    if p.exists():
-        yield GoldenOutput(p, p.read_text(), update)
-    else:
-        yield GoldenOutput(p, None, update)
+    text = p.read_text() if p.exists() else None
+    yield GoldenOutput(p, text, request.config)
 
 
 @pytest.fixture
@@ -102,25 +99,34 @@ def sde64():
 class GoldenOutput(str):
     _missing = '\0'
 
-    def __new__(cls, path, text, update):
+    def __new__(cls, path, text, config):
         return str.__new__(cls, cls._missing if text is None else text)
 
-    def __init__(self, path, _, update):
+    def __init__(self, path, _, config):
         self.path = path
-        self.update = update
+        self.update = config.getoption("--update-golden")
+        self.verbose = config.getoption("verbose")
 
-    def __eq__(self, other):
-        if isinstance(other, GoldenOutput) and self.path != other.path:
+    def __eq__(self, actual):
+        if isinstance(actual, GoldenOutput) and self.path != actual.path:
             return False
 
         if super().__eq__(self._missing):
-            pytest.fail(f'Golden output undefined for {self.path}.\n'
-                        'Did you forget to run with --update-golden?')
+            message = f'golden output missing: {self.path}.\n'
 
-        equal = super().__eq__(other)
+            if self.verbose:
+                message += (f'Actual output:\n'
+                            f'{actual}\n'
+                            f'Did you forget to run with --update-golden?')
+            else:
+                message += 'Run with -v (verbose) to see actual output.'
+
+            pytest.fail(message)
+
+        equal = super().__eq__(actual)
         if not equal and self.update:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(str(other))
+            self.path.write_text(str(actual))
         return equal or self.update
 
 
