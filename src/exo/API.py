@@ -598,9 +598,9 @@ class Procedure(ProcedureBase):
                                            indexing).result()
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
-        if not unsafe_disable_checks:
-            # Running checkeffect here is necessary for bounds checking
-            CheckEffects(loopir)
+        #if not unsafe_disable_checks:
+        #    # Running checkeffect here is necessary for bounds checking
+        #    CheckEffects(loopir)
 
         return p
 
@@ -1190,16 +1190,20 @@ class Procedure(ProcedureBase):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "
                             "a positive integer")
-        if not isinstance(mode, str):
+        if not isinstance(mode, str) or (mode not in ('row','col')):
             raise TypeError("expected third argument 'mode' to be "
                             "'row' or 'col'")
-        if size and not isinstance(size, int):
+        if size is not None and not is_pos_int(size):
             raise TypeError("expected fourth argument 'size' to be "
-                            "an integer")
+                            "a positive integer")
+        if not isinstance(keep_dims, bool):
+            raise TypeError("expected fifth argument 'keep_dims' to be "
+                            "a boolean")
 
         p = self
 
-        stmts_len = len(self._find_stmt(alloc_site_pattern, default_match_no=None))
+        stmts_len = len(self._find_stmt(alloc_site_pattern,
+                                        default_match_no=None))
         for i in range(0, stmts_len):
             s = p._find_stmt(alloc_site_pattern, default_match_no=None)[i]
             if not isinstance(s, LoopIR.Alloc):

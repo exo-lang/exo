@@ -1368,11 +1368,30 @@ class _DoExpandDim(LoopIR_Rewrite):
         self.alloc_dim    = alloc_dim
         self.indexing     = indexing
         self.alloc_type   = None
+        self.new_alloc_stmt = False
+
+        # size positivity check
+        Check_IsPositiveExpr(proc, [alloc_stmt], alloc_dim)
 
         super().__init__(proc)
 
+        # bounds check
+        Check_Bounds(self.proc, self.new_alloc_stmt, self.after_alloc)
+
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        # this chunk of code just finds the statement block
+        # that comes after the allocation
+        stmts = super().map_stmts(stmts)
+        if self.new_alloc_stmt:
+            for i,s in enumerate(stmts):
+                if s is self.new_alloc_stmt:
+                    self.after_alloc = stmts[i+1:]
+                    break
+
+        return stmts
 
     def map_s(self, s):
         if s is self.alloc_stmt:
@@ -1385,8 +1404,10 @@ class _DoExpandDim(LoopIR_Rewrite):
             basetyp = old_typ.basetype()
             new_typ = T.Tensor(new_rngs, False, basetyp)
             self.alloc_type = new_typ
+            new_alloc = LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)
+            self.new_alloc_stmt = new_alloc
 
-            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
+            return [new_alloc]
 
         if (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
                 and s.name == self.alloc_sym):
