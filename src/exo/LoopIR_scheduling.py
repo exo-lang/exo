@@ -2509,10 +2509,11 @@ class _DoFuseIf(LoopIR_Rewrite):
 
 
 class _DoAddLoop(LoopIR_Rewrite):
-    def __init__(self, proc, stmt, var, hi):
+    def __init__(self, proc, stmt, var, hi, guard):
         self.stmt = stmt
         self.var  = Sym(var)
         self.hi   = hi
+        self.guard = guard
 
         super().__init__(proc)
 
@@ -2523,10 +2524,16 @@ class _DoAddLoop(LoopIR_Rewrite):
             Check_IsIdempotent(self.orig_proc, [s])
             Check_IsPositiveExpr(self.orig_proc, [s], self.hi)
 
-            sym = self.var
-            hi  = self.hi
-            ir  = LoopIR.ForAll(sym, hi, [s], None, s.srcinfo)
-            return [ir]
+            sym     = self.var
+            hi      = self.hi
+            body    = [s]
+            if self.guard:
+                rdsym   = LoopIR.Read(sym,[],T.index,s.srcinfo)
+                zero    = LoopIR.Const(0,T.int,s.srcinfo)
+                cond    = LoopIR.BinOp('==', rdsym, zero, T.bool, s.srcinfo)
+                body    = [LoopIR.If(cond, body, [], None, s.srcinfo)]
+            ir      = [LoopIR.ForAll(sym, hi, body, None, s.srcinfo)]
+            return ir
 
         return super().map_s(s)
 

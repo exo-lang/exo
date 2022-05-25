@@ -1,0 +1,8 @@
+def proc_s1():
+    x: f32 @ DRAM
+    if 1 < 2:
+        x = 1.0
+        x = 2.0
+    else:
+        x = 3.0
+        x = 4.0
