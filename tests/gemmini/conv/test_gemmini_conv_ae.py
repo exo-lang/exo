@@ -28,6 +28,108 @@ def conv_algorithm():
             for orow in par(0, out_dim):
                 for ocol in par(0, out_dim):
                     for och in par(0, out_channel):
+                        # initialize bias for the output
+                        output[b,orow,ocol,och] = bias[0,och]
+
+                        # do accumulations
+                        for krow in par(0, kernel_dim):
+                            for kcol in par(0, kernel_dim):
+                                for kch in par(0, in_channel):
+                                    output[b,orow,ocol,och] += (
+                                        inp[b,orow+krow,ocol+kcol,kch] *
+                                        weights[krow,kcol,kch,och])
+
+                        if act == True:
+                            output[b,orow,ocol,och] = relu(
+                                output[b,orow,ocol,och])
+
+    return conv
+
+class Scale_and_Clamp_is_Identity:
+    def __init__(self):
+        # form for matching
+        @proc
+        def scale_id(src : R, dst : R, scale : R):
+            match : R
+            match = scale
+            dst = src
+
+        # expansion with types
+        @proc
+        def scale_and_clamp(src : i32, dst : i8, scale : f32):
+            mid : f32
+            acc_scale(src, mid, scale)
+            clamp(mid, dst)
+
+        scale_and_clamp.unsafe_assert_eq(scale_id)
+
+        self._scale_id          = scale_id
+        self._scale_and_clamp   = scale_and_clamp
+
+    def replace(self, proc, stmt_pat, scale_expr):
+        stmtblock_pat = (f"m_a_t_c_h : _ ; "
+                         f"m_a_t_c_h = {scale_expr} ; "
+                         f"{stmt_pat}")
+        proc = (proc
+            .assign_new_var_before(stmt_pat, 'm_a_t_c_h', scale_expr)
+            .replace(self._scale_id, stmtblock_pat)
+            .call_eqv(self._scale_and_clamp, 'scale_id(_)')
+            .inline('scale_and_clamp(_)')
+        )
+
+        return proc
+
+
+def bind_prec(proc, name, prec, expr):
+    return (proc.bind_expr(name, expr)
+                .set_precision(name, prec))
+
+def test_make_simple_algorithm_precise(conv=None):
+    conv = conv or conv_algorithm()
+    conv = (conv.rename('complex_conv')
+        .stage_mem('output[b,orow,ocol,och]', 'res',
+                   'output[_]=_','if _:_')
+        .set_precision('res','i32')
+        .stage_mem('res','tmp_res2','if act==True:_','output[_]=_')
+        .set_precision('tmp_res2','i8')
+        .delete_dead_code('res = tmp_res2')
+    )
+    conv = bind_prec(conv, 'i_s', 'i8', 'inp[b,orow+krow,ocol+kcol,kch]')
+    conv = bind_prec(conv, 'w_s', 'i8', 'weights[krow,kcol,kch,och]')
+    conv = bind_prec(conv, 'a', 'i32', 'i_s')
+    conv = bind_prec(conv, 'b', 'i32', 'w_s')
+
+    scale_clamp = Scale_and_Clamp_is_Identity()
+    conv = scale_clamp.replace(conv, 'tmp_res2 = res', 'scale')
+
+    print(conv)
+
+#test_make_simple_algorithm_precise()
+
+def conv_algorithm_precise():
+    @proc
+    def conv(
+        batch_size : size,
+        out_dim    : size,
+        out_channel: size,
+        kernel_dim : size,
+        in_channel : size,
+        in_dim     : size,
+        output     : i8[batch_size, out_dim, out_dim, out_channel],
+        bias       : i32[1,out_channel],
+        inp        : i8[batch_size, in_dim, in_dim, in_channel],
+        weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
+        act        : bool,
+        scale      : f32
+        ):
+
+        assert out_dim == in_dim - kernel_dim + 1
+
+        # Algorithm starts here
+        for b in par(0, batch_size):
+            for orow in par(0, out_dim):
+                for ocol in par(0, out_dim):
+                    for och in par(0, out_channel):
 
                         res : i32
                         res = bias[0,och]
@@ -89,7 +191,7 @@ def test_conv_ae():
     T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, 'i+k*3+r')
 
     # Rename the conv algorithm to "conv_on_gemmini"
-    gemmini = conv_algorithm().rename("conv_on_gemmini")
+    gemmini = conv_algorithm_precise().rename("conv_on_gemmini")
 
     print("")
     print("===== THIS IS THE CONV ALGORITHM BEFORE SCHEDULING ====")
@@ -158,7 +260,7 @@ def test_conv_ae():
     # Schedule ends here, 44 lines excluding comments and newlines
 
 
-    cpu = conv_algorithm().rename("conv_on_cpu")
+    cpu = conv_algorithm_precise().rename("conv_on_cpu")
     cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
 
     # These lines are relevant if you want to run the generated C code with GEMMINI simulator

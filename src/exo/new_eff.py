@@ -1593,3 +1593,74 @@ def Check_IsPositiveExpr(proc, stmts, expr):
         raise SchedulingError(
             f"The expression {estr} is not guaranteed to be positive.")
 
+def Check_CodeIsDead(proc, stmts):
+    assert len(stmts) > 0
+    ctxt    = ContextExtraction(proc, stmts)
+
+    p       = ctxt.get_control_predicate()
+    G       = ctxt.get_pre_globenv()
+    ap      = ctxt.get_posteffs()
+    a       = G(stmts_effs(stmts))
+
+    # apply control predicate
+    a       = [E.Guard(AMay(p), a)]
+
+    # The basic question for dead code is to ask:
+    #       Is there any way that any memory modified by `stmts`
+    #       could possibly affect any other code that runs later?
+    #
+    # Let X be some memory location modified by `stmts`.
+    # If any code running after `stmts` reads/reduces/depends-on X,
+    #   then `stmts` is not dead.
+    # Otherwise if X is allocated local to `proc`, then `stmts`
+    #   is dead w.r.t. X
+    # Otherwise X is a global or an argument buffer;
+    #   If X is not definitely overwritten before exiting `proc`,
+    #   then `stmts` is not dead.
+    #
+    # The preceding analysis should never erroneously report code
+    # as dead when it is not.
+
+    Modp, WGp           = getsets([ES.MODIFY, ES.WRITE_G], G(a))
+    R_ap, Red_ap, W_ap  = getsets([ES.READ_ALL, ES.REDUCE,
+                                   ES.WRITE_ALL], ap)
+
+    # get a set of globals and function arguments that
+    # overapproximates the set of locations that might have been written
+    # and are all memory locations visible after the lifetime of `proc`
+    globs   = { pt.name : pt.typ
+                for pt in get_point_exprs(WGp) }
+    args    = { fa.name : len(fa.type.shape())
+                for fa in proc.args
+                if fa.type.is_numeric() }
+    # now we'll construct a location set out of these
+    Outside = LS.Empty()
+    for gnm,typ in globs.items():
+        Outside = LUnion(Outside, LS.Point(gnm, [], typ))
+    for nm,ndim in globs.items():
+        Outside = LUnion(Outside, LS.WholeBuf(nm,ndim))
+
+    # first condition
+    mod_unread_in_proc  = ADef(is_empty(LIsct( Modp,
+                                               LUnion(R_ap, Red_ap) )))
+    # second condition
+    mod_unread_outside  = ADef(is_empty(LIsct( LDiff(Modp, W_ap),
+                                               Outside )))
+
+    slv     = SMTSolver(verbose=False)
+    slv.push()
+    mod_unread_in_proc = slv.verify(mod_unread_in_proc)
+    mod_unread_outside = slv.verify(mod_unread_outside)
+    slv.pop()
+    if not mod_unread_in_proc:
+        raise SchedulingError(
+            f"Code is not dead, because values modified might be "
+            f"read later in this proc")
+    if not mod_unread_outside:
+        raise SchedulingError(
+            f"Code is not dead, because values modified might be "
+            f"read later outside this proc")
+
+
+
+

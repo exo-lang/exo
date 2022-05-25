@@ -21,6 +21,7 @@ from .new_eff import (
     Check_IsDeadAfter,
     Check_IsIdempotent,
     Check_IsPositiveExpr,
+    Check_CodeIsDead,
 )
 from .prelude import *
 
@@ -590,7 +591,88 @@ class _PartialEval(LoopIR_Rewrite):
         return super().map_eff_e(e)
 
 
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Renaming Buffers, and inserting junk statements into the code
 
+
+class _DoRenameBuf(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, new_name):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+        self.orig_proc  = proc
+        self.alloc_stmt = alloc_stmt
+        self.old_name   = self.alloc_stmt.name
+        self.new_name   = Sym(new_name)
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s is self.alloc_stmt:
+            return [s.update(name=self.new_name)]
+        elif (isinstance(s, (LoopIR.Assign,LoopIR.Reduce)) and
+              s.name == self.old_name):
+            return [s.update(name=self.new_name, rhs=self.map_e(s.rhs))]
+
+        # fall-through
+        return super().map_s(s)
+
+    def map_e(self,e):
+        if (isinstance(e,(LoopIR.Read,LoopIR.WindowExpr,LoopIR.StrideExpr))
+            and e.name == self.old_name):
+            typ = self.map_t(e.type)
+            return e.update(name=self.new_name, type=typ)
+        
+        # fall-through
+        return super().map_e(e)
+
+class _DoAssignNewVarBefore(LoopIR_Rewrite):
+    def __init__(self, proc, before_stmt, var_name, rhs):
+        assert isinstance(rhs, LoopIR.expr)
+        assert isinstance(before_stmt, LoopIR.stmt)
+        assert rhs.type.is_real_scalar()
+        self.orig_proc  = proc
+        self.before_stmt= before_stmt
+        self.new_rhs    = rhs
+        self.var_name   = Sym(var_name)
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        if s is self.before_stmt:
+            new_alloc = LoopIR.Alloc(self.var_name, T.R,
+                                     None, None, s.srcinfo)
+            new_write = LoopIR.Assign(self.var_name, T.R, None, [],
+                                      self.new_rhs, None, s.srcinfo)
+            return [ new_alloc, new_write, s ]
+
+        # fall-through
+        return super().map_s(s)
+
+    def map_e(self,e):
+        return e
+
+class _DoDeleteDeadCode(LoopIR_Rewrite):
+    def __init__(self, proc, block):
+        assert (isinstance(block, list) and
+                all( isinstance(s, LoopIR.stmt) for s in block ))
+        self.orig_proc  = proc
+        self.del_block  = block
+
+        Check_CodeIsDead(proc, block)
+
+        super().__init__(proc)
+
+    def map_stmts(self, stmts):
+        try:
+            start   = stmts.index(self.del_block[0])
+            stop    = start + len(self.del_block)
+            if stmts[start:stop] == self.del_block:
+                return stmts[:start] + stmts[stop:]
+        except ValueError:
+            pass
+
+        # fall-through if we didn't find the block
+        return super().map_stmts(stmts)
 
 
 # --------------------------------------------------------------------------- #
@@ -3424,6 +3506,9 @@ class _DoBoundAlloc(LoopIR_Rewrite):
 # The Passes to export
 
 class Schedules:
+    DoRenameBuf = _DoRenameBuf
+    DoAssignNewVarBefore = _DoAssignNewVarBefore
+    DoDeleteDeadCode = _DoDeleteDeadCode
     DoReorder = _Reorder
     DoSplit = _Split
     DoUnroll = _Unroll

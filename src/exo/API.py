@@ -505,6 +505,35 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    def rename_buf(self, orig_alloc, new_name):
+        if not isinstance(orig_alloc, str):
+            raise TypeError("expected first arg to be a string")
+        elif not is_valid_name(new_name):
+            raise TypeError("expected second arg to be a valid name string")
+
+        stmt   = self._find_stmt(orig_alloc, default_match_no=None)
+        loopir = self._loopir_proc
+        loopir = Schedules.DoRenameBuf(loopir, stmt[0], new_name).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def assign_new_var_before(self, before_stmt, var_name, rhs_expr):
+        if not isinstance(before_stmt, str):
+            raise TypeError("expected first arg to be a string")
+        if not is_valid_name(var_name):
+            raise TypeError("expected second arg to be a valid name string")
+        if not isinstance(rhs_expr, str):
+            raise TypeError("expected third arg to be a string")
+
+        before_stmt = self._find_stmt(before_stmt, default_match_no=None)
+        loopir  = self._loopir_proc
+        rhs_expr= parse_fragment(loopir, rhs_expr, before_stmt[0])
+        if not rhs_expr.type.is_real_scalar():
+            raise ValueError("expected rhs expression to have scalar type")
+        loopir  = Schedules.DoAssignNewVarBefore(loopir, before_stmt[0],
+                                                var_name, rhs_expr).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
 
     def split(self, split_var, split_const, out_vars,
               tail='guard', perfect=False):
@@ -741,6 +770,16 @@ class Procedure(ProcedureBase):
     def delete_pass(self):
         loopir = self._loopir_proc
         loopir = Schedules.DoDeletePass(loopir).result()
+
+        return Procedure(loopir, _provenance_eq_Procedure=self)
+
+    def delete_dead_code(self, pat):
+        if not isinstance(pat, str):
+            raise TypeError("expected first arg to be a pattern in string")
+
+        block  = self._find_stmt(pat, default_match_no=None)
+        loopir = self._loopir_proc
+        loopir = Schedules.DoDeleteDeadCode(loopir, block).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
