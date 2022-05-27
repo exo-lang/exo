@@ -111,7 +111,7 @@ class GoldenOutput(str):
         if isinstance(actual, GoldenOutput) and self.path != actual.path:
             return False
 
-        if super().__eq__(self._missing):
+        if super().__eq__(self._missing) and not self.update:
             # Hides this stack frame in the PyTest traceback.
             __tracebackhide__ = True
 
