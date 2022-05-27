@@ -262,6 +262,32 @@ def test_lift_alloc_simple2(golden):
     assert str(bar) == golden
 
 
+def test_lift_alloc_simple3(golden):
+    @proc
+    def bar(n: size, A: i8[n]):
+        for k in seq(0, n):
+            for i in seq(0, n):
+                for j in seq(0, n):
+                    tmp_a: i8
+                    tmp_a = A[i]
+
+    bar = bar.lift_alloc_simple('tmp_a : _', n_lifts=3)
+    assert str(bar) == golden
+
+def test_lift_alloc_simple_fv_error():
+    @proc
+    def bar(n: size, A: i8[n]):
+        for k in seq(0, n):
+            for i in seq(0, n):
+                for j in seq(0, n):
+                    tmp_a: i8[k + 1]
+                    tmp_a[k] = A[i]
+
+    with pytest.raises(SchedulingError,
+            match='Cannot lift allocation statement'):
+        bar = bar.lift_alloc_simple('tmp_a : _', n_lifts=3)
+
+
 def test_lift_alloc_simple_error():
     @proc
     def bar(n: size, A: i8[n]):
@@ -634,6 +660,17 @@ def test_simple_lift_alloc(golden):
 
     bar = bar.lift_alloc('tmp_a : _', n_lifts=1)
     assert str(bar) == golden
+
+def test_lift_alloc_fv_error():
+    @proc
+    def bar(n: size, A: i8[n]):
+        for i in par(0, n):
+            tmp_a: i8[i+1]
+            tmp_a[i] = A[i]
+
+    with pytest.raises(SchedulingError,
+                       match='cannot lift allocation through loop'):
+        bar = bar.lift_alloc('tmp_a : _', n_lifts=1)
 
 
 def test_simple_fission(golden):

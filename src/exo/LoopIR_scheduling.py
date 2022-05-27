@@ -1369,6 +1369,7 @@ class _DoExpandDim(LoopIR_Rewrite):
         self.indexing     = indexing
         self.alloc_type   = None
         self.new_alloc_stmt = False
+        self.in_call_arg  = False
 
         # size positivity check
         Check_IsPositiveExpr(proc, [alloc_stmt], alloc_dim)
@@ -1416,12 +1417,24 @@ class _DoExpandDim(LoopIR_Rewrite):
             return [type(s)( s.name, s.type, s.cast,
                              idx, rhs, None, s.srcinfo )]
 
+        if isinstance(s, LoopIR.Call):
+            self.in_call_arg = True
+            args = [ self.map_e(a) for a in s.args ]
+            self.in_call_arg = False
+            return [LoopIR.Call(s.f, args, None, s.srcinfo)]
+
+
         return super().map_s(s)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            idx = [self.indexing] + [ self.map_e(i) for i in e.idx ]
-            return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
+            if self.in_call_arg and len(e.idx) == 0:
+                raise SchedulingError(
+                    "TODO: Please Contact the developers to fix (i.e. add) "
+                    "support for passing windows to scalar arguments")
+            else:
+                idx = [self.indexing] + [ self.map_e(i) for i in e.idx ]
+                return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
 
         if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
             idx = ([ LoopIR.Point(self.indexing, e.srcinfo) ] +
@@ -1544,6 +1557,14 @@ class _DoLiftAllocSimple(LoopIR_Rewrite):
                                       f"is more than {len(self.ctrl_ctxt)}, "
                                       f"the number of loops "
                                       f"and ifs above the allocation")
+            if len(s.type.shape()) > 0:
+                szvars  = set.union(*[ _FV(sz) for sz in s.type.shape() ])
+                for i in self.get_ctrl_iters():
+                    if i in szvars:
+                        raise SchedulingError(
+                            f"Cannot lift allocation statement {s} past loop "
+                            f"with iteration variable {i} because "
+                            f"the allocation size depends on {i}.")
             self.lift_site = self.ctrl_ctxt[-self.n_lifts]
 
             return []
@@ -1566,6 +1587,10 @@ class _DoLiftAllocSimple(LoopIR_Rewrite):
 
         return super().map_s(s)
 
+    def get_ctrl_iters(self):
+        return [ s.iter for s in self.ctrl_ctxt[-self.n_lifts:]
+                        if isinstance(s, (LoopIR.ForAll, LoopIR.Seq)) ]
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -1576,9 +1601,7 @@ class _LiftAlloc(LoopIR_Rewrite):
         assert isinstance(alloc_stmt, LoopIR.Alloc)
         assert is_pos_int(n_lifts)
 
-        if mode not in ('row', 'col'):
-            raise SchedulingError(
-                f"Unknown lift mode {mode}, should be 'row' or 'col'")
+        assert mode in ('row', 'col')
 
         self.orig_proc    = proc
         self.alloc_stmt   = alloc_stmt
@@ -1701,6 +1724,7 @@ class _LiftAlloc(LoopIR_Rewrite):
 
             # if self._in_call_arg:
             if e.type.is_real_scalar():
+                assert not self._in_call_arg
                 idx = self.idx_mode(
                     [LoopIR.Read(i, [], T.index, e.srcinfo)
                      for i in self.access_idxs],
@@ -1754,15 +1778,7 @@ class _LiftAlloc(LoopIR_Rewrite):
                 # note, do not accrue false dependencies
                 if s.iter in self.alloc_deps or self.keep_dims:
                     idxs.append(s.iter)
-                    if isinstance(s.hi, LoopIR.Read):
-                        assert s.hi.type.is_indexable()
-                        assert len(s.hi.idx) == 0
-                    elif isinstance(s.hi, LoopIR.Const):
-                        assert s.hi.type == T.int
-                    elif isinstance(s.hi, LoopIR.BinOp):
-                        assert s.hi.type.is_indexable()
-                    else:
-                        assert False, "bad case"
+                    assert s.hi.type.is_indexable()
 
                     if self.lift_size is not None:
                         assert isinstance(self.lift_size, int)
@@ -1788,6 +1804,17 @@ class _LiftAlloc(LoopIR_Rewrite):
                 pass
             else:
                 assert False, "bad case"
+
+        # Check that scoping works out ok for different index variables
+        # and range expressions
+        FVs = set.union(*( [ _FV(r) for r in rngs ]
+                          +[ _FV(n) for n in self.alloc_stmt.type.shape()]))
+        for i in idxs:
+            if i in FVs:
+                raise SchedulingError(
+                    f"cannot lift allocation through loop with iteration "
+                    f"variable {i}, because the alloc statement depends on "
+                    f"that variable")
 
         return idxs, rngs
 
