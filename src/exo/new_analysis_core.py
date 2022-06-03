@@ -48,6 +48,7 @@ module AExpr {
             | Not( expr arg )
             | USub( expr arg )
             | Const( object val )
+            | ConstSym( sym name ) -- represents a named, opaque value
             | BinOp( binop op, expr lhs, expr rhs )
             | Stride( sym name, int dim )
             | LetStrides( sym name, expr* strides, expr body )
@@ -231,6 +232,8 @@ def _estr(e, prec=0, tab=""):
         return f"-{_estr(e.arg,op_prec['unary'],tab=tab)}"
     elif isinstance(e, A.Const):
         return str(e.val)
+    elif isinstance(e, A.ConstSym):
+        return f"CONST({e.name})"
     elif isinstance(e, A.BinOp):
         local_prec = op_prec[e.op]
         lhs = _estr(e.lhs, prec=local_prec,tab=tab)
@@ -310,7 +313,7 @@ def aeFV(e,env=None):
             return {e.name : e.type}
         else:
             return dict()
-    elif isinstance(e, (A.Unk,A.Const)):
+    elif isinstance(e, (A.Unk,A.Const,A.ConstSym)):
         return dict()
     elif isinstance(e, (A.Not,A.USub,A.Definitely, A.Maybe)):
         return aeFV(e.arg,env)
@@ -403,7 +406,7 @@ def aeNegPos(e,pos,env=None,res=None):
             old_pos     = env[e.name]
             if pos != old_pos:
                 env[e.name] = '0'
-    elif isinstance(e, (A.Unk,A.Const,A.Stride)):
+    elif isinstance(e, (A.Unk,A.Const,A.Stride,A.ConstSym)):
         pass
     elif isinstance(e, A.Not):
         negpos = ('-' if pos == '+' else
@@ -529,6 +532,8 @@ class SMTSolver:
     def __init__(self, verbose=False):
         self.env            = ChainMap()
         self.stride_sym     = ChainMap()
+        self.const_sym      = dict()
+        self.const_sym_count= 1
         self.solver         = _get_smt_solver()
         self.verbose        = verbose
         self.z3             = Z3SubProc()
@@ -568,41 +573,6 @@ class SMTSolver:
                 lines.append('')
             lines += lns
         return "\n".join(lines)
-
-    # deprecated
-    def defvar(self, names, rhs):
-        """ bind will make sure the provided names are equal to
-            the provided right-hand-sides for the remainder of the
-            scope that we're in """
-        # note that it's important that we
-        # lower all right-hand-sides before calling _newvar
-        # or else the name shadowing might be incorrect
-        smt_rhs         = [ self._lower(e) for e in rhs ]
-        self.frames[-1].add_bind(names, rhs, smt_rhs)
-        self._bind_internal(names, smt_rhs, [ e.type for e in rhs ])
-
-    #def bind_tuple(self, names, rhs):
-    #    """ bind will make sure the provided names are equal to
-    #        the provided right-hand-sides for the remainder of the
-    #        scope that we're in.
-    #        bind_tuple will simultaneously bind the whole list of
-    #        names to a tuple-type right-hand-side """
-    #    smt_rhs         = self._lower(rhs)
-    #    self.frames[-1].add_tuple_bind(names, rhs, smt_rhs)
-    #    self._bind_internal(e.names, smt_rhs, rhs.type)
-
-    # deprecated
-    def _def_internal(self, names, smt_rhs, typs):
-        # we further must handle the cases where the variables
-        # being defined are classical vs. ternary
-        for x,smt_e,typ in zip(names,smt_rhs,typs):
-            smt_sym     = self._newvar(x, typ, is_ternary(smt_e))
-            EQ          = SMT.Iff if typ == T.bool else SMT.Equals
-            if is_ternary(smt_e):
-                self.solver.add_assertion(EQ(smt_sym.v, smt_e.v))
-                self.solver.add_assertion(SMT.Iff(smt_sym.d, smt_e.d))
-            else:
-                self.solver.add_assertion(EQ(smt_sym, smt_e))
 
     def _bind(self, names, rhs):
         """ bind will make sure the provided names are equal to
@@ -709,19 +679,35 @@ class SMTSolver:
         sym     = self.stride_sym[key]
         return sym
 
+    def _get_const_sym_val(self, name):
+        if name not in self.const_sym:
+            self.const_sym[name] = self.const_sym_count
+            self.const_sym_count += 1
+        return SMT.Int(self.const_sym[name])
+
+    def _get_real_const(self, val):
+        if val not in self.const_sym:
+            self.const_sym[name] = self.const_sym_count
+            self.const_sym_count += 1
+        return SMT.Int(self.const_sym[name])
+
     def _getvar(self,sym, typ=T.index):
         if sym not in self.env:
             if typ.is_indexable() or typ.is_stridable():
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
             elif typ is T.bool:
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
+            elif typ.is_real_scalar():
+                self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
+            else:
+                assert False, f"bad type: {typ}"
         return self.env[sym]
 
     def _newvar(self,sym, typ=T.index, ternary=False):
         """ make sure that we have a new distinct copy of this name."""
         nm = repr(sym) if sym not in self.env else repr(sym.copy())
-        smt_typ     = (SMT.INT if typ.is_indexable() or typ.is_stridable()
-                            else SMT.BOOL)
+        smt_typ     = (SMT.BOOL if typ == T.bool else SMT.INT)
+
         smt_sym     = SMT.Symbol(nm, smt_typ)
         if ternary:
             self.env[sym] = TernVal(smt_sym, SMT.Symbol(nm+"_def", SMT.BOOL))
@@ -755,8 +741,14 @@ class SMTSolver:
                 return SMT.Bool(e.val)
             elif e.type.is_indexable():
                 return SMT.Int(e.val)
+            elif e.type.is_real_scalar():
+                return self._get_real_const(e.val)
             else:
                 assert False, f"unrecognized const type: {type(e.val)}"
+        elif isinstance(e, A.ConstSym):
+            # convert constant symbol to a unique integer for this symbol
+            assert e.type.is_real_scalar()
+            return self._get_const_sym_val(e.name)
         elif isinstance(e, A.Var):
             return self._getvar(e.name, e.type)
         elif isinstance(e, A.Unk):
@@ -902,6 +894,9 @@ class SMTSolver:
                     val = SMT.Equals(lhs, rhs)
                 elif (e.lhs.type.is_stridable() and
                       e.rhs.type.is_stridable()):
+                    val = SMT.Equals(lhs, rhs)
+                elif (e.lhs.type == e.rhs.type):
+                    assert e.lhs.type.is_real_scalar()
                     val = SMT.Equals(lhs, rhs)
                 else:
                     assert False, "bad case"

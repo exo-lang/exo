@@ -402,23 +402,6 @@ def test_expand_dim5(golden):
     foo = foo.expand_dim('a : i8', 'n', 'i')
     assert str(foo) == golden
 
-
-def test_double_fission(golden):
-    @proc
-    def foo(N: size, a: f32[N], b: f32[N], out: f32[N]):
-        for i in par(0, N):
-            res: f32
-            res = 0.0
-
-            res += a[i] * b[i]
-
-            out[i] = res
-
-    foo = foo.lift_alloc('res : _')
-    foo = foo.double_fission('res = _ #0', 'res += _ #0')
-    assert str(foo) == golden
-
-
 def test_data_reuse(golden):
     @proc
     def foo(a: f32 @ DRAM, b: f32 @ DRAM):
@@ -802,10 +785,10 @@ def test_unify4(golden):
                 dst[i] = src[i] + src[i + 1]
 
     @proc
-    def foo(x: R[50, 2]):
+    def foo(x: R[50, 2], y : R[50, 2]):
         for j in par(0, 50):
             if j < 48:
-                x[j, 1] = x[j, 0] + x[j + 1, 0]
+                y[j, 1] = x[j, 0] + x[j + 1, 0]
 
     foo = foo.replace(bar, "for j in _ : _")
     assert str(foo) == golden

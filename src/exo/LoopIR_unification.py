@@ -12,6 +12,7 @@ from .LoopIR import (LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars,
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
+from .new_eff import Check_Aliasing
 
 
 def _get_smt_solver():
@@ -48,6 +49,7 @@ class DoReplace(LoopIR_Rewrite):
         self.live_vars      = ChainMap()
 
         super().__init__(proc)
+        Check_Aliasing(self.proc)
         # fix up effects post-hoc
         # self.proc = InferEffects(self.proc).result()
         # and then check that all effect-check conditions are

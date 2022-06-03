@@ -2,8 +2,8 @@ from collections import OrderedDict
 from enum import Enum
 from itertools import chain
 
-from .LoopIR import Alpha_Rename, SubstArgs
-from .configs import reverse_config_lookup
+from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
+from .configs import reverse_config_lookup, Config
 from .new_analysis_core import *
 from .proc_eqv import get_repr_proc
 
@@ -274,6 +274,38 @@ def AEnvPar(bind_dict, addnames=False):
 # --------------------------------------------------------------------------- #
 # Basic Global Dataflow Analysis
 
+def filter_reals(e, changeset):
+    def rec(e):
+        if isinstance(e, A.ConstSym):
+            if e.name in changeset:
+                return A.Unk(e.type, e.srcinfo)
+            else:
+                return e
+        elif isinstance(e, (A.Not,A.USub,A.ForAll,A.Exists,
+                            A.Definitely,A.Maybe)):
+            return e.update(arg     = rec(e.arg))
+        elif isinstance(e, A.BinOp):
+            return e.update(lhs     = rec(e.lhs),
+                            rhs     = rec(e.rhs))
+        elif isinstance(e, A.LetStrides):
+            return e.update(strides = [rec(s) for s in e.strides],
+                            body    = rec(e.body))
+        elif isinstance(e, A.Select):
+            return e.update(cond    = rec(e.cond),
+                            tcase   = rec(e.tcase),
+                            fcase   = rec(e.fcase))
+        elif isinstance(e, A.Tuple):
+            return e.update(args    = [rec(a) for a in e.args])
+        elif isinstance(e, A.LetTuple):
+            return e.update(rhs     = rec(e.rhs),
+                            body    = rec(e.body))
+        elif isinstance(e, A.Let):
+            return e.update(rhs     = [rec(a) for a in e.rhs],
+                            body    = rec(e.body))
+        else:
+            return e
+
+    return rec(e)
 
 def lift_e(e):
     if isinstance(e, LoopIR.WindowExpr):
@@ -307,6 +339,16 @@ def lift_e(e):
                 return A.Var( globname, e.type, e.srcinfo )
             else: f"bad case: {type(e)}"
         else:
+            assert e.type.is_numeric()
+            if e.type.is_real_scalar():
+                if isinstance(e, LoopIR.Const):
+                    return A.Const(e.val, e.type, e.srcinfo)
+                elif isinstance(e, LoopIR.Read):
+                    return A.ConstSym(e.name, e.type, e.srcinfo)
+                elif isinstance(e, LoopIR.ReadConfig):
+                    globname = e.config._INTERNAL_sym(e.field)
+                    return A.Var( globname, e.type, e.srcinfo )
+            
             return A.Unk(T.err, e.srcinfo)
 
 def lift_es(es):
@@ -316,11 +358,9 @@ def globenv(stmts):
     aenvs = []
     for s in stmts:
         if isinstance(s, LoopIR.WriteConfig):
-            # don't bother tracking 
-            if not s.rhs.type.is_numeric():
-                globname    = s.config._INTERNAL_sym(s.field)
-                rhs         = lift_e(s.rhs)
-                aenvs.append(AEnv(globname, rhs, addnames=True))
+            globname    = s.config._INTERNAL_sym(s.field)
+            rhs         = lift_e(s.rhs)
+            aenvs.append(AEnv(globname, rhs, addnames=True))
         elif isinstance(s, LoopIR.WindowStmt):
             win         = lift_e(s.rhs)
             aenvs.append(AEnv(s.lhs, win))
@@ -673,7 +713,7 @@ module EffectsNew {
          | BindEnv      ( aenv env )
          --
          | GlobalRead   ( sym name, type   type   )
-         | GlobalWrite  ( sym name, type   type   )
+         | GlobalWrite  ( sym name, type   type,  aexpr? rhs )
          | Read         ( sym name, aexpr* coords )
          | Write        ( sym name, aexpr* coords )
          | Reduce       ( sym name, aexpr* coords )
@@ -702,7 +742,9 @@ def _effstr(eff,tab=""):
         return f"{tab}{eff.env}"
     elif isinstance(eff, (E.GlobalRead, E.GlobalWrite)):
         nm = 'GlobalRead' if isinstance(eff, E.GlobalRead) else 'GlobalWrite'
-        return f"{tab}{nm}({eff.name},{eff.type})"
+        rhs = ('' if isinstance(eff, E.GlobalRead) or not eff.rhs else
+               f",{eff.rhs}")
+        return f"{tab}{nm}({eff.name},{eff.type}{rhs})"
     elif isinstance(eff, (E.Read, E.Write, E.Reduce)):
         nm = ('Read'    if isinstance(eff, E.Read) else
               'Write'   if isinstance(eff, E.Write) else
@@ -733,9 +775,10 @@ class ES(Enum):
     REDUCE      = 9
     ALL         = 10
     MODIFY      = 11
-    READ_WRITE  = 12
+    MODIFY_H    = 12
+    READ_WRITE  = 13
 
-    ALLOC       = 13
+    ALLOC       = 14
 
 def get_basic_locsets(effs):
     RG = LS.Empty()
@@ -807,6 +850,7 @@ def getsets(codes, effs):
     WAll    = LUnion(WG, WH)
     Red     = LDiff(preRed, WH)
     Mod     = LUnion(WAll, preRed)
+    ModH    = LUnion(WH, preRed)
     RW      = LUnion(RAll, WAll)
     All     = LUnion(RW, preRed)
     def get_code(code):
@@ -830,6 +874,8 @@ def getsets(codes, effs):
             return All
         elif code == ES.MODIFY:
             return Mod
+        elif code == ES.MODIFY_H:
+            return ModH
         elif code == ES.READ_WRITE:
             return RW
         elif code == ES.ALLOC:
@@ -837,6 +883,71 @@ def getsets(codes, effs):
         else: assert False, f"bad case: {code}"
 
     return [get_code(c) for c in codes]
+
+
+def get_changing_globals(effs):
+
+    RG = LS.Empty()
+    WG = LS.Empty()
+    RH = LS.Empty()
+    WH = LS.Empty()
+    Red = LS.Empty()
+    Alc = LS.Empty()
+    for eff in reversed(effs):
+        if isinstance(eff, E.Empty):
+            pass
+
+        elif isinstance(eff, E.GlobalRead):
+            ls1 = LS.Point(eff.name, [], eff.type)
+            RG  = LUnion(ls1, RG)
+        elif isinstance(eff, E.GlobalWrite):
+            ls1 = LS.Point(eff.name, [], eff.type)
+            RG  = LDiff(RG, ls1)
+            WG  = LUnion(ls1, WG)
+        elif isinstance(eff, E.Read):
+            ls1 = LS.Point(eff.name, eff.coords, None)
+            RH  = LUnion(ls1, RH)
+        elif isinstance(eff, E.Write):
+            ls1 = LS.Point(eff.name, eff.coords, None)
+            RH  = LDiff(RH, ls1)
+            WH  = LUnion(ls1, WH)
+        elif isinstance(eff, E.Reduce):
+            ls1 = LS.Point(eff.name, eff.coords, None)
+            Red = LUnion(ls1, Red)
+
+        elif isinstance(eff, E.Alloc):
+            RG  = LHideAlloc(eff.name, RG)
+            WG  = LHideAlloc(eff.name, WG)
+            RH  = LHideAlloc(eff.name, RH)
+            WH  = LHideAlloc(eff.name, WH)
+            Red = LHideAlloc(eff.name, Red)
+            Alc = LUnion(Alc, LS.WholeBuf(eff.name, eff.ndim))
+
+        elif isinstance(eff, E.BindEnv):
+            RG  = LLetEnv(eff.env, RG)
+            WG  = LLetEnv(eff.env, WG)
+            RH  = LLetEnv(eff.env, RH)
+            WH  = LLetEnv(eff.env, WH)
+            Red = LLetEnv(eff.env, Red)
+
+        elif isinstance(eff, (E.Guard,E.Loop)):
+            bodyLs = get_basic_locsets(eff.body)
+            if isinstance(eff, E.Guard):
+                bodyLs = tuple( LFilter(eff.cond, Ls) for Ls in bodyLs )
+            else:
+                bodyLs = tuple( LBigUnion(eff.name, Ls) for Ls in bodyLs )
+            bRG, bWG, bRH, bWH, bRed, bAlc= bodyLs
+
+            # now do the full interaction updates...
+            RG  = LUnion(bRG, LDiff(RG, bWG))
+            WG  = LUnion(bWG, WG)
+            RH  = LUnion(bRH, LDiff(RH, bWH))
+            WH  = LUnion(bWH, WH)
+            Red = LUnion(bRed, Red)
+
+        else: assert False, f"bad case: {type(eff)}"
+
+    return (RG,WG,RH,WH,Red,Alc)
 
 
 
@@ -886,7 +997,9 @@ def stmts_effs(stmts):
         elif isinstance(s, LoopIR.WriteConfig):
             effs += expr_effs(s.rhs)
             globname = s.config._INTERNAL_sym(s.field)
-            effs.append( E.GlobalWrite(globname, s.config.lookup(s.field)[1]) )
+            effs.append( E.GlobalWrite(globname,
+                                       s.config.lookup(s.field)[1],
+                                       lift_e(s.rhs)) )
         elif isinstance(s, LoopIR.If):
             effs += expr_effs(s.cond)
             effs += [ E.Guard( lift_e(s.cond), stmts_effs(s.body) ),
@@ -903,10 +1016,14 @@ def stmts_effs(stmts):
         elif isinstance(s, LoopIR.Call):
             # must filter out arguments that are simply
             # Read of a numeric buffer, since those arguments are
-            # passed by reference, not by reading and passing a value
+            # passed by reference, not by reading and passing a value.
+            # Must also filter out numeric ReadConfigs, since those are
+            # likewise being passed by reference, not being accessed
             for fa,a in zip(s.f.args, s.args):
                 if fa.type.is_numeric() and isinstance(a, LoopIR.Read):
                     pass # this is the case we want to skip
+                elif fa.type.is_numeric() and isinstance(a, LoopIR.ReadConfig):
+                    pass
                 else:
                     effs += expr_effs(a)
             sub_proc    = get_simple_proc(s.f)
@@ -936,6 +1053,46 @@ def proc_effs(proc):
     return _proc_effs_cache[proc]
     raise NotImplementedError("TODO")
 
+_proc_changeset_cache = dict()
+def proc_changing_scalars(proc):
+    if proc not in _proc_changeset_cache:
+        _proc_changeset_cache[proc] = get_changing_scalars(proc.body)
+    return _proc_changeset_cache[proc]
+
+def get_changing_scalars(stmts, changeset=None, aliases=None):
+    aliases     = aliases or dict()
+    changeset   = changeset or set()
+    def add_name(name):
+        changeset.add(name)
+        while name in aliases:
+            name = aliases[name]
+            changeset.add(name)
+    for s in stmts:
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            if len(s.idx) == 0:
+                add_name(s.name)
+        elif isinstance(s, LoopIR.If):
+            get_changing_scalars(s.body, changeset, aliases)
+            get_changing_scalars(s.orelse, changeset, aliases)
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            get_changing_scalars(s.body, changeset, aliases)
+        elif isinstance(s, LoopIR.Call):
+            for fa,a in zip(s.f.args, s.args):
+                if fa.type.is_numeric():
+                    if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)):
+                        aliases[fa.name] = a.name
+                    else:
+                        assert isinstance(a, LoopIR.ReadConfig)
+                        # ignore these; check that they don't matter elsewhere
+            pchgs = proc_changing_scalars(s.f)
+            for nm in pchgs:
+                add_name(nm)
+        elif isinstance(s, LoopIR.WindowStmt):
+            aliases[s.lhs] = s.rhs.name
+        else:
+            pass
+
+    return changeset
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -1182,6 +1339,19 @@ class SchedulingError(Exception):
         return ops
 
 
+def loop_globenv_eff(iter, lo_hi, body):
+    if type(lo_hi) is not pair:
+        lo, hi = lo_hi
+    else:
+        lo, hi = AInt(0), lo_hi
+
+    body_env    = E.BindEnv( globenv(body) )
+    guard_env   = E.Guard(AAnd( lo <= AInt(iter),
+                                AInt(iter) < hi ), [body_env])
+    loop_env    = E.Loop(iter, [guard_env])
+    return [loop_env]
+
+
 def Check_ReorderStmts(proc, s1, s2):
     ctxt = ContextExtraction(proc, [s1, s2])
 
@@ -1262,6 +1432,7 @@ def Check_ReorderLoops(proc, s):
 #
 def Check_FissionLoop(proc, loop, stmts1, stmts2):
     ctxt    = ContextExtraction(proc, [loop])
+    chgG    = get_changing_scalars(proc.body)
 
     p       = ctxt.get_control_predicate()
     G       = ctxt.get_pre_globenv()
@@ -1277,10 +1448,12 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
     subenv  = { i : LoopIR.Read(j, [], T.index, null_srcinfo()) }
     stmts1_j= SubstArgs(stmts1, subenv).result()
 
+    EGloop  = []#loop_globenv_eff(i, AInt(j), stmts1)
+
     a_bd    = expr_effs(hi)
     a1      = stmts_effs(stmts1)
-    a1_j    = stmts_effs(stmts1_j)
-    a2      = stmts_effs(stmts2)
+    a1_j    = EGloop + stmts_effs(stmts1_j)
+    a2      = EGloop + stmts_effs(stmts2)
 
     def bds(x,hi):
         return AAnd(AInt(0) <= AInt(x), AInt(x) < lift_e(hi))
@@ -1294,7 +1467,8 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
                                  AAnd(Commutes(a1_j, a2),
                                       AllocCommutes(a1, a2)) )))
 
-    pred    = G(AAnd(no_bound_change, stmts_commute))
+    pred    = filter_reals( G(AAnd(no_bound_change, stmts_commute)), chgG )
+    #pred    = G(AAnd(no_bound_change, stmts_commute))
     is_ok   = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1662,5 +1836,144 @@ def Check_CodeIsDead(proc, stmts):
             f"read later outside this proc")
 
 
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# The following is a kludge to prevent aliasing problems
+# and problems stemming from passing real_scalar configuration variables
+# as data arguments to functions (related, but distinct)
+
+
+class _OverApproxEffects(LoopIR_Do):
+    """ Computes all buffers and globals potentially accessed by a proc
+        or any sub-procs transitively """
+    def __init__(self, proc):
+        self._touched   = set()
+        self._aliases   = dict()
+        self._globals   = set()
+
+        super().__init__(proc)
+
+        # filter the results down to arguments and globals
+        args = { fa.name for fa in proc.args }
+        self._touched = { nm for nm in self._touched
+                          if nm in self._globals or nm in args }
+
+    def results(self):
+        return self._touched
+
+    def add_name(self, name):
+        self._touched.add(name)
+        while name in self._aliases:
+            name = self._aliases[name]
+            self._touched.add(name)
+
+    def do_s(self, s):
+        if isinstance(s, (LoopIR.Assign,LoopIR.Reduce)):
+            self.add_name(s.name)
+        elif isinstance(s, LoopIR.WriteConfig):
+            globname = s.config._INTERNAL_sym(s.field)
+            self.add_name(globname)
+            self._globals.add(globname)
+        elif isinstance(s, LoopIR.Call):
+            # build translation of the results of analysis from the sub-proc
+            for fa,a in zip(s.f.args, s.args):
+                # treat numeric arguments as aliases rather than
+                # accesses to the corresponding expressions
+                if fa.type.is_numeric():
+                    if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)):
+                        self._aliases[fa.name] = a.name
+                        if isinstance(a, LoopIR.Read):
+                            for i in a.idx:
+                                self.do_e(i)
+                        else:
+                            for w in a.idx:
+                                self.do_w_access(w)
+                    else:
+                        assert isinstance(a, LoopIR.ReadConfig)
+                        globname = a.config._INTERNAL_sym(a.field)
+                        self._aliases[fa.name] = globname
+                else:
+                    self.do_e(a)
+            # now add all effect approximations from the sub-proc
+            for name in overapprox_proc_effs(s.f):
+                self.add_name(name)
+            return # don't call do_e on all of the arguments
+        elif isinstance(s, LoopIR.WindowStmt):
+            self._aliases[s.lhs] = s.rhs.name
+
+        super().do_s(s)
+
+    def do_e(self, e):
+        if isinstance(s, LoopIR.Read):
+            self.add_name(e.name)
+        elif isinstance(s, LoopIR.ReadConfig):
+            globname = e.config._INTERNAL_sym(e.field)
+            self.add_name(globname)
+            self._globals.add(globname)
+
+        super().do_s(s)
+
+_overapprox_proc_cache = dict()
+def overapprox_proc_effs(proc):
+    if proc not in _overapprox_proc_cache:
+        _overapprox_proc_cache[proc] = _OverApproxEffects(proc).results()
+    return _overapprox_proc_cache[proc]
+
+
+class _Check_Aliasing_Helper(LoopIR_Do):
+    def __init__(self, proc):
+        self._aliases   = dict()
+        super().__init__(proc)
+
+    def translate(self, name):
+        if name in self._aliases:
+            return self._aliases[name]
+        else:
+            return name
+
+    def do_s(self, s):
+        if isinstance(s, LoopIR.Call):
+            # check for duplicate buffer argument names
+            passed_buffers = set()
+            argnames = { self.translate(a.name) for a in s.args
+                         if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)) }
+            for fa,a in zip(s.f.args, s.args):
+                if fa.type.is_numeric():
+                    if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)):
+                        name = self.translate(a.name)
+                        if name in passed_buffers:
+                            raise SchedulingError(
+                                f"Cannot Pass the same buffer '{name}' via "
+                                f"multiple arguments in call to {s.f.name}, "
+                                f"since doing so would introduce aliased "
+                                f"arguments.  "
+                                f"Please contact the Exo developers if you "
+                                f"need support for aliased arguments.")
+                        passed_buffers.add(name)
+                    elif isinstance(a, LoopIR.ReadConfig):
+                        sub_effs = overapprox_proc_effs(s.f)
+                        globname = a.config._INTERNAL_sym(a.field)
+                        if globname in sub_effs:
+                            raise SchedulingError(
+                                f"Passing numeric-type (R, f32, i8, etc.) "
+                                f"configuration variables is not currently "
+                                f"supported in Exo due to internal "
+                                f"complications and potential aliasing "
+                                f"issues.")
+        elif isinstance(s, LoopIR.WindowStmt):
+            name = s.rhs.name
+            while name in self._aliases:
+                name = self._aliases[name]
+            self._aliases[s.lhs] = name
+        else:
+            super().do_s(s)
+
+"""
+
+"""
+
+def Check_Aliasing(proc):
+    helper = _Check_Aliasing_Helper(proc)
+    # that's it
 
 

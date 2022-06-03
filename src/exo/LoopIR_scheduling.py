@@ -22,6 +22,7 @@ from .new_eff import (
     Check_IsIdempotent,
     Check_IsPositiveExpr,
     Check_CodeIsDead,
+    Check_Aliasing,
 )
 from .prelude import *
 
@@ -800,6 +801,7 @@ class _CallSwap(LoopIR_Rewrite):
         self.new_subproc = new_subproc
 
         super().__init__(proc)
+        Check_Aliasing(self.proc)
 
     def mod_eq(self):
         return self.eq_mod_config
@@ -1047,6 +1049,7 @@ class _BindConfig(LoopIR_Rewrite):
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+        Check_Aliasing(self.proc)
 
     def mod_eq(self):
         return self.eq_mod_config
@@ -1124,6 +1127,7 @@ class _BindExpr(LoopIR_Rewrite):
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+        Check_Aliasing(self.proc)
 
     def process_block(self, block):
         if self.sub_done:
@@ -1823,51 +1827,6 @@ class _LiftAlloc(LoopIR_Rewrite):
 # --------------------------------------------------------------------------- #
 # Fissioning at a Statement scheduling directive
 
-def check_used(variables, eff):
-    for e in eff:
-        if e.buffer in variables:
-            return True
-    return False
-
-
-class _Is_Alloc_Free(LoopIR_Do):
-    def __init__(self, pre, post):
-        self._is_alloc_free = True
-        self._alloc_var = []
-
-        self.do_stmts(pre)
-
-        # make sure all of _alloc_vars are not used in any of the
-        # post statement
-        for s in post:
-            if type(s) is LoopIR.Reduce: # Allow reduce
-                continue
-            if s.eff is None:
-                continue
-            if check_used(self._alloc_var, s.eff.reads):
-                self._is_alloc_free = False
-                break
-            if check_used(self._alloc_var, s.eff.writes):
-                self._is_alloc_free = False
-                break
-            if check_used(self._alloc_var, s.eff.reduces):
-                self._is_alloc_free = False
-                break
-
-    def result(self):
-        return self._is_alloc_free
-
-    def do_s(self, s):
-        if isinstance(s, LoopIR.Alloc):
-            self._alloc_var.append(s.name)
-
-        super().do_s(s)
-
-
-def _is_alloc_free(pre, post):
-    return _Is_Alloc_Free(pre, post).result()
-
-
 # which variable symbols are free
 class _FreeVars(LoopIR_Do):
     def __init__(self, stmts):
@@ -1952,10 +1911,14 @@ class _DoDoubleFission:
         return self.proc
 
     def alloc_check(self, pre, post):
-        if not _is_alloc_free(pre, post):
-            raise SchedulingError("Will not fission here, because "
-                                  "an allocation might be buried "
-                                  "in a different scope than some use-site")
+        pass
+        #pre_allocs  = { s.name for s in pre if isinstance(s,LoopIR.Alloc) }
+        #post_FV     = _FV(post)
+        #for nm in pre_allocs:
+        #    if nm in post_FV:
+        #        raise SchedulingError(f"Will not fission here, because "
+        #                              f"doing so will hide the allocation "
+        #                              f"of {nm} from a later use site.")
 
     def map_stmts(self, stmts):
         pre_stmts           = []
@@ -2101,23 +2064,20 @@ class _DoFissionAfterSimple:
         self.hit_fission    = False     # signal to map_stmts
 
         pre_body, post_body = self.map_stmts(proc.body)
-        self.proc = LoopIR.proc(name    = self.orig_proc.name,
-                                args    = self.orig_proc.args,
-                                preds   = self.orig_proc.preds,
-                                body    = pre_body + post_body,
-                                instr   = None,
-                                eff     = self.orig_proc.eff,
-                                srcinfo = self.orig_proc.srcinfo)
+        self.proc = proc.update(body = pre_body + post_body, instr = None)
         self.proc = InferEffects(self.proc).result()
 
     def result(self):
         return self.proc
 
     def alloc_check(self, pre, post):
-        if not _is_alloc_free(pre, post):
-            raise SchedulingError("Will not fission here, because "
-                                  "an allocation might be buried "
-                                  "in a different scope than some use-site")
+        pre_allocs  = { s.name for s in pre if isinstance(s,LoopIR.Alloc) }
+        post_FV     = _FV(post)
+        for nm in pre_allocs:
+            if nm in post_FV:
+                raise SchedulingError(f"Will not fission here, because "
+                                      f"doing so will hide the allocation "
+                                      f"of {nm} from a later use site.")
 
     # returns a pair of stmt-lists
     # for those statements occurring before and
@@ -2140,6 +2100,8 @@ class _DoFissionAfterSimple:
             # none-the-less make sure we return this statement in
             # the pre-fission position
             return ([s],[])
+
+        #elif isinstance(s, (LoopIR.If,LoopIR.ForAll))
 
         elif isinstance(s, LoopIR.If):
 
@@ -2177,6 +2139,10 @@ class _DoFissionAfterSimple:
             if pre and post and self.n_lifts > 0:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
+
+                # we must check whether the two parts of the
+                # fission can commute appropriately
+                #Check_FissionLoop(self.orig_proc, s, pre, post)
 
                 # we can skip the loop iteration if the
                 # body doesn't depend on the loop
@@ -2228,10 +2194,13 @@ class _FissionLoops:
         return self.proc
 
     def alloc_check(self, pre, post):
-        if not _is_alloc_free(pre, post):
-            raise SchedulingError("Will not fission here, because "
-                                  "an allocation might be buried "
-                                  "in a different scope than some use-site")
+        pre_allocs  = { s.name for s in pre if isinstance(s,LoopIR.Alloc) }
+        post_FV     = _FV(post)
+        for nm in pre_allocs:
+            if nm in post_FV:
+                raise SchedulingError(f"Will not fission here, because "
+                                      f"doing so will hide the allocation "
+                                      f"of {nm} from a later use site.")
 
     # returns a pair of stmt-lists
     # for those statements occurring before and
@@ -2296,6 +2265,10 @@ class _FissionLoops:
             if do_fission:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
+
+                # we must check whether the two parts of the
+                # fission can commute appropriately
+                #Check_FissionLoop(self.orig_proc, s, pre, post)
 
                 # we can skip the loop iteration if the
                 # body doesn't depend on the loop
@@ -2679,6 +2652,7 @@ class _DoExtractMethod(LoopIR_Rewrite):
             self.var_types[a.name] = a.type
 
         super().__init__(proc)
+        Check_Aliasing(self.proc)
 
     def subproc(self):
         return self.new_subproc
@@ -3095,6 +3069,7 @@ class _DoDataReuse(LoopIR_Rewrite):
         super().__init__(proc)
 
         self.proc = InferEffects(self.proc).result()
+        Check_Aliasing(self.proc)
 
     def map_s(self, s):
         # remove the allocation that we are eliminating through re-use
@@ -3406,6 +3381,7 @@ class _DoStageWindow(LoopIR_Rewrite):
         proc = InferEffects(proc).result()
 
         super().__init__(proc)
+        Check_Aliasing(self.proc)
 
     def _stmt_writes_to_window(self, s):
         for eff in s.eff.reduces + s.eff.writes:
