@@ -431,6 +431,15 @@ def basetype(t):
         return t
 del basetype
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
+# Install string printing functions on LoopIR, UAST and T
+# This must be imported after those objects are defined to
+# prevent circular inclusion problems
+from . import LoopIR_pprint
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
