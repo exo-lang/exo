@@ -1092,7 +1092,7 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
             body = self.process_block(s.body)
-            return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
+            return [type(s)(s.iter, s.hi, body, s.eff, s.srcinfo)]
 
         if isinstance(s, LoopIR.If):
             # TODO: our CSE here is very conservative. It won't look for
