@@ -1092,7 +1092,7 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
             body = self.process_block(s.body)
-            return [type(s)(s.iter, s.hi, body, s.eff, s.srcinfo)]
+            return [s.update(body=body)]
 
         if isinstance(s, LoopIR.If):
             # TODO: our CSE here is very conservative. It won't look for
@@ -2154,17 +2154,17 @@ class _FissionLoops:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre     = [type(s)(s.iter, s.hi, pre, None, s.srcinfo)]
+                    pre     = [s.update(body=pre, eff=None)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre         = Alpha_Rename(pre).result()
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post    = [type(s)(s.iter, s.hi, post, None, s.srcinfo)]
+                    post    = [s.update(body=post, eff=None)]
 
                 return (pre,post)
 
             # if we didn't split, then compose pre and post of the body
-            single_stmt = type(s)(s.iter, s.hi, pre+post, None, s.srcinfo)
+            single_stmt = s.update(body=pre+post, eff=None)
 
         else:
             # all other statements cannot recursively
