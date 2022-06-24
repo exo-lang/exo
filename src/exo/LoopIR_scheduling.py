@@ -3069,7 +3069,6 @@ class _DoStageMem(LoopIR_Rewrite):
 
         self.new_sizes  = [ LoopIR.BinOp('-', w[1], w[0], T.index, w[0].srcinfo)
                             for w in w_exprs if isinstance(w, tuple) ]
-        self.new_offset = [ w[0] for w in w_exprs if isinstance(w, tuple) ]
 
         self.new_name   = Sym(new_name)
 
@@ -3087,6 +3086,28 @@ class _DoStageMem(LoopIR_Rewrite):
         Check_Bounds(self.proc, self.new_block[0], self.new_block[1:])
 
         self.proc   = InferEffects(self.proc).result()
+
+    def rewrite_idx(self, idx):
+        assert len(idx) == len(self.w_exprs)
+        return [ LoopIR.BinOp('-', i, w[0], T.index, i.srcinfo)
+                 for i,w in zip(idx, self.w_exprs)
+                 if isinstance(w, tuple) ]
+
+    def rewrite_win(self, w_idx):
+        assert len(w_idx) == len(self.w_exprs)
+
+        def off_w(w,off):
+            if isinstance(w, LoopIR.Interval):
+                lo = LoopIR.BinOp('-',w.lo,off,T.index,w.srcinfo)
+                hi = LoopIR.BinOp('-',w.hi,off,T.index,w.srcinfo)
+                return LoopIR.Interval(lo, hi, w.srcinfo)
+            else:
+                assert isinstance(w, LoopIR.Point)
+                pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
+                return LoopIR.Point(pt, w.srcinfo)
+
+        return [ off_w(w_i, w_e[0]) for w_i,w_e in zip(idx, self.w_exprs)
+                                    if isinstance(w, tuple) ]
 
     def map_stmts(self, stmts):
         """ This method overload simply tries to find the indicated block """
@@ -3202,9 +3223,7 @@ class _DoStageMem(LoopIR_Rewrite):
                 if s.name is self.buf_name:
                     assert len(new_s) == 1
                     new_s[0] = new_s[0].update(name=self.new_name)
-
-                    idx = [ LoopIR.BinOp('-', i, off, T.index, s.srcinfo)
-                            for i,off in zip(new_s[0].idx, self.new_offset) ]
+                    idx      = self.rewrite_idx(new_s[0].idx)
                     new_s[0] = new_s[0].update(idx=idx)
 
         return new_s
@@ -3215,27 +3234,14 @@ class _DoStageMem(LoopIR_Rewrite):
         if self.in_block:
             if isinstance(e, LoopIR.Read):
                 if e.name is self.buf_name:
-                    new_e = new_e.update(name=self.new_name)
+                    new_e   = new_e.update(name=self.new_name)
 
-                    idx = [ LoopIR.BinOp('-', i, off, T.index, e.srcinfo)
-                            for i,off in zip(new_e.idx, self.new_offset) ]
-                    new_e = new_e.update(idx=idx)
+                    idx     = self.rewrite_idx(new_e.idx)
+                    new_e   = new_e.update(idx=idx)
 
             elif isinstance(e, LoopIR.WindowExpr):
                 if e.name is self.buf_name:
-                    def off_w(w,off):
-                        if isinstance(w, LoopIR.Interval):
-                            lo = LoopIR.BinOp('-',w.lo,off,T.index,w.srcinfo)
-                            hi = LoopIR.BinOp('-',w.hi,off,T.index,w.srcinfo)
-                            return LoopIR.Interval(lo, hi, w.srcinfo)
-                        else:
-                            assert isinstance(w, LoopIR.Point)
-                            pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
-                            return LoopIR.Point(pt, w.srcinfo)
-
-                    w_idx = [off_w(w, off)
-                             for w, off in zip(new_e.idx, self.new_offset)]
-
+                    w_idx = self.rewrite_win(new_e.idx)
                     new_e = new_e.update(
                         name=self.new_name,
                         idx=w_idx,

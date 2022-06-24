@@ -1,0 +1,12 @@
+def accum(out: R[4, 16, 16] @ DRAM, w: R[16] @ DRAM, im: R[16] @ DRAM):
+    for k in seq(0, 4):
+        o: R[16, 16] @ DRAM
+        for i0 in seq(0, 16):
+            for i1 in seq(0, 16):
+                o[i0, i1] = out[k, i0, i1]
+        for i in seq(0, 16):
+            for j in seq(0, 16):
+                o[i, j] += w[j] * im[i]
+        for i0 in seq(0, 16):
+            for i1 in seq(0, 16):
+                out[k, i0, i1] = o[i0, i1]

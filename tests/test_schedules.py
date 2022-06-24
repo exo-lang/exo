@@ -1035,3 +1035,15 @@ def test_stage_mem_accum(golden):
     sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
                             'Atile', 'for k in _: _', accum=True)
     assert str(sqmat.simplify()) == golden
+
+def test_stage_mem_accum2(golden):
+    @proc
+    def accum(out : R[4, 16, 16], w : R[16], im : R[16]):
+        for k in seq(0, 4):
+            for i in seq(0, 16):
+                for j in seq(0, 16):
+                    out[k, i, j] += w[j] * im[i]
+
+    accum = accum.stage_mem('out[k, 0:16, 0:16]', 'o', 'for i in _:_')
+
+    assert str(accum.simplify()) == golden
