@@ -2436,7 +2436,7 @@ class _DoAddLoop(LoopIR_Rewrite):
                 new_s = LoopIR.If(cond, [s], [], None, s.srcinfo)
 
             hi  = LoopIR.Const(self.hi, T.int, new_s.srcinfo)
-            ir  = LoopIR.ForAll(sym, hi, [new_s], None, new_s.srcinfo)
+            ir  = LoopIR.Seq(sym, hi, [new_s], None, new_s.srcinfo)
             return [ir]
 
         return super().map_s(s)
