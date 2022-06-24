@@ -1,4 +1,4 @@
 def foo():
     x: R @ DRAM
-    for i in par(0, 10):
+    for i in seq(0, 10):
         x = 0.0
