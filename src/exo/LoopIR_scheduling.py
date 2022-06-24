@@ -3069,7 +3069,6 @@ class _DoStageMem(LoopIR_Rewrite):
 
         self.new_sizes  = [ LoopIR.BinOp('-', w[1], w[0], T.index, w[0].srcinfo)
                             for w in w_exprs if isinstance(w, tuple) ]
-        #self.new_offset = [ w[0] for w in w_exprs if isinstance(w, tuple) ]
 
         self.new_name   = Sym(new_name)
 
