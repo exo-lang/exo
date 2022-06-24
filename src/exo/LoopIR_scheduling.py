@@ -2154,17 +2154,17 @@ class _FissionLoops:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre     = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
+                    pre     = [type(s)(s.iter, s.hi, pre, None, s.srcinfo)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre         = Alpha_Rename(pre).result()
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post    = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
+                    post    = [type(s)(s.iter, s.hi, post, None, s.srcinfo)]
 
                 return (pre,post)
 
             # if we didn't split, then compose pre and post of the body
-            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, None, s.srcinfo)
+            single_stmt = type(s)(s.iter, s.hi, pre+post, None, s.srcinfo)
 
         else:
             # all other statements cannot recursively
