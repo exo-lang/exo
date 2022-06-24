@@ -1,18 +1,18 @@
 def sqmat(n: size, A: R[n, n] @ DRAM, B: R[n, n] @ DRAM):
     assert n % 4 == 0
-    for i in par(0, n / 4):
-        for j in par(0, n / 4):
-            for k in par(0, n / 4):
+    for i in seq(0, n / 4):
+        for j in seq(0, n / 4):
+            for k in seq(0, n / 4):
                 B1: R[4, 4]
-                for ii in par(0, 4):
-                    for kk in par(0, 4):
+                for ii in seq(0, 4):
+                    for kk in seq(0, 4):
                         B1[ii, kk] = B[4 * i + ii, 4 * k + kk]
                 B2: R[4, 4] @ DRAM
                 for i0 in seq(0, 4):
                     for i1 in seq(0, 4):
                         B2[i0, i1] = B[i0 + 4 * k, i1 + 4 * j]
-                for ii in par(0, 4):
-                    for jj in par(0, 4):
-                        for kk in par(0, 4):
+                for ii in seq(0, 4):
+                    for jj in seq(0, 4):
+                        for kk in seq(0, 4):
                             A[4 * i + ii,
                               4 * j + jj] += B1[ii, kk] * B2[kk, jj]

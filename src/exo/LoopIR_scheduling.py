@@ -1092,7 +1092,7 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
             body = self.process_block(s.body)
-            return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
+            return [s.update(body=body)]
 
         if isinstance(s, LoopIR.If):
             # TODO: our CSE here is very conservative. It won't look for
@@ -1878,19 +1878,19 @@ class _DoDoubleFission:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre    = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
+                    pre    = [s.update(body=pre, eff=None)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre    = Alpha_Rename(pre).result()
                 if s.iter in _FV(mid) or not _is_idempotent(mid):
-                    mid    = [LoopIR.ForAll(s.iter, s.hi, mid, None, s.srcinfo)]
+                    mid    = [s.update(body=mid, eff=None)]
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post   = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
+                    post   = [s.update(body=post, eff=None)]
                     post   = Alpha_Rename(post).result()
 
                 return (pre,mid,post)
 
-            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+mid+post, None, s.srcinfo)
+            single_stmt = s.update(body=pre+mid+post, eff=None)
 
         else:
             # all other statements cannot recursively
@@ -2154,17 +2154,17 @@ class _FissionLoops:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre     = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
+                    pre     = [s.update(body=pre, eff=None)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre         = Alpha_Rename(pre).result()
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post    = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
+                    post    = [s.update(body=post, eff=None)]
 
                 return (pre,post)
 
             # if we didn't split, then compose pre and post of the body
-            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, None, s.srcinfo)
+            single_stmt = s.update(body=pre+post, eff=None)
 
         else:
             # all other statements cannot recursively
@@ -2270,7 +2270,7 @@ class _DoBoundAndGuard(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s == self.loop:
-            assert isinstance(s, LoopIR.ForAll)
+            assert isinstance(s, (LoopIR.Seq, LoopIR.ForAll))
             bound = _get_constant_bound(s.hi)
             guard = LoopIR.If(
                 LoopIR.BinOp('<',
@@ -2283,7 +2283,7 @@ class _DoBoundAndGuard(LoopIR_Rewrite):
                 None,
                 s.srcinfo
             )
-            return [LoopIR.ForAll(s.iter, bound, [guard], None, s.srcinfo)]
+            return [s.update(hi=bound, body=[guard], eff=None)]
 
         return super().map_s(s)
 
@@ -2436,7 +2436,7 @@ class _DoAddLoop(LoopIR_Rewrite):
                 new_s = LoopIR.If(cond, [s], [], None, s.srcinfo)
 
             hi  = LoopIR.Const(self.hi, T.int, new_s.srcinfo)
-            ir  = LoopIR.ForAll(sym, hi, [new_s], None, new_s.srcinfo)
+            ir  = LoopIR.Seq(sym, hi, [new_s], None, new_s.srcinfo)
             return [ir]
 
         return super().map_s(s)
