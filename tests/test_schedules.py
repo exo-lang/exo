@@ -1008,6 +1008,8 @@ def test_stage_mem_twice(golden):
     sqmat = (sqmat
         .bind_expr('B1', 'B[4*i+ii,4*k+kk]')
         .lift_alloc('B1 : _', n_lifts=3)
+        .expand_dim('B1 : _', '4', 'kk')
+        .expand_dim('B1 : _', '4', 'ii')
         .fission_after('B1[_] = _', n_lifts=3)
         .stage_mem('B[4*k:4*k+4, 4*j:4*j+4]',
                    'B2', 'for ii in _: _ #1')
