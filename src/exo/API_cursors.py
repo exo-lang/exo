@@ -41,19 +41,44 @@ class Cursor:
 
     The sub-class hierarchy looks like:
     - Cursor
-        - NodeCursor
-            - StmtCursor    - cursors to individual statements
-                - ...
-            - ExprCursor    - cursors to individual expressions
-                - ...
-        - BlockCursor       - cursor to a contiguous sequence of statements
-        - ArgsCursor        - cursor to a contiguous sequence of expressions
-        - GapCursor         - cursor pointing to between two statements,
-                              to after a statement, or before a statement
-                              (think of this as a blinking vertical line)
+        - InvalidCursor         - used to indicate cursors that no longer
+                                  point to any sensible/valid object.
+        - StmtCursorPrototype
+            - StmtCursor        - individual statement
+                - ... (cases below)
+            - BlockCursor       - contiguous, non-empty sequence of statements
+            - GapCursor         - the "gap" between two statements, before the
+                                  first statement, or after the last statement
+                                  (think of this as a blinking vertical line)
+        - ExprCursorPrototype
+            - ExprCursor        - individual expression
+                - ... (cases below)
+            - ExprListCursor    - contiguous (maybe empty) seq. of expressions
 
-    The grammar for statements and expressions looks something like:
-    - TODO
+    The grammar for statements and expressions as exposed by cursors is:
+        Stmt ::= Assign( name : Sym, idx : ExprList, rhs : Expr )
+               | Reduce( name : Sym, idx : ExprList, rhs : Expr )
+               | AssignConfig( config : Config, field : str, rhs : Expr )
+               | Pass()
+               | If( cond : Expr, body : Block, orelse : Block? )
+               | ForSeq( name : Sym, hi : Expr, body : Block )
+               | Alloc( name : Sym, mem : Memory? )
+               | Call( subproc : Procedure, args : ExprList )
+               | WindowStmt( name : Sym, winexpr : WindowExpr )
+
+        Expr ::= Read( name : Sym, idx : ExprList )
+               | ReadConfig( config : Config, field : str )
+               | Literal( value : bool, int, or float )
+               | UnaryMinus( arg : Expr )
+               | BinaryOp( op : str, lhs : Expr, rhs : Expr )
+               | BuiltIn( name : str, args : ExprList )
+               | WindowExpr( name : str, idx : *(see below) )
+               | BuiltIn( name : str, args : ExprList )
+        
+        The `idx` argument of `WindowExpr` is a list containing either
+        `Expr` or `(Expr,Expr)` (a pair of expressions) at each position.
+        The single expressions correspond to point accesses; the pairs to
+        interval slicing/windowing.
     """
     _impl : C.Cursor
 
@@ -73,7 +98,15 @@ class Cursor:
         """
         return self._impl.proc()
 
-    def parent(self) -> NodeCursor:
+    def __bool__(self):
+        """
+        Invalid Cursors behave like False when tested. All other Cursors
+        behave like True.  So, one can test a cursor `if c: ...` to
+        check for validity/invalidity
+        """
+        return True
+
+    def parent(self) -> Cursor:
         """
         Get a Cursor to the parent node in the syntax tree.
 
@@ -83,8 +116,86 @@ class Cursor:
         if isinstance(impl_parent._node(), LoopIR.w_access):
             impl_parent = impl_parent.parent()
         elif isinstance(impl_parent._node(), LoopIR.proc):
-            raise InvalidCursorError("cursor does not have a parent")
+            return InvalidCursor()
         return new_Cursor(impl_parent)
+
+    def prev(self, dist=1) -> Cursor:
+        """
+        If this is a statement Cursor, return a statement cursor to
+            the previous statement in the block (or dist-many previous)
+        If this is a gap Cursor, return a gap cursor to
+            the previous gap in the block (or dist-many previous)
+
+        Returns InvalidCursor() if there is no such cursor to point to.
+        """
+        if dist < 1:
+            raise ValueError(f"dist must have positive value; was {dist}")
+        try:
+            return new_Cursor(self._impl.prev(dist))
+        except InvalidCursorError:
+            return InvalidCursor()
+
+    def next(self, dist=1) -> Cursor:
+        """
+        If this is a statement Cursor, return a statement cursor to
+            the next statement in the block (or dist-many next)
+        If this is a gap Cursor, return a gap cursor to
+            the next gap in the block (or dist-many next)
+
+        Returns InvalidCursor() if there is no such cursor to point to.
+        """
+        if dist < 1:
+            raise ValueError(f"dist must have positive value; was {dist}")
+        try:
+            return new_Cursor(self._impl.next(dist))
+        except InvalidCursorError:
+            return InvalidCursor()
+
+
+class InvalidCursor(Cursor):
+    def __init__(self):
+        """ Invalid cursors have no data """
+        pass
+
+    def __bool__(self):
+        """
+        Invalid Cursors behave like False when tested. All other Cursors
+        behave like True.  So, one can test a cursor `if c: ...` to
+        check for validity/invalidity
+        """
+        return False
+
+    def proc(self):
+        raise InvalidCursorError("Cannot get the Procedure "
+                                 "of an invalid cursor")
+
+    def parent(self) -> Cursor:
+        """ The parent of an invalid cursor is an invalid cursor """
+        return self
+
+    def before(self, dist=1) -> Cursor:
+        """ navigating to before an invalid cursor is still invalid """
+        return self
+
+    def after(self, dist=1) -> Cursor:
+        """ navigating to after an invalid cursor is still invalid """
+        return self
+
+    def next(self, dist=1) -> Cursor:
+        """ navigating to the next cursor is still invalid """
+        return self
+
+    def prev(self, dist=1) -> Cursor:
+        """ navigating to the previous cursor is still invalid """
+        return self
+
+
+class StmtCursorPrototype(Cursor):
+    """
+    Prototype for all cursors used to point to statements:
+        StmtCursor, BlockCursor, GapCursor
+    See `help(Cursor)` for more details.
+    """
 
     def before(self, dist=1) -> Cursor:
         """
@@ -96,11 +207,14 @@ class Cursor:
         If dist > 1, then return the gap/statement dist-many spots before
             the cursor, rather than immediately (1-many) before the cursor
 
-        Raises InvalidCursorError if there is no such statement or gap
-            to point to.
+        Returns InvalidCursor() if there is no such cursor to point to.
         """
-        assert dist >= 1
-        return new_Cursor(self._impl.before())
+        if dist < 1:
+            raise ValueError(f"dist must have positive value; was {dist}")
+        try:
+            return new_Cursor(self._impl.before(dist))
+        except InvalidCursorError:
+            return InvalidCursor()
 
     def after(self, dist=1) -> Cursor:
         """
@@ -112,47 +226,16 @@ class Cursor:
         If dist > 1, then return the gap/statement dist-many spots after
             the cursor, rather than immediately (1-many) after the cursor
 
-        Raises InvalidCursorError if there is no such statement or gap
-            to point to.
+        Returns InvalidCursor() if there is no such cursor to point to.
         """
-        assert dist >= 1
-        return new_Cursor(self._impl.after())
+        if dist < 1:
+            raise ValueError(f"dist must have positive value; was {dist}")
+        try:
+            return new_Cursor(self._impl.after(dist))
+        except InvalidCursorError:
+            return InvalidCursor()
 
-    def prev(self, dist=1) -> Cursor:
-        """
-        If this is a statement Cursor, return a statement cursor to
-            the previous statement in the block (or dist-many previous)
-        If this is a gap Cursor, return a gap cursor to
-            the previous gap in the block (or dist-many previous)
-
-        Raises InvalidCursorError if there is no such statement or gap
-            to point to.
-        """
-        assert dist >= 1
-        return new_Cursor(self._impl.prev())
-
-    def next(self, dist=1) -> Cursor:
-        """
-        If this is a statement Cursor, return a statement cursor to
-            the next statement in the block (or dist-many next)
-        If this is a gap Cursor, return a gap cursor to
-            the next gap in the block (or dist-many next)
-
-        Raises InvalidCursorError if there is no such statement or gap
-            to point to.
-        """
-        assert dist >= 1
-        return new_Cursor(self._impl.next())
-
-
-
-class NodeCursor(Cursor):
-    """
-    Cursor pointing to an individual statement or expression.
-    See `help(Cursor)` for more details.
-    """
-
-class StmtCursor(NodeCursor):
+class StmtCursor(StmtCursorPrototype):
     """
     Cursor pointing to an individual statement or expression.
     See `help(Cursor)` for more details.
@@ -161,31 +244,7 @@ class StmtCursor(NodeCursor):
     def as_block(self) -> BlockC
         return BlockC( self._impl.as_block() )
 
-class ExprCursor(NodeCursor):
-    """
-    Cursor pointing to an individual statement or expression.
-    See `help(Cursor)` for more details.
-    """
-
-    def before(self, dist=1):
-        """
-        undefined for expressions
-        """
-        raise NotImplementedError("ExprCursor does not support before()")
-
-    def after(self, dist=1):
-        """
-        undefined for expressions
-        """
-        raise NotImplementedError("ExprCursor does not support after()")
-
-class GapCursor(Cursor):
-    """
-    Cursor pointing to a gap before, after, or between statements.
-    See `help(Cursor)` for more details.
-    """
-
-class BlockCursor(Cursor):
+class BlockCursor(StmtCursorPrototype):
     """
     Cursor pointing to a contiguous sequence of statements.
     See `help(Cursor)` for more details.
@@ -209,7 +268,26 @@ class BlockCursor(Cursor):
         """
         return len(self._impl)
 
-class ArgsCursor(Cursor):
+class GapCursor(StmtCursorPrototype):
+    """
+    Cursor pointing to a gap before, after, or between statements.
+    See `help(Cursor)` for more details.
+    """
+
+class ExprCursorPrototype(Cursor):
+    """
+    Prototype for all cursors used to point to statements:
+        StmtCursor, BlockCursor, GapCursor
+    See `help(Cursor)` for more details.
+    """
+
+class ExprCursor(ExprCursorPrototype):
+    """
+    Cursor pointing to an individual statement or expression.
+    See `help(Cursor)` for more details.
+    """
+
+class ExprListCursor(Cursor):
     """
     Cursor pointing to a contiguous sequence of expressions.
     See `help(Cursor)` for more details.
@@ -233,17 +311,6 @@ class ArgsCursor(Cursor):
         """
         return len(self._impl)
 
-    def before(self, dist=1): -> Cursor:
-        """
-        undefined for expressions
-        """
-        raise NotImplementedError("ArgsCursor does not support before()")
-
-    def after(self, dist=1): -> Cursor:
-        """
-        undefined for expressions
-        """
-        raise NotImplementedError("ArgsCursor does not support after()")
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -258,8 +325,8 @@ class AssignCursor(StmtCursor):
     def name(self) -> Sym:
         return self._impl._node().name
 
-    def idx(self) -> ArgsCursor:
-        return ArgsCursor( self._impl._child_block('idx') )
+    def idx(self) -> ExprListCursor:
+        return ExprListCursor( self._impl._child_block('idx') )
 
     def rhs(self) -> ExprCursor:
         return new_Cursor( self._impl._child_node('rhs') )
@@ -273,8 +340,8 @@ class ReduceCursor(StmtCursor):
     def name(self) -> Sym:
         return self._impl._node().name
 
-    def idx(self) -> ArgsCursor:
-        return ArgsCursor( self._impl._child_block('idx') )
+    def idx(self) -> ExprListCursor:
+        return ExprListCursor( self._impl._child_block('idx') )
 
     def rhs(self) -> ExprCursor:
         return new_Cursor( self._impl._child_node('rhs') )
@@ -314,6 +381,7 @@ class IfCursor(StmtCursor):
         else:
             orelse
         ```
+    Returns an invalid cursor if `orelse` isn't present.
     """
 
     def cond(self) -> ExprCursor:
@@ -322,9 +390,9 @@ class IfCursor(StmtCursor):
     def body(self) -> BlockCursor:
         return BlockCursor( self._impl.body() )
 
-    def orelse(self) -> Optional[BlockCursor]:
+    def orelse(self) -> Cursor:
         orelse = self._impl.orelse()
-        return BlockCursor(orelse) if len(orelse) > 0 else None
+        return BlockCursor(orelse) if len(orelse) > 0 else InvalidCursor()
 
 class ForSeqCursor(StmtCursor):
     """
@@ -369,8 +437,8 @@ class CallCursor(StmtCursor):
     def subproc(self):
         return API.Procedure(self._impl._node().f)
 
-    def args(self) -> ArgsCursor:
-        return ArgsCursor( self._impl._child_block('args') )
+    def args(self) -> ExprListCursor:
+        return ExprListCursor( self._impl._child_block('args') )
 
 class WindowStmtCursor(StmtCursor):
     """
@@ -402,8 +470,8 @@ class ReadCursor(ExprCursor):
     def name(self) -> Sym:
         return self._impl._node().name
 
-    def idx(self) -> ArgsCursor:
-        return ArgsCursor( self._impl._child_block('idx') )
+    def idx(self) -> ExprListCursor:
+        return ExprListCursor( self._impl._child_block('idx') )
 
 class ReadConfigCursor(ExprCursor):
     """
@@ -469,8 +537,8 @@ class BuiltInFunctionCursor(ExprCursor):
     def name(self) -> str:
         return self._impl._node().f.name()
 
-    def args(self) -> ArgsCursor:
-        return ArgsCursor( self._impl._child_block('args') )
+    def args(self) -> ExprListCursor:
+        return ExprListCursor( self._impl._child_block('args') )
 
 class WindowExprCursor(ExprCursor):
     """
@@ -479,7 +547,8 @@ class WindowExprCursor(ExprCursor):
 
     Note that w_args is not an argument cursor.  Instead it is a list
     of "w-expressions" which are either an ExprCursor, or a pair of
-    ExprCursors.
+    ExprCursors.  The pair represents a windowing interval; the single
+    expression represents a point-access in that dimension.
     """
 
     def name(self) -> str:
@@ -535,7 +604,7 @@ def new_Cursor(impl):
             return BlockCursor(impl)
         elif isinstance(n0, LoopIR.expr):
             assert all( isinstance(c._node(), LoopIR.expr) for c in impl )
-            return ArgsCursor(impl)
+            return ExprListCursor(impl)
         else: assert False, "bad case"
 
     elif isinstance(impl, C.Node):
