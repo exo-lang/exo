@@ -1,0 +1,5 @@
+def foo(n: size, m: size):
+    x: R @ DRAM
+    for i in seq(0, n + m):
+        if i == 0:
+            x = 0.0

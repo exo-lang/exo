@@ -32,6 +32,24 @@ def test_add_loop3():
     with pytest.raises(TypeError, match='guard needs to be True or False'):
         foo.add_loop('x = _', 'i', 10, guard=100)
 
+def test_add_loop4(golden):
+    @proc
+    def foo(n : size, m : size):
+        x : R
+        x = 0.0
+
+    assert str(foo.add_loop('x = _', 'i', 'n+m', guard=True)) == golden
+
+def test_add_loop5():
+    @proc
+    def foo(n : size, m : size):
+        x : R
+        x = 0.0
+
+    with pytest.raises(TypeError, match='bound expression should be positive'):
+        foo.add_loop('x = _', 'i', 'n-m', guard=True)
+
+
 def test_proc_equal():
     def make_foo():
         @proc
