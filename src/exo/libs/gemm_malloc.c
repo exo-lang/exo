@@ -28,7 +28,8 @@ uint32_t gemm_malloc(long unsigned int size) {
     return -1;
   size = (size + GEMM_DIM - 1) / GEMM_DIM;
   int i;
-  for (i = 0; i < GEMM_HEAP_SIZE / sizeof(NewBlock) && BLOCKS[i].size > 0; i++) {
+  for (i = 0; i < GEMM_HEAP_SIZE / sizeof(NewBlock) && BLOCKS[i].size > 0;
+       i++) {
     if (BLOCKS[i].is_used)
       continue;
     if (BLOCKS[i].size < size)
