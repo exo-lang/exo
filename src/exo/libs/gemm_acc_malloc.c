@@ -1,13 +1,4 @@
-// clang-format off
-// these are filled in by Python's str.format()
-#define HEAP_SIZE {heap_size}
-#define DIM {dim}
-// clang-format on
-
-#include "include/gemmini.h"
-#include <assert.h>
-#include <stdint.h>
-#include <stdio.h>
+#include "gemm_acc_malloc.h"
 
 typedef struct __attribute__((__packed__)) AccBlock {
   uint32_t size;

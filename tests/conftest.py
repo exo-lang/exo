@@ -178,6 +178,8 @@ class Compiler:
             procs: Union[Procedure, List[Procedure]],
             *,
             test_files: Optional[Dict[str, str]] = None,
+            include_dir = None,
+            additional_file = None,
             compile_only: bool = False,
             skip_on_fail: bool = False,
             **kwargs
@@ -193,7 +195,7 @@ class Compiler:
         atl.write_text('\n'.join(map(str, procs)))
 
         (self.workdir / 'CMakeLists.txt').write_text(
-            self._generate_cml(test_files))
+            self._generate_cml(test_files, include_dir, additional_file))
 
         self._run_command([
             f'ctest',
@@ -234,7 +236,12 @@ class Compiler:
         if skip:
             pytest.skip('Compile failure converted to skip')
 
-    def _generate_cml(self, test_files: Dict[str, str]):
+    def _generate_cml(self, test_files: Dict[str, str], include_dir=None, additional_file=None):
+        if additional_file:
+            lib_command = f'add_library({self.basename} "{self.basename}.c" "{additional_file}")'
+        else:
+            lib_command = f'add_library({self.basename} "{self.basename}.c")'
+
         cml_body = textwrap.dedent(
             f'''
             cmake_minimum_required(VERSION 3.21)
@@ -242,11 +249,17 @@ class Compiler:
             
             option(BUILD_SHARED_LIBS "Build shared libraries by default" ON)
             
-            add_library({self.basename} "{self.basename}.c")
+            {lib_command}
             add_library({self.basename}::{self.basename} ALIAS {self.basename})
             
             '''
         )
+
+        if include_dir:
+            cml_body += textwrap.dedent(
+                f'''
+                include_directories({self.basename} {include_dir})
+                ''')
 
         lib_name = f'{self.basename}::{self.basename}'
         if not test_files:

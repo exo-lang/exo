@@ -1,11 +1,4 @@
-// clang-format off
-// these are filled in by Python's str.format()
-#define HEAP_SIZE {heap_size}
-// clang-format on
-
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include "malloc.h"
 
 uint8_t HEAP[HEAP_SIZE];
 
