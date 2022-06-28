@@ -1,5 +1,9 @@
 #include "malloc.h"
 
+#ifndef HEAP_SIZE
+#define HEAP_SIZE 100000
+#endif
+
 uint8_t HEAP[HEAP_SIZE];
 
 // https://stackoverflow.com/questions/5473189/what-is-a-packed-structure-in-c

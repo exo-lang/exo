@@ -1,6 +1,3 @@
-#define HEAP_SIZE 100000
-#define DIM 16
-
 #include "include/gemmini.h"
 #include <assert.h>
 #include <stdint.h>
