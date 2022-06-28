@@ -1,5 +1,9 @@
 #include "malloc.h"
 
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 #ifndef HEAP_SIZE
 #define HEAP_SIZE 100000
 #endif

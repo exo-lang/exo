@@ -1,5 +1,10 @@
 #include "gemm_acc_malloc.h"
 
+#include "include/gemmini.h"
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+
 #ifndef GEMM_ACC_HEAP_SIZE
 #define GEMM_ACC_HEAP_SIZE 100000
 #endif
