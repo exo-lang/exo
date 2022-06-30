@@ -32,6 +32,24 @@ def test_add_loop3():
     with pytest.raises(TypeError, match='guard needs to be True or False'):
         foo.add_loop('x = _', 'i', 10, guard=100)
 
+def test_add_loop4(golden):
+    @proc
+    def foo(n : size, m : size):
+        x : R
+        x = 0.0
+
+    assert str(foo.add_loop('x = _', 'i', 'n+m', guard=True)) == golden
+
+def test_add_loop5():
+    @proc
+    def foo(n : size, m : size):
+        x : R
+        x = 0.0
+
+    with pytest.raises(TypeError, match='bound expression should be positive'):
+        foo.add_loop('x = _', 'i', 'n-m', guard=True)
+
+
 def test_proc_equal():
     def make_foo():
         @proc
@@ -1008,6 +1026,8 @@ def test_stage_mem_twice(golden):
     sqmat = (sqmat
         .bind_expr('B1', 'B[4*i+ii,4*k+kk]')
         .lift_alloc('B1 : _', n_lifts=3)
+        .expand_dim('B1 : _', '4', 'kk')
+        .expand_dim('B1 : _', '4', 'ii')
         .fission_after('B1[_] = _', n_lifts=3)
         .stage_mem('B[4*k:4*k+4, 4*j:4*j+4]',
                    'B2', 'for ii in _: _ #1')
@@ -1033,3 +1053,15 @@ def test_stage_mem_accum(golden):
     sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
                             'Atile', 'for k in _: _', accum=True)
     assert str(sqmat.simplify()) == golden
+
+def test_stage_mem_accum2(golden):
+    @proc
+    def accum(out : R[4, 16, 16], w : R[16], im : R[16]):
+        for k in seq(0, 4):
+            for i in seq(0, 16):
+                for j in seq(0, 16):
+                    out[k, i, j] += w[j] * im[i]
+
+    accum = accum.stage_mem('out[k, 0:16, 0:16]', 'o', 'for i in _:_')
+
+    assert str(accum.simplify()) == golden

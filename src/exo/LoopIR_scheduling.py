@@ -1082,7 +1082,7 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
             body = self.process_block(s.body)
-            return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
+            return [s.update(body=body)]
 
         if isinstance(s, LoopIR.If):
             # TODO: our CSE here is very conservative. It won't look for
@@ -1868,19 +1868,19 @@ class _DoDoubleFission:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre    = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
+                    pre    = [s.update(body=pre, eff=None)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre    = Alpha_Rename(pre).result()
                 if s.iter in _FV(mid) or not _is_idempotent(mid):
-                    mid    = [LoopIR.ForAll(s.iter, s.hi, mid, None, s.srcinfo)]
+                    mid    = [s.update(body=mid, eff=None)]
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post   = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
+                    post   = [s.update(body=post, eff=None)]
                     post   = Alpha_Rename(post).result()
 
                 return (pre,mid,post)
 
-            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+mid+post, None, s.srcinfo)
+            single_stmt = s.update(body=pre+mid+post, eff=None)
 
         else:
             # all other statements cannot recursively
@@ -2144,17 +2144,17 @@ class _FissionLoops:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre     = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
+                    pre     = [s.update(body=pre, eff=None)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre         = Alpha_Rename(pre).result()
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post    = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
+                    post    = [s.update(body=post, eff=None)]
 
                 return (pre,post)
 
             # if we didn't split, then compose pre and post of the body
-            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, None, s.srcinfo)
+            single_stmt = s.update(body=pre+post, eff=None)
 
         else:
             # all other statements cannot recursively
@@ -2260,7 +2260,7 @@ class _DoBoundAndGuard(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s == self.loop:
-            assert isinstance(s, LoopIR.ForAll)
+            assert isinstance(s, (LoopIR.Seq, LoopIR.ForAll))
             bound = _get_constant_bound(s.hi)
             guard = LoopIR.If(
                 LoopIR.BinOp('<',
@@ -2273,7 +2273,7 @@ class _DoBoundAndGuard(LoopIR_Rewrite):
                 None,
                 s.srcinfo
             )
-            return [LoopIR.ForAll(s.iter, bound, [guard], None, s.srcinfo)]
+            return [s.update(hi=bound, body=[guard], eff=None)]
 
         return super().map_s(s)
 
@@ -2425,8 +2425,7 @@ class _DoAddLoop(LoopIR_Rewrite):
                                           LoopIR.Const(0, T.int, s.srcinfo), T.bool, s.srcinfo)
                 new_s = LoopIR.If(cond, [s], [], None, s.srcinfo)
 
-            hi  = LoopIR.Const(self.hi, T.int, new_s.srcinfo)
-            ir  = LoopIR.ForAll(sym, hi, [new_s], None, new_s.srcinfo)
+            ir  = LoopIR.Seq(sym, self.hi, [new_s], None, new_s.srcinfo)
             return [ir]
 
         return super().map_s(s)
@@ -3059,7 +3058,6 @@ class _DoStageMem(LoopIR_Rewrite):
 
         self.new_sizes  = [ LoopIR.BinOp('-', w[1], w[0], T.index, w[0].srcinfo)
                             for w in w_exprs if isinstance(w, tuple) ]
-        self.new_offset = [ w[0] for w in w_exprs if isinstance(w, tuple) ]
 
         self.new_name   = Sym(new_name)
 
@@ -3077,6 +3075,28 @@ class _DoStageMem(LoopIR_Rewrite):
         Check_Bounds(self.proc, self.new_block[0], self.new_block[1:])
 
         self.proc   = InferEffects(self.proc).result()
+
+    def rewrite_idx(self, idx):
+        assert len(idx) == len(self.w_exprs)
+        return [ LoopIR.BinOp('-', i, w[0], T.index, i.srcinfo)
+                 for i,w in zip(idx, self.w_exprs)
+                 if isinstance(w, tuple) ]
+
+    def rewrite_win(self, w_idx):
+        assert len(w_idx) == len(self.w_exprs)
+
+        def off_w(w,off):
+            if isinstance(w, LoopIR.Interval):
+                lo = LoopIR.BinOp('-',w.lo,off,T.index,w.srcinfo)
+                hi = LoopIR.BinOp('-',w.hi,off,T.index,w.srcinfo)
+                return LoopIR.Interval(lo, hi, w.srcinfo)
+            else:
+                assert isinstance(w, LoopIR.Point)
+                pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
+                return LoopIR.Point(pt, w.srcinfo)
+
+        return [ off_w(w_i, w_e[0]) for w_i,w_e in zip(idx, self.w_exprs)
+                                    if isinstance(w, tuple) ]
 
     def map_stmts(self, stmts):
         """ This method overload simply tries to find the indicated block """
@@ -3192,9 +3212,7 @@ class _DoStageMem(LoopIR_Rewrite):
                 if s.name is self.buf_name:
                     assert len(new_s) == 1
                     new_s[0] = new_s[0].update(name=self.new_name)
-
-                    idx = [ LoopIR.BinOp('-', i, off, T.index, s.srcinfo)
-                            for i,off in zip(new_s[0].idx, self.new_offset) ]
+                    idx      = self.rewrite_idx(new_s[0].idx)
                     new_s[0] = new_s[0].update(idx=idx)
 
         return new_s
@@ -3205,27 +3223,14 @@ class _DoStageMem(LoopIR_Rewrite):
         if self.in_block:
             if isinstance(e, LoopIR.Read):
                 if e.name is self.buf_name:
-                    new_e = new_e.update(name=self.new_name)
+                    new_e   = new_e.update(name=self.new_name)
 
-                    idx = [ LoopIR.BinOp('-', i, off, T.index, e.srcinfo)
-                            for i,off in zip(new_e.idx, self.new_offset) ]
-                    new_e = new_e.update(idx=idx)
+                    idx     = self.rewrite_idx(new_e.idx)
+                    new_e   = new_e.update(idx=idx)
 
             elif isinstance(e, LoopIR.WindowExpr):
                 if e.name is self.buf_name:
-                    def off_w(w,off):
-                        if isinstance(w, LoopIR.Interval):
-                            lo = LoopIR.BinOp('-',w.lo,off,T.index,w.srcinfo)
-                            hi = LoopIR.BinOp('-',w.hi,off,T.index,w.srcinfo)
-                            return LoopIR.Interval(lo, hi, w.srcinfo)
-                        else:
-                            assert isinstance(w, LoopIR.Point)
-                            pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
-                            return LoopIR.Point(pt, w.srcinfo)
-
-                    w_idx = [off_w(w, off)
-                             for w, off in zip(new_e.idx, self.new_offset)]
-
+                    w_idx = self.rewrite_win(new_e.idx)
                     new_e = new_e.update(
                         name=self.new_name,
                         idx=w_idx,

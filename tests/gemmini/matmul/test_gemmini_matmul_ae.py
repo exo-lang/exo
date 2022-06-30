@@ -175,6 +175,7 @@ def test_matmul_ae():
     gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
     gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
     gemmini = gemmini.reorder('ko', 'ji')
+    gemmini = gemmini.par_to_seq('for ji in _:_ #1')
     gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
