@@ -259,6 +259,10 @@ class BlockCursor(StmtCursorPrototype):
     See `help(Cursor)` for more details.
     """
 
+    def as_block(self):
+        """ Return this Block; included for symmetry with StmtCursor """
+        return self
+
     def __iter__(self):
         """
         iterate over all statement cursors contained in the block

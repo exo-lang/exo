@@ -71,9 +71,10 @@ class AtomicSchedulingOp:
         bound_args = self.sig.bind(*args, **kwargs)
 
         # convert the arguments using the provided argument processors
-        assert len(self.arg_procs) == len(bound_args)
-        for argp in self.arg_procs:
-            bound_args[nm] = argp(bound_args[nm], bound_args)
+        bargs = bound_args.arguments
+        assert len(self.arg_procs) == len(bargs)
+        for nm,argp in zip(bargs, self.arg_procs):
+            bargs[nm] = argp(bargs[nm], bargs)
 
         # invoke the scheduling function with the modified arguments
         return self.func(*bound_args.args, **bound_args.kwargs)
@@ -290,6 +291,34 @@ class StmtCursorA(ArgumentProcessor):
         match   = matches[0] if self.match_many else matches
         if not isinstance(match, PC.StmtCursor):
             self.err(f"expected pattern to match a StmtCursor, "
+                     f"not {type(match)}")
+
+        return match
+
+class BlockCursorA(ArgumentProcessor):
+    def __init__(self, many=False):
+        self.match_many = many
+
+    def __call__(self, block_pattern, all_args):
+        if isinstance(block_pattern, PC.BlockCursor):
+            return block_pattern
+        elif isinstance(block_pattern, PC.StmtCursor):
+            return block_pattern.as_block()
+        elif isinstance(block_pattern, PC.Cursor):
+            self.err(f"expected a StmtCursor or BlockCursor, "
+                     f"not {type(block_pattern)}")
+        elif not isinstance(block_pattern, str):
+            self.err("expected a Cursor or pattern string")
+
+        proc    = all_args["proc"]
+        # TODO: Remove all need for `call_depth`
+        matches = proc.find(block_pattern, many=self.match_many)
+
+        match   = matches[0] if self.match_many else matches
+        if isinstance(match, PC.StmtCursor):
+            match = match.as_block()
+        elif not isinstance(match, PC.BlockCursor):
+            self.err(f"expected pattern to match a BlockCursor, "
                      f"not {type(match)}")
 
         return match
@@ -700,6 +729,25 @@ def divide_loop(proc, loop_cursor, div_const, new_iters,
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
+
+
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Deprecated Operations
+
+
+@sched_op([BlockCursorA, NewExprA('block_cursor')])
+def add_unsafe_guard(proc, block_cursor, var_pattern):
+    """
+    This operation is deprecated, and will be removed soon.
+    """
+    stmt    = block_cursor._impl[0]._node()
+    loopir  = self._loopir_proc
+    loopir  = Schedules.DoAddUnsafeGuard(loopir, stmt, var_expr).result()
+
+    return Procedure(loopir, _provenance_eq_Procedure=self)
 
 
 

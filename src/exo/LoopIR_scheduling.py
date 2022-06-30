@@ -859,39 +859,8 @@ class _InlineWindow(LoopIR_Rewrite):
 
 
 
-class _ConfigWriteRoot(LoopIR_Rewrite):
-    def __init__(self, proc, config, field, expr):
-        assert (isinstance(expr, LoopIR.Read)
-                or isinstance(expr, LoopIR.StrideExpr)
-                or isinstance(expr, LoopIR.Const))
-
-        self.orig_proc = proc
-
-        cw_s    = LoopIR.WriteConfig(config, field, expr, None, proc.srcinfo)
-        body    = [cw_s] + proc.body
-
-        self.proc = LoopIR.proc(name    = proc.name,
-                                args    = proc.args,
-                                preds   = proc.preds,
-                                body    = body,
-                                instr   = proc.instr,
-                                eff     = proc.eff,
-                                srcinfo = proc.srcinfo)
-
-        # check safety...
-        mod_cfg = Check_DeleteConfigWrite(self.proc,[cw_s])
-        self.eq_mod_config = mod_cfg
-
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-
-    def mod_eq(self):
-        return self.eq_mod_config
-
-
-
-class _ConfigWriteAfter(LoopIR_Rewrite):
-    def __init__(self, proc, stmt, config, field, expr):
+class _ConfigWrite(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, config, field, expr, before=False):
         assert (isinstance(expr, LoopIR.Read)
                 or isinstance(expr, LoopIR.StrideExpr)
                 or isinstance(expr, LoopIR.Const))
@@ -901,6 +870,7 @@ class _ConfigWriteAfter(LoopIR_Rewrite):
         self.config = config
         self.field = field
         self.expr = expr
+        self.before = before
 
         self._new_cfgwrite_stmt = None
 
@@ -919,15 +889,35 @@ class _ConfigWriteAfter(LoopIR_Rewrite):
 
     def map_stmts(self, stmts):
         body = []
-        for s in stmts:
-            body += self.map_s(s)
+        for i,s in enumerate(stmts):
             if s is self.stmt:
                 cw_s = LoopIR.WriteConfig(self.config, self.field, self.expr,
                                           None, s.srcinfo)
                 self._new_cfgwrite_stmt = cw_s
-                body.append(cw_s)
+
+                if self.before:
+                    body += [cw_s, s]
+                else:
+                    body += [s, cw_s]
+
+                # finish and exit
+                body += stmts[i+1:]
+                return body
+
+            else:
+                body += self.map_s(s)
 
         return body
+
+class _ConfigWriteRoot(_ConfigWrite):
+    def __init__(self, proc, config, field, expr):
+        stmt = proc.body[0]
+        super().__init__(proc, stmt, config, field, expr, before=True)
+
+class _ConfigWriteAfter(_ConfigWrite):
+    def __init__(self, proc, stmt, config, field, expr):
+        super().__init__(proc, stmt, config, field, expr)
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -3427,6 +3417,7 @@ class Schedules:
     DoExtractMethod = _DoExtractMethod
     DoParToSeq = _DoParToSeq
     DoReorderStmt = _DoReorderStmt
+    DoConfigWrite = _ConfigWrite
     DoConfigWriteAfter = _ConfigWriteAfter
     DoConfigWriteRoot = _ConfigWriteRoot
     DoInlineWindow = _InlineWindow

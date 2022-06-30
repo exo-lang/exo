@@ -11,7 +11,7 @@ from .LoopIR import LoopIR, PAST
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern Matching Errors
-from .cursors import Cursor, Node, Block
+from .internal_cursors import Cursor, Node, Block
 
 
 class PatternMatchError(Exception):
@@ -114,7 +114,7 @@ class _MatchComplete(Exception):
 
 
 class PatternMatch:
-    def __init__(self, proc, pat, match_no=None):
+    def __init__(self, proc, pat, match_no=None, limit_stmt=False):
         self._match_i   = match_no
         self._results   = []
 

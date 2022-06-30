@@ -5,6 +5,8 @@ from .configs import Config
 from .memory import Memory, DRAM
 from . import query_asts as QAST
 
+from . import stdlib
+
 __version__ = '0.0.2'
 
 __all__ = [
@@ -19,4 +21,6 @@ __all__ = [
     "DRAM",
     "QAST",
     "SchedulingError",
+    #
+    "stdlib",
 ]

@@ -25,6 +25,7 @@ from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
+from . import API_cursors
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -196,15 +197,39 @@ class Procedure(ProcedureBase):
     def get_instr(self):
         return self._loopir_proc.instr
 
-    def find_cursors(self, pattern):
+    def find(self, pattern, many=False):
+        """
+        Find the most specific possible cursor for the given pattern.
+        If the optional parameter `many` is set to True, then return a list,
+        potentially containing more than one Cursor.
+
+        In any event, if no matches are found, a SchedulingError is raised
+        """
+        raw_cursors = match_cursors(self, pattern, call_depth=1)
+        assert isinstance(raw_cursors, list)
+        cursors = []
+        for c in raw_cursors:
+            c = API_cursors.new_Cursor(c)
+            if ( isinstance(c, (API_cursors.BlockCursor,
+                                API_cursors.ExprListCursor)) and
+                 len(c) == 1 ):
+                c = c[0]
+            cursors.append(c)
+
+        if not cursors:
+            raise SchedulingError('failed to find matches', pattern=pattern)
+
+        return cursors if many else cursors[0]
+
+    def _TEST_find_cursors(self, pattern):
         cursors = match_cursors(self, pattern, call_depth=1)
         assert isinstance(cursors, list)
         if not cursors:
             raise SchedulingError('failed to find matches', pattern=pattern)
         return cursors
 
-    def find_stmt(self, pattern):
-        curs = self.find_cursors(pattern)
+    def _TEST_find_stmt(self, pattern):
+        curs = self._TEST_find_cursors(pattern)
         assert len(curs) == 1
         curs = curs[0]
         if len(curs) != 1:
@@ -276,16 +301,16 @@ class Procedure(ProcedureBase):
         p = Schedules.DoSimplify(p).result()
         return Procedure(p, _provenance_eq_Procedure=self)
 
-    def rename(self, name):
-        """
-        Rename the procedure. Affects generated symbol names.
-        """
-        if not is_valid_name(name):
-            raise ValueError(f"'{name}' is not a valid name")
-        p = self._loopir_proc
-        p = LoopIR.proc( name, p.args, p.preds, p.body,
-                         p.instr, p.eff, p.srcinfo )
-        return Procedure(p, _provenance_eq_Procedure=self)
+    #def rename(self, name):
+    #    """
+    #    Rename the procedure. Affects generated symbol names.
+    #    """
+    #    if not is_valid_name(name):
+    #        raise ValueError(f"'{name}' is not a valid name")
+    #    p = self._loopir_proc
+    #    p = LoopIR.proc( name, p.args, p.preds, p.body,
+    #                     p.instr, p.eff, p.srcinfo )
+    #    return Procedure(p, _provenance_eq_Procedure=self)
 
     def has_dup(self):
         """

@@ -3,7 +3,7 @@
 # --------------------------------------------------------------------------- #
 # Expose the built-in Scheduling operators here
 
-from .API_scheduling import (
+from ..API_scheduling import (
   is_atomic_scheduling_op,
   # basic operations
   simplify,
@@ -25,5 +25,7 @@ from .API_scheduling import (
   reuse_buffer,
   inline_window,
   # loop rewriting
-  divide_loop
+  divide_loop,
+  # deprecated scheduling operations
+  add_unsafe_guard,
 )
