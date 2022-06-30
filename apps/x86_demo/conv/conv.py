@@ -4,6 +4,8 @@ from exo import *
 from exo.builtins import *
 from exo.platforms.x86 import *
 from exo.syntax import *
+from exo.stdlib.scheduling import *
+
 
 
 @proc
@@ -40,9 +42,13 @@ VEC_W = 16
 H, W, C, K, N = 80, 100, 128, 3, 5
 TILE_W, TILE_H = 4, 5
 
-conv_specialized = (
-    conv
-        .rename('conv_specialized')
+def do_specialization(p):
+    p = 
+from exo.stdlib.scheduling import *(p, 'conv_specialized')
+    p = (p
+#conv_specialized = (
+#    conv
+#        .rename('conv_specialized')
         .partial_eval(H, W, C, H + 2, W + 2, C, K, N)
         .simplify()
         #
@@ -95,7 +101,10 @@ conv_specialized = (
         .split('kc', 2, ['kc_o', 'kc_i'], perfect=True)
         #
         .simplify()
-)
+    )
+    return p
+
+conv_specialized = do_specialization(conv)
 
 if __name__ == '__main__':
     print(conv_specialized)

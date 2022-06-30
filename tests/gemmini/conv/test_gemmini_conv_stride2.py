@@ -265,7 +265,7 @@ def test_conv_13():
     T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'k+r')
     T.alloc_dram_4i8('weights', kernel_dim, kernel_dim, in_channel, out_channel, 'k+r')
 
-    conv = conv_on_cpu().rename("conv_13")
+    conv = rename(conv_on_cpu(), "conv_13")
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
     conv = conv_basic_opt(conv, 'if 0 <= orow*2 + krow - 1 and orow*2 + krow - 1 < 56: _', 'if 0 <= (16 * ocol_o + ocol_i)*2 + kcol - 1: _',
             'if 0 <= (ocol_i + 28 / 16 * 16)*2 + kcol - 1: _', 'if 0 <= (16 * ocol_o + 0)*2 + kcol - 1: _ #0', 'if (16 * ocol_o + 0)*2 + kcol - 1 < 56: _ #0')

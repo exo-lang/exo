@@ -3,7 +3,6 @@ import pytest
 from exo.platforms.gemmini import *
 from ..harness_gemmini import GemmTestBuilder
 
-
 def matmul_algorithm():
     @proc
     def matmul(
@@ -56,7 +55,7 @@ def test_matmul_ae():
     MM = 512
     KK = 512
 
-    cpu = matmul_algorithm().rename("matmul_on_cpu") # Rename "matmul" to "matmul_on_cpu"
+    cpu = rename(matmul_algorithm(), "matmul_on_cpu") # Rename "matmul" to "matmul_on_cpu"
     cpu = cpu.partial_eval(NN, MM, KK)
     
     # These lines are relevant if you have GEMMINI environment set up
@@ -73,7 +72,7 @@ def test_matmul_ae():
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
     # Rename the procedure to "matmul_on_gemmini"
-    gemmini = cpu.rename("matmul_on_gemmini")
+    gemmini = rename(cpu, "matmul_on_gemmini")
 
     print("")
     print("===== THIS IS THE ORIGINAL MATMUL ALGORITHM BEFORE SCHEDULING ====")

@@ -4,6 +4,7 @@ from exo import *
 from exo.libs.memories import DRAM_STATIC
 from exo.platforms.x86 import *
 from exo.syntax import *
+from exo.stdlib.scheduling import *
 
 
 # noinspection PyPep8Naming
@@ -21,11 +22,14 @@ def SGEMM(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):
             for j in par(0, N):
                 C[i, j] += A[i, k] * B[k, j]
 
-
-SGEMM_WINDOW = (SGEMM.rename('SGEMM_WINDOW')
-                .set_window('A', True)
-                .set_window('B', True)
-                .set_window('C', True))
+def make_win(p):
+    p = rename(p, 'SGEMM_WINDOW')
+    p = (p.set_window(p, 'A', True)
+          .set_window(p, 'B', True)
+          .set_window(p, 'C', True)
+        )
+    return p
+SGEMM_WINDOW = make_win(SGEMM)
 
 # Constants for scheduling
 VEC_W = 16
@@ -45,15 +49,24 @@ COPY_STREAMS = 3
 basic_kernel_Mx4 = {}
 sgemm_kernel_avx512_Mx4 = {}
 for M in range(1, M_REG_BLK + 1):
-    basic_kernel_Mx4[M] = (
-        SGEMM_WINDOW
-            .rename(f'basic_kernel_{M}x4')
-            .partial_eval(M, N_REG_BLK)
-            .simplify()
-    )
-    sgemm_kernel_avx512_Mx4[M] = (
-        basic_kernel_Mx4[M]
-            .rename(f'sgemm_kernel_avx512_{M}x4')
+    def make_basic(p):
+        p = rename(p,f'basic_kernel_{M}x4')
+        p = p.partial_eval(M,N_REG_BLK)
+        p = p.simplify()
+        return p
+    basic_kernel_Mx4[M] = make_basic(SGEMM_WINDOW)
+    #(
+    #    SGEMM_WINDOW
+    #        .rename(f'basic_kernel_{M}x4')
+    #        .partial_eval(M, N_REG_BLK)
+    #        .simplify()
+    #)
+    def make_avx512_kernel(p):
+        p = rename(p,f'sgemm_kernel_avx512_{M}x4')
+        p = (p
+        #sgemm_kernel_avx512_Mx4[M] = (
+        #    basic_kernel_Mx4[M]
+        #        .rename(f'sgemm_kernel_avx512_{M}x4')
             # Vectorize columns
             .split('j', VEC_W, ['jo', 'ji'], perfect=True)
             # Mark k as a reduction loop
@@ -77,19 +90,30 @@ for M in range(1, M_REG_BLK + 1):
             .fission_after('mm512_set1_ps(_)')
             # Clean up
             .simplify()
-    )
+        )
+        return p
 
-bottom_panel_kernel = (
-    SGEMM_WINDOW
-        .rename('bottom_panel_kernel')
+    sgemm_kernel_avx512_Mx4[M] = make_avx512_kernel(basic_kernel_Mx4[M])
+
+def make_bottom_panel_kernel(p):
+    p = rename(p, 'bottom_panel_kernel')
+    p = (p
+    #bottom_panel_kernel = (
+    #    SGEMM_WINDOW
+    #   .rename('bottom_panel_kernel')
         .partial_eval(N=N_REG_BLK)
         .add_assertion('M < 6')
         .simplify()
-)
+    )
+    return p
+bottom_panel_kernel = make_bottom_panel_kernel(SGEMM_WINDOW)
 
-bottom_panel_kernel_scheduled = (
-    bottom_panel_kernel
-        .rename('bottom_panel_kernel_scheduled')
+def make_bottom_panel_kernel_scheduled(p=bottom_panel_kernel):
+    p = rename(p, 'bottom_panel_kernel_scheduled')
+    p = (p
+    #bottom_panel_kernel_scheduled = (
+    #    bottom_panel_kernel
+    #    .rename('bottom_panel_kernel_scheduled')
         # Specialize branches (simplify needed to unify with basic kernels)
         .specialize('for k in _: _ #0',
                     [f'M == {i}' for i in range(1, M_REG_BLK)])
@@ -108,19 +132,29 @@ bottom_panel_kernel_scheduled = (
         .call_eqv(sgemm_kernel_avx512_Mx4[5], 'basic_kernel_5x4(_)')
         #
         .simplify()
-)
+    )
+    return p
+bottom_panel_kernel_scheduled = make_bottom_panel_kernel_scheduled()
 
-right_panel_kernel = (
-    SGEMM_WINDOW
-        .rename('right_panel_kernel')
+def make_right_panel_kernel(p = SGEMM_WINDOW):
+    p = rename(p, 'right_panel_kernel')
+    p = (p
+    #right_panel_kernel = (
+    #    SGEMM_WINDOW
+    #    .rename('right_panel_kernel')
         .partial_eval(M=M_REG_BLK)
         .add_assertion('N / 16 < 4')
         .simplify()
-)
+    )
+    return p
+right_panel_kernel = make_right_panel_kernel()
 
-right_panel_kernel_opt = (
-    right_panel_kernel
-        .rename('right_panel_kernel_opt')
+def make_right_panel_kernel_opt(p = right_panel_kernel):
+    p = rename(p, 'right_panel_kernel_opt')
+    p = (p
+    #right_panel_kernel_opt = (
+    #    right_panel_kernel
+    #    .rename('right_panel_kernel_opt')
         #
         .stage_assn('C_reg', 'C[_] += _')
         .split('j', VEC_W, ['jo', 'ji'], tail='cut')
@@ -167,11 +201,16 @@ right_panel_kernel_opt = (
         .fuse_loop('for i in _: _ #2', 'for i in _: _ #3')
         #
         .simplify()
-)
+    )
+    return p
+right_panel_kernel_opt = make_right_panel_kernel_opt()
 
-right_panel_kernel_scheduled = (
-    right_panel_kernel
-        .rename('right_panel_kernel_scheduled')
+def make_right_panel_kernel_scheduled(p = right_panel_kernel):
+    p = rename(p, 'right_panel_kernel_scheduled')
+    p = (p
+    #right_panel_kernel_scheduled = (
+    #    right_panel_kernel
+    #    .rename('right_panel_kernel_scheduled')
         #
         .replace_all(right_panel_kernel)
         #
@@ -189,11 +228,16 @@ right_panel_kernel_scheduled = (
         .repeat(Procedure.inline_window, 'C = _')
         #
         .simplify()
-)
+    )
+    return p
+right_panel_kernel_scheduled = make_right_panel_kernel_scheduled()
 
-sgemm_above_kernel = (
-    SGEMM_WINDOW
-        .rename('sgemm_above_kernel')
+def make_sgemm_above_kernel(p = SGEMM_WINDOW):
+    p = rename(p, 'sgemm_above_kernel')
+    p = (p
+    #sgemm_above_kernel = (
+    #    SGEMM_WINDOW
+    #    .rename('sgemm_above_kernel')
         # Split up into cases
         .split('j', N_REG_BLK, ['jo', 'ji'], tail='cut_and_guard')
         .split('i', M_REG_BLK, ['io', 'ii'], tail='cut_and_guard')
@@ -220,11 +264,16 @@ sgemm_above_kernel = (
         .call_eqv(bottom_panel_kernel_scheduled, 'bottom_panel_kernel(_)')
         # TODO: bottom-right tile
         .simplify()
-)
+    )
+    return p
+sgemm_above_kernel = make_sgemm_above_kernel()
 
-sgemm_exo = (
-    SGEMM
-        .rename('sgemm_exo')
+def make_sgemm_exo(p = SGEMM):
+    p = rename(p, 'sgemm_exo')
+    p = (p
+    #sgemm_exo = (
+    #    SGEMM
+    #    .rename('sgemm_exo')
         # Split all loops
         .split('k', K_L1_BLK, ['ko', 'ki'], tail='cut_and_guard')
         .split('i', M_L1_BLK, ['io', 'ii'], tail='cut_and_guard')
@@ -300,7 +349,9 @@ sgemm_exo = (
         .repeat(Procedure.call_eqv, sgemm_above_kernel, 'SGEMM_WINDOW(_)')
         # Clean up
         .simplify()
-)
+    )
+    return p
+sgemm_exo = make_sgemm_exo()
 
 if __name__ == '__main__':
     # print(sgemm_above_kernel)

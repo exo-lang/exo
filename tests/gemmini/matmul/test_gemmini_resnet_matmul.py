@@ -4,6 +4,7 @@ import pytest
 
 from exo.platforms.gemmini import *
 from ..harness_gemmini import GemmTestBuilder
+from exo.stdlib.scheduling import *
 
 def matmul_cpu():
     @proc
@@ -54,7 +55,7 @@ def test_matmul_512x512x512():
     MM = 512
     KK = 512
 
-    cpu = matmul_cpu().rename("matmul_on_cpu")
+    cpu = rename(matmul_cpu(), "matmul_on_cpu")
     cpu = cpu.partial_eval(NN, MM, KK)
     
     T = GemmTestBuilder('matmul_512x512x512')
@@ -70,7 +71,7 @@ def test_matmul_512x512x512():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_512x512x512")
+    gemmini = rename(cpu, "matmul_512x512x512")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM).set_memory('a', GEMM_SCRATCH).set_memory('b', GEMM_SCRATCH))
 
     # Tile outer loops
@@ -188,7 +189,7 @@ def test_matmul_4():
     MM = 256
     KK = 64
 
-    cpu = matmul_cpu().rename("matmul_on_cpu")
+    cpu = rename(matmul_cpu(), "matmul_on_cpu")
     cpu = cpu.partial_eval(NN, MM, KK)
     
     T = GemmTestBuilder('matmul_4')
@@ -204,7 +205,7 @@ def test_matmul_4():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_4")
+    gemmini = rename(cpu, "matmul_4")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
@@ -305,7 +306,7 @@ def test_matmul_6():
     MM = 64
     KK = 256
 
-    cpu = matmul_cpu().rename("matmul_on_cpu")
+    cpu = rename(matmul_cpu(), "matmul_on_cpu")
     cpu = cpu.partial_eval(NN, MM, KK)
     
     T = GemmTestBuilder('matmul_6')
@@ -321,7 +322,7 @@ def test_matmul_6():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_6")
+    gemmini = rename(cpu, "matmul_6")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
@@ -418,7 +419,7 @@ def test_matmul_14():
     MM = 512
     KK = 128
 
-    cpu = matmul_cpu().rename("matmul_on_cpu")
+    cpu = rename(matmul_cpu(), "matmul_on_cpu")
     cpu = cpu.partial_eval(NN, MM, KK)
     
     T = GemmTestBuilder('matmul_14')
@@ -434,7 +435,7 @@ def test_matmul_14():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_14")
+    gemmini = rename(cpu, "matmul_14")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
@@ -536,7 +537,7 @@ def test_matmul_16():
     MM = 128
     KK = 512
 
-    cpu = matmul_cpu().rename("matmul_on_cpu")
+    cpu = rename(matmul_cpu(), "matmul_on_cpu")
     cpu = cpu.partial_eval(NN, MM, KK)
     
     T = GemmTestBuilder('matmul_16')
@@ -552,7 +553,7 @@ def test_matmul_16():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_16")
+    gemmini = rename(cpu, "matmul_16")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))
@@ -654,7 +655,7 @@ def test_matmul_27():
     MM = 1024
     KK = 256
 
-    cpu = matmul_cpu().rename("matmul_on_cpu")
+    cpu = rename(matmul_cpu(), "matmul_on_cpu")
     cpu = cpu.partial_eval(NN, MM, KK)
     
     T = GemmTestBuilder('matmul_27')
@@ -670,7 +671,7 @@ def test_matmul_27():
     T.alloc_dram_2i8('z_cpu', NN, MM, '0') # expected result
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
-    gemmini = cpu.rename("matmul_27")
+    gemmini = rename(cpu, "matmul_27")
     gemmini = (gemmini.set_memory('res', GEMM_ACCUM)
                                      .set_memory('a', GEMM_SCRATCH)
                                      .set_memory('b', GEMM_SCRATCH))

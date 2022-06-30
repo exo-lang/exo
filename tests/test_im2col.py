@@ -1,7 +1,7 @@
 from __future__ import annotations  # make Python behave
 
 from exo import proc
-
+from exo.stdlib.scheduling import *
 
 # I'm going to define a 1D version of a standard convolutional layer (cf. CuDNN)
 # K - number of output channels
@@ -35,7 +35,7 @@ def test_im2col(golden):
     conv1d = gen_conv1d()
 
     # Let's start applying scheduling
-    im2col_conv = conv1d.rename('im2col_conv')
+    im2col_conv = rename(conv1d, 'im2col_conv')
     im2col_conv = im2col_conv.reorder('i', 'r')
     im2col_conv = im2col_conv.bind_expr('y', 'x[c, i-r]')
 
@@ -56,15 +56,19 @@ def test_im2col(golden):
 
     # Given this factoring, we can then proceed
     # to schedule these sub-procedures themselves.
-    tiled_matmul = (matmul.rename('tiled_matmul')
-                    # split the loops we want to tile together
-                    .reorder('r', 'i')
-                    .split('k', 8, ['khi', 'klo'], tail='cut')
-                    .reorder('klo #0', 'c').reorder('klo #0', 'i')
-                    .split('c #0', 8, ['chi', 'clo'], tail='cut')
-                    .reorder('clo #0', 'i').reorder('clo #0', 'klo')
-                    .split('i #0', 8, ['ihi', 'ilo'], tail='cut')
-                    .reorder('ilo #0', 'klo').reorder('ilo #0', 'clo'))
+    tiled_matmul = rename(matmul, 'tiled_matmul')
+    # split the loops we want to tile together
+    tiled_matmul = tiled_matmul.split('k', 8, ['khi', 'klo'], tail='cut')
+    tiled_matmul = tiled_matmul.reorder('klo #0', 'c')
+    tiled_matmul = tiled_matmul.reorder('klo #0', 'r')
+    tiled_matmul = tiled_matmul.reorder('klo #0', 'i')
+    tiled_matmul = tiled_matmul.split('c #0', 8, ['chi', 'clo'], tail='cut')
+    tiled_matmul = tiled_matmul.reorder('clo #0', 'r')
+    tiled_matmul = tiled_matmul.reorder('clo #0', 'i')
+    tiled_matmul = tiled_matmul.reorder('clo #0', 'klo')
+    tiled_matmul = tiled_matmul.split('i #0', 8, ['ihi', 'ilo'], tail='cut')
+    tiled_matmul = tiled_matmul.reorder('ilo #0', 'klo')
+    tiled_matmul = tiled_matmul.reorder('ilo #0', 'clo')
 
     # We can invoke another scheduling directive
     # to change which version of the matmul gets scheduled

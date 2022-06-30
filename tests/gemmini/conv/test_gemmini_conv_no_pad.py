@@ -171,7 +171,7 @@ def test_conv_3():
     T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'j+k+r*3')
     T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, 'i+k*3+r')
 
-    conv = conv_on_cpu().rename("conv_3")
+    conv = rename(conv_on_cpu(), "conv_3")
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
 
     conv = split_fission_dim(conv)
@@ -314,7 +314,7 @@ def test_conv_17():
     T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'j+k+r*3')
     T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, 'i+k*3+r')
 
-    conv = conv_on_cpu().rename("conv_17")
+    conv = rename(conv_on_cpu(), "conv_17")
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
 
     conv = split_fission_dim(conv)
@@ -471,7 +471,7 @@ def test_conv_30():
     T.alloc_dram_4i8('inp', batch_size, in_dim, in_dim, in_channel, 'j+i+k*2+r*3')
     T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, 'i+k*3+r')
 
-    conv = conv_on_cpu().rename("conv_30")
+    conv = rename(conv_on_cpu(), "conv_30")
     conv = conv.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
 
     conv = conv.split('och', 64, ['och_out', 'och'], perfect=True)

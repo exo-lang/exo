@@ -58,7 +58,7 @@ def ld_data(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
-ld_data_v2 = ld_data.rename("ld_data_v2")
+ld_data_v2 = rename(ld_data, "ld_data_v2")
 ld_data_v2 = ld_data_v2.configwrite_root(ConfigLoad, 'src_stride', 'stride(src, 0)')
 ld_data_v2 = ld_data_v2.replace(do_ld_data, 'for i in _:_')
 ld_data_v2 = ld_data_v2.replace(config_ld, 'ConfigLoad.src_stride = _')
@@ -118,7 +118,7 @@ def ld_acc(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
-ld_acc_v2 = ld_acc.rename("ld_acc_v2")
+ld_acc_v2 = rename(ld_acc, "ld_acc_v2")
 ld_acc_v2 = ld_acc_v2.configwrite_root(ConfigLoad, 'src_stride', 'stride(src, 0)')
 ld_acc_v2 = ld_acc_v2.replace(do_ld_acc, 'for i in _:_')
 ld_acc_v2 = ld_acc_v2.replace(config_ld, 'ConfigLoad.src_stride = _')
@@ -187,7 +187,7 @@ def do_matmul(
             for k in par(0,K):
                 C[i, j] += A[i,k] * B[k,j]
 
-matmul_v2 = matmul.rename("matmul_v2")
+matmul_v2 = rename(matmul, "matmul_v2")
 matmul_v2 = matmul_v2.configwrite_root(ConfigMatmul, 'set', 'True')
 matmul_v2 = matmul_v2.replace(do_matmul, 'for i in _:_')
 matmul_v2 = matmul_v2.replace(config_matmul, 'ConfigMatmul.set = True')
@@ -247,7 +247,7 @@ def do_st_acc(
             dst[i, j] = src[i,j]
 
 
-st_acc_v2 = st_acc.rename("st_acc_v2")
+st_acc_v2 = rename(st_acc, "st_acc_v2")
 st_acc_v2 = st_acc_v2.configwrite_root(ConfigStore, 'dst_stride', 'stride(dst, 0)')
 st_acc_v2 = st_acc_v2.replace(do_st_acc, 'for i in _:_')
 st_acc_v2 = st_acc_v2.replace(config_st_acc, 'ConfigStore.dst_stride = _')
@@ -302,9 +302,11 @@ def test_matmul_paper():
     MM = 128
     KK = 128
 
-    cpu = matmul_algorithm().rename("matmul_on_cpu").partial_eval(NN, MM, KK)
+    cpu = rename(matmul_algorithm(), "matmul_on_cpu")
+    cpu = cpu.partial_eval(NN, MM, KK)
 
-    gemmini = matmul_algorithm().rename("matmul_on_gemmini").partial_eval(NN, MM, KK)
+    gemmini = rename(matmul_algorithm(), "matmul_on_gemmini")
+    gemmini = gemmini.partial_eval(NN, MM, KK)
 
     # Stage memories, so that we can use gemmini scratchpad & accumulator
     gemmini = gemmini.stage_assn('res', 'C[_] += _')

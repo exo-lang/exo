@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from exo import proc, DRAM, QAST
-
+from exo.stdlib.scheduling import *
 
 # ------- Reflection tests ---------
 
@@ -30,7 +30,7 @@ def test_proc_name():
     assert isinstance(proc, QAST.Proc)
     assert proc.name == "sgemm_full"
 
-    sgemm = sgemm.rename('sgemm')
+    sgemm = rename(sgemm, 'sgemm')
 
     proc = sgemm.get_ast()
     assert isinstance(proc, QAST.Proc)

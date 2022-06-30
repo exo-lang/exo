@@ -89,7 +89,7 @@ def test_conv_ae():
     T.alloc_dram_4i8('weights', out_channel, kernel_dim, kernel_dim, in_channel, 'i+k*3+r')
 
     # Rename the conv algorithm to "conv_on_gemmini"
-    gemmini = conv_algorithm().rename("conv_on_gemmini")
+    gemmini = rename(conv_algorithm(), "conv_on_gemmini")
 
     print("")
     print("===== THIS IS THE CONV ALGORITHM BEFORE SCHEDULING ====")
@@ -201,7 +201,7 @@ def test_conv_ae():
     # Schedule ends here, 44 lines excluding comments and newlines
 
 
-    cpu = conv_algorithm().rename("conv_on_cpu")
+    cpu = rename(conv_algorithm(), "conv_on_cpu")
     cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
 
     # These lines are relevant if you want to run the generated C code with GEMMINI simulator

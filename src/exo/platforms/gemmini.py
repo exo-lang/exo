@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from exo import proc, instr, DRAM, config, QAST
 from exo.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
+from exo.stdlib.scheduling import *
 
 def split_fission_dim(conv):
     conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
@@ -522,28 +523,30 @@ _gemm_ld_i8_block_id1 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
 _gemm_ld_i8_block_id2 = ("gemmini_extended4_config_ld({src}.strides[0]*1, 1.0f, 0, {n}, 2);\n"+
                          "gemmini_extended_mvin3( &{src_data}, "+
                                   "((uint64_t) &{dst_data}), 16*{m}, {n} );")
-ld_i8_block_id1 = ld_i8_block.rename("ld_i8_block_id1").make_instr(_gemm_ld_i8_block_id1)
-ld_i8_block_id2 = ld_i8_block.rename("ld_i8_block_id2").make_instr(_gemm_ld_i8_block_id2)
+ld_i8_block_id1 = rename(ld_i8_block, "ld_i8_block_id1")
+ld_i8_block_id1 = ld_i8_block_id1.make_instr(_gemm_ld_i8_block_id1)
+ld_i8_block_id2 = rename(ld_i8_block, "ld_i8_block_id2")
+ld_i8_block_id2 = ld_i8_block_id2.make_instr(_gemm_ld_i8_block_id2)
 
-ld_i8_block_id1_v2 = ld_i8_block_id1.rename("ld_i8_block_id1_v2")
+ld_i8_block_id1_v2 = rename(ld_i8_block_id1, "ld_i8_block_id1_v2")
 ld_i8_block_id1_v2 = ld_i8_block_id1_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 0)')
 ld_i8_block_id1_v2 = ld_i8_block_id1_v2.replace(do_ld_i8_block_id1, 'for i in _:_')
 ld_i8_block_id1_v2 = ld_i8_block_id1_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
 ld_i8_block_id1_v2 = ld_i8_block_id1_v2.delete_pass().make_instr(_gemm_ld_i8_block_id1)
 
-ld_i8_block_id1_s2_v2 = ld_i8_block_id1.rename("ld_i8_block_id1_s2_v2")
+ld_i8_block_id1_s2_v2 = rename(ld_i8_block_id1, "ld_i8_block_id1_s2_v2")
 ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 2)')
 ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.replace(do_ld_i8_block_id1, 'for i in _:_')
 ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
 ld_i8_block_id1_s2_v2 = ld_i8_block_id1_s2_v2.delete_pass().make_instr(_gemm_ld_i8_block_id1)
 
-ld_i8_block_id2_v2 = ld_i8_block_id2.rename("ld_i8_block_id2_v2")
+ld_i8_block_id2_v2 = rename(ld_i8_block_id2, "ld_i8_block_id2_v2")
 ld_i8_block_id2_v2 = ld_i8_block_id2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 0)')
 ld_i8_block_id2_v2 = ld_i8_block_id2_v2.replace(do_ld_i8_block_id2, 'for i in _:_')
 ld_i8_block_id2_v2 = ld_i8_block_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
 ld_i8_block_id2_v2 = ld_i8_block_id2_v2.delete_pass().make_instr(_gemm_ld_i8_block_id2)
 
-ld_i8_block_id2_s2_v2 = ld_i8_block_id2.rename("ld_i8_block_id2_s2_v2")
+ld_i8_block_id2_s2_v2 = rename(ld_i8_block_id2, "ld_i8_block_id2_s2_v2")
 ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 2)')
 ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.replace(do_ld_i8_block_id2, 'for i in _:_')
 ld_i8_block_id2_s2_v2 = ld_i8_block_id2_s2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
@@ -575,7 +578,7 @@ def zero_block_id2(
 
 
 
-ld_i8_v2 = ld_i8.rename("ld_i8_v2")
+ld_i8_v2 = rename(ld_i8, "ld_i8_v2")
 ld_i8_v2 = ld_i8_v2.configwrite_after('pass', ConfigLoad, 'src_stride', 'stride(src, 0)')
 ld_i8_v2 = ld_i8_v2.replace(do_ld_i8, 'for i in _:_')
 ld_i8_v2 = ld_i8_v2.replace(config_ld_i8, 'ConfigLoad.src_stride = _')
@@ -585,33 +588,35 @@ _gemm_ld_i8_id1 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                  "1.0f, 0, 1);\n"+
                  "gemmini_extended_mvin2( &{src_data}, "+
                               "((uint64_t) &{dst_data}), {m}, {n} );")
-ld_i8_id1 = ld_i8.rename("ld_i8_id1").make_instr(_gemm_ld_i8_id1)
+ld_i8_id1 = rename(ld_i8, "ld_i8_id1")
+ld_i8_id1 = ld_i8_id1.make_instr(_gemm_ld_i8_id1)
 
 _gemm_ld_i8_id2 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                  "1.0f, 0, 2);\n"+
                  "gemmini_extended_mvin3( &{src_data}, "+
                               "((uint64_t) &{dst_data}), {m}, {n} );")
-ld_i8_id2 = ld_i8.rename("ld_i8_id2").make_instr(_gemm_ld_i8_id2)
+ld_i8_id2 = rename(ld_i8, "ld_i8_id2")
+ld_i8_id2 = ld_i8_id2.make_instr(_gemm_ld_i8_id2)
 
-ld_i8_id1_v2 = ld_i8_id1.rename("ld_i8_id1_v2")
+ld_i8_id1_v2 = rename(ld_i8_id1, "ld_i8_id1_v2")
 ld_i8_id1_v2 = ld_i8_id1_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 0)')
 ld_i8_id1_v2 = ld_i8_id1_v2.replace(do_ld_i8_id1, 'for i in _:_')
 ld_i8_id1_v2 = ld_i8_id1_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
 ld_i8_id1_v2 = ld_i8_id1_v2.delete_pass().make_instr(_gemm_ld_i8)
 
-ld_i8_id1_s2_v2 = ld_i8_id1.rename("ld_i8_id1_s2_v2")
+ld_i8_id1_s2_v2 = rename(ld_i8_id1, "ld_i8_id1_s2_v2")
 ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.configwrite_after('pass', ConfigLoad_id1, 'src_stride', 'stride(src, 2)')
 ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.replace(do_ld_i8_id1, 'for i in _:_')
 ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.replace(config_ld_i8_id1, 'ConfigLoad_id1.src_stride = _')
 ld_i8_id1_s2_v2 = ld_i8_id1_s2_v2.delete_pass().make_instr(_gemm_ld_i8)
 
-ld_i8_id2_v2 = ld_i8_id2.rename("ld_i8_id2_v2")
+ld_i8_id2_v2 = rename(ld_i8_id2, "ld_i8_id2_v2")
 ld_i8_id2_v2 = ld_i8_id2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 0)')
 ld_i8_id2_v2 = ld_i8_id2_v2.replace(do_ld_i8_id2, 'for i in _:_')
 ld_i8_id2_v2 = ld_i8_id2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
 ld_i8_id2_v2 = ld_i8_id2_v2.delete_pass().make_instr(_gemm_ld_i8)
 
-ld_i8_id2_s2_v2 = ld_i8_id2.rename("ld_i8_id2_s2_v2")
+ld_i8_id2_s2_v2 = rename(ld_i8_id2, "ld_i8_id2_s2_v2")
 ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.configwrite_after('pass', ConfigLoad_id2, 'src_stride', 'stride(src, 2)')
 ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.replace(do_ld_i8_id2, 'for i in _:_')
 ld_i8_id2_s2_v2 = ld_i8_id2_s2_v2.replace(config_ld_i8_id2, 'ConfigLoad_id2.src_stride = _')
@@ -704,7 +709,8 @@ _gemm_ld_acc_i8 = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
                    "1.0f, 1, 0);\n"+
                    "gemmini_extended_mvin( &{src_data}, "+
                                 "((uint32_t) &{dst_data}), {m}, {n} );")
-ld_acc_i8 = (ld_i8.rename('ld_acc_i8')
+ld_acc_i8 = rename(ld_i8, 'ld_acc_i8')
+ld_acc_i8 = (ld_acc_i8
                   .set_precision('dst', 'i32')
                   .set_memory('dst', GEMM_ACCUM)
                   .make_instr(_gemm_ld_acc_i8))
@@ -797,7 +803,7 @@ def do_ld_acc_i32_vector(
         for j in par(0, 16):
             dst[i,j] = src[0, j]
 
-ld_acc_i32_vector_v2 = ld_acc_i32_vector.rename("ld_acc_i32_vector_v2")
+ld_acc_i32_vector_v2 = rename(ld_acc_i32_vector, "ld_acc_i32_vector_v2")
 ld_acc_i32_vector_v2 = ld_acc_i32_vector_v2.configwrite_after('pass', ConfigLoadAcc, 'stride_set', 'True')
 ld_acc_i32_vector_v2 = ld_acc_i32_vector_v2.replace(do_ld_acc_i32_vector, 'for i in _:_')
 ld_acc_i32_vector_v2 = ld_acc_i32_vector_v2.replace(config_ld_acc_i32_vector, 'ConfigLoadAcc.stride_set = _')
@@ -915,7 +921,7 @@ def do_st_acc_i8(
             dst[i, j] = tmp2
 
 
-st_acc_i8_v2 = st_acc_i8.rename("st_acc_i8_v2")
+st_acc_i8_v2 = rename(st_acc_i8, "st_acc_i8_v2")
 st_acc_i8_v2 = st_acc_i8_v2.bind_config('scale', ConfigStore, 'scale')
 st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('tmp : _', 'ConfigStore.scale = _')
 st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('src_tmp = _', 'ConfigStore.scale = _')
@@ -936,7 +942,7 @@ st_acc_i8_v2 = st_acc_i8_v2.replace(
     'ConfigStore.scale = _ ; ConfigStore.dst_stride = _ ; ConfigStore.act = _'
 )
 
-st_acc_i8_s2_v2 = st_acc_i8.rename("st_acc_i8_s2_v2")
+st_acc_i8_s2_v2 = rename(st_acc_i8, "st_acc_i8_s2_v2")
 st_acc_i8_s2_v2 = st_acc_i8_s2_v2.bind_config('scale', ConfigStore, 'scale')
 st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('tmp : _', 'ConfigStore.scale = _')
 st_acc_i8_s2_v2 = st_acc_i8_s2_v2.reorder_stmts('src_tmp = _', 'ConfigStore.scale = _')
@@ -1024,20 +1030,20 @@ def zero_i8(
         for j in par(0, m):
             dst[i,j] = 0.0
 
-zero_i8_v2 = zero_i8.rename("zero_i8_v2")
+zero_i8_v2 = rename(zero_i8, "zero_i8_v2")
 zero_i8_v2 = zero_i8_v2.configwrite_after('pass', ConfigLoad, 'src_stride', '0')
 zero_i8_v2 = zero_i8_v2.replace(do_zero_i8, 'for i in _:_')
 zero_i8_v2 = zero_i8_v2.replace(config_zero, 'ConfigLoad.src_stride = _')
 
-do_zero_acc_i32 = (do_zero_i8.rename('do_zero_acc_i32')
-                             .set_precision('dst', 'i32')
-                             .set_memory('dst', GEMM_ACCUM)
-                             .make_instr(_gemm_do_zero))
-zero_acc_i32 = (zero_i8.rename('zero_acc_i32')
-                          .set_precision('dst', 'i32')
-                          .set_memory('dst', GEMM_ACCUM)
-                          .make_instr(_gemm_zero))
-zero_acc_i32_v2 = zero_acc_i32.rename("zero_acc_i32_v2")
+do_zero_acc_i32 = rename(do_zero_i8, 'do_zero_acc_i32')
+do_zero_acc_i32 = do_zero_acc_i32.set_precision('dst', 'i32')
+do_zero_acc_i32 = do_zero_acc_i32.set_memory('dst', GEMM_ACCUM)
+do_zero_acc_i32 = do_zero_acc_i32.make_instr(_gemm_do_zero)
+zero_acc_i32 = rename(zero_i8, 'zero_acc_i32')
+zero_acc_i32 = zero_acc_i32.set_precision('dst', 'i32')
+zero_acc_i32 = zero_acc_i32.set_memory('dst', GEMM_ACCUM)
+zero_acc_i32 = zero_acc_i32.make_instr(_gemm_zero)
+zero_acc_i32_v2 = rename(zero_acc_i32, "zero_acc_i32_v2")
 zero_acc_i32_v2 = zero_acc_i32_v2.configwrite_after('pass', ConfigLoad, 'src_stride', '0')
 zero_acc_i32_v2 = zero_acc_i32_v2.replace(do_zero_acc_i32, 'for i in _:_')
 zero_acc_i32_v2 = zero_acc_i32_v2.replace(config_zero, 'ConfigLoad.src_stride = _')
@@ -1072,7 +1078,7 @@ def do_zero_i8_vector(
     for i in par(0, 16):
         dst[i] = 0.0
 
-zero_i8_vector_v2 = zero_i8_vector.rename("zero_i8_vector_v2")
+zero_i8_vector_v2 = rename(zero_i8_vector, "zero_i8_vector_v2")
 zero_i8_vector_v2 = zero_i8_vector_v2.configwrite_after('pass', ConfigLoad, 'src_stride', '0')
 zero_i8_vector_v2 = zero_i8_vector_v2.replace(do_zero_i8_vector, 'for i in _:_')
 zero_i8_vector_v2 = zero_i8_vector_v2.replace(config_zero, 'ConfigLoad.src_stride = _')
@@ -1159,7 +1165,7 @@ def do_matmul_i8(
 
                 C[i, j] += a * b
 
-matmul_i8_v2 = matmul_i8.rename("matmul_i8_v2")
+matmul_i8_v2 = rename(matmul_i8, "matmul_i8_v2")
 matmul_i8_v2 = matmul_i8_v2.configwrite_after('pass', ConfigMatmul, 'done', 'True')
 matmul_i8_v2 = matmul_i8_v2.replace(do_matmul_i8, 'for i in _:_')
 matmul_i8_v2 = matmul_i8_v2.replace(config_matmul, 'ConfigMatmul.done = True')
@@ -1229,7 +1235,7 @@ def do_matmul_acc_i8(
                 b = B[k,j]
 
                 C[i, j] += a * b
-matmul_acc_i8_v2 = matmul_acc_i8.rename("matmul_acc_i8_v2")
+matmul_acc_i8_v2 = rename(matmul_acc_i8, "matmul_acc_i8_v2")
 matmul_acc_i8_v2 = matmul_acc_i8_v2.configwrite_after('pass', ConfigMatmul, 'done', 'True')
 matmul_acc_i8_v2 = matmul_acc_i8_v2.replace(do_matmul_acc_i8, 'for i in _:_')
 matmul_acc_i8_v2 = matmul_acc_i8_v2.replace(config_matmul, 'ConfigMatmul.done = True')
