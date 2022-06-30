@@ -2,21 +2,22 @@
 #
 #import weakref
 #from abc import ABC, abstractmethod
-#from dataclasses import dataclass
+from dataclasses import dataclass
 #from enum import Enum, auto
 #from functools import cached_property
-from typing import Optional, Iterable, Union, List
+from typing import Optional, Iterable, Union, List, Any
 #from weakref import ReferenceType
 #
 from . import API
 from .LoopIR import LoopIR
-from .config import Config
+from .configs import Config
 from .memory import Memory
 
-from . import cursors as C
+from . import internal_cursors as C
+from .prelude import Sym
 
 # expose this particular exception as part of the API
-from .cursors import InvalidCursorError 
+from .internal_cursors import InvalidCursorError 
 
 
 # --------------------------------------------------------------------------- #
@@ -106,7 +107,7 @@ class Cursor:
         """
         return True
 
-    def parent(self) -> Cursor:
+    def parent(self):
         """
         Get a Cursor to the parent node in the syntax tree.
 
@@ -119,7 +120,7 @@ class Cursor:
             return InvalidCursor()
         return new_Cursor(impl_parent)
 
-    def prev(self, dist=1) -> Cursor:
+    def prev(self, dist=1):
         """
         If this is a statement Cursor, return a statement cursor to
             the previous statement in the block (or dist-many previous)
@@ -135,7 +136,7 @@ class Cursor:
         except InvalidCursorError:
             return InvalidCursor()
 
-    def next(self, dist=1) -> Cursor:
+    def next(self, dist=1):
         """
         If this is a statement Cursor, return a statement cursor to
             the next statement in the block (or dist-many next)
@@ -155,7 +156,7 @@ class Cursor:
 class InvalidCursor(Cursor):
     def __init__(self):
         """ Invalid cursors have no data """
-        pass
+        self._impl = None
 
     def __bool__(self):
         """
@@ -235,13 +236,21 @@ class StmtCursorPrototype(Cursor):
         except InvalidCursorError:
             return InvalidCursor()
 
+    def block_all(self):
+        """
+        Return a BlockCursor for the entire statement block that this
+        Stmt, Block, or Gap is contained in
+        """
+        return BlockCursor(self._impl._whole_block())
+
 class StmtCursor(StmtCursorPrototype):
     """
     Cursor pointing to an individual statement or expression.
     See `help(Cursor)` for more details.
     """
 
-    def as_block(self) -> BlockC
+    def as_block(self):
+        """ Return a Block containing only this one statement """
         return BlockC( self._impl.as_block() )
 
 class BlockCursor(StmtCursorPrototype):
@@ -280,6 +289,17 @@ class ExprCursorPrototype(Cursor):
         StmtCursor, BlockCursor, GapCursor
     See `help(Cursor)` for more details.
     """
+
+    def list_all(self):
+        """
+        Return an ExprListCursor for the list of expressions that this
+        expression is contained in, if this expression is contained in a
+        list.  Otherwise, return an InvalidCursor
+        """
+        try:
+            return ExprListCursor(self._impl._whole_block())
+        except InvalidCursorError:
+            return InvalidCursor()
 
 class ExprCursor(ExprCursorPrototype):
     """
@@ -451,7 +471,7 @@ class WindowStmtCursor(StmtCursor):
     def name(self) -> Sym:
         return self._impl._node().name
 
-    def winexpr(self) -> WindowExprCursor:
+    def winexpr(self) -> ExprCursor:
         return WindowExprCursor( self._impl._child_node('rhs') )
 
 # --------------------------------------------------------------------------- #
@@ -578,10 +598,42 @@ class StrideExprCursor(ExprCursor):
         return self._impl._node().dim
 
 
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# List of objects to expose
 
-
-
-
+public_cursors = [
+    Cursor,
+    InvalidCursor,
+    StmtCursorPrototype,
+    StmtCursor,
+    BlockCursor,
+    GapCursor,
+    ExprCursorPrototype,
+    ExprCursor,
+    ExprListCursor,
+    #
+    AssignCursor,
+    ReduceCursor,
+    AssignConfigCursor,
+    PassCursor,
+    IfCursor,
+    ForSeqCursor,
+    AllocCursor,
+    CallCursor,
+    WindowStmtCursor,
+    #
+    ReadCursor,
+    ReadConfigCursor,
+    LiteralCursor,
+    UnaryMinusCursor,
+    BinaryOpCursor,
+    BuiltInFunctionCursor,
+    WindowExprCursor,
+    StrideExprCursor,
+    #
+    InvalidCursorError,
+]
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -652,5 +704,6 @@ def new_Cursor(impl):
             assert False, f"bad case: {type(n)}"
 
     else: assert False, f"bad case: {type(impl)}"
+
 
 

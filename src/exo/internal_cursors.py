@@ -130,6 +130,15 @@ class Cursor(ABC):
         """Get the next node/gap in the block. Undefined for blocks."""
 
     # ------------------------------------------------------------------------ #
+    # Block Navigation
+    # ------------------------------------------------------------------------ #
+
+    def _whole_block(self) -> Block:
+        attr, _range    = self._path[-1]
+        parent          = self.parent()
+        return parent._child_block(attr)
+
+    # ------------------------------------------------------------------------ #
     # Protected path / mutation helpers
     # ------------------------------------------------------------------------ #
 
