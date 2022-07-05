@@ -68,3 +68,5 @@ void hoge( c_code_str_Context *ctxt, int_fast32_t n, float* x, float* y ) {
 float xy;
 dot(ctxt,n,x,y,&xy);
 }
+
+

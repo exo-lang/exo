@@ -71,6 +71,13 @@ class Memory(ABC):
         return ''
 
     @classmethod
+    def global_eof(cls):
+        """
+        C code
+        """
+        return ''
+
+    @classmethod
     @abstractmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         """

@@ -340,6 +340,9 @@ def compile_to_strings(lib_name, proc_list):
                 fwd_decls.append(d)
             body.append(b)
 
+    for m in mem_list:
+        body.append(f'{m.global_eof()}\n')
+
     # add struct definitions before the other forward declarations
     fwd_decls = list(struct_defns) + fwd_decls
     fwd_decls = '\n'.join(fwd_decls)

@@ -78,3 +78,5 @@ float y2;
 dot(ctxt,m,(struct exo_win_1f32){ (float*)&x[(1) * (m) + (0) * (1)], { 1 } },(struct exo_win_1f32){ (float*)&y[(0) * (n) + (2) * (1)], { n } },&xy);
 dot(ctxt,m,(struct exo_win_1f32){ (float*)&y[(0) * (n) + (3) * (1)], { n } },(struct exo_win_1f32){ (float*)&y[(0) * (n) + (3) * (1)], { n } },&y2);
 }
+
+
