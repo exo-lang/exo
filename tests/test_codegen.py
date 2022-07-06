@@ -195,7 +195,7 @@ def test_alloc_nest_malloc(compiler):
     root_dir = Path(__file__).parent.parent
     lib = compiler.compile(alloc_nest_malloc,
                            include_dir=str(root_dir / "src/exo/libs"),
-                           additional_file=str(root_dir / "src/exo/libs/malloc.c"))
+                           additional_file=str(root_dir / "src/exo/libs/custom_malloc.c"))
 
     # Initialize custom malloc here
     lib.init_mem()

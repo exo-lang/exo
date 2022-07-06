@@ -10,7 +10,7 @@ def _is_const_size(sz, c):
 class MDRAM(DRAM):
     @classmethod
     def global_(cls):
-        return '#include "malloc.h"'
+        return '#include "custom_malloc.h"'
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
