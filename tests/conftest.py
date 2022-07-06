@@ -237,10 +237,7 @@ class Compiler:
             pytest.skip('Compile failure converted to skip')
 
     def _generate_cml(self, test_files: Dict[str, str], include_dir=None, additional_file=None):
-        if additional_file:
-            lib_command = f'add_library({self.basename} "{self.basename}.c" "{additional_file}")'
-        else:
-            lib_command = f'add_library({self.basename} "{self.basename}.c")'
+        additional_file = f'"{additional_file}"' if additional_file else ""
 
         cml_body = textwrap.dedent(
             f'''
@@ -249,7 +246,7 @@ class Compiler:
             
             option(BUILD_SHARED_LIBS "Build shared libraries by default" ON)
             
-            {lib_command}
+            add_library({self.basename} "{self.basename}.c" {additional_file})
             add_library({self.basename}::{self.basename} ALIAS {self.basename})
             
             '''
@@ -258,7 +255,7 @@ class Compiler:
         if include_dir:
             cml_body += textwrap.dedent(
                 f'''
-                include_directories({self.basename} {include_dir})
+                target_include_directories({self.basename} PRIVATE {include_dir})
                 ''')
 
         lib_name = f'{self.basename}::{self.basename}'

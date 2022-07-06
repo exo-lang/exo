@@ -192,9 +192,10 @@ def test_alloc_nest_malloc(compiler):
     y = np.array([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]], dtype=np.float32)
     res = np.zeros_like(x)
 
+    root_dir = Path(__file__).parent.parent
     lib = compiler.compile(alloc_nest_malloc,
-            include_dir=str(Path(__file__).parent) + "/../src/exo/libs",
-            additional_file=str(Path(__file__).parent) + "/../src/exo/libs/malloc.c")
+                           include_dir=str(root_dir / "src/exo/libs"),
+                           additional_file=str(root_dir / "src/exo/libs/malloc.c"))
 
     # Initialize custom malloc here
     lib.init_mem()
