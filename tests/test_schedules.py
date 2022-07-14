@@ -7,6 +7,23 @@ from exo.libs.memories import GEMM_SCRATCH
 from exo.parse_fragment import ParseFragmentError
 
 
+def test_delete_pass(golden):
+    @proc
+    def foo(x : R):
+        pass
+        x = 0.0
+
+    assert str(foo.delete_pass()) == golden
+
+    @proc
+    def foo(x : R):
+        for i in seq(0, 16):
+            for j in seq(0, 2):
+                pass
+        x = 0.0
+
+    assert str(foo.delete_pass()) == golden
+
 def test_add_loop1(golden):
     @proc
     def foo():
