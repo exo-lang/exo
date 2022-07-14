@@ -274,7 +274,8 @@ def test_matmul_on_amx_by_hand_i8(compiler, sde64):
         matmul_algorithm_i8(), get_transform_memory_i8(), matmul_on_amx
     ], t)
 
-def test_matmul_on_amx_scheduled_i8(compiler, sde64):
+@pytest.fixture
+def matmul_i8():
     size1 = 256
     size2 = 256
 
@@ -348,6 +349,12 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64):
     print("Final scheduled algorithm:")
     print(amx)
 
+    return amx
+
+def test_gen_matmul_i8_amx(matmul_i8):
+    pass
+
+def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
     t = AMXTestBuilder(compiler.basename)
     t.add_body([f"{compiler.basename}_Context *ctxt;"])
 
@@ -376,7 +383,7 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64):
                 ''])
 
     _run_amx(compiler, sde64, [
-        matmul_algorithm_i8(), get_transform_memory_i8(), amx,
+        matmul_algorithm_i8(), get_transform_memory_i8(), matmul_i8,
     ], t)
 
 
