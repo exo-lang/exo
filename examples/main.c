@@ -9,19 +9,19 @@ static float B[K * 16];
 static float C[6 * 16];
 
 void initialize() {
-  for (int i=0; i<6; i++) {
-    for (int j=0; j<K; j++) {
-      A[i*K+j] = 3.2;
+  for (int i = 0; i < 6; i++) {
+    for (int j = 0; j < K; j++) {
+      A[i * K + j] = 3.2;
     }
   }
-  for (int i=0; i<K; i++) {
-    for (int j=0; j<16; j++) {
-      B[i*16+j] = 0.2;
+  for (int i = 0; i < K; i++) {
+    for (int j = 0; j < 16; j++) {
+      B[i * 16 + j] = 0.2;
     }
   }
-  for (int i=0; i<6; i++) {
-    for (int j=0; j<16; j++) {
-      C[i*16+j] = 0.0;
+  for (int i = 0; i < 6; i++) {
+    for (int j = 0; j < 16; j++) {
+      C[i * 16 + j] = 0.0;
     }
   }
   return;
@@ -33,21 +33,23 @@ int main() {
 
   // Calling original matmul
   start = clock();
-  for (int i=0; i<1000; i++)
+  for (int i = 0; i < 1000; i++)
     rank_k_reduce_6x16(NULL, K, C, A, B);
   end = clock();
 
-  msec = (end-start) * 1000 / CLOCKS_PER_SEC;
-  printf("Time taken for original matmul: %d seconds %d milliseconds\n", msec/1000, msec%1000);
+  msec = (end - start) * 1000 / CLOCKS_PER_SEC;
+  printf("Time taken for original matmul: %d seconds %d milliseconds\n",
+      msec / 1000, msec % 1000);
 
   // Calling scheduled matmul
   start = clock();
-  for (int i=0; i<1000; i++)
+  for (int i = 0; i < 1000; i++)
     rank_k_reduce_6x16_scheduled(NULL, K, C, A, B);
   end = clock();
 
-  msec = (end-start) * 1000 / CLOCKS_PER_SEC;
-  printf("Time taken for scheduled matmul: %d seconds %d milliseconds\n", msec/1000, msec%1000);
+  msec = (end - start) * 1000 / CLOCKS_PER_SEC;
+  printf("Time taken for scheduled matmul: %d seconds %d milliseconds\n",
+      msec / 1000, msec % 1000);
 
-  return(0);
+  return (0);
 }
