@@ -52,7 +52,7 @@ for M in range(1, M_REG_BLK + 1):
     def make_basic(p):
         p = rename(p,f'basic_kernel_{M}x4')
         p = p.partial_eval(M,N_REG_BLK)
-        p = p.simplify()
+        p = simplify(p)
         return p
     basic_kernel_Mx4[M] = make_basic(SGEMM_WINDOW)
     #(

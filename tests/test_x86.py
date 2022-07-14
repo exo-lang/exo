@@ -7,6 +7,14 @@ import pytest
 
 from exo import proc
 from exo.platforms.x86 import *
+from exo.stdlib.scheduling import *
+
+old_split = repeat(divide_loop)
+def old_fission_after(proc, stmt_pattern, n_lifts=1):
+    def find_stmts(p):
+        return [ c.after() for c in p.find_all(stmt_pattern) ]
+
+    return loop_hack(autofission, find_stmts)(proc, n_lifts)
 
 
 @pytest.mark.isa('AVX2')
@@ -88,35 +96,34 @@ def test_avx2_simple_math_scheduling(compiler):
         for i in par(0, n):
             x[i] = x[i] * y[i] * y[i]
 
-    simple_math_avx2_sched = (
-        simple_math_avx2_sched
-            .split('i', 8, ['io', 'ii'], tail='cut_and_guard')
-            .stage_assn('xyy', 'x[_] = _ #0')
-            .lift_alloc('xyy: _')
-            .set_memory('xyy', AVX2)
-            .fission_after('xyy[_] = _')
+    def sched_simple_math_avx2_sched(p=simple_math_avx2_sched):
+        p = old_split(p, 'i', 8, ['io', 'ii'], tail='cut_and_guard')
+        p = p.stage_assn('xyy', 'x[_] = _ #0')
+        p = p.lift_alloc('xyy: _')
+        p = set_memory(p, 'xyy', AVX2)
+        p = old_fission_after(p, 'xyy[_] = _')
 
-            .replace_all(mm256_storeu_ps)
+        p = p.replace_all(mm256_storeu_ps)
 
-            .bind_expr('xVec', 'x[_]')
-            .lift_alloc('xVec: _')
-            .set_memory('xVec', AVX2)
-            .fission_after('xVec[_] = _')
+        p = p.bind_expr('xVec', 'x[_]')
+        p = p.lift_alloc('xVec: _')
+        p = set_memory(p, 'xVec', AVX2)
+        p = old_fission_after(p, 'xVec[_] = _')
 
-            .bind_expr('yVec', 'y[_]', cse=True)
-            .lift_alloc('yVec: _')
-            .set_memory('yVec', AVX2)
-            .fission_after('yVec[_] = _')
+        p = p.bind_expr('yVec', 'y[_]', cse=True)
+        p = p.lift_alloc('yVec: _')
+        p = set_memory(p, 'yVec', AVX2)
+        p = old_fission_after(p, 'yVec[_] = _')
 
-            .replace_all(mm256_loadu_ps)
+        p = p.replace_all(mm256_loadu_ps)
 
-            .bind_expr('xy', 'xVec[_] * yVec[_]')
-            .lift_alloc('xy: _')
-            .set_memory('xy', AVX2)
-            .fission_after('xy[_] = _')
+        p = p.bind_expr('xy', 'xVec[_] * yVec[_]')
+        p = p.lift_alloc('xy: _')
+        p = set_memory(p, 'xy', AVX2)
+        p = old_fission_after(p, 'xy[_] = _')
 
-            .replace_all(mm256_mul_ps)
-    )
+        p = p.replace_all(mm256_mul_ps)
+    simple_math_avx2_sched = sched_simple_math_avx2_sched()
 
     fn = compiler.compile(simple_math_avx2_sched,
                           skip_on_fail=True,
@@ -156,21 +163,21 @@ def gen_rank_k_reduce_6x16():
                 for k in par(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
-    avx = rank_k_reduce_6x16.rename("rank_k_reduce_6x16_scheduled")
+    avx = rename(rank_k_reduce_6x16, "rank_k_reduce_6x16_scheduled")
     avx = avx.stage_assn('C_reg', 'C[_] += _')
-    avx = avx.set_memory('C_reg', AVX2)
-    avx = avx.split('j', 8, ['jo', 'ji'], perfect=True)
-    avx = avx.reorder('ji', 'k')
-    avx = avx.reorder('jo', 'k')
-    avx = avx.reorder('i', 'k')
+    avx = set_memory(avx, 'C_reg', AVX2)
+    avx = old_split(avx, 'j', 8, ['jo', 'ji'], perfect=True)
+    avx = reorder_loops(avx, 'ji k')
+    avx = reorder_loops(avx, 'jo k')
+    avx = reorder_loops(avx, 'i k')
     avx = avx.lift_alloc('C_reg:_', n_lifts=3)
-    avx = avx.fission_after('C_reg = _ #0', n_lifts=3)
-    avx = avx.fission_after('C_reg[_] += _ #0', n_lifts=3)
+    avx = old_fission_after(avx, 'C_reg = _ #0', n_lifts=3)
+    avx = old_fission_after(avx, 'C_reg[_] += _ #0', n_lifts=3)
     avx = avx.par_to_seq('for k in _:_')
     avx = avx.lift_alloc('C_reg:_', n_lifts=1)
-    avx = avx.fission_after('for i in _:_#0', n_lifts=1)
-    avx = avx.fission_after('for i in _:_#1', n_lifts=1)
-    avx = avx.simplify()
+    avx = old_fission_after(avx, 'for i in _:_#0', n_lifts=1)
+    avx = old_fission_after(avx, 'for i in _:_#1', n_lifts=1)
+    avx = simplify(avx)
 
     return avx, rank_k_reduce_6x16
 
@@ -178,31 +185,31 @@ def gen_rank_k_reduce_6x16():
 def gen_sgemm_6x16_avx():
     avx2_sgemm_6x16, rank_k_reduce_6x16 = gen_rank_k_reduce_6x16()
 
-    avx2_sgemm_6x16 = (
-        avx2_sgemm_6x16
-            .bind_expr('a_vec', 'A[i, k]')
-            .set_memory('a_vec', AVX2)
-            .lift_alloc('a_vec:_', keep_dims=True)
-            .fission_after('a_vec[_] = _')
+    def sched_avx2_sgemm_6x16(p=avx2_sgemm_6x16):
+        p = p.bind_expr('a_vec', 'A[i, k]')
+        p = set_memory(p, 'a_vec', AVX2)
+        p = p.lift_alloc('a_vec:_', keep_dims=True)
+        p = old_fission_after(p, 'a_vec[_] = _')
             #
-            .bind_expr('b_vec', 'B[k, _]')
-            .set_memory('b_vec', AVX2)
-            .lift_alloc('b_vec:_', keep_dims=True)
-            .fission_after('b_vec[_] = _')
+        p = p.bind_expr('b_vec', 'B[k, _]')
+        p = set_memory(p, 'b_vec', AVX2)
+        p = p.lift_alloc('b_vec:_', keep_dims=True)
+        p = old_fission_after(p, 'b_vec[_] = _')
             #
-            .replace_all(avx2_set0_ps)
-            .replace_all(mm256_broadcast_ss)
-            .replace_all(mm256_fmadd_ps)
-            .replace_all(avx2_fmadd_memu_ps)
-            .replace(mm256_loadu_ps, 'for ji in _:_ #0')
-            .replace(mm256_loadu_ps, 'for ji in _:_ #0')
-            .replace(mm256_storeu_ps, 'for ji in _:_ #0')
+        p = p.replace_all(avx2_set0_ps)
+        p = p.replace_all(mm256_broadcast_ss)
+        p = p.replace_all(mm256_fmadd_ps)
+        p = p.replace_all(avx2_fmadd_memu_ps)
+        p = p.replace(mm256_loadu_ps, 'for ji in _:_ #0')
+        p = p.replace(mm256_loadu_ps, 'for ji in _:_ #0')
+        p = p.replace(mm256_storeu_ps, 'for ji in _:_ #0')
             #
-            .unroll('jo')
-            .unroll('i')
+        p = p.unroll('jo')
+        p = p.unroll('i')
             #
-            .simplify()
-    )
+        p = simplify(p)
+        return p
+    avx2_sgemm_6x16 = sched_avx2_sgemm_6x16()
 
     return rank_k_reduce_6x16, avx2_sgemm_6x16
 
@@ -238,34 +245,35 @@ def test_avx2_sgemm_full(compiler):
     cache_j = 4
     cache_k = 2
 
-    avx_sgemm_full = (
-        sgemm_full.rename('avx_sgemm_full')
+    def sched_avx_sgemm_full(p=sgemm_full):
+        p = rename(p, 'avx_sgemm_full')
             # initial i,j tiling
-            .split('i', 6, ['io', 'ii'], tail='cut')
-            .reorder('ii #0', 'j')
-            .split('j #0', 16, ['jo', 'ji'], tail='cut')
-            .reorder('ji', 'ii')
+        p = old_split(p, 'i', 6, ['io', 'ii'], tail='cut')
+        p = reorder_loops(p, 'ii j #0')
+        p = old_split(p, 'j #0', 16, ['jo', 'ji'], tail='cut')
+        p = reorder_loops(p, 'ji ii')
             # breaking off the main loop
-            .fission_after('for jo in _: _')
+        p = old_fission_after(p, 'for jo in _: _')
             # introduce k-tiling for later
-            .split('k #0', cache_k * 16, ['ko', 'ki'], tail='cut')
-            .fission_after('for ko in _: _', n_lifts=2)
-            .reorder('ji', 'ko')
-            .reorder('ii', 'ko')
-            .replace_all(sgemm_6x16)
+        p = old_split(p, 'k #0', cache_k * 16, ['ko', 'ki'], tail='cut')
+        p = old_fission_after(p, 'for ko in _: _', n_lifts=2)
+        p = reorder_loops(p, 'ji ko')
+        p = reorder_loops(p, 'ii ko')
+        p = p.replace_all(sgemm_6x16)
             # insert uses of micro-kernel now
-            .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
-            .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
+        p = p.call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
+        p = p.call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
             # do outer tiling for cache-locality
-            .split('io #0', cache_i, ['io', 'im'], tail='cut')
-            .reorder('im', 'jo')
-            .split('jo', cache_j, ['jo', 'jm'], tail='cut')
-            .reorder('jm', 'im')
+        p = old_split(p, 'io #0', cache_i, ['io', 'im'], tail='cut')
+        p = reorder_loops(p, 'im jo')
+        p = old_split(p, 'jo', cache_j, ['jo', 'jm'], tail='cut')
+        p = reorder_loops(p, 'jm im')
             # move the ko loop up and out
-            .fission_after('for ko in _: _', n_lifts=2)
-            .reorder('jm # 0', 'ko')
-            .reorder('im # 0', 'ko')
-    )
+        p = old_fission_after(p, 'for ko in _: _', n_lifts=2)
+        p = reorder_loops(p, 'jm ko #0')
+        p = reorder_loops(p, 'im ko #0')
+        return p
+    avx_sgemm_full = sched_avx_sgemm_full()
 
     fn = compiler.compile(avx_sgemm_full,
                           skip_on_fail=True,
@@ -347,14 +355,15 @@ def test_avx512_sgemm_full(compiler):
                     C_reg[i, N / 16, :]
                 )
 
-    spec_kernel = (
-        sgemm_micro_kernel_staged
-            .partial_eval(6, 64)
-            .simplify()
-            .unroll('j')
-            .unroll('i')
-            .simplify()
-    )
+
+    def sched_spec_kernel(p=sgemm_micro_kernel_staged):
+        p = p.partial_eval(6, 64)
+        p = simplify(p)
+        p = p.unroll('j')
+        p = p.unroll('i')
+        p = simplify(p)
+        return p
+    spec_kernel = sched_spec_kernel()
 
     spec_kernel.c_code_str()
 

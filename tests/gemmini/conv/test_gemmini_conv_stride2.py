@@ -280,26 +280,26 @@ def test_conv_13():
 
     # Now start replacing
     conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
-    conv = conv.reorder('och_i', 'kch_i')
+    conv = old_reorder(conv, 'och_i kch_i')
     conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
     conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
     conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
     conv = conv.replace(ld_i8_s2, 'for ocol_i in _:_ #1')
-    conv = conv.reorder('kch_i', 'och_i')
+    conv = old_reorder(conv, 'kch_i och_i')
     conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #1')
     conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #1')
 
     conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
-    conv = conv.reorder('och_i', 'kch_i')
+    conv = old_reorder(conv, 'och_i kch_i')
     conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
     conv = conv.replace(ld_i8_s2, 'for ocol_i in _:_ #2')
-    conv = conv.reorder('kch_i', 'och_i')
+    conv = old_reorder(conv, 'kch_i och_i')
     conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #2')
     conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #2')
 
-    conv = conv.set_memory('res', GEMM_ACCUM)
-    conv = conv.set_memory('i_s', GEMM_SCRATCH)
-    conv = conv.set_memory('w_s', GEMM_SCRATCH)
+    conv = set_memory(conv, 'res', GEMM_ACCUM)
+    conv = set_memory(conv, 'i_s', GEMM_SCRATCH)
+    conv = set_memory(conv, 'w_s', GEMM_SCRATCH)
 
 
     cpu = conv_on_cpu().partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)

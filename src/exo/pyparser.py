@@ -1109,6 +1109,15 @@ class PatternParser:
         elif isinstance(e, pyast.Constant):
             return PAST.Const(e.value, self.getsrcinfo(e))
 
+        elif isinstance(e, pyast.Attribute):
+            if not isinstance(e.value, pyast.Name):
+                self.err(e, "expected configuration reads "
+                            "of the form 'config.field'")
+
+            assert isinstance(e.attr, str)
+
+            return PAST.ReadConfig(e.value.id, e.attr, self.getsrcinfo(e))
+
         elif isinstance(e, pyast.UnaryOp):
             if isinstance(e.op, pyast.USub):
                 arg = self.parse_expr(e.operand)
@@ -1210,5 +1219,43 @@ class PatternParser:
 
             return res
 
+        elif isinstance(e, pyast.Call):
+            # handle stride expression
+            if isinstance(e.func, pyast.Name) and e.func.id == "stride":
+                if (len(e.keywords) > 0 or len(e.args) != 2 or
+                        not isinstance(e.args[0], pyast.Name) or
+                        not isinstance(e.args[1], pyast.Constant) or
+                        not isinstance(e.args[1].value, int)):
+                    self.err(e, "expected stride(...) to "
+                                "have exactly 2 arguments: the identifier "
+                                "for the buffer we are talking about "
+                                "and an integer specifying which dimension")
+
+                name    = e.args[0].id
+                dim     = int(e.args[1].value)
+
+                return PAST.StrideExpr(name, dim, self.getsrcinfo(e))
+
+            # handle built-in functions
+            else:
+                builtins = { 'sin' : sin,
+                             'relu' : relu,
+                             'select' : select }
+                if (not isinstance(e.func, pyast.Name) or
+                    e.func.id not in builtins.keys()):
+                    self.err(e, f"expected built-in function call to one of: "
+                                f"{', '.join(builtins.keys())}")
+
+                fname   = e.func.id
+                f       = builtins[fname]
+
+                if len(e.keywords) > 0:
+                    self.err(f, "cannot call a builtin function "
+                                "with keyword arguments")
+
+                args = [ self.parse_expr(a) for a in e.args ]
+
+                return UAST.BuiltIn( f, args, self.getsrcinfo(e) )
+
         else:
-            self.err(e, "unsupported form of expression")
+            self.err(e, f"unsupported form of expression: {type(e)}")

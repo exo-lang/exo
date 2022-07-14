@@ -1,6 +1,6 @@
 #import ast as pyast
 import inspect
-#import re
+import re
 #import types
 from dataclasses import dataclass
 from typing import Any, Optional, Union, List
@@ -15,10 +15,10 @@ from .LoopIR import LoopIR, T #, UAST, LoopIR_Do
 #                                iter_name_to_pattern,
 #                                nested_iter_names_to_pattern)
 #from .LoopIR_unification import DoReplace, UnificationError
-#from .configs import Config
-#from .effectcheck import InferEffects, CheckEffects
+from .configs import Config
+from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
-#from .parse_fragment import parse_fragment
+from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern, get_match_no, match_cursors
 from .prelude import *
 ## Moved to new file
@@ -66,12 +66,26 @@ class AtomicSchedulingOp:
     arg_procs : List[ArgumentProcessor]
     func      : Any
 
+    def __str__(self):
+        return f"<AtomicSchedulingOp-{self.__name__}>"
+
     def __call__(self, *args, **kwargs):
         # capture the arguments according to the provided signature
         bound_args = self.sig.bind(*args, **kwargs)
 
-        # convert the arguments using the provided argument processors
+        # potentially need to patch in default values...
         bargs = bound_args.arguments
+        if len(self.arg_procs) != len(bargs):
+            for nm in self.sig.parameters:
+                if nm not in bargs:
+                    default_val = self.sig.parameters[nm].default
+                    assert default_val != inspect.Parameter.empty
+                    kwargs[nm] = default_val
+            # now re-bind the arguments with the defaults having been added
+            bound_args = self.sig.bind(*args, **kwargs)
+            bargs = bound_args.arguments
+
+        # convert the arguments using the provided argument processors
         assert len(self.arg_procs) == len(bargs)
         for nm,argp in zip(bargs, self.arg_procs):
             bargs[nm] = argp(bargs[nm], bargs)
@@ -228,6 +242,7 @@ class EnumA(ArgumentProcessor):
             vals_str = ', '.join([str(v) for v in self.enum_vals])
             self.err(f"expected one of the following values: {vals_str}",
                      ValueError)
+        return arg
 
 class TypeAbbrevA(ArgumentProcessor):   
     _shorthand = {
@@ -360,21 +375,104 @@ class ForSeqCursorA(StmtCursorA):
             self.err(f"expected a ForSeqCursor, not {type(cursor)}")
         return cursor
 
+
+_name_name_count_re = r"^([a-zA-Z_]\w*)\s*([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$"
+class NestedForSeqCursorA(StmtCursorA):
+    def __call__(self, loops_pattern, all_args):
+
+        if isinstance(loops_pattern, PC.ForSeqCursor):
+            if (len(loops_pattern.body()) != 1 or
+                not isinstance(loops_pattern.body()[0], PC.ForSeqCursor)):
+                self.err(f"expected the body of the outer loop "
+                         f"to be a single loop, but it was a "
+                         f"{loops_pattern.body()[0]}",
+                         ValueError)
+            cursor = loops_pattern
+        elif isinstance(loops_pattern, PC.Cursor):
+            self.err(f"expected a ForSeqCursor, not {type(loops_pattern)}")
+        elif (isinstance(loops_pattern, str) and
+              (match_result := re.search(_name_name_count_re,
+                                         loops_pattern))):
+            pass
+            out_name    = match_result[1]
+            in_name     = match_result[2]
+            count       = f" #{match_result[3]}" if match_result[3] else ""
+            pattern     = (f"for {out_name} in _:\n"
+                           f"  for {in_name} in _: _{count}")
+            cursor = super().__call__(pattern, all_args)
+        else:
+            self.err("expected a ForSeqCursor, pattern match string, "
+                     "or 'outer_loop inner_loop' shorthand")
+
+        return cursor
+
+"""
+class InnerForSeqCursorA(StmtCursorA):
+    def __init__(self, outer_loop_arg):
+        self.outer_loop_arg = outer_loop_arg
+
+    def __call__(self, inner_loop_pattern, all_args):
+        outer_loop = all_args[self.outer_loop_arg]
+        print(outer_loop)
+        print(len(outer_loop.body()))
+        print(outer_loop.body()[0])
+        if (len(outer_loop.body()) != 1 or
+            not isinstance(outer_loop.body()[0], PC.ForSeqCursor)):
+            self.err(f"expected the body of {self.outer_loop_arg} "
+                     f"to simply be a loop",
+                     ValueError)
+        inner_cursor    = outer_loop.body()[0]
+        inner_node      = inner_cursor._impl._node()
+
+        # extract the name from the argument to check
+        # for consistency
+        if is_valid_name(inner_loop_pattern):
+            name        = inner_loop_pattern
+            actual_name = str(inner_cursor._impl._node().iter)
+            if name != actual_name:
+                self.err(f"expected {name} to be {actual_name}", ValueError)
+            arg_cursor  = inner_cursor
+        elif isinstance(inner_loop_pattern, PC.Cursor):
+            if not isinstance(inner_loop_pattern, PC.ForSeqCursor):
+                self.err(f"expected a ForSeqCursor, "
+                         f"not {type(inner_loop_pattern)}")
+            arg_cursor = inner_loop_pattern
+        elif not isinstance(inner_loop_pattern, str):
+            self.err(f"expected a ForSeqCursor, loop iteration variable name, "
+                     f"or pattern to match; got {type(inner_loop_pattern)}")
+        else: # pattern case
+            arg_cursor = super().__call__(inner_loop_pattern, all_args)
+
+        if arg_cursor != inner_cursor:
+            self.err(f"expected argument to point to the inner loop, but "
+                     f"it pointed elsewhere")
+
+        return inner_cursor
+"""
+
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # New Code Fragment Argument Processing
 
 
 class NewExprA(ArgumentProcessor):
-    def __init__(self, gap_cursor):
-        self.cursor_loc = gap_cursor
+    def __init__(self, cursor_arg, before=True):
+        self.cursor_arg = cursor_arg
+        self.before     = before
 
     def __call__(self, expr_str, all_args):
         proc    = all_args['proc']
-        cursor  = all_args[self.cursor_loc]
+        cursor  = all_args[self.cursor_arg]
         if not isinstance(expr_str, str):
             self.err("expected a string")
 
+        # if we don't have a gap cursor, convert to a gap cursor
+        if not isinstance(cursor, PC.GapCursor):
+            cursor = cursor.before() if self.before else cursor.after()
+
+        # resolve gaps down to statements in a somewhat silly way
         # TODO: improve parse_fragment to just take gaps
         if not (stmtc := cursor.after()):
             assert (stmtc := cursor.before())
@@ -436,6 +534,20 @@ def make_instr(proc, instr):
     return Procedure(p, _provenance_eq_Procedure=proc)
 
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Sub-procedure Operations
+
+@sched_op([NameA, StmtCursorA])
+def extract_subproc(proc, subproc_name, body_stmt):
+    loopir          = proc._loopir_proc
+    stmt            = body_stmt._impl._node()
+    passobj         = Schedules.DoExtractMethod(loopir, subproc_name, stmt)
+    loopir, subproc = passobj.result(), passobj.subproc()
+    return ( Procedure(loopir, _provenance_eq_Procedure=proc),
+             Procedure(subproc) )
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Precision, Memory and Window Setting Operations
@@ -454,7 +566,6 @@ def set_precision(proc, name, typ):
         `name : _[...]    ->    name : typ[...]`
     """
     name, count = name
-    typ     = type_abbreviation
     loopir  = proc._loopir_proc
     loopir  = Schedules.SetTypAndMem(loopir, name, count,
                                      basetyp=typ).result()
@@ -574,10 +685,10 @@ def write_config(proc, gap_cursor, config, field, rhs):
     """
 
     # TODO: just have scheduling pass take a gap cursor directly
-    before = False
-    if not (stmtc := cursor.after()):
-        assert (stmtc := cursor.before())
-        before = True
+    before = True
+    if not (stmtc := gap_cursor.after()):
+        assert (stmtc := gap_cursor.before())
+        before = False
     stmt = stmtc._impl._node()
 
     loopir          = proc._loopir_proc
@@ -720,16 +831,134 @@ def divide_loop(proc, loop_cursor, div_const, new_iters,
     if div_const == 1:
         raise TypeError("why are you trying to split by 1?")
 
-    stmt    = split_var._impl._node()
+    stmt    = loop_cursor._impl._node()
     loopir  = proc._loopir_proc
-    loopir  = Schedules.DoSplit(p._loopir_proc, stmt, quot=div_const,
+    loopir  = Schedules.DoSplit(loopir, stmt, quot=div_const,
                                 hi=new_iters[0], lo=new_iters[1],
                                 tail=tail,
                                 perfect=perfect).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([NestedForSeqCursorA])
+def reorder_loops(proc, nested_loops):
+    """
+    Reorder two loops that are directly nested with each other.
+    This is the primitive loop reordering operation, out of which
+    other reordering operations can be built.
 
+    args:
+        nested_loops    - cursor pointing to the outer loop of the
+                          two loops to reorder; a pattern to find said
+                          cursor with; or a 'name name' shorthand where
+                          the first name is the iteration variable of the
+                          outer loop and the second name is the iteration
+                          variable of the inner loop.  An optional '#int'
+                          can be added to the end of this shorthand to
+                          specify which match you want,
 
+    rewrite:
+        `for outer in _:`
+        `    for inner in _:`
+        `        s`
+            ->
+        `for inner in _:`
+        `    for outer in _:`
+        `        s`
+    """
+
+    stmt    = nested_loops._impl._node()
+    loopir  = Schedules.DoReorder(proc._loopir_proc, stmt).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([GapCursorA, PosIntA])
+def fission(proc, gap_cursor, n_lifts=1):
+    """
+    fission apart the ForSeq and If statements wrapped around
+    this block of statements into two copies; the first containing all
+    statements before the cursor, and the second all statements after the
+    cursor.
+
+    args:
+        gap_cursor          - a cursor pointing to the point in the
+                              statement block that we want to fission at.
+        n_lifts (optional)  - number of levels to fission upwards (default=1)
+
+    rewrite:
+        `for i in _:`
+        `    s1`
+        `      ` <- gap
+        `    s2`
+            ->
+        `for i in _:`
+        `    s1`
+        `for i in _:`
+        `    s2`
+    """
+
+    if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
+        raise ValueError("expected cursor to point to "
+                         "a gap between statements")
+    stmt    = stmtc._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoFissionAfterSimple(loopir, stmt, n_lifts).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([GapCursorA, PosIntA])
+def autofission(proc, gap_cursor, n_lifts=1):
+    """
+    Split the enclosing ForSeq and If statements wrapped around
+    this block of statements at the indicated point.
+
+    If doing so splits a loop, this version of fission attempts
+    to remove those loops as well.
+
+    args:
+        gap_cursor          - a cursor pointing to the point in the
+                              statement block that we want to fission at.
+        n_lifts (optional)  - number of levels to fission upwards (default=1)
+
+    rewrite:
+        `for i in _:`
+        `    s1`
+        `      ` <- gap
+        `    s2`
+            ->
+        `for i in _:`
+        `    s1`
+        `for i in _:`
+        `    s2`
+    """
+
+    if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
+        raise ValueError("expected cursor to point to "
+                         "a gap between statements")
+    stmt    = stmtc._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoFissionLoops(loopir, stmt, n_lifts).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Guard Conditions
+
+"""
+@sched_op([BlockCursor, OneOrListA(NewExprA('block_cursor'))])
+def specialize(proc, block_cursor, conds):
+    if not isinstance(stmt_pat, str):
+        raise SchedulingError("argument 1: incorrect type",
+                              expected=str,
+                              actual=type(conds))
+    if isinstance(conds, str):
+        conds = [conds]
+    if not conds:
+        return proc
+
+    stmt = proc._find_stmt(stmt_pat)
+    loopir = proc._loopir_proc
+    var_exprs = [parse_fragment(loopir, expr, stmt) for expr in conds]
+    loopir = Schedules.DoSpecialize(loopir, stmt, var_exprs).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+"""
 
 
 
@@ -739,16 +968,30 @@ def divide_loop(proc, loop_cursor, div_const, new_iters,
 
 
 @sched_op([BlockCursorA, NewExprA('block_cursor')])
-def add_unsafe_guard(proc, block_cursor, var_pattern):
+def add_unsafe_guard(proc, block_cursor, var_expr):
     """
+    DEPRECATED
     This operation is deprecated, and will be removed soon.
     """
     stmt    = block_cursor._impl[0]._node()
-    loopir  = self._loopir_proc
+    loopir  = proc._loopir_proc
     loopir  = Schedules.DoAddUnsafeGuard(loopir, stmt, var_expr).result()
 
-    return Procedure(loopir, _provenance_eq_Procedure=self)
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+
+@sched_op([StmtCursorA, StmtCursorA, PosIntA])
+def double_fission(proc, stmt1, stmt2, n_lifts=1):
+    """
+    DEPRECATED
+    This operation is deprecated, and will be removed soon.
+    """
+    s1      = stmt1._impl._node()
+    s2      = stmt2._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoDoubleFission(loopir, s1, s2, n_lifts).result()
+
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
 

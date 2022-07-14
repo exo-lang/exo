@@ -1,5 +1,6 @@
 from .API import Procedure, compile_procs, proc, instr, config
 from .LoopIR_scheduling import SchedulingError
+from .parse_fragment import ParseFragmentError
 from .configs import Config
 from .memory import Memory, DRAM
 from . import query_asts as QAST
@@ -19,6 +20,7 @@ __all__ = [
     "DRAM",
     "QAST",
     "SchedulingError",
+    "ParseFragmentError"
     #
     "stdlib",
 ]

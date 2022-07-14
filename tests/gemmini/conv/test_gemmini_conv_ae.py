@@ -106,9 +106,9 @@ def test_conv_ae():
     gemmini = replace_mod_part(gemmini)
 
     # Set buffers to use gemmini memories
-    gemmini = gemmini.set_memory('res', GEMM_ACCUM)
-    gemmini = gemmini.set_memory('i_s', GEMM_SCRATCH)
-    gemmini = gemmini.set_memory('w_s', GEMM_SCRATCH)
+    gemmini = set_memory(gemmini, 'res', GEMM_ACCUM)
+    gemmini = set_memory(gemmini, 'i_s', GEMM_SCRATCH)
+    gemmini = set_memory(gemmini, 'w_s', GEMM_SCRATCH)
 
     # Inline and lift the configuration as high as possible for the "div" part
     gemmini = inline_vector(gemmini)
@@ -125,27 +125,28 @@ def test_conv_ae():
     gemmini = inline_ld_id1(gemmini)
     gemmini = inline_matmul(gemmini)
     gemmini = inline_st(gemmini)
-    gemmini = gemmini.delete_config("config_ld_acc_i32_vector(_) #1")
-    gemmini = gemmini.delete_config("config_ld_i8_id1(_) #1")
-    gemmini = gemmini.delete_config("config_matmul(_) #1")
-    gemmini = gemmini.delete_config("config_st_acc_i8(_) #1")
-    gemmini = gemmini.simplify()
+    gemmini = delete_config(gemmini, "config_ld_acc_i32_vector(_) #1")
+    gemmini = delete_config(gemmini, "config_ld_i8_id1(_) #1")
+    gemmini = delete_config(gemmini, "config_matmul(_) #1")
+    gemmini = delete_config(gemmini, "config_st_acc_i8(_) #1")
+    gemmini = simplify(gemmini)
 
     # Real optimization
     gemmini = gemmini.lift_alloc('w_s : _', n_lifts=2)
-    gemmini = gemmini.fission_after('for ocol_o in _:_ #0')
-    gemmini = gemmini.reorder('orow', 'ocol_o')
-    gemmini = gemmini.split('orow', 28, ['orow_o', 'orow_i'], perfect=True)
-    gemmini = gemmini.expand_dim('i_s: i8[_]', '30', 'krow + orow_i', unsafe_disable_checks=True)
+    gemmini = old_fission_after(gemmini, 'for ocol_o in _:_ #0')
+    gemmini = old_reorder(gemmini, 'orow ocol_o')
+    gemmini = old_split(gemmini, 'orow',28,['orow_o', 'orow_i'], perfect=True)
+    gemmini = expand_dim(gemmini, 'i_s: i8[_]', '30', 'krow + orow_i',
+                                  unsafe_disable_checks=True)
     [ (gemmini := gemmini.par_to_seq(s)) for s in ['for krow in _:_', 'for b in _:_', 'for orow_o in _:_', 'for orow_i in _:_', 'for ocol_o in _:_'] ]
     gemmini = gemmini.lift_alloc('i_s : _', n_lifts=5)
     gemmini = gemmini.lift_alloc('w_s : _', n_lifts=4)
 
     gemmini = gemmini.lift_alloc('res : _', n_lifts=4)
 
-    gemmini = gemmini.fission_after('for kch_o in _:_ #0', n_lifts=6)
-    gemmini = gemmini.fission_after('for kch_o in _:_ #2', n_lifts=5)
-    gemmini = gemmini.fission_after('for och_o in _:_ #3')
+    gemmini = old_fission_after(gemmini, 'for kch_o in _:_ #0', n_lifts=6)
+    gemmini = old_fission_after(gemmini, 'for kch_o in _:_ #2', n_lifts=5)
+    gemmini = old_fission_after(gemmini, 'for och_o in _:_ #3')
     gemmini = gemmini.add_loop('for kch_o in _:_ #0', 'orow_i', 28, guard=True)
     gemmini = gemmini.add_loop('if orow_i == 0:_', 'orow_o', 2, guard=True)
     gemmini = gemmini.add_loop('if orow_o == 0:_', 'b', 4, guard=True)
@@ -155,21 +156,30 @@ def test_conv_ae():
     gemmini = gemmini.add_loop('if orow_o == 0:_ #1', 'b', 4, guard=True)
     # Start fissioning loops
     gemmini = gemmini.add_loop('for och_o in _:_ #0', 'b', 4)
-    gemmini = gemmini.reorder('orow_o','b').reorder('orow_i','b').reorder('kcol','b').reorder('krow','b')
+    gemmini = old_reorder(gemmini, 'orow_o b')
+    gemmini = old_reorder(gemmini, 'orow_i b')
+    gemmini = old_reorder(gemmini, 'kcol b')
+    gemmini = old_reorder(gemmini, 'krow b')
     gemmini = gemmini.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
     gemmini = gemmini.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
     gemmini = gemmini.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
     gemmini = gemmini.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
     gemmini = gemmini.add_loop('for och_o in _:_ #0', 'ocol_o', 3)
-    gemmini = gemmini.reorder('orow_o','ocol_o').reorder('orow_i','ocol_o').reorder('kcol','ocol_o').reorder('krow','ocol_o')
+    gemmini = old_reorder(gemmini, 'orow_o ocol_o')
+    gemmini = old_reorder(gemmini, 'orow_i ocol_o')
+    gemmini = old_reorder(gemmini, 'kcol ocol_o')
+    gemmini = old_reorder(gemmini, 'krow ocol_o')
     gemmini = gemmini.fuse_loop('for ocol_o in _:_ #0', 'for ocol_o in _:_ #1')
     gemmini = gemmini.fuse_loop('for ocol_o in _:_ #0', 'for ocol_o in _:_ #1')
     gemmini = gemmini.add_loop('for och_o in _:_ #0', 'orow_o', 2)
-    gemmini = gemmini.reorder('orow_i','orow_o').reorder('kcol','orow_o').reorder('krow','orow_o')
+    gemmini = old_reorder(gemmini, 'orow_i orow_o')
+    gemmini = old_reorder(gemmini, 'kcol orow_o')
+    gemmini = old_reorder(gemmini, 'krow orow_o')
     gemmini = gemmini.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
     gemmini = gemmini.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
     gemmini = gemmini.add_loop('for och_o in _:_ #0', 'orow_i', 28)
-    gemmini = gemmini.reorder('kcol','orow_i').reorder('krow','orow_i')
+    gemmini = old_reorder(gemmini, 'kcol orow_i')
+    gemmini = old_reorder(gemmini, 'krow orow_i')
     gemmini = gemmini.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
     gemmini = gemmini.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
 
@@ -186,17 +196,20 @@ def test_conv_ae():
     gemmini = gemmini.fuse_loop('for kcol in _:_ #1', 'for kcol in _:_ #2')
 
 
-    gemmini = gemmini.add_unsafe_guard('ld_i8_block_id2(_) #0', 'orow_i == 0 or krow == 2')
-    gemmini = gemmini.add_unsafe_guard('ld_i8_block_id2(_) #1', 'orow_i == 0 or krow == 2')
+    gemmini = add_unsafe_guard(gemmini, 'ld_i8_block_id2(_) #0',
+                                        'orow_i == 0 or krow == 2')
+    gemmini = add_unsafe_guard(gemmini, 'ld_i8_block_id2(_) #1',
+                                        'orow_i == 0 or krow == 2')
 
-    gemmini = gemmini.split('orow_i', 7, ['orow_io', 'orow_ii'], perfect=True)
+    gemmini = old_split(gemmini, 'orow_i',7,['orow_io','orow_ii'],
+                                 perfect=True)
     #gemmini = gemmini.lift_alloc('res : _', n_lifts=1)
     gemmini = gemmini.par_to_seq('for orow_io in _:_')
     gemmini = gemmini.unroll('och_o')
     gemmini = gemmini.unroll('kch_o')
     gemmini = gemmini.unroll('kcol')
     gemmini = gemmini.unroll('krow')
-    gemmini = gemmini.simplify()
+    gemmini = simplify(gemmini)
 
     # Schedule ends here, 44 lines excluding comments and newlines
 

@@ -4,6 +4,7 @@ import pytest
 
 from exo import proc, DRAM, config, instr
 from exo.libs.memories import GEMM_SCRATCH
+from exo.stdlib.scheduling import *
 
 
 # ------- Configuration tests ---------
@@ -256,7 +257,7 @@ def test_config_bind(golden):
             tmp = 0.0
             tmp = tmp * scale
 
-    foo = foo.bind_config('scale', ConfigLoad, 'scale')
+    foo = bind_config(foo, 'scale', ConfigLoad, 'scale')
 
     assert str(foo) == golden
 
@@ -273,7 +274,8 @@ def test_config_fission(golden):
                 tmp = A[i, j]
                 tmp = tmp * ConfigLoad.scale
 
-    foo = foo.fission_after('ConfigLoad.scale = _', n_lifts=2)
+    foo = autofission(foo, foo.find('ConfigLoad.scale = _').after(),
+                      n_lifts=2)
 
     assert str(foo) == golden
 
@@ -342,12 +344,13 @@ def test_ld(golden):
                 tmp = tmp * scale
                 dst[i, j] = tmp
 
-    ld_i8 = ld_i8.bind_config('scale', ConfigLoad, 'scale')
+    ld_i8 = bind_config(ld_i8, 'scale', ConfigLoad, 'scale')
     ld_i8 = ld_i8.reorder_stmts('tmp = src[_]', 'ConfigLoad.scale = _')
     ld_i8 = ld_i8.reorder_stmts('tmp : _', 'ConfigLoad.scale = _')
-    ld_i8 = ld_i8.fission_after('ConfigLoad.scale = _', n_lifts=3)
-    ld_i8 = ld_i8.configwrite_after('ConfigLoad.scale = _', ConfigLoad,
-                                    'src_stride', 'stride(src, 0)')
+    ld_i8 = autofission(ld_i8, ld_i8.find('ConfigLoad.scale = _').after(),
+                        n_lifts=3)
+    ld_i8 = write_config(ld_i8, ld_i8.find('ConfigLoad.scale = _').after(),
+                                ConfigLoad, 'src_stride', 'stride(src, 0)')
     ld_i8 = ld_i8.replace(do_ld_i8, 'for i in _:_')
     ld_i8 = ld_i8.replace(
         config_ld_i8,

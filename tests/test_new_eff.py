@@ -5,6 +5,7 @@ import pytest
 from exo.new_eff import *
 
 from exo import proc, config, DRAM, SchedulingError
+from exo.stdlib.scheduling import *
 
 
 print()
@@ -62,7 +63,7 @@ def test_reorder_loops_success(golden):
             for j in seq(0,N):
                 x[i,j] = x[i,j] * 2.0
 
-    foo = foo.reorder('i','j')
+    foo = reorder_loops(foo, 'i j')
     assert str(foo) == golden
 
 
@@ -75,7 +76,7 @@ def test_reorder_loops_fail():
 
     with pytest.raises(SchedulingError,
                        match='cannot be reordered'):
-        foo = foo.reorder('i','j')
+        foo = reorder_loops(foo, 'i j')
         print(foo)
 
 def test_alloc_success(golden):
@@ -87,7 +88,7 @@ def test_alloc_success(golden):
                 tmp = x[i,j] * 2.0
                 x[i,j] = tmp
 
-    foo = foo.reorder('i','j')
+    foo = reorder_loops(foo, 'i j')
     assert str(foo) == golden
 
 def test_reorder_loops_requiring_seq(golden):
@@ -108,7 +109,7 @@ def test_reorder_loops_requiring_seq(golden):
                 if i > 0 and j > 0:
                     x[i,j] += -1.0/3.0 * (x[i-1,j] + x[i-1,j-1] + x[i,j-1])
 
-    foo = foo.reorder('i','j')
+    foo = reorder_loops(foo, 'i j')
     assert str(foo) == golden
 
 def test_reorder_loops_4pt_stencil_succeed(golden):
@@ -123,7 +124,7 @@ def test_reorder_loops_4pt_stencil_succeed(golden):
                     x[i,j] += -1.0/4.0 * (x[i-1,j] + x[i+1,j] +
                                           x[i,j-1] + x[i,j+1])
 
-    foo = foo.reorder('i','j')
+    foo = reorder_loops(foo, 'i j')
     assert str(foo) == golden
 
 
@@ -141,7 +142,7 @@ def test_reorder_loops_failing_seq():
 
     with pytest.raises(SchedulingError,
                        match='cannot be reordered'):
-        foo = foo.reorder('i','j')
+        foo = reorder_loops(foo, 'i j')
         print(foo)
 
 
@@ -164,7 +165,7 @@ def test_delete_config_basic(golden):
         for i in seq(0,N):
             x[i] = x[i] + 1.0
 
-    foo = foo.delete_config('CFG.a = _')
+    foo = delete_config(foo, 'CFG.a = _')
     assert str(foo) == golden
 
 
@@ -185,7 +186,7 @@ def test_delete_config_subproc_basic(golden):
         for i in seq(0,N):
             x[i] = x[i] + 1.0
 
-    foo = foo.delete_config('do_config()')
+    foo = delete_config(foo, 'do_config()')
     assert str(foo) == golden
 
 def test_delete_config_fail():
@@ -203,7 +204,7 @@ def test_delete_config_fail():
 
     with pytest.raises(SchedulingError,
                        match='Cannot change configuration value of CFG_a'):
-        foo = foo.delete_config('CFG.a = _')
+        foo = delete_config(foo, 'CFG.a = _')
         print(foo)
     
 def test_delete_config_subproc_fail():
@@ -226,7 +227,7 @@ def test_delete_config_subproc_fail():
 
     with pytest.raises(SchedulingError,
                        match='Cannot change configuration value of CFG_a'):
-        foo = foo.delete_config('do_config()')
+        foo = delete_config(foo, 'do_config()')
         print(foo)
 
 
@@ -244,7 +245,7 @@ def test_delete_config_bc_shadow(golden):
             if i < CFG.a:
                 x[i] = x[i] + 1.0
 
-    foo = foo.delete_config('CFG.a = _ #0')
+    foo = delete_config(foo, 'CFG.a = _ #0')
     assert str(foo) == golden
 
 
@@ -262,7 +263,7 @@ def test_delete_config_bc_redundant(golden):
             if i < CFG.a:
                 x[i] = x[i] + 1.0
 
-    foo = foo.delete_config('CFG.a = _ #1')
+    foo = delete_config(foo, 'CFG.a = _ #1')
     assert str(foo) == golden
 
 def test_delete_config_fail_bc_not_redundant():
@@ -281,5 +282,5 @@ def test_delete_config_fail_bc_not_redundant():
 
     with pytest.raises(SchedulingError,
                        match='Cannot change configuration value of CFG_a'):
-        foo = foo.delete_config('CFG.a = _ #1')
+        foo = delete_config(foo, 'CFG.a = _ #1')
         print(foo)

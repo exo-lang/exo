@@ -105,6 +105,8 @@ _PAST_to_LoopIR = {
   PAST.Const:         [LoopIR.Const],
   PAST.USub:          [LoopIR.USub],
   PAST.BinOp:         [LoopIR.BinOp],
+  PAST.BuiltIn:       [LoopIR.BuiltIn],
+  PAST.ReadConfig:    [LoopIR.ReadConfig],
   PAST.E_Hole:        None,
 }
 
@@ -293,6 +295,13 @@ class PatternMatch:
                      self.match_e(pat.rhs, e.rhs) )
         elif isinstance(e, LoopIR.USub):
             return self.match_e(pat.arg, e.arg)
+        elif isinstance(e, LoopIR.BuiltIn):
+            return ( pat.f is e.f and
+                     all( self.match_e(pa,sa)
+                          for pa,sa in zip(pat.args,e.args) ) )
+        elif isinstance(e, LoopIR.ReadConfig):
+            return ( pat.config == e.config.name() and
+                     pat.field  == e.field )
         else:
             assert False, "bad case"
 

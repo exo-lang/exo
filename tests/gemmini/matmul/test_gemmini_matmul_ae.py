@@ -81,7 +81,9 @@ def test_matmul_ae():
     print("")
 
     # Schedule starts here. Below sets buffer to use GEMMINI memories.
-    gemmini = (gemmini.set_memory('res', GEMM_ACCUM).set_memory('a', GEMM_SCRATCH).set_memory('b', GEMM_SCRATCH))
+    gemmini = set_memory(gemmini, 'res', GEMM_ACCUM)
+    gemmini = set_memory(gemmini, 'a', GEMM_SCRATCH)
+    gemmini = set_memory(gemmini, 'b', GEMM_SCRATCH)
 
     # Tile outer loops
     gemmini = tile_outer_loops(gemmini)
@@ -103,32 +105,32 @@ def test_matmul_ae():
     # Lift config_zero
     gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
     gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
-    gemmini = gemmini.inline_window("dst = res[_]")
+    gemmini = inline_window(gemmini, "dst = res[_]")
     gemmini = lift_config(gemmini, 'config_zero()')
     # Lift config_ld_i8_id1
     gemmini = gemmini.call_eqv(ld_i8_block_id1_v2, "ld_i8_block_id1(_)")
     gemmini = gemmini.inline("ld_i8_block_id1_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = A[_]")
-    gemmini = gemmini.inline_window("dst = a[_]")
+    gemmini = inline_window(gemmini, "src = A[_]")
+    gemmini = inline_window(gemmini, "dst = a[_]")
     gemmini = lift_config(gemmini, 'config_ld_i8_id1()')
     # Lift config_ld_i8_id2
     gemmini = gemmini.call_eqv(ld_i8_block_id2_v2, "ld_i8_block_id2(_)")
     gemmini = gemmini.inline("ld_i8_block_id2_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = B[_]")
-    gemmini = gemmini.inline_window("dst = b[_]")
+    gemmini = inline_window(gemmini, "src = B[_]")
+    gemmini = inline_window(gemmini, "dst = b[_]")
     gemmini = lift_config(gemmini, 'config_ld_i8_id2()')
     # Lift config_matmul
     gemmini = gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
     gemmini = gemmini.inline("matmul_acc_i8_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("A = a[_]")
-    gemmini = gemmini.inline_window("B = b[_]")
-    gemmini = gemmini.inline_window("C = res[_]")
+    gemmini = inline_window(gemmini, "A = a[_]")
+    gemmini = inline_window(gemmini, "B = b[_]")
+    gemmini = inline_window(gemmini, "C = res[_]")
     gemmini = lift_config(gemmini, 'config_matmul()')
     # Lift config_st_acc_i8
     gemmini = gemmini.call_eqv(st_acc_i8_v2, "st_acc_i8(_, _, _, _, _, _)")
     gemmini = gemmini.inline("st_acc_i8_v2(_, _, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = res[_]")
-    gemmini = gemmini.inline_window("dst = C[_]")
+    gemmini = inline_window(gemmini, "src = res[_]")
+    gemmini = inline_window(gemmini, "dst = C[_]")
     gemmini = lift_config(gemmini, 'config_st_acc_i8(_)')
 
     # Futher tile the innner loops
@@ -146,9 +148,13 @@ def test_matmul_ae():
     gemmini = gemmini.par_to_seq('for ji in _:_')
 
     # These schedules correspond to previous add_guard
-    gemmini = gemmini.simplify()
-    gemmini = gemmini.fission_after('for j_in_o in _:_', n_lifts=5)
-    gemmini = gemmini.fission_after('do_ld_i8_block_id1(_)', n_lifts=6)
+    gemmini = simplify(gemmini)
+    gemmini = autofission(gemmini,
+                    gemmini.find('for j_in_o in _:_').after(), n_lifts=5)
+    gemmini = autofission(gemmini,
+                    gemmini.find('for k in _:_').after(), n_lifts=6)
+    gemmini = autofission(gemmini,
+                    gemmini.find('do_ld_i8_block_id1(_)').after(), n_lifts=6)
     gemmini = gemmini.add_loop('do_ld_i8_block_id1(_)', 'ji', 4, guard=True)
     gemmini = gemmini.add_loop('if ji == 0: _', 'jo', 2, guard=True)
     gemmini = gemmini.add_loop('do_ld_i8_block_id2(_)', 'i', 8, guard=True)
@@ -160,21 +166,29 @@ def test_matmul_ae():
     gemmini = gemmini.fuse_loop('for ioo in _:_ #0', 'for ioo in _:_ #1')
     gemmini = gemmini.fuse_loop('for ioo in _:_ #0', 'for ioo in _:_ #1')
     gemmini = gemmini.add_loop('for ji in _:_ #0', 'jo', 2)
-    gemmini = gemmini.reorder('ji', 'jo').reorder('ko', 'jo').reorder('i', 'jo').reorder('io', 'jo')
+    gemmini = old_reorder(gemmini, 'ji jo')
+    gemmini = old_reorder(gemmini, 'ko jo')
+    gemmini = old_reorder(gemmini, 'i jo')
+    gemmini = old_reorder(gemmini, 'io jo')
     gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
     gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
     gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
-    gemmini = gemmini.reorder('i', 'io').reorder('k', 'io').reorder('ko', 'io').reorder('ji', 'io')
+    gemmini = old_reorder(gemmini, 'i io')
+    gemmini = old_reorder(gemmini, 'k io')
+    gemmini = old_reorder(gemmini, 'ko io')
+    gemmini = old_reorder(gemmini, 'ji io')
     gemmini = gemmini.add_loop('for ji in _:_ #0', 'io', 2)
     gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
     gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
     gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
-    gemmini = gemmini.reorder('k', 'i').reorder('ko', 'i').reorder('ji', 'i')
+    gemmini = old_reorder(gemmini, 'k i')
+    gemmini = old_reorder(gemmini, 'ko i')
+    gemmini = old_reorder(gemmini, 'ji i')
     gemmini = gemmini.add_loop('for ji in _:_ #0', 'i', 8)
     gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
     gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
     gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
-    gemmini = gemmini.reorder('ko', 'ji')
+    gemmini = old_reorder(gemmini, 'ko ji')
     gemmini = gemmini.par_to_seq('for ji in _:_ #1')
     gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
@@ -184,7 +198,7 @@ def test_matmul_ae():
 
     gemmini = gemmini.fuse_loop('for k in _:_ #0', 'for k in _:_ #1')
     gemmini = gemmini.unroll('j_in_o')
-    gemmini = gemmini.simplify()
+    gemmini = simplify(gemmini)
 
     # Schedule ends here. 43 lines excluding comments and newlines
 

@@ -90,6 +90,9 @@ class Cursor:
                             "from Procedures, and from other Cursors")
         self._impl = impl
 
+    def __str__(self):
+        return f"<{type(self).__name__}(...)>"
+
     # -------------------------------------------------------------------- #
     # methods copied from the underlying implementation
 
@@ -251,7 +254,7 @@ class StmtCursor(StmtCursorPrototype):
 
     def as_block(self):
         """ Return a Block containing only this one statement """
-        return BlockC( self._impl.as_block() )
+        return BlockCursor( self._impl.as_block() )
 
 class BlockCursor(StmtCursorPrototype):
     """
@@ -267,13 +270,14 @@ class BlockCursor(StmtCursorPrototype):
         """
         iterate over all statement cursors contained in the block
         """
-        yield from iter(self._impl)
+        for stmt_impl in iter(self._impl):
+            yield new_Cursor(stmt_impl)
 
     def __getitem__(self, i) -> StmtCursor:
         """
         get a cursor to the i-th statement
         """
-        return self._impl[i]
+        return new_Cursor(self._impl[i])
 
     def __len__(self) -> int:
         """
@@ -321,13 +325,14 @@ class ExprListCursor(Cursor):
         """
         iterate over all expression cursors contained in the argument list
         """
-        yield from iter(self._impl)
+        for stmt_impl in iter(self._impl):
+            yield new_Cursor(stmt_impl)
 
     def __getitem__(self, i) -> ExprCursor:
         """
         get a cursor to the i-th argument
         """
-        return self._impl[i]
+        return new_Cursor(self._impl[i])
 
     def __len__(self) -> int:
         """
@@ -606,38 +611,41 @@ class StrideExprCursor(ExprCursor):
 # --------------------------------------------------------------------------- #
 # List of objects to expose
 
-public_cursors = [
-    Cursor,
-    InvalidCursor,
-    StmtCursorPrototype,
-    StmtCursor,
-    BlockCursor,
-    GapCursor,
-    ExprCursorPrototype,
-    ExprCursor,
-    ExprListCursor,
-    #
-    AssignCursor,
-    ReduceCursor,
-    AssignConfigCursor,
-    PassCursor,
-    IfCursor,
-    ForSeqCursor,
-    AllocCursor,
-    CallCursor,
-    WindowStmtCursor,
-    #
-    ReadCursor,
-    ReadConfigCursor,
-    LiteralCursor,
-    UnaryMinusCursor,
-    BinaryOpCursor,
-    BuiltInFunctionCursor,
-    WindowExprCursor,
-    StrideExprCursor,
-    #
-    InvalidCursorError,
-]
+class public_cursors:
+    pass
+for c in [
+        Cursor,
+        InvalidCursor,
+        StmtCursorPrototype,
+        StmtCursor,
+        BlockCursor,
+        GapCursor,
+        ExprCursorPrototype,
+        ExprCursor,
+        ExprListCursor,
+        #
+        AssignCursor,
+        ReduceCursor,
+        AssignConfigCursor,
+        PassCursor,
+        IfCursor,
+        ForSeqCursor,
+        AllocCursor,
+        CallCursor,
+        WindowStmtCursor,
+        #
+        ReadCursor,
+        ReadConfigCursor,
+        LiteralCursor,
+        UnaryMinusCursor,
+        BinaryOpCursor,
+        BuiltInFunctionCursor,
+        WindowExprCursor,
+        StrideExprCursor,
+        #
+        InvalidCursorError,
+    ]:
+    setattr(public_cursors, c.__name__, c)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -687,7 +695,7 @@ def new_Cursor(impl):
             return WindowStmtCursor(impl)
 
         # expressions
-        elif isinstance(n, LoopIR.Assign):
+        elif isinstance(n, LoopIR.Read):
             return ReadCursor(impl)
         elif isinstance(n, LoopIR.ReadConfig):
             return ReadConfigCursor(impl)
