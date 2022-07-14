@@ -1,13 +1,17 @@
-// clang-format off
-// these are filled in by Python's str.format()
-#define HEAP_SIZE {heap_size}
-#define DIM {dim}
-// clang-format on
+#include "gemm_malloc.h"
 
 #include "include/gemmini.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#ifndef GEMM_HEAP_SIZE
+#define GEMM_HEAP_SIZE 100000
+#endif
+
+#ifndef GEMM_DIM
+#define GEMM_DIM 16
+#endif
 
 typedef struct __attribute__((__packed__)) NewBlock {
   uint32_t size;
@@ -15,7 +19,7 @@ typedef struct __attribute__((__packed__)) NewBlock {
   uint8_t is_used;
 } NewBlock;
 
-NewBlock BLOCKS[HEAP_SIZE / sizeof(NewBlock)];
+NewBlock BLOCKS[GEMM_HEAP_SIZE / sizeof(NewBlock)];
 uint32_t gemm_last_ptr;
 
 void gemm_init_mem() {
@@ -27,9 +31,10 @@ void gemm_init_mem() {
 uint32_t gemm_malloc(long unsigned int size) {
   if (size == 0)
     return -1;
-  size = (size + DIM - 1) / DIM;
+  size = (size + GEMM_DIM - 1) / GEMM_DIM;
   int i;
-  for (i = 0; i < HEAP_SIZE / sizeof(NewBlock) && BLOCKS[i].size > 0; i++) {
+  for (i = 0; i < GEMM_HEAP_SIZE / sizeof(NewBlock) && BLOCKS[i].size > 0;
+       i++) {
     if (BLOCKS[i].is_used)
       continue;
     if (BLOCKS[i].size < size)
