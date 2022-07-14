@@ -2506,6 +2506,12 @@ class _DoDeletePass(LoopIR_Rewrite):
     def map_s(self, s):
         if isinstance(s, LoopIR.Pass):
             return []
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            body = self.map_stmts(s.body)
+            if not body:
+                return []
+            else:
+                return [s.update(body=body)]
         else:
             return super().map_s(s)
 
