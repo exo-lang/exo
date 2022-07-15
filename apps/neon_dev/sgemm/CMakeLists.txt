@@ -3,6 +3,7 @@ project(neon_dev_sgemm)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -ffp-contract=fast -framework Accelerate -save-temps=obj")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffast-math -ffp-contract=fast -framework Accelerate -save-temps=obj")
+set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}:../../../src/exo/cmake")
 
 if (EXISTS "$ENV{PYENV_ROOT}")
   execute_process(
