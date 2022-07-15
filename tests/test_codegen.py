@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy import stats as st
 
 from exo import proc, Procedure, DRAM
 from exo.libs.memories import MDRAM
@@ -39,7 +38,7 @@ def _test_blur(compiler, tmp_path, blur):
                        dtype="float32")
 
     x = np.linspace(-1, 1, k_size + 1)
-    kern1d = np.diff(st.norm.cdf(x))
+    kern1d = np.diff(np.random.normal(x))
     kern2d = np.outer(kern1d, kern1d)
     kern = np.asarray(kern2d / kern2d.sum(), dtype=np.float32)
 
@@ -193,7 +192,10 @@ def test_alloc_nest_malloc(compiler):
     y = np.array([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]], dtype=np.float32)
     res = np.zeros_like(x)
 
-    lib = compiler.compile(alloc_nest_malloc)
+    root_dir = Path(__file__).parent.parent
+    lib = compiler.compile(alloc_nest_malloc,
+                           include_dir=str(root_dir / "src/exo/libs"),
+                           additional_file=str(root_dir / "src/exo/libs/custom_malloc.c"))
 
     # Initialize custom malloc here
     lib.init_mem()

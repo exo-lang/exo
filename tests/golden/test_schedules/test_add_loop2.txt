@@ -1,0 +1,5 @@
+def foo():
+    x: R @ DRAM
+    for i in seq(0, 10):
+        if i == 0:
+            x = 0.0

@@ -1,0 +1,3 @@
+def example():
+    x: f32 @ DRAM
+    x = 1.0 * (4.0 + 3.0)

@@ -2,9 +2,133 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc, DRAM, SchedulingError
+from exo import proc, DRAM, SchedulingError, Procedure
 from exo.libs.memories import GEMM_SCRATCH
 from exo.parse_fragment import ParseFragmentError
+
+
+def test_delete_pass(golden):
+    @proc
+    def foo(x : R):
+        pass
+        x = 0.0
+
+    assert str(foo.delete_pass()) == golden
+
+    @proc
+    def foo(x : R):
+        for i in seq(0, 16):
+            for j in seq(0, 2):
+                pass
+        x = 0.0
+
+    assert str(foo.delete_pass()) == golden
+
+def test_add_loop1(golden):
+    @proc
+    def foo():
+        x : R
+        x = 0.0
+
+    assert str(foo.add_loop('x = _', 'i', 10)) == golden
+
+def test_add_loop2(golden):
+    @proc
+    def foo():
+        x : R
+        x = 0.0
+
+    assert str(foo.add_loop('x = _', 'i', 10, guard=True)) == golden
+
+def test_add_loop3():
+    @proc
+    def foo():
+        x : R
+        x = 0.0
+
+    with pytest.raises(TypeError, match='guard needs to be True or False'):
+        foo.add_loop('x = _', 'i', 10, guard=100)
+
+def test_add_loop4(golden):
+    @proc
+    def foo(n : size, m : size):
+        x : R
+        x = 0.0
+
+    assert str(foo.add_loop('x = _', 'i', 'n+m', guard=True)) == golden
+
+def test_add_loop5():
+    @proc
+    def foo(n : size, m : size):
+        x : R
+        x = 0.0
+
+    with pytest.raises(TypeError, match='bound expression should be positive'):
+        foo.add_loop('x = _', 'i', 'n-m', guard=True)
+
+
+def test_proc_equal():
+    def make_foo():
+        @proc
+        def foo(n: size, m: size):
+            assert m == 1 and n == 1
+            y: R[10]
+            y[10 * m - 10 * n + 2 * n] = 2.0
+
+        return foo
+
+    foo = make_foo()
+    foo2 = Procedure(foo.INTERNAL_proc())
+
+    assert foo != 3  # check that wrong type doesn't crash, but returns false
+    assert foo == foo  # reflexivity
+    assert foo == foo2  # same underlying LoopIR.proc
+    assert foo2 == foo  # symmetric
+
+    # Coincidentally identical procs created from scratch should not be
+    # considered equal.
+    assert foo != make_foo()
+
+def test_simplify3(golden):
+    @proc
+    def foo(n : size, m : size):
+        assert m == 1 and n == 1
+        y : R[10]
+        y[10*m - 10*n + 2*n] = 2.0
+
+    assert str(foo.simplify()) == golden
+
+def test_simplify2(golden):
+    @proc
+    def foo(A: i8[32, 64] @ DRAM, B: i8[16, 128] @ DRAM,
+            C: i32[32, 32] @ DRAM, ko : size, ji_unroll : size, ii_unroll : size):
+        for io in seq(0, 1):
+            for jo in seq(0, 1):
+                Btile1: i8[16 * (ko + 1) - 16 * ko, 128 * jo + 64 *
+                           (ji_unroll + 1 + 1) - (128 * jo + 64 *
+                                                  (ji_unroll + 1))] @ DRAM
+                Btile0: i8[16 * (ko + 1) - 16 * ko, 128 * jo + 64 *
+                           (ji_unroll + 1) -
+                           (128 * jo + 64 * ji_unroll)] @ DRAM
+                Atile0: i8[32 * io + 16 * (ii_unroll + 1) -
+                           (32 * io + 16 * ii_unroll), 64 *
+                           (ko + 1) - 64 * ko] @ DRAM
+                Atile1: i8[32 * io + 16 * (ii_unroll + 1 + 1) -
+                           (32 * io + 16 *
+                            (ii_unroll + 1)), 64 * (ko + 1) - 64 * ko] @ DRAM
+
+    assert str(foo.simplify()) == golden
+
+def test_simplify(golden):
+    @proc
+    def foo(n : size, m : size):
+        x : R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
+        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
+            pass
+        y : R[10]
+        y[n*4 - n*4 + 1] = 0.0
+
+    assert str(foo.simplify()) == golden
 
 def test_pattern_match():
     @proc
@@ -919,6 +1043,8 @@ def test_stage_mem_twice(golden):
     sqmat = (sqmat
         .bind_expr('B1', 'B[4*i+ii,4*k+kk]')
         .lift_alloc('B1 : _', n_lifts=3)
+        .expand_dim('B1 : _', '4', 'kk')
+        .expand_dim('B1 : _', '4', 'ii')
         .fission_after('B1[_] = _', n_lifts=3)
         .stage_mem('B[4*k:4*k+4, 4*j:4*j+4]',
                    'B2', 'for ii in _: _ #1')
@@ -945,5 +1071,14 @@ def test_stage_mem_accum(golden):
                             'Atile', 'for k in _: _', accum=True)
     assert str(sqmat.simplify()) == golden
 
+def test_stage_mem_accum2(golden):
+    @proc
+    def accum(out : R[4, 16, 16], w : R[16], im : R[16]):
+        for k in seq(0, 4):
+            for i in seq(0, 16):
+                for j in seq(0, 16):
+                    out[k, i, j] += w[j] * im[i]
 
+    accum = accum.stage_mem('out[k, 0:16, 0:16]', 'o', 'for i in _:_')
 
+    assert str(accum.simplify()) == golden

@@ -1,0 +1,5 @@
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in par(0, n):
+        for j in par(0, m):
+            pass

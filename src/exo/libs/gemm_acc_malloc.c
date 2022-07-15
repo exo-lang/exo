@@ -1,13 +1,17 @@
-// clang-format off
-// these are filled in by Python's str.format()
-#define HEAP_SIZE {heap_size}
-#define DIM {dim}
-// clang-format on
+#include "gemm_acc_malloc.h"
 
 #include "include/gemmini.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#ifndef GEMM_ACC_HEAP_SIZE
+#define GEMM_ACC_HEAP_SIZE 100000
+#endif
+
+#ifndef GEMM_ACC_DIM
+#define GEMM_ACC_DIM 16
+#endif
 
 typedef struct __attribute__((__packed__)) AccBlock {
   uint32_t size;
@@ -17,7 +21,7 @@ typedef struct __attribute__((__packed__)) AccBlock {
 
 // maintain a stack of blocks corresponding to
 // a stack alloc and free strategy
-#define N_ACC_BLOCKS (HEAP_SIZE / sizeof(AccBlock))
+#define N_ACC_BLOCKS (GEMM_ACC_HEAP_SIZE / sizeof(AccBlock))
 AccBlock ACC_BLOCKS[N_ACC_BLOCKS];
 uint32_t gemm_acc_free_block;
 
@@ -36,7 +40,7 @@ uint32_t gemm_acc_malloc(long unsigned int size) {
   if (gemm_acc_free_block >= N_ACC_BLOCKS)
     return -1;
 
-  size = (size + DIM - 1) / DIM;
+  size = (size + GEMM_ACC_DIM - 1) / GEMM_ACC_DIM;
   uint32_t i = gemm_acc_free_block;
 
   uint32_t loc = 0;

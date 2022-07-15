@@ -114,8 +114,9 @@ class _PartitionLoop(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
+        styp = type(s)
         if s is self.stmt:
-            assert isinstance(s, LoopIR.ForAll)
+            assert isinstance(s, (LoopIR.ForAll, LoopIR.Seq))
             if not isinstance(s.hi, LoopIR.Const):
                 raise SchedulingError("expected loop bound to be constant")
             if s.hi.val <= self.partition_by:
@@ -123,7 +124,7 @@ class _PartitionLoop(LoopIR_Rewrite):
                                       "partitioning value")
 
             body        = self.map_stmts(s.body)
-            first_loop  = LoopIR.ForAll(s.iter,
+            first_loop  = styp(s.iter,
                             LoopIR.Const(self.partition_by, T.int, s.srcinfo),
                             body, None, s.srcinfo)
 
@@ -134,7 +135,7 @@ class _PartitionLoop(LoopIR_Rewrite):
             second_body = SubstArgs(body,
                     {s.iter: LoopIR.Read(new_iter, [], T.index, s.srcinfo)}).result()
             second_body = self.map_stmts(second_body)
-            second_loop = LoopIR.ForAll(new_iter,
+            second_loop = styp(new_iter,
                             LoopIR.Const(s.hi.val - self.partition_by, T.int, s.srcinfo),
                             second_body, None, s.srcinfo)
 
@@ -165,6 +166,7 @@ class _Reorder(LoopIR_Rewrite):
         super().__init__(proc)
 
     def map_s(self, s):
+        styp = type(s)
         if s is self.stmt:
             Check_ReorderLoops(self.orig_proc, self.stmt)
 
@@ -190,8 +192,8 @@ class _Reorder(LoopIR_Rewrite):
             # blah
             inner_eff   = do_bind(s.iter, s.hi, body_eff)
             outer_eff   = do_bind(s.body[0].iter, s.body[0].hi, inner_eff)
-            return [LoopIR.ForAll(s.body[0].iter, s.body[0].hi,
-                        [LoopIR.ForAll(s.iter, s.hi,
+            return [styp(s.body[0].iter, s.body[0].hi,
+                        [styp(s.iter, s.hi,
                             body,
                             inner_eff, s.srcinfo)],
                         outer_eff, s.body[0].srcinfo)]
@@ -248,6 +250,7 @@ class _Split(LoopIR_Rewrite):
         return self._cut_tail_sub
 
     def map_s(self, s):
+        styp = type(s)
         if s is self.split_loop:
             # short-hands for sanity
             def boolop(op,lhs,rhs):
@@ -288,8 +291,8 @@ class _Split(LoopIR_Rewrite):
                 # pred for inner loop is: 0 <= lo <= lo_rng
                 inner_eff   = do_bind(self.lo_i, lo_rng, body_eff)
 
-                return [LoopIR.ForAll(self.hi_i, hi_rng,
-                            [LoopIR.ForAll(self.lo_i, lo_rng,
+                return [styp(self.hi_i, hi_rng,
+                            [styp(self.lo_i, lo_rng,
                                 body,
                                 inner_eff, s.srcinfo)],
                             s.eff, s.srcinfo)]
@@ -325,27 +328,27 @@ class _Split(LoopIR_Rewrite):
                 tail_eff    = do_bind(self.cut_i, Ntail, tail_eff)
 
                 if self._tail_strategy == 'cut_and_guard':
-                    body = [LoopIR.ForAll(self.cut_i, Ntail,
+                    body = [styp(self.cut_i, Ntail,
                             tail_body,
                             tail_eff, s.srcinfo)]
                     body_eff= get_effect_of_stmts(body)
                     cond = boolop(">", Ntail, LoopIR.Const(0, T.int, s.srcinfo))
                     body_eff= eff_filter(lift_to_eff_expr(cond), body_eff)
 
-                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
-                                [LoopIR.ForAll(self.lo_i, Q,
+                    loops = [styp(self.hi_i, Ncut,
+                                [styp(self.lo_i, Q,
                                     main_body,
                                     lo_eff, s.srcinfo)],
                                 hi_eff, s.srcinfo),
                              LoopIR.If(cond, body, [], body_eff, s.srcinfo)]
 
                 else:
-                    loops = [LoopIR.ForAll(self.hi_i, Ncut,
-                                [LoopIR.ForAll(self.lo_i, Q,
+                    loops = [styp(self.hi_i, Ncut,
+                                [styp(self.lo_i, Q,
                                     main_body,
                                     lo_eff, s.srcinfo)],
                                 hi_eff, s.srcinfo),
-                             LoopIR.ForAll(self.cut_i, Ntail,
+                             styp(self.cut_i, Ntail,
                                 tail_body,
                                 tail_eff, s.srcinfo)]
 
@@ -372,8 +375,8 @@ class _Split(LoopIR_Rewrite):
                 # pred for inner loop is: 0 <= lo <= lo_rng
                 inner_eff   = do_bind(self.lo_i, lo_rng, body_eff)
 
-                return [LoopIR.ForAll(self.hi_i, hi_rng,
-                            [LoopIR.ForAll(self.lo_i, lo_rng,
+                return [styp(self.hi_i, hi_rng,
+                            [styp(self.lo_i, lo_rng,
                                 body,
                                 inner_eff, s.srcinfo)],
                             s.eff, s.srcinfo)]
@@ -1092,7 +1095,7 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
             body = self.process_block(s.body)
-            return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
+            return [s.update(body=body)]
 
         if isinstance(s, LoopIR.If):
             # TODO: our CSE here is very conservative. It won't look for
@@ -1308,32 +1311,35 @@ class _DoExpandDim(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.alloc_stmt:
-            new_typ = s.type
+            old_typ = s.type
             new_rngs = [self.alloc_dim]
 
-            if isinstance(new_typ, T.Tensor):
-                new_rngs += new_typ.shape()
+            if isinstance(old_typ, T.Tensor):
+                new_rngs += old_typ.shape()
 
-            new_typ = new_typ.basetype()
-            new_typ = T.Tensor(new_rngs, False, new_typ)
+            basetyp = old_typ.basetype()
+            new_typ = T.Tensor(new_rngs, False, basetyp)
             self.alloc_type = new_typ
 
             return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
 
         if (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
                 and s.name == self.alloc_sym):
-            idx = [self.indexing] + s.idx
-            return [type(s)( s.name, s.type, s.cast, idx, s.rhs, None, s.srcinfo )]
+            idx = [self.indexing] + [ self.map_e(i) for i in s.idx ]
+            rhs = self.map_e(s.rhs)
+            return [type(s)( s.name, s.type, s.cast,
+                             idx, rhs, None, s.srcinfo )]
 
         return super().map_s(s)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            idx = [self.indexing] + e.idx
+            idx = [self.indexing] + [ self.map_e(i) for i in e.idx ]
             return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
 
         if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
-            idx = [LoopIR.Point(self.indexing, e.srcinfo)] + e.idx
+            idx = ([ LoopIR.Point(self.indexing, e.srcinfo) ] +
+                   [ self.map_w_access(w) for w in e.idx ])
             win_typ = T.Window(self.alloc_type, e.type.as_tensor, e.name, idx)
             return LoopIR.WindowExpr(e.name, idx, win_typ, e.srcinfo)
 
@@ -1875,19 +1881,19 @@ class _DoDoubleFission:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre    = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
+                    pre    = [s.update(body=pre, eff=None)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre    = Alpha_Rename(pre).result()
                 if s.iter in _FV(mid) or not _is_idempotent(mid):
-                    mid    = [LoopIR.ForAll(s.iter, s.hi, mid, None, s.srcinfo)]
+                    mid    = [s.update(body=mid, eff=None)]
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post   = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
+                    post   = [s.update(body=post, eff=None)]
                     post   = Alpha_Rename(post).result()
 
                 return (pre,mid,post)
 
-            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+mid+post, None, s.srcinfo)
+            single_stmt = s.update(body=pre+mid+post, eff=None)
 
         else:
             # all other statements cannot recursively
@@ -2021,7 +2027,7 @@ class _DoFissionAfterSimple:
             single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
 
         elif isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq):
-
+            styp = type(s)
             # check if we need to split the loop
             pre, post = self.map_stmts(s.body)
             if pre and post and self.n_lifts > 0:
@@ -2031,15 +2037,15 @@ class _DoFissionAfterSimple:
                 # we can skip the loop iteration if the
                 # body doesn't depend on the loop
                 # and the body is idempotent
-                pre  = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
+                pre  = [styp(s.iter, s.hi, pre, None, s.srcinfo)]
                 pre  = Alpha_Rename(pre).result()
-                post = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
+                post = [styp(s.iter, s.hi, post, None, s.srcinfo)]
                 post = Alpha_Rename(post).result()
 
                 return (pre,post)
 
             # if we didn't split, then compose pre and post of the body
-            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, None, s.srcinfo)
+            single_stmt = styp(s.iter, s.hi, pre+post, None, s.srcinfo)
 
         else:
             # all other statements cannot recursively
@@ -2151,17 +2157,17 @@ class _FissionLoops:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre     = [LoopIR.ForAll(s.iter, s.hi, pre, None, s.srcinfo)]
+                    pre     = [s.update(body=pre, eff=None)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre         = Alpha_Rename(pre).result()
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post    = [LoopIR.ForAll(s.iter, s.hi, post, None, s.srcinfo)]
+                    post    = [s.update(body=post, eff=None)]
 
                 return (pre,post)
 
             # if we didn't split, then compose pre and post of the body
-            single_stmt = LoopIR.ForAll(s.iter, s.hi, pre+post, None, s.srcinfo)
+            single_stmt = s.update(body=pre+post, eff=None)
 
         else:
             # all other statements cannot recursively
@@ -2200,7 +2206,6 @@ class _DoSpecialize(LoopIR_Rewrite):
         assert conds, "Must add at least one condition"
         self.stmt = stmt
         self.conds = conds
-        self.in_loop = False
 
         super().__init__(proc)
 
@@ -2268,7 +2273,7 @@ class _DoBoundAndGuard(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s == self.loop:
-            assert isinstance(s, LoopIR.ForAll)
+            assert isinstance(s, (LoopIR.Seq, LoopIR.ForAll))
             bound = _get_constant_bound(s.hi)
             guard = LoopIR.If(
                 LoopIR.BinOp('<',
@@ -2281,7 +2286,7 @@ class _DoBoundAndGuard(LoopIR_Rewrite):
                 None,
                 s.srcinfo
             )
-            return [LoopIR.ForAll(s.iter, bound, [guard], None, s.srcinfo)]
+            return [s.update(hi=bound, body=[guard], eff=None)]
 
         return super().map_s(s)
 
@@ -2410,10 +2415,11 @@ class _DoFuseIf(LoopIR_Rewrite):
 
 
 class _DoAddLoop(LoopIR_Rewrite):
-    def __init__(self, proc, stmt, var, hi):
+    def __init__(self, proc, stmt, var, hi, guard):
         self.stmt = stmt
         self.var  = var
         self.hi   = hi
+        self.guard = guard
 
         super().__init__(proc)
 
@@ -2425,8 +2431,14 @@ class _DoAddLoop(LoopIR_Rewrite):
                 raise SchedulingError("expected stmt to be idempotent!")
 
             sym = Sym(self.var)
-            hi  = LoopIR.Const(self.hi, T.int, s.srcinfo)
-            ir  = LoopIR.ForAll(sym, hi, [s], None, s.srcinfo)
+
+            new_s = s
+            if self.guard:
+                cond = LoopIR.BinOp('==', LoopIR.Read(sym, [], T.index, s.srcinfo),
+                                          LoopIR.Const(0, T.int, s.srcinfo), T.bool, s.srcinfo)
+                new_s = LoopIR.If(cond, [s], [], None, s.srcinfo)
+
+            ir  = LoopIR.Seq(sym, self.hi, [new_s], None, new_s.srcinfo)
             return [ir]
 
         return super().map_s(s)
@@ -2507,6 +2519,12 @@ class _DoDeletePass(LoopIR_Rewrite):
     def map_s(self, s):
         if isinstance(s, LoopIR.Pass):
             return []
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            body = self.map_stmts(s.body)
+            if not body:
+                return []
+            else:
+                return [s.update(body=body)]
         else:
             return super().map_s(s)
 
@@ -2565,11 +2583,134 @@ class _DoExtractMethod(LoopIR_Rewrite):
         return e
 
 
+
+class _DoNormalize(LoopIR_Rewrite):
+    # This class operates on an idea of creating a coefficient map for each
+    # indexing expression (normalize_e), and writing the map back to LoopIR
+    # (get_loopir in index_start).
+    # For example, when you have Assign statement:
+    # y[n*4 - n*4 + 1] = 0.0
+    # index_start will be called with e : n*4 - n*4 + 1.
+    # Then, normalize_e will create a map of symbols and its coefficients.
+    # The map for the expression `n*4 + 1` is:
+    # { temporary_constant_symbol : 1, n : 4 }
+    # and the map for the expression `n*4 - n*4 + 1` is:
+    # { temporary_constant_symbol : 1, n : 0 }
+    # This map concatnation is handled by concat_map function.
+    def __init__(self, proc):
+        self.C = Sym("temporary_constant_symbol")
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def concat_map(self, op, lhs, rhs):
+        if op == '+':
+            # if has same key: add value
+            common = { key: (lhs[key]+rhs[key]) for key in lhs if key in rhs }
+            return lhs | rhs | common
+        elif op == '-':
+            # has same key: sub value
+            common = { key: (lhs[key]-rhs[key]) for key in lhs if key in rhs }
+            # else, negate the rhs and cat map
+            neg_rhs = { key: -rhs[key] for key in rhs }
+            return lhs | neg_rhs | common
+        elif op == '*':
+            # rhs or lhs NEEDS to be constant
+            assert len(rhs) == 1 or len(lhs) == 1
+            # multiply the other one's value by that constant
+            if len(rhs) == 1 and self.C in rhs:
+                return { key: lhs[key]*rhs[self.C] for key in lhs }
+            else:
+                assert len(lhs) == 1 and self.C in lhs
+                return { key: rhs[key]*lhs[self.C] for key in rhs }
+        else:
+            assert False, "bad case"
+
+    def normalize_e(self, e):
+        assert e.type.is_indexable(), f"{e} is not indexable!"
+
+        if isinstance(e, LoopIR.Read):
+            assert len(e.idx) == 0, "Indexing inside indexing does not make any sense"
+            return { e.name : 1 }
+        elif isinstance(e, LoopIR.Const):
+            return { self.C : e.val }
+        elif isinstance(e, LoopIR.USub):
+            e_map = self.normalize_e(e.arg)
+            return { key: -e_map[key] for key in e_map }
+        elif isinstance(e, LoopIR.BinOp):
+            lhs_map = self.normalize_e(e.lhs)
+            rhs_map = self.normalize_e(e.rhs)
+            return self.concat_map(e.op, lhs_map, rhs_map)
+        else:
+            assert False, ("index_start should only be called by"+
+                           f" an indexing expression. e was {e}")
+
+    def has_div_mod_config(self, e):
+        if isinstance(e, LoopIR.Read):
+            return False
+        elif isinstance(e, LoopIR.Const):
+            return False
+        elif isinstance(e, LoopIR.USub):
+            return self.has_div_mod_config(e.arg)
+        elif isinstance(e, LoopIR.BinOp):
+            if e.op == '/' or e.op == '%':
+                return True
+            else:
+                lhs = self.has_div_mod_config(e.lhs)
+                rhs = self.has_div_mod_config(e.rhs)
+                return lhs or rhs
+        elif isinstance(e, LoopIR.ReadConfig):
+            return True
+        else:
+            assert False, "bad case"
+
+    # Call this when e is one indexing expression
+    # e should be an indexing expression
+    def index_start(self, e):
+        assert isinstance(e, LoopIR.expr)
+        # Div and mod need more subtle handling. Don't normalize for now.
+        # Skip ReadConfigs, they needs careful handling because they're not Sym.
+        if self.has_div_mod_config(e):
+            return e
+
+        # Make a map of symbols and coefficients
+        n_map = self.normalize_e(e)
+
+        # Write back to LoopIR.expr
+        def get_loopir(key, value):
+            vconst = LoopIR.Const(value, T.int, e.srcinfo)
+            if key == self.C:
+                return vconst
+            else:
+                readkey = LoopIR.Read(key, [], e.type, e.srcinfo)
+                return LoopIR.BinOp('*', vconst, readkey, e.type, e.srcinfo)
+        
+        delete_zero = { key: n_map[key] for key in n_map if n_map[key] != 0 }
+        new_e = LoopIR.Const(0, T.int, e.srcinfo)
+        for key, val in delete_zero.items():
+            if val > 0:
+                # add
+                new_e = LoopIR.BinOp('+', new_e, get_loopir(key, val), e.type, e.srcinfo)
+            else:
+                # sub
+                new_e = LoopIR.BinOp('-', new_e, get_loopir(key, -val), e.type, e.srcinfo)
+
+        return new_e
+
+
+    def map_e(self, e):
+        if e.type.is_indexable():
+            return self.index_start(e)
+
+        return super().map_e(e)
+
+
 class _DoSimplify(LoopIR_Rewrite):
     def __init__(self, proc):
         self.facts = ChainMap()
-        super().__init__(proc)
+        proc = _DoNormalize(proc).result()
 
+        super().__init__(proc)
         self.proc = InferEffects(self.proc).result()
 
     def cfold(self, op, lhs, rhs):
@@ -2758,7 +2899,8 @@ class _DoSimplify(LoopIR_Rewrite):
 
             return [LoopIR.If(cond, body, orelse, self.map_eff(s.eff),
                               s.srcinfo)]
-        elif isinstance(s, LoopIR.ForAll):
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            styp = type(s)
             hi = self.map_e(s.hi)
             # Delete the loop if it would not run at all
             if isinstance(hi, LoopIR.Const) and hi.val == 0:
@@ -2768,7 +2910,7 @@ class _DoSimplify(LoopIR_Rewrite):
             body = self.map_stmts(s.body)
             if not body:
                 return []
-            return [LoopIR.ForAll(s.iter, hi, body, self.map_eff(s.eff),
+            return [styp(s.iter, hi, body, self.map_eff(s.eff),
                                   s.srcinfo)]
         else:
             return super().map_s(s)
@@ -2818,7 +2960,8 @@ class _DoDataReuse(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
-        # Check that buf_name is only used before the first assignment of rep_pat
+        # Check that buf_name is only used
+        # before the first assignment of rep_pat
         if self.first_assn:
             if self.buf_name in _FV([s]):
                 raise SchedulingError("buf_name should not be used after the "
@@ -2934,7 +3077,6 @@ class _DoStageMem(LoopIR_Rewrite):
 
         self.new_sizes  = [ LoopIR.BinOp('-', w[1], w[0], T.index, w[0].srcinfo)
                             for w in w_exprs if isinstance(w, tuple) ]
-        self.new_offset = [ w[0] for w in w_exprs if isinstance(w, tuple) ]
 
         self.new_name   = Sym(new_name)
 
@@ -2952,6 +3094,28 @@ class _DoStageMem(LoopIR_Rewrite):
         Check_Bounds(self.proc, self.new_block[0], self.new_block[1:])
 
         self.proc   = InferEffects(self.proc).result()
+
+    def rewrite_idx(self, idx):
+        assert len(idx) == len(self.w_exprs)
+        return [ LoopIR.BinOp('-', i, w[0], T.index, i.srcinfo)
+                 for i,w in zip(idx, self.w_exprs)
+                 if isinstance(w, tuple) ]
+
+    def rewrite_win(self, w_idx):
+        assert len(w_idx) == len(self.w_exprs)
+
+        def off_w(w,off):
+            if isinstance(w, LoopIR.Interval):
+                lo = LoopIR.BinOp('-',w.lo,off,T.index,w.srcinfo)
+                hi = LoopIR.BinOp('-',w.hi,off,T.index,w.srcinfo)
+                return LoopIR.Interval(lo, hi, w.srcinfo)
+            else:
+                assert isinstance(w, LoopIR.Point)
+                pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
+                return LoopIR.Point(pt, w.srcinfo)
+
+        return [ off_w(w_i, w_e[0]) for w_i,w_e in zip(idx, self.w_exprs)
+                                    if isinstance(w, tuple) ]
 
     def map_stmts(self, stmts):
         """ This method overload simply tries to find the indicated block """
@@ -3067,9 +3231,7 @@ class _DoStageMem(LoopIR_Rewrite):
                 if s.name is self.buf_name:
                     assert len(new_s) == 1
                     new_s[0] = new_s[0].update(name=self.new_name)
-
-                    idx = [ LoopIR.BinOp('-', i, off, T.index, s.srcinfo)
-                            for i,off in zip(new_s[0].idx, self.new_offset) ]
+                    idx      = self.rewrite_idx(new_s[0].idx)
                     new_s[0] = new_s[0].update(idx=idx)
 
         return new_s
@@ -3080,27 +3242,14 @@ class _DoStageMem(LoopIR_Rewrite):
         if self.in_block:
             if isinstance(e, LoopIR.Read):
                 if e.name is self.buf_name:
-                    new_e = new_e.update(name=self.new_name)
+                    new_e   = new_e.update(name=self.new_name)
 
-                    idx = [ LoopIR.BinOp('-', i, off, T.index, e.srcinfo)
-                            for i,off in zip(new_e.idx, self.new_offset) ]
-                    new_e = new_e.update(idx=idx)
+                    idx     = self.rewrite_idx(new_e.idx)
+                    new_e   = new_e.update(idx=idx)
 
             elif isinstance(e, LoopIR.WindowExpr):
                 if e.name is self.buf_name:
-                    def off_w(w,off):
-                        if isinstance(w, LoopIR.Interval):
-                            lo = LoopIR.BinOp('-',w.lo,off,T.index,w.srcinfo)
-                            hi = LoopIR.BinOp('-',w.hi,off,T.index,w.srcinfo)
-                            return LoopIR.Interval(lo, hi, w.srcinfo)
-                        else:
-                            assert isinstance(w, LoopIR.Point)
-                            pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
-                            return LoopIR.Point(pt, w.srcinfo)
-
-                    w_idx = [off_w(w, off)
-                             for w, off in zip(new_e.idx, self.new_offset)]
-
+                    w_idx = self.rewrite_win(new_e.idx)
                     new_e = new_e.update(
                         name=self.new_name,
                         idx=w_idx,

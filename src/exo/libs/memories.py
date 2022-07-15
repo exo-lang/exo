@@ -1,6 +1,3 @@
-import os
-from pathlib import Path
-
 from ..memory import Memory, DRAM, MemGenError
 
 
@@ -8,23 +5,12 @@ def _is_const_size(sz, c):
     return sz.isdecimal() and int(sz) == c
 
 
-def _configure_file(path: Path, **kwargs):
-    def transform(lines):
-        for line in lines:
-            if line.startswith('#define'):
-                line = line.format(**kwargs)
-            yield line
-
-    return '\n'.join(transform(path.read_text().split('\n')))
-
-
 # ----------- DRAM using custom malloc ----------------
 
 class MDRAM(DRAM):
     @classmethod
     def global_(cls):
-        _here_ = os.path.dirname(os.path.abspath(__file__))
-        return _configure_file(Path(_here_) / 'malloc.c', heap_size=100000)
+        return '#include "custom_malloc.h"'
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
@@ -70,10 +56,7 @@ class DRAM_STATIC(DRAM):
 class GEMM_SCRATCH(Memory):
     @classmethod
     def global_(cls):
-        _here_ = os.path.dirname(os.path.abspath(__file__))
-        return _configure_file(Path(_here_) / 'gemm_malloc.c',
-                               heap_size=100000,
-                               dim=16)
+        return '#include "gemm_malloc.h"'
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
@@ -117,10 +100,7 @@ class GEMM_SCRATCH(Memory):
 class GEMM_ACCUM(Memory):
     @classmethod
     def global_(cls):
-        _here_ = os.path.dirname(os.path.abspath(__file__))
-        return _configure_file(Path(_here_) / 'gemm_acc_malloc.c',
-                               heap_size=100000,
-                               dim=16)
+        return '#include "gemm_acc_malloc.h"'
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):

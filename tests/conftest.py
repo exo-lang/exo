@@ -66,11 +66,8 @@ def golden(request):
             testpath.relative_to(basedir).with_suffix('') /
             request.node.name).with_suffix('.txt')
 
-    update = request.config.getoption("--update-golden")
-    if p.exists():
-        yield GoldenOutput(p, p.read_text(), update)
-    else:
-        yield GoldenOutput(p, None, update)
+    text = p.read_text() if p.exists() else None
+    yield GoldenOutput(p, text, request.config)
 
 
 @pytest.fixture
@@ -99,36 +96,41 @@ def sde64():
 # ---------------------------------------------------------------------------- #
 
 
-@dataclass
-class GoldenOutput:
-    path: Path
-    text: Optional[str]
-    update: bool
+class GoldenOutput(str):
+    _missing = '\0'
 
-    def _compare(self, other):
-        if isinstance(other, GoldenOutput):
-            return self.path == other.path and self.text == other.text
-        elif isinstance(other, str):
-            return self.text == other
-        else:
+    def __new__(cls, path, text, config):
+        return str.__new__(cls, cls._missing if text is None else text)
+
+    def __init__(self, path, _, config):
+        self.path = path
+        self.update = config.getoption("--update-golden")
+        self.verbose = config.getoption("verbose")
+
+    def __eq__(self, actual):
+        if isinstance(actual, GoldenOutput) and self.path != actual.path:
             return False
 
-    def __str__(self):
-        if isinstance(self.text, str):
-            return self.text
-        raise ValueError(f'No golden output for {self.path}')
+        if super().__eq__(self._missing) and not self.update:
+            # Hides this stack frame in the PyTest traceback.
+            __tracebackhide__ = True
 
-    def __repr__(self):
-        if self.text is None:
-            return f'GoldenOutput({repr(self.path)}, None, {repr(self.update)})'
-        return repr(self.text)
+            message = f'golden output missing: {self.path}.\n'
 
-    def __eq__(self, other):
-        result = self._compare(other)
-        if not result and self.update:
+            if self.verbose:
+                message += (f'Actual output:\n'
+                            f'{actual}\n'
+                            f'Did you forget to run with --update-golden?')
+            else:
+                message += 'Run with -v (verbose) to see actual output.'
+
+            pytest.fail(message)
+
+        equal = super().__eq__(actual)
+        if not equal and self.update:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(str(other))
-        return result or self.update
+            self.path.write_text(str(actual))
+        return equal or self.update
 
 
 @dataclass
@@ -176,6 +178,8 @@ class Compiler:
             procs: Union[Procedure, List[Procedure]],
             *,
             test_files: Optional[Dict[str, str]] = None,
+            include_dir = None,
+            additional_file = None,
             compile_only: bool = False,
             skip_on_fail: bool = False,
             **kwargs
@@ -191,7 +195,7 @@ class Compiler:
         atl.write_text('\n'.join(map(str, procs)))
 
         (self.workdir / 'CMakeLists.txt').write_text(
-            self._generate_cml(test_files))
+            self._generate_cml(test_files, include_dir, additional_file))
 
         self._run_command([
             f'ctest',
@@ -232,7 +236,9 @@ class Compiler:
         if skip:
             pytest.skip('Compile failure converted to skip')
 
-    def _generate_cml(self, test_files: Dict[str, str]):
+    def _generate_cml(self, test_files: Dict[str, str], include_dir=None, additional_file=None):
+        additional_file = f'"{additional_file}"' if additional_file else ""
+
         cml_body = textwrap.dedent(
             f'''
             cmake_minimum_required(VERSION 3.21)
@@ -240,11 +246,17 @@ class Compiler:
             
             option(BUILD_SHARED_LIBS "Build shared libraries by default" ON)
             
-            add_library({self.basename} "{self.basename}.c")
+            add_library({self.basename} "{self.basename}.c" {additional_file})
             add_library({self.basename}::{self.basename} ALIAS {self.basename})
             
             '''
         )
+
+        if include_dir:
+            cml_body += textwrap.dedent(
+                f'''
+                target_include_directories({self.basename} PRIVATE {include_dir})
+                ''')
 
         lib_name = f'{self.basename}::{self.basename}'
         if not test_files:

@@ -105,7 +105,7 @@ def test_conv_3():
     conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'], tail='cut_and_guard')
     conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
     conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
-    print(conv)
+    #print(conv)
     conv = conv.reorder('ocol_i', 'och_o')
     conv = conv.lift_alloc('res : _', n_lifts=3)
     conv = conv.fission_after('res[_] = _', n_lifts=3)
@@ -137,12 +137,12 @@ def test_conv_3():
     conv = conv.assert_if('if _:_ #2', True)
     conv = conv.assert_if('if _:_ #2', True)
     conv = conv.assert_if('if _:_ #2', True)
-    conv = conv.assert_if('if 0 <= ocol_i + 48 + kcol - 1:_', True)
+    conv = conv.assert_if('if 0 <= ocol_i + 47 + kcol:_', True)
     conv = conv.specialize('for ocol_i in _:_ #7', 'kcol == 2')
     conv = conv.partition_loop('ocol_i #7', 7)
-    conv = conv.assert_if('if ocol_i + 48 + kcol - 1 < 56:_', True)
+    conv = conv.assert_if('if ocol_i + 47 + kcol < 56:_', True)
     conv = conv.unroll('ocol_i #8')
-    conv = conv.assert_if('if 0 + 7 + 48 + kcol - 1 < 56:_', False)
+    conv = conv.assert_if('if 0 + 7 + 47 + kcol < 56:_', False)
 
     conv = conv.replace(ld_acc_i32_vector, 'for ocol_i in _:_ #0')
     conv = conv.reorder('och_i', 'kch_i')
@@ -207,13 +207,57 @@ def test_conv_3():
     conv = conv.lift_alloc('i_s : _', n_lifts=5)
     conv = conv.lift_alloc('w_s : _', n_lifts=4)
 
-    conv = conv.add_guard('for kch_o in _:_', 'ocol_o', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'b', 0)
-    conv = conv.add_guard('for kch_o in _:_ #2', 'b', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
-    conv = conv.add_guard('for kch_o in _:_ #2', 'orow_o #1', 0)
-    conv = conv.add_guard('for kch_o in _:_ #2', 'orow_i #1', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'ocol_o', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'b', 0)
+    #conv = conv.add_guard('for kch_o in _:_ #2', 'b', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
+    #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_o #1', 0)
+    #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_i #1', 0)
+    conv = conv.lift_alloc('res : _', n_lifts=4)
+
+    conv = conv.fission_after('for kch_o in _:_ #0', n_lifts=6)
+    conv = conv.fission_after('for kch_o in _:_ #2', n_lifts=5)
+    conv = conv.fission_after('for och_o in _:_ #3')
+    conv = conv.add_loop('for kch_o in _:_ #0', 'orow_i', 28, guard=True)
+    conv = conv.add_loop('if orow_i == 0:_', 'orow_o', 2, guard=True)
+    conv = conv.add_loop('if orow_o == 0:_', 'b', 4, guard=True)
+    conv = conv.add_loop('if b == 0:_', 'ocol_o', 3, guard=True)
+    conv = conv.add_loop('for kch_o in _:_ #2', 'orow_i', 28, guard=True)
+    conv = conv.add_loop('if orow_i == 0:_ #1', 'orow_o', 2, guard=True)
+    conv = conv.add_loop('if orow_o == 0:_ #1', 'b', 4, guard=True)
+    # Start fissioning loops
+    conv = conv.add_loop('for och_o in _:_ #0', 'b', 4)
+    conv = conv.reorder('orow_o','b').reorder('orow_i','b').reorder('kcol','b').reorder('krow','b')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.add_loop('for och_o in _:_ #0', 'ocol_o', 3)
+    conv = conv.reorder('orow_o','ocol_o').reorder('orow_i','ocol_o').reorder('kcol','ocol_o').reorder('krow','ocol_o')
+    conv = conv.fuse_loop('for ocol_o in _:_ #0', 'for ocol_o in _:_ #1')
+    conv = conv.fuse_loop('for ocol_o in _:_ #0', 'for ocol_o in _:_ #1')
+    conv = conv.add_loop('for och_o in _:_ #0', 'orow_o', 2)
+    conv = conv.reorder('orow_i','orow_o').reorder('kcol','orow_o').reorder('krow','orow_o')
+    conv = conv.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    conv = conv.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    conv = conv.add_loop('for och_o in _:_ #0', 'orow_i', 28)
+    conv = conv.reorder('kcol','orow_i').reorder('krow','orow_i')
+    conv = conv.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
+    conv = conv.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
+
+    conv = conv.add_loop('for och_o in _:_ #3', 'orow_o', 2)
+    conv = conv.fuse_loop('for orow_o in _:_ #1', 'for orow_o in _:_ #2')
+    conv = conv.fuse_loop('for orow_o in _:_ #1', 'for orow_o in _:_ #2')
+    conv = conv.add_loop('for och_o in _:_ #3', 'orow_i', 28)
+    conv = conv.fuse_loop('for orow_i in _:_ #1', 'for orow_i in _:_ #2')
+    conv = conv.fuse_loop('for orow_i in _:_ #1', 'for orow_i in _:_ #2')
+
+    conv = conv.fuse_loop('for krow in _:_ #0', 'for krow in _:_ #1')
+    conv = conv.fuse_loop('for kcol in _:_ #0', 'for kcol in _:_ #1')
+    conv = conv.fuse_loop('for krow in _:_ #1', 'for krow in _:_ #2')
+    conv = conv.fuse_loop('for kcol in _:_ #1', 'for kcol in _:_ #2')
+
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #0', 'orow_i == 0 or krow == 2')
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #1', 'orow_i == 0 or krow == 2')
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #2', 'orow_i == 0 or krow == 2')
@@ -221,9 +265,7 @@ def test_conv_3():
 
 
     conv = conv.split('orow_i', 7, ['orow_io', 'orow_ii'], perfect=True)
-    conv = conv.lift_alloc('res : _', n_lifts=1)
     conv = conv.par_to_seq('for orow_io in _:_')
-    conv = conv.lift_alloc('res : _', n_lifts=4)
     conv = conv.unroll('och_o')
     #conv = conv.unroll('kch_o')
     #conv = conv.unroll('kcol')
@@ -261,126 +303,8 @@ def test_conv_3():
 
 
     print(conv)
-"""
 
 
-
-
-
-
-
-
-    conv = conv.fission_after('if 0 <= 16 * ocol_o + ocol_i + kcol - 1 and 16 * ocol_o + ocol_i + kcol - 1 < 56 : _', n_lifts=1)
-
-
-    @proc
-    def conv_3(
-        batch_size : size,
-        out_dim    : size,
-        out_channel: size,
-        kernel_dim : size,
-        in_channel : size,
-        in_dim     : size,
-        padding    : size,
-        output     : i8[batch_size, out_dim, out_dim, out_channel],
-        bias       : i32[1, out_channel],
-        inp        : i8[batch_size, in_dim, in_dim, in_channel],
-        weights    : i8[kernel_dim, kernel_dim, in_channel, out_channel],
-        act        : bool,
-        scale      : f32
-        ):
-
-        assert out_dim == in_dim + 2*padding - kernel_dim + 1
-        assert 0 <= padding < 16
-        assert padding < out_dim
-
-        one : f32
-        one = 1.0
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim/16):
-                    conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
-
-                if out_dim%16 > 0:
-                    conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
-
-
-    gemmini = conv_3
-    gemmini = gemmini.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-    gemmini = gemmini.inline('conv_partial_padding(_) #0')
-    gemmini = gemmini.inline('conv_partial_padding(_) #0')
-    gemmini = gemmini.simplify()
-
-    gemmini = gemmini.fission_after('config_st_acc_i8(_) #0', n_lifts=3)
-    gemmini = gemmini.fission_after('config_ld_i8(_) #0', n_lifts=3)
-    gemmini = gemmini.fission_after('config_ld_i8_id1(_) #0', n_lifts=3)
-    gemmini = gemmini.fission_after('config_ld_i8_id2(_) #0', n_lifts=3)
-    gemmini = gemmini.fission_after('config_matmul() #0', n_lifts=3)
-    gemmini = gemmini.reorder_stmts('for ocol in _:_ #0', 'config_st_acc_i8(_) #1')
-    gemmini = gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8(_) #1')
-    gemmini = gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8_id1(_) #1')
-    gemmini = gemmini.reorder_stmts('for ocol in _:_ #0', 'config_ld_i8_id2(_) #1')
-    gemmini = gemmini.fission_after('config_st_acc_i8(_) #1', n_lifts=2)
-    gemmini = gemmini.fission_after('config_ld_i8(_) #1', n_lifts=2)
-    gemmini = gemmini.fission_after('config_ld_i8_id1(_) #1', n_lifts=2)
-    gemmini = gemmini.fission_after('config_ld_i8_id2(_) #1', n_lifts=2)
-
-    gemmini = gemmini.lift_alloc('res:_', n_lifts=1)
-    gemmini = gemmini.lift_alloc('res:_ #0', n_lifts=1)
-    gemmini = gemmini.lift_alloc('in_scratch:_', n_lifts=5)
-    gemmini = gemmini.lift_alloc('weight_scratch:_', n_lifts=5)
-    gemmini = gemmini.lift_alloc('in_scratch:_ #0', n_lifts=1)
-    gemmini = gemmini.lift_alloc('weight_scratch:_ #0', n_lifts=1)
-
-    gemmini = gemmini.par_to_seq('for b in _:_')
-    gemmini = gemmini.par_to_seq('for orow in _:_')
-
-    gemmini = gemmini.lift_alloc('res:_', n_lifts=3)
-    gemmini = gemmini.lift_alloc('in_scratch:_', n_lifts=3)
-    gemmini = gemmini.lift_alloc('weight_scratch:_', n_lifts=3)
-
-    gemmini = gemmini.par_to_seq('for och in _:_')
-    gemmini = gemmini.add_guard('do_ld_i8_id1(_) #0', 'och #0', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_id1(_) #1', 'och #0', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_id1(_) #2', 'och #0', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_id1(_) #3', 'och #0', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_id1(_) #4', 'och #1', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_id1(_) #5', 'och #1', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_id1(_) #6', 'och #1', 0)
-    gemmini = gemmini.add_guard('do_ld_i8_id1(_) #7', 'och #1', 0)
-    gemmini = gemmini.par_to_seq('for ocol in _:_')
-    gemmini = gemmini.add_guard('do_ld_i8_id2(_) #0', 'ocol #0', 0)
-
-    cpu = conv_on_cpu()
-    cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-    T.add_proc(cpu)
-    T.add_proc(gemmini)
-
-    T.start_timer('cpu')
-
-    T.add_body([f'conv_on_cpu_stride_1(ctxt, output_cpu, bias, inp, weights, false, scale);',
-                f'gemmini_fence();'])
-    T.stop_timer('cpu', 'Cycles for CPU version')
-
-    T.start_timer('gemmini')
-    T.add_body([f'conv_3(ctxt, output_gemmini, bias, inp, weights, false, scale);',
-                f'gemmini_fence();'])
-    T.stop_timer('gemmini', 'Cycles for GEMMINI version')
-
-    T.add_body([f'if(check_eq_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu, output_gemmini)) {{',
-                 '    printf("Correct\\n");',
-                 '} else {',
-                 '    printf("Results Don\'t Match\\n");',
-                 '    printf("Correct Result (output_cpu):\\n");',
-                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_cpu);',
-                 '    printf("Computed Roundtrip (output_gemmini):\\n");',
-                f'    print_4i8({batch_size},{out_dim},{out_dim},{out_channel}, output_gemmini);',
-                 '    exit(1);',
-                 '}',
-                 ''])
-
-    T.compile().run()
-"""
 
 @pytest.mark.skip()
 def test_conv_17():

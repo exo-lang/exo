@@ -79,8 +79,8 @@ class _UnionFind:
         self.lookup = WeakKeyDictionary()
 
     def new_node(self, val):
-        self.lookup[val] = val
-        return val
+        if val not in self.lookup:
+            self.lookup[val] = val
 
     def find(self, val):
         parent = self.lookup[val]
@@ -123,7 +123,7 @@ def decl_new_proc(proc):
     # add to all existing union-find data structures
     _UF_Strict.new_node(proc)
     _UF_Unv.new_node(proc)
-    for _,uf in _UF_Unv_key.items():
+    for uf in _UF_Unv_key.values():
         uf.new_node(proc)
 
 def derive_proc(orig_proc, new_proc, config_set=frozenset()):
@@ -170,4 +170,3 @@ def get_strictest_eqv_proc(proc1,proc2):
 def get_repr_proc(q_proc):
     proc = _UF_Strict.find(q_proc)
     return proc
-

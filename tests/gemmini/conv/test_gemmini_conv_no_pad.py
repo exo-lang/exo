@@ -146,6 +146,7 @@ def set_memory(conv):
     return conv
 
 
+
 def test_conv_3():
     T = GemmTestBuilder('conv_3')
     T.add_body(['gemm_init_mem();',
@@ -199,25 +200,62 @@ def test_conv_3():
     conv = conv.lift_alloc('i_s : _', n_lifts=5)
     conv = conv.lift_alloc('w_s : _', n_lifts=4)
 
-    [ (conv := conv.add_guard(s, i, 0)) for (s,i) in [('for kch_o in _:_', 'ocol_o'), ('for kch_o in _:_', 'b'), ('for kch_o in _:_ #2', 'b'), ('for kch_o in _:_', 'orow_o'), ('for kch_o in _:_', 'orow_i'), ('for kch_o in _:_ #2', 'orow_o #1'), ('for kch_o in _:_ #2', 'orow_i #1')] ]
-    #conv = conv.add_guard('for kch_o in _:_', 'ocol_o', 0)
-    #conv = conv.add_guard('for kch_o in _:_', 'b', 0)
-    #conv = conv.add_guard('for kch_o in _:_ #2', 'b', 0)
-    #conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
-    #conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
-    #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_o #1', 0)
-    #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_i #1', 0)
+
+    conv = conv.lift_alloc('res : _', n_lifts=4)
+
+    conv = conv.fission_after('for kch_o in _:_ #0', n_lifts=6)
+    conv = conv.fission_after('for kch_o in _:_ #2', n_lifts=5)
+    conv = conv.fission_after('for och_o in _:_ #3')
+    conv = conv.add_loop('for kch_o in _:_ #0', 'orow_i', 28, guard=True)
+    conv = conv.add_loop('if orow_i == 0:_', 'orow_o', 2, guard=True)
+    conv = conv.add_loop('if orow_o == 0:_', 'b', 4, guard=True)
+    conv = conv.add_loop('if b == 0:_', 'ocol_o', 3, guard=True)
+    conv = conv.add_loop('for kch_o in _:_ #2', 'orow_i', 28, guard=True)
+    conv = conv.add_loop('if orow_i == 0:_ #1', 'orow_o', 2, guard=True)
+    conv = conv.add_loop('if orow_o == 0:_ #1', 'b', 4, guard=True)
+    # Start fissioning loops
+    conv = conv.add_loop('for och_o in _:_ #0', 'b', 4)
+    conv = conv.reorder('orow_o','b').reorder('orow_i','b').reorder('kcol','b').reorder('krow','b')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.add_loop('for och_o in _:_ #0', 'ocol_o', 3)
+    conv = conv.reorder('orow_o','ocol_o').reorder('orow_i','ocol_o').reorder('kcol','ocol_o').reorder('krow','ocol_o')
+    conv = conv.fuse_loop('for ocol_o in _:_ #0', 'for ocol_o in _:_ #1')
+    conv = conv.fuse_loop('for ocol_o in _:_ #0', 'for ocol_o in _:_ #1')
+    conv = conv.add_loop('for och_o in _:_ #0', 'orow_o', 2)
+    conv = conv.reorder('orow_i','orow_o').reorder('kcol','orow_o').reorder('krow','orow_o')
+    conv = conv.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    conv = conv.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    conv = conv.add_loop('for och_o in _:_ #0', 'orow_i', 28)
+    conv = conv.reorder('kcol','orow_i').reorder('krow','orow_i')
+    conv = conv.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
+    conv = conv.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
+
+    conv = conv.add_loop('for och_o in _:_ #3', 'orow_o', 2)
+    conv = conv.fuse_loop('for orow_o in _:_ #1', 'for orow_o in _:_ #2')
+    conv = conv.fuse_loop('for orow_o in _:_ #1', 'for orow_o in _:_ #2')
+    conv = conv.add_loop('for och_o in _:_ #3', 'orow_i', 28)
+    conv = conv.fuse_loop('for orow_i in _:_ #1', 'for orow_i in _:_ #2')
+    conv = conv.fuse_loop('for orow_i in _:_ #1', 'for orow_i in _:_ #2')
+
+    conv = conv.fuse_loop('for krow in _:_ #0', 'for krow in _:_ #1')
+    conv = conv.fuse_loop('for kcol in _:_ #0', 'for kcol in _:_ #1')
+    conv = conv.fuse_loop('for krow in _:_ #1', 'for krow in _:_ #2')
+    conv = conv.fuse_loop('for kcol in _:_ #1', 'for kcol in _:_ #2')
+
+
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #0', 'orow_i == 0 or krow == 2')
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #1', 'orow_i == 0 or krow == 2')
 
     conv = conv.split('orow_i', 7, ['orow_io', 'orow_ii'], perfect=True)
-    conv = conv.lift_alloc('res : _', n_lifts=1)
     conv = conv.par_to_seq('for orow_io in _:_')
-    conv = conv.lift_alloc('res : _', n_lifts=4)
     conv = conv.unroll('och_o')
     #conv = conv.unroll('kch_o')
     #conv = conv.unroll('kcol')
     conv = conv.simplify()
+
 
     cpu = conv_on_cpu()
     cpu = cpu.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim)
@@ -250,7 +288,6 @@ def test_conv_3():
     T.compile().run()
 
     print(conv)
-
 
 
 def test_conv_17():
@@ -323,15 +360,54 @@ def test_conv_17():
     conv = conv.par_to_seq('for orow_i in _:_')
     conv = conv.lift_alloc('i_s : _', n_lifts=4)
     conv = conv.lift_alloc('w_s : _', n_lifts=3)
-    conv = conv.add_guard('for kch_o in _:_', 'bi', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
-    conv = conv.add_guard('for kch_o in _:_ #2', 'bi #1', 0)
-    conv = conv.add_guard('for kch_o in _:_ #2', 'orow_o #1', 0)
-    conv = conv.add_guard('for kch_o in _:_ #2', 'orow_i #1', 0)
+    conv = conv.lift_alloc('res : _', n_lifts=3)
+
+    #conv = conv.add_guard('for kch_o in _:_', 'bi', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
+    #conv = conv.add_guard('for kch_o in _:_ #2', 'bi #1', 0)
+    #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_o #1', 0)
+    #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_i #1', 0)
+
+    conv = conv.fission_after('for kch_o in _:_ #0', n_lifts=5)
+    conv = conv.fission_after('for kch_o in _:_ #2', n_lifts=5)
+    conv = conv.add_loop('for kch_o in _:_ #0', 'orow_i', 14, guard=True)
+    conv = conv.add_loop('if orow_i == 0:_', 'orow_o', 2, guard=True)
+    conv = conv.add_loop('if orow_o == 0:_', 'bi', 4, guard=True)
+    conv = conv.add_loop('for kch_o in _:_ #2', 'orow_i', 14, guard=True)
+    conv = conv.add_loop('if orow_i == 0:_ #1', 'orow_o', 2, guard=True)
+    conv = conv.add_loop('if orow_o == 0:_ #1', 'bi', 4, guard=True)
+    # Start fissioning loops
+    conv = conv.add_loop('for och_o in _:_ #0', 'bi', 4)
+    conv = conv.reorder('orow_o','bi').reorder('orow_i','bi').reorder('kcol','bi').reorder('krow','bi')
+    conv = conv.fuse_loop('for bi in _:_ #0', 'for bi in _:_ #1')
+    conv = conv.fuse_loop('for bi in _:_ #0', 'for bi in _:_ #1')
+    conv = conv.add_loop('for och_o in _:_ #0', 'orow_o', 2)
+    conv = conv.reorder('orow_i','orow_o').reorder('kcol','orow_o').reorder('krow','orow_o')
+    conv = conv.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    conv = conv.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    conv = conv.add_loop('for och_o in _:_ #0', 'orow_i', 14)
+    conv = conv.reorder('kcol','orow_i').reorder('krow','orow_i')
+    conv = conv.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
+    conv = conv.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
+    conv = conv.fuse_loop('for krow in _:_ #0', 'for krow in _:_ #1')
+    conv = conv.fuse_loop('for kcol in _:_ #0', 'for kcol in _:_ #1')
+
+    conv = conv.add_loop('for och_o in _:_ #3', 'bi', 4)
+    conv = conv.fuse_loop('for bi in _:_ #1', 'for bi in _:_ #2')
+    conv = conv.fuse_loop('for bi in _:_ #1', 'for bi in _:_ #2')
+    conv = conv.add_loop('for och_o in _:_ #3', 'orow_o', 2)
+    conv = conv.fuse_loop('for orow_o in _:_ #1', 'for orow_o in _:_ #2')
+    conv = conv.fuse_loop('for orow_o in _:_ #1', 'for orow_o in _:_ #2')
+    conv = conv.add_loop('for och_o in _:_ #3', 'orow_i', 14)
+    conv = conv.fuse_loop('for orow_i in _:_ #1', 'for orow_i in _:_ #2')
+    conv = conv.fuse_loop('for orow_i in _:_ #1', 'for orow_i in _:_ #2')
+    conv = conv.fuse_loop('for krow in _:_ #1', 'for krow in _:_ #2')
+    conv = conv.fuse_loop('for kcol in _:_ #1', 'for kcol in _:_ #2')
+
+
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #0', 'orow_i == 0 or krow == 2')
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #1', 'orow_i == 0 or krow == 2')
-    conv = conv.lift_alloc('res : _', n_lifts=3)
 
     conv = conv.unroll('och_o')
     conv = conv.unroll('kch_o_o')
@@ -368,7 +444,6 @@ def test_conv_17():
                  ''])
 
     T.compile().run()
-
 
 
 
@@ -421,9 +496,31 @@ def test_conv_30():
     conv = conv.lift_alloc('i_s : _', n_lifts=5)
     conv = conv.lift_alloc('w_s : _', n_lifts=4)
     conv = conv.lift_alloc('res : _', n_lifts=3)
-    conv = conv.add_guard('for kch_o in _:_', 'b', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
-    conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
+
+    #conv = conv.add_guard('for kch_o in _:_', 'b', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
+    #conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
+    conv = conv.fission_after('for kch_o in _:_ #0', n_lifts=5)
+    conv = conv.fission_after('for och_o in _:_ #0', n_lifts=1)
+    conv = conv.add_loop('for kch_o in _:_ #0', 'orow_i', 7, guard=True)
+    conv = conv.add_loop('if orow_i == 0:_', 'orow_o', 2, guard=True)
+    conv = conv.add_loop('if orow_o == 0:_', 'b', 4, guard=True)
+    # Start fissioning loops
+    conv = conv.add_loop('for orow_i in _:_ #0', 'b', 4)
+    conv = conv.reorder('orow_o','b').reorder('orow_i','b').reorder('kcol','b').reorder('krow','b')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.fuse_loop('for b in _:_ #0', 'for b in _:_ #1')
+    conv = conv.add_loop('for orow_i in _:_ #0', 'orow_o', 2)
+    conv = conv.reorder('orow_i','orow_o').reorder('kcol','orow_o').reorder('krow','orow_o')
+    conv = conv.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    conv = conv.fuse_loop('for orow_o in _:_ #0', 'for orow_o in _:_ #1')
+    conv = conv.reorder('kcol','orow_i').reorder('krow','orow_i')
+    conv = conv.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
+    conv = conv.fuse_loop('for orow_i in _:_ #0', 'for orow_i in _:_ #1')
+    conv = conv.fuse_loop('for krow in _:_ #0', 'for krow in _:_ #1')
+    conv = conv.fuse_loop('for kcol in _:_ #0', 'for kcol in _:_ #1')
+
+
     conv = conv.add_unsafe_guard('ld_i8_block_id2(_) #0', 'orow_i == 0 or krow == 2')
 
     conv = conv.unroll('och_o')
@@ -462,5 +559,6 @@ def test_conv_30():
 
     T.compile().run()
 
+    print(conv)
 
 
