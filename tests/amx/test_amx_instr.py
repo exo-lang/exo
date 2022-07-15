@@ -359,6 +359,10 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
     t = AMXTestBuilder(compiler.basename)
     t.add_body([f"{compiler.basename}_Context *ctxt;"])
 
+    # duplicate from the fixture above
+    size1 = 256
+    size2 = 256
+
     t.alloc_dram_2i8('x', size1, size2, 'i+j')
     t.alloc_dram_2i8('y_orig', size2, size1, 'j')  # before transform_memory
     t.alloc_dram_2i8('y', size2 // 4, 4 * size1, '0')  # after transform_memory
