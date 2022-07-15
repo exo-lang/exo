@@ -3114,8 +3114,7 @@ class _DoStageMem(LoopIR_Rewrite):
                 pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
                 return LoopIR.Point(pt, w.srcinfo)
 
-        return [ off_w(w_i, w_e[0]) for w_i,w_e in zip(idx, self.w_exprs)
-                                    if isinstance(w, tuple) ]
+        return [ off_w(w_i, w_e[0]) for w_i,w_e in zip(w_idx, self.w_exprs) ]
 
     def map_stmts(self, stmts):
         """ This method overload simply tries to find the indicated block """
