@@ -75,9 +75,8 @@ def test_avx2_simple_math(compiler):
         fn(None, n, x, y)
         np.testing.assert_almost_equal(x, expected)
 
-
-@pytest.mark.isa('AVX2')
-def test_avx2_simple_math_scheduling(compiler):
+@pytest.fixture
+def simple_math_avx2_sched():
     """
     Compute x = x * y^2
     """
@@ -118,6 +117,13 @@ def test_avx2_simple_math_scheduling(compiler):
             .replace_all(mm256_mul_ps)
     )
 
+    return simple_math_avx2_sched
+
+def test_gen_avx2_simple_math_scheduling(golden, simple_math_avx2_sched):
+    assert str(simple_math_avx2_sched) == golden
+
+@pytest.mark.isa('AVX2')
+def test_exec_avx2_simple_math_scheduling(compiler, simple_math_avx2_sched):
     fn = compiler.compile(simple_math_avx2_sched,
                           skip_on_fail=True,
                           CMAKE_C_FLAGS="-march=skylake")
@@ -143,9 +149,10 @@ def _sgemm_test_cases(fn, M, N, K):
         np.testing.assert_almost_equal(C, C_out, decimal=3)
 
 
-def gen_rank_k_reduce_6x16():
+@pytest.fixture
+def sgemm_6x16():
     @proc
-    def rank_k_reduce_6x16(
+    def sgemm_6x16(
             K: size,
             C: [f32][6, 16] @ DRAM,
             A: [f32][6, K] @ DRAM,
@@ -156,7 +163,12 @@ def gen_rank_k_reduce_6x16():
                 for k in par(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
-    avx = rank_k_reduce_6x16.rename("rank_k_reduce_6x16_scheduled")
+    return sgemm_6x16
+
+
+@pytest.fixture
+def avx2_sgemm_6x16(sgemm_6x16):
+    avx = sgemm_6x16.rename("rank_k_reduce_6x16_scheduled")
     avx = avx.stage_assn('C_reg', 'C[_] += _')
     avx = avx.set_memory('C_reg', AVX2)
     avx = avx.split('j', 8, ['jo', 'ji'], perfect=True)
@@ -172,11 +184,7 @@ def gen_rank_k_reduce_6x16():
     avx = avx.fission_after('for i in _:_#1', n_lifts=1)
     avx = avx.simplify()
 
-    return avx, rank_k_reduce_6x16
-
-
-def gen_sgemm_6x16_avx():
-    avx2_sgemm_6x16, rank_k_reduce_6x16 = gen_rank_k_reduce_6x16()
+    avx2_sgemm_6x16 = avx
 
     avx2_sgemm_6x16 = (
         avx2_sgemm_6x16
@@ -204,20 +212,19 @@ def gen_sgemm_6x16_avx():
             .simplify()
     )
 
-    return rank_k_reduce_6x16, avx2_sgemm_6x16
+    return avx2_sgemm_6x16
 
 
-@pytest.mark.skip(reason='apparently unifying the broadcast is '
-                         'non-deterministic')
-def test_print_avx2_sgemm_kernel(golden):
-    _, avx2_sgemm_kernel = gen_sgemm_6x16_avx()
-    assert str(avx2_sgemm_kernel) == golden
+#@pytest.mark.skip(reason='apparently unifying the broadcast is '
+#                         'non-deterministic')
+# Until this non-determinism can be removed, at least
+# try to run the code here...
+def test_gen_avx2_sgemm_kernel(avx2_sgemm_6x16):
+    pass
+    #assert str(avx2_sgemm_6x16) == golden
 
-
-@pytest.mark.isa('AVX2')
-def test_avx2_sgemm_full(compiler):
-    sgemm_6x16, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
-
+@pytest.fixture
+def sgemm_full():
     @proc
     def sgemm_full(
             N: size,
@@ -234,6 +241,10 @@ def test_avx2_sgemm_full(compiler):
                 for k in par(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
+    return sgemm_full
+
+@pytest.fixture
+def avx2_sgemm_full(sgemm_full, sgemm_6x16, avx2_sgemm_6x16):
     cache_i = 16
     cache_j = 4
     cache_k = 2
@@ -254,8 +265,8 @@ def test_avx2_sgemm_full(compiler):
             .reorder('ii', 'ko')
             .replace_all(sgemm_6x16)
             # insert uses of micro-kernel now
-            .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
-            .call_eqv(avx2_sgemm_6x16, 'rank_k_reduce_6x16(_, _, _, _)')
+            .call_eqv(avx2_sgemm_6x16, 'sgemm_6x16(_, _, _, _)')
+            .call_eqv(avx2_sgemm_6x16, 'sgemm_6x16(_, _, _, _)')
             # do outer tiling for cache-locality
             .split('io #0', cache_i, ['io', 'im'], tail='cut')
             .reorder('im', 'jo')
@@ -267,7 +278,15 @@ def test_avx2_sgemm_full(compiler):
             .reorder('im # 0', 'ko')
     )
 
-    fn = compiler.compile(avx_sgemm_full,
+    return avx_sgemm_full
+
+# just make sure the scheduling works
+def test_gen_avx2_sgemm_full(avx2_sgemm_full):
+    pass
+
+@pytest.mark.isa('AVX2')
+def test_avx2_sgemm_full(compiler, avx2_sgemm_full):
+    fn = compiler.compile(avx2_sgemm_full,
                           skip_on_fail=True,
                           CMAKE_C_FLAGS="-march=skylake")
 
@@ -278,8 +297,7 @@ def test_avx2_sgemm_full(compiler):
 
 
 @pytest.mark.isa('AVX2')
-def test_avx2_sgemm_6x16(compiler):
-    _, avx2_sgemm_6x16 = gen_sgemm_6x16_avx()
+def test_avx2_sgemm_6x16(compiler, avx2_sgemm_6x16):
 
     @proc
     def avx2_sgemm_6x16_wrapper(
@@ -299,8 +317,8 @@ def test_avx2_sgemm_6x16(compiler):
     _sgemm_test_cases(fn, M=[6], N=[16], K=range(1, 512))
 
 
-@pytest.mark.isa('AVX512f')
-def test_avx512_sgemm_full(compiler):
+@pytest.fixture
+def spec_kernel(sgemm_full, sgemm_6x16, avx2_sgemm_6x16):
     @proc
     def sgemm_micro_kernel_staged(
             M: size,
@@ -356,6 +374,15 @@ def test_avx512_sgemm_full(compiler):
             .simplify()
     )
 
+    return spec_kernel
+
+# just make sure the scheduling works
+def test_gen_avx512_sgemm_full(spec_kernel):
+    pass
+
+@pytest.mark.isa('AVX512f')
+def test_avx512_sgemm_full(compiler, spec_kernel):
+    
     spec_kernel.c_code_str()
 
     @proc
