@@ -10,7 +10,7 @@
 #include "sgemm.h"
 //#include "alex_sgemm.h"
 #include "naive_sgemm.h"
-#include<Accelerate/Accelerate.h>
+#include <Accelerate/Accelerate.h>
 
 static std::vector<float> gen_matrix(long m, long n) {
   static std::random_device rd;
@@ -41,62 +41,60 @@ int main(int argc, char *argv[]) {
 
   printf("\n\n\n\n");
   printf("Multiplying two %d x %d matrices\n", n, n);
-  long FLOP_C = 2 * long(n)*long(n)*long(n);
+  long FLOP_C = 2 * long(n) * long(n) * long(n);
 
   int N_TIMES_NAIVE = 1;
   auto begin = std::chrono::steady_clock::now();
-  for(int times = 0; times<N_TIMES_NAIVE; times++) {
+  for (int times = 0; times < N_TIMES_NAIVE; times++) {
     naive_sgemm_square(a.data(), b.data(), c2.data(), n);
   }
   auto end = std::chrono::steady_clock::now();
   double duration = std::chrono::duration<double>(end - begin).count();
-  double ms_per_gemm = duration/N_TIMES_NAIVE*1.0e3;
+  double ms_per_gemm = duration / N_TIMES_NAIVE * 1.0e3;
   printf("-----------------------------------------------------------\n");
-  printf("Naive SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
-         ms_per_gemm, (FLOP_C*1.0e-6)/ms_per_gemm);
-  
+  printf("Naive SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n", ms_per_gemm,
+      (FLOP_C * 1.0e-6) / ms_per_gemm);
+
   int N_TIMES_ACCELERATE = 1000;
   begin = std::chrono::steady_clock::now();
-  for(int times = 0; times<N_TIMES_ACCELERATE; times++) {
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                n, n, n, // M N K
-                1.0, // alpha
-                a.data(),
-                n, // M
-                b.data(),
-                n, // K
-                1.0, // beta
-                c.data(),
-                n  // M
-                );
+  for (int times = 0; times < N_TIMES_ACCELERATE; times++) {
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, n, n, n,  // M N K
+        1.0,                                                         // alpha
+        a.data(),
+        n,  // M
+        b.data(),
+        n,    // K
+        1.0,  // beta
+        c.data(),
+        n  // M
+    );
   }
   end = std::chrono::steady_clock::now();
   duration = std::chrono::duration<double>(end - begin).count();
-  ms_per_gemm = duration/N_TIMES_ACCELERATE*1.0e3;
+  ms_per_gemm = duration / N_TIMES_ACCELERATE * 1.0e3;
   printf("-----------------------------------------------------------\n");
-  printf("Apple SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
-         ms_per_gemm, (FLOP_C*1.0e-6)/ms_per_gemm);
-  
+  printf("Apple SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n", ms_per_gemm,
+      (FLOP_C * 1.0e-6) / ms_per_gemm);
+
   int N_TIMES_EXO = 50;
   begin = std::chrono::steady_clock::now();
-  for(int times = 0; times<N_TIMES_EXO; times++) {
+  for (int times = 0; times < N_TIMES_EXO; times++) {
     sgemm_exo(nullptr, n, n, n, a.data(), b.data(), c.data());
   }
   end = std::chrono::steady_clock::now();
   duration = std::chrono::duration<double>(end - begin).count();
-  ms_per_gemm = duration/N_TIMES_EXO*1.0e3;
+  ms_per_gemm = duration / N_TIMES_EXO * 1.0e3;
   printf("-----------------------------------------------------------\n");
-  printf("  Exo SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n",
-         ms_per_gemm, (FLOP_C*1.0e-6)/ms_per_gemm);
+  printf("  Exo SGEMM took %5.1lf ms, or %4.1lf GFLOPS\n", ms_per_gemm,
+      (FLOP_C * 1.0e-6) / ms_per_gemm);
   printf("-----------------------------------------------------------\n");
-  
 
   /*
     Notes for Apple M1 Mac
     Cache line size : 128 bytes = 32 floats
     L1 Cache size   : 64 KB
     L2 Cache size   :  4 MB
-    
+
 
      453 M FMAdds per launch * 30 launches
      = 13.6 B FMAdds total
@@ -114,9 +112,6 @@ int main(int argc, char *argv[]) {
 
 
   */
-
-
-
 
   /*
   for (int i = 0; i < c2.size(); i++) {
