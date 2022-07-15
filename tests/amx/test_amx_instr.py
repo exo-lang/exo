@@ -8,8 +8,6 @@ from exo.stdlib.scheduling import *
 from .amx import *
 from .harness_amx import AMXTestBuilder
 
-old_split = repeat(divide_loop)
-
 # --------------------------------------------------------------------------- #
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #
@@ -276,7 +274,8 @@ def test_matmul_on_amx_by_hand_i8(compiler, sde64):
         matmul_algorithm_i8(), get_transform_memory_i8(), matmul_on_amx
     ], t)
 
-def test_matmul_on_amx_scheduled_i8(compiler, sde64):
+@pytest.fixture
+def matmul_i8():
     size1 = 256
     size2 = 256
 
@@ -286,14 +285,14 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64):
     print(amx)
 
     print("Loop splitting and reordering:")
-    amx = old_split(amx, 'i', 32, ['io', 'ii'], perfect=True)
-    amx = old_split(amx, 'j', 32, ['jo', 'ji'], perfect=True)
+    amx = divide_loop(amx, 'i', 32, ['io', 'ii'], perfect=True)
+    amx = divide_loop(amx, 'j', 32, ['jo', 'ji'], perfect=True)
     amx = reorder_loops(amx, 'ii jo')
-    amx = old_split(amx, 'k', 16, ['ko', 'ki'], perfect=True)
+    amx = divide_loop(amx, 'k', 16, ['ko', 'ki'], perfect=True)
     amx = reorder_loops(amx, 'ji ko')
     amx = reorder_loops(amx, 'ii ko')
-    amx = old_split(amx, 'ii', 16, ['ii_unroll', 'ii'], perfect=True)
-    amx = old_split(amx, 'ji', 16, ['ji_unroll', 'ji'], perfect=True)
+    amx = divide_loop(amx, 'ii', 16, ['ii_unroll', 'ii'], perfect=True)
+    amx = divide_loop(amx, 'ji', 16, ['ji_unroll', 'ji'], perfect=True)
     amx = reorder_loops(amx, 'ii ji_unroll')
     print(amx)
 
@@ -304,9 +303,10 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64):
         amx = amx.stage_mem(B_mem_template.format(j_lo=i), f'Btile{i}', f'for ii in _: _ #{i}')
         amx = set_memory(amx, f'Btile{i}', AMX_TILE)
         amx = amx.lift_alloc_simple(f'Btile{i}:_', n_lifts=3)
-    amx = amx.fission_after_simple('for i0 in _:_', n_lifts=1)
+    amx = fission(amx, amx.find('for i0 in _:_ #0').after(), n_lifts=1)
+    amx = fission(amx, amx.find('for i0 in _:_ #1').after(), n_lifts=1)
     amx = amx.reorder_before('for ji_unroll in _:_ #2')
-    amx = amx.fission_after_simple('for ji_unroll in _:_ #1', n_lifts=1)
+    amx = fission(amx, amx.find('for ji_unroll in _:_ #1').after(), n_lifts=1)
     amx = amx.remove_loop('for ii_unroll in _:_ #0')
     amx = amx.partition_loop('ii_unroll', 1)
     A_mem_template = "A[32 * io + 16*(ii_unroll+{i_lo}):32 * io + 16*(ii_unroll+{i_lo}+1), 64*ko:64*(ko+1)]"
@@ -315,8 +315,8 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64):
         amx = amx.stage_mem(A_mem_template.format(i_lo=i), f'Atile{i}', f'for ji_unroll in _:_ #{i+2}')
         amx = set_memory(amx, f'Atile{i}', AMX_TILE)
         amx = amx.lift_alloc_simple(f'Atile{i}:_', n_lifts=2)
-    amx = amx.fission_after_simple('for i0 in _:_ #2', n_lifts=1)
-    amx = amx.fission_after_simple('for i0 in _:_ #3', n_lifts=1)
+    amx = fission(amx, amx.find('for i0 in _:_ #2').after(), n_lifts=1)
+    amx = fission(amx, amx.find('for i0 in _:_ #3').after(), n_lifts=1)
     amx = amx.reorder_before('for ii_unroll in _:_ #2')
     amx = amx.unroll('ji_unroll')
     amx = amx.unroll('ii_unroll')
@@ -332,10 +332,10 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64):
         amx = amx.lift_alloc_simple(f'Ctile{i}:_', n_lifts=1)
         for j in range(4+i):
             amx = amx.reorder_before(f'for i0 in _:_ #{i}')
-        amx = amx.fission_after_simple(f'for i0 in _:_ #{i}', n_lifts=1)
+        amx = fission(amx, amx.find(f'for i0 in _:_ #{i}').after(), n_lifts=1)
         for j in range(i+1, 4):
             amx = amx.reorder_before(f'for ii in _:_ #{j}')
-        amx = amx.fission_after_simple(f'for ii in _:_ #3', n_lifts=1)
+        amx = fission(amx, amx.find('for ii in _:_ #3').after(), n_lifts=1)
     amx = simplify(amx)
     for i in range(4):
         amx = amx.remove_loop('for ko in _:_ #0')
@@ -350,6 +350,12 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64):
     print("Final scheduled algorithm:")
     print(amx)
 
+    return amx
+
+def test_gen_matmul_i8_amx(matmul_i8):
+    pass
+
+def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
     t = AMXTestBuilder(compiler.basename)
     t.add_body([f"{compiler.basename}_Context *ctxt;"])
 
@@ -378,7 +384,7 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64):
                 ''])
 
     _run_amx(compiler, sde64, [
-        matmul_algorithm_i8(), get_transform_memory_i8(), amx,
+        matmul_algorithm_i8(), get_transform_memory_i8(), matmul_i8,
     ], t)
 
 
