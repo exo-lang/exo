@@ -299,10 +299,19 @@ def get_cpu_features() -> Set[str]:
             except IOError:
                 return ''
         elif platform.system() == 'Darwin':
-            return subprocess.run([
-                'sysctl', '-n', 'machdep.cpu.features',
-                'machdep.cpu.leaf7_features'
-            ], capture_output=True).stdout.decode()
+            x86_features = subprocess.run(
+                ['sysctl', '-n', 'machdep.cpu.features', 'machdep.cpu.leaf7_features'],
+                capture_output=True
+            ).stdout.decode()
+
+            arm_features = subprocess.run(
+                ['sysctl', 'hw.optional'],
+                capture_output=True
+            ).stdout.decode()
+            arm_features = re.findall(r'^hw\.optional\.([^:]+): [^0]\d*$',
+                                      arm_features, re.MULTILINE)
+
+            return x86_features + ' ' + ' '.join(arm_features)
         elif platform.system() == 'Windows':
             return ''  # TODO: implement checking for Windows
         else:

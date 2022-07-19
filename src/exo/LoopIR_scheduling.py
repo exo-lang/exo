@@ -1012,6 +1012,9 @@ class _BindConfig(LoopIR_Rewrite):
         self.cfg_write_s    = None
         self.cfg_read_e     = None
 
+        self.cfg_write_s    = None
+        self.cfg_read_e     = None
+
         super().__init__(proc)
 
         proc_analysis = _BindConfig_AnalysisSubst(self.proc,
@@ -3155,8 +3158,7 @@ class _DoStageMem(LoopIR_Rewrite):
                 pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
                 return LoopIR.Point(pt, w.srcinfo)
 
-        return [ off_w(w_i, w_e[0]) for w_i,w_e in zip(idx, self.w_exprs)
-                                    if isinstance(w, tuple) ]
+        return [ off_w(w_i, w_e[0]) for w_i,w_e in zip(w_idx, self.w_exprs) ]
 
     def map_stmts(self, stmts):
         """ This method overload simply tries to find the indicated block """
@@ -3294,7 +3296,7 @@ class _DoStageMem(LoopIR_Rewrite):
                     new_e = new_e.update(
                         name=self.new_name,
                         idx=w_idx,
-                        type=T.Window(self.new_typ, e.typ.as_tensor,
+                        type=T.Window(self.new_typ, e.type.as_tensor,
                                       self.new_name, w_idx)
                     )
 
