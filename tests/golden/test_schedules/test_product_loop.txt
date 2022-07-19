@@ -1,0 +1,4 @@
+def foo(n: size):
+    x: R[n, 30] @ DRAM
+    for ij in seq(0, n * 30):
+        x[ij / 30, ij % 30] = 0.0

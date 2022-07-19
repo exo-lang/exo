@@ -153,6 +153,50 @@ class _PartitionLoop(LoopIR_Rewrite):
 
 
 
+class _DoProductLoop(LoopIR_Rewrite):
+    def __init__(self, proc, loop_stmt, new_name):
+        self.stmt = loop_stmt
+        self.out_loop = loop_stmt
+        self.in_loop = self.out_loop.body[0]
+
+        if (len(self.out_loop.body) != 1 or
+                not isinstance(self.in_loop, (LoopIR.ForAll,LoopIR.Seq))):
+            raise SchedulingError(f"expected loop directly inside of "
+                                  f"{self.out_loop.iter} loop")
+
+        if not isinstance(self.in_loop.hi, LoopIR.Const):
+            raise SchedulingError(f"expected the inner loop to have a constant bound, "
+                                  f"got {self.in_loop.hi}.")
+        self.inside = False
+        self.new_var = Sym(new_name)
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        styp = type(s)
+        if s is self.stmt:
+            self.inside = True
+            body        = self.map_stmts(s.body[0].body)
+            self.inside = False
+            new_hi = LoopIR.BinOp('*', self.out_loop.hi, self.in_loop.hi, T.index, s.srcinfo)
+
+            return [s.update(iter=self.new_var, hi=new_hi, body=body)]
+
+        return super().map_s(s)
+
+    def map_e(self,e):
+        if self.inside and isinstance(e, LoopIR.Read):
+            var = LoopIR.Read(self.new_var, [], T.index, e.srcinfo)
+            if e.name == self.out_loop.iter:
+                return LoopIR.BinOp('/', var, self.in_loop.hi, T.index, e.srcinfo)
+            if e.name == self.in_loop.iter:
+                return LoopIR.BinOp('%', var, self.in_loop.hi, T.index, e.srcinfo)
+
+        return super().map_e(e)
+
+
+
+
 class _Reorder(LoopIR_Rewrite):
     def __init__(self, proc, loop_stmt):
         self.stmt = loop_stmt
@@ -3466,3 +3510,4 @@ class Schedules:
     DoRemoveLoop   = _DoRemoveLoop
     DoLiftAllocSimple  = _DoLiftAllocSimple
     DoFissionAfterSimple  = _DoFissionAfterSimple
+    DoProductLoop  = _DoProductLoop
