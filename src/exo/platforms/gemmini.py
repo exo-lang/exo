@@ -23,18 +23,20 @@ def old_fission_after(proc, stmt_pattern, n_lifts=1):
         return [ c.after() for c in p.find_all(stmt_pattern) ]
     return loop_hack(autofission, find_stmts)(proc, n_lifts)
 
+def old_lift_alloc(proc, stmt_pat, n_lifts=1,
+                   mode='row', size=None, keep_dims=False):
+    def find_stmts(p):
+        return p.find_all(stmt_pat)
+    return loop_hack(autolift_alloc, find_stmts)(proc, n_lifts,
+                                                 mode, size, keep_dims)
 
 def split_fission_dim(conv):
     conv = old_split(conv, 'ocol', 16, ['ocol_o', 'ocol_i'],
                     tail='cut_and_guard')
     conv = old_split(conv, 'och', 16, ['och_o', 'och_i'], perfect=True)
     conv = old_split(conv, 'kch', 16, ['kch_o', 'kch_i'], perfect=True)
-    #conv = conv.split('ocol', 16, ['ocol_o', 'ocol_i'],
-    #                 tail='cut_and_guard')
-    #conv = conv.split('och', 16, ['och_o', 'och_i'], perfect=True)
-    #conv = conv.split('kch', 16, ['kch_o', 'kch_i'], perfect=True)
     conv = old_reorder(conv, 'ocol_i och_o')
-    conv = conv.lift_alloc('res : _', n_lifts=3)
+    conv = old_lift_alloc(conv, 'res : _', n_lifts=3)
     conv = old_fission_after(conv, 'res[_] = _', n_lifts=3)
     conv = old_fission_after(conv, 'for krow in _:_', n_lifts=3)
     conv = old_reorder(conv, 'och_i krow')
@@ -45,12 +47,12 @@ def split_fission_dim(conv):
     conv = old_reorder(conv, 'ocol_i kch_o')
     conv = old_reorder(conv, 'och_o krow')
     conv = simplify(conv)
-    conv = conv.lift_alloc('i_s : _', n_lifts=6)
-    conv = conv.lift_alloc('w_s : _', n_lifts=1)
-    conv = conv.lift_alloc('w_s : _', n_lifts=1, mode='col')
+    conv = old_lift_alloc(conv, 'i_s : _', n_lifts=6)
+    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=1)
+    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=1, mode='col')
     conv = old_reorder(conv, 'och_o kcol')
     conv = old_reorder(conv, 'och_o kch_o')
-    conv = conv.lift_alloc('w_s : _', n_lifts=3)
+    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=3)
     conv = old_fission_after(conv, 'w_s = _', n_lifts=5)
     conv = old_fission_after(conv, 'i_s = _', n_lifts=5)
 
@@ -132,14 +134,14 @@ def replace_gemmini_calls(gemmini):
 def fission_inner_blocks(gemmini):
     gemmini = divide_loop(gemmini, 'k',64,['ko','k'], perfect=True)
     gemmini = divide_loop(gemmini, 'k',16,['k','ki'], perfect=True)
-    gemmini = gemmini.lift_alloc('a : i8', n_lifts=3)
-    gemmini = gemmini.lift_alloc('a : _ #0', n_lifts=1, mode='col')
-    gemmini = gemmini.lift_alloc('a : _', n_lifts=2)
+    gemmini = old_lift_alloc(gemmini, 'a : i8', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'a : _ #0', n_lifts=1, mode='col')
+    gemmini = old_lift_alloc(gemmini, 'a : _', n_lifts=2)
     gemmini = old_reorder(gemmini, 'ki j_in_o')
     gemmini = old_reorder(gemmini, 'ki j_in_i')
-    gemmini = gemmini.lift_alloc('b : i8', n_lifts=2)
-    gemmini = gemmini.lift_alloc('b : i8', n_lifts=1, mode='col')
-    gemmini = gemmini.lift_alloc('b : _', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'b : i8', n_lifts=2)
+    gemmini = old_lift_alloc(gemmini, 'b : i8', n_lifts=1, mode='col')
+    gemmini = old_lift_alloc(gemmini, 'b : _', n_lifts=3)
     gemmini = old_fission_after(gemmini, 'a[_] = _', n_lifts=5)
     gemmini = old_fission_after(gemmini, 'b[_] = _', n_lifts=5)
     gemmini = old_reorder(gemmini, 'j_in_i i_in')

@@ -31,6 +31,7 @@ from ..API_scheduling import (
     #
     # buffer and window oriented operations
     expand_dim,
+    lift_alloc,
     reuse_buffer,
     inline_window,
     #
@@ -38,6 +39,12 @@ from ..API_scheduling import (
     divide_loop,
     reorder_loops,
     fission,
+    fusion,
+    remove_loop,
+    add_loop,
+    #
+    # guard rewriting
+    specialize,
     #
     # deprecated scheduling operations
     add_unsafe_guard,
@@ -45,26 +52,39 @@ from ..API_scheduling import (
     #
     # to be replaced by stdlib compositions eventually
     autofission,
+    autolift_alloc,
+    bound_and_guard,
 )
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Higher-order Scheduling operations
 
-def repeat(sched, verbose=False):
+def repeat(sched, n_times=None, verbose=False):
     """
     TODO: Documentation
     """
+    if n_times is not None and (not isinstance(n_times, int) or n_times < 1):
+        raise TypeError("expected n_times to be None or a positive int")
+
     @_wraps(sched)
     def repeated_sched(proc, *args, **kwargs):
-        try:
-            while True:
-                local_args = args.copy() if isinstance(args, list) else args
-                local_kwargs = kwargs.copy()
-                proc = sched(proc, *local_args, **local_kwargs)
-        except (SchedulingError, TypeError, ValueError) as err:
-            if verbose:
-                print("repeat ended with error", err)
+        def do_iter():
+            nonlocal proc
+            local_args = args.copy() if isinstance(args, list) else args
+            local_kwargs = kwargs.copy()
+            proc = sched(proc, *local_args, **local_kwargs)
+
+        if n_times is None:
+            try:
+                while True:
+                    do_iter()
+            except (SchedulingError, TypeError, ValueError) as err:
+                if verbose:
+                    print("repeat ended with error", err)
+        else:
+            for i in range(n_times):
+                do_iter()
 
         return proc
 

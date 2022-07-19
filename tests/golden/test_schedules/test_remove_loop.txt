@@ -9,6 +9,6 @@ def bar(n: size, m: size, x: i8 @ DRAM):
     if n > 0:
         for j in seq(0, m):
             x = a
-    if n > 0:
+    for i in seq(0, n):
         for j in seq(0, m):
             pass

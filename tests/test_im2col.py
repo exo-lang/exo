@@ -43,7 +43,7 @@ def test_im2col(golden):
 
     # next, we can start to lift that allocation
     # up and out of the loop
-    im2col_conv = im2col_conv.lift_alloc('y:R', 5)
+    im2col_conv = autolift_alloc(im2col_conv, 'y:R', 5)
 
     # Then, we can fission the loop correspondingly,
     # separating what is now a data-marshalling statement from

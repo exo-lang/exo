@@ -302,19 +302,20 @@ def matmul_i8():
     for i in range(2):
         amx = amx.stage_mem(B_mem_template.format(j_lo=i), f'Btile{i}', f'for ii in _: _ #{i}')
         amx = set_memory(amx, f'Btile{i}', AMX_TILE)
-        amx = amx.lift_alloc_simple(f'Btile{i}:_', n_lifts=3)
+        amx = lift_alloc(amx, f'Btile{i}:_', n_lifts=3)
     amx = fission(amx, amx.find('for i0 in _:_ #0').after(), n_lifts=1)
     amx = fission(amx, amx.find('for i0 in _:_ #1').after(), n_lifts=1)
     amx = amx.reorder_before('for ji_unroll in _:_ #2')
     amx = fission(amx, amx.find('for ji_unroll in _:_ #1').after(), n_lifts=1)
-    amx = amx.remove_loop('for ii_unroll in _:_ #0')
+    amx = remove_loop(amx, 'ii_unroll #0')
     amx = amx.partition_loop('ii_unroll', 1)
     A_mem_template = "A[32 * io + 16*(ii_unroll+{i_lo}):32 * io + 16*(ii_unroll+{i_lo}+1), 64*ko:64*(ko+1)]"
     for i in range(2):
-        amx = amx.fuse_loop(f'for ji_unroll in _:_ #{i+2}', f'for ji_unroll in _:_ #{i+3}')
+        amx = fusion(amx, f'for ji_unroll in _:_ #{i+2}',
+                          f'for ji_unroll in _:_ #{i+3}')
         amx = amx.stage_mem(A_mem_template.format(i_lo=i), f'Atile{i}', f'for ji_unroll in _:_ #{i+2}')
         amx = set_memory(amx, f'Atile{i}', AMX_TILE)
-        amx = amx.lift_alloc_simple(f'Atile{i}:_', n_lifts=2)
+        amx = lift_alloc(amx, f'Atile{i}:_', n_lifts=2)
     amx = fission(amx, amx.find('for i0 in _:_ #2').after(), n_lifts=1)
     amx = fission(amx, amx.find('for i0 in _:_ #3').after(), n_lifts=1)
     amx = amx.reorder_before('for ii_unroll in _:_ #2')
@@ -329,7 +330,7 @@ def matmul_i8():
     for i in range(4):
         amx = amx.stage_mem(C_mem_template.format(i_lo=i//2, j_lo=i%2), f'Ctile{i}', f'for ii in _: _ #{i}')
         amx = set_memory(amx, f'Ctile{i}', AMX_TILE)
-        amx = amx.lift_alloc_simple(f'Ctile{i}:_', n_lifts=1)
+        amx = lift_alloc(amx, f'Ctile{i}:_', n_lifts=1)
         for j in range(4+i):
             amx = amx.reorder_before(f'for i0 in _:_ #{i}')
         amx = fission(amx, amx.find(f'for i0 in _:_ #{i}').after(), n_lifts=1)
@@ -338,10 +339,10 @@ def matmul_i8():
         amx = fission(amx, amx.find('for ii in _:_ #3').after(), n_lifts=1)
     amx = simplify(amx)
     for i in range(4):
-        amx = amx.remove_loop('for ko in _:_ #0')
+        amx = remove_loop(amx, 'ko #0')
         amx = amx.replace(ld_i32, 'for i0 in _:_ #0')
     for i in range(4):
-        amx = amx.remove_loop('for ko in _:_ #1')
+        amx = remove_loop(amx, 'ko #1')
         amx = amx.replace(st_i32, 'for i0 in _:_ #0')
     amx = simplify(amx)
     amx = amx.replace(dpbssd, 'for ii in _:_')

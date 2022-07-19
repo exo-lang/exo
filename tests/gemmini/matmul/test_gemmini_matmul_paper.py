@@ -336,19 +336,19 @@ def test_matmul_paper():
     gemmini = old_split(gemmini, 'k', 16, ['ko', 'ki'], perfect=True)
 
     # Fission inner dimensions
-    gemmini = gemmini.lift_alloc('res:_', n_lifts=2)
+    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=2)
     gemmini = old_fission_after(gemmini, 'res = _', n_lifts=2)
     gemmini = old_fission_after(gemmini, 'for ko in _:_', n_lifts=2)
     gemmini = old_reorder(gemmini, 'ji ko')
     gemmini = old_reorder(gemmini, 'ii ko')
-    gemmini = gemmini.lift_alloc('a:_', n_lifts=3)
-    gemmini = gemmini.lift_alloc('b:_')
-    gemmini = gemmini.lift_alloc('b:_', mode='col', n_lifts=2)
+    gemmini = old_lift_alloc(gemmini, 'a:_', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'b:_')
+    gemmini = old_lift_alloc(gemmini, 'b:_', mode='col', n_lifts=2)
     gemmini = old_fission_after(gemmini, 'a[_] = _', n_lifts=3)
     gemmini = old_fission_after(gemmini, 'b[_] = _', n_lifts=3)
-    gemmini = gemmini.lift_alloc('res:_', n_lifts=2)
-    gemmini = gemmini.lift_alloc('a:_', n_lifts=3)
-    gemmini = gemmini.lift_alloc('b:_', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=2)
+    gemmini = old_lift_alloc(gemmini, 'a:_', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'b:_', n_lifts=3)
 
     # replace loops with accelerator instructions
     gemmini = gemmini.replace(ld_acc, 'for ii in _:_ #0')

@@ -98,26 +98,26 @@ def simple_math_avx2_sched():
     def sched_simple_math_avx2_sched(p=simple_math_avx2_sched):
         p = old_split(p, 'i', 8, ['io', 'ii'], tail='cut_and_guard')
         p = p.stage_assn('xyy', 'x[_] = _ #0')
-        p = p.lift_alloc('xyy: _')
+        p = autolift_alloc(p, 'xyy: _')
         p = set_memory(p, 'xyy', AVX2)
         p = old_fission_after(p, 'xyy[_] = _')
 
         p = p.replace_all(mm256_storeu_ps)
 
         p = p.bind_expr('xVec', 'x[_]')
-        p = p.lift_alloc('xVec: _')
+        p = autolift_alloc(p, 'xVec: _')
         p = set_memory(p, 'xVec', AVX2)
         p = old_fission_after(p, 'xVec[_] = _')
 
         p = p.bind_expr('yVec', 'y[_]', cse=True)
-        p = p.lift_alloc('yVec: _')
+        p = autolift_alloc(p, 'yVec: _')
         p = set_memory(p, 'yVec', AVX2)
         p = old_fission_after(p, 'yVec[_] = _')
 
         p = p.replace_all(mm256_loadu_ps)
 
         p = p.bind_expr('xy', 'xVec[_] * yVec[_]')
-        p = p.lift_alloc('xy: _')
+        p = autolift_alloc(p, 'xy: _')
         p = set_memory(p, 'xy', AVX2)
         p = old_fission_after(p, 'xy[_] = _')
 
@@ -183,11 +183,11 @@ def avx2_sgemm_6x16(sgemm_6x16):
     avx = reorder_loops(avx, 'ji k')
     avx = reorder_loops(avx, 'jo k')
     avx = reorder_loops(avx, 'i k')
-    avx = avx.lift_alloc('C_reg:_', n_lifts=3)
+    avx = autolift_alloc(avx, 'C_reg:_', n_lifts=3)
     avx = old_fission_after(avx, 'C_reg = _ #0', n_lifts=3)
     avx = old_fission_after(avx, 'C_reg[_] += _ #0', n_lifts=3)
     avx = avx.par_to_seq('for k in _:_')
-    avx = avx.lift_alloc('C_reg:_', n_lifts=1)
+    avx = autolift_alloc(avx, 'C_reg:_', n_lifts=1)
     avx = old_fission_after(avx, 'for i in _:_#0', n_lifts=1)
     avx = old_fission_after(avx, 'for i in _:_#1', n_lifts=1)
     avx = simplify(avx)
@@ -197,12 +197,12 @@ def avx2_sgemm_6x16(sgemm_6x16):
     def sched_avx2_sgemm_6x16(p=avx2_sgemm_6x16):
         p = p.bind_expr('a_vec', 'A[i, k]')
         p = set_memory(p, 'a_vec', AVX2)
-        p = p.lift_alloc('a_vec:_', keep_dims=True)
+        p = autolift_alloc(p, 'a_vec:_', keep_dims=True)
         p = old_fission_after(p, 'a_vec[_] = _')
             #
         p = p.bind_expr('b_vec', 'B[k, _]')
         p = set_memory(p, 'b_vec', AVX2)
-        p = p.lift_alloc('b_vec:_', keep_dims=True)
+        p = autolift_alloc(p, 'b_vec:_', keep_dims=True)
         p = old_fission_after(p, 'b_vec[_] = _')
             #
         p = p.replace_all(avx2_set0_ps)

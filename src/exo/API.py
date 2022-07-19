@@ -629,7 +629,6 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoAddUnsafeGuard(loopir, stmt, var_expr).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-    """
 
     def specialize(self, stmt_pat: str, conds: Union[str, List[str]]):
         if not isinstance(stmt_pat, str):
@@ -646,6 +645,7 @@ class Procedure(ProcedureBase):
         var_exprs = [parse_fragment(loopir, expr, stmt) for expr in conds]
         loopir = Schedules.DoSpecialize(loopir, stmt, var_exprs).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
+    """
 
     def add_assertion(self, assertion, configs=[]):
         if not isinstance(assertion, str):
@@ -657,8 +657,9 @@ class Procedure(ProcedureBase):
                         p.instr, p.eff, p.srcinfo)
         return Procedure(p, _provenance_eq_Procedure=None)
 
+    """
     def bound_and_guard(self, loop):
-        """
+        #" " "
         Replace
           for i in par(0, e): ...
         with
@@ -667,7 +668,7 @@ class Procedure(ProcedureBase):
         where c is the tightest constant bound on e
 
         This currently only works when e is of the form x % n
-        """
+        #" " "
         if not isinstance(loop, str):
             raise TypeError("expected loop pattern")
 
@@ -738,7 +739,7 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoAddLoop(loopir, stmt, var, hi, guard).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-
+    """
 
     def merge_guard(self, stmt1, stmt2):
         if not isinstance(stmt1, str):
@@ -1182,6 +1183,7 @@ class Procedure(ProcedureBase):
 
         return p
 
+    """
     def lift_alloc_simple(self, alloc_site_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "
@@ -1224,7 +1226,7 @@ class Procedure(ProcedureBase):
 
         return p
 
-    """
+    
     def double_fission(self, stmt_pat1, stmt_pat2, n_lifts=1):
         if not isinstance(stmt_pat1, str):
             raise TypeError("expected first arg to be a string")
@@ -1240,7 +1242,6 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoDoubleFission(loopir, stmt1, stmt2, n_lifts).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-    """
 
     def remove_loop(self, loop_pattern):
         if not isinstance(loop_pattern, str):
@@ -1258,7 +1259,6 @@ class Procedure(ProcedureBase):
 
         return p
 
-    """
     def fission_after_simple(self, stmt_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "

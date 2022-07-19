@@ -181,6 +181,22 @@ class BoolA(ArgumentProcessor):
             self.err("expected a bool")
         return bval
 
+class OptionalA(ArgumentProcessor):
+    def __init__(self, arg_proc):
+        if is_subclass_obj(arg_proc, ArgumentProcessor):
+            arg_proc = arg_proc()
+        self.arg_proc = arg_proc
+
+    def setdata(self, i, arg_name, f_name):
+        super().setdata(i, arg_name, f_name)
+        self.arg_proc.setdata(i, arg_name, f_name)
+
+    def __call__(self, opt_arg, all_args):
+        if opt_arg is None:
+            return opt_arg
+        else:
+            return self.arg_proc(opt_arg, all_args)
+
 class ListA(ArgumentProcessor):
     def __init__(self, elem_arg_proc, list_only=False, length=None):
         if is_subclass_obj(elem_arg_proc, ArgumentProcessor):
@@ -206,6 +222,14 @@ class ListA(ArgumentProcessor):
         # otherwise, check the entries
         xs = [ self.elem_arg_proc(x, all_args) for x in xs ]
         return xs
+
+class ListOrElemA(ListA):
+    def __call__(self, xs, all_args):
+        arg_typ = list if self.list_only else (list,tuple)
+        if isinstance(xs, arg_typ):
+            return super().__call__(xs)
+        else:
+            return [ self.elem_arg_proc(xs, all_args) ]
 
 class InstrStrA(ArgumentProcessor):
     def __call__(self, instr, all_args):
@@ -359,6 +383,25 @@ class WindowStmtCursorA(StmtCursorA):
             self.err(f"expected a WindowStmtCursor, not {type(cursor)}")
         return cursor
 
+class ForSeqOrIfCursorA(StmtCursorA):
+    def __call__(self, cursor_pat, all_args):
+        # TODO: eliminate this redundancy with the ForSeqCursorA code
+        # allow for a special pattern short-hand, but otherwise
+        # handle as expected for a normal statement cursor
+        try:
+            name, count     = NameCountA()(cursor_pat, all_args)
+            count           = f"#{count}" if count is not None else ""
+            cursor_pat      = f"for {name} in _: _{count}"
+        except:
+            pass
+
+        cursor = super().__call__(cursor_pat, all_args)
+        if not isinstance(cursor, (PC.ForSeqCursor,PC.IfCursor)):
+            self.err(f"expected a ForSeqCursor or IfCursor, "
+                     f"not {type(cursor)}")
+        return cursor
+
+
 class ForSeqCursorA(StmtCursorA):
     def __call__(self, loop_pattern, all_args):
         # allow for a special pattern short-hand, but otherwise
@@ -406,51 +449,6 @@ class NestedForSeqCursorA(StmtCursorA):
 
         return cursor
 
-"""
-class InnerForSeqCursorA(StmtCursorA):
-    def __init__(self, outer_loop_arg):
-        self.outer_loop_arg = outer_loop_arg
-
-    def __call__(self, inner_loop_pattern, all_args):
-        outer_loop = all_args[self.outer_loop_arg]
-        print(outer_loop)
-        print(len(outer_loop.body()))
-        print(outer_loop.body()[0])
-        if (len(outer_loop.body()) != 1 or
-            not isinstance(outer_loop.body()[0], PC.ForSeqCursor)):
-            self.err(f"expected the body of {self.outer_loop_arg} "
-                     f"to simply be a loop",
-                     ValueError)
-        inner_cursor    = outer_loop.body()[0]
-        inner_node      = inner_cursor._impl._node()
-
-        # extract the name from the argument to check
-        # for consistency
-        if is_valid_name(inner_loop_pattern):
-            name        = inner_loop_pattern
-            actual_name = str(inner_cursor._impl._node().iter)
-            if name != actual_name:
-                self.err(f"expected {name} to be {actual_name}", ValueError)
-            arg_cursor  = inner_cursor
-        elif isinstance(inner_loop_pattern, PC.Cursor):
-            if not isinstance(inner_loop_pattern, PC.ForSeqCursor):
-                self.err(f"expected a ForSeqCursor, "
-                         f"not {type(inner_loop_pattern)}")
-            arg_cursor = inner_loop_pattern
-        elif not isinstance(inner_loop_pattern, str):
-            self.err(f"expected a ForSeqCursor, loop iteration variable name, "
-                     f"or pattern to match; got {type(inner_loop_pattern)}")
-        else: # pattern case
-            arg_cursor = super().__call__(inner_loop_pattern, all_args)
-
-        if arg_cursor != inner_cursor:
-            self.err(f"expected argument to point to the inner loop, but "
-                     f"it pointed elsewhere")
-
-        return inner_cursor
-"""
-
-
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -465,7 +463,13 @@ class NewExprA(ArgumentProcessor):
     def __call__(self, expr_str, all_args):
         proc    = all_args['proc']
         cursor  = all_args[self.cursor_arg]
-        if not isinstance(expr_str, str):
+        if isinstance(expr_str, int):
+            return LoopIR.Const(expr_str, T.int, null_srcinfo())
+        elif isinstance(expr_str, float):
+            return LoopIR.Const(expr_str, T.R, null_srcinfo())
+        elif isinstance(expr_str, bool):
+            return LoopIR.Const(expr_str, T.bool, null_srcinfo())
+        elif not isinstance(expr_str, str):
             self.err("expected a string")
 
         # if we don't have a gap cursor, convert to a gap cursor
@@ -534,19 +538,22 @@ def make_instr(proc, instr):
     return Procedure(p, _provenance_eq_Procedure=proc)
 
 
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Sub-procedure Operations
 
 @sched_op([NameA, StmtCursorA])
 def extract_subproc(proc, subproc_name, body_stmt):
+    """
+    Documentation TODO
+    """
     loopir          = proc._loopir_proc
     stmt            = body_stmt._impl._node()
     passobj         = Schedules.DoExtractMethod(loopir, subproc_name, stmt)
     loopir, subproc = passobj.result(), passobj.subproc()
     return ( Procedure(loopir, _provenance_eq_Procedure=proc),
              Procedure(subproc) )
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -739,6 +746,62 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr,
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([AllocCursorA, PosIntA])
+def lift_alloc(proc, alloc_cursor, n_lifts=1):
+    """
+    Lift a buffer allocation up and out of various Loops / If-statements.
+
+    args:
+        alloc_cursor    - cursor to the allocation to lift up
+        n_lifts         - number of times to try to move the allocation up
+
+    rewrite:
+        `for i in _:`
+        `    buf : T` <- alloc_cursor
+        `    ...`
+        ->
+        `buf : T`
+        `for i in _:`
+        `    ...`
+    """
+    loopir  = proc._loopir_proc
+    stmt    = alloc_cursor._impl._node()
+    loopir  = Schedules.DoLiftAllocSimple(loopir, stmt, n_lifts).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([AllocCursorA, PosIntA,
+           EnumA(['row','col']), OptionalA(PosIntA), BoolA])
+def autolift_alloc(proc, alloc_cursor, n_lifts=1,
+                   mode='row', size=None, keep_dims=False):
+    """
+    Lift a buffer allocation up and out of various Loops / If-statements.
+
+    Has some additional special legacy behavior.  Use lift_alloc instead for
+    all new code.
+
+    args:
+        alloc_cursor    - cursor to the allocation to lift up
+        n_lifts         - number of times to try to move the allocation up
+        mode            - whether to expand the buffer's dimensions
+                          on the inner or outer position
+        size            - dimension extents to expand to?
+        keep_dims       - ???
+
+    rewrite:
+        `for i in _:`
+        `    buf : T` <- alloc_cursor
+        `    ...`
+        ->
+        `buf : T`
+        `for i in _:`
+        `    ...`
+    """
+    loopir  = proc._loopir_proc
+    stmt    = alloc_cursor._impl._node()
+    loopir  = Schedules.DoLiftAlloc(loopir, stmt, n_lifts,
+                                    mode, size, keep_dims).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
 @sched_op([AllocCursorA, AllocCursorA])
 def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
@@ -783,7 +846,6 @@ def inline_window(proc, winstmt_cursor):
     loopir  = Schedules.DoInlineWindow(loopir, stmt).result()
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
-
 
 
 # --------------------------------------------------------------------------- #
@@ -937,35 +999,144 @@ def autofission(proc, gap_cursor, n_lifts=1):
     loopir  = Schedules.DoFissionLoops(loopir, stmt, n_lifts).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA])
+def fusion(proc, stmt1, stmt2):
+    """
+    fuse together two loops or if-guards, provided that the loop bounds
+    or guard conditions are compatible.
+
+    args:
+        stmt1, stmt2        - cursors to the two loops or if-statements
+                              that are being fused
+
+    rewrite:
+        `for i in e:` <- stmt1
+        `    s1`
+        `for j in e:` <- stmt2
+        `    s2`
+            ->
+        `for i in e:`
+        `    s1`
+        `    s2[ j -> i ]`
+    or
+        `if cond:` <- stmt1
+        `    s1`
+        `if cond:` <- stmt2
+        `    s2`
+            ->
+        `if cond:`
+        `    s1`
+        `    s2`
+    """
+    if isinstance(stmt1, PC.IfCursor) != isinstance(stmt2, PC.IfCursor):
+        raise ValueError("expected the two argument cursors to either both "
+                         "point to loops or both point to if-guards")
+    s1      = stmt1._impl._node()
+    s2      = stmt2._impl._node()
+    loopir  = proc._loopir_proc
+    SCHED   = (Schedules.DoFuseIf if isinstance(stmt1, PC.IfCursor)
+               else Schedules.DoFuseLoop)
+    loopir  = SCHED(loopir, s1, s2,).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([ForSeqCursorA])
+def remove_loop(proc, loop_cursor):
+    """
+    Remove the loop around some block of statements.
+    This operation is allowable when the block of statements in question
+    can be proven to be idempotent.
+
+    args:
+        loop_cursor     - cursor pointing to the loop to remove
+
+    rewrite:
+        `for i in _:`
+        `    s`
+            ->
+        `s`
+    """
+
+    stmt    = loop_cursor._impl._node()
+    loopir  = Schedules.DoRemoveLoop(proc._loopir_proc, stmt).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([BlockCursorA, NameA, NewExprA('block_cursor'), BoolA])
+def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
+    """
+    Add a loop around some block of statements.
+    This operation is allowable when the block of statements in question
+    can be proven to be idempotent.
+
+    args:
+        block_cursor    - cursor pointing to the block to wrap in a loop
+        iter_name       - string name for the new iteration variable
+        hi_expr         - string to be parsed into the upper bound expression
+                          for the new loop
+        guard           - Boolean (default False) signaling whether to
+                          wrap the block in a `if iter_name == 0: block`
+                          condition; in which case idempotency need not
+                          be proven.
+
+    rewrite:
+        `s`  <--- block_cursor
+        ->
+        `for iter_name in hi_expr:`
+        `    s`
+    """
+
+    if len(block_cursor) != 1:
+        raise NotImplementedError("TODO: support blocks of size > 1")
+
+    stmt    = block_cursor[0]._impl._node()
+    loopir  = Schedules.DoAddLoop(proc._loopir_proc, stmt,
+                                  iter_name, hi_expr, guard).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Guard Conditions
 
-"""
-@sched_op([BlockCursor, OneOrListA(NewExprA('block_cursor'))])
+@sched_op([BlockCursorA, ListOrElemA(NewExprA('block_cursor'))])
 def specialize(proc, block_cursor, conds):
-    if not isinstance(stmt_pat, str):
-        raise SchedulingError("argument 1: incorrect type",
-                              expected=str,
-                              actual=type(conds))
-    if isinstance(conds, str):
-        conds = [conds]
-    if not conds:
-        return proc
+    """
+    Duplicate a statement block multiple times, with the provided
+    `cond`itions indictaing when each copy should be invoked.
+    Doing this allows one to then schedule differently the "specialized"
+    variants of the blocks in different ways.
 
-    stmt = proc._find_stmt(stmt_pat)
-    loopir = proc._loopir_proc
-    var_exprs = [parse_fragment(loopir, expr, stmt) for expr in conds]
-    loopir = Schedules.DoSpecialize(loopir, stmt, var_exprs).result()
+    If `n` conditions are given, then `n+1` specialized copies of the block
+    are created (with the last copy as a "default" version).
+
+    args:
+        block_cursor    - cursor pointing to the block to duplicate/specialize
+        conds           - list of strings or string to be parsed into
+                          guard conditions for the 
+
+    rewrite:
+        `s`
+            ->
+        `if cond_0:`
+        `    s`
+        `elif cond_1:`
+        `    s`
+        ...
+        `else:`
+        `    s`
+    """
+
+    if len(block_cursor) != 1:
+        raise NotImplementedError("TODO: support blocks of size > 1")
+
+    stmt    = block_cursor[0]._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoSpecialize(loopir, stmt, conds).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
-"""
-
 
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Deprecated Operations
-
 
 @sched_op([BlockCursorA, NewExprA('block_cursor')])
 def add_unsafe_guard(proc, block_cursor, var_expr):
@@ -993,7 +1164,24 @@ def double_fission(proc, stmt1, stmt2, n_lifts=1):
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([ForSeqCursorA])
+def bound_and_guard(self, loop):
+    """
+    DEPRECATED
+    recommendation: replace with similar but more general primitive
 
+    Replace
+      for i in par(0, e): ...
+    with
+      for i in par(0, c):
+        if i < e: ...
+    where c is the tightest constant bound on e
+
+    This currently only works when e is of the form x % n
+    """
+    stmt    = loop._impl._node()
+    loopir  = Schedules.DoBoundAndGuard(self._loopir_proc, stmt).result()
+    return Procedure(loopir, _provenance_eq_Procedure=self)
 
 
 
