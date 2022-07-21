@@ -8,6 +8,10 @@ from exo.stdlib.scheduling import *
 from .amx import *
 from .harness_amx import AMXTestBuilder
 
+def reorder_back(proc, pattern):
+    c = proc.find_loop(pattern).expand(-1)
+    return reorder_stmts(proc, c)
+
 # --------------------------------------------------------------------------- #
 #   Individual Load / Store / Zero Tests
 # --------------------------------------------------------------------------- #
@@ -305,7 +309,7 @@ def matmul_i8():
         amx = lift_alloc(amx, f'Btile{i}:_', n_lifts=3)
     amx = fission(amx, amx.find('for i0 in _:_ #0').after(), n_lifts=1)
     amx = fission(amx, amx.find('for i0 in _:_ #1').after(), n_lifts=1)
-    amx = amx.reorder_before('for ji_unroll in _:_ #2')
+    amx = reorder_back(amx, 'ji_unroll #2')
     amx = fission(amx, amx.find('for ji_unroll in _:_ #1').after(), n_lifts=1)
     amx = remove_loop(amx, 'ii_unroll #0')
     amx = amx.partition_loop('ii_unroll', 1)
@@ -318,7 +322,7 @@ def matmul_i8():
         amx = lift_alloc(amx, f'Atile{i}:_', n_lifts=2)
     amx = fission(amx, amx.find('for i0 in _:_ #2').after(), n_lifts=1)
     amx = fission(amx, amx.find('for i0 in _:_ #3').after(), n_lifts=1)
-    amx = amx.reorder_before('for ii_unroll in _:_ #2')
+    amx = reorder_back(amx, 'ii_unroll #2')
     amx = amx.unroll('ji_unroll')
     amx = amx.unroll('ii_unroll')
     amx = simplify(amx)
@@ -332,10 +336,10 @@ def matmul_i8():
         amx = set_memory(amx, f'Ctile{i}', AMX_TILE)
         amx = lift_alloc(amx, f'Ctile{i}:_', n_lifts=1)
         for j in range(4+i):
-            amx = amx.reorder_before(f'for i0 in _:_ #{i}')
+            amx = reorder_back(amx, f'i0 #{i}')
         amx = fission(amx, amx.find(f'for i0 in _:_ #{i}').after(), n_lifts=1)
         for j in range(i+1, 4):
-            amx = amx.reorder_before(f'for ii in _:_ #{j}')
+            amx = reorder_back(amx, f'ii #{j}')
         amx = fission(amx, amx.find('for ii in _:_ #3').after(), n_lifts=1)
     amx = simplify(amx)
     for i in range(4):

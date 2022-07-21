@@ -2474,13 +2474,18 @@ def _make_closure(name, stmts, var_types):
 
 
 class _DoInsertPass(LoopIR_Rewrite):
-    def __init__(self, proc, stmt):
+    def __init__(self, proc, stmt, before=True):
         self.stmt = stmt
+        self.before = before
         super().__init__(proc)
 
     def map_s(self, s):
         if s is self.stmt:
-            return [LoopIR.Pass(eff_null(s.srcinfo), srcinfo=s.srcinfo), s]
+            pass_s = LoopIR.Pass(eff_null(s.srcinfo), srcinfo=s.srcinfo)
+            if self.before:
+                return [pass_s, s]
+            else:
+                return [s, pass_s]
         return super().map_s(s)
 
 

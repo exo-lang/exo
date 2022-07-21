@@ -335,8 +335,9 @@ class StmtCursorA(ArgumentProcessor):
         return match
 
 class BlockCursorA(ArgumentProcessor):
-    def __init__(self, many=False):
+    def __init__(self, many=False, block_size=None):
         self.match_many = many
+        self.block_size = block_size
 
     def __call__(self, block_pattern, all_args):
         if isinstance(block_pattern, PC.BlockCursor):
@@ -359,6 +360,12 @@ class BlockCursorA(ArgumentProcessor):
         elif not isinstance(match, PC.BlockCursor):
             self.err(f"expected pattern to match a BlockCursor, "
                      f"not {type(match)}")
+
+        if self.block_size:
+            if len(match) != self.block_size:
+                self.err(f"expected a block of size {self.block_size}, "
+                         f"but got a block of size {len(match)}",
+                         ValueError)
 
         return match
 
@@ -416,6 +423,13 @@ class ForSeqCursorA(StmtCursorA):
         cursor = super().__call__(loop_pattern, all_args)
         if not isinstance(cursor, PC.ForSeqCursor):
             self.err(f"expected a ForSeqCursor, not {type(cursor)}")
+        return cursor
+
+class IfCursorA(StmtCursorA):
+    def __call__(self, if_pattern, all_args):
+        cursor = super().__call__(if_pattern, all_args)
+        if not isinstance(cursor, PC.IfCursor):
+            self.err(f"expected an IfCursor, not {type(cursor)}")
         return cursor
 
 
@@ -537,6 +551,64 @@ def make_instr(proc, instr):
     p = p.update(instr=instr)
     return Procedure(p, _provenance_eq_Procedure=proc)
 
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# General Statement Operations
+
+@sched_op([GapCursorA])
+def insert_pass(proc, gap_cursor):
+    """
+    Insert a `pass` statement at the indicated position.
+
+    args:
+        gap_cursor  - where to insert the new `pass` statement
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; pass ; s2`
+    """
+    before = True
+    if not (stmtc := gap_cursor.after()):
+        assert (stmtc := gap_cursor.before())
+        before = False
+    stmt = stmtc._impl._node()
+
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoInsertPass(loopir, stmt, before=before).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([])
+def delete_pass(proc):
+    """
+    DEPRECATED (to be replaced by a more general operation)
+
+    Delete all `pass` statements in the procedure.
+    """
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoDeletePass(loopir).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([BlockCursorA(block_size=2)])
+def reorder_stmts(proc, block_cursor):
+    """
+    swap the order of two statements within a block.
+
+    args:
+        block_cursor    - a cursor to a two statement block to reorder
+
+    rewrite:
+        `s1 ; s2`  <-- block_cursor
+        -->
+        `s2 ; s1`
+    """
+    s1      = block_cursor[0]._impl._node()
+    s2      = block_cursor[1]._impl._node()
+
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoReorderStmt(loopir, s1, s2).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -850,7 +922,7 @@ def inline_window(proc, winstmt_cursor):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Loop Rewriting
+# Loop and Guard Rewriting
 
 @sched_op([ForSeqCursorA, PosIntA, ListA(NameA, length=2),
            EnumA(['cut','guard','cut_and_guard']), BoolA])
@@ -1096,6 +1168,64 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Guard Conditions
+
+@sched_op([IfCursorA, PosIntA])
+def lift_if(proc, if_cursor, n_lifts=1):
+    """
+    Move the indicated If-statement upwards through other control-flow,
+    if possible.
+    
+    DEPRECATED
+    TODO: This directive and reorder_loops should be rethought together.
+
+    args:
+        if_cursor       - cursor to the if-statement to lift up
+
+    rewrite: (one example)
+        `for i in _:`
+        `    if p:`
+        `        s1`
+        `    else:`
+        `        s2`
+        ->
+        `if p:`
+        `    for i in _:`
+        `        s1`
+        `else:`
+        `    for i in _:`
+        `        s2`
+    """
+    stmt    = if_cursor._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoLiftIf(loopir, stmt, n_lifts).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([IfCursorA, BoolA])
+def assert_if(proc, if_cursor, cond):
+    """
+    Eliminate the if-statement by determining either that it is always
+    True or always False
+    
+    DEPRECATED
+    TODO: This directive should drop the extra conditional argument
+          and be renamed something like "remove_if"
+
+    args:
+        if_cursor       - cursor to the if-statement to simplify
+        cond            - True or False: what the condition should always be
+
+    rewrite:
+        `if p:`
+        `    s1`
+        `else:`
+        `    s2`
+        -> (assuming cond=True)
+        `s1`
+    """
+    stmt    = if_cursor._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoAssertIf(loopir, stmt, cond).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 @sched_op([BlockCursorA, ListOrElemA(NewExprA('block_cursor'))])
 def specialize(proc, block_cursor, conds):

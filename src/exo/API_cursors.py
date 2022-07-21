@@ -256,6 +256,10 @@ class StmtCursor(StmtCursorPrototype):
         """ Return a Block containing only this one statement """
         return BlockCursor( self._impl.as_block() )
 
+    def expand(self, arg1=None, arg2=None):
+        """ Shorthand for stmt_cursor.as_block().expand(...) """
+        return self.as_block().expand(arg1,arg2)
+
 class BlockCursor(StmtCursorPrototype):
     """
     Cursor pointing to a contiguous sequence of statements.
@@ -265,6 +269,39 @@ class BlockCursor(StmtCursorPrototype):
     def as_block(self):
         """ Return this Block; included for symmetry with StmtCursor """
         return self
+
+    def expand(self, arg1=None, arg2=None):
+        """
+        Expand the block cursor.
+        
+        Calling convention with zero arguments
+            curosr.expand()     - make the block as big as possible
+        Calling convention with one argument
+            cursor.expand(n)    - adds n statements to the end of the block
+            cursor.expand(-n)   - adds n statements to the start of the block
+
+        Calling convention with two arguments
+            cursor.expand(n,m)  - adds n statements to the start of the block
+                                   and m statements to the end of the block
+        """
+        if arg1 is None and arg2 is not None:
+            raise TypeError("Don't supply arg2 without arg1")
+        elif arg1 is None and arg2 is None:
+            return BlockCursor( self._impl.expand() )
+        elif arg2 is None:
+            if not isinstance(arg1, int):
+                raise TypeError('expected an integer argument')
+            if arg1 < 0:
+                return BlockCursor( self._impl.expand(-arg1, 0) )
+            else:
+                return BlockCursor( self._impl.expand(0, arg1) )
+        else: # arg2 is defined
+            if (not isinstance(arg1, int) or not isinstance(arg2, int)
+                                          or arg1 < 0 or arg2 < 0):
+                raise TypeError('expected one integer argument '
+                                'or two non-negative integer arguments')
+            return BlockCursor( self._impl.expand(arg1, arg2) )
+
 
     def __iter__(self):
         """

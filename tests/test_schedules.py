@@ -13,7 +13,7 @@ def test_delete_pass(golden):
         pass
         x = 0.0
 
-    assert str(foo.delete_pass()) == golden
+    assert str(delete_pass(foo)) == golden
 
     @proc
     def foo(x : R):
@@ -22,7 +22,7 @@ def test_delete_pass(golden):
                 pass
         x = 0.0
 
-    assert str(foo.delete_pass()) == golden
+    assert str(delete_pass(foo)) == golden
 
 def test_add_loop1(golden):
     @proc
@@ -768,7 +768,7 @@ def test_lift_if_second_statement_in_then_error():
     with pytest.raises(SchedulingError,
                        match='expected if statement to be directly nested in '
                              'parents'):
-        foo = foo.lift_if('if i < 10: _')
+        foo = lift_if(foo, 'if i < 10: _')
         print(foo)
 
 
@@ -786,7 +786,7 @@ def test_lift_if_second_statement_in_else_error():
     with pytest.raises(SchedulingError,
                        match='expected if statement to be directly nested in '
                              'parents'):
-        foo = foo.lift_if('if i < 10: _')
+        foo = lift_if(foo, 'if i < 10: _')
         print(foo)
 
 
@@ -801,7 +801,7 @@ def test_lift_if_second_statement_in_for_error():
     with pytest.raises(SchedulingError,
                        match='expected if statement to be directly nested in '
                              'parents'):
-        foo = foo.lift_if('if m > 12: _')
+        foo = lift_if(foo, 'if m > 12: _')
         print(foo)
 
 
@@ -813,7 +813,7 @@ def test_lift_if_too_high_error():
                 x[i] = 2.0
 
     with pytest.raises(SchedulingError, match=r'1 lift\(s\) remain!'):
-        foo = foo.lift_if('if j < 10: _', n_lifts=2)
+        foo = lift_if(foo, 'if j < 10: _', n_lifts=2)
         print(foo)
 
 
@@ -826,7 +826,7 @@ def test_lift_if_dependency_error():
 
     with pytest.raises(SchedulingError,
                        match=r'if statement depends on iteration variable'):
-        foo = foo.lift_if('if i < 10: _')
+        foo = lift_if(foo, 'if i < 10: _')
         print(foo)
 
 
@@ -838,7 +838,7 @@ def test_lift_if_past_if(golden):
             if i < 10:
                 x[i] = 1.0
 
-    foo = foo.lift_if('if i < 10: _')
+    foo = lift_if(foo, 'if i < 10: _')
     assert str(foo) == golden
 
 
@@ -849,7 +849,7 @@ def test_lift_if_past_for(golden):
             if i < 10:
                 x[j] = 1.0
 
-    foo = foo.lift_if('if i < 10: _')
+    foo = lift_if(foo, 'if i < 10: _')
     assert str(foo) == golden
 
 
@@ -861,7 +861,7 @@ def test_lift_if_halfway(golden):
                 if i < 10:
                     x[j] = 1.0
 
-    foo = foo.lift_if('if i < 10: _')
+    foo = lift_if(foo, 'if i < 10: _')
     assert str(foo) == golden
 
 
@@ -873,7 +873,7 @@ def test_lift_if_past_if_then_for(golden):
                 if i < 10:
                     x[j] = 1.0
 
-    foo = foo.lift_if('if i < 10: _', n_lifts=2)
+    foo = lift_if(foo, 'if i < 10: _', n_lifts=2)
     assert str(foo) == golden
 
 
@@ -885,7 +885,7 @@ def test_lift_if_middle(golden):
                 if i < 10:
                     x[j] = 1.0
 
-    foo = foo.lift_if('if n > 20: _')
+    foo = lift_if(foo, 'if n > 20: _')
     assert str(foo) == golden
 
 
@@ -899,7 +899,7 @@ def test_lift_if_with_else_past_if(golden):
             else:
                 x[i] = 2.0
 
-    foo = foo.lift_if('if n > 20: _')
+    foo = lift_if(foo, 'if n > 20: _')
     assert str(foo) == golden
 
 
@@ -916,7 +916,7 @@ def test_lift_if_with_else_past_if_with_else(golden):
         else:
             x[i] = 3.0
 
-    foo = foo.lift_if('if n > 20: _')
+    foo = lift_if(foo, 'if n > 20: _')
     assert str(foo) == golden
 
 
@@ -927,7 +927,7 @@ def test_lift_if_with_pass_body(golden):
             if n < 20:
                 pass
 
-    foo = foo.lift_if('if n < 20: _')
+    foo = lift_if(foo, 'if n < 20: _')
     assert str(foo) == golden
 
 
@@ -940,7 +940,7 @@ def test_lift_if_with_pass_body_and_else(golden):
             else:
                 pass
 
-    foo = foo.lift_if('if n < 20: _')
+    foo = lift_if(foo, 'if n < 20: _')
     assert str(foo) == golden
 
 
@@ -955,7 +955,7 @@ def test_lift_if_in_else_branch_of_parent(golden):
             else:
                 x[0] = 3.0
 
-    foo = foo.lift_if('if n < 20: _')
+    foo = lift_if(foo, 'if n < 20: _')
     assert str(foo) == golden
 
 
@@ -973,7 +973,7 @@ def test_lift_if_in_full_nest(golden):
             else:
                 x[0] = 4.0
 
-    foo = foo.lift_if('if n < 20: _')
+    foo = lift_if(foo, 'if n < 20: _')
     assert str(foo) == golden
                 
 

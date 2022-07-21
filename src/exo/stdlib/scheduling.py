@@ -16,6 +16,11 @@ from ..API_scheduling import (
     rename,
     make_instr,
     #
+    # general statement operations
+    insert_pass,
+    delete_pass,
+    reorder_stmts,
+    #
     # subprocedure oriented operations
     extract_subproc,
     #
@@ -44,6 +49,8 @@ from ..API_scheduling import (
     add_loop,
     #
     # guard rewriting
+    lift_if,
+    assert_if,
     specialize,
     #
     # deprecated scheduling operations

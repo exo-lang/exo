@@ -216,6 +216,8 @@ class Procedure(ProcedureBase):
 
         In any event, if no matches are found, a SchedulingError is raised
         """
+        if not isinstance(pattern, str):
+            raise TypeError('expected a pattern string')
         default_match_no = None if many else 0
         raw_cursors = match_cursors(self, pattern, call_depth=1,
                                     default_match_no=default_match_no)
@@ -233,6 +235,23 @@ class Procedure(ProcedureBase):
             raise SchedulingError('failed to find matches', pattern=pattern)
 
         return cursors if many else cursors[0]
+
+    def find_loop(self, pattern, many=False):
+        """
+        This is the same as proc.find(...), except if the supplied pattern
+        is of the form 'name' or 'name #n', then it will be auto-expanded
+        to 'for name in _:_' or 'for name in _:_ #n'
+        """
+        if not isinstance(pattern, str):
+            raise TypeError('expected a pattern string')
+
+        _name_count_re = r"^([a-zA-Z_]\w*)\s*(\#\s*[0-9]+)?$"
+        results = re.search(_name_count_re, pattern)
+        if results:
+            name, count = results[1], (results[2] if results[2] else "")
+            pattern     = f"for {name} in _: _{count}"
+
+        return self.find(pattern, many)
 
     def find_all(self, pattern):
         return self.find(pattern, many=True)
@@ -739,7 +758,6 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoAddLoop(loopir, stmt, var, hi, guard).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-    """
 
     def merge_guard(self, stmt1, stmt2):
         if not isinstance(stmt1, str):
@@ -840,6 +858,7 @@ class Procedure(ProcedureBase):
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
         return p
+    """
 
     def partition_loop(self, var_pattern, num):
         if not isinstance(var_pattern, str):
@@ -1001,6 +1020,7 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoBindExpr(loopir, new_name, matches, cse).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
+    """
     def repeat(self, directive, *args):
         p = self
         while True:
@@ -1008,6 +1028,7 @@ class Procedure(ProcedureBase):
                 p = directive(p, *args)
             except SchedulingError:
                 return p
+    """
 
     def _parse_win_expr(self, expr_str, ctxt_stmt, scope="before"):
         # degenerate case of a scalar value

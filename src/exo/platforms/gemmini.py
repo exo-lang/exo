@@ -300,7 +300,8 @@ def lift_config(conv, string, nth=0):
         if fission_loop:
             conv = old_fission_after(conv, string)
         elif reorder is not None:
-            conv = conv.reorder_before(string)
+            conv = reorder_stmts(conv, conv.find(string).expand(-1))
+            #conv = conv.reorder_before(string)
         else:
             break
 
@@ -401,7 +402,7 @@ def make_do_ld_i8(name, instr_str, assert_str=None,
         p = p.add_assertion(assert_str,
                 configs=[ConfigLoad,ConfigLoad_id1,ConfigLoad_id2])
     if add_pass:
-        p = p.insert_pass('for i in _: _')
+        p = insert_pass(p, p.find('for i in _: _').before())
     p = rename(p, name)
     return p
 
@@ -575,7 +576,7 @@ def make_ld_i8(name, ld_id=0, p=ld_i8, sval=None):
         p = p.replace(do_load, 'for i in _:_')
         p = p.replace(cfg_load, wr_stride)
 
-    p = p.delete_pass()
+    p = delete_pass(p)
     p = rename(p, name)
     p = make_instr(p, instr_str)
     return p
@@ -893,20 +894,20 @@ def do_st_acc_i8(
 def make_st_acc_i8_v2(p=st_acc_i8):
     p = rename(st_acc_i8, "st_acc_i8_v2")
     p = bind_config(p, 'scale', ConfigStore, 'scale')
-    p = p.reorder_stmts('tmp : _', 'ConfigStore.scale = _')
-    p = p.reorder_stmts('src_tmp = _', 'ConfigStore.scale = _')
-    p = p.reorder_stmts('src_tmp : _', 'ConfigStore.scale = _')
+    p = reorder_stmts(p, 'tmp : _ ; ConfigStore.scale = _')
+    p = reorder_stmts(p, 'src_tmp = _ ; ConfigStore.scale = _')
+    p = reorder_stmts(p, 'src_tmp : _ ; ConfigStore.scale = _')
     p = old_fission_after(p, 'ConfigStore.scale = _', n_lifts=2)
     p = write_config(p, p.find('ConfigStore.scale = _').after(),
                         ConfigStore, 'dst_stride', 'stride(dst, 0)')
     #p = p.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 0)')
     p = bind_config(p, 'act', ConfigStore, 'act')
-    p = p.reorder_stmts('clamp(_)', 'ConfigStore.act = _')
-    p = p.reorder_stmts('tmp2 : _', 'ConfigStore.act = _')
-    p = p.reorder_stmts('acc_scale(_)', 'ConfigStore.act = _')
-    p = p.reorder_stmts('tmp : _', 'ConfigStore.act = _')
-    p = p.reorder_stmts('src_tmp = _', 'ConfigStore.act = _')
-    p = p.reorder_stmts('src_tmp : _', 'ConfigStore.act = _')
+    p = reorder_stmts(p, 'clamp(_) ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'tmp2 : _ ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'acc_scale(_) ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'tmp : _ ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'src_tmp = _ ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'src_tmp : _ ; ConfigStore.act = _')
     p = old_fission_after(p, 'ConfigStore.act = _', n_lifts=2)
     p = p.replace(do_st_acc_i8, 'for i in _:_')
     p = p.replace( config_st_acc_i8,
@@ -920,20 +921,20 @@ st_acc_i8_v2 = make_st_acc_i8_v2()
 def make_st_acc_i8_s2_v2(p=st_acc_i8):
     p = rename(p, "st_acc_i8_s2_v2")
     p = bind_config(p, 'scale', ConfigStore, 'scale')
-    p = p.reorder_stmts('tmp : _', 'ConfigStore.scale = _')
-    p = p.reorder_stmts('src_tmp = _', 'ConfigStore.scale = _')
-    p = p.reorder_stmts('src_tmp : _', 'ConfigStore.scale = _')
+    p = reorder_stmts(p, 'tmp : _ ; ConfigStore.scale = _')
+    p = reorder_stmts(p, 'src_tmp = _ ; ConfigStore.scale = _')
+    p = reorder_stmts(p, 'src_tmp : _ ; ConfigStore.scale = _')
     p = old_fission_after(p, 'ConfigStore.scale = _', n_lifts=2)
     p = write_config(p, p.find('ConfigStore.scale = _').after(),
                         ConfigStore, 'dst_stride', 'stride(dst, 2)')
     #p = p.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 2)')
     p = bind_config(p, 'act', ConfigStore, 'act')
-    p = p.reorder_stmts('clamp(_)', 'ConfigStore.act = _')
-    p = p.reorder_stmts('tmp2 : _', 'ConfigStore.act = _')
-    p = p.reorder_stmts('acc_scale(_)', 'ConfigStore.act = _')
-    p = p.reorder_stmts('tmp : _', 'ConfigStore.act = _')
-    p = p.reorder_stmts('src_tmp = _', 'ConfigStore.act = _')
-    p = p.reorder_stmts('src_tmp : _', 'ConfigStore.act = _')
+    p = reorder_stmts(p, 'clamp(_) ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'tmp2 : _ ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'acc_scale(_) ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'tmp : _ ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'src_tmp = _ ; ConfigStore.act = _')
+    p = reorder_stmts(p, 'src_tmp : _ ; ConfigStore.act = _')
     p = old_fission_after(p, 'ConfigStore.act = _', n_lifts=2)
     p = p.replace(do_st_acc_i8, 'for i in _:_')
     p = p.replace( config_st_acc_i8,
@@ -1036,7 +1037,7 @@ def make_zero_acc_i32_v2(p=zero_acc_i32):
 zero_acc_i32_v2 = make_zero_acc_i32_v2()
 
 def del_and_zero(p):
-    p = p.delete_pass()
+    p = delete_pass(p)
     p = make_instr(p, _gemm_zero)
     return p
 
@@ -1076,12 +1077,12 @@ def make_zero_i8_vector_v2(p=zero_i8_vector):
     #p = p.configwrite_after('pass', ConfigLoad, 'src_stride', '0')
     p = p.replace(do_zero_i8_vector, 'for i in _:_')
     p = p.replace(config_zero, 'ConfigLoad.src_stride = _')
-    p = p.delete_pass()
+    p = delete_pass(p)
     p = make_instr(p, _gemm_zero_vec)
     return p
 zero_i8_vector_v2 = make_zero_i8_vector_v2()
 
-zero_i8_vector = zero_i8_vector.delete_pass()
+zero_i8_vector = delete_pass(zero_i8_vector)
 zero_i8_vector = make_instr(zero_i8_vector, _gemm_zero_vec)
 
 
@@ -1170,12 +1171,12 @@ def make_matmul_i8_v2(p=matmul_i8):
     #p = p.configwrite_after('pass', ConfigMatmul, 'done', 'True')
     p = p.replace(do_matmul_i8, 'for i in _:_')
     p = p.replace(config_matmul, 'ConfigMatmul.done = True')
-    p = p.delete_pass()
+    p = delete_pass(p)
     p = make_instr(p, _gemm_matmul)
     return p
 matmul_i8_v2 = make_matmul_i8_v2()
 
-matmul_i8    = matmul_i8.delete_pass()
+matmul_i8    = delete_pass(matmul_i8)
 matmul_i8    = make_instr(matmul_i8, _gemm_config_matmul + _gemm_matmul)
 
 
@@ -1248,12 +1249,12 @@ def make_matmul_acc_i8_v2(p=matmul_acc_i8):
     #p = p.configwrite_after('pass', ConfigMatmul, 'done', 'True')
     p = p.replace(do_matmul_acc_i8, 'for i in _:_')
     p = p.replace(config_matmul, 'ConfigMatmul.done = True')
-    p = p.delete_pass()
+    p = delete_pass(p)
     p = make_instr(p, _gemm_matmul_acc)
     return p
 matmul_acc_i8_v2 = make_matmul_acc_i8_v2()
 
-matmul_acc_i8    = matmul_acc_i8.delete_pass()
+matmul_acc_i8    = delete_pass(matmul_acc_i8)
 matmul_acc_i8    = make_instr(matmul_acc_i8, _gemm_config_matmul +
                                              _gemm_matmul_acc)
 

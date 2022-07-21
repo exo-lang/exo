@@ -272,11 +272,12 @@ def test_conv_13():
 
     # Size specific asserts
     conv = conv.unroll('ocol_o')
-    conv = conv.assert_if('if _:_ #2', True)
-    conv = conv.assert_if('if _:_ #2', True)
-    conv = conv.assert_if('if _:_ #2', True)
-    conv = conv.assert_if('if 0 <= (ocol_i + 28 / 16 * 16)*2 + kcol - 1:_', True)
-    conv = conv.assert_if('if (ocol_i + 28 / 16 * 16)*2 + kcol - 1 < 56 :_', True)
+    conv = assert_if(conv, 'if _:_ #2', True)
+    conv = assert_if(conv, 'if _:_ #2', True)
+    conv = assert_if(conv, 'if _:_ #2', True)
+    print(conv)
+    conv = assert_if(conv, 'if 0 <= (ocol_i + 28 / 16 * 16)*2 + kcol - 1:_', True)
+    conv = assert_if(conv, 'if (ocol_i + 28 / 16 * 16)*2 + kcol - 1 < 56 :_', True)
 
     # Now start replacing
     conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
@@ -381,10 +382,10 @@ def test_conv_13():
     gemmini = gemmini.fission_after('config_ld_i8_s2_id1(_) #0', n_lifts=2)
     gemmini = gemmini.fission_after('config_ld_i8_id2(_) #0', n_lifts=2)
     gemmini = gemmini.fission_after('config_matmul() #0', n_lifts=2)
-    gemmini = gemmini.reorder_stmts('for och in _:_ #0', 'config_st_acc_i8(_) #1')
-    gemmini = gemmini.reorder_stmts('for och in _:_ #0', 'config_ld_i8(_) #1')
-    gemmini = gemmini.reorder_stmts('for och in _:_ #0', 'config_ld_i8_s2_id1(_) #1')
-    gemmini = gemmini.reorder_stmts('for och in _:_ #0', 'config_ld_i8_id2(_) #1')
+    gemmini = reorder_stmts(gemmini, 'for och in _:_ #0 ; config_st_acc_i8(_) #1')
+    gemmini = reorder_stmts(gemmini, 'for och in _:_ #0 ; config_ld_i8(_) #1')
+    gemmini = reorder_stmts(gemmini, 'for och in _:_ #0 ; config_ld_i8_s2_id1(_) #1')
+    gemmini = reorder_stmts(gemmini, 'for och in _:_ #0 ; config_ld_i8_id2(_) #1')
     gemmini = gemmini.fission_after('config_st_acc_i8(_) #1', n_lifts=2)
     gemmini = gemmini.fission_after('config_ld_i8(_) #1', n_lifts=2)
     gemmini = gemmini.fission_after('config_ld_i8_s2_id1(_) #1', n_lifts=2)

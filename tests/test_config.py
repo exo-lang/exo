@@ -345,8 +345,8 @@ def test_ld(golden):
                 dst[i, j] = tmp
 
     ld_i8 = bind_config(ld_i8, 'scale', ConfigLoad, 'scale')
-    ld_i8 = ld_i8.reorder_stmts('tmp = src[_]', 'ConfigLoad.scale = _')
-    ld_i8 = ld_i8.reorder_stmts('tmp : _', 'ConfigLoad.scale = _')
+    ld_i8 = reorder_stmts(ld_i8, 'tmp = src[_] ; ConfigLoad.scale = _')
+    ld_i8 = reorder_stmts(ld_i8, 'tmp : _ ; ConfigLoad.scale = _')
     ld_i8 = autofission(ld_i8, ld_i8.find('ConfigLoad.scale = _').after(),
                         n_lifts=3)
     ld_i8 = write_config(ld_i8, ld_i8.find('ConfigLoad.scale = _').after(),

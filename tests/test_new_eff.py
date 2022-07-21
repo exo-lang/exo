@@ -41,7 +41,7 @@ def test_reorder_stmts_fail():
 
     with pytest.raises(SchedulingError,
                        match='do not commute'):
-        foo = foo.reorder_stmts('x[0] = 3.0', 'x[0] = 4.0')
+        foo = reorder_stmts(foo, 'x[0] = 3.0 ; x[0] = 4.0')
         print(foo)
 
 def test_reorder_alloc_fail():
@@ -53,7 +53,7 @@ def test_reorder_alloc_fail():
 
     with pytest.raises(SchedulingError,
                        match='do not commute'):
-        foo = foo.reorder_stmts('y : R', 'y = 4.0')
+        foo = reorder_stmts(foo, 'y : R ; y = 4.0')
         print(foo)
 
 def test_reorder_loops_success(golden):
