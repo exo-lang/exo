@@ -877,6 +877,25 @@ class Procedure(ProcedureBase):
 
         return p
 
+    def product_loop(self, out_var, in_var, new_var):
+        if not is_valid_name(out_var):
+            raise TypeError("expected first arg to be a valid name string")
+        if not is_valid_name(in_var):
+            raise TypeError("expected second arg to be a valid name string")
+        if not is_valid_name(new_var):
+            raise TypeError("expected third arg to be a valid name string")
+
+        p = self
+
+        pattern     = nested_iter_names_to_pattern(out_var, in_var)
+        stmts_len = len(self._find_stmt(pattern, default_match_no=None))
+        for i in range(0, stmts_len):
+            s = p._find_stmt(pattern)
+            loopir  = Schedules.DoProductLoop(p._loopir_proc, s, new_var).result()
+            p = Procedure(loopir, _provenance_eq_Procedure=self)
+
+        return p
+
     """
     def reorder(self, out_var, in_var):
         if not isinstance(out_var, str):

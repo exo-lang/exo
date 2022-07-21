@@ -1,0 +1,5 @@
+def foo(n: size, m: size, x: R[n, 100] @ DRAM):
+    assert m < n
+    x2 = x[0:m, 0:30]
+    for ij in seq(0, m * 30):
+        x2[ij / 30, ij % 30] = 0.0

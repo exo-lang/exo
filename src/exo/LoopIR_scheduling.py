@@ -153,6 +153,50 @@ class _PartitionLoop(LoopIR_Rewrite):
 
 
 
+class _DoProductLoop(LoopIR_Rewrite):
+    def __init__(self, proc, loop_stmt, new_name):
+        self.stmt = loop_stmt
+        self.out_loop = loop_stmt
+        self.in_loop = self.out_loop.body[0]
+
+        if (len(self.out_loop.body) != 1 or
+                not isinstance(self.in_loop, (LoopIR.ForAll,LoopIR.Seq))):
+            raise SchedulingError(f"expected loop directly inside of "
+                                  f"{self.out_loop.iter} loop")
+
+        if not isinstance(self.in_loop.hi, LoopIR.Const):
+            raise SchedulingError(f"expected the inner loop to have a constant bound, "
+                                  f"got {self.in_loop.hi}.")
+        self.inside = False
+        self.new_var = Sym(new_name)
+
+        super().__init__(proc)
+
+    def map_s(self, s):
+        styp = type(s)
+        if s is self.stmt:
+            self.inside = True
+            body        = self.map_stmts(s.body[0].body)
+            self.inside = False
+            new_hi = LoopIR.BinOp('*', self.out_loop.hi, self.in_loop.hi, T.index, s.srcinfo)
+
+            return [s.update(iter=self.new_var, hi=new_hi, body=body)]
+
+        return super().map_s(s)
+
+    def map_e(self,e):
+        if self.inside and isinstance(e, LoopIR.Read):
+            var = LoopIR.Read(self.new_var, [], T.index, e.srcinfo)
+            if e.name == self.out_loop.iter:
+                return LoopIR.BinOp('/', var, self.in_loop.hi, T.index, e.srcinfo)
+            if e.name == self.in_loop.iter:
+                return LoopIR.BinOp('%', var, self.in_loop.hi, T.index, e.srcinfo)
+
+        return super().map_e(e)
+
+
+
+
 class _Reorder(LoopIR_Rewrite):
     def __init__(self, proc, loop_stmt):
         self.stmt = loop_stmt
@@ -954,6 +998,9 @@ class _BindConfig(LoopIR_Rewrite):
         self.found_expr= False
         self.placed_writeconfig = False
         self.sub_done  = False
+
+        self.cfg_write_s    = None
+        self.cfg_read_e     = None
 
         self.cfg_write_s    = None
         self.cfg_read_e     = None
@@ -3106,8 +3153,7 @@ class _DoStageMem(LoopIR_Rewrite):
                 pt = LoopIR.BinOp('-',w.pt,off,T.index,w.srcinfo)
                 return LoopIR.Point(pt, w.srcinfo)
 
-        return [ off_w(w_i, w_e[0]) for w_i,w_e in zip(idx, self.w_exprs)
-                                    if isinstance(w, tuple) ]
+        return [ off_w(w_i, w_e[0]) for w_i,w_e in zip(w_idx, self.w_exprs) ]
 
     def map_stmts(self, stmts):
         """ This method overload simply tries to find the indicated block """
@@ -3245,7 +3291,7 @@ class _DoStageMem(LoopIR_Rewrite):
                     new_e = new_e.update(
                         name=self.new_name,
                         idx=w_idx,
-                        type=T.Window(self.new_typ, e.typ.as_tensor,
+                        type=T.Window(self.new_typ, e.type.as_tensor,
                                       self.new_name, w_idx)
                     )
 
@@ -3462,3 +3508,4 @@ class Schedules:
     DoRemoveLoop   = _DoRemoveLoop
     DoLiftAllocSimple  = _DoLiftAllocSimple
     DoFissionAfterSimple  = _DoFissionAfterSimple
+    DoProductLoop  = _DoProductLoop

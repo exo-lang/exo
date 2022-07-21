@@ -7,6 +7,59 @@ from exo.libs.memories import GEMM_SCRATCH
 from exo import ParseFragmentError
 from exo.stdlib.scheduling import *
 
+def test_product_loop(golden):
+    @proc
+    def foo(n : size):
+        x : R[n, 30]
+        for i in seq(0, n):
+            for j in seq(0, 30):
+                x[i,j] = 0.0
+
+    assert str(foo.product_loop('i', 'j', 'ij')) == golden
+
+def test_product_loop2(golden):
+    @proc
+    def foo(n : size, x : R[n, 30]):
+        for i in seq(0, n):
+            for j in seq(0, 30):
+                x[i,j] = 0.0
+
+    assert str(foo.product_loop('i', 'j', 'ij')) == golden
+
+def test_product_loop3():
+    @proc
+    def foo(n : size, m : size):
+        x : R[n, m]
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x[i,j] = 0.0
+
+    with pytest.raises(SchedulingError,
+            match='expected the inner loop to have a constant bound'):
+        foo.product_loop('i', 'j', 'ij')
+
+def test_product_loop4(golden):
+    @proc
+    def foo(n : size, x : R[n]):
+        for i in seq(0, n):
+            for j in seq(0, 30):
+                x[i] = 0.0
+
+    assert str(foo.product_loop('i', 'j', 'ij')) == golden
+
+def test_product_loop5(golden):
+    @proc
+    def foo(n : size, m : size, x : R[n, 100]):
+        assert m < n
+        x2 = x[0:m, 0:30]
+        for i in seq(0, m):
+            for j in seq(0, 30):
+                x2[i,j] = 0.0
+
+    assert str(foo.product_loop('i', 'j', 'ij')) == golden
+
+
+
 def test_delete_pass(golden):
     @proc
     def foo(x : R):

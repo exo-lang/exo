@@ -1250,7 +1250,6 @@ def Check_ReorderLoops(proc, s):
             f"Loops {x} and {y} at {s.srcinfo} cannot be reordered.")
 
 
-
 # Formal Statement
 #       for i in e: (s1 ; s2)  -->  (for i in e: s1); (for i in e: s2)
 #
@@ -1303,7 +1302,6 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
 
 
 
-
 def Check_DeleteConfigWrite(proc, stmts):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
@@ -1313,7 +1311,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     ap      = ctxt.get_posteffs()
     a       = G(stmts_effs(stmts))
     stmtsG  = globenv(stmts)
-
+    
     slv     = SMTSolver(verbose=False)
     slv.push()
     a       = [E.Guard(AMay(p), a)]
