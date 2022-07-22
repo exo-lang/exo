@@ -15,8 +15,8 @@ from exo.syntax import size, par, f32
 def proc_foo():
     @proc
     def foo(n: size, m: size):
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 x: f32
                 x = 0.0
                 y: f32
@@ -30,8 +30,8 @@ def proc_bar():
     @proc
     def bar(n: size, m: size):
         x: f32
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 x = 0.0
                 x = 1.0
                 x = 2.0
@@ -213,8 +213,8 @@ def test_cursor_move_invalid(proc_foo):
 
 
 def test_cursor_gap(proc_foo):
-    # for i in par(0, n):
-    #    for j in par(0, m):
+    # for i in seq(0, n):
+    #    for j in seq(0, m):
     #        x: f32   <- x_alloc
     #                 <- g1
     #        x = 0.0  <- x_assn
@@ -342,9 +342,9 @@ def test_insert_forwarding(policy):
     def example_old():
         x: f32
         x = 0.0
-        for i in par(0, 10):
+        for i in seq(0, 10):
             x = 1.0
-            for j in par(0, 20):
+            for j in seq(0, 20):
                 x = 2.0
                 x = 3.0
                 # pass (ins_gap)

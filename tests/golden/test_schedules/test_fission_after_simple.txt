@@ -1,27 +1,27 @@
 def foo(n: size, m: size):
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             x: f32 @ DRAM
             x = 0.0
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             y: f32 @ DRAM
             y = 1.1
 
 def bar(n: size, m: size):
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             x: f32 @ DRAM
             x = 0.0
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             y: f32 @ DRAM
             y = 1.1
-    for k in par(0, 30):
-        for l in par(0, 100):
+    for k in seq(0, 30):
+        for l in seq(0, 100):
             x: i8 @ DRAM
             x = 4.0
-    for k in par(0, 30):
-        for l in par(0, 100):
+    for k in seq(0, 30):
+        for l in seq(0, 100):
             y: f32 @ DRAM
             y = 1.1

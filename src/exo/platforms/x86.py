@@ -16,7 +16,7 @@ def mm256_loadu_ps(
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
-    for i in par(0, 8):
+    for i in seq(0, 8):
         dst[i] = src[i]
 
 
@@ -28,7 +28,7 @@ def mm256_storeu_ps(
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
-    for i in par(0, 8):
+    for i in seq(0, 8):
         dst[i] = src[i]
 
 
@@ -42,7 +42,7 @@ def mm256_fmadd_ps(
     assert stride(src2, 0) == 1
     assert stride(dst, 0) == 1
 
-    for i in par(0, 8):
+    for i in seq(0, 8):
         dst[i] += src1[i] * src2[i]
 
 
@@ -53,7 +53,7 @@ def mm256_broadcast_ss(
 ):
     assert stride(out, 0) == 1
 
-    for i in par(0, 8):
+    for i in seq(0, 8):
         out[i] = val[0]
 
 
@@ -67,7 +67,7 @@ def mm256_mul_ps(
     assert stride(x, 0) == 1
     assert stride(y, 0) == 1
 
-    for i in par(0, 8):
+    for i in seq(0, 8):
         out[i] = x[i] * y[i]
 
 
@@ -83,7 +83,7 @@ def mm512_loadu_ps(
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         dst[i] = src[i]
 
 
@@ -95,7 +95,7 @@ def mm512_storeu_ps(
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         dst[i] = src[i]
 
 
@@ -109,7 +109,7 @@ def mm512_maskz_loadu_ps(
     assert stride(dst, 0) == 1
     assert N <= 16
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         if i < N:
             dst[i] = src[i]
 
@@ -124,7 +124,7 @@ def mm512_mask_storeu_ps(
     assert stride(dst, 0) == 1
     assert N <= 16
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         if i < N:
             dst[i] = src[i]
 
@@ -139,7 +139,7 @@ def mm512_fmadd_ps(
     assert stride(B, 0) == 1
     assert stride(C, 0) == 1
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         C[i] += A[i] * B[i]
 
 
@@ -156,7 +156,7 @@ def mm512_mask_fmadd_ps(
     assert stride(B, 0) == 1
     assert stride(C, 0) == 1
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         if i < N:
             C[i] += A[i] * B[i]
 
@@ -169,7 +169,7 @@ def mm512_relu_ps(
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         dst[i] = relu(src[i])
 
 
@@ -189,7 +189,7 @@ def mm512_mask_set1_ps(
     assert N < 16
     assert stride(dst, 0) == 1
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         if i < N:
             dst[i] = src[0]
 
@@ -203,7 +203,7 @@ def mm512_set1_ps(
 ):
     assert stride(dst, 0) == 1
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         dst[i] = src[0]
 
 
@@ -217,7 +217,7 @@ def avx2_set0_ps(
 ):
     assert stride(out, 0) == 1
 
-    for i in par(0, 8):
+    for i in seq(0, 8):
         out[i] = 0.0
 
 
@@ -235,5 +235,5 @@ def avx2_fmadd_memu_ps(
     assert stride(dst, 0) == 1
     assert stride(val, 0) == 1
 
-    for i in par(0, 8):
+    for i in seq(0, 8):
         dst[i] += val[i]

@@ -101,7 +101,7 @@ class InferEffects:
             self.rec_stmts_types(stmt.body)
             if len(stmt.orelse) > 0:
                 self.rec_stmts_types(stmt.orelse)
-        elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(stmt, LoopIR.Seq):
             self.rec_stmts_types(stmt.body)
         elif isinstance(stmt, LoopIR.Alloc):
             self._types[stmt.name] = stmt.type
@@ -167,7 +167,7 @@ class InferEffects:
             return LoopIR.If(stmt.cond, body, orelse,
                              effects, stmt.srcinfo)
 
-        elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(stmt, LoopIR.Seq):
             styp = type(stmt)
             # pred is: 0 <= bound < stmt.hi
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
@@ -920,7 +920,7 @@ class CheckEffects:
             if isinstance(stmt, LoopIR.If):
                 self.preprocess_stmts(stmt.body)
                 self.preprocess_stmts(stmt.orelse)
-            elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
+            elif isinstance(stmt, LoopIR.Seq):
                 self.preprocess_stmts(stmt.body)
             elif isinstance(stmt, LoopIR.Alloc):
                 if stmt.type.is_tensor_or_window():
@@ -953,7 +953,7 @@ class CheckEffects:
         body_eff = eff_null(body[-1].srcinfo)
 
         for stmt in reversed(body):
-            if isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
+            if isinstance(stmt, LoopIR.Seq):
                 self.push()
 
                 def bd_pred(x, hi, srcinfo):
@@ -975,14 +975,6 @@ class CheckEffects:
 
                 sub_body_eff = self.map_stmts(stmt.body)
                 self.pop()
-
-                # TODO: This check is outdated
-                #self.check_config_no_loop_depend(stmt.iter, sub_body_eff, stmt.body)
-                # Parallelism checking here
-                # Don't check parallelism is it's a seq loop
-                if isinstance(stmt, LoopIR.ForAll):
-                    self.check_commutes(stmt.iter, lift_expr(stmt.hi),
-                                        sub_body_eff, stmt.body)
 
                 body_eff = eff_concat(stmt.eff, body_eff)
 

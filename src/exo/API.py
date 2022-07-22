@@ -616,9 +616,9 @@ class Procedure(ProcedureBase):
     def bound_and_guard(self, loop):
         """
         Replace
-          for i in par(0, e): ...
+          for i in seq(0, e): ...
         with
-          for i in par(0, c):
+          for i in seq(0, c):
             if i < e: ...
         where c is the tightest constant bound on e
 
@@ -640,7 +640,7 @@ class Procedure(ProcedureBase):
         loop1 = self._find_stmt(loop1)
         loop2 = self._find_stmt(loop2)
 
-        if not isinstance(loop1, (LoopIR.ForAll, LoopIR.Seq)):
+        if not isinstance(loop1, LoopIR.Seq):
             raise TypeError("expected loop to be par or seq loop")
         if type(loop1) is not type(loop2):
             raise TypeError("expected loop type to match")
@@ -909,8 +909,7 @@ class Procedure(ProcedureBase):
             LoopIR.WriteConfig: 'TODO',
             LoopIR.Pass       : 'TODO',
             LoopIR.If         : 'TODO',
-            LoopIR.ForAll     : 'for _ in _: _',
-            LoopIR.Seq        : 'TODO',
+            LoopIR.Seq        : 'for _ in _: _',
             LoopIR.Alloc      : 'TODO',
             LoopIR.Free       : 'TODO',
             LoopIR.Call       : 'TODO',
@@ -1105,28 +1104,6 @@ class Procedure(ProcedureBase):
                                          expr).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    def par_to_seq(self, par_pattern):
-        if not self._find_stmt(par_pattern, default_match_no=None):
-            raise TypeError('Matched no statements!')
-
-        p = self
-
-        changed_any = True
-        while changed_any:
-            changed_any = False
-            stmts = p._find_stmt(par_pattern, default_match_no=None)
-            for s in stmts:
-                if not isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
-                    raise TypeError(f'Expected par loop. Got:\n{s}')
-
-                if isinstance(s, LoopIR.ForAll):
-                    loopir = Schedules.DoParToSeq(p._loopir_proc, s).result()
-                    p = Procedure(loopir, _provenance_eq_Procedure=self)
-                    changed_any = True
-                    break
-
-        return p
-
     def rearrange_dim(self, alloc_pattern, dimensions):
         if not isinstance(alloc_pattern, str):
             raise TypeError("expected first argument to be allocation "+
@@ -1220,7 +1197,7 @@ class Procedure(ProcedureBase):
         stmts_len = len(self._find_stmt(loop_pattern, default_match_no=None))
         for i in range(0, stmts_len):
             s = p._find_stmt(loop_pattern)
-            if not (isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq)):
+            if not isinstance(s, LoopIR.Seq):
                 raise TypeError("expected first argument to be a loop pattern")
             loopir = Schedules.DoRemoveLoop(p._loopir_proc, s).result()
             p = Procedure(loopir, _provenance_eq_Procedure=self)

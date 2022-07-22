@@ -33,34 +33,11 @@ def test_new_stride1(golden):
     assert bar.show_effects() == golden
 
 
-# Should be an error!
-def test_write_write1():
-    with pytest.raises(TypeError,
-                       match='data race conflict with statement'):
-        @proc
-        def foo(n: size, A: i8[n]):
-            a: i8
-            for i in par(0, n):
-                a = A[i]
-
-
-def test_write_write2():
-    with pytest.raises(TypeError,
-                       match='data race conflict with statement'):
-        @proc
-        def foo(n: size, A: i8[n]):
-            a: i8
-            for i in par(0, n):
-                tmp_a: i8
-                tmp_a = A[i]
-                a = tmp_a
-
-
 def test_write_write3(golden):
     @proc
     def foo(n: size, A: i8[n]):
         a: i8
-        for i in par(0, n):
+        for i in seq(0, n):
             a = 3.0
 
     assert foo.show_effects() == golden
@@ -69,9 +46,9 @@ def test_write_write3(golden):
 def test_different_id(golden):
     @proc
     def foo(n: size):
-        for ihi in par(0, n):
+        for ihi in seq(0, n):
             a: i8 @ DRAM
-            for ilo in par(0, 16):
+            for ilo in seq(0, 16):
                 a = 0.0
         if False:
             b: i8 @ DRAM
@@ -79,31 +56,6 @@ def test_different_id(golden):
 
     assert foo.show_effects() == golden
 
-
-# Should be an error!
-def test_read_write1():
-    with pytest.raises(TypeError,
-                       match='data race conflict with statement'):
-        @proc
-        def foo(n: size, A: i8[n]):
-            a: i8
-            a = 4.0
-            for i in par(0, n):
-                A[i] = a
-                a = 0.0
-
-
-# This is not safe
-def test_read_write3():
-    with pytest.raises(TypeError,
-                       match='data race conflict with statement'):
-        @proc
-        def foo(n: size, A: i8[n]):
-            a: i8
-            a = 4.0
-            for i in par(0, n):
-                a = a + 1.0  # write, read
-                A[i] = a
 
 
 # This is fine
@@ -113,7 +65,7 @@ def test_reduce_write1():
     def foo(n: size, A: i8[n]):
         a: i8
         a = 4.0
-        for i in par(0, n):
+        for i in seq(0, n):
             a += A[i]
             a = 0.0
 
@@ -125,7 +77,7 @@ def test_reduce_write2():
     def foo(n: size, A: i8[n]):
         a: i8
         a = 4.0
-        for i in par(0, n):
+        for i in seq(0, n):
             a = 0.0
             a += A[i]
 
@@ -136,9 +88,9 @@ def test_index1():
         @proc
         def foo(n: index, m: index, A: i8[n, m]):
             assert n > 0 and m > 0
-            for i in par(0, n):
-                for j in par(0, m):
-                    for k in par(0, i - j):
+            for i in seq(0, n):
+                for j in seq(0, m):
+                    for k in seq(0, i - j):
                         a: i8
                         a = 0.0
 
@@ -149,8 +101,8 @@ def test_index2():
         @proc
         def foo(n: index, m: index, A: i8[n, m]):
             assert n > 0 and m > 0
-            for i in par(0, n):
-                for j in par(0, m):
+            for i in seq(0, n):
+                for j in seq(0, m):
                     a: i8
                     a = A[i, j - 1]
 
@@ -158,7 +110,7 @@ def test_index2():
 def test_index3(golden):
     @proc
     def foo():
-        for i in par(0, 0):
+        for i in seq(0, 0):
             a: i8
             a = 0.0
 
@@ -170,7 +122,7 @@ def test_index4():
                        match='expected expression to always be non-negative'):
         @proc
         def foo(n: index):
-            for i in par(0, n):
+            for i in seq(0, n):
                 a: i8
                 a = 0.0
 
@@ -179,11 +131,11 @@ def test_index4():
 def test_good_bound1(golden):
     @proc
     def good_bound1(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
-        for i in par(0, (n + 7) / 8):
+        for i in seq(0, (n + 7) / 8):
             if n - 8 * i >= 8:
                 pass
             else:
-                for j in par(0, n - 8 * i):
+                for j in seq(0, n - 8 * i):
                     dst[8 * i + j] = src[8 * i + j]
 
     assert good_bound1.show_effects() == golden
@@ -194,7 +146,7 @@ def test_bad_bound1():
                        match='Errors occurred during effect checking'):
         @proc
         def bar():
-            for i in par(0, -2):
+            for i in seq(0, -2):
                 pass
 
 
@@ -203,8 +155,8 @@ def test_bad_bound2():
                        match='Errors occurred during effect checking'):
         @proc
         def bar(n: size):
-            for i in par(0, n):
-                for j in par(0, i - 1):
+            for i in seq(0, n):
+                for j in seq(0, i - 1):
                     pass
 
 
@@ -213,8 +165,8 @@ def test_bad_bound3():
                        match='Errors occurred during effect checking'):
         @proc
         def bar(n: size):
-            for i in par(0, n):
-                for j in par(0, i - n):
+            for i in seq(0, n):
+                for j in seq(0, i - n):
                     pass
 
 
@@ -223,11 +175,11 @@ def test_bad_bound4():
                        match='Errors occurred during effect checking'):
         @proc
         def bar(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
-            for i in par(0, (n + 7) / 8):
+            for i in seq(0, (n + 7) / 8):
                 if n - 8 * i >= 8:
                     pass
                 else:
-                    for j in par(0, n - 9 * i):
+                    for j in seq(0, n - 9 * i):
                         dst[8 * i + j] = src[8 * i + j]
 
 
@@ -238,16 +190,16 @@ def test_bad_access1():
         def bad_access1(n: size, m: size,
                         x: R[n, m], y: R[n, m], res: R[n, m]):
             rloc: R[m]
-            for i in par(0, m):
+            for i in seq(0, m):
                 xloc: R[m]
                 yloc: R[m]
-                for j in par(0, n):
+                for j in seq(0, n):
                     xloc[j] = x[i, j]
-                for j in par(0, m):
+                for j in seq(0, m):
                     yloc[j] = y[i, j]
-                for j in par(0, m):
+                for j in seq(0, m):
                     rloc[j] = xloc[j] + yloc[j]
-                for j in par(0, m):
+                for j in seq(0, m):
                     res[i, j] = rloc[j]
 
 
@@ -258,16 +210,16 @@ def test_bad_access2():
         def bad_access2(n: size, m: size,
                         x: R[n, m], y: R[n, m] @ DRAM, res: R[n, m] @ DRAM):
             rloc: R[m]
-            for i in par(0, n):
+            for i in seq(0, n):
                 xloc: R[m]
                 yloc: R[m]
-                for j in par(0, m):
+                for j in seq(0, m):
                     xloc[j] = x[i + 1, j]
-                for j in par(0, m):
+                for j in seq(0, m):
                     yloc[j] = y[i, j]
-                for j in par(0, m):
+                for j in seq(0, m):
                     rloc[j] = xloc[j] + yloc[j - 1]
-                for j in par(0, m):
+                for j in seq(0, m):
                     res[i, j] = rloc[j]
 
 
@@ -308,22 +260,11 @@ def test_size1():
             foo(z)
 
 
-# Data Race? Yes
-def test_race1():
-    with pytest.raises(TypeError,
-                       match='data race conflict with statement'):
-        @proc
-        def foo(n: size, x: R[n, n]):
-            for i in par(0, n):
-                if i + 1 < n:
-                    x[i, i] = x[i + 1, i + 1]
-
-
 # Data Race? No
 def test_race2(golden):
     @proc
     def foo(n: size, x: R[n, n]):
-        for i in par(0, n):
+        for i in seq(0, n):
             if i + 1 < n:
                 x[i, i] = x[i + 1, i]
 
@@ -335,7 +276,7 @@ def test_race3(golden):
     @proc
     def foo(n: size, x: R[n, n]):
         y = x[1:, :]
-        for i in par(0, n):
+        for i in seq(0, n):
             if i + 1 < n:
                 x[i, i] = y[i, i]
 
@@ -347,7 +288,7 @@ def test_race3(golden):
 def test_race4(golden):
     @proc
     def foo(n: size, x: [R][n, n], y: [R][n, n]):
-        for i in par(0, n):
+        for i in seq(0, n):
             if i + 1 < n:
                 x[i, i] = y[i, i]
 
@@ -621,11 +562,11 @@ def test_stride_assert11(golden):
 #
 # def foo():
 #   x : R
-#   for i in par(0,2):
+#   for i in seq(0,2):
 #       x = 3
 #       y = x
 
-# for i in par(0, n):
+# for i in seq(0, n):
 #   x[2*i] = x[2*i+1]
 
 # https://en.wikipedia.org/wiki/Jacobi_method
@@ -642,8 +583,8 @@ def test_nest_loop1():
         a : i8
         a = 4.0
         b : i8
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 a    = 0.0
             b = a
 
@@ -653,7 +594,7 @@ def test_read_write2():
     def foo(n : size, A : i8[n]):
         a : i8[n]
         a[0] = 4.0
-        for i in par(0, n):
+        for i in seq(0, n):
             a[0]    = 0.0
             A[i] = a[0]
 

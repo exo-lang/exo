@@ -20,13 +20,13 @@ def test_neon_memcpy(compiler):
     @proc
     def memcpy_neon(n: size, dst: R[n] @ DRAM,
                     src: R[n] @ DRAM):  # pragma: no cover
-        for i in par(0, (n + 3) / 4):
+        for i in seq(0, (n + 3) / 4):
             if n - 4 * i >= 4:
                 tmp: f32[4] @ Neon4f
                 neon_vld_4xf32(tmp, src[4 * i:4 * i + 4])
                 neon_vst_4xf32(dst[4 * i:4 * i + 4], tmp)
             else:
-                for j in par(0, n - 4 * i):
+                for j in seq(0, n - 4 * i):
                     dst[4 * i + j] = src[4 * i + j]
 
     fn = compiler.compile(memcpy_neon,
@@ -51,7 +51,7 @@ def test_neon_simple_math(compiler):
                          x: R[n] @ DRAM,
                          y: R[n] @ DRAM):  # pragma: no cover
         assert n % 4 == 0
-        for i in par(0, n / 4):
+        for i in seq(0, n / 4):
             xVec: f32[4] @ Neon4f
             yVec: f32[4] @ Neon4f
             neon_vld_4xf32(xVec, x[4 * i:4 * i + 4])
@@ -82,7 +82,7 @@ def test_neon_simple_math_scheduling(compiler):
     def simple_math_neon_sched(n: size,
                                x: R[n] @ DRAM,
                                y: R[n] @ DRAM):  # pragma: no cover
-        for i in par(0, n):
+        for i in seq(0, n):
             x[i] = x[i] * y[i] * y[i]
 
     print()
@@ -92,19 +92,19 @@ def test_neon_simple_math_scheduling(compiler):
         simple_math_neon_sched
             .split('i', 4, ['io', 'ii'], tail='cut_and_guard')
             .stage_assn('xyy', 'x[_] = _ #0')
-            .lift_alloc('xyy: _')
+            .lift_alloc('xyy: _', keep_dims=True)
             .fission_after('xyy[_] = _')
 
             .bind_expr('xVec', 'x[_]')
-            .lift_alloc('xVec: _')
+            .lift_alloc('xVec: _', keep_dims=True)
             .fission_after('xVec[_] = _')
 
             .bind_expr('yVec', 'y[_]', cse=True)
-            .lift_alloc('yVec: _')
+            .lift_alloc('yVec: _', keep_dims=True)
             .fission_after('yVec[_] = _')
 
             .bind_expr('xy', 'xVec[_] * yVec[_]')
-            .lift_alloc('xy: _')
+            .lift_alloc('xy: _', keep_dims=True)
             .fission_after('xy[_] = _')
 
             .set_memory('xVec', Neon4f)

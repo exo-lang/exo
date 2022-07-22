@@ -15,9 +15,9 @@ def new_sgemm():
             A: f32[N, K] @ DRAM,
             B: f32[K, M] @ DRAM,
     ):
-        for i in par(0, N):
-            for j in par(0, M):
-                for k in par(0, K):
+        for i in seq(0, N):
+            for j in seq(0, M):
+                for k in seq(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
     return sgemm_full

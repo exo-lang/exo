@@ -95,7 +95,7 @@ _PAST_to_LoopIR = {
   PAST.Reduce:        [LoopIR.Reduce],
   PAST.Pass:          [LoopIR.Pass],
   PAST.If:            [LoopIR.If],
-  PAST.ForAll:        [LoopIR.ForAll, LoopIR.Seq],
+  PAST.Seq:           [LoopIR.Seq],
   PAST.Alloc:         [LoopIR.Alloc],
   PAST.Call:          [LoopIR.Call],
   PAST.WriteConfig:   [LoopIR.WriteConfig],
@@ -184,7 +184,7 @@ class PatternMatch:
         if isinstance(curs[0]._node(), LoopIR.If):
             self.find_stmts(pats, curs[0].body())
             self.find_stmts(pats, curs[0].orelse())
-        elif isinstance(curs[0]._node(), (LoopIR.proc, LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(curs[0]._node(), (LoopIR.proc, LoopIR.Seq)):
             self.find_stmts(pats, curs[0].body())
         else: pass # other forms of statement do not contain stmt blocks
 
@@ -243,7 +243,7 @@ class PatternMatch:
             return ( self.match_e(pat.cond, stmt.cond) and
                      self.match_stmts(pat.body, cur.body()) is not None and
                      self.match_stmts(pat.orelse, cur.orelse()) is not None )
-        elif isinstance(stmt, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(stmt, LoopIR.Seq):
             return ( self.match_name(pat.iter, stmt.iter) and
                      self.match_e(pat.hi, stmt.hi) and
                      self.match_stmts(pat.body, cur.body()) is not None )

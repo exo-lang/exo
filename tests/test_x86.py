@@ -18,13 +18,13 @@ def test_avx2_memcpy(compiler):
     @proc
     def memcpy_avx2(n: size, dst: R[n] @ DRAM,
                     src: R[n] @ DRAM):  # pragma: no cover
-        for i in par(0, (n + 7) / 8):
+        for i in seq(0, (n + 7) / 8):
             if n - 8 * i >= 8:
                 tmp: f32[8] @ AVX2
                 mm256_loadu_ps(tmp, src[8 * i:8 * i + 8])
                 mm256_storeu_ps(dst[8 * i:8 * i + 8], tmp)
             else:
-                for j in par(0, n - 8 * i):
+                for j in seq(0, n - 8 * i):
                     dst[8 * i + j] = src[8 * i + j]
 
     # TODO: -march=skylake here is a hack. Such flags should be somehow handled
@@ -54,7 +54,7 @@ def test_avx2_simple_math(compiler):
     def simple_math_avx2(n: size, x: R[n] @ DRAM,
                          y: R[n] @ DRAM):  # pragma: no cover
         assert n % 8 == 0
-        for i in par(0, n / 8):
+        for i in seq(0, n / 8):
             xVec: f32[8] @ AVX2
             yVec: f32[8] @ AVX2
             mm256_loadu_ps(xVec, x[8 * i:8 * i + 8])
@@ -84,33 +84,33 @@ def simple_math_avx2_sched():
     @proc
     def simple_math_avx2_sched(n: size, x: R[n] @ DRAM,
                                y: R[n] @ DRAM):  # pragma: no cover
-        for i in par(0, n):
+        for i in seq(0, n):
             x[i] = x[i] * y[i] * y[i]
 
     simple_math_avx2_sched = (
         simple_math_avx2_sched
             .split('i', 8, ['io', 'ii'], tail='cut_and_guard')
             .stage_assn('xyy', 'x[_] = _ #0')
-            .lift_alloc('xyy: _')
+            .lift_alloc('xyy: _', keep_dims=True)
             .set_memory('xyy', AVX2)
             .fission_after('xyy[_] = _')
 
             .replace_all(mm256_storeu_ps)
 
             .bind_expr('xVec', 'x[_]')
-            .lift_alloc('xVec: _')
+            .lift_alloc('xVec: _', keep_dims=True)
             .set_memory('xVec', AVX2)
             .fission_after('xVec[_] = _')
 
             .bind_expr('yVec', 'y[_]', cse=True)
-            .lift_alloc('yVec: _')
+            .lift_alloc('yVec: _', keep_dims=True)
             .set_memory('yVec', AVX2)
             .fission_after('yVec[_] = _')
 
             .replace_all(mm256_loadu_ps)
 
             .bind_expr('xy', 'xVec[_] * yVec[_]')
-            .lift_alloc('xy: _')
+            .lift_alloc('xy: _', keep_dims=True)
             .set_memory('xy', AVX2)
             .fission_after('xy[_] = _')
 
@@ -158,9 +158,9 @@ def sgemm_6x16():
             A: [f32][6, K] @ DRAM,
             B: [f32][K, 16] @ DRAM,
     ):
-        for i in par(0, 6):
-            for j in par(0, 16):
-                for k in par(0, K):
+        for i in seq(0, 6):
+            for j in seq(0, 16):
+                for k in seq(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
     return sgemm_6x16
@@ -175,10 +175,9 @@ def avx2_sgemm_6x16(sgemm_6x16):
     avx = avx.reorder('ji', 'k')
     avx = avx.reorder('jo', 'k')
     avx = avx.reorder('i', 'k')
-    avx = avx.lift_alloc('C_reg:_', n_lifts=3)
+    avx = avx.lift_alloc('C_reg:_', n_lifts=3, keep_dims=True)
     avx = avx.fission_after('C_reg = _ #0', n_lifts=3)
     avx = avx.fission_after('C_reg[_] += _ #0', n_lifts=3)
-    avx = avx.par_to_seq('for k in _:_')
     avx = avx.lift_alloc('C_reg:_', n_lifts=1)
     avx = avx.fission_after('for i in _:_#0', n_lifts=1)
     avx = avx.fission_after('for i in _:_#1', n_lifts=1)
@@ -190,12 +189,14 @@ def avx2_sgemm_6x16(sgemm_6x16):
         avx2_sgemm_6x16
             .bind_expr('a_vec', 'A[i, k]')
             .set_memory('a_vec', AVX2)
-            .lift_alloc('a_vec:_', keep_dims=True)
+            .lift_alloc('a_vec:_')
+            .expand_dim('a_vec:_', '8', 'ji')
             .fission_after('a_vec[_] = _')
             #
             .bind_expr('b_vec', 'B[k, _]')
             .set_memory('b_vec', AVX2)
-            .lift_alloc('b_vec:_', keep_dims=True)
+            .lift_alloc('b_vec:_')
+            .expand_dim('b_vec:_', '8', 'ji')
             .fission_after('b_vec[_] = _')
             #
             .replace_all(avx2_set0_ps)
@@ -236,9 +237,9 @@ def sgemm_full():
     ):
         assert K > 0
 
-        for i in par(0, N):
-            for j in par(0, M):
-                for k in par(0, K):
+        for i in seq(0, N):
+            for j in seq(0, M):
+                for k in seq(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
     return sgemm_full
@@ -336,8 +337,8 @@ def spec_kernel(sgemm_full, sgemm_6x16, avx2_sgemm_6x16):
         assert stride(C, 1) == 1
 
         C_reg: f32[M, ((N + 15) / 16), 16] @ AVX512
-        for i in par(0, M):
-            for j in par(0, N / 16):
+        for i in seq(0, M):
+            for j in seq(0, N / 16):
                 mm512_loadu_ps(C_reg[i, j, :], C[i, 16 * j:16 * j + 16])
             if N % 16 > 0:
                 mm512_maskz_loadu_ps(
@@ -346,17 +347,17 @@ def spec_kernel(sgemm_full, sgemm_6x16, avx2_sgemm_6x16):
                     C[i, 16 * (N / 16):16 * (N / 16) + N % 16]
                 )
 
-        for k in par(0, K):
-            for i in par(0, M):
+        for k in seq(0, K):
+            for i in seq(0, M):
                 a_vec: f32[16] @ AVX512
                 mm512_set1_ps(a_vec, A[i, k:k + 1])
-                for j in par(0, ((N + 15) / 16)):
+                for j in seq(0, ((N + 15) / 16)):
                     b_vec: f32[16] @ AVX512
                     mm512_loadu_ps(b_vec, B[k, j * 16:j * 16 + 16])
                     mm512_fmadd_ps(a_vec, b_vec, C_reg[i, j, :])
 
-        for i in par(0, M):
-            for j in par(0, N / 16):
+        for i in seq(0, M):
+            for j in seq(0, N / 16):
                 mm512_storeu_ps(C[i, 16 * j:16 * j + 16], C_reg[i, j, :])
             if N % 16 > 0:
                 mm512_mask_storeu_ps(
@@ -394,9 +395,9 @@ def test_avx512_sgemm_full(compiler, spec_kernel):
             A: f32[N, K] @ DRAM,
             B: f32[K, M] @ DRAM,
     ):
-        for i in par(0, N):
-            for j in par(0, M):
-                for k in par(0, K):
+        for i in seq(0, N):
+            for j in seq(0, M):
+                for k in seq(0, K):
                     C[i, j] += A[i, k] * B[k, j]
 
     fn = compiler.compile(sgemm_full,

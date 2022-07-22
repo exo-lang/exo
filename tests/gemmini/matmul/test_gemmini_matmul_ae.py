@@ -18,11 +18,11 @@ def matmul_algorithm():
     ):
 
         # Algorithm starts here
-        for i in par(0,N):
-            for j in par(0,M):
+        for i in seq(0,N):
+            for j in seq(0,M):
                 res : i32 @ DRAM
                 res = 0.0
-                for k in par(0,K):
+                for k in seq(0,K):
                     a : i8 @ DRAM
                     a = A[i,k]
 
@@ -88,8 +88,8 @@ def test_matmul_ae():
     gemmini = tile_outer_loops(gemmini)
 
     # Lift res, so that we can fission the inner loop to use gemmini instructions
-    gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=2)
-    gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16)
+    gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=2, keep_dims=True)
+    gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16, keep_dims=True)
 
     # Fission loops to zero accum code block, main block, and store block and reorder k up
     gemmini = fission_outer_blocks(gemmini)

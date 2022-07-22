@@ -981,7 +981,7 @@ class PatternParser:
                 body = self.parse_stmts(s.body)
                 self.pop()
 
-                rstmts.append(PAST.ForAll(itr, cond, body, self.getsrcinfo(s)))
+                rstmts.append(PAST.Seq(itr, cond, body, self.getsrcinfo(s)))
 
             # ----- If statement parsing
             elif isinstance(s, pyast.If):

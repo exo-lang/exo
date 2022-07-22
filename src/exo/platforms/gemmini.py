@@ -382,8 +382,8 @@ def do_ld_i8(
     assert stride(dst, 1) == 1
     assert stride(src, 0) == ConfigLoad.src_stride
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 _gemm_do_ld_i8_id1 = ("gemmini_extended_mvin2( &{src_data}, "+
@@ -402,8 +402,8 @@ def do_ld_i8_id1(
     assert stride(dst, 1) == 1
     #assert stride(src, 0) == ConfigLoad_id1.src_stride
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 _gemm_do_ld_i8_id2 = ("gemmini_extended_mvin3( &{src_data}, "+
@@ -422,8 +422,8 @@ def do_ld_i8_id2(
     assert stride(dst, 1) == 1
     #assert stride(src, 0) == ConfigLoad_id2.src_stride
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 _gemm_ld_i8   = ("gemmini_extended3_config_ld({src}.strides[0]*1, "+
@@ -445,8 +445,8 @@ def ld_i8(
 
     pass
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 
@@ -469,9 +469,9 @@ def ld_i8_block(
 
     pass
 
-    for i in par(0, n):
-        for j in par(0, m):
-            for k in par(0, 16):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            for k in seq(0, 16):
                 dst[j,i,k] = src[i,16*j+k]
 
 _do_gemm_ld_i8_block_id1 = ("gemmini_extended_mvin2( &{src_data}, "+
@@ -489,9 +489,9 @@ def do_ld_i8_block_id1(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
-            for k in par(0, 16):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            for k in seq(0, 16):
                 dst[j,i,k] = src[i,16*j+k]
 
 _do_gemm_ld_i8_block_id2 = ("gemmini_extended_mvin3( &{src_data}, "+
@@ -509,9 +509,9 @@ def do_ld_i8_block_id2(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
-            for k in par(0, 16):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            for k in seq(0, 16):
                 dst[j,i,k] = src[i,16*j+k]
 
 
@@ -567,9 +567,9 @@ def zero_block_id2(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
-            for k in par(0, 16):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            for k in seq(0, 16):
                 dst[j,i,k] = 0.0
 
 
@@ -639,8 +639,8 @@ def ld_i8_s2(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i*2,j]
 
 _gemm_config_ld_i8_id1 = ("gemmini_extended3_config_ld({src_stride}*2, "+
@@ -666,8 +666,8 @@ def do_ld_i8_s2_id1(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i*2,j]
 
 _gemm_ld_i8_vec = ("gemmini_extended3_config_ld(1, 1.0f, 0, 0);\n"+
@@ -680,7 +680,7 @@ def ld_i8_vector(
 ):
     assert stride(dst, 0) == 16
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         dst[i] = src[i]
 
 _do_gemm_ld_i8_vec = ("gemmini_extended_mvin( &{src_data}, ((uint64_t) &{dst_data}), 16, 1);")
@@ -691,7 +691,7 @@ def do_ld_i8_vector(
 ):
     assert stride(dst, 0) == 16
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         dst[i] = src[i]
 
 
@@ -735,8 +735,8 @@ def ld_acc_i32(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 _gemm_do_ld_acc_i32   = ("gemmini_extended_mvin( ((uint64_t) &{src_data}), "+
@@ -754,8 +754,8 @@ def do_ld_acc_i32(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 _gemm_config_ld_acc_i32_vector = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n")
@@ -778,8 +778,8 @@ def ld_acc_i32_vector(
     assert stride(src, 0) == 1
 
     pass
-    for i in par(0, n):
-        for j in par(0, 16):
+    for i in seq(0, n):
+        for j in seq(0, 16):
             dst[i,j] = src[0, j]
 
 _do_gemm_ld_acc_i32_vec   = ("gemmini_extended_mvin( ((uint64_t) &{src_data}), ((uint32_t) &{dst_data}), 16, {n} );")
@@ -793,8 +793,8 @@ def do_ld_acc_i32_vector(
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
-    for i in par(0, n):
-        for j in par(0, 16):
+    for i in seq(0, n):
+        for j in seq(0, 16):
             dst[i,j] = src[0, j]
 
 ld_acc_i32_vector_v2 = ld_acc_i32_vector.rename("ld_acc_i32_vector_v2")
@@ -822,8 +822,8 @@ def st_i8(
     assert stride(src, 0) == 16
     assert stride(src, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i, j] = src[i, j]
 
 
@@ -865,8 +865,8 @@ def st_acc_i8(
     assert stride(src, 0) == 16
     assert stride(src, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             src_tmp : i32
             src_tmp = src[i,j]
             tmp : f32
@@ -902,8 +902,8 @@ def do_st_acc_i8(
     assert stride(src, 0) == 16
     assert stride(src, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             src_tmp : i32
             src_tmp = src[i,j]
             tmp : f32
@@ -974,8 +974,8 @@ def st_acc_i32(
     assert stride(src, 0) == 16
     assert stride(src, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i, j] = src[i, j]
 
 
@@ -1000,8 +1000,8 @@ def do_zero_i8(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = 0.0
 
 _gemm_zero = ("gemmini_extended3_config_ld(0, 1.0f, 0, 0);\n"+
@@ -1020,8 +1020,8 @@ def zero_i8(
 
     pass
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = 0.0
 
 zero_i8_v2 = zero_i8.rename("zero_i8_v2")
@@ -1058,7 +1058,7 @@ def zero_i8_vector(
     assert stride(dst, 0) == 16
     pass
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         dst[i] = 0.0
 
 _do_gemm_zero_vec = ("gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),"+
@@ -1069,7 +1069,7 @@ def do_zero_i8_vector(
 ):
     assert stride(dst, 0) == 16
 
-    for i in par(0, 16):
+    for i in seq(0, 16):
         dst[i] = 0.0
 
 zero_i8_vector_v2 = zero_i8_vector.rename("zero_i8_vector_v2")
@@ -1122,10 +1122,10 @@ def matmul_i8(
     assert K <= 16
 
     pass
-    for i in par(0,N):
-        for j in par(0,M):
+    for i in seq(0,N):
+        for j in seq(0,M):
             C[i,j] = 0.0
-            for k in par(0,K):
+            for k in seq(0,K):
                 a : i32
                 b : i32
 
@@ -1147,10 +1147,10 @@ def do_matmul_i8(
     assert M <= 16
     assert K <= 16
 
-    for i in par(0,N):
-        for j in par(0,M):
+    for i in seq(0,N):
+        for j in seq(0,M):
             C[i,j] = 0.0
-            for k in par(0,K):
+            for k in seq(0,K):
                 a : i32
                 b : i32
 
@@ -1195,9 +1195,9 @@ def matmul_acc_i8(
     assert K <= 16
 
     pass
-    for i in par(0,N):
-        for j in par(0,M):
-            for k in par(0,K):
+    for i in seq(0,N):
+        for j in seq(0,M):
+            for k in seq(0,K):
                 a : i32
                 b : i32
 
@@ -1219,9 +1219,9 @@ def do_matmul_acc_i8(
     assert M <= 16
     assert K <= 16
 
-    for i in par(0,N):
-        for j in par(0,M):
-            for k in par(0,K):
+    for i in seq(0,N):
+        for j in seq(0,M):
+            for k in seq(0,K):
                 a : i32
                 b : i32
 

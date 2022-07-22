@@ -12,17 +12,17 @@ def gen_good_prec1():
     @proc
     def good_prec1(n: size, m: size,
                    x: f32[n, m], y: f32[n, m], res: f64[n, m]):
-        for i in par(0, n):
+        for i in seq(0, n):
             rloc: f64[m]
             xloc: f32[m]
             yloc: f32[m]
-            for j in par(0, m):
+            for j in seq(0, m):
                 xloc[j] = x[i, j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 yloc[j] = y[i, j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 rloc[j] = xloc[j] + yloc[j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 res[i, j] = rloc[j]
 
     return good_prec1
@@ -33,17 +33,17 @@ def gen_bad_prec1():
     @proc
     def bad_prec1(n: size, m: size,
                   x: f32[n, m], y: i8[n, m], res: f64[n, m]):
-        for i in par(0, n):
+        for i in seq(0, n):
             rloc: f64[m]
             xloc: f32[m]
             yloc: i8[m]
-            for j in par(0, m):
+            for j in seq(0, m):
                 xloc[j] = x[i, j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 yloc[j] = y[i, j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 rloc[j] = xloc[j] + yloc[j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 res[i, j] = rloc[j]
 
     return bad_prec1
@@ -69,7 +69,7 @@ def gen_dot():
     @proc
     def dot(m: size, x: f32[m], y: f32[m], r: f32):
         r = 0.0
-        for i in par(0, m):
+        for i in seq(0, m):
             r += x[i] * y[i]
 
     return dot

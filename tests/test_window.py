@@ -16,7 +16,7 @@ def test_input1():
         assert stride(src1, 0) == 1
         assert stride(dst1, 0) == 1
 
-        for i in par(0, 8):
+        for i in seq(0, 8):
             dst1[i] = src1[i]
 
 
@@ -29,7 +29,7 @@ def test_input2():
         assert stride(src2, 0) == 1
         assert stride(dst2, 0) == 1
 
-        for i in par(0, 8):
+        for i in seq(0, 8):
             dst2[i] = src2[i]
 
 
@@ -44,7 +44,7 @@ def test_input3():
             assert stride(src2, 0) == 1
             assert stride(dst2, 0) == 1
 
-            for i in par(0, 8):
+            for i in seq(0, 8):
                 dst2[i] = src2[i]
 
         @proc
@@ -61,7 +61,7 @@ def test_input4():
         assert stride(src2, 0) == 1
         assert stride(dst2, 0) == 1
 
-        for i in par(0, 8):
+        for i in seq(0, 8):
             dst2[i] = src2[i]
 
     @proc
@@ -81,8 +81,8 @@ def test_window(golden):
         assert n <= 16
         assert m <= 16
 
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 dst[i, j] = src[i, j]
 
     assert window.c_code_str() == golden
@@ -102,8 +102,8 @@ def test_stride_assert(golden):
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
 
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 dst[i, j] = src[i, j]
 
     assert stride_assert.c_code_str() == golden
@@ -114,7 +114,7 @@ def test_window_stmt(golden):
     def window_stmt(n: size, m: size, x: f32[n, m]):
         y = x[:, 0]
         z: f32[n]
-        for i in par(0, n):
+        for i in seq(0, n):
             z[i] = y[i]
 
     assert window_stmt.c_code_str() == golden
@@ -124,7 +124,7 @@ def test_normalize(golden):
     @proc
     def dot(m: size, x: [f32][m], y: [f32][m], r: f32):
         r = 0.0
-        for i in par(0, m):
+        for i in seq(0, m):
             r += x[i] * y[i]
 
     @proc

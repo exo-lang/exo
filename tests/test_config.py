@@ -107,7 +107,7 @@ def test_write_loop_const_number(golden):
 
     @proc
     def foo(n: size):
-        for i in par(0, n):
+        for i in seq(0, n):
             ConfigAB.a = 0.0
 
     assert str(foo) == golden
@@ -118,7 +118,7 @@ def test_write_loop_builtin(golden):
 
     @proc
     def foo(n: size):
-        for i in par(0, n):
+        for i in seq(0, n):
             ConfigAB.a = sin(1.0)
 
     assert str(foo) == golden
@@ -132,7 +132,7 @@ def test_write_loop_varying():
                        match='The value written to config variable'):
         @proc
         def foo(n: size, A: f32[n]):
-            for i in par(0, n):
+            for i in seq(0, n):
                 ConfigAB.a = A[i]
 
 
@@ -143,7 +143,7 @@ def test_write_loop_varying_indirect():
                        match='The value written to config variable'):
         @proc
         def foo(n: size, A: f32[n]):
-            for i in par(0, n):
+            for i in seq(0, n):
                 a: f32
                 a = A[i]
                 ConfigAB.a = a
@@ -161,7 +161,7 @@ def test_write_loop_syntax_check_fail():
                        match='depends on the loop iteration variable'):
         @proc
         def foo(n: size):
-            for i in par(0, n):
+            for i in seq(0, n):
                 CTRL.i = i - i
 
 
@@ -184,7 +184,7 @@ def test_loop_complex_guards(golden):
 
     @proc
     def foo(n: size):
-        for i in par(0, n):
+        for i in seq(0, n):
             if CTRL.i == 3:
                 CTRL.i = 4
             if n == n - 1:
@@ -201,7 +201,7 @@ def test_loop_circular_guards():
                        match='TODO: Need to determine which error'):
         @proc
         def foo(n: size):
-            for i in par(0, n):
+            for i in seq(0, n):
                 if CTRL.i == 3:
                     CTRL.i = 4
                 elif CTRL.i == 4:
@@ -216,7 +216,7 @@ def test_config_write7():
     @proc
     def foo(n: size):
         a: f32
-        for i in par(0, n):
+        for i in seq(0, n):
             ConfigAB.a = 3.0
             a = ConfigAB.a
 
@@ -251,7 +251,7 @@ def test_config_bind(golden):
 
     @proc
     def foo(scale: f32):
-        for i in par(0, 10):
+        for i in seq(0, 10):
             tmp: f32
             tmp = 0.0
             tmp = tmp * scale
@@ -266,8 +266,8 @@ def test_config_fission(golden):
 
     @proc
     def foo(scale: f32, n: size, m: size, A: f32[n, m]):
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 ConfigLoad.scale = scale
                 tmp: f32
                 tmp = A[i, j]
@@ -309,8 +309,8 @@ def test_ld(golden):
         assert stride(dst, 1) == 1
         assert stride(src, 0) == ConfigLoad.src_stride
 
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 tmp: f32
                 tmp = src[i, j]
                 tmp = tmp * ConfigLoad.scale
@@ -335,8 +335,8 @@ def test_ld(golden):
         assert stride(dst, 0) == 16
         assert stride(dst, 1) == 1
 
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 tmp: f32
                 tmp = src[i, j]
                 tmp = tmp * scale
@@ -377,8 +377,8 @@ def test_ld(golden):
         ConfigLoad.scale = scale
         ConfigLoad.src_stride = stride(src, 0)
 
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 tmp : f32
                 tmp      = src[i,j]
                 tmp      = tmp * ConfigLoad.scale
@@ -415,7 +415,7 @@ def test_config_write3():
     ConfigAB = new_config_f32()
     @proc
     def foo(n : size):
-        for i in par(0, n):
+        for i in seq(0, n):
             ConfigAB.a = 3.0
             ConfigAB.b = ConfigAB.a
 
@@ -427,7 +427,7 @@ def test_read_write2():
     def foo(n : size, A : i8[n]):
         a : i8
         a = 4.0
-        for i in par(0, n):
+        for i in seq(0, n):
             a    = 0.0
             A[i] = a
 
@@ -441,11 +441,11 @@ def new_CONFIG_2f32():
 
 @proc
 def test_make_config(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
-    for i in par(0, (n + 7) / 8):
+    for i in seq(0, (n + 7) / 8):
         if n - 8 * i >= 8:
             pass
         else:
-            for j in par(0, n - 8 * i):
+            for j in seq(0, n - 8 * i):
                 dst[8 * i + j] = src[8 * i + j]
 
 
