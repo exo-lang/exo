@@ -17,6 +17,7 @@ def check_eqv(p_new, p_old):
 
 old_split   = repeat(divide_loop)
 old_reorder = repeat(reorder_loops)
+old_unroll  = repeat(unroll_loop)
 
 def old_fission_after(proc, stmt_pattern, n_lifts=1):
     def find_stmts(p):
@@ -59,26 +60,26 @@ def split_fission_dim(conv):
     return conv
 
 def replace_div_part(conv):
-    conv = conv.replace(ld_acc_i32_vector, 'for ocol_i in _:_ #0')
+    conv = replace(conv, 'for ocol_i in _:_ #0', ld_acc_i32_vector)
     conv = old_reorder(conv, 'och_i kch_i')
     conv = old_reorder(conv, 'och_o kch_i')
-    conv = conv.replace(ld_i8_block_id1, 'for kch_i in _:_ #0')
+    conv = replace(conv, 'for kch_i in _:_ #0', ld_i8_block_id1)
     conv = old_reorder(conv, 'kch_o ocol_i')
-    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #0')
+    conv = replace(conv, 'for ocol_i in _:_ #0', ld_i8_block_id2)
     conv = old_reorder(conv, 'kch_i och_i')
-    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #0')
-    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #0')
+    conv = replace(conv, 'for ocol_i in _:_ #0', matmul_acc_i8)
+    conv = replace(conv, 'for ocol_i in _:_ #0', st_acc_i8)
 
     return conv
 
 def replace_mod_part(conv):
-    conv = conv.replace(ld_acc_i32_vector, 'for ocol_i in _:_ #0')
+    conv = replace(conv, 'for ocol_i in _:_ #0', ld_acc_i32_vector)
     conv = old_reorder(conv, 'och_i kch_i')
-    conv = conv.replace(ld_i8_block_id1, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8_block_id2, 'for ocol_i in _:_ #0')
+    conv = replace(conv, 'for kch_i in _:_ #0', ld_i8_block_id1)
+    conv = replace(conv, 'for ocol_i in _:_ #0', ld_i8_block_id2)
     conv = old_reorder(conv, 'kch_i och_i')
-    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #0')
-    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #0')
+    conv = replace(conv, 'for ocol_i in _:_ #0', matmul_acc_i8)
+    conv = replace(conv, 'for ocol_i in _:_ #0', st_acc_i8)
 
     return conv
 
@@ -92,43 +93,43 @@ def tile(gemmini):
 
 def inline_lift_config(gemmini):
     # part of scheduling count, 25
-    gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
-    gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
+    gemmini = call_eqv(gemmini, "zero_acc_i32(_, _, _)", zero_acc_i32_v2)
+    gemmini = inline(gemmini, "zero_acc_i32_v2(_, _, _)")
     gemmini = inline_window(gemmini, "dst = res[_]")
     gemmini = lift_config(gemmini, 'config_zero()')
 
-    gemmini = gemmini.call_eqv(ld_i8_block_id1_v2, "ld_i8_block_id1(_)")
-    gemmini = gemmini.inline("ld_i8_block_id1_v2(_, _, _, _, _)")
+    gemmini = call_eqv(gemmini, "ld_i8_block_id1(_)", ld_i8_block_id1_v2)
+    gemmini = inline(gemmini, "ld_i8_block_id1_v2(_, _, _, _, _)")
     gemmini = inline_window(gemmini, "src = A[_]")
     gemmini = inline_window(gemmini, "dst = a[_]")
     gemmini = lift_config(gemmini, 'config_ld_i8_id1()')
 
-    gemmini = gemmini.call_eqv(ld_i8_block_id2_v2, "ld_i8_block_id2(_)")
-    gemmini = gemmini.inline("ld_i8_block_id2_v2(_, _, _, _, _)")
+    gemmini = call_eqv(gemmini, "ld_i8_block_id2(_)", ld_i8_block_id2_v2)
+    gemmini = inline(gemmini, "ld_i8_block_id2_v2(_, _, _, _, _)")
     gemmini = inline_window(gemmini, "src = B[_]")
     gemmini = inline_window(gemmini, "dst = b[_]")
     gemmini = lift_config(gemmini, 'config_ld_i8_id2()')
 
-    gemmini = gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
-    gemmini = gemmini.inline("matmul_acc_i8_v2(_, _, _, _, _)")
+    gemmini = call_eqv(gemmini, "matmul_acc_i8(_, _, _, _, _)", matmul_acc_i8_v2)
+    gemmini = inline(gemmini, "matmul_acc_i8_v2(_, _, _, _, _)")
     gemmini = inline_window(gemmini, "A = a[_]")
     gemmini = inline_window(gemmini, "B = b[_]")
     gemmini = inline_window(gemmini, "C = res[_]")
     gemmini = lift_config(gemmini, 'config_matmul()')
 
-    gemmini = gemmini.call_eqv(st_acc_i8_v2, "st_acc_i8(_, _, _, _, _, _)")
-    gemmini = gemmini.inline("st_acc_i8_v2(_, _, _, _, _, _)")
+    gemmini = call_eqv(gemmini, "st_acc_i8(_, _, _, _, _, _)", st_acc_i8_v2)
+    gemmini = inline(gemmini, "st_acc_i8_v2(_, _, _, _, _, _)")
     gemmini = inline_window(gemmini, "src = res[_]")
     gemmini = inline_window(gemmini, "dst = C[_]")
     gemmini = lift_config(gemmini, 'config_st_acc_i8(_)')
     return gemmini
 
 def replace_gemmini_calls(gemmini):
-    gemmini = gemmini.replace(zero_acc_i32, "for i_in in _:_ #0")
-    gemmini = gemmini.replace(ld_i8_block_id1, "for i_in in _:_ #0")
-    gemmini = gemmini.replace(ld_i8_block_id2, "for ki in _:_ #0")
-    gemmini = gemmini.replace(matmul_acc_i8, "for i_in in _:_ #0")
-    gemmini = gemmini.replace(st_acc_i8, "for i_in in _:_ #0")
+    gemmini = replace(gemmini, "for i_in in _:_ #0", zero_acc_i32)
+    gemmini = replace(gemmini, "for i_in in _:_ #0", ld_i8_block_id1)
+    gemmini = replace(gemmini, "for ki in _:_ #0", ld_i8_block_id2)
+    gemmini = replace(gemmini, "for i_in in _:_ #0", matmul_acc_i8)
+    gemmini = replace(gemmini, "for i_in in _:_ #0", st_acc_i8)
     return gemmini
 
 def fission_inner_blocks(gemmini):
@@ -309,30 +310,30 @@ def lift_config(conv, string, nth=0):
 
 
 def inline_vector(conv):
-    conv = conv.call_eqv(ld_acc_i32_vector_v2, "ld_acc_i32_vector(_)")
-    conv = conv.inline("ld_acc_i32_vector_v2(_)")
+    conv = call_eqv(conv, "ld_acc_i32_vector(_)", ld_acc_i32_vector_v2)
+    conv = inline(conv, "ld_acc_i32_vector_v2(_)")
     conv = inline_window(conv, "src = bias[_]")
     conv = inline_window(conv, "dst = res[_]")
     return conv
 
 def inline_ld_id1(conv):
-    conv = conv.call_eqv(ld_i8_block_id1_s2_v2, "ld_i8_block_id1(_)")
-    conv = conv.inline("ld_i8_block_id1_s2_v2(_)")
+    conv = call_eqv(conv, "ld_i8_block_id1(_)", ld_i8_block_id1_s2_v2)
+    conv = inline(conv, "ld_i8_block_id1_s2_v2(_)")
     conv = inline_window(conv, "src = weights[_]")
     conv = inline_window(conv, "dst = w_s[_]")
     return conv
 
 def inline_matmul(conv):
-    conv = conv.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_)")
-    conv = conv.inline("matmul_acc_i8_v2(_)")
+    conv = call_eqv(conv, "matmul_acc_i8(_)", matmul_acc_i8_v2)
+    conv = inline(conv, "matmul_acc_i8_v2(_)")
     conv = inline_window(conv, "A = i_s[_]")
     conv = inline_window(conv, "B = w_s[_]")
     conv = inline_window(conv, "C = res[_]")
     return conv
 
 def inline_st(conv):
-    conv = conv.call_eqv(st_acc_i8_s2_v2, "st_acc_i8(_)")
-    conv = conv.inline("st_acc_i8_s2_v2(_)")
+    conv = call_eqv(conv, "st_acc_i8(_)", st_acc_i8_s2_v2)
+    conv = inline(conv, "st_acc_i8_s2_v2(_)")
     conv = inline_window(conv, "src = res[_]")
     conv = inline_window(conv, "dst = output[_]")
     return conv
@@ -499,8 +500,8 @@ def make_ld_i8_block(name, ld_id, p=ld_i8_block, stride_val=None):
     if stride_val:
         p = write_config(p, p.body().before(),
                             ConfigLoad, 'src_stride', stride_val)
-        p = p.replace(do_ld_i8_block, 'for i in _:_')
-        p = p.replace(config_ld_i8, write_stride)
+        p = replace(p, 'for i in _:_', do_ld_i8_block)
+        p = replace(p, write_stride, config_ld_i8)
 
     p = rename(p, name)
     p = make_instr(p, _gemm_ld_i8_block)
@@ -573,8 +574,8 @@ def make_ld_i8(name, ld_id=0, p=ld_i8, sval=None):
     if sval:
         p = write_config(p, p.body().before(), cfg, 'src_stride', sval)
         #p = p.configwrite_after('pass', cfg, 'src_stride', sval)
-        p = p.replace(do_load, 'for i in _:_')
-        p = p.replace(cfg_load, wr_stride)
+        p = replace(p, 'for i in _:_', do_load)
+        p = replace(p, wr_stride, cfg_load)
 
     p = delete_pass(p)
     p = rename(p, name)
@@ -774,8 +775,8 @@ def make_ld_acc_i32_vector(name, p=ld_acc_i32_vector):
     p = rename(p, name)
     p = write_config(p, p.body().before(), ConfigLoadAcc, 'stride_set', 'True')
     #p = p.configwrite_after('pass', ConfigLoadAcc, 'stride_set', 'True')
-    p = p.replace(do_ld_acc_i32_vector, 'for i in _:_')
-    p = p.replace(config_ld_acc_i32_vector, 'ConfigLoadAcc.stride_set = _')
+    p = replace(p, 'for i in _:_', do_ld_acc_i32_vector)
+    p = replace(p, 'ConfigLoadAcc.stride_set = _', config_ld_acc_i32_vector)
     p = make_instr(p, _gemm_ld_acc_i32_vec)
     return p
 ld_acc_i32_vector_v2 = make_ld_acc_i32_vector('ld_acc_i32_vector_v2')
@@ -909,11 +910,12 @@ def make_st_acc_i8_v2(p=st_acc_i8):
     p = reorder_stmts(p, 'src_tmp = _ ; ConfigStore.act = _')
     p = reorder_stmts(p, 'src_tmp : _ ; ConfigStore.act = _')
     p = old_fission_after(p, 'ConfigStore.act = _', n_lifts=2)
-    p = p.replace(do_st_acc_i8, 'for i in _:_')
-    p = p.replace( config_st_acc_i8,
+    p = replace(p, 'for i in _:_', do_st_acc_i8)
+    p = replace( p,
         "ConfigStore.scale = _ ;"
         "ConfigStore.dst_stride = _ ;"
-        "ConfigStore.act = _"
+        "ConfigStore.act = _",
+        config_st_acc_i8
     )
     return p
 st_acc_i8_v2 = make_st_acc_i8_v2()
@@ -936,11 +938,12 @@ def make_st_acc_i8_s2_v2(p=st_acc_i8):
     p = reorder_stmts(p, 'src_tmp = _ ; ConfigStore.act = _')
     p = reorder_stmts(p, 'src_tmp : _ ; ConfigStore.act = _')
     p = old_fission_after(p, 'ConfigStore.act = _', n_lifts=2)
-    p = p.replace(do_st_acc_i8, 'for i in _:_')
-    p = p.replace( config_st_acc_i8,
+    p = replace(p, 'for i in _:_', do_st_acc_i8)
+    p = replace( p,
         "ConfigStore.scale = _ ;"
         "ConfigStore.dst_stride = _ ;"
-        "ConfigStore.act = _"
+        "ConfigStore.act = _",
+        config_st_acc_i8
     )
     return p
 st_acc_i8_s2_v2 = make_st_acc_i8_s2_v2()
@@ -1015,8 +1018,8 @@ def make_zero_i8_v2(p=zero_i8):
     p = rename(p, "zero_i8_v2")
     p = write_config(p, p.body().before(), ConfigLoad, 'src_stride', '0')
     #p = p.configwrite_after('pass', ConfigLoad, 'src_stride', '0')
-    p = p.replace(do_zero_i8, 'for i in _:_')
-    p = p.replace(config_zero, 'ConfigLoad.src_stride = _')
+    p = replace(p, 'for i in _:_', do_zero_i8)
+    p = replace(p, 'ConfigLoad.src_stride = _', config_zero)
     return p
 zero_i8_v2 = make_zero_i8_v2()
 
@@ -1031,8 +1034,8 @@ def make_zero_acc_i32_v2(p=zero_acc_i32):
     p = rename(p, "zero_acc_i32_v2")
     p = write_config(p, p.body().before(), ConfigLoad, 'src_stride', '0')
     #p = p.configwrite_after('pass', ConfigLoad, 'src_stride', '0')
-    p = p.replace(do_zero_acc_i32, 'for i in _:_')
-    p = p.replace(config_zero, 'ConfigLoad.src_stride = _')
+    p = replace(p, 'for i in _:_', do_zero_acc_i32)
+    p = replace(p, 'ConfigLoad.src_stride = _', config_zero)
     return p
 zero_acc_i32_v2 = make_zero_acc_i32_v2()
 
@@ -1075,8 +1078,8 @@ def make_zero_i8_vector_v2(p=zero_i8_vector):
     p = rename(p, "zero_i8_vector_v2")
     p = write_config(p, p.body().before(), ConfigLoad, 'src_stride', '0')
     #p = p.configwrite_after('pass', ConfigLoad, 'src_stride', '0')
-    p = p.replace(do_zero_i8_vector, 'for i in _:_')
-    p = p.replace(config_zero, 'ConfigLoad.src_stride = _')
+    p = replace(p, 'for i in _:_', do_zero_i8_vector)
+    p = replace(p, 'ConfigLoad.src_stride = _', config_zero)
     p = delete_pass(p)
     p = make_instr(p, _gemm_zero_vec)
     return p
@@ -1169,8 +1172,8 @@ def make_matmul_i8_v2(p=matmul_i8):
     p = rename(p, "matmul_i8_v2")
     p = write_config(p, p.body().before(), ConfigMatmul, 'done', 'True')
     #p = p.configwrite_after('pass', ConfigMatmul, 'done', 'True')
-    p = p.replace(do_matmul_i8, 'for i in _:_')
-    p = p.replace(config_matmul, 'ConfigMatmul.done = True')
+    p = replace(p, 'for i in _:_', do_matmul_i8)
+    p = replace(p, 'ConfigMatmul.done = True', config_matmul)
     p = delete_pass(p)
     p = make_instr(p, _gemm_matmul)
     return p
@@ -1247,8 +1250,8 @@ def make_matmul_acc_i8_v2(p=matmul_acc_i8):
     p = rename(p, "matmul_acc_i8_v2")
     p = write_config(p, p.body().before(), ConfigMatmul, 'done', 'True')
     #p = p.configwrite_after('pass', ConfigMatmul, 'done', 'True')
-    p = p.replace(do_matmul_acc_i8, 'for i in _:_')
-    p = p.replace(config_matmul, 'ConfigMatmul.done = True')
+    p = replace(p, 'for i in _:_', do_matmul_acc_i8)
+    p = replace(p, 'ConfigMatmul.done = True', config_matmul)
     p = delete_pass(p)
     p = make_instr(p, _gemm_matmul_acc)
     return p

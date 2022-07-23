@@ -14,7 +14,7 @@ from .LoopIR import LoopIR, T #, UAST, LoopIR_Do
 #from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
 #                                iter_name_to_pattern,
 #                                nested_iter_names_to_pattern)
-#from .LoopIR_unification import DoReplace, UnificationError
+from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
@@ -175,6 +175,12 @@ class PosIntA(ArgumentProcessor):
             self.err("expected a positive integer")
         return val
 
+class IntA(ArgumentProcessor):
+    def __call__(self, val, all_args):
+        if not isinstance(val, int):
+            self.err("expected an integer")
+        return val
+
 class BoolA(ArgumentProcessor):
     def __call__(self, bval, all_args):
         if not isinstance(bval, bool):
@@ -293,23 +299,41 @@ class ExprCursorA(ArgumentProcessor):
         self.match_many = many
 
     def __call__(self, expr_pattern, all_args):
-        if isinstance(expr_pattern, PC.ExprCursor):
-            return expr_pattern
-        elif isinstance(expr_pattern, PC.Cursor):
-            self.err(f"expected an ExprCursor, not {type(expr_pattern)}")
-        elif not isinstance(expr_pattern, str):
-            self.err("expected an ExprCursor or pattern string")
+        if self.match_many:
+            if isinstance(expr_pattern, list):
+                if all(isinstance(ec, PC.ExprCursor) for ec in expr_pattern):
+                    return expr_pattern
+                else:
+                    for ec in expr_pattern:
+                        if not isinstance(ec, PC.ExprCursor):
+                            self.err(f"expected a list of ExprCursor, "
+                                     f"not {type(expr_pattern)}")
+            elif not isinstance(expr_pattern, str):
+                self.err("expected an ExprCursor or pattern string")
+        else:
+            if isinstance(expr_pattern, PC.ExprCursor):
+                return expr_pattern
+            elif isinstance(expr_pattern, PC.Cursor):
+                self.err(f"expected an ExprCursor, not {type(expr_pattern)}")
+            elif not isinstance(expr_pattern, str):
+                self.err("expected an ExprCursor or pattern string")
 
         proc    = all_args["proc"]
         # TODO: Remove all need for `call_depth`
         matches = proc.find(expr_pattern, many=self.match_many)
 
-        match   = matches[0] if self.match_many else matches
-        if not isinstance(match, PC.ExprCursor):
-            self.err(f"expected pattern to match an ExprCursor, "
-                     f"not {type(match)}")
-
-        return match
+        if self.match_many:
+            for m in matches:
+                if not isinstance(m, PC.ExprCursor):
+                    self.err(f"expected pattern to match only ExprCursors, "
+                             f"not {type(m)}")
+            return matches
+        else:
+            match = matches
+            if not isinstance(match, PC.ExprCursor):
+                self.err(f"expected pattern to match an ExprCursor, "
+                         f"not {type(match)}")
+            return match
 
 class StmtCursorA(ArgumentProcessor):
     def __init__(self, many=False):
@@ -463,6 +487,30 @@ class NestedForSeqCursorA(StmtCursorA):
 
         return cursor
 
+class AssignOrReduceCursorA(StmtCursorA):
+    def __call__(self, stmt_pattern, all_args):
+        cursor = super().__call__(stmt_pattern, all_args)
+        if not isinstance(cursor, (PC.AssignCursor, PC.ReduceCursor)):
+            self.err(f"expected an AssignCursor or ReduceCursor, "
+                     f"not {type(cursor)}")
+        return cursor
+
+class CallCursorA(StmtCursorA):
+    def __call__(self, call_pattern, all_args):
+        # allow for a special pattern short-hand, but otherwise
+        # handle as expected for a normal statement cursor
+        try:
+            name, count     = NameCountA()(call_pattern, all_args)
+            count           = f"#{count}" if count is not None else ""
+            call_pattern    = f"{name}(_)"
+        except:
+            pass
+
+        cursor = super().__call__(call_pattern, all_args)
+        if not isinstance(cursor, PC.CallCursor):
+            self.err(f"expected a CallCursor, not {type(cursor)}")
+        return cursor
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -474,17 +522,9 @@ class NewExprA(ArgumentProcessor):
         self.cursor_arg = cursor_arg
         self.before     = before
 
-    def __call__(self, expr_str, all_args):
+    def _get_ctxt_stmt(self, all_args):
         proc    = all_args['proc']
         cursor  = all_args[self.cursor_arg]
-        if isinstance(expr_str, int):
-            return LoopIR.Const(expr_str, T.int, null_srcinfo())
-        elif isinstance(expr_str, float):
-            return LoopIR.Const(expr_str, T.R, null_srcinfo())
-        elif isinstance(expr_str, bool):
-            return LoopIR.Const(expr_str, T.bool, null_srcinfo())
-        elif not isinstance(expr_str, str):
-            self.err("expected a string")
 
         # if we don't have a gap cursor, convert to a gap cursor
         if not isinstance(cursor, PC.GapCursor):
@@ -496,9 +536,62 @@ class NewExprA(ArgumentProcessor):
             assert (stmtc := cursor.before())
         ctxt_stmt = stmtc._impl._node()
 
+        return ctxt_stmt
+
+    def __call__(self, expr_str, all_args):
+        if isinstance(expr_str, int):
+            return LoopIR.Const(expr_str, T.int, null_srcinfo())
+        elif isinstance(expr_str, float):
+            return LoopIR.Const(expr_str, T.R, null_srcinfo())
+        elif isinstance(expr_str, bool):
+            return LoopIR.Const(expr_str, T.bool, null_srcinfo())
+        elif not isinstance(expr_str, str):
+            self.err("expected a string")
+
+        proc        = all_args['proc']
+        ctxt_stmt   = self._get_ctxt_stmt(all_args)
+
         expr = parse_fragment(proc._loopir_proc, expr_str, ctxt_stmt)
 
         return expr
+
+# This is implemented as a workaround because the
+# current PAST parser and PAST IR don't support windowing
+# expressions.
+class CustomWindowExprA(NewExprA):
+    def __call__(self, expr_str, all_args):
+        proc        = all_args['proc']
+        ctxt_stmt   = self._get_ctxt_stmt(all_args)
+
+        # degenerate case of a scalar value
+        if is_valid_name(expr_str):
+            return expr_str, []
+
+        # otherwise, we have multiple dimensions
+        match = re.match(r'(\w+)\[([^\]]+)\]', expr_str)
+        if not match:
+            raise ValueError(f"expected windowing string of the form "
+                             f"'name[args]', but got '{expr_str}'")
+        buf_name, args = match.groups()
+        if not is_valid_name(buf_name):
+            raise ValueError(f"'{buf_name}' is not a valid name")
+
+        loopir = proc._loopir_proc
+        def parse_arg(a):
+            match = re.match(r'\s*([^:]+)\s*:\s*([^:]+)\s*', a)
+            if not match:
+                # a.strip() to remove whitespace
+                pt = parse_fragment(loopir, a.strip(), ctxt_stmt)
+                return pt
+            else:
+                lo, hi = match.groups()
+                lo = parse_fragment(loopir, lo, ctxt_stmt)
+                hi = parse_fragment(loopir, hi, ctxt_stmt)
+                return (lo,hi)
+        args = [ parse_arg(a) for a in args.split(',') ]
+
+        return buf_name, args
+
 
 
 # --------------------------------------------------------------------------- #
@@ -554,7 +647,7 @@ def make_instr(proc, instr):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# General Statement Operations
+# General Statement and Expression Operations
 
 @sched_op([GapCursorA])
 def insert_pass(proc, gap_cursor):
@@ -610,6 +703,37 @@ def reorder_stmts(proc, block_cursor):
     loopir  = Schedules.DoReorderStmt(loopir, s1, s2).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([ExprCursorA(many=True), NameA, BoolA])
+def bind_expr(proc, expr_cursors, new_name, cse=False):
+    """
+    Bind some numeric/data-value type expression into a new intermediate,
+    scalar-sized buffer.  If `cse=True` and more than one expression is
+    pointed to, then this operation will attempt to perform
+    common sub-expression elimination while binding.
+
+    args:
+        expr_cursors    - a list of cursors to multiple instances of the
+                          same expression
+        new_name        - a string to name the new buffer
+        cse             - (bool) use common sub-expression elimination?
+
+    rewrite:
+        bind_expr(..., '32.0 * x[i]', 'b')
+        `a = 32.0 * x[i] + 4.0`
+        -->
+        `b : R`
+        `b = 32.0 * x[i]`
+        `a = b + 4.0`
+    """
+    exprs   = [ ec._impl._node() for ec in expr_cursors ]
+    if any(not e.type.is_numeric() for e in exprs):
+        raise TypeError("only numeric (not index or size) expressions "
+                        "can be bound by bind_expr()")
+
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoBindExpr(loopir, new_name, exprs, cse).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Sub-procedure Operations
@@ -625,6 +749,74 @@ def extract_subproc(proc, subproc_name, body_stmt):
     loopir, subproc = passobj.result(), passobj.subproc()
     return ( Procedure(loopir, _provenance_eq_Procedure=proc),
              Procedure(subproc) )
+
+@sched_op([CallCursorA])
+def inline(proc, call_cursor):
+    """
+    Inline a sub-procedure call.
+
+    args:
+        call_cursor     - Cursor or pattern pointing to a Call statement
+                          whose body we want to inline
+    """
+    call_stmt   = call_cursor._impl._node()
+    loopir      = proc._loopir_proc
+    loopir      = Schedules.DoInline(loopir, call_stmt).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([BlockCursorA, ProcA, BoolA])
+def replace(proc, block_cursor, subproc, quiet=False):
+    """
+    Attempt to match the supplied `subproc` against the supplied
+    statement block.  If the two can be unified, then replace the block
+    of statements with a call to `subproc`.
+
+    args:
+        block_cursor    - Cursor or pattern pointing to block of statements
+        subproc         - Procedure object to replace this block with a
+                          call to
+        quiet           - (bool) control how much this operation prints
+                          out debug info
+    """
+    stmts   = [ sc._impl._node() for sc in block_cursor ]
+    loopir  = proc._loopir_proc
+    try:
+        loopir = DoReplace(loopir, subproc._loopir_proc, stmts).result()
+    except UnificationError:
+        if quiet:
+            raise
+        print(f'Failed to unify the following:\nSubproc:\n{subproc}'
+              f'Statements:\n')
+        [print(s) for s in stmt_block]
+        raise
+
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([CallCursorA, ProcA])
+def call_eqv(proc, call_cursor, eqv_proc):
+    """
+    Swap out the indicated call with a call to `eqv_proc` instead.
+    This operation can only be performed if the current procedures being
+    called and `eqv_proc` are equivalent due to being scheduled
+    from the same procedure (or one scheduled from the other).
+
+    args:
+        call_cursor     - Cursor or pattern pointing to a Call statement
+        eqv_proc        - Procedure object for the procedure to be
+                          substituted in
+
+    rewrite:
+        `orig_proc(...)`    ->    `eqv_proc(...)`
+    """
+    call_stmt       = call_cursor._impl._node()
+    new_loopir      = eqv_proc._loopir_proc
+
+    loopir          = proc._loopir_proc
+    rewrite_pass    = Schedules.DoCallSwap(loopir, call_stmt, new_loopir)
+    mod_config      = rewrite_pass.mod_eq()
+    loopir          = rewrite_pass.result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc,
+                             _mod_config=mod_config)
 
 
 # --------------------------------------------------------------------------- #
@@ -818,6 +1010,65 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr,
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([AllocCursorA, ListA(IntA)])
+def rearrange_dim(proc, buf_cursor, dimensions):
+    """
+    Rearranges the dimensions of the indicated buffer allocation according
+    to the supplied permutation (`dimensions`).
+
+    args:
+        buf_cursor      - cursor pointing to an Alloc statement
+                          for an N-dimensional array
+        dimensions      - a permutation of the integers (0,1,...,N-1)
+
+    rewrite:
+        (with dimensions = [2,0,1])
+        `x : T[N,M,K]` -> `x : T[K,N,M]`
+    """
+    loopir  = proc._loopir_proc
+    stmt    = buf_cursor._impl._node()
+    # extra sanity check
+    N = len(stmt.type.hi)
+    if set(range(0,N)) != set(dimensions):
+        raise ValueError(f"dimensions argument ({dimensions}) "
+                         f"was not a permutation of {set(range(0,N))}")
+    loopir  = Schedules.DoRearrangeDim(loopir, stmt, dimensions).result()
+
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([AllocCursorA, ListA(OptionalA(NewExprA('buf_cursor')))])
+def bound_alloc(proc, buf_cursor, new_bounds):
+    """
+    NOTE: TODO: This name needs to be changed
+    change the dimensional extents of an allocation, but leave the number
+    and order of dimensions the same.
+
+    args:
+        buf_cursor      - cursor pointing to the Alloc to change bounds of
+        new_bounds      - (list of strings/ints) expressions for the 
+                          new sizes of each buffer dimension.
+                          Pass `None` for any dimensions you do not want
+                          to change the extent/bound of.
+
+    rewrite:
+        bound_alloc(p, 'x : _', ['N+1',None])
+        `x : T[N,M]` -> `x : T[N+1,M]`
+
+    checks:
+        The new bounds are checked to make sure they don't cause any
+        out-of-bounds memory accesses
+    """
+    loopir  = proc._loopir_proc
+    stmt    = buf_cursor._impl._node()
+    if len(stmt.type.hi) != len(new_bounds):
+        raise ValueError(f"buffer has {len(stmt.type.hi)} dimensions, "
+                         f"but only {len(new_bounds)} bounds were supplied")
+    loopir  = Schedules.DoBoundAlloc(loopir, stmt, new_bounds).result()
+    # check bounds
+    CheckEffects(loopir)
+
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
 @sched_op([AllocCursorA, PosIntA])
 def lift_alloc(proc, alloc_cursor, n_lifts=1):
     """
@@ -911,7 +1162,7 @@ def inline_window(proc, winstmt_cursor):
         winstmt_cursor  - cursor pointing to the WindowStmt to inline
 
     rewrite:
-        `y = x[...] ; s` -> `s[ y -> x[...] ]
+        `y = x[...] ; s` -> `s[ y -> x[...] ]`
     """
     stmt    = winstmt_cursor._impl._node()
     loopir  = proc._loopir_proc
@@ -919,6 +1170,70 @@ def inline_window(proc, winstmt_cursor):
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([ExprCursorA, NameA, OptionalA(MemoryA)])
+def stage_window(proc, expr_cursor, win_name, memory=None):
+    """
+    TODO: Describe this scheduling operation.
+
+    Do we want to keep this operation?
+
+    Should it resemble `stage_mem` instead?
+    """
+    e       = expr_cursor._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoStageWindow(loopir, win_name, memory, e).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([BlockCursorA, CustomWindowExprA('block_cursor'), NameA, BoolA])
+def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
+    """
+    Stage the window of memory specified by `win_expr` into a new buffer
+    before the indicated code block and move the memory back after the
+    indicated code block.  If code analysis allows one to omit either
+    the load or store between the original buffer and staging buffer, then
+    the load/store loops/statements will be omitted.
+
+    In the event that the indicated block of code strictly reduces into
+    the specified window, then the optional argument `accum` can be set
+    to initialize the staging memory to zero, accumulate into it, and
+    then accumulate that result back to the original buffer, rather than
+    loading and storing.  This is especially valuable when one's target
+    platform can more easily zero out memory and thereby either
+    reduce memory traffic outright, or at least improve locality of access.
+
+    args:
+        block_cursor    - the block of statements to stage around
+        win_expr        - (string) of the form `name[pt_or_slice*]`
+                          e.g. 'x[32, i:i+4]'
+                          In this case `x` should be accessed in the
+                          block, but only at locations
+                          (32, i), (32, i+1), (32, i+2), or (32, i+3)
+        new_buf_name    - the name of the newly created staging buffer
+        accum           - (optional, bool) see above
+
+    rewrite:
+        stage_mem(..., 'x[0:n,j-1:j]', 'xtmp')
+        `for i in seq(0,n-1):`
+        `    x[i,j] = 2 * x[i+1,j-1]`
+        -->
+        `for k0 in seq(0,n):`
+        `    for k1 in seq(0,2):`
+        `        xtmp[k0,k1] = x[k0,j-1+k1]`
+        `for i in seq(0,n-1):`
+        `    xtmp[i,j-(j-1)] = 2 * xtmp[i+1,(j-1)-(j-1)]`
+        `for k0 in seq(0,n):`
+        `    for k1 in seq(0,2):`
+        `        x[k0,j-1+k1] = xtmp[k0,k1]`
+
+    """
+    buf_name, w_exprs   = win_expr
+    stmt_start  = block_cursor[0]._impl._node()
+    stmt_end    = block_cursor[-1]._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoStageMem(loopir, buf_name, new_buf_name,
+                                   w_exprs, stmt_start, stmt_end,
+                                   use_accum_zero=accum).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -963,7 +1278,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters,
         `    s[ i -> q * (e / q) + lo ]
     """
     if div_const == 1:
-        raise TypeError("why are you trying to split by 1?")
+        raise ValueError("why are you trying to split by 1?")
 
     stmt    = loop_cursor._impl._node()
     loopir  = proc._loopir_proc
@@ -971,6 +1286,58 @@ def divide_loop(proc, loop_cursor, div_const, new_iters,
                                 hi=new_iters[0], lo=new_iters[1],
                                 tail=tail,
                                 perfect=perfect).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([NestedForSeqCursorA, NameA])
+def mult_loops(proc, nested_loops, new_iter_name):
+    """
+    Perform the inverse operation to `divide_loop`.  Take two loops,
+    the innermost of which has a literal bound. (e.g. 5, 8, etc.) and
+    replace them by a single loop that iterates over the product of their
+    iteration spaces (e.g. 5*n, 8*n, etc.)
+
+    args:
+        nested_loops    - cursor pointing to a loop whose body is also a loop
+        new_iter_name   - string with name of the new iteration variable
+
+    rewrite:
+        `for i in seq(0,e):`
+        `    for j in seq(0,c):`    # c is a literal integer
+        `        s`
+        ->
+        `for k in seq(0,e*c):`      # k is new_iter_name
+        `    s[ i -> k/c, j -> k%c ]`
+    """
+    stmt    = nested_loops._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoProductLoop(loopir, stmt, new_iter_name).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([ForSeqCursorA, PosIntA])
+def cut_loop(proc, loop_cursor, cut_point):
+    """
+    Cut a loop into two loops, one iterating from 0 to `cut_point` and
+    the second iterating from `cut_point` to the original loop upper bound.
+
+    Right now, cut_point has to be an integer.
+    TODO: support expressions for the cut_point.
+
+    args:
+        loop_cursor     - cursor pointing to the loop to split
+        cut_point       - integer saying which iteration to cut at
+
+    rewrite:
+        `for i in seq(0,n):`
+        `    s`
+        ->
+        `for i in seq(0,cut):`
+        `    s`
+        `for i in seq(0,n-cut):`
+        `    s[i -> i+cut]`
+    """
+    stmt    = loop_cursor._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoPartitionLoop(loopir, stmt, cut_point).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 @sched_op([NestedForSeqCursorA])
@@ -1164,6 +1531,26 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
                                   iter_name, hi_expr, guard).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([ForSeqCursorA])
+def unroll_loop(proc, loop_cursor):
+    """
+    Unroll a loop with a constant, literal loop bound
+
+    args:
+        loop_curosr     - cursor pointing to the loop to unroll
+
+    rewrite:
+        `for i in seq(0,3):`
+        `    s`
+            ->
+        `s[ i -> 0 ]`
+        `s[ i -> 1 ]`
+        `s[ i -> 2 ]`
+    """
+
+    stmt    = loop_cursor._impl._node()
+    loopir  = Schedules.DoUnroll(proc._loopir_proc, stmt).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -1295,7 +1682,7 @@ def double_fission(proc, stmt1, stmt2, n_lifts=1):
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 @sched_op([ForSeqCursorA])
-def bound_and_guard(self, loop):
+def bound_and_guard(proc, loop):
     """
     DEPRECATED
     recommendation: replace with similar but more general primitive
@@ -1310,8 +1697,31 @@ def bound_and_guard(self, loop):
     This currently only works when e is of the form x % n
     """
     stmt    = loop._impl._node()
-    loopir  = Schedules.DoBoundAndGuard(self._loopir_proc, stmt).result()
-    return Procedure(loopir, _provenance_eq_Procedure=self)
+    loopir  = Schedules.DoBoundAndGuard(proc._loopir_proc, stmt).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([ForSeqCursorA])
+def par_to_seq_once(proc, loop_cursor):
+    """
+    DEPRECATED
+    """
+    stmt    = loop_cursor._impl._node()
+    if isinstance(stmt, LoopIR.Seq):
+        return proc
+    loopir  = Schedules.DoParToSeq(proc._loopir_proc, stmt).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([AssignOrReduceCursorA, NameA])
+def stage_assn(proc, stmt_cursor, buf_name):
+    """
+    DEPRECATED
+    This operation is deprecated, and should be replaced by
+    calls to `stage_mem` or something similar.
+    """
+    stmt    = stmt_cursor._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoStageAssn(loopir, buf_name, stmt).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
 

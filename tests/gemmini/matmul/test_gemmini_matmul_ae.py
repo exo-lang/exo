@@ -103,32 +103,32 @@ def test_matmul_ae():
 
     # Inline and lift the configuration as high as possible
     # Lift config_zero
-    gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
-    gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
+    gemmini = call_eqv(gemmini, "zero_acc_i32(_, _, _)", zero_acc_i32_v2)
+    gemmini = inline(gemmini, "zero_acc_i32_v2(_, _, _)")
     gemmini = inline_window(gemmini, "dst = res[_]")
     gemmini = lift_config(gemmini, 'config_zero()')
     # Lift config_ld_i8_id1
-    gemmini = gemmini.call_eqv(ld_i8_block_id1_v2, "ld_i8_block_id1(_)")
-    gemmini = gemmini.inline("ld_i8_block_id1_v2(_, _, _, _, _)")
+    gemmini = call_eqv(gemmini, "ld_i8_block_id1(_)", ld_i8_block_id1_v2)
+    gemmini = inline(gemmini, "ld_i8_block_id1_v2(_, _, _, _, _)")
     gemmini = inline_window(gemmini, "src = A[_]")
     gemmini = inline_window(gemmini, "dst = a[_]")
     gemmini = lift_config(gemmini, 'config_ld_i8_id1()')
     # Lift config_ld_i8_id2
-    gemmini = gemmini.call_eqv(ld_i8_block_id2_v2, "ld_i8_block_id2(_)")
-    gemmini = gemmini.inline("ld_i8_block_id2_v2(_, _, _, _, _)")
+    gemmini = call_eqv(gemmini, "ld_i8_block_id2(_)", ld_i8_block_id2_v2)
+    gemmini = inline(gemmini, "ld_i8_block_id2_v2(_, _, _, _, _)")
     gemmini = inline_window(gemmini, "src = B[_]")
     gemmini = inline_window(gemmini, "dst = b[_]")
     gemmini = lift_config(gemmini, 'config_ld_i8_id2()')
     # Lift config_matmul
-    gemmini = gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
-    gemmini = gemmini.inline("matmul_acc_i8_v2(_, _, _, _, _)")
+    gemmini = call_eqv(gemmini, "matmul_acc_i8(_, _, _, _, _)", matmul_acc_i8_v2)
+    gemmini = inline(gemmini, "matmul_acc_i8_v2(_, _, _, _, _)")
     gemmini = inline_window(gemmini, "A = a[_]")
     gemmini = inline_window(gemmini, "B = b[_]")
     gemmini = inline_window(gemmini, "C = res[_]")
     gemmini = lift_config(gemmini, 'config_matmul()')
     # Lift config_st_acc_i8
-    gemmini = gemmini.call_eqv(st_acc_i8_v2, "st_acc_i8(_, _, _, _, _, _)")
-    gemmini = gemmini.inline("st_acc_i8_v2(_, _, _, _, _, _)")
+    gemmini = call_eqv(gemmini, "st_acc_i8(_, _, _, _, _, _)", st_acc_i8_v2)
+    gemmini = inline(gemmini, "st_acc_i8_v2(_, _, _, _, _, _)")
     gemmini = inline_window(gemmini, "src = res[_]")
     gemmini = inline_window(gemmini, "dst = C[_]")
     gemmini = lift_config(gemmini, 'config_st_acc_i8(_)')
@@ -141,11 +141,11 @@ def test_matmul_ae():
     gemmini = old_lift_alloc(gemmini, 'a : _', n_lifts=4)
     gemmini = old_lift_alloc(gemmini, 'b : _', n_lifts=3)
 
-    [ (gemmini := gemmini.par_to_seq(s)) for s in ['for ioo in _:_', 'for io in _:_', 'for jo in _:_', 'for i in _:_'] ]
+    [ (gemmini := par_to_seq(gemmini, s)) for s in ['for ioo in _:_', 'for io in _:_', 'for jo in _:_', 'for i in _:_'] ]
 
     [ (gemmini := old_lift_alloc(gemmini, s, n_lifts=n)) for (s,n) in [('a : i8', 1), ('b : i8', 2), ('res : _', 4)] ]
 
-    gemmini = gemmini.par_to_seq('for ji in _:_')
+    gemmini = par_to_seq(gemmini, 'for ji in _:_')
 
     # These schedules correspond to previous add_guard
     gemmini = simplify(gemmini)
@@ -189,7 +189,7 @@ def test_matmul_ae():
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = old_reorder(gemmini, 'ko ji')
-    gemmini = gemmini.par_to_seq('for ji in _:_ #1')
+    gemmini = par_to_seq(gemmini, 'for ji in _:_ #1')
     gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
@@ -197,7 +197,7 @@ def test_matmul_ae():
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
 
     gemmini = fusion(gemmini, 'for k in _:_ #0', 'for k in _:_ #1')
-    gemmini = gemmini.unroll('j_in_o')
+    gemmini = old_unroll(gemmini, 'j_in_o')
     gemmini = simplify(gemmini)
 
     # Schedule ends here. 43 lines excluding comments and newlines

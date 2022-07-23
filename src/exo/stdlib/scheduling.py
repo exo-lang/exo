@@ -1,6 +1,7 @@
 
 from functools import wraps as _wraps
 
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Expose the built-in Scheduling operators here
@@ -16,13 +17,17 @@ from ..API_scheduling import (
     rename,
     make_instr,
     #
-    # general statement operations
+    # general statement and expression operations
     insert_pass,
     delete_pass,
     reorder_stmts,
+    bind_expr,
     #
     # subprocedure oriented operations
     extract_subproc,
+    inline,
+    replace,
+    call_eqv,
     #
     # precision, memory, and window annotation setting
     set_precision,
@@ -36,17 +41,23 @@ from ..API_scheduling import (
     #
     # buffer and window oriented operations
     expand_dim,
+    rearrange_dim,
     lift_alloc,
     reuse_buffer,
     inline_window,
+    stage_window,
+    stage_mem,
     #
     # loop rewriting
     divide_loop,
+    mult_loops,
+    cut_loop,
     reorder_loops,
     fission,
     fusion,
     remove_loop,
     add_loop,
+    unroll_loop,
     #
     # guard rewriting
     lift_if,
@@ -56,11 +67,13 @@ from ..API_scheduling import (
     # deprecated scheduling operations
     add_unsafe_guard,
     double_fission,
+    bound_and_guard,
+    par_to_seq_once,
+    stage_assn,
     #
     # to be replaced by stdlib compositions eventually
     autofission,
     autolift_alloc,
-    bound_and_guard,
 )
 
 # --------------------------------------------------------------------------- #
@@ -120,4 +133,53 @@ def loop_hack(sched, find_func, verbose=False):
     loop_hack_sched.__name__ = f"loop_hack_{sched.__name__}"
     return loop_hack_sched
 
+
+
+
+def par_to_seq(proc, loop_pattern):
+    """
+    DEPRECATED
+    """
+    find_func = lambda p: p.find_loop(loop_pattern, many=True)
+    return loop_hack(par_to_seq_once, find_func)(proc)
+
+
+from ..API_cursors import public_cursors as _PC
+from ..API import Procedure as _Procedure
+from ..LoopIR_unification import UnificationError as _UnificationError
+
+def replace_all(proc, subproc):
+    """
+    DEPRECATED ?
+    Is there a better way to write this out of primitives?
+    Does this simply require that we have better introspection facilities?
+    """
+    assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
+    body = subproc.body()
+    assert len(body) == 1, ("replace_all only supports single statement "
+                            "subprocedure bodies right now")
+
+    patterns = {
+        _PC.AssignCursor        : '_ = _',
+        _PC.ReduceCursor        : '_ += _',
+        _PC.AssignConfigCursor  : 'TODO',
+        _PC.PassCursor          : 'TODO',
+        _PC.IfCursor            : 'TODO',
+        _PC.ForSeqCursor        : 'for _ in _: _',
+        _PC.AllocCursor         : 'TODO',
+        _PC.CallCursor          : 'TODO',
+        _PC.WindowStmtCursor    : 'TODO',
+    }
+
+    pattern = patterns[type(body[0])]
+    i       = 0
+    while True:
+        try:
+            proc = replace(proc, f'{pattern} #{i}', subproc, quiet=True)
+        except (TypeError,SchedulingError) as e:
+            if 'failed to find matches' in str(e):
+                return proc
+            raise
+        except _UnificationError:
+            i += 1
 

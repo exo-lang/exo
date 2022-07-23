@@ -301,10 +301,11 @@ def matmul_i8():
     print(amx)
 
     print("Staging A and B memory and replacing their loads")
-    amx = amx.partition_loop('ji_unroll', 1)
+    amx = cut_loop(amx, 'ji_unroll', 1)
     B_mem_template = "B[16*ko:16*(ko+1), 128*jo+64*(ji_unroll+{j_lo}):128*jo+64*(ji_unroll+{j_lo}+1)]"
     for i in range(2):
-        amx = amx.stage_mem(B_mem_template.format(j_lo=i), f'Btile{i}', f'for ii in _: _ #{i}')
+        amx = stage_mem(amx, f'for ii in _: _ #{i}',
+                             B_mem_template.format(j_lo=i), f'Btile{i}')
         amx = set_memory(amx, f'Btile{i}', AMX_TILE)
         amx = lift_alloc(amx, f'Btile{i}:_', n_lifts=3)
     amx = fission(amx, amx.find('for i0 in _:_ #0').after(), n_lifts=1)
@@ -312,27 +313,29 @@ def matmul_i8():
     amx = reorder_back(amx, 'ji_unroll #2')
     amx = fission(amx, amx.find('for ji_unroll in _:_ #1').after(), n_lifts=1)
     amx = remove_loop(amx, 'ii_unroll #0')
-    amx = amx.partition_loop('ii_unroll', 1)
+    amx = cut_loop(amx, 'ii_unroll', 1)
     A_mem_template = "A[32 * io + 16*(ii_unroll+{i_lo}):32 * io + 16*(ii_unroll+{i_lo}+1), 64*ko:64*(ko+1)]"
     for i in range(2):
         amx = fusion(amx, f'for ji_unroll in _:_ #{i+2}',
                           f'for ji_unroll in _:_ #{i+3}')
-        amx = amx.stage_mem(A_mem_template.format(i_lo=i), f'Atile{i}', f'for ji_unroll in _:_ #{i+2}')
+        amx = stage_mem(amx, f'for ji_unroll in _:_ #{i+2}',
+                             A_mem_template.format(i_lo=i), f'Atile{i}')
         amx = set_memory(amx, f'Atile{i}', AMX_TILE)
         amx = lift_alloc(amx, f'Atile{i}:_', n_lifts=2)
     amx = fission(amx, amx.find('for i0 in _:_ #2').after(), n_lifts=1)
     amx = fission(amx, amx.find('for i0 in _:_ #3').after(), n_lifts=1)
     amx = reorder_back(amx, 'ii_unroll #2')
-    amx = amx.unroll('ji_unroll')
-    amx = amx.unroll('ii_unroll')
+    amx = repeat(unroll_loop)(amx, 'ji_unroll')
+    amx = repeat(unroll_loop)(amx, 'ii_unroll')
     amx = simplify(amx)
-    amx = amx.replace(ld_i8, 'for i0 in _:_')
-    print(amx)
+    amx = repeat(replace)(amx, 'for i0 in _:_', ld_i8)
 
     print("Staging C memory")
     C_mem_template = "C[32*io + 16*({i_lo}):32*io + 16*({i_lo}+1), 32*jo + 16*({j_lo}):32*jo + 16*({j_lo}+1)]"
     for i in range(4):
-        amx = amx.stage_mem(C_mem_template.format(i_lo=i//2, j_lo=i%2), f'Ctile{i}', f'for ii in _: _ #{i}')
+        amx = stage_mem(amx, f'for ii in _: _ #{i}',
+                             C_mem_template.format(i_lo=i//2, j_lo=i%2),
+                             f'Ctile{i}')
         amx = set_memory(amx, f'Ctile{i}', AMX_TILE)
         amx = lift_alloc(amx, f'Ctile{i}:_', n_lifts=1)
         for j in range(4+i):
@@ -344,12 +347,12 @@ def matmul_i8():
     amx = simplify(amx)
     for i in range(4):
         amx = remove_loop(amx, 'ko #0')
-        amx = amx.replace(ld_i32, 'for i0 in _:_ #0')
+        amx = replace(amx, 'for i0 in _:_ #0', ld_i32)
     for i in range(4):
         amx = remove_loop(amx, 'ko #1')
-        amx = amx.replace(st_i32, 'for i0 in _:_ #0')
+        amx = replace(amx, 'for i0 in _:_ #0', st_i32)
     amx = simplify(amx)
-    amx = amx.replace(dpbssd, 'for ii in _:_')
+    amx = repeat(replace)(amx, 'for ii in _:_', dpbssd)
     print(amx)
 
     print("Final scheduled algorithm:")

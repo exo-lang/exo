@@ -280,23 +280,23 @@ def test_conv_13():
     conv = assert_if(conv, 'if (ocol_i + 28 / 16 * 16)*2 + kcol - 1 < 56 :_', True)
 
     # Now start replacing
-    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
+    conv = replace(conv, 'for och_i in _:_ #0', ld_acc_i32_vector)
     conv = old_reorder(conv, 'och_i kch_i')
-    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.replace(zero_i8_vector, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8_s2, 'for ocol_i in _:_ #1')
+    conv = replace(conv, 'for kch_i in _:_ #0', ld_i8)
+    conv = replace(conv, 'for kch_i in _:_ #0', ld_i8_vector)
+    conv = replace(conv, 'for kch_i in _:_ #0', zero_i8_vector)
+    conv = replace(conv, 'for ocol_i in _:_ #1', ld_i8_s2)
     conv = old_reorder(conv, 'kch_i och_i')
-    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #1')
-    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #1')
+    conv = replace(conv, 'for ocol_i in _:_ #1', matmul_acc_i8)
+    conv = replace(conv, 'for ocol_i in _:_ #1', st_acc_i8)
 
-    conv = conv.replace(ld_acc_i32_vector, 'for och_i in _:_ #0')
+    conv = replace(conv, 'for och_i in _:_ #0', ld_acc_i32_vector)
     conv = old_reorder(conv, 'och_i kch_i')
-    conv = conv.replace(ld_i8, 'for kch_i in _:_ #0')
-    conv = conv.replace(ld_i8_s2, 'for ocol_i in _:_ #2')
+    conv = replace(conv, 'for kch_i in _:_ #0', ld_i8)
+    conv = replace(conv, 'for ocol_i in _:_ #2', ld_i8_s2)
     conv = old_reorder(conv, 'kch_i och_i')
-    conv = conv.replace(matmul_acc_i8, 'for ocol_i in _:_ #2')
-    conv = conv.replace(st_acc_i8, 'for ocol_i in _:_ #2')
+    conv = replace(conv, 'for ocol_i in _:_ #2', matmul_acc_i8)
+    conv = replace(conv, 'for ocol_i in _:_ #2', st_acc_i8)
 
     conv = set_memory(conv, 'res', GEMM_ACCUM)
     conv = set_memory(conv, 'i_s', GEMM_SCRATCH)
@@ -372,8 +372,8 @@ def test_conv_13():
 
 
     gemmini = conv_13.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-    gemmini = gemmini.inline('conv_partial_padding(_) #0')
-    gemmini = gemmini.inline('conv_partial_padding(_) #0')
+    gemmini = inline(gemmini, 'conv_partial_padding(_) #0')
+    gemmini = inline(gemmini, 'conv_partial_padding(_) #0')
     gemmini = gemmini.simplify()
 
     gemmini = gemmini.unroll('ocol')
@@ -395,9 +395,9 @@ def test_conv_13():
     gemmini = gemmini.lift_alloc('in_scratch:_', n_lifts=5)
     gemmini = gemmini.lift_alloc('weight_scratch:_', n_lifts=4)
 
-    gemmini = gemmini.par_to_seq('for b in _:_')
-    gemmini = gemmini.par_to_seq('for orow in _:_')
-    gemmini = gemmini.par_to_seq('for och in _:_')
+    gemmini = par_to_seq(gemmini, 'for b in _:_')
+    gemmini = par_to_seq(gemmini, 'for orow in _:_')
+    gemmini = par_to_seq(gemmini, 'for och in _:_')
 
     gemmini = gemmini.lift_alloc('res:_', n_lifts=3)
     gemmini = gemmini.lift_alloc('in_scratch:_', n_lifts=3)
@@ -481,8 +481,8 @@ def test_conv_26():
                                             output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
 
     gemmini = conv_26.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-    gemmini = gemmini.inline('conv_partial_padding(_) #0')
-    gemmini = gemmini.inline('conv_partial_padding(_) #0')
+    gemmini = inline(gemmini, 'conv_partial_padding(_) #0')
+    gemmini = inline(gemmini, 'conv_partial_padding(_) #0')
     gemmini = gemmini.simplify()
 
     gemmini = gemmini.unroll('ocol')
@@ -496,9 +496,9 @@ def test_conv_26():
     gemmini = gemmini.lift_alloc('in_scratch:_', n_lifts=5)
     gemmini = gemmini.lift_alloc('weight_scratch:_', n_lifts=4)
 
-    gemmini = gemmini.par_to_seq('for b in _:_')
-    gemmini = gemmini.par_to_seq('for orow in _:_')
-    gemmini = gemmini.par_to_seq('for och in _:_')
+    gemmini = par_to_seq(gemmini, 'for b in _:_')
+    gemmini = par_to_seq(gemmini, 'for orow in _:_')
+    gemmini = par_to_seq(gemmini, 'for och in _:_')
 
     gemmini = gemmini.lift_alloc('res:_', n_lifts=3)
     gemmini = gemmini.lift_alloc('in_scratch:_', n_lifts=3)
@@ -604,8 +604,8 @@ def test_conv_45():
                                             output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
 
     gemmini = conv_45.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-    gemmini = gemmini.inline('conv_partial_padding(_) #0')
-    gemmini = gemmini.inline('conv_partial_padding(_) #0')
+    gemmini = inline(gemmini, 'conv_partial_padding(_) #0')
+    gemmini = inline(gemmini, 'conv_partial_padding(_) #0')
     gemmini = gemmini.simplify()
 
     gemmini = gemmini.unroll('ocol')
@@ -619,9 +619,9 @@ def test_conv_45():
     gemmini = gemmini.lift_alloc('in_scratch:_', n_lifts=5)
     gemmini = gemmini.lift_alloc('weight_scratch:_', n_lifts=4)
 
-    gemmini = gemmini.par_to_seq('for b in _:_')
-    gemmini = gemmini.par_to_seq('for orow in _:_')
-    gemmini = gemmini.par_to_seq('for och in _:_')
+    gemmini = par_to_seq(gemmini, 'for b in _:_')
+    gemmini = par_to_seq(gemmini, 'for orow in _:_')
+    gemmini = par_to_seq(gemmini, 'for och in _:_')
 
     gemmini = gemmini.lift_alloc('res:_', n_lifts=3)
     gemmini = gemmini.lift_alloc('in_scratch:_', n_lifts=3)
@@ -789,8 +789,8 @@ def test_conv_47():
                                             output, bias, inp, weights, act, scale, b, orow, one, out_dim%16, out_dim-out_dim%16, out_dim)
 
     gemmini = conv_47.partial_eval(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding)
-    gemmini = gemmini.inline('conv_partial_no_padding(_) #0')
-    gemmini = gemmini.inline('conv_partial_no_padding(_) #0')
+    gemmini = inline(gemmini, 'conv_partial_no_padding(_) #0')
+    gemmini = inline(gemmini, 'conv_partial_no_padding(_) #0')
     gemmini = gemmini.simplify()
 
     gemmini = gemmini.unroll('ocol')
@@ -806,9 +806,9 @@ def test_conv_47():
     gemmini = gemmini.lift_alloc('in_scratch:_', n_lifts=5)
     gemmini = gemmini.lift_alloc('weight_scratch:_', n_lifts=1)
 
-    gemmini = gemmini.par_to_seq('for b in _:_')
-    gemmini = gemmini.par_to_seq('for orow in _:_')
-    gemmini = gemmini.par_to_seq('for och in _:_')
+    gemmini = par_to_seq(gemmini, 'for b in _:_')
+    gemmini = par_to_seq(gemmini, 'for orow in _:_')
+    gemmini = par_to_seq(gemmini, 'for och in _:_')
 
     gemmini = gemmini.lift_alloc('res:_', n_lifts=3)
     gemmini = gemmini.lift_alloc('weight_scratch:_', n_lifts=3)

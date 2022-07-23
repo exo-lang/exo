@@ -15,7 +15,7 @@ def test_product_loop(golden):
             for j in seq(0, 30):
                 x[i,j] = 0.0
 
-    assert str(foo.product_loop('i', 'j', 'ij')) == golden
+    assert str(mult_loops(foo, 'i j', 'ij')) == golden
 
 def test_product_loop2(golden):
     @proc
@@ -24,7 +24,7 @@ def test_product_loop2(golden):
             for j in seq(0, 30):
                 x[i,j] = 0.0
 
-    assert str(foo.product_loop('i', 'j', 'ij')) == golden
+    assert str(mult_loops(foo, 'i j', 'ij')) == golden
 
 def test_product_loop3():
     @proc
@@ -36,7 +36,7 @@ def test_product_loop3():
 
     with pytest.raises(SchedulingError,
             match='expected the inner loop to have a constant bound'):
-        foo.product_loop('i', 'j', 'ij')
+        mult_loops(foo, 'i j', 'ij')
 
 def test_product_loop4(golden):
     @proc
@@ -45,7 +45,7 @@ def test_product_loop4(golden):
             for j in seq(0, 30):
                 x[i] = 0.0
 
-    assert str(foo.product_loop('i', 'j', 'ij')) == golden
+    assert str(mult_loops(foo, 'i j', 'ij')) == golden
 
 def test_product_loop5(golden):
     @proc
@@ -56,7 +56,7 @@ def test_product_loop5(golden):
             for j in seq(0, 30):
                 x2[i,j] = 0.0
 
-    assert str(foo.product_loop('i', 'j', 'ij')) == golden
+    assert str(mult_loops(foo, 'i j', 'ij')) == golden
 
 
 
@@ -191,8 +191,9 @@ def test_pattern_match():
         x : R[N1, M1, K1]
         x : R[N2, M2, K2]
 
-    res1 = foo.rearrange_dim('x : _', [2,1,0])
-    res2 = foo.rearrange_dim('x : R[N1, M1, K1]', [2,1,0])
+    res1 = rearrange_dim(foo, 'x : _', [2,1,0])
+    res1 = rearrange_dim(res1, 'x : _ #1', [2,1,0])
+    res2 = rearrange_dim(foo, 'x : R[N1, M1, K1]', [2,1,0])
 
     assert str(res1) != str(res2)
 
@@ -253,10 +254,10 @@ def test_rearrange_dim(golden):
                 for k in seq(0, K):
                     a[m, k, n] = x[n, m, k]
 
-    cases = [
-        foo.rearrange_dim('a : i8[_]', [1, 2, 0]),
-        bar.rearrange_dim('a : i8[_]', [1, 0, 2]),
-    ]
+    foo = rearrange_dim(foo, 'a : i8[_]', [1,2,0])
+    bar = rearrange_dim(bar, 'a : i8[_]', [1, 0, 2])
+    bar = rearrange_dim(bar, 'a : i8[_] #1', [1, 0, 2])
+    cases = [ foo, bar ]
 
     assert '\n'.join(map(str, cases)) == golden
 
@@ -468,8 +469,8 @@ def test_bind_lhs(golden):
                     out[ii, jj, kk] = out[ii, jj, kk] + inp[ii, jj, kk]
                     out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
 
-    myfunc_cpu = myfunc_cpu.bind_expr('inp_ram', 'inp[_]', cse=True)
-    myfunc_cpu = myfunc_cpu.bind_expr('out_ram', 'out[_]', cse=True)
+    myfunc_cpu = bind_expr(myfunc_cpu, 'inp[_]', 'inp_ram', cse=True)
+    myfunc_cpu = bind_expr(myfunc_cpu, 'out[_]', 'out_ram', cse=True)
     assert str(myfunc_cpu) == golden
 
 
@@ -503,7 +504,7 @@ def test_simple_unroll(golden):
         for i in par(0, 10):
             tmp[i] = A[i]
 
-    bar = bar.unroll('i')
+    bar = unroll_loop(bar, 'i')
     assert str(bar) == golden
 
 
@@ -523,12 +524,12 @@ def test_simple_inline(golden):
 
     # TODO: these should fail
     # with pytest.raises(SchedulingError, match='blah'):
-    #     bar.inline('foo(_)')
+    #     inline(bar, 'foo(_)')
     #
     # with pytest.raises(SchedulingError, match='blah'):
-    #     bar.inline('foo(io, i1, i2)')
+    #     inline(bar, 'foo(io, i1, i2)')
 
-    bar = bar.inline('foo(_, _, _)')
+    bar = inline(bar, 'foo(_, _, _)')
     assert str(bar) == golden
 
 
@@ -571,7 +572,7 @@ def test_simple_bind_expr(golden):
         for i in par(0, n):
             z[i] = x[i] + y[i]
 
-    bar = bar.bind_expr('z_tmp', 'x[_] + y[_]')
+    bar = bind_expr(bar, 'x[_] + y[_]', 'z_tmp')
     assert str(bar) == golden
 
 
@@ -668,7 +669,7 @@ def test_unify1(golden):
             for j in par(0, 5):
                 x[i, j] = y[i, j]
 
-    foo = foo.replace(bar, "for i in _ : _")
+    foo = replace(foo, "for i in _ : _", bar)
     assert str(foo) == golden
 
 
@@ -685,7 +686,7 @@ def test_unify2(golden):
             for j in par(0, 5):
                 x[i + 3, j + 1] = y[i + 5, j + 2]
 
-    foo = foo.replace(bar, "for i in _ : _")
+    foo = replace(foo, "for i in _ : _", bar)
     assert str(foo) == golden
 
 
@@ -703,7 +704,7 @@ def test_unify3(golden):
             for j in par(0, 4):
                 z[4 * i + j] = x[4 * i + j] + y[4 * i + j]
 
-    foo = foo.replace(simd_add4, "for j in _ : _")
+    foo = replace(foo, "for j in _ : _", simd_add4)
     assert str(foo) == golden
 
 
@@ -720,7 +721,7 @@ def test_unify4(golden):
             if j < 48:
                 x[j, 1] = x[j, 0] + x[j + 1, 0]
 
-    foo = foo.replace(bar, "for j in _ : _")
+    foo = replace(foo, "for j in _ : _", bar)
     assert str(foo) == golden
 
 
@@ -741,7 +742,7 @@ def test_unify5(golden):
                 c = y[i, j]
                 x[i, j] = c
 
-    foo = foo.replace(bar, "for i in _ : _")
+    foo = replace(foo, "for i in _ : _", bar)
     assert str(foo) == golden
 
 
@@ -769,7 +770,7 @@ def test_unify6(golden):
                 for k_in in par(0, 16):
                     a[i, k_in] = A[i, 16 * k + k_in]
 
-    bar = bar.replace(load, "for i in _:_")
+    bar = replace(bar, "for i in _:_", load)
     assert str(bar) == golden
 
 
@@ -788,7 +789,7 @@ def test_unify7(golden):
             for j in par(0, 5):
                 x[i, j] = y[i, j]
 
-    foo = foo.replace(bar, "for i in _ : _")
+    foo = replace(foo, "for i in _ : _", bar)
     assert str(foo) == golden
 
 
@@ -1045,8 +1046,8 @@ def test_stage_mem(golden):
                                 A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
                                                       B[4*k+kk,4*j+jj] )
 
-    sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
-                            'Atile', 'for k in _: _')
+    sqmat = stage_mem(sqmat, 'for k in _: _',
+                             'A[4*i:4*i+4, 4*j:4*j+4]', 'Atile')
     assert str(simplify(sqmat)) == golden
 
 def test_stage_mem_point(golden):
@@ -1057,7 +1058,7 @@ def test_stage_mem_point(golden):
                 for k in seq(0, n):
                     C[i,j] += A[i,k] * B[k,j]
 
-    matmul = matmul.stage_mem('C[i, j]', 'res', 'for k in _:_')
+    matmul = stage_mem(matmul, 'for k in _:_', 'C[i, j]', 'res')
     assert str(simplify(matmul)) == golden
 
 def test_fail_stage_mem():
@@ -1078,8 +1079,8 @@ def test_fail_stage_mem():
 
     with pytest.raises(SchedulingError,
                        match='accessed out-of-bounds'):
-        sqmat = sqmat.stage_mem('B[4*i:4*i+4, 4*k:4*k+4]',
-                                'Btile', 'for ii in _: _')
+        sqmat = stage_mem(sqmat, 'for ii in _: _',
+                                 'B[4*i:4*i+4, 4*k:4*k+4]', 'Btile')
 
 def test_stage_mem_twice(golden):
     # This test now finds a way to stage the buffer B twice
@@ -1095,13 +1096,13 @@ def test_stage_mem_twice(golden):
                                 A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
                                                       B[4*k+kk,4*j+jj] )
 
-    sqmat = sqmat.bind_expr('B1', 'B[4*i+ii,4*k+kk]')
+    sqmat = bind_expr(sqmat, 'B[4*i+ii,4*k+kk]', 'B1')
     sqmat = expand_dim(sqmat, 'B1 : _', '4', 'kk')
     sqmat = expand_dim(sqmat, 'B1 : _', '4', 'ii')
     sqmat = autolift_alloc(sqmat, 'B1 : _', n_lifts=3)
     sqmat = autofission(sqmat, sqmat.find('B1[_] = _').after(), n_lifts=3)
-    sqmat = sqmat.stage_mem('B[4*k:4*k+4, 4*j:4*j+4]',
-                            'B2', 'for ii in _: _ #1')
+    sqmat = stage_mem(sqmat, 'for ii in _: _ #1',
+                             'B[4*k:4*k+4, 4*j:4*j+4]', 'B2')
     assert str(simplify(sqmat)) == golden
 
 
@@ -1120,8 +1121,8 @@ def test_stage_mem_accum(golden):
                                 A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
                                                       B[4*k+kk,4*j+jj] )
 
-    sqmat = sqmat.stage_mem('A[4*i:4*i+4, 4*j:4*j+4]',
-                            'Atile', 'for k in _: _', accum=True)
+    sqmat = stage_mem(sqmat, 'for k in _: _', 'A[4*i:4*i+4, 4*j:4*j+4]',
+                             'Atile',  accum=True)
     assert str(simplify(sqmat)) == golden
 
 def test_stage_mem_accum2(golden):
@@ -1132,6 +1133,6 @@ def test_stage_mem_accum2(golden):
                 for j in seq(0, 16):
                     out[k, i, j] += w[j] * im[i]
 
-    accum = accum.stage_mem('out[k, 0:16, 0:16]', 'o', 'for i in _:_')
+    accum = stage_mem(accum, 'for i in _:_', 'out[k, 0:16, 0:16]', 'o')
 
     assert str(simplify(accum)) == golden

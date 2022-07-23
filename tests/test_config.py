@@ -351,10 +351,10 @@ def test_ld(golden):
                         n_lifts=3)
     ld_i8 = write_config(ld_i8, ld_i8.find('ConfigLoad.scale = _').after(),
                                 ConfigLoad, 'src_stride', 'stride(src, 0)')
-    ld_i8 = ld_i8.replace(do_ld_i8, 'for i in _:_')
-    ld_i8 = ld_i8.replace(
-        config_ld_i8,
-        'ConfigLoad.scale = _ ; ConfigLoad.src_stride = _'
+    ld_i8 = replace(ld_i8, 'for i in _:_', do_ld_i8)
+    ld_i8 = replace(ld_i8,
+        'ConfigLoad.scale = _ ; ConfigLoad.src_stride = _',
+        config_ld_i8
     )
 
     assert f'{config_ld_i8}\n{ld_i8}' == golden

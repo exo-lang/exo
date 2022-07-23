@@ -114,12 +114,12 @@ def test_matmul_512x512x512():
     gemmini = old_lift_alloc(gemmini, 'a : _', n_lifts=4)
     gemmini = old_lift_alloc(gemmini, 'b : _', n_lifts=3)
 
-    #gemmini = gemmini.par_to_seq('for ioo in _:_')
-    #gemmini = gemmini.par_to_seq('for io in _:_')
-    #gemmini = gemmini.par_to_seq('for jo in _:_')
-    #gemmini = gemmini.par_to_seq('for i in _:_')
+    #gemmini = par_to_seq(gemmini, 'for ioo in _:_')
+    #gemmini = par_to_seq(gemmini, 'for io in _:_')
+    #gemmini = par_to_seq(gemmini, 'for jo in _:_')
+    #gemmini = par_to_seq(gemmini, 'for i in _:_')
 
-    [ (gemmini := gemmini.par_to_seq(s)) for s in ['for ioo in _:_', 'for io in _:_', 'for jo in _:_', 'for i in _:_'] ]
+    [ (gemmini := par_to_seq(gemmini, s)) for s in ['for ioo in _:_', 'for io in _:_', 'for jo in _:_', 'for i in _:_'] ]
 
     [ (gemmini := old_lift_alloc(gemmini, s, n_lifts=n)) for (s,n) in [('a : i8', 1), ('b : i8', 2), ('res : _', 4)] ]
 
@@ -127,7 +127,7 @@ def test_matmul_512x512x512():
     #gemmini = old_lift_alloc(gemmini, 'b : i8', n_lifts=2)
     #gemmini = old_lift_alloc(gemmini, 'res : _', n_lifts=4)
 
-    gemmini = gemmini.par_to_seq('for ji in _:_')
+    gemmini = par_to_seq(gemmini, 'for ji in _:_')
 
     gemmini = simplify(gemmini)
     def do_fission(pattern, n):
@@ -170,7 +170,7 @@ def test_matmul_512x512x512():
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = old_reorder(gemmini, 'ko ji')
-    gemmini = gemmini.par_to_seq('for ji in _:_ #1')
+    gemmini = par_to_seq(gemmini, 'for ji in _:_ #1')
     gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
@@ -178,8 +178,8 @@ def test_matmul_512x512x512():
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
 
     gemmini = fusion(gemmini, 'for k in _:_ #0', 'for k in _:_ #1')
-    gemmini = gemmini.unroll('j_in_o')
-    #gemmini = gemmini.unroll('k')
+    gemmini = old_unroll(gemmini, 'j_in_o')
+    gemmini = old_unroll(gemmini, 'k')
     gemmini = simplify(gemmini)
 
     T.add_proc(gemmini)
@@ -218,7 +218,7 @@ def test_matmul_4():
     T, cpu, gemmini = sched_matmul('matmul_4', NN, MM, KK)
 
     # Real optimization
-    gemmini = gemmini.unroll('ko')
+    gemmini = old_unroll(gemmini, 'ko')
     gemmini = old_lift_alloc(gemmini, 'res:_')
     gemmini = simplify(gemmini)
 
@@ -227,13 +227,13 @@ def test_matmul_4():
     gemmini = old_lift_alloc(gemmini, 'b : _', n_lifts=2)
      
     # tile
-    gemmini = gemmini.par_to_seq('for io in _:_')
-    gemmini = gemmini.par_to_seq('for i in _:_')
+    gemmini = par_to_seq(gemmini, 'for io in _:_')
+    gemmini = par_to_seq(gemmini, 'for i in _:_')
     gemmini = old_lift_alloc(gemmini, 'a : i8', n_lifts=1)
     gemmini = old_lift_alloc(gemmini, 'b : i8', n_lifts=1)
     gemmini = old_lift_alloc(gemmini, 'res : _', n_lifts=2)
 
-    gemmini = gemmini.par_to_seq('for j in _:_')
+    gemmini = par_to_seq(gemmini, 'for j in _:_')
 
     # Previously add_guard
     gemmini = simplify(gemmini)
@@ -260,13 +260,13 @@ def test_matmul_4():
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
-    gemmini = gemmini.par_to_seq('for j in _:_ #1')
+    gemmini = par_to_seq(gemmini, 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
 
-    gemmini = gemmini.unroll('j_in_o')
-    gemmini = gemmini.unroll('k')
+    gemmini = old_unroll(gemmini, 'j_in_o')
+    gemmini = old_unroll(gemmini, 'k')
 
     T.add_proc(gemmini)
     T.add_proc(cpu)
@@ -305,7 +305,7 @@ def test_matmul_6():
     T, cpu, gemmini = sched_matmul('matmul_6', NN, MM, KK)
 
     # Real optimization
-    gemmini = gemmini.unroll('j')
+    gemmini = old_unroll(gemmini, 'j')
     gemmini = divide_loop(gemmini, 'i', 8, ['io', 'i'], perfect=True)
     gemmini = old_lift_alloc(gemmini, 'res:_')
     gemmini = old_lift_alloc(gemmini, 'a : _')
@@ -313,8 +313,8 @@ def test_matmul_6():
     gemmini = simplify(gemmini)
      
     # tile
-    gemmini = gemmini.par_to_seq('for io in _:_')
-    gemmini = gemmini.par_to_seq('for i in _:_')
+    gemmini = par_to_seq(gemmini, 'for io in _:_')
+    gemmini = par_to_seq(gemmini, 'for i in _:_')
     gemmini = old_lift_alloc(gemmini, 'res:_')
     gemmini = old_lift_alloc(gemmini, 'a : _')
     gemmini = old_lift_alloc(gemmini, 'b : _')
@@ -336,20 +336,20 @@ def test_matmul_6():
     gemmini = old_reorder(gemmini, 'ko io')
     gemmini = add_loop(gemmini, 'for i in _:_ #0', 'io', 98)
     gemmini = fusion(gemmini, 'for io in _:_ #0', 'for io in _:_ #1')
-    gemmini = gemmini.par_to_seq('for io in _:_ #1')
+    gemmini = par_to_seq(gemmini, 'for io in _:_ #1')
     gemmini = fusion(gemmini, 'for io in _:_ #0', 'for io in _:_ #1')
     gemmini = fusion(gemmini, 'for io in _:_ #0', 'for io in _:_ #1')
     gemmini = old_reorder(gemmini, 'k i')
     gemmini = old_reorder(gemmini, 'ko i')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
-    gemmini = gemmini.par_to_seq('for i in _:_ #1')
+    gemmini = par_to_seq(gemmini, 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
 
-    gemmini = gemmini.unroll('j_in_o')
-    gemmini = gemmini.unroll('k')
+    gemmini = old_unroll(gemmini, 'j_in_o')
+    gemmini = old_unroll(gemmini, 'k')
 
     T.add_proc(gemmini)
     T.add_proc(cpu)
@@ -396,9 +396,9 @@ def test_matmul_14():
     gemmini = simplify(gemmini)
      
     # tile
-    gemmini = gemmini.par_to_seq('for io in _:_')
-    gemmini = gemmini.par_to_seq('for i in _:_')
-    gemmini = gemmini.par_to_seq('for j in _:_')
+    gemmini = par_to_seq(gemmini, 'for io in _:_')
+    gemmini = par_to_seq(gemmini, 'for i in _:_')
+    gemmini = par_to_seq(gemmini, 'for j in _:_')
     gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=2)
     gemmini = old_lift_alloc(gemmini, 'a : _')
     gemmini = old_lift_alloc(gemmini, 'b : _')
@@ -432,15 +432,15 @@ def test_matmul_14():
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = old_reorder(gemmini, 'ko j')
-    gemmini = gemmini.par_to_seq('for j in _:_ #1')
+    gemmini = par_to_seq(gemmini, 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
 
-    gemmini = gemmini.unroll('j_in_o')
-    gemmini = gemmini.unroll('k')
+    gemmini = old_unroll(gemmini, 'j_in_o')
+    gemmini = old_unroll(gemmini, 'k')
 
     T.add_proc(gemmini)
     T.add_proc(cpu)
@@ -486,9 +486,9 @@ def test_matmul_16():
     gemmini = simplify(gemmini)
      
     # tile
-    gemmini = gemmini.par_to_seq('for io in _:_')
-    gemmini = gemmini.par_to_seq('for i in _:_')
-    gemmini = gemmini.par_to_seq('for j in _:_')
+    gemmini = par_to_seq(gemmini, 'for io in _:_')
+    gemmini = par_to_seq(gemmini, 'for i in _:_')
+    gemmini = par_to_seq(gemmini, 'for j in _:_')
     gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=2)
     gemmini = old_lift_alloc(gemmini, 'a : _')
     gemmini = old_lift_alloc(gemmini, 'b : _')
@@ -522,15 +522,15 @@ def test_matmul_16():
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = old_reorder(gemmini, 'ko j')
-    gemmini = gemmini.par_to_seq('for j in _:_ #1')
+    gemmini = par_to_seq(gemmini, 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
 
-    gemmini = gemmini.unroll('j_in_o')
-    gemmini = gemmini.unroll('k')
+    gemmini = old_unroll(gemmini, 'j_in_o')
+    gemmini = old_unroll(gemmini, 'k')
 
     T.add_proc(gemmini)
     T.add_proc(cpu)
@@ -578,10 +578,10 @@ def test_matmul_27():
     gemmini = simplify(gemmini)
      
     # tile
-    gemmini = gemmini.par_to_seq('for io in _:_')
-    gemmini = gemmini.par_to_seq('for jo in _:_')
-    gemmini = gemmini.par_to_seq('for i in _:_')
-    gemmini = gemmini.par_to_seq('for j in _:_')
+    gemmini = par_to_seq(gemmini, 'for io in _:_')
+    gemmini = par_to_seq(gemmini, 'for jo in _:_')
+    gemmini = par_to_seq(gemmini, 'for i in _:_')
+    gemmini = par_to_seq(gemmini, 'for j in _:_')
     gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=3)
     gemmini = old_lift_alloc(gemmini, 'a : _', n_lifts=2)
     gemmini = old_lift_alloc(gemmini, 'b : _', n_lifts=2)
@@ -619,15 +619,15 @@ def test_matmul_27():
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = old_reorder(gemmini, 'ko j')
-    gemmini = gemmini.par_to_seq('for j in _:_ #1')
+    gemmini = par_to_seq(gemmini, 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for j in _:_ #0', 'for j in _:_ #1')
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
     gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
 
-    gemmini = gemmini.unroll('j_in_o')
-    gemmini = gemmini.unroll('k')
+    gemmini = old_unroll(gemmini, 'j_in_o')
+    gemmini = old_unroll(gemmini, 'k')
 
     T.add_proc(gemmini)
     T.add_proc(cpu)

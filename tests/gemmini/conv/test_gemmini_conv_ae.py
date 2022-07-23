@@ -138,7 +138,7 @@ def test_conv_ae():
     gemmini = old_split(gemmini, 'orow',28,['orow_o', 'orow_i'], perfect=True)
     gemmini = expand_dim(gemmini, 'i_s: i8[_]', '30', 'krow + orow_i',
                                   unsafe_disable_checks=True)
-    [ (gemmini := gemmini.par_to_seq(s)) for s in ['for krow in _:_', 'for b in _:_', 'for orow_o in _:_', 'for orow_i in _:_', 'for ocol_o in _:_'] ]
+    [ (gemmini := par_to_seq(gemmini, s)) for s in ['for krow in _:_', 'for b in _:_', 'for orow_o in _:_', 'for orow_i in _:_', 'for ocol_o in _:_'] ]
     gemmini = old_lift_alloc(gemmini, 'i_s : _', n_lifts=5)
     gemmini = old_lift_alloc(gemmini, 'w_s : _', n_lifts=4)
 
@@ -205,11 +205,11 @@ def test_conv_ae():
 
     gemmini = old_split(gemmini, 'orow_i',7,['orow_io','orow_ii'],
                                  perfect=True)
-    gemmini = gemmini.par_to_seq('for orow_io in _:_')
-    gemmini = gemmini.unroll('och_o')
-    gemmini = gemmini.unroll('kch_o')
-    gemmini = gemmini.unroll('kcol')
-    gemmini = gemmini.unroll('krow')
+    gemmini = par_to_seq(gemmini, 'for orow_io in _:_')
+    gemmini = old_unroll(gemmini, 'och_o')
+    gemmini = old_unroll(gemmini, 'kch_o')
+    gemmini = old_unroll(gemmini, 'kcol')
+    gemmini = old_unroll(gemmini, 'krow')
     gemmini = simplify(gemmini)
 
     # Schedule ends here, 44 lines excluding comments and newlines

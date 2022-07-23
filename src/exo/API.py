@@ -858,7 +858,6 @@ class Procedure(ProcedureBase):
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
         return p
-    """
 
     def partition_loop(self, var_pattern, num):
         if not isinstance(var_pattern, str):
@@ -896,7 +895,6 @@ class Procedure(ProcedureBase):
 
         return p
 
-    """
     def reorder(self, out_var, in_var):
         if not isinstance(out_var, str):
             raise TypeError("expected first arg to be a string")
@@ -913,7 +911,6 @@ class Procedure(ProcedureBase):
             p = Procedure(loopir, _provenance_eq_Procedure=self)
 
         return p
-    """
 
     def unroll(self, unroll_var):
         if not isinstance(unroll_var, str):
@@ -1003,11 +1000,13 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         loopir = Schedules.DoInline(loopir, call_stmt).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
+    """
 
     def is_eq(self, proc: 'Procedure'):
         eqv_set = check_eqv_proc(self._loopir_proc, proc._loopir_proc)
         return eqv_set == frozenset()
 
+    """
     def call_eqv(self, eqv_proc: 'Procedure', call_site_pattern):
         call_stmt       = self._find_callsite(call_site_pattern)
         new_proc        = eqv_proc._loopir_proc
@@ -1039,7 +1038,6 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoBindExpr(loopir, new_name, matches, cse).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-    """
     def repeat(self, directive, *args):
         p = self
         while True:
@@ -1047,7 +1045,6 @@ class Procedure(ProcedureBase):
                 p = directive(p, *args)
             except SchedulingError:
                 return p
-    """
 
     def _parse_win_expr(self, expr_str, ctxt_stmt, scope="before"):
         # degenerate case of a scalar value
@@ -1099,8 +1096,6 @@ class Procedure(ProcedureBase):
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
 
-
-    """
     def stage_expr(self, new_name, expr_pattern, memory=None, n_lifts=1):
         return (
             self.bind_expr(new_name, expr_pattern)
@@ -1108,7 +1103,6 @@ class Procedure(ProcedureBase):
                 .set_memory(new_name, memory)
                 .fission_after(f'{new_name} = _', n_lifts=n_lifts)
         )
-    """
 
     def stage_assn(self, new_name, stmt_pattern):
         if not is_valid_name(new_name):
@@ -1223,7 +1217,6 @@ class Procedure(ProcedureBase):
 
         return p
 
-    """
     def lift_alloc_simple(self, alloc_site_pattern, n_lifts=1):
         if not is_pos_int(n_lifts):
             raise TypeError("expected second argument 'n_lifts' to be "

@@ -84,19 +84,19 @@ def simple_math_neon_sched():
 
     def sched_neon(p=simple_math_neon_sched):
         p = divide_loop(p, 'i', 4, ['io', 'ii'], tail='cut_and_guard')
-        p = p.stage_assn('xyy', 'x[_] = _ #0')
+        p = stage_assn(p, 'x[_] = _ #0', 'xyy')
         p = autolift_alloc(p, 'xyy: _')
         p = fission(p, p.find('xyy[_] = _').after())
 
-        p = p.bind_expr('xVec', 'x[_]')
+        p = bind_expr(p, 'x[_]', 'xVec')
         p = autolift_alloc(p, 'xVec: _')
         p = fission(p, p.find('xVec[_] = _').after())
 
-        p = p.bind_expr('yVec', 'y[_]', cse=True)
+        p = bind_expr(p, 'y[_]', 'yVec', cse=True)
         p = autolift_alloc(p, 'yVec: _')
         p = fission(p, p.find('yVec[_] = _').after())
 
-        p = p.bind_expr('xy', 'xVec[_] * yVec[_]')
+        p = bind_expr(p, 'xVec[_] * yVec[_]', 'xy')
         p = autolift_alloc(p, 'xy: _')
         p = fission(p, p.find('xy[_] = _').after())
 
@@ -104,9 +104,9 @@ def simple_math_neon_sched():
         p = set_memory(p, 'yVec', Neon4f)
         p = set_memory(p, 'xy', Neon4f)
         p = set_memory(p, 'xyy', Neon4f)
-        p = p.replace(neon_vst_4xf32, 'for ii in _: _ #4')
-        p = p.replace_all(neon_vld_4xf32)
-        p = p.replace_all(neon_vmul_4xf32)
+        p = replace(p, 'for ii in _: _ #4', neon_vst_4xf32)
+        p = replace_all(p, neon_vld_4xf32)
+        p = replace_all(p, neon_vmul_4xf32)
 
         return p
 

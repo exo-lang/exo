@@ -64,8 +64,8 @@ def make_ld_data_v2(p=ld_data):
     p = rename(p, "ld_data_v2")
     p = write_config(p, p.body().before(),
                         ConfigLoad, 'src_stride', 'stride(src, 0)')
-    p = p.replace(do_ld_data, 'for i in _:_')
-    p = p.replace(config_ld, 'ConfigLoad.src_stride = _')
+    p = replace(p, 'for i in _:_', do_ld_data)
+    p = replace(p, 'ConfigLoad.src_stride = _', config_ld)
     return p
 ld_data_v2 = make_ld_data_v2()
 
@@ -128,8 +128,8 @@ def make_ld_acc_v2(p=ld_acc):
     p = rename(p, "ld_acc_v2")
     p = write_config(p, p.body().before(),
                         ConfigLoad, 'src_stride', 'stride(src, 0)')
-    p = p.replace(do_ld_acc, 'for i in _:_')
-    p = p.replace(config_ld, 'ConfigLoad.src_stride = _')
+    p = replace(p, 'for i in _:_', do_ld_acc)
+    p = replace(p, 'ConfigLoad.src_stride = _', config_ld)
     return p
 ld_acc_v2 = make_ld_acc_v2()
 
@@ -200,8 +200,8 @@ def do_matmul(
 def make_matmul_v2(p=matmul):
     p = rename(p, "matmul_v2")
     p = write_config(p, p.body().before(), ConfigMatmul, 'set', 'True')
-    p = p.replace(do_matmul, 'for i in _:_')
-    p = p.replace(config_matmul, 'ConfigMatmul.set = True')
+    p = replace(p, 'for i in _:_', do_matmul)
+    p = replace(p, 'ConfigMatmul.set = True', config_matmul)
     return p
 matmul_v2 = make_matmul_v2()
 
@@ -263,8 +263,8 @@ def make_st_acc_v2(p=st_acc):
     p = rename(p, "st_acc_v2")
     p = write_config(p, p.body().before(),
                         ConfigStore, 'dst_stride', 'stride(dst, 0)')
-    p = p.replace(do_st_acc, 'for i in _:_')
-    p = p.replace(config_st_acc, 'ConfigStore.dst_stride = _')
+    p = replace(p, 'for i in _:_', do_st_acc)
+    p = replace(p, 'ConfigStore.dst_stride = _', config_st_acc)
     return p
 st_acc_v2 = make_st_acc_v2()
 
@@ -281,29 +281,29 @@ def matmul_algorithm():
 
 
 def inline_lift_config(gemmini):
-    gemmini = gemmini.call_eqv(ld_acc_v2, "ld_acc(_)")
-    gemmini = gemmini.inline("ld_acc_v2(_)")
+    gemmini = call_eqv(gemmini, "ld_acc(_)", ld_acc_v2)
+    gemmini = inline(gemmini, "ld_acc_v2(_)")
     gemmini = inline_window(gemmini, "src = C[_]")
     gemmini = inline_window(gemmini, "dst = res[_]")
 
-    gemmini = gemmini.call_eqv(ld_data_v2, "ld_data(_)")
-    gemmini = gemmini.inline("ld_data_v2(_)")
+    gemmini = call_eqv(gemmini, "ld_data(_)", ld_data_v2)
+    gemmini = inline(gemmini, "ld_data_v2(_)")
     gemmini = inline_window(gemmini, "src = A[_]")
     gemmini = inline_window(gemmini, "dst = a[_]")
 
-    gemmini = gemmini.call_eqv(ld_data_v2, "ld_data(_)")
-    gemmini = gemmini.inline("ld_data_v2(_)")
+    gemmini = call_eqv(gemmini, "ld_data(_)", ld_data_v2)
+    gemmini = inline(gemmini, "ld_data_v2(_)")
     gemmini = inline_window(gemmini, "src = B[_]")
     gemmini = inline_window(gemmini, "dst = b[_]")
 
-    gemmini = gemmini.call_eqv(matmul_v2, "matmul(_)")
-    gemmini = gemmini.inline("matmul_v2(_)")
+    gemmini = call_eqv(gemmini, "matmul(_)", matmul_v2)
+    gemmini = inline(gemmini, "matmul_v2(_)")
     gemmini = inline_window(gemmini, "A = a[_]")
     gemmini = inline_window(gemmini, "B = b[_]")
     gemmini = inline_window(gemmini, "C = res[_]")
 
-    gemmini = gemmini.call_eqv(st_acc_v2, "st_acc(_)")
-    gemmini = gemmini.inline("st_acc_v2(_)")
+    gemmini = call_eqv(gemmini, "st_acc(_)", st_acc_v2)
+    gemmini = inline(gemmini, "st_acc_v2(_)")
     gemmini = inline_window(gemmini, "src = res[_]")
     gemmini = inline_window(gemmini, "dst = C[_]")
 
@@ -324,10 +324,10 @@ def test_matmul_paper():
     gemmini = gemmini.partial_eval(NN, MM, KK)
 
     # Stage memories, so that we can use gemmini scratchpad & accumulator
-    gemmini = gemmini.stage_assn('res', 'C[_] += _')
+    gemmini = stage_assn(gemmini, 'C[_] += _', 'res')
     gemmini = double_fission(gemmini, 'res = _', 'res += _')
-    gemmini = gemmini.bind_expr('a', 'A[_]')
-    gemmini = gemmini.bind_expr('b', 'B[_]')
+    gemmini = bind_expr(gemmini, 'A[_]', 'a')
+    gemmini = bind_expr(gemmini, 'B[_]', 'b')
 
     # Tile dimensions
     gemmini = old_split(gemmini, 'i', 16, ['io', 'ii'], perfect=True)
@@ -351,13 +351,13 @@ def test_matmul_paper():
     gemmini = old_lift_alloc(gemmini, 'b:_', n_lifts=3)
 
     # replace loops with accelerator instructions
-    gemmini = gemmini.replace(ld_acc, 'for ii in _:_ #0')
-    gemmini = gemmini.replace(ld_data, 'for ii in _:_ #0')
+    gemmini = replace(gemmini, 'for ii in _:_ #0', ld_acc)
+    gemmini = replace(gemmini, 'for ii in _:_ #0', ld_data)
     gemmini = old_reorder(gemmini, 'ji ki')
-    gemmini = gemmini.replace(ld_data, 'for ki in _:_ #0')
+    gemmini = replace(gemmini, 'for ki in _:_ #0', ld_data)
     gemmini = old_reorder(gemmini, 'ki ji')
-    gemmini = gemmini.replace(matmul, 'for ii in _:_ #0')
-    gemmini = gemmini.replace(st_acc, 'for ii in _:_ #0')
+    gemmini = replace(gemmini, 'for ii in _:_ #0', matmul)
+    gemmini = replace(gemmini, 'for ii in _:_ #0', st_acc)
     gemmini = simplify(gemmini)
 
     # inline and lift config

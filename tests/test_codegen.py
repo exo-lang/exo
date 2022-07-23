@@ -100,7 +100,7 @@ def test_unroll_blur(compiler, tmp_path):
     blur = gen_blur()
 
     blur = old_split(blur, 'j', 4, ['j1', 'j2'])
-    blur = blur.unroll('j2')
+    blur = repeat(unroll_loop)(blur, 'j2')
 
     _test_blur(compiler, tmp_path, blur)
 
