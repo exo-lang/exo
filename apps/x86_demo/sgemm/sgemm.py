@@ -7,6 +7,17 @@ from exo.syntax import *
 from exo.stdlib.scheduling import *
 
 
+def reorder_up(p, stmt_pattern, n=1):
+    for _ in range(n):
+        c = p.find(stmt_pattern).expand(-1)
+        p = reorder_stmts(p, c)
+    return p
+
+def fuse_after(p, stmt):
+    c = p.find_loop(stmt)
+    c2 = c.next()
+    return fusion(p, c, c2)
+
 # noinspection PyPep8Naming
 @proc
 def SGEMM(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):
@@ -24,10 +35,9 @@ def SGEMM(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):
 
 def make_win(p):
     p = rename(p, 'SGEMM_WINDOW')
-    p = (p.set_window(p, 'A', True)
-          .set_window(p, 'B', True)
-          .set_window(p, 'C', True)
-        )
+    p = set_window(p, 'A', True)
+    p = set_window(p, 'B', True)
+    p = set_window(p, 'C', True)
     return p
 SGEMM_WINDOW = make_win(SGEMM)
 
@@ -63,293 +73,256 @@ for M in range(1, M_REG_BLK + 1):
     #)
     def make_avx512_kernel(p):
         p = rename(p,f'sgemm_kernel_avx512_{M}x4')
-        p = (p
-        #sgemm_kernel_avx512_Mx4[M] = (
-        #    basic_kernel_Mx4[M]
-        #        .rename(f'sgemm_kernel_avx512_{M}x4')
-            # Vectorize columns
-            .split('j', VEC_W, ['jo', 'ji'], perfect=True)
-            # Mark k as a reduction loop
-            .par_to_seq('for k in _: _')
-            # Stage C for reduction
-            .stage_assn('C_reg', 'C[_] += _')
-            .set_memory('C_reg', AVX512)
-            .lift_alloc('C_reg: _', n_lifts=4)
-            .double_fission('C_reg[_] = C[_]', 'C_reg[_] += _', n_lifts=4)
-            # Stage A & B
-            .stage_expr('A_vec', 'A[_, _]', memory=AVX512)
-            .stage_expr('B_vec', 'B[_, _]', memory=AVX512)
-            # Schedule ops
-            .replace(mm512_loadu_ps, 'for ji in _: _ #0')
-            .replace(mm512_storeu_ps, 'for ji in _: _ #3')
-            .replace_all(mm512_set1_ps)
-            .replace_all(mm512_loadu_ps)
-            .replace_all(mm512_fmadd_ps)
-            # LICM
-            .lift_alloc('A_vec: _')
-            .fission_after('mm512_set1_ps(_)')
-            # Clean up
-            .simplify()
-        )
+        # Vectorize columns
+        p = divide_loop(p, 'j', VEC_W, ['jo','ji'], perfect=True)
+        # Mark k as a reduction loop
+        p = par_to_seq(p, 'for k in _: _')
+        # Stage C for reduction
+        p = stage_assn(p, 'C[_] += _', 'C_reg')
+        p = set_memory(p, 'C_reg', AVX512)
+        p = autolift_alloc(p, 'C_reg: _', n_lifts=4)
+        p = double_fission(p, 'C_reg[_] = C[_]', 'C_reg[_] += _', n_lifts=4)
+        # Stage A & B
+        def stage_input(p, expr, new_buf):
+            p = bind_expr(p, expr, new_buf)
+            p = expand_dim(p, new_buf, 16, 'ji')
+            p = lift_alloc(p, new_buf)
+            p = set_memory(p, new_buf, AVX512)
+            p = fission(p, p.find(f'{new_buf} = _').after())
+            return p
+        p = stage_input(p, 'A[_]', 'A_vec')
+        p = stage_input(p, 'B[_]', 'B_vec')
+        # Schedule ops
+        p = replace(p, 'for ji in _: _ #0', mm512_loadu_ps)
+        p = replace(p, 'for ji in _: _ #3', mm512_storeu_ps)
+        p = replace_all(p, mm512_set1_ps)
+        p = replace_all(p, mm512_loadu_ps)
+        p = replace_all(p, mm512_fmadd_ps)
+        # LICM
+        p = autolift_alloc(p, 'A_vec: _')
+        p = autofission(p, p.find('mm512_set1_ps(_)').after())
+        # Clean up
+        p = simplify(p)
         return p
 
     sgemm_kernel_avx512_Mx4[M] = make_avx512_kernel(basic_kernel_Mx4[M])
 
 def make_bottom_panel_kernel(p):
     p = rename(p, 'bottom_panel_kernel')
-    p = (p
-    #bottom_panel_kernel = (
-    #    SGEMM_WINDOW
-    #   .rename('bottom_panel_kernel')
-        .partial_eval(N=N_REG_BLK)
-        .add_assertion('M < 6')
-        .simplify()
-    )
+    p = p.partial_eval(N=N_REG_BLK)
+    p = p.add_assertion('M < 6')
+    p = simplify(p)
     return p
 bottom_panel_kernel = make_bottom_panel_kernel(SGEMM_WINDOW)
 
 def make_bottom_panel_kernel_scheduled(p=bottom_panel_kernel):
     p = rename(p, 'bottom_panel_kernel_scheduled')
-    p = (p
-    #bottom_panel_kernel_scheduled = (
-    #    bottom_panel_kernel
-    #    .rename('bottom_panel_kernel_scheduled')
-        # Specialize branches (simplify needed to unify with basic kernels)
-        .specialize('for k in _: _ #0',
-                    [f'M == {i}' for i in range(1, M_REG_BLK)])
-        .simplify()
-        #
-        .replace_all(basic_kernel_Mx4[1])
-        .replace_all(basic_kernel_Mx4[2])
-        .replace_all(basic_kernel_Mx4[3])
-        .replace_all(basic_kernel_Mx4[4])
-        .replace_all(basic_kernel_Mx4[5])
-        #
-        .call_eqv(sgemm_kernel_avx512_Mx4[1], 'basic_kernel_1x4(_)')
-        .call_eqv(sgemm_kernel_avx512_Mx4[2], 'basic_kernel_2x4(_)')
-        .call_eqv(sgemm_kernel_avx512_Mx4[3], 'basic_kernel_3x4(_)')
-        .call_eqv(sgemm_kernel_avx512_Mx4[4], 'basic_kernel_4x4(_)')
-        .call_eqv(sgemm_kernel_avx512_Mx4[5], 'basic_kernel_5x4(_)')
-        #
-        .simplify()
-    )
+    p = specialize(p, 'for k in _: _ #0',
+                      [f"M == {i}" for i in range(1, M_REG_BLK)])
+    p = simplify(p)
+    for M in range(1,6):
+        p = replace_all(p, basic_kernel_Mx4[M])
+        p = call_eqv(p, f'basic_kernel_{M}x4(_)', sgemm_kernel_avx512_Mx4[M])
+    p = simplify(p)
     return p
 bottom_panel_kernel_scheduled = make_bottom_panel_kernel_scheduled()
 
 def make_right_panel_kernel(p = SGEMM_WINDOW):
     p = rename(p, 'right_panel_kernel')
-    p = (p
-    #right_panel_kernel = (
-    #    SGEMM_WINDOW
-    #    .rename('right_panel_kernel')
-        .partial_eval(M=M_REG_BLK)
-        .add_assertion('N / 16 < 4')
-        .simplify()
-    )
+    p = p.partial_eval(M=M_REG_BLK)
+    p = p.add_assertion('N / 16 < 4')
+    p = simplify(p)
     return p
 right_panel_kernel = make_right_panel_kernel()
 
 def make_right_panel_kernel_opt(p = right_panel_kernel):
     p = rename(p, 'right_panel_kernel_opt')
-    p = (p
-    #right_panel_kernel_opt = (
-    #    right_panel_kernel
-    #    .rename('right_panel_kernel_opt')
-        #
-        .stage_assn('C_reg', 'C[_] += _')
-        .split('j', VEC_W, ['jo', 'ji'], tail='cut')
-        .bound_and_guard('for ji in _: _ #1')
-        .fission_after('for jo in _: _', n_lifts=2)
-        #
-        .par_to_seq('for k in _: _')
-        #
-        .lift_alloc('C_reg: _', n_lifts=4)
-        .reorder_before('C_reg: _ #1')
-        #
-        .fission_after('C_reg[_] = _', n_lifts=4)
-        .fission_after('C_reg[_] += _', n_lifts=4)
-        #
-        .reorder_before('for i in _: _ #3')
-        .reorder_before('for i in _: _ #2')
-        #
-        .reorder_before('for k in _: _ #1')
-        #
-        .set_memory('C_reg', AVX512)
-        #
-        .stage_expr('A_reg', 'A[_]', memory=AVX512)
-        .stage_expr('B_reg', 'B[_]', memory=AVX512)
-        #
-        .replace_all(mm512_set1_ps)
-        .replace_all(mm512_fmadd_ps)
-        .replace(mm512_loadu_ps, 'for ji in _: _ #0')
-        .replace(mm512_loadu_ps, 'for ji in _: _ #1')
-        .replace(mm512_storeu_ps, 'for ji in _: _ #2')
-        #
-        .replace(mm512_maskz_loadu_ps, 'for ji in _: _ #0')
-        .replace(mm512_mask_storeu_ps, 'for ji in _: _ #1')
-        #
-        .stage_expr('A_reg2', 'A[_] #1', memory=AVX512, n_lifts=2)
-        .stage_expr('B_reg2', 'B[_] #1', memory=AVX512, n_lifts=2)
-        #
-        .replace_all(mm512_mask_set1_ps)
-        .replace_all(mm512_mask_fmadd_ps)
-        .replace_all(mm512_maskz_loadu_ps)
-        #
-        .fuse_loop('for i in _: _ #0', 'for i in _: _ #1')
-        .fuse_loop('for k in _: _ #0', 'for k in _: _ #1')
-        .fuse_loop('for i in _: _ #1', 'for i in _: _ #2')
-        .fuse_loop('for i in _: _ #2', 'for i in _: _ #3')
-        #
-        .simplify()
-    )
+    #
+    p = stage_assn(p, 'C[_] += _', 'C_reg')
+    p = divide_loop(p, 'j', VEC_W, ['jo', 'ji'], tail='cut')
+    p = bound_and_guard(p, 'for ji in _: _ #1')
+    p = fission(p, p.find('for jo in _: _').after(), n_lifts=2)
+    #
+    p = par_to_seq(p, 'for k in _: _')
+    #
+    p = autolift_alloc(p, 'C_reg: _', n_lifts=4)
+    p = autolift_alloc(p, 'C_reg: _ #1', n_lifts=4)
+    p = reorder_up(p, 'C_reg : _ #1')
+    #p = reorder_stmts(p, 'for k in _ : _\n'
+    #                     'C_reg: _')
+    #
+    p = autofission(p, p.find('C_reg[_] = _ #0').after(), n_lifts=4)
+    p = autofission(p, p.find('C_reg[_] = _ #1').after(), n_lifts=4)
+    p = autofission(p, p.find('C_reg[_] += _ #0').after(), n_lifts=4)
+    p = autofission(p, p.find('C_reg[_] += _ #1').after(), n_lifts=4)
+    #
+    p = reorder_up(p, 'for i in _: _ #3')
+    p = reorder_up(p, 'for i in _: _ #2')
+    p = reorder_up(p, 'for k in _: _ #1')
+    #
+    p = set_memory(p, 'C_reg', AVX512)
+    #
+    def stage_input(p, expr, new_buf, n_lifts=1):
+        p = bind_expr(p, expr, new_buf)
+        p = expand_dim(p, new_buf, 16, 'ji', unsafe_disable_checks=True)
+        p = lift_alloc(p, new_buf, n_lifts=n_lifts)
+        p = set_memory(p, new_buf, AVX512)
+        p = fission(p, p.find(f'{new_buf} = _').after(), n_lifts=n_lifts)
+        return p
+    p = stage_input(p, 'A[_]', 'A_reg')
+    p = stage_input(p, 'B[_]', 'B_reg')
+    #
+    p = replace_all(p, mm512_set1_ps)
+    p = replace_all(p, mm512_fmadd_ps)
+    p = replace(p, 'for ji in _:\n'
+                   '  C[_] = _', mm512_storeu_ps)
+    p = replace_all(p, mm512_loadu_ps)
+    #
+    p = replace(p, 'for ji in _: _ #0', mm512_maskz_loadu_ps)
+    p = replace(p, 'for ji in _: _ #1', mm512_mask_storeu_ps)
+    #
+    p = stage_input(p, 'A[_] #1', 'A_reg2', n_lifts=2)
+    p = stage_input(p, 'B[_] #1', 'B_reg2', n_lifts=2)
+    #
+    p = replace_all(p, mm512_mask_set1_ps)
+    p = replace_all(p, mm512_mask_fmadd_ps)
+    p = replace_all(p, mm512_maskz_loadu_ps)
+    #
+    for tgt in ['i #0', 'k #0', 'i #1', 'i #2']:
+        p = fuse_after(p, tgt)
+    #
+    p = simplify(p)
     return p
 right_panel_kernel_opt = make_right_panel_kernel_opt()
 
 def make_right_panel_kernel_scheduled(p = right_panel_kernel):
     p = rename(p, 'right_panel_kernel_scheduled')
-    p = (p
-    #right_panel_kernel_scheduled = (
-    #    right_panel_kernel
-    #    .rename('right_panel_kernel_scheduled')
-        #
-        .replace_all(right_panel_kernel)
-        #
-        .specialize('right_panel_kernel(_) #0',
-                    [f'(N / 16) == {i}' for i in range(N_REG_BLK // VEC_W)])
-        #
-        .repeat(Procedure.call_eqv, right_panel_kernel_opt,
-                'right_panel_kernel(_)')
-        .repeat(Procedure.inline, 'right_panel_kernel_opt(_)')
-        #
-        .simplify()
-        #
-        .repeat(Procedure.inline_window, 'A = _')
-        .repeat(Procedure.inline_window, 'B = _')
-        .repeat(Procedure.inline_window, 'C = _')
-        #
-        .simplify()
-    )
+    p = replace_all(p, right_panel_kernel)
+    #
+    p = specialize(p, 'right_panel_kernel(_)',
+                   [f'(N / 16) == {i}' for i in range(N_REG_BLK // VEC_W)])
+    #
+    p = repeat(call_eqv)(p, 'right_panel_kernel(_)', right_panel_kernel_opt)
+    p = repeat(inline)(p, 'right_panel_kernel_opt')
+    #
+    p = repeat(inline_window)(p, 'A = _')
+    p = repeat(inline_window)(p, 'B = _')
+    p = repeat(inline_window)(p, 'C = _')
+    #
+    p = simplify(p)
     return p
 right_panel_kernel_scheduled = make_right_panel_kernel_scheduled()
 
 def make_sgemm_above_kernel(p = SGEMM_WINDOW):
     p = rename(p, 'sgemm_above_kernel')
-    p = (p
-    #sgemm_above_kernel = (
-    #    SGEMM_WINDOW
-    #    .rename('sgemm_above_kernel')
-        # Split up into cases
-        .split('j', N_REG_BLK, ['jo', 'ji'], tail='cut_and_guard')
-        .split('i', M_REG_BLK, ['io', 'ii'], tail='cut_and_guard')
-        .fission_after('for jo in _: _ #0', n_lifts=2)
-        .reorder('ii #0', 'jo')
-        .fission_after('for io in _: _')
-        .reorder('k #0', 'io')
-        .reorder('k #0', 'jo')
-        .lift_if('if N % _ > 0: _ #0', n_lifts=3)
-        .reorder('k', 'io')
-        .lift_if('if M % _ > 0: _ #0')
-        .fission_after('for jo in _: _ #1', n_lifts=2)
-        .reorder('ii', 'jo')
-        .reorder('k', 'jo')
-        .lift_if('if N % _ > 0: _ #1', n_lifts=2)
-        # Main block
-        .replace_all(basic_kernel_Mx4[6])
-        .call_eqv(sgemm_kernel_avx512_Mx4[6], 'basic_kernel_6x4(_)')
-        # Right panel
-        .replace_all(right_panel_kernel)
-        .call_eqv(right_panel_kernel_scheduled, 'right_panel_kernel(_)')
-        # Bottom panel
-        .replace_all(bottom_panel_kernel)
-        .call_eqv(bottom_panel_kernel_scheduled, 'bottom_panel_kernel(_)')
-        # TODO: bottom-right tile
-        .simplify()
-    )
+    # Split up into cases
+    p = divide_loop(p, 'j', N_REG_BLK, ['jo', 'ji'], tail='cut_and_guard')
+    p = divide_loop(p, 'i', M_REG_BLK, ['io', 'ii'], tail='cut_and_guard')
+    p = fission(p, p.find('for jo in _: _ #0').after(), n_lifts=2)
+    p = reorder_loops(p, 'ii jo #0')
+    p = fission(p, p.find('for io in _: _').after())
+    p = fission(p, p.find('for io in _: _ #1').after())
+    p = reorder_loops(p, 'k io #0')
+    p = reorder_loops(p, 'k jo #0')
+    p = lift_if(p, 'if N % 64 > 0: _ #0', n_lifts=3)
+    p = reorder_loops(p, 'k io')
+    p = lift_if(p, 'if M % 6 > 0: _ #0')
+    p = fission(p, p.find('for jo in _: _ #1').after(), n_lifts=2)
+    p = reorder_loops(p, 'ii jo')
+    p = reorder_loops(p, 'k jo')
+    p = lift_if(p, 'if N % 64 > 0: _ #1', n_lifts=2)
+    # Main block
+    p = replace_all(p, basic_kernel_Mx4[6])
+    p = call_eqv(p, basic_kernel_Mx4[6], sgemm_kernel_avx512_Mx4[6])
+    # Right panel
+    p = replace_all(p, right_panel_kernel)
+    p = call_eqv(p, right_panel_kernel, right_panel_kernel_scheduled)
+    # Bottom panel
+    p = replace_all(p, bottom_panel_kernel)
+    p = call_eqv(p, bottom_panel_kernel, bottom_panel_kernel_scheduled)
+    ## TODO: bottom-right tile
+    p = simplify(p)
     return p
 sgemm_above_kernel = make_sgemm_above_kernel()
 
 def make_sgemm_exo(p = SGEMM):
     p = rename(p, 'sgemm_exo')
-    p = (p
-    #sgemm_exo = (
-    #    SGEMM
-    #    .rename('sgemm_exo')
-        # Split all loops
-        .split('k', K_L1_BLK, ['ko', 'ki'], tail='cut_and_guard')
-        .split('i', M_L1_BLK, ['io', 'ii'], tail='cut_and_guard')
-        .split('j', N_L1_BLK, ['jo', 'ji'], tail='cut_and_guard')
-        # Explode into 8 cases
-        .fission_after('for io in _: _', n_lifts=2)
-        .fission_after('for jo in _: _', n_lifts=4)
-        # Case 1:
-        .reorder('ki', 'io')
-        .reorder('ii', 'jo')
-        .reorder('ki', 'jo')
-        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        # Case 2:
-        .lift_if('if N % _ > 0: _ #0', n_lifts=4)
-        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        # Case 3:
-        .lift_if('if M % _ > 0: _ #0', n_lifts=2)
-        .reorder('ki', 'jo')
-        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        # Case 4:
-        .lift_if('if M % _ > 0: _ #1', n_lifts=2)
-        .lift_if('if N % _ > 0: _ #1', n_lifts=3)
-        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        # Case 5:
-        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        # Case 6:
-        .lift_if('if N % _ > 0: _ #2', n_lifts=3)
-        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        # Case 7:
-        .lift_if('if M % _ > 0: _ #2')
-        .reorder('ki', 'jo')
-        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        # Case 8:
-        .lift_if('if M % _ > 0: _ #3')
-        .lift_if('if N % _ > 0: _ #3', n_lifts=2)
-        .replace(SGEMM_WINDOW, 'for ki in _: _ #0')
-        ## Case 1 memory staging
-        .stage_window('A1_cache', 'A[_] #0', DRAM_STATIC)
-        .stage_window('B1_cache', 'B[_] #0', DRAM_STATIC)
-        .par_to_seq('for ko in _: _ #0')
-        .par_to_seq('for io in _: _ #0')
-        .par_to_seq('for jo in _: _ #0')
-        .lift_alloc('A1_cache: _', n_lifts=3)
-        .lift_alloc('B1_cache: _', n_lifts=3)
-        .fission_after('for i0 in _: _ #0')
-        ## Case 2 memory staging
-        .stage_window('B2_cache', 'B[_] #1', DRAM_STATIC)
-        .bound_alloc('B2_cache: _', [None, '64'])
-        .lift_alloc('B2_cache: _')
-        .fission_after('for i0 in _: _ #2')
-        ## Case 3 memory staging
-        .stage_window('B3_cache', 'B[_] #2', DRAM_STATIC)
-        ## Case 4 memory staging
-        .stage_window('B4_cache', 'B[_] #3', DRAM_STATIC)
-        .bound_alloc('B4_cache: _', [None, '64'])
-        ## Case 5 memory staging
-        .stage_window('B5_cache', 'B[_] #4', DRAM_STATIC)
-        .bound_alloc('B5_cache: _', ['512', None])
-        ## Case 6 memory staging
-        .stage_window('B6_cache', 'B[_] #5', DRAM_STATIC)
-        .bound_alloc('B6_cache: _', ['512', '64'])
-        # .lift_alloc('B6_cache: _')
-        # .fission_after('for i0 in _: _ #6')
-        ## Case 7 memory staging
-        .stage_window('B7_cache', 'B[_] #6', DRAM_STATIC)
-        .bound_alloc('B7_cache: _', ['512', None])
-        ## Case 8 memory staging
-        .stage_window('B8_cache', 'B[_] #7', DRAM_STATIC)
-        .bound_alloc('B8_cache: _', ['512', '64'])
-        ## Replace SGEMM_WINDOW with optimized form
-        # These must come AFTER bound_alloc since the internal check-effects
-        # is a whole program analysis that is VERY expensive
-        .repeat(Procedure.call_eqv, sgemm_above_kernel, 'SGEMM_WINDOW(_)')
-        # Clean up
-        .simplify()
-    )
+    # Split all loops
+    p = divide_loop(p, 'k', K_L1_BLK, ['ko','ki'], tail='cut_and_guard')
+    p = repeat(divide_loop)(p, 'i',M_L1_BLK,['io','ii'], tail='cut_and_guard')
+    p = repeat(divide_loop)(p, 'j',N_L1_BLK,['jo','ji'], tail='cut_and_guard')
+    # Explode into 8 cases
+    for i in range(0,2):
+        p = fission(p, p.find(f'for io in _:_ #{i}').after(), n_lifts=2)
+    for i in range(0,4):
+        p = fission(p, p.find(f'for jo in _:_ #{i}').after(), n_lifts=4)
+    # Case 1:
+    p = repeat(reorder_loops)(p, 'ki io')
+    p = repeat(reorder_loops)(p, 'ii jo')
+    p = repeat(reorder_loops)(p, 'ki jo')
+    p = replace(p, 'for ki in _: _ #0', SGEMM_WINDOW)
+    # Case 2:
+    p = lift_if(p, 'if N%64 > 0: _ #0', n_lifts=4)
+    p = replace(p, 'for ki in _: _ #0', SGEMM_WINDOW)
+    # Case 3:
+    p = lift_if(p, 'if M%264 > 0: _ #0', n_lifts=2)
+    p = repeat(reorder_loops)(p, 'ki jo')
+    p = replace(p, 'for ki in _: _ #0', SGEMM_WINDOW)
+    # Case 4:
+    p = lift_if(p, 'if M%264 > 0: _ #1', n_lifts=2)
+    p = lift_if(p, 'if N%64 > 0: _ #1', n_lifts=3)
+    p = replace(p, 'for ki in _: _ #0', SGEMM_WINDOW)
+    # Case 5:
+    p = replace(p, 'for ki in _: _ #0', SGEMM_WINDOW)
+    # Case 6:
+    p = lift_if(p, 'if N%64 > 0: _ #2', n_lifts=3)
+    p = replace(p, 'for ki in _: _ #0', SGEMM_WINDOW)
+    # Case 7:
+    p = lift_if(p, 'if M%264 > 0: _ #2')
+    p = repeat(reorder_loops)(p, 'ki jo')
+    p = replace(p, 'for ki in _: _ #0', SGEMM_WINDOW)
+    # Case 8:
+    p = lift_if(p, 'if M%264 > 0: _ #3')
+    p = lift_if(p, 'if N%64 > 0: _ #3', n_lifts=2)
+    p = replace(p, 'for ki in _: _ #0', SGEMM_WINDOW)
+    ##
+    ## Case 1 memory staging
+    p = stage_window(p, 'A[_] #0', 'A1_cache', DRAM_STATIC)
+    p = stage_window(p, 'B[_] #0', 'B1_cache', DRAM_STATIC)
+    p = par_to_seq(p, 'ko #0')
+    p = par_to_seq(p, 'io #0')
+    p = par_to_seq(p, 'jo #0')
+    p = autolift_alloc(p, 'A1_cache : _', n_lifts=3)
+    p = autolift_alloc(p, 'B1_cache : _', n_lifts=3)
+    p = autofission(p, p.find_loop('i0 #0').after())
+    ### Case 2 memory staging
+    p = stage_window(p, 'B[_] #1', 'B2_cache', DRAM_STATIC)
+    p = bound_alloc(p, 'B2_cache', [None, '64'], unsafe_disable_checks=True)
+    p = lift_alloc(p, 'B2_cache')
+    p = autofission(p, p.find_loop('i0 #2').after())
+    ## Case 3 memory staging
+    p = stage_window(p, 'B[_] #2', 'B3_cache', DRAM_STATIC)
+    ## Case 4 memory staging
+    p = stage_window(p, 'B[_] #3', 'B4_cache', DRAM_STATIC)
+    p = bound_alloc(p, 'B4_cache', [None, '64'], unsafe_disable_checks=True)
+    ## Case 5 memory staging
+    p = stage_window(p, 'B[_] #4', 'B5_cache', DRAM_STATIC)
+    p = bound_alloc(p, 'B5_cache', ['512', None], unsafe_disable_checks=True)
+    ## Case 6 memory staging
+    p = stage_window(p, 'B[_] #5', 'B6_cache', DRAM_STATIC)
+    p = bound_alloc(p, 'B6_cache', ['512', '64'], unsafe_disable_checks=True)
+    ## Case 7 memory staging
+    p = stage_window(p, 'B[_] #6', 'B7_cache', DRAM_STATIC)
+    p = bound_alloc(p, 'B7_cache', ['512', None], unsafe_disable_checks=True)
+    ## Case 8 memory staging
+    p = stage_window(p, 'B[_] #7', 'B8_cache', DRAM_STATIC)
+    p = bound_alloc(p, 'B8_cache', ['512', '64'], unsafe_disable_checks=True)
+    ## Replace SGEMM_WINDOW with optimized form
+    # These must come AFTER bound_alloc since the internal check-effects
+    # is a whole program analysis that is VERY expensive
+    p = repeat(call_eqv)(p, SGEMM_WINDOW, sgemm_above_kernel)
+    # Clean up
+    p = simplify(p)
     return p
 sgemm_exo = make_sgemm_exo()
 

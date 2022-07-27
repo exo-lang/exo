@@ -20,7 +20,7 @@ __all__ = [
     "DRAM",
     "QAST",
     "SchedulingError",
-    "ParseFragmentError"
+    "ParseFragmentError",
     #
     "stdlib",
 ]

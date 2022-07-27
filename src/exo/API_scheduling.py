@@ -233,7 +233,7 @@ class ListOrElemA(ListA):
     def __call__(self, xs, all_args):
         arg_typ = list if self.list_only else (list,tuple)
         if isinstance(xs, arg_typ):
-            return super().__call__(xs)
+            return super().__call__(xs, all_args)
         else:
             return [ self.elem_arg_proc(xs, all_args) ]
 
@@ -365,33 +365,36 @@ class BlockCursorA(ArgumentProcessor):
 
     def __call__(self, block_pattern, all_args):
         if isinstance(block_pattern, PC.BlockCursor):
-            return block_pattern
+            cursor = block_pattern
         elif isinstance(block_pattern, PC.StmtCursor):
-            return block_pattern.as_block()
-        elif isinstance(block_pattern, PC.Cursor):
-            self.err(f"expected a StmtCursor or BlockCursor, "
-                     f"not {type(block_pattern)}")
-        elif not isinstance(block_pattern, str):
-            self.err("expected a Cursor or pattern string")
+            cursor = block_pattern.as_block()
+        else:
+            if isinstance(block_pattern, PC.Cursor):
+                self.err(f"expected a StmtCursor or BlockCursor, "
+                         f"not {type(block_pattern)}")
+            elif not isinstance(block_pattern, str):
+                self.err("expected a Cursor or pattern string")
 
-        proc    = all_args["proc"]
-        # TODO: Remove all need for `call_depth`
-        matches = proc.find(block_pattern, many=self.match_many)
+            proc    = all_args["proc"]
+            # TODO: Remove all need for `call_depth`
+            matches = proc.find(block_pattern, many=self.match_many)
 
-        match   = matches[0] if self.match_many else matches
-        if isinstance(match, PC.StmtCursor):
-            match = match.as_block()
-        elif not isinstance(match, PC.BlockCursor):
-            self.err(f"expected pattern to match a BlockCursor, "
-                     f"not {type(match)}")
+            match   = matches[0] if self.match_many else matches
+            if isinstance(match, PC.StmtCursor):
+                match = match.as_block()
+            elif not isinstance(match, PC.BlockCursor):
+                self.err(f"expected pattern to match a BlockCursor, "
+                         f"not {type(match)}")
+            cursor = match
 
+        # regardless, check block size
         if self.block_size:
-            if len(match) != self.block_size:
+            if len(cursor) != self.block_size:
                 self.err(f"expected a block of size {self.block_size}, "
-                         f"but got a block of size {len(match)}",
+                         f"but got a block of size {len(cursor)}",
                          ValueError)
 
-        return match
+        return cursor
 
 class GapCursorA(ArgumentProcessor):
     def __call__(self, gap_cursor, all_args):
@@ -402,6 +405,13 @@ class GapCursorA(ArgumentProcessor):
 
 class AllocCursorA(StmtCursorA):
     def __call__(self, alloc_pattern, all_args):
+        try:
+            name, count     = NameCountA()(alloc_pattern, all_args)
+            count           = f" #{count}" if count is not None else ""
+            alloc_pattern   = f"{name} : _{count}"
+        except:
+            pass
+
         cursor = super().__call__(alloc_pattern, all_args)
         if not isinstance(cursor, PC.AllocCursor):
             self.err(f"expected an AllocCursor, not {type(cursor)}")
@@ -497,8 +507,10 @@ class AssignOrReduceCursorA(StmtCursorA):
 
 class CallCursorA(StmtCursorA):
     def __call__(self, call_pattern, all_args):
-        # allow for a special pattern short-hand, but otherwise
+        # allow for special pattern short-hands, but otherwise
         # handle as expected for a normal statement cursor
+        if isinstance(call_pattern, Procedure):
+            call_pattern    = f"{call_pattern.name()}(_)"
         try:
             name, count     = NameCountA()(call_pattern, all_args)
             count           = f"#{count}" if count is not None else ""
@@ -787,7 +799,7 @@ def replace(proc, block_cursor, subproc, quiet=False):
             raise
         print(f'Failed to unify the following:\nSubproc:\n{subproc}'
               f'Statements:\n')
-        [print(s) for s in stmt_block]
+        [print(s) for s in stmts]
         raise
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1036,8 +1048,9 @@ def rearrange_dim(proc, buf_cursor, dimensions):
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
-@sched_op([AllocCursorA, ListA(OptionalA(NewExprA('buf_cursor')))])
-def bound_alloc(proc, buf_cursor, new_bounds):
+@sched_op([AllocCursorA, ListA(OptionalA(NewExprA('buf_cursor'))), BoolA])
+def bound_alloc(proc, buf_cursor, new_bounds,
+                                 unsafe_disable_checks=False):
     """
     NOTE: TODO: This name needs to be changed
     change the dimensional extents of an allocation, but leave the number
@@ -1064,8 +1077,9 @@ def bound_alloc(proc, buf_cursor, new_bounds):
         raise ValueError(f"buffer has {len(stmt.type.hi)} dimensions, "
                          f"but only {len(new_bounds)} bounds were supplied")
     loopir  = Schedules.DoBoundAlloc(loopir, stmt, new_bounds).result()
-    # check bounds
-    CheckEffects(loopir)
+
+    if not unsafe_disable_checks:
+        CheckEffects(loopir)
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 

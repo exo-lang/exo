@@ -42,6 +42,7 @@ from ..API_scheduling import (
     # buffer and window oriented operations
     expand_dim,
     rearrange_dim,
+    bound_alloc,
     lift_alloc,
     reuse_buffer,
     inline_window,
@@ -111,6 +112,37 @@ def repeat(sched, n_times=None, verbose=False):
     repeated_sched.__name__ = f"repeat_{sched.__name__}"
     return repeated_sched
 
+_sched_seq_err = """
+sched_seq(proc, sched_list) expects an iterable object `sched_list`
+containing a sequence of scheduling operations to apply to `proc`.
+Each scheduling operation must either be a Python Callable object
+(such as a function) which will be passed one argument---the `proc`---or
+the scheduling operation must be a list/tuple whose first entry is
+a scheduling function/operation and whose remaining entries are arguments
+to be passed to that scheduling function.
+
+e.g.
+proc = sched_seq(proc,[
+    (rename, 'foo'),
+    (set_memory, 'A', SPECIAL_DRAM),
+    ...
+])
+"""
+def sched_seq(proc, sched_list):
+    for s in sched_list:
+        if callable(s):
+            proc = s(proc)
+        elif isinstance(s, (list,tuple)):
+            if len(s) == 0:
+                raise TypeError(_sched_seq_err+"\n"+
+                                "expected scheduling operation list/tuple "+
+                                "to have at least one entry")
+            s_call = s[0]
+            s_args = s[1:]
+            proc = s_call(proc, *s_args)
+        else:
+            raise TypeError(_sched_seq_err)
+    return proc
 
 def loop_hack(sched, find_func, verbose=False):
     """
