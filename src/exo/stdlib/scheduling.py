@@ -43,6 +43,8 @@ from ..API_scheduling import (
     expand_dim,
     rearrange_dim,
     bound_alloc,
+    divide_dim,
+    mult_dim,
     lift_alloc,
     reuse_buffer,
     inline_window,

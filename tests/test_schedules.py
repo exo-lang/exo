@@ -427,6 +427,64 @@ def test_expand_dim5(golden):
     foo = expand_dim(foo, 'a : i8', 'n', 'i')
     assert str(foo) == golden
 
+def test_divide_dim_1(golden):
+    @proc
+    def foo(n: size, m: size, A : R[n + m + 12]):
+        x : R[n, 12, m]
+        for i in seq(0, n):
+            for j in seq(0, 12):
+                for k in seq(0, m):
+                    x[i, j, k] = A[i + j + k]
+
+    foo = divide_dim(foo, 'x', 1, 4)
+    assert str(foo) == golden
+
+
+def test_divide_dim_fail_1():
+    @proc
+    def foo(n: size, m: size, A : R[n + m + 12]):
+        x : R[n, 12, m]
+        for i in seq(0, n):
+            for j in seq(0, 12):
+                for k in seq(0, m):
+                    x[i, j, k] = A[i + j + k]
+
+    with pytest.raises(ValueError, match='out-of-bounds'):
+        divide_dim(foo, 'x', 3, 4)
+
+    with pytest.raises(SchedulingError, match='Cannot divide 12 evenly'):
+        divide_dim(foo, 'x', 1, 5)
+
+def test_mult_dim_1(golden):
+    @proc
+    def foo(n: size, m: size, A : R[n + m + 12]):
+        x : R[n, m, 4]
+        for i in seq(0, n):
+            for j in seq(0, m):
+                for k in seq(0, 4):
+                    x[i, j, k] = A[i + j + k]
+
+    foo = mult_dim(foo, 'x', 0, 2)
+    assert str(foo) == golden
+
+def test_mult_dim_fail_1():
+    @proc
+    def foo(n: size, m: size, A : R[n + m + 12]):
+        x : R[n, m, 4]
+        for i in seq(0, n):
+            for j in seq(0, m):
+                for k in seq(0, 4):
+                    x[i, j, k] = A[i + j + k]
+
+    with pytest.raises(ValueError, match='out-of-bounds'):
+        mult_dim(foo, 'x', 3, 4)
+
+    with pytest.raises(ValueError, match='by itself'):
+        mult_dim(foo, 'x', 2, 2)
+
+    with pytest.raises(SchedulingError,
+                       match='Cannot multiply with non-literal'):
+        mult_dim(foo, 'x', 0, 1)
 
 def test_double_fission(golden):
     @proc

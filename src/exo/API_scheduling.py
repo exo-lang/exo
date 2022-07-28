@@ -1083,6 +1083,73 @@ def bound_alloc(proc, buf_cursor, new_bounds,
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([AllocCursorA, IntA, PosIntA])
+def divide_dim(proc, alloc_cursor, dim_idx, quotient):
+    """
+    Divide the `dim_idx`-th buffer dimension into a higher-order
+    and lower-order dimensions, where the lower-order dimension is given
+    by the constant integer `quotient`.
+
+    This limited implementation of `divide_dim` requires that the dimension
+    being divided is constant itself.
+
+    args:
+        alloc_cursor    - cursor to the allocation to divide a dimension of
+        dim_idx         - the index of the dimension to divide
+        quotient        - (positive int) the factor to divide by
+    
+    rewrite:
+        divide_dim(..., 1, 4)
+        `x : R[n, 12, m]`
+        `x[i, j, k] = ...`
+        ->
+        `x : R[n, 3, 4, m]`
+        `x[i, j / 4, j % 4, k] = ...`
+    """
+    if quotient == 1:
+        raise ValueError("why are you trying to divide by 1?")
+    loopir  = proc._loopir_proc
+    stmt    = alloc_cursor._impl._node()
+    if not( 0 <= dim_idx < len(stmt.type.shape()) ):
+        raise ValueError(f"Cannot divide out-of-bounds "
+                         f"dimension index {dim_idx}")
+    loopir  = Schedules.DoDivideDim(loopir, stmt, dim_idx, quotient).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+@sched_op([AllocCursorA, IntA, IntA])
+def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
+    """
+    Mutiply the `hi_dim_idx`-th buffer dimension by the `low_dim_idx`-th
+    buffer dimension to create a single buffer dimension.  This operation
+    is only permitted when the `lo_dim_idx`-th dimension is a constant
+    integer value.
+
+    args:
+        alloc_cursor    - cursor to the allocation to divide a dimension of
+        hi_dim_idx      - the index of the higher order dimension to multiply
+        lo_dim_idx      - the index of the lower order dimension to multiply
+    
+    rewrite:
+        mult_dim(..., 0, 2)
+        `x : R[n, m, 4]`
+        `x[i, j, k] = ...`
+        ->
+        `x : R[4*n, m]`
+        `x[4*i + k, j] = ...`
+    """
+    loopir  = proc._loopir_proc
+    stmt    = alloc_cursor._impl._node()
+    for dim_idx in [hi_dim_idx, lo_dim_idx]:
+        if not( 0 <= dim_idx < len(stmt.type.shape()) ):
+            raise ValueError(f"Cannot multiply out-of-bounds "
+                             f"dimension index {dim_idx}")
+    if hi_dim_idx == lo_dim_idx:
+        raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by "
+                         f"itself")
+    loopir  = Schedules.DoMultiplyDim(loopir, stmt,
+                                      hi_dim_idx, lo_dim_idx).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
 @sched_op([AllocCursorA, PosIntA])
 def lift_alloc(proc, alloc_cursor, n_lifts=1):
     """
