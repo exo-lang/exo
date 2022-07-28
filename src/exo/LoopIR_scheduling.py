@@ -2979,6 +2979,12 @@ class _AssertIf(LoopIR_Rewrite):
                 return self.map_stmts(s.body)
             else:
                 return self.map_stmts(s.orelse)
+        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+            body = self.map_stmts(s.body)
+            if not body:
+                return []
+            else:
+                return [s.update(body=body)]
 
         return super().map_s(s)
 
