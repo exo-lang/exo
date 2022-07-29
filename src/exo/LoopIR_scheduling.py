@@ -1485,7 +1485,7 @@ class _DoDivideDim(LoopIR_Rewrite):
                 raise SchedulingError(f"Cannot divide {self.alloc_sym} "
                                       f"because buffer is passed as "
                                       f"an argument")
-            idx = self.remap_idx([ self.map_e(i) for i in s.idx ])
+            idx = self.remap_idx([ self.map_e(i) for i in e.idx ])
             return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
@@ -1559,7 +1559,7 @@ class _DoMultiplyDim(LoopIR_Rewrite):
                 raise SchedulingError(f"Cannot multiply {self.alloc_sym} "
                                       f"because buffer is passed as "
                                       f"an argument")
-            idx = self.remap_idx([ self.map_e(i) for i in s.idx ])
+            idx = self.remap_idx([ self.map_e(i) for i in e.idx ])
             return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
