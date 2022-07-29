@@ -1,0 +1,6 @@
+def foo(n: size, m: size, A: R[n + m + 12] @ DRAM):
+    x: R[n, 3, 4, m] @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, 12):
+            for k in seq(0, m):
+                x[i, j / 4, j % 4, k] = A[i + j + k]

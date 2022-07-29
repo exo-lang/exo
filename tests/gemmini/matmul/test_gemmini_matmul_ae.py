@@ -3,7 +3,6 @@ import pytest
 from exo.platforms.gemmini import *
 from ..harness_gemmini import GemmTestBuilder
 
-
 def matmul_algorithm():
     @proc
     def matmul(
@@ -56,7 +55,7 @@ def test_matmul_ae():
     MM = 512
     KK = 512
 
-    cpu = matmul_algorithm().rename("matmul_on_cpu") # Rename "matmul" to "matmul_on_cpu"
+    cpu = rename(matmul_algorithm(), "matmul_on_cpu") # Rename "matmul" to "matmul_on_cpu"
     cpu = cpu.partial_eval(NN, MM, KK)
     
     # These lines are relevant if you have GEMMINI environment set up
@@ -73,7 +72,7 @@ def test_matmul_ae():
     T.alloc_dram_2i8('z_gemmini', NN, MM, '0')
 
     # Rename the procedure to "matmul_on_gemmini"
-    gemmini = cpu.rename("matmul_on_gemmini")
+    gemmini = rename(cpu, "matmul_on_gemmini")
 
     print("")
     print("===== THIS IS THE ORIGINAL MATMUL ALGORITHM BEFORE SCHEDULING ====")
@@ -82,14 +81,16 @@ def test_matmul_ae():
     print("")
 
     # Schedule starts here. Below sets buffer to use GEMMINI memories.
-    gemmini = (gemmini.set_memory('res', GEMM_ACCUM).set_memory('a', GEMM_SCRATCH).set_memory('b', GEMM_SCRATCH))
+    gemmini = set_memory(gemmini, 'res', GEMM_ACCUM)
+    gemmini = set_memory(gemmini, 'a', GEMM_SCRATCH)
+    gemmini = set_memory(gemmini, 'b', GEMM_SCRATCH)
 
     # Tile outer loops
     gemmini = tile_outer_loops(gemmini)
 
     # Lift res, so that we can fission the inner loop to use gemmini instructions
-    gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=2)
-    gemmini = gemmini.lift_alloc('res : _ #0', n_lifts=1, mode='col', size=16)
+    gemmini = old_lift_alloc(gemmini, 'res : _ #0', n_lifts=2)
+    gemmini = old_lift_alloc(gemmini, 'res : _ #0', n_lifts=1, mode='col', size=16)
 
     # Fission loops to zero accum code block, main block, and store block and reorder k up
     gemmini = fission_outer_blocks(gemmini)
@@ -102,90 +103,102 @@ def test_matmul_ae():
 
     # Inline and lift the configuration as high as possible
     # Lift config_zero
-    gemmini = gemmini.call_eqv(zero_acc_i32_v2, "zero_acc_i32(_, _, _)")
-    gemmini = gemmini.inline("zero_acc_i32_v2(_, _, _)")
-    gemmini = gemmini.inline_window("dst = res[_]")
+    gemmini = call_eqv(gemmini, "zero_acc_i32(_, _, _)", zero_acc_i32_v2)
+    gemmini = inline(gemmini, "zero_acc_i32_v2(_, _, _)")
+    gemmini = inline_window(gemmini, "dst = res[_]")
     gemmini = lift_config(gemmini, 'config_zero()')
     # Lift config_ld_i8_id1
-    gemmini = gemmini.call_eqv(ld_i8_block_id1_v2, "ld_i8_block_id1(_)")
-    gemmini = gemmini.inline("ld_i8_block_id1_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = A[_]")
-    gemmini = gemmini.inline_window("dst = a[_]")
+    gemmini = call_eqv(gemmini, "ld_i8_block_id1(_)", ld_i8_block_id1_v2)
+    gemmini = inline(gemmini, "ld_i8_block_id1_v2(_, _, _, _, _)")
+    gemmini = inline_window(gemmini, "src = A[_]")
+    gemmini = inline_window(gemmini, "dst = a[_]")
     gemmini = lift_config(gemmini, 'config_ld_i8_id1()')
     # Lift config_ld_i8_id2
-    gemmini = gemmini.call_eqv(ld_i8_block_id2_v2, "ld_i8_block_id2(_)")
-    gemmini = gemmini.inline("ld_i8_block_id2_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = B[_]")
-    gemmini = gemmini.inline_window("dst = b[_]")
+    gemmini = call_eqv(gemmini, "ld_i8_block_id2(_)", ld_i8_block_id2_v2)
+    gemmini = inline(gemmini, "ld_i8_block_id2_v2(_, _, _, _, _)")
+    gemmini = inline_window(gemmini, "src = B[_]")
+    gemmini = inline_window(gemmini, "dst = b[_]")
     gemmini = lift_config(gemmini, 'config_ld_i8_id2()')
     # Lift config_matmul
-    gemmini = gemmini.call_eqv(matmul_acc_i8_v2, "matmul_acc_i8(_, _, _, _, _)")
-    gemmini = gemmini.inline("matmul_acc_i8_v2(_, _, _, _, _)")
-    gemmini = gemmini.inline_window("A = a[_]")
-    gemmini = gemmini.inline_window("B = b[_]")
-    gemmini = gemmini.inline_window("C = res[_]")
+    gemmini = call_eqv(gemmini, "matmul_acc_i8(_, _, _, _, _)", matmul_acc_i8_v2)
+    gemmini = inline(gemmini, "matmul_acc_i8_v2(_, _, _, _, _)")
+    gemmini = inline_window(gemmini, "A = a[_]")
+    gemmini = inline_window(gemmini, "B = b[_]")
+    gemmini = inline_window(gemmini, "C = res[_]")
     gemmini = lift_config(gemmini, 'config_matmul()')
     # Lift config_st_acc_i8
-    gemmini = gemmini.call_eqv(st_acc_i8_v2, "st_acc_i8(_, _, _, _, _, _)")
-    gemmini = gemmini.inline("st_acc_i8_v2(_, _, _, _, _, _)")
-    gemmini = gemmini.inline_window("src = res[_]")
-    gemmini = gemmini.inline_window("dst = C[_]")
+    gemmini = call_eqv(gemmini, "st_acc_i8(_, _, _, _, _, _)", st_acc_i8_v2)
+    gemmini = inline(gemmini, "st_acc_i8_v2(_, _, _, _, _, _)")
+    gemmini = inline_window(gemmini, "src = res[_]")
+    gemmini = inline_window(gemmini, "dst = C[_]")
     gemmini = lift_config(gemmini, 'config_st_acc_i8(_)')
 
     # Futher tile the innner loops
     gemmini = tile(gemmini)
 
     # Lift the allocations
-    gemmini = gemmini.lift_alloc('res : _', n_lifts=1)
-    gemmini = gemmini.lift_alloc('a : _', n_lifts=4)
-    gemmini = gemmini.lift_alloc('b : _', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'res : _', n_lifts=1)
+    gemmini = old_lift_alloc(gemmini, 'a : _', n_lifts=4)
+    gemmini = old_lift_alloc(gemmini, 'b : _', n_lifts=3)
 
-    [ (gemmini := gemmini.par_to_seq(s)) for s in ['for ioo in _:_', 'for io in _:_', 'for jo in _:_', 'for i in _:_'] ]
+    [ (gemmini := par_to_seq(gemmini, s)) for s in ['for ioo in _:_', 'for io in _:_', 'for jo in _:_', 'for i in _:_'] ]
 
-    [ (gemmini := gemmini.lift_alloc(s, n_lifts=n)) for (s,n) in [('a : i8', 1), ('b : i8', 2), ('res : _', 4)] ]
+    [ (gemmini := old_lift_alloc(gemmini, s, n_lifts=n)) for (s,n) in [('a : i8', 1), ('b : i8', 2), ('res : _', 4)] ]
 
-    gemmini = gemmini.par_to_seq('for ji in _:_')
+    gemmini = par_to_seq(gemmini, 'for ji in _:_')
 
     # These schedules correspond to previous add_guard
-    gemmini = gemmini.simplify()
-    gemmini = gemmini.fission_after('for j_in_o in _:_', n_lifts=5)
-    gemmini = gemmini.fission_after('do_ld_i8_block_id1(_)', n_lifts=6)
-    gemmini = gemmini.add_loop('do_ld_i8_block_id1(_)', 'ji', 4, guard=True)
-    gemmini = gemmini.add_loop('if ji == 0: _', 'jo', 2, guard=True)
-    gemmini = gemmini.add_loop('do_ld_i8_block_id2(_)', 'i', 8, guard=True)
-    gemmini = gemmini.add_loop('if i == 0: _', 'io', 2, guard=True)
+    gemmini = simplify(gemmini)
+    gemmini = autofission(gemmini,
+                    gemmini.find('for j_in_o in _:_').after(), n_lifts=5)
+    gemmini = autofission(gemmini,
+                    gemmini.find('for k in _:_').after(), n_lifts=6)
+    gemmini = autofission(gemmini,
+                    gemmini.find('do_ld_i8_block_id1(_)').after(), n_lifts=6)
+    gemmini = add_loop(gemmini, 'do_ld_i8_block_id1(_)', 'ji', 4, guard=True)
+    gemmini = add_loop(gemmini, 'if ji == 0: _', 'jo', 2, guard=True)
+    gemmini = add_loop(gemmini, 'do_ld_i8_block_id2(_)', 'i', 8, guard=True)
+    gemmini = add_loop(gemmini, 'if i == 0: _', 'io', 2, guard=True)
     # Fuse_loop cleanup
-    gemmini = gemmini.add_loop('for jo in _:_ #1', 'ioo', 2)
-    gemmini = gemmini.add_loop('for ji in _:_ #0', 'ioo', 2)
-    gemmini = gemmini.fuse_loop('for ioo in _:_ #0', 'for ioo in _:_ #1')
-    gemmini = gemmini.fuse_loop('for ioo in _:_ #0', 'for ioo in _:_ #1')
-    gemmini = gemmini.fuse_loop('for ioo in _:_ #0', 'for ioo in _:_ #1')
-    gemmini = gemmini.add_loop('for ji in _:_ #0', 'jo', 2)
-    gemmini = gemmini.reorder('ji', 'jo').reorder('ko', 'jo').reorder('i', 'jo').reorder('io', 'jo')
-    gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
-    gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
-    gemmini = gemmini.fuse_loop('for jo in _:_ #0', 'for jo in _:_ #1')
-    gemmini = gemmini.reorder('i', 'io').reorder('k', 'io').reorder('ko', 'io').reorder('ji', 'io')
-    gemmini = gemmini.add_loop('for ji in _:_ #0', 'io', 2)
-    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
-    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
-    gemmini = gemmini.fuse_loop('for io in _:_ #0', 'for io in _:_ #1')
-    gemmini = gemmini.reorder('k', 'i').reorder('ko', 'i').reorder('ji', 'i')
-    gemmini = gemmini.add_loop('for ji in _:_ #0', 'i', 8)
-    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
-    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
-    gemmini = gemmini.fuse_loop('for i in _:_ #0', 'for i in _:_ #1')
-    gemmini = gemmini.reorder('ko', 'ji')
-    gemmini = gemmini.par_to_seq('for ji in _:_ #1')
-    gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
-    gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
-    gemmini = gemmini.fuse_loop('for ji in _:_ #0', 'for ji in _:_ #1')
-    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
-    gemmini = gemmini.fuse_loop('for ko in _:_ #0', 'for ko in _:_ #1')
+    gemmini = add_loop(gemmini, 'for jo in _:_ #1', 'ioo', 2)
+    gemmini = add_loop(gemmini, 'for ji in _:_ #0', 'ioo', 2)
+    gemmini = fusion(gemmini, 'for ioo in _:_ #0', 'for ioo in _:_ #1')
+    gemmini = fusion(gemmini, 'for ioo in _:_ #0', 'for ioo in _:_ #1')
+    gemmini = fusion(gemmini, 'for ioo in _:_ #0', 'for ioo in _:_ #1')
+    gemmini = add_loop(gemmini, 'for ji in _:_ #0', 'jo', 2)
+    gemmini = old_reorder(gemmini, 'ji jo')
+    gemmini = old_reorder(gemmini, 'ko jo')
+    gemmini = old_reorder(gemmini, 'i jo')
+    gemmini = old_reorder(gemmini, 'io jo')
+    gemmini = fusion(gemmini, 'for jo in _:_ #0', 'for jo in _:_ #1')
+    gemmini = fusion(gemmini, 'for jo in _:_ #0', 'for jo in _:_ #1')
+    gemmini = fusion(gemmini, 'for jo in _:_ #0', 'for jo in _:_ #1')
+    gemmini = old_reorder(gemmini, 'i io')
+    gemmini = old_reorder(gemmini, 'k io')
+    gemmini = old_reorder(gemmini, 'ko io')
+    gemmini = old_reorder(gemmini, 'ji io')
+    gemmini = add_loop(gemmini, 'for ji in _:_ #0', 'io', 2)
+    gemmini = fusion(gemmini, 'for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = fusion(gemmini, 'for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = fusion(gemmini, 'for io in _:_ #0', 'for io in _:_ #1')
+    gemmini = old_reorder(gemmini, 'k i')
+    gemmini = old_reorder(gemmini, 'ko i')
+    gemmini = old_reorder(gemmini, 'ji i')
+    gemmini = add_loop(gemmini, 'for ji in _:_ #0', 'i', 8)
+    gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
+    gemmini = old_reorder(gemmini, 'ko ji')
+    gemmini = par_to_seq(gemmini, 'for ji in _:_ #1')
+    gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
+    gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
+    gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
+    gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
+    gemmini = fusion(gemmini, 'for ko in _:_ #0', 'for ko in _:_ #1')
 
-    gemmini = gemmini.fuse_loop('for k in _:_ #0', 'for k in _:_ #1')
-    gemmini = gemmini.unroll('j_in_o')
-    gemmini = gemmini.simplify()
+    gemmini = fusion(gemmini, 'for k in _:_ #0', 'for k in _:_ #1')
+    gemmini = old_unroll(gemmini, 'j_in_o')
+    gemmini = simplify(gemmini)
 
     # Schedule ends here. 43 lines excluding comments and newlines
 

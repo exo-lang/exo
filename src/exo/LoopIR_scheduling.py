@@ -903,39 +903,8 @@ class _InlineWindow(LoopIR_Rewrite):
 
 
 
-class _ConfigWriteRoot(LoopIR_Rewrite):
-    def __init__(self, proc, config, field, expr):
-        assert (isinstance(expr, LoopIR.Read)
-                or isinstance(expr, LoopIR.StrideExpr)
-                or isinstance(expr, LoopIR.Const))
-
-        self.orig_proc = proc
-
-        cw_s    = LoopIR.WriteConfig(config, field, expr, None, proc.srcinfo)
-        body    = [cw_s] + proc.body
-
-        self.proc = LoopIR.proc(name    = proc.name,
-                                args    = proc.args,
-                                preds   = proc.preds,
-                                body    = body,
-                                instr   = proc.instr,
-                                eff     = proc.eff,
-                                srcinfo = proc.srcinfo)
-
-        # check safety...
-        mod_cfg = Check_DeleteConfigWrite(self.proc,[cw_s])
-        self.eq_mod_config = mod_cfg
-
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-
-    def mod_eq(self):
-        return self.eq_mod_config
-
-
-
-class _ConfigWriteAfter(LoopIR_Rewrite):
-    def __init__(self, proc, stmt, config, field, expr):
+class _ConfigWrite(LoopIR_Rewrite):
+    def __init__(self, proc, stmt, config, field, expr, before=False):
         assert (isinstance(expr, LoopIR.Read)
                 or isinstance(expr, LoopIR.StrideExpr)
                 or isinstance(expr, LoopIR.Const))
@@ -945,6 +914,7 @@ class _ConfigWriteAfter(LoopIR_Rewrite):
         self.config = config
         self.field = field
         self.expr = expr
+        self.before = before
 
         self._new_cfgwrite_stmt = None
 
@@ -963,15 +933,35 @@ class _ConfigWriteAfter(LoopIR_Rewrite):
 
     def map_stmts(self, stmts):
         body = []
-        for s in stmts:
-            body += self.map_s(s)
+        for i,s in enumerate(stmts):
             if s is self.stmt:
                 cw_s = LoopIR.WriteConfig(self.config, self.field, self.expr,
                                           None, s.srcinfo)
                 self._new_cfgwrite_stmt = cw_s
-                body.append(cw_s)
+
+                if self.before:
+                    body += [cw_s, s]
+                else:
+                    body += [s, cw_s]
+
+                # finish and exit
+                body += stmts[i+1:]
+                return body
+
+            else:
+                body += self.map_s(s)
 
         return body
+
+class _ConfigWriteRoot(_ConfigWrite):
+    def __init__(self, proc, config, field, expr):
+        stmt = proc.body[0]
+        super().__init__(proc, stmt, config, field, expr, before=True)
+
+class _ConfigWriteAfter(_ConfigWrite):
+    def __init__(self, proc, stmt, config, field, expr):
+        super().__init__(proc, stmt, config, field, expr)
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -1431,6 +1421,153 @@ class _DoRearrangeDim(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+class _DoDivideDim(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, dim_idx, quotient):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+        assert isinstance(dim_idx, int)
+        assert isinstance(quotient, int)
+
+        self.orig_proc      = proc
+        self.alloc_stmt     = alloc_stmt
+        self.alloc_sym      = alloc_stmt.name
+        self.dim_idx        = dim_idx
+        self.quotient       = quotient
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    def remap_idx(self, idx):
+        orig_i  = idx[self.dim_idx]
+        srcinfo = orig_i.srcinfo
+        quot    = LoopIR.Const(self.quotient, T.int, srcinfo)
+        hi      = LoopIR.BinOp('/', orig_i, quot, orig_i.type, srcinfo)
+        lo      = LoopIR.BinOp('%', orig_i, quot, orig_i.type, srcinfo)
+        return (idx[:self.dim_idx] +
+                [hi, lo] +
+                idx[self.dim_idx+1:])
+
+    def map_s(self, s):
+        if s is self.alloc_stmt:
+            old_typ = s.type
+            old_shp = old_typ.shape()
+            dim     = old_shp[self.dim_idx]
+
+            if not isinstance(dim, LoopIR.Const):
+                raise SchedulingError(f"Cannot divide non-literal dimension: "
+                                      f"{str(dim)}")
+            if not dim.val % self.quotient == 0:
+                raise SchedulingError(f"Cannot divide {dim.val} evenly by "
+                                      f"{self.quotient}")
+            denom   = self.quotient
+            numer   = dim.val // denom
+            new_shp = (old_shp[:self.dim_idx] +
+                       [LoopIR.Const(numer, T.int, dim.srcinfo),
+                        LoopIR.Const(denom, T.int, dim.srcinfo)] +
+                       old_shp[self.dim_idx+1:])
+            new_typ = T.Tensor(new_shp, False, old_typ.basetype())
+
+            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
+
+        elif (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
+                and s.name == self.alloc_sym):
+            idx = self.remap_idx([ self.map_e(i) for i in s.idx ])
+            rhs = self.map_e(s.rhs)
+            return [type(s)( s.name, s.type, s.cast,
+                             idx, rhs, None, s.srcinfo )]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
+            if len(e.idx) == 0:
+                raise SchedulingError(f"Cannot divide {self.alloc_sym} "
+                                      f"because buffer is passed as "
+                                      f"an argument")
+            idx = self.remap_idx([ self.map_e(i) for i in e.idx ])
+            return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
+            raise SchedulingError(f"Cannot divide {self.alloc_sym} because "
+                                  f"the buffer is windowed later on")
+
+        # fall-through
+        return super().map_e(e)
+
+
+class _DoMultiplyDim(LoopIR_Rewrite):
+    def __init__(self, proc, alloc_stmt, hi_idx, lo_idx):
+        assert isinstance(alloc_stmt, LoopIR.Alloc)
+        assert isinstance(hi_idx, int)
+        assert isinstance(lo_idx, int)
+
+        self.orig_proc      = proc
+        self.alloc_stmt     = alloc_stmt
+        self.alloc_sym      = alloc_stmt.name
+        self.hi_idx         = hi_idx
+        self.lo_idx         = lo_idx
+        lo_dim              = alloc_stmt.type.shape()[lo_idx]
+        if not isinstance(lo_dim, LoopIR.Const):
+            raise SchedulingError(f"Cannot multiply with non-literal second "
+                                  f"dimension: {str(lo_dim)}")
+        self.lo_val         = lo_dim.val
+
+        super().__init__(proc)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    def remap_idx(self, idx):
+        hi      = idx[self.hi_idx]
+        lo      = idx[self.lo_idx]
+        mulval  = LoopIR.Const(self.lo_val, T.int, hi.srcinfo)
+        mul_hi  = LoopIR.BinOp('*', mulval, hi, hi.type, hi.srcinfo)
+        prod    = LoopIR.BinOp('+', mul_hi, lo, T.index, hi.srcinfo)
+        idx[self.hi_idx] = prod
+        del idx[self.lo_idx]
+        return idx
+
+    def map_s(self, s):
+        if s is self.alloc_stmt:
+            old_typ = s.type
+            shp     = old_typ.shape().copy()
+
+            hi_dim  = shp[self.hi_idx]
+            lo_dim  = shp[self.lo_idx]
+            prod    = LoopIR.BinOp('*', lo_dim, hi_dim,
+                                   hi_dim.type, hi_dim.srcinfo)
+            shp[self.hi_idx] = prod
+            del shp[self.lo_idx]
+
+            new_typ = T.Tensor(shp, False, old_typ.basetype())
+
+            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
+
+        elif (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
+                and s.name == self.alloc_sym):
+            idx = self.remap_idx([ self.map_e(i) for i in s.idx ])
+            rhs = self.map_e(s.rhs)
+            return [type(s)( s.name, s.type, s.cast,
+                             idx, rhs, None, s.srcinfo )]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
+            if len(e.idx) == 0:
+                raise SchedulingError(f"Cannot multiply {self.alloc_sym} "
+                                      f"because buffer is passed as "
+                                      f"an argument")
+            idx = self.remap_idx([ self.map_e(i) for i in e.idx ])
+            return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
+            raise SchedulingError(f"Cannot multiply {self.alloc_sym} because "
+                                  f"the buffer is windowed later on")
+
+        # fall-through
+        return super().map_e(e)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -2531,13 +2668,18 @@ def _make_closure(name, stmts, var_types):
 
 
 class _DoInsertPass(LoopIR_Rewrite):
-    def __init__(self, proc, stmt):
+    def __init__(self, proc, stmt, before=True):
         self.stmt = stmt
+        self.before = before
         super().__init__(proc)
 
     def map_s(self, s):
         if s is self.stmt:
-            return [LoopIR.Pass(eff_null(s.srcinfo), srcinfo=s.srcinfo), s]
+            pass_s = LoopIR.Pass(eff_null(s.srcinfo), srcinfo=s.srcinfo)
+            if self.before:
+                return [pass_s, s]
+            else:
+                return [s, pass_s]
         return super().map_s(s)
 
 
@@ -3490,6 +3632,7 @@ class Schedules:
     DoExtractMethod = _DoExtractMethod
     DoParToSeq = _DoParToSeq
     DoReorderStmt = _DoReorderStmt
+    DoConfigWrite = _ConfigWrite
     DoConfigWriteAfter = _ConfigWriteAfter
     DoConfigWriteRoot = _ConfigWriteRoot
     DoInlineWindow = _InlineWindow
@@ -3515,6 +3658,8 @@ class Schedules:
     DoBoundAlloc = _DoBoundAlloc
     DoExpandDim    = _DoExpandDim
     DoRearrangeDim  = _DoRearrangeDim
+    DoDivideDim = _DoDivideDim
+    DoMultiplyDim = _DoMultiplyDim
     DoRemoveLoop   = _DoRemoveLoop
     DoLiftAllocSimple  = _DoLiftAllocSimple
     DoFissionAfterSimple  = _DoFissionAfterSimple

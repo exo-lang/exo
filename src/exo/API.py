@@ -25,6 +25,8 @@ from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
+from . import API_cursors
+from . import internal_cursors
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -196,15 +198,73 @@ class Procedure(ProcedureBase):
     def get_instr(self):
         return self._loopir_proc.instr
 
-    def find_cursors(self, pattern):
+    def body(self):
+        """
+        Return a BlockCursor selecting the entire body of the Procedure
+        """
+        impl = internal_cursors.Cursor.root(self).body()
+        return API_cursors.new_Cursor(impl)
+
+    def find(self, pattern, many=False):
+        """
+        Find the most specific possible cursor for the given pattern.
+        For example, a pattern matching a single assignment statement
+        will return an AssignCursor, not a StmtCursor or BlockCursor.
+
+        If the optional parameter `many` is set to True, then return a list,
+        potentially containing more than one Cursor.
+
+        In any event, if no matches are found, a SchedulingError is raised
+        """
+        if not isinstance(pattern, str):
+            raise TypeError('expected a pattern string')
+        default_match_no = None if many else 0
+        raw_cursors = match_cursors(self, pattern, call_depth=1,
+                                    default_match_no=default_match_no)
+        assert isinstance(raw_cursors, list)
+        cursors = []
+        for c in raw_cursors:
+            c = API_cursors.new_Cursor(c)
+            if ( isinstance(c, (API_cursors.BlockCursor,
+                                API_cursors.ExprListCursor)) and
+                 len(c) == 1 ):
+                c = c[0]
+            cursors.append(c)
+
+        if not cursors:
+            raise SchedulingError('failed to find matches', pattern=pattern)
+
+        return cursors if many else cursors[0]
+
+    def find_loop(self, pattern, many=False):
+        """
+        This is the same as proc.find(...), except if the supplied pattern
+        is of the form 'name' or 'name #n', then it will be auto-expanded
+        to 'for name in _:_' or 'for name in _:_ #n'
+        """
+        if not isinstance(pattern, str):
+            raise TypeError('expected a pattern string')
+
+        _name_count_re = r"^([a-zA-Z_]\w*)\s*(\#\s*[0-9]+)?$"
+        results = re.search(_name_count_re, pattern)
+        if results:
+            name, count = results[1], (results[2] if results[2] else "")
+            pattern     = f"for {name} in _: _{count}"
+
+        return self.find(pattern, many)
+
+    def find_all(self, pattern):
+        return self.find(pattern, many=True)
+
+    def _TEST_find_cursors(self, pattern):
         cursors = match_cursors(self, pattern, call_depth=1)
         assert isinstance(cursors, list)
         if not cursors:
             raise SchedulingError('failed to find matches', pattern=pattern)
         return cursors
 
-    def find_stmt(self, pattern):
-        curs = self.find_cursors(pattern)
+    def _TEST_find_stmt(self, pattern):
+        curs = self._TEST_find_cursors(pattern)
         assert len(curs) == 1
         curs = curs[0]
         if len(curs) != 1:
@@ -266,26 +326,26 @@ class Procedure(ProcedureBase):
     #     scheduling operations
     # ------------------------------- #
 
-    def simplify(self):
-        """
-        Simplify the code in the procedure body. Tries to reduce expressions
-        to constants and eliminate dead branches and loops. Uses branch
-        conditions to simplify expressions inside the branches.
-        """
-        p = self._loopir_proc
-        p = Schedules.DoSimplify(p).result()
-        return Procedure(p, _provenance_eq_Procedure=self)
+    #def simplify(self):
+    #    """
+    #    Simplify the code in the procedure body. Tries to reduce expressions
+    #    to constants and eliminate dead branches and loops. Uses branch
+    #    conditions to simplify expressions inside the branches.
+    #    """
+    #    p = self._loopir_proc
+    #    p = Schedules.DoSimplify(p).result()
+    #    return Procedure(p, _provenance_eq_Procedure=self)
 
-    def rename(self, name):
-        """
-        Rename the procedure. Affects generated symbol names.
-        """
-        if not is_valid_name(name):
-            raise ValueError(f"'{name}' is not a valid name")
-        p = self._loopir_proc
-        p = LoopIR.proc( name, p.args, p.preds, p.body,
-                         p.instr, p.eff, p.srcinfo )
-        return Procedure(p, _provenance_eq_Procedure=self)
+    #def rename(self, name):
+    #    """
+    #    Rename the procedure. Affects generated symbol names.
+    #    """
+    #    if not is_valid_name(name):
+    #        raise ValueError(f"'{name}' is not a valid name")
+    #    p = self._loopir_proc
+    #    p = LoopIR.proc( name, p.args, p.preds, p.body,
+    #                     p.instr, p.eff, p.srcinfo )
+    #    return Procedure(p, _provenance_eq_Procedure=self)
 
     def has_dup(self):
         """
@@ -293,15 +353,15 @@ class Procedure(ProcedureBase):
         """
         return FindDup(self._loopir_proc).result
 
-    def make_instr(self, instr):
-        if not isinstance(instr, str):
-            raise TypeError("expected an instruction macro "
-                            "(Python string with {} escapes "
-                            "as an argument")
-        p = self._loopir_proc
-        p = LoopIR.proc(p.name, p.args, p.preds, p.body,
-                        instr, p.eff, p.srcinfo)
-        return Procedure(p, _provenance_eq_Procedure=self)
+    #def make_instr(self, instr):
+    #    if not isinstance(instr, str):
+    #        raise TypeError("expected an instruction macro "
+    #                        "(Python string with {} escapes "
+    #                        "as an argument")
+    #    p = self._loopir_proc
+    #    p = LoopIR.proc(p.name, p.args, p.preds, p.body,
+    #                    instr, p.eff, p.srcinfo)
+    #    return Procedure(p, _provenance_eq_Procedure=self)
 
     def unsafe_assert_eq(self, other_proc):
         if not isinstance(other_proc, Procedure):
@@ -331,6 +391,7 @@ class Procedure(ProcedureBase):
         p = Schedules.DoPartialEval(p, kwargs).result()
         return Procedure(p)  # No provenance because signature changed
 
+    """
     def set_precision(self, name, typ_abbreviation):
         name, count = name_plus_count(name)
         _shorthand = {
@@ -372,6 +433,7 @@ class Procedure(ProcedureBase):
         loopir = Schedules.SetTypAndMem(loopir, name, count,
                                         mem=memory_type).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
+    """
 
     def _find_stmt(self, stmt_pattern, call_depth=2,
                    default_match_no: Optional[int] = 0):
@@ -393,7 +455,7 @@ class Procedure(ProcedureBase):
 
         return call_stmt
 
-
+    """
     def bind_config(self, var_pattern, config, field):
         # Check if config and field are valid here
         if not isinstance(config, Config):
@@ -602,19 +664,21 @@ class Procedure(ProcedureBase):
         var_exprs = [parse_fragment(loopir, expr, stmt) for expr in conds]
         loopir = Schedules.DoSpecialize(loopir, stmt, var_exprs).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
+    """
 
-    def add_assertion(self, assertion):
+    def add_assertion(self, assertion, configs=[]):
         if not isinstance(assertion, str):
             raise TypeError('assertion must be an Exo string')
 
         p = self._loopir_proc
-        assertion = parse_fragment(p, assertion, p.body[0])
+        assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
         p = LoopIR.proc(p.name, p.args, p.preds + [assertion], p.body,
                         p.instr, p.eff, p.srcinfo)
         return Procedure(p, _provenance_eq_Procedure=None)
 
+    """
     def bound_and_guard(self, loop):
-        """
+        #" " "
         Replace
           for i in par(0, e): ...
         with
@@ -623,7 +687,7 @@ class Procedure(ProcedureBase):
         where c is the tightest constant bound on e
 
         This currently only works when e is of the form x % n
-        """
+        #" " "
         if not isinstance(loop, str):
             raise TypeError("expected loop pattern")
 
@@ -694,7 +758,6 @@ class Procedure(ProcedureBase):
         loopir = Schedules.DoAddLoop(loopir, stmt, var, hi, guard).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-
 
     def merge_guard(self, stmt1, stmt2):
         if not isinstance(stmt1, str):
@@ -937,11 +1000,13 @@ class Procedure(ProcedureBase):
         loopir = self._loopir_proc
         loopir = Schedules.DoInline(loopir, call_stmt).result()
         return Procedure(loopir, _provenance_eq_Procedure=self)
+    """
 
     def is_eq(self, proc: 'Procedure'):
         eqv_set = check_eqv_proc(self._loopir_proc, proc._loopir_proc)
         return eqv_set == frozenset()
 
+    """
     def call_eqv(self, eqv_proc: 'Procedure', call_site_pattern):
         call_stmt       = self._find_callsite(call_site_pattern)
         new_proc        = eqv_proc._loopir_proc
@@ -1030,7 +1095,6 @@ class Procedure(ProcedureBase):
                                            use_accum_zero=accum).result()
 
         return Procedure(loopir, _provenance_eq_Procedure=self)
-
 
     def stage_expr(self, new_name, expr_pattern, memory=None, n_lifts=1):
         return (
@@ -1195,6 +1259,7 @@ class Procedure(ProcedureBase):
 
         return p
 
+    
     def double_fission(self, stmt_pat1, stmt_pat2, n_lifts=1):
         if not isinstance(stmt_pat1, str):
             raise TypeError("expected first arg to be a string")
@@ -1267,6 +1332,7 @@ class Procedure(ProcedureBase):
         loopir, subproc = passobj.result(), passobj.subproc()
         return ( Procedure(loopir, _provenance_eq_Procedure=self),
                  Procedure(subproc) )
+    """
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

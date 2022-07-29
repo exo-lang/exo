@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from exo import *
 from exo.platforms.neon import *
-
+from exo.stdlib.scheduling import *
 
 def stage_C(kernel):
     return (kernel.par_to_seq('for k in _: _')
@@ -40,12 +40,13 @@ def SGEMM(
             for k in par(0, K):
                 C[i, j] += A[i, k] * B[k, j]
 
-sgemm_win = (
-    SGEMM.rename('sgemm_win')
-        .set_window('A', True)
-        .set_window('B', True)
-        .set_window('C', True)
-)
+def make_sgemm_win(p=SGEMM):
+    p = rename(SGEMM, 'sgemm_win')
+    p = set_window(p, 'A', True)
+    p = set_window(p, 'B', True)
+    p = set_window(p, 'C', True)
+    return p
+sgemm_win = make_sgemm_win()
 
 
 micro_N = 4
@@ -62,90 +63,103 @@ mid_N = L1_N // micro_N
 mid_M = L1_M // micro_M
 mid_K = L1_K
 
-microkernel = (
-    sgemm_win.rename('microkernel')
-        .partial_eval(micro_N,micro_M)
-        .simplify()
-)
+microkernel = rename(sgemm_win, 'microkernel')
+microkernel = microkernel.partial_eval(micro_N,micro_M)
+microkernel = simplify(microkernel)
 
 
-sgemm_tiled = (
-    SGEMM.rename('sgemm_tiled')
-        # tile i & j for the kernel
-        .split('i', micro_N, ['io', 'ii'], tail='cut_and_guard')
-        .split('j #0', micro_M, ['jo', 'ji'], tail='cut_and_guard')
-        # isolate the main chunk of work
-        .fission_after('for jo in _: _', n_lifts=2)
-        .reorder('ii','jo')
-        # tile k now, before we do the microkernel replacement
-        .split('k #0', mid_K, ['ko', 'ki'], tail='cut_and_guard')
-        .fission_after('for ko in _: _', n_lifts=2)
-        .reorder('ji','ko')
-        .reorder('ii','ko')
-        .replace_all(microkernel)
-        .simplify()
-)
+def make_sgemm_tiled(p=SGEMM):
+    p = rename(p, 'sgemm_tiled')
+    # tile i & j for the kernel
+    p = divide_loop(p, 'i', micro_N, ['io', 'ii'], tail='cut_and_guard')
+    p = divide_loop(p, 'j #0', micro_M, ['jo', 'ji'], tail='cut_and_guard')
+    # isolate the main chunk of work
+    p = fission(p, p.find('for jo in _: _').after(), n_lifts=2)
+    p = reorder_loops(p, 'ii jo')
+    # tile k now, before we do the microkernel replacement
+    p = divide_loop(p, 'k #0', mid_K, ['ko', 'ki'], tail='cut_and_guard')
+    p = fission(p, p.find('for ko in _: _').after(), n_lifts=2)
+    p = reorder_loops(p, 'ji ko')
+    p = reorder_loops(p, 'ii ko')
+    p = replace_all(p, microkernel)
+    p = simplify(p)
+    return p
+sgemm_tiled = make_sgemm_tiled()
 print(sgemm_tiled)
 
-neon_microkernel = (
-    microkernel.rename('neon_microkernel')
-        # Move k to the outermost loop
-        .reorder('j','k')
-        .reorder('i','k')
-        # expose inner-loop for 4-wide vectorization
-        .split('j', 4, ['jo','ji'], perfect=True)
-)
+def make_neon_microkernel(p=microkernel):
+    p = rename(p, 'neon_microkernel')
+    # Move k to the outermost loop
+    p = reorder_loops(p, 'j k')
+    p = reorder_loops(p, 'i k')
+    # expose inner-loop for 4-wide vectorization
+    p = divide_loop(p, 'j', 4, ['jo','ji'], perfect=True)
+    return p
+neon_microkernel = make_neon_microkernel()
 
-neon_microkernel = ( stage_C(neon_microkernel)
-    .replace(neon_vld_4xf32, 'for ji in _: _ #0')
-    .replace(neon_vst_4xf32, 'for ji in _: _ #1')
-    .set_memory('C_reg', Neon4f)
-)
+def stage_C_microkernel(p=neon_microkernel):
+    p = stage_mem(p, 'C[_] += _', 'C[i, 4 * jo + ji]', 'C_reg')
+    for iname in reversed(['i','jo','ji']):
+        p = expand_dim(p, 'C_reg', 4, iname, unsafe_disable_checks=True)
+    p = lift_alloc(p, 'C_reg', n_lifts=4)
+    p = autofission(p, p.find('C_reg[_] = _').after(), n_lifts=4)
+    p = autofission(p, p.find('C[_] = _').before(), n_lifts=4)
+    #
+    p = replace(p, 'for ji in _: _ #0', neon_vld_4xf32)
+    p = replace(p, 'for ji in _: _ #1', neon_vst_4xf32)
+    p = set_memory(p, 'C_reg', Neon4f)
+    return p
+neon_microkernel = stage_C_microkernel()
 
-neon_microkernel = ( stage_A_and_B(neon_microkernel)
-    .replace_all(neon_vld_4xf32)
-    .replace_all(neon_broadcast_4xf32)
-    .replace_all(neon_vfmadd_4xf32_4xf32)
-    #.replace_all(neon_vfmadd_1xf32_4xf32)
-    .lift_alloc('A_vec : _', n_lifts=2)
-    .fission_after('neon_broadcast_4xf32(_)', n_lifts=2)
-    .lift_alloc('B_vec : _', n_lifts=2)
-    .fission_after('neon_vld_4xf32(_) #1', n_lifts=2)
-)
+def stage_A_B_microkernel(p=neon_microkernel):
+    for buf in ('A','B'):
+        p = bind_expr(p, f'{buf}[_]', f'{buf}_vec')
+        p = expand_dim(p, f'{buf}_vec', 4, 'ji', unsafe_disable_checks=True)
+        p = lift_alloc(p, f'{buf}_vec')
+        p = fission(p, p.find(f'{buf}_vec[_] = _').after())
+        p = set_memory(p, f'{buf}_vec', Neon4f)
+    #
+    p = replace_all(p, neon_vld_4xf32)
+    p = replace_all(p, neon_broadcast_4xf32)
+    p = replace_all(p, neon_vfmadd_4xf32_4xf32)
+    p = autolift_alloc(p, 'A_vec', n_lifts=2)
+    p = autofission(p, p.find('B_vec : _').before(), n_lifts=2)
+    p = autolift_alloc(p, 'B_vec', n_lifts=2)
+    p = autofission(p, p.find('neon_vld_4xf32(_) #1').after(), n_lifts=2)
+    return p
+neon_microkernel = stage_A_B_microkernel()
 
-neon_microkernel = neon_microkernel.simplify()
+neon_microkernel = simplify(neon_microkernel)
 print(neon_microkernel)
 
-sgemm_tiled = (sgemm_tiled
-    .call_eqv(neon_microkernel, 'microkernel(_)')
-    #.call_eqv(neon_microkernel, 'microkernel(_)')
+def finish_sgemm_tiled(p=sgemm_tiled):
+    p = call_eqv(p, microkernel, neon_microkernel)
     # clean up tail case from earlier
-    .fission_after('for ko in _: _ #0', n_lifts=2)
+    p = autofission(p, p.find('for ko in _: _ #0').after(), n_lifts=2)
     # actually tile for L1 cache
-    .reorder('jo #0','ko')
-    .reorder('io #0','ko')
-    .split('io #0', mid_N, ['io', 'im'], tail='cut')
-    .split('jo #0', mid_M, ['jo', 'jm'], tail='cut')
-    .fission_after('for jo in _: _ #0', n_lifts=3)
-    .reorder('im','jm')
-    .reorder('im','jo')
-    #.reorder('ko #0', 'io')
-    #.reorder('ko #0', 'jo')
-    .simplify()
+    p = reorder_loops(p, 'jo ko #0')
+    p = reorder_loops(p, 'io ko #0')
+    p = divide_loop(p, 'io #0', mid_N, ['io', 'im'], tail='cut')
+    p = divide_loop(p, 'jo #0', mid_M, ['jo', 'jm'], tail='cut')
+    p = fission(p, p.find('for jo in _: _ #0').after(), n_lifts=3)
+    p = repeat(reorder_loops)(p, 'im jm')
+    p = repeat(reorder_loops)(p, 'im jo')
+    p = simplify(p)
     # stage per-tile memory at appropriate levels
-    .stage_mem(f'A[{L1_N}*io : {L1_N}*io + {L1_N},'
-               f'  {L1_K}*ko : {L1_K}*ko + {L1_K}]',
-               'Atile', 'for jo in _: _ #0')
-    .lift_alloc_simple('Atile : _', n_lifts=2)
-    .stage_mem(f'B[{L1_K}*ko : {L1_K}*ko + {L1_K},'
-               f'  {L1_M}*jo : {L1_M}*jo + {L1_M}]',
-               'Btile', 'for im in _: _ #0')
-    .lift_alloc_simple('Btile : _', n_lifts=3)
+    p = stage_mem(p, 'for jo in _: _ #0',
+                     f"A[{L1_N}*io : {L1_N}*io + {L1_N},"
+                     f"  {L1_K}*ko : {L1_K}*ko + {L1_K}]", 'Atile')
+    p = lift_alloc(p, 'Atile', n_lifts=2)
+    p = stage_mem(p, 'for im in _: _ #0',
+                  f"B[{L1_K}*ko : {L1_K}*ko + {L1_K},"
+                  f"  {L1_M}*jo : {L1_M}*jo + {L1_M}]", 'Btile')
+    p = lift_alloc(p, 'Btile', n_lifts=3)
     # cleanup
-    .simplify()
-)
+    p = simplify(p)
+    return p
+sgemm_tiled = finish_sgemm_tiled()
 
-sgemm_exo = sgemm_tiled.rename('sgemm_exo')
+sgemm_exo = rename(sgemm_tiled, 'sgemm_exo')
 print(sgemm_exo)
 
 __all__ = ['sgemm_exo']

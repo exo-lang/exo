@@ -7,7 +7,9 @@ from PIL import Image
 
 from exo import proc, Procedure, DRAM
 from exo.libs.memories import MDRAM
+from exo.stdlib.scheduling import *
 
+old_split = repeat(divide_loop)
 
 # --- Start Blur Test ---
 
@@ -79,8 +81,8 @@ def test_simple_blur_split(compiler, tmp_path):
 def test_split_blur(compiler, tmp_path):
     blur = gen_blur()
 
-    blur = blur.split('j', 4, ['j1', 'j2'])
-    blur = blur.split('i#1', 4, ['i1', 'i2'])
+    blur = old_split(blur, 'j', 4, ['j1', 'j2'])
+    blur = old_split(blur, 'i#1', 4, ['i1', 'i2'])
 
     _test_blur(compiler, tmp_path, blur)
 
@@ -88,8 +90,8 @@ def test_split_blur(compiler, tmp_path):
 def test_reorder_blur(compiler, tmp_path):
     blur = gen_blur()
 
-    blur = blur.reorder('k', 'l')
-    blur = blur.reorder('i', 'j')
+    blur = reorder_loops(blur, 'k l')
+    blur = reorder_loops(blur, 'i j')
 
     _test_blur(compiler, tmp_path, blur)
 
@@ -97,9 +99,8 @@ def test_reorder_blur(compiler, tmp_path):
 def test_unroll_blur(compiler, tmp_path):
     blur = gen_blur()
 
-    #    blur = blur.split('i',6,['i','iunroll']).simpler_unroll('iunroll')
-    blur = blur.split('j', 4, ['j1', 'j2'])
-    blur = blur.unroll('j2')
+    blur = old_split(blur, 'j', 4, ['j1', 'j2'])
+    blur = repeat(unroll_loop)(blur, 'j2')
 
     _test_blur(compiler, tmp_path, blur)
 
