@@ -497,7 +497,7 @@ def test_double_fission(golden):
 
             out[i] = res
 
-    foo = autolift_alloc(foo, 'res : _')
+    foo = autolift_alloc(foo, 'res : _', keep_dims=True)
     foo = double_fission(foo, 'res = _ #0', 'res += _ #0')
     assert str(foo) == golden
 
@@ -641,7 +641,7 @@ def test_simple_lift_alloc(golden):
             tmp_a: i8
             tmp_a = A[i]
 
-    bar = autolift_alloc(bar, 'tmp_a : _', n_lifts=1)
+    bar = autolift_alloc(bar, 'tmp_a : _', n_lifts=1, keep_dims=True)
     assert str(bar) == golden
 
 
@@ -710,7 +710,7 @@ def test_lift(golden):
             for k in seq(0, 16):
                 a[k] = A[k, i]
 
-    bar = autolift_alloc(bar, 'a: i8[_]', n_lifts=1, mode='col', size=20)
+    bar = autolift_alloc(bar, 'a: i8[_]', n_lifts=1, mode='col', size=20, keep_dims=True)
     assert str(bar) == golden
 
 

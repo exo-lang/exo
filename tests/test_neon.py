@@ -85,19 +85,19 @@ def simple_math_neon_sched():
     def sched_neon(p=simple_math_neon_sched):
         p = divide_loop(p, 'i', 4, ['io', 'ii'], tail='cut_and_guard')
         p = stage_assn(p, 'x[_] = _ #0', 'xyy')
-        p = autolift_alloc(p, 'xyy: _')
+        p = autolift_alloc(p, 'xyy: _', keep_dims=True)
         p = fission(p, p.find('xyy[_] = _').after())
 
         p = bind_expr(p, 'x[_]', 'xVec')
-        p = autolift_alloc(p, 'xVec: _')
+        p = autolift_alloc(p, 'xVec: _', keep_dims=True)
         p = fission(p, p.find('xVec[_] = _').after())
 
         p = bind_expr(p, 'y[_]', 'yVec', cse=True)
-        p = autolift_alloc(p, 'yVec: _')
+        p = autolift_alloc(p, 'yVec: _', keep_dims=True)
         p = fission(p, p.find('yVec[_] = _').after())
 
         p = bind_expr(p, 'xVec[_] * yVec[_]', 'xy')
-        p = autolift_alloc(p, 'xy: _')
+        p = autolift_alloc(p, 'xy: _', keep_dims=True)
         p = fission(p, p.find('xy[_] = _').after())
 
         p = set_memory(p, 'xVec', Neon4f)
