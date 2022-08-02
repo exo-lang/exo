@@ -3101,7 +3101,7 @@ class _AssertIf(LoopIR_Rewrite):
                 return self.map_stmts(s.body)
             else:
                 return self.map_stmts(s.orelse)
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             body = self.map_stmts(s.body)
             if not body:
                 return []

@@ -25,7 +25,7 @@ def old_fission_after(proc, stmt_pattern, n_lifts=1):
     return loop_hack(autofission, find_stmts)(proc, n_lifts)
 
 def old_lift_alloc(proc, stmt_pat, n_lifts=1,
-                   mode='row', size=None, keep_dims=False):
+                   mode='row', size=None, keep_dims=True):
     def find_stmts(p):
         return p.find_all(stmt_pat)
     return loop_hack(autolift_alloc, find_stmts)(proc, n_lifts,

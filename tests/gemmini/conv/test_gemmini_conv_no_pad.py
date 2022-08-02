@@ -25,16 +25,16 @@ def conv_on_cpu():
 
         assert out_dim == in_dim - kernel_dim + 1
 
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim):
-                    for och in par(0, out_channel):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim):
+                    for och in seq(0, out_channel):
 
                         res : i32
                         res = bias[0,och]
-                        for krow in par(0, kernel_dim):
-                            for kcol in par(0, kernel_dim):
-                                for kch in par(0, in_channel):
+                        for krow in seq(0, kernel_dim):
+                            for kcol in seq(0, kernel_dim):
+                                for kch in seq(0, in_channel):
                                     w_s : i8 @ DRAM
                                     w_s = weights[krow,kcol,kch,och]
 
@@ -192,17 +192,9 @@ def test_conv_3():
     # FIXME(#133): Remove unsafe_disable_checks once we have new effectcheck working
     conv = expand_dim(conv,'i_s: i8[_]', '30', 'krow + orow_i',
                            unsafe_disable_checks=True)
-    #conv = par_to_seq(conv, 'for krow in _:_')
-    #conv = par_to_seq(conv, 'for b in _:_')
-    #conv = par_to_seq(conv, 'for orow_o in _:_')
-    #conv = par_to_seq(conv, 'for orow_i in _:_')
-    #conv = par_to_seq(conv, 'for ocol_o in _:_')
-    [ (conv := par_to_seq(conv, s)) for s in ['for krow in _:_', 'for b in _:_', 'for orow_o in _:_', 'for orow_i in _:_', 'for ocol_o in _:_'] ]
-    conv = old_lift_alloc(conv, 'i_s : _', n_lifts=5)
-    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=4)
-
-
-    conv = old_lift_alloc(conv, 'res : _', n_lifts=4)
+    conv = old_lift_alloc(conv, 'i_s : _', n_lifts=5, keep_dims=False)
+    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=4, keep_dims=False)
+    conv = old_lift_alloc(conv, 'res : _', n_lifts=4, keep_dims=False)
 
     conv = old_fission_after(conv, 'for kch_o in _:_ #0', n_lifts=6)
     conv = old_fission_after(conv, 'for kch_o in _:_ #2', n_lifts=5)
@@ -262,7 +254,6 @@ def test_conv_3():
                                   'orow_i == 0 or krow == 2')
 
     conv = old_split(conv, 'orow_i', 7, ['orow_io', 'orow_ii'], perfect=True)
-    conv = par_to_seq(conv, 'for orow_io in _:_')
     conv = old_unroll(conv, 'och_o')
     #conv = old_unroll(conv, 'kch_o')
     #conv = old_unroll(conv, 'kcol')
@@ -367,13 +358,9 @@ def test_conv_17():
                             unsafe_disable_checks=True)
     conv = old_lift_alloc(conv, 'w_s : _', n_lifts=2)
     conv = old_split(conv, 'b', 4, ['bo', 'bi'], perfect=True)
-    conv = par_to_seq(conv, 'for krow in _:_')
-    conv = par_to_seq(conv, 'for bi in _:_')
-    conv = par_to_seq(conv, 'for orow_o in _:_')
-    conv = par_to_seq(conv, 'for orow_i in _:_')
-    conv = old_lift_alloc(conv, 'i_s : _', n_lifts=4)
-    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=3)
-    conv = old_lift_alloc(conv, 'res : _', n_lifts=3)
+    conv = old_lift_alloc(conv, 'i_s : _', n_lifts=4, keep_dims=False)
+    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=3, keep_dims=False)
+    conv = old_lift_alloc(conv, 'res : _', n_lifts=3, keep_dims=False)
 
     #conv = conv.add_guard('for kch_o in _:_', 'bi', 0)
     #conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)
@@ -510,14 +497,9 @@ def test_conv_30():
     conv = expand_dim(conv, 'i_s: i8[_]', '9', 'krow + orow_i',
                             unsafe_disable_checks=True)
     conv = old_lift_alloc(conv, 'res : _', n_lifts=1)
-    conv = par_to_seq(conv, 'for krow in _:_')
-    conv = par_to_seq(conv, 'for b in _:_')
-    conv = par_to_seq(conv, 'for orow_o in _:_')
-    conv = par_to_seq(conv, 'for orow_i in _:_')
-    conv = par_to_seq(conv, 'for och_out in _:_')
-    conv = old_lift_alloc(conv, 'i_s : _', n_lifts=5)
-    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=4)
-    conv = old_lift_alloc(conv, 'res : _', n_lifts=3)
+    conv = old_lift_alloc(conv, 'i_s : _', n_lifts=5, keep_dims=False)
+    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=4, keep_dims=False)
+    conv = old_lift_alloc(conv, 'res : _', n_lifts=3, keep_dims=False)
 
     #conv = conv.add_guard('for kch_o in _:_', 'b', 0)
     #conv = conv.add_guard('for kch_o in _:_', 'orow_o', 0)

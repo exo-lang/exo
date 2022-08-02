@@ -30,16 +30,16 @@ def conv_on_cpu():
         assert 0 <= padding < 16
         assert padding < out_dim
 
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim):
-                    for och in par(0, out_channel):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim):
+                    for och in seq(0, out_channel):
 
                         res : i32
                         res = bias[0,och]
-                        for krow in par(0, kernel_dim):
-                            for kcol in par(0, kernel_dim):
-                                for kch in par(0, in_channel):
+                        for krow in seq(0, kernel_dim):
+                            for kcol in seq(0, kernel_dim):
+                                for kch in seq(0, in_channel):
                                     if (0 <= orow*2+krow-padding  and orow*2+krow-padding < in_dim):
                                         w_s : i8 @ DRAM
                                         i_s : i8 @ DRAM
@@ -115,15 +115,15 @@ def orig_conv_partial_padding(
     assert padding == 1
     assert DIM_SIZE > 2
 
-    for och in par(0, out_channel/16):
+    for och in seq(0, out_channel/16):
 
         res : i32[DIM_SIZE,16] @ GEMM_ACCUM
-        for l in par(0, DIM_SIZE):
+        for l in seq(0, DIM_SIZE):
             ld_acc_i32(1, 16, one, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
 
-        for kcol in par(0, kernel_dim):
-            for krow in par(0, kernel_dim):
-                for kch in par(0, in_channel/16):
+        for kcol in seq(0, kernel_dim):
+            for krow in seq(0, kernel_dim):
+                for kch in seq(0, in_channel/16):
                     if 0 <= orow*2+krow-padding and orow*2+krow-padding < in_dim:
                         in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
                         weight_scratch : i8[16,16] @ GEMM_SCRATCH
@@ -197,15 +197,15 @@ def conv_partial_padding(
     config_ld_i8_s2_id1(one, stride(inp, 2))
     config_ld_i8_id2(one, stride(weights, 2))
     config_matmul()
-    for och in par(0, out_channel/16):
+    for och in seq(0, out_channel/16):
 
         res : i32[DIM_SIZE,16] @ GEMM_ACCUM
-        for l in par(0, DIM_SIZE):
+        for l in seq(0, DIM_SIZE):
             do_ld_acc_i32(1, 16, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
 
-        for kcol in par(0, kernel_dim):
-            for krow in par(0, kernel_dim):
-                for kch in par(0, in_channel/16):
+        for kcol in seq(0, kernel_dim):
+            for krow in seq(0, kernel_dim):
+                for kch in seq(0, in_channel/16):
                     if 0 <= orow*2+krow-padding and orow*2+krow-padding < in_dim:
                         in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
                         weight_scratch : i8[16,16] @ GEMM_SCRATCH
@@ -361,9 +361,9 @@ def test_conv_13():
 
         one : f32
         one = 1.0
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim/16):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim/16):
                     conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding,
                                             output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
                 if out_dim%16 > 0:
@@ -470,9 +470,9 @@ def test_conv_26():
 
         one : f32
         one = 1.0
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim/16):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim/16):
                     conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding,
                                             output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
 
@@ -593,9 +593,9 @@ def test_conv_45():
 
         one : f32
         one = 1.0
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim/16):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim/16):
                     conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding,
                                             output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
 
@@ -702,15 +702,15 @@ def conv_partial_no_padding(
     config_ld_i8_s2_id1(one, stride(inp, 2))
     config_ld_i8_id2(one, stride(weights, 2))
     config_matmul()
-    for och in par(0, out_channel/16):
+    for och in seq(0, out_channel/16):
 
         res : i32[DIM_SIZE,16] @ GEMM_ACCUM
-        for l in par(0, DIM_SIZE):
+        for l in seq(0, DIM_SIZE):
             do_ld_acc_i32(1, 16, bias[ 0:1, 16*och:16*(och+1) ], res[l:l+1, :])
 
-        for kcol in par(0, kernel_dim):
-            for krow in par(0, kernel_dim):
-                for kch in par(0, in_channel/16):
+        for kcol in seq(0, kernel_dim):
+            for krow in seq(0, kernel_dim):
+                for kch in seq(0, in_channel/16):
                     in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
                     weight_scratch : i8[16,16] @ GEMM_SCRATCH
 
@@ -778,9 +778,9 @@ def test_conv_47():
 
         one : f32
         one = 1.0
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim/16):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim/16):
                     conv_partial_no_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim,
                                             output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
 
