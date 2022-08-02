@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import numpy as np
 from PIL import Image
 
@@ -40,6 +41,27 @@ def test_free(compiler):
             y[i] = 0.0
 
     compiler.compile(foo)
+
+def test_free2(compiler):
+    @proc
+    def foo():
+        x : f32[16] @ MOCK
+        for i in seq(0, 16):
+            y : R[16] @ MOCK
+            y[i] = 2.0
+
+    compiler.compile(foo)
+
+def test_free3(compiler):
+    @proc
+    def foo():
+        x : f32[16] @ MOCK
+        for i in seq(0, 16):
+            y : R[16] @ MOCK
+            x[i] = 2.0
+
+    with pytest.raises(MemGenError, match="Cannot allocate"):
+        compiler.compile(foo)
 
 
 
