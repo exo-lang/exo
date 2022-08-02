@@ -216,10 +216,13 @@ module PAST {
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
+            | BuiltIn ( builtin f, expr* args )
+            | ReadConfig( string config, string field )
             attributes( srcinfo srcinfo )
 
 } """, ext_types={
     'name':    validators.instance_of(IdentifierOrHole, convert=True),
+    'builtin': BuiltIn,
     'op':      validators.instance_of(Operator, convert=True),
     'srcinfo': SrcInfo,
 })

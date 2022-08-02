@@ -1,7 +1,9 @@
 from __future__ import annotations  # make Python behave
 
 from exo import proc
+from exo.stdlib.scheduling import *
 
+old_split = repeat(divide_loop)
 
 # I'm going to define a 1D version of a standard convolutional layer (cf. CuDNN)
 # K - number of output channels
@@ -35,40 +37,47 @@ def test_im2col(golden):
     conv1d = gen_conv1d()
 
     # Let's start applying scheduling
-    im2col_conv = conv1d.rename('im2col_conv')
-    im2col_conv = im2col_conv.reorder('i', 'r')
-    im2col_conv = im2col_conv.bind_expr('y', 'x[c, i-r]')
+    im2col_conv = rename(conv1d, 'im2col_conv')
+    im2col_conv = reorder_loops(im2col_conv, 'i r')
+    im2col_conv = bind_expr(im2col_conv, 'x[c, i-r]', 'y')
 
     # next, we can start to lift that allocation
     # up and out of the loop
-    im2col_conv = im2col_conv.lift_alloc('y:R', 5, keep_dims=True)
+    im2col_conv = autolift_alloc(im2col_conv, 'y:R', 5)
 
     # Then, we can fission the loop correspondingly,
     # separating what is now a data-marshalling statement from
     # the actual compute statement in two subsequent
     # loop nests via fissioning
-    im2col_conv = im2col_conv.fission_after('y[c,r,i] = _', 5)
+    im2col_conv = autofission(im2col_conv,
+                              im2col_conv.find('y[c,r,i] = _').after(), 5)
 
     # Now, in order to expose these two parts of the computation as
     # re-usable sub-procedures, we want a way to factor them out.
-    im2col_conv, im2col = im2col_conv.extract_method('im2col', 'for c in _: _')
-    im2col_conv, matmul = im2col_conv.extract_method('matmul', 'for k in _: _')
+    im2col_conv, im2col = extract_subproc(im2col_conv, 'im2col',
+                                          'for c in _: _')
+    im2col_conv, matmul = extract_subproc(im2col_conv, 'matmul',
+                                          'for k in _: _')
 
     # Given this factoring, we can then proceed
     # to schedule these sub-procedures themselves.
-    tiled_matmul = (matmul.rename('tiled_matmul')
-                    # split the loops we want to tile together
-                    .reorder('r', 'i')
-                    .split('k', 8, ['khi', 'klo'], tail='cut')
-                    .reorder('klo #0', 'c').reorder('klo #0', 'i')
-                    .split('c #0', 8, ['chi', 'clo'], tail='cut')
-                    .reorder('clo #0', 'i').reorder('clo #0', 'klo')
-                    .split('i #0', 8, ['ihi', 'ilo'], tail='cut')
-                    .reorder('ilo #0', 'klo').reorder('ilo #0', 'clo'))
+    tiled_matmul = rename(matmul, 'tiled_matmul')
+    # split the loops we want to tile together
+    tiled_matmul = old_split(tiled_matmul, 'k',8,['khi','klo'], tail='cut')
+    tiled_matmul = reorder_loops(tiled_matmul, 'klo c #0')
+    tiled_matmul = reorder_loops(tiled_matmul, 'klo r #0')
+    tiled_matmul = reorder_loops(tiled_matmul, 'klo i #0')
+    tiled_matmul = old_split(tiled_matmul, 'c #0',8,['chi','clo'], tail='cut')
+    tiled_matmul = reorder_loops(tiled_matmul, 'clo r #0')
+    tiled_matmul = reorder_loops(tiled_matmul, 'clo i #0')
+    tiled_matmul = reorder_loops(tiled_matmul, 'clo klo #0')
+    tiled_matmul = old_split(tiled_matmul, 'i #0',8,['ihi','ilo'], tail='cut')
+    tiled_matmul = reorder_loops(tiled_matmul, 'ilo klo #0')
+    tiled_matmul = reorder_loops(tiled_matmul, 'ilo clo #0')
 
     # We can invoke another scheduling directive
     # to change which version of the matmul gets scheduled
-    im2col_conv = im2col_conv.call_eqv(tiled_matmul, 'matmul(_,_,_,_,_,_,_)')
+    im2col_conv = call_eqv(im2col_conv, 'matmul(_,_,_,_,_,_,_)', tiled_matmul)
     assert f'{im2col}\n{matmul}\n{im2col_conv}' == golden
 
 

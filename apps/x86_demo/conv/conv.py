@@ -4,6 +4,8 @@ from exo import *
 from exo.builtins import *
 from exo.platforms.x86 import *
 from exo.syntax import *
+from exo.stdlib.scheduling import *
+
 
 
 @proc
@@ -40,62 +42,70 @@ VEC_W = 16
 H, W, C, K, N = 80, 100, 128, 3, 5
 TILE_W, TILE_H = 4, 5
 
-conv_specialized = (
-    conv
-        .rename('conv_specialized')
-        .partial_eval(H, W, C, H + 2, W + 2, C, K, N)
-        .simplify()
-        #
-        .split('oc', TILE_W * VEC_W, ['oc_o', 'oc_i'], perfect=True)
-        .reorder('oc_i', 'n')
-        .reorder('oc_i', 'oy')
-        .reorder('oc_i', 'ox')
-        #
-        .split('ox', TILE_H, ['ox_o', 'ox_i'], perfect=True)
-        #
-        .split('oc_i', VEC_W, ['oc_u', 'oc_v'], perfect=True)
-        #
-        .lift_alloc('res: _', n_lifts=3)
-        .set_memory('res', AVX512)
-        .fission_after('res[_] = bias[_]', n_lifts=3)
-        .replace(mm512_loadu_ps, 'for oc_v in _: _ #0')
-        #
-        .fission_after('for ky in _: _', n_lifts=3)
-        #
-        .lift_alloc('relu_v: _')
-        .set_memory('relu_v', AVX512)
-        .fission_after('relu_v = _')
-        .replace(mm512_storeu_ps, 'for oc_v in _: _ #2')
-        #
-        .reorder('ox_i', 'oc_u')
-        .reorder('ox_i', 'oc_v')
-        .reorder('ox_i', 'ky')
-        .reorder('ox_i', 'kx')
-        #
-        .reorder('oc_v', 'ky')
-        .reorder('oc_v', 'kx')
-        .reorder('oc_u', 'ky')
-        .reorder('oc_u', 'kx')
-        #
-        .reorder('ox_i', 'kc')
-        .reorder('oc_v', 'kc')
-        .reorder('oc_u', 'kc')
-        #
-        .reorder('oc_v', 'ox_i')
-        .reorder('oc_u', 'ox_i')
-        #
-        .stage_expr('wt_vec', 'weights[_]', memory=AVX512)
-        .stage_expr('in_vec', 'inp[_]', memory=AVX512)
-        #
-        .replace_all(mm512_relu_ps)
-        .replace_all(mm512_set1_ps)
-        .replace_all(mm512_fmadd_ps)
-        .replace_all(mm512_loadu_ps)
-        #
-        .split('kc', 2, ['kc_o', 'kc_i'], perfect=True)
-        #
-        .simplify()
-)
+def do_specialization(p):
+    p = rename(p, 'conv_specialized')
+    p = p.partial_eval(H, W, C, H + 2, W + 2, C, K, N)
+    p = simplify(p)
+    #
+    p = divide_loop(p, 'oc', TILE_W * VEC_W, ['oc_o', 'oc_i'], perfect=True)
+    p = reorder_loops(p, 'oc_i n')
+    p = reorder_loops(p, 'oc_i oy')
+    p = reorder_loops(p, 'oc_i ox')
+    #
+    p = divide_loop(p, 'ox', TILE_H, ['ox_o', 'ox_i'], perfect=True)
+    #
+    p = divide_loop(p, 'oc_i', VEC_W, ['oc_u', 'oc_v'], perfect=True)
+    #
+    p = autolift_alloc(p, 'res: _', n_lifts=3)
+    p = set_memory(p, 'res', AVX512)
+    p = fission(p, p.find('res[_] = bias[_]').after(), n_lifts=3)
+    p = replace(p, 'for oc_v in _: _ #0', mm512_loadu_ps)
+    #
+    p = fission(p, p.find('for ky in _: _').after(), n_lifts=3)
+    #
+    p = autolift_alloc(p, 'relu_v: _')
+    p = set_memory(p, 'relu_v', AVX512)
+    p = fission(p, p.find('relu_v = _').after())
+    p = replace(p, 'for oc_v in _: _ #2', mm512_storeu_ps)
+    #
+    p = repeat(reorder_loops)(p, 'ox_i oc_u')
+    p = reorder_loops(p, 'ox_i oc_v')
+    p = reorder_loops(p, 'ox_i ky')
+    p = reorder_loops(p, 'ox_i kx')
+    #
+    p = reorder_loops(p, 'oc_v ky')
+    p = reorder_loops(p, 'oc_v kx')
+    p = reorder_loops(p, 'oc_u ky')
+    p = reorder_loops(p, 'oc_u kx')
+    #
+    p = reorder_loops(p, 'ox_i kc')
+    p = reorder_loops(p, 'oc_v kc')
+    p = reorder_loops(p, 'oc_u kc')
+    #
+    p = reorder_loops(p, 'oc_v ox_i')
+    p = repeat(reorder_loops)(p, 'oc_u ox_i')
+    #
+    def stage_input(p, read_expr, name):
+        p = bind_expr(p, read_expr, name)
+        p = expand_dim(p, name, 16, 'oc_v')
+        p = lift_alloc(p, name)
+        p = set_memory(p, name, AVX512)
+        p = fission(p, p.find(f'{name}[_] = _').after())
+        return p
+    p = stage_input(p, 'weights[_]', 'wt_vec')
+    p = stage_input(p, 'inp[_]', 'in_vec')
+    #
+    p = replace_all(p, mm512_relu_ps)
+    p = replace_all(p, mm512_set1_ps)
+    p = replace_all(p, mm512_fmadd_ps)
+    p = replace_all(p, mm512_loadu_ps)
+    #
+    p = divide_loop(p, 'kc', 2, ['kc_o', 'kc_i'], perfect=True)
+    #
+    p = simplify(p)
+    return p
+
+conv_specialized = do_specialization(conv)
 
 if __name__ == '__main__':
     print(conv_specialized)

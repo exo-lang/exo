@@ -4,7 +4,9 @@ import pytest
 
 from exo.platforms.gemmini import *
 from ..harness_gemmini import GemmTestBuilder
+from exo.stdlib.scheduling import *
 
+old_split = repeat(divide_loop)
 
 def new_config_ld():
     @config
@@ -58,10 +60,14 @@ def ld_data(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
-ld_data_v2 = ld_data.rename("ld_data_v2")
-ld_data_v2 = ld_data_v2.configwrite_root(ConfigLoad, 'src_stride', 'stride(src, 0)')
-ld_data_v2 = ld_data_v2.replace(do_ld_data, 'for i in _:_')
-ld_data_v2 = ld_data_v2.replace(config_ld, 'ConfigLoad.src_stride = _')
+def make_ld_data_v2(p=ld_data):
+    p = rename(p, "ld_data_v2")
+    p = write_config(p, p.body().before(),
+                        ConfigLoad, 'src_stride', 'stride(src, 0)')
+    p = replace(p, 'for i in _:_', do_ld_data)
+    p = replace(p, 'ConfigLoad.src_stride = _', config_ld)
+    return p
+ld_data_v2 = make_ld_data_v2()
 
 
 
@@ -118,10 +124,14 @@ def ld_acc(
         for j in par(0, m):
             dst[i,j] = src[i,j]
 
-ld_acc_v2 = ld_acc.rename("ld_acc_v2")
-ld_acc_v2 = ld_acc_v2.configwrite_root(ConfigLoad, 'src_stride', 'stride(src, 0)')
-ld_acc_v2 = ld_acc_v2.replace(do_ld_acc, 'for i in _:_')
-ld_acc_v2 = ld_acc_v2.replace(config_ld, 'ConfigLoad.src_stride = _')
+def make_ld_acc_v2(p=ld_acc):
+    p = rename(p, "ld_acc_v2")
+    p = write_config(p, p.body().before(),
+                        ConfigLoad, 'src_stride', 'stride(src, 0)')
+    p = replace(p, 'for i in _:_', do_ld_acc)
+    p = replace(p, 'ConfigLoad.src_stride = _', config_ld)
+    return p
+ld_acc_v2 = make_ld_acc_v2()
 
 
 
@@ -187,10 +197,13 @@ def do_matmul(
             for k in par(0,K):
                 C[i, j] += A[i,k] * B[k,j]
 
-matmul_v2 = matmul.rename("matmul_v2")
-matmul_v2 = matmul_v2.configwrite_root(ConfigMatmul, 'set', 'True')
-matmul_v2 = matmul_v2.replace(do_matmul, 'for i in _:_')
-matmul_v2 = matmul_v2.replace(config_matmul, 'ConfigMatmul.set = True')
+def make_matmul_v2(p=matmul):
+    p = rename(p, "matmul_v2")
+    p = write_config(p, p.body().before(), ConfigMatmul, 'set', 'True')
+    p = replace(p, 'for i in _:_', do_matmul)
+    p = replace(p, 'ConfigMatmul.set = True', config_matmul)
+    return p
+matmul_v2 = make_matmul_v2()
 
 
 def new_config_st():
@@ -246,12 +259,14 @@ def do_st_acc(
         for j in par(0, m):
             dst[i, j] = src[i,j]
 
-
-st_acc_v2 = st_acc.rename("st_acc_v2")
-st_acc_v2 = st_acc_v2.configwrite_root(ConfigStore, 'dst_stride', 'stride(dst, 0)')
-st_acc_v2 = st_acc_v2.replace(do_st_acc, 'for i in _:_')
-st_acc_v2 = st_acc_v2.replace(config_st_acc, 'ConfigStore.dst_stride = _')
-
+def make_st_acc_v2(p=st_acc):
+    p = rename(p, "st_acc_v2")
+    p = write_config(p, p.body().before(),
+                        ConfigStore, 'dst_stride', 'stride(dst, 0)')
+    p = replace(p, 'for i in _:_', do_st_acc)
+    p = replace(p, 'ConfigStore.dst_stride = _', config_st_acc)
+    return p
+st_acc_v2 = make_st_acc_v2()
 
 
 def matmul_algorithm():
@@ -266,31 +281,31 @@ def matmul_algorithm():
 
 
 def inline_lift_config(gemmini):
-    gemmini = gemmini.call_eqv(ld_acc_v2, "ld_acc(_)")
-    gemmini = gemmini.inline("ld_acc_v2(_)")
-    gemmini = gemmini.inline_window("src = C[_]")
-    gemmini = gemmini.inline_window("dst = res[_]")
+    gemmini = call_eqv(gemmini, "ld_acc(_)", ld_acc_v2)
+    gemmini = inline(gemmini, "ld_acc_v2(_)")
+    gemmini = inline_window(gemmini, "src = C[_]")
+    gemmini = inline_window(gemmini, "dst = res[_]")
 
-    gemmini = gemmini.call_eqv(ld_data_v2, "ld_data(_)")
-    gemmini = gemmini.inline("ld_data_v2(_)")
-    gemmini = gemmini.inline_window("src = A[_]")
-    gemmini = gemmini.inline_window("dst = a[_]")
+    gemmini = call_eqv(gemmini, "ld_data(_)", ld_data_v2)
+    gemmini = inline(gemmini, "ld_data_v2(_)")
+    gemmini = inline_window(gemmini, "src = A[_]")
+    gemmini = inline_window(gemmini, "dst = a[_]")
 
-    gemmini = gemmini.call_eqv(ld_data_v2, "ld_data(_)")
-    gemmini = gemmini.inline("ld_data_v2(_)")
-    gemmini = gemmini.inline_window("src = B[_]")
-    gemmini = gemmini.inline_window("dst = b[_]")
+    gemmini = call_eqv(gemmini, "ld_data(_)", ld_data_v2)
+    gemmini = inline(gemmini, "ld_data_v2(_)")
+    gemmini = inline_window(gemmini, "src = B[_]")
+    gemmini = inline_window(gemmini, "dst = b[_]")
 
-    gemmini = gemmini.call_eqv(matmul_v2, "matmul(_)")
-    gemmini = gemmini.inline("matmul_v2(_)")
-    gemmini = gemmini.inline_window("A = a[_]")
-    gemmini = gemmini.inline_window("B = b[_]")
-    gemmini = gemmini.inline_window("C = res[_]")
+    gemmini = call_eqv(gemmini, "matmul(_)", matmul_v2)
+    gemmini = inline(gemmini, "matmul_v2(_)")
+    gemmini = inline_window(gemmini, "A = a[_]")
+    gemmini = inline_window(gemmini, "B = b[_]")
+    gemmini = inline_window(gemmini, "C = res[_]")
 
-    gemmini = gemmini.call_eqv(st_acc_v2, "st_acc(_)")
-    gemmini = gemmini.inline("st_acc_v2(_)")
-    gemmini = gemmini.inline_window("src = res[_]")
-    gemmini = gemmini.inline_window("dst = C[_]")
+    gemmini = call_eqv(gemmini, "st_acc(_)", st_acc_v2)
+    gemmini = inline(gemmini, "st_acc_v2(_)")
+    gemmini = inline_window(gemmini, "src = res[_]")
+    gemmini = inline_window(gemmini, "dst = C[_]")
 
     gemmini = lift_config(gemmini, 'config_matmul(_)')
     gemmini = lift_config(gemmini, 'config_st_acc(_)')
@@ -302,50 +317,52 @@ def test_matmul_paper():
     MM = 128
     KK = 128
 
-    cpu = matmul_algorithm().rename("matmul_on_cpu").partial_eval(NN, MM, KK)
+    cpu = rename(matmul_algorithm(), "matmul_on_cpu")
+    cpu = cpu.partial_eval(NN, MM, KK)
 
-    gemmini = matmul_algorithm().rename("matmul_on_gemmini").partial_eval(NN, MM, KK)
+    gemmini = rename(matmul_algorithm(), "matmul_on_gemmini")
+    gemmini = gemmini.partial_eval(NN, MM, KK)
 
     # Stage memories, so that we can use gemmini scratchpad & accumulator
-    gemmini = gemmini.stage_assn('res', 'C[_] += _')
-    gemmini = gemmini.double_fission('res = _', 'res += _')
-    gemmini = gemmini.bind_expr('a', 'A[_]')
-    gemmini = gemmini.bind_expr('b', 'B[_]')
+    gemmini = stage_assn(gemmini, 'C[_] += _', 'res')
+    gemmini = double_fission(gemmini, 'res = _', 'res += _')
+    gemmini = bind_expr(gemmini, 'A[_]', 'a')
+    gemmini = bind_expr(gemmini, 'B[_]', 'b')
 
     # Tile dimensions
-    gemmini = gemmini.split('i', 16, ['io', 'ii'], perfect=True)
-    gemmini = gemmini.split('j', 16, ['jo', 'ji'], perfect=True)
-    gemmini = gemmini.reorder('ii', 'jo')
-    gemmini = gemmini.split('k', 16, ['ko', 'ki'], perfect=True)
+    gemmini = old_split(gemmini, 'i', 16, ['io', 'ii'], perfect=True)
+    gemmini = old_split(gemmini, 'j', 16, ['jo', 'ji'], perfect=True)
+    gemmini = old_reorder(gemmini, 'ii jo')
+    gemmini = old_split(gemmini, 'k', 16, ['ko', 'ki'], perfect=True)
 
     # Fission inner dimensions
-    gemmini = gemmini.lift_alloc('res:_', n_lifts=2)
-    gemmini = gemmini.fission_after('res = _', n_lifts=2)
-    gemmini = gemmini.fission_after('for ko in _:_', n_lifts=2)
-    gemmini = gemmini.reorder('ji', 'ko')
-    gemmini = gemmini.reorder('ii', 'ko')
-    gemmini = gemmini.lift_alloc('a:_', n_lifts=3)
-    gemmini = gemmini.lift_alloc('b:_')
-    gemmini = gemmini.lift_alloc('b:_', mode='col', n_lifts=2)
-    gemmini = gemmini.fission_after('a[_] = _', n_lifts=3)
-    gemmini = gemmini.fission_after('b[_] = _', n_lifts=3)
-    gemmini = gemmini.lift_alloc('res:_', n_lifts=2)
-    gemmini = gemmini.lift_alloc('a:_', n_lifts=3)
-    gemmini = gemmini.lift_alloc('b:_', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=2)
+    gemmini = old_fission_after(gemmini, 'res = _', n_lifts=2)
+    gemmini = old_fission_after(gemmini, 'for ko in _:_', n_lifts=2)
+    gemmini = old_reorder(gemmini, 'ji ko')
+    gemmini = old_reorder(gemmini, 'ii ko')
+    gemmini = old_lift_alloc(gemmini, 'a:_', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'b:_')
+    gemmini = old_lift_alloc(gemmini, 'b:_', mode='col', n_lifts=2)
+    gemmini = old_fission_after(gemmini, 'a[_] = _', n_lifts=3)
+    gemmini = old_fission_after(gemmini, 'b[_] = _', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=2)
+    gemmini = old_lift_alloc(gemmini, 'a:_', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'b:_', n_lifts=3)
 
     # replace loops with accelerator instructions
-    gemmini = gemmini.replace(ld_acc, 'for ii in _:_ #0')
-    gemmini = gemmini.replace(ld_data, 'for ii in _:_ #0')
-    gemmini = gemmini.reorder('ji','ki')
-    gemmini = gemmini.replace(ld_data, 'for ki in _:_ #0')
-    gemmini = gemmini.reorder('ki','ji')
-    gemmini = gemmini.replace(matmul, 'for ii in _:_ #0')
-    gemmini = gemmini.replace(st_acc, 'for ii in _:_ #0')
-    gemmini = gemmini.simplify()
+    gemmini = replace(gemmini, 'for ii in _:_ #0', ld_acc)
+    gemmini = replace(gemmini, 'for ii in _:_ #0', ld_data)
+    gemmini = old_reorder(gemmini, 'ji ki')
+    gemmini = replace(gemmini, 'for ki in _:_ #0', ld_data)
+    gemmini = old_reorder(gemmini, 'ki ji')
+    gemmini = replace(gemmini, 'for ii in _:_ #0', matmul)
+    gemmini = replace(gemmini, 'for ii in _:_ #0', st_acc)
+    gemmini = simplify(gemmini)
 
     # inline and lift config
     gemmini = inline_lift_config(gemmini)
-    gemmini = gemmini.simplify()
+    gemmini = simplify(gemmini)
 
     print(gemmini)
 

@@ -4,9 +4,13 @@ import os
 import pytest
 
 from exo import proc
+from exo.stdlib.scheduling import *
 from .amx import *
 from .harness_amx import AMXTestBuilder
 
+def reorder_back(proc, pattern):
+    c = proc.find_loop(pattern).expand(-1)
+    return reorder_stmts(proc, c)
 
 # --------------------------------------------------------------------------- #
 #   Individual Load / Store / Zero Tests
@@ -285,65 +289,70 @@ def matmul_i8():
     print(amx)
 
     print("Loop splitting and reordering:")
-    amx = amx.split('i', 32, ['io', 'ii'], perfect=True)
-    amx = amx.split('j', 32, ['jo', 'ji'], perfect=True)
-    amx = amx.reorder('ii', 'jo')
-    amx = amx.split('k', 16, ['ko', 'ki'], perfect=True)
-    amx = amx.reorder('ji', 'ko')
-    amx = amx.reorder('ii', 'ko')
-    amx = amx.split('ii', 16, ['ii_unroll', 'ii'], perfect=True)
-    amx = amx.split('ji', 16, ['ji_unroll', 'ji'], perfect=True)
-    amx = amx.reorder('ii', 'ji_unroll')
+    amx = divide_loop(amx, 'i', 32, ['io', 'ii'], perfect=True)
+    amx = divide_loop(amx, 'j', 32, ['jo', 'ji'], perfect=True)
+    amx = reorder_loops(amx, 'ii jo')
+    amx = divide_loop(amx, 'k', 16, ['ko', 'ki'], perfect=True)
+    amx = reorder_loops(amx, 'ji ko')
+    amx = reorder_loops(amx, 'ii ko')
+    amx = divide_loop(amx, 'ii', 16, ['ii_unroll', 'ii'], perfect=True)
+    amx = divide_loop(amx, 'ji', 16, ['ji_unroll', 'ji'], perfect=True)
+    amx = reorder_loops(amx, 'ii ji_unroll')
     print(amx)
 
     print("Staging A and B memory and replacing their loads")
-    amx = amx.partition_loop('ji_unroll', 1)
+    amx = cut_loop(amx, 'ji_unroll', 1)
     B_mem_template = "B[16*ko:16*(ko+1), 128*jo+64*(ji_unroll+{j_lo}):128*jo+64*(ji_unroll+{j_lo}+1)]"
     for i in range(2):
-        amx = amx.stage_mem(B_mem_template.format(j_lo=i), f'Btile{i}', f'for ii in _: _ #{i}')
-        amx = amx.set_memory(f'Btile{i}', AMX_TILE)
-        amx = amx.lift_alloc_simple(f'Btile{i}:_', n_lifts=3)
-    amx = amx.fission_after_simple('for i0 in _:_', n_lifts=1)
-    amx = amx.reorder_before('for ji_unroll in _:_ #2')
-    amx = amx.fission_after_simple('for ji_unroll in _:_ #1', n_lifts=1)
-    amx = amx.remove_loop('for ii_unroll in _:_ #0')
-    amx = amx.partition_loop('ii_unroll', 1)
+        amx = stage_mem(amx, f'for ii in _: _ #{i}',
+                             B_mem_template.format(j_lo=i), f'Btile{i}')
+        amx = set_memory(amx, f'Btile{i}', AMX_TILE)
+        amx = lift_alloc(amx, f'Btile{i}:_', n_lifts=3)
+    amx = fission(amx, amx.find('for i0 in _:_ #0').after(), n_lifts=1)
+    amx = fission(amx, amx.find('for i0 in _:_ #1').after(), n_lifts=1)
+    amx = reorder_back(amx, 'ji_unroll #2')
+    amx = fission(amx, amx.find('for ji_unroll in _:_ #1').after(), n_lifts=1)
+    amx = remove_loop(amx, 'ii_unroll #0')
+    amx = cut_loop(amx, 'ii_unroll', 1)
     A_mem_template = "A[32 * io + 16*(ii_unroll+{i_lo}):32 * io + 16*(ii_unroll+{i_lo}+1), 64*ko:64*(ko+1)]"
     for i in range(2):
-        amx = amx.fuse_loop(f'for ji_unroll in _:_ #{i+2}', f'for ji_unroll in _:_ #{i+3}')
-        amx = amx.stage_mem(A_mem_template.format(i_lo=i), f'Atile{i}', f'for ji_unroll in _:_ #{i+2}')
-        amx = amx.set_memory(f'Atile{i}', AMX_TILE)
-        amx = amx.lift_alloc_simple(f'Atile{i}:_', n_lifts=2)
-    amx = amx.fission_after_simple('for i0 in _:_ #2', n_lifts=1)
-    amx = amx.fission_after_simple('for i0 in _:_ #3', n_lifts=1)
-    amx = amx.reorder_before('for ii_unroll in _:_ #2')
-    amx = amx.unroll('ji_unroll')
-    amx = amx.unroll('ii_unroll')
-    amx = amx.simplify()
-    amx = amx.replace(ld_i8, 'for i0 in _:_')
-    print(amx)
+        amx = fusion(amx, f'for ji_unroll in _:_ #{i+2}',
+                          f'for ji_unroll in _:_ #{i+3}')
+        amx = stage_mem(amx, f'for ji_unroll in _:_ #{i+2}',
+                             A_mem_template.format(i_lo=i), f'Atile{i}')
+        amx = set_memory(amx, f'Atile{i}', AMX_TILE)
+        amx = lift_alloc(amx, f'Atile{i}:_', n_lifts=2)
+    amx = fission(amx, amx.find('for i0 in _:_ #2').after(), n_lifts=1)
+    amx = fission(amx, amx.find('for i0 in _:_ #3').after(), n_lifts=1)
+    amx = reorder_back(amx, 'ii_unroll #2')
+    amx = repeat(unroll_loop)(amx, 'ji_unroll')
+    amx = repeat(unroll_loop)(amx, 'ii_unroll')
+    amx = simplify(amx)
+    amx = repeat(replace)(amx, 'for i0 in _:_', ld_i8)
 
     print("Staging C memory")
     C_mem_template = "C[32*io + 16*({i_lo}):32*io + 16*({i_lo}+1), 32*jo + 16*({j_lo}):32*jo + 16*({j_lo}+1)]"
     for i in range(4):
-        amx = amx.stage_mem(C_mem_template.format(i_lo=i//2, j_lo=i%2), f'Ctile{i}', f'for ii in _: _ #{i}')
-        amx = amx.set_memory(f'Ctile{i}', AMX_TILE)
-        amx = amx.lift_alloc_simple(f'Ctile{i}:_', n_lifts=1)
+        amx = stage_mem(amx, f'for ii in _: _ #{i}',
+                             C_mem_template.format(i_lo=i//2, j_lo=i%2),
+                             f'Ctile{i}')
+        amx = set_memory(amx, f'Ctile{i}', AMX_TILE)
+        amx = lift_alloc(amx, f'Ctile{i}:_', n_lifts=1)
         for j in range(4+i):
-            amx = amx.reorder_before(f'for i0 in _:_ #{i}')
-        amx = amx.fission_after_simple(f'for i0 in _:_ #{i}', n_lifts=1)
+            amx = reorder_back(amx, f'i0 #{i}')
+        amx = fission(amx, amx.find(f'for i0 in _:_ #{i}').after(), n_lifts=1)
         for j in range(i+1, 4):
-            amx = amx.reorder_before(f'for ii in _:_ #{j}')
-        amx = amx.fission_after_simple(f'for ii in _:_ #3', n_lifts=1)
-    amx = amx.simplify()
+            amx = reorder_back(amx, f'ii #{j}')
+        amx = fission(amx, amx.find('for ii in _:_ #3').after(), n_lifts=1)
+    amx = simplify(amx)
     for i in range(4):
-        amx = amx.remove_loop('for ko in _:_ #0')
-        amx = amx.replace(ld_i32, 'for i0 in _:_ #0')
+        amx = remove_loop(amx, 'ko #0')
+        amx = replace(amx, 'for i0 in _:_ #0', ld_i32)
     for i in range(4):
-        amx = amx.remove_loop('for ko in _:_ #1')
-        amx = amx.replace(st_i32, 'for i0 in _:_ #0')
-    amx = amx.simplify()
-    amx = amx.replace(dpbssd, 'for ii in _:_')
+        amx = remove_loop(amx, 'ko #1')
+        amx = replace(amx, 'for i0 in _:_ #0', st_i32)
+    amx = simplify(amx)
+    amx = repeat(replace)(amx, 'for ii in _:_', dpbssd)
     print(amx)
 
     print("Final scheduled algorithm:")

@@ -130,6 +130,15 @@ class Cursor(ABC):
         """Get the next node/gap in the block. Undefined for blocks."""
 
     # ------------------------------------------------------------------------ #
+    # Block Navigation
+    # ------------------------------------------------------------------------ #
+
+    def _whole_block(self) -> Block:
+        attr, _range    = self._path[-1]
+        parent          = self.parent()
+        return parent._child_block(attr)
+
+    # ------------------------------------------------------------------------ #
     # Protected path / mutation helpers
     # ------------------------------------------------------------------------ #
 
@@ -270,6 +279,24 @@ class Block(Cursor):
     def __len__(self):
         _, _range = self._path[-1]
         return len(_range)
+
+    # ------------------------------------------------------------------------ #
+    # Block-specific operations
+    # ------------------------------------------------------------------------ #
+
+    def expand(self, lo=None, hi=None):
+        attr, _range    = self._path[-1]
+        full_block      = self.parent()._child_block(attr)
+        _, full_range   = full_block._path[-1]
+        if lo is None:
+            return full_block
+
+        lo = _range.start - lo
+        lo = lo if lo >= 0 else 0
+        hi = _range.stop  + hi
+        new_range       = full_range[lo:hi]
+
+        return Block(self._proc, self._path[:-1] + [(attr, new_range)])
 
     # ------------------------------------------------------------------------ #
     # AST mutation

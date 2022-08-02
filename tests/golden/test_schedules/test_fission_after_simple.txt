@@ -21,7 +21,5 @@ def bar(n: size, m: size):
         for l in seq(0, 100):
             x: i8 @ DRAM
             x = 4.0
-    for k in seq(0, 30):
-        for l in seq(0, 100):
             y: f32 @ DRAM
             y = 1.1

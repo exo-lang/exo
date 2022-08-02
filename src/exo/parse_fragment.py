@@ -17,7 +17,8 @@ class ParseFragmentError(Exception):
 # --------------------------------------------------------------------------- #
 # General Fragment Parsing
 
-def parse_fragment(proc, fragment, ctx_stmt, call_depth=0, scope="before"):
+def parse_fragment(proc, fragment, ctx_stmt, call_depth=0,
+                   configs=[], scope="before"):
     # get source location where this is getting called from
     caller = inspect.getframeinfo(inspect.stack()[call_depth+1][0])
 
@@ -26,10 +27,12 @@ def parse_fragment(proc, fragment, ctx_stmt, call_depth=0, scope="before"):
                                      filename=caller.filename,
                                      lineno=caller.lineno)
     if isinstance(p_ast, PAST.expr):
-        return ParseFragment(p_ast, proc, ctx_stmt, scope).results()
+        return ParseFragment(p_ast, proc, ctx_stmt,
+                             configs, scope).results()
     else:
         assert len(p_ast) == 1
-        return ParseFragment(p_ast[0], proc, ctx_stmt, scope).results()
+        return ParseFragment(p_ast[0], proc, ctx_stmt,
+                             configs, scope).results()
 
 
 _PAST_to_LoopIR = {
@@ -41,6 +44,8 @@ _PAST_to_LoopIR = {
   PAST.USub:          LoopIR.USub,
   PAST.BinOp:         LoopIR.BinOp,
   PAST.StrideExpr:    LoopIR.StrideExpr,
+  PAST.BuiltIn:       LoopIR.BuiltIn,
+  PAST.ReadConfig:    LoopIR.ReadConfig,
 }
 
 
@@ -157,13 +162,14 @@ class BuildEnv_after(LoopIR_Do):
 
 
 class ParseFragment:
-    def __init__(self, pat, proc, stmt, scope):
+    def __init__(self, pat, proc, stmt, configs, scope):
         assert isinstance(stmt, LoopIR.stmt) or (stmt is None)
         assert isinstance(pat, PAST.expr)
 
         self._results   = None # results should be expression
-        self.stmt = stmt
-        self.env  = ChainMap()
+        self.stmt       = stmt
+        self.env        = ChainMap()
+        self.configs    = { c.name() : c for c in configs }
 
         if stmt is None:
             self.srcinfo = proc.srcinfo
@@ -198,8 +204,12 @@ class ParseFragment:
         elif isinstance(pat, PAST.BinOp):
             lhs = self.parse_e(pat.lhs)
             rhs = self.parse_e(pat.rhs)
-            return LoopIR.BinOp(pat.op, lhs, rhs, self.type_for_binop(pat.op, lhs, rhs),
+            return LoopIR.BinOp(pat.op, lhs, rhs,
+                                self.type_for_binop(pat.op, lhs, rhs),
                                 self.srcinfo)
+        elif isinstance(pat, PAST.USub):
+            arg = self.parse_e(pat.arg)
+            return LoopIR.UnaryOp(arg, arg.type, self.srcinfo)
         elif isinstance(pat, PAST.StrideExpr):
             nm = self.find_sym(pat.name)
             return LoopIR.StrideExpr(nm, pat.dim, T.stride, self.srcinfo)
@@ -207,6 +217,31 @@ class ParseFragment:
             typ = {float: T.R, bool: T.bool, int: T.int}.get(type(pat.val))
             assert typ is not None, "bad type!"
             return LoopIR.Const(pat.val, typ, self.srcinfo)
+        elif isinstance(pat, PAST.BuiltIn):
+            args = [ self.parse_e(a) for a in pat.args ]
+            try:
+                typ = pat.f.typecheck(args)
+            except BuiltIn_Typecheck_Error as err:
+                raise ParseFragmentError(err)
+
+            return LoopIR.BuiltIn(pat.f, args, typ, self.srcinfo)
+        elif isinstance(pat, PAST.ReadConfig):
+            if pat.config not in self.configs:
+                raise ParseFragmentError(
+                    f"Could not find Config named '{pat.config}'. "
+                    f"Try supplying a list of Config objects via an "
+                    f"optional 'configs' argument")
+
+            cfg     = self.configs[pat.config]
+            if not cfg.has_field(pat.field):
+                raise ParseFragmentError(
+                    f"Config named '{pat.config}' does not have a field "
+                    f"named '{pat.field}'")
+
+            typ     = cfg.lookup(pat.field)[1]
+            return LoopIR.ReadConfig(cfg, pat.field, typ, self.srcinfo)
+        else:
+            assert False, f"bad case: {type(pat)}"
 
     def find_sym(self, expr):
         for k in self.env.keys():

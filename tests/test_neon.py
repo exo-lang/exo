@@ -8,6 +8,7 @@ import pytest
 
 from exo import proc
 from exo.platforms.neon import *
+from exo.stdlib.scheduling import *
 
 import numpy as np
 
@@ -72,12 +73,8 @@ def test_neon_simple_math(compiler):
         fn(None, n, x, y)
         assert np.allclose(x, expected)
 
-@pytest.mark.isa('neon')
-def test_neon_simple_math_scheduling(compiler):
-    """
-    Compute x = x * y^2
-    """
-
+@pytest.fixture
+def simple_math_neon_sched():
     @proc
     def simple_math_neon_sched(n: size,
                                x: R[n] @ DRAM,
@@ -85,39 +82,47 @@ def test_neon_simple_math_scheduling(compiler):
         for i in seq(0, n):
             x[i] = x[i] * y[i] * y[i]
 
-    print()
-    print()
+    def sched_neon(p=simple_math_neon_sched):
+        p = divide_loop(p, 'i', 4, ['io', 'ii'], tail='cut_and_guard')
+        p = stage_assn(p, 'x[_] = _ #0', 'xyy')
+        p = autolift_alloc(p, 'xyy: _')
+        p = fission(p, p.find('xyy[_] = _').after())
 
-    simple_math_neon_sched = (
-        simple_math_neon_sched
-            .split('i', 4, ['io', 'ii'], tail='cut_and_guard')
-            .stage_assn('xyy', 'x[_] = _ #0')
-            .lift_alloc('xyy: _', keep_dims=True)
-            .fission_after('xyy[_] = _')
+        p = bind_expr(p, 'x[_]', 'xVec')
+        p = autolift_alloc(p, 'xVec: _')
+        p = fission(p, p.find('xVec[_] = _').after())
 
-            .bind_expr('xVec', 'x[_]')
-            .lift_alloc('xVec: _', keep_dims=True)
-            .fission_after('xVec[_] = _')
+        p = bind_expr(p, 'y[_]', 'yVec', cse=True)
+        p = autolift_alloc(p, 'yVec: _')
+        p = fission(p, p.find('yVec[_] = _').after())
 
-            .bind_expr('yVec', 'y[_]', cse=True)
-            .lift_alloc('yVec: _', keep_dims=True)
-            .fission_after('yVec[_] = _')
+        p = bind_expr(p, 'xVec[_] * yVec[_]', 'xy')
+        p = autolift_alloc(p, 'xy: _')
+        p = fission(p, p.find('xy[_] = _').after())
 
-            .bind_expr('xy', 'xVec[_] * yVec[_]')
-            .lift_alloc('xy: _', keep_dims=True)
-            .fission_after('xy[_] = _')
+        p = set_memory(p, 'xVec', Neon4f)
+        p = set_memory(p, 'yVec', Neon4f)
+        p = set_memory(p, 'xy', Neon4f)
+        p = set_memory(p, 'xyy', Neon4f)
+        p = replace(p, 'for ii in _: _ #4', neon_vst_4xf32)
+        p = replace_all(p, neon_vld_4xf32)
+        p = replace_all(p, neon_vmul_4xf32)
 
-            .set_memory('xVec', Neon4f)
-            .set_memory('yVec', Neon4f)
-            .set_memory('xy', Neon4f)
-            .set_memory('xyy', Neon4f)
-            .replace(neon_vst_4xf32, 'for ii in _: _ #4')
-            .replace_all(neon_vld_4xf32)
-            .replace_all(neon_vmul_4xf32)
-    )
+        return p
 
-    print(simple_math_neon_sched)
+    simple_math_neon_sched = sched_neon()
 
+    return simple_math_neon_sched
+
+def test_gen_neon_simple_math_scheduling(golden, simple_math_neon_sched):
+    assert str(simple_math_neon_sched) == golden
+
+
+@pytest.mark.isa('neon')
+def test_neon_simple_math_scheduling(compiler, simple_math_neon_sched):
+    """
+    Compute x = x * y^2
+    """
 
     fn = compiler.compile(simple_math_neon_sched,
                           skip_on_fail=True,
