@@ -28,9 +28,9 @@ def SGEMM(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):
     assert stride(B, 1) == 1
     assert stride(C, 1) == 1
 
-    for k in par(0, K):
-        for i in par(0, M):
-            for j in par(0, N):
+    for k in seq(0, K):
+        for i in seq(0, M):
+            for j in seq(0, N):
                 C[i, j] += A[i, k] * B[k, j]
 
 def make_win(p):
@@ -75,12 +75,11 @@ for M in range(1, M_REG_BLK + 1):
         p = rename(p,f'sgemm_kernel_avx512_{M}x4')
         # Vectorize columns
         p = divide_loop(p, 'j', VEC_W, ['jo','ji'], perfect=True)
-        # Mark k as a reduction loop
-        p = par_to_seq(p, 'for k in _: _')
         # Stage C for reduction
         p = stage_assn(p, 'C[_] += _', 'C_reg')
         p = set_memory(p, 'C_reg', AVX512)
-        p = autolift_alloc(p, 'C_reg: _', n_lifts=4)
+        p = autolift_alloc(p, 'C_reg: _', n_lifts=3, keep_dims=True)
+        p = autolift_alloc(p, 'C_reg: _')
         p = double_fission(p, 'C_reg[_] = C[_]', 'C_reg[_] += _', n_lifts=4)
         # Stage A & B
         def stage_input(p, expr, new_buf):
@@ -99,7 +98,7 @@ for M in range(1, M_REG_BLK + 1):
         p = replace_all(p, mm512_loadu_ps)
         p = replace_all(p, mm512_fmadd_ps)
         # LICM
-        p = autolift_alloc(p, 'A_vec: _')
+        p = autolift_alloc(p, 'A_vec: _', keep_dims=True)
         p = autofission(p, p.find('mm512_set1_ps(_)').after())
         # Clean up
         p = simplify(p)
@@ -143,10 +142,10 @@ def make_right_panel_kernel_opt(p = right_panel_kernel):
     p = bound_and_guard(p, 'for ji in _: _ #1')
     p = fission(p, p.find('for jo in _: _').after(), n_lifts=2)
     #
-    p = par_to_seq(p, 'for k in _: _')
-    #
-    p = autolift_alloc(p, 'C_reg: _', n_lifts=4)
-    p = autolift_alloc(p, 'C_reg: _ #1', n_lifts=4)
+    p = autolift_alloc(p, 'C_reg: _', n_lifts=3, keep_dims=True)
+    p = autolift_alloc(p, 'C_reg: _ #1', n_lifts=3, keep_dims=True)
+    p = autolift_alloc(p, 'C_reg: _')
+    p = autolift_alloc(p, 'C_reg: _ #1')
     p = reorder_up(p, 'C_reg : _ #1')
     #p = reorder_stmts(p, 'for k in _ : _\n'
     #                     'C_reg: _')
@@ -289,9 +288,6 @@ def make_sgemm_exo(p = SGEMM):
     ## Case 1 memory staging
     p = stage_window(p, 'A[_] #0', 'A1_cache', DRAM_STATIC)
     p = stage_window(p, 'B[_] #0', 'B1_cache', DRAM_STATIC)
-    p = par_to_seq(p, 'ko #0')
-    p = par_to_seq(p, 'io #0')
-    p = par_to_seq(p, 'jo #0')
     p = autolift_alloc(p, 'A1_cache : _', n_lifts=3)
     p = autolift_alloc(p, 'B1_cache : _', n_lifts=3)
     p = autofission(p, p.find_loop('i0 #0').after())

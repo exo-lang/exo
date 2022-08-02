@@ -71,7 +71,6 @@ from ..API_scheduling import (
     add_unsafe_guard,
     double_fission,
     bound_and_guard,
-    par_to_seq_once,
     stage_assn,
     #
     # to be replaced by stdlib compositions eventually
@@ -168,14 +167,6 @@ def loop_hack(sched, find_func, verbose=False):
     return loop_hack_sched
 
 
-
-
-def par_to_seq(proc, loop_pattern):
-    """
-    DEPRECATED
-    """
-    find_func = lambda p: p.find_loop(loop_pattern, many=True)
-    return loop_hack(par_to_seq_once, find_func)(proc)
 
 
 from ..API_cursors import public_cursors as _PC
