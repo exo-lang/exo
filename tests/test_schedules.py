@@ -7,6 +7,16 @@ from exo.libs.memories import GEMM_SCRATCH
 from exo import ParseFragmentError
 from exo.stdlib.scheduling import *
 
+def test_reorder_stmts():
+    @proc
+    def foo():
+        x : R[30]
+        y : R[30]
+        for i in seq(0, 30):
+            x[i] = 0.0
+
+    reorder_stmts(foo, 'y:_ ; for i in _:_')
+
 def test_product_loop(golden):
     @proc
     def foo(n : size):
