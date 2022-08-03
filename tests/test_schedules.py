@@ -7,6 +7,38 @@ from exo.libs.memories import GEMM_SCRATCH
 from exo import ParseFragmentError
 from exo.stdlib.scheduling import *
 
+def test_commute(golden):
+    @proc
+    def foo(x : R[3], y : R[3], z : R):
+        z = x[0]*y[2]
+    assert str(commute(foo, 'x[0] * y[_]')) == golden
+
+def test_commute2():
+    @proc
+    def foo(x : R[3], y : R[3], z : R):
+        z = x[0] + y[0] + x[1] + y[1]
+
+    with pytest.raises(SchedulingError, match='failed to find matches'):
+        # TODO: Currently, expression pattern matching fails to find
+        # 'y[0]+x[1]' because LoopIR.BinOp is structured as (x[0], (y[0], (x[1], y[1]))).
+        # I think pattern matching should be powerful to find this.
+        commute(foo, 'y[0] + x[1]')
+
+def test_commute3(golden):
+    @proc
+    def foo(x : R[3], y : R[3], z : R):
+        z = (x[0] + y[0]) * (x[1] + y[1] + y[2])
+    assert str(commute(foo, '(x[_] + y[_]) * (x[_] + y[_] + y[_])')) == golden
+
+def test_commute4():
+    @proc
+    def foo(x : R[3], y : R[3], z : R):
+        z = x[0] - y[2]
+
+    with pytest.raises(TypeError, match="can commute"):
+        commute(foo, 'x[0] - y[_]')
+
+
 def test_product_loop(golden):
     @proc
     def foo(n : size):

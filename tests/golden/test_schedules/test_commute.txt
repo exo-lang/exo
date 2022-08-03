@@ -1,0 +1,2 @@
+def foo(x: R[3] @ DRAM, y: R[3] @ DRAM, z: R @ DRAM):
+    z = y[2] * x[0]
