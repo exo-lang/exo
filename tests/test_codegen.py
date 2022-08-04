@@ -2,12 +2,68 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import numpy as np
 from PIL import Image
 
 from exo import proc, Procedure, DRAM
-from exo.libs.memories import MDRAM
+from exo.libs.memories import MDRAM, MemGenError
 from exo.stdlib.scheduling import *
+
+
+mock_registers = 0
+class MOCK(DRAM):
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        assert len(shape) == 1 and int(shape[0]) == 16
+        global mock_registers
+        if mock_registers > 0:
+            raise MemGenError('Cannot allocate more than one mock register')
+        mock_registers += 1
+
+        return f'static {prim_type} {new_name}[16];'
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        global mock_registers
+        mock_registers -= 1
+        return ''
+
+# Testing to make sure free is inserted correcctly
+def test_free(compiler):
+    @proc
+    def foo():
+        x : f32[16] @ MOCK
+        for i in seq(0, 16):
+            x[i] = 3.0
+        y : f32[16] @ MOCK
+        for i in seq(0, 16):
+            y[i] = 0.0
+
+    compiler.compile(foo)
+
+def test_free2(compiler):
+    @proc
+    def foo():
+        x : f32[16] @ MOCK
+        for i in seq(0, 16):
+            y : R[16] @ MOCK
+            y[i] = 2.0
+
+    compiler.compile(foo)
+
+def test_free3(compiler):
+    @proc
+    def foo():
+        x : f32[16] @ MOCK
+        for i in seq(0, 16):
+            y : R[16] @ MOCK
+            x[i] = 2.0
+
+    with pytest.raises(MemGenError, match="Cannot allocate"):
+        compiler.compile(foo)
+
+
 
 old_split = repeat(divide_loop)
 
