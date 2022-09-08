@@ -10,10 +10,10 @@ def gen_conv1d():
     @proc
     def conv1d(n : size, m : size, r: size, x : R[n],
                w : R[m] , res : R[r]):
-        for i in par(0, r):
+        for i in seq(0, r):
             res[i] = 0.0
-        for i in par(0,r):
-            for j in par(0,n):
+        for i in seq(0,r):
+            for j in seq(0,n):
                 if (j < i+1 and j >= i-(m-1)):
                     res[i] += x[j]*w[i-j]
 
@@ -35,7 +35,7 @@ def test_conv1d():
 def gen_add_vec():
     @proc
     def add_vec( n : size, x : R[n], y : R[n], res : R[n]):
-        for i in par(0, n):
+        for i in seq(0, n):
             res[i] = x[i] + y[i]
 
     return add_vec
@@ -57,10 +57,10 @@ def gen_gemm():
          A : R[n,p],
          B : R[p,m],
        ):
-        for i in par(0,n):
-            for j in par(0,m):
+        for i in seq(0,n):
+            for j in seq(0,m):
                 C[i,j] = 0.0
-                for k in par(0,p):
+                for k in seq(0,p):
                     C[i,j] += A[i,k] * B[k,j]
 
     return gemm

@@ -722,7 +722,7 @@ def new_Cursor(impl):
             return PassCursor(impl)
         elif isinstance(n, LoopIR.If):
             return IfCursor(impl)
-        elif isinstance(n, (LoopIR.ForAll,LoopIR.Seq)):
+        elif isinstance(n, LoopIR.Seq):
             return ForSeqCursor(impl)
         elif isinstance(n, LoopIR.Alloc):
             return AllocCursor(impl)

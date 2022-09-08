@@ -18,15 +18,15 @@ def gen_conv1d():
                res: R[K, W],
                ):
         # zero out the result memory
-        for k_init in par(0, K):
-            for i_init in par(0, W):
+        for k_init in seq(0, K):
+            for i_init in seq(0, W):
                 res[k_init, i_init] = 0.0
 
         # do the convolution
-        for k in par(0, K):
-            for c in par(0, C):
-                for i in par(0, W):
-                    for r in par(0, R):
+        for k in seq(0, K):
+            for c in seq(0, C):
+                for i in seq(0, W):
+                    for r in seq(0, R):
                         if 0 <= i - r:
                             res[k, i] += w[k, c, r] * x[c, i - r]
 
@@ -43,7 +43,7 @@ def test_im2col(golden):
 
     # next, we can start to lift that allocation
     # up and out of the loop
-    im2col_conv = autolift_alloc(im2col_conv, 'y:R', 5)
+    im2col_conv = autolift_alloc(im2col_conv, 'y:R', 5, keep_dims=True)
 
     # Then, we can fission the loop correspondingly,
     # separating what is now a data-marshalling statement from

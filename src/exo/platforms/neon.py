@@ -65,7 +65,7 @@ def neon_vld_4xf32(
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
-    for i in par(0, 4):
+    for i in seq(0, 4):
         dst[i] = src[i]
 
 
@@ -77,7 +77,7 @@ def neon_vst_4xf32(
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
-    for i in par(0, 4):
+    for i in seq(0, 4):
         dst[i] = src[i]
 
 
@@ -88,7 +88,7 @@ def neon_broadcast_4xf32(
 ):
     assert stride(dst, 0) == 1
 
-    for i in par(0, 4):
+    for i in seq(0, 4):
         dst[i] = src[0]
 
 
@@ -98,7 +98,7 @@ def neon_zero_4xf32(
 ):
     assert stride(dst, 0) == 1
 
-    for i in par(0, 4):
+    for i in seq(0, 4):
         dst[i] = 0.0
 
 
@@ -112,7 +112,7 @@ def neon_vadd_4xf32(
     assert stride(lhs, 0) == 1
     assert stride(rhs, 0) == 1
 
-    for i in par(0, 4):
+    for i in seq(0, 4):
         dst[i] = lhs[i] + rhs[i]
 
 
@@ -126,7 +126,7 @@ def neon_vmul_4xf32(
     assert stride(lhs, 0) == 1
     assert stride(rhs, 0) == 1
 
-    for i in par(0, 4):
+    for i in seq(0, 4):
         dst[i] = lhs[i] * rhs[i]
 
 
@@ -140,7 +140,7 @@ def neon_vfmadd_4xf32_4xf32(
     assert stride(lhs, 0) == 1
     assert stride(rhs, 0) == 1
 
-    for i in par(0, 4):
+    for i in seq(0, 4):
         dst[i] += lhs[i] * rhs[i]
 
 
@@ -153,7 +153,7 @@ def neon_vfmadd_4xf32_1xf32(
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
 
-    for i in par(0, 4):
+    for i in seq(0, 4):
         dst[i] += lhs[i] * rhs[0]
 
 @instr('{dst_data} = vmlaq_n_f32({dst_data}, {rhs_data}, {lhs_data});')
@@ -165,7 +165,7 @@ def neon_vfmadd_1xf32_4xf32(
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
 
-    for i in par(0, 4):
+    for i in seq(0, 4):
         dst[i] += lhs[0] * rhs[i]
 
 

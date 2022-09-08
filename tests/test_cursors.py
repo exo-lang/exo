@@ -9,8 +9,8 @@ from exo import proc
 def proc_foo():
     @proc
     def foo(n: size, m: size):
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 x: f32
                 x = 0.0
                 y: f32
@@ -24,8 +24,8 @@ def proc_bar():
     @proc
     def bar(n: size, m: size):
         x: f32
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 x = 0.0
                 x = 1.0
                 x = 2.0

@@ -70,7 +70,6 @@ module LoopIR {
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
          | If( expr cond, stmt* body, stmt* orelse )
-         | ForAll( sym iter, expr hi, stmt* body )
          | Seq( sym iter, expr hi, stmt* body )
          | Alloc( sym name, type type, mem? mem )
          | Free( sym name, type type, mem? mem )
@@ -204,7 +203,6 @@ module PAST {
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
             | If      ( expr cond, stmt* body,  stmt* orelse )
-            | ForAll  ( name iter, expr hi,     stmt* body )
             | Seq     ( name iter, expr hi,     stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
             | Call    ( name f, expr* args )
@@ -523,10 +521,6 @@ class LoopIR_Rewrite:
             return [LoopIR.If( self.map_e(s.cond), self.map_stmts(s.body),
                                self.map_stmts(s.orelse),
                                self.map_eff(s.eff), s.srcinfo )]
-        elif styp is LoopIR.ForAll:
-            return [LoopIR.ForAll( s.iter, self.map_e(s.hi),
-                                   self.map_stmts(s.body),
-                                   self.map_eff(s.eff), s.srcinfo )]
         elif styp is LoopIR.Seq:
             return [LoopIR.Seq( s.iter, self.map_e(s.hi),
                                 self.map_stmts(s.body),
@@ -641,7 +635,7 @@ class LoopIR_Do:
             self.do_e(s.cond)
             self.do_stmts(s.body)
             self.do_stmts(s.orelse)
-        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
+        elif styp is LoopIR.Seq:
             self.do_e(s.hi)
             self.do_stmts(s.body)
         elif styp is LoopIR.Call:
@@ -755,7 +749,7 @@ class FreeVars(LoopIR_Do):
             self.pop()
             self.do_eff(s.eff)
             return
-        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
+        elif styp is LoopIR.Seq:
             self.do_e(s.hi)
             self.push()
             self.env[s.iter] = True
@@ -862,7 +856,7 @@ class Alpha_Rename(LoopIR_Rewrite):
             self.pop()
             return stmts
 
-        elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
+        elif styp is LoopIR.Seq:
             hi  = self.map_e(s.hi)
             eff = self.map_eff(s.eff)
             self.push()

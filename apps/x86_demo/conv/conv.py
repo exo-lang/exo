@@ -20,15 +20,15 @@ def conv(
     assert out_h == in_h - kernel_dim + 1
     assert out_w == in_w - kernel_dim + 1
 
-    for oc in par(0, out_channel):
-        for n in par(0, batch_size):
-            for oy in par(0, out_h):
-                for ox in par(0, out_w):
+    for oc in seq(0, out_channel):
+        for n in seq(0, batch_size):
+            for oy in seq(0, out_h):
+                for ox in seq(0, out_w):
                     res: f32
                     res = bias[oc]
-                    for ky in par(0, kernel_dim):
-                        for kx in par(0, kernel_dim):
-                            for kc in par(0, in_channel):
+                    for ky in seq(0, kernel_dim):
+                        for kx in seq(0, kernel_dim):
+                            for kc in seq(0, in_channel):
                                 # todo: add padding, stride
                                 res += (weights[kc, ky, kx, oc] *
                                         inp[n, oy + ky, ox + kx, kc])
@@ -56,14 +56,14 @@ def do_specialization(p):
     #
     p = divide_loop(p, 'oc_i', VEC_W, ['oc_u', 'oc_v'], perfect=True)
     #
-    p = autolift_alloc(p, 'res: _', n_lifts=3)
+    p = autolift_alloc(p, 'res: _', n_lifts=3, keep_dims=True)
     p = set_memory(p, 'res', AVX512)
     p = fission(p, p.find('res[_] = bias[_]').after(), n_lifts=3)
     p = replace(p, 'for oc_v in _: _ #0', mm512_loadu_ps)
     #
     p = fission(p, p.find('for ky in _: _').after(), n_lifts=3)
     #
-    p = autolift_alloc(p, 'relu_v: _')
+    p = autolift_alloc(p, 'relu_v: _', keep_dims=True)
     p = set_memory(p, 'relu_v', AVX512)
     p = fission(p, p.find('relu_v = _').after())
     p = replace(p, 'for oc_v in _: _ #2', mm512_storeu_ps)

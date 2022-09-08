@@ -1,5 +1,5 @@
 def simple_math_neon_sched(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):
-    for io in par(0, n / 4):
+    for io in seq(0, n / 4):
         xyy: R[4] @ Neon4f
         xVec: R[4] @ Neon4f
         neon_vld_4xf32(xVec[0:4], x[4 * io + 0:4 * io + 4])
@@ -10,6 +10,6 @@ def simple_math_neon_sched(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):
         neon_vmul_4xf32(xyy[0:4], xy[0:4], yVec[0:4])
         neon_vst_4xf32(x[4 * io + 0:4 * io + 4], xyy[0:4])
     if n % 4 > 0:
-        for ii in par(0, n % 4):
+        for ii in seq(0, n % 4):
             x[ii + n / 4 *
               4] = x[ii + n / 4 * 4] * y[ii + n / 4 * 4] * y[ii + n / 4 * 4]

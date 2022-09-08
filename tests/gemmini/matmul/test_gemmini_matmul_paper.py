@@ -37,8 +37,8 @@ def do_ld_data(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 _gemm_ld_data   = ("gemmini_extended3_config_ld({src}.strides[0], 1.0f, 0, 0);\n"+
@@ -56,8 +56,8 @@ def ld_data(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 def make_ld_data_v2(p=ld_data):
@@ -101,8 +101,8 @@ def do_ld_acc(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 _gemm_ld_acc   = ("gemmini_extended3_config_ld({src}.strides[0]*4, 1.0f, 0, 0);\n"+
@@ -120,8 +120,8 @@ def ld_acc(
     assert stride(dst, 0) == 16
     assert stride(dst, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i,j] = src[i,j]
 
 def make_ld_acc_v2(p=ld_acc):
@@ -174,9 +174,9 @@ def matmul(
     assert M <= 16
     assert K <= 16
 
-    for i in par(0,N):
-        for j in par(0,M):
-            for k in par(0,K):
+    for i in seq(0,N):
+        for j in seq(0,M):
+            for k in seq(0,K):
                 C[i, j] += A[i,k] * B[k,j]
 
 @instr(_gemm_matmul)
@@ -192,9 +192,9 @@ def do_matmul(
     assert M <= 16
     assert K <= 16
 
-    for i in par(0,N):
-        for j in par(0,M):
-            for k in par(0,K):
+    for i in seq(0,N):
+        for j in seq(0,M):
+            for k in seq(0,K):
                 C[i, j] += A[i,k] * B[k,j]
 
 def make_matmul_v2(p=matmul):
@@ -230,8 +230,8 @@ def st_acc(
     assert stride(src, 0) == 16
     assert stride(src, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i, j] = src[i,j]
 
 _gemm_config_st_acc   = ("gemmini_extended_config_st({dst_stride}, 0, 1.0f);\n")
@@ -255,8 +255,8 @@ def do_st_acc(
     assert stride(src, 0) == 16
     assert stride(src, 1) == 1
 
-    for i in par(0, n):
-        for j in par(0, m):
+    for i in seq(0, n):
+        for j in seq(0, m):
             dst[i, j] = src[i,j]
 
 def make_st_acc_v2(p=st_acc):
@@ -272,9 +272,9 @@ st_acc_v2 = make_st_acc_v2()
 def matmul_algorithm():
     @proc
     def matmul( N : size, M : size, K : size, A : R[N,K], B : R[K,M], C : R[N,M] ):
-        for i in par(0,N):
-            for j in par(0,M):
-                for k in par(0,K):
+        for i in seq(0,N):
+            for j in seq(0,M):
+                for k in seq(0,K):
                     C[i,j] += A[i,k]*B[k,j]
 
     return matmul

@@ -4,20 +4,6 @@ from exo import *
 from exo.platforms.neon import *
 from exo.stdlib.scheduling import *
 
-def stage_C(kernel):
-    return (kernel.par_to_seq('for k in _: _')
-        .stage_assn('C_reg', 'C[_] += _')
-        .lift_alloc('C_reg : _', n_lifts=4)
-        .double_fission('C_reg[_] = C[_]', 'C_reg[_] += _', n_lifts=4)
-    )
-
-def stage_A_and_B(kernel):
-    return (kernel
-        .stage_expr('A_vec', 'A[_,_]', memory=Neon4f)
-        .stage_expr('B_vec', 'B[_,_]', memory=Neon4f)
-    )
-
-
 # Compute Matrix-Matrix Multiplication C += A * B
 @proc
 def SGEMM(
@@ -35,9 +21,9 @@ def SGEMM(
     assert stride(B, 1) == 1
     assert stride(C, 1) == 1
 
-    for i in par(0, M):
-        for j in par(0, N):
-            for k in par(0, K):
+    for i in seq(0, M):
+        for j in seq(0, N):
+            for k in seq(0, K):
                 C[i, j] += A[i, k] * B[k, j]
 
 def make_sgemm_win(p=SGEMM):

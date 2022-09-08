@@ -356,7 +356,7 @@ def globenv(stmts):
                 newbinds[nm] = val
             aenvs.append(AEnvPar(newbinds,addnames=True))
 
-        elif isinstance(s, (LoopIR.ForAll,LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             # extract environment for the body and bind its
             # results via copies of the variables
             body_env    = globenv(s.body)
@@ -891,7 +891,7 @@ def stmts_effs(stmts):
             effs += expr_effs(s.cond)
             effs += [ E.Guard( lift_e(s.cond), stmts_effs(s.body) ),
                       E.Guard( ANot(lift_e(s.cond)), stmts_effs(s.orelse) ) ]
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             effs += expr_effs(s.hi)
             bds   = AAnd( AInt(0) <= AInt(s.iter),
                           AInt(s.iter) < lift_e(s.hi) )
@@ -981,7 +981,7 @@ class ContextExtraction:
             if p is not None:
                 return AAnd( ANot(lift_e(s.cond)), p )
             return None
-        elif isinstance(s, (LoopIR.ForAll,LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             p = self.ctrlp_stmts(s.body)
             if p is not None:
                 G   = self.loop_preenv(s)
@@ -1013,7 +1013,7 @@ class ContextExtraction:
             if preG is not None:
                 return preG
             return None
-        elif isinstance(s, (LoopIR.ForAll,LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             preG = self.preenv_stmts(s.body)
             if preG is not None:
                 G   = self.loop_preenv(s)
@@ -1047,7 +1047,7 @@ class ContextExtraction:
             if effs is not None:
                 return [E.Guard( ANot(lift_e(s.cond)), effs )]
             return None
-        elif isinstance(s, (LoopIR.ForAll,LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             body = self.posteff_stmts(s.body)
             if body is None:
                 return None
@@ -1077,7 +1077,7 @@ class ContextExtraction:
             return None
 
     def loop_preenv(self, s):
-        assert isinstance(s, (LoopIR.ForAll, LoopIR.Seq))
+        assert isinstance(s, LoopIR.Seq)
         old_i    = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
         new_i    = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
         pre_body = SubstArgs(s.body, { s.iter : new_i }).result()
@@ -1090,7 +1090,7 @@ class ContextExtraction:
         #   for x' in seq(x+1, hi): s
         # but instead generate
         #   for x' in seq(0, hi-(x+1)): [x' -> x' + (x+1)]s
-        assert isinstance(s, (LoopIR.ForAll, LoopIR.Seq))
+        assert isinstance(s, LoopIR.Seq)
         old_i       = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
         new_i       = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
         old_plus1   = LoopIR.BinOp('+',old_i,LoopIR.Const(1,T.int,s.srcinfo),
@@ -1214,7 +1214,7 @@ def Check_ReorderLoops(proc, s):
     slv.assume(AMay(p))
 
     assert len(s.body) == 1
-    assert isinstance(s.body[0], (LoopIR.ForAll,LoopIR.Seq))
+    assert isinstance(s.body[0], LoopIR.Seq)
     x_loop  = s
     y_loop  = s.body[0]
     body    = y_loop.body
@@ -1269,7 +1269,7 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
     slv.push()
     slv.assume(AMay(p))
 
-    assert isinstance(loop, (LoopIR.ForAll,LoopIR.Seq))
+    assert isinstance(loop, LoopIR.Seq)
     i       = loop.iter
     j       = i.copy()
     hi      = loop.hi

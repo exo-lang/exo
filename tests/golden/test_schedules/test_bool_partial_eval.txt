@@ -1,5 +1,5 @@
 def bar(n: size, A: i8[n] @ DRAM):
     tmp: i8[n] @ DRAM
-    for i in par(0, n):
+    for i in seq(0, n):
         if False == True:
             tmp[i] = A[i]

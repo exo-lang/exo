@@ -1,4 +1,4 @@
 def bar(A: i8[10] @ DRAM):
     tmp: i8[10] @ DRAM
-    for i in par(0, 10):
+    for i in seq(0, 10):
         tmp[i] = A[i]

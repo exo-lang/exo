@@ -24,16 +24,16 @@ def conv_algorithm():
         assert out_dim == in_dim - kernel_dim + 1
 
         # Algorithm starts here
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim):
-                    for och in par(0, out_channel):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim):
+                    for och in seq(0, out_channel):
 
                         res : i32
                         res = bias[0,och]
-                        for krow in par(0, kernel_dim):
-                            for kcol in par(0, kernel_dim):
-                                for kch in par(0, in_channel):
+                        for krow in seq(0, kernel_dim):
+                            for kcol in seq(0, kernel_dim):
+                                for kch in seq(0, in_channel):
                                     w_s : i8 @ DRAM
                                     w_s = weights[krow,kcol,kch,och]
 
@@ -138,11 +138,10 @@ def test_conv_ae():
     gemmini = old_split(gemmini, 'orow',28,['orow_o', 'orow_i'], perfect=True)
     gemmini = expand_dim(gemmini, 'i_s: i8[_]', '30', 'krow + orow_i',
                                   unsafe_disable_checks=True)
-    [ (gemmini := par_to_seq(gemmini, s)) for s in ['for krow in _:_', 'for b in _:_', 'for orow_o in _:_', 'for orow_i in _:_', 'for ocol_o in _:_'] ]
-    gemmini = old_lift_alloc(gemmini, 'i_s : _', n_lifts=5)
-    gemmini = old_lift_alloc(gemmini, 'w_s : _', n_lifts=4)
+    gemmini = old_lift_alloc(gemmini, 'i_s : _', n_lifts=5, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, 'w_s : _', n_lifts=4, keep_dims=False)
 
-    gemmini = old_lift_alloc(gemmini, 'res : _', n_lifts=4)
+    gemmini = old_lift_alloc(gemmini, 'res : _', n_lifts=4, keep_dims=False)
 
     gemmini = old_fission_after(gemmini, 'for kch_o in _:_ #0', n_lifts=6)
     gemmini = old_fission_after(gemmini, 'for kch_o in _:_ #2', n_lifts=5)
@@ -205,7 +204,6 @@ def test_conv_ae():
 
     gemmini = old_split(gemmini, 'orow_i',7,['orow_io','orow_ii'],
                                  perfect=True)
-    gemmini = par_to_seq(gemmini, 'for orow_io in _:_')
     gemmini = old_unroll(gemmini, 'och_o')
     gemmini = old_unroll(gemmini, 'kch_o')
     gemmini = old_unroll(gemmini, 'kcol')

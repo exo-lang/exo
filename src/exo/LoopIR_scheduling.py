@@ -116,7 +116,7 @@ class _PartitionLoop(LoopIR_Rewrite):
     def map_s(self, s):
         styp = type(s)
         if s is self.stmt:
-            assert isinstance(s, (LoopIR.ForAll, LoopIR.Seq))
+            assert isinstance(s, LoopIR.Seq)
             if not isinstance(s.hi, LoopIR.Const):
                 raise SchedulingError("expected loop bound to be constant")
             if s.hi.val <= self.partition_by:
@@ -160,7 +160,7 @@ class _DoProductLoop(LoopIR_Rewrite):
         self.in_loop = self.out_loop.body[0]
 
         if (len(self.out_loop.body) != 1 or
-                not isinstance(self.in_loop, (LoopIR.ForAll,LoopIR.Seq))):
+                not isinstance(self.in_loop, LoopIR.Seq)):
             raise SchedulingError(f"expected loop directly inside of "
                                   f"{self.out_loop.iter} loop")
 
@@ -202,7 +202,7 @@ class _Reorder(LoopIR_Rewrite):
         self.stmt = loop_stmt
         self.out_var = loop_stmt.iter
         if (len(loop_stmt.body) != 1 or
-                not isinstance(loop_stmt.body[0], (LoopIR.ForAll,LoopIR.Seq))):
+                not isinstance(loop_stmt.body[0], LoopIR.Seq)):
             raise SchedulingError(f"expected loop directly inside of "
                                   f"{self.out_var} loop")
         self.in_var = loop_stmt.body[0].iter
@@ -476,9 +476,6 @@ class _Unroll(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.unroll_loop:
-            # if isinstance(s, LoopIR.ForAll):
-            #    # unroll this to loops!!
-            #    if s.iter is self.unroll_var:
             if not isinstance(s.hi, LoopIR.Const):
                 raise SchedulingError(f"expected loop '{s.iter}' "
                                       f"to have constant bounds")
@@ -1050,9 +1047,9 @@ class _BindConfig(LoopIR_Rewrite):
         if self.sub_done:
             return super().map_s(s)
 
-        if isinstance(s, LoopIR.ForAll):
+        if isinstance(s, LoopIR.Seq):
             body = self.process_block(s.body)
-            return [LoopIR.ForAll(s.iter, s.hi, body, s.eff, s.srcinfo)]
+            return [LoopIR.Seq(s.iter, s.hi, body, s.eff, s.srcinfo)]
 
         if isinstance(s, LoopIR.If):
             if_then = self.process_block(s.body)
@@ -1127,7 +1124,7 @@ class _BindExpr(LoopIR_Rewrite):
         if self.sub_done:
             return super().map_s(s)
 
-        if isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+        if isinstance(s, LoopIR.Seq):
             body = self.process_block(s.body)
             return [s.update(body=body)]
 
@@ -1207,20 +1204,6 @@ class _DoStageAssn(LoopIR_Rewrite):
         return super().map_s(s)
 
 
-class _DoParToSeq(LoopIR_Rewrite):
-    def __init__(self, proc, par_stmt):
-        assert isinstance(par_stmt, LoopIR.ForAll)
-
-        self.par_stmt = par_stmt
-        super().__init__(proc)
-
-    def map_s(self, s):
-        if s is self.par_stmt:
-            body = self.map_stmts(s.body)
-            return [LoopIR.Seq(s.iter, s.hi, body, s.eff, s.srcinfo)]
-        else:
-            return super().map_s(s)
-
 
 # Lift if no variable dependency
 class _DoLiftIf(LoopIR_Rewrite):
@@ -1299,7 +1282,7 @@ class _DoLiftIf(LoopIR_Rewrite):
 
             return self.upd_if(s, body, orelse)
 
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             body = super().map_stmts(s.body)
 
             if self.target in body and self.n_lifts:
@@ -1597,7 +1580,7 @@ class _DoLiftAllocSimple(LoopIR_Rewrite):
 
             return []
 
-        elif isinstance(s, (LoopIR.If, LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(s, (LoopIR.If, LoopIR.Seq)):
             self.ctrl_ctxt.append(s)
             stmts = super().map_s(s)
             self.ctrl_ctxt.pop()
@@ -1703,7 +1686,7 @@ class _LiftAlloc(LoopIR_Rewrite):
             # erase the statement from this location
             return []
 
-        elif isinstance(s, (LoopIR.If, LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(s, (LoopIR.If, LoopIR.Seq)):
             # handle recursive part of pass at this statement
             self.ctrl_ctxt.append(s)
             stmts = super().map_s(s)
@@ -1796,9 +1779,8 @@ class _LiftAlloc(LoopIR_Rewrite):
                 # shrink the allocation by being aware of
                 # guards; oh well.
                 continue
-            elif isinstance(s, LoopIR.ForAll):
-                # note, do not accrue false dependencies
-                if s.iter in self.alloc_deps or self.keep_dims:
+            elif isinstance(s, LoopIR.Seq):
+                if s.iter in self.alloc_deps and self.keep_dims:
                     idxs.append(s.iter)
                     if isinstance(s.hi, LoopIR.Read):
                         assert s.hi.type.is_indexable()
@@ -1830,8 +1812,6 @@ class _LiftAlloc(LoopIR_Rewrite):
                         rngs.append(LoopIR.Const(self.lift_size, T.int, s.srcinfo))
                     else:
                         rngs.append(s.hi)
-            elif isinstance(s, LoopIR.Seq):
-                pass
             else:
                 assert False, "bad case"
 
@@ -1902,7 +1882,7 @@ class _FreeVars(LoopIR_Do):
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name not in self._bound:
                 self._fvs.add(s.name)
-        elif isinstance(s, LoopIR.ForAll):
+        elif isinstance(s, LoopIR.Seq):
             self._bound.add(s.iter)
         elif isinstance(s, LoopIR.Alloc):
             self._bound.add(s.name)
@@ -1950,7 +1930,7 @@ def _is_idempotent(stmts):
             return _is_idempotent(s.f.body)
         elif styp is LoopIR.If:
             return _is_idempotent(s.body) and _is_idempotent(s.orelse)
-        elif styp is LoopIR.ForAll:
+        elif styp is LoopIR.Seq:
             return _is_idempotent(s.body)
         else:
             return True
@@ -2047,7 +2027,7 @@ class _DoDoubleFission:
             # then we need to gather together the pre and post.
             single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
 
-        elif isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.Seq):
 
             # check if we need to split the loop
             pre, mid, post = self.map_stmts(s.body)
@@ -2207,7 +2187,7 @@ class _DoFissionAfterSimple:
             # then we need to gather together the pre and post.
             single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
 
-        elif isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.Seq):
             styp = type(s)
             # check if we need to split the loop
             pre, post = self.map_stmts(s.body)
@@ -2324,7 +2304,7 @@ class _FissionLoops:
             # then we need to gather together the pre and post.
             single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
 
-        elif isinstance(s, LoopIR.ForAll) or isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.Seq):
 
             # check if we need to split the loop
             pre, post = self.map_stmts(s.body)
@@ -2454,7 +2434,7 @@ class _DoBoundAndGuard(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s == self.loop:
-            assert isinstance(s, (LoopIR.Seq, LoopIR.ForAll))
+            assert isinstance(s, LoopIR.Seq)
             bound = _get_constant_bound(s.hi)
             guard = LoopIR.If(
                 LoopIR.BinOp('<',
@@ -2705,7 +2685,7 @@ class _DoDeletePass(LoopIR_Rewrite):
     def map_s(self, s):
         if isinstance(s, LoopIR.Pass):
             return []
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             body = self.map_stmts(s.body)
             if not body:
                 return []
@@ -2748,12 +2728,12 @@ class _DoExtractMethod(LoopIR_Rewrite):
         elif isinstance(s, LoopIR.Alloc):
             self.var_types[s.name] = s.type
             return [s]
-        elif isinstance(s, LoopIR.ForAll):
+        elif isinstance(s, LoopIR.Seq):
             self.push()
             self.var_types[s.iter] = T.index
             body = self.map_stmts(s.body)
             self.pop()
-            return [LoopIR.ForAll(s.iter, s.hi, body, None, s.srcinfo)]
+            return [LoopIR.Seq(s.iter, s.hi, body, None, s.srcinfo)]
         elif isinstance(s, LoopIR.If):
             self.push()
             body = self.map_stmts(s.body)
@@ -3085,7 +3065,7 @@ class _DoSimplify(LoopIR_Rewrite):
 
             return [LoopIR.If(cond, body, orelse, self.map_eff(s.eff),
                               s.srcinfo)]
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             styp = type(s)
             hi = self.map_e(s.hi)
             # Delete the loop if it would not run at all
@@ -3121,7 +3101,7 @@ class _AssertIf(LoopIR_Rewrite):
                 return self.map_stmts(s.body)
             else:
                 return self.map_stmts(s.orelse)
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             body = self.map_stmts(s.body)
             if not body:
                 return []
@@ -3235,7 +3215,7 @@ class _DoStageMem_FindBufData(LoopIR_Do):
             self.push()
             self.do_stmts(s.orelse)
             self.pop()
-        elif isinstance(s, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(s, LoopIR.Seq):
             self.push()
             self.do_stmts(s.body)
             self.pop()
@@ -3538,7 +3518,7 @@ class _DoStageWindow(LoopIR_Rewrite):
         # for i0 in par(0, 10):
         #     for i1 in par(0, hi - lo):
         for sym_i, extent_i in reversed(list(zip(staged_vars, staged_extents))):
-            copy_stmt = LoopIR.ForAll(sym_i, extent_i, [copy_stmt], None,
+            copy_stmt = LoopIR.Seq(sym_i, extent_i, [copy_stmt], None,
                                       srcinfo)
 
         # Staged[0:10, 0:(hi - lo)]
@@ -3630,7 +3610,6 @@ class Schedules:
     DoLiftAlloc = _LiftAlloc
     DoFissionLoops = _FissionLoops
     DoExtractMethod = _DoExtractMethod
-    DoParToSeq = _DoParToSeq
     DoReorderStmt = _DoReorderStmt
     DoConfigWrite = _ConfigWrite
     DoConfigWriteAfter = _ConfigWriteAfter

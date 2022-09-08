@@ -1,5 +1,5 @@
 def bar(n: size, x: i8[n] @ DRAM, y: i8[n] @ DRAM, z: i8[n] @ DRAM):
-    for i in par(0, n):
+    for i in seq(0, n):
         z_tmp: R
         z_tmp = x[i] + y[i]
         z[i] = z_tmp
