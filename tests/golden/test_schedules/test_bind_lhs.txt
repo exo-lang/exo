@@ -1,7 +1,7 @@
 def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
-    for ii in par(0, 1):
-        for jj in par(0, 1):
-            for kk in par(0, 16):
+    for ii in seq(0, 1):
+        for jj in seq(0, 1):
+            for kk in seq(0, 16):
                 inp_ram: R
                 inp_ram = inp[ii, jj, kk]
                 out_ram: R

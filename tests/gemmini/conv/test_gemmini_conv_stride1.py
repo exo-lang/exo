@@ -26,16 +26,16 @@ def conv_on_cpu():
 
         assert out_dim == in_dim + 2*padding - kernel_dim + 1
 
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim):
-                    for och in par(0, out_channel):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim):
+                    for och in seq(0, out_channel):
 
                         res : i32
                         res = bias[0,och]
-                        for krow in par(0, kernel_dim):
-                            for kcol in par(0, kernel_dim):
-                                for kch in par(0, in_channel):
+                        for krow in seq(0, kernel_dim):
+                            for kcol in seq(0, kernel_dim):
+                                for kch in seq(0, in_channel):
                                     w_s : i8 @ DRAM
                                     w_s = weights[krow,kcol,kch,och]
 
@@ -206,13 +206,8 @@ def test_conv_3():
     # FIXME(#133): Remove unsafe_disable_checks once we have new effectcheck working
     conv = expand_dim(conv, 'i_s: i8[_]', '30', 'krow + orow_i',
                             unsafe_disable_checks=True)
-    conv = par_to_seq(conv, 'for krow in _:_')
-    conv = par_to_seq(conv, 'for b in _:_')
-    conv = par_to_seq(conv, 'for orow_o in _:_')
-    conv = par_to_seq(conv, 'for orow_i in _:_')
-    conv = par_to_seq(conv, 'for ocol_o in _:_')
-    conv = old_lift_alloc(conv, 'i_s : _', n_lifts=5)
-    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=4)
+    conv = old_lift_alloc(conv, 'i_s : _', n_lifts=5, keep_dims=False)
+    conv = old_lift_alloc(conv, 'w_s : _', n_lifts=4, keep_dims=False)
 
     #conv = conv.add_guard('for kch_o in _:_', 'ocol_o', 0)
     #conv = conv.add_guard('for kch_o in _:_', 'b', 0)
@@ -221,7 +216,7 @@ def test_conv_3():
     #conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
     #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_o #1', 0)
     #conv = conv.add_guard('for kch_o in _:_ #2', 'orow_i #1', 0)
-    conv = old_lift_alloc(conv, 'res : _', n_lifts=4)
+    conv = old_lift_alloc(conv, 'res : _', n_lifts=4, keep_dims=False)
 
     conv = old_fission_after(conv, 'for kch_o in _:_ #0', n_lifts=6)
     conv = old_fission_after(conv, 'for kch_o in _:_ #2', n_lifts=5)
@@ -285,7 +280,6 @@ def test_conv_3():
 
 
     conv = old_split(conv, 'orow_i', 7, ['orow_io', 'orow_ii'], perfect=True)
-    conv = par_to_seq(conv, 'for orow_io in _:_')
     conv = old_unroll(conv, 'och_o')
     #conv = old_unroll(conv, 'kch_o')
     #conv = old_unroll(conv, 'kcol')
@@ -377,9 +371,9 @@ def test_conv_17():
 
         one : f32
         one = 1.0
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim/16):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim/16):
                     conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
 
                 if out_dim%16 > 0:
@@ -414,13 +408,9 @@ def test_conv_17():
     gemmini = old_lift_alloc(gemmini, 'in_scratch:_', n_lifts=5)
     gemmini = old_lift_alloc(gemmini, 'weight_scratch:_', n_lifts=4)
 
-    gemmini = par_to_seq(gemmini, 'for b in _:_')
-    gemmini = par_to_seq(gemmini, 'for orow in _:_')
-    gemmini = par_to_seq(gemmini, 'for och in _:_')
-
-    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=3)
-    gemmini = old_lift_alloc(gemmini, 'in_scratch:_', n_lifts=3)
-    gemmini = old_lift_alloc(gemmini, 'weight_scratch:_', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=3, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, 'in_scratch:_', n_lifts=3, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, 'weight_scratch:_', n_lifts=3, keep_dims=False)
 
     gemmini = gemmini.add_guard('do_ld_i8_id1(_) #0', 'och #0', 0)
     gemmini = gemmini.add_guard('do_ld_i8_id1(_) #1', 'och #0', 0)
@@ -512,9 +502,9 @@ def test_conv_30():
 
         one : f32
         one = 1.0
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim/16):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim/16):
                     conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
 
                 if out_dim%16 > 0:
@@ -538,13 +528,9 @@ def test_conv_30():
     gemmini = old_lift_alloc(gemmini, 'in_scratch:_', n_lifts=5)
     gemmini = old_lift_alloc(gemmini, 'weight_scratch:_', n_lifts=4)
 
-    gemmini = par_to_seq(gemmini, 'for b in _:_')
-    gemmini = par_to_seq(gemmini, 'for orow in _:_')
-    gemmini = par_to_seq(gemmini, 'for och in _:_')
-
-    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=3)
-    gemmini = old_lift_alloc(gemmini, 'in_scratch:_', n_lifts=3)
-    gemmini = old_lift_alloc(gemmini, 'weight_scratch:_', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=3, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, 'in_scratch:_', n_lifts=3, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, 'weight_scratch:_', n_lifts=3, keep_dims=False)
 
     gemmini = gemmini.add_guard('do_ld_i8_id1(_) #0', 'och #0', 0)
     gemmini = gemmini.add_guard('do_ld_i8_id1(_) #1', 'och #0', 0)
@@ -632,9 +618,9 @@ def test_conv_49():
 
         one : f32
         one = 1.0
-        for b in par(0, batch_size):
-            for orow in par(0, out_dim):
-                for ocol in par(0, out_dim/16):
+        for b in seq(0, batch_size):
+            for orow in seq(0, out_dim):
+                for ocol in seq(0, out_dim/16):
                     conv_partial_padding(batch_size, out_dim, out_channel, kernel_dim, in_channel, in_dim, padding, output, bias, inp, weights, act, scale, b, orow, one, 16, 16*ocol, 16*(ocol+1))
 
                 if out_dim%16 > 0:
@@ -658,13 +644,9 @@ def test_conv_49():
     gemmini = old_lift_alloc(gemmini, 'in_scratch:_', n_lifts=5)
     gemmini = old_lift_alloc(gemmini, 'weight_scratch:_', n_lifts=4)
 
-    gemmini = par_to_seq(gemmini, 'for b in _:_')
-    gemmini = par_to_seq(gemmini, 'for orow in _:_')
-    gemmini = par_to_seq(gemmini, 'for och in _:_')
-
-    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=3)
-    gemmini = old_lift_alloc(gemmini, 'in_scratch:_', n_lifts=3)
-    gemmini = old_lift_alloc(gemmini, 'weight_scratch:_', n_lifts=3)
+    gemmini = old_lift_alloc(gemmini, 'res:_', n_lifts=3, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, 'in_scratch:_', n_lifts=3, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, 'weight_scratch:_', n_lifts=3, keep_dims=False)
 
     gemmini = gemmini.add_guard('do_ld_i8_id1(_) #0', 'och #0', 0)
     gemmini = gemmini.add_guard('do_ld_i8_id1(_) #1', 'och #0', 0)

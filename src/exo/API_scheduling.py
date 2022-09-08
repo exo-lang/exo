@@ -1814,17 +1814,6 @@ def bound_and_guard(proc, loop):
     loopir  = Schedules.DoBoundAndGuard(proc._loopir_proc, stmt).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
-@sched_op([ForSeqCursorA])
-def par_to_seq_once(proc, loop_cursor):
-    """
-    DEPRECATED
-    """
-    stmt    = loop_cursor._impl._node()
-    if isinstance(stmt, LoopIR.Seq):
-        return proc
-    loopir  = Schedules.DoParToSeq(proc._loopir_proc, stmt).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
-
 @sched_op([AssignOrReduceCursorA, NameA])
 def stage_assn(proc, stmt_cursor, buf_name):
     """

@@ -1,4 +1,4 @@
 def bar(K: size, A: [i8][16, K] @ DRAM):
-    for k in par(0, K / 16):
+    for k in seq(0, K / 16):
         a: i8[16, 16] @ DRAM
         load(16, 16, A[0:16, 16 * k + 0:16 * k + 16], a[0:16, 0:16])

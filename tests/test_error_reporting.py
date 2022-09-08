@@ -15,7 +15,7 @@ from exo.stdlib.scheduling import *
 def test_bad_reorder():
     @proc
     def example(N: size, A: f32[N]):
-        for i in par(0, N):
+        for i in seq(0, N):
             A[i] = 0.0
 
     expected_error = textwrap.dedent('''

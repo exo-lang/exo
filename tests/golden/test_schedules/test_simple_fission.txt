@@ -1,5 +1,5 @@
 def bar(n: size, A: i8[n] @ DRAM, B: i8[n] @ DRAM, C: i8[n] @ DRAM):
-    for i in par(0, n):
+    for i in seq(0, n):
         C[i] += A[i]
-    for i in par(0, n):
+    for i in seq(0, n):
         C[i] += B[i]

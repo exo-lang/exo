@@ -458,7 +458,7 @@ class Node(Cursor):
             yield from []
         elif isinstance(n, LoopIR.If):
             yield from self._children_from_attrs(n, 'cond', 'body', 'orelse')
-        elif isinstance(n, (LoopIR.ForAll, LoopIR.Seq)):
+        elif isinstance(n, LoopIR.Seq):
             yield from self._children_from_attrs(n, 'hi', 'body')
         elif isinstance(n, LoopIR.Call):
             yield from self._children_from_attrs(n, 'args')

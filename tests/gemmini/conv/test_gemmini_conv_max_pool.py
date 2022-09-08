@@ -41,10 +41,10 @@ def conv_on_cpu():
         zero = 0.0
         min_ : i8
         min_ = -128.0
-        for b in par(0, batch_size):
-            for porow in par(0, (out_dim+2*pool_padding-pool_size)/2+1):
-                for pocol in par(0, (out_dim+2*pool_padding-pool_size)/2+1):
-                    for poch in par(0, out_channel):
+        for b in seq(0, batch_size):
+            for porow in seq(0, (out_dim+2*pool_padding-pool_size)/2+1):
+                for pocol in seq(0, (out_dim+2*pool_padding-pool_size)/2+1):
+                    for poch in seq(0, out_channel):
 
                         running_max : i8
                         running_max = min_
@@ -57,9 +57,9 @@ def conv_on_cpu():
                                     res : i32
                                     res = bias[0,poch]
 
-                                    for krow in par(0, kernel_dim):
-                                        for kcol in par(0, kernel_dim):
-                                            for kch in par(0, in_channel):
+                                    for krow in seq(0, kernel_dim):
+                                        for kcol in seq(0, kernel_dim):
+                                            for kch in seq(0, in_channel):
                                                 if (0 <= (porow*2+pwrow-pool_padding)*2+krow-padding  and (porow*2+pwrow-pool_padding)*2+krow-padding < in_dim and
                                                         0 <= (pocol*2+pwcol-pool_padding)*2+kcol-padding and (pocol*2+pwcol-pool_padding)*2+kcol-padding < in_dim):
                                                     res += weights[krow,kcol,kch,poch] * inp[b,(porow*2+pwrow-pool_padding)*2+krow-padding,(pocol*2+pwcol-pool_padding)*2+kcol-padding,kch]
@@ -146,14 +146,14 @@ def test_conv_1():
         min_ : i8
         min_ = -128.0
         min_array : i8[16,16] @ DRAM
-        for i in par(0, 16):
-            for j in par(0, 16):
+        for i in seq(0, 16):
+            for j in seq(0, 16):
                 min_array[i,j] = min_
 
-        for b in par(0, batch_size):
-            for porow in par(0, (out_dim+2*pool_padding-pool_size)/2+1):
-                for pocol in par(0, ((out_dim+2*pool_padding-pool_size)/2+1)/16):
-                    for poch in par(0, out_channel/16):
+        for b in seq(0, batch_size):
+            for porow in seq(0, (out_dim+2*pool_padding-pool_size)/2+1):
+                for pocol in seq(0, ((out_dim+2*pool_padding-pool_size)/2+1)/16):
+                    for poch in seq(0, out_channel/16):
 
                         running_max : i8[16, 16] @ GEMM_ACCUM
                         do_ld_acc_i32(16, 16, min_array, running_max)
@@ -174,12 +174,12 @@ def test_conv_1():
                                     running_max = select(running_max, zero, zero, running_max)
                                 else:
                                     res : i32[16,16] @ GEMM_ACCUM
-                                    for l in par(0, 16):
+                                    for l in seq(0, 16):
                                         do_ld_acc_i32(1, 16, bias[ 0:1, 16*poch:16*(poch+1) ], res[l:l+1, :])
 
-                                    for kcol in par(0, kernel_dim):
-                                        for krow in par(0, kernel_dim):
-                                            for kch in par(0, in_channel/16):
+                                    for kcol in seq(0, kernel_dim):
+                                        for krow in seq(0, kernel_dim):
+                                            for kch in seq(0, in_channel/16):
                                                 if 0 <= orow*2+krow-padding and orow*2+krow-padding < in_dim:
                                                     in_scratch : i8[DIM_SIZE,16] @ GEMM_SCRATCH
                                                     weight_scratch : i8[16,16] @ GEMM_SCRATCH

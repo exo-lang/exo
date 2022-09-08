@@ -55,10 +55,10 @@ loop becomes outermost.
 # Second block:
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
+                for ji in seq(0, 8):
                     C_reg: R @ AVX2
                     C_reg = C[i, 8 * jo + ji]
                     C_reg += A[i, k] * B[k, 8 * jo + ji]
@@ -76,20 +76,20 @@ Please uncomment the code in the third block. Please notice that
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
     C_reg: R[K + 1, 6, 2, 8] @ AVX2
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
+                for ji in seq(0, 8):
                     C_reg[k, i, jo, ji] = C[i, 8 * jo + ji]
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
+                for ji in seq(0, 8):
                     C_reg[k, i, jo, ji] += A[i, k] * B[k, 8 * jo + ji]
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
+                for ji in seq(0, 8):
                     C[i, 8 * jo + ji] = C_reg[k, i, jo, ji]
 ```
 
@@ -101,23 +101,23 @@ register `a_vec` by `bind_expr()` and `set_memory()`.
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
     C_reg: R[K + 1, 6, 2, 8] @ AVX2
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
+                for ji in seq(0, 8):
                     C_reg[k, i, jo, ji] = C[i, 8 * jo + ji]
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
                 a_vec: R[8] @ AVX2
-                for ji in par(0, 8):
+                for ji in seq(0, 8):
                     a_vec[ji] = A[i, k]
-                for ji in par(0, 8):
+                for ji in seq(0, 8):
                     C_reg[k, i, jo, ji] += a_vec[ji] * B[k, 8 * jo + ji]
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
+                for ji in seq(0, 8):
                     C[i, 8 * jo + ji] = C_reg[k, i, jo, ji]
 ```
 
@@ -129,26 +129,26 @@ to `B`.
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
     C_reg: R[K + 1, 6, 2, 8] @ AVX2
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
+                for ji in seq(0, 8):
                     C_reg[k, i, jo, ji] = C[i, 8 * jo + ji]
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
                 a_vec: R[8] @ AVX2
-                for ji in par(0, 8):
+                for ji in seq(0, 8):
                     a_vec[ji] = A[i, k]
                 b_vec: R[8] @ AVX2
-                for ji in par(0, 8):
+                for ji in seq(0, 8):
                     b_vec[ji] = B[k, 8 * jo + ji]
-                for ji in par(0, 8):
+                for ji in seq(0, 8):
                     C_reg[k, i, jo, ji] += a_vec[ji] * b_vec[ji]
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
-                for ji in par(0, 8):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
+                for ji in seq(0, 8):
                     C[i, 8 * jo + ji] = C_reg[k, i, jo, ji]
 ```
 
@@ -165,22 +165,22 @@ statement with the call to AVX2 instruction procedures to get the final schedule
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
     C_reg: R[K + 1, 6, 2, 8] @ AVX2
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
                 mm256_loadu_ps(C_reg[k + 0, i + 0, jo + 0, 0:8],
                                C[i + 0, 8 * jo + 0:8 * jo + 8])
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
                 a_vec: R[8] @ AVX2
                 mm256_broadcast_ss(a_vec, A[i + 0:i + 1, k + 0])
                 b_vec: R[8] @ AVX2
                 mm256_loadu_ps(b_vec[0:8], B[k + 0, 8 * jo + 0:8 * jo + 8])
                 mm256_fmadd_ps(C_reg[k + 0, i + 0, jo + 0, 0:8], a_vec, b_vec)
-    for k in par(0, K):
-        for i in par(0, 6):
-            for jo in par(0, 2):
+    for k in seq(0, K):
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
                 mm256_storeu_ps(C[i + 0, 8 * jo + 0:8 * jo + 8],
                                 C_reg[k + 0, i + 0, jo + 0, 0:8])
 ```

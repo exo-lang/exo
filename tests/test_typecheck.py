@@ -35,8 +35,8 @@ def test_seq1():
 def test_loop1():
     @proc
     def foo():
-        for i in par(0, 10):
-            for j in par(0, i):
+        for i in seq(0, 10):
+            for j in seq(0, i):
                 pass
 
 
@@ -46,7 +46,7 @@ def test_fresh1():
             match='unable to disambiguate assignment to undefined variable'):
         @proc
         def foo(n: size, A: R[n] @ GEMM_SCRATCH):
-            for i in par(0, n):
+            for i in seq(0, n):
                 tmp = A[i]
                 A[i] = tmp
 
@@ -57,7 +57,7 @@ def test_fresh2():
             match='unable to disambiguate assignment to undefined variable'):
         @proc
         def foo(n: size, A: R[n] @ GEMM_SCRATCH):
-            for i in par(0, n):
+            for i in seq(0, n):
                 tmp = 0.0
                 A[i] = tmp
 
@@ -125,7 +125,7 @@ def test_badaccess():
         @proc
         def badaccess(m: size, x: R[m]):
             res: R[m]
-            for i in par(0, m):
+            for i in seq(0, m):
                 res[i] = x[i, 3]
 
 
@@ -134,7 +134,7 @@ def test_badaccess2():
         @proc
         def badaccess2(m: size, x: R[m]):
             res: R[m, m]
-            for i in par(0, m):
+            for i in seq(0, m):
                 res[i] = x[i]
 
 
@@ -150,7 +150,7 @@ def test_badaccess4():
         @proc
         def badaccess4():
             x: R
-            for i in par(0, 10):
+            for i in seq(0, 10):
                 x = i
 
 
@@ -190,7 +190,7 @@ def test_par2():
     with pytest.raises(TypeError, match='expected loop bound to be indexable'):
         @proc
         def hoge(x: R):
-            for i in par(0, x):
+            for i in seq(0, x):
                 pass
 
 

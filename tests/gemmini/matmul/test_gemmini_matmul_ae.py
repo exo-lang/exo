@@ -17,11 +17,11 @@ def matmul_algorithm():
     ):
 
         # Algorithm starts here
-        for i in par(0,N):
-            for j in par(0,M):
+        for i in seq(0,N):
+            for j in seq(0,M):
                 res : i32 @ DRAM
                 res = 0.0
-                for k in par(0,K):
+                for k in seq(0,K):
                     a : i8 @ DRAM
                     a = A[i,k]
 
@@ -141,11 +141,7 @@ def test_matmul_ae():
     gemmini = old_lift_alloc(gemmini, 'a : _', n_lifts=4)
     gemmini = old_lift_alloc(gemmini, 'b : _', n_lifts=3)
 
-    [ (gemmini := par_to_seq(gemmini, s)) for s in ['for ioo in _:_', 'for io in _:_', 'for jo in _:_', 'for i in _:_'] ]
-
-    [ (gemmini := old_lift_alloc(gemmini, s, n_lifts=n)) for (s,n) in [('a : i8', 1), ('b : i8', 2), ('res : _', 4)] ]
-
-    gemmini = par_to_seq(gemmini, 'for ji in _:_')
+    [ (gemmini := old_lift_alloc(gemmini, s, n_lifts=n, keep_dims=False)) for (s,n) in [('a : i8', 1), ('b : i8', 2), ('res : _', 4)] ]
 
     # These schedules correspond to previous add_guard
     gemmini = simplify(gemmini)
@@ -189,7 +185,6 @@ def test_matmul_ae():
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = fusion(gemmini, 'for i in _:_ #0', 'for i in _:_ #1')
     gemmini = old_reorder(gemmini, 'ko ji')
-    gemmini = par_to_seq(gemmini, 'for ji in _:_ #1')
     gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')
     gemmini = fusion(gemmini, 'for ji in _:_ #0', 'for ji in _:_ #1')

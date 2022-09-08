@@ -219,9 +219,7 @@ class TypeChecker:
                 self.err(hi, "expected loop bound to be indexable.")
 
             body = self.check_stmts(stmt.body)
-            if isinstance(stmt.cond, UAST.ParRange):
-                return [LoopIR.ForAll(stmt.iter, hi, body, None, stmt.srcinfo)]
-            elif isinstance(stmt.cond, UAST.SeqRange):
+            if isinstance(stmt.cond, UAST.SeqRange):
                 return [LoopIR.Seq(stmt.iter, hi, body, None, stmt.srcinfo)]
             else:
                 assert False, "bad case"

@@ -469,13 +469,10 @@ class LoopIR_PPrinter:
                     self.pstmt(p)
                 self.pop()
 
-        elif isinstance(stmt, LoopIR.ForAll) or isinstance(stmt, LoopIR.Seq):
+        elif isinstance(stmt, LoopIR.Seq):
             hi = self.pexpr(stmt.hi)
             self.push(only='env')
-            if isinstance(stmt, LoopIR.ForAll):
-                self.addline(f"for {self.get_name(stmt.iter)} in par(0, {hi}):")
-            else:
-                self.addline(f"for {self.get_name(stmt.iter)} in seq(0, {hi}):")
+            self.addline(f"for {self.get_name(stmt.iter)} in seq(0, {hi}):")
             self.push(only='tab')
             for p in stmt.body:
                 self.pstmt(p)

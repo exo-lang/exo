@@ -73,13 +73,13 @@ def gen_blur() -> Procedure:
     @proc
     def blur(n: size, m: size, k_size: size,
              image: R[n, m], kernel: R[k_size, k_size], res: R[n, m]):
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 res[i, j] = 0.0
-        for i in par(0, n):
-            for j in par(0, m):
-                for k in par(0, k_size):
-                    for l in par(0, k_size):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                for k in seq(0, k_size):
+                    for l in seq(0, k_size):
                         if i + k >= 1 and i + k - n < 1 and j + l >= 1 and j + l - m < 1:
                             res[i, j] += kernel[k, l] * image[
                                 i + k - 1, j + l - 1]
@@ -118,15 +118,15 @@ def test_simple_blur_split(compiler, tmp_path):
     def simple_blur_split(n: size, m: size, k_size: size,
                           image: R[n, m], kernel: R[k_size, k_size],
                           res: R[n, m]):
-        for i in par(0, n):
-            for j1 in par(0, m / 2):
-                for j2 in par(0, 2):
+        for i in seq(0, n):
+            for j1 in seq(0, m / 2):
+                for j2 in seq(0, 2):
                     res[i, j1 * 2 + j2] = 0.0
-        for i in par(0, n):
-            for j1 in par(0, m / 2):
-                for j2 in par(0, 2):
-                    for k in par(0, k_size):
-                        for l in par(0, k_size):
+        for i in seq(0, n):
+            for j1 in seq(0, m / 2):
+                for j2 in seq(0, 2):
+                    for k in seq(0, k_size):
+                        for l in seq(0, k_size):
                             if i + k >= 1 and i + k - n < 1 and j1 * 2 + j2 + l >= 1 and j1 * 2 + j2 + l - m < 1:
                                 res[i, j1 * 2 + j2] += kernel[k, l] * image[
                                     i + k - 1, j1 * 2 + j2 + l - 1]
@@ -169,10 +169,10 @@ def test_conv1d(compiler):
     @proc
     def conv1d(n: size, m: size, r: size,
                x: R[n], w: R[m], res: R[r]):
-        for i in par(0, r):
+        for i in seq(0, r):
             res[i] = 0.0
-        for i in par(0, r):
-            for j in par(0, n):
+        for i in seq(0, r):
+            for j in seq(0, n):
                 if j < i + 1 and j >= i - m + 1:
                     res[i] += x[j] * w[i - j]
 
@@ -196,17 +196,17 @@ def test_alloc_nest(compiler, tmp_path):
     @proc
     def alloc_nest(n: size, m: size,
                    x: R[n, m], y: R[n, m] @ DRAM, res: R[n, m] @ DRAM):
-        for i in par(0, n):
+        for i in seq(0, n):
             rloc: R[m] @ DRAM
             xloc: R[m] @ DRAM
             yloc: R[m] @ DRAM
-            for j in par(0, m):
+            for j in seq(0, m):
                 xloc[j] = x[i, j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 yloc[j] = y[i, j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 rloc[j] = xloc[j] + yloc[j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 res[i, j] = rloc[j]
 
     # Write effect printing to a file
@@ -232,17 +232,17 @@ def test_alloc_nest_malloc(compiler):
     def alloc_nest_malloc(n: size, m: size,
                           x: R[n, m] @ MDRAM, y: R[n, m] @ MDRAM,
                           res: R[n, m] @ MDRAM):
-        for i in par(0, n):
+        for i in seq(0, n):
             rloc: R[m] @ MDRAM
             xloc: R[m] @ MDRAM
             yloc: R[m] @ MDRAM
-            for j in par(0, m):
+            for j in seq(0, m):
                 xloc[j] = x[i, j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 yloc[j] = y[i, j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 rloc[j] = xloc[j] + yloc[j]
-            for j in par(0, m):
+            for j in seq(0, m):
                 res[i, j] = rloc[j]
 
     x = np.array([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]], dtype=np.float32)
@@ -265,7 +265,7 @@ def test_alloc_nest_malloc(compiler):
 def test_unary_neg(compiler):
     @proc
     def negate_array(n: size, x: R[n], res: R[n] @ DRAM):  # pragma: no cover
-        for i in par(0, n):
+        for i in seq(0, n):
             res[i] = -x[i] + -(x[i]) - -(x[i] + 0.0)
 
     x = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)

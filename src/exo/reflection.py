@@ -136,11 +136,10 @@ class LoopIR_to_QAST:
       return QAST.If(self.map_expr(s.cond),
                      self.map_stmts(s.body),
                      self.map_stmts(s.orelse))
-    elif styp is LoopIR.ForAll or styp is LoopIR.Seq:
+    elif styp is LoopIR.Seq:
       name    = self.bindname(s.iter)
-      is_par  = styp is LoopIR.ForAll
       return QAST.For(name, QAST.Const(0,QAST.int()), self.map_expr(s.hi),
-                            self.map_stmts(s.body), is_par)
+                            self.map_stmts(s.body), False)
     elif styp is LoopIR.Alloc:
       name = self.bindname(s.name)
       return QAST.Alloc(name, self.map_type(s.type), s.mem)

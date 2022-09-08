@@ -232,8 +232,8 @@ def test_pattern_match():
 def test_fission_after_simple(golden):
     @proc
     def foo(n: size, m: size):
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 x: f32
                 x = 0.0
                 y: f32
@@ -241,15 +241,15 @@ def test_fission_after_simple(golden):
 
     @proc
     def bar(n: size, m: size):
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 x: f32
                 x = 0.0
                 y: f32
                 y = 1.1
 
-        for k in par(0, 30):
-            for l in par(0, 100):
+        for k in seq(0, 30):
+            for l in seq(0, 100):
                 x: i8
                 x = 4.0
                 y: f32
@@ -521,7 +521,7 @@ def test_mult_dim_fail_1():
 def test_double_fission(golden):
     @proc
     def foo(N: size, a: f32[N], b: f32[N], out: f32[N]):
-        for i in par(0, N):
+        for i in seq(0, N):
             res: f32
             res = 0.0
 
@@ -529,7 +529,7 @@ def test_double_fission(golden):
 
             out[i] = res
 
-    foo = autolift_alloc(foo, 'res : _')
+    foo = autolift_alloc(foo, 'res : _', keep_dims=True)
     foo = double_fission(foo, 'res = _ #0', 'res += _ #0')
     assert str(foo) == golden
 
@@ -553,9 +553,9 @@ def test_reuse_buffer(golden):
 def test_bind_lhs(golden):
     @proc
     def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
-        for ii in par(0, 1):
-            for jj in par(0, 1):
-                for kk in par(0, 16):
+        for ii in seq(0, 1):
+            for jj in seq(0, 1):
+                for kk in seq(0, 16):
                     out[ii, jj, kk] = out[ii, jj, kk] + inp[ii, jj, kk]
                     out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
 
@@ -568,7 +568,7 @@ def test_simple_divide_loop(golden):
     @proc
     def bar(n: size, A: i8[n]):
         tmp: i8[n]
-        for i in par(0, n):
+        for i in seq(0, n):
             tmp[i] = A[i]
 
     bar = divide_loop(bar, 'i', 4, ['io', 'ii'], tail='guard')
@@ -579,8 +579,8 @@ def test_simple_reorder(golden):
     @proc
     def bar(n: size, m: size, A: i8[n, m]):
         tmp: i8[n, m]
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 tmp[i, j] = A[i, j]
 
     bar = reorder_loops(bar, 'i j')
@@ -591,7 +591,7 @@ def test_simple_unroll(golden):
     @proc
     def bar(A: i8[10]):
         tmp: i8[10]
-        for i in par(0, 10):
+        for i in seq(0, 10):
             tmp[i] = A[i]
 
     bar = unroll_loop(bar, 'i')
@@ -605,7 +605,7 @@ def test_simple_inline(golden):
 
     @proc
     def bar(n: size, src: i8[n], dst: i8[n]):
-        for i in par(0, n):
+        for i in seq(0, n):
             tmp_src: i8
             tmp_dst: i8
             tmp_src = src[i]
@@ -627,7 +627,7 @@ def test_simple_partial_eval(golden):
     @proc
     def bar(n: size, A: i8[n]):
         tmp: i8[n]
-        for i in par(0, n):
+        for i in seq(0, n):
             tmp[i] = A[i]
 
     bar = bar.partial_eval(10)
@@ -638,7 +638,7 @@ def test_bool_partial_eval(golden):
     @proc
     def bar(b: bool, n: size, A: i8[n]):
         tmp: i8[n]
-        for i in par(0, n):
+        for i in seq(0, n):
             if b == True:
                 tmp[i] = A[i]
 
@@ -659,7 +659,7 @@ def test_simple_typ_and_mem(golden):
 def test_simple_bind_expr(golden):
     @proc
     def bar(n: size, x: i8[n], y: i8[n], z: i8[n]):
-        for i in par(0, n):
+        for i in seq(0, n):
             z[i] = x[i] + y[i]
 
     bar = bind_expr(bar, 'x[_] + y[_]', 'z_tmp')
@@ -669,18 +669,18 @@ def test_simple_bind_expr(golden):
 def test_simple_lift_alloc(golden):
     @proc
     def bar(n: size, A: i8[n]):
-        for i in par(0, n):
+        for i in seq(0, n):
             tmp_a: i8
             tmp_a = A[i]
 
-    bar = autolift_alloc(bar, 'tmp_a : _', n_lifts=1)
+    bar = autolift_alloc(bar, 'tmp_a : _', n_lifts=1, keep_dims=True)
     assert str(bar) == golden
 
 
 def test_simple_fission(golden):
     @proc
     def bar(n: size, A: i8[n], B: i8[n], C: i8[n]):
-        for i in par(0, n):
+        for i in seq(0, n):
             C[i] += A[i]
             C[i] += B[i]
 
@@ -693,22 +693,22 @@ def test_partition():
     @proc
     def bar(n: size, A: i8[n], pad: size):
         assert n > pad
-        for i in par(0, n):
+        for i in seq(0, n):
             tmp = A[i]
 
-        for i in par(0, pad):
+        for i in seq(0, pad):
             tmp = A[i]
-        for i in par(pad, n - pad):
+        for i in seq(pad, n - pad):
             tmp = A[i]
-        for i in par(n - pad, n):
+        for i in seq(n - pad, n):
             tmp = A[i]
 
 
 def test_fission(golden):
     @proc
     def bar(n: size, m: size):
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 x: f32
                 x = 0.0
                 y: f32
@@ -721,8 +721,8 @@ def test_fission(golden):
 def test_fission2():
     @proc
     def bar(n: size, m: size):
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 x: f32
                 x = 0.0
                 y: f32
@@ -737,26 +737,26 @@ def test_fission2():
 def test_lift(golden):
     @proc
     def bar(A: i8[16, 10]):
-        for i in par(0, 10):
+        for i in seq(0, 10):
             a: i8[16]
-            for k in par(0, 16):
+            for k in seq(0, 16):
                 a[k] = A[k, i]
 
-    bar = autolift_alloc(bar, 'a: i8[_]', n_lifts=1, mode='col', size=20)
+    bar = autolift_alloc(bar, 'a: i8[_]', n_lifts=1, mode='col', size=20, keep_dims=True)
     assert str(bar) == golden
 
 
 def test_unify1(golden):
     @proc
     def bar(n: size, src: R[n, n], dst: R[n, n]):
-        for i in par(0, n):
-            for j in par(0, n):
+        for i in seq(0, n):
+            for j in seq(0, n):
                 dst[i, j] = src[i, j]
 
     @proc
     def foo(x: R[5, 5], y: R[5, 5]):
-        for i in par(0, 5):
-            for j in par(0, 5):
+        for i in seq(0, 5):
+            for j in seq(0, 5):
                 x[i, j] = y[i, j]
 
     foo = replace(foo, "for i in _ : _", bar)
@@ -766,14 +766,14 @@ def test_unify1(golden):
 def test_unify2(golden):
     @proc
     def bar(n: size, src: [R][n, n], dst: [R][n, n]):
-        for i in par(0, n):
-            for j in par(0, n):
+        for i in seq(0, n):
+            for j in seq(0, n):
                 dst[i, j] = src[i, j]
 
     @proc
     def foo(x: R[12, 12], y: R[12, 12]):
-        for i in par(0, 5):
-            for j in par(0, 5):
+        for i in seq(0, 5):
+            for j in seq(0, 5):
                 x[i + 3, j + 1] = y[i + 5, j + 2]
 
     foo = replace(foo, "for i in _ : _", bar)
@@ -783,15 +783,15 @@ def test_unify2(golden):
 def test_unify3(golden):
     @proc
     def simd_add4(dst: [R][4], a: [R][4], b: [R][4]):
-        for i in par(0, 4):
+        for i in seq(0, 4):
             dst[i] = a[i] + b[i]
 
     @proc
     def foo(n: size, z: R[n], x: R[n], y: R[n]):
         assert n % 4 == 0
 
-        for i in par(0, n / 4):
-            for j in par(0, 4):
+        for i in seq(0, n / 4):
+            for j in seq(0, 4):
                 z[4 * i + j] = x[4 * i + j] + y[4 * i + j]
 
     foo = replace(foo, "for j in _ : _", simd_add4)
@@ -801,13 +801,13 @@ def test_unify3(golden):
 def test_unify4(golden):
     @proc
     def bar(n: size, src: [R][n], dst: [R][n]):
-        for i in par(0, n):
+        for i in seq(0, n):
             if i < n - 2:
                 dst[i] = src[i] + src[i + 1]
 
     @proc
     def foo(x: R[50, 2]):
-        for j in par(0, 50):
+        for j in seq(0, 50):
             if j < 48:
                 x[j, 1] = x[j, 0] + x[j + 1, 0]
 
@@ -818,16 +818,16 @@ def test_unify4(golden):
 def test_unify5(golden):
     @proc
     def bar(n: size, src: R[n, n], dst: R[n, n]):
-        for i in par(0, n):
-            for j in par(0, n):
+        for i in seq(0, n):
+            for j in seq(0, n):
                 tmp: f32
                 tmp = src[i, j]
                 dst[i, j] = tmp
 
     @proc
     def foo(x: R[5, 5], y: R[5, 5]):
-        for i in par(0, 5):
-            for j in par(0, 5):
+        for i in seq(0, 5):
+            for j in seq(0, 5):
                 c: f32
                 c = y[i, j]
                 x[i, j] = c
@@ -847,17 +847,17 @@ def test_unify6(golden):
         assert n <= 16
         assert m <= 16
 
-        for i in par(0, n):
-            for j in par(0, m):
+        for i in seq(0, n):
+            for j in seq(0, m):
                 dst[i, j] = src[i, j]
 
     @proc
     def bar(K: size, A: [i8][16, K] @ DRAM):
 
-        for k in par(0, K / 16):
+        for k in seq(0, K / 16):
             a: i8[16, 16] @ DRAM
-            for i in par(0, 16):
-                for k_in in par(0, 16):
+            for i in seq(0, 16):
+                for k_in in seq(0, 16):
                     a[i, k_in] = A[i, 16 * k + k_in]
 
     bar = replace(bar, "for i in _:_", load)
@@ -869,14 +869,14 @@ def test_unify7(golden):
     @proc
     def bar(unused_b: bool, n: size, src: R[n, n], dst: R[n, n],
             unused_m: index):
-        for i in par(0, n):
-            for j in par(0, n):
+        for i in seq(0, n):
+            for j in seq(0, n):
                 dst[i, j] = src[i, j]
 
     @proc
     def foo(x: R[5, 5], y: R[5, 5]):
-        for i in par(0, 5):
-            for j in par(0, 5):
+        for i in seq(0, 5):
+            for j in seq(0, 5):
                 x[i, j] = y[i, j]
 
     foo = replace(foo, "for i in _ : _", bar)
