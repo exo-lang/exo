@@ -22,7 +22,7 @@ from ..API_scheduling import (
     delete_pass,
     reorder_stmts,
     bind_expr,
-    commute,
+    commute_expr,
     #
     # subprocedure oriented operations
     extract_subproc,

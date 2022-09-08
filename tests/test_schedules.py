@@ -11,7 +11,7 @@ def test_commute(golden):
     @proc
     def foo(x : R[3], y : R[3], z : R):
         z = x[0]*y[2]
-    assert str(commute(foo, 'x[0] * y[_]')) == golden
+    assert str(commute_expr(foo, 'x[0] * y[_]')) == golden
 
 def test_commute2():
     @proc
@@ -22,13 +22,13 @@ def test_commute2():
         # TODO: Currently, expression pattern matching fails to find
         # 'y[0]+x[1]' because LoopIR.BinOp is structured as (x[0], (y[0], (x[1], y[1]))).
         # I think pattern matching should be powerful to find this.
-        commute(foo, 'y[0] + x[1]')
+        commute_expr(foo, 'y[0] + x[1]')
 
 def test_commute3(golden):
     @proc
     def foo(x : R[3], y : R[3], z : R):
         z = (x[0] + y[0]) * (x[1] + y[1] + y[2])
-    assert str(commute(foo, '(x[_] + y[_]) * (x[_] + y[_] + y[_])')) == golden
+    assert str(commute_expr(foo, '(x[_] + y[_]) * (x[_] + y[_] + y[_])')) == golden
 
 def test_commute4():
     @proc
@@ -36,7 +36,7 @@ def test_commute4():
         z = x[0] - y[2]
 
     with pytest.raises(TypeError, match="can commute"):
-        commute(foo, 'x[0] - y[_]')
+        commute_expr(foo, 'x[0] - y[_]')
 
 
 def test_product_loop(golden):

@@ -716,7 +716,7 @@ def reorder_stmts(proc, block_cursor):
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 @sched_op([ExprCursorA(many=True)])
-def commute(proc, expr_cursors):
+def commute_expr(proc, expr_cursors):
     """
     commute the binary operation of '+' and '*'.
 
@@ -741,10 +741,10 @@ def commute(proc, expr_cursors):
             raise TypeError(f"only '+' or '*' can commute, got {e.op}")
     if any(not e.type.is_numeric() for e in exprs):
         raise TypeError("only numeric (not index or size) expressions "
-                        "can commute by commute()")
+                        "can commute by commute_expr()")
 
     loopir  = proc._loopir_proc
-    loopir  = Schedules.DoCommute(loopir, exprs).result()
+    loopir  = Schedules.DoCommuteExpr(loopir, exprs).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 

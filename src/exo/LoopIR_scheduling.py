@@ -1074,7 +1074,7 @@ class _BindConfig(LoopIR_Rewrite):
             return super().map_e(e)
 
 
-class _DoCommute(LoopIR_Rewrite):
+class _DoCommuteExpr(LoopIR_Rewrite):
     def __init__(self, proc, exprs):
         self.exprs     = exprs
         super().__init__(proc)
@@ -3677,4 +3677,4 @@ class Schedules:
     DoLiftAllocSimple  = _DoLiftAllocSimple
     DoFissionAfterSimple  = _DoFissionAfterSimple
     DoProductLoop  = _DoProductLoop
-    DoCommute  = _DoCommute
+    DoCommuteExpr  = _DoCommuteExpr
