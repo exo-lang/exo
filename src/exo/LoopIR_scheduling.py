@@ -1071,6 +1071,19 @@ class _BindConfig(LoopIR_Rewrite):
             return super().map_e(e)
 
 
+class _DoCommuteExpr(LoopIR_Rewrite):
+    def __init__(self, proc, exprs):
+        self.exprs     = exprs
+        super().__init__(proc)
+        self.proc = InferEffects(self.proc).result()
+
+    def map_e(self, e):
+        if e in self.exprs:
+            assert isinstance(e, LoopIR.BinOp)
+            return e.update(lhs=e.rhs, rhs=e.lhs)
+        else:
+            return super().map_e(e)
+
 
 class _BindExpr(LoopIR_Rewrite):
     def __init__(self, proc, new_name, exprs, cse=False):
@@ -3643,3 +3656,4 @@ class Schedules:
     DoLiftAllocSimple  = _DoLiftAllocSimple
     DoFissionAfterSimple  = _DoFissionAfterSimple
     DoProductLoop  = _DoProductLoop
+    DoCommuteExpr  = _DoCommuteExpr
