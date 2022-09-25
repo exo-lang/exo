@@ -1485,6 +1485,17 @@ def reorder_loops(proc, nested_loops):
     loopir  = Schedules.DoReorder(proc._loopir_proc, stmt).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+@sched_op([GapCursorA])
+def merge_reduce(proc, gap_cursor):
+    if not (stmtc := gap_cursor.before()) or not (stmtd := gap_cursor.after()):
+        raise ValueError("expected cursor to point to "
+                         "a gap between statements")
+    stmt1   = stmtc._impl._node()
+    stmt2   = stmtd._impl._node()
+    loopir  = proc._loopir_proc
+    loopir  = Schedules.DoMergeReduce(loopir, stmt1, stmt2).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
 @sched_op([GapCursorA, PosIntA])
 def fission(proc, gap_cursor, n_lifts=1):
     """

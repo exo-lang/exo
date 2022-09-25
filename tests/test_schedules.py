@@ -587,6 +587,28 @@ def test_simple_reorder(golden):
     assert str(bar) == golden
 
 
+def test_merge_reduce_1(golden):
+    @proc
+    def bar(x : R[3], y : R[3], z : R):
+        z = x[0]
+        z += y[2]
+
+    bar = merge_reduce(bar, bar.find('z = x[0]').after())
+    assert str(bar) == golden
+
+def test_merge_reduce_2(golden):
+    @proc
+    def bar(w : R, x : R, y : R, z : R):
+        z = w
+        z += x
+        z += y
+        w = x
+
+    bar = merge_reduce(bar, bar.find('z += x').before())
+    bar = merge_reduce(bar, bar.find('z += y').before())
+    assert str(bar) == golden
+
+
 def test_simple_unroll(golden):
     @proc
     def bar(A: i8[10]):

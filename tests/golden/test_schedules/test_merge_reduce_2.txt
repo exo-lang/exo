@@ -1,0 +1,3 @@
+def bar(w: R @ DRAM, x: R @ DRAM, y: R @ DRAM, z: R @ DRAM):
+    z = w + x + y
+    w = x

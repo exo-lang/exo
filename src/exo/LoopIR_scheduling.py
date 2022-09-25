@@ -195,7 +195,32 @@ class _DoProductLoop(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+class _DoMergeReduce(LoopIR_Rewrite):
+    def __init__(self, proc, stmt1, stmt2):
+        if type(stmt1) is LoopIR.Assign and type(stmt2) is LoopIR.Reduce:
+            self.new_rhs = LoopIR.BinOp("+", stmt1.rhs, stmt2.rhs,T.i32, stmt1.srcinfo)
+            self.s1 = stmt1
+            self.s2 = stmt2
 
+            super().__init__(proc)
+        else:
+            raise SchedulingError(f"expected the gap between an assign and a reduce statement, "
+                                  f"got {type(stmt1)} and {type(stmt2)} instead.")
+
+    def map_stmts(self, stmts):
+        new_stmts      = []
+        for orig_s in stmts:
+            new_stmts += self.map_s(orig_s)
+        return new_stmts
+
+    def map_s(self, s):
+        if s is self.s1:
+            return [LoopIR.Assign(s.name, self.map_t(s.type), s.cast,
+                        [ self.map_e(a) for a in s.idx ],
+                         self.map_e(self.new_rhs), self.map_eff(s.eff), s.srcinfo )]
+        elif s is self.s2:
+            return []
+        return [s]
 
 class _Reorder(LoopIR_Rewrite):
     def __init__(self, proc, loop_stmt):
@@ -3657,3 +3682,4 @@ class Schedules:
     DoFissionAfterSimple  = _DoFissionAfterSimple
     DoProductLoop  = _DoProductLoop
     DoCommuteExpr  = _DoCommuteExpr
+    DoMergeReduce = _DoMergeReduce
