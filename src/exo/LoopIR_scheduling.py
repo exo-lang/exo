@@ -2848,7 +2848,7 @@ class _DoNormalize(LoopIR_Rewrite):
     def index_start(self, e):
         assert isinstance(e, LoopIR.expr)
         # Div and mod need more subtle handling. Don't normalize for now.
-        # Skip ReadConfigs, they needs careful handling because they're not Sym.
+        # Skip ReadConfigs, they need careful handling because they're not Sym.
         if self.has_div_mod_config(e):
             return e
 
@@ -2864,9 +2864,15 @@ class _DoNormalize(LoopIR_Rewrite):
                 readkey = LoopIR.Read(key, [], e.type, e.srcinfo)
                 return LoopIR.BinOp('*', vconst, readkey, e.type, e.srcinfo)
         
-        delete_zero = { key: n_map[key] for key in n_map if n_map[key] != 0 }
-        new_e = LoopIR.Const(0, T.int, e.srcinfo)
-        for key, val in delete_zero.items():
+        new_e = LoopIR.Const(n_map.get(self.C, 0), T.int, e.srcinfo)
+
+        delete_zero = [(n_map[key], key)
+                       for key in n_map
+                       if key != self.C and n_map[key] != 0]
+
+        # put the largest coefficients first, tie-breaking names in reverse-alphabetical
+        # order is okay for the sake of simplicity here.
+        for val, key in sorted(delete_zero, reverse=True):
             if val > 0:
                 # add
                 new_e = LoopIR.BinOp('+', new_e, get_loopir(key, val), e.type, e.srcinfo)
