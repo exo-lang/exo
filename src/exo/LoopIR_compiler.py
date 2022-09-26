@@ -251,10 +251,14 @@ extern "C" {{
 def compile_to_strings(lib_name, proc_list):
     # get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
-    proc_list = find_all_subprocs(proc_list)
-    mem_list = find_all_mems(proc_list)
-    builtin_list = find_all_builtins(proc_list)
-    config_list = find_all_configs(proc_list)
+
+    def by_name(x):
+        return x.name
+
+    def from_lines(x):
+        return '\n'.join(x)
+
+    proc_list = list(sorted(find_all_subprocs(proc_list), key=by_name))
 
     # check for name conflicts between procs
     used_names = set()
@@ -264,36 +268,26 @@ def compile_to_strings(lib_name, proc_list):
                             f"procedures named '{p.name}'")
         used_names.add(p.name)
 
-    body = [
-        "static int _floor_div(int num, int quot) {",
-        "  int off = (num>=0)? 0 : quot-1;",
-        "  return (num-off)/quot;",
-        "}",
-        "",
-        "static int8_t _clamp_32to8(int32_t x) {",
-        "  return (x < -128)? -128 : ((x > 127)? 127 : x);",
-        "}",
-        "",
-    ]
+    global_code = []
+    for m in sorted(find_all_mems(proc_list), key=lambda x: x.name()):
+        global_code.append(m.global_())
 
-    fwd_decls = []
-    struct_defns = set()
-
-    m: Memory
-    for m in mem_list:
-        body.append(f'{m.global_()}\n')
-
-    for b in builtin_list:
-        glb = b.globl()
-        if glb:
-            body.append(glb)
-            body.append("\n")
+    builtin_code = []
+    for b in sorted(find_all_builtins(proc_list), key=by_name):
+        if glb := b.globl():
+            builtin_code.append(glb)
 
     # Build Context Struct
     ctxt_name = f"{lib_name}_Context"
     ctxt_def = [f"typedef struct {ctxt_name} {{ ",
                 f""]
-    for c in config_list:
+
+    seen_cfgs = set()
+    for c in sorted(find_all_configs(proc_list), key=by_name):
+        if c.name() in seen_cfgs:
+            raise TypeError(f"multiple configs named {c.name()}")
+        seen_cfgs.add(c.name())
+
         if c.is_allow_rw():
             sdef_lines = c.c_struct_def()
             sdef_lines = [f"    {line}" for line in sdef_lines]
@@ -302,23 +296,29 @@ def compile_to_strings(lib_name, proc_list):
         else:
             ctxt_def += [f"// config '{c.name()}' not materialized",
                          ""]
-    ctxt_def += [f"}} {ctxt_name};"]
-    fwd_decls += ctxt_def
-    fwd_decls.append("\n")
-    # check that we don't have a name conflict on configs
-    config_names = {c.name() for c in config_list}
-    if len(config_names) != len(config_list):
-        raise TypeError("Cannot compile while using two configs "
-                        "with the same name")
 
+    ctxt_def += [f"}} {ctxt_name};"]
+
+    fwd_decls = []
+    priv_decls = []
+    struct_defns = set()
+    seen_procs = set()
+    proc_bodies = []
     for p in proc_list:
+        if p.name in seen_procs:
+            raise TypeError(f"multiple procs named {p.name}")
+        seen_procs.add(p.name)
+
         # don't compile instruction procedures, but add a comment?
         if p.instr is not None:
             argstr = ','.join([str(a.name) for a in p.args])
-            body.append("\n/* relying on the following instruction...\n"
-                        f"{p.name}({argstr})\n"
-                        f'{p.instr}\n'
-                        "*/\n")
+            proc_bodies.extend([
+                '',
+                '/* relying on the following instruction..."',
+                f"{p.name}({argstr})",
+                p.instr,
+                "*/",
+            ])
         else:
             p_to_start = p
             p = PrecisionAnalysis(p).result()
@@ -326,16 +326,17 @@ def compile_to_strings(lib_name, proc_list):
             p = MemoryAnalysis(p).result()
             comp = Compiler(p, ctxt_name)
             d, b = comp.comp_top()
-            struct_defns = struct_defns.union(comp.struct_defns())
+            struct_defns |= comp.struct_defns()
             # only dump .h-file forward declarations for requested procedures
             if id(p_to_start) in orig_procs:
                 fwd_decls.append(d)
-            body.append(b)
+            else:
+                priv_decls.append(d)
+            proc_bodies.append(b)
 
-    # add struct definitions before the other forward declarations
-    fwd_decls = list(struct_defns) + fwd_decls
-    fwd_decls = '\n'.join(fwd_decls)
-    fwd_decls = f'''
+    struct_defns = list(sorted(struct_defns))
+
+    header_contents = f'''
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -357,12 +358,27 @@ def compile_to_strings(lib_name, proc_list):
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
-{fwd_decls}
+{from_lines(ctxt_def)}
+{from_lines(struct_defns)}
+{from_lines(fwd_decls)}
 '''
 
-    body = '\n'.join(body)
+    body_contents = f'''
+static int _floor_div(int num, int quot) {{
+  int off = (num>=0)? 0 : quot-1;
+  return (num-off)/quot;
+}}
 
-    return fwd_decls, body
+static int8_t _clamp_32to8(int32_t x) {{
+  return (x < -128)? -128 : ((x > 127)? 127 : x);
+}}
+
+{from_lines(global_code)}
+{from_lines(builtin_code)}
+{from_lines(proc_bodies)}
+'''
+
+    return header_contents, body_contents
 
 
 # --------------------------------------------------------------------------- #

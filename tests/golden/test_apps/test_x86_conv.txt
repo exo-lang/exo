@@ -29,15 +29,13 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+typedef struct test_case_Context { 
+
+} test_case_Context;
 struct exo_win_1f32{
     float *data;
     int_fast32_t strides[1];
 };
-typedef struct test_case_Context { 
-
-} test_case_Context;
-
-
 // conv_specialized(
 //     inp : f32[5,82,102,128]  @DRAM,
 //     output : f32[5,80,100,128]  @DRAM,
@@ -55,6 +53,7 @@ void conv_specialized( test_case_Context *ctxt, float* inp, float* output, float
 
 #include "test_case.h"
 
+
 static int _floor_div(int num, int quot) {
   int off = (num>=0)? 0 : quot-1;
   return (num-off)/quot;
@@ -65,47 +64,13 @@ static int8_t _clamp_32to8(int32_t x) {
 }
 
 #include <immintrin.h>
-
 #include <stdio.h>
 #include <stdlib.h>
-
 
 double _relu_(double x) {
     if (x > 0.0) return x;
     else return 0.0;
 }
-
-
-
-
-/* relying on the following instruction...
-mm512_storeu_ps(dst,src)
-_mm512_storeu_ps(&{dst_data}, {src_data});
-*/
-
-
-/* relying on the following instruction...
-mm512_set1_ps(dst,src)
-{dst} = _mm512_set1_ps({src_data});
-*/
-
-
-/* relying on the following instruction...
-mm512_fmadd_ps(A,B,C)
-{C_data} = _mm512_fmadd_ps({A}, {B}, {C_data});
-*/
-
-
-/* relying on the following instruction...
-mm512_relu_ps(dst,src)
-{dst_data} = _mm512_max_ps({src_data}, (__m512){{0}});
-*/
-
-
-/* relying on the following instruction...
-mm512_loadu_ps(dst,src)
-{dst_data} = _mm512_loadu_ps(&{src_data});
-*/
 
 // conv_specialized(
 //     inp : f32[5,82,102,128]  @DRAM,
@@ -153,3 +118,29 @@ for (int oc_o = 0; oc_o < 2; oc_o++) {
   }
 }
 }
+
+
+/* relying on the following instruction..."
+mm512_fmadd_ps(A,B,C)
+{C_data} = _mm512_fmadd_ps({A}, {B}, {C_data});
+*/
+
+/* relying on the following instruction..."
+mm512_loadu_ps(dst,src)
+{dst_data} = _mm512_loadu_ps(&{src_data});
+*/
+
+/* relying on the following instruction..."
+mm512_relu_ps(dst,src)
+{dst_data} = _mm512_max_ps({src_data}, (__m512){{0}});
+*/
+
+/* relying on the following instruction..."
+mm512_set1_ps(dst,src)
+{dst} = _mm512_set1_ps({src_data});
+*/
+
+/* relying on the following instruction..."
+mm512_storeu_ps(dst,src)
+_mm512_storeu_ps(&{dst_data}, {src_data});
+*/
