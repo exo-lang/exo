@@ -2856,32 +2856,28 @@ class _DoNormalize(LoopIR_Rewrite):
         n_map = self.normalize_e(e)
 
         # Write back to LoopIR.expr
-        def get_loopir(key, value):
-            vconst = LoopIR.Const(value, T.int, e.srcinfo)
-            if key == self.C:
-                return vconst
-            else:
-                readkey = LoopIR.Read(key, [], e.type, e.srcinfo)
-                return LoopIR.BinOp('*', vconst, readkey, e.type, e.srcinfo)
+        def scale_read(coeff, key):
+            return LoopIR.BinOp(
+                '*',
+                LoopIR.Const(coeff, T.int, e.srcinfo),
+                LoopIR.Read(key, [], e.type, e.srcinfo),
+                e.type,
+                e.srcinfo
+            )
         
         new_e = LoopIR.Const(n_map.get(self.C, 0), T.int, e.srcinfo)
 
-        delete_zero = [(n_map[key], key)
-                       for key in n_map
-                       if key != self.C and n_map[key] != 0]
+        delete_zero = [(n_map[v], v)
+                       for v in n_map
+                       if v != self.C and n_map[v] != 0]
 
-        # put the largest coefficients first, tie-breaking names in reverse-alphabetical
-        # order is okay for the sake of simplicity here.
-        for val, key in sorted(delete_zero, reverse=True):
-            if val > 0:
-                # add
-                new_e = LoopIR.BinOp('+', new_e, get_loopir(key, val), e.type, e.srcinfo)
+        for coeff, v in sorted(delete_zero):
+            if coeff > 0:
+                new_e = LoopIR.BinOp('+', new_e, scale_read(coeff, v), e.type, e.srcinfo)
             else:
-                # sub
-                new_e = LoopIR.BinOp('-', new_e, get_loopir(key, -val), e.type, e.srcinfo)
+                new_e = LoopIR.BinOp('-', new_e, scale_read(-coeff, v), e.type, e.srcinfo)
 
         return new_e
-
 
     def map_e(self, e):
         if e.type.is_indexable():
