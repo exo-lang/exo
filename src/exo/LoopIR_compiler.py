@@ -2,6 +2,7 @@ import os
 import re
 from collections import ChainMap
 from collections import defaultdict
+from pathlib import Path
 
 from .LoopIR import LoopIR, LoopIR_Do
 from .LoopIR import T
@@ -219,17 +220,14 @@ def window_struct(basetyp, n_dims):
 # top level compiler function called by tests!
 
 
-def run_compile(proc_list, path, c_file, h_file, header_guard=None):
-    file_stem = re.match(r'^([^\.]+)\.[^\.]+$', c_file)
-    if not file_stem:
-        raise ValueError("Expected file name to end "
-                         "with extension: e.g. ___.__ ")
-    lib_name = sanitize_str(file_stem[1])
+def run_compile(proc_list, h_file_name: str):
+    file_stem = str(Path(h_file_name).stem)
+    lib_name = sanitize_str(file_stem)
     fwd_decls, body = compile_to_strings(lib_name, proc_list)
 
-    if header_guard is None:
-        header_guard = re.sub(r'\W', '_', h_file).upper()
+    body = f'#include "{h_file_name}"\n\n{body}'
 
+    header_guard = f'{lib_name}_H'.upper()
     fwd_decls = f'''
 #pragma once
 #ifndef {header_guard}
@@ -247,13 +245,7 @@ extern "C" {{
 #endif  // {header_guard}
 '''
 
-    body = f'#include "{h_file}"\n\n{body}'
-
-    with open(os.path.join(path, h_file), "w") as f_header:
-        f_header.write(fwd_decls)
-
-    with open(os.path.join(path, c_file), "w") as f_cpp:
-        f_cpp.write(body)
+    return body, fwd_decls
 
 
 def compile_to_strings(lib_name, proc_list):
