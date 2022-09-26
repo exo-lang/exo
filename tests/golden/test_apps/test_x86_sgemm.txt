@@ -463,13 +463,13 @@ for (int ko = 0; ko < ((K) / (512)); ko++) {
   for (int io = 0; io < ((M) / (264)); io++) {
     for (int i0 = 0; i0 < 264; i0++) {
       for (int i1 = 0; i1 < 512; i1++) {
-        A1_cache[(i0) * (512) + (i1) * (1)] = A[(264 * io + i0) * (K) + (512 * ko + i1) * (1)];
+        A1_cache[(i0) * (512) + (i1) * (1)] = A[(i0 + 264 * io) * (K) + (i1 + 512 * ko) * (1)];
       }
     }
     for (int jo = 0; jo < ((N) / (64)); jo++) {
       for (int i0 = 0; i0 < 512; i0++) {
         for (int i1 = 0; i1 < 64; i1++) {
-          B1_cache[(i0) * (64) + (i1) * (1)] = B[(512 * ko + i0) * (N) + (64 * jo + i1) * (1)];
+          B1_cache[(i0) * (64) + (i1) * (1)] = B[(i0 + 512 * ko) * (N) + (i1 + 64 * jo) * (1)];
         }
       }
       sgemm_above_kernel(ctxt,264,64,512,(struct exo_win_2f32){ (float*)&A1_cache[(0) * (512) + (0) * (1)], { 512, 1 } },(struct exo_win_2f32){ (float*)&B1_cache[(0) * (64) + (0) * (1)], { 64, 1 } },(struct exo_win_2f32){ (float*)&C[(264 * io) * (N) + (64 * jo) * (1)], { N, 1 } });
@@ -481,7 +481,7 @@ if (N % 64 > 0) {
     static float B2_cache[512 * 64];
     for (int i0 = 0; i0 < 512; i0++) {
       for (int i1 = 0; i1 < N - 64 * ((N) / (64)); i1++) {
-        B2_cache[(i0) * (64) + (i1) * (1)] = B[(512 * ko + i0) * (N) + (64 * ((N) / (64)) + i1) * (1)];
+        B2_cache[(i0) * (64) + (i1) * (1)] = B[(i0 + 512 * ko) * (N) + (64 * ((N) / (64)) + i1) * (1)];
       }
     }
     for (int io = 0; io < ((M) / (264)); io++) {
@@ -495,7 +495,7 @@ if (M % 264 > 0) {
       static float B3_cache[512 * 64];
       for (int i0 = 0; i0 < 512; i0++) {
         for (int i1 = 0; i1 < 64; i1++) {
-          B3_cache[(i0) * (64) + (i1) * (1)] = B[(512 * ko + i0) * (N) + (64 * jo + i1) * (1)];
+          B3_cache[(i0) * (64) + (i1) * (1)] = B[(i0 + 512 * ko) * (N) + (i1 + 64 * jo) * (1)];
         }
       }
       sgemm_above_kernel(ctxt,M % 264,64,512,(struct exo_win_2f32){ (float*)&A[(264 * ((M) / (264))) * (K) + (512 * ko) * (1)], { K, 1 } },(struct exo_win_2f32){ (float*)&B3_cache[(0) * (64) + (0) * (1)], { 64, 1 } },(struct exo_win_2f32){ (float*)&C[(264 * ((M) / (264))) * (N) + (64 * jo) * (1)], { N, 1 } });
@@ -508,7 +508,7 @@ if (M % 264 > 0) {
       static float B4_cache[512 * 64];
       for (int i0 = 0; i0 < 512; i0++) {
         for (int i1 = 0; i1 < N - 64 * ((N) / (64)); i1++) {
-          B4_cache[(i0) * (64) + (i1) * (1)] = B[(512 * ko + i0) * (N) + (64 * ((N) / (64)) + i1) * (1)];
+          B4_cache[(i0) * (64) + (i1) * (1)] = B[(i0 + 512 * ko) * (N) + (64 * ((N) / (64)) + i1) * (1)];
         }
       }
       sgemm_above_kernel(ctxt,M % 264,N % 64,512,(struct exo_win_2f32){ (float*)&A[(264 * ((M) / (264))) * (K) + (512 * ko) * (1)], { K, 1 } },(struct exo_win_2f32){ (float*)&B4_cache[(0) * (64) + (0) * (1)], { 64, 1 } },(struct exo_win_2f32){ (float*)&C[(264 * ((M) / (264))) * (N) + (64 * ((N) / (64))) * (1)], { N, 1 } });
@@ -521,7 +521,7 @@ if (K % 512 > 0) {
       static float B5_cache[512 * 64];
       for (int i0 = 0; i0 < K - 512 * ((K) / (512)); i0++) {
         for (int i1 = 0; i1 < 64; i1++) {
-          B5_cache[(i0) * (64) + (i1) * (1)] = B[(512 * ((K) / (512)) + i0) * (N) + (64 * jo + i1) * (1)];
+          B5_cache[(i0) * (64) + (i1) * (1)] = B[(512 * ((K) / (512)) + i0) * (N) + (i1 + 64 * jo) * (1)];
         }
       }
       sgemm_above_kernel(ctxt,264,64,K % 512,(struct exo_win_2f32){ (float*)&A[(264 * io) * (K) + (512 * ((K) / (512))) * (1)], { K, 1 } },(struct exo_win_2f32){ (float*)&B5_cache[(0) * (64) + (0) * (1)], { 64, 1 } },(struct exo_win_2f32){ (float*)&C[(264 * io) * (N) + (64 * jo) * (1)], { N, 1 } });
@@ -547,7 +547,7 @@ if (K % 512 > 0) {
       static float B7_cache[512 * 64];
       for (int i0 = 0; i0 < K - 512 * ((K) / (512)); i0++) {
         for (int i1 = 0; i1 < 64; i1++) {
-          B7_cache[(i0) * (64) + (i1) * (1)] = B[(512 * ((K) / (512)) + i0) * (N) + (64 * jo + i1) * (1)];
+          B7_cache[(i0) * (64) + (i1) * (1)] = B[(512 * ((K) / (512)) + i0) * (N) + (i1 + 64 * jo) * (1)];
         }
       }
       sgemm_above_kernel(ctxt,M % 264,64,K % 512,(struct exo_win_2f32){ (float*)&A[(264 * ((M) / (264))) * (K) + (512 * ((K) / (512))) * (1)], { K, 1 } },(struct exo_win_2f32){ (float*)&B7_cache[(0) * (64) + (0) * (1)], { 64, 1 } },(struct exo_win_2f32){ (float*)&C[(264 * ((M) / (264))) * (N) + (64 * jo) * (1)], { N, 1 } });
