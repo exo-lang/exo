@@ -34,8 +34,8 @@ cmake --build build/apps
 
 ## Run correctness checks
 
-# ./build/apps/x86_demo/sgemm/run_exo 1000
-# ./build/apps/x86_demo/conv/test_conv
+./build/apps/x86_demo/sgemm/run_exo 1000
+./build/apps/x86_demo/conv/test_conv
 
 ## Run benchmarks
 
