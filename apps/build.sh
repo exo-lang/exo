@@ -5,6 +5,15 @@ set -e
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 
+## Compiler configuration
+
+: "${CC:=clang-13}"
+: "${CXX:=clang++-13}"
+: "${CFLAGS:=-march=native}"
+: "${CXXFLAGS:=$CFLAGS}"
+: "${CMAKE_BUILD_TYPE:=Release}"
+export CC CXX CFLAGS CXXFLAGS CMAKE_BUILD_TYPE
+
 ## Build dependencies
 
 # Ensure Exo is up to date
@@ -23,12 +32,8 @@ cmake --build build/benchmark --target install
 
 rm -rf build/apps
 cmake -G Ninja -S "${ROOT_DIR}/apps" -B build/apps \
-  -DCMAKE_C_COMPILER=clang-13 \
-  -DCMAKE_CXX_COMPILER=clang++-13 \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH="${PWD}/build/_install" \
-  -DCMAKE_C_FLAGS="-march=native" \
-  -DCMAKE_CXX_FLAGS="-march=native"
+  -DCMAKE_PREFIX_PATH="${PWD}/build/_install"
 
 cmake --build build/apps
 
