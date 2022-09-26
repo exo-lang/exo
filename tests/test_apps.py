@@ -18,6 +18,10 @@ def _test_app(module_file):
 
 
 def test_x86_sgemm(golden):
-    module_file = (REPO_ROOT / 'apps' / 'x86_demo' / 'sgemm' / 'sgemm.py').resolve()
-    actual = _test_app(module_file)
-    assert actual == golden
+    module_file = REPO_ROOT / 'apps' / 'x86_demo' / 'sgemm' / 'sgemm.py'
+    assert _test_app(module_file.resolve(strict=True)) == golden
+
+
+def test_x86_conv(golden):
+    module_file = REPO_ROOT / 'apps' / 'x86_demo' / 'conv' / 'conv.py'
+    assert _test_app(module_file.resolve(strict=True)) == golden
