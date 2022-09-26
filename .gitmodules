@@ -1,3 +1,6 @@
 [submodule "dependencies/benchmark"]
 	path = dependencies/benchmark
 	url = https://github.com/google/benchmark.git
+[submodule "tests/gemmini/gemmini-rocc-tests"]
+	path = tests/gemmini/gemmini-rocc-tests
+	url = git@github.com:exo-lang/gemmini-rocc-tests.git
