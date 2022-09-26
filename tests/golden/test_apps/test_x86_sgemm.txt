@@ -84,6 +84,82 @@ static int8_t _clamp_32to8(int32_t x) {
 //     B : [f32][K,64]  @DRAM,
 //     C : [f32][M,64]  @DRAM
 // )
+void bottom_panel_kernel_scheduled( test_case_Context *ctxt, int_fast32_t M, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C );
+
+// right_panel_kernel_scheduled(
+//     N : size,
+//     K : size,
+//     A : [f32][6,K]  @DRAM,
+//     B : [f32][K,N]  @DRAM,
+//     C : [f32][6,N]  @DRAM
+// )
+void right_panel_kernel_scheduled( test_case_Context *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C );
+
+// sgemm_above_kernel(
+//     M : size,
+//     N : size,
+//     K : size,
+//     A : [f32][M,K]  @DRAM,
+//     B : [f32][K,N]  @DRAM,
+//     C : [f32][M,N]  @DRAM
+// )
+void sgemm_above_kernel( test_case_Context *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C );
+
+// sgemm_kernel_avx512_1x4(
+//     K : size,
+//     A : [f32][1,K]  @DRAM,
+//     B : [f32][K,64]  @DRAM,
+//     C : [f32][1,64]  @DRAM
+// )
+void sgemm_kernel_avx512_1x4( test_case_Context *ctxt, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C );
+
+// sgemm_kernel_avx512_2x4(
+//     K : size,
+//     A : [f32][2,K]  @DRAM,
+//     B : [f32][K,64]  @DRAM,
+//     C : [f32][2,64]  @DRAM
+// )
+void sgemm_kernel_avx512_2x4( test_case_Context *ctxt, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C );
+
+// sgemm_kernel_avx512_3x4(
+//     K : size,
+//     A : [f32][3,K]  @DRAM,
+//     B : [f32][K,64]  @DRAM,
+//     C : [f32][3,64]  @DRAM
+// )
+void sgemm_kernel_avx512_3x4( test_case_Context *ctxt, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C );
+
+// sgemm_kernel_avx512_4x4(
+//     K : size,
+//     A : [f32][4,K]  @DRAM,
+//     B : [f32][K,64]  @DRAM,
+//     C : [f32][4,64]  @DRAM
+// )
+void sgemm_kernel_avx512_4x4( test_case_Context *ctxt, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C );
+
+// sgemm_kernel_avx512_5x4(
+//     K : size,
+//     A : [f32][5,K]  @DRAM,
+//     B : [f32][K,64]  @DRAM,
+//     C : [f32][5,64]  @DRAM
+// )
+void sgemm_kernel_avx512_5x4( test_case_Context *ctxt, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C );
+
+// sgemm_kernel_avx512_6x4(
+//     K : size,
+//     A : [f32][6,K]  @DRAM,
+//     B : [f32][K,64]  @DRAM,
+//     C : [f32][6,64]  @DRAM
+// )
+void sgemm_kernel_avx512_6x4( test_case_Context *ctxt, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C );
+
+// bottom_panel_kernel_scheduled(
+//     M : size,
+//     K : size,
+//     A : [f32][M,K]  @DRAM,
+//     B : [f32][K,64]  @DRAM,
+//     C : [f32][M,64]  @DRAM
+// )
 void bottom_panel_kernel_scheduled( test_case_Context *ctxt, int_fast32_t M, int_fast32_t K, struct exo_win_2f32 A, struct exo_win_2f32 B, struct exo_win_2f32 C ) {
 EXO_ASSUME(M >= 1);
 EXO_ASSUME(K >= 1);

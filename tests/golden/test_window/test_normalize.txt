@@ -20,15 +20,13 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+typedef struct c_code_str_Context { 
+
+} c_code_str_Context;
 struct exo_win_1f32{
     float *data;
     int_fast32_t strides[1];
 };
-typedef struct c_code_str_Context { 
-
-} c_code_str_Context;
-
-
 // proj(
 //     n : size,
 //     m : size,
@@ -36,6 +34,7 @@ typedef struct c_code_str_Context {
 //     y : f32[m,n]  @DRAM
 // )
 void proj( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, float* x, float* y );
+
 
 
 static int _floor_div(int num, int quot) {
@@ -50,6 +49,14 @@ static int8_t _clamp_32to8(int32_t x) {
 #include <stdio.h>
 #include <stdlib.h>
 
+
+// dot(
+//     m : size,
+//     x : [f32][m]  @DRAM,
+//     y : [f32][m]  @DRAM,
+//     r : f32  @DRAM
+// )
+void dot( c_code_str_Context *ctxt, int_fast32_t m, struct exo_win_1f32 x, struct exo_win_1f32 y, float* r );
 
 // dot(
 //     m : size,
@@ -78,3 +85,4 @@ float y2;
 dot(ctxt,m,(struct exo_win_1f32){ (float*)&x[(1) * (m) + (0) * (1)], { 1 } },(struct exo_win_1f32){ (float*)&y[(0) * (n) + (2) * (1)], { n } },&xy);
 dot(ctxt,m,(struct exo_win_1f32){ (float*)&y[(0) * (n) + (3) * (1)], { n } },(struct exo_win_1f32){ (float*)&y[(0) * (n) + (3) * (1)], { n } },&y2);
 }
+

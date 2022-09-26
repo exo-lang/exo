@@ -20,15 +20,13 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+typedef struct c_code_str_Context { 
+
+} c_code_str_Context;
 struct exo_win_2i8{
     int8_t *data;
     int_fast32_t strides[2];
 };
-typedef struct c_code_str_Context { 
-
-} c_code_str_Context;
-
-
 // stride_assert(
 //     n : size,
 //     m : size,
@@ -36,6 +34,7 @@ typedef struct c_code_str_Context {
 //     dst : [i8][n,16]  @DRAM
 // )
 void stride_assert( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8 src, struct exo_win_2i8 dst );
+
 
 
 static int _floor_div(int num, int quot) {
@@ -49,6 +48,7 @@ static int8_t _clamp_32to8(int32_t x) {
 
 #include <stdio.h>
 #include <stdlib.h>
+
 
 
 // stride_assert(
@@ -69,3 +69,4 @@ for (int i = 0; i < n; i++) {
   }
 }
 }
+

@@ -249,67 +249,36 @@ extern "C" {{
 
 
 def compile_to_strings(lib_name, proc_list):
-    # get transitive closure of call-graph
+    # Get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
 
-    def by_name(x):
-        return x.name
+    # Determine name for library context struct
+    ctxt_name = f"{lib_name}_Context"
 
     def from_lines(x):
         return '\n'.join(x)
 
-    proc_list = list(sorted(find_all_subprocs(proc_list), key=by_name))
+    proc_list = list(sorted(find_all_subprocs(proc_list), key=lambda x: x.name))
 
-    # check for name conflicts between procs
-    used_names = set()
-    for p in proc_list:
-        if p.name in used_names:
-            raise Exception(f"Cannot compile multiple "
-                            f"procedures named '{p.name}'")
-        used_names.add(p.name)
-
-    global_code = []
-    for m in sorted(find_all_mems(proc_list), key=lambda x: x.name()):
-        global_code.append(m.global_())
-
-    builtin_code = []
-    for b in sorted(find_all_builtins(proc_list), key=by_name):
-        if glb := b.globl():
-            builtin_code.append(glb)
-
-    # Build Context Struct
-    ctxt_name = f"{lib_name}_Context"
-    ctxt_def = [f"typedef struct {ctxt_name} {{ ",
-                f""]
-
-    seen_cfgs = set()
-    for c in sorted(find_all_configs(proc_list), key=by_name):
-        if c.name() in seen_cfgs:
-            raise TypeError(f"multiple configs named {c.name()}")
-        seen_cfgs.add(c.name())
-
-        if c.is_allow_rw():
-            sdef_lines = c.c_struct_def()
-            sdef_lines = [f"    {line}" for line in sdef_lines]
-            ctxt_def += sdef_lines
-            ctxt_def += [""]
-        else:
-            ctxt_def += [f"// config '{c.name()}' not materialized",
-                         ""]
-
-    ctxt_def += [f"}} {ctxt_name};"]
-
-    fwd_decls = []
-    priv_decls = []
+    # Header contents
+    ctxt_def = _compile_context_struct(find_all_configs(proc_list), ctxt_name)
     struct_defns = set()
-    seen_procs = set()
+    fwd_decls = []
+
+    # Body contents
+    memory_code = _compile_memories(find_all_mems(proc_list))
+    builtin_code = _compile_builtins(find_all_builtins(proc_list))
+    priv_decls = []
     proc_bodies = []
+
+    # Compile proc bodies
+    seen_procs = set()
     for p in proc_list:
         if p.name in seen_procs:
             raise TypeError(f"multiple procs named {p.name}")
         seen_procs.add(p.name)
 
-        # don't compile instruction procedures, but add a comment?
+        # don't compile instruction procedures, but add a comment.
         if p.instr is not None:
             argstr = ','.join([str(a.name) for a in p.args])
             proc_bodies.extend([
@@ -320,7 +289,7 @@ def compile_to_strings(lib_name, proc_list):
                 "*/",
             ])
         else:
-            p_to_start = p
+            orig_p = id(p)
             p = PrecisionAnalysis(p).result()
             p = WindowAnalysis(p).result()
             p = MemoryAnalysis(p).result()
@@ -328,12 +297,13 @@ def compile_to_strings(lib_name, proc_list):
             d, b = comp.comp_top()
             struct_defns |= comp.struct_defns()
             # only dump .h-file forward declarations for requested procedures
-            if id(p_to_start) in orig_procs:
+            if orig_p in orig_procs:
                 fwd_decls.append(d)
             else:
                 priv_decls.append(d)
             proc_bodies.append(b)
 
+    # Structs are just blobs of code... still sort them for output stability
     struct_defns = list(sorted(struct_defns))
 
     header_contents = f'''
@@ -373,12 +343,51 @@ static int8_t _clamp_32to8(int32_t x) {{
   return (x < -128)? -128 : ((x > 127)? 127 : x);
 }}
 
-{from_lines(global_code)}
+{from_lines(memory_code)}
 {from_lines(builtin_code)}
+{from_lines(priv_decls)}
 {from_lines(proc_bodies)}
 '''
 
     return header_contents, body_contents
+
+
+def _compile_builtins(builtins):
+    builtin_code = []
+    for b in sorted(builtins, key=lambda x: x.name()):
+        if glb := b.globl():
+            builtin_code.append(glb)
+    return builtin_code
+
+
+def _compile_memories(mems):
+    memory_code = []
+    for m in sorted(mems, key=lambda x: x.name()):
+        memory_code.append(m.global_())
+    return memory_code
+
+
+def _compile_context_struct(configs, ctxt_name):
+    ctxt_def = [f"typedef struct {ctxt_name} {{ ",
+                f""]
+    seen = set()
+    for c in sorted(configs, key=lambda x: x.name()):
+        name = c.name()
+
+        if name in seen:
+            raise TypeError(f"multiple configs named {name}")
+        seen.add(name)
+
+        if c.is_allow_rw():
+            sdef_lines = c.c_struct_def()
+            sdef_lines = [f"    {line}" for line in sdef_lines]
+            ctxt_def += sdef_lines
+            ctxt_def += [""]
+        else:
+            ctxt_def += [f"// config '{name}' not materialized",
+                         ""]
+    ctxt_def += [f"}} {ctxt_name};"]
+    return ctxt_def
 
 
 # --------------------------------------------------------------------------- #
