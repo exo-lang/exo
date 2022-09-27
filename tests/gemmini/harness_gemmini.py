@@ -1,5 +1,6 @@
 import os
 import subprocess
+from pathlib import Path
 
 from exo import compile_procs
 
@@ -227,14 +228,13 @@ class GemmTestBuilder:
         self.procs.append(p)
 
     def compile(self):
-        path      = ENV.TMP_DIR
         lib_file  = f"{self.test_name}_lib.c"
         h_file    = f"{self.test_name}_lib.h"
         main_file = f"{self.test_name}_main.c"
         bin_file  = self.test_name
 
         # write lib.c and lib.h
-        compile_procs(self.procs, ENV.GEMM_BUILD_DIR, lib_file, h_file)
+        compile_procs(self.procs, Path(ENV.GEMM_BUILD_DIR), lib_file, h_file)
 
         # write main.c
         main_src  = gemmini_test_template(h_file, self.glob, self.body)

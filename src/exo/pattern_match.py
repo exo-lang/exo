@@ -270,6 +270,12 @@ class PatternMatch:
         if isinstance(pat, PAST.E_Hole):
             return True
 
+        # Special case: -3 can be parsed as USub(Const(3))... it should match Const(-3)
+        if (isinstance(pat, PAST.USub)
+                and isinstance(pat.arg, PAST.Const)
+                and isinstance(e, LoopIR.Const)):
+            pat = pat.arg.update(val=-pat.arg.val)
+
         # first ensure that the pattern and statement
         # are the same constructor
         if not isinstance(e, (LoopIR.WindowExpr,) + tuple(_PAST_to_LoopIR[type(pat)])):
@@ -290,6 +296,7 @@ class PatternMatch:
         elif isinstance(e, LoopIR.Const):
             return pat.val == e.val
         elif isinstance(e, LoopIR.BinOp):
+            # TODO: do we need to handle associativity? (a + b) + c vs a + (b + c)?
             return ( pat.op == e.op and
                      self.match_e(pat.lhs, e.lhs) and
                      self.match_e(pat.rhs, e.rhs) )

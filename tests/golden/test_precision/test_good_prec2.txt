@@ -24,13 +24,13 @@ typedef struct c_code_str_Context {
 
 } c_code_str_Context;
 
-
 // hoge(
 //     n : size,
 //     x : f32[n]  @DRAM,
 //     y : f32[n]  @DRAM
 // )
 void hoge( c_code_str_Context *ctxt, int_fast32_t n, float* x, float* y );
+
 
 
 static int _floor_div(int num, int quot) {
@@ -45,6 +45,14 @@ static int8_t _clamp_32to8(int32_t x) {
 #include <stdio.h>
 #include <stdlib.h>
 
+
+// dot(
+//     m : size,
+//     x : f32[m]  @DRAM,
+//     y : f32[m]  @DRAM,
+//     r : f32  @DRAM
+// )
+void dot( c_code_str_Context *ctxt, int_fast32_t m, float* x, float* y, float* r );
 
 // dot(
 //     m : size,
@@ -68,3 +76,4 @@ void hoge( c_code_str_Context *ctxt, int_fast32_t n, float* x, float* y ) {
 float xy;
 dot(ctxt,n,x,y,&xy);
 }
+
