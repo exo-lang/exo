@@ -263,12 +263,12 @@ def compile_to_strings(lib_name, proc_list):
     # Header contents
     ctxt_def = _compile_context_struct(find_all_configs(proc_list), ctxt_name)
     struct_defns = set()
-    fwd_decls = []
+    public_fwd_decls = []
 
     # Body contents
     memory_code = _compile_memories(find_all_mems(proc_list))
     builtin_code = _compile_builtins(find_all_builtins(proc_list))
-    priv_decls = []
+    private_fwd_decls = []
     proc_bodies = []
 
     # Compile proc bodies
@@ -289,18 +289,20 @@ def compile_to_strings(lib_name, proc_list):
                 "*/",
             ])
         else:
-            orig_p = id(p)
+            is_public_decl = id(p) in orig_procs
+
             p = PrecisionAnalysis(p).result()
             p = WindowAnalysis(p).result()
             p = MemoryAnalysis(p).result()
-            comp = Compiler(p, ctxt_name)
+            comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
             d, b = comp.comp_top()
             struct_defns |= comp.struct_defns()
-            # only dump .h-file forward declarations for requested procedures
-            if orig_p in orig_procs:
-                fwd_decls.append(d)
+
+            if is_public_decl:
+                public_fwd_decls.append(d)
             else:
-                priv_decls.append(d)
+                private_fwd_decls.append(d)
+
             proc_bodies.append(b)
 
     # Structs are just blobs of code... still sort them for output stability
@@ -330,7 +332,7 @@ def compile_to_strings(lib_name, proc_list):
 
 {from_lines(ctxt_def)}
 {from_lines(struct_defns)}
-{from_lines(fwd_decls)}
+{from_lines(public_fwd_decls)}
 '''
 
     body_contents = f'''
@@ -345,7 +347,7 @@ static int8_t _clamp_32to8(int32_t x) {{
 
 {from_lines(memory_code)}
 {from_lines(builtin_code)}
-{from_lines(priv_decls)}
+{from_lines(private_fwd_decls)}
 {from_lines(proc_bodies)}
 '''
 
@@ -395,7 +397,7 @@ def _compile_context_struct(configs, ctxt_name):
 # Loop IR Compiler
 
 class Compiler:
-    def __init__(self, proc, ctxt_name, **kwargs):
+    def __init__(self, proc, ctxt_name, *, is_public_decl):
         assert isinstance(proc, LoopIR.proc)
 
         self.proc = proc
@@ -448,15 +450,17 @@ class Compiler:
 
         self.comp_stmts(self.proc.body)
 
+        static_kwd = '' if is_public_decl else 'static '
+
         # Generate headers here?
         comment = (f"// {name}(\n" +
                    ',\n'.join(['//     ' + s for s in typ_comments]) +
                    '\n'
                    "// )\n")
         proc_decl = (comment +
-                     f"void {name}( {', '.join(arg_strs)} );\n")
+                     f"{static_kwd}void {name}( {', '.join(arg_strs)} );\n")
         proc_def = (comment +
-                    f"void {name}( {', '.join(arg_strs)} ) {{\n" +
+                    f"{static_kwd}void {name}( {', '.join(arg_strs)} ) {{\n" +
                     "\n".join(self._lines) +
                     "\n"
                     "}\n")
