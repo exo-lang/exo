@@ -52,7 +52,7 @@ static int8_t _clamp_32to8(int32_t x) {
 //     y : f32[m]  @DRAM,
 //     r : f32  @DRAM
 // )
-void dot( c_code_str_Context *ctxt, int_fast32_t m, float* x, float* y, float* r );
+static void dot( c_code_str_Context *ctxt, int_fast32_t m, float* x, float* y, float* r );
 
 // dot(
 //     m : size,
@@ -60,7 +60,7 @@ void dot( c_code_str_Context *ctxt, int_fast32_t m, float* x, float* y, float* r
 //     y : f32[m]  @DRAM,
 //     r : f32  @DRAM
 // )
-void dot( c_code_str_Context *ctxt, int_fast32_t m, float* x, float* y, float* r ) {
+static void dot( c_code_str_Context *ctxt, int_fast32_t m, float* x, float* y, float* r ) {
 *r = 0.0;
 for (int i = 0; i < m; i++) {
   *r += x[(i) * (1)] * y[(i) * (1)];
