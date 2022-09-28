@@ -1,4 +1,6 @@
 def bar(x: R[3] @ DRAM, y: R[3] @ DRAM, z: R @ DRAM):
     for i in seq(0, 10):
         if i < 5:
-            z = x[0] + y[2]
+            tmp: R[2] @ DRAM
+            z = x[0] + y[0]
+            tmp[1] = x[1] + y[1]

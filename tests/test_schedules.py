@@ -592,10 +592,14 @@ def test_merge_reduce_1(golden):
     def bar(x : R[3], y : R[3], z : R):
         for i in seq(0, 10):
             if i < 5:
+                tmp : R[2]
                 z = x[0]
-                z += y[2]
+                z += y[0]
+                tmp[1] = x[1]
+                tmp[1] += y[1]
 
-    bar = merge_reduce(bar, 'z = x[0]; z += y[2]')
+    bar = merge_reduce(bar, 'z = x[0]; z += y[0]')
+    bar = merge_reduce(bar, 'tmp[1] = x[1]; tmp[1] += y[1]')
     assert str(bar) == golden
 
 
@@ -603,7 +607,7 @@ def test_merge_reduce_2(golden):
     @proc
     def bar(w : R, x : R, y : R, z : R):
         z = w
-        z += x
+        z += x 
         z += y
         w = x
 
@@ -612,13 +616,47 @@ def test_merge_reduce_2(golden):
     assert str(bar) == golden
 
 
-"""
-TODO: more positive tests too
-TODO: use `with pytest.raises` to add negative tests
- - random statement types
- - non-consecutive statements
- - consecutive, but wrong order of statements (reduce, then assign)
-"""
+def test_merge_reduce_swapped_order_error(golden):
+    @proc
+    def bar(x : R, y : R):
+        for i in seq(0, 10):
+            if i > 5:
+                y += x
+                y = x
+
+    with pytest.raises(SchedulingError,
+                            match='expected an assign followed by a reduce statement'):
+        bar = merge_reduce(bar, 'y += x; y = x')
+
+def test_merge_reduce_wrong_type_error(golden):
+    @proc
+    def bar(x : R, y : R):
+        for i in seq(0, 10):
+            y = x
+            if i > 5:
+                y = x
+
+    with pytest.raises(SchedulingError,
+                            match='expected an assign followed by a reduce statement'):
+        bar = merge_reduce(bar, 'y = x; _')
+
+def test_merge_reduce_different_lhs_error(golden):
+    @proc
+    def bar(x : R, y : R):
+        x = y
+        y += x
+
+    with pytest.raises(SchedulingError, match='expected the two statements to have the same lhs'):
+        bar = merge_reduce(bar, 'x = y; y += x')
+
+def test_merge_reduce_different_lhs_arrays_error(golden):
+    @proc
+    def bar(x : R[3], y : R):
+        x[0] = y
+        x[1] += y
+
+    with pytest.raises(SchedulingError, match='expected the LHS indices to be the same.'):
+        bar = merge_reduce(bar, 'x[0] = y; x[1] += y')
 
 
 def test_simple_unroll(golden):

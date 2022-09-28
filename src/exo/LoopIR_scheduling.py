@@ -198,6 +198,14 @@ class _DoProductLoop(LoopIR_Rewrite):
 class _DoMergeReduce(LoopIR_Rewrite):
     def __init__(self, proc, stmt1, stmt2):
         if type(stmt1) is LoopIR.Assign and type(stmt2) is LoopIR.Reduce:
+            if stmt1.name != stmt2.name:
+                raise SchedulingError("expected the two statements to have the same lhs.")
+
+            if not (len(stmt1.idx) == len(stmt2.idx) and
+                len(stmt1.idx) <= 1 and
+                all([i.val == j.val for i, j in zip(stmt1.idx, stmt2.idx)])):
+                raise SchedulingError("expected the LHS indices to be the same.")
+
             self.new_rhs = LoopIR.BinOp("+", stmt1.rhs, stmt2.rhs,T.i32, stmt1.srcinfo)
             self.s1 = stmt1
             self.s2 = stmt2
@@ -206,7 +214,7 @@ class _DoMergeReduce(LoopIR_Rewrite):
 
             self.proc = InferEffects(self.proc).result()
         else:
-            raise SchedulingError(f"expected the gap between an assign and a reduce statement, "
+            raise SchedulingError(f"expected an assign followed by a reduce statement, "
                                   f"got {type(stmt1)} and {type(stmt2)} instead.")
 
     def map_stmts(self, stmts):
