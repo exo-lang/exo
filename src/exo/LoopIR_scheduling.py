@@ -203,24 +203,22 @@ class _DoMergeReduce(LoopIR_Rewrite):
             self.s2 = stmt2
 
             super().__init__(proc)
+
+            self.proc = InferEffects(self.proc).result()
         else:
             raise SchedulingError(f"expected the gap between an assign and a reduce statement, "
                                   f"got {type(stmt1)} and {type(stmt2)} instead.")
 
     def map_stmts(self, stmts):
-        new_stmts      = []
-        for orig_s in stmts:
-            new_stmts += self.map_s(orig_s)
-        return new_stmts
+        for i in range(len(stmts)):
+            if stmts[i] is self.s1:
+                if i < len(stmts) and stmts[i+1] is self.s2:
+                    return stmts[:i] + [stmts[i].update(rhs=self.new_rhs)] + stmts[i+2:]
+                else:
+                    raise SchedulingError("expected the second stmt to be "
+                                          "directly after the first stmt")
 
-    def map_s(self, s):
-        if s is self.s1:
-            return [LoopIR.Assign(s.name, self.map_t(s.type), s.cast,
-                        [ self.map_e(a) for a in s.idx ],
-                         self.map_e(self.new_rhs), self.map_eff(s.eff), s.srcinfo )]
-        elif s is self.s2:
-            return []
-        return [s]
+        return super().map_stmts(stmts)
 
 class _Reorder(LoopIR_Rewrite):
     def __init__(self, proc, loop_stmt):

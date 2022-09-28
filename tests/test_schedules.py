@@ -590,11 +590,14 @@ def test_simple_reorder(golden):
 def test_merge_reduce_1(golden):
     @proc
     def bar(x : R[3], y : R[3], z : R):
-        z = x[0]
-        z += y[2]
+        for i in seq(0, 10):
+            if i < 5:
+                z = x[0]
+                z += y[2]
 
-    bar = merge_reduce(bar, bar.find('z = x[0]').after())
+    bar = merge_reduce(bar, 'z = x[0]; z += y[2]')
     assert str(bar) == golden
+
 
 def test_merge_reduce_2(golden):
     @proc
@@ -604,9 +607,18 @@ def test_merge_reduce_2(golden):
         z += y
         w = x
 
-    bar = merge_reduce(bar, bar.find('z += x').before())
-    bar = merge_reduce(bar, bar.find('z += y').before())
+    bar = merge_reduce(bar, 'z = w; z += x')
+    bar = merge_reduce(bar, 'z = w + x; z += y')
     assert str(bar) == golden
+
+
+"""
+TODO: more positive tests too
+TODO: use `with pytest.raises` to add negative tests
+ - random statement types
+ - non-consecutive statements
+ - consecutive, but wrong order of statements (reduce, then assign)
+"""
 
 
 def test_simple_unroll(golden):
