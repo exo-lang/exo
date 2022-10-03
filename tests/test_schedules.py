@@ -666,6 +666,19 @@ def test_simple_bind_expr(golden):
     assert str(bar) == golden
 
 
+def test_bind_expr_diff_indices(golden):
+    @proc
+    def bar(n: size, x: i8[n], y: i8[n], z: i8[n]):
+        for i in seq(0, n-1):
+            w : i8[n]
+            w[i+1] = x[i] + y[i]
+            w[i] = x[i] + y[i]
+            z[i] = w[i]
+
+    bar = bind_expr(bar, 'w[i]', 'w_tmp', cse=True)
+    assert str(bar) == golden
+
+
 def test_simple_lift_alloc(golden):
     @proc
     def bar(n: size, A: i8[n]):

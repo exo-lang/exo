@@ -1,0 +1,8 @@
+def bar(n: size, x: i8[n] @ DRAM, y: i8[n] @ DRAM, z: i8[n] @ DRAM):
+    for i in seq(0, n - 1):
+        w: i8[n] @ DRAM
+        w[i + 1] = x[i] + y[i]
+        w_tmp = x[i] + y[i]
+        w_tmp: R
+        w_tmp = w[i]
+        z[i] = w_tmp
