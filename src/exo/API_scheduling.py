@@ -1487,6 +1487,20 @@ def reorder_loops(proc, nested_loops):
 
 @sched_op([BlockCursorA(block_size=2)])
 def merge_reduce(proc, block_cursor):
+    """
+    Merge consecutive assign and reduce statemnt into a single assign
+    statement.
+
+    args:
+        block_cursor          - cursor pointing to the block an assign and reduce
+                                statement.
+
+    rewrite:
+        `a = b`
+        `a += c`
+            ->
+        `a = b + c`
+    """
     stmt1   = block_cursor[0]._impl._node()
     stmt2   = block_cursor[1]._impl._node()
     loopir  = proc._loopir_proc
