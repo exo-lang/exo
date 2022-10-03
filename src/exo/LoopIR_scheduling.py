@@ -201,9 +201,12 @@ class _DoMergeReduce(LoopIR_Rewrite):
             if stmt1.name != stmt2.name:
                 raise SchedulingError("expected the two statements to have the same lhs.")
 
-            if not (len(stmt1.idx) == len(stmt2.idx) and
-                len(stmt1.idx) <= 1 and
-                all([i.val == j.val for i, j in zip(stmt1.idx, stmt2.idx)])):
+            if len(stmt1.idx) != len(stmt2.idx):
+                raise SchedulingError("expected the LHS indices to be the same.")
+            try:
+                for i, j in zip(stmt1.idx, stmt2.idx):
+                    Check_ExprEqvInContext(proc, [stmt1, stmt2], i, j)
+            except SchedulingError:
                 raise SchedulingError("expected the LHS indices to be the same.")
 
             self.new_rhs = LoopIR.BinOp("+", stmt1.rhs, stmt2.rhs,T.i32, stmt1.srcinfo)

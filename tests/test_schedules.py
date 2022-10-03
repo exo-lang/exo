@@ -607,7 +607,7 @@ def test_merge_reduce_2(golden):
     @proc
     def bar(w : R, x : R, y : R, z : R):
         z = w
-        z += x 
+        z += x
         z += y
         w = x
 
@@ -615,6 +615,18 @@ def test_merge_reduce_2(golden):
     bar = merge_reduce(bar, 'z = w + x; z += y')
     assert str(bar) == golden
 
+def test_merge_reduce_3(golden):
+    @proc
+    def bar(x : R[3], y : R[3], z : R):
+        for i in seq(0, 3):
+            for j in seq(0, 3):
+                if i < 2:
+                    tmp : R[4, 4]
+                    tmp[i+j, j] = x[i]
+                    tmp[i+j, j] += y[j]
+
+    bar = merge_reduce(bar, 'tmp[i+j, j] = x[i]; tmp[i+j, j] += y[j]')
+    assert str(bar) == golden
 
 def test_merge_reduce_swapped_order_error(golden):
     @proc
@@ -658,6 +670,16 @@ def test_merge_reduce_different_lhs_arrays_error(golden):
     with pytest.raises(SchedulingError, match='expected the LHS indices to be the same.'):
         bar = merge_reduce(bar, 'x[0] = y; x[1] += y')
 
+def test_merge_reduce_different_lhs_arrays_error(golden):
+    @proc
+    def bar(x : R[3, 3], y : R):
+        z = x[0:2, 0:2]
+        for i in seq(0, 2):
+            z[i, 1] = y
+            z[i+1, 1] += y
+
+    with pytest.raises(SchedulingError, match='expected the LHS indices to be the same.'):
+        bar = merge_reduce(bar, 'z[i, 1] = y; z[i+1, 1] += y')
 
 def test_simple_unroll(golden):
     @proc
