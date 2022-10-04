@@ -56,14 +56,6 @@ void conv_specialized( void *ctxt, const float* inp, float* output, const float*
 #include "test_case.h"
 
 
-static int _floor_div(int num, int quot) {
-  int off = (num>=0)? 0 : quot-1;
-  return (num-off)/quot;
-}
-
-static int8_t _clamp_32to8(int32_t x) {
-  return (x < -128)? -128 : ((x > 127)? 127 : x);
-}
 
 #include <immintrin.h>
 #include <stdio.h>

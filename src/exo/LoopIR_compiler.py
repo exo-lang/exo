@@ -1,5 +1,6 @@
 import functools
 import re
+import textwrap
 from collections import ChainMap
 from collections import defaultdict
 from dataclasses import dataclass
@@ -268,6 +269,25 @@ extern "C" {{
     return body, fwd_decls
 
 
+_static_helpers = {
+    "exo_floor_div": textwrap.dedent(
+        """
+        static int exo_floor_div(int num, int quot) {
+          int off = (num>=0)? 0 : quot-1;
+          return (num-off)/quot;
+        }
+        """
+    ),
+    "exo_clamp_32to8": textwrap.dedent(
+        """
+        static int8_t exo_clamp_32to8(int32_t x) {{
+          return (x < -128)? -128 : ((x > 127)? 127 : x);
+        }
+        """
+    ),
+}
+
+
 def compile_to_strings(lib_name, proc_list):
     # Get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
@@ -287,6 +307,8 @@ def compile_to_strings(lib_name, proc_list):
     builtin_code = _compile_builtins(find_all_builtins(proc_list))
     private_fwd_decls = []
     proc_bodies = []
+
+    needed_helpers = set()
 
     # Compile proc bodies
     seen_procs = set()
@@ -316,6 +338,7 @@ def compile_to_strings(lib_name, proc_list):
             comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
             d, b = comp.comp_top()
             struct_defns |= comp.struct_defns()
+            needed_helpers |= comp.needed_helpers()
 
             if is_public_decl:
                 public_fwd_decls.append(d)
@@ -354,16 +377,10 @@ def compile_to_strings(lib_name, proc_list):
 {from_lines(public_fwd_decls)}
 """
 
+    helper_code = [_static_helpers[v] for v in needed_helpers]
+
     body_contents = f"""
-static int _floor_div(int num, int quot) {{
-  int off = (num>=0)? 0 : quot-1;
-  return (num-off)/quot;
-}}
-
-static int8_t _clamp_32to8(int32_t x) {{
-  return (x < -128)? -128 : ((x > 127)? 127 : x);
-}}
-
+{from_lines(helper_code)}
 {from_lines(memory_code)}
 {from_lines(builtin_code)}
 {from_lines(private_fwd_decls)}
@@ -390,9 +407,9 @@ def _compile_memories(mems):
 
 def _compile_context_struct(configs, lib_name):
     if not configs:
-        return 'void', []
+        return "void", []
 
-    ctxt_name = f'{lib_name}_Context'
+    ctxt_name = f"{lib_name}_Context"
     ctxt_def = [f"typedef struct {ctxt_name} {{ ", f""]
 
     seen = set()
@@ -433,11 +450,10 @@ class Compiler:
         self._tab = ""
         self._lines = []
         self._scalar_refs = set()
-
+        self._needed_helpers = set()
         self.window_defns = set()
-        self.window_cache = CacheDict()
 
-        assert self.proc.name != None, "expected names for compilation"
+        assert self.proc.name is not None, "expected names for compilation"
         name = self.proc.name
         arg_strs = []
         typ_comments = []
@@ -509,6 +525,9 @@ class Compiler:
 
     def struct_defns(self):
         return self.window_defns
+
+    def needed_helpers(self):
+        return self._needed_helpers
 
     def new_varname(self, symbol, typ, mem=None):
         strnm = str(symbol)
@@ -627,7 +646,7 @@ class Compiler:
                 assert s.rhs.type.is_real_scalar()
 
                 if lbtyp == T.i8 and rbtyp == T.i32:
-                    rhs = f"_clamp_32to8({rhs})"
+                    rhs = self._call_static_helper("exo_clamp_32to8", rhs)
                 else:
                     rhs = f"({lbtyp.ctype()})({rhs})"
 
@@ -654,7 +673,7 @@ class Compiler:
                 assert rtyp.is_real_scalar()
 
                 if ltyp == T.i8 and rtyp == T.i32:
-                    rhs = f"_clamp_32to8({rhs})"
+                    rhs = self._call_static_helper("exo_clamp_32to8", rhs)
                 else:
                     rhs = f"({ltyp.ctype()})({rhs})"
 
@@ -798,7 +817,7 @@ class Compiler:
                 if isinstance(e.lhs.type, LoopIR.Size):
                     # TODO: too many parens?
                     return f"(({lhs}) / ({rhs}))"
-                return f"_floor_div({lhs}, {rhs})"
+                return self._call_static_helper("exo_floor_div", lhs, rhs)
 
             s = f"{lhs} {op} {rhs}"
             if local_prec < prec:
@@ -826,6 +845,10 @@ class Compiler:
 
         else:
             assert False, "bad case"
+
+    def _call_static_helper(self, helper, *args):
+        self._needed_helpers.add(helper)
+        return f'{helper}({", ".join(map(str, args))})'
 
     def window_struct_fields(self, e):
         base = self.env[e.name]
