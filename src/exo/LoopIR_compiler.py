@@ -392,7 +392,7 @@ def _compile_context_struct(configs, lib_name):
     if not configs:
         return 'void', []
 
-    ctxt_name = f'{lib_name}_context'
+    ctxt_name = f'{lib_name}_Context'
     ctxt_def = [f"typedef struct {ctxt_name} {{ ", f""]
 
     seen = set()
