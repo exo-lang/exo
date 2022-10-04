@@ -272,16 +272,13 @@ def compile_to_strings(lib_name, proc_list):
     # Get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
 
-    # Determine name for library context struct
-    ctxt_name = f"{lib_name}_Context"
-
     def from_lines(x):
         return "\n".join(x)
 
     proc_list = list(sorted(find_all_subprocs(proc_list), key=lambda x: x.name))
 
     # Header contents
-    ctxt_def = _compile_context_struct(find_all_configs(proc_list), ctxt_name)
+    ctxt_name, ctxt_def = _compile_context_struct(find_all_configs(proc_list), lib_name)
     struct_defns = set()
     public_fwd_decls = []
 
@@ -391,8 +388,13 @@ def _compile_memories(mems):
     return memory_code
 
 
-def _compile_context_struct(configs, ctxt_name):
+def _compile_context_struct(configs, lib_name):
+    if not configs:
+        return 'void', []
+
+    ctxt_name = f'{lib_name}_context'
     ctxt_def = [f"typedef struct {ctxt_name} {{ ", f""]
+
     seen = set()
     for c in sorted(configs, key=lambda x: x.name()):
         name = c.name()
@@ -408,8 +410,9 @@ def _compile_context_struct(configs, ctxt_name):
             ctxt_def += [""]
         else:
             ctxt_def += [f"// config '{name}' not materialized", ""]
+
     ctxt_def += [f"}} {ctxt_name};"]
-    return ctxt_def
+    return ctxt_name, ctxt_def
 
 
 # --------------------------------------------------------------------------- #

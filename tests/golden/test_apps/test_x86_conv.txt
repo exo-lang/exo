@@ -29,9 +29,7 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
-typedef struct test_case_Context { 
 
-} test_case_Context;
 struct exo_win_1f32{
     float * const data;
     const int_fast32_t strides[1];
@@ -46,7 +44,7 @@ struct exo_win_1f32c{
 //     weights : f32[128,3,3,128]  @DRAM,
 //     bias : f32[128]  @DRAM
 // )
-void conv_specialized( test_case_Context *ctxt, const float* inp, float* output, const float* weights, const float* bias );
+void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias );
 
 
 
@@ -83,7 +81,7 @@ double _relu_(double x) {
 //     weights : f32[128,3,3,128]  @DRAM,
 //     bias : f32[128]  @DRAM
 // )
-void conv_specialized( test_case_Context *ctxt, const float* inp, float* output, const float* weights, const float* bias ) {
+void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias ) {
 for (int oc_o = 0; oc_o < 2; oc_o++) {
   for (int n = 0; n < 5; n++) {
     for (int oy = 0; oy < 80; oy++) {

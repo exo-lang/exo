@@ -29,9 +29,7 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
-typedef struct test_Context { 
 
-} test_Context;
 struct exo_win_1f32{
     float * const data;
     const int_fast32_t strides[1];
@@ -45,21 +43,21 @@ struct exo_win_1f32c{
 //     A : f32[N]  @DRAM,
 //     B : f32[N]  @DRAM
 // )
-void memcpy( test_Context *ctxt, int_fast32_t N, float* A, const float* B );
+void memcpy( void *ctxt, int_fast32_t N, float* A, const float* B );
 
 // memcpy_ab(
 //     N : size,
 //     A : [f32][N]  @DRAM,
 //     B : [f32][N]  @DRAM
 // )
-void memcpy_ab( test_Context *ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B );
+void memcpy_ab( void *ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B );
 
 // memcpy_b(
 //     N : size,
 //     A : f32[N]  @DRAM,
 //     B : [f32][N]  @DRAM
 // )
-void memcpy_b( test_Context *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B );
+void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B );
 
 
 
@@ -90,7 +88,7 @@ static int8_t _clamp_32to8(int32_t x) {
 //     A : f32[N]  @DRAM,
 //     B : f32[N]  @DRAM
 // )
-void memcpy( test_Context *ctxt, int_fast32_t N, float* A, const float* B ) {
+void memcpy( void *ctxt, int_fast32_t N, float* A, const float* B ) {
 for (int i = 0; i < N; i++) {
   A[(i) * (1)] = B[(i) * (1)];
 }
@@ -101,7 +99,7 @@ for (int i = 0; i < N; i++) {
 //     A : [f32][N]  @DRAM,
 //     B : [f32][N]  @DRAM
 // )
-void memcpy_ab( test_Context *ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B ) {
+void memcpy_ab( void *ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B ) {
 for (int i = 0; i < N; i++) {
   A.data[(i) * (A.strides[0])] = B.data[(i) * (B.strides[0])];
 }
@@ -112,7 +110,7 @@ for (int i = 0; i < N; i++) {
 //     A : f32[N]  @DRAM,
 //     B : [f32][N]  @DRAM
 // )
-void memcpy_b( test_Context *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B ) {
+void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B ) {
 for (int i = 0; i < N; i++) {
   A[(i) * (1)] = B.data[(i) * (B.strides[0])];
 }

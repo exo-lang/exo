@@ -20,9 +20,7 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
-typedef struct c_code_str_Context { 
 
-} c_code_str_Context;
 struct exo_win_1f32c{
     const float * const data;
     const int_fast32_t strides[1];
@@ -32,7 +30,7 @@ struct exo_win_1f32c{
 //     m : size,
 //     x : f32[n,m]  @DRAM
 // )
-void window_stmt( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, const float* x );
+void window_stmt( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x );
 
 
 
@@ -55,7 +53,7 @@ static int8_t _clamp_32to8(int32_t x) {
 //     m : size,
 //     x : f32[n,m]  @DRAM
 // )
-void window_stmt( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, const float* x ) {
+void window_stmt( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x ) {
 struct exo_win_1f32c y = (struct exo_win_1f32c){ &x[(0) * (m) + (0) * (1)], { m } };
 float *z = malloc(n * sizeof(*z));
 for (int i = 0; i < n; i++) {
