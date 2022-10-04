@@ -422,7 +422,10 @@ class Compiler:
         self.new_varname(Sym('ctxt'), None)
         arg_strs.append(f"{ctxt_name} *ctxt")
 
+        non_const = set(e.buffer for e in proc.eff.writes + proc.eff.reduces)
+
         for a in proc.args:
+            const_kwd = 'const ' if a.name not in non_const else ''
             mem = a.mem if a.type.is_numeric() else None
             name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
             if a.type in (T.size, T.index, T.bool, T.stride):
@@ -439,7 +442,7 @@ class Compiler:
                     arg_strs.append(f"struct {wintyp} {name_arg}")
                 else:
                     ctyp = a.type.basetype().ctype()
-                    arg_strs.append(f"{ctyp}* {name_arg}")
+                    arg_strs.append(f"{const_kwd}{ctyp}* {name_arg}")
                 mem = f" @{a.mem.name()}" if a.mem else ""
                 comment_str = f"{name_arg} : {a.type} {mem}"
                 typ_comments.append(comment_str)

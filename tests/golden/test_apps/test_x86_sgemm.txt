@@ -48,7 +48,7 @@ struct exo_win_2f32{
 //     B : f32[K,N]  @DRAM,
 //     C : f32[M,N]  @DRAM
 // )
-void sgemm_exo( test_case_Context *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, float* A, float* B, float* C );
+void sgemm_exo( test_case_Context *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C );
 
 
 
@@ -450,7 +450,7 @@ if (M % 6 > 0) {
 //     B : f32[K,N]  @DRAM,
 //     C : f32[M,N]  @DRAM
 // )
-void sgemm_exo( test_case_Context *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, float* A, float* B, float* C ) {
+void sgemm_exo( test_case_Context *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C ) {
 EXO_ASSUME(M >= 1);
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);
