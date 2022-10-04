@@ -29,13 +29,12 @@ def test_ldst_i8_16x64(compiler, sde64):
         st_i8(16, 64, tile1, z)
 
     t = AMXTestBuilder(compiler.basename)
-    t.add_body([f"{compiler.basename}_Context *ctxt;"])
 
     t.alloc_dram_2i8('x', 16, 64, 'i+j')
     t.alloc_dram_2i8('y', 16, 64, '0')
     t.alloc_dram_2i8('z', 16, 64, '0')
 
-    t.add_body(['ldst_i8_16x64(ctxt, x, y, z);',
+    t.add_body(['ldst_i8_16x64(NULL, x, y, z);',
                 '',
                 'if(check_eq_2i8(16, 64, x, z)) {',
                 '    printf("Correct\\n");',
@@ -66,14 +65,13 @@ def test_dpbssd_i8_16x64(compiler, sde64):
         st_i32(16, 16, tile2, z)
 
     t = AMXTestBuilder(compiler.basename)
-    t.add_body([f"{compiler.basename}_Context *ctxt;"])
 
     t.alloc_dram_2i8('x', 16, 64, '1')
     t.alloc_dram_2i8('y', 16, 64, '1')
     t.alloc_dram_2i32('z', 16, 16, '64')  # expected result
     t.alloc_dram_2i32('res', 16, 16, '0')
 
-    t.add_body(['dpbssd_i8_16x64(ctxt, x, y, res);',
+    t.add_body(['dpbssd_i8_16x64(NULL, x, y, res);',
                 '',
                 'if(check_eq_2i32(16, 16, z, res)) {',
                 '    printf("Correct\\n");',
@@ -104,12 +102,11 @@ def test_transform_memory(compiler, sde64):
                     dest[i, 4 * j + k] = src[4 * i + k, j]
 
     t = AMXTestBuilder(compiler.basename)
-    t.add_body([f"{compiler.basename}_Context *ctxt;"])
 
     t.alloc_dram_2i8('src', 64, 16, '5')
     t.alloc_dram_2i8('ans', 16, 64, '5')
     t.alloc_dram_2i8('res', 16, 64, '0')
-    t.add_body(['call_transform_memory(ctxt, 16, 16, src, res);',
+    t.add_body(['call_transform_memory(NULL, 16, 16, src, res);',
                 '',
                 'if(check_eq_2i8(16, 64, ans, res)) {',
                 '    printf("Correct\\n");',
@@ -248,7 +245,6 @@ def test_matmul_on_amx_by_hand_i8(compiler, sde64):
     size2 = 256
 
     t = AMXTestBuilder(compiler.basename)
-    t.add_body([f"{compiler.basename}_Context *ctxt;"])
 
     t.alloc_dram_2i8('x', size1, size2, 'i+j')
     t.alloc_dram_2i8('y_orig', size2, size1, 'j+1')  # before transform_memory
@@ -256,11 +252,11 @@ def test_matmul_on_amx_by_hand_i8(compiler, sde64):
     t.alloc_dram_2i32('z', size1, size1, '0')  # expected result
     t.alloc_dram_2i32('res', size1, size1, '0')
 
-    t.add_body([f'transform_memory(ctxt, {size2}, {size1}, y_orig, y);'])
+    t.add_body([f'transform_memory(NULL, {size2}, {size1}, y_orig, y);'])
     t.add_body(
-        [f'matmul_on_cpu(ctxt, {size1}, {size2}, {size1}, x, y_orig, z);'])
+        [f'matmul_on_cpu(NULL, {size1}, {size2}, {size1}, x, y_orig, z);'])
     t.add_body(
-        [f'matmul_on_amx(ctxt, {size1}, {size2 // 4}, {size1}, x, y, res);'])
+        [f'matmul_on_amx(NULL, {size1}, {size2 // 4}, {size1}, x, y, res);'])
 
     t.add_body([f'if(check_eq_2i32({size1}, {size1}, z, res)) {{',
                 r'    printf("Correct\n");',
@@ -365,7 +361,6 @@ def test_gen_matmul_i8_amx(matmul_i8):
 
 def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
     t = AMXTestBuilder(compiler.basename)
-    t.add_body([f"{compiler.basename}_Context *ctxt;"])
 
     # duplicate from the fixture above
     size1 = 256
@@ -377,11 +372,11 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
     t.alloc_dram_2i32('z', size1, size1, '0')  # expected result
     t.alloc_dram_2i32('res', size1, size1, '0')
 
-    t.add_body([f'transform_memory(ctxt, {size2}, {size1}, y_orig, y);'])
+    t.add_body([f'transform_memory(NULL, {size2}, {size1}, y_orig, y);'])
     t.add_body(
-        [f'matmul_on_cpu(ctxt, {size1}, {size2}, {size1}, x, y_orig, z);'])
+        [f'matmul_on_cpu(NULL, {size1}, {size2}, {size1}, x, y_orig, z);'])
     t.add_body(
-        [f'matmul_on_amx(ctxt, x, y, res);'])
+        [f'matmul_on_amx(NULL, x, y, res);'])
 
     t.add_body([f'if(check_eq_2i32({size1}, {size1}, z, res)) {{',
                 '    printf("Correct\\n");',
