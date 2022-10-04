@@ -125,12 +125,12 @@ def test_conv_3():
     conv = old_reorder(conv, 'och_o kch_o')
     conv = old_lift_alloc(conv, 'w_s : _', n_lifts=5)
     conv = old_fission_after(conv, 'w_s = _', n_lifts=5)
-    conv = old_fission_after(conv, 'if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=5)
-    conv = lift_if(conv,
-            'if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _', n_lifts=3)
-    conv = lift_if(conv,
-            'if 0 <= orow + krow - 1 and orow + krow - 1 < 56: _ #1',
-            n_lifts=3)
+    conv = old_fission_after(
+        conv, 'if 0 <= -1 + krow + orow and -1 + krow + orow < 56: _', n_lifts=5)
+    conv = lift_if(
+        conv, 'if 0 <= -1 + krow + orow and -1 + krow + orow < 56: _', n_lifts=3)
+    conv = lift_if(
+        conv, 'if 0 <= -1 + krow + orow and -1 + krow + orow < 56: _ #1', n_lifts=3)
     conv = old_reorder(conv, 'kch_o ocol_i')
     conv = specialize(conv, 'for ocol_i in _:_ #1',
                             'ocol_o == 0 and kcol == 0')
@@ -142,13 +142,13 @@ def test_conv_3():
     conv = assert_if(conv, 'if _:_ #2', True)
     conv = assert_if(conv, 'if _:_ #2', True)
     conv = assert_if(conv, 'if _:_ #2', True)
-    conv = assert_if(conv, 'if 0 <= ocol_i + 47 + kcol:_', True)
+    conv = assert_if(conv, 'if 0 <= 47 + kcol + ocol_i:_', True)
     conv = specialize(conv, 'for ocol_i in _:_ #7', 'kcol == 2')
     conv = cut_loop(conv, 'ocol_i #7', 7)
-    conv = repeat(assert_if)(conv, 'if ocol_i + 47 + kcol < 56:_', True)
+    conv = repeat(assert_if)(conv, 'if 47 + kcol + ocol_i < 56:_', True)
     conv = unroll_loop(conv, 'ocol_i #8')
-    print(conv)
-    conv = assert_if(conv, 'if 0 + 7 + 47 + kcol < 56:_', False)
+    # print(conv)
+    conv = assert_if(conv, 'if 47 + kcol + (0 + 7) < 56:_', False)
 
     conv = replace(conv, 'for ocol_i in _:_ #0', ld_acc_i32_vector)
     conv = old_reorder(conv, 'och_i kch_i')
