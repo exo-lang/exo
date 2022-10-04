@@ -1,6 +1,8 @@
+import functools
 import re
 from collections import ChainMap
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 from .LoopIR import LoopIR, LoopIR_Do
@@ -193,29 +195,42 @@ def find_all_configs(proc_list):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
-_window_struct_shorthand = {
-    T.f32: "f32",
-    T.f64: "f64",
-    T.i8: "i8",
-    T.i32: "i32",
-}
+
+@dataclass(frozen=True)
+class WindowStruct:
+    name: str
+    definition: str
 
 
-def window_struct(basetyp, n_dims, is_const=False):
-    assert n_dims >= 1
-
+@functools.cache
+def _window_struct(typename, ctype, n_dims, is_const) -> WindowStruct:
     const_kwd = "const " if is_const else ""
     const_suffix = "c" if is_const else ""
 
-    sname = f"exo_win_{n_dims}{_window_struct_shorthand[basetyp]}{const_suffix}"
+    sname = f"exo_win_{n_dims}{typename}{const_suffix}"
     sdef = (
         f"struct {sname}{{\n"
-        f"    {const_kwd}{basetyp.ctype()} * const data;\n"
+        f"    {const_kwd}{ctype} * const data;\n"
         f"    const int_fast32_t strides[{n_dims}];\n"
         f"}};"
     )
 
-    return sname, sdef
+    return WindowStruct(sname, sdef)
+
+
+def window_struct(base_type, n_dims, is_const) -> WindowStruct:
+    assert n_dims >= 1
+
+    _window_struct_shorthand = {
+        T.f32: "f32",
+        T.f64: "f64",
+        T.i8: "i8",
+        T.i32: "i32",
+    }
+
+    return _window_struct(
+        _window_struct_shorthand[base_type], base_type.ctype(), n_dims, is_const
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -313,7 +328,7 @@ def compile_to_strings(lib_name, proc_list):
             proc_bodies.append(b)
 
     # Structs are just blobs of code... still sort them for output stability
-    struct_defns = list(sorted(struct_defns))
+    struct_defns = [x.definition for x in sorted(struct_defns, key=lambda x: x.name)]
 
     header_contents = f"""
 #include <stdint.h>
@@ -428,10 +443,9 @@ class Compiler:
         self.new_varname(Sym("ctxt"), None)
         arg_strs.append(f"{ctxt_name} *ctxt")
 
-        non_const = set(e.buffer for e in proc.eff.writes + proc.eff.reduces)
+        self.non_const = set(e.buffer for e in proc.eff.writes + proc.eff.reduces)
 
         for a in proc.args:
-            const_kwd = "const " if a.name not in non_const else ""
             mem = a.mem if a.type.is_numeric() else None
             name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
             if a.type in (T.size, T.index, T.bool, T.stride):
@@ -444,9 +458,10 @@ class Compiler:
                 if a.type.is_real_scalar():
                     self._scalar_refs.add(a.name)
                 if a.type.is_win():
-                    wintyp = self.get_window_type(a.type)
+                    wintyp = self.get_window_type(a)
                     arg_strs.append(f"struct {wintyp} {name_arg}")
                 else:
+                    const_kwd = "const " if a.name not in self.non_const else ""
                     ctyp = a.type.basetype().ctype()
                     arg_strs.append(f"{const_kwd}{ctyp}* {name_arg}")
                 mem = f" @{a.mem.name()}" if a.mem else ""
@@ -572,30 +587,27 @@ class Compiler:
         return acc
 
     def get_window_type(self, typ):
+        assert isinstance(typ, T.Window) or (
+            isinstance(typ, LoopIR.fnarg) and typ.type.is_win()
+        )
+
         if isinstance(typ, T.Window):
             base = typ.as_tensor.basetype()
             n_dims = len(typ.as_tensor.shape())
-        elif isinstance(typ, T.Tensor) and typ.is_window:
-            base = typ.basetype()
-            n_dims = len(typ.shape())
+            is_const = typ.src_buf not in self.non_const
         else:
-            assert False, f"not a window type: {typ}"
+            base = typ.type.basetype()
+            n_dims = len(typ.type.shape())
+            is_const = typ.name not in self.non_const
 
-        lookup = self.window_cache[base][n_dims]
-        if isinstance(lookup, str):
-            return lookup
-        else:
-            name, defn = window_struct(base, n_dims)
-            self.window_defns.add(defn)
-            self.window_cache[base][n_dims] = name
-            return name
+        win = window_struct(base, n_dims, is_const)
+        self.window_defns.add(win)
+        return win.name
 
     def comp_s(self, s):
-        styp = type(s)
-
-        if styp is LoopIR.Pass:
+        if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
-        elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name in self._scalar_refs:
                 lhs = f"*{self.env[s.name]}"
             elif self.envtyp[s.name].is_real_scalar():
@@ -617,12 +629,12 @@ class Compiler:
                     rhs = f"({lbtyp.ctype()})({rhs})"
 
             mem: Memory = self.mems[s.name]
-            if styp is LoopIR.Assign:
+            if isinstance(s, LoopIR.Assign):
                 self.add_line(mem.write(s, lhs, rhs))
             else:
                 self.add_line(mem.reduce(s, lhs, rhs))
 
-        elif styp is LoopIR.WriteConfig:
+        elif isinstance(s, LoopIR.WriteConfig):
             if not s.config.is_allow_rw():
                 raise ConfigError(
                     f"{s.srcinfo}: cannot write to config '{s.config.name()}'"
@@ -645,14 +657,14 @@ class Compiler:
 
             self.add_line(f"ctxt->{nm}.{s.field} = {rhs};")
 
-        elif styp is LoopIR.WindowStmt:
+        elif isinstance(s, LoopIR.WindowStmt):
             win_struct = self.get_window_type(s.rhs.type)
             rhs = self.comp_e(s.rhs)
             assert isinstance(s.rhs, LoopIR.WindowExpr)
             mem = self.mems[s.rhs.name]
             lhs = self.new_varname(s.lhs, typ=s.rhs.type, mem=mem)
             self.add_line(f"struct {win_struct} {lhs} = {rhs};")
-        elif styp is LoopIR.If:
+        elif isinstance(s, LoopIR.If):
             cond = self.comp_e(s.cond)
             self.add_line(f"if ({cond}) {{")
             self.push()
@@ -665,7 +677,7 @@ class Compiler:
                 self.pop()
             self.add_line("}")
 
-        elif styp is LoopIR.Seq:
+        elif isinstance(s, LoopIR.Seq):
             hi = self.comp_e(s.hi)
             self.push(only="env")
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
@@ -675,7 +687,7 @@ class Compiler:
             self.pop()
             self.add_line("}")
 
-        elif styp is LoopIR.Alloc:
+        elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
             assert s.type.basetype().is_real_scalar()
             assert s.type.basetype() != T.R
@@ -684,14 +696,14 @@ class Compiler:
             line = mem.alloc(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
 
             self.add_line(line)
-        elif styp is LoopIR.Free:
+        elif isinstance(s, LoopIR.Free):
             name = self.env[s.name]
             assert s.type.basetype().is_real_scalar()
             ctype = s.type.basetype().ctype()
             mem = s.mem or DRAM
             line = mem.free(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
             self.add_line(line)
-        elif styp is LoopIR.Call:
+        elif isinstance(s, LoopIR.Call):
             assert all(
                 a.type.is_win() == fna.type.is_win() for a, fna in zip(s.args, s.f.args)
             )
@@ -759,9 +771,8 @@ class Compiler:
                     return self.access_str(e.name, e.idx)
         elif etyp is LoopIR.WindowExpr:
             win_struct = self.get_window_type(e.type)
-            cast = f"({self.envtyp[e.name].basetype().ctype()}*)"
             data, strides = self.window_struct_fields(e)
-            return f"(struct {win_struct}){{ {cast}&{data}, {{ {strides} }} }}"
+            return f"(struct {win_struct}){{ &{data}, {{ {strides} }} }}"
         elif etyp is LoopIR.Const:
             if isinstance(e.val, bool):
                 return "true" if e.val else "false"

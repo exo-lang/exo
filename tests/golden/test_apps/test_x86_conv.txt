@@ -33,8 +33,12 @@ typedef struct test_case_Context {
 
 } test_case_Context;
 struct exo_win_1f32{
-    float *data;
-    int_fast32_t strides[1];
+    float * const data;
+    const int_fast32_t strides[1];
+};
+struct exo_win_1f32c{
+    const float * const data;
+    const int_fast32_t strides[1];
 };
 // conv_specialized(
 //     inp : f32[5,82,102,128]  @DRAM,
