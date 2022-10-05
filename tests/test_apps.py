@@ -28,5 +28,5 @@ def test_x86_conv(golden):
 
 
 def test_neon_sgemm(golden):
-    module_file = REPO_ROOT / 'apps' / 'neon_dev' / 'sgemm' / 'sgemm.py'
+    module_file = REPO_ROOT / 'apps' / 'aarch64' / 'sgemm' / 'sgemm.py'
     assert _test_app(module_file.resolve(strict=True)) == golden

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(neon_dev_sgemm)
+project(aarch64_sgemm)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -ffp-contract=fast -framework Accelerate -save-temps=obj")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffast-math -ffp-contract=fast -framework Accelerate -save-temps=obj")
@@ -27,6 +27,5 @@ add_exo_library(sgemm sgemm.py)
 # ---------------------------------------------------------------------------- #
 
 add_executable(test naive_sgemm.cpp test.cpp)
-target_link_libraries(test PRIVATE neon_dev_sgemm::sgemm)
+target_link_libraries(test PRIVATE aarch64_sgemm::sgemm)
 target_compile_features(test PRIVATE cxx_std_17)
-
