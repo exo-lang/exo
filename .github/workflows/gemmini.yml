@@ -34,7 +34,7 @@ jobs:
         run: ./build.sh
         env:
           # TODO: these need to be fixed rather than removed, but there are so many that the logs are not interpretable
-          CFLAGS: -Wno-pointer-to-int-cast -Wno-discarded-qualifiers -Wno-int-to-pointer-cast -I $PWD/tests/gemmini/gemmini_build -I $PWD/src/exo/libs
+          CFLAGS: -Wno-pointer-to-int-cast -Wno-discarded-qualifiers -Wno-int-to-pointer-cast -I ${GITHUB_WORKSPACE}/tests/gemmini/gemmini_build -I ${GITHUB_WORKSPACE}/src/exo/libs
         working-directory: gemmini-rocc-tests
 
       - name: Run GEMMINI tests
