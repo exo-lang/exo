@@ -1155,12 +1155,17 @@ class _BindExpr(LoopIR_Rewrite):
             if (self.use_cse and
                     isinstance(e, LoopIR.Read) and
                     e.name == s.name and
-                    e.type == s.type and
-                    all([True for i, j in zip(e.idx, s.idx) if i == j])):
-                rhs = self.map_e(s.rhs)
+                    e.type == s.type):
+                try:
+                    for i, j in zip(e.idx, s.idx):
+                        Check_ExprEqvInContext(self.orig_proc, [s], i, j)
 
-                return [type(s)(self.new_name, s.type, None, [], rhs, None,
+                    rhs = self.map_e(s.rhs)
+
+                    return [type(s)(self.new_name, s.type, None, [], rhs, None,
                                 s.srcinfo)]
+                except SchedulingError:
+                    pass
 
         return super().map_s(s)
 
