@@ -18,7 +18,7 @@ add_library(conv_impls OBJECT exo_conv.cpp onednn_conv.cpp halide_conv.cpp)
 target_link_libraries(
   conv_impls
   PUBLIC DNNL::dnnl
-  PRIVATE x86_demo::conv halide_conv_kernel
+  PRIVATE x86::conv halide_conv_kernel
 )
 target_compile_features(conv_impls PUBLIC cxx_std_17)
 

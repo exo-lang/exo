@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(x86_demo LANGUAGES C CXX)
+project(x86 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------- #
 # Project-wide configuration

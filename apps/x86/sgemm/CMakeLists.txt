@@ -14,7 +14,7 @@ add_executable(bench_sgemm bench_sgemm.cpp)
 target_link_libraries(
   bench_sgemm
   PRIVATE
-  x86_demo::sgemm
+  x86::sgemm
   MKL::MKL
   benchmark::benchmark_main
   alex_sgemm
@@ -30,7 +30,7 @@ add_executable(bench_sgemm_openblas bench_sgemm.cpp)
 target_link_libraries(
   bench_sgemm_openblas
   PRIVATE
-  x86_demo::sgemm
+  x86::sgemm
   benchmark::benchmark_main
   PkgConfig::OpenBLAS
   alex_sgemm
@@ -53,7 +53,7 @@ add_executable(run_exo test.cpp)
 target_link_libraries(
   run_exo
   PRIVATE
-  x86_demo::sgemm
+  x86::sgemm
   alex_sgemm
 )
 target_compile_features(run_exo PRIVATE cxx_std_17)
