@@ -28,6 +28,9 @@ jobs:
         run: |
           python -m pip install -r requirements.txt
           pytest tests/gemmini/matmul/test_gemmini_matmul.py tests/gemmini/conv/test_gemmini_conv.py
+        env:
+          # TODO: fix the Gemmini harness
+          RISCV: ""
 
       - name: Build GEMMINI tests
         run: ./build.sh
