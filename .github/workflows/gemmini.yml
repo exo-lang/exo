@@ -24,6 +24,9 @@ jobs:
           apt-get install -y ninja-build
           python -m pip install -r requirements.txt
           python -m pip install cmake build
+
+      - name: Install exo
+        run: |
           python -m build
           python -m pip install dist/*.whl
 
