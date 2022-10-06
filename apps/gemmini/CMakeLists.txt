@@ -44,11 +44,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(gemmini-rocc-tests)
 
 # ---------------------------------------------------------------------------- #
-# Common helpers
-
-add_subdirectory(common)
-
-# ---------------------------------------------------------------------------- #
 # Benchmarks
 
 add_subdirectory(src)

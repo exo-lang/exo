@@ -11,9 +11,4 @@ add_library(
     gemm_malloc.h
 )
 add_library(exo-gemmini::helpers ALIAS exo-gemmini_helpers)
-
-target_include_directories(
-    exo-gemmini_helpers
-    PUBLIC
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-)
+target_include_directories(exo-gemmini_helpers PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

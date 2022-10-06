@@ -1,4 +1,9 @@
 # ---------------------------------------------------------------------------- #
+# Common helpers
+
+add_subdirectory(common)
+
+# ---------------------------------------------------------------------------- #
 # Header shims
 
 configure_file(shims/include/gemmini.h.in include/gemmini.h @ONLY)
