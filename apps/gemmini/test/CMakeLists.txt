@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------- #
-# Bare-metal C rt from riscv-tests
+# Bare-metal C runtime from riscv-tests
 
 add_library(
     exo-gemmini_rt
