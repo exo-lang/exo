@@ -1,30 +1,26 @@
 ##
-# Settings for bare-metal compilation from gemmini-rocc-tests
+# Bare-metal C rt from riscv-tests
 
-add_library(bareMetalC INTERFACE)
-target_sources(
-    bareMetalC
-    INTERFACE
+add_library(
+    bare-metal-rt
     "${gemmini-rocc-tests_SOURCE_DIR}/riscv-tests/benchmarks/common/syscalls.c"
 	"${gemmini-rocc-tests_SOURCE_DIR}/riscv-tests/benchmarks/common/crt.S"
 )
 target_compile_definitions(
-    bareMetalC
-    INTERFACE
+    bare-metal-rt
+    PRIVATE
     PREALLOCATE=1
 	MULTITHREAD=1
-	BAREMETAL=1
 	ID_STRING=
 )
 target_link_options(
-    bareMetalC
+    bare-metal-rt
     INTERFACE
     "SHELL:-T ${gemmini-rocc-tests_SOURCE_DIR}/riscv-tests/benchmarks/common/test.ld"
 )
 target_include_directories(
-    bareMetalC
-    SYSTEM INTERFACE
-    "${gemmini-rocc-tests_SOURCE_DIR}"
+    bare-metal-rt
+    SYSTEM PUBLIC
     "${gemmini-rocc-tests_SOURCE_DIR}/riscv-tests"
     "${gemmini-rocc-tests_SOURCE_DIR}/riscv-tests/env"
     "${gemmini-rocc-tests_SOURCE_DIR}/riscv-tests/benchmarks/common"
@@ -45,7 +41,7 @@ function(test_tiled_matmul_ws suffix i j k)
         "MAT_DIM_J=${j}"
         "MAT_DIM_K=${k}"
     )
-    target_link_libraries("tiled_matmul_ws${suffix}" PRIVATE exo-gemmini::gemmini_lib bareMetalC)
+    target_link_libraries("tiled_matmul_ws${suffix}" PRIVATE exo-gemmini::gemmini_lib bare-metal-rt)
     add_test(
         NAME "tiled_matmul_ws${suffix}"
         COMMAND "tiled_matmul_ws${suffix}"
@@ -77,7 +73,7 @@ function(test_conv suffix IN_DIM IN_CHANNELS OUT_CHANNELS)
         "PADDING=0"
         "STRIDE=1"
     )
-    target_link_libraries("conv${suffix}" PRIVATE exo-gemmini::gemmini_lib bareMetalC)
+    target_link_libraries("conv${suffix}" PRIVATE exo-gemmini::gemmini_lib bare-metal-rt)
     add_test(
         NAME "conv${suffix}"
         COMMAND "conv${suffix}"
