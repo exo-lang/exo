@@ -13,18 +13,17 @@
 
 #include "helpers.h"
 
+static float c_scale[1] = {2.0f};
 static int8_t x[12544 * 64];
 static int8_t y[64 * 256];
-float c_scale[1];
-static int8_t z_cpu[12544 * 256];
-static int8_t z_gemmini[12544 * 256];
+static int8_t z_cpu[12544 * 256] = {0};
+static int8_t z_gemmini[12544 * 256] = {0};
 
 int main() {
   gemm_init_mem();
   gemm_acc_init_mem();
   gemmini_flush(0);
 
-  gemmini_lib_Context *ctxt;
   for (int i = 0; i < 12544; i++) {
     for (int j = 0; j < 64; j++) {
       x[(64) * i + j] = i + j * 2;
@@ -37,19 +36,7 @@ int main() {
     }
   }
 
-  c_scale[0] = 2.0f;
-
-  for (int i = 0; i < 12544; i++) {
-    for (int j = 0; j < 256; j++) {
-      z_cpu[(256) * i + j] = 0;
-    }
-  }
-
-  for (int i = 0; i < 12544; i++) {
-    for (int j = 0; j < 256; j++) {
-      z_gemmini[(256) * i + j] = 0;
-    }
-  }
+  gemmini_lib_Context *ctxt;
 
   unsigned long cpu_start = read_cycles();
   cpu_matmul_4(ctxt, c_scale, false, x, y, z_cpu);

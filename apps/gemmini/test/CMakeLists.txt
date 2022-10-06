@@ -41,7 +41,7 @@ add_library(exo-gemmini::helpers ALIAS exo-gemmini_helpers)
 
 function(add_gemmini_test name)
     add_executable("${name}" "${name}.c")
-    target_include_directories("${name}" PRIVATE "${gemmini-rocc-tests_SOURCE_DIR}")
+    target_include_directories("${name}" SYSTEM PRIVATE "${gemmini-rocc-tests_SOURCE_DIR}")
     target_link_libraries(
         "${name}"
         PRIVATE

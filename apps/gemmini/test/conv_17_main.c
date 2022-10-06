@@ -13,10 +13,10 @@
 
 #include "helpers.h"
 
-float scale[1];
+static float scale[1] = {1.0};
 static int32_t bias[1 * 128];
-static int8_t output_cpu[4 * 28 * 28 * 128];
-static int8_t output_gemmini[4 * 28 * 28 * 128];
+static int8_t output_cpu[4 * 28 * 28 * 128] = {0};
+static int8_t output_gemmini[4 * 28 * 28 * 128] = {0};
 static int8_t inp[4 * 30 * 30 * 128];
 static int8_t weights[128 * 3 * 3 * 128];
 
@@ -25,33 +25,9 @@ int main() {
   gemm_acc_init_mem();
   gemmini_flush(0);
 
-  gemmini_lib_Context *ctxt;
-  scale[0] = 1.0;
-
   for (int i = 0; i < 1; i++) {
     for (int j = 0; j < 128; j++) {
       bias[(128) * i + j] = -1 * j;
-    }
-  }
-
-  for (int i = 0; i < 4; i++) {
-    for (int j = 0; j < 28; j++) {
-      for (int k = 0; k < 28; k++) {
-        for (int r = 0; r < 128; r++) {
-          output_cpu[(28 * 28 * 128) * i + (28 * 128) * j + (128) * k + r] = 0;
-        }
-      }
-    }
-  }
-
-  for (int i = 0; i < 4; i++) {
-    for (int j = 0; j < 28; j++) {
-      for (int k = 0; k < 28; k++) {
-        for (int r = 0; r < 128; r++) {
-          output_gemmini[(28 * 28 * 128) * i + (28 * 128) * j + (128) * k + r] =
-              0;
-        }
-      }
     }
   }
 
@@ -76,6 +52,8 @@ int main() {
       }
     }
   }
+
+  gemmini_lib_Context *ctxt;
 
   unsigned long cpu_start = read_cycles();
   conv_17_cpu(ctxt, output_cpu, bias, inp, weights, false, scale);
