@@ -7,9 +7,9 @@
 
 #include "include/gemmini_testutils.h"
 
-#include "gemmini_lib.h"
-#include "gemm_malloc.h"
 #include "gemm_acc_malloc.h"
+#include "gemm_malloc.h"
+#include "gemmini_lib.h"
 
 #include "helpers.h"
 
