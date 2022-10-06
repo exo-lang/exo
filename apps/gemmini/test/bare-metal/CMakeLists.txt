@@ -1,4 +1,4 @@
-##
+# ---------------------------------------------------------------------------- #
 # Bare-metal C rt from riscv-tests
 
 add_library(
@@ -26,7 +26,22 @@ target_include_directories(
     "${gemmini-rocc-tests_SOURCE_DIR}/riscv-tests/benchmarks/common"
 )
 
-##
+# ---------------------------------------------------------------------------- #
+# Wrapper around exo pipelines
+
+## Configure header shims
+configure_file(shims/include/gemmini.h.in include/gemmini.h @ONLY)
+configure_file(shims/include/gemmini_testutils.h.in include/gemmini_testutils.h @ONLY)
+configure_file(shims/include/gemmini_params.h.in include/gemmini_params.h @ONLY)
+configure_file(shims/include/gemmini_counter.h.in include/gemmini_counter.h @ONLY)
+configure_file(shims/rocc-software/src/xcustom.h.in rocc-software/src/xcustom.h @ONLY)
+
+## Create wrapper library
+add_library(test-pipelines shims/gemmini.c)
+target_include_directories(test-pipelines PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(test-pipelines PRIVATE exo-gemmini::gemmini_lib)
+
+# ---------------------------------------------------------------------------- #
 # Matmul tests
 
 function(test_tiled_matmul_ws suffix i j k)
@@ -41,7 +56,7 @@ function(test_tiled_matmul_ws suffix i j k)
         "MAT_DIM_J=${j}"
         "MAT_DIM_K=${k}"
     )
-    target_link_libraries("tiled_matmul_ws${suffix}" PRIVATE exo-gemmini::gemmini_lib bare-metal-rt)
+    target_link_libraries("tiled_matmul_ws${suffix}" PRIVATE test-pipelines bare-metal-rt)
     add_test(
         NAME "tiled_matmul_ws${suffix}"
         COMMAND "tiled_matmul_ws${suffix}"
@@ -55,7 +70,7 @@ test_tiled_matmul_ws("-4" 3136  512  128)
 test_tiled_matmul_ws("-5" 3136  128  512)
 test_tiled_matmul_ws("-6" 784   1024 256)
 
-##
+# ---------------------------------------------------------------------------- #
 # Conv tests
 
 function(test_conv suffix IN_DIM IN_CHANNELS OUT_CHANNELS)
@@ -73,7 +88,7 @@ function(test_conv suffix IN_DIM IN_CHANNELS OUT_CHANNELS)
         "PADDING=0"
         "STRIDE=1"
     )
-    target_link_libraries("conv${suffix}" PRIVATE exo-gemmini::gemmini_lib bare-metal-rt)
+    target_link_libraries("conv${suffix}" PRIVATE test-pipelines bare-metal-rt)
     add_test(
         NAME "conv${suffix}"
         COMMAND "conv${suffix}"
