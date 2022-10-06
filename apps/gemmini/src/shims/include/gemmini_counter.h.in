@@ -1,0 +1,8 @@
+#pragma once
+
+#ifndef EXO_SHIMS_GEMMINI_COUNTER_H
+#define EXO_SHIMS_GEMMINI_COUNTER_H
+
+#include "@gemmini-rocc-tests_SOURCE_DIR@/include/gemmini_counter.h"
+
+#endif

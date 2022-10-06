@@ -1,0 +1,8 @@
+#pragma once
+
+#ifndef EXO_SHIMS_ROCC_SOFTWARE_XCUSTOM_H
+#define EXO_SHIMS_ROCC_SOFTWARE_XCUSTOM_H
+
+#include "@gemmini-rocc-tests_SOURCE_DIR@/rocc-software/src/xcustom.h"
+
+#endif
