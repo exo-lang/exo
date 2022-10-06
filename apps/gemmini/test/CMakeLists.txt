@@ -1,1 +1,3 @@
-add_subdirectory(bareMetalC)
+if (GEMMINI_BAREMETAL)
+    add_subdirectory(bareMetalC)
+endif ()
