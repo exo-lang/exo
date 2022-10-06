@@ -57,15 +57,13 @@ void tiled_matmul_auto(size_t dim_I, size_t dim_J, size_t dim_K,
   }
 }
 
-void tiled_conv_A_stride_auto(int batch_size, int in_dim,
-    int in_channels, int out_channels, int out_dim, int stride,
-    int input_dilation, int kernel_dilation, int padding, int kernel_dim,
-    bool wrot180, bool trans_output_1203, bool trans_input_3120,
-    bool trans_weight_1203, bool trans_weight_0132,
-    const elem_t *input, const elem_t *weights, const acc_t *bias,
-    elem_t *output,
-    int act, acc_scale_t scale, size_t relu6_shift, int pool_size,
-    int pool_stride, int pool_padding,
+void tiled_conv_A_stride_auto(int batch_size, int in_dim, int in_channels,
+    int out_channels, int out_dim, int stride, int input_dilation,
+    int kernel_dilation, int padding, int kernel_dim, bool wrot180,
+    bool trans_output_1203, bool trans_input_3120, bool trans_weight_1203,
+    bool trans_weight_0132, const elem_t *input, const elem_t *weights,
+    const acc_t *bias, elem_t *output, int act, acc_scale_t scale,
+    size_t relu6_shift, int pool_size, int pool_stride, int pool_padding,
     enum tiled_matmul_type_t tiled_conv_type) {
 
   if (input_dilation != 1) {
