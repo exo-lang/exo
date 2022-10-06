@@ -30,7 +30,7 @@ jobs:
       - name: Build GEMMINI tests
         run: |
           cmake -G Ninja -S apps/gemmini -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
+          cmake --build build --verbose
 
       - name: Run GEMMINI tests
         run: ctest -V
