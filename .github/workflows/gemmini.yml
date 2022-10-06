@@ -27,10 +27,11 @@ jobs:
           python -m build
           python -m pip install dist/*.whl
 
+      - name: Configure GEMMINI tests
+        run: cmake -G Ninja -S apps/gemmini -B build -DCMAKE_BUILD_TYPE=Release
+
       - name: Build GEMMINI tests
-        run: |
-          cmake -G Ninja -S apps/gemmini -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --verbose
+        run: cmake --build build --verbose
 
       - name: Run GEMMINI tests
         run: ctest -V
