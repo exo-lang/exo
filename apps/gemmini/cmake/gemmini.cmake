@@ -12,20 +12,5 @@ set(CMAKE_CROSSCOMPILING_EMULATOR "${RISCV}/bin/spike" --extension=gemmini)
 set(CMAKE_C_COMPILER "${RISCV}/bin/${ARCH}-gcc")
 set(CMAKE_CXX_COMPILER "${RISCV}/bin/${ARCH}-g++")
 
-set(CMAKE_EXE_LINKER_FLAGS_INIT -static)
-
-set(CMAKE_C_STANDARD_LIBRARIES "-lm -lgcc")
-
-set(
-    flags
-    -Wa,-march=rv64gcxhwacha
-    -ffast-math
-    -fno-builtin-printf
-    -fno-tree-loop-distribute-patterns
-    -fno-common
-    -march=rv64gc
-    -mcmodel=medany
-    -nostartfiles
-    -nostdlib
-)
-list(JOIN flags " " CMAKE_C_FLAGS_INIT)
+set(CMAKE_C_FLAGS_INIT "-mcmodel=medany -nostartfiles -nostdlib -fno-tree-loop-distribute-patterns -fno-builtin-printf -fno-common")
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG")
