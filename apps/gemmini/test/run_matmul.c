@@ -36,13 +36,13 @@ int main() {
 
   for (int i = 0; i < NN; i++) {
     for (int j = 0; j < KK; j++) {
-      x[(KK) * i + j] = i + j * 2;
+      x[(KK)*i + j] = i + j * 2;
     }
   }
 
   for (int i = 0; i < KK; i++) {
     for (int j = 0; j < MM; j++) {
-      y[(MM) * i + j] = j * 3 + i;
+      y[(MM)*i + j] = j * 3 + i;
     }
   }
 
