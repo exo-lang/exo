@@ -1,0 +1,25 @@
+def matmul_on_gemmini(A: R[128, 128] @ DRAM, B: R[128, 128] @ DRAM,
+                      C: R[128, 128] @ DRAM):
+    config_st_acc(stride(C, 0))
+    config_matmul()
+    res: R[8, 8, 16, 16]
+    a: R[8, 8, 16, 16]
+    b: R[8, 8, 16, 16]
+    for io in seq(0, 8):
+        for jo in seq(0, 8):
+            config_ld(stride(C, 0))
+            do_ld_acc(16, 16, C[16 * io:16 + 16 * io, 16 * jo:16 + 16 * jo],
+                      res[io, jo, 0:16, 0:16])
+            for ko in seq(0, 8):
+                config_ld(stride(A, 0))
+                do_ld_data(16, 16, A[16 * io:16 + 16 * io,
+                                     16 * ko:16 + 16 * ko], a[io, ko, 0:16,
+                                                              0:16])
+                config_ld(stride(B, 0))
+                do_ld_data(16, 16, B[16 * ko:16 + 16 * ko,
+                                     16 * jo:16 + 16 * jo], b[jo, ko, 0:16,
+                                                              0:16])
+                do_matmul(16, 16, 16, a[io, ko, 0:16, 0:16],
+                          b[jo, ko, 0:16, 0:16], res[io, jo, 0:16, 0:16])
+            do_st_acc(16, 16, res[io, jo, 0:16, 0:16], C[16 * io:16 + 16 * io,
+                                                         16 * jo:16 + 16 * jo])
