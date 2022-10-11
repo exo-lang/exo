@@ -48,7 +48,7 @@ def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
 ```
 
 Please uncomment the code in the second block. You will see that the `j` loop
-is `split()` into two loops `jo` and `ji`, and loops are `reorder()`ed so that the `k`
+is `divide_loop()` into two loops `jo` and `ji`, and loops are `reorder_loops()`ed so that the `k`
 loop becomes outermost.
 
 ```python
@@ -67,30 +67,30 @@ def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
 
 Please uncomment the code in the third block. Please notice that
 
-- The allocation of `C_reg` is lifted by `lift_alloc()`
-- `C_reg` initialization, reduction, and write back are `fission()`ed into three
+- The allocation of `C_reg` is lifted by `autolift_alloc()`
+- `C_reg` initialization, reduction, and write back are `autofission()`ed into three
   separate blocks.
 
 ```python
 # Third block:
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
-    C_reg: R[K + 1, 6, 2, 8] @ AVX2
+    C_reg: R[1 + K, 6, 2, 8] @ AVX2
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
                 for ji in seq(0, 8):
-                    C_reg[k, i, jo, ji] = C[i, 8 * jo + ji]
+                    C_reg[k, i, jo, ji] = C[i, ji + 8 * jo]
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
                 for ji in seq(0, 8):
-                    C_reg[k, i, jo, ji] += A[i, k] * B[k, 8 * jo + ji]
+                    C_reg[k, i, jo, ji] += A[i, k] * B[k, ji + 8 * jo]
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
                 for ji in seq(0, 8):
-                    C[i, 8 * jo + ji] = C_reg[k, i, jo, ji]
+                    C[i, ji + 8 * jo] = C_reg[k, i, jo, ji]
 ```
 
 Please uncomment the code in the fourth block. `A` is bound to 8 wide AVX2 vector
@@ -100,12 +100,12 @@ register `a_vec` by `bind_expr()` and `set_memory()`.
 # Fourth block:
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
-    C_reg: R[K + 1, 6, 2, 8] @ AVX2
+    C_reg: R[1 + K, 6, 2, 8] @ AVX2
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
                 for ji in seq(0, 8):
-                    C_reg[k, i, jo, ji] = C[i, 8 * jo + ji]
+                    C_reg[k, i, jo, ji] = C[i, ji + 8 * jo]
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
@@ -113,12 +113,12 @@ def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                 for ji in seq(0, 8):
                     a_vec[ji] = A[i, k]
                 for ji in seq(0, 8):
-                    C_reg[k, i, jo, ji] += a_vec[ji] * B[k, 8 * jo + ji]
+                    C_reg[k, i, jo, ji] += a_vec[ji] * B[k, ji + 8 * jo]
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
                 for ji in seq(0, 8):
-                    C[i, 8 * jo + ji] = C_reg[k, i, jo, ji]
+                    C[i, ji + 8 * jo] = C_reg[k, i, jo, ji]
 ```
 
 Please uncomment the code in the fifth block. The same schedule for `A` is applied
@@ -128,12 +128,12 @@ to `B`.
 # Fifth block:
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
-    C_reg: R[K + 1, 6, 2, 8] @ AVX2
+    C_reg: R[1 + K, 6, 2, 8] @ AVX2
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
                 for ji in seq(0, 8):
-                    C_reg[k, i, jo, ji] = C[i, 8 * jo + ji]
+                    C_reg[k, i, jo, ji] = C[i, ji + 8 * jo]
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
@@ -142,14 +142,14 @@ def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                     a_vec[ji] = A[i, k]
                 b_vec: R[8] @ AVX2
                 for ji in seq(0, 8):
-                    b_vec[ji] = B[k, 8 * jo + ji]
+                    b_vec[ji] = B[k, ji + 8 * jo]
                 for ji in seq(0, 8):
                     C_reg[k, i, jo, ji] += a_vec[ji] * b_vec[ji]
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
                 for ji in seq(0, 8):
-                    C[i, 8 * jo + ji] = C_reg[k, i, jo, ji]
+                    C[i, ji + 8 * jo] = C_reg[k, i, jo, ji]
 ```
 
 Finally, please uncomment the sixth block. The sixth block replaces the statements with
@@ -164,7 +164,7 @@ statement with the call to AVX2 instruction procedures to get the final schedule
 # Sixth block:
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
-    C_reg: R[K + 1, 6, 2, 8] @ AVX2
+    C_reg: R[1 + K, 6, 2, 8] @ AVX2
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
@@ -174,7 +174,7 @@ def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
         for i in seq(0, 6):
             for jo in seq(0, 2):
                 a_vec: R[8] @ AVX2
-                mm256_broadcast_ss(a_vec, A[i + 0:i + 1, k + 0])
+                mm256_broadcast_ss(a_vec, A[i + 0, k + 0:k + 1])
                 b_vec: R[8] @ AVX2
                 mm256_loadu_ps(b_vec[0:8], B[k + 0, 8 * jo + 0:8 * jo + 8])
                 mm256_fmadd_ps(C_reg[k + 0, i + 0, jo + 0, 0:8], a_vec, b_vec)
@@ -206,8 +206,8 @@ It should generate something like:
 
 ```
 $ ./avx2_matmul
-Time taken for original matmul: 0 seconds 490 milliseconds
-Time taken for scheduled matmul: 0 seconds 236 milliseconds
+Time taken for original matmul: 0 seconds 649 milliseconds
+Time taken for scheduled matmul: 0 seconds 291 milliseconds
 ```
 
 Even on this small example, we can see the benefit of AVX2 instructions.

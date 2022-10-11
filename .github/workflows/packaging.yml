@@ -10,7 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+
       - uses: actions/setup-python@v2
+
       - name: Install Python dependencies
         run: |
           python -m pip install -U pip
@@ -18,15 +20,6 @@ jobs:
 
       - name: Build Python package
         run: python -m build --sdist --wheel --outdir dist/ .
-
-      - name: Install Python package
-        run: python -m pip install dist/*.whl
-
-      - name: Test that exocc runs
-        run: exocc -o tmp --stem conv apps/x86_demo/conv/conv.py
-
-      - name: Show generated C code (manual inspection for now)
-        run: cat tmp/conv.c
 
       # Will only run on release.
       - name: Publish distribution to PyPI

@@ -1189,12 +1189,17 @@ class _BindExpr(LoopIR_Rewrite):
             if (self.use_cse and
                     isinstance(e, LoopIR.Read) and
                     e.name == s.name and
-                    e.type == s.type and
-                    all([True for i, j in zip(e.idx, s.idx) if i == j])):
-                rhs = self.map_e(s.rhs)
+                    e.type == s.type):
+                try:
+                    for i, j in zip(e.idx, s.idx):
+                        Check_ExprEqvInContext(self.orig_proc, [s], i, j)
 
-                return [type(s)(self.new_name, s.type, None, [], rhs, None,
+                    rhs = self.map_e(s.rhs)
+
+                    return [type(s)(self.new_name, s.type, None, [], rhs, None,
                                 s.srcinfo)]
+                except SchedulingError:
+                    pass
 
         return super().map_s(s)
 
@@ -2882,7 +2887,7 @@ class _DoNormalize(LoopIR_Rewrite):
     def index_start(self, e):
         assert isinstance(e, LoopIR.expr)
         # Div and mod need more subtle handling. Don't normalize for now.
-        # Skip ReadConfigs, they needs careful handling because they're not Sym.
+        # Skip ReadConfigs, they need careful handling because they're not Sym.
         if self.has_div_mod_config(e):
             return e
 
@@ -2890,26 +2895,28 @@ class _DoNormalize(LoopIR_Rewrite):
         n_map = self.normalize_e(e)
 
         # Write back to LoopIR.expr
-        def get_loopir(key, value):
-            vconst = LoopIR.Const(value, T.int, e.srcinfo)
-            if key == self.C:
-                return vconst
-            else:
-                readkey = LoopIR.Read(key, [], e.type, e.srcinfo)
-                return LoopIR.BinOp('*', vconst, readkey, e.type, e.srcinfo)
+        def scale_read(coeff, key):
+            return LoopIR.BinOp(
+                '*',
+                LoopIR.Const(coeff, T.int, e.srcinfo),
+                LoopIR.Read(key, [], e.type, e.srcinfo),
+                e.type,
+                e.srcinfo
+            )
         
-        delete_zero = { key: n_map[key] for key in n_map if n_map[key] != 0 }
-        new_e = LoopIR.Const(0, T.int, e.srcinfo)
-        for key, val in delete_zero.items():
-            if val > 0:
-                # add
-                new_e = LoopIR.BinOp('+', new_e, get_loopir(key, val), e.type, e.srcinfo)
+        new_e = LoopIR.Const(n_map.get(self.C, 0), T.int, e.srcinfo)
+
+        delete_zero = [(n_map[v], v)
+                       for v in n_map
+                       if v != self.C and n_map[v] != 0]
+
+        for coeff, v in sorted(delete_zero):
+            if coeff > 0:
+                new_e = LoopIR.BinOp('+', new_e, scale_read(coeff, v), e.type, e.srcinfo)
             else:
-                # sub
-                new_e = LoopIR.BinOp('-', new_e, get_loopir(key, -val), e.type, e.srcinfo)
+                new_e = LoopIR.BinOp('-', new_e, scale_read(-coeff, v), e.type, e.srcinfo)
 
         return new_e
-
 
     def map_e(self, e):
         if e.type.is_indexable():
