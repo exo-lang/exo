@@ -1084,7 +1084,21 @@ class _DoCommuteExpr(LoopIR_Rewrite):
         else:
             return super().map_e(e)
 
+def get_reads(e):
+    if isinstance(e, LoopIR.Read):
+        return sum([get_reads(e) for e in e.idx], [(e.name, e.type)])
+    elif isinstance(e, LoopIR.USub):
+        return get_reads(e.arg)
+    elif isinstance(e, LoopIR.BinOp):
+        return get_reads(e.lhs) + get_reads(e.rhs)
+    elif isinstance(e, LoopIR.BuiltIn):
+        return sum([get_reads(a) for a in e.args], [])
+    elif isinstance(e, LoopIR.Const):
+        return []
+    else:
+        assert False, "bad case"
 
+# TODO: add more tests to ensure correctness
 class _BindExpr(LoopIR_Rewrite):
     def __init__(self, proc, new_name, exprs, cse=False):
         assert all(isinstance(expr, LoopIR.expr) for expr in exprs)
@@ -1094,10 +1108,12 @@ class _BindExpr(LoopIR_Rewrite):
         self.orig_proc      = proc
         self.new_name       = Sym(new_name)
         self.exprs          = exprs if cse else [exprs[0]]
+        self.expr_reads     = set(sum([get_reads(e) for e in self.exprs], []))
         self.use_cse        = cse
         self.found_expr     = None
         self.placed_alloc   = False
         self.sub_done       = False
+        self.found_write    = False
 
         super().__init__(proc)
 
@@ -1112,7 +1128,10 @@ class _BindExpr(LoopIR_Rewrite):
         is_alloc_block = False
 
         for stmt in block:
-            stmt = self.map_s(stmt)
+            if not self.found_write:
+                stmt = self.map_s(stmt)
+            else:
+                stmt = [stmt]
 
             if self.found_expr and not self.placed_alloc:
                 self.placed_alloc = True
@@ -1151,21 +1170,13 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             e = self.exprs[0]
-            # bind LHS when self.use_cse == True
-            if (self.use_cse and
-                    isinstance(e, LoopIR.Read) and
-                    e.name == s.name and
-                    e.type == s.type):
-                try:
-                    for i, j in zip(e.idx, s.idx):
-                        Check_ExprEqvInContext(self.orig_proc, [s], i, j)
-
-                    rhs = self.map_e(s.rhs)
-
-                    return [type(s)(self.new_name, s.type, None, [], rhs, None,
-                                s.srcinfo)]
-                except SchedulingError:
-                    pass
+            rhs = self.map_e(s.rhs)
+            # terminate CSE if the expression is written to
+            if (self.found_expr and self.use_cse):
+                for (name, type) in self.expr_reads:
+                    if s.name == name and s.type == type:
+                        self.found_write = True
+            return [s.update(rhs=rhs)]
 
         return super().map_s(s)
 

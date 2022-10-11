@@ -671,11 +671,12 @@ def test_bind_expr_diff_indices(golden):
     def bar(n: size, x: i8[n], y: i8[n], z: i8[n]):
         for i in seq(0, n-1):
             w : i8[n]
-            w[i+1] = x[i] + y[i]
-            w[i] = x[i] + y[i]
-            z[i] = w[i]
+            x[i] = x[i] - y[i]
+            w[i+1] = x[i] + y[i] + 1.0
+            x[i] = y[i]
+            w[i] = x[i] + y[i] + 1.0
 
-    bar = bind_expr(bar, 'w[i]', 'w_tmp', cse=True)
+    bar = bind_expr(bar, 'x[i]+y[i]+1.0', 'tmp', cse=True)
     assert str(bar) == golden
 
 
