@@ -60,30 +60,8 @@ jobs:
       - name: Run tox
         run: tox
 
-#      - name: Build package
-#        run: python -m build
-#
-#      - name: Install package
-#        run: pip install dist/*.whl
-
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v2
         with:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
-
-#       # Skip running on macOS since the SDE simulator is too slow there
-#       - name: Install apps deps
-#         if: runner.os == 'Linux'
-#         run: |
-#           sudo apt update
-#           sudo apt install g++-11
-
-#       - name: Build apps with CMake
-#         if: runner.os == 'Linux'
-#         run: ./apps/build.sh
-
-#       - name: Check apps run with CMake
-#         if: runner.os == 'Linux'
-#         run: ctest --output-on-failure
-#         working-directory: build

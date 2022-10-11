@@ -4,14 +4,13 @@ from pathlib import Path
 
 from exo import compile_procs
 
+# TODO: actually fix this
+RISCV = None
 GEMMINI_ROOT = os.getenv('GEMMINI_ROOT')
 if GEMMINI_ROOT is None:
-    RISCV = os.getenv('RISCV')
-    if RISCV is None:
-        pass
-    else:
+    # RISCV = os.getenv('RISCV')
+    if RISCV is not None:
         GEMMINI_ROOT  = os.path.join(RISCV,'..','generators','gemmini')
-
 
 if RISCV is not None:
     GEMMINI_ROOT        = os.path.abspath(GEMMINI_ROOT)
