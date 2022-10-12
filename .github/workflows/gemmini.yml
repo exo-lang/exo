@@ -16,36 +16,26 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/checkout@v3
-        with:
-          repository: exo-lang/gemmini-rocc-tests
-          ref: exo
-          submodules: recursive
-          path: gemmini-rocc-tests
-
       - uses: actions/setup-python@v2
 
-      - name: Generate code with Exo
+      - name: Install dependencies
         run: |
+          apt-get remove -y cmake
+          apt-get install -y ninja-build
           python -m pip install -r requirements.txt
-          pytest tests/gemmini/matmul/test_gemmini_matmul.py tests/gemmini/conv/test_gemmini_conv.py
+          python -m pip install cmake build
+
+      - name: Install exo
+        run: |
+          python -m build
+          python -m pip install dist/*.whl
+
+      - name: Configure GEMMINI tests
+        run: cmake -G Ninja -S apps/gemmini -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build GEMMINI tests
-        run: ./build.sh
-        env:
-          # TODO: these need to be fixed rather than removed, but there are so many that the logs are not interpretable
-          CFLAGS: -Wno-pointer-to-int-cast -Wno-discarded-qualifiers -Wno-int-to-pointer-cast -I ${GITHUB_WORKSPACE}/tests/gemmini/gemmini_build -I ${GITHUB_WORKSPACE}/src/exo/libs
-        working-directory: gemmini-rocc-tests
+        run: cmake --build build --verbose
 
       - name: Run GEMMINI tests
-        run: |
-          spike --extension=gemmini tiled_matmul_ws-baremetal
-          spike --extension=gemmini tiled_matmul_ws-2-baremetal
-          spike --extension=gemmini tiled_matmul_ws-3-baremetal
-          spike --extension=gemmini tiled_matmul_ws-4-baremetal
-          spike --extension=gemmini tiled_matmul_ws-5-baremetal
-          spike --extension=gemmini tiled_matmul_ws-6-baremetal
-          spike --extension=gemmini conv-baremetal
-          spike --extension=gemmini conv-2-baremetal
-          spike --extension=gemmini conv-3-baremetal
-        working-directory: gemmini-rocc-tests/build/bareMetalC
+        run: ctest -V
+        working-directory: build

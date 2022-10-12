@@ -56,7 +56,7 @@ class DRAM_STATIC(DRAM):
 class GEMM_SCRATCH(Memory):
     @classmethod
     def global_(cls):
-        return '#include "gemm_malloc.h"'
+        return '#include <include/gemmini.h>\n#include "gemm_malloc.h"'
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
@@ -100,7 +100,7 @@ class GEMM_SCRATCH(Memory):
 class GEMM_ACCUM(Memory):
     @classmethod
     def global_(cls):
-        return '#include "gemm_acc_malloc.h"'
+        return '#include <include/gemmini.h>\n#include "gemm_acc_malloc.h"'
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
