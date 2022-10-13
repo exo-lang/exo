@@ -99,7 +99,7 @@ static void sgemm_accumulate(
 template <int I_REG, int J_REG>
 void sgemm_micro_kernel_staged_M_N(const float *a, const float *b, float *c,
     long ldc, const long N, const long K) {
-  vec_type inner_c[I_REG][J_REG] = {0};
+  vec_type inner_c[I_REG][J_REG] = {{0}};
 
   const auto Nb = N - 16 * (J_REG - 1);
   short mask = (1 << Nb) - 1;

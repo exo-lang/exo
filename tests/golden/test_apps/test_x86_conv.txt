@@ -29,12 +29,14 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
-typedef struct test_case_Context { 
 
-} test_case_Context;
 struct exo_win_1f32{
-    float *data;
-    int_fast32_t strides[1];
+    float * const data;
+    const int_fast32_t strides[1];
+};
+struct exo_win_1f32c{
+    const float * const data;
+    const int_fast32_t strides[1];
 };
 // conv_specialized(
 //     inp : f32[5,82,102,128]  @DRAM,
@@ -42,7 +44,7 @@ struct exo_win_1f32{
 //     weights : f32[128,3,3,128]  @DRAM,
 //     bias : f32[128]  @DRAM
 // )
-void conv_specialized( test_case_Context *ctxt, float* inp, float* output, float* weights, float* bias );
+void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias );
 
 
 
@@ -54,14 +56,6 @@ void conv_specialized( test_case_Context *ctxt, float* inp, float* output, float
 #include "test_case.h"
 
 
-static int _floor_div(int num, int quot) {
-  int off = (num>=0)? 0 : quot-1;
-  return (num-off)/quot;
-}
-
-static int8_t _clamp_32to8(int32_t x) {
-  return (x < -128)? -128 : ((x > 127)? 127 : x);
-}
 
 #include <immintrin.h>
 #include <stdio.h>
@@ -79,7 +73,7 @@ double _relu_(double x) {
 //     weights : f32[128,3,3,128]  @DRAM,
 //     bias : f32[128]  @DRAM
 // )
-void conv_specialized( test_case_Context *ctxt, float* inp, float* output, float* weights, float* bias ) {
+void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias ) {
 for (int oc_o = 0; oc_o < 2; oc_o++) {
   for (int n = 0; n < 5; n++) {
     for (int oy = 0; oy < 80; oy++) {
