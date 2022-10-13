@@ -45,17 +45,21 @@ typedef struct c_code_str_Context {
     } ConfigStore;
 
 } c_code_str_Context;
-struct exo_win_2i32{
-    int32_t *data;
-    int_fast32_t strides[2];
+struct exo_win_2i32c{
+    const int32_t * const data;
+    const int_fast32_t strides[2];
 };
 struct exo_win_2i8{
-    int8_t *data;
-    int_fast32_t strides[2];
+    int8_t * const data;
+    const int_fast32_t strides[2];
 };
-struct exo_win_3i8{
-    int8_t *data;
-    int_fast32_t strides[3];
+struct exo_win_2i8c{
+    const int8_t * const data;
+    const int_fast32_t strides[2];
+};
+struct exo_win_3i8c{
+    const int8_t * const data;
+    const int_fast32_t strides[3];
 };
 // matmul_on_gemmini(
 //     scale : f32  @DRAM,
@@ -64,18 +68,10 @@ struct exo_win_3i8{
 //     B : i8[512,512]  @DRAM,
 //     C : i8[512,512]  @DRAM
 // )
-void matmul_on_gemmini( c_code_str_Context *ctxt, float* scale, bool act, int8_t* A, int8_t* B, int8_t* C );
+void matmul_on_gemmini( c_code_str_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 
 
-static int _floor_div(int num, int quot) {
-  int off = (num>=0)? 0 : quot-1;
-  return (num-off)/quot;
-}
-
-static int8_t _clamp_32to8(int32_t x) {
-  return (x < -128)? -128 : ((x > 127)? 127 : x);
-}
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -153,7 +149,7 @@ gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),{m}, {n} );
 //     B : i8[512,512]  @DRAM,
 //     C : i8[512,512]  @DRAM
 // )
-void matmul_on_gemmini( c_code_str_Context *ctxt, float* scale, bool act, int8_t* A, int8_t* B, int8_t* C ) {
+void matmul_on_gemmini( c_code_str_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
 gemmini_extended_config_st((512), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
