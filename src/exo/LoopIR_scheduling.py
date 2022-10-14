@@ -194,10 +194,11 @@ class _DoProductLoop(LoopIR_Rewrite):
 
         return super().map_e(e)
 
-
+# TODO: check for data dependencies on the RHS
 class _DoMergeReduce(LoopIR_Rewrite):
     def __init__(self, proc, stmt1, stmt2):
-        if type(stmt1) is LoopIR.Assign and type(stmt2) is LoopIR.Reduce:
+        if (isinstance(stmt1, (LoopIR.Assign, LoopIR.Reduce)) and
+                isinstance(stmt2, (LoopIR.Assign, LoopIR.Reduce))):
             if stmt1.name != stmt2.name:
                 raise SchedulingError("expected the two statements to have the same lhs.")
 
@@ -212,22 +213,29 @@ class _DoMergeReduce(LoopIR_Rewrite):
             self.new_rhs = LoopIR.BinOp("+", stmt1.rhs, stmt2.rhs,T.i32, stmt1.srcinfo)
             self.s1 = stmt1
             self.s2 = stmt2
+            self.s1_type = type(stmt1)
+            self.s2_type = type(stmt2)
 
             super().__init__(proc)
 
             self.proc = InferEffects(self.proc).result()
         else:
-            raise SchedulingError(f"expected an assign followed by a reduce statement, "
+            raise SchedulingError(f"expected two consecutive assign/reduce statements, "
                                   f"got {type(stmt1)} and {type(stmt2)} instead.")
 
     def map_stmts(self, stmts):
-        for i in range(len(stmts)):
-            if stmts[i] is self.s1:
-                if i < len(stmts) and stmts[i+1] is self.s2:
-                    return stmts[:i] + [stmts[i].update(rhs=self.new_rhs)] + stmts[i+2:]
-                else:
-                    raise SchedulingError("expected the second stmt to be "
-                                          "directly after the first stmt")
+        if self.s2_type is LoopIR.Assign:
+            for i in range(len(stmts)):
+                if stmts[i] is self.s2:
+                    return stmts[:i-1] + stmts[i:]
+        else:
+            for i in range(len(stmts)):
+                if stmts[i] is self.s1:
+                    if i < len(stmts) and stmts[i+1] is self.s2:
+                        return stmts[:i] + [stmts[i].update(rhs=self.new_rhs)] + stmts[i+2:]
+                    else:
+                        raise SchedulingError("expected the second stmt to be "
+                                            "directly after the first stmt")
 
         return super().map_stmts(stmts)
 

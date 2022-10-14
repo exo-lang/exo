@@ -586,23 +586,29 @@ def test_simple_reorder(golden):
     bar = reorder_loops(bar, 'i j')
     assert str(bar) == golden
 
-
+# simple test of each of the 4 cases
 def test_merge_reduce_1(golden):
     @proc
-    def bar(x : R[3], y : R[3], z : R):
+    def bar(x : R[4], y : R[4]):
         for i in seq(0, 10):
             if i < 5:
-                tmp : R[2]
-                z = x[0]
-                z += y[0]
+                tmp : R[4]
+                tmp[0] = x[0]
+                tmp[0] = y[0]
                 tmp[1] = x[1]
                 tmp[1] += y[1]
+                tmp[2] += x[2]
+                tmp[2] = y[2]
+                tmp[3] += x[3]
+                tmp[3] += y[3]
 
-    bar = merge_reduce(bar, 'z = x[0]; z += y[0]')
+    bar = merge_reduce(bar, 'tmp[0] = x[0]; tmp[0] = y[0]')
     bar = merge_reduce(bar, 'tmp[1] = x[1]; tmp[1] += y[1]')
+    bar = merge_reduce(bar, 'tmp[2] += x[2]; tmp[2] = y[2]')
+    bar = merge_reduce(bar, 'tmp[3] += x[3]; tmp[3] += y[3]')
     assert str(bar) == golden
 
-
+# multiple reductions in a row
 def test_merge_reduce_2(golden):
     @proc
     def bar(w : R, x : R, y : R, z : R):
@@ -615,6 +621,7 @@ def test_merge_reduce_2(golden):
     bar = merge_reduce(bar, 'z = w + x; z += y')
     assert str(bar) == golden
 
+# testing array indexing
 def test_merge_reduce_3(golden):
     @proc
     def bar(x : R[3], y : R[3], z : R):
@@ -628,18 +635,6 @@ def test_merge_reduce_3(golden):
     bar = merge_reduce(bar, 'tmp[i+j, j] = x[i]; tmp[i+j, j] += y[j]')
     assert str(bar) == golden
 
-def test_merge_reduce_swapped_order_error(golden):
-    @proc
-    def bar(x : R, y : R):
-        for i in seq(0, 10):
-            if i > 5:
-                y += x
-                y = x
-
-    with pytest.raises(SchedulingError,
-                            match='expected an assign followed by a reduce statement'):
-        bar = merge_reduce(bar, 'y += x; y = x')
-
 def test_merge_reduce_wrong_type_error(golden):
     @proc
     def bar(x : R, y : R):
@@ -649,7 +644,7 @@ def test_merge_reduce_wrong_type_error(golden):
                 y = x
 
     with pytest.raises(SchedulingError,
-                            match='expected an assign followed by a reduce statement'):
+                            match='expected two consecutive assign/reduce statements'):
         bar = merge_reduce(bar, 'y = x; _')
 
 def test_merge_reduce_different_lhs_error(golden):
