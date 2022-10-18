@@ -477,7 +477,7 @@ def lift_to_eff_expr(e):
 
 class LoopIR_Rewrite:
     def __init__(self, proc, instr=None, *args, **kwargs):
-        self.orig_proc  = proc
+        self.orig_proc = proc
 
         args = [self.map_fnarg(a) for a in self.orig_proc.args]
         preds = [self.map_e(p) for p in self.orig_proc.preds]
@@ -485,15 +485,15 @@ class LoopIR_Rewrite:
                  if not (isinstance(p, LoopIR.Const) and p.val)]
         body = self.map_stmts(self.orig_proc.body)
 
-        eff  = self.map_eff(self.orig_proc.eff)
+        eff = self.map_eff(self.orig_proc.eff)
 
-        self.proc = LoopIR.proc(name    = self.orig_proc.name,
-                                args    = args,
-                                preds   = preds,
-                                body    = body,
-                                instr   = instr,
-                                eff     = eff,
-                                srcinfo = self.orig_proc.srcinfo)
+        self.proc = LoopIR.proc(name=self.orig_proc.name,
+                                args=args,
+                                preds=preds,
+                                body=body,
+                                instr=instr,
+                                eff=eff,
+                                srcinfo=self.orig_proc.srcinfo)
 
     def result(self):
         return self.proc
@@ -502,54 +502,54 @@ class LoopIR_Rewrite:
         return LoopIR.fnarg(a.name, self.map_t(a.type), a.mem, a.srcinfo)
 
     def map_stmts(self, stmts):
-        return [ s for b in stmts
-                   for s in self.map_s(b) ]
+        return [s for b in stmts
+                for s in self.map_s(b)]
 
     def map_s(self, s):
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
-            return [styp( s.name, self.map_t(s.type), s.cast,
-                        [ self.map_e(a) for a in s.idx ],
-                          self.map_e(s.rhs), self.map_eff(s.eff), s.srcinfo )]
+            return [styp(s.name, self.map_t(s.type), s.cast,
+                         [self.map_e(a) for a in s.idx],
+                         self.map_e(s.rhs), self.map_eff(s.eff), s.srcinfo)]
         elif styp is LoopIR.WriteConfig:
-            return [LoopIR.WriteConfig( s.config, s.field, self.map_e(s.rhs),
-                                        self.map_eff(s.eff), s.srcinfo )]
+            return [LoopIR.WriteConfig(s.config, s.field, self.map_e(s.rhs),
+                                       self.map_eff(s.eff), s.srcinfo)]
         elif styp is LoopIR.WindowStmt:
-            return [LoopIR.WindowStmt( s.lhs, self.map_e(s.rhs),
-                                       self.map_eff(s.eff), s.srcinfo )]
+            return [LoopIR.WindowStmt(s.lhs, self.map_e(s.rhs),
+                                      self.map_eff(s.eff), s.srcinfo)]
         elif styp is LoopIR.If:
-            return [LoopIR.If( self.map_e(s.cond), self.map_stmts(s.body),
-                               self.map_stmts(s.orelse),
-                               self.map_eff(s.eff), s.srcinfo )]
+            return [LoopIR.If(self.map_e(s.cond), self.map_stmts(s.body),
+                              self.map_stmts(s.orelse),
+                              self.map_eff(s.eff), s.srcinfo)]
         elif styp is LoopIR.Seq:
-            return [LoopIR.Seq( s.iter, self.map_e(s.hi),
-                                self.map_stmts(s.body),
-                                self.map_eff(s.eff), s.srcinfo )]
+            return [LoopIR.Seq(s.iter, self.map_e(s.hi),
+                               self.map_stmts(s.body),
+                               self.map_eff(s.eff), s.srcinfo)]
         elif styp is LoopIR.Call:
-            return [LoopIR.Call( s.f, [ self.map_e(a) for a in s.args ],
-                                 self.map_eff(s.eff), s.srcinfo )]
+            return [LoopIR.Call(s.f, [self.map_e(a) for a in s.args],
+                                self.map_eff(s.eff), s.srcinfo)]
         elif styp is LoopIR.Alloc:
-            return [LoopIR.Alloc( s.name, self.map_t(s.type), s.mem,
-                                  self.map_eff(s.eff), s.srcinfo )]
+            return [LoopIR.Alloc(s.name, self.map_t(s.type), s.mem,
+                                 self.map_eff(s.eff), s.srcinfo)]
         else:
             return [s]
 
     def map_e(self, e):
-        etyp    = type(e)
+        etyp = type(e)
         if etyp is LoopIR.Read:
-            return LoopIR.Read( e.name, [ self.map_e(a) for a in e.idx ],
-                                self.map_t(e.type), e.srcinfo )
+            return LoopIR.Read(e.name, [self.map_e(a) for a in e.idx],
+                               self.map_t(e.type), e.srcinfo)
         elif etyp is LoopIR.BinOp:
-            return LoopIR.BinOp( e.op, self.map_e(e.lhs), self.map_e(e.rhs),
-                                 self.map_t(e.type), e.srcinfo )
+            return LoopIR.BinOp(e.op, self.map_e(e.lhs), self.map_e(e.rhs),
+                                self.map_t(e.type), e.srcinfo)
         elif etyp is LoopIR.BuiltIn:
-            return LoopIR.BuiltIn( e.f, [ self.map_e(a) for a in e.args ],
-                                   self.map_t(e.type), e.srcinfo )
+            return LoopIR.BuiltIn(e.f, [self.map_e(a) for a in e.args],
+                                  self.map_t(e.type), e.srcinfo)
         elif etyp is LoopIR.USub:
             return LoopIR.USub(self.map_e(e.arg), self.map_t(e.type), e.srcinfo)
         elif etyp is LoopIR.WindowExpr:
             return LoopIR.WindowExpr(e.name,
-                                     [ self.map_w_access(w) for w in e.idx ],
+                                     [self.map_w_access(w) for w in e.idx],
                                      self.map_t(e.type), e.srcinfo)
         elif etyp is LoopIR.ReadConfig:
             return LoopIR.ReadConfig(e.config, e.field,
@@ -569,12 +569,12 @@ class LoopIR_Rewrite:
     def map_t(self, t):
         ttyp = type(t)
         if ttyp is T.Tensor:
-            return T.Tensor( [ self.map_e(r) for r in t.hi ],
-                             t.is_window, self.map_t(t.type) )
+            return T.Tensor([self.map_e(r) for r in t.hi],
+                            t.is_window, self.map_t(t.type))
         elif ttyp is T.Window:
-            return T.Window( self.map_t(t.src_type), self.map_t(t.as_tensor),
-                             t.src_buf,
-                             [ self.map_w_access(w) for w in t.idx ] )
+            return T.Window(self.map_t(t.src_type), self.map_t(t.as_tensor),
+                            t.src_buf,
+                            [self.map_w_access(w) for w in t.idx])
         else:
             return t
 
