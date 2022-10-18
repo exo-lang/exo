@@ -81,6 +81,8 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         # in a post-traversal sort of way below
         # before returning
         result  = super().map_s(s)
+        if result is None:
+            result = [s]
         styp    = type(s)
 
         if styp is LoopIR.Call:

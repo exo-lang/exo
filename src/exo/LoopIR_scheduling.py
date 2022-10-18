@@ -2767,7 +2767,6 @@ class _DoExtractMethod(LoopIR_Rewrite):
         return e
 
 
-
 class _DoNormalize(LoopIR_Rewrite):
     # This class operates on an idea of creating a coefficient map for each
     # indexing expression (normalize_e), and writing the map back to LoopIR
@@ -2976,8 +2975,8 @@ class _DoSimplify(LoopIR_Rewrite):
         return check_quot(quot.lhs, quot.rhs) or check_quot(quot.rhs, quot.lhs)
 
     def map_binop(self, e: LoopIR.BinOp):
-        lhs = self.map_e(e.lhs)
-        rhs = self.map_e(e.rhs)
+        lhs = self.map_e(e.lhs) or e.lhs
+        rhs = self.map_e(e.rhs) or e.rhs
 
         if isinstance(lhs, LoopIR.Const) and isinstance(rhs, LoopIR.Const):
             return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type,
@@ -3026,7 +3025,7 @@ class _DoSimplify(LoopIR_Rewrite):
         if isinstance(e, LoopIR.BinOp):
             e = self.map_binop(e)
         else:
-            e = super().map_e(e)
+            e = super().map_e(e) or e
 
         # After simplifying, we might match a known constant, so check again.
         if const := self.is_known_constant(e):
@@ -3064,16 +3063,18 @@ class _DoSimplify(LoopIR_Rewrite):
         if isinstance(s, LoopIR.If):
             cond = self.map_e(s.cond)
 
+            safe_cond = cond or s.cond
+
             # If constant true or false, then drop the branch
-            if isinstance(cond, LoopIR.Const):
-                if cond.val:
+            if isinstance(safe_cond, LoopIR.Const):
+                if safe_cond.val:
                     return super().map_stmts(s.body)
                 else:
                     return super().map_stmts(s.orelse)
 
             # Try to use the condition while simplifying body
             self.facts = self.facts.new_child()
-            self.add_fact(cond)
+            self.add_fact(safe_cond)
             body = self.map_stmts(s.body)
             self.facts = self.facts.parents
 
@@ -3083,21 +3084,28 @@ class _DoSimplify(LoopIR_Rewrite):
             orelse = self.map_stmts(s.orelse)
             self.facts = self.facts.parents
 
-            return [LoopIR.If(cond, body, orelse, self.map_eff(s.eff),
-                              s.srcinfo)]
+            eff = self.map_eff(s.eff)
+            if cond or body or orelse or eff:
+                return [s.update(cond=safe_cond, body=body or s.body,
+                                 orelse=orelse or s.orelse, eff=eff or s.eff)]
+            return None
         elif isinstance(s, LoopIR.Seq):
-            styp = type(s)
             hi = self.map_e(s.hi)
+
             # Delete the loop if it would not run at all
             if isinstance(hi, LoopIR.Const) and hi.val == 0:
                 return []
 
             # Delete the loop if it would have an empty body
             body = self.map_stmts(s.body)
-            if not body:
+            if body == []:
                 return []
-            return [styp(s.iter, hi, body, self.map_eff(s.eff),
-                                  s.srcinfo)]
+
+            eff = self.map_eff(s.eff)
+            if hi or body or eff:
+                return [s.update(hi=hi or s.hi, body=body or s.body, eff=eff or s.eff)]
+
+            return None
         else:
             return super().map_s(s)
 
