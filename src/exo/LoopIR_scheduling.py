@@ -195,7 +195,6 @@ class _DoProductLoop(LoopIR_Rewrite):
         return super().map_e(e)
 
 def get_reads(e):
-    etyp = type(e)
     if isinstance(e,LoopIR.Read):
         return sum([get_reads(e) for e in e.idx], [(e.name, e.type)])
     elif isinstance(e,LoopIR.USub):
@@ -209,16 +208,18 @@ def get_reads(e):
     else:
         assert False, "bad case"
 
-class _DoMergeReduce(LoopIR_Rewrite):
+class _DoMergeWrites(LoopIR_Rewrite):
     def __init__(self, proc, stmt1, stmt2):
         try:
+            assert len(stmt1.idx) == len(stmt2.idx)
             for i, j in zip(stmt1.idx, stmt2.idx):
                 Check_ExprEqvInContext(proc, [stmt1, stmt2], i, j)
         except SchedulingError:
-            raise SchedulingError("expected the LHS indices to be the same.")
+            raise SchedulingError("expected the left hand side's indices to be the same.")
 
         if any([stmt1.name == name and stmt1.type == typ for name, typ in get_reads(stmt2.rhs)]):
-            raise SchedulingError("expected the RHS of statement 2 to not depend on the LHS of statement 1.")
+            raise SchedulingError("expected the right hand side of the second statement to not "
+                                  "depend on the left hand side of the first statement.")
 
         self.new_rhs = LoopIR.BinOp("+", stmt1.rhs, stmt2.rhs, stmt1.type, stmt1.srcinfo)
         self.s1 = stmt1
@@ -236,11 +237,7 @@ class _DoMergeReduce(LoopIR_Rewrite):
         else:
             for i in range(len(stmts)):
                 if stmts[i] is self.s1:
-                    if i < len(stmts) and stmts[i+1] is self.s2:
-                        return stmts[:i] + [stmts[i].update(rhs=self.new_rhs)] + stmts[i+2:]
-                    else:
-                        raise SchedulingError("expected the second stmt to be "
-                                            "directly after the first stmt")
+                    return stmts[:i] + [stmts[i].update(rhs=self.new_rhs)] + stmts[i+2:]
 
         return super().map_stmts(stmts)
 
@@ -3711,4 +3708,4 @@ class Schedules:
     DoFissionAfterSimple  = _DoFissionAfterSimple
     DoProductLoop  = _DoProductLoop
     DoCommuteExpr  = _DoCommuteExpr
-    DoMergeReduce = _DoMergeReduce
+    DoMergeWrites = _DoMergeWrites

@@ -586,7 +586,7 @@ def test_simple_reorder(golden):
     bar = reorder_loops(bar, 'i j')
     assert str(bar) == golden
 
-def test_merge_reduce_all_4_cases(golden):
+def test_merge_writes_all_4_cases(golden):
     @proc
     def bar(x : R[4], y : R[4]):
         for i in seq(0, 10):
@@ -601,13 +601,13 @@ def test_merge_reduce_all_4_cases(golden):
                 tmp[3] += x[3]
                 tmp[3] += y[3]
 
-    bar = merge_reduce(bar, 'tmp[0] = x[0]; tmp[0] = y[0]')
-    bar = merge_reduce(bar, 'tmp[1] = x[1]; tmp[1] += y[1]')
-    bar = merge_reduce(bar, 'tmp[2] += x[2]; tmp[2] = y[2]')
-    bar = merge_reduce(bar, 'tmp[3] += x[3]; tmp[3] += y[3]')
+    bar = merge_writes(bar, 'tmp[0] = x[0]; tmp[0] = y[0]')
+    bar = merge_writes(bar, 'tmp[1] = x[1]; tmp[1] += y[1]')
+    bar = merge_writes(bar, 'tmp[2] += x[2]; tmp[2] = y[2]')
+    bar = merge_writes(bar, 'tmp[3] += x[3]; tmp[3] += y[3]')
     assert str(bar) == golden
 
-def test_merge_reduce_consecutive_reduces(golden):
+def test_merge_writes_consecutively(golden):
     @proc
     def bar(w : R, x : R, y : R, z : R):
         z = w
@@ -615,11 +615,11 @@ def test_merge_reduce_consecutive_reduces(golden):
         z += y
         w = x
 
-    bar = merge_reduce(bar, 'z = w; z += x')
-    bar = merge_reduce(bar, 'z = w + x; z += y')
+    bar = merge_writes(bar, 'z = w; z += x')
+    bar = merge_writes(bar, 'z = w + x; z += y')
     assert str(bar) == golden
 
-def test_merge_reduce_array_indexing(golden):
+def test_merge_writes_array_indexing(golden):
     @proc
     def bar(x : R[3], y : R[3], z : R):
         for i in seq(0, 3):
@@ -629,10 +629,10 @@ def test_merge_reduce_array_indexing(golden):
                     tmp[i+j, j] = x[i]
                     tmp[i+j, j] += y[j]
 
-    bar = merge_reduce(bar, 'tmp[i+j, j] = x[i]; tmp[i+j, j] += y[j]')
+    bar = merge_writes(bar, 'tmp[i+j, j] = x[i]; tmp[i+j, j] += y[j]')
     assert str(bar) == golden
 
-def test_merge_reduce_second_rhs_depends_on_first_lhs(golden):
+def test_merge_writes_second_rhs_depends_on_first_lhs(golden):
     @proc
     def bar(x : R[5], y : R[3]):
         for i in seq(0, 3):
@@ -641,10 +641,10 @@ def test_merge_reduce_second_rhs_depends_on_first_lhs(golden):
                 x[2*i-1] += x[i]
 
     with pytest.raises(SchedulingError,
-                            match='expected the RHS of statement 2 to not depend on the LHS of statement 1'):
-        bar = merge_reduce(bar, 'x[2*i-1] = x[i] + y[i]; x[2*i-1] += x[i]')
+                            match='expected the right hand side of the second statement'):
+        bar = merge_writes(bar, 'x[2*i-1] = x[i] + y[i]; x[2*i-1] += x[i]')
 
-def test_merge_reduce_wrong_type_error(golden):
+def test_merge_writes_wrong_type_error(golden):
     @proc
     def bar(x : R, y : R):
         for i in seq(0, 10):
@@ -654,27 +654,27 @@ def test_merge_reduce_wrong_type_error(golden):
 
     with pytest.raises(ValueError,
                             match='expected two consecutive assign/reduce statements'):
-        bar = merge_reduce(bar, 'y = x; _')
+        bar = merge_writes(bar, 'y = x; _')
 
-def test_merge_reduce_different_lhs_error(golden):
+def test_merge_writes_different_lhs_error(golden):
     @proc
     def bar(x : R, y : R):
         x = y
         y += x
 
-    with pytest.raises(ValueError, match='expected the two statements to have the same lhs'):
-        bar = merge_reduce(bar, 'x = y; y += x')
+    with pytest.raises(ValueError, match='expected the two statements\' left hand sides to have the same name & type'):
+        bar = merge_writes(bar, 'x = y; y += x')
 
-def test_merge_reduce_different_lhs_arrays_error(golden):
+def test_merge_writes_different_lhs_arrays_error(golden):
     @proc
     def bar(x : R[3], y : R):
         x[0] = y
         x[1] += y
 
-    with pytest.raises(SchedulingError, match='expected the LHS indices to be the same.'):
-        bar = merge_reduce(bar, 'x[0] = y; x[1] += y')
+    with pytest.raises(SchedulingError, match='expected the left hand side\'s indices to be the same.'):
+        bar = merge_writes(bar, 'x[0] = y; x[1] += y')
 
-def test_merge_reduce_different_lhs_arrays_error(golden):
+def test_merge_writes_different_lhs_arrays_error(golden):
     @proc
     def bar(x : R[3, 3], y : R):
         z = x[0:2, 0:2]
@@ -682,8 +682,8 @@ def test_merge_reduce_different_lhs_arrays_error(golden):
             z[i, 1] = y
             z[i+1, 1] += y
 
-    with pytest.raises(SchedulingError, match='expected the LHS indices to be the same.'):
-        bar = merge_reduce(bar, 'z[i, 1] = y; z[i+1, 1] += y')
+    with pytest.raises(SchedulingError, match='expected the left hand side\'s indices to be the same.'):
+        bar = merge_writes(bar, 'z[i, 1] = y; z[i+1, 1] += y')
 
 def test_simple_unroll(golden):
     @proc

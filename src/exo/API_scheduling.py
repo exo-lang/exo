@@ -1486,7 +1486,7 @@ def reorder_loops(proc, nested_loops):
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 @sched_op([BlockCursorA(block_size=2)])
-def merge_reduce(proc, block_cursor):
+def merge_writes(proc, block_cursor):
     """
     Merge consecutive assign and reduce statement into a single statement.
     Handles all 4 cases of (assign, reduce) x (reduce, assign).
@@ -1526,14 +1526,12 @@ def merge_reduce(proc, block_cursor):
         raise ValueError(f"expected two consecutive assign/reduce statements, "
                                 f"got {type(stmt1)} and {type(stmt2)} instead.")
     if stmt1.name != stmt2.name or stmt1.type != stmt2.type:
-        raise ValueError("expected the two statements to have the same lhs name & type")
-    if len(stmt1.idx) != len(stmt2.idx):
-        raise ValueError("expected the LHS indices to be the same.")
+        raise ValueError("expected the two statements' left hand sides to have the same name & type")
     if stmt1.rhs.type != stmt2.rhs.type:
-        raise ValueError("expected the two statements to have the same rhs type.")
+        raise ValueError("expected the two statements' right hand sides to have the same type.")
 
     loopir  = proc._loopir_proc
-    loopir  = Schedules.DoMergeReduce(loopir, stmt1, stmt2).result()
+    loopir  = Schedules.DoMergeWrites(loopir, stmt1, stmt2).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 @sched_op([GapCursorA, PosIntA])
