@@ -652,7 +652,7 @@ def test_merge_reduce_wrong_type_error(golden):
             if i > 5:
                 y = x
 
-    with pytest.raises(SchedulingError,
+    with pytest.raises(ValueError,
                             match='expected two consecutive assign/reduce statements'):
         bar = merge_reduce(bar, 'y = x; _')
 
@@ -662,7 +662,7 @@ def test_merge_reduce_different_lhs_error(golden):
         x = y
         y += x
 
-    with pytest.raises(SchedulingError, match='expected the two statements to have the same lhs'):
+    with pytest.raises(ValueError, match='expected the two statements to have the same lhs'):
         bar = merge_reduce(bar, 'x = y; y += x')
 
 def test_merge_reduce_different_lhs_arrays_error(golden):

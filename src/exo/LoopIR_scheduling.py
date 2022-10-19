@@ -196,52 +196,40 @@ class _DoProductLoop(LoopIR_Rewrite):
 
 def get_reads(e):
     etyp = type(e)
-    if etyp is LoopIR.Read:
+    if isinstance(e,LoopIR.Read):
         return sum([get_reads(e) for e in e.idx], [(e.name, e.type)])
-    elif etyp is LoopIR.USub:
+    elif isinstance(e,LoopIR.USub):
         return get_reads(e.arg)
-    elif etyp is LoopIR.BinOp:
+    elif isinstance(e,LoopIR.BinOp):
         return get_reads(e.lhs) + get_reads(e.rhs)
-    elif etyp is LoopIR.BuiltIn:
+    elif isinstance(e,LoopIR.BuiltIn):
         return sum([get_reads(a) for a in e.args], [])
-    # TODO: what about WindowExpr, StrideExpr, ParRange, SeqRange, etc.?
-    else:
+    elif isinstance(e,LoopIR.Const):
         return []
+    else:
+        assert False, "bad case"
 
-# TODO: check for data dependencies on the RHS
 class _DoMergeReduce(LoopIR_Rewrite):
     def __init__(self, proc, stmt1, stmt2):
-        if (isinstance(stmt1, (LoopIR.Assign, LoopIR.Reduce)) and
-                isinstance(stmt2, (LoopIR.Assign, LoopIR.Reduce))):
-            if stmt1.name != stmt2.name:
-                raise SchedulingError("expected the two statements to have the same lhs.")
+        try:
+            for i, j in zip(stmt1.idx, stmt2.idx):
+                Check_ExprEqvInContext(proc, [stmt1, stmt2], i, j)
+        except SchedulingError:
+            raise SchedulingError("expected the LHS indices to be the same.")
 
-            if len(stmt1.idx) != len(stmt2.idx):
-                raise SchedulingError("expected the LHS indices to be the same.")
-            try:
-                for i, j in zip(stmt1.idx, stmt2.idx):
-                    Check_ExprEqvInContext(proc, [stmt1, stmt2], i, j)
-            except SchedulingError:
-                raise SchedulingError("expected the LHS indices to be the same.")
+        if any([stmt1.name == name and stmt1.type == typ for name, typ in get_reads(stmt2.rhs)]):
+            raise SchedulingError("expected the RHS of statement 2 to not depend on the LHS of statement 1.")
 
-            if any([stmt1.name == name and stmt1.type == typ for name, typ in get_reads(stmt2.rhs)]):
-                raise SchedulingError("expected the RHS of statement 2 to not depend on the LHS of statement 1.")
+        self.new_rhs = LoopIR.BinOp("+", stmt1.rhs, stmt2.rhs, stmt1.type, stmt1.srcinfo)
+        self.s1 = stmt1
+        self.s2 = stmt2
 
-            self.new_rhs = LoopIR.BinOp("+", stmt1.rhs, stmt2.rhs,T.i32, stmt1.srcinfo)
-            self.s1 = stmt1
-            self.s2 = stmt2
-            self.s1_type = type(stmt1)
-            self.s2_type = type(stmt2)
+        super().__init__(proc)
 
-            super().__init__(proc)
-
-            self.proc = InferEffects(self.proc).result()
-        else:
-            raise SchedulingError(f"expected two consecutive assign/reduce statements, "
-                                  f"got {type(stmt1)} and {type(stmt2)} instead.")
+        self.proc = InferEffects(self.proc).result()
 
     def map_stmts(self, stmts):
-        if self.s2_type is LoopIR.Assign:
+        if type(self.s2) is LoopIR.Assign:
             for i in range(len(stmts)):
                 if stmts[i] is self.s2:
                     return stmts[:i-1] + stmts[i:]
