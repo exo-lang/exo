@@ -1475,7 +1475,7 @@ class _DoDivideDim(LoopIR_Rewrite):
               and s.name == self.alloc_sym):
             idx = self.remap_idx(self.apply_exprs(s.idx))
             rhs = self.apply_e(s.rhs)
-            return s.update(idx=idx, rhs=rhs, eff=None)
+            return [s.update(idx=idx, rhs=rhs, eff=None)]
 
         return super().map_s(s)
 
@@ -1501,16 +1501,16 @@ class _DoMultiplyDim(LoopIR_Rewrite):
         assert isinstance(hi_idx, int)
         assert isinstance(lo_idx, int)
 
-        self.orig_proc      = proc
-        self.alloc_stmt     = alloc_stmt
-        self.alloc_sym      = alloc_stmt.name
-        self.hi_idx         = hi_idx
-        self.lo_idx         = lo_idx
-        lo_dim              = alloc_stmt.type.shape()[lo_idx]
+        self.orig_proc = proc
+        self.alloc_stmt = alloc_stmt
+        self.alloc_sym = alloc_stmt.name
+        self.hi_idx = hi_idx
+        self.lo_idx = lo_idx
+        lo_dim = alloc_stmt.type.shape()[lo_idx]
         if not isinstance(lo_dim, LoopIR.Const):
             raise SchedulingError(f"Cannot multiply with non-literal second "
                                   f"dimension: {str(lo_dim)}")
-        self.lo_val         = lo_dim.val
+        self.lo_val = lo_dim.val
 
         super().__init__(proc)
 
@@ -1518,11 +1518,11 @@ class _DoMultiplyDim(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def remap_idx(self, idx):
-        hi      = idx[self.hi_idx]
-        lo      = idx[self.lo_idx]
-        mulval  = LoopIR.Const(self.lo_val, T.int, hi.srcinfo)
-        mul_hi  = LoopIR.BinOp('*', mulval, hi, hi.type, hi.srcinfo)
-        prod    = LoopIR.BinOp('+', mul_hi, lo, T.index, hi.srcinfo)
+        hi = idx[self.hi_idx]
+        lo = idx[self.lo_idx]
+        mulval = LoopIR.Const(self.lo_val, T.int, hi.srcinfo)
+        mul_hi = LoopIR.BinOp('*', mulval, hi, hi.type, hi.srcinfo)
+        prod = LoopIR.BinOp('+', mul_hi, lo, T.index, hi.srcinfo)
         idx[self.hi_idx] = prod
         del idx[self.lo_idx]
         return idx
@@ -1530,12 +1530,12 @@ class _DoMultiplyDim(LoopIR_Rewrite):
     def map_s(self, s):
         if s is self.alloc_stmt:
             old_typ = s.type
-            shp     = old_typ.shape().copy()
+            shp = old_typ.shape().copy()
 
-            hi_dim  = shp[self.hi_idx]
-            lo_dim  = shp[self.lo_idx]
-            prod    = LoopIR.BinOp('*', lo_dim, hi_dim,
-                                   hi_dim.type, hi_dim.srcinfo)
+            hi_dim = shp[self.hi_idx]
+            lo_dim = shp[self.lo_idx]
+            prod = LoopIR.BinOp('*', lo_dim, hi_dim,
+                                hi_dim.type, hi_dim.srcinfo)
             shp[self.hi_idx] = prod
             del shp[self.lo_idx]
 
@@ -1544,22 +1544,23 @@ class _DoMultiplyDim(LoopIR_Rewrite):
             return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
 
         elif (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
-                and s.name == self.alloc_sym):
-            idx = self.remap_idx([ self.map_e(i) for i in s.idx ])
-            rhs = self.map_e(s.rhs)
-            return [type(s)( s.name, s.type, s.cast,
-                             idx, rhs, None, s.srcinfo )]
+              and s.name == self.alloc_sym):
+            return [s.update(
+                idx=self.remap_idx(self.apply_exprs(s.idx)),
+                rhs=self.apply_e(s.rhs),
+                eff=None
+            )]
 
         return super().map_s(s)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            if len(e.idx) == 0:
-                raise SchedulingError(f"Cannot multiply {self.alloc_sym} "
-                                      f"because buffer is passed as "
-                                      f"an argument")
-            idx = self.remap_idx([ self.map_e(i) for i in e.idx ])
-            return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
+            if not e.idx:
+                raise SchedulingError(
+                    f"Cannot multiply {self.alloc_sym} because "
+                    f"buffer is passed as an argument"
+                )
+            return e.update(idx=self.remap_idx(self.apply_exprs(e.idx)))
 
         elif isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
             raise SchedulingError(f"Cannot multiply {self.alloc_sym} because "
