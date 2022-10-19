@@ -1151,14 +1151,17 @@ class SubstArgs(LoopIR_Rewrite):
         return self.nodes
 
     def map_s(self, s):
+        s2 = super().map_s(s)
+        s_new = s2[0] if s2 is not None else s
+
         # this substitution could refer to a read or a window expression
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name in self.env:
                 sym = self.env[s.name]
                 assert isinstance(sym, LoopIR.Read) and len(sym.idx) == 0
-                return self.apply_s(s).update(name=sym.name)
+                return [s_new.update(name=sym.name)]
 
-        return super().map_s(s)
+        return s2
 
     def map_e(self, e):
         # this substitution could refer to a read or a window expression
