@@ -1360,23 +1360,25 @@ class _DoExpandDim(LoopIR_Rewrite):
 
         if (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
                 and s.name == self.alloc_sym):
-            idx = [self.indexing] + [ self.map_e(i) for i in s.idx ]
-            rhs = self.map_e(s.rhs)
-            return [type(s)( s.name, s.type, s.cast,
-                             idx, rhs, None, s.srcinfo )]
+            idx = [self.indexing] + self.apply_exprs(s.idx)
+            rhs = self.apply_e(s.rhs)
+            return [s.update(idx=idx, rhs=rhs, eff=None)]
 
         return super().map_s(s)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            idx = [self.indexing] + [ self.map_e(i) for i in e.idx ]
-            return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
+            return e.update(
+                idx=[self.indexing] + self.apply_exprs(e.idx)
+            )
 
         if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
-            idx = ([ LoopIR.Point(self.indexing, e.srcinfo) ] +
-                   [ self.map_w_access(w) for w in e.idx ])
-            win_typ = T.Window(self.alloc_type, e.type.as_tensor, e.name, idx)
-            return LoopIR.WindowExpr(e.name, idx, win_typ, e.srcinfo)
+            w_idx = self._map_list(self.map_w_access, e.idx) or e.idx
+            idx = [LoopIR.Point(self.indexing, e.srcinfo)] + w_idx
+            return e.update(
+                idx=idx,
+                type=T.Window(self.alloc_type, e.type.as_tensor, e.name, idx)
+            )
 
         # fall-through
         return super().map_e(e)
@@ -2100,23 +2102,23 @@ class _DoRemoveLoop(LoopIR_Rewrite):
             # Check if we can remove the loop
             # Conditions are:
             # 1. Body does not depend on the loop iteration variable
-            # 2. Body is idemopotent
+            # 2. Body is idempotent
             # 3. The loop runs at least once
             # TODO: (3) could be checked statically using something similar to the legacy is_pos_int.
 
             if s.iter not in _FV(s.body):
                 if _is_idempotent(s.body):
-                    cond  = LoopIR.BinOp('>', s.hi, LoopIR.Const(0, T.int, s.srcinfo),
-                                         T.bool, s.srcinfo)
-                    guard = LoopIR.If(cond, self.map_stmts(s.body), [], None, s.srcinfo)
+                    zero = LoopIR.Const(0, T.int, s.srcinfo)
+                    cond = LoopIR.BinOp('>', s.hi, zero, T.bool, s.srcinfo)
+                    body = self.apply_stmts(s.body)
+                    guard = LoopIR.If(cond, body, [], None, s.srcinfo)
                     # remove loop and alpha rename
-                    new_body = Alpha_Rename([guard]).result()
-                    return new_body
+                    return Alpha_Rename([guard]).result()
                 else:
-                    raise SchedulingError("Cannot remove loop, loop body is "+
+                    raise SchedulingError("Cannot remove loop, loop body is "
                                           "not idempotent")
             else:
-                raise SchedulingError("Cannot remove loop, {s.iter} is not "+
+                raise SchedulingError(f"Cannot remove loop, {s.iter} is not "
                                       "free in the loop body.")
 
         return super().map_s(s)

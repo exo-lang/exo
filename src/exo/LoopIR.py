@@ -483,6 +483,48 @@ class LoopIR_Rewrite:
     def result(self):
         return self.proc
 
+    def apply_proc(self, old):
+        return self.map_proc(old) or old
+
+    def apply_fnarg(self, old):
+        return self.map_fnarg(old) or old
+
+    def apply_stmts(self, old):
+        if (new := self.map_stmts(old)) is not None:
+            return new
+        return old
+
+    def apply_exprs(self, old):
+        if (new := self.map_exprs(old)) is not None:
+            return new
+        return old
+
+    def apply_s(self, old):
+        if (new := self.map_s(old)) is not None:
+            return new
+        return old
+
+    def apply_e(self, old):
+        return self.map_e(old) or old
+
+    def apply_w_access(self, old):
+        return self.map_w_access(old) or old
+
+    def apply_t(self, old):
+        return self.map_t(old) or old
+
+    def apply_eff(self, old):
+        return self.map_eff(old) or old
+
+    def apply_eff_es(self, old):
+        return self.map_eff_es(old) or old
+
+    def apply_eff_ce(self, old):
+        return self.map_eff_ce(old) or old
+
+    def apply_eff_e(self, old):
+        return self.map_eff_e(old) or old
+
     def map_proc(self, p):
         new_args = self._map_list(self.map_fnarg, p.args)
         new_preds = self.map_exprs(p.preds)
@@ -506,28 +548,8 @@ class LoopIR_Rewrite:
     def map_fnarg(self, a):
         if t := self.map_t(a.type):
             return a.update(type=t)
-        else:
-            return a
 
-    def _map_list(self, fn, nodes):
-        new_stmts = []
-        needs_update = False
-
-        for s in nodes:
-            s2 = fn(s)
-            if s2 is None:
-                new_stmts.append(s)
-            else:
-                needs_update = True
-                if isinstance(s2, list):
-                    new_stmts.extend(s2)
-                else:
-                    new_stmts.append(s2)
-
-        if not needs_update:
-            return None
-
-        return new_stmts
+        return None
 
     def map_stmts(self, stmts):
         return self._map_list(self.map_s, stmts)
@@ -688,27 +710,25 @@ class LoopIR_Rewrite:
         return None
 
     def map_eff(self, eff):
-        if eff is None:
-            return eff
+        if eff is not None:
+            new_reads = self._map_list(self.map_eff_es, eff.reads)
+            new_writes = self._map_list(self.map_eff_es, eff.writes)
+            new_reduces = self._map_list(self.map_eff_es, eff.reduces)
+            new_config_reads = self._map_list(self.map_eff_ce, eff.config_reads)
+            new_config_writes = self._map_list(self.map_eff_ce, eff.config_writes)
 
-        new_reads = self._map_list(self.map_eff_es, eff.reads)
-        new_writes = self._map_list(self.map_eff_es, eff.writes)
-        new_reduces = self._map_list(self.map_eff_es, eff.reduces)
-        new_config_reads = self._map_list(self.map_eff_ce, eff.config_reads)
-        new_config_writes = self._map_list(self.map_eff_ce, eff.config_writes)
-
-        if any((new_reads is not None,
-                new_writes is not None,
-                new_reduces is not None,
-                new_config_reads is not None,
-                new_config_writes is not None)):
-            return eff.update(
-                reads=new_reads or eff.reads,
-                writes=new_writes or eff.writes,
-                reduces=new_reduces or eff.reduces,
-                config_reads=new_config_reads or eff.config_reads,
-                config_writes=new_config_writes or eff.config_writes,
-            )
+            if any((new_reads is not None,
+                    new_writes is not None,
+                    new_reduces is not None,
+                    new_config_reads is not None,
+                    new_config_writes is not None)):
+                return eff.update(
+                    reads=new_reads or eff.reads,
+                    writes=new_writes or eff.writes,
+                    reduces=new_reduces or eff.reduces,
+                    config_reads=new_config_reads or eff.config_reads,
+                    config_writes=new_config_writes or eff.config_writes,
+                )
 
         return None
 
@@ -733,6 +753,8 @@ class LoopIR_Rewrite:
                 pred=new_pred or ce.pred,
             )
 
+        return None
+
     def map_eff_e(self, e):
         if isinstance(e, Effects.BinOp):
             new_lhs = self.map_eff_e(e.lhs)
@@ -744,6 +766,27 @@ class LoopIR_Rewrite:
                 )
 
         return None
+
+    @staticmethod
+    def _map_list(fn, nodes):
+        new_stmts = []
+        needs_update = False
+
+        for s in nodes:
+            s2 = fn(s)
+            if s2 is None:
+                new_stmts.append(s)
+            else:
+                needs_update = True
+                if isinstance(s2, list):
+                    new_stmts.extend(s2)
+                else:
+                    new_stmts.append(s2)
+
+        if not needs_update:
+            return None
+
+        return new_stmts
 
 
 class LoopIR_Do:
