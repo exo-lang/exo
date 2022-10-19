@@ -1265,6 +1265,7 @@ class _DoLiftIf(LoopIR_Rewrite):
         self.loop_deps = vars_in_expr(if_stmt.cond)
 
         self.n_lifts = n_lifts
+        self.bubbling = False
 
         super().__init__(proc)
 
@@ -1285,6 +1286,7 @@ class _DoLiftIf(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.target:
+            self.bubbling = True
             # Matching happens above this, no changes possible
             return None
 
@@ -1318,6 +1320,7 @@ class _DoLiftIf(LoopIR_Rewrite):
                     if_bc = [s.update(body=stmt_b, orelse=stmt_c)]
                 else:
                     if_bc = []
+
                 new_if = self.target.update(body=if_ac, orelse=if_bc)
                 return self.resolve_lift(new_if)
 
@@ -1349,12 +1352,18 @@ class _DoLiftIf(LoopIR_Rewrite):
                 #                        for OUTER in _: B
                 stmt_a = self.target.body
                 stmt_b = self.target.orelse
+
                 for_a = [s.update(body=stmt_a)]
                 for_b = [s.update(body=stmt_b)] if stmt_b else []
+
                 new_if = self.target.update(body=for_a, orelse=for_b)
                 return self.resolve_lift(new_if)
 
-        assert False, "Not reachable"
+        if self.bubbling:
+            raise SchedulingError(
+                'expected if statement to be directly nested in parents')
+
+        return s2
 
     def map_e(self, e):
         return None
