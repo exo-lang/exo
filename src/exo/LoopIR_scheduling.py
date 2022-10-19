@@ -617,27 +617,17 @@ class _PartialEval(LoopIR_Rewrite):
         # Validate env:
         for k, v in self.env.items():
             if not arg_types[k].is_indexable() and not arg_types[k].is_bool():
-                raise SchedulingError("cannot partially evaluate "
-                                      "numeric (non-index, non-bool) arguments")
+                raise SchedulingError(
+                    "cannot partially evaluate numeric (non-index, non-bool) arguments")
             if not isinstance(v, int):
-                raise SchedulingError("cannot partially evaluate "
-                                      "to a non-int, non-bool value")
+                raise SchedulingError(
+                    "cannot partially evaluate to a non-int, non-bool value")
 
-        self.orig_proc = proc
-
-        args = [self.map_fnarg(a) for a in proc.args
-                if a.name not in self.env]
-        preds = [self.map_e(p) for p in self.orig_proc.preds]
-        body = self.map_stmts(self.orig_proc.body)
-        eff = self.map_eff(self.orig_proc.eff)
-
-        self.proc = LoopIR.proc(name=self.orig_proc.name,
-                                args=args,
-                                preds=preds,
-                                body=body,
-                                instr=None,
-                                eff=eff,
-                                srcinfo=self.orig_proc.srcinfo)
+        super().__init__(proc)
+        self.proc = self.proc.update(
+            args=[a for a in self.proc.args
+                  if a.name not in arg_vals]
+        )
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):

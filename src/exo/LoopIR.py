@@ -515,7 +515,7 @@ def lift_to_eff_expr(e):
 class LoopIR_Rewrite:
     def __init__(self, proc):
         self.orig_proc = proc
-        self.proc = self.map_proc(proc)
+        self.proc = self.apply_proc(proc)
 
     def result(self):
         return self.proc
