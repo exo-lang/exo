@@ -676,7 +676,7 @@ class _SetTypAndMem(LoopIR_Rewrite):
             return True
         else:
             self.n_match = self.n_match - 1
-            return (self.n_match == 0)
+            return self.n_match == 0
 
     def early_exit(self):
         return self.n_match is not None and self.n_match <= 0
@@ -1269,93 +1269,95 @@ class _DoLiftIf(LoopIR_Rewrite):
         super().__init__(proc)
 
         if self.n_lifts:
-            raise SchedulingError(f'Could not lift if statement all the way! '
-                                  f'{self.n_lifts} lift(s) remain!',
-                                  orig=self.orig_proc,
-                                  proc=self.proc)
+            raise SchedulingError(
+                f'Could not fully lift if statement! {self.n_lifts} lift(s) remain!',
+                orig=self.orig_proc,
+                proc=self.proc
+            )
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
 
-    def upd_if(self, if_s, body, orelse):
-        if not body and not orelse:
-            return []
-        cond = self.map_e(if_s.cond)
-        body = body or [LoopIR.Pass(None, if_s.srcinfo)]
-        return [LoopIR.If(cond, body, orelse, None, if_s.srcinfo)]
-
-    def upd_loop(self, s, body):
-        if not body:
-            return []
-        ctor = type(s)
-        return [ctor(s.iter, self.map_e(s.hi), body, None, s.srcinfo)]
-
     def resolve_lift(self, new_if):
-        assert new_if, 'if statement was deleted during lifting'
-        self.target = new_if[0]
+        self.target = new_if
         self.n_lifts -= 1
-        return new_if
+        return [new_if]
 
     def map_s(self, s):
         if s is self.target:
-            return [s]
+            # Matching happens above this, no changes possible
+            return None
 
-        if isinstance(s, LoopIR.If):
-            body = self.map_stmts(s.body)
-            orelse = self.map_stmts(s.orelse)
+        if not isinstance(s, (LoopIR.If, LoopIR.Seq)):
+            # Only ifs and loops can be interchanged
+            return None
 
-            if self.target in body and self.n_lifts:
-                if len(body) != 1:
-                    raise SchedulingError('expected if statement to be '
-                                          'directly nested in parents')
-                inner_if = body[0]
-                new_if = self.upd_if(
-                    inner_if,
-                    self.upd_if(s, inner_if.body, orelse),
-                    self.upd_if(s, inner_if.orelse, self.map_stmts(orelse))
-                )
+        s2 = super().map_s(s)
 
+        if self.n_lifts <= 0:
+            # No lifts left, bubble up
+            return s2
+
+        outer = s2[0] if s2 else s
+
+        if isinstance(outer, LoopIR.If):
+            if len(outer.body) == 1 and outer.body[0] is self.target:
+                #                    if INNER:
+                # if OUTER:            if OUTER: A
+                #   if INNER: A        else:     C
+                #   else:     B  ~>  else:
+                # else: C              if OUTER: B
+                #                      else:     C
+                stmt_a = self.target.body
+                stmt_b = self.target.orelse
+                stmt_c = outer.orelse
+
+                if_ac = [s.update(body=stmt_a, orelse=stmt_c)]
+                if stmt_b or stmt_c:
+                    stmt_b = stmt_b or [LoopIR.Pass(None, self.target.srcinfo)]
+                    if_bc = [s.update(body=stmt_b, orelse=stmt_c)]
+                else:
+                    if_bc = []
+                new_if = self.target.update(body=if_ac, orelse=if_bc)
                 return self.resolve_lift(new_if)
 
-            if self.target in orelse and self.n_lifts:
-                if len(orelse) != 1:
-                    raise SchedulingError('expected if statement to be '
-                                          'directly nested in parents')
-                inner_if = orelse[0]
-                new_if = self.upd_if(
-                    inner_if,
-                    self.upd_if(s, body, inner_if.body),
-                    self.upd_if(s, self.map_stmts(body), inner_if.orelse)
-                )
+            if len(outer.orelse) == 1 and outer.orelse[0] is self.target:
+                #                    if INNER:
+                # if OUTER: A          if OUTER: A
+                # else:                else:     B
+                #   if INNER: B  ~>  else:
+                #   else: C            if OUTER: A
+                #                      else:     C
+                stmt_a = outer.body
+                stmt_b = self.target.body
+                stmt_c = self.target.orelse
 
+                if_ab = [s.update(body=stmt_a, orelse=stmt_b)]
+                if_ac = [s.update(body=stmt_a, orelse=stmt_c)]
+
+                new_if = self.target.update(body=if_ab, orelse=if_ac)
                 return self.resolve_lift(new_if)
 
-            return self.upd_if(s, body, orelse)
-
-        elif isinstance(s, LoopIR.Seq):
-            body = super().map_stmts(s.body)
-
-            if self.target in body and self.n_lifts:
-                if len(body) != 1:
-                    raise SchedulingError('expected if statement to be '
-                                          'directly nested in parents')
+        if isinstance(s, LoopIR.Seq):
+            if len(outer.body) == 1 and outer.body[0] is self.target:
                 if s.iter in self.loop_deps:
-                    raise SchedulingError(
-                        'if statement depends on iteration variable')
+                    raise SchedulingError('if statement depends on iteration variable')
 
-                inner_if = body[0]
-                new_if = self.upd_if(
-                    inner_if,
-                    self.upd_loop(s, inner_if.body),
-                    self.upd_loop(s, inner_if.orelse)
-                )
-
+                # for OUTER in _:      if INNER:
+                #   if INNER: A    ~>    for OUTER in _: A
+                #   else:     B        else:
+                #                        for OUTER in _: B
+                stmt_a = self.target.body
+                stmt_b = self.target.orelse
+                for_a = [s.update(body=stmt_a)]
+                for_b = [s.update(body=stmt_b)] if stmt_b else []
+                new_if = self.target.update(body=for_a, orelse=for_b)
                 return self.resolve_lift(new_if)
 
-            return self.upd_loop(s, body)
+        assert False, "Not reachable"
 
-        else:
-            return super().map_s(s)
+    def map_e(self, e):
+        return None
 
 
 class _DoExpandDim(LoopIR_Rewrite):
@@ -2031,15 +2033,15 @@ class _DoDoubleFission:
             mid_stmts += mid
             post_stmts += post
 
-        return (pre_stmts, mid_stmts, post_stmts)
+        return pre_stmts, mid_stmts, post_stmts
 
     def map_s(self, s):
         if s is self.tgt_stmt1:
             self.hit_fission1 = True
-            return ([s], [], [])
+            return [s], [], []
         elif s is self.tgt_stmt2:
             self.hit_fission2 = True
-            return ([], [s], [])
+            return [], [s], []
 
         elif isinstance(s, LoopIR.If):
 
@@ -2054,7 +2056,7 @@ class _DoDoubleFission:
                 pre = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
                 mid = LoopIR.If(s.cond, mid, s.orelse, None, s.srcinfo)
                 post = LoopIR.If(s.cond, post, [], None, s.srcinfo)
-                return ([pre], [mid], [post])
+                return [pre], [mid], [post]
 
             body = pre + mid + post
 
@@ -2069,7 +2071,7 @@ class _DoDoubleFission:
                 pre = LoopIR.If(s.cond, [], pre, None, s.srcinfo)
                 mid = LoopIR.If(s.cond, body, mid, None, s.srcinfo)
                 post = LoopIR.If(s.cond, [], post, None, s.srcinfo)
-                return ([pre], [mid], [post])
+                return [pre], [mid], [post]
 
             orelse = pre + mid + post
 
@@ -2102,7 +2104,7 @@ class _DoDoubleFission:
                     post = [s.update(body=post, eff=None)]
                     post = Alpha_Rename(post).result()
 
-                return (pre, mid, post)
+                return pre, mid, post
 
             single_stmt = s.update(body=pre + mid + post, eff=None)
 
@@ -2112,11 +2114,11 @@ class _DoDoubleFission:
             single_stmt = s
 
         if self.hit_fission1 and not self.hit_fission2:
-            return ([], [single_stmt], [])
+            return [], [single_stmt], []
         elif self.hit_fission2:
-            return ([], [], [single_stmt])
+            return [], [], [single_stmt]
         else:
-            return ([single_stmt], [], [])
+            return [single_stmt], [], []
 
 
 class _DoRemoveLoop(LoopIR_Rewrite):
@@ -2197,7 +2199,7 @@ class _DoFissionAfterSimple:
             pre_stmts += pre
             post_stmts += post
 
-        return (pre_stmts, post_stmts)
+        return pre_stmts, post_stmts
 
     # see map_stmts comment
     def map_s(self, s):
@@ -2206,7 +2208,7 @@ class _DoFissionAfterSimple:
             self.hit_fission = True
             # none-the-less make sure we return this statement in
             # the pre-fission position
-            return ([s], [])
+            return [s], []
 
         elif isinstance(s, LoopIR.If):
 
@@ -2217,7 +2219,7 @@ class _DoFissionAfterSimple:
                 self.alloc_check(pre, post)
                 pre = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
                 post = LoopIR.If(s.cond, post, s.orelse, None, s.srcinfo)
-                return ([pre], [post])
+                return [pre], [post]
 
             body = pre + post
 
@@ -2229,7 +2231,7 @@ class _DoFissionAfterSimple:
                 pre = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
                 post = LoopIR.If(s.cond, [LoopIR.Pass(None, s.srcinfo)],
                                  post, None, s.srcinfo)
-                return ([pre], [post])
+                return [pre], [post]
 
             orelse = pre + post
 
@@ -2253,7 +2255,7 @@ class _DoFissionAfterSimple:
                 post = [styp(s.iter, s.hi, post, None, s.srcinfo)]
                 post = Alpha_Rename(post).result()
 
-                return (pre, post)
+                return pre, post
 
             # if we didn't split, then compose pre and post of the body
             single_stmt = styp(s.iter, s.hi, pre + post, None, s.srcinfo)
@@ -2264,9 +2266,9 @@ class _DoFissionAfterSimple:
             single_stmt = s
 
         if self.hit_fission:
-            return ([], [single_stmt])
+            return [], [single_stmt]
         else:
-            return ([single_stmt], [])
+            return [single_stmt], []
 
 
 # structure is weird enough to skip using the Rewrite-pass super-class
@@ -2310,7 +2312,7 @@ class _FissionLoops:
             pre_stmts += pre
             post_stmts += post
 
-        return (pre_stmts, post_stmts)
+        return pre_stmts, post_stmts
 
     # see map_stmts comment
     def map_s(self, s):
@@ -2319,7 +2321,7 @@ class _FissionLoops:
             self.hit_fission = True
             # none-the-less make sure we return this statement in
             # the pre-fission position
-            return ([s], [])
+            return [s], []
 
         elif isinstance(s, LoopIR.If):
 
@@ -2331,7 +2333,7 @@ class _FissionLoops:
                 self.alloc_check(pre, post)
                 pre = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
                 post = LoopIR.If(s.cond, post, s.orelse, None, s.srcinfo)
-                return ([pre], [post])
+                return [pre], [post]
 
             body = pre + post
 
@@ -2345,7 +2347,7 @@ class _FissionLoops:
                 pre = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
                 post = LoopIR.If(s.cond, [LoopIR.Pass(None, s.srcinfo)],
                                  post, None, s.srcinfo)
-                return ([pre], [post])
+                return [pre], [post]
 
             orelse = pre + post
 
@@ -2374,7 +2376,7 @@ class _FissionLoops:
                 if s.iter in _FV(post) or not _is_idempotent(post):
                     post = [s.update(body=post, eff=None)]
 
-                return (pre, post)
+                return pre, post
 
             # if we didn't split, then compose pre and post of the body
             single_stmt = s.update(body=pre + post, eff=None)
@@ -2385,9 +2387,9 @@ class _FissionLoops:
             single_stmt = s
 
         if self.hit_fission:
-            return ([], [single_stmt])
+            return [], [single_stmt]
         else:
-            return ([single_stmt], [])
+            return [single_stmt], []
 
 
 class _DoAddUnsafeGuard(LoopIR_Rewrite):
@@ -2577,7 +2579,7 @@ class _DoFuseLoop(LoopIR_Rewrite):
                 loop = type(loop1)(x, hi, body1 + body2, None, loop1.srcinfo)
                 self.modified_stmts = (loop, body1, body2)
 
-                return (stmts[:i] + [loop] + stmts[i + 2:])
+                return stmts[:i] + [loop] + stmts[i + 2:]
 
         # if we reached this point, we didn't find the loop
         return super().map_stmts(stmts)
@@ -3373,7 +3375,7 @@ class _DoStageMem(LoopIR_Rewrite):
                             block = self.wrap_block(block)
                             self.new_block = block
 
-                            return (pre + block + post)
+                            return pre + block + post
 
         # fall through
         return super().map_stmts(stmts)
@@ -3455,7 +3457,7 @@ class _DoStageMem(LoopIR_Rewrite):
         block = self.map_stmts(block)
         self.in_block = False
 
-        return (new_alloc + load_nest + block + store_nest)
+        return new_alloc + load_nest + block + store_nest
 
     def map_s(self, s):
         new_s = super().map_s(s)

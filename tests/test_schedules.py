@@ -923,8 +923,7 @@ def test_lift_if_second_statement_in_then_error():
                     x[i] = 2.0
 
     with pytest.raises(SchedulingError,
-                       match='expected if statement to be directly nested in '
-                             'parents'):
+                       match='expected if statement to be directly nested in parents'):
         foo = lift_if(foo, 'if i < 10: _')
         print(foo)
 
@@ -941,8 +940,7 @@ def test_lift_if_second_statement_in_else_error():
                     x[i] = 2.0
 
     with pytest.raises(SchedulingError,
-                       match='expected if statement to be directly nested in '
-                             'parents'):
+                       match='expected if statement to be directly nested in parents'):
         foo = lift_if(foo, 'if i < 10: _')
         print(foo)
 
@@ -956,8 +954,7 @@ def test_lift_if_second_statement_in_for_error():
                 pass
 
     with pytest.raises(SchedulingError,
-                       match='expected if statement to be directly nested in '
-                             'parents'):
+                       match='expected if statement to be directly nested in parents'):
         foo = lift_if(foo, 'if m > 12: _')
         print(foo)
 
