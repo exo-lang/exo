@@ -1430,11 +1430,11 @@ class _DoDivideDim(LoopIR_Rewrite):
         assert isinstance(dim_idx, int)
         assert isinstance(quotient, int)
 
-        self.orig_proc      = proc
-        self.alloc_stmt     = alloc_stmt
-        self.alloc_sym      = alloc_stmt.name
-        self.dim_idx        = dim_idx
-        self.quotient       = quotient
+        self.orig_proc = proc
+        self.alloc_stmt = alloc_stmt
+        self.alloc_sym = alloc_stmt.name
+        self.dim_idx = dim_idx
+        self.quotient = quotient
 
         super().__init__(proc)
 
@@ -1442,20 +1442,18 @@ class _DoDivideDim(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def remap_idx(self, idx):
-        orig_i  = idx[self.dim_idx]
+        orig_i = idx[self.dim_idx]
         srcinfo = orig_i.srcinfo
-        quot    = LoopIR.Const(self.quotient, T.int, srcinfo)
-        hi      = LoopIR.BinOp('/', orig_i, quot, orig_i.type, srcinfo)
-        lo      = LoopIR.BinOp('%', orig_i, quot, orig_i.type, srcinfo)
-        return (idx[:self.dim_idx] +
-                [hi, lo] +
-                idx[self.dim_idx+1:])
+        quot = LoopIR.Const(self.quotient, T.int, srcinfo)
+        hi = LoopIR.BinOp('/', orig_i, quot, orig_i.type, srcinfo)
+        lo = LoopIR.BinOp('%', orig_i, quot, orig_i.type, srcinfo)
+        return idx[:self.dim_idx] + [hi, lo] + idx[self.dim_idx + 1:]
 
     def map_s(self, s):
         if s is self.alloc_stmt:
             old_typ = s.type
             old_shp = old_typ.shape()
-            dim     = old_shp[self.dim_idx]
+            dim = old_shp[self.dim_idx]
 
             if not isinstance(dim, LoopIR.Const):
                 raise SchedulingError(f"Cannot divide non-literal dimension: "
@@ -1463,34 +1461,32 @@ class _DoDivideDim(LoopIR_Rewrite):
             if not dim.val % self.quotient == 0:
                 raise SchedulingError(f"Cannot divide {dim.val} evenly by "
                                       f"{self.quotient}")
-            denom   = self.quotient
-            numer   = dim.val // denom
+            denom = self.quotient
+            numer = dim.val // denom
             new_shp = (old_shp[:self.dim_idx] +
                        [LoopIR.Const(numer, T.int, dim.srcinfo),
                         LoopIR.Const(denom, T.int, dim.srcinfo)] +
-                       old_shp[self.dim_idx+1:])
+                       old_shp[self.dim_idx + 1:])
             new_typ = T.Tensor(new_shp, False, old_typ.basetype())
 
             return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
 
         elif (isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
-                and s.name == self.alloc_sym):
-            idx = self.remap_idx([ self.map_e(i) for i in s.idx ])
-            rhs = self.map_e(s.rhs)
-            return [type(s)( s.name, s.type, s.cast,
-                             idx, rhs, None, s.srcinfo )]
+              and s.name == self.alloc_sym):
+            idx = self.remap_idx(self.apply_exprs(s.idx))
+            rhs = self.apply_e(s.rhs)
+            return s.update(idx=idx, rhs=rhs, eff=None)
 
         return super().map_s(s)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            if len(e.idx) == 0:
-                raise SchedulingError(f"Cannot divide {self.alloc_sym} "
-                                      f"because buffer is passed as "
-                                      f"an argument")
-            idx = self.remap_idx([ self.map_e(i) for i in e.idx ])
-            return LoopIR.Read(e.name, idx, e.type, e.srcinfo)
-
+            if not e.idx:
+                raise SchedulingError(
+                    f"Cannot divide {self.alloc_sym} because "
+                    f"buffer is passed as an argument"
+                )
+            return e.update(idx=self.remap_idx(self.apply_exprs(e.idx)))
         elif isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
             raise SchedulingError(f"Cannot divide {self.alloc_sym} because "
                                   f"the buffer is windowed later on")
