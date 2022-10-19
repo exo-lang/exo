@@ -464,7 +464,6 @@ def basetype(t):
 
 del basetype
 
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
@@ -472,7 +471,9 @@ del basetype
 # This must be imported after those objects are defined to
 # prevent circular inclusion problems
 # TODO: FIX THIS!!!
+# noinspection PyUnresolvedReferences
 from . import LoopIR_pprint
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -482,26 +483,28 @@ def lift_to_eff_expr(e):
     if isinstance(e, LoopIR.Read):
         assert len(e.idx) == 0
         return Effects.Var(e.name, e.type, e.srcinfo)
+
     elif isinstance(e, LoopIR.Const):
         return Effects.Const(e.val, e.type, e.srcinfo)
+
     elif isinstance(e, LoopIR.BinOp):
-        return Effects.BinOp(e.op,
-                             lift_to_eff_expr(e.lhs),
-                             lift_to_eff_expr(e.rhs),
-                             e.type, e.srcinfo)
+        lhs = lift_to_eff_expr(e.lhs)
+        rhs = lift_to_eff_expr(e.rhs)
+        return Effects.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
+
     elif isinstance(e, LoopIR.USub):
-        return Effects.BinOp('-',
-                             Effects.Const(0, e.type, e.srcinfo),
-                             lift_to_eff_expr(e.arg),
-                             e.type, e.srcinfo)
+        zero = Effects.Const(0, e.type, e.srcinfo)
+        arg = lift_to_eff_expr(e.arg)
+        return Effects.BinOp('-', zero, arg, e.type, e.srcinfo)
+
     elif isinstance(e, LoopIR.StrideExpr):
         return Effects.Stride(e.name, e.dim, e.type, e.srcinfo)
-    elif isinstance(e, LoopIR.ReadConfig):
-        return Effects.ConfigField(e.config, e.field,
-                                   e.config.lookup(e.field)[1], e.srcinfo)
 
-    else:
-        assert False, "bad case, e is " + str(type(e))
+    elif isinstance(e, LoopIR.ReadConfig):
+        cfg_val = e.config.lookup(e.field)[1]
+        return Effects.ConfigField(e.config, e.field, cfg_val, e.srcinfo)
+
+    assert False, f"bad case, e is {type(e)}"
 
 
 # --------------------------------------------------------------------------- #
@@ -536,7 +539,7 @@ class LoopIR_Rewrite:
     def apply_s(self, old):
         if (new := self.map_s(old)) is not None:
             return new
-        return old
+        return [old]
 
     def apply_e(self, old):
         return self.map_e(old) or old
@@ -1138,9 +1141,9 @@ class SubstArgs(LoopIR_Rewrite):
         self.nodes = []
         for n in nodes:
             if isinstance(n, LoopIR.stmt):
-                self.nodes += self.map_s(n)
+                self.nodes += self.apply_s(n)
             elif isinstance(n, LoopIR.expr):
-                self.nodes += [self.map_e(n)]
+                self.nodes += [self.apply_e(n)]
             else:
                 assert False, "expected stmt or expr"
 
@@ -1149,14 +1152,11 @@ class SubstArgs(LoopIR_Rewrite):
 
     def map_s(self, s):
         # this substitution could refer to a read or a window expression
-        styp = type(s)
-        if styp is LoopIR.Assign or styp is LoopIR.Reduce:
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name in self.env:
-                e = self.env[s.name]
-                assert isinstance(e, LoopIR.Read) and len(e.idx) == 0
-                return [styp(e.name, self.map_t(s.type), s.cast,
-                             [self.map_e(a) for a in s.idx],
-                             self.map_e(s.rhs), s.eff, s.srcinfo)]
+                sym = self.env[s.name]
+                assert isinstance(sym, LoopIR.Read) and len(sym.idx) == 0
+                return self.apply_s(s).update(name=sym.name)
 
         return super().map_s(s)
 
@@ -1164,64 +1164,54 @@ class SubstArgs(LoopIR_Rewrite):
         # this substitution could refer to a read or a window expression
         if isinstance(e, LoopIR.Read):
             if e.name in self.env:
-                if len(e.idx) == 0:
-                    return self.env[e.name]
-                else:
-                    sub_e = self.env[e.name]
-                    assert (isinstance(sub_e, LoopIR.Read) and
-                            len(sub_e.idx) == 0)
-                    return LoopIR.Read(sub_e.name,
-                                       [self.map_e(a) for a in e.idx],
-                                       e.type, e.srcinfo)
+                sub_e = self.env[e.name]
+
+                if not e.idx:
+                    return sub_e
+
+                assert isinstance(sub_e, LoopIR.Read) and len(sub_e.idx) == 0
+                return e.update(name=sub_e.name, idx=self.apply_exprs(e.idx))
+
         elif isinstance(e, LoopIR.WindowExpr):
             if e.name in self.env:
-                if len(e.idx) == 0:
-                    return self.env[e.name]
-                else:
-                    sub_e = self.env[e.name]
-                    assert (isinstance(sub_e, LoopIR.Read) and len(sub_e.idx) == 0)
-                    return LoopIR.WindowExpr(sub_e.name,
-                                             [self.map_w_access(a) for a in e.idx],
-                                             self.map_t(e.type), e.srcinfo)
+                sub_e = self.env[e.name]
+
+                if not e.idx:
+                    return sub_e
+
+                assert isinstance(sub_e, LoopIR.Read) and len(sub_e.idx) == 0
+                return (super().map_e(e) or e).update(name=sub_e.name)
 
         elif isinstance(e, LoopIR.StrideExpr):
             if e.name in self.env:
-                sub_e = self.env[e.name]
-                return LoopIR.StrideExpr(sub_e.name, e.dim, e.type, e.srcinfo)
+                return e.update(name=self.env[e.name])
 
         return super().map_e(e)
 
     def map_eff_es(self, es):
         # this substitution could refer to a read or a window expression
-        new_es = super().map_eff_es(es)
         if es.buffer in self.env:
             sub_e = self.env[es.buffer]
             assert isinstance(sub_e, LoopIR.Read) and len(sub_e.idx) == 0
-            new_es = new_es.update(buffer=sub_e.name)
-        return new_es
+            return (super().map_eff_es(es) or es).update(buffer=sub_e.name)
+
+        return super().map_eff_es(es)
 
     def map_eff_e(self, e):
         if isinstance(e, Effects.Var):
             if e.name in self.env:
-                if e.type.is_indexable():
-                    sub_e = self.env[e.name]
-                    assert sub_e.type.is_indexable()
-                    return lift_to_eff_expr(sub_e)
-                else:  # Could be config value (e.g. f32)
-                    sub_e = self.env[e.name]
-                    return lift_to_eff_expr(sub_e)
+                sub_e = self.env[e.name]
+                # Recall a => b  iff  not a or b
+                assert not e.type.is_indexable() or sub_e.type.is_indexable()
+                return lift_to_eff_expr(sub_e)
 
         return super().map_eff_e(e)
 
     def map_t(self, t):
-        ttyp = type(t)
-        if ttyp is T.Window:
-            src_buf = t.src_buf
-            if t.src_buf in self.env:
-                src_buf = self.env[t.src_buf].name
+        t2 = super().map_t(t)
 
-            return T.Window(self.map_t(t.src_type), self.map_t(t.as_tensor),
-                            src_buf,
-                            [self.map_w_access(w) for w in t.idx])
+        if isinstance(t, T.Window):
+            if src_buf := self.env.get(t.src_buf):
+                return (t2 or t).update(src_buf=src_buf.name)
 
-        return super().map_t(t)
+        return t2
