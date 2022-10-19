@@ -194,6 +194,20 @@ class _DoProductLoop(LoopIR_Rewrite):
 
         return super().map_e(e)
 
+def get_reads(e):
+    etyp = type(e)
+    if etyp is LoopIR.Read:
+        return sum([get_reads(e) for e in e.idx], [(e.name, e.type)])
+    elif etyp is LoopIR.USub:
+        return get_reads(e.arg)
+    elif etyp is LoopIR.BinOp:
+        return get_reads(e.lhs) + get_reads(e.rhs)
+    elif etyp is LoopIR.BuiltIn:
+        return sum([get_reads(a) for a in e.args], [])
+    # TODO: what about WindowExpr, StrideExpr, ParRange, SeqRange, etc.?
+    else:
+        return []
+
 # TODO: check for data dependencies on the RHS
 class _DoMergeReduce(LoopIR_Rewrite):
     def __init__(self, proc, stmt1, stmt2):
@@ -209,6 +223,9 @@ class _DoMergeReduce(LoopIR_Rewrite):
                     Check_ExprEqvInContext(proc, [stmt1, stmt2], i, j)
             except SchedulingError:
                 raise SchedulingError("expected the LHS indices to be the same.")
+
+            if any([stmt1.name == name and stmt1.type == typ for name, typ in get_reads(stmt2.rhs)]):
+                raise SchedulingError("expected the RHS of statement 2 to not depend on the LHS of statement 1.")
 
             self.new_rhs = LoopIR.BinOp("+", stmt1.rhs, stmt2.rhs,T.i32, stmt1.srcinfo)
             self.s1 = stmt1

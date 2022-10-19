@@ -586,8 +586,7 @@ def test_simple_reorder(golden):
     bar = reorder_loops(bar, 'i j')
     assert str(bar) == golden
 
-# simple test of each of the 4 cases
-def test_merge_reduce_1(golden):
+def test_merge_reduce_all_4_cases(golden):
     @proc
     def bar(x : R[4], y : R[4]):
         for i in seq(0, 10):
@@ -608,8 +607,7 @@ def test_merge_reduce_1(golden):
     bar = merge_reduce(bar, 'tmp[3] += x[3]; tmp[3] += y[3]')
     assert str(bar) == golden
 
-# multiple reductions in a row
-def test_merge_reduce_2(golden):
+def test_merge_reduce_consecutive_reduces(golden):
     @proc
     def bar(w : R, x : R, y : R, z : R):
         z = w
@@ -621,8 +619,7 @@ def test_merge_reduce_2(golden):
     bar = merge_reduce(bar, 'z = w + x; z += y')
     assert str(bar) == golden
 
-# testing array indexing
-def test_merge_reduce_3(golden):
+def test_merge_reduce_array_indexing(golden):
     @proc
     def bar(x : R[3], y : R[3], z : R):
         for i in seq(0, 3):
@@ -634,6 +631,18 @@ def test_merge_reduce_3(golden):
 
     bar = merge_reduce(bar, 'tmp[i+j, j] = x[i]; tmp[i+j, j] += y[j]')
     assert str(bar) == golden
+
+def test_merge_reduce_second_rhs_depends_on_first_lhs(golden):
+    @proc
+    def bar(x : R[5], y : R[3]):
+        for i in seq(0, 3):
+            if i > 0:
+                x[2*i-1] = x[i] + y[i]
+                x[2*i-1] += x[i]
+
+    with pytest.raises(SchedulingError,
+                            match='expected the RHS of statement 2 to not depend on the LHS of statement 1'):
+        bar = merge_reduce(bar, 'x[2*i-1] = x[i] + y[i]; x[2*i-1] += x[i]')
 
 def test_merge_reduce_wrong_type_error(golden):
     @proc
