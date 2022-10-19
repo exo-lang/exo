@@ -5,4 +5,4 @@ if (PROJECT_IS_TOP_LEVEL)
   include(CTest)
 endif ()
 
-add_subdirectory(x86_demo)
+add_subdirectory(x86)
