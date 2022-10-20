@@ -7,12 +7,10 @@ from exo import proc, DRAM
 
 # ------- Window related tests ---------
 
+
 def test_input1():
     @proc
-    def foo(
-            dst1: f32[8] @ DRAM,
-            src1: [f32][8] @ DRAM
-    ):
+    def foo(dst1: f32[8] @ DRAM, src1: [f32][8] @ DRAM):
         assert stride(src1, 0) == 1
         assert stride(dst1, 0) == 1
 
@@ -22,10 +20,7 @@ def test_input1():
 
 def test_input2():
     @proc
-    def foo(
-            dst2: [f32][8] @ DRAM,
-            src2: f32[8] @ DRAM
-    ):
+    def foo(dst2: [f32][8] @ DRAM, src2: f32[8] @ DRAM):
         assert stride(src2, 0) == 1
         assert stride(dst2, 0) == 1
 
@@ -34,13 +29,10 @@ def test_input2():
 
 
 def test_input3():
-    with pytest.raises(TypeError,
-                       match='Could not verify assertion'):
+    with pytest.raises(TypeError, match="Could not verify assertion"):
+
         @proc
-        def foo(
-                dst2: [f32][8] @ DRAM,
-                src2: f32[8] @ DRAM
-        ):
+        def foo(dst2: [f32][8] @ DRAM, src2: f32[8] @ DRAM):
             assert stride(src2, 0) == 1
             assert stride(dst2, 0) == 1
 
@@ -54,10 +46,7 @@ def test_input3():
 
 def test_input4():
     @proc
-    def foo(
-            dst2: [f32][8] @ DRAM,
-            src2: f32[8] @ DRAM
-    ):
+    def foo(dst2: [f32][8] @ DRAM, src2: f32[8] @ DRAM):
         assert stride(src2, 0) == 1
         assert stride(dst2, 0) == 1
 
@@ -73,10 +62,10 @@ def test_input4():
 def test_window(golden):
     @proc
     def window(
-            n: size,
-            m: size,
-            src: [i8][n, m] @ DRAM,
-            dst: [i8][n, 16] @ DRAM,
+        n: size,
+        m: size,
+        src: [i8][n, m] @ DRAM,
+        dst: [i8][n, 16] @ DRAM,
     ):
         assert n <= 16
         assert m <= 16
@@ -91,10 +80,10 @@ def test_window(golden):
 def test_stride_assert(golden):
     @proc
     def stride_assert(
-            n: size,
-            m: size,
-            src: [i8][n, m] @ DRAM,
-            dst: [i8][n, 16] @ DRAM,
+        n: size,
+        m: size,
+        src: [i8][n, m] @ DRAM,
+        dst: [i8][n, 16] @ DRAM,
     ):
         assert n <= 16
         assert m <= 16

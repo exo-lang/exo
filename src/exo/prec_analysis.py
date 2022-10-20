@@ -10,15 +10,17 @@ _default_prec = T.f32
 def set_default_prec(name):
     global _default_prec
     vals = {
-        'f32': T.f32,
-        'f64': T.f64,
-        'i8': T.i8,
-        'i32': T.i32,
+        "f32": T.f32,
+        "f64": T.f64,
+        "i8": T.i8,
+        "i32": T.i32,
     }
     if name not in vals:
-        raise TypeError(f"Got {name}, but "
-                        "expected one of the following precision types: " +
-                        ','.join([k for k in vals]))
+        raise TypeError(
+            f"Got {name}, but "
+            "expected one of the following precision types: "
+            + ",".join([k for k in vals])
+        )
     _default_prec = vals[name]
 
 
@@ -41,8 +43,9 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         super().__init__(proc)
 
         if len(self._errors) > 0:
-            raise TypeError("Errors occurred during precision checking:\n" +
-                            "\n".join(self._errors))
+            raise TypeError(
+                "Errors occurred during precision checking:\n" + "\n".join(self._errors)
+            )
 
     def err(self, node, msg):
         self._errors.append(f"{node.srcinfo}: {msg}")
@@ -63,10 +66,12 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         elif isinstance(t, T.Tensor):
             return T.Tensor(t.hi, t.is_window, self.splice_type(t.type, bt))
         elif isinstance(t, T.Window):
-            return T.Window(self.splice_type(t.src_type, bt),
-                            self.splice_type(t.as_tensor, bt),
-                            t.src_buf,
-                            t.idx)
+            return T.Window(
+                self.splice_type(t.src_type, bt),
+                self.splice_type(t.as_tensor, bt),
+                t.src_buf,
+                t.idx,
+            )
         else:
             return t
 
@@ -111,8 +116,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             if rtyp != T.err:
                 # potentially coerce the entire right-hand-side
                 if rtyp == T.R:
-                    result[0] = result[0].update(
-                        rhs=self.coerce_e(result[0].rhs, ltyp))
+                    result[0] = result[0].update(rhs=self.coerce_e(result[0].rhs, ltyp))
                     rtyp = ltyp
 
                 # TODO: remove the `cast` field entirely
@@ -128,8 +132,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             # potentially coerce the entire right-hand-side
             if rtyp != T.err:
                 if rtyp == T.R:
-                    result[0] = result[0].update(
-                        rhs=self.coerce_e(result[0].rhs, ltyp))
+                    result[0] = result[0].update(rhs=self.coerce_e(result[0].rhs, ltyp))
 
         elif isinstance(s, LoopIR.WindowStmt):
             # update the type binding for this symbol...
@@ -175,8 +178,9 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             if not e.type.is_numeric():
                 return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
 
-            assert ((lhs.type == T.err or lhs.type.is_real_scalar()) and
-                    (rhs.type == T.err or rhs.type.is_real_scalar()))
+            assert (lhs.type == T.err or lhs.type.is_real_scalar()) and (
+                rhs.type == T.err or rhs.type.is_real_scalar()
+            )
             if lhs.type == T.err or rhs.type == T.err:
                 typ = T.err
             elif lhs.type == T.R and rhs.type == T.R:
@@ -188,9 +192,12 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 typ = lhs.type
                 rhs = self.coerce_e(rhs, typ)
             elif lhs.type != rhs.type:  # no T.R or T.err left, so...
-                self.err(e, f"cannot compute operation '{e.op}' between "
-                            f"inconsistent precision types: "
-                            f"{lhs.type} and {rhs.type}")
+                self.err(
+                    e,
+                    f"cannot compute operation '{e.op}' between "
+                    f"inconsistent precision types: "
+                    f"{lhs.type} and {rhs.type}",
+                )
                 typ = T.err
             else:
                 typ = lhs.type

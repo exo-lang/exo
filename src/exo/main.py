@@ -9,17 +9,24 @@ import exo
 
 
 def main():
-    parser = argparse.ArgumentParser(prog=Path(sys.argv[0]).name,
-                                     description='Compile an Exo library.')
-    parser.add_argument('-o', '--outdir', metavar='OUTDIR', required=True,
-                        help='output directory for build artifacts')
-    parser.add_argument('--stem', required=True,
-                        help='base name for .c and .h files')
-    parser.add_argument('source', type=str, nargs='+',
-                        help='source file to compile')
-    parser.add_argument('--version', action='version',
-                        version=f'%(prog)s version {exo.__version__}',
-                        help='print the version and exit')
+    parser = argparse.ArgumentParser(
+        prog=Path(sys.argv[0]).name, description="Compile an Exo library."
+    )
+    parser.add_argument(
+        "-o",
+        "--outdir",
+        metavar="OUTDIR",
+        required=True,
+        help="output directory for build artifacts",
+    )
+    parser.add_argument("--stem", required=True, help="base name for .c and .h files")
+    parser.add_argument("source", type=str, nargs="+", help="source file to compile")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s version {exo.__version__}",
+        help="print the version and exit",
+    )
 
     args = parser.parse_args()
 
@@ -33,19 +40,19 @@ def main():
         for proc in get_procs_from_module(load_user_code(mod))
     ]
 
-    exo.compile_procs(library, outdir, f'{args.stem}.c', f'{args.stem}.h')
+    exo.compile_procs(library, outdir, f"{args.stem}.c", f"{args.stem}.h")
 
 
 def get_procs_from_module(user_module):
     symbols = dir(user_module)
-    has_export_list = '__all__' in symbols
+    has_export_list = "__all__" in symbols
     if has_export_list:
-        exported_symbols = user_module.__dict__['__all__']
+        exported_symbols = user_module.__dict__["__all__"]
     else:
         exported_symbols = symbols
     library = []
     for sym in exported_symbols:
-        if not sym.startswith('_'):
+        if not sym.startswith("_"):
             fn = getattr(user_module, sym)
             if isinstance(fn, exo.Procedure) and not fn.is_instr():
                 library.append(fn)
@@ -63,5 +70,5 @@ def load_user_code(path):
     return user_module
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

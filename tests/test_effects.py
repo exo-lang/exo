@@ -8,6 +8,7 @@ from exo.libs.memories import GEMM_SCRATCH
 
 # ------- Effect check tests ---------
 
+
 def test_seq_write1(golden):
     @proc
     def foo(n: size, A: i8[n]):
@@ -57,7 +58,6 @@ def test_different_id(golden):
     assert foo.show_effects() == golden
 
 
-
 # This is fine
 @pytest.mark.skip()
 def test_reduce_write1():
@@ -83,8 +83,10 @@ def test_reduce_write2():
 
 
 def test_index1():
-    with pytest.raises(TypeError,
-                       match='expected expression to always be non-negative'):
+    with pytest.raises(
+        TypeError, match="expected expression to always be non-negative"
+    ):
+
         @proc
         def foo(n: index, m: index, A: i8[n, m]):
             assert n > 0 and m > 0
@@ -96,8 +98,8 @@ def test_index1():
 
 
 def test_index2():
-    with pytest.raises(TypeError,
-                       match='A is read out-of-bounds'):
+    with pytest.raises(TypeError, match="A is read out-of-bounds"):
+
         @proc
         def foo(n: index, m: index, A: i8[n, m]):
             assert n > 0 and m > 0
@@ -118,8 +120,10 @@ def test_index3(golden):
 
 
 def test_index4():
-    with pytest.raises(TypeError,
-                       match='expected expression to always be non-negative'):
+    with pytest.raises(
+        TypeError, match="expected expression to always be non-negative"
+    ):
+
         @proc
         def foo(n: index):
             for i in seq(0, n):
@@ -142,8 +146,8 @@ def test_good_bound1(golden):
 
 
 def test_bad_bound1():
-    with pytest.raises(TypeError,
-                       match='Errors occurred during effect checking'):
+    with pytest.raises(TypeError, match="Errors occurred during effect checking"):
+
         @proc
         def bar():
             for i in seq(0, -2):
@@ -151,8 +155,8 @@ def test_bad_bound1():
 
 
 def test_bad_bound2():
-    with pytest.raises(TypeError,
-                       match='Errors occurred during effect checking'):
+    with pytest.raises(TypeError, match="Errors occurred during effect checking"):
+
         @proc
         def bar(n: size):
             for i in seq(0, n):
@@ -161,8 +165,8 @@ def test_bad_bound2():
 
 
 def test_bad_bound3():
-    with pytest.raises(TypeError,
-                       match='Errors occurred during effect checking'):
+    with pytest.raises(TypeError, match="Errors occurred during effect checking"):
+
         @proc
         def bar(n: size):
             for i in seq(0, n):
@@ -171,8 +175,8 @@ def test_bad_bound3():
 
 
 def test_bad_bound4():
-    with pytest.raises(TypeError,
-                       match='Errors occurred during effect checking'):
+    with pytest.raises(TypeError, match="Errors occurred during effect checking"):
+
         @proc
         def bar(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
             for i in seq(0, (n + 7) / 8):
@@ -184,11 +188,10 @@ def test_bad_bound4():
 
 
 def test_bad_access1():
-    with pytest.raises(TypeError,
-                       match='Errors occurred during effect checking'):
+    with pytest.raises(TypeError, match="Errors occurred during effect checking"):
+
         @proc
-        def bad_access1(n: size, m: size,
-                        x: R[n, m], y: R[n, m], res: R[n, m]):
+        def bad_access1(n: size, m: size, x: R[n, m], y: R[n, m], res: R[n, m]):
             rloc: R[m]
             for i in seq(0, m):
                 xloc: R[m]
@@ -204,11 +207,12 @@ def test_bad_access1():
 
 
 def test_bad_access2():
-    with pytest.raises(TypeError,
-                       match='Errors occurred during effect checking'):
+    with pytest.raises(TypeError, match="Errors occurred during effect checking"):
+
         @proc
-        def bad_access2(n: size, m: size,
-                        x: R[n, m], y: R[n, m] @ DRAM, res: R[n, m] @ DRAM):
+        def bad_access2(
+            n: size, m: size, x: R[n, m], y: R[n, m] @ DRAM, res: R[n, m] @ DRAM
+        ):
             rloc: R[m]
             for i in seq(0, n):
                 xloc: R[m]
@@ -224,8 +228,8 @@ def test_bad_access2():
 
 
 def test_bad_access3():
-    with pytest.raises(TypeError,
-                       match='x2 is read out-of-bounds'):
+    with pytest.raises(TypeError, match="x2 is read out-of-bounds"):
+
         @proc
         def foo():
             x2: R[1]
@@ -234,8 +238,8 @@ def test_bad_access3():
 
 
 def test_assert1():
-    with pytest.raises(TypeError,
-                       match='Could not verify assertion'):
+    with pytest.raises(TypeError, match="Could not verify assertion"):
+
         @proc
         def foo(n: size, x: i8[n, n]):
             assert n == 1
@@ -248,8 +252,8 @@ def test_assert1():
 
 
 def test_size1():
-    with pytest.raises(TypeError,
-                       match='type-shape of calling argument'):
+    with pytest.raises(TypeError, match="type-shape of calling argument"):
+
         @proc
         def foo(x: i8[3, 3]):
             pass
@@ -329,10 +333,10 @@ def test_mod1(golden):
 def test_stride_assert1(golden):
     @proc
     def foo(
-            n: size,
-            m: size,
-            src: [i8][n, m] @ DRAM,
-            dst: [i8][n, 16] @ GEMM_SCRATCH,
+        n: size,
+        m: size,
+        src: [i8][n, m] @ DRAM,
+        dst: [i8][n, 16] @ GEMM_SCRATCH,
     ):
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
@@ -348,14 +352,14 @@ def test_stride_assert1(golden):
 
 # Both callee and caller has a window case
 def test_stride_assert2():
-    with pytest.raises(TypeError,
-                       match='Could not verify assertion'):
+    with pytest.raises(TypeError, match="Could not verify assertion"):
+
         @proc
         def foo(
-                n: size,
-                m: size,
-                src: [i8][n, m] @ DRAM,
-                dst: [i8][n, 16] @ GEMM_SCRATCH,
+            n: size,
+            m: size,
+            src: [i8][n, m] @ DRAM,
+            dst: [i8][n, 16] @ GEMM_SCRATCH,
         ):
             assert stride(src, 1) == 1
             assert stride(dst, 0) == 16
@@ -371,10 +375,10 @@ def test_stride_assert2():
 def test_stride_assert3(golden):
     @proc
     def foo(
-            n: size,
-            m: size,
-            src: [i8][n, m] @ DRAM,
-            dst: [i8][n, 16] @ GEMM_SCRATCH,
+        n: size,
+        m: size,
+        src: [i8][n, m] @ DRAM,
+        dst: [i8][n, 16] @ GEMM_SCRATCH,
     ):
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
@@ -393,14 +397,14 @@ def test_stride_assert3(golden):
 # callee is Tensor case and caller is a window case.
 # this will be an error because we don't know anything about incoming stride
 def test_stride_assert4():
-    with pytest.raises(TypeError,
-                       match='Could not verify assertion'):
+    with pytest.raises(TypeError, match="Could not verify assertion"):
+
         @proc
         def foo(
-                n: size,
-                m: size,
-                src: i8[n, m] @ DRAM,
-                dst: i8[n, 16] @ GEMM_SCRATCH,
+            n: size,
+            m: size,
+            src: i8[n, m] @ DRAM,
+            dst: i8[n, 16] @ GEMM_SCRATCH,
         ):
             assert stride(src, 1) == 1
             assert stride(dst, 0) == 16
@@ -414,8 +418,8 @@ def test_stride_assert4():
 
 # Tensor with wrong size and stride
 def test_stride_assert5():
-    with pytest.raises(TypeError,
-                       match='is always unsatisfiable'):
+    with pytest.raises(TypeError, match="is always unsatisfiable"):
+
         @proc
         def bar(x: i8[30, 10] @ DRAM, y: i8[30, 16] @ GEMM_SCRATCH):
             assert stride(x, 0) == 9
@@ -449,10 +453,10 @@ def test_stride_assert7(golden):
 def test_stride_assert8(golden):
     @proc
     def foo(
-            n: size,
-            m: size,
-            src: [i8][n, m] @ DRAM,
-            dst: [i8][n, 16] @ GEMM_SCRATCH,
+        n: size,
+        m: size,
+        src: [i8][n, m] @ DRAM,
+        dst: [i8][n, 16] @ GEMM_SCRATCH,
     ):
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
@@ -473,10 +477,10 @@ def test_stride_assert8(golden):
 def test_stride_assert9(golden):
     @proc
     def foo(
-            n: size,
-            m: size,
-            src: [i8][n, m] @ DRAM,
-            dst: [i8][n, 16] @ GEMM_SCRATCH,
+        n: size,
+        m: size,
+        src: [i8][n, m] @ DRAM,
+        dst: [i8][n, 16] @ GEMM_SCRATCH,
     ):
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
@@ -494,10 +498,10 @@ def test_stride_assert9(golden):
 def test_stride_assert10(golden):
     @proc
     def foo(
-            n: size,
-            m: size,
-            src: [i8][n, m] @ DRAM,
-            dst: [i8][n, 16] @ GEMM_SCRATCH,
+        n: size,
+        m: size,
+        src: [i8][n, m] @ DRAM,
+        dst: [i8][n, 16] @ GEMM_SCRATCH,
     ):
         assert stride(src, 1) == 1
         assert stride(dst, 0) == 16
@@ -518,11 +522,11 @@ def test_stride_assert10(golden):
 def test_stride_assert11(golden):
     @proc
     def foo(
-            n: size,
-            m: size,
-            s: stride,
-            src: [i8][n, m] @ DRAM,
-            dst: [i8][n, 16] @ GEMM_SCRATCH,
+        n: size,
+        m: size,
+        s: stride,
+        src: [i8][n, m] @ DRAM,
+        dst: [i8][n, 16] @ GEMM_SCRATCH,
     ):
         assert stride(src, 0) == s
         assert stride(src, 1) == 1
