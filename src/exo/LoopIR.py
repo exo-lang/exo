@@ -1193,7 +1193,7 @@ class SubstArgs(LoopIR_Rewrite):
 
         elif isinstance(e, LoopIR.StrideExpr):
             if e.name in self.env:
-                return e.update(name=self.env[e.name])
+                return e.update(name=self.env[e.name].name)
 
         return super().map_e(e)
 
