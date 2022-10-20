@@ -1032,11 +1032,11 @@ class Alpha_Rename(LoopIR_Rewrite):
             assert isinstance(node, list)
             for n in node:
                 if isinstance(n, LoopIR.stmt):
-                    self.node += self.map_s(n)
+                    self.node += self.apply_s(n)
                 elif isinstance(n, LoopIR.expr):
-                    self.node += [self.map_e(n)]
+                    self.node += [self.apply_e(n)]
                 elif isinstance(n, Effects.effect):
-                    self.node += [self.map_eff(n)]
+                    self.node += [self.apply_eff(n)]
                 else:
                     assert False, "expected stmt or expr or effect"
 

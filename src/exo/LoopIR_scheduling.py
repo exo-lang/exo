@@ -1067,7 +1067,7 @@ class _BindConfig(LoopIR_Rewrite):
 
         # TODO: missing cases for multiple config writes. Subsequent writes are
         #   ignored.
-        
+
         if isinstance(s, LoopIR.Seq):
             body = self.process_block(s.body)
             if body:
@@ -1084,7 +1084,7 @@ class _BindConfig(LoopIR_Rewrite):
                     body=if_then or s.body,
                     orelse=if_else or s.orelse
                 )]
-            
+
             return None
 
         return super().map_s(s)
@@ -2808,13 +2808,17 @@ class _DoExtractMethod(LoopIR_Rewrite):
             return [LoopIR.Call(subproc, args, None, s.srcinfo)]
         elif isinstance(s, LoopIR.Alloc):
             self.var_types[s.name] = s.type
-            return [s]
+            return None
         elif isinstance(s, LoopIR.Seq):
             self.push()
             self.var_types[s.iter] = T.index
             body = self.map_stmts(s.body)
             self.pop()
-            return [LoopIR.Seq(s.iter, s.hi, body, None, s.srcinfo)]
+
+            if body:
+                return [s.update(body=body, eff=None)]
+
+            return None
         elif isinstance(s, LoopIR.If):
             self.push()
             body = self.map_stmts(s.body)
@@ -2822,12 +2826,17 @@ class _DoExtractMethod(LoopIR_Rewrite):
             self.push()
             orelse = self.map_stmts(s.orelse)
             self.pop()
-            return [LoopIR.If(s.cond, body, orelse, None, s.srcinfo)]
-        else:
-            return super().map_s(s)
+
+            if body or orelse:
+                return [
+                    s.update(body=body or s.body, orelse=orelse or s.orlse, eff=None)]
+
+            return None
+
+        return super().map_s(s)
 
     def map_e(self, e):
-        return e
+        return None
 
 
 class _DoNormalize(LoopIR_Rewrite):
