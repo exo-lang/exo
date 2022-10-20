@@ -927,8 +927,7 @@ class _ConfigWrite(LoopIR_Rewrite):
         super().__init__(proc)
 
         # check safety...
-        mod_cfg = Check_DeleteConfigWrite(self.proc,
-                                          [self._new_cfgwrite_stmt])
+        mod_cfg = Check_DeleteConfigWrite(self.proc, [self._new_cfgwrite_stmt])
         self.eq_mod_config = mod_cfg
 
         # repair effects...
@@ -955,7 +954,8 @@ class _ConfigWrite(LoopIR_Rewrite):
                 return body
 
             else:
-                body += self.map_s(s)
+                # TODO: be smarter about None handling
+                body += self.apply_s(s)
 
         return body
 
@@ -1011,9 +1011,6 @@ class _BindConfig(LoopIR_Rewrite):
         self.cfg_write_s = None
         self.cfg_read_e = None
 
-        self.cfg_write_s = None
-        self.cfg_read_e = None
-
         super().__init__(proc)
 
         proc_analysis = _BindConfig_AnalysisSubst(self.proc,
@@ -1031,13 +1028,15 @@ class _BindConfig(LoopIR_Rewrite):
 
     def process_block(self, block):
         if self.sub_done:
-            return block
+            return None
 
         new_block = []
         is_writeconfig_block = False
 
+        modified = False
+
         for stmt in block:
-            stmt = self.map_s(stmt)
+            new_stmt = self.map_s(stmt)
 
             if self.found_expr and not self.placed_writeconfig:
                 self.placed_writeconfig = True
@@ -1048,26 +1047,45 @@ class _BindConfig(LoopIR_Rewrite):
                 self.cfg_write_s = wc
                 new_block.extend([wc])
 
-            new_block.extend(stmt)
+            if new_stmt is None:
+                new_block.append(stmt)
+            else:
+                new_block.extend(new_stmt)
+                modified = True
 
         if is_writeconfig_block:
             self.sub_done = True
+
+        if not modified:
+            return None
 
         return new_block
 
     def map_s(self, s):
         if self.sub_done:
-            return super().map_s(s)
+            return None  # TODO: is this right?
 
+        # TODO: missing cases for multiple config writes. Subsequent writes are
+        #   ignored.
+        
         if isinstance(s, LoopIR.Seq):
             body = self.process_block(s.body)
-            return [LoopIR.Seq(s.iter, s.hi, body, s.eff, s.srcinfo)]
+            if body:
+                return [s.update(body=body)]
+            return None
 
         if isinstance(s, LoopIR.If):
             if_then = self.process_block(s.body)
             if_else = self.process_block(s.orelse)
             cond = self.map_e(s.cond)
-            return [LoopIR.If(cond, if_then, if_else, s.eff, s.srcinfo)]
+            if any((if_then, if_else, cond)):
+                return [s.update(
+                    cond=cond or s.cond,
+                    body=if_then or s.body,
+                    orelse=if_else or s.orelse
+                )]
+            
+            return None
 
         return super().map_s(s)
 

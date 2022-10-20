@@ -1027,7 +1027,7 @@ class Alpha_Rename(LoopIR_Rewrite):
         self.node = []
 
         if isinstance(node, LoopIR.proc):
-            self.node = self.map_proc(node)
+            self.node = self.apply_proc(node)
         else:
             assert isinstance(node, list)
             for n in node:
