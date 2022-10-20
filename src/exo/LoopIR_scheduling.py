@@ -495,25 +495,21 @@ class _Unroll(LoopIR_Rewrite):
     def map_s(self, s):
         if s is self.unroll_loop:
             if not isinstance(s.hi, LoopIR.Const):
-                raise SchedulingError(f"expected loop '{s.iter}' "
-                                      f"to have constant bounds")
-            # if len(s.body) != 1:
-            #    raise SchedulingError(f"expected loop '{s.iter}' "
-            #                          f"to have only one body")
+                raise SchedulingError(
+                    f"expected loop '{s.iter}' to have constant bounds")
+
             hi = s.hi.val
             if hi == 0:
                 return []
 
-            # assert hi > 0
             orig_body = s.body
 
             self.unroll_itr = 0
 
-            body = Alpha_Rename(self.map_stmts(orig_body)).result()
+            body = Alpha_Rename(self.apply_stmts(orig_body)).result()
             for i in range(1, hi):
                 self.unroll_itr = i
-                nxtbody = Alpha_Rename(self.map_stmts(orig_body)).result()
-                body += nxtbody
+                body += Alpha_Rename(self.apply_stmts(orig_body)).result()
 
             return body
 

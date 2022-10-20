@@ -1058,12 +1058,18 @@ class Alpha_Rename(LoopIR_Rewrite):
         )
 
     def map_s(self, s):
-        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce, LoopIR.Alloc)):
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             s2 = super().map_s(s)
             if new_name := self.env.get(s.name):
                 return [((s2 and s2[0]) or s).update(name=new_name)]
             else:
                 return s2
+        elif isinstance(s, LoopIR.Alloc):
+            s2 = super().map_s(s)
+            assert s.name not in self.env
+            new_name = s.name.copy()
+            self.env[s.name] = new_name
+            return [((s2 and s2[0]) or s).update(name=new_name)]
         elif isinstance(s, LoopIR.WindowStmt):
             rhs = self.map_e(s.rhs) or s.rhs
             lhs = s.lhs.copy()

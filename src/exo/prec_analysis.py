@@ -87,9 +87,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         result = super().map_s(s)
         if result is None:
             result = [s]
-        styp = type(s)
-
-        if styp is LoopIR.Call:
+        if isinstance(s, LoopIR.Call):
             assert len(result) == 1
 
             # check call arguments for precision consistency...
@@ -101,7 +99,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 if st.is_numeric() and st != ct:
                     self.err(call_a, f"expected precision {st}, but got {ct}")
 
-        elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             rtyp = result[0].rhs.type
             ltyp = self.get_type(s.name).basetype()
             assert ltyp != T.err and ltyp != T.R
@@ -122,7 +120,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                     # then we have an implicit cast at this point
                     result[0] = result[0].update(cast="yup, cast!")
 
-        elif styp is LoopIR.WriteConfig:
+        elif isinstance(s, LoopIR.WriteConfig):
             rtyp = result[0].rhs.type
             ltyp = s.config.lookup(s.field)[1]
             assert ltyp != T.err and ltyp != T.R
@@ -133,11 +131,11 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                     result[0] = result[0].update(
                         rhs=self.coerce_e(result[0].rhs, ltyp))
 
-        elif styp is LoopIR.WindowStmt:
+        elif isinstance(s, LoopIR.WindowStmt):
             # update the type binding for this symbol...
             self.set_type(result[0].lhs, result[0].rhs.type)
 
-        elif styp is LoopIR.Alloc:
+        elif isinstance(s, LoopIR.Alloc):
             typ = result[0].type
             if s.type.basetype() == T.R:
                 typ = self.splice_type(s.type, self.default)
@@ -229,7 +227,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
     # make this more efficient by not rewriting
     # most of the sub-trees
     def map_t(self, t):
-        return t
+        return None
 
     def map_eff(self, eff):
-        return eff
+        return None
