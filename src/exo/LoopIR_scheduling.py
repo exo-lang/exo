@@ -1720,7 +1720,7 @@ class _LiftAlloc(LoopIR_Rewrite):
         assert False
 
     def map_s(self, s):
-        if s is self.alloc_stmt:
+        if isinstance(s, LoopIR.Alloc) and s.name == self.alloc_sym:
             # mark the point we want to lift this alloc-stmt to
             n_up = min(self.n_lifts, len(self.ctrl_ctxt))
             self.lift_site = self.ctrl_ctxt[-n_up]

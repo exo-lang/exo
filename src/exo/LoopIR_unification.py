@@ -132,8 +132,7 @@ class DoReplace(LoopIR_Rewrite):
             new_args = Unification(subproc, stmts, self.live_vars).result()
 
             # but don't use a different LoopIR.proc for the callsite itself
-            new_call = LoopIR.Call(self.subproc, new_args,
-                                   None, stmts[0].srcinfo)
+            new_call = LoopIR.Call(self.subproc, new_args, None, stmts[0].srcinfo)
 
             return prefix_stmts + [new_call] + suffix_stmts
 
