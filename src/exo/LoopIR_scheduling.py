@@ -1716,7 +1716,7 @@ class _LiftAlloc(LoopIR_Rewrite):
         assert False
 
     def map_s(self, s):
-        if isinstance(s, LoopIR.Alloc) and s.name == self.alloc_sym:
+        if s is self.alloc_stmt:
             # mark the point we want to lift this alloc-stmt to
             n_up = min(self.n_lifts, len(self.ctrl_ctxt))
             self.lift_site = self.ctrl_ctxt[-n_up]
@@ -3642,8 +3642,11 @@ class _DoStageWindow(LoopIR_Rewrite):
 
     def map_stmts(self, stmts):
         result = []
+
         for s in stmts:
-            s = self.map_s(s)
+            # TODO: be smarter about None here
+            s = self.apply_s(s)
+
             if self._found_expr and not self._complete:
                 assert len(s) == 1
                 assert self._copy_code
@@ -3654,16 +3657,20 @@ class _DoStageWindow(LoopIR_Rewrite):
                                               'writes yet.')
                 s = self._copy_code + [s]
                 self._complete = True
+
             result.extend(s)
+
         return result
 
     def map_e(self, e):
         if self._found_expr:
-            return e
+            return None
+
         if e is self.target_expr:
             self._found_expr = True
             self._copy_code, new_window = self._make_staged_alloc()
             return new_window
+
         return super().map_e(e)
 
 
