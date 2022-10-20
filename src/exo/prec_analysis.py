@@ -5,19 +5,22 @@ from .LoopIR import LoopIR, LoopIR_Rewrite, T
 # Default Precision Management
 
 _default_prec = T.f32
+
+
 def set_default_prec(name):
     global _default_prec
     vals = {
-        'f32'   : T.f32,
-        'f64'   : T.f64,
-        'i8'    : T.i8,
-        'i32'   : T.i32,
+        'f32': T.f32,
+        'f64': T.f64,
+        'i8': T.i8,
+        'i32': T.i32,
     }
     if name not in vals:
         raise TypeError(f"Got {name}, but "
                         "expected one of the following precision types: " +
                         ','.join([k for k in vals]))
     _default_prec = vals[name]
+
 
 def get_default_prec():
     return _default_prec
@@ -31,9 +34,9 @@ def get_default_prec():
 class PrecisionAnalysis(LoopIR_Rewrite):
     def __init__(self, proc):
         assert isinstance(proc, LoopIR.proc)
-        self._errors    = []
-        self._types     = {}
-        self.default    = get_default_prec()
+        self._errors = []
+        self._types = {}
+        self.default = get_default_prec()
 
         super().__init__(proc)
 
@@ -47,6 +50,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
     def set_type(self, name, typ):
         assert name not in self._types
         self._types[name] = typ
+
     def get_type(self, name, default=None):
         if name not in self._types and default is not None:
             return default
@@ -80,10 +84,10 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         # and then possibly patch up the results
         # in a post-traversal sort of way below
         # before returning
-        result  = super().map_s(s)
+        result = super().map_s(s)
         if result is None:
             result = [s]
-        styp    = type(s)
+        styp = type(s)
 
         if styp is LoopIR.Call:
             assert len(result) == 1
@@ -91,9 +95,9 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             # check call arguments for precision consistency...
             args = result[0].args
             for call_a, sig_a in zip(args, s.f.args):
-                ct  = call_a.type.basetype()
-                st  = sig_a.type.basetype()
-                st  = self.default if st == T.R else st
+                ct = call_a.type.basetype()
+                st = sig_a.type.basetype()
+                st = self.default if st == T.R else st
                 if st.is_numeric() and st != ct:
                     self.err(call_a, f"expected precision {st}, but got {ct}")
 
@@ -194,7 +198,6 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 typ = lhs.type
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
 
-
         return super().map_e(e)
 
     # this routine allows for us to retro-actively
@@ -225,7 +228,8 @@ class PrecisionAnalysis(LoopIR_Rewrite):
 
     # make this more efficient by not rewriting
     # most of the sub-trees
-    def map_t(self,t):
+    def map_t(self, t):
         return t
-    def map_eff(self,eff):
+
+    def map_eff(self, eff):
         return eff
