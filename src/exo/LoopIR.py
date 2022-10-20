@@ -14,6 +14,7 @@ from .prelude import Sym, SrcInfo, extclass
 # Validated string subtypes
 # --------------------------------------------------------------------------- #
 
+
 class Identifier(str):
     _valid_re = re.compile(r"^(?:_\w|[a-zA-Z])\w*$")
 
@@ -21,7 +22,7 @@ class Identifier(str):
         name = str(name)
         if Identifier._valid_re.match(name):
             return super().__new__(cls, name)
-        raise ValueError(f'invalid identifier: {name}')
+        raise ValueError(f"invalid identifier: {name}")
 
 
 class IdentifierOrHole(str):
@@ -31,7 +32,7 @@ class IdentifierOrHole(str):
         name = str(name)
         if IdentifierOrHole._valid_re.match(name):
             return super().__new__(cls, name)
-        raise ValueError(f'invalid identifier: {name}')
+        raise ValueError(f"invalid identifier: {name}")
 
 
 front_ops = {"+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "and", "or"}
@@ -42,7 +43,7 @@ class Operator(str):
         op = str(op)
         if op in front_ops:
             return super().__new__(cls, op)
-        raise ValueError(f'invalid operator: {op}')
+        raise ValueError(f"invalid operator: {op}")
 
 
 # --------------------------------------------------------------------------- #
@@ -50,7 +51,8 @@ class Operator(str):
 # --------------------------------------------------------------------------- #
 
 
-LoopIR = ADT("""
+LoopIR = ADT(
+    """
 module LoopIR {
     proc = ( name    name,
              fnarg*  args,
@@ -111,23 +113,37 @@ module LoopIR {
          | WindowType( type src_type, type as_tensor,
                        sym src_buf, w_access *idx )
 
-}""", ext_types={
-    'name': validators.instance_of(Identifier, convert=True),
-    'sym': Sym,
-    'effect': (lambda x: validators.instance_of(Effects.effect)(x)),
-    'mem': Type[Memory],
-    'builtin': BuiltIn,
-    'config': Config,
-    'binop': validators.instance_of(Operator, convert=True),
-    'srcinfo': SrcInfo,
-}, memoize={'Num', 'F32', 'F64', 'INT8', 'INT32' 'Bool', 'Int', 'Index',
-            'Size', 'Stride', 'Error'})
+}""",
+    ext_types={
+        "name": validators.instance_of(Identifier, convert=True),
+        "sym": Sym,
+        "effect": (lambda x: validators.instance_of(Effects.effect)(x)),
+        "mem": Type[Memory],
+        "builtin": BuiltIn,
+        "config": Config,
+        "binop": validators.instance_of(Operator, convert=True),
+        "srcinfo": SrcInfo,
+    },
+    memoize={
+        "Num",
+        "F32",
+        "F64",
+        "INT8",
+        "INT32" "Bool",
+        "Int",
+        "Index",
+        "Size",
+        "Stride",
+        "Error",
+    },
+)
 
 # --------------------------------------------------------------------------- #
 # Untyped AST
 # --------------------------------------------------------------------------- #
 
-UAST = ADT("""
+UAST = ADT(
+    """
 module UAST {
     proc    = ( name?           name,
                 fnarg*          args,
@@ -179,24 +195,38 @@ module UAST {
             | Index ()
             | Stride()
             | Tensor( expr *hi, bool is_window, type type )
-} """, ext_types={
-    'name': validators.instance_of(Identifier, convert=True),
-    'sym': Sym,
-    'mem': Type[Memory],
-    'builtin': BuiltIn,
-    'config': Config,
-    'loopir_proc': LoopIR.proc,
-    'op': validators.instance_of(Operator, convert=True),
-    'srcinfo': SrcInfo,
-}, memoize={'Num', 'F32', 'F64', 'INT8', 'INT32',
-            'Bool', 'Int', 'Size', 'Index', 'Stride'})
+} """,
+    ext_types={
+        "name": validators.instance_of(Identifier, convert=True),
+        "sym": Sym,
+        "mem": Type[Memory],
+        "builtin": BuiltIn,
+        "config": Config,
+        "loopir_proc": LoopIR.proc,
+        "op": validators.instance_of(Operator, convert=True),
+        "srcinfo": SrcInfo,
+    },
+    memoize={
+        "Num",
+        "F32",
+        "F64",
+        "INT8",
+        "INT32",
+        "Bool",
+        "Int",
+        "Size",
+        "Index",
+        "Stride",
+    },
+)
 
 # --------------------------------------------------------------------------- #
 # Pattern AST
 #   - used to specify pattern-matches
 # --------------------------------------------------------------------------- #
 
-PAST = ADT("""
+PAST = ADT(
+    """
 module PAST {
 
     stmt    = Assign  ( name name, expr* idx, expr rhs )
@@ -220,18 +250,21 @@ module PAST {
             | ReadConfig( string config, string field )
             attributes( srcinfo srcinfo )
 
-} """, ext_types={
-    'name': validators.instance_of(IdentifierOrHole, convert=True),
-    'builtin': BuiltIn,
-    'op': validators.instance_of(Operator, convert=True),
-    'srcinfo': SrcInfo,
-})
+} """,
+    ext_types={
+        "name": validators.instance_of(IdentifierOrHole, convert=True),
+        "builtin": BuiltIn,
+        "op": validators.instance_of(Operator, convert=True),
+        "srcinfo": SrcInfo,
+    },
+)
 
 # --------------------------------------------------------------------------- #
 # Effects
 # --------------------------------------------------------------------------- #
 
-Effects = ADT("""
+Effects = ADT(
+    """
 module Effects {
     effect      = ( effset*     reads,
                     effset*     writes,
@@ -264,18 +297,21 @@ module Effects {
                 | ConfigField( config config, string field )
                 attributes( type type, srcinfo srcinfo )
 
-} """, {
-    'sym': Sym,
-    'type': LoopIR.type,
-    'binop': validators.instance_of(Operator, convert=True),
-    'config': Config,
-    'srcinfo': SrcInfo,
-})
+} """,
+    {
+        "sym": Sym,
+        "type": LoopIR.type,
+        "binop": validators.instance_of(Operator, convert=True),
+        "config": Config,
+        "srcinfo": SrcInfo,
+    },
+)
 
 
 # --------------------------------------------------------------------------- #
 # Extension methods
 # --------------------------------------------------------------------------- #
+
 
 @extclass(UAST.Tensor)
 @extclass(UAST.Num)
@@ -314,6 +350,7 @@ del __hash__
 # --------------------------------------------------------------------------- #
 # Types
 
+
 class T:
     Num = LoopIR.Num
     F32 = LoopIR.F32
@@ -346,6 +383,7 @@ class T:
 
 # --------------------------------------------------------------------------- #
 # type helper functions
+
 
 @extclass(T.Tensor)
 @extclass(T.Window)
@@ -415,8 +453,7 @@ del is_tensor_or_window
 
 @extclass(LoopIR.type)
 def is_win(t):
-    return ((isinstance(t, T.Tensor) and t.is_window) or
-            isinstance(t, T.Window))
+    return (isinstance(t, T.Tensor) and t.is_window) or isinstance(t, T.Window)
 
 
 del is_win
@@ -495,7 +532,7 @@ def lift_to_eff_expr(e):
     elif isinstance(e, LoopIR.USub):
         zero = Effects.Const(0, e.type, e.srcinfo)
         arg = lift_to_eff_expr(e.arg)
-        return Effects.BinOp('-', zero, arg, e.type, e.srcinfo)
+        return Effects.BinOp("-", zero, arg, e.type, e.srcinfo)
 
     elif isinstance(e, LoopIR.StrideExpr):
         return Effects.Stride(e.name, e.dim, e.type, e.srcinfo)
@@ -568,11 +605,13 @@ class LoopIR_Rewrite:
         new_body = self.map_stmts(p.body)
         new_eff = self.map_eff(p.eff)
 
-        if any((new_args is not None, new_preds is not None, new_body is not None,
-                new_eff)):
+        if any(
+            (new_args is not None, new_preds is not None, new_body is not None, new_eff)
+        ):
             new_preds = new_preds or p.preds
-            new_preds = [p for p in new_preds if
-                         not (isinstance(p, LoopIR.Const) and p.val)]
+            new_preds = [
+                p for p in new_preds if not (isinstance(p, LoopIR.Const) and p.val)
+            ]
             return p.update(
                 args=new_args or p.args,
                 preds=new_preds,
@@ -601,62 +640,57 @@ class LoopIR_Rewrite:
             new_rhs = self.map_e(s.rhs)
             new_eff = self.map_eff(s.eff)
             if any((new_type, new_idx is not None, new_rhs, new_eff)):
-                return [s.update(
-                    type=new_type or s.type,
-                    idx=new_idx or s.idx,
-                    rhs=new_rhs or s.rhs,
-                    eff=new_eff or s.eff
-                )]
+                return [
+                    s.update(
+                        type=new_type or s.type,
+                        idx=new_idx or s.idx,
+                        rhs=new_rhs or s.rhs,
+                        eff=new_eff or s.eff,
+                    )
+                ]
         elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
             new_rhs = self.map_e(s.rhs)
             new_eff = self.map_eff(s.eff)
             if any((new_rhs, new_eff)):
-                return [s.update(
-                    rhs=new_rhs or s.rhs,
-                    eff=new_eff or s.eff
-                )]
+                return [s.update(rhs=new_rhs or s.rhs, eff=new_eff or s.eff)]
         elif isinstance(s, LoopIR.If):
             new_cond = self.map_e(s.cond)
             new_body = self.map_stmts(s.body)
             new_orelse = self.map_stmts(s.orelse)
             new_eff = self.map_eff(s.eff)
             if any((new_cond, new_body is not None, new_orelse is not None, new_eff)):
-                return [s.update(
-                    cond=new_cond or s.cond,
-                    body=new_body or s.body,
-                    orelse=new_orelse or s.orelse,
-                    eff=new_eff or s.eff
-                )]
+                return [
+                    s.update(
+                        cond=new_cond or s.cond,
+                        body=new_body or s.body,
+                        orelse=new_orelse or s.orelse,
+                        eff=new_eff or s.eff,
+                    )
+                ]
         elif isinstance(s, LoopIR.Seq):
             new_hi = self.map_e(s.hi)
             new_body = self.map_stmts(s.body)
             new_eff = self.map_eff(s.eff)
             if any((new_hi, new_body is not None, new_eff)):
-                return [s.update(
-                    hi=new_hi or s.hi,
-                    body=new_body or s.body,
-                    eff=new_eff or s.eff
-                )]
+                return [
+                    s.update(
+                        hi=new_hi or s.hi, body=new_body or s.body, eff=new_eff or s.eff
+                    )
+                ]
         elif isinstance(s, LoopIR.Call):
             new_args = self.map_exprs(s.args)
             new_eff = self.map_eff(s.eff)
             if any((new_args is not None, new_eff)):
-                return [s.update(
-                    args=new_args or s.args,
-                    eff=new_eff or s.eff
-                )]
+                return [s.update(args=new_args or s.args, eff=new_eff or s.eff)]
         elif isinstance(s, LoopIR.Alloc):
             new_type = self.map_t(s.type)
             new_eff = self.map_eff(s.eff)
             if any((new_type, new_eff)):
-                return [s.update(
-                    type=new_type or s.type,
-                    eff=new_eff or s.eff
-                )]
+                return [s.update(type=new_type or s.type, eff=new_eff or s.eff)]
         elif isinstance(s, LoopIR.Pass):
             return None
         else:
-            raise NotImplementedError(f'bad case {type(s)}')
+            raise NotImplementedError(f"bad case {type(s)}")
         return None
 
     def map_e(self, e):
@@ -708,7 +742,7 @@ class LoopIR_Rewrite:
         elif isinstance(e, (LoopIR.Const, LoopIR.StrideExpr)):
             return None
         else:
-            raise NotImplementedError(f'bad case {type(s)}')
+            raise NotImplementedError(f"bad case {type(s)}")
         return None
 
     def map_w_access(self, w):
@@ -730,10 +764,7 @@ class LoopIR_Rewrite:
             new_hi = self.map_exprs(t.hi)
             new_type = self.map_t(t.type)
             if (new_hi is not None) or new_type:
-                return t.update(
-                    hi=new_hi or t.hi,
-                    type=new_type or t.type
-                )
+                return t.update(hi=new_hi or t.hi, type=new_type or t.type)
         elif isinstance(t, T.Window):
             new_src_type = self.map_t(t.src_type)
             new_as_tensor = self.map_t(t.as_tensor)
@@ -754,11 +785,15 @@ class LoopIR_Rewrite:
             new_config_reads = self._map_list(self.map_eff_ce, eff.config_reads)
             new_config_writes = self._map_list(self.map_eff_ce, eff.config_writes)
 
-            if any((new_reads is not None,
+            if any(
+                (
+                    new_reads is not None,
                     new_writes is not None,
                     new_reduces is not None,
                     new_config_reads is not None,
-                    new_config_writes is not None)):
+                    new_config_writes is not None,
+                )
+            ):
                 return eff.update(
                     reads=new_reads or eff.reads,
                     writes=new_writes or eff.writes,
@@ -988,9 +1023,11 @@ class FreeVars(LoopIR_Do):
 
     def do_e(self, e):
         etyp = type(e)
-        if (etyp is LoopIR.Read or
-                etyp is LoopIR.WindowExpr or
-                etyp is LoopIR.StrideExpr):
+        if (
+            etyp is LoopIR.Read
+            or etyp is LoopIR.WindowExpr
+            or etyp is LoopIR.StrideExpr
+        ):
             if e.name not in self.env:
                 self.fv.add(e.name)
 
@@ -1052,10 +1089,7 @@ class Alpha_Rename(LoopIR_Rewrite):
     def map_fnarg(self, fa):
         nm = fa.name.copy()
         self.env[fa.name] = nm
-        return fa.update(
-            name=nm,
-            type=self.map_t(fa.type) or fa.type
-        )
+        return fa.update(name=nm, type=self.map_t(fa.type) or fa.type)
 
     def map_s(self, s):
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
@@ -1141,8 +1175,7 @@ class SubstArgs(LoopIR_Rewrite):
         assert isinstance(nodes, list)
         assert isinstance(binding, dict)
         assert all(isinstance(v, LoopIR.expr) for v in binding.values())
-        assert not any(
-            isinstance(v, LoopIR.WindowExpr) for v in binding.values())
+        assert not any(isinstance(v, LoopIR.WindowExpr) for v in binding.values())
         self.env = binding
         self.nodes = []
         for n in nodes:

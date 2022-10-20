@@ -7,8 +7,7 @@ import pysmt
 from asdl_adt import ADT
 from pysmt import shortcuts as SMT
 
-from .LoopIR import (LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars,
-                     Alpha_Rename)
+from .LoopIR import LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars, Alpha_Rename
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
@@ -23,11 +22,12 @@ def _get_smt_solver():
 
 
 def sanitize_str(s):
-    return re.sub(r'\W', '_', s)
+    return re.sub(r"\W", "_", s)
 
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+
 
 class UnificationError(Exception):
     def __init__(self, msg):
@@ -94,10 +94,7 @@ class DoReplace(LoopIR_Rewrite):
             self.pop()
 
             if body or orelse:
-                return [s.update(
-                    body=body or s.body,
-                    orelse=orelse or s.orelse
-                )]
+                return [s.update(body=body or s.body, orelse=orelse or s.orelse)]
 
         elif isinstance(s, LoopIR.Seq):
             self.push()
@@ -116,16 +113,16 @@ class DoReplace(LoopIR_Rewrite):
         match_i = None
         for i, s in enumerate(stmts):
             if s == self.target_block[0]:
-                if stmts[i:i + n_stmts] == self.target_block:
+                if stmts[i : i + n_stmts] == self.target_block:
                     match_i = i
                     break
 
         if match_i is None:
             return super().map_stmts(stmts)
         else:  # process the match
-            prefix_stmts = super().apply_stmts(stmts[: match_i])
-            suffix_stmts = stmts[match_i + n_stmts:]
-            stmts = stmts[match_i: match_i + n_stmts]
+            prefix_stmts = super().apply_stmts(stmts[:match_i])
+            suffix_stmts = stmts[match_i + n_stmts :]
+            stmts = stmts[match_i : match_i + n_stmts]
 
             # prevent name clashes between the statement block and sub-proc
             subproc = Alpha_Rename(self.subproc).result()
@@ -145,7 +142,8 @@ class DoReplace(LoopIR_Rewrite):
 # as "holes" (variables to solve for) and "knowns" (variables to express
 # a solution as an affine combination of).  Any variable not in either of
 # those lists is unknown but not permissible in a solution expression.
-UEq = ADT("""
+UEq = ADT(
+    """
 module UEq {
     problem = ( sym*    holes,  -- symbols the solution is requested for
                 sym*    knowns, -- symbols allowed in solution expressions
@@ -163,13 +161,16 @@ module UEq {
           |  Add( expr lhs, expr rhs )
           |  Scale( int coeff, expr e )
 
-} """, {
-    'sym': Sym,
-})
+} """,
+    {
+        "sym": Sym,
+    },
+)
 
 
 # -------------------------------------- #
 # Conversion to Strings for Debug
+
 
 def _str_uexpr(e, prec=0):
     etyp = type(e)
@@ -204,14 +205,13 @@ def _str_upred(p, prec=0):
     if ptyp is UEq.Eq:
         return f"{p.lhs} == {p.rhs}"
     elif ptyp is UEq.Conj or ptyp is UEq.Disj:
-        op = ' and ' if UEq.Conj else ' or '
+        op = " and " if UEq.Conj else " or "
         s = op.join([_str_upred(pp, 1) for pp in p.preds])
         if prec > 0:
             s = f"({s})"
         return s
     elif ptyp is UEq.Cases:
-        return (f'cases({p.case_var}) ' +
-                ' | '.join([f"({pred})" for pred in p.cases]))
+        return f"cases({p.case_var}) " + " | ".join([f"({pred})" for pred in p.cases])
     else:
         assert False, "bad case"
 
@@ -229,10 +229,12 @@ del __str__
 
 @extclass(UEq.problem)
 def __str__(prob):
-    lines = ["Holes:   " + ', '.join([str(x) for x in prob.holes]),
-             "Knowns:  " + ', '.join([str(x) for x in prob.knowns])]
+    lines = [
+        "Holes:   " + ", ".join([str(x) for x in prob.holes]),
+        "Knowns:  " + ", ".join([str(x) for x in prob.knowns]),
+    ]
     lines += [str(p) for p in prob.preds]
-    return '\n'.join(lines)
+    return "\n".join(lines)
 
 
 del __str__
@@ -240,6 +242,7 @@ del __str__
 
 # -------------------------------------- #
 # How to solve this system of equations
+
 
 @extclass(UEq.expr)
 def normalize(orig_e):
@@ -324,9 +327,9 @@ def solve(prob):
         if x in var_set:
             return var_set[x]
         else:
-            vec = ([SMT.Symbol(f"{repr(x)}_{repr(k)}", SMT.INT)
-                    for k in known_list] +
-                   [SMT.Symbol(f"{repr(x)}_const", SMT.INT)])
+            vec = [SMT.Symbol(f"{repr(x)}_{repr(k)}", SMT.INT) for k in known_list] + [
+                SMT.Symbol(f"{repr(x)}_const", SMT.INT)
+            ]
             var_set[x] = vec
             return vec
 
@@ -352,7 +355,8 @@ def solve(prob):
             else:
                 raise UnificationError(
                     f"Unable to cancel variable '{e.name}' from both sides "
-                    f"of a unification equation")
+                    f"of a unification equation"
+                )
         elif isinstance(e, UEq.Add):
             lhs = lower_e(e.lhs)
             rhs = lower_e(e.rhs)
@@ -449,22 +453,26 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
         return tuple(args)
 
     def do_e(self, e):
-        if (isinstance(e, LoopIR.BinOp) and (e.op == '%' or e.op == '/') and
-                e.type.is_indexable()):
+        if (
+            isinstance(e, LoopIR.BinOp)
+            and (e.op == "%" or e.op == "/")
+            and e.type.is_indexable()
+        ):
             # found a mod-div site
             tuple_node = self.tupleify(e)
             if tuple_node is None:
-                raise UnificationError(f"{e.srcinfo}: cannot handle this "
-                                       f"'{e.op}' operation")
+                raise UnificationError(
+                    f"{e.srcinfo}: cannot handle this " f"'{e.op}' operation"
+                )
 
             # either we have already seen this expression
             if tuple_node in self.tuple_to_sym:
                 sym = self.tuple_to_sym[tuple_node]
             # or we are encountering it for the first time
             else:
-                opname = 'mod' if e.op == '%' else 'div'
+                opname = "mod" if e.op == "%" else "div"
                 node_name = sanitize_str(str(e))
-                sym = Sym(f'{opname}_{self.unq_count}_{node_name}')
+                sym = Sym(f"{opname}_{self.unq_count}_{node_name}")
                 self.unq_count += 1
                 self.tuple_to_sym[tuple_node] = sym
                 self.sym_to_node[sym] = e
@@ -480,18 +488,19 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
         if isinstance(e, LoopIR.Read):
             assert len(e.idx) == 0
             if e.name not in self.FV:
-                raise UnificationError(f"{e.srcinfo}: "
-                                       f"Found bound variable '{e.name}' "
-                                       f"inside of mod or div operation")
+                raise UnificationError(
+                    f"{e.srcinfo}: "
+                    f"Found bound variable '{e.name}' "
+                    f"inside of mod or div operation"
+                )
             else:
                 return e.name
         elif isinstance(e, LoopIR.Const):
             return e.val
         elif isinstance(e, LoopIR.USub):
-            return self.tuple_memo('-', self.tupleify(e.arg))
+            return self.tuple_memo("-", self.tupleify(e.arg))
         elif isinstance(e, LoopIR.BinOp):
-            return self.tuple_memo(e.op, self.tupleify(e.lhs),
-                                   self.tupleify(e.rhs))
+            return self.tuple_memo(e.op, self.tupleify(e.lhs), self.tupleify(e.rhs))
         else:
             assert False, "Bad case tupleify"
 
@@ -531,21 +540,24 @@ class BufVar:
             full_dim = self.n_dim + win_dim
 
             for case_id, pt_idxs in enumerate(
-                    itertools.combinations(range(0, full_dim), win_dim)):
-                case_name = (f"{self.name}_" +
-                             '_'.join([str(i) for i in pt_idxs]) +
-                             f"_cs{case_id}")
+                itertools.combinations(range(0, full_dim), win_dim)
+            ):
+                case_name = (
+                    f"{self.name}_"
+                    + "_".join([str(i) for i in pt_idxs])
+                    + f"_cs{case_id}"
+                )
 
                 def make_pt(i):
                     return Sym(f"{case_name}_pt{i}")
 
                 def make_interval(i):
-                    return (Sym(f"{case_name}_lo{i}"),
-                            Sym(f"{case_name}_hi{i}"))
+                    return (Sym(f"{case_name}_lo{i}"), Sym(f"{case_name}_hi{i}"))
 
-                idx_vars = [(make_pt(i) if i in pt_idxs else
-                             make_interval(i))
-                            for i in range(0, full_dim)]
+                idx_vars = [
+                    (make_pt(i) if i in pt_idxs else make_interval(i))
+                    for i in range(0, full_dim)
+                ]
 
                 self.cases.append(idx_vars)
 
@@ -587,7 +599,7 @@ class BufVar:
                 if isinstance(lo, LoopIR.Const) and lo.val == 0:
                     return hi
                 else:
-                    return LoopIR.BinOp('-', hi, lo, T.index, hi.srcinfo)
+                    return LoopIR.BinOp("-", hi, lo, T.index, hi.srcinfo)
 
             idx = []
             win_shape = []
@@ -618,17 +630,17 @@ class Unification:
         # set up different kinds of variables before we
         # begin doing the structural matching...
         # self.arg_syms       = { fa.name : True for fa in subproc.args }
-        self.index_holes = [fa.name for fa in subproc.args
-                            if fa.type.is_indexable()]
-        self.buf_holes = {fa.name:
-                              BufVar(fa.name, fa.type, fa.type.is_win())
-                          for fa in subproc.args
-                          if fa.type.is_numeric()}
-        self.bool_holes = {fa.name: False for fa in subproc.args
-                           if fa.type == T.bool}
+        self.index_holes = [fa.name for fa in subproc.args if fa.type.is_indexable()]
+        self.buf_holes = {
+            fa.name: BufVar(fa.name, fa.type, fa.type.is_win())
+            for fa in subproc.args
+            if fa.type.is_numeric()
+        }
+        self.bool_holes = {fa.name: False for fa in subproc.args if fa.type == T.bool}
 
-        self.stride_holes = {fa.name: False for fa in subproc.args
-                             if fa.type == T.stride}
+        self.stride_holes = {
+            fa.name: False for fa in subproc.args if fa.type == T.stride
+        }
 
         # keep track of all buffer names we might need to unify,
         # not just the unknown arguments, but also temporary allocated bufs
@@ -672,13 +684,13 @@ class Unification:
             add_fv(x)
 
         # block-side buffer types
-        self.bbuf_types = {x: self.FV[x] for x in self.FV
-                           if self.FV[x].is_numeric()}
+        self.bbuf_types = {x: self.FV[x] for x in self.FV if self.FV[x].is_numeric()}
 
         # self.node_syms  = None
         # self.sym_nodes  = None
-        self.node_syms, self.sym_nodes = _Find_Mod_Div_Symbols(stmt_block,
-                                                               self.FV).result()
+        self.node_syms, self.sym_nodes = _Find_Mod_Div_Symbols(
+            stmt_block, self.FV
+        ).result()
 
         # substitutions to do of intermediate indexing variables
         self.idx_subst = dict()
@@ -696,27 +708,26 @@ class Unification:
         for nm in self.buf_holes:
             if self.buf_holes[nm].solution_buf is None:
                 raise UnificationError(
-                    f"Cannot perform unification due to an un-unused "
-                    f"argument: {nm}")
+                    f"Cannot perform unification due to an un-unused " f"argument: {nm}"
+                )
 
-        holes = (self.index_holes +
-                 [x for nm in self.buf_holes
-                  for x in self.buf_holes[nm].all_syms()])
-        knowns = ([nm for nm in self.sym_nodes] +
-                  [nm for nm in self.FV if self.FV[nm].is_indexable()])
+        holes = self.index_holes + [
+            x for nm in self.buf_holes for x in self.buf_holes[nm].all_syms()
+        ]
+        knowns = [nm for nm in self.sym_nodes] + [
+            nm for nm in self.FV if self.FV[nm].is_indexable()
+        ]
         ueq_prob = UEq.problem(holes, knowns, self.equations)
 
         # solve the problem
         solutions = ueq_prob.solve()
         if solutions is None:
-            raise UnificationError(
-                f"Unification of various index expressions failed")
+            raise UnificationError(f"Unification of various index expressions failed")
 
         # construct the solution arguments
         def get_arg(fa):
             if fa.type.is_indexable():
-                return self.from_ueq(solutions[fa.name],
-                                     stmt_block[0].srcinfo)
+                return self.from_ueq(solutions[fa.name], stmt_block[0].srcinfo)
             elif fa.type == T.bool:
                 if fa.name in self.bool_holes:
                     if self.bool_holes[fa.name] is False:
@@ -730,13 +741,11 @@ class Unification:
                 if fa.name in self.stride_holes:
                     return self.stride_holes[fa.name]
                 else:
-                    raise UnificationError(f"stride argument {fa.name}"
-                                           + " unused")
+                    raise UnificationError(f"stride argument {fa.name}" + " unused")
             else:
                 assert fa.type.is_numeric()
                 bufvar = self.buf_holes[fa.name]
-                return bufvar.get_solution(self, solutions,
-                                           stmt_block[0].srcinfo)
+                return bufvar.get_solution(self, solutions, stmt_block[0].srcinfo)
 
         self.new_args = [get_arg(fa) for fa in subproc.args]
 
@@ -752,33 +761,31 @@ class Unification:
         insp = in_subproc
         if isinstance(e, LoopIR.Read):
             assert len(e.idx) == 0
-            name = (self.idx_subst[e.name] if e.name in self.idx_subst else
-                    e.name)
+            name = self.idx_subst[e.name] if e.name in self.idx_subst else e.name
             return UEq.Var(name)
         elif isinstance(e, LoopIR.Const):
             return UEq.Const(e.val)
         elif isinstance(e, LoopIR.USub):
             return UEq.Scale(-1, self.to_ueq(e.arg, insp))
         elif isinstance(e, LoopIR.BinOp):
-            if e.op == '+':
-                return UEq.Add(self.to_ueq(e.lhs, insp),
-                               self.to_ueq(e.rhs, insp))
-            elif e.op == '-':
+            if e.op == "+":
+                return UEq.Add(self.to_ueq(e.lhs, insp), self.to_ueq(e.rhs, insp))
+            elif e.op == "-":
                 rhs = UEq.Scale(-1, self.to_ueq(e.rhs, insp))
                 return UEq.Add(self.to_ueq(e.lhs, insp), rhs)
-            elif e.op == '*':
+            elif e.op == "*":
                 if isinstance(e.lhs, LoopIR.Const):
                     return UEq.Scale(e.lhs.val, self.to_ueq(e.rhs, insp))
                 elif isinstance(e.rhs, LoopIR.Const):
                     return UEq.Scale(e.rhs.val, self.to_ueq(e.lhs, insp))
                 else:
-                    assert False, (
-                        "unexpected multiplication; improve the code here")
-            elif e.op == '/' or e.op == '%':
+                    assert False, "unexpected multiplication; improve the code here"
+            elif e.op == "/" or e.op == "%":
                 if in_subproc:
                     raise UnificationError(
                         f"unification with sub-procedures making use of "
-                        f"'%' or '/' operations is not currently supported")
+                        f"'%' or '/' operations is not currently supported"
+                    )
                 else:
                     name = self.node_syms[id(e)]
                     return UEq.Var(name)
@@ -800,15 +807,20 @@ class Unification:
         elif isinstance(e, UEq.Add):
             lhs = self.from_ueq(e.lhs, srcinfo)
             rhs = self.from_ueq(e.rhs, srcinfo)
-            typ = (lhs.type if rhs.type == T.int else
-                   rhs.type if lhs.type == T.int else
-                   lhs.type if rhs.type == T.size else
-                   rhs.type)
-            return LoopIR.BinOp('+', lhs, rhs, typ, srcinfo)
+            typ = (
+                lhs.type
+                if rhs.type == T.int
+                else rhs.type
+                if lhs.type == T.int
+                else lhs.type
+                if rhs.type == T.size
+                else rhs.type
+            )
+            return LoopIR.BinOp("+", lhs, rhs, typ, srcinfo)
         elif isinstance(e, UEq.Scale):
             lhs = LoopIR.Const(e.coeff, T.int, srcinfo)
             rhs = self.from_ueq(e.e, srcinfo)
-            return LoopIR.BinOp('*', lhs, rhs, rhs.type, srcinfo)
+            return LoopIR.BinOp("*", lhs, rhs, rhs.type, srcinfo)
         else:
             assert False, "bad case"
 
@@ -834,29 +846,30 @@ class Unification:
         if type(e0) is not type(e1):
             return False
         elif isinstance(e0, LoopIR.Read):
-            return (e0.name == e1.name and
-                    all(self.is_exact_e(i0, i1)
-                        for i0, i1 in zip(e0.idx, e1.idx)))
+            return e0.name == e1.name and all(
+                self.is_exact_e(i0, i1) for i0, i1 in zip(e0.idx, e1.idx)
+            )
         elif isinstance(e0, LoopIR.Const):
             return e0.val == e1.val
         elif isinstance(e0, LoopIR.USub):
             return self.is_exact_e(e0.arg, e1.arg)
         elif isinstance(e0, LoopIR.BinOp):
-            return (e0.op == e1.op and
-                    self.is_exact_e(e0.lhs, e1.lhs) and
-                    self.is_exact_e(e0.rhs, e1.rhs))
+            return (
+                e0.op == e1.op
+                and self.is_exact_e(e0.lhs, e1.lhs)
+                and self.is_exact_e(e0.rhs, e1.rhs)
+            )
         elif isinstance(e0, LoopIR.BuiltIn):
-            return (e0.f == e1.f and
-                    all(self.is_exact_e(a0, a1)
-                        for a0, a1 in zip(e0.args, e1.args)))
+            return e0.f == e1.f and all(
+                self.is_exact_e(a0, a1) for a0, a1 in zip(e0.args, e1.args)
+            )
         else:
             assert False, "unsupported case"
 
     # ----------
 
     def unify_affine_e(self, pa, ba):
-        self.equations.append(UEq.Eq(self.to_ueq(pa, in_subproc=True),
-                                     self.to_ueq(ba)))
+        self.equations.append(UEq.Eq(self.to_ueq(pa, in_subproc=True), self.to_ueq(ba)))
 
     def unify_bool_hole(self, pe, be):
         assert pe.type == be.type == T.bool
@@ -866,7 +879,8 @@ class Unification:
             raise UnificationError(
                 f"Cannot unify expression {be} (@{be.srcinfo}) with the "
                 f"boolean argument {pe.name} because it contains "
-                f"variables that are not free in the code being replaced")
+                f"variables that are not free in the code being replaced"
+            )
 
         # if we haven't yet unified this name with an expression
         lookup = self.bool_holes[pe.name]
@@ -876,7 +890,8 @@ class Unification:
             raise UnificationError(
                 f"Cannot unify the boolean argument {pe.name} with two "
                 f"seemingly inequivalent expressions "
-                f"{be} (@{be.srcinfo}) and {lookup} (@{lookup.srcinfo})")
+                f"{be} (@{be.srcinfo}) and {lookup} (@{lookup.srcinfo})"
+            )
 
     def unify_stride_hole(self, pe, be):
         assert pe.type == be.type == T.stride
@@ -896,7 +911,8 @@ class Unification:
                 bloc = f" (@{block_s[0].srcinfo})"
             raise UnificationError(
                 f"cannot unify {len(proc_s)} statement(s){ploc} with "
-                f"{len(block_s)} statement(s){bloc}")
+                f"{len(block_s)} statement(s){bloc}"
+            )
         elif len(proc_s) == 0:
             return
 
@@ -906,7 +922,8 @@ class Unification:
         if type(ps) is not type(bs):
             raise UnificationError(
                 f"cannot unify a {type(ps)} statement (@{ps.srcinfo}) with "
-                f"a {type(bs)} statement (@{bs.srcinfo})")
+                f"a {type(bs)} statement (@{bs.srcinfo})"
+            )
         elif isinstance(ps, (LoopIR.Assign, LoopIR.Reduce)):
             self.unify_e(ps.rhs, bs.rhs)
             self.unify_accesses(ps, bs)
@@ -914,7 +931,8 @@ class Unification:
             if ps.config != bs.config or ps.field != bs.field:
                 raise UnificationError(
                     f"cannot unify Writeconfig '{pe.config.name()}.{pe.field}' "
-                    f"with Writeconfig '{be.config.name()}.{be.field}'")
+                    f"with Writeconfig '{be.config.name()}.{be.field}'"
+                )
             self.unify_e(ps.rhs, bs.rhs)
         elif isinstance(ps, LoopIR.Pass):
             pass
@@ -940,7 +958,8 @@ class Unification:
             if ps.f != bs.f:
                 raise UnificationError(
                     f"cannot unify a call to '{ps.f.name()}' (@{ps.srcinfo}) "
-                    f"with a call to {bs.f.name()} (@{bs.srcinfo})")
+                    f"with a call to {bs.f.name()} (@{bs.srcinfo})"
+                )
             for pe, be in zip(ps.args, bs.args):
                 self.unify_e(pe, be)
         elif isinstance(ps, LoopIR.WindowStmt):
@@ -962,12 +981,14 @@ class Unification:
             raise UnificationError(
                 f"Cannot unify the windowed buffer '{pname}' "
                 f"with the buffer '{bname}' because '{bname}' is used "
-                f"in a position where windowing is not currently supported")
+                f"in a position where windowing is not currently supported"
+            )
 
         if pvar.solution_buf and pvar.solution_buf != bname:
             raise UnificationError(
                 f"The buffer {pname} cannot be unified to both "
-                f"the buffer {pvar.solution_buf}, and the buffer {bname}")
+                f"the buffer {pvar.solution_buf}, and the buffer {bname}"
+            )
         else:
             pvar.set_buf_solution(bname)
 
@@ -983,7 +1004,8 @@ class Unification:
             raise UnificationError(
                 f"the access to '{pbuf}' (@{pnode.srcinfo}) has too many "
                 f"indices ({len(pidx)}, compared to {len(bidx)}) to unify with "
-                f"the access to '{bbuf}' (@{bnode.srcinfo})")
+                f"the access to '{bbuf}' (@{bnode.srcinfo})"
+            )
 
         # handle special case of unindexed buffers used in
         # call-argument position
@@ -994,7 +1016,8 @@ class Unification:
             if len(pnode.type.shape()) == 0:
                 raise UnificationError(
                     f"Could not unify buffer '{pbuf}' (@{pnode.srcinfo}) "
-                    f"with buffer '{bbuf}' (@{bnode.srcinfo})")
+                    f"with buffer '{bbuf}' (@{bnode.srcinfo})"
+                )
             else:
                 assert len(pidx) == 0
                 self.unify_types(pnode.type, bnode.type, pnode, bnode)
@@ -1007,7 +1030,8 @@ class Unification:
                 f"'{pbuf}' (@{pnode.srcinfo}) "
                 f"with a non-simple call argument "
                 f"'{bbuf}' (@{bnode.srcinfo}) "
-                f"is currently unsupported")
+                f"is currently unsupported"
+            )
 
         # otherwise, we can be sure that everything has been
         # accessed all the way down to a particular scalar value
@@ -1022,12 +1046,13 @@ class Unification:
                 self.unify_types(pvar.typ, self.bbuf_types[bbuf], pnode, bnode)
                 self.unify_buf_name_no_win(pbuf, bbuf)
             elif len(pidx) == 0 and self.is_proc_constant(bbuf):
-                raise NotImplementedError('Unify buffer access with constant')
+                raise NotImplementedError("Unify buffer access with constant")
             else:
                 raise UnificationError(
                     f"cannot unify the access to '{pbuf}' (@{pnode.srcinfo}) "
                     f"using {len(pidx)} indices with the access to "
-                    f"'{bbuf}' (@{bnode.srcinfo}) using {len(bidx)} indices.")
+                    f"'{bbuf}' (@{bnode.srcinfo}) using {len(bidx)} indices."
+                )
 
         # Otherwise, how to unify accesses WITH windowing in the way
         else:
@@ -1038,7 +1063,8 @@ class Unification:
                     f"because '{pbuf}' is already being windowed down "
                     f"from a {pvar.n_dim + pvar.win_dim} dimension tensor, "
                     f"but is required to be windowed down from a "
-                    f"{len(bidx)} dimension tensor here")
+                    f"{len(bidx)} dimension tensor here"
+                )
 
             # set up all the case variables and the
             # equations relating windowing lo/hi expressions to
@@ -1060,15 +1086,13 @@ class Unification:
                     if isinstance(wi, Sym):  # point access from window
                         pe = UEq.Var(wi)
                     else:  # interval access
-                        pe = UEq.Add(UEq.Var(wi[0]),
-                                     self.to_ueq(tmp_pidx.pop(0)))
+                        pe = UEq.Add(UEq.Var(wi[0]), self.to_ueq(tmp_pidx.pop(0)))
                     eqs.append(UEq.Eq(pe, be))
 
                 assert len(tmp_pidx) == 0
                 return UEq.Conj(eqs)
 
-            cases = UEq.Cases(pvar.case_var,
-                              [case_conj(cidxs) for cidxs in pvar.cases])
+            cases = UEq.Cases(pvar.case_var, [case_conj(cidxs) for cidxs in pvar.cases])
             self.equations.append(cases)
 
     def unify_types(self, pt, bt, pnode, bnode):
@@ -1084,38 +1108,49 @@ class Unification:
                     f"cannot unify a tensor-type of "
                     f"{len(pt.shape())} dimensions (@{pnode.srcinfo}) with "
                     f"a tensor-type of {len(bt.shape())} dimensions "
-                    f"(@{bnode.srcinfo})")
+                    f"(@{bnode.srcinfo})"
+                )
             for psz, bsz in zip(pt.shape(), bt.shape()):
                 self.unify_affine_e(psz, bsz)
         else:
             raise UnificationError(
                 f"cannot unify type {pt} (@{pnode.srcinfo}) with "
-                f"type {bt} (@{bnode.srcinfo})")
+                f"type {bt} (@{bnode.srcinfo})"
+            )
 
     def unify_e(self, pe, be):
-        if (pe.type.is_indexable() != be.type.is_indexable() or
-                (pe.type == T.bool) != (be.type == T.bool)):
+        if pe.type.is_indexable() != be.type.is_indexable() or (pe.type == T.bool) != (
+            be.type == T.bool
+        ):
             raise UnificationError(
                 f"expected expressions to have similar types:\n"
-                f'  {pe}: {pe.type} [{pe.srcinfo}]\n'
-                f'  {be}: {be.type} [{be.srcinfo}]')
+                f"  {pe}: {pe.type} [{pe.srcinfo}]\n"
+                f"  {be}: {be.type} [{be.srcinfo}]"
+            )
         elif pe.type.is_indexable():
             # convert to an equality
             self.unify_affine_e(pe, be)
             return
-        elif (pe.type == T.bool and isinstance(pe, LoopIR.Read)
-              and pe.name in self.bool_holes):
+        elif (
+            pe.type == T.bool
+            and isinstance(pe, LoopIR.Read)
+            and pe.name in self.bool_holes
+        ):
             self.unify_bool_hole(pe, be)
             return
-        elif (pe.type == T.stride and isinstance(pe, LoopIR.Read)
-              and pe.name in self.stride_holes):
+        elif (
+            pe.type == T.stride
+            and isinstance(pe, LoopIR.Read)
+            and pe.name in self.stride_holes
+        ):
             self.unify_stride_hole(pe, be)
             return
 
         if type(pe) is not type(be):
             raise UnificationError(
                 f"cannot unify a {type(pe)} expression (@{pe.srcinfo}) with "
-                f"a {type(be)} expression (@{be.srcinfo})")
+                f"a {type(be)} expression (@{be.srcinfo})"
+            )
         elif isinstance(pe, LoopIR.Read):
             assert pe.type.is_numeric(), "unhandled expression type...?"
             self.unify_accesses(pe, be)
@@ -1123,29 +1158,32 @@ class Unification:
             if pe.val != be.val:
                 raise UnificationError(
                     f"cannot unify {pe.val} (@{pe.srcinfo}) with "
-                    f"{be.val} (@{be.srcinfo})")
+                    f"{be.val} (@{be.srcinfo})"
+                )
         elif isinstance(pe, LoopIR.USub):
             self.unify_e(pe.arg, be.arg)
         elif isinstance(pe, LoopIR.BinOp):
             if pe.op != be.op:
                 raise UnificationError(
                     f"cannot unify a '{pe.op}' (@{pe.srcinfo}) with "
-                    f"a '{be.op}'' (@{be.srcinfo})")
+                    f"a '{be.op}'' (@{be.srcinfo})"
+                )
             self.unify_e(pe.lhs, be.lhs)
             self.unify_e(pe.rhs, be.rhs)
         elif isinstance(pe, LoopIR.BuiltIn):
             if pe.f != be.f:
                 raise UnificationError(
                     f"cannot unify builtin '{pe.f.name()}' (@{pe.srcinfo}) "
-                    f"with builtin '{be.f.name()}'' (@{be.srcinfo})")
+                    f"with builtin '{be.f.name()}'' (@{be.srcinfo})"
+                )
             for pa, ba in zip(pe.args, be.args):
                 self.unify_e(pa, ba)
         elif isinstance(pe, LoopIR.ReadConfig):
-            if (pe.config != be.config or
-                    pe.field != be.field):
+            if pe.config != be.config or pe.field != be.field:
                 raise UnificationError(
                     f"cannot unify readconfig '{pe.config.name()}.{pe.field}' "
-                    f"with readconfig '{be.config.name()}.{be.field}'")
+                    f"with readconfig '{be.config.name()}.{be.field}'"
+                )
         elif isinstance(pe, LoopIR.WindowExpr):
             pvar = self.buf_unknowns[pe.name]
 
@@ -1158,7 +1196,8 @@ class Unification:
                 raise UnificationError(
                     f"cannot unify the windowing of {pe.name} (@{pe.srcinfo}) "
                     f"using {len(pe.idx)} indices with the windowing of "
-                    f"{be.name} (@{be.srcinfo}) using {len(be.idx)}")
+                    f"{be.name} (@{be.srcinfo}) using {len(be.idx)}"
+                )
 
             for i, (pw, bw) in enumerate(zip(pe.idx, be.idx)):
                 if type(pw) is not type(bw):
@@ -1167,7 +1206,8 @@ class Unification:
                         f"{pe.name} (@{pe.srcinfo}) with the windowing of "
                         f"{be.name} (@{be.srcinfo}) because one evaluates to a "
                         f"point at index {i}, while the other evaluates to an "
-                        f"interval")
+                        f"interval"
+                    )
                 elif isinstance(pw, LoopIR.Point):
                     self.unify_affine_e(pw.pt, bw.pt)
                 else:

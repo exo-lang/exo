@@ -1,5 +1,4 @@
-from inspect import (currentframe as _curr_frame,
-                     getframeinfo as _get_frame_info)
+from inspect import currentframe as _curr_frame, getframeinfo as _get_frame_info
 from re import compile as _re_compile
 
 
@@ -10,10 +9,13 @@ def is_pos_int(obj):
 _valid_pattern = _re_compile(r"^[a-zA-Z_]\w*$")
 valid_name_pattern = r"[a-zA-Z_]\w*"
 
+
 def is_valid_name(obj):
-    return (isinstance(obj, str) and
-            obj != '_' and  # prohibit the name '_' universally
-            (_valid_pattern.match(obj) is not None))
+    return (
+        isinstance(obj, str)
+        and obj != "_"
+        and (_valid_pattern.match(obj) is not None)  # prohibit the name '_' universally
+    )
 
 
 class Sym:
@@ -21,8 +23,7 @@ class Sym:
 
     def __init__(self, nm):
         if not is_valid_name(nm):
-            raise TypeError(f"expected an alphanumeric name string, "
-                            f"but got '{nm}'")
+            raise TypeError(f"expected an alphanumeric name string, " f"but got '{nm}'")
         self._nm = nm
         self._id = Sym._unq_count
         Sym._unq_count += 1
@@ -33,7 +34,8 @@ class Sym:
     def __repr__(self):
         return f"{self._nm}_{self._id}"
 
-    def __hash__(self): return id(self)
+    def __hash__(self):
+        return id(self)
 
     def __lt__(self, rhs):
         assert isinstance(rhs, Sym)
@@ -52,9 +54,15 @@ def extclass(cls):
 
 
 class SrcInfo:
-    def __init__(self, filename, lineno, col_offset=None,
-                 end_lineno=None, end_col_offset=None,
-                 function=None):
+    def __init__(
+        self,
+        filename,
+        lineno,
+        col_offset=None,
+        end_lineno=None,
+        end_col_offset=None,
+        function=None,
+    ):
         self.filename = filename
         self.lineno = lineno
         self.col_offset = col_offset
@@ -78,4 +86,7 @@ def get_srcinfo(depth=1):
 
 
 _null_srcinfo_obj = SrcInfo("unknown", 0)
-def null_srcinfo(): return _null_srcinfo_obj
+
+
+def null_srcinfo():
+    return _null_srcinfo_obj

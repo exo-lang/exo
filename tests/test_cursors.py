@@ -5,7 +5,7 @@ import pytest
 from exo import proc
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope="session")
 def proc_foo():
     @proc
     def foo(n: size, m: size):
@@ -19,7 +19,7 @@ def proc_foo():
     yield foo
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope="session")
 def proc_bar():
     @proc
     def bar(n: size, m: size):
@@ -41,10 +41,12 @@ def test_parent_cursor(proc_foo):
     iloop = proc_foo.find("for i in _:_")
     assert jloop.parent() == iloop
 
+
 def test_child_cursor(proc_foo):
     jloop = proc_foo.find("for j in _:_")
     iloop = proc_foo.find("for i in _:_")
     assert jloop == iloop.body()[0]
+
 
 def test_asblock_cursor(proc_foo):
     jloop = proc_foo.find("for j in _:_")
@@ -53,7 +55,3 @@ def test_asblock_cursor(proc_foo):
 
 
 # Need some more tests here...
-
-
-
-

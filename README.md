@@ -103,6 +103,23 @@ Take a look at `exo/examples` for scheduling examples.
 | `.set_memory(name, mem_type)`    | Sets a buffer `name`'s memory type to `mem_type`.                                                                                                                                            |
 
 
+# Developing Exo
+
+If you plan to work on the compiler directly, you should run the following
+commands:
+
+```console
+$ git submodule update --init --recursive
+$ python3.9 -m venv ~/.venv/exo
+$ source ~/.venv/exo/bin/activate
+(venv) $ python -m pip install -U pip setuptools wheel
+(venv) $ python -m pip install -r requirements.txt
+(venv) $ pre-commit install
+```
+
+This will make sure you have the submodules checked out and that the pre-commit
+scripts (that run an autoformatter, maybe other tools in the future) run.
+
 # Exo's repository structure
 
 In this repository, folders are structured as follows:

@@ -8,6 +8,7 @@ from exo.libs.memories import GEMM_SCRATCH
 
 # --- Typechecking tests ---
 
+
 def new_config_ld():
     @config
     class ConfigLoad:
@@ -42,8 +43,9 @@ def test_loop1():
 
 def test_fresh1():
     with pytest.raises(
-            TypeError,
-            match='unable to disambiguate assignment to undefined variable'):
+        TypeError, match="unable to disambiguate assignment to undefined variable"
+    ):
+
         @proc
         def foo(n: size, A: R[n] @ GEMM_SCRATCH):
             for i in seq(0, n):
@@ -53,8 +55,9 @@ def test_fresh1():
 
 def test_fresh2():
     with pytest.raises(
-            TypeError,
-            match='unable to disambiguate assignment to undefined variable'):
+        TypeError, match="unable to disambiguate assignment to undefined variable"
+    ):
+
         @proc
         def foo(n: size, A: R[n] @ GEMM_SCRATCH):
             for i in seq(0, n):
@@ -112,7 +115,8 @@ def test_bool4():
 
 
 def test_badpred():
-    with pytest.raises(TypeError, match='Errors occurred during typechecking'):
+    with pytest.raises(TypeError, match="Errors occurred during typechecking"):
+
         @proc
         def badpred(m: size):
             assert m + 1
@@ -121,7 +125,8 @@ def test_badpred():
 
 
 def test_badaccess():
-    with pytest.raises(TypeError, match='expected access of variable'):
+    with pytest.raises(TypeError, match="expected access of variable"):
+
         @proc
         def badaccess(m: size, x: R[m]):
             res: R[m]
@@ -130,7 +135,8 @@ def test_badaccess():
 
 
 def test_badaccess2():
-    with pytest.raises(TypeError, match='expected lvalue access of variable'):
+    with pytest.raises(TypeError, match="expected lvalue access of variable"):
+
         @proc
         def badaccess2(m: size, x: R[m]):
             res: R[m, m]
@@ -139,14 +145,16 @@ def test_badaccess2():
 
 
 def test_badaccess3():
-    with pytest.raises(TypeError, match='cannot assign/reduce to'):
+    with pytest.raises(TypeError, match="cannot assign/reduce to"):
+
         @proc
         def badaccess3(m: size, n: index, x: R):
             n = x
 
 
 def test_badaccess4():
-    with pytest.raises(TypeError, match='cannot assign/reduce a'):
+    with pytest.raises(TypeError, match="cannot assign/reduce a"):
+
         @proc
         def badaccess4():
             x: R
@@ -169,7 +177,8 @@ def test_pass():
 
 
 def test_if1():
-    with pytest.raises(TypeError, match='expected a bool expression'):
+    with pytest.raises(TypeError, match="expected a bool expression"):
+
         @proc
         def hoge():
             if 4:
@@ -187,7 +196,8 @@ def test_if2():
 
 
 def test_par2():
-    with pytest.raises(TypeError, match='expected loop bound to be indexable'):
+    with pytest.raises(TypeError, match="expected loop bound to be indexable"):
+
         @proc
         def hoge(x: R):
             for i in seq(0, x):
@@ -199,7 +209,8 @@ def test_call_pass1():
     def hoge(y: R):
         pass
 
-    with pytest.raises(TypeError, match='expected scalar type'):
+    with pytest.raises(TypeError, match="expected scalar type"):
+
         @proc
         def huga():
             pass
@@ -212,8 +223,8 @@ def test_call_read_size1():
     def hoge(y: size):
         pass
 
-    with pytest.raises(TypeError,
-                       match='expected size or index type expression'):
+    with pytest.raises(TypeError, match="expected size or index type expression"):
+
         @proc
         def foo(x: R):
             hoge(x)
@@ -224,8 +235,8 @@ def test_call_index_read1():
     def hoge(y: index):
         pass
 
-    with pytest.raises(TypeError,
-                       match='expected size or index type expression'):
+    with pytest.raises(TypeError, match="expected size or index type expression"):
+
         @proc
         def foo(x: R):
             hoge(x)
@@ -236,7 +247,8 @@ def test_call_tensor1_read1():
     def hoge(n: size, m: size, y: f64[n, m]):
         pass
 
-    with pytest.raises(TypeError, match='expected argument of type'):
+    with pytest.raises(TypeError, match="expected argument of type"):
+
         @proc
         def foo(n: size, m: size, x: R[m, n, 10]):
             hoge(n, m, x)
@@ -247,8 +259,9 @@ def test_call_tensor2_read1():
     def hoge(y: f64):
         pass
 
-    msg = 'expected scalar arguments to be simply variable names for now'
+    msg = "expected scalar arguments to be simply variable names for now"
     with pytest.raises(TypeError, match=msg):
+
         @proc
         def foo():
             y: R
@@ -257,8 +270,8 @@ def test_call_tensor2_read1():
 
 
 def test_const_bool():
-    with pytest.raises(TypeError,
-                       match='cannot assign/reduce a \'bool\' type value'):
+    with pytest.raises(TypeError, match="cannot assign/reduce a 'bool' type value"):
+
         @proc
         def hoge(x: R):
             x = True
@@ -271,22 +284,24 @@ def test_usub():
 
 
 def test_usub2():
-    with pytest.raises(TypeError, match='cannot negate expression of type '):
+    with pytest.raises(TypeError, match="cannot negate expression of type "):
+
         @proc
         def hoge(x: R[1]):
             x = -x
 
 
 def test_binop1():
-    with pytest.raises(TypeError, match='cannot negate expression of type '):
+    with pytest.raises(TypeError, match="cannot negate expression of type "):
+
         @proc
         def hoge(x: R[1]):
             x = -x + 3.0
 
 
 def test_binop2():
-    with pytest.raises(TypeError,
-                       match='expected \'bool\' argument to logical op'):
+    with pytest.raises(TypeError, match="expected 'bool' argument to logical op"):
+
         @proc
         def hoge():
             if (1 == 1) and 3:
@@ -294,8 +309,8 @@ def test_binop2():
 
 
 def test_binop3():
-    with pytest.raises(TypeError,
-                       match='expected \'bool\' argument to logical op'):
+    with pytest.raises(TypeError, match="expected 'bool' argument to logical op"):
+
         @proc
         def hoge():
             if 3 and (1 == 1):
@@ -304,8 +319,8 @@ def test_binop3():
 
 @pytest.mark.skip()
 def test_binop4():
-    with pytest.raises(TypeError,
-                       match='using \"==\" for boolean not supported.'):
+    with pytest.raises(TypeError, match='using "==" for boolean not supported.'):
+
         @proc
         def hoge():
             if (0 == 1) == (1 == 1):
@@ -314,8 +329,9 @@ def test_binop4():
 
 def test_binop5():
     with pytest.raises(
-            TypeError,
-            match='expected \'index\' or \'size\' argument to comparison op'):
+        TypeError, match="expected 'index' or 'size' argument to comparison op"
+    ):
+
         @proc
         def hoge():
             if 1 < (1 == 1):
@@ -324,8 +340,9 @@ def test_binop5():
 
 def test_binop6():
     with pytest.raises(
-            TypeError,
-            match='expected \'index\' or \'size\' argument to comparison op'):
+        TypeError, match="expected 'index' or 'size' argument to comparison op"
+    ):
+
         @proc
         def hoge():
             if (1 == 1) < 0:
@@ -333,14 +350,16 @@ def test_binop6():
 
 
 def test_binop7():
-    with pytest.raises(TypeError, match='expected scalar type'):
+    with pytest.raises(TypeError, match="expected scalar type"):
+
         @proc
         def hoge(x: R):
             x = x + 8
 
 
 def test_binop8():
-    with pytest.raises(TypeError, match='cannot compute modulus of'):
+    with pytest.raises(TypeError, match="cannot compute modulus of"):
+
         @proc
         def hoge(x: R):
             x = x % 8.0
@@ -359,16 +378,18 @@ def test_binop10():
 
 
 def test_binop11():
-    with pytest.raises(TypeError,
-                       match='cannot perform arithmetic on \'bool\' values'):
+    with pytest.raises(TypeError, match="cannot perform arithmetic on 'bool' values"):
+
         @proc
         def hoge(x: i8):
             x = (1 == 0) + (0 == 1)
 
 
 def test_binop12():
-    with pytest.raises(TypeError,
-                       match='cannot divide or modulo by a non-constant value'):
+    with pytest.raises(
+        TypeError, match="cannot divide or modulo by a non-constant value"
+    ):
+
         @proc
         def hoge(x: size, y: size):
             if (x / y) > 0:
@@ -377,8 +398,9 @@ def test_binop12():
 
 def test_binop13():
     with pytest.raises(
-            TypeError,
-            match='cannot divide or modulo by zero or a negative value'):
+        TypeError, match="cannot divide or modulo by zero or a negative value"
+    ):
+
         @proc
         def hoge(x: size, y: size):
             if (x / -3) > 0:
@@ -387,8 +409,9 @@ def test_binop13():
 
 def test_binop13_2():
     with pytest.raises(
-            TypeError,
-            match='cannot divide or modulo by zero or a negative value'):
+        TypeError, match="cannot divide or modulo by zero or a negative value"
+    ):
+
         @proc
         def hoge(x: size, y: size):
             if (x / 0) > 0:
@@ -404,9 +427,9 @@ def test_binop14():
 
 def test_binop15():
     with pytest.raises(
-            TypeError,
-            match='cannot multiply two non-constant indexing/sizing expressions'
+        TypeError, match="cannot multiply two non-constant indexing/sizing expressions"
     ):
+
         @proc
         def hoge(x: size, y: size):
             if (y * x) > 0:
@@ -414,7 +437,7 @@ def test_binop15():
 
 
 def test_proj_bad():
-    msg = 'type-shape of calling argument may not equal the required type-shape'
+    msg = "type-shape of calling argument may not equal the required type-shape"
 
     @proc
     def dot(m: size, x: R[1, 1], y: R[m]):
@@ -422,6 +445,7 @@ def test_proj_bad():
         pass
 
     with pytest.raises(TypeError, match=msg):
+
         @proc
         def proj(n: size, x: R[100, 10, 1], y: R[10, n]):
             dot(n, x[1], y[0])
