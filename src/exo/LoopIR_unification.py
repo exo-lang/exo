@@ -116,7 +116,7 @@ class DoReplace(LoopIR_Rewrite):
         if match_i is None:
             return super().map_stmts(stmts)
         else: # process the match
-            prefix_stmts    = super().map_stmts(stmts[ : match_i])
+            prefix_stmts    = super().apply_stmts(stmts[ : match_i])
             suffix_stmts    = stmts[match_i+n_stmts : ]
             stmts           = stmts[match_i : match_i+n_stmts]
 
