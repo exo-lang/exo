@@ -2,20 +2,23 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc, DRAM, SchedulingError, Procedure
-from exo.libs.memories import GEMM_SCRATCH
 from exo import ParseFragmentError
+from exo import proc, DRAM, Procedure
+from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
+
 
 def test_commute(golden):
     @proc
-    def foo(x : R[3], y : R[3], z : R):
-        z = x[0]*y[2]
+    def foo(x: R[3], y: R[3], z: R):
+        z = x[0] * y[2]
+
     assert str(commute_expr(foo, 'x[0] * y[_]')) == golden
+
 
 def test_commute2():
     @proc
-    def foo(x : R[3], y : R[3], z : R):
+    def foo(x: R[3], y: R[3], z: R):
         z = x[0] + y[0] + x[1] + y[1]
 
     with pytest.raises(SchedulingError, match='failed to find matches'):
@@ -24,15 +27,18 @@ def test_commute2():
         # I think pattern matching should be powerful to find this.
         commute_expr(foo, 'y[0] + x[1]')
 
+
 def test_commute3(golden):
     @proc
-    def foo(x : R[3], y : R[3], z : R):
+    def foo(x: R[3], y: R[3], z: R):
         z = (x[0] + y[0]) * (x[1] + y[1] + y[2])
+
     assert str(commute_expr(foo, '(x[_] + y[_]) * (x[_] + y[_] + y[_])')) == golden
+
 
 def test_commute4():
     @proc
-    def foo(x : R[3], y : R[3], z : R):
+    def foo(x: R[3], y: R[3], z: R):
         z = x[0] - y[2]
 
     with pytest.raises(TypeError, match="can commute"):
@@ -41,67 +47,70 @@ def test_commute4():
 
 def test_product_loop(golden):
     @proc
-    def foo(n : size):
-        x : R[n, 30]
+    def foo(n: size):
+        x: R[n, 30]
         for i in seq(0, n):
             for j in seq(0, 30):
-                x[i,j] = 0.0
+                x[i, j] = 0.0
 
     assert str(mult_loops(foo, 'i j', 'ij')) == golden
+
 
 def test_product_loop2(golden):
     @proc
-    def foo(n : size, x : R[n, 30]):
+    def foo(n: size, x: R[n, 30]):
         for i in seq(0, n):
             for j in seq(0, 30):
-                x[i,j] = 0.0
+                x[i, j] = 0.0
 
     assert str(mult_loops(foo, 'i j', 'ij')) == golden
 
+
 def test_product_loop3():
     @proc
-    def foo(n : size, m : size):
-        x : R[n, m]
+    def foo(n: size, m: size):
+        x: R[n, m]
         for i in seq(0, n):
             for j in seq(0, m):
-                x[i,j] = 0.0
+                x[i, j] = 0.0
 
     with pytest.raises(SchedulingError,
-            match='expected the inner loop to have a constant bound'):
+                       match='expected the inner loop to have a constant bound'):
         mult_loops(foo, 'i j', 'ij')
+
 
 def test_product_loop4(golden):
     @proc
-    def foo(n : size, x : R[n]):
+    def foo(n: size, x: R[n]):
         for i in seq(0, n):
             for j in seq(0, 30):
                 x[i] = 0.0
 
     assert str(mult_loops(foo, 'i j', 'ij')) == golden
 
+
 def test_product_loop5(golden):
     @proc
-    def foo(n : size, m : size, x : R[n, 100]):
+    def foo(n: size, m: size, x: R[n, 100]):
         assert m < n
         x2 = x[0:m, 0:30]
         for i in seq(0, m):
             for j in seq(0, 30):
-                x2[i,j] = 0.0
+                x2[i, j] = 0.0
 
     assert str(mult_loops(foo, 'i j', 'ij')) == golden
 
 
-
 def test_delete_pass(golden):
     @proc
-    def foo(x : R):
+    def foo(x: R):
         pass
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
 
     @proc
-    def foo(x : R):
+    def foo(x: R):
         for i in seq(0, 16):
             for j in seq(0, 2):
                 pass
@@ -109,45 +118,50 @@ def test_delete_pass(golden):
 
     assert str(delete_pass(foo)) == golden
 
+
 def test_add_loop1(golden):
     @proc
     def foo():
-        x : R
+        x: R
         x = 0.0
 
     assert str(add_loop(foo, 'x = _', 'i', 10)) == golden
 
+
 def test_add_loop2(golden):
     @proc
     def foo():
-        x : R
+        x: R
         x = 0.0
 
     assert str(add_loop(foo, 'x = _', 'i', 10, guard=True)) == golden
 
+
 def test_add_loop3():
     @proc
     def foo():
-        x : R
+        x: R
         x = 0.0
 
     with pytest.raises(TypeError, match='expected a bool'):
         add_loop(foo, 'x = _', 'i', 10, guard=100)
 
+
 def test_add_loop4(golden):
     @proc
-    def foo(n : size, m : size):
-        x : R
+    def foo(n: size, m: size):
+        x: R
         x = 0.0
 
     assert str(add_loop(foo, 'x = _', 'i', 'n+m', guard=True)) == golden
+
 
 # Should fix this test with program analysis
 @pytest.mark.skip
 def test_add_loop5():
     @proc
-    def foo(n : size, m : size):
-        x : R
+    def foo(n: size, m: size):
+        x: R
         x = 0.0
 
     with pytest.raises(Exception, match='bound expression should be positive'):
@@ -176,19 +190,21 @@ def test_proc_equal():
     # considered equal.
     assert foo != make_foo()
 
+
 def test_simplify3(golden):
     @proc
-    def foo(n : size, m : size):
+    def foo(n: size, m: size):
         assert m == 1 and n == 1
-        y : R[10]
-        y[10*m - 10*n + 2*n] = 2.0
+        y: R[10]
+        y[10 * m - 10 * n + 2 * n] = 2.0
 
     assert str(simplify(foo)) == golden
+
 
 def test_simplify2(golden):
     @proc
     def foo(A: i8[32, 64] @ DRAM, B: i8[16, 128] @ DRAM,
-            C: i32[32, 32] @ DRAM, ko : size, ji_unroll : size, ii_unroll : size):
+            C: i32[32, 32] @ DRAM, ko: size, ji_unroll: size, ii_unroll: size):
         for io in seq(0, 1):
             for jo in seq(0, 1):
                 Btile1: i8[16 * (ko + 1) - 16 * ko, 128 * jo + 64 *
@@ -206,28 +222,31 @@ def test_simplify2(golden):
 
     assert str(simplify(foo)) == golden
 
+
 def test_simplify(golden):
     @proc
-    def foo(n : size, m : size):
-        x : R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
+    def foo(n: size, m: size):
+        x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
         for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
             pass
-        y : R[10]
-        y[n*4 - n*4 + 1] = 0.0
+        y: R[10]
+        y[n * 4 - n * 4 + 1] = 0.0
 
     assert str(simplify(foo)) == golden
 
+
 def test_pattern_match():
     @proc
-    def foo(N1 : size, M1 : size, K1 : size, N2: size, M2: size, K2: size):
-        x : R[N1, M1, K1]
-        x : R[N2, M2, K2]
+    def foo(N1: size, M1: size, K1: size, N2: size, M2: size, K2: size):
+        x: R[N1, M1, K1]
+        x: R[N2, M2, K2]
 
-    res1 = rearrange_dim(foo, 'x : _', [2,1,0])
-    res1 = rearrange_dim(res1, 'x : _ #1', [2,1,0])
-    res2 = rearrange_dim(foo, 'x : R[N1, M1, K1]', [2,1,0])
+    res1 = rearrange_dim(foo, 'x : _', [2, 1, 0])
+    res1 = rearrange_dim(res1, 'x : _ #1', [2, 1, 0])
+    res2 = rearrange_dim(foo, 'x : R[N1, M1, K1]', [2, 1, 0])
 
     assert str(res1) != str(res2)
+
 
 def test_fission_after_simple(golden):
     @proc
@@ -286,10 +305,10 @@ def test_rearrange_dim(golden):
                 for k in seq(0, K):
                     a[m, k, n] = x[n, m, k]
 
-    foo = rearrange_dim(foo, 'a : i8[_]', [1,2,0])
+    foo = rearrange_dim(foo, 'a : i8[_]', [1, 2, 0])
     bar = rearrange_dim(bar, 'a : i8[_]', [1, 0, 2])
     bar = rearrange_dim(bar, 'a : i8[_] #1', [1, 0, 2])
-    cases = [ foo, bar ]
+    cases = [foo, bar]
 
     assert '\n'.join(map(str, cases)) == golden
 
@@ -453,16 +472,17 @@ def test_expand_dim5(golden):
     @proc
     def foo(n: size, x: i8):
         for i in seq(0, n):
-            a : i8
+            a: i8
             a = x
 
     foo = expand_dim(foo, 'a : i8', 'n', 'i')
     assert str(foo) == golden
 
+
 def test_divide_dim_1(golden):
     @proc
-    def foo(n: size, m: size, A : R[n + m + 12]):
-        x : R[n, 12, m]
+    def foo(n: size, m: size, A: R[n + m + 12]):
+        x: R[n, 12, m]
         for i in seq(0, n):
             for j in seq(0, 12):
                 for k in seq(0, m):
@@ -474,8 +494,8 @@ def test_divide_dim_1(golden):
 
 def test_divide_dim_fail_1():
     @proc
-    def foo(n: size, m: size, A : R[n + m + 12]):
-        x : R[n, 12, m]
+    def foo(n: size, m: size, A: R[n + m + 12]):
+        x: R[n, 12, m]
         for i in seq(0, n):
             for j in seq(0, 12):
                 for k in seq(0, m):
@@ -487,10 +507,11 @@ def test_divide_dim_fail_1():
     with pytest.raises(SchedulingError, match='Cannot divide 12 evenly'):
         divide_dim(foo, 'x', 1, 5)
 
+
 def test_mult_dim_1(golden):
     @proc
-    def foo(n: size, m: size, A : R[n + m + 12]):
-        x : R[n, m, 4]
+    def foo(n: size, m: size, A: R[n + m + 12]):
+        x: R[n, m, 4]
         for i in seq(0, n):
             for j in seq(0, m):
                 for k in seq(0, 4):
@@ -499,10 +520,11 @@ def test_mult_dim_1(golden):
     foo = mult_dim(foo, 'x', 0, 2)
     assert str(foo) == golden
 
+
 def test_mult_dim_fail_1():
     @proc
-    def foo(n: size, m: size, A : R[n + m + 12]):
-        x : R[n, m, 4]
+    def foo(n: size, m: size, A: R[n + m + 12]):
+        x: R[n, m, 4]
         for i in seq(0, n):
             for j in seq(0, m):
                 for k in seq(0, 4):
@@ -517,6 +539,7 @@ def test_mult_dim_fail_1():
     with pytest.raises(SchedulingError,
                        match='Cannot multiply with non-literal'):
         mult_dim(foo, 'x', 0, 1)
+
 
 def test_double_fission(golden):
     @proc
@@ -669,9 +692,9 @@ def test_simple_bind_expr(golden):
 def test_bind_expr_diff_indices(golden):
     @proc
     def bar(n: size, x: i8[n], y: i8[n], z: i8[n]):
-        for i in seq(0, n-1):
-            w : i8[n]
-            w[i+1] = x[i] + y[i]
+        for i in seq(0, n - 1):
+            w: i8[n]
+            w[i + 1] = x[i] + y[i]
             w[i] = x[i] + y[i]
             z[i] = w[i]
 
@@ -755,7 +778,8 @@ def test_lift(golden):
             for k in seq(0, 16):
                 a[k] = A[k, i]
 
-    bar = autolift_alloc(bar, 'a: i8[_]', n_lifts=1, mode='col', size=20, keep_dims=True)
+    bar = autolift_alloc(bar, 'a: i8[_]', n_lifts=1, mode='col', size=20,
+                         keep_dims=True)
     assert str(bar) == golden
 
 
@@ -923,8 +947,7 @@ def test_lift_if_second_statement_in_then_error():
                     x[i] = 2.0
 
     with pytest.raises(SchedulingError,
-                       match='expected if statement to be directly nested in '
-                             'parents'):
+                       match='expected if statement to be directly nested in parents'):
         foo = lift_if(foo, 'if i < 10: _')
         print(foo)
 
@@ -941,8 +964,7 @@ def test_lift_if_second_statement_in_else_error():
                     x[i] = 2.0
 
     with pytest.raises(SchedulingError,
-                       match='expected if statement to be directly nested in '
-                             'parents'):
+                       match='expected if statement to be directly nested in parents'):
         foo = lift_if(foo, 'if i < 10: _')
         print(foo)
 
@@ -956,8 +978,7 @@ def test_lift_if_second_statement_in_for_error():
                 pass
 
     with pytest.raises(SchedulingError,
-                       match='expected if statement to be directly nested in '
-                             'parents'):
+                       match='expected if statement to be directly nested in parents'):
         foo = lift_if(foo, 'if m > 12: _')
         print(foo)
 
@@ -1132,72 +1153,78 @@ def test_lift_if_in_full_nest(golden):
 
     foo = lift_if(foo, 'if n < 20: _')
     assert str(foo) == golden
-                
+
 
 def test_stage_mem(golden):
     # This test stages a buffer being accumulated in
     # on a per-tile basis
     @proc
-    def sqmat(n : size, A : R[n,n], B : R[n,n]):
+    def sqmat(n: size, A: R[n, n], B: R[n, n]):
         assert n % 4 == 0
-        for i in seq(0,n/4):
-            for j in seq(0,n/4):
-                for k in seq(0,n/4):
-                    for ii in seq(0,4):
-                        for jj in seq(0,4):
-                            for kk in seq(0,4):
-                                A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
-                                                      B[4*k+kk,4*j+jj] )
+        for i in seq(0, n / 4):
+            for j in seq(0, n / 4):
+                for k in seq(0, n / 4):
+                    for ii in seq(0, 4):
+                        for jj in seq(0, 4):
+                            for kk in seq(0, 4):
+                                A[4 * i + ii, 4 * j + jj] += (
+                                            B[4 * i + ii, 4 * k + kk] *
+                                            B[4 * k + kk, 4 * j + jj])
 
     sqmat = stage_mem(sqmat, 'for k in _: _',
                              'A[4*i:4*i+4, 4*j:4*j+4]', 'Atile')
     assert str(simplify(sqmat)) == golden
 
+
 def test_stage_mem_point(golden):
     @proc
-    def matmul(n : size, A : R[n,n], B : R[n,n], C : R[n,n]):
+    def matmul(n: size, A: R[n, n], B: R[n, n], C: R[n, n]):
         for i in seq(0, n):
             for j in seq(0, n):
                 for k in seq(0, n):
-                    C[i,j] += A[i,k] * B[k,j]
+                    C[i, j] += A[i, k] * B[k, j]
 
     matmul = stage_mem(matmul, 'for k in _:_', 'C[i, j]', 'res')
     assert str(simplify(matmul)) == golden
+
 
 def test_fail_stage_mem():
     # This test fails to stage the buffer B
     # because it's not just being read in a single way
     # therefore the bounds check will fail
     @proc
-    def sqmat(n : size, A : R[n,n], B : R[n,n]):
+    def sqmat(n: size, A: R[n, n], B: R[n, n]):
         assert n % 4 == 0
-        for i in seq(0,n/4):
-            for j in seq(0,n/4):
-                for k in seq(0,n/4):
-                    for ii in seq(0,4):
-                        for jj in seq(0,4):
-                            for kk in seq(0,4):
-                                A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
-                                                      B[4*k+kk,4*j+jj] )
+        for i in seq(0, n / 4):
+            for j in seq(0, n / 4):
+                for k in seq(0, n / 4):
+                    for ii in seq(0, 4):
+                        for jj in seq(0, 4):
+                            for kk in seq(0, 4):
+                                A[4 * i + ii, 4 * j + jj] += (
+                                            B[4 * i + ii, 4 * k + kk] *
+                                            B[4 * k + kk, 4 * j + jj])
 
     with pytest.raises(SchedulingError,
                        match='accessed out-of-bounds'):
         sqmat = stage_mem(sqmat, 'for ii in _: _',
-                                 'B[4*i:4*i+4, 4*k:4*k+4]', 'Btile')
+                          'B[4*i:4*i+4, 4*k:4*k+4]', 'Btile')
+
 
 def test_stage_mem_twice(golden):
     # This test now finds a way to stage the buffer B twice
     @proc
-    def sqmat(n : size, A : R[n,n], B : R[n,n]):
+    def sqmat(n: size, A: R[n, n], B: R[n, n]):
         assert n % 4 == 0
-        for i in seq(0,n/4):
-            for j in seq(0,n/4):
-                for k in seq(0,n/4):
-                    for ii in seq(0,4):
-                        for jj in seq(0,4):
-                            for kk in seq(0,4):
-                                A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
-                                                      B[4*k+kk,4*j+jj] )
+        for i in seq(0, n / 4):
+            for j in seq(0, n / 4):
+                for k in seq(0, n / 4):
+                    for ii in seq(0, 4):
+                        for jj in seq(0, 4):
+                            for kk in seq(0, 4):
+                                A[4 * i + ii, 4 * j + jj] += (
+                                            B[4 * i + ii, 4 * k + kk] *
+                                            B[4 * k + kk, 4 * j + jj])
 
     sqmat = bind_expr(sqmat, 'B[4*i+ii,4*k+kk]', 'B1')
     sqmat = expand_dim(sqmat, 'B1 : _', '4', 'kk')
@@ -1205,7 +1232,7 @@ def test_stage_mem_twice(golden):
     sqmat = autolift_alloc(sqmat, 'B1 : _', n_lifts=3)
     sqmat = autofission(sqmat, sqmat.find('B1[_] = _').after(), n_lifts=3)
     sqmat = stage_mem(sqmat, 'for ii in _: _ #1',
-                             'B[4*k:4*k+4, 4*j:4*j+4]', 'B2')
+                      'B[4*k:4*k+4, 4*j:4*j+4]', 'B2')
     assert str(simplify(sqmat)) == golden
 
 
@@ -1213,24 +1240,26 @@ def test_stage_mem_accum(golden):
     # This test stages a buffer being accumulated in
     # on a per-tile basis
     @proc
-    def sqmat(n : size, A : R[n,n], B : R[n,n]):
+    def sqmat(n: size, A: R[n, n], B: R[n, n]):
         assert n % 4 == 0
-        for i in seq(0,n/4):
-            for j in seq(0,n/4):
-                for k in seq(0,n/4):
-                    for ii in seq(0,4):
-                        for jj in seq(0,4):
-                            for kk in seq(0,4):
-                                A[4*i+ii,4*j+jj] += ( B[4*i+ii,4*k+kk] *
-                                                      B[4*k+kk,4*j+jj] )
+        for i in seq(0, n / 4):
+            for j in seq(0, n / 4):
+                for k in seq(0, n / 4):
+                    for ii in seq(0, 4):
+                        for jj in seq(0, 4):
+                            for kk in seq(0, 4):
+                                A[4 * i + ii, 4 * j + jj] += (
+                                            B[4 * i + ii, 4 * k + kk] *
+                                            B[4 * k + kk, 4 * j + jj])
 
     sqmat = stage_mem(sqmat, 'for k in _: _', 'A[4*i:4*i+4, 4*j:4*j+4]',
-                             'Atile',  accum=True)
+                      'Atile', accum=True)
     assert str(simplify(sqmat)) == golden
+
 
 def test_stage_mem_accum2(golden):
     @proc
-    def accum(out : R[4, 16, 16], w : R[16], im : R[16]):
+    def accum(out: R[4, 16, 16], w: R[16], im: R[16]):
         for k in seq(0, 4):
             for i in seq(0, 16):
                 for j in seq(0, 16):
