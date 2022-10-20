@@ -2762,14 +2762,17 @@ class _DoDeletePass(LoopIR_Rewrite):
     def map_s(self, s):
         if isinstance(s, LoopIR.Pass):
             return []
+
         elif isinstance(s, LoopIR.Seq):
             body = self.map_stmts(s.body)
-            if not body:
+            if body is None:
+                return None
+            elif body == []:
                 return []
             else:
                 return [s.update(body=body)]
-        else:
-            return super().map_s(s)
+
+        return super().map_s(s)
 
 
 class _DoExtractMethod(LoopIR_Rewrite):
