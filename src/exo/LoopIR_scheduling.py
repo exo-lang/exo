@@ -3474,10 +3474,11 @@ class _DoStageMem(LoopIR_Rewrite):
         if self.in_block:
             if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
                 if s.name is self.buf_name:
-                    assert len(new_s) == 1
-                    new_s[0] = new_s[0].update(name=self.new_name)
-                    idx = self.rewrite_idx(new_s[0].idx)
-                    new_s[0] = new_s[0].update(idx=idx)
+                    new_s = new_s[0] if new_s is not None else s
+                    new_s = new_s.update(name=self.new_name)
+                    idx = self.rewrite_idx(new_s.idx)
+                    new_s = new_s.update(idx=idx)
+                    return new_s
 
         return new_s
 
@@ -3487,15 +3488,17 @@ class _DoStageMem(LoopIR_Rewrite):
         if self.in_block:
             if isinstance(e, LoopIR.Read):
                 if e.name is self.buf_name:
+                    new_e = new_e or e
                     new_e = new_e.update(name=self.new_name)
 
                     idx = self.rewrite_idx(new_e.idx)
-                    new_e = new_e.update(idx=idx)
+                    return new_e.update(idx=idx)
 
             elif isinstance(e, LoopIR.WindowExpr):
                 if e.name is self.buf_name:
+                    new_e = new_e or e
                     w_idx = self.rewrite_win(new_e.idx)
-                    new_e = new_e.update(
+                    return new_e.update(
                         name=self.new_name,
                         idx=w_idx,
                         type=T.Window(self.new_typ, e.type.as_tensor,
