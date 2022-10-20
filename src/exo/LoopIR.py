@@ -1092,7 +1092,7 @@ class Alpha_Rename(LoopIR_Rewrite):
         if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)):
             e2 = super().map_e(e)
             if new_name := self.env.get(e.name):
-                return [(e2 or e).update(name=new_name)]
+                return (e2 or e).update(name=new_name)
             else:
                 return e2
 

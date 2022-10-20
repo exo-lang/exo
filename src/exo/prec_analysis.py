@@ -156,7 +156,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             return LoopIR.WindowExpr(e.name, e.idx, wtyp, e.srcinfo)
 
         elif isinstance(e, LoopIR.USub):
-            arg = self.map_e(e.arg)
+            arg = self.apply_e(e.arg)
 
             if not e.type.is_numeric():
                 return LoopIR.USub(arg, e.type, e.srcinfo)
@@ -165,8 +165,8 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             return LoopIR.USub(arg, arg.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.BinOp):
-            lhs = self.map_e(e.lhs)
-            rhs = self.map_e(e.rhs)
+            lhs = self.apply_e(e.lhs)
+            rhs = self.apply_e(e.rhs)
 
             # first let's get the index expressions
             # and booleans out of the way
