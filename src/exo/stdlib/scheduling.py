@@ -56,6 +56,7 @@ from ..API_scheduling import (
     mult_loops,
     cut_loop,
     reorder_loops,
+    merge_writes,
     fission,
     fusion,
     remove_loop,
