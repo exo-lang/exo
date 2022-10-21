@@ -1182,7 +1182,6 @@ def get_reads(e):
     else:
         assert False, "bad case"
 
-# TODO: add more tests to ensure correctness
 class _BindExpr(LoopIR_Rewrite):
     def __init__(self, proc, new_name, exprs, cse=False):
         assert all(isinstance(expr, LoopIR.expr) for expr in exprs)
