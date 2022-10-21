@@ -754,7 +754,8 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
     Bind some numeric/data-value type expression into a new intermediate,
     scalar-sized buffer.  If `cse=True` and more than one expression is
     pointed to, then this operation will attempt to perform
-    common sub-expression elimination while binding.
+    common sub-expression elimination while binding. It will stop upon
+    encountering a read of any buffer that the expression depends on.
 
     args:
         expr_cursors    - a list of cursors to multiple instances of the
