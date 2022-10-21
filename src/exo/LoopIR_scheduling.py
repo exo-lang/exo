@@ -226,6 +226,64 @@ class _DoProductLoop(LoopIR_Rewrite):
         return super().map_e(e)
 
 
+def get_reads(e):
+    if isinstance(e, LoopIR.Read):
+        return sum([get_reads(e) for e in e.idx], [(e.name, e.type)])
+    elif isinstance(e, LoopIR.USub):
+        return get_reads(e.arg)
+    elif isinstance(e, LoopIR.BinOp):
+        return get_reads(e.lhs) + get_reads(e.rhs)
+    elif isinstance(e, LoopIR.BuiltIn):
+        return sum([get_reads(a) for a in e.args], [])
+    elif isinstance(e, LoopIR.Const):
+        return []
+    else:
+        assert False, "bad case"
+
+
+class _DoMergeWrites(LoopIR_Rewrite):
+    def __init__(self, proc, stmt1, stmt2):
+        try:
+            assert len(stmt1.idx) == len(stmt2.idx)
+            for i, j in zip(stmt1.idx, stmt2.idx):
+                Check_ExprEqvInContext(proc, [stmt1, stmt2], i, j)
+        except SchedulingError as e:
+            raise SchedulingError(
+                "expected the left hand side's indices to be the same."
+            ) from e
+
+        if any(
+            stmt1.name == name and stmt1.type == typ
+            for name, typ in get_reads(stmt2.rhs)
+        ):
+            raise SchedulingError(
+                "expected the right hand side of the second statement to not "
+                "depend on the left hand side of the first statement."
+            )
+
+        self.new_rhs = LoopIR.BinOp(
+            "+", stmt1.rhs, stmt2.rhs, stmt1.type, stmt1.srcinfo
+        )
+        self.s1 = stmt1
+        self.s2 = stmt2
+
+        super().__init__(proc)
+
+        self.proc = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        if isinstance(self.s2, LoopIR.Assign):
+            for i, s in enumerate(stmts):
+                if s is self.s2:
+                    return stmts[: i - 1] + stmts[i:]
+        else:
+            for i, s in enumerate(stmts):
+                if s is self.s1:
+                    return stmts[:i] + [s.update(rhs=self.new_rhs)] + stmts[i + 2 :]
+
+        return super().map_stmts(stmts)
+
+
 class _Reorder(LoopIR_Rewrite):
     def __init__(self, proc, loop_stmt):
         self.stmt = loop_stmt
@@ -3917,3 +3975,4 @@ class Schedules:
     DoFissionAfterSimple = _DoFissionAfterSimple
     DoProductLoop = _DoProductLoop
     DoCommuteExpr = _DoCommuteExpr
+    DoMergeWrites = _DoMergeWrites

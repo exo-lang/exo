@@ -1,0 +1,6 @@
+def bar(x: R[3] @ DRAM, y: R[3] @ DRAM, z: R @ DRAM):
+    for i in seq(0, 3):
+        for j in seq(0, 3):
+            if i < 2:
+                tmp: R[4, 4] @ DRAM
+                tmp[i + j, j] = x[i] + y[j]
