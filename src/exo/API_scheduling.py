@@ -1591,6 +1591,7 @@ def reorder_loops(proc, nested_loops):
     loopir = Schedules.DoReorder(proc._loopir_proc, stmt).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
+
 @sched_op([BlockCursorA(block_size=2)])
 def merge_writes(proc, block_cursor):
     """
@@ -1624,21 +1625,29 @@ def merge_writes(proc, block_cursor):
         ----------------------
 
     """
-    stmt1   = block_cursor[0]._impl._node()
-    stmt2   = block_cursor[1]._impl._node()
+    stmt1 = block_cursor[0]._impl._node()
+    stmt2 = block_cursor[1]._impl._node()
 
-    if (not isinstance(stmt1, (LoopIR.Assign, LoopIR.Reduce)) or
-            not isinstance(stmt2, (LoopIR.Assign, LoopIR.Reduce))):
-        raise ValueError(f"expected two consecutive assign/reduce statements, "
-                                f"got {type(stmt1)} and {type(stmt2)} instead.")
+    if not isinstance(stmt1, (LoopIR.Assign, LoopIR.Reduce)) or not isinstance(
+        stmt2, (LoopIR.Assign, LoopIR.Reduce)
+    ):
+        raise ValueError(
+            f"expected two consecutive assign/reduce statements, "
+            f"got {type(stmt1)} and {type(stmt2)} instead."
+        )
     if stmt1.name != stmt2.name or stmt1.type != stmt2.type:
-        raise ValueError("expected the two statements' left hand sides to have the same name & type")
+        raise ValueError(
+            "expected the two statements' left hand sides to have the same name & type"
+        )
     if stmt1.rhs.type != stmt2.rhs.type:
-        raise ValueError("expected the two statements' right hand sides to have the same type.")
+        raise ValueError(
+            "expected the two statements' right hand sides to have the same type."
+        )
 
-    loopir  = proc._loopir_proc
-    loopir  = Schedules.DoMergeWrites(loopir, stmt1, stmt2).result()
+    loopir = proc._loopir_proc
+    loopir = Schedules.DoMergeWrites(loopir, stmt1, stmt2).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
+
 
 @sched_op([GapCursorA, PosIntA])
 def fission(proc, gap_cursor, n_lifts=1):
