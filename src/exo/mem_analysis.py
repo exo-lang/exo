@@ -8,6 +8,7 @@ from .memory import DRAM
 # --------------------------------------------------------------------------- #
 # Memory Analysis Pass
 
+
 class MemoryAnalysis:
     def __init__(self, proc):
         assert isinstance(proc, LoopIR.proc)
@@ -26,7 +27,7 @@ class MemoryAnalysis:
         self.push()
         body = self.mem_stmts(self.proc.body)
         self.pop()
-        assert (len(self.tofree) == 0)
+        assert len(self.tofree) == 0
 
         return LoopIR.proc(
             self.proc.name,
@@ -35,7 +36,8 @@ class MemoryAnalysis:
             body,
             self.proc.instr,
             self.proc.eff,
-            self.proc.srcinfo)
+            self.proc.srcinfo,
+        )
 
     def push(self):
         self.mem_env = self.mem_env.new_child()
@@ -98,7 +100,6 @@ class MemoryAnalysis:
                 res += used_e(s.rhs)
             return res
 
-
         body = []
         for b in reversed([self.mem_s(b) for b in stmts]):
             used = used_s(b)
@@ -116,13 +117,18 @@ class MemoryAnalysis:
     def get_e_mem(self, e):
         if isinstance(e, (LoopIR.WindowExpr, LoopIR.Read)):
             return self.mem_env[e.name]
-        else: assert False
+        else:
+            assert False
 
     def mem_s(self, s):
         styp = type(s)
 
-        if (styp is LoopIR.Pass or styp is LoopIR.Assign or
-              styp is LoopIR.Reduce or styp is LoopIR.WriteConfig):
+        if (
+            styp is LoopIR.Pass
+            or styp is LoopIR.Assign
+            or styp is LoopIR.Reduce
+            or styp is LoopIR.WriteConfig
+        ):
             return s
 
         elif styp is LoopIR.WindowStmt:
@@ -137,18 +143,20 @@ class MemoryAnalysis:
                     smem = sa.mem if sa.mem else DRAM
                     cmem = self.get_e_mem(ca)
                     if not issubclass(cmem, smem):
-                        raise TypeError(f"{ca.srcinfo}: expected "
-                                        f"argument in {smem.name()} but got an "
-                                        f"argument in {cmem.name()}")
+                        raise TypeError(
+                            f"{ca.srcinfo}: expected "
+                            f"argument in {smem.name()} but got an "
+                            f"argument in {cmem.name()}"
+                        )
 
             return s
 
         elif styp is LoopIR.If:
             self.push()
-            body    = self.mem_stmts(s.body)
+            body = self.mem_stmts(s.body)
             self.pop()
             self.push()
-            ebody   = self.mem_stmts(s.orelse)
+            ebody = self.mem_stmts(s.orelse)
             self.pop()
             return LoopIR.If(s.cond, body, ebody, None, s.srcinfo)
         elif styp is LoopIR.Seq:
@@ -162,7 +170,6 @@ class MemoryAnalysis:
             self.add_malloc(s.name, s.type, s.mem)
             return s
         elif styp is LoopIR.Free:
-            assert False, ("There should not be frees inserted before mem "
-                           "analysis")
+            assert False, "There should not be frees inserted before mem " "analysis"
         else:
             assert False, f"bad case {styp}"

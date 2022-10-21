@@ -68,7 +68,7 @@ class Memory(ABC):
         """
         C code
         """
-        return ''
+        return ""
 
     @classmethod
     @abstractmethod
@@ -85,10 +85,10 @@ class Memory(ABC):
 
     @classmethod
     def window(cls, basetyp, baseptr, indices, strides, srcinfo):
-        offset = ' + '.join(f'({i}) * ({s})' for i, s in zip(indices, strides))
+        offset = " + ".join(f"({i}) * ({s})" for i, s in zip(indices, strides))
         if basetyp.is_win():
-            baseptr = f'{baseptr}.data'
-        return f'{baseptr}[{offset}]'
+            baseptr = f"{baseptr}.data"
+        return f"{baseptr}[{offset}]"
 
     @classmethod
     def can_read(cls):
@@ -96,32 +96,36 @@ class Memory(ABC):
 
     @classmethod
     def write(cls, s, lhs, rhs):
-        raise MemGenError(f"{s.srcinfo}: cannot write to buffer "
-                          f"'{s.name}' in memory '{cls.name()}'")
+        raise MemGenError(
+            f"{s.srcinfo}: cannot write to buffer "
+            f"'{s.name}' in memory '{cls.name()}'"
+        )
 
     @classmethod
     def reduce(cls, s, lhs, rhs):
-        raise MemGenError(f"{s.srcinfo}: cannot reduce to buffer "
-                          f"'{s.name}' in memory '{cls.name()}'")
+        raise MemGenError(
+            f"{s.srcinfo}: cannot reduce to buffer "
+            f"'{s.name}' in memory '{cls.name()}'"
+        )
 
 
 # ----------- DRAM on LINUX ----------------
 
+
 class DRAM(Memory):
     @classmethod
     def global_(cls):
-        return (
-            "#include <stdio.h>\n"
-            "#include <stdlib.h>\n"
-        )
+        return "#include <stdio.h>\n" "#include <stdlib.h>\n"
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         if len(shape) == 0:
             return f"{prim_type} {new_name};"
 
-        return (f"{prim_type} *{new_name} = "
-                f"malloc({' * '.join(shape)} * sizeof(*{new_name}));")
+        return (
+            f"{prim_type} *{new_name} = "
+            f"malloc({' * '.join(shape)} * sizeof(*{new_name}));"
+        )
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
@@ -135,7 +139,7 @@ class DRAM(Memory):
 
     @classmethod
     def write(cls, s, lhs, rhs):
-        return f'{lhs} = {rhs};'
+        return f"{lhs} = {rhs};"
 
     @classmethod
     def reduce(cls, s, lhs, rhs):

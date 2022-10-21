@@ -1,0 +1,12 @@
+#pragma once
+
+#ifndef EXO_SHIMS_GEMMINI_PARAMS_H
+#define EXO_SHIMS_GEMMINI_PARAMS_H
+
+#define HAS_MVIN_ACC_SCALE
+#define MVIN_SCALE_ACC(x, scale) \
+    ({float y = ROUND_NEAR_EVEN((x) * (scale)); y > INT32_MAX ? INT32_MAX : (y < INT32_MIN ? INT32_MIN : (acc_t)y);})
+
+#include "@gemmini-rocc-tests_SOURCE_DIR@/include/gemmini_params.h"
+
+#endif

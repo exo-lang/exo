@@ -7,8 +7,7 @@ try:
     import torch
     import torch.nn.functional as F
 except ImportError:
-    pytest.skip("pytorch is not available, skipping winograd",
-                allow_module_level=True)
+    pytest.skip("pytorch is not available, skipping winograd", allow_module_level=True)
 
 from exo import proc
 
@@ -16,10 +15,7 @@ from exo import proc
 def wconv_3x3():
     # res <- A @ B @ A^T
     @proc
-    def multiply(n: size, m: size,
-                 A: f32[n, m],
-                 B: f32[m, m],
-                 res: f32[n, n]):
+    def multiply(n: size, m: size, A: f32[n, m], B: f32[m, m], res: f32[n, n]):
 
         tmp: f32[n, m]
         for i in seq(0, n):
@@ -37,10 +33,7 @@ def wconv_3x3():
                     # C <- A @ B (element wise)
 
     @proc
-    def element(n: size,
-                A: f32[n, n],
-                B: f32[n, n],
-                C: f32[n, n]):
+    def element(n: size, A: f32[n, n], B: f32[n, n], C: f32[n, n]):
 
         for i in seq(0, n):
             for j in seq(0, n):
@@ -48,12 +41,13 @@ def wconv_3x3():
 
     @proc
     def wconv(
-            inp: f32[4, 4],
-            kernel: f32[3, 3],
-            res: f32[2, 2],
-            B_T: f32[4, 4],
-            G: f32[4, 3],
-            A_T: f32[2, 4]):
+        inp: f32[4, 4],
+        kernel: f32[3, 3],
+        res: f32[2, 2],
+        B_T: f32[4, 4],
+        G: f32[4, 3],
+        A_T: f32[2, 4],
+    ):
 
         # Cannot do this
         # B_T = [1,	0,	-1,	0, \
@@ -84,18 +78,11 @@ def test_winograd(compiler):
 
     wconv = compiler.compile(conv)
 
-    B_T = np.array([(1, 0, -1, 0),
-                    (0, 1, 1, 0),
-                    (0, -1, 1, 0),
-                    (0, 1, 0, -1)])
+    B_T = np.array([(1, 0, -1, 0), (0, 1, 1, 0), (0, -1, 1, 0), (0, 1, 0, -1)])
 
-    G = np.array([(1, 0, 0),
-                  (1 / 2, 1 / 2, 1 / 2),
-                  (1 / 2, -1 / 2, 1 / 2),
-                  (0, 0, 1)])
+    G = np.array([(1, 0, 0), (1 / 2, 1 / 2, 1 / 2), (1 / 2, -1 / 2, 1 / 2), (0, 0, 1)])
 
-    A_T = np.array([(1, 1, 1, 0),
-                    (0, 1, -1, -1)])
+    A_T = np.array([(1, 1, 1, 0), (0, 1, -1, -1)])
 
     n = 4
     m = 3

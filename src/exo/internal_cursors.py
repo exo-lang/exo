@@ -77,9 +77,11 @@ def _overlaps_one_side(a: range, b: range):
     False
     """
     assert a.step == b.step and a.step in (1, None)
-    return (a.start < b.start < a.stop < b.stop or
-            a.start == b.start < a.stop < b.stop or
-            b.start < a.start < b.stop < a.stop)
+    return (
+        a.start < b.start < a.stop < b.stop
+        or a.start == b.start < a.stop < b.stop
+        or b.start < a.start < b.stop < a.stop
+    )
 
 
 @dataclass
@@ -134,8 +136,8 @@ class Cursor(ABC):
     # ------------------------------------------------------------------------ #
 
     def _whole_block(self) -> Block:
-        attr, _range    = self._path[-1]
-        parent          = self.parent()
+        attr, _range = self._path[-1]
+        parent = self.parent()
         return parent._child_block(attr)
 
     # ------------------------------------------------------------------------ #
@@ -145,10 +147,10 @@ class Cursor(ABC):
     def _translate(self, ty, dist):
         assert isinstance(self, (Node, Gap))
         if not self._path:
-            raise InvalidCursorError('cannot move root cursor')
+            raise InvalidCursorError("cannot move root cursor")
         attr, i = self._path[-1]
         if i is None:
-            raise InvalidCursorError('cursor is not inside block')
+            raise InvalidCursorError("cursor is not inside block")
         return ty(self.parent(), attr, i + dist)
 
     @staticmethod
@@ -177,9 +179,9 @@ class Cursor(ABC):
             if i is None:
                 return node.update(**{attr: impl(children, path)})
 
-            return node.update(**{
-                attr: children[:i] + [impl(children[i], path)] + children[i + 1:]
-            })
+            return node.update(
+                **{attr: children[:i] + [impl(children[i], path)] + children[i + 1 :]}
+            )
 
         return impl(self.proc().INTERNAL_proc(), self._path)
 
@@ -190,7 +192,7 @@ class Cursor(ABC):
 
         def forward(cursor: Cursor) -> Cursor:
             if cursor._proc != orig_proc:
-                raise InvalidCursorError('cannot forward unknown procs')
+                raise InvalidCursorError("cannot forward unknown procs")
 
             # TODO: use attrs + attrs.evolve
             def evolve(p):
@@ -216,7 +218,7 @@ class Cursor(ABC):
                 assert isinstance(cursor, Block)
                 idx = fwd_sel(old_idx)
 
-            return evolve(old_path[:depth - 1] + [(attr, idx)] + old_path[depth:])
+            return evolve(old_path[: depth - 1] + [(attr, idx)] + old_path[depth:])
 
         return forward
 
@@ -247,14 +249,14 @@ class Block(Cursor):
         #  1. The node after the block?
         #  2. The block shifted over?
         #  3. The block of nodes leading up to the start?
-        raise NotImplementedError('Block.prev')
+        raise NotImplementedError("Block.prev")
 
     def next(self, dist=1) -> Cursor:
         # TODO: what should this mean?
         #  1. The node after the block?
         #  2. The block shifted over?
         #  3. The block of nodes past the end?
-        raise NotImplementedError('Block.next')
+        raise NotImplementedError("Block.next")
 
     # ------------------------------------------------------------------------ #
     # Sequence interface implementation
@@ -271,7 +273,7 @@ class Block(Cursor):
         r = r[i]
         if isinstance(r, range):
             if r.step != 1:
-                raise IndexError('block cursors must be contiguous')
+                raise IndexError("block cursors must be contiguous")
             return Block(self._proc, self._path[:-1] + [(attr, r)])
         else:
             return self.parent()._child_node(attr, r)
@@ -285,16 +287,16 @@ class Block(Cursor):
     # ------------------------------------------------------------------------ #
 
     def expand(self, lo=None, hi=None):
-        attr, _range    = self._path[-1]
-        full_block      = self.parent()._child_block(attr)
-        _, full_range   = full_block._path[-1]
+        attr, _range = self._path[-1]
+        full_block = self.parent()._child_block(attr)
+        _, full_range = full_block._path[-1]
         if lo is None:
             return full_block
 
         lo = _range.start - lo
         lo = lo if lo >= 0 else 0
-        hi = _range.stop  + hi
-        new_range       = full_range[lo:hi]
+        hi = _range.stop + hi
+        new_range = full_range[lo:hi]
 
         return Block(self._proc, self._path[:-1] + [(attr, new_range)])
 
@@ -317,7 +319,7 @@ class Block(Cursor):
         def update(parent):
             attr, i = self._path[-1]
             children = getattr(parent, attr)
-            new_children = children[:i.start] + nodes + children[i.stop:]
+            new_children = children[: i.start] + nodes + children[i.stop :]
             new_children = new_children or empty_default or []
             return parent.update(**{attr: new_children})
 
@@ -331,25 +333,25 @@ class Block(Cursor):
 
         def fwd_node(i):
             if i in del_range:
-                raise InvalidCursorError('node no longer exists')
+                raise InvalidCursorError("node no longer exists")
             return i + n_diff * (i >= del_range.stop)
 
         def fwd_gap(i):
             if i in del_range[1:]:
-                raise InvalidCursorError('gap no longer exists')
+                raise InvalidCursorError("gap no longer exists")
             return i + n_diff * (i >= del_range.stop)
 
         def fwd_sel(rng: range):
             if _is_sub_range(rng, del_range):
-                raise InvalidCursorError('block no longer exists')
+                raise InvalidCursorError("block no longer exists")
             if _overlaps_one_side(rng, del_range):
-                raise InvalidCursorError('block was partially destroyed')
+                raise InvalidCursorError("block was partially destroyed")
 
             start = rng.start + n_diff * (rng.start >= del_range.stop)
             stop = rng.stop + n_diff * (rng.stop >= del_range.stop)
 
             if start >= stop:
-                raise InvalidCursorError('block no longer exists')
+                raise InvalidCursorError("block no longer exists")
 
             return range(start, stop)
 
@@ -381,7 +383,7 @@ class Node(Cursor):
         may call this, while users should not.
         """
         if (n := self._node_ref()) is None:
-            raise InvalidCursorError('underlying node was destroyed')
+            raise InvalidCursorError("underlying node was destroyed")
         return n
 
     @cached_property
@@ -396,7 +398,7 @@ class Node(Cursor):
 
     def parent(self) -> Node:
         if not self._path:
-            raise InvalidCursorError('cursor does not have a parent')
+            raise InvalidCursorError("cursor does not have a parent")
         return Node(self._proc, self._path[:-1])
 
     def before(self, dist=1) -> Gap:
@@ -421,9 +423,9 @@ class Node(Cursor):
             if 0 <= i < len(_node):
                 _node = _node[i]
             else:
-                raise InvalidCursorError('cursor is out of range')
+                raise InvalidCursorError("cursor is out of range")
         elif isinstance(_node, list):
-            raise ValueError('must index into block attribute')
+            raise ValueError("must index into block attribute")
         cur = Node(self._proc, self._path + [(attr, i)])
         # noinspection PyPropertyAccess
         # cached_property is settable, bug in static analysis
@@ -434,9 +436,9 @@ class Node(Cursor):
         _node = getattr(self._node(), attr)
         if i is not None:
             if not 0 <= i <= len(_node):
-                raise InvalidCursorError('cursor is out of range')
+                raise InvalidCursorError("cursor is out of range")
         elif isinstance(_node, list):
-            raise ValueError('must index into block attribute')
+            raise ValueError("must index into block attribute")
         return Gap(self._proc, self._path + [(attr, i)])
 
     def _child_block(self, attr: str):
@@ -448,34 +450,35 @@ class Node(Cursor):
         n = self._node()
         # Top-level proc
         if isinstance(n, LoopIR.proc):
-            yield from self._children_from_attrs(n, 'body')
+            yield from self._children_from_attrs(n, "body")
         # Statements
         elif isinstance(n, (LoopIR.Assign, LoopIR.Reduce)):
-            yield from self._children_from_attrs(n, 'idx', 'rhs')
+            yield from self._children_from_attrs(n, "idx", "rhs")
         elif isinstance(n, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
-            yield from self._children_from_attrs(n, 'rhs')
+            yield from self._children_from_attrs(n, "rhs")
         elif isinstance(n, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
             yield from []
         elif isinstance(n, LoopIR.If):
-            yield from self._children_from_attrs(n, 'cond', 'body', 'orelse')
+            yield from self._children_from_attrs(n, "cond", "body", "orelse")
         elif isinstance(n, LoopIR.Seq):
-            yield from self._children_from_attrs(n, 'hi', 'body')
+            yield from self._children_from_attrs(n, "hi", "body")
         elif isinstance(n, LoopIR.Call):
-            yield from self._children_from_attrs(n, 'args')
+            yield from self._children_from_attrs(n, "args")
         # Expressions
         elif isinstance(n, LoopIR.Read):
-            yield from self._children_from_attrs(n, 'idx')
-        elif isinstance(n, (LoopIR.Const, LoopIR.WindowExpr, LoopIR.StrideExpr,
-                            LoopIR.ReadConfig)):
+            yield from self._children_from_attrs(n, "idx")
+        elif isinstance(
+            n, (LoopIR.Const, LoopIR.WindowExpr, LoopIR.StrideExpr, LoopIR.ReadConfig)
+        ):
             yield from []
         elif isinstance(n, LoopIR.USub):
-            yield from self._children_from_attrs(n, 'arg')
+            yield from self._children_from_attrs(n, "arg")
         elif isinstance(n, LoopIR.BinOp):
-            yield from self._children_from_attrs(n, 'lhs', 'rhs')
+            yield from self._children_from_attrs(n, "lhs", "rhs")
         elif isinstance(n, LoopIR.BuiltIn):
-            yield from self._children_from_attrs(n, 'args')
+            yield from self._children_from_attrs(n, "args")
         else:
-            assert False, f'case {type(n)} unsupported'
+            assert False, f"case {type(n)} unsupported"
 
     def _children_from_attrs(self, n, *args) -> Iterable[Node]:
         for attr in args:
@@ -491,10 +494,10 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
 
     def body(self) -> Block:
-        return self._child_block('body')
+        return self._child_block("body")
 
     def orelse(self) -> Block:
-        return self._child_block('orelse')
+        return self._child_block("orelse")
 
     # ------------------------------------------------------------------------ #
     # Conversions
@@ -503,7 +506,7 @@ class Node(Cursor):
     def as_block(self) -> Block:
         attr, i = self._path[-1]
         if i is None:
-            raise InvalidCursorError('node is not inside a block')
+            raise InvalidCursorError("node is not inside a block")
         return Block(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
 
     # ------------------------------------------------------------------------ #
@@ -539,7 +542,7 @@ class Node(Cursor):
         assert idx is None
 
         def fwd_node(_):
-            raise InvalidCursorError('cannot forward replaced nodes')
+            raise InvalidCursorError("cannot forward replaced nodes")
 
         def fwd_gap(_):
             assert False, "should never get here"
@@ -605,15 +608,20 @@ class Gap(Cursor):
             return i + ins_len * (i >= ins_idx)
 
         if policy == ForwardingPolicy.AnchorPre:
+
             def fwd_gap(i):
                 return i + ins_len * (i > ins_idx)
+
         elif policy == ForwardingPolicy.AnchorPost:
+
             def fwd_gap(i):
                 return i + ins_len * (i >= ins_idx)
+
         else:
+
             def fwd_gap(i):
                 if i == ins_idx:
-                    raise InvalidCursorError('insertion gap was invalidated')
+                    raise InvalidCursorError("insertion gap was invalidated")
                 return i + ins_len * (i > ins_idx)
 
         def fwd_sel(rng):

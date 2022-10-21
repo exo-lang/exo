@@ -20,27 +20,17 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
-typedef struct c_code_str_Context { 
 
-} c_code_str_Context;
 
 // foo(
 //     n : size,
 //     m : size,
 //     x : i8  @DRAM
 // )
-void foo( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x );
+void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x );
 
 
 
-static int _floor_div(int num, int quot) {
-  int off = (num>=0)? 0 : quot-1;
-  return (num-off)/quot;
-}
-
-static int8_t _clamp_32to8(int32_t x) {
-  return (x < -128)? -128 : ((x > 127)? 127 : x);
-}
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +42,7 @@ static int8_t _clamp_32to8(int32_t x) {
 //     m : size,
 //     x : i8  @DRAM
 // )
-void foo( c_code_str_Context *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x ) {
+void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x ) {
 for (int i = 0; i < n; i++) {
   for (int j = 0; j < m; j++) {
     ; // NO-OP

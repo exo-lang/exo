@@ -9,9 +9,13 @@ from .API_types import ProcedureBase
 from .LoopIR import LoopIR, T, UAST, LoopIR_Do
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_interpreter import run_interpreter
-from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
-                                iter_name_to_pattern,
-                                nested_iter_names_to_pattern)
+from .LoopIR_scheduling import (
+    Schedules,
+    name_plus_count,
+    SchedulingError,
+    iter_name_to_pattern,
+    nested_iter_names_to_pattern,
+)
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
@@ -19,9 +23,9 @@ from .memory import Memory
 from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern, get_match_no, match_cursors
 from .prelude import *
+
 # Moved to new file
-from .proc_eqv import (decl_new_proc, derive_proc,
-                       assert_eqv_proc, check_eqv_proc)
+from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
 from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
@@ -34,16 +38,21 @@ from . import internal_cursors
 # Top-level decorator
 
 
-def proc(f, _instr=None) -> 'Procedure':
+def proc(f, _instr=None) -> "Procedure":
     if not isinstance(f, types.FunctionType):
         raise TypeError("@proc decorator must be applied to a function")
 
     body, getsrcinfo = get_ast_from_python(f)
     assert isinstance(body, pyast.FunctionDef)
 
-    parser = Parser(body, f.__globals__,
-                    get_src_locals(depth=3 if _instr else 2),
-                    getsrcinfo, instr=_instr, as_func=True)
+    parser = Parser(
+        body,
+        f.__globals__,
+        get_src_locals(depth=3 if _instr else 2),
+        getsrcinfo,
+        instr=_instr,
+        as_func=True,
+    )
     return Procedure(parser.result())
 
 
@@ -68,8 +77,7 @@ def config(_cls=None, *, readwrite=True):
         body, getsrcinfo = get_ast_from_python(cls)
         assert isinstance(body, pyast.ClassDef)
 
-        parser = Parser(body, {}, get_src_locals(depth=2), getsrcinfo,
-                        as_config=True)
+        parser = Parser(body, {}, get_src_locals(depth=2), getsrcinfo, as_config=True)
         return Config(*parser.result(), not readwrite)
 
     if _cls is None:
@@ -82,12 +90,14 @@ def config(_cls=None, *, readwrite=True):
 # --------------------------------------------------------------------------- #
 #   iPython Display Object
 
+
 class MarkDownBlob:
     def __init__(self, mkdwn_str):
         self.mstr = mkdwn_str
 
     def _repr_markdown_(self):
         return self.mstr
+
 
 class FindBefore(LoopIR_Do):
     def __init__(self, proc, stmt):
@@ -107,6 +117,7 @@ class FindBefore(LoopIR_Do):
             else:
                 self.do_s(s)
                 prev = s
+
 
 class FindDup(LoopIR_Do):
     def __init__(self, proc):
@@ -145,8 +156,12 @@ def compile_procs_to_strings(proc_list, h_file_name: str):
 
 
 class Procedure(ProcedureBase):
-    def __init__(self, proc,
-                 _provenance_eq_Procedure: 'Procedure'=None, _mod_config=frozenset()):
+    def __init__(
+        self,
+        proc,
+        _provenance_eq_Procedure: "Procedure" = None,
+        _mod_config=frozenset(),
+    ):
         super().__init__()
 
         if isinstance(proc, UAST.proc):
@@ -175,7 +190,7 @@ class Procedure(ProcedureBase):
         return self._loopir_proc == other._loopir_proc
 
     def _repr_markdown_(self):
-        return ("```python\n"+self.__str__()+"\n```")
+        return "```python\n" + self.__str__() + "\n```"
 
     def INTERNAL_proc(self):
         return self._loopir_proc
@@ -196,7 +211,7 @@ class Procedure(ProcedureBase):
         return str(self._loopir_proc.eff)
 
     def show_effect(self, stmt_pattern):
-        stmt        = self._find_stmt(stmt_pattern)
+        stmt = self._find_stmt(stmt_pattern)
         return str(stmt.eff)
 
     def is_instr(self):
@@ -224,22 +239,24 @@ class Procedure(ProcedureBase):
         In any event, if no matches are found, a SchedulingError is raised
         """
         if not isinstance(pattern, str):
-            raise TypeError('expected a pattern string')
+            raise TypeError("expected a pattern string")
         default_match_no = None if many else 0
-        raw_cursors = match_cursors(self, pattern, call_depth=1,
-                                    default_match_no=default_match_no)
+        raw_cursors = match_cursors(
+            self, pattern, call_depth=1, default_match_no=default_match_no
+        )
         assert isinstance(raw_cursors, list)
         cursors = []
         for c in raw_cursors:
             c = API_cursors.new_Cursor(c)
-            if ( isinstance(c, (API_cursors.BlockCursor,
-                                API_cursors.ExprListCursor)) and
-                 len(c) == 1 ):
+            if (
+                isinstance(c, (API_cursors.BlockCursor, API_cursors.ExprListCursor))
+                and len(c) == 1
+            ):
                 c = c[0]
             cursors.append(c)
 
         if not cursors:
-            raise SchedulingError('failed to find matches', pattern=pattern)
+            raise SchedulingError("failed to find matches", pattern=pattern)
 
         return cursors if many else cursors[0]
 
@@ -250,13 +267,13 @@ class Procedure(ProcedureBase):
         to 'for name in _:_' or 'for name in _:_ #n'
         """
         if not isinstance(pattern, str):
-            raise TypeError('expected a pattern string')
+            raise TypeError("expected a pattern string")
 
         _name_count_re = r"^([a-zA-Z_]\w*)\s*(\#\s*[0-9]+)?$"
         results = re.search(_name_count_re, pattern)
         if results:
             name, count = results[1], (results[2] if results[2] else "")
-            pattern     = f"for {name} in _: _{count}"
+            pattern = f"for {name} in _: _{count}"
 
         return self.find(pattern, many)
 
@@ -267,7 +284,7 @@ class Procedure(ProcedureBase):
         cursors = match_cursors(self, pattern, call_depth=1)
         assert isinstance(cursors, list)
         if not cursors:
-            raise SchedulingError('failed to find matches', pattern=pattern)
+            raise SchedulingError("failed to find matches", pattern=pattern)
         return cursors
 
     def _TEST_find_stmt(self, pattern):
@@ -275,8 +292,9 @@ class Procedure(ProcedureBase):
         assert len(curs) == 1
         curs = curs[0]
         if len(curs) != 1:
-            raise SchedulingError('pattern did not match a single statement',
-                                  pattern=pattern)
+            raise SchedulingError(
+                "pattern did not match a single statement", pattern=pattern
+            )
         return curs[0]
 
     def get_ast(self, pattern=None):
@@ -284,22 +302,19 @@ class Procedure(ProcedureBase):
             return LoopIR_to_QAST(self._loopir_proc).result()
         else:
             # do pattern matching
-            match_no    = get_match_no(pattern)
-            match       = match_pattern(self, pattern, call_depth=1)
+            match_no = get_match_no(pattern)
+            match = match_pattern(self, pattern, call_depth=1)
 
             # convert matched sub-trees to QAST
             assert isinstance(match, list)
             if len(match) == 0:
                 return None
             elif isinstance(match[0], LoopIR.expr):
-                results = [ LoopIR_to_QAST(e).result() for e in match ]
+                results = [LoopIR_to_QAST(e).result() for e in match]
             elif isinstance(match[0], list):
                 # statements
-                assert all( isinstance(s, LoopIR.stmt)
-                            for stmts in match
-                            for s in stmts )
-                results = [ LoopIR_to_QAST(stmts).result()
-                            for stmts in match ]
+                assert all(isinstance(s, LoopIR.stmt) for stmts in match for s in stmts)
+                results = [LoopIR_to_QAST(stmts).result() for stmts in match]
             else:
                 assert False, "bad case"
 
@@ -316,14 +331,14 @@ class Procedure(ProcedureBase):
     # ---------------------------------------------- #
 
     def show_c_code(self):
-        return MarkDownBlob("```c\n"+self.c_code_str()+"\n```")
+        return MarkDownBlob("```c\n" + self.c_code_str() + "\n```")
 
     def c_code_str(self):
         decls, defns = compile_to_strings("c_code_str", [self._loopir_proc])
-        return decls + '\n' + defns
+        return decls + "\n" + defns
 
     def compile_c(self, directory: Path, filename: str):
-        compile_procs([self._loopir_proc], directory, f'{filename}.c', f'{filename}.h')
+        compile_procs([self._loopir_proc], directory, f"{filename}.c", f"{filename}.h")
 
     def interpret(self, **kwargs):
         run_interpreter(self._loopir_proc, kwargs)
@@ -332,7 +347,7 @@ class Procedure(ProcedureBase):
     #     scheduling operations
     # ------------------------------- #
 
-    #def simplify(self):
+    # def simplify(self):
     #    """
     #    Simplify the code in the procedure body. Tries to reduce expressions
     #    to constants and eliminate dead branches and loops. Uses branch
@@ -342,7 +357,7 @@ class Procedure(ProcedureBase):
     #    p = Schedules.DoSimplify(p).result()
     #    return Procedure(p, _provenance_eq_Procedure=self)
 
-    #def rename(self, name):
+    # def rename(self, name):
     #    """
     #    Rename the procedure. Affects generated symbol names.
     #    """
@@ -359,7 +374,7 @@ class Procedure(ProcedureBase):
         """
         return FindDup(self._loopir_proc).result
 
-    #def make_instr(self, instr):
+    # def make_instr(self, instr):
     #    if not isinstance(instr, str):
     #        raise TypeError("expected an instruction macro "
     #                        "(Python string with {} escapes "
@@ -386,8 +401,10 @@ class Procedure(ProcedureBase):
 
         if args:
             if len(args) > len(p.args):
-                raise TypeError(f"expected no more than {len(p.args)} "
-                                f"arguments, but got {len(args)}")
+                raise TypeError(
+                    f"expected no more than {len(p.args)} "
+                    f"arguments, but got {len(args)}"
+                )
             kwargs = {arg.name: val for arg, val in zip(p.args, args)}
         else:
             # Get the symbols corresponding to the names
@@ -441,21 +458,21 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
     """
 
-    def _find_stmt(self, stmt_pattern, call_depth=2,
-                   default_match_no: Optional[int] = 0):
-        stmt_lists = match_pattern(self, stmt_pattern,
-                                   call_depth=call_depth,
-                                   default_match_no=default_match_no)
+    def _find_stmt(
+        self, stmt_pattern, call_depth=2, default_match_no: Optional[int] = 0
+    ):
+        stmt_lists = match_pattern(
+            self, stmt_pattern, call_depth=call_depth, default_match_no=default_match_no
+        )
         if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
-            raise SchedulingError('failed to find statement',
-                                  pattern=stmt_pattern)
+            raise SchedulingError("failed to find statement", pattern=stmt_pattern)
         elif default_match_no is None:
-            return [ s[0] for s in stmt_lists ]
+            return [s[0] for s in stmt_lists]
         else:
             return stmt_lists[0][0]
 
     def _find_callsite(self, call_site_pattern):
-        call_stmt   = self._find_stmt(call_site_pattern, call_depth=3)
+        call_stmt = self._find_stmt(call_site_pattern, call_depth=3)
         if not isinstance(call_stmt, LoopIR.Call):
             raise TypeError("pattern did not describe a call-site")
 
@@ -674,12 +691,13 @@ class Procedure(ProcedureBase):
 
     def add_assertion(self, assertion, configs=[]):
         if not isinstance(assertion, str):
-            raise TypeError('assertion must be an Exo string')
+            raise TypeError("assertion must be an Exo string")
 
         p = self._loopir_proc
         assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
-        p = LoopIR.proc(p.name, p.args, p.preds + [assertion], p.body,
-                        p.instr, p.eff, p.srcinfo)
+        p = LoopIR.proc(
+            p.name, p.args, p.preds + [assertion], p.body, p.instr, p.eff, p.srcinfo
+        )
         return Procedure(p, _provenance_eq_Procedure=None)
 
     """
@@ -1007,7 +1025,7 @@ class Procedure(ProcedureBase):
         return Procedure(loopir, _provenance_eq_Procedure=self)
     """
 
-    def is_eq(self, proc: 'Procedure'):
+    def is_eq(self, proc: "Procedure"):
         eqv_set = check_eqv_proc(self._loopir_proc, proc._loopir_proc)
         return eqv_set == frozenset()
 
@@ -1316,6 +1334,7 @@ class Procedure(ProcedureBase):
         return ( Procedure(loopir, _provenance_eq_Procedure=self),
                  Procedure(subproc) )
     """
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

@@ -20,27 +20,17 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
-typedef struct c_code_str_Context { 
 
-} c_code_str_Context;
 
 // hoge(
 //     n : size,
 //     x : f32[n]  @DRAM,
 //     y : f32[n]  @DRAM
 // )
-void hoge( c_code_str_Context *ctxt, int_fast32_t n, float* x, float* y );
+void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y );
 
 
 
-static int _floor_div(int num, int quot) {
-  int off = (num>=0)? 0 : quot-1;
-  return (num-off)/quot;
-}
-
-static int8_t _clamp_32to8(int32_t x) {
-  return (x < -128)? -128 : ((x > 127)? 127 : x);
-}
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +42,7 @@ static int8_t _clamp_32to8(int32_t x) {
 //     y : f32[m]  @DRAM,
 //     r : f32  @DRAM
 // )
-static void dot( c_code_str_Context *ctxt, int_fast32_t m, float* x, float* y, float* r );
+static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, float* r );
 
 // dot(
 //     m : size,
@@ -60,7 +50,7 @@ static void dot( c_code_str_Context *ctxt, int_fast32_t m, float* x, float* y, f
 //     y : f32[m]  @DRAM,
 //     r : f32  @DRAM
 // )
-static void dot( c_code_str_Context *ctxt, int_fast32_t m, float* x, float* y, float* r ) {
+static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, float* r ) {
 *r = 0.0;
 for (int i = 0; i < m; i++) {
   *r += x[(i) * (1)] * y[(i) * (1)];
@@ -72,7 +62,7 @@ for (int i = 0; i < m; i++) {
 //     x : f32[n]  @DRAM,
 //     y : f32[n]  @DRAM
 // )
-void hoge( c_code_str_Context *ctxt, int_fast32_t n, float* x, float* y ) {
+void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y ) {
 float xy;
 dot(ctxt,n,x,y,&xy);
 }

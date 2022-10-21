@@ -39,8 +39,8 @@ cmake --build build/apps
 
 ## Run correctness checks
 
-./build/apps/x86_demo/sgemm/run_exo 1000
-./build/apps/x86_demo/conv/test_conv
+./build/apps/x86/sgemm/run_exo 1000
+./build/apps/x86/conv/test_conv
 
 ## Run benchmarks
 
@@ -49,12 +49,12 @@ export MKL_NUM_THREADS=1
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
-./build/apps/x86_demo/sgemm/bench_sgemm \
+./build/apps/x86/sgemm/bench_sgemm \
   --benchmark_filter=exo --benchmark_out=sgemm_exo.json
-./build/apps/x86_demo/sgemm/bench_sgemm \
+./build/apps/x86/sgemm/bench_sgemm \
   --benchmark_filter=MKL --benchmark_out=sgemm_mkl.json
-./build/apps/x86_demo/sgemm/bench_sgemm_openblas \
+./build/apps/x86/sgemm/bench_sgemm_openblas \
   --benchmark_filter=OpenBLAS --benchmark_out=sgemm_openblas.json
 
-./build/apps/x86_demo/conv/bench_conv \
+./build/apps/x86/conv/bench_conv \
   --benchmark_filter=102 --benchmark_out=conv.json
