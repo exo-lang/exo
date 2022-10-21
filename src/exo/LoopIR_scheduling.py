@@ -1168,6 +1168,7 @@ class _DoCommuteExpr(LoopIR_Rewrite):
         else:
             return super().map_e(e)
 
+
 def get_reads(e):
     if isinstance(e, LoopIR.Read):
         return sum([get_reads(e) for e in e.idx], [(e.name, e.type)])
@@ -1181,6 +1182,7 @@ def get_reads(e):
         return []
     else:
         assert False, "bad case"
+
 
 # TODO: add more tests to ensure correctness
 class _BindExpr(LoopIR_Rewrite):
@@ -1280,7 +1282,7 @@ class _BindExpr(LoopIR_Rewrite):
             if (new_rhs := self.map_e(s.rhs)) is None:
                 new_rhs = s.rhs
             # terminate CSE if the expression is written to
-            if (self.found_expr and self.use_cse):
+            if self.found_expr and self.use_cse:
                 for (name, type) in self.expr_reads:
                     if s.name == name and s.type == type:
                         self.found_write = True
