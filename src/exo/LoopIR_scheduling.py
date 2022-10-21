@@ -1227,21 +1227,6 @@ class _DoCommuteExpr(LoopIR_Rewrite):
             return super().map_e(e)
 
 
-def get_reads(e):
-    if isinstance(e, LoopIR.Read):
-        return sum([get_reads(e) for e in e.idx], [(e.name, e.type)])
-    elif isinstance(e, LoopIR.USub):
-        return get_reads(e.arg)
-    elif isinstance(e, LoopIR.BinOp):
-        return get_reads(e.lhs) + get_reads(e.rhs)
-    elif isinstance(e, LoopIR.BuiltIn):
-        return sum([get_reads(a) for a in e.args], [])
-    elif isinstance(e, LoopIR.Const):
-        return []
-    else:
-        assert False, "bad case"
-
-
 # TODO: add more tests to ensure correctness
 class _BindExpr(LoopIR_Rewrite):
     def __init__(self, proc, new_name, exprs, cse=False):
@@ -1337,14 +1322,17 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             e = self.exprs[0]
-            if (new_rhs := self.map_e(s.rhs)) is None:
-                new_rhs = s.rhs
+            new_rhs = self.map_e(s.rhs)
+
             # terminate CSE if the expression is written to
             if self.found_expr and self.use_cse:
                 for (name, type) in self.expr_reads:
                     if s.name == name and s.type == type:
                         self.found_write = True
-            return [s.update(rhs=new_rhs)]
+
+            if new_rhs is not None:
+                return [s.update(rhs=new_rhs)]
+            return None
 
         return super().map_s(s)
 
