@@ -1258,13 +1258,9 @@ class _BindExpr(LoopIR_Rewrite):
         is_updated = False
 
         for _stmt in block:
-            if not self.found_write:
-                stmt = self.map_s(_stmt)
-
-                if stmt is not None:
-                    is_updated = True
-                else:
-                    stmt = [_stmt]
+            stmt = self.map_s(_stmt)
+            if stmt is not None:
+                is_updated = True
             else:
                 stmt = [_stmt]
 
@@ -1298,6 +1294,9 @@ class _BindExpr(LoopIR_Rewrite):
         return None
 
     def map_s(self, s):
+        if self.found_write:
+            return None
+
         if self.sub_done:
             return super().map_s(s)
 
