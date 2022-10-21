@@ -18,11 +18,13 @@ def test_bad_reorder():
         for i in seq(0, N):
             A[i] = 0.0
 
-    expected_error = textwrap.dedent('''
+    expected_error = textwrap.dedent(
+        """
     reorder: failed to find statement
     Pattern: for i in _:
                for j in _: _
-    ''').strip()
+    """
+    ).strip()
 
     with pytest.raises(SchedulingError, match=expected_error):
-        reorder_loops(example, 'i', 'j')
+        reorder_loops(example, "i", "j")

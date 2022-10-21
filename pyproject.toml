@@ -8,3 +8,6 @@ filterwarnings = [
 ]
 norecursedirs = ['dependencies']
 pythonpath = "src/"
+
+[tool.black]
+exclude = '(demo_stage\.py|dependencies/.*)'

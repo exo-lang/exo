@@ -5,15 +5,16 @@ from exo.stdlib.scheduling import *
 
 # ------- Reflection tests ---------
 
+
 def new_sgemm():
     @proc
     def sgemm_full(
-            N: size,
-            M: size,
-            K: size,
-            C: f32[N, M] @ DRAM,
-            A: f32[N, K] @ DRAM,
-            B: f32[K, M] @ DRAM,
+        N: size,
+        M: size,
+        K: size,
+        C: f32[N, M] @ DRAM,
+        A: f32[N, K] @ DRAM,
+        B: f32[K, M] @ DRAM,
     ):
         for i in seq(0, N):
             for j in seq(0, M):
@@ -30,7 +31,7 @@ def test_proc_name():
     assert isinstance(proc, QAST.Proc)
     assert proc.name == "sgemm_full"
 
-    sgemm = rename(sgemm, 'sgemm')
+    sgemm = rename(sgemm, "sgemm")
 
     proc = sgemm.get_ast()
     assert isinstance(proc, QAST.Proc)

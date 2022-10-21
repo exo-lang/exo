@@ -12,6 +12,7 @@ class ConfigError(Exception):
     def __init__(self, msg):
         super().__init__(msg)
 
+
 """
 # Configuration objects should work like structs
 # for the time being, we will skip over implementing a
@@ -61,42 +62,47 @@ def ctyp(typ):
         return "int32_t"
     elif isinstance(typ, LoopIR.T.Bool):
         return "bool"
-    elif (isinstance(typ, LoopIR.T.Index) or
-          isinstance(typ, LoopIR.T.Size) or
-          isinstance(typ, LoopIR.T.Stride)):
+    elif (
+        isinstance(typ, LoopIR.T.Index)
+        or isinstance(typ, LoopIR.T.Size)
+        or isinstance(typ, LoopIR.T.Stride)
+    ):
         return "int_fast32_t"
     else:
         assert False, f"bad case! {typ}"
 
+
 _reverse_symbol_lookup = WeakKeyDictionary()
+
 
 def reverse_config_lookup(sym):
     return _reverse_symbol_lookup[sym]
 
+
 class Config:
     def __init__(self, name, fields, disable_rw):
-        self._name      = name
-        self._fields    = fields
-        self._rw_ok     = not disable_rw
+        self._name = name
+        self._fields = fields
+        self._rw_ok = not disable_rw
 
         uast_to_type = {
-            LoopIR.UAST.Size()      : LoopIR.T.size,
-            LoopIR.UAST.Bool()      : LoopIR.T.bool,
-            LoopIR.UAST.Index()     : LoopIR.T.index,
-            LoopIR.UAST.Stride()    : LoopIR.T.stride,
-            LoopIR.UAST.F32()       : LoopIR.T.f32,
-            LoopIR.UAST.F64()       : LoopIR.T.f64,
-            LoopIR.UAST.INT8()      : LoopIR.T.i8,
-            LoopIR.UAST.INT32()     : LoopIR.T.i32,
+            LoopIR.UAST.Size(): LoopIR.T.size,
+            LoopIR.UAST.Bool(): LoopIR.T.bool,
+            LoopIR.UAST.Index(): LoopIR.T.index,
+            LoopIR.UAST.Stride(): LoopIR.T.stride,
+            LoopIR.UAST.F32(): LoopIR.T.f32,
+            LoopIR.UAST.F64(): LoopIR.T.f64,
+            LoopIR.UAST.INT8(): LoopIR.T.i8,
+            LoopIR.UAST.INT32(): LoopIR.T.i32,
         }
 
-        self._lookup    = { nm : (i,uast_to_type[typ])
-                            for i,(nm,typ) in enumerate(fields) }
+        self._lookup = {
+            nm: (i, uast_to_type[typ]) for i, (nm, typ) in enumerate(fields)
+        }
 
-        self._field_syms    = { nm : Sym(f"{name}_{nm}")
-                                for nm,typ in fields }
-        for fname,sym in self._field_syms.items():
-            _reverse_symbol_lookup[sym] = (self,fname)
+        self._field_syms = {nm: Sym(f"{name}_{nm}") for nm, typ in fields}
+        for fname, sym in self._field_syms.items():
+            _reverse_symbol_lookup[sym] = (self, fname)
 
     def name(self):
         return self._name

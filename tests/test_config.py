@@ -9,6 +9,7 @@ from exo.stdlib.scheduling import *
 
 # ------- Configuration tests ---------
 
+
 @pytest.mark.skip()
 def test_config_size():
     def new_config_ld():
@@ -52,17 +53,12 @@ def test_config_stride():
     ConfigLoad = new_config_ld()
 
     @proc
-    def do_ld_i8(
-            n: size,
-            src: [i8][n] @ DRAM
-    ):
+    def do_ld_i8(n: size, src: [i8][n] @ DRAM):
         assert stride(src, 0) == ConfigLoad.src_stride
         pass
 
     @proc
-    def config_ld_i8(
-            src_stride: stride
-    ):
+    def config_ld_i8(src_stride: stride):
         ConfigLoad.src_stride = src_stride
 
     @proc
@@ -129,8 +125,8 @@ def test_write_loop_builtin(golden):
 @pytest.mark.skip()
 def test_write_loop_varying():
     ConfigAB = new_config_f32()
-    with pytest.raises(TypeError,
-                       match='The value written to config variable'):
+    with pytest.raises(TypeError, match="The value written to config variable"):
+
         @proc
         def foo(n: size, A: f32[n]):
             for i in seq(0, n):
@@ -140,8 +136,8 @@ def test_write_loop_varying():
 @pytest.mark.skip()
 def test_write_loop_varying_indirect():
     ConfigAB = new_config_f32()
-    with pytest.raises(TypeError,
-                       match='The value written to config variable'):
+    with pytest.raises(TypeError, match="The value written to config variable"):
+
         @proc
         def foo(n: size, A: f32[n]):
             for i in seq(0, n):
@@ -158,8 +154,8 @@ def test_write_loop_varying_indirect():
 def test_write_loop_syntax_check_fail():
     CTRL = new_control_config()
 
-    with pytest.raises(TypeError,
-                       match='depends on the loop iteration variable'):
+    with pytest.raises(TypeError, match="depends on the loop iteration variable"):
+
         @proc
         def foo(n: size):
             for i in seq(0, n):
@@ -198,8 +194,8 @@ def test_loop_complex_guards(golden):
 def test_loop_circular_guards():
     CTRL = new_control_config()
 
-    with pytest.raises(TypeError,
-                       match='TODO: Need to determine which error'):
+    with pytest.raises(TypeError, match="TODO: Need to determine which error"):
+
         @proc
         def foo(n: size):
             for i in seq(0, n):
@@ -244,7 +240,7 @@ def test_stride_with_config(golden):
         assert stride(src, 0) == ConfigLoad.src_stride
         bar(n, src)
 
-    assert f'{bar}\n{foo}' == golden
+    assert f"{bar}\n{foo}" == golden
 
 
 def test_config_bind(golden):
@@ -257,7 +253,7 @@ def test_config_bind(golden):
             tmp = 0.0
             tmp = tmp * scale
 
-    foo = bind_config(foo, 'scale', ConfigLoad, 'scale')
+    foo = bind_config(foo, "scale", ConfigLoad, "scale")
 
     assert str(foo) == golden
 
@@ -274,8 +270,7 @@ def test_config_fission(golden):
                 tmp = A[i, j]
                 tmp = tmp * ConfigLoad.scale
 
-    foo = autofission(foo, foo.find('ConfigLoad.scale = _').after(),
-                      n_lifts=2)
+    foo = autofission(foo, foo.find("ConfigLoad.scale = _").after(), n_lifts=2)
 
     assert str(foo) == golden
 
@@ -283,26 +278,25 @@ def test_config_fission(golden):
 def test_ld(golden):
     ConfigLoad = new_config_ld()
 
-    _gemm_config_ld_i8 = ("gemmini_extended3_config_ld({src_stride}, " +
-                          "{scale}[0], 0, 0);\n")
+    _gemm_config_ld_i8 = (
+        "gemmini_extended3_config_ld({src_stride}, " + "{scale}[0], 0, 0);\n"
+    )
 
     @instr(_gemm_config_ld_i8)
-    def config_ld_i8(
-            scale: f32,
-            src_stride: stride
-    ):
+    def config_ld_i8(scale: f32, src_stride: stride):
         ConfigLoad.scale = scale
         ConfigLoad.src_stride = src_stride
 
-    _gemm_do_ld_i8 = ("gemmini_extended_mvin( {src}.data, " +
-                      "((uint64_t) {dst}.data), {m}, {n} );")
+    _gemm_do_ld_i8 = (
+        "gemmini_extended_mvin( {src}.data, " + "((uint64_t) {dst}.data), {m}, {n} );"
+    )
 
     @instr(_gemm_do_ld_i8)
     def do_ld_i8(
-            n: size,
-            m: size,
-            src: i8[n, m] @ DRAM,
-            dst: i8[n, 16] @ GEMM_SCRATCH,
+        n: size,
+        m: size,
+        src: i8[n, m] @ DRAM,
+        dst: i8[n, 16] @ GEMM_SCRATCH,
     ):
         assert n <= 16
         assert m <= 16
@@ -318,18 +312,20 @@ def test_ld(golden):
                 tmp = tmp * ConfigLoad.scale
                 dst[i, j] = tmp
 
-    _gemm_ld_i8 = ("gemmini_extended3_config_ld({stride(src, 0)}, " +
-                   "{scale}[0], 0, 0);\n" +
-                   "gemmini_extended_mvin( {src}.data, " +
-                   "((uint64_t) {dst}.data), {m}, {n} );")
+    _gemm_ld_i8 = (
+        "gemmini_extended3_config_ld({stride(src, 0)}, "
+        + "{scale}[0], 0, 0);\n"
+        + "gemmini_extended_mvin( {src}.data, "
+        + "((uint64_t) {dst}.data), {m}, {n} );"
+    )
 
     @instr(_gemm_ld_i8)
     def ld_i8(
-            n: size,
-            m: size,
-            scale: f32,
-            src: i8[n, m] @ DRAM,
-            dst: i8[n, 16] @ GEMM_SCRATCH,
+        n: size,
+        m: size,
+        scale: f32,
+        src: i8[n, m] @ DRAM,
+        dst: i8[n, 16] @ GEMM_SCRATCH,
     ):
         assert n <= 16
         assert m <= 16
@@ -344,20 +340,23 @@ def test_ld(golden):
                 tmp = tmp * scale
                 dst[i, j] = tmp
 
-    ld_i8 = bind_config(ld_i8, 'scale', ConfigLoad, 'scale')
-    ld_i8 = reorder_stmts(ld_i8, 'tmp = src[_] ; ConfigLoad.scale = _')
-    ld_i8 = reorder_stmts(ld_i8, 'tmp : _ ; ConfigLoad.scale = _')
-    ld_i8 = autofission(ld_i8, ld_i8.find('ConfigLoad.scale = _').after(),
-                        n_lifts=3)
-    ld_i8 = write_config(ld_i8, ld_i8.find('ConfigLoad.scale = _').after(),
-                                ConfigLoad, 'src_stride', 'stride(src, 0)')
-    ld_i8 = replace(ld_i8, 'for i in _:_', do_ld_i8)
-    ld_i8 = replace(ld_i8,
-        'ConfigLoad.scale = _ ; ConfigLoad.src_stride = _',
-        config_ld_i8
+    ld_i8 = bind_config(ld_i8, "scale", ConfigLoad, "scale")
+    ld_i8 = reorder_stmts(ld_i8, "tmp = src[_] ; ConfigLoad.scale = _")
+    ld_i8 = reorder_stmts(ld_i8, "tmp : _ ; ConfigLoad.scale = _")
+    ld_i8 = autofission(ld_i8, ld_i8.find("ConfigLoad.scale = _").after(), n_lifts=3)
+    ld_i8 = write_config(
+        ld_i8,
+        ld_i8.find("ConfigLoad.scale = _").after(),
+        ConfigLoad,
+        "src_stride",
+        "stride(src, 0)",
+    )
+    ld_i8 = replace(ld_i8, "for i in _:_", do_ld_i8)
+    ld_i8 = replace(
+        ld_i8, "ConfigLoad.scale = _ ; ConfigLoad.src_stride = _", config_ld_i8
     )
 
-    assert f'{config_ld_i8}\n{ld_i8}' == golden
+    assert f"{config_ld_i8}\n{ld_i8}" == golden
 
 
 """

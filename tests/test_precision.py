@@ -8,10 +8,10 @@ from exo import proc, Procedure
 
 # ------- Precision casting tests ------
 
+
 def gen_good_prec1():
     @proc
-    def good_prec1(n: size, m: size,
-                   x: f32[n, m], y: f32[n, m], res: f64[n, m]):
+    def good_prec1(n: size, m: size, x: f32[n, m], y: f32[n, m], res: f64[n, m]):
         for i in seq(0, n):
             rloc: f64[m]
             xloc: f32[m]
@@ -31,8 +31,7 @@ def gen_good_prec1():
 # Binop on different precision
 def gen_bad_prec1():
     @proc
-    def bad_prec1(n: size, m: size,
-                  x: f32[n, m], y: i8[n, m], res: f64[n, m]):
+    def bad_prec1(n: size, m: size, x: f32[n, m], y: i8[n, m], res: f64[n, m]):
         for i in seq(0, n):
             rloc: f64[m]
             xloc: f32[m]
@@ -61,8 +60,9 @@ def test_good_prec1(compiler):
 
     fn(None, *x.shape, x, y, res)
 
-    np.testing.assert_almost_equal(res, np.array(
-        [[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]), decimal=6)
+    np.testing.assert_almost_equal(
+        res, np.array([[3.6, 5.7, 11.9], [4.5, 6.3, 12.0]]), decimal=6
+    )
 
 
 def gen_dot():
@@ -96,8 +96,7 @@ def gen_bad_prec2(dot):
 def test_bad_prec1():
     bad_prec1 = gen_bad_prec1()
 
-    with pytest.raises(TypeError,
-                       match='Errors occurred during precision checking'):
+    with pytest.raises(TypeError, match="Errors occurred during precision checking"):
         bad_prec1.c_code_str()
 
 
@@ -113,6 +112,5 @@ def test_bad_prec2():
     dot = gen_dot()
     bad_prec2 = gen_bad_prec2(dot)
 
-    with pytest.raises(TypeError,
-                       match='Errors occurred during precision checking'):
+    with pytest.raises(TypeError, match="Errors occurred during precision checking"):
         bad_prec2.c_code_str()

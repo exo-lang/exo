@@ -31,10 +31,10 @@ _gemm_do_ld_data = (
 
 @instr(_gemm_do_ld_data)
 def do_ld_data(
-        n: size,
-        m: size,
-        src: [R][n, m] @ DRAM,
-        dst: [R][n, 16] @ GEMM_SCRATCH,
+    n: size,
+    m: size,
+    src: [R][n, m] @ DRAM,
+    dst: [R][n, 16] @ GEMM_SCRATCH,
 ):
     assert n <= 16
     assert m <= 16
@@ -55,10 +55,10 @@ _gemm_ld_data = (
 
 @instr(_gemm_ld_data)
 def ld_data(
-        n: size,
-        m: size,
-        src: [R][n, m] @ DRAM,
-        dst: [R][n, 16] @ GEMM_SCRATCH,
+    n: size,
+    m: size,
+    src: [R][n, m] @ DRAM,
+    dst: [R][n, 16] @ GEMM_SCRATCH,
 ):
     assert n <= 16
     assert m <= 16
@@ -107,10 +107,10 @@ _gemm_do_ld_acc = (
 
 @instr(_gemm_do_ld_acc)
 def do_ld_acc(
-        n: size,
-        m: size,
-        src: [R][n, m] @ DRAM,
-        dst: [R][n, 16] @ GEMM_ACCUM,
+    n: size,
+    m: size,
+    src: [R][n, m] @ DRAM,
+    dst: [R][n, 16] @ GEMM_ACCUM,
 ):
     assert n <= 16
     assert m <= 16
@@ -131,10 +131,10 @@ _gemm_ld_acc = (
 
 @instr(_gemm_ld_acc)
 def ld_acc(
-        n: size,
-        m: size,
-        src: [R][n, m] @ DRAM,
-        dst: [R][n, 16] @ GEMM_ACCUM,
+    n: size,
+    m: size,
+    src: [R][n, m] @ DRAM,
+    dst: [R][n, 16] @ GEMM_ACCUM,
 ):
     assert n <= 16
     assert m <= 16
@@ -192,12 +192,12 @@ _gemm_matmul = (
 
 @instr(_gemm_config_matmul + _gemm_matmul)
 def matmul(
-        N: size,
-        M: size,
-        K: size,
-        A: [R][N, 16] @ GEMM_SCRATCH,
-        B: [R][K, 16] @ GEMM_SCRATCH,
-        C: [R][N, 16] @ GEMM_ACCUM,
+    N: size,
+    M: size,
+    K: size,
+    A: [R][N, 16] @ GEMM_SCRATCH,
+    B: [R][K, 16] @ GEMM_SCRATCH,
+    C: [R][N, 16] @ GEMM_ACCUM,
 ):
     assert N <= 16
     assert M <= 16
@@ -211,12 +211,12 @@ def matmul(
 
 @instr(_gemm_matmul)
 def do_matmul(
-        N: size,
-        M: size,
-        K: size,
-        A: [R][N, 16] @ GEMM_SCRATCH,
-        B: [R][K, 16] @ GEMM_SCRATCH,
-        C: [R][N, 16] @ GEMM_ACCUM,
+    N: size,
+    M: size,
+    K: size,
+    A: [R][N, 16] @ GEMM_SCRATCH,
+    B: [R][K, 16] @ GEMM_SCRATCH,
+    C: [R][N, 16] @ GEMM_ACCUM,
 ):
     assert N <= 16
     assert M <= 16

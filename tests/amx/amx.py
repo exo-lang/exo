@@ -7,7 +7,7 @@ from exo.libs.memories import AMX_TILE
 # Config                                                                       #
 # ---------------------------------------------------------------------------- #
 
-_amx_config = ("""
+_amx_config = """
 unsigned char config[] = {{
     0x01,                                     // ID
     0x00,                                     // start row
@@ -47,7 +47,7 @@ unsigned char config[] = {{
     0x00                                      // rows tile 15
 }};
 _tile_loadconfig(config);
-""")
+"""
 
 
 @instr(_amx_config)
@@ -66,10 +66,10 @@ _amx_ld = "_tile_loadd({dst_int}, {src}.data, {src}.strides[0]);"
 
 @instr(_amx_ld)
 def ld_i8(
-        m: size,
-        n: size,
-        src: [i8][m, n] @ DRAM,
-        dst: [i8][m, n] @ AMX_TILE,
+    m: size,
+    n: size,
+    src: [i8][m, n] @ DRAM,
+    dst: [i8][m, n] @ AMX_TILE,
 ):
     assert m <= 16
     assert n <= 64
@@ -80,10 +80,10 @@ def ld_i8(
 
 @instr("_tile_loadd({dst_int}, {src}.data, 4*{src}.strides[0]);")
 def ld_i32(
-        m: size,
-        n: size,
-        src: [i32][m, n] @ DRAM,
-        dst: [i32][m, n] @ AMX_TILE,
+    m: size,
+    n: size,
+    src: [i32][m, n] @ DRAM,
+    dst: [i32][m, n] @ AMX_TILE,
 ):
     assert m <= 16
     assert n <= 16
@@ -96,12 +96,14 @@ def ld_i32(
 Need this because idk how to rearrange memory
 using Exo commands when scheduling and lift_allocing
 """
+
+
 @instr(_amx_ld)
 def ld_i8_3d(
-        n: size,
-        m: size,
-        src: [i8][m, 4 * n] @ DRAM,
-        dst: [i8][m, n, 4] @ AMX_TILE,
+    n: size,
+    m: size,
+    src: [i8][m, 4 * n] @ DRAM,
+    dst: [i8][m, n, 4] @ AMX_TILE,
 ):
     assert n <= 16
     assert m <= 16
@@ -116,12 +118,12 @@ def ld_i8_3d(
 # ---------------------------------------------------------------------------- #
 
 # TODO: Handle custom write_stride
-@instr('_tile_stored({src_int}, {dst}.data, {dst}.strides[0]);')
+@instr("_tile_stored({src_int}, {dst}.data, {dst}.strides[0]);")
 def st_i8(
-        m: size,
-        n: size,
-        src: [i8][m, n] @ AMX_TILE,
-        dst: [i8][m, n] @ DRAM,
+    m: size,
+    n: size,
+    src: [i8][m, n] @ AMX_TILE,
+    dst: [i8][m, n] @ DRAM,
 ):
     assert m <= 16
     assert n <= 64
@@ -130,12 +132,12 @@ def st_i8(
             dst[i, j] = src[i, j]
 
 
-@instr('_tile_stored({src_int}, {dst}.data, 4*{dst}.strides[0]);')
+@instr("_tile_stored({src_int}, {dst}.data, 4*{dst}.strides[0]);")
 def st_i32(
-        m: size,
-        n: size,
-        src: [i32][m, n] @ AMX_TILE,
-        dst: [i32][m, n] @ DRAM,
+    m: size,
+    n: size,
+    src: [i32][m, n] @ AMX_TILE,
+    dst: [i32][m, n] @ DRAM,
 ):
     assert m <= 16
     assert n <= 16
@@ -144,11 +146,11 @@ def st_i32(
             dst[i, j] = src[i, j]
 
 
-@instr('_tile_zero({tile_int});')
+@instr("_tile_zero({tile_int});")
 def zero_i32(
-        m: size,
-        n: size,
-        tile: [i32][m, n] @ AMX_TILE,
+    m: size,
+    n: size,
+    tile: [i32][m, n] @ AMX_TILE,
 ):
     assert m <= 16
     assert n <= 16
@@ -174,12 +176,12 @@ _amx_dpbssd = "_tile_dpbssd({dst_int}, {src1_int}, {src2_int});"
 
 @instr(_amx_dpbssd)
 def dpbssd(
-        M: size,
-        K: size,
-        N: size,
-        src1: [i8][M, 4 * K] @ AMX_TILE,
-        src2: [i8][K, 4 * N] @ AMX_TILE,
-        dst: [i32][M, N] @ AMX_TILE,
+    M: size,
+    K: size,
+    N: size,
+    src1: [i8][M, 4 * K] @ AMX_TILE,
+    src2: [i8][K, 4 * N] @ AMX_TILE,
+    dst: [i32][M, N] @ AMX_TILE,
 ):
     assert M <= 16
     assert K <= 16
@@ -199,12 +201,12 @@ def dpbssd(
 
 @instr(_amx_dpbssd)
 def dpbssd_3d(
-        M: size,
-        K: size,
-        N: size,
-        src1: [i8][M, K, 4] @ AMX_TILE,
-        src2: [i8][K, N, 4] @ AMX_TILE,
-        dst: [i32][M, N] @ AMX_TILE,
+    M: size,
+    K: size,
+    N: size,
+    src1: [i8][M, K, 4] @ AMX_TILE,
+    src2: [i8][K, N, 4] @ AMX_TILE,
+    dst: [i32][M, N] @ AMX_TILE,
 ):
     assert M <= 16
     assert K <= 16
