@@ -1,5 +1,0 @@
-def bar(x: R[5] @ DRAM, y: R[3] @ DRAM):
-    for i in seq(0, 3):
-        if i > 0:
-            x[2 * i - 1] = x[i] + y[i]
-            x[2 * i - 1] += x[i]

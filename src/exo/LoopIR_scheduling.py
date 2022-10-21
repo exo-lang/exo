@@ -214,10 +214,10 @@ class _DoMergeWrites(LoopIR_Rewrite):
             assert len(stmt1.idx) == len(stmt2.idx)
             for i, j in zip(stmt1.idx, stmt2.idx):
                 Check_ExprEqvInContext(proc, [stmt1, stmt2], i, j)
-        except SchedulingError:
-            raise SchedulingError("expected the left hand side's indices to be the same.")
+        except SchedulingError as e:
+            raise SchedulingError("expected the left hand side's indices to be the same.") from e
 
-        if any([stmt1.name == name and stmt1.type == typ for name, typ in get_reads(stmt2.rhs)]):
+        if any(stmt1.name == name and stmt1.type == typ for name, typ in get_reads(stmt2.rhs)):
             raise SchedulingError("expected the right hand side of the second statement to not "
                                   "depend on the left hand side of the first statement.")
 
@@ -230,14 +230,14 @@ class _DoMergeWrites(LoopIR_Rewrite):
         self.proc = InferEffects(self.proc).result()
 
     def map_stmts(self, stmts):
-        if type(self.s2) is LoopIR.Assign:
-            for i in range(len(stmts)):
-                if stmts[i] is self.s2:
+        if isinstance(self.s2, LoopIR.Assign):
+            for i, s in enumerate(stmts):
+                if s is self.s2:
                     return stmts[:i-1] + stmts[i:]
         else:
-            for i in range(len(stmts)):
-                if stmts[i] is self.s1:
-                    return stmts[:i] + [stmts[i].update(rhs=self.new_rhs)] + stmts[i+2:]
+            for i, s in enumerate(stmts):
+                if s is self.s1:
+                    return stmts[:i] + [s.update(rhs=self.new_rhs)] + stmts[i+2:]
 
         return super().map_stmts(stmts)
 
