@@ -219,7 +219,7 @@ class UAST_PPrinter:
                     self.push()
                     self.pstmts(stmt.orelse)
                     self.pop()
-            elif isinstance(stmt, UAST.ForAll):
+            elif isinstance(stmt, UAST.Seq):
                 cond = self.pexpr(stmt.cond)
                 self.push(only="env")
                 self.addline(f"for {self.new_name(stmt.iter)} in {cond}:")

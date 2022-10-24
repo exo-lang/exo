@@ -163,7 +163,7 @@ module UAST {
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
             | If      ( expr cond, stmt* body,  stmt* orelse )
-            | ForAll  ( sym iter,  expr cond,   stmt* body )
+            | Seq     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
             | Call    ( loopir_proc f, expr* args )
             attributes( srcinfo srcinfo )

@@ -648,10 +648,7 @@ class Parser:
                 cond = self.parse_loop_cond(s.iter)
                 body = self.parse_stmt_block(s.body)
 
-                if self.is_fragment:
-                    rstmts.append(PAST.Seq(itr, cond, body, self.getsrcinfo(s)))
-                else:
-                    rstmts.append(UAST.ForAll(itr, cond, body, self.getsrcinfo(s)))
+                rstmts.append(self.AST.Seq(itr, cond, body, self.getsrcinfo(s)))
 
                 self.pop()
 
