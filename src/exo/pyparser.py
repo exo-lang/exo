@@ -136,7 +136,7 @@ class Parser:
         getsrcinfo,
         is_fragment=False,
         func_globals=None,
-        srclocals=None,
+        srclocals=ChainMap(),
         as_func=False,
         as_config=False,
         instr=None,
@@ -150,7 +150,10 @@ class Parser:
 
         self.push()
 
-        if not is_fragment:
+        if is_fragment:
+            self.AST = PAST
+        else:
+            self.AST = UAST
             # add builtins
             self.locals["sin"] = sin
             self.locals["relu"] = relu
@@ -179,12 +182,10 @@ class Parser:
         return self._cached_result
 
     def push(self):
-        if not self.is_fragment:
-            self.locals = self.locals.new_child()
+        self.locals = self.locals.new_child()
 
     def pop(self):
-        if not self.is_fragment:
-            self.locals = self.locals.parents
+        self.locals = self.locals.parents
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # parser helper routines
@@ -665,10 +666,7 @@ class Parser:
                 orelse = self.parse_stmt_block(s.orelse)
                 self.pop()
 
-                if self.is_fragment:
-                    rstmts.append(PAST.If(cond, body, orelse, self.getsrcinfo(s)))
-                else:
-                    rstmts.append(UAST.If(cond, body, orelse, self.getsrcinfo(s)))
+                rstmts.append(self.AST.If(cond, body, orelse, self.getsrcinfo(s)))
 
             # ----- Sub-routine call parsing
             elif (
@@ -732,10 +730,7 @@ class Parser:
 
             # ----- Pass no-op parsing
             elif isinstance(s, pyast.Pass):
-                if self.is_fragment:
-                    rstmts.append(PAST.Pass(self.getsrcinfo(s)))
-                else:
-                    rstmts.append(UAST.Pass(self.getsrcinfo(s)))
+                rstmts.append(self.AST.Pass(self.getsrcinfo(s)))
 
             # ----- Stmt Hole parsing
             elif (
@@ -895,27 +890,21 @@ class Parser:
 
             assert isinstance(e.attr, str)
 
-            if self.is_fragment:
-                return PAST.ReadConfig(e.value.id, e.attr, self.getsrcinfo(e))
-            else:
+            config_obj = e.value.id
+            if not self.is_fragment:
                 config_obj = self.eval_expr(e.value)
                 if not isinstance(config_obj, Config):
                     self.err(e.value, "expected indexed object " "to be a Config")
-                return UAST.ReadConfig(config_obj, e.attr, self.getsrcinfo(e))
+
+            return self.AST.ReadConfig(config_obj, e.attr, self.getsrcinfo(e))
 
         elif isinstance(e, pyast.Constant):
-            if self.is_fragment:
-                return PAST.Const(e.value, self.getsrcinfo(e))
-            else:
-                return UAST.Const(e.value, self.getsrcinfo(e))
+            return self.AST.Const(e.value, self.getsrcinfo(e))
 
         elif isinstance(e, pyast.UnaryOp):
             if isinstance(e.op, pyast.USub):
                 arg = self.parse_expr(e.operand)
-                if self.is_fragment:
-                    return PAST.USub(arg, self.getsrcinfo(e))
-                else:
-                    return UAST.USub(arg, self.getsrcinfo(e))
+                return self.AST.USub(arg, self.getsrcinfo(e))
             else:
                 opnm = (
                     "+"
@@ -963,10 +952,7 @@ class Parser:
             if op not in front_ops:
                 self.err(e, f"unsupported binary operator: {op}")
 
-            if self.is_fragment:
-                return PAST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
-            else:
-                return UAST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
+            return self.AST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
 
         elif isinstance(e, pyast.BoolOp):
             assert len(e.values) > 1
@@ -980,10 +966,7 @@ class Parser:
                 assert False, "unrecognized op"
 
             for rhs in e.values[1:]:
-                if self.is_fragment:
-                    lhs = PAST.BinOp(op, lhs, self.parse_expr(rhs), self.getsrcinfo(e))
-                else:
-                    lhs = UAST.BinOp(op, lhs, self.parse_expr(rhs), self.getsrcinfo(e))
+                lhs = self.AST.BinOp(op, lhs, self.parse_expr(rhs), self.getsrcinfo(e))
 
             return lhs
 
@@ -1022,12 +1005,8 @@ class Parser:
                 if op not in front_ops:
                     self.err(e, f"unsupported binary operator: {op}")
 
-                if self.is_fragment:
-                    c = PAST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
-                    res = c if res is None else PAST.BinOp("and", res, c, srcinfo)
-                else:
-                    c = UAST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
-                    res = c if res is None else UAST.BinOp("and", res, c, srcinfo)
+                c = self.AST.BinOp(op, lhs, rhs, self.getsrcinfo(e))
+                res = c if res is None else self.AST.BinOp("and", res, c, srcinfo)
 
             return res
 
@@ -1051,13 +1030,12 @@ class Parser:
 
                 name = e.args[0].id
                 dim = int(e.args[1].value)
-                if self.is_fragment:
-                    return PAST.StrideExpr(name, dim, self.getsrcinfo(e))
-                else:
+                if not self.is_fragment:
                     if name not in self.locals:
                         self.err(e.args[0], f"variable '{name}' undefined")
                     name = self.locals[name]
-                    return UAST.StrideExpr(name, dim, self.getsrcinfo(e))
+
+                return self.AST.StrideExpr(name, dim, self.getsrcinfo(e))
 
             # handle built-in functions
             else:
