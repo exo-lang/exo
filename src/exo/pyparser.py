@@ -136,7 +136,7 @@ class Parser:
         getsrcinfo,
         is_fragment=False,
         func_globals=None,
-        srclocals=ChainMap(),
+        srclocals=None,
         as_func=False,
         as_config=False,
         instr=None,
@@ -144,7 +144,7 @@ class Parser:
 
         self.module_ast = module_ast
         self.globals = func_globals
-        self.locals = srclocals
+        self.locals = srclocals or ChainMap()
         self.getsrcinfo = getsrcinfo
         self.is_fragment = is_fragment
 
