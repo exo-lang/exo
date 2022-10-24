@@ -790,63 +790,34 @@ class Parser:
         if isinstance(node, pyast.Name):
             return node, [], False
         elif isinstance(node, pyast.Subscript):
-            if self.is_fragment:
-                if sys.version_info[:3] >= (3, 9):
-                    # unpack single or multi-arg indexing to list of slices/indices
-                    if isinstance(node.slice, pyast.Slice):
-                        self.err(node, "index-slicing not allowed")
-                    elif isinstance(node.slice, pyast.Tuple):
-                        dims = node.slice.elts
-                    else:
-                        assert isinstance(
-                            node.slice, (pyast.Name, pyast.Constant, pyast.BinOp)
-                        )
-                        dims = [node.slice]
+            if sys.version_info[:3] >= (3, 9):
+                # unpack single or multi-arg indexing to list of slices/indices
+                if isinstance(node.slice, pyast.Tuple):
+                    dims = node.slice.elts
                 else:
-                    if isinstance(node.slice, (pyast.Slice, pyast.ExtSlice)):
-                        self.err(node, "index-slicing not allowed")
-                    else:
-                        assert isinstance(node.slice, pyast.Index)
-                        if isinstance(node.slice.value, pyast.Tuple):
-                            dims = node.slice.value.elts
-                        else:
-                            dims = [node.slice.value]
-
-                if not isinstance(node.value, pyast.Name):
-                    self.err(node, "expected access to have form 'x' or 'x[...]'")
-
-                idxs = [self.parse_expr(e) for e in dims]
-
-                return node.value, idxs, False
+                    dims = [node.slice]
             else:
-                if sys.version_info[:3] >= (3, 9):
-                    # unpack single or multi-arg indexing to list of slices/indices
-                    if isinstance(node.slice, pyast.Tuple):
-                        dims = node.slice.elts
-                    else:
-                        dims = [node.slice]
+                if isinstance(node.slice, pyast.Slice):
+                    dims = [node.slice]
+                elif isinstance(node.slice, pyast.ExtSlice):
+                    dims = node.slice.dims
                 else:
-                    if isinstance(node.slice, pyast.Slice):
-                        dims = [node.slice]
-                    elif isinstance(node.slice, pyast.ExtSlice):
-                        dims = node.slice.dims
+                    assert isinstance(node.slice, pyast.Index)
+                    if isinstance(node.slice.value, pyast.Tuple):
+                        dims = node.slice.value.elts
                     else:
-                        assert isinstance(node.slice, pyast.Index)
-                        if isinstance(node.slice.value, pyast.Tuple):
-                            dims = node.slice.value.elts
-                        else:
-                            dims = [node.slice.value]
+                        dims = [node.slice.value]
 
-                if not isinstance(node.value, pyast.Name):
-                    self.err(node, "expected access to have form 'x' or 'x[...]'")
+            if not isinstance(node.value, pyast.Name):
+                self.err(node, "expected access to have form 'x' or 'x[...]'")
 
-                is_window = any(isinstance(e, pyast.Slice) for e in dims)
-                idxs = [
-                    (self.parse_slice(e, node) if is_window else self.parse_expr(e))
-                    for e in dims
-                ]
+            is_window = any(isinstance(e, pyast.Slice) for e in dims)
+            idxs = [
+                (self.parse_slice(e, node) if is_window else self.parse_expr(e))
+                for e in dims
+            ]
 
-                return node.value, idxs, is_window
+            return node.value, idxs, is_window
         else:
             assert False, "bad case"
 
