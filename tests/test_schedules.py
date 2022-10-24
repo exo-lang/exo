@@ -396,6 +396,18 @@ def test_lift_alloc_simple_error():
         lift_alloc(bar, "tmp_a : _", n_lifts=3)
 
 
+def test_autolift_alloc_error():
+    @proc
+    def bar(n: size, A: i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a: i8
+                tmp_a = A[i]
+
+    with pytest.raises(SchedulingError, match="specified lift level"):
+        autolift_alloc(bar, "tmp_a : _", n_lifts=3)
+
+
 def test_expand_dim(golden):
     @proc
     def foo(n: size, m: size, x: i8):

@@ -125,10 +125,13 @@ def test_conv_ae(golden):
     gemmini = expand_dim(
         gemmini, "i_s: i8[_]", "30", "krow + orow_i", unsafe_disable_checks=True
     )
-    gemmini = old_lift_alloc(gemmini, "i_s : _", n_lifts=5, keep_dims=False)
-    gemmini = old_lift_alloc(gemmini, "w_s : _", n_lifts=4, keep_dims=False)
-
-    gemmini = old_lift_alloc(gemmini, "res : _", n_lifts=4, keep_dims=False)
+    # TODO: Use cursor + repeat to improve this!
+    gemmini = old_lift_alloc(gemmini, "i_s : _ #0", n_lifts=5, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, "i_s : _ #1", n_lifts=4, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, "w_s : _ #0", n_lifts=4, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, "w_s : _ #1", n_lifts=3, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, "res : _ #0", n_lifts=4, keep_dims=False)
+    gemmini = old_lift_alloc(gemmini, "res : _ #1", n_lifts=3, keep_dims=False)
 
     gemmini = old_fission_after(gemmini, "for kch_o in _:_ #0", n_lifts=6)
     gemmini = old_fission_after(gemmini, "for kch_o in _:_ #2", n_lifts=5)
