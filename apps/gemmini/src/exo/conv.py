@@ -182,9 +182,13 @@ def schedule_conv_3():
     conv = expand_dim(
         conv, "i_s: i8[_] #1", "30", "krow + orow_i", unsafe_disable_checks=True
     )
-    conv = old_lift_alloc(conv, "i_s : _", n_lifts=5, keep_dims=False)
-    conv = old_lift_alloc(conv, "w_s : _", n_lifts=4, keep_dims=False)
-    conv = old_lift_alloc(conv, "res : _", n_lifts=4, keep_dims=False)
+    # TODO: We should definitely use repeat for this!
+    conv = old_lift_alloc(conv, "i_s : _ #0", n_lifts=5, keep_dims=False)
+    conv = old_lift_alloc(conv, "i_s : _ #1", n_lifts=4, keep_dims=False)
+    conv = old_lift_alloc(conv, "w_s : _ #0", n_lifts=4, keep_dims=False)
+    conv = old_lift_alloc(conv, "w_s : _ #1", n_lifts=3, keep_dims=False)
+    conv = old_lift_alloc(conv, "res : _ #0", n_lifts=4, keep_dims=False)
+    conv = old_lift_alloc(conv, "res : _ #1", n_lifts=3, keep_dims=False)
 
     conv = old_fission_after(conv, "for kch_o in _:_ #0", n_lifts=6)
     conv = old_fission_after(conv, "for kch_o in _:_ #2", n_lifts=5)

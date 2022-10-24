@@ -1807,7 +1807,8 @@ class _DoLiftAllocSimple(LoopIR_Rewrite):
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
 
-
+# TODO: Implement autolift_alloc's logic using high-level scheduling metaprogramming and
+#       delete this code
 class _LiftAlloc(LoopIR_Rewrite):
     def __init__(self, proc, alloc_stmt, n_lifts, mode, size, keep_dims):
         assert isinstance(alloc_stmt, LoopIR.Alloc)
@@ -1848,12 +1849,16 @@ class _LiftAlloc(LoopIR_Rewrite):
 
     def map_s(self, s):
         if s is self.alloc_stmt:
-            # mark the point we want to lift this alloc-stmt to
-            n_up = min(self.n_lifts, len(self.ctrl_ctxt))
-            self.lift_site = self.ctrl_ctxt[-n_up]
+            if self.n_lifts > len(self.ctrl_ctxt):
+                raise SchedulingError(
+                    f"specified lift level {self.n_lifts} "
+                    "is higher than the number of loop "
+                    f"{len(self.ctrl_ctxt)}"
+                )
+            self.lift_site = self.ctrl_ctxt[-self.n_lifts]
 
             # extract the ranges and variables of enclosing loops
-            idxs, rngs = self.get_ctxt_itrs_and_rngs(n_up)
+            idxs, rngs = self.get_ctxt_itrs_and_rngs(self.n_lifts)
 
             # compute the lifted allocation buffer type, and
             # the new allocation statement
