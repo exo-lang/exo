@@ -1851,9 +1851,9 @@ class _LiftAlloc(LoopIR_Rewrite):
         if s is self.alloc_stmt:
             if self.n_lifts > len(self.ctrl_ctxt):
                 raise SchedulingError(
-                    "specified lift level {self.n_lifts} "
-                    + "is higher than the number of loop "
-                    + "{len(self.ctrl_ctxt)}"
+                    f"specified lift level {self.n_lifts} "
+                    "is higher than the number of loop "
+                    f"{len(self.ctrl_ctxt)}"
                 )
             self.lift_site = self.ctrl_ctxt[-self.n_lifts]
 

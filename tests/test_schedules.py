@@ -404,7 +404,7 @@ def test_autolift_alloc_error():
                 tmp_a: i8
                 tmp_a = A[i]
 
-    with pytest.raises(SchedulingError, match="specified lift level"):
+    with pytest.raises(SchedulingError, match="specified lift level 3 is"):
         autolift_alloc(bar, "tmp_a : _", n_lifts=3)
 
 
