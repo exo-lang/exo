@@ -47,9 +47,9 @@ def proc(f, _instr=None) -> "Procedure":
 
     parser = Parser(
         body,
-        f.__globals__,
-        get_src_locals(depth=3 if _instr else 2),
         getsrcinfo,
+        func_globals=f.__globals__,
+        srclocals=get_src_locals(depth=3 if _instr else 2),
         instr=_instr,
         as_func=True,
     )
@@ -77,7 +77,13 @@ def config(_cls=None, *, readwrite=True):
         body, getsrcinfo = get_ast_from_python(cls)
         assert isinstance(body, pyast.ClassDef)
 
-        parser = Parser(body, {}, get_src_locals(depth=2), getsrcinfo, as_config=True)
+        parser = Parser(
+            body,
+            getsrcinfo,
+            func_globals={},
+            srclocals=get_src_locals(depth=2),
+            as_config=True,
+        )
         return Config(*parser.result(), not readwrite)
 
     if _cls is None:

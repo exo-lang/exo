@@ -8,9 +8,9 @@ def to_uast(f):
     body, getsrcinfo = get_ast_from_python(f)
     parser = Parser(
         body,
-        f.__globals__,
-        get_src_locals(depth=3),
         getsrcinfo,
+        func_globals=f.__globals__,
+        srclocals=get_src_locals(depth=3),
         instr="TEST",
         as_func=True,
     )
