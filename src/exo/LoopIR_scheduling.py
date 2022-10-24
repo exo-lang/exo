@@ -1236,10 +1236,12 @@ class _BindExpr(LoopIR_Rewrite):
         self.orig_proc = proc
         self.new_name = Sym(new_name)
         self.exprs = exprs if cse else [exprs[0]]
+        self.expr_reads = set(sum([get_reads(e) for e in self.exprs], []))
         self.use_cse = cse
         self.found_expr = None
         self.placed_alloc = False
         self.sub_done = False
+        self.found_write = False
 
         super().__init__(proc)
 
@@ -1292,6 +1294,9 @@ class _BindExpr(LoopIR_Rewrite):
         return None
 
     def map_s(self, s):
+        if self.found_write:
+            return None
+
         if self.sub_done:
             return super().map_s(s)
 
@@ -1315,28 +1320,17 @@ class _BindExpr(LoopIR_Rewrite):
 
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             e = self.exprs[0]
-            # bind LHS when self.use_cse == True
-            if (
-                self.use_cse
-                and isinstance(e, LoopIR.Read)
-                and e.name == s.name
-                and e.type == s.type
-            ):
-                try:
-                    for i, j in zip(e.idx, s.idx):
-                        Check_ExprEqvInContext(self.orig_proc, [s], i, j)
+            new_rhs = self.map_e(s.rhs)
 
-                    return [
-                        s.update(
-                            name=self.new_name,
-                            cast=None,
-                            idx=[],
-                            rhs=self.apply_e(s.rhs),
-                            eff=None,
-                        )
-                    ]
-                except SchedulingError:
-                    pass
+            # terminate CSE if the expression is written to
+            if self.found_expr and self.use_cse:
+                for (name, type) in self.expr_reads:
+                    if s.name == name and s.type == type:
+                        self.found_write = True
+
+            if new_rhs is not None:
+                return [s.update(rhs=new_rhs)]
+            return None
 
         return super().map_s(s)
 
