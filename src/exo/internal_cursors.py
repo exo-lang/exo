@@ -184,14 +184,8 @@ class Cursor(ABC, Generic[T]):
                 n = n[idx]
         return n
 
-    def _rewrite_node(self, fn):
-        """
-        Applies `fn` to the AST node containing the cursor. The callback is
-        passed the raw parent of the pointed-to node/block/gap. The callback is
-        expected to return a single, updated node to be placed in the new tree.
-        """
-        assert isinstance(self, (Node, Block, Gap))
-
+    @staticmethod
+    def _rewrite_ast(fn, root, path_):
         def impl(node, path):
             if len(path) == 1:
                 return fn(node)
@@ -206,9 +200,17 @@ class Cursor(ABC, Generic[T]):
                 **{attr: children[:i] + [impl(children[i], path)] + children[i + 1 :]}
             )
 
-        return impl(self.proc().INTERNAL_proc(), self._path)
+        return impl(root, path_)
 
-    def _make_local_forward(self, new_proc, fwd_node, fwd_gap, fwd_sel):
+    def _rewrite_node(self, fn):
+        """
+        Applies `fn` to the AST node containing the cursor. The callback is
+        passed the raw parent of the pointed-to node/block/gap. The callback is
+        expected to return a single, updated node to be placed in the new tree.
+        """
+        return self._rewrite_ast(fn, self.proc().INTERNAL_proc(), self._path)
+
+    def _make_local_forward(self, new_proc, fwd_node, fwd_gap, fwd_blk):
         orig_proc = self._proc
         path = self._path
         depth = len(path)
@@ -236,7 +238,7 @@ class Cursor(ABC, Generic[T]):
                 idx = fwd_gap(old_idx)
             else:
                 assert isinstance(cursor, Block)
-                idx = fwd_sel(old_idx)
+                idx = fwd_blk(old_idx)
 
             return cursor.update(
                 _proc=new_proc,
@@ -354,6 +356,29 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
     # AST mutation
     # ------------------------------------------------------------------------ #
 
+    def _move_to(self, dest: Gap):
+        """
+        This is an UNSAFE internal function for moving a block in an AST to some
+        other location, defined by the gap "dest". It is meant to be
+        package-private, not class-private, so it may be called from other
+        internal classes and modules, but not from end-user code.
+        """
+        assert self._path
+        assert len(self) > 0
+
+        nodes = [x._node() for x in self]
+
+        _, fwd_del = self._delete()
+        dest = fwd_del(dest)
+        assert isinstance(dest, Gap)
+        p, fwd_ins = dest._insert(nodes, policy=ForwardingPolicy.PreferInvalidation)
+
+        def _forward_move_to(c):
+            # TODO: forward the moved nodes
+            return fwd_ins(fwd_del(c))
+
+        return p, _forward_move_to
+
     def _replace(self, nodes: list, *, empty_default=None):
         """
         This is an UNSAFE internal function for replacing a block in an AST with
@@ -364,7 +389,6 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
         """
         assert self._path
         assert len(self) > 0
-        assert isinstance(nodes, list)
 
         def update(parent):
             attr, i = self._path[-1]
@@ -391,7 +415,7 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
                 raise InvalidCursorError("gap no longer exists")
             return i + n_diff * (i >= del_range.stop)
 
-        def fwd_sel(rng: range):
+        def fwd_blk(rng: range):
             if _is_sub_range(rng, del_range):
                 raise InvalidCursorError("block no longer exists")
             if _overlaps_one_side(rng, del_range):
@@ -405,7 +429,7 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
 
             return range(start, stop)
 
-        return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_blk)
 
     def _delete(self):
         """
@@ -616,10 +640,10 @@ class Node(Cursor[Optional[int]]):
         def fwd_gap(_):
             assert False, "should never get here"
 
-        def fwd_sel(_):
+        def fwd_blk(_):
             assert False, "should never get here"
 
-        return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_blk)
 
 
 @dataclass(frozen=True)
@@ -691,10 +715,10 @@ class Gap(Cursor[int]):
                     raise InvalidCursorError("insertion gap was invalidated")
                 return i + ins_len * (i > ins_idx)
 
-        def fwd_sel(rng):
+        def fwd_blk(rng):
             return range(
                 rng.start + ins_len * (rng.start >= ins_idx),
                 rng.stop + ins_len * (rng.stop > ins_idx),
             )
 
-        return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_blk)

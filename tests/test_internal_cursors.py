@@ -778,6 +778,23 @@ def test_block_replace_forward_block(proc_bar, old, new):
         assert fwd(old_c) == bar_new._TEST_find_cursors(new)[0]
 
 
+def test_block_move(proc_bar):
+    for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
+
+    # for_j[0].before() and for_j[3].before() should do nothing
+    bar_new, fwd = for_j[0:3]._move_to(for_j[-1].after())
+
+    print(bar_new)
+
+    bar_new, fwd = for_j[0:3]._move_to(for_j.parent().before())
+
+    print(bar_new)
+
+    bar_new, fwd = for_j[0:3]._move_to(for_j.parent().after())
+
+    print(bar_new)
+
+
 def test_cursor_pretty_print_nodes(proc_bar, golden):
     output = []
 
