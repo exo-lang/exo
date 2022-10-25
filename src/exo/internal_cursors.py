@@ -103,7 +103,7 @@ def _overlaps_one_side(a: range, b: range):
 T = TypeVar("T")
 
 
-@dataclass
+@dataclass(frozen=True)
 class Cursor(ABC, Generic[T]):
     _proc: ReferenceType[API.Procedure]
     _path: list[tuple[str, T]]
@@ -246,7 +246,7 @@ class Cursor(ABC, Generic[T]):
         return forward
 
 
-@dataclass
+@dataclass(frozen=True)
 class Block(Cursor[Union[int, range]]):  # is range iff last entry
     # ------------------------------------------------------------------------ #
     # Navigation (implementation)
@@ -418,7 +418,7 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
         return self._replace([], empty_default=pass_stmt)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Node(Cursor[Optional[int]]):
     # ------------------------------------------------------------------------ #
     # Validating accessors
@@ -474,10 +474,11 @@ class Node(Cursor[Optional[int]]):
                 raise InvalidCursorError("cursor is out of range")
         elif isinstance(_node, list):
             raise ValueError("must index into block attribute")
-        cur = Node(self._proc, self._path + [(attr, i)])
-        # noinspection PyPropertyAccess
-        # cached_property is settable, bug in static analysis
-        cur._node_ref = weakref.ref(_node)
+        cur = self.update(_path=self._path + [(attr, i)])
+        # This simply overrides the cached property to avoid computing it
+        # later since we know the correct value now. Since these classes
+        # are frozen, we have to go around Python's back here.
+        object.__setattr__(cur, "_node_ref", weakref.ref(_node))
         return cur
 
     def _child_gap(self, attr, i=None) -> Gap:
@@ -621,7 +622,7 @@ class Node(Cursor[Optional[int]]):
         return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Gap(Cursor[int]):
     # ------------------------------------------------------------------------ #
     # Navigation (implementation)
