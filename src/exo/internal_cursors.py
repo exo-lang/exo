@@ -200,10 +200,11 @@ class Cursor(ABC):
 
         return impl(self.proc().INTERNAL_proc(), self._path)
 
-    def _make_forward(self, new_proc, fwd_node, fwd_gap, fwd_sel):
+    def _make_local_forward(self, new_proc, fwd_node, fwd_gap, fwd_sel):
         orig_proc = self._proc
-        depth = len(self._path)
-        attr = self._path[depth - 1][0]
+        path = self._path
+        depth = len(path)
+        attr = path[-1][0]
 
         def forward(cursor: Cursor) -> Cursor:
             if cursor._proc != orig_proc:
@@ -215,14 +216,14 @@ class Cursor(ABC):
 
             old_path = cursor._path
 
+            # Too shallow?
             if len(old_path) < depth:
-                # Too shallow
                 return evolve(old_path)
 
             old_attr, old_idx = old_path[depth - 1]
 
-            if old_attr != attr:
-                # At least as deep, but wrong branch
+            # Check contexts are the same
+            if (path[:-1], attr) != (old_path[: depth - 1], old_attr):
                 return evolve(old_path)
 
             if len(old_path) > depth or isinstance(cursor, Node):
@@ -399,7 +400,7 @@ class Block(Cursor):
 
             return range(start, stop)
 
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
 
     def _delete(self):
         """
@@ -610,7 +611,7 @@ class Node(Cursor):
         def fwd_sel(_):
             assert False, "should never get here"
 
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
 
 
 @dataclass
@@ -690,4 +691,4 @@ class Gap(Cursor):
                 rng.stop + ins_len * (rng.stop > ins_idx),
             )
 
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
