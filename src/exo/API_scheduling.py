@@ -742,7 +742,7 @@ def insert_pass(proc, gap_cursor):
     if not (stmtc := gap_cursor.after()):
         assert (stmtc := gap_cursor.before())
         before = False
-    stmt = stmtc._impl._node()
+    stmt = stmtc._impl
 
     loopir = proc._loopir_proc
     loopir = Schedules.DoInsertPass(loopir, stmt, before=before).result()
@@ -774,8 +774,8 @@ def reorder_stmts(proc, block_cursor):
         -->
         `s2 ; s1`
     """
-    s1 = block_cursor[0]._impl._node()
-    s2 = block_cursor[1]._impl._node()
+    s1 = block_cursor[0]._impl
+    s2 = block_cursor[1]._impl
 
     loopir = proc._loopir_proc
     loopir = Schedules.DoReorderStmt(loopir, s1, s2).result()
@@ -802,11 +802,13 @@ def commute_expr(proc, expr_cursors):
         `b + a`
     """
 
-    exprs = [ec._impl._node() for ec in expr_cursors]
+    exprs = [ec._impl for ec in expr_cursors]
     for e in exprs:
-        if not isinstance(e, LoopIR.BinOp) or (e.op != "+" and e.op != "*"):
-            raise TypeError(f"only '+' or '*' can commute, got {e.op}")
-    if any(not e.type.is_numeric() for e in exprs):
+        if not isinstance(e._node(), LoopIR.BinOp) or (
+            e._node().op != "+" and e._node().op != "*"
+        ):
+            raise TypeError(f"only '+' or '*' can commute, got {e._node().op}")
+    if any(not e._node().type.is_numeric() for e in exprs):
         raise TypeError(
             "only numeric (not index or size) expressions "
             "can commute by commute_expr()"
@@ -840,8 +842,8 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
         `b = 32.0 * x[i]`
         `a = b + 4.0`
     """
-    exprs = [ec._impl._node() for ec in expr_cursors]
-    if any(not e.type.is_numeric() for e in exprs):
+    exprs = [ec._impl for ec in expr_cursors]
+    if any(not e._node().type.is_numeric() for e in exprs):
         raise TypeError(
             "only numeric (not index or size) expressions "
             "can be bound by bind_expr()"
@@ -863,7 +865,7 @@ def extract_subproc(proc, subproc_name, body_stmt):
     Documentation TODO
     """
     loopir = proc._loopir_proc
-    stmt = body_stmt._impl._node()
+    stmt = body_stmt._impl
     passobj = Schedules.DoExtractMethod(loopir, subproc_name, stmt)
     loopir, subproc = passobj.result(), passobj.subproc()
     return (Procedure(loopir, _provenance_eq_Procedure=proc), Procedure(subproc))
@@ -878,7 +880,7 @@ def inline(proc, call_cursor):
         call_cursor     - Cursor or pattern pointing to a Call statement
                           whose body we want to inline
     """
-    call_stmt = call_cursor._impl._node()
+    call_stmt = call_cursor._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoInline(loopir, call_stmt).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -928,7 +930,7 @@ def call_eqv(proc, call_cursor, eqv_proc):
     rewrite:
         `orig_proc(...)`    ->    `eqv_proc(...)`
     """
-    call_stmt = call_cursor._impl._node()
+    call_stmt = call_cursor._impl
     new_loopir = eqv_proc._loopir_proc
 
     loopir = proc._loopir_proc
@@ -1032,7 +1034,7 @@ def bind_config(proc, var_cursor, config, field):
         )
 
     loopir = proc._loopir_proc
-    rewrite_pass = Schedules.DoBindConfig(loopir, config, field, e)
+    rewrite_pass = Schedules.DoBindConfig(loopir, config, field, var_cursor._impl)
     mod_config = rewrite_pass.mod_eq()
     loopir = rewrite_pass.result()
 
@@ -1051,7 +1053,7 @@ def delete_config(proc, stmt_cursor):
     rewrite:
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
-    stmt = stmt_cursor._impl._node()
+    stmt = stmt_cursor._impl
     loopir = proc._loopir_proc
     rewrite_pass = Schedules.DoDeleteConfig(loopir, stmt)
     mod_config = rewrite_pass.mod_eq()
@@ -1081,7 +1083,7 @@ def write_config(proc, gap_cursor, config, field, rhs):
     if not (stmtc := gap_cursor.after()):
         assert (stmtc := gap_cursor.before())
         before = False
-    stmt = stmtc._impl._node()
+    stmt = stmtc._impl
 
     loopir = proc._loopir_proc
     rewrite_pass = Schedules.DoConfigWrite(
@@ -1121,7 +1123,7 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
         provided indexing expression is checked to make sure it is in-bounds
     """
     loopir = proc._loopir_proc
-    stmt = buf_cursor._impl._node()
+    stmt = buf_cursor._impl
     loopir = Schedules.DoExpandDim(loopir, stmt, alloc_dim, indexing_expr).result()
     if not unsafe_disable_checks:
         CheckEffects(loopir)
@@ -1145,9 +1147,9 @@ def rearrange_dim(proc, buf_cursor, dimensions):
         `x : T[N,M,K]` -> `x : T[K,N,M]`
     """
     loopir = proc._loopir_proc
-    stmt = buf_cursor._impl._node()
+    stmt = buf_cursor._impl
     # extra sanity check
-    N = len(stmt.type.hi)
+    N = len(stmt._node().type.hi)
     if set(range(0, N)) != set(dimensions):
         raise ValueError(
             f"dimensions argument ({dimensions}) "
@@ -1181,10 +1183,10 @@ def bound_alloc(proc, buf_cursor, new_bounds, unsafe_disable_checks=False):
         out-of-bounds memory accesses
     """
     loopir = proc._loopir_proc
-    stmt = buf_cursor._impl._node()
-    if len(stmt.type.hi) != len(new_bounds):
+    stmt = buf_cursor._impl
+    if len(stmt._node().type.hi) != len(new_bounds):
         raise ValueError(
-            f"buffer has {len(stmt.type.hi)} dimensions, "
+            f"buffer has {len(stmt._node().type.hi)} dimensions, "
             f"but only {len(new_bounds)} bounds were supplied"
         )
     loopir = Schedules.DoBoundAlloc(loopir, stmt, new_bounds).result()
@@ -1221,8 +1223,8 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     if quotient == 1:
         raise ValueError("why are you trying to divide by 1?")
     loopir = proc._loopir_proc
-    stmt = alloc_cursor._impl._node()
-    if not (0 <= dim_idx < len(stmt.type.shape())):
+    stmt = alloc_cursor._impl
+    if not (0 <= dim_idx < len(stmt._node().type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds " f"dimension index {dim_idx}")
     loopir = Schedules.DoDivideDim(loopir, stmt, dim_idx, quotient).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1250,9 +1252,9 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
         `x[4*i + k, j] = ...`
     """
     loopir = proc._loopir_proc
-    stmt = alloc_cursor._impl._node()
+    stmt = alloc_cursor._impl
     for dim_idx in [hi_dim_idx, lo_dim_idx]:
-        if not (0 <= dim_idx < len(stmt.type.shape())):
+        if not (0 <= dim_idx < len(stmt._node().type.shape())):
             raise ValueError(
                 f"Cannot multiply out-of-bounds " f"dimension index {dim_idx}"
             )
@@ -1281,7 +1283,7 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
         `    ...`
     """
     loopir = proc._loopir_proc
-    stmt = alloc_cursor._impl._node()
+    stmt = alloc_cursor._impl
     loopir = Schedules.DoLiftAllocSimple(loopir, stmt, n_lifts).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
@@ -1314,7 +1316,7 @@ def autolift_alloc(
         `    ...`
     """
     loopir = proc._loopir_proc
-    stmt = alloc_cursor._impl._node()
+    stmt = alloc_cursor._impl
     loopir = Schedules.DoLiftAlloc(
         loopir, stmt, n_lifts, mode, size, keep_dims
     ).result()
@@ -1341,8 +1343,8 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
         Can only be performed if the variable `x` is dead at the statement
         `y : T`.
     """
-    buf_s = buf_cursor._impl._node()
-    rep_s = replace_cursor._impl._node()
+    buf_s = buf_cursor._impl
+    rep_s = replace_cursor._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoDataReuse(loopir, buf_s, rep_s).result()
 
@@ -1361,7 +1363,7 @@ def inline_window(proc, winstmt_cursor):
     rewrite:
         `y = x[...] ; s` -> `s[ y -> x[...] ]`
     """
-    stmt = winstmt_cursor._impl._node()
+    stmt = winstmt_cursor._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoInlineWindow(loopir, stmt).result()
 
@@ -1377,7 +1379,7 @@ def stage_window(proc, expr_cursor, win_name, memory=None):
 
     Should it resemble `stage_mem` instead?
     """
-    e = expr_cursor._impl._node()
+    e = expr_cursor._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoStageWindow(loopir, win_name, memory, e).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1426,8 +1428,8 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 
     """
     buf_name, w_exprs = win_expr
-    stmt_start = block_cursor[0]._impl._node()
-    stmt_end = block_cursor[-1]._impl._node()
+    stmt_start = block_cursor[0]._impl
+    stmt_end = block_cursor[-1]._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoStageMem(
         loopir,
@@ -1493,7 +1495,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
     if div_const == 1:
         raise ValueError("why are you trying to split by 1?")
 
-    stmt = loop_cursor._impl._node()
+    stmt = loop_cursor._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoSplit(
         loopir,
@@ -1527,7 +1529,7 @@ def mult_loops(proc, nested_loops, new_iter_name):
         `for k in seq(0,e*c):`      # k is new_iter_name
         `    s[ i -> k/c, j -> k%c ]`
     """
-    stmt = nested_loops._impl._node()
+    stmt = nested_loops._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoProductLoop(loopir, stmt, new_iter_name).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1555,7 +1557,7 @@ def cut_loop(proc, loop_cursor, cut_point):
         `for i in seq(0,n-cut):`
         `    s[i -> i+cut]`
     """
-    stmt = loop_cursor._impl._node()
+    stmt = loop_cursor._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoPartitionLoop(loopir, stmt, cut_point).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1588,7 +1590,7 @@ def reorder_loops(proc, nested_loops):
         `        s`
     """
 
-    stmt = nested_loops._impl._node()
+    stmt = nested_loops._impl
     loopir = Schedules.DoReorder(proc._loopir_proc, stmt).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
@@ -1629,6 +1631,7 @@ def merge_writes(proc, block_cursor):
     stmt1 = block_cursor[0]._impl._node()
     stmt2 = block_cursor[1]._impl._node()
 
+    # TODO: We should seriously consider how to improve Scheduling errors in general
     if not isinstance(stmt1, (LoopIR.Assign, LoopIR.Reduce)) or not isinstance(
         stmt2, (LoopIR.Assign, LoopIR.Reduce)
     ):
@@ -1646,7 +1649,9 @@ def merge_writes(proc, block_cursor):
         )
 
     loopir = proc._loopir_proc
-    loopir = Schedules.DoMergeWrites(loopir, stmt1, stmt2).result()
+    loopir = Schedules.DoMergeWrites(
+        loopir, block_cursor[0]._impl, block_cursor[1]._impl
+    ).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
@@ -1677,7 +1682,7 @@ def fission(proc, gap_cursor, n_lifts=1):
 
     if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
         raise ValueError("expected cursor to point to " "a gap between statements")
-    stmt = stmtc._impl._node()
+    stmt = stmtc._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoFissionAfterSimple(loopir, stmt, n_lifts).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1711,7 +1716,7 @@ def autofission(proc, gap_cursor, n_lifts=1):
 
     if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
         raise ValueError("expected cursor to point to " "a gap between statements")
-    stmt = stmtc._impl._node()
+    stmt = stmtc._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoFissionLoops(loopir, stmt, n_lifts).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1751,8 +1756,8 @@ def fusion(proc, stmt1, stmt2):
             "expected the two argument cursors to either both "
             "point to loops or both point to if-guards"
         )
-    s1 = stmt1._impl._node()
-    s2 = stmt2._impl._node()
+    s1 = stmt1._impl
+    s2 = stmt2._impl
     loopir = proc._loopir_proc
     SCHED = (
         Schedules.DoFuseIf if isinstance(stmt1, PC.IfCursor) else Schedules.DoFuseLoop
@@ -1782,7 +1787,7 @@ def remove_loop(proc, loop_cursor):
         `s`
     """
 
-    stmt = loop_cursor._impl._node()
+    stmt = loop_cursor._impl
     loopir = Schedules.DoRemoveLoop(proc._loopir_proc, stmt).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
@@ -1814,7 +1819,7 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
     if len(block_cursor) != 1:
         raise NotImplementedError("TODO: support blocks of size > 1")
 
-    stmt = block_cursor[0]._impl._node()
+    stmt = block_cursor[0]._impl
     loopir = Schedules.DoAddLoop(
         proc._loopir_proc, stmt, iter_name, hi_expr, guard
     ).result()
@@ -1838,7 +1843,7 @@ def unroll_loop(proc, loop_cursor):
         `s[ i -> 2 ]`
     """
 
-    stmt = loop_cursor._impl._node()
+    stmt = loop_cursor._impl
     loopir = Schedules.DoUnroll(proc._loopir_proc, stmt).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
@@ -1874,7 +1879,7 @@ def lift_if(proc, if_cursor, n_lifts=1):
         `    for i in _:`
         `        s2`
     """
-    stmt = if_cursor._impl._node()
+    stmt = if_cursor._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoLiftIf(loopir, stmt, n_lifts).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1902,7 +1907,7 @@ def assert_if(proc, if_cursor, cond):
         -> (assuming cond=True)
         `s1`
     """
-    stmt = if_cursor._impl._node()
+    stmt = if_cursor._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoAssertIf(loopir, stmt, cond).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1939,7 +1944,7 @@ def specialize(proc, block_cursor, conds):
     if len(block_cursor) != 1:
         raise NotImplementedError("TODO: support blocks of size > 1")
 
-    stmt = block_cursor[0]._impl._node()
+    stmt = block_cursor[0]._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoSpecialize(loopir, stmt, conds).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
@@ -1956,7 +1961,7 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     DEPRECATED
     This operation is deprecated, and will be removed soon.
     """
-    stmt = block_cursor._impl[0]._node()
+    stmt = block_cursor._impl[0]
     loopir = proc._loopir_proc
     loopir = Schedules.DoAddUnsafeGuard(loopir, stmt, var_expr).result()
 
@@ -1969,8 +1974,8 @@ def double_fission(proc, stmt1, stmt2, n_lifts=1):
     DEPRECATED
     This operation is deprecated, and will be removed soon.
     """
-    s1 = stmt1._impl._node()
-    s2 = stmt2._impl._node()
+    s1 = stmt1._impl
+    s2 = stmt2._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoDoubleFission(loopir, s1, s2, n_lifts).result()
 
@@ -1992,7 +1997,7 @@ def bound_and_guard(proc, loop):
 
     This currently only works when e is of the form x % n
     """
-    stmt = loop._impl._node()
+    stmt = loop._impl
     loopir = Schedules.DoBoundAndGuard(proc._loopir_proc, stmt).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
@@ -2004,7 +2009,7 @@ def stage_assn(proc, stmt_cursor, buf_name):
     This operation is deprecated, and should be replaced by
     calls to `stage_mem` or something similar.
     """
-    stmt = stmt_cursor._impl._node()
+    stmt = stmt_cursor._impl
     loopir = proc._loopir_proc
     loopir = Schedules.DoStageAssn(loopir, buf_name, stmt).result()
     return Procedure(loopir, _provenance_eq_Procedure=proc)
