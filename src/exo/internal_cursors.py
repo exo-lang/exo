@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import dataclasses
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, auto
 from functools import cached_property
-from typing import Optional, Iterable, Union
+from typing import Optional, Iterable, Union, TypeVar, Generic
 from weakref import ReferenceType
 
 from . import API
@@ -99,9 +100,13 @@ def _overlaps_one_side(a: range, b: range):
     )
 
 
+T = TypeVar("T")
+
+
 @dataclass
-class Cursor(ABC):
+class Cursor(ABC, Generic[T]):
     _proc: ReferenceType[API.Procedure]
+    _path: list[tuple[str, T]]
 
     # ------------------------------------------------------------------------ #
     # Static constructors
@@ -110,6 +115,9 @@ class Cursor(ABC):
     @staticmethod
     def root(proc: API.Procedure):
         return Node(weakref.ref(proc), [])
+
+    def update(self, **kwargs):
+        return dataclasses.replace(self, **kwargs)
 
     # ------------------------------------------------------------------------ #
     # Validating accessors
@@ -210,21 +218,17 @@ class Cursor(ABC):
             if cursor._proc != orig_proc:
                 raise InvalidCursorError("cannot forward unknown procs")
 
-            # TODO: use attrs + attrs.evolve
-            def evolve(p):
-                return type(cursor)(new_proc, p)
-
             old_path = cursor._path
 
             # Too shallow?
             if len(old_path) < depth:
-                return evolve(old_path)
+                return cursor.update(_proc=new_proc)
 
             old_attr, old_idx = old_path[depth - 1]
 
             # Check contexts are the same
             if (path[:-1], attr) != (old_path[: depth - 1], old_attr):
-                return evolve(old_path)
+                return cursor.update(_proc=new_proc)
 
             if len(old_path) > depth or isinstance(cursor, Node):
                 idx = fwd_node(old_idx)
@@ -234,15 +238,16 @@ class Cursor(ABC):
                 assert isinstance(cursor, Block)
                 idx = fwd_sel(old_idx)
 
-            return evolve(old_path[: depth - 1] + [(attr, idx)] + old_path[depth:])
+            return cursor.update(
+                _proc=new_proc,
+                _path=old_path[: depth - 1] + [(attr, idx)] + old_path[depth:],
+            )
 
         return forward
 
 
 @dataclass
-class Block(Cursor):
-    _path: list[tuple[str, Union[int, range]]]  # is range iff last entry
-
+class Block(Cursor[Union[int, range]]):  # is range iff last entry
     # ------------------------------------------------------------------------ #
     # Navigation (implementation)
     # ------------------------------------------------------------------------ #
@@ -414,9 +419,7 @@ class Block(Cursor):
 
 
 @dataclass
-class Node(Cursor):
-    _path: list[tuple[str, Optional[int]]]
-
+class Node(Cursor[Optional[int]]):
     # ------------------------------------------------------------------------ #
     # Validating accessors
     # ------------------------------------------------------------------------ #
@@ -489,7 +492,9 @@ class Node(Cursor):
     def _child_block(self, attr: str):
         stmts = getattr(self._node(), attr)
         assert isinstance(stmts, list)
-        return Block(self._proc, self._path + [(attr, range(len(stmts)))])
+        context: list[tuple[str, Union[int, range]]] = self._path
+        selection = [(attr, range(len(stmts)))]
+        return Block(self._proc, context + selection)
 
     def children(self) -> Iterable[Node]:
         n = self._node()
@@ -560,7 +565,9 @@ class Node(Cursor):
         attr, i = self._path[-1]
         if i is None:
             raise InvalidCursorError("node is not inside a block")
-        return Block(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
+        context: list[tuple[str, Union[int, range]]] = self._path[:-1]
+        selection = [(attr, range(i, i + 1))]
+        return Block(self._proc, context + selection)
 
     # ------------------------------------------------------------------------ #
     # Location queries
@@ -615,9 +622,7 @@ class Node(Cursor):
 
 
 @dataclass
-class Gap(Cursor):
-    _path: list[tuple[str, int]]
-
+class Gap(Cursor[int]):
     # ------------------------------------------------------------------------ #
     # Navigation (implementation)
     # ------------------------------------------------------------------------ #
