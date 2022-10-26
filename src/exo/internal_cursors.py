@@ -9,7 +9,7 @@ from typing import Optional, Iterable, Union
 from weakref import ReferenceType
 
 from . import API
-from .LoopIR import LoopIR
+from . import LoopIR
 
 
 class InvalidCursorError(Exception):
@@ -364,7 +364,7 @@ class Block(Cursor):
         package-private, not class-private, so it may be called from other
         internal classes and modules, but not from end-user code.
         """
-        pass_stmt = [LoopIR.Pass(None, self.parent()._node().srcinfo)]
+        pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node().srcinfo)]
         return self._replace([], empty_default=pass_stmt)
 
 
@@ -449,33 +449,41 @@ class Node(Cursor):
     def children(self) -> Iterable[Node]:
         n = self._node()
         # Top-level proc
-        if isinstance(n, LoopIR.proc):
+        if isinstance(n, LoopIR.LoopIR.proc):
             yield from self._children_from_attrs(n, "body")
         # Statements
-        elif isinstance(n, (LoopIR.Assign, LoopIR.Reduce)):
+        elif isinstance(n, (LoopIR.LoopIR.Assign, LoopIR.LoopIR.Reduce)):
             yield from self._children_from_attrs(n, "idx", "rhs")
-        elif isinstance(n, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
+        elif isinstance(n, (LoopIR.LoopIR.WriteConfig, LoopIR.LoopIR.WindowStmt)):
             yield from self._children_from_attrs(n, "rhs")
-        elif isinstance(n, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
-            yield from []
-        elif isinstance(n, LoopIR.If):
-            yield from self._children_from_attrs(n, "cond", "body", "orelse")
-        elif isinstance(n, LoopIR.Seq):
-            yield from self._children_from_attrs(n, "hi", "body")
-        elif isinstance(n, LoopIR.Call):
-            yield from self._children_from_attrs(n, "args")
-        # Expressions
-        elif isinstance(n, LoopIR.Read):
-            yield from self._children_from_attrs(n, "idx")
         elif isinstance(
-            n, (LoopIR.Const, LoopIR.WindowExpr, LoopIR.StrideExpr, LoopIR.ReadConfig)
+            n, (LoopIR.LoopIR.Pass, LoopIR.LoopIR.Alloc, LoopIR.LoopIR.Free)
         ):
             yield from []
-        elif isinstance(n, LoopIR.USub):
+        elif isinstance(n, LoopIR.LoopIR.If):
+            yield from self._children_from_attrs(n, "cond", "body", "orelse")
+        elif isinstance(n, LoopIR.LoopIR.Seq):
+            yield from self._children_from_attrs(n, "hi", "body")
+        elif isinstance(n, LoopIR.LoopIR.Call):
+            yield from self._children_from_attrs(n, "args")
+        # Expressions
+        elif isinstance(n, LoopIR.LoopIR.Read):
+            yield from self._children_from_attrs(n, "idx")
+        elif isinstance(
+            n,
+            (
+                LoopIR.LoopIR.Const,
+                LoopIR.LoopIR.WindowExpr,
+                LoopIR.LoopIR.StrideExpr,
+                LoopIR.LoopIR.ReadConfig,
+            ),
+        ):
+            yield from []
+        elif isinstance(n, LoopIR.LoopIR.USub):
             yield from self._children_from_attrs(n, "arg")
-        elif isinstance(n, LoopIR.BinOp):
+        elif isinstance(n, LoopIR.LoopIR.BinOp):
             yield from self._children_from_attrs(n, "lhs", "rhs")
-        elif isinstance(n, LoopIR.BuiltIn):
+        elif isinstance(n, LoopIR.LoopIR.BuiltIn):
             yield from self._children_from_attrs(n, "args")
         else:
             assert False, f"case {type(n)} unsupported"
