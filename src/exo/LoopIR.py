@@ -8,7 +8,6 @@ from .builtins import BuiltIn
 from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
-from . import internal_cursors as ic
 
 
 # --------------------------------------------------------------------------- #
