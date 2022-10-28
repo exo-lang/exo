@@ -691,8 +691,7 @@ def simplify(proc):
     conditions to simplify expressions inside the branches.
     """
     proc_c = ic.Cursor.root(proc)
-    p = Schedules.DoSimplify(proc_c).result()
-    return Procedure(p, _provenance_eq_Procedure=proc)
+    return Schedules.DoSimplify(proc_c).result()
 
 
 @sched_op([NameA])
@@ -746,8 +745,7 @@ def insert_pass(proc, gap_cursor):
     stmt = stmtc._impl
 
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoInsertPass(proc_c, stmt, before=before).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoInsertPass(proc_c, stmt, before=before).result()
 
 
 @sched_op([])
@@ -758,8 +756,7 @@ def delete_pass(proc):
     Delete all `pass` statements in the procedure.
     """
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoDeletePass(proc_c).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoDeletePass(proc_c).result()
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -779,8 +776,7 @@ def reorder_stmts(proc, block_cursor):
     s2 = block_cursor[1]._impl
 
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoReorderStmt(proc_c, s1, s2).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoReorderStmt(proc_c, s1, s2).result()
 
 
 @sched_op([ExprCursorA(many=True)])
@@ -816,8 +812,7 @@ def commute_expr(proc, expr_cursors):
         )
 
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoCommuteExpr(proc_c, exprs).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoCommuteExpr(proc_c, exprs).result()
 
 
 @sched_op([ExprCursorA(many=True), NameA, BoolA])
@@ -851,8 +846,7 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
         )
 
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoBindExpr(proc_c, new_name, exprs, cse).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoBindExpr(proc_c, new_name, exprs, cse).result()
 
 
 # --------------------------------------------------------------------------- #
@@ -868,8 +862,7 @@ def extract_subproc(proc, subproc_name, body_stmt):
     proc_c = ic.Cursor.root(proc)
     stmt = body_stmt._impl
     passobj = Schedules.DoExtractMethod(proc_c, subproc_name, stmt)
-    loopir, subproc = passobj.result(), passobj.subproc()
-    return (Procedure(loopir, _provenance_eq_Procedure=proc), Procedure(subproc))
+    return (passobj.result(), passobj.subproc())
 
 
 @sched_op([CallCursorA])
@@ -883,8 +876,7 @@ def inline(proc, call_cursor):
     """
     call_stmt = call_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoInline(proc_c, call_stmt).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoInline(proc_c, call_stmt).result()
 
 
 @sched_op([BlockCursorA, ProcA, BoolA])
@@ -902,17 +894,15 @@ def replace(proc, block_cursor, subproc, quiet=False):
                           out debug info
     """
     stmts = [sc._impl._node() for sc in block_cursor]
-    proc_c = ic.Cursor.root(proc)
     try:
-        loopir = DoReplace(proc_c, subproc._loopir_proc, stmts).result()
+        p = DoReplace(proc._loopir_proc, subproc._loopir_proc, stmts).result()
+        return Procedure(p, _provenance_eq_Procedure=proc)
     except UnificationError:
         if quiet:
             raise
         print(f"Failed to unify the following:\nSubproc:\n{subproc}" f"Statements:\n")
         [print(s) for s in stmts]
         raise
-
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([CallCursorA, ProcA])
@@ -937,8 +927,7 @@ def call_eqv(proc, call_cursor, eqv_proc):
     proc_c = ic.Cursor.root(proc)
     rewrite_pass = Schedules.DoCallSwap(proc_c, call_stmt, new_loopir)
     mod_config = rewrite_pass.mod_eq()
-    loopir = rewrite_pass.result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc, _mod_config=mod_config)
+    return rewrite_pass.result(mod_config=mod_config)
 
 
 # --------------------------------------------------------------------------- #
@@ -961,8 +950,7 @@ def set_precision(proc, name, typ):
     """
     name, count = name
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.SetTypAndMem(proc_c, name, count, basetyp=typ).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.SetTypAndMem(proc_c, name, count, basetyp=typ).result()
 
 
 @sched_op([NameCountA, BoolA])
@@ -980,8 +968,7 @@ def set_window(proc, name, is_window=True):
     """
     name, count = name
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.SetTypAndMem(proc_c, name, count, win=is_window).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.SetTypAndMem(proc_c, name, count, win=is_window).result()
 
 
 @sched_op([NameCountA, MemoryA])
@@ -998,8 +985,7 @@ def set_memory(proc, name, memory_type):
     """
     name, count = name
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.SetTypAndMem(proc_c, name, count, mem=memory_type).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.SetTypAndMem(proc_c, name, count, mem=memory_type).result()
 
 
 # --------------------------------------------------------------------------- #
@@ -1037,9 +1023,7 @@ def bind_config(proc, var_cursor, config, field):
     proc_c = ic.Cursor.root(proc)
     rewrite_pass = Schedules.DoBindConfig(proc_c, config, field, var_cursor._impl)
     mod_config = rewrite_pass.mod_eq()
-    loopir = rewrite_pass.result()
-
-    return Procedure(loopir, _provenance_eq_Procedure=proc, _mod_config=mod_config)
+    return rewrite_pass.result(mod_config=mod_config)
 
 
 @sched_op([StmtCursorA])
@@ -1058,9 +1042,7 @@ def delete_config(proc, stmt_cursor):
     proc_c = ic.Cursor.root(proc)
     rewrite_pass = Schedules.DoDeleteConfig(proc_c, stmt)
     mod_config = rewrite_pass.mod_eq()
-    loopir = rewrite_pass.result()
-
-    return Procedure(loopir, _provenance_eq_Procedure=proc, _mod_config=mod_config)
+    return rewrite_pass.result(mod_config=mod_config)
 
 
 @sched_op([GapCursorA, ConfigA, ConfigFieldA, NewExprA("gap_cursor")])
@@ -1091,9 +1073,7 @@ def write_config(proc, gap_cursor, config, field, rhs):
         proc_c, stmt, config, field, rhs, before=before
     )
     mod_config = rewrite_pass.mod_eq()
-    loopir = rewrite_pass.result()
-
-    return Procedure(loopir, _provenance_eq_Procedure=proc, _mod_config=mod_config)
+    return rewrite_pass.result(mod_config=mod_config)
 
 
 # --------------------------------------------------------------------------- #
@@ -1125,11 +1105,11 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
     """
     proc_c = ic.Cursor.root(proc)
     stmt = buf_cursor._impl
-    loopir = Schedules.DoExpandDim(proc_c, stmt, alloc_dim, indexing_expr).result()
+    new_proc_c = Schedules.DoExpandDim(proc_c, stmt, alloc_dim, indexing_expr).result()
     if not unsafe_disable_checks:
-        CheckEffects(loopir)
+        CheckEffects(new_proc_c._loopir_proc)
 
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return new_proc_c
 
 
 @sched_op([AllocCursorA, ListA(IntA)])
@@ -1156,9 +1136,7 @@ def rearrange_dim(proc, buf_cursor, dimensions):
             f"dimensions argument ({dimensions}) "
             f"was not a permutation of {set(range(0, N))}"
         )
-    loopir = Schedules.DoRearrangeDim(proc_c, stmt, dimensions).result()
-
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoRearrangeDim(proc_c, stmt, dimensions).result()
 
 
 @sched_op([AllocCursorA, ListA(OptionalA(NewExprA("buf_cursor"))), BoolA])
@@ -1190,12 +1168,12 @@ def bound_alloc(proc, buf_cursor, new_bounds, unsafe_disable_checks=False):
             f"buffer has {len(stmt._node().type.hi)} dimensions, "
             f"but only {len(new_bounds)} bounds were supplied"
         )
-    loopir = Schedules.DoBoundAlloc(proc_c, stmt, new_bounds).result()
+    new_proc_c = Schedules.DoBoundAlloc(proc_c, stmt, new_bounds).result()
 
     if not unsafe_disable_checks:
-        CheckEffects(loopir)
+        CheckEffects(new_proc_c._node())
 
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return new_proc_c
 
 
 @sched_op([AllocCursorA, IntA, PosIntA])
@@ -1227,8 +1205,8 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     stmt = alloc_cursor._impl
     if not (0 <= dim_idx < len(stmt._node().type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds " f"dimension index {dim_idx}")
-    loopir = Schedules.DoDivideDim(proc_c, stmt, dim_idx, quotient).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoDivideDim(proc_c, stmt, dim_idx, quotient).result()
 
 
 @sched_op([AllocCursorA, IntA, IntA])
@@ -1261,8 +1239,8 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
             )
     if hi_dim_idx == lo_dim_idx:
         raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by " f"itself")
-    loopir = Schedules.DoMultiplyDim(proc_c, stmt, hi_dim_idx, lo_dim_idx).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoMultiplyDim(proc_c, stmt, hi_dim_idx, lo_dim_idx).result()
 
 
 @sched_op([AllocCursorA, PosIntA])
@@ -1285,8 +1263,8 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
     """
     proc_c = ic.Cursor.root(proc)
     stmt = alloc_cursor._impl
-    loopir = Schedules.DoLiftAllocSimple(proc_c, stmt, n_lifts).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoLiftAllocSimple(proc_c, stmt, n_lifts).result()
 
 
 @sched_op([AllocCursorA, PosIntA, EnumA(["row", "col"]), OptionalA(PosIntA), BoolA])
@@ -1318,10 +1296,8 @@ def autolift_alloc(
     """
     proc_c = ic.Cursor.root(proc)
     stmt = alloc_cursor._impl
-    loopir = Schedules.DoLiftAlloc(
-        proc_c, stmt, n_lifts, mode, size, keep_dims
-    ).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoLiftAlloc(proc_c, stmt, n_lifts, mode, size, keep_dims).result()
 
 
 @sched_op([AllocCursorA, AllocCursorA])
@@ -1347,9 +1323,8 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoDataReuse(proc_c, buf_s, rep_s).result()
 
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoDataReuse(proc_c, buf_s, rep_s).result()
 
 
 @sched_op([WindowStmtCursorA])
@@ -1366,9 +1341,8 @@ def inline_window(proc, winstmt_cursor):
     """
     stmt = winstmt_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoInlineWindow(proc_c, stmt).result()
 
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoInlineWindow(proc_c, stmt).result()
 
 
 @sched_op([ExprCursorA, NameA, OptionalA(MemoryA)])
@@ -1382,8 +1356,8 @@ def stage_window(proc, expr_cursor, win_name, memory=None):
     """
     e = expr_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoStageWindow(proc_c, win_name, memory, e).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoStageWindow(proc_c, win_name, memory, e).result()
 
 
 @sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA])
@@ -1432,7 +1406,8 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     stmt_start = block_cursor[0]._impl
     stmt_end = block_cursor[-1]._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoStageMem(
+
+    return Schedules.DoStageMem(
         proc_c,
         buf_name,
         new_buf_name,
@@ -1441,7 +1416,6 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
         stmt_end,
         use_accum_zero=accum,
     ).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
 # --------------------------------------------------------------------------- #
@@ -1498,7 +1472,8 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
 
     stmt = loop_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoSplit(
+
+    return Schedules.DoSplit(
         proc_c,
         stmt,
         quot=div_const,
@@ -1507,7 +1482,6 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         tail=tail,
         perfect=perfect,
     ).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([NestedForSeqCursorA, NameA])
@@ -1532,8 +1506,8 @@ def mult_loops(proc, nested_loops, new_iter_name):
     """
     stmt = nested_loops._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoProductLoop(proc_c, stmt, new_iter_name).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoProductLoop(proc_c, stmt, new_iter_name).result()
 
 
 @sched_op([ForSeqCursorA, PosIntA])
@@ -1560,8 +1534,8 @@ def cut_loop(proc, loop_cursor, cut_point):
     """
     stmt = loop_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoPartitionLoop(proc_c, stmt, cut_point).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoPartitionLoop(proc_c, stmt, cut_point).result()
 
 
 @sched_op([NestedForSeqCursorA])
@@ -1593,8 +1567,8 @@ def reorder_loops(proc, nested_loops):
 
     stmt = nested_loops._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoReorder(proc_c, stmt).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoReorder(proc_c, stmt).result()
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1651,10 +1625,10 @@ def merge_writes(proc, block_cursor):
         )
 
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoMergeWrites(
+
+    return Schedules.DoMergeWrites(
         proc_c, block_cursor[0]._impl, block_cursor[1]._impl
     ).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([GapCursorA, PosIntA])
@@ -1686,8 +1660,8 @@ def fission(proc, gap_cursor, n_lifts=1):
         raise ValueError("expected cursor to point to " "a gap between statements")
     stmt = stmtc._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoFissionAfterSimple(proc_c, stmt, n_lifts).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoFissionAfterSimple(proc_c, stmt, n_lifts).result()
 
 
 @sched_op([GapCursorA, PosIntA])
@@ -1720,8 +1694,8 @@ def autofission(proc, gap_cursor, n_lifts=1):
         raise ValueError("expected cursor to point to " "a gap between statements")
     stmt = stmtc._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoFissionLoops(proc_c, stmt, n_lifts).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoFissionLoops(proc_c, stmt, n_lifts).result()
 
 
 @sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA])
@@ -1764,12 +1738,8 @@ def fusion(proc, stmt1, stmt2):
     SCHED = (
         Schedules.DoFuseIf if isinstance(stmt1, PC.IfCursor) else Schedules.DoFuseLoop
     )
-    loopir = SCHED(
-        proc_c,
-        s1,
-        s2,
-    ).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return SCHED(proc_c, s1, s2).result()
 
 
 @sched_op([ForSeqCursorA])
@@ -1791,8 +1761,8 @@ def remove_loop(proc, loop_cursor):
 
     stmt = loop_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoRemoveLoop(proc_c, stmt).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoRemoveLoop(proc_c, stmt).result()
 
 
 @sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA])
@@ -1824,8 +1794,8 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
 
     stmt = block_cursor[0]._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoAddLoop(proc_c, stmt, iter_name, hi_expr, guard).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoAddLoop(proc_c, stmt, iter_name, hi_expr, guard).result()
 
 
 @sched_op([ForSeqCursorA])
@@ -1847,8 +1817,8 @@ def unroll_loop(proc, loop_cursor):
 
     stmt = loop_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoUnroll(proc_c, stmt).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoUnroll(proc_c, stmt).result()
 
 
 # --------------------------------------------------------------------------- #
@@ -1884,8 +1854,8 @@ def lift_if(proc, if_cursor, n_lifts=1):
     """
     stmt = if_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoLiftIf(proc_c, stmt, n_lifts).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoLiftIf(proc_c, stmt, n_lifts).result()
 
 
 @sched_op([IfCursorA, BoolA])
@@ -1912,8 +1882,8 @@ def assert_if(proc, if_cursor, cond):
     """
     stmt = if_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoAssertIf(proc_c, stmt, cond).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoAssertIf(proc_c, stmt, cond).result()
 
 
 @sched_op([BlockCursorA, ListOrElemA(NewExprA("block_cursor"))])
@@ -1949,8 +1919,8 @@ def specialize(proc, block_cursor, conds):
 
     stmt = block_cursor[0]._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoSpecialize(proc_c, stmt, conds).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoSpecialize(proc_c, stmt, conds).result()
 
 
 # --------------------------------------------------------------------------- #
@@ -1966,9 +1936,8 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     """
     stmt = block_cursor._impl[0]
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoAddUnsafeGuard(proc_c, stmt, var_expr).result()
 
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoAddUnsafeGuard(proc_c, stmt, var_expr).result()
 
 
 @sched_op([StmtCursorA, StmtCursorA, PosIntA])
@@ -1980,9 +1949,8 @@ def double_fission(proc, stmt1, stmt2, n_lifts=1):
     s1 = stmt1._impl
     s2 = stmt2._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoDoubleFission(proc_c, s1, s2, n_lifts).result()
 
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return Schedules.DoDoubleFission(proc_c, s1, s2, n_lifts).result()
 
 
 @sched_op([ForSeqCursorA])
@@ -2002,8 +1970,8 @@ def bound_and_guard(proc, loop):
     """
     stmt = loop._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoBoundAndGuard(proc_c, stmt).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoBoundAndGuard(proc_c, stmt).result()
 
 
 @sched_op([AssignOrReduceCursorA, NameA])
@@ -2015,5 +1983,5 @@ def stage_assn(proc, stmt_cursor, buf_name):
     """
     stmt = stmt_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = Schedules.DoStageAssn(proc_c, buf_name, stmt).result()
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+
+    return Schedules.DoStageAssn(proc_c, buf_name, stmt).result()

@@ -38,7 +38,7 @@ class UnificationError(Exception):
 
 
 class DoReplace(LoopIR_Rewrite):
-    def __init__(self, proc_cursor, subproc, stmt_block):
+    def __init__(self, proc, subproc, stmt_block):
         # ensure that subproc and stmt_block match in # of statements
         n_stmts = len(subproc.body)
         if len(stmt_block) < n_stmts:
@@ -49,7 +49,7 @@ class DoReplace(LoopIR_Rewrite):
         self.target_block = stmt_block
         self.live_vars = ChainMap()
 
-        super().__init__(proc_cursor._node())
+        super().__init__(proc)
         # fix up effects post-hoc
         # self.proc = InferEffects(self.proc).result()
         # and then check that all effect-check conditions are

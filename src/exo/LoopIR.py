@@ -8,6 +8,7 @@ from .builtins import BuiltIn
 from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
+from . import API as api
 
 
 # --------------------------------------------------------------------------- #
@@ -552,7 +553,7 @@ def lift_to_eff_expr(e):
 class LoopIR_Rewrite:
     def __init__(self, proc):
         self.orig_proc = proc
-        self.proc = self.apply_proc(proc)
+        self.proc = self.apply_proc(self.orig_proc)
 
     def result(self):
         return self.proc
