@@ -6,8 +6,9 @@ from .LoopIR import LoopIR, T, LoopIR_Rewrite
 
 
 class WindowAnalysis(LoopIR_Rewrite):
-    def __init__(self, proc_cursor):
-        super().__init__(proc_cursor)
+    def __init__(self, proc):
+        assert isinstance(proc, LoopIR.proc)
+        super().__init__(proc)
 
     def err(self, node, msg):
         raise TypeError(f"{node.srcinfo}: {msg}")

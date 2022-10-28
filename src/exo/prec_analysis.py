@@ -34,12 +34,13 @@ def get_default_prec():
 
 
 class PrecisionAnalysis(LoopIR_Rewrite):
-    def __init__(self, proc_cursor):
+    def __init__(self, proc):
+        assert isinstance(proc, LoopIR.proc)
         self._errors = []
         self._types = {}
         self.default = get_default_prec()
 
-        super().__init__(proc_cursor)
+        super().__init__(proc)
 
         if len(self._errors) > 0:
             raise TypeError(
