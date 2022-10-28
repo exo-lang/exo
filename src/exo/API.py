@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional, Union, List
 
 from .API_types import ProcedureBase
-from .LoopIR import LoopIR, T, UAST, LoopIR_Do
+from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_interpreter import run_interpreter
 from .LoopIR_scheduling import (
@@ -105,7 +105,7 @@ class MarkDownBlob:
         return self.mstr
 
 
-class FindBefore(LoopIR_Do):
+class FindBefore(LoopIR.LoopIR_Do):
     def __init__(self, proc, stmt):
         self.stmt = stmt
         self.result = None
@@ -125,7 +125,7 @@ class FindBefore(LoopIR_Do):
                 prev = s
 
 
-class FindDup(LoopIR_Do):
+class FindDup(LoopIR.LoopIR_Do):
     def __init__(self, proc):
         self.result = False
         self.env = []
@@ -166,16 +166,18 @@ class Procedure(ProcedureBase):
         self,
         proc,
         _provenance_eq_Procedure: "Procedure" = None,
-        _mod_config=frozenset(),
+        _mod_config=None,
     ):
         super().__init__()
 
-        if isinstance(proc, UAST.proc):
+        _mod_config = _mod_config or frozenset()
+
+        if isinstance(proc, LoopIR.UAST.proc):
             proc = TypeChecker(proc).get_loopir()
             proc = InferEffects(proc).result()
             CheckEffects(proc)
 
-        assert isinstance(proc, LoopIR.proc)
+        assert isinstance(proc, LoopIR.LoopIR.proc)
 
         # add this procedure into the equivalence tracking mechanism
         if _provenance_eq_Procedure:
@@ -315,11 +317,13 @@ class Procedure(ProcedureBase):
             assert isinstance(match, list)
             if len(match) == 0:
                 return None
-            elif isinstance(match[0], LoopIR.expr):
+            elif isinstance(match[0], LoopIR.LoopIR.expr):
                 results = [LoopIR_to_QAST(e).result() for e in match]
             elif isinstance(match[0], list):
                 # statements
-                assert all(isinstance(s, LoopIR.stmt) for stmts in match for s in stmts)
+                assert all(
+                    isinstance(s, LoopIR.LoopIR.stmt) for stmts in match for s in stmts
+                )
                 results = [LoopIR_to_QAST(stmts).result() for stmts in match]
             else:
                 assert False, "bad case"
@@ -404,7 +408,7 @@ class Procedure(ProcedureBase):
 
     def _find_callsite(self, call_site_pattern):
         call_stmt = self._find_stmt(call_site_pattern, call_depth=3)
-        if not isinstance(call_stmt, LoopIR.Call):
+        if not isinstance(call_stmt, LoopIR.LoopIR.Call):
             raise TypeError("pattern did not describe a call-site")
 
         return call_stmt
@@ -415,7 +419,7 @@ class Procedure(ProcedureBase):
 
         p = self._loopir_proc
         assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
-        p = LoopIR.proc(
+        p = LoopIR.LoopIR.proc(
             p.name, p.args, p.preds + [assertion], p.body, p.instr, p.eff, p.srcinfo
         )
         return Procedure(p, _provenance_eq_Procedure=None)
