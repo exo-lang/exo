@@ -46,12 +46,16 @@ from . import API as api
 class Cursor_Rewrite(LoopIR_Rewrite):
     def __init__(self, proc_cursor):
         self.provenance = proc_cursor.proc()
-        super().__init__(proc_cursor._node())
+        super().__init__(proc_cursor)
 
     def result(self, mod_config=None):
         return api.Procedure(
             self.proc, _provenance_eq_Procedure=self.provenance, _mod_config=mod_config
         )
+
+    def map_proc(self, pc):
+        p = pc._node()
+        return super().map_proc(p)
 
 
 # --------------------------------------------------------------------------- #
@@ -122,7 +126,7 @@ class _DoReorderStmt(Cursor_Rewrite):
         for i, (s1, s2) in enumerate(zip(stmts, stmts[1:])):
             if s1 is self.f_stmt:
                 if s2 is self.s_stmt:
-                    Check_ReorderStmts(self.orig_proc, s1, s2)
+                    Check_ReorderStmts(self.orig_proc._node(), s1, s2)
                     return stmts[:i] + [s2, s1] + stmts[i + 2 :]
 
                 raise SchedulingError(
@@ -262,14 +266,13 @@ def get_reads(e):
 
 class _DoMergeWrites(Cursor_Rewrite):
     def __init__(self, proc_cursor, f_cursor, s_cursor):
-        self.proc = proc_cursor._node()
         self.s1 = f_cursor._node()
         self.s2 = s_cursor._node()
 
         try:
             assert len(self.s1.idx) == len(self.s2.idx)
             for i, j in zip(self.s1.idx, self.s2.idx):
-                Check_ExprEqvInContext(self.proc, [self.s1, self.s2], i, j)
+                Check_ExprEqvInContext(proc_cursor._node(), [self.s1, self.s2], i, j)
         except SchedulingError as e:
             raise SchedulingError(
                 "expected the left hand side's indices to be the same."
@@ -320,7 +323,7 @@ class _Reorder(Cursor_Rewrite):
     def map_s(self, s):
         styp = type(s)
         if s is self.stmt:
-            Check_ReorderLoops(self.orig_proc, self.stmt)
+            Check_ReorderLoops(self.orig_proc._node(), self.stmt)
 
             # short-hands for sanity
             def boolop(op, lhs, rhs):
@@ -907,7 +910,7 @@ class _CallSwap(Cursor_Rewrite):
                     f"{s.srcinfo}: Cannot swap call because the two "
                     f"procedures are not equivalent"
                 )
-            mod_cfg = Check_ExtendEqv(self.orig_proc, [s], [s_new], configkeys)
+            mod_cfg = Check_ExtendEqv(self.orig_proc._node(), [s], [s_new], configkeys)
             self.eq_mod_config = mod_cfg
 
             return [s_new]
@@ -1407,7 +1410,7 @@ class _DoLiftIf(Cursor_Rewrite):
         if self.n_lifts:
             raise SchedulingError(
                 f"Could not fully lift if statement! {self.n_lifts} lift(s) remain!",
-                orig=self.orig_proc,
+                orig=self.orig_proc._node(),
                 proc=self.proc,
             )
 
@@ -1825,10 +1828,9 @@ class _LiftAlloc(Cursor_Rewrite):
         if mode not in ("row", "col"):
             raise SchedulingError(f"Unknown lift mode {mode}, should be 'row' or 'col'")
 
-        self.orig_proc = proc_cursor._node()
         self.alloc_sym = self.alloc_stmt.name
         self.alloc_deps = LoopIR_Dependencies(
-            self.alloc_sym, self.orig_proc.body
+            self.alloc_sym, proc_cursor._node().body
         ).result()
         self.lift_mode = mode
         self.lift_size = size
@@ -2697,7 +2699,7 @@ class _DoFuseLoop(Cursor_Rewrite):
 
                 # check if the loop bounds are equivalent
                 Check_ExprEqvInContext(
-                    self.orig_proc, [loop1, loop2], loop1.hi, loop2.hi
+                    self.orig_proc._node(), [loop1, loop2], loop1.hi, loop2.hi
                 )
 
                 x = loop1.iter
@@ -2865,7 +2867,7 @@ class _DoDeleteConfig(Cursor_Rewrite):
 
     def map_s(self, s):
         if s is self.stmt:
-            mod_cfg = Check_DeleteConfigWrite(self.orig_proc, [self.stmt])
+            mod_cfg = Check_DeleteConfigWrite(self.orig_proc._node(), [self.stmt])
             self.eq_mod_config = mod_cfg
             return []
         else:
@@ -3561,7 +3563,7 @@ class _DoStageMem(Cursor_Rewrite):
                             if self.use_accum_zero:
                                 n_dims = len(self.buf_typ.shape())
                                 Check_BufferReduceOnly(
-                                    self.orig_proc, block, self.buf_name, n_dims
+                                    self.orig_proc._node(), block, self.buf_name, n_dims
                                 )
 
                             block = self.wrap_block(block)
@@ -3584,7 +3586,7 @@ class _DoStageMem(Cursor_Rewrite):
         n_dims = len(orig_typ.shape())
         basetyp = new_typ.basetype() if isinstance(new_typ, T.Tensor) else new_typ
 
-        isR, isW = Check_BufferRW(self.orig_proc, block, self.buf_name, n_dims)
+        isR, isW = Check_BufferRW(self.orig_proc._node(), block, self.buf_name, n_dims)
         srcinfo = block[0].srcinfo
 
         new_alloc = [LoopIR.Alloc(self.new_name, new_typ, mem, None, srcinfo)]
