@@ -85,6 +85,10 @@ class GEMM_SCRATCH(Memory):
         )
 
     @classmethod
+    def can_read(cls):
+        return False
+
+    @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         if len(shape) == 0:
             return ""
@@ -134,6 +138,10 @@ class GEMM_ACCUM(Memory):
         )
 
     @classmethod
+    def can_read(cls):
+        return False
+
+    @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         if len(shape) == 0:
             return ""
@@ -177,6 +185,10 @@ class AVX2(Memory):
         return result
 
     @classmethod
+    def can_read(cls):
+        return False
+
+    @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         return ""
 
@@ -196,6 +208,10 @@ class AVX512(Memory):
     @classmethod
     def global_(cls):
         return "#include <immintrin.h>"
+
+    @classmethod
+    def can_read(cls):
+        return False
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
@@ -234,6 +250,10 @@ class AMX_TILE(Memory):
     @classmethod
     def global_(cls):
         return "#include <immintrin.h>"
+
+    @classmethod
+    def can_read(cls):
+        return False
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
