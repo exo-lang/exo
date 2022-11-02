@@ -932,6 +932,7 @@ st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('acc_scale(_)', 'ConfigStore.act = _')
 st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('tmp : _', 'ConfigStore.act = _')
 st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('src_tmp = _', 'ConfigStore.act = _')
 st_acc_i8_v2 = st_acc_i8_v2.reorder_stmts('src_tmp : _', 'ConfigStore.act = _')
+print(st_acc_i8_v2)
 st_acc_i8_v2 = st_acc_i8_v2.fission_after('ConfigStore.act = _', n_lifts=2)
 st_acc_i8_v2 = st_acc_i8_v2.replace(do_st_acc_i8, 'for i in _:_')
 st_acc_i8_v2 = st_acc_i8_v2.replace(

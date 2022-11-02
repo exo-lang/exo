@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc, DRAM, SchedulingError, Procedure
+from exo import proc, DRAM, SchedulingError, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.parse_fragment import ParseFragmentError
 
@@ -459,6 +459,22 @@ def test_fuse_loop_fail():
     with pytest.raises(SchedulingError,
                        match='Cannot fission loop'):
         foo = foo.fuse_loop('for i in _:_', 'for j in _:_')
+
+def test_fuse_loop_commute_config(golden):
+    @config
+    class CFG:
+        j : index
+
+    @proc
+    def foo(n : size, x : R[n]):
+        y : R[n]
+        for i in seq(0,n):
+            CFG.j = 0
+        for j in seq(0,n):
+            CFG.j = 0
+
+    foo = foo.fuse_loop('for i in _:_', 'for j in _:_')
+    assert str(foo) == golden
 
 def test_fuse_if(golden):
     @proc
@@ -1168,6 +1184,9 @@ def test_stage_mem_twice(golden):
     sqmat = (sqmat
         .bind_expr('B1', 'B[4*i+ii,4*k+kk]')
         .lift_alloc('B1 : _', n_lifts=3)
+    )
+    print(sqmat)
+    sqmat = (sqmat
         .fission_after('B1[_] = _', n_lifts=3)
         .stage_mem('B[4*k:4*k+4, 4*j:4*j+4]',
                    'B2', 'for ii in _: _ #1')

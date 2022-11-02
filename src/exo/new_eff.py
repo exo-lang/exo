@@ -1,4 +1,4 @@
-from collections import OrderedDict
+from collections import OrderedDict, ChainMap
 from enum import Enum
 from itertools import chain
 
@@ -173,6 +173,7 @@ class AEnv:
             if isinstance(lb,BindingList) and isinstance(rb, BindingList):
                 mb = BindingList(lb.names + rb.names, lb.rhs + rb.rhs)
                 result.bindings = lhs.bindings[:-1] + [mb] + rhs.bindings[1:]
+                result.names    = lhs.names.union(rhs.names)
                 return result
         # otherwise
         result.bindings = lhs.bindings + rhs.bindings
@@ -249,7 +250,7 @@ class AEnv:
         body        = self(body)
         # then construct an AEnv that maps the new variable symbols
         # to these values
-        new_env     = AEnv([ v.name for v in copy_vars ], body, addnames=True)
+        new_env     = AEnv([ v.name for v in copy_vars ], body, addnames=False)
         return varmap, new_env
 
 
@@ -354,6 +355,94 @@ def lift_e(e):
 def lift_es(es):
     return [ lift_e(e) for e in es ]
 
+
+# Produce a set of AExprs which occur as right-hand-sides
+# of config writes.
+def possible_config_writes(stmts):
+    class Find_RHS(LoopIR_Do):
+        def __init__(self, stmts):
+            # to collect the results in
+            self.writes     = dict()
+            self.windows    = [AEnv()]
+
+            self.do_stmts(stmts)
+
+        def add_write(self, config, field, rhs):
+            rhs = lift_e(rhs)
+            rhs = self.windows[-1](rhs).simplify()
+            key = config._INTERNAL_sym(field)
+            if key not in self.writes:
+                self.writes[key] = set()
+            self.writes[key].add(rhs)
+
+        def result(self):
+            return self.writes
+
+        # remove any candidate expressions that use the given name
+        def filter(self, name):
+            for key in self.writes:
+                exprs = self.writes[key]
+                exprs = { e for e in exprs
+                          if name not in aeFV(e) }
+                if len(exprs) == 0:
+                    del self.writes[key]
+                else:
+                    self.writes[key] = exprs
+
+        def push(self):
+            self.windows.append(self.windows[-1])
+        def pop(self):
+            self.windows.pop()
+
+        def do_s(self, s):
+            if isinstance(s, LoopIR.WriteConfig):
+                self.add_write(s.config, s.field, s.rhs)
+
+            elif isinstance(s, LoopIR.If):
+                self.push()
+                self.do_stmts(s.body)
+                self.pop()
+                self.push()
+                self.do_stmts(s.orelse)
+                self.pop()
+
+            elif isinstance(s, (LoopIR.ForAll,LoopIR.Seq)):
+                self.push()
+                self.do_stmts(s.body)
+                self.filter(s.iter)
+                self.pop()
+
+            elif isinstance(s, LoopIR.WindowStmt):
+                # accumulate windowing expressions
+                awin = lift_e(s.rhs)
+                assert isinstance(awin, AWin)
+                aenv = self.windows[-1] + AEnv(s.lhs, awin, addnames=False)
+                self.windows[-1] = aenv
+
+            elif isinstance(s, LoopIR.Call):
+                call_env    = call_bindings(s.args, s.f.args)
+                sub_writes  = Find_RHS(s.f.body).result()
+                win_env     = self.windows[-1]
+                for key in sub_writes:
+                    if key not in self.writes:
+                        self.writes[key] = set()
+                    for rhs in sub_writes[key]:
+                        rhs = win_env(call_env(rhs)).simplify()
+                        self.writes[key].add(rhs)
+
+            super().do_s(s)
+
+        # short-circuiting for efficiency
+        def do_e(self, e):
+            pass
+        def do_t(self, t):
+            pass
+        def do_eff(self, eff):
+            pass
+
+    return Find_RHS(stmts).result()
+
+
 def globenv(stmts):
     aenvs = []
     for s in stmts:
@@ -399,18 +488,60 @@ def globenv(stmts):
         elif isinstance(s, (LoopIR.ForAll,LoopIR.Seq)):
             # extract environment for the body and bind its
             # results via copies of the variables
+            i, j        = s.iter, s.iter.copy()
             body_env    = globenv(s.body)
             bvarmap, benv   = body_env.bind_to_copies()
             aenvs.append(benv)
 
+
             # bind the bounds condition so it isn't duplicated
-            #bdssym      = Sym('for_bounds')
-            #bdsvar      = ABool(bdssym)
-            bds         = AAnd(AInt(0) <= AInt(s.iter),
-                               AInt(s.iter) < lift_e(s.hi))
-            def fix(x,body_x):
-                arg     = AImplies(bds, AEq(body_x,x))
-                return A.ForAll(s.iter, arg, T.bool, s.srcinfo)
+            #non_empty   = AInt(0) < lift_e(s.hi)
+            def fix(x,body_x,lower=0):
+                bds         = AAnd(AInt(lower) <= AInt(i),
+                                   AInt(i) < lift_e(s.hi))
+                no_change   = AImplies(bds, AEq(body_x,x))
+                return A.ForAll(i, no_change, T.bool, s.srcinfo)
+
+            # extract possible RHS values for config-fields
+            cfg_writes = possible_config_writes([s])
+            for cfgfld in cfg_writes:
+                pass
+
+            def fix_cfg(x,rhs,body_x,lower=0):
+                bds         = AAnd(AInt(lower) <= AInt(i),
+                                   AInt(i) < lift_e(s.hi))
+                is_assigned = A.Exists(i, AAnd(bds, AEq(body_x, rhs)),
+                                       T.bool, s.srcinfo)
+                no_change_or_assign = AOr( AEq(body_x, rhs), AEq(body_x, x) )
+                AImplies
+
+                no_change   = 23
+                #A.Exists(i, is_assigned, T.bool, s.srcinfo)
+                no_change   = A
+                no_change   = AImplies(bds, AEq(body_x,x))
+                return A.ForAll(i, no_change, T.bool, s.srcinfo)
+
+            # define the value of variables due to the first iteration alone
+            #def iter0(x,body_x):
+            #    non_empty   = AInt(0) < lift_e(s.hi)
+            #    is_iter0    = AEq(AInt(i), AInt(0))
+
+
+
+            # optional attempt to have tricky conditions
+            #body_j_env  = AEnv(i, AInt(j)) + body_env
+            #j_bvarmap, j_benv = body_j_env.bind_to_copies()
+            #aenvs.append(j_benv)
+            #bds_j       = AAnd(AInt(0) <= AInt(j),
+            #                   AInt(j) < lift_e(s.hi))
+            #def same_after(body_x,body_j_x):
+            #    consistent =  A.ForAll(i, AImplies(bds,
+            #                    A.ForAll(j, AImplies(bds_j,
+            #                                AEq(body_x, body_j_x)),
+            #                             T.bool, s.srcinfo)),
+            #                    T.bool, s.srcinfo)
+            #    return AAnd(non_empty, consistent)
+
 
             # Now construct an environment that defines the new
             # value for variables `x` based on fixed-point conditions
@@ -421,6 +552,17 @@ def globenv(stmts):
                                    oldvar,
                                    A.Unk(oldvar.type, s.srcinfo),
                                    oldvar.type, s.srcinfo)
+
+                #j_bvar  = j_bvarmap[nm]
+                #oldvar  = A.Var(nm, bvar.type, s.srcinfo)
+                #val     = A.Select(fix(oldvar, bvar),
+                #                   oldvar,
+                #                   A.Unk(oldvar.type, s.srcinfo),
+                #                   #A.Select(same_after(bvar, j_bvar),
+                #                   #         bvar,
+                #                   #         A.Unk(oldvar.type, s.srcinfo),
+                #                   #         oldvar.type, s.srcinfo),
+                #                   oldvar.type, s.srcinfo)
                 newbinds[nm] = val
             aenvs.append(AEnvPar(newbinds,addnames=True))
 
@@ -774,11 +916,12 @@ class ES(Enum):
     WRITE_ALL   = 8
     REDUCE      = 9
     ALL         = 10
-    MODIFY      = 11
-    MODIFY_H    = 12
-    READ_WRITE  = 13
+    ALL_H       = 11
+    MODIFY      = 12
+    MODIFY_H    = 13
+    READ_WRITE  = 14
 
-    ALLOC       = 14
+    ALLOC       = 15
 
 def get_basic_locsets(effs):
     RG = LS.Empty()
@@ -853,6 +996,7 @@ def getsets(codes, effs):
     ModH    = LUnion(WH, preRed)
     RW      = LUnion(RAll, WAll)
     All     = LUnion(RW, preRed)
+    AllH    = LUnion(RH, ModH)
     def get_code(code):
         if code == ES.READ_G:
             return RG
@@ -872,6 +1016,8 @@ def getsets(codes, effs):
             return Red
         elif code == ES.ALL:
             return All
+        elif code == ES.ALL_H:
+            return AllH
         elif code == ES.MODIFY:
             return Mod
         elif code == ES.MODIFY_H:
@@ -885,70 +1031,23 @@ def getsets(codes, effs):
     return [get_code(c) for c in codes]
 
 
-def get_changing_globals(effs):
+def get_changing_globset(env):
+    """ Computes a Location Set from an environment, corresponding
+        to all globals / configuration-variables whose value is
+        changed by that environment """
+    varmap, env = env.bind_to_copies()
+    aenvs       = [env]
+    def change(x_old, x_new):
+        return ANot( AEq(x_old, x_new) )
 
-    RG = LS.Empty()
-    WG = LS.Empty()
-    RH = LS.Empty()
-    WH = LS.Empty()
-    Red = LS.Empty()
-    Alc = LS.Empty()
-    for eff in reversed(effs):
-        if isinstance(eff, E.Empty):
-            pass
-
-        elif isinstance(eff, E.GlobalRead):
-            ls1 = LS.Point(eff.name, [], eff.type)
-            RG  = LUnion(ls1, RG)
-        elif isinstance(eff, E.GlobalWrite):
-            ls1 = LS.Point(eff.name, [], eff.type)
-            RG  = LDiff(RG, ls1)
-            WG  = LUnion(ls1, WG)
-        elif isinstance(eff, E.Read):
-            ls1 = LS.Point(eff.name, eff.coords, None)
-            RH  = LUnion(ls1, RH)
-        elif isinstance(eff, E.Write):
-            ls1 = LS.Point(eff.name, eff.coords, None)
-            RH  = LDiff(RH, ls1)
-            WH  = LUnion(ls1, WH)
-        elif isinstance(eff, E.Reduce):
-            ls1 = LS.Point(eff.name, eff.coords, None)
-            Red = LUnion(ls1, Red)
-
-        elif isinstance(eff, E.Alloc):
-            RG  = LHideAlloc(eff.name, RG)
-            WG  = LHideAlloc(eff.name, WG)
-            RH  = LHideAlloc(eff.name, RH)
-            WH  = LHideAlloc(eff.name, WH)
-            Red = LHideAlloc(eff.name, Red)
-            Alc = LUnion(Alc, LS.WholeBuf(eff.name, eff.ndim))
-
-        elif isinstance(eff, E.BindEnv):
-            RG  = LLetEnv(eff.env, RG)
-            WG  = LLetEnv(eff.env, WG)
-            RH  = LLetEnv(eff.env, RH)
-            WH  = LLetEnv(eff.env, WH)
-            Red = LLetEnv(eff.env, Red)
-
-        elif isinstance(eff, (E.Guard,E.Loop)):
-            bodyLs = get_basic_locsets(eff.body)
-            if isinstance(eff, E.Guard):
-                bodyLs = tuple( LFilter(eff.cond, Ls) for Ls in bodyLs )
-            else:
-                bodyLs = tuple( LBigUnion(eff.name, Ls) for Ls in bodyLs )
-            bRG, bWG, bRH, bWH, bRed, bAlc= bodyLs
-
-            # now do the full interaction updates...
-            RG  = LUnion(bRG, LDiff(RG, bWG))
-            WG  = LUnion(bWG, WG)
-            RH  = LUnion(bRH, LDiff(RH, bWH))
-            WH  = LUnion(bWH, WH)
-            Red = LUnion(bRed, Red)
-
-        else: assert False, f"bad case: {type(eff)}"
-
-    return (RG,WG,RH,WH,Red,Alc)
-
+    locs = LS.Empty()
+    for name,newvar in varmap.items():
+        oldvar  = A.Var(name, newvar.type, newvar.srcinfo)
+        cfgloc  = LFilter( change(oldvar,newvar),
+                           LS.Point(name, [], newvar.type) )
+        locs    = LUnion(locs, cfgloc)
+    locs = LLetEnv(env, locs)
+    return locs
 
 
 # --------------------------------------------------------------------------- #
@@ -1280,6 +1379,59 @@ def Commutes(a1, a2):
 
     return pred
 
+def Commutes_Fissioning(a1, a2, aenv1, aenv2, a1_no_loop_var=False):
+    W1, R1, RG1, Red1, All1 = getsets([ES.WRITE_H, ES.READ_H, ES.READ_G,
+                                       ES.REDUCE, ES.ALL_H], a1)
+    W2, R2, RG2, Red2, All2 = getsets([ES.WRITE_H, ES.READ_H, ES.READ_G,
+                                       ES.REDUCE, ES.ALL_H], a2)
+    WG1 = get_changing_globset(aenv1)
+    WG2 = get_changing_globset(aenv2)
+    """
+    print("CHANGING GLOB SET")
+    print(WG1)
+    print(WG2)
+    print("W1 R1 RG1 Red1 All1")
+    print(W1)
+    print(R1)
+    print(RG1)
+    print(Red1)
+    print(All1)
+    print("W2 R2 RG2 Red2 All2")
+    print(W2)
+    print(R2)
+    print(RG2)
+    print(Red2)
+    print(All2)
+    """
+    
+    write_commute12 = ADef(is_empty(LIsct(W1, All2)))
+    if a1_no_loop_var:
+        # a1 does not vary syntactically between loop iterations,
+        # so under the following conditions, we can assume that
+        # a1 is idempotent
+        #   - a1 contains no reductions
+        a1_idempotent = AAnd( ADef(is_empty(Red1)),
+        #   - a1 does not depend on (read) any modified values, namely
+        #       + any values modified by a2 (accounted for below)
+        #       + any heap value written by a1 (W1)
+                              ADef(is_empty(LIsct(W1, R1))),
+        #       + any global value changed by a1 (WG1)
+                              ADef(is_empty(LIsct(WG1, RG1))) )
+        # In this case, a1 being idempotent is sufficient as an
+        # alternative to proving that a1 doesn't write anything
+        # read by a2; since idempotency ensures that
+        # a2 will always read the same values regardless of commuting
+        write_commute12 = AOr(write_commute12, a1_idempotent)
+    
+    pred = AAnd( write_commute12,
+                 ADef(is_empty(LIsct(W2, All1))),
+                 ADef(is_empty(LIsct(Red1, R2))),
+                 ADef(is_empty(LIsct(Red2, R1))),
+                 ADef(is_empty(LIsct(WG1, RG2))),
+                 ADef(is_empty(LIsct(WG2, RG1))) )
+
+    return pred
+
 def AllocCommutes(a1, a2):
 
     Alc1, All1 = getsets([ES.ALLOC, ES.ALL], a1)
@@ -1339,17 +1491,11 @@ class SchedulingError(Exception):
         return ops
 
 
-def loop_globenv_eff(iter, lo_hi, body):
-    if type(lo_hi) is not pair:
-        lo, hi = lo_hi
-    else:
-        lo, hi = AInt(0), lo_hi
+def loop_globenv(i, hi_expr, body):
+    assert isinstance(hi_expr, LoopIR.expr)
 
-    body_env    = E.BindEnv( globenv(body) )
-    guard_env   = E.Guard(AAnd( lo <= AInt(iter),
-                                AInt(iter) < hi ), [body_env])
-    loop_env    = E.Loop(iter, [guard_env])
-    return [loop_env]
+    loop = [LoopIR.Seq( i, hi_expr, body, None, null_srcinfo() )]
+    return globenv(loop)
 
 
 def Check_ReorderStmts(proc, s1, s2):
@@ -1430,7 +1576,7 @@ def Check_ReorderLoops(proc, s):
 #   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i')  =>
 #                     Commutes(a1', a2) /\ AllocCommutes(a1, a2) )
 #
-def Check_FissionLoop(proc, loop, stmts1, stmts2):
+def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     ctxt    = ContextExtraction(proc, [loop])
     chgG    = get_changing_scalars(proc.body)
 
@@ -1448,15 +1594,22 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
     subenv  = { i : LoopIR.Read(j, [], T.index, null_srcinfo()) }
     stmts1_j= SubstArgs(stmts1, subenv).result()
 
-    EGloop  = []#loop_globenv_eff(i, AInt(j), stmts1)
+    Gloop   = loop_globenv(i, LoopIR.Read(j,[],T.index,null_srcinfo()), stmts1)
+    #print("GLOOP")
+    #print(Gloop)
 
     a_bd    = expr_effs(hi)
     a1      = stmts_effs(stmts1)
-    a1_j    = EGloop + stmts_effs(stmts1_j)
-    a2      = EGloop + stmts_effs(stmts2)
+    a1_j    = stmts_effs(stmts1_j)
+    a2      = stmts_effs(stmts2)
 
     def bds(x,hi):
         return AAnd(AInt(0) <= AInt(x), AInt(x) < lift_e(hi))
+
+    commute12 = Gloop(Commutes_Fissioning(a1_j, a2,
+                                          globenv(stmts1_j),
+                                          globenv(stmts2),
+                                          a1_no_loop_var=no_loop_var_1))
 
     no_bound_change = (
         AForAll([i], AImplies( AMay(bds(i,hi)),
@@ -1464,7 +1617,7 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
     stmts_commute = (
         AForAll([i,j], AImplies( AMay(AAnd( bds(i,hi), bds(j,hi),
                                             AInt(i) < AInt(j) )),
-                                 AAnd(Commutes(a1_j, a2),
+                                 AAnd(commute12,
                                       AllocCommutes(a1, a2)) )))
 
     pred    = filter_reals( G(AAnd(no_bound_change, stmts_commute)), chgG )
@@ -1509,7 +1662,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     # the statement block being focused on.  Filter out any
     # such configuration variables whose values are definitely unchanged
     def is_cfg_unmod_by_stmts(pt):
-        pt_e    = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name)
+        pt_e    = A.Var(pt.name, pt.typ, null_srcinfo())
         #cfg_unwritten = ADef( ANot(is_elem(pt, WrG)) )
         cfg_unchanged = ADef( G(AEq(pt_e, stmtsG(pt_e))) )
         return slv.verify(cfg_unchanged)
@@ -1519,7 +1672,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     # consider every global that might be modified
     cfg_mod_visible = set()
     for _,pt in cfg_mod.items():
-        pt_e    = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name)
+        pt_e    = A.Var(pt.name, pt.typ, null_srcinfo())
         is_written      = is_elem(pt, WrG)
         is_unchanged    = G(AEq(pt_e, stmtsG(pt_e)))
         is_read_post    = is_elem(pt, RdGp)
@@ -1967,10 +2120,6 @@ class _Check_Aliasing_Helper(LoopIR_Do):
             self._aliases[s.lhs] = name
         else:
             super().do_s(s)
-
-"""
-
-"""
 
 def Check_Aliasing(proc):
     helper = _Check_Aliasing_Helper(proc)

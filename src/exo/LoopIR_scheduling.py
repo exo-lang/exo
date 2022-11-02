@@ -2142,7 +2142,9 @@ class _DoFissionAfterSimple:
 
                 # we must check whether the two parts of the
                 # fission can commute appropriately
-                #Check_FissionLoop(self.orig_proc, s, pre, post)
+                no_loop_var_pre = (s.iter not in _FV(pre))
+                #Check_FissionLoop(self.orig_proc, s, pre, post,
+                #                  no_loop_var_pre)
 
                 # we can skip the loop iteration if the
                 # body doesn't depend on the loop
@@ -2268,7 +2270,9 @@ class _FissionLoops:
 
                 # we must check whether the two parts of the
                 # fission can commute appropriately
-                #Check_FissionLoop(self.orig_proc, s, pre, post)
+                no_loop_var_pre = (s.iter not in _FV(pre))
+                #Check_FissionLoop(self.orig_proc, s, pre, post,
+                #                  no_loop_var_pre)
 
                 # we can skip the loop iteration if the
                 # body doesn't depend on the loop
