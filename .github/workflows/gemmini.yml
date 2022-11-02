@@ -6,7 +6,7 @@ on:
   pull_request:
 jobs:
   gemmini:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     container:
       image: ghcr.io/exo-lang/gemmini:latest
