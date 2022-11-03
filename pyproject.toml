@@ -10,4 +10,4 @@ norecursedirs = ['dependencies']
 pythonpath = "src/"
 
 [tool.black]
-exclude = '(demo_stage\.py|dependencies/.*)'
+exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
