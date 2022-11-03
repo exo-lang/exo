@@ -91,8 +91,9 @@ class Memory(ABC):
         return f"{baseptr}[{offset}]"
 
     @classmethod
+    @abstractmethod
     def can_read(cls):
-        raise False
+        raise NotImplementedError()
 
     @classmethod
     def write(cls, s, lhs, rhs):
