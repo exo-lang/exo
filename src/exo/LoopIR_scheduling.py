@@ -267,7 +267,7 @@ class _PartitionLoop(LoopIR_Rewrite):
                 )
 
             part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
-            loop1 = type(s)(s.iter, part_by, s.body, None, s.srcinfo)
+            loop1 = s.update(hi=part_by, eff=None)
 
             # all uses of the loop iteration in the second body need
             # to be offset by the partition value
