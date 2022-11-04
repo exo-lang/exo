@@ -146,14 +146,14 @@ def finish_sgemm_tiled(p=sgemm_tiled):
         f"A[{L1_N}*io : {L1_N}*io + {L1_N}," f"  {L1_K}*ko : {L1_K}*ko + {L1_K}]",
         "Atile",
     )
-    p = lift_alloc(p, "Atile", n_lifts=2)
+    p = lift_alloc(simplify(p), "Atile", n_lifts=2)
     p = stage_mem(
         p,
         "for im in _: _ #0",
         f"B[{L1_K}*ko : {L1_K}*ko + {L1_K}," f"  {L1_M}*jo : {L1_M}*jo + {L1_M}]",
         "Btile",
     )
-    p = lift_alloc(p, "Btile", n_lifts=3)
+    p = lift_alloc(simplify(p), "Btile", n_lifts=3)
     # cleanup
     p = simplify(p)
     return p
