@@ -1,0 +1,3 @@
+def foo(n: size, m: size, k: size, x: R[n, m, k, 10] @ DRAM):
+    x[0, 0, 0, 0] = 0.0
+    bar(stride(x, 2))
