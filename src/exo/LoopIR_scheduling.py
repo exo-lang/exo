@@ -1130,11 +1130,7 @@ class _InlineWindow(Cursor_Rewrite):
 # TODO: Rewrite this to directly use stmt_cursor instead of after
 class _ConfigWrite(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, config, field, expr, before=False):
-        assert (
-            isinstance(expr, LoopIR.Read)
-            or isinstance(expr, LoopIR.StrideExpr)
-            or isinstance(expr, LoopIR.Const)
-        )
+        assert isinstance(expr, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const))
 
         self.stmt = stmt_cursor._node()
         self.config = config
@@ -1495,14 +1491,14 @@ class _DoLiftIf(Cursor_Rewrite):
         assert isinstance(self.target, LoopIR.If)
         assert is_pos_int(n_lifts)
 
-        self.loop_deps = vars_in_expr(self.target.cond)
+        self.loop_deps = _FV(self.target.cond)
 
         self.n_lifts = n_lifts
         self.bubbling = False
 
         super().__init__(proc_cursor)
 
-        if self.n_lifts:
+        if self.n_lifts > 0:
             raise SchedulingError(
                 f"Could not fully lift if statement! {self.n_lifts} lift(s) remain!",
                 orig=self.orig_proc._node(),
