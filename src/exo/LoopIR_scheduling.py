@@ -1074,6 +1074,19 @@ class _InlineWindow(Cursor_Rewrite):
 
         return new_idxs
 
+    def calc_dim(self, dim):
+        assert dim < len(
+            [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
+        )
+
+        new_dim = 0
+        for w in self.win_stmt.rhs.idx:
+            if isinstance(w, LoopIR.Interval):
+                dim -= 1
+            if dim == -1:
+                return new_dim
+            new_dim += 1
+
     def map_s(self, sc):
         s = sc._node()
         if s is self.win_stmt:
@@ -1150,7 +1163,7 @@ class _InlineWindow(Cursor_Rewrite):
         elif etyp is LoopIR.StrideExpr:
             if self.win_stmt.lhs == e.name:
                 return LoopIR.StrideExpr(
-                    self.win_stmt.rhs.name, e.dim, e.type, e.srcinfo
+                    self.win_stmt.rhs.name, self.calc_dim(e.dim), e.type, e.srcinfo
                 )
 
         return super().map_e(e)
