@@ -544,7 +544,7 @@ ld_i8_block_id1_v2 = make_ld_i8_block(
     "ld_i8_block_id1_v2", 1, stride_val="stride(src,0)"
 )
 ld_i8_block_id1_s2_v2 = make_ld_i8_block(
-    "ld_i8_block_id1_s2_v2", 1, stride_val="stride(src,2)"
+    "ld_i8_block_id1_s2_v2", 1, stride_val="stride(src,0)"
 )
 
 ld_i8_block_id2 = make_ld_i8_block("ld_i8_block_id2", 2)
@@ -552,7 +552,7 @@ ld_i8_block_id2_v2 = make_ld_i8_block(
     "ld_i8_block_id2_v2", 2, stride_val="stride(src,0)"
 )
 ld_i8_block_id2_s2_v2 = make_ld_i8_block(
-    "ld_i8_block_id2_s2_v2", 2, stride_val="stride(src,2)"
+    "ld_i8_block_id2_s2_v2", 2, stride_val="stride(src,0)"
 )
 
 
@@ -626,11 +626,11 @@ def make_ld_i8(name, ld_id=0, p=ld_i8, sval=None):
 
 ld_i8_id1 = make_ld_i8("ld_i8_id1", 1)
 ld_i8_id1_v2 = make_ld_i8("ld_i8_id1_v2", 1, sval="stride(src, 0)")
-ld_i8_id1_s2_v2 = make_ld_i8("ld_i8_id1_s2_v2", 1, sval="stride(src, 2)")
+ld_i8_id1_s2_v2 = make_ld_i8("ld_i8_id1_s2_v2", 1, sval="stride(src, 0)")
 
 ld_i8_id2 = make_ld_i8("ld_i8_id2", 2)
 ld_i8_id2_v2 = make_ld_i8("ld_i8_id2_v2", 2, sval="stride(src, 0)")
-ld_i8_id2_s2_v2 = make_ld_i8("ld_i8_id2_s2_v2", 2, sval="stride(src, 2)")
+ld_i8_id2_s2_v2 = make_ld_i8("ld_i8_id2_s2_v2", 2, sval="stride(src, 0)")
 
 ld_i8_v2 = make_ld_i8("ld_i8_v2", 0, sval="stride(src,0)")
 
@@ -1025,7 +1025,7 @@ def make_st_acc_i8_s2_v2(p=st_acc_i8):
         p.find("ConfigStore.scale = _").after(),
         ConfigStore,
         "dst_stride",
-        "stride(dst, 2)",
+        "stride(dst, 0)",
     )
     # p = p.configwrite_after('ConfigStore.scale = _', ConfigStore, 'dst_stride', 'stride(dst, 2)')
     p = bind_config(p, "act", ConfigStore, "act")

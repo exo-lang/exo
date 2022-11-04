@@ -1105,6 +1105,22 @@ def test_inline_window(golden):
     assert str(foo) == golden
 
 
+def test_inline_window2(golden):
+    @proc
+    def bar(s: stride):
+        x: R
+        x = 0.0
+
+    @proc
+    def foo(n: size, m: size, k: size, x: R[n, m, k, 10]):
+        y = x[0, :, :, 0]
+        y[0, 0] = 0.0
+        bar(stride(y, 1))
+
+    foo = inline_window(foo, "y = _")
+    assert str(simplify(foo)) == golden
+
+
 def test_lift_if_second_statement_in_then_error():
     @proc
     def foo(m: size, x: R[m]):
