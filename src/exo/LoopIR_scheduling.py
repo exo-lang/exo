@@ -1881,10 +1881,20 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
         if s is self.alloc_stmt:
             if self.n_lifts > len(self.ctrl_ctxt):
                 raise SchedulingError(
-                    "specified lift level {self.n_lifts} "
-                    + "is higher than the number of loop "
-                    + "{len(self.ctrl_ctxt)}"
+                    f"specified lift level {self.n_lifts} "
+                    f"is more than {len(self.ctrl_ctxt)}, "
+                    f"the number of loops "
+                    f"and ifs above the allocation"
                 )
+            if len(s.type.shape()) > 0:
+                szvars = set.union(*[_FV(sz) for sz in s.type.shape()])
+                for i in self.get_ctrl_iters():
+                    if i in szvars:
+                        raise SchedulingError(
+                            f"Cannot lift allocation statement {s} past loop "
+                            f"with iteration variable {i} because "
+                            f"the allocation size depends on {i}."
+                        )
             self.lift_site = self.ctrl_ctxt[-self.n_lifts]
 
             return []
@@ -1893,6 +1903,9 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
             self.ctrl_ctxt.append(s)
             stmts = super().map_s(sc)
             self.ctrl_ctxt.pop()
+            # TODO: it is technically possible to end up with for-loops
+            # and if-statements that have empty bodies.  We should check
+            # for this situation, even if it's extremely unlikely.
 
             if s is self.lift_site:
                 new_alloc = LoopIR.Alloc(
@@ -1907,6 +1920,11 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
             return stmts
 
         return super().map_s(sc)
+
+    def get_ctrl_iters(self):
+        return [
+            s.iter for s in self.ctrl_ctxt[-self.n_lifts :] if isinstance(s, LoopIR.Seq)
+        ]
 
 
 # --------------------------------------------------------------------------- #

@@ -377,7 +377,7 @@ def matmul_i8():
             amx, f"for ii in _: _ #{i}", B_mem_template.format(j_lo=i), f"Btile{i}"
         )
         amx = set_memory(amx, f"Btile{i}", AMX_TILE)
-        amx = lift_alloc(amx, f"Btile{i}:_", n_lifts=3)
+        amx = lift_alloc(simplify(amx), f"Btile{i}:_", n_lifts=3)
     amx = fission(amx, amx.find("for i0 in _:_ #0").after(), n_lifts=1)
     amx = fission(amx, amx.find("for i0 in _:_ #1").after(), n_lifts=1)
     amx = reorder_back(amx, "ji_unroll #2")
@@ -396,7 +396,7 @@ def matmul_i8():
             f"Atile{i}",
         )
         amx = set_memory(amx, f"Atile{i}", AMX_TILE)
-        amx = lift_alloc(amx, f"Atile{i}:_", n_lifts=2)
+        amx = lift_alloc(simplify(amx), f"Atile{i}:_", n_lifts=2)
     amx = fission(amx, amx.find("for i0 in _:_ #2").after(), n_lifts=1)
     amx = fission(amx, amx.find("for i0 in _:_ #3").after(), n_lifts=1)
     amx = reorder_back(amx, "ii_unroll #2")
