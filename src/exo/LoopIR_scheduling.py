@@ -2204,7 +2204,10 @@ class _FreeVars(LoopIR_Do):
         self._fvs = set()
         self._bound = set()
 
-        self.do_stmts(stmts)
+        if isinstance(stmts, LoopIR.expr):
+            self.do_e(stmts)
+        else:
+            self.do_stmts(stmts)
 
     def result(self):
         return self._fvs
@@ -2230,27 +2233,6 @@ class _FreeVars(LoopIR_Do):
 
 def _FV(stmts):
     return _FreeVars(stmts).result()
-
-
-class _VarsInExpr(LoopIR_Do):
-    def __init__(self, expr):
-        assert isinstance(expr, LoopIR.expr)
-
-        self.vars = set()
-        self.do_e(expr)
-
-    def result(self):
-        return self.vars
-
-    def do_e(self, e):
-        if isinstance(e, LoopIR.Read):
-            self.vars.add(e.name)
-
-        super().do_e(e)
-
-
-def vars_in_expr(expr):
-    return _VarsInExpr(expr).result()
 
 
 def _is_idempotent(stmts):
