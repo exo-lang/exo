@@ -1498,7 +1498,7 @@ class _DoLiftIf(Cursor_Rewrite):
 
         super().__init__(proc_cursor)
 
-        if self.n_lifts > 0:
+        if self.n_lifts:
             raise SchedulingError(
                 f"Could not fully lift if statement! {self.n_lifts} lift(s) remain!",
                 orig=self.orig_proc._node(),
