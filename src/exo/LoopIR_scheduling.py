@@ -1079,6 +1079,10 @@ class _InlineWindow(Cursor_Rewrite):
             [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
         )
 
+        # Because our goal here is to offset `dim` in the original
+        # call argument to the point indexing to the windowing expression,
+        # new_dim should essencially be:
+        # `dim` + "number of LoopIR.Points in the windowing expression before the `dim` number of LoopIR.Interval"
         new_dim = 0
         for w in self.win_stmt.rhs.idx:
             if isinstance(w, LoopIR.Interval):
