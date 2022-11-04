@@ -1886,7 +1886,7 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
                     f"the number of loops "
                     f"and ifs above the allocation"
                 )
-            if len(s.type.shape()) > 0:
+            if s.type.shape():
                 szvars = set.union(*[_FV(sz) for sz in s.type.shape()])
                 for i in self.get_ctrl_iters():
                     if i in szvars:
