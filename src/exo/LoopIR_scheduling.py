@@ -251,67 +251,38 @@ class _PartitionLoop(LoopIR_Rewrite):
     def __init__(self, proc, loop_cursor, num):
         self.stmt = loop_cursor._node()
         self.partition_by = num
-        self.second = False
-        self.second_iter = None
 
         super().__init__(proc)
-
-        self.proc = InferEffects(self.proc).result()
 
     def map_s(self, s):
         if s is self.stmt:
             assert isinstance(s, LoopIR.Seq)
 
             if not isinstance(s.hi, LoopIR.Const):
-                raise SchedulingError("expected loop bound to be constant")
+                raise SchedulingError("expected loop bound to be a literal")
 
             if s.hi.val <= self.partition_by:
                 raise SchedulingError(
                     "expected loop bound to be larger than partitioning value"
                 )
 
-            body = self.apply_stmts(s.body)
-            first_loop = s.update(
-                hi=LoopIR.Const(self.partition_by, T.int, s.srcinfo),
-                body=body,
-                eff=None,
-            )
+            part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
+            loop1 = s.update(hi=part_by, eff=None)
 
-            # Should add partition_by to everything in body
-            self.second = True
+            # all uses of the loop iteration in the second body need
+            # to be offset by the partition value
+            iter2 = s.iter.copy()
+            hi2 = LoopIR.Const(s.hi.val - part_by.val, T.int, s.srcinfo)
+            iter2_node = LoopIR.Read(iter2, [], T.index, s.srcinfo)
+            iter_off = LoopIR.BinOp("+", iter2_node, part_by, T.index, s.srcinfo)
+            env = {s.iter: iter_off}
 
-            new_iter = s.iter.copy()
+            body2 = SubstArgs(s.body, env).result()
+            loop2 = s.update(iter=iter2, hi=hi2, body=body2, eff=None)
 
-            self.second_iter = new_iter
-
-            second_body = SubstArgs(
-                body, {s.iter: LoopIR.Read(new_iter, [], T.index, s.srcinfo)}
-            ).result()
-
-            second_loop = s.update(
-                iter=new_iter,
-                hi=LoopIR.Const(s.hi.val - self.partition_by, T.int, s.srcinfo),
-                body=self.apply_stmts(second_body),
-                eff=None,
-            )
-
-            return [first_loop] + [second_loop]
+            return [loop1, loop2]
 
         return super().map_s(s)
-
-    def map_e(self, e):
-        if self.second:
-            if isinstance(e, LoopIR.Read) and e.name == self.second_iter:
-                assert e.type.is_indexable()
-                return LoopIR.BinOp(
-                    "+",
-                    e,
-                    LoopIR.Const(self.partition_by, T.int, e.srcinfo),
-                    T.index,
-                    e.srcinfo,
-                )
-
-        return super().map_e(e)
 
 
 class _DoProductLoop(Cursor_Rewrite):
@@ -1176,11 +1147,7 @@ class _InlineWindow(Cursor_Rewrite):
 # TODO: Rewrite this to directly use stmt_cursor instead of after
 class _ConfigWrite(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, config, field, expr, before=False):
-        assert (
-            isinstance(expr, LoopIR.Read)
-            or isinstance(expr, LoopIR.StrideExpr)
-            or isinstance(expr, LoopIR.Const)
-        )
+        assert isinstance(expr, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const))
 
         self.stmt = stmt_cursor._node()
         self.config = config
@@ -1541,7 +1508,7 @@ class _DoLiftIf(Cursor_Rewrite):
         assert isinstance(self.target, LoopIR.If)
         assert is_pos_int(n_lifts)
 
-        self.loop_deps = vars_in_expr(self.target.cond)
+        self.loop_deps = _FV(self.target.cond)
 
         self.n_lifts = n_lifts
         self.bubbling = False
@@ -1931,10 +1898,20 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
         if s is self.alloc_stmt:
             if self.n_lifts > len(self.ctrl_ctxt):
                 raise SchedulingError(
-                    "specified lift level {self.n_lifts} "
-                    + "is higher than the number of loop "
-                    + "{len(self.ctrl_ctxt)}"
+                    f"specified lift level {self.n_lifts} "
+                    f"is more than {len(self.ctrl_ctxt)}, "
+                    f"the number of loops "
+                    f"and ifs above the allocation"
                 )
+            if s.type.shape():
+                szvars = set.union(*[_FV(sz) for sz in s.type.shape()])
+                for i in self.get_ctrl_iters():
+                    if i in szvars:
+                        raise SchedulingError(
+                            f"Cannot lift allocation statement {s} past loop "
+                            f"with iteration variable {i} because "
+                            f"the allocation size depends on {i}."
+                        )
             self.lift_site = self.ctrl_ctxt[-self.n_lifts]
 
             return []
@@ -1943,6 +1920,9 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
             self.ctrl_ctxt.append(s)
             stmts = super().map_s(sc)
             self.ctrl_ctxt.pop()
+            # TODO: it is technically possible to end up with for-loops
+            # and if-statements that have empty bodies.  We should check
+            # for this situation, even if it's extremely unlikely.
 
             if s is self.lift_site:
                 new_alloc = LoopIR.Alloc(
@@ -1957,6 +1937,11 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
             return stmts
 
         return super().map_s(sc)
+
+    def get_ctrl_iters(self):
+        return [
+            s.iter for s in self.ctrl_ctxt[-self.n_lifts :] if isinstance(s, LoopIR.Seq)
+        ]
 
 
 # --------------------------------------------------------------------------- #
@@ -2254,7 +2239,10 @@ class _FreeVars(LoopIR_Do):
         self._fvs = set()
         self._bound = set()
 
-        self.do_stmts(stmts)
+        if isinstance(stmts, LoopIR.expr):
+            self.do_e(stmts)
+        else:
+            self.do_stmts(stmts)
 
     def result(self):
         return self._fvs
@@ -2280,27 +2268,6 @@ class _FreeVars(LoopIR_Do):
 
 def _FV(stmts):
     return _FreeVars(stmts).result()
-
-
-class _VarsInExpr(LoopIR_Do):
-    def __init__(self, expr):
-        assert isinstance(expr, LoopIR.expr)
-
-        self.vars = set()
-        self.do_e(expr)
-
-    def result(self):
-        return self.vars
-
-    def do_e(self, e):
-        if isinstance(e, LoopIR.Read):
-            self.vars.add(e.name)
-
-        super().do_e(e)
-
-
-def vars_in_expr(expr):
-    return _VarsInExpr(expr).result()
 
 
 def _is_idempotent(stmts):

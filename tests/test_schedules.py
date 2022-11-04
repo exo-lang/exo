@@ -384,6 +384,32 @@ def test_lift_alloc_simple2(golden):
     assert str(bar) == golden
 
 
+def test_lift_alloc_simple3(golden):
+    @proc
+    def bar(n: size, A: i8[n]):
+        for k in seq(0, n):
+            for i in seq(0, n):
+                for j in seq(0, n):
+                    tmp_a: i8
+                    tmp_a = A[i]
+
+    bar = lift_alloc(bar, "tmp_a : _", n_lifts=3)
+    assert str(bar) == golden
+
+
+def test_lift_alloc_simple_fv_error():
+    @proc
+    def bar(n: size, A: i8[n]):
+        for k in seq(0, n):
+            for i in seq(0, n):
+                for j in seq(0, n):
+                    tmp_a: i8[k + 1]
+                    tmp_a[k] = A[i]
+
+    with pytest.raises(SchedulingError, match="Cannot lift allocation statement"):
+        lift_alloc(bar, "tmp_a : _", n_lifts=3)
+
+
 def test_lift_alloc_simple_error():
     @proc
     def bar(n: size, A: i8[n]):

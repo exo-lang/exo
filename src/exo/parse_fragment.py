@@ -176,6 +176,12 @@ class ParseFragment:
         else:
             self.srcinfo = stmt.srcinfo
 
+            assert scope == "before", (
+                "Non-before scope for parsing "
+                "fragments is not well-defined; "
+                "it needs to be removed from the code"
+            )
+
             if scope == "before":
                 self.env = BuildEnv(proc, stmt).result
             elif scope == "after":
