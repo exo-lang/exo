@@ -278,7 +278,7 @@ class _PartitionLoop(LoopIR_Rewrite):
             env = {s.iter: iter_off}
 
             body2 = SubstArgs(s.body, env).result()
-            loop2 = type(s)(iter2, hi2, body2, None, s.srcinfo)
+            loop2 = s.update(iter=iter2, hi=hi2, body=body2, eff=None)
 
             return [loop1, loop2]
 
