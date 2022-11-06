@@ -393,6 +393,13 @@ def loopir_pretty_proc(p, env: PrintEnv, indent: str) -> list[str]:
     return lines
 
 
+def loopir_pretty_block(blk, env: PrintEnv, indent: str) -> list[str]:
+    lines = []
+    for stmt in blk:
+        lines.extend(loopir_pretty_stmt(stmt, env, indent))
+    return lines
+
+
 def loopir_pretty_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     if isinstance(stmt, LoopIR.Pass):
         return [f"{indent}pass"]
@@ -427,20 +434,17 @@ def loopir_pretty_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     elif isinstance(stmt, LoopIR.If):
         cond = loopir_pretty_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
-        for s in stmt.body:
-            lines.extend(loopir_pretty_stmt(s, env.push(), indent + "  "))
+        lines.extend(loopir_pretty_block(stmt.body, env.push(), indent + "  "))
         if stmt.orelse:
             lines.append(f"{indent}else:")
-            for s in stmt.orelse:
-                lines.extend(loopir_pretty_stmt(s, env.push(), indent + "  "))
+            lines.extend(loopir_pretty_block(stmt.orelse, env.push(), indent + "  "))
         return lines
 
     elif isinstance(stmt, LoopIR.Seq):
         hi = loopir_pretty_expr(stmt.hi, env)
         body_env = env.push()
         lines = [f"{indent}for {body_env.get_name(stmt.iter)} in seq(0, {hi}):"]
-        for p in stmt.body:
-            lines.extend(loopir_pretty_stmt(p, body_env, indent + "  "))
+        lines.extend(loopir_pretty_block(stmt.body, body_env, indent + "  "))
         return lines
 
     assert False, f"unrecognized stmt: {type(stmt)}"
