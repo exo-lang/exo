@@ -314,16 +314,33 @@ class UAST_PPrinter:
 # --------------------------------------------------------------------------- #
 # LoopIR Pretty Printing
 
+def _format_code(code):
+    return FormatCode(code)[0].rstrip('\n')
+
 
 @extclass(LoopIR.proc)
+def __str__(self):
+    return _format_code('\n'.join(loopir_pretty_proc(self, PrintEnv(), '')))
+
+
 @extclass(LoopIR.fnarg)
+def __str__(self):
+    return _format_code(loopir_pretty_fnarg(self, PrintEnv()))
+
+
 @extclass(LoopIR.stmt)
+def __str__(self):
+    return _format_code('\n'.join(loopir_pretty_stmt(self, PrintEnv(), '')))
+
+
 @extclass(LoopIR.expr)
+def __str__(self):
+    return _format_code(loopir_pretty_expr(self, PrintEnv()))
+
+
 @extclass(LoopIR.type)
 def __str__(self):
-    lines = loopir_pretty(self)
-    fmtstr, _ = FormatCode("\n".join(lines))
-    return fmtstr.rstrip('\n')
+    return _format_code(loopir_pretty_type(self, PrintEnv()))
 
 
 del __str__
@@ -534,21 +551,3 @@ def loopir_pretty_w_access(node, env: PrintEnv) -> str:
         return loopir_pretty_expr(node.pt, env)
 
     assert False, "bad case"
-
-
-def loopir_pretty(node, env: Optional[PrintEnv] = None, indent: str = '') -> list[str]:
-    env = env or PrintEnv()
-    if isinstance(node, LoopIR.proc):
-        return loopir_pretty_proc(node, env, indent)
-    elif isinstance(node, LoopIR.fnarg):
-        return [loopir_pretty_fnarg(node, env)]
-    elif isinstance(node, LoopIR.stmt):
-        return loopir_pretty_stmt(node, env, indent)
-    elif isinstance(node, LoopIR.expr):
-        return [loopir_pretty_expr(node, env)]
-    elif isinstance(node, LoopIR.type):
-        return [loopir_pretty_type(node, env)]
-    elif isinstance(node, LoopIR.w_access):
-        return [loopir_pretty_w_access(node, env)]
-
-    assert False, f'cannot print a {type(node)}'
