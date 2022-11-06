@@ -1,7 +1,6 @@
 import re
 from collections import ChainMap
 from dataclasses import dataclass, field
-from typing import Optional
 
 # google python formatting project to save myself the trouble of being overly
 # clever run the function FormatCode to transform one string into a formatted
@@ -403,6 +402,7 @@ def loopir_pretty_block(blk, env: PrintEnv, indent: str) -> list[str]:
 def loopir_pretty_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     if isinstance(stmt, LoopIR.Pass):
         return [f"{indent}pass"]
+
     elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
         op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
 
@@ -414,23 +414,29 @@ def loopir_pretty_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         rhs = loopir_pretty_expr(stmt.rhs, env)
 
         return [f"{indent}{lhs}{idx} {op} {rhs}"]
+
     elif isinstance(stmt, LoopIR.WriteConfig):
         cname = stmt.config.name()
         rhs = loopir_pretty_expr(stmt.rhs, env)
         return [f"{indent}{cname}.{stmt.field} = {rhs}"]
+
     elif isinstance(stmt, LoopIR.WindowStmt):
         rhs = loopir_pretty_expr(stmt.rhs, env)
         return [f"{indent}{env.get_name(stmt.lhs)} = {rhs}"]
+
     elif isinstance(stmt, LoopIR.Alloc):
         mem = f" @{stmt.mem.name()}" if stmt.mem else ""
         ty = loopir_pretty_type(stmt.type, env)
         return [f"{indent}{env.get_name(stmt.name)} : {ty}{mem}"]
+
     elif isinstance(stmt, LoopIR.Free):
         # mem = f"@{stmt.mem.name()}" if stmt.mem else ""
         return [f"{indent}free({env.get_name(stmt.name)})"]
+
     elif isinstance(stmt, LoopIR.Call):
         args = [loopir_pretty_expr(a, env) for a in stmt.args]
         return [f"{indent}{stmt.f.name}({','.join(args)})"]
+
     elif isinstance(stmt, LoopIR.If):
         cond = loopir_pretty_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
@@ -463,15 +469,18 @@ def loopir_pretty_fnarg(a, env: PrintEnv) -> str:
 
 def loopir_pretty_expr(e, env: PrintEnv, prec: int = 0) -> str:
     if isinstance(e, LoopIR.Read):
-        if len(e.idx) > 0:
-            idx = [loopir_pretty_expr(i, env) for i in e.idx]
-            return f"{env.get_name(e.name)}[{','.join(idx)}]"
-        else:
-            return env.get_name(e.name)
+        name = env.get_name(e.name)
+        idx = (
+            f"[{','.join(loopir_pretty_expr(i, env) for i in e.idx)}]" if e.idx else ""
+        )
+        return f"{name}{idx}"
+
     elif isinstance(e, LoopIR.Const):
         return str(e.val)
+
     elif isinstance(e, LoopIR.USub):
         return f'-{loopir_pretty_expr(e.arg, env, prec=op_prec["~"])}'
+
     elif isinstance(e, LoopIR.BinOp):
         local_prec = op_prec[e.op]
         # increment rhs by 1 to account for left-associativity
@@ -482,17 +491,21 @@ def loopir_pretty_expr(e, env: PrintEnv, prec: int = 0) -> str:
         if local_prec < prec:
             s = f"({s})"
         return s
+
     elif isinstance(e, LoopIR.WindowExpr):
         return (
             f"{env.get_name(e.name)}"
             f"[{', '.join([loopir_pretty_w_access(w, env) for w in e.idx])}]"
         )
+
     elif isinstance(e, LoopIR.StrideExpr):
         return f"stride({env.get_name(e.name)}, {e.dim})"
+
     elif isinstance(e, LoopIR.BuiltIn):
         pname = e.f.name() or "_anon_"
         args = [loopir_pretty_expr(a, env) for a in e.args]
         return f"{pname}({','.join(args)})"
+
     elif isinstance(e, LoopIR.ReadConfig):
         cname = e.config.name()
         return f"{cname}.{e.field}"
@@ -544,7 +557,8 @@ def loopir_pretty_w_access(node, env: PrintEnv) -> str:
         lo = loopir_pretty_expr(node.lo, env)
         hi = loopir_pretty_expr(node.hi, env)
         return f"{lo}:{hi}"
-    if isinstance(node, LoopIR.Point):
+
+    elif isinstance(node, LoopIR.Point):
         return loopir_pretty_expr(node.pt, env)
 
     assert False, "bad case"
