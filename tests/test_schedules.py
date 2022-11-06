@@ -1088,9 +1088,7 @@ def test_lift_if_second_statement_in_then_error():
                 if i < 10:
                     x[i] = 2.0
 
-    with pytest.raises(
-        SchedulingError, match="expected if statement to be directly nested in parents"
-    ):
+    with pytest.raises(SchedulingError, match="Could not fully lift if statement!"):
         foo = lift_if(foo, "if i < 10: _")
         print(foo)
 
@@ -1106,9 +1104,7 @@ def test_lift_if_second_statement_in_else_error():
                 if i < 10:
                     x[i] = 2.0
 
-    with pytest.raises(
-        SchedulingError, match="expected if statement to be directly nested in parents"
-    ):
+    with pytest.raises(SchedulingError, match="Could not fully lift if statement!"):
         foo = lift_if(foo, "if i < 10: _")
         print(foo)
 
@@ -1121,9 +1117,7 @@ def test_lift_if_second_statement_in_for_error():
             if m > 12:
                 pass
 
-    with pytest.raises(
-        SchedulingError, match="expected if statement to be directly nested in parents"
-    ):
+    with pytest.raises(SchedulingError, match="Could not fully lift if statement!"):
         foo = lift_if(foo, "if m > 12: _")
         print(foo)
 
@@ -1147,9 +1141,7 @@ def test_lift_if_dependency_error():
             if i < 10:
                 x[i] = 2.0
 
-    with pytest.raises(
-        SchedulingError, match=r"if statement depends on iteration variable"
-    ):
+    with pytest.raises(SchedulingError, match="Could not fully lift if statement!"):
         foo = lift_if(foo, "if i < 10: _")
         print(foo)
 

@@ -64,7 +64,7 @@ from ..API_scheduling import (
     unroll_loop,
     #
     # guard rewriting
-    lift_if,
+    reorder_scope,
     assert_if,
     specialize,
     #
@@ -217,3 +217,17 @@ def replace_all(proc, subproc):
             raise
         except _UnificationError:
             i += 1
+
+
+def lift_if(proc, cursor, n_lifts=1):
+    orig_proc = proc
+    for i in range(n_lifts):
+        try:
+            proc = reorder_scope(proc, cursor)
+        except SchedulingError as e:
+            raise SchedulingError(
+                f"Could not fully lift if statement! {n_lifts-i} lift(s) remain!",
+                orig=orig_proc,
+                proc=proc,
+            ) from e
+    return proc
