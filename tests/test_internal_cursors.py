@@ -232,7 +232,7 @@ def test_cursor_gap(proc_foo):
     x_assn = proc_foo._TEST_find_stmt("x = 0.0")
     y_assn = proc_foo._TEST_find_stmt("y = 1.1")
 
-    assert str(x_alloc._node()) == "x: f32 @ DRAM\n"
+    assert str(x_alloc._node()) == "x: f32 @ DRAM"
 
     g1 = x_alloc.after()
     assert g1 == x_assn.before()
