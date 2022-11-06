@@ -1,5 +1,7 @@
 import re
 from collections import ChainMap
+from dataclasses import dataclass, field
+from typing import Optional
 
 # google python formatting project to save myself the trouble of being overly
 # clever run the function FormatCode to transform one string into a formatted
@@ -28,7 +30,6 @@ from .prelude import *
 # expose functions; therefore hide all variables as local
 __all__ = []
 
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Operator Precedence
@@ -54,6 +55,7 @@ op_prec = {
     # unary minus
     "~": 60,
 }
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -325,12 +327,40 @@ def __str__(self):
 del __str__
 
 
+@dataclass
+class PrintEnv:
+    env: ChainMap[Sym, str] = field(default_factory=ChainMap)
+    names: ChainMap[str, int] = field(default_factory=ChainMap)
+    _parent: Optional['PrintEnv'] = None
+
+    def push(self) -> 'PrintEnv':
+        return PrintEnv(self.env.new_child(), self.names.new_child(), self)
+
+    def pop(self) -> 'PrintEnv':
+        if self._parent:
+            return self._parent
+        raise ValueError('no parent PrintEnv!')
+
+    def get_name(self, nm):
+        if resolved := self.env.get(nm):
+            return resolved
+
+        candidate = str(nm)
+        num = self.names.get(candidate, 1)
+        while candidate in self.names:
+            candidate = f"{nm}_{num}"
+            num += 1
+
+        self.env[nm] = candidate
+        self.names[str(nm)] = num
+        return candidate
+
+
 class LoopIR_PPrinter:
     def __init__(self, node):
         self._node = node
 
-        self.env = ChainMap()
-        self.names = ChainMap()
+        self.env = PrintEnv()
 
         self._tab = ""
         self._lines = []
@@ -364,45 +394,29 @@ class LoopIR_PPrinter:
             assert len(self._lines) == 1
             return self._lines[0]
 
-        fmtstr, linted = FormatCode("\n".join(self._lines))
-        if isinstance(self._node, LoopIR.proc):
-            assert linted, "generated unlinted code..."
+        fmtstr, _ = FormatCode("\n".join(self._lines))
         return fmtstr
 
     def push(self, only=None):
         if only is None:
-            self.env = self.env.new_child()
-            self.names = self.names.new_child()
+            self.env = self.env.push()
             self._tab = self._tab + "  "
         elif only == "env":
-            self.env = self.env.new_child()
-            self.names = self.names.new_child()
+            self.env = self.env.push()
         elif only == "tab":
             self._tab = self._tab + "  "
         else:
             assert False, f"BAD only parameter {only}"
 
     def pop(self):
-        self.env = self.env.parents
-        self.names = self.names.parents
+        self.env = self.env.pop()
         self._tab = self._tab[:-2]
+
+    def get_name(self, nm):
+        return self.env.get_name(nm)
 
     def addline(self, line):
         self._lines.append(f"{self._tab}{line}")
-
-    def get_name(self, nm):
-        if resolved := self.env.get(nm):
-            return resolved
-
-        candidate = str(nm)
-        num = self.names.get(candidate, 1)
-        while candidate in self.names:
-            candidate = f"{nm}_{num}"
-            num += 1
-
-        self.env[nm] = candidate
-        self.names[str(nm)] = num
-        return candidate
 
     def pproc(self, p):
         assert p.name
