@@ -314,13 +314,14 @@ class UAST_PPrinter:
 # --------------------------------------------------------------------------- #
 # LoopIR Pretty Printing
 
+
 def _format_code(code):
-    return FormatCode(code)[0].rstrip('\n')
+    return FormatCode(code)[0].rstrip("\n")
 
 
 @extclass(LoopIR.proc)
 def __str__(self):
-    return _format_code('\n'.join(loopir_pretty_proc(self, PrintEnv(), '')))
+    return _format_code("\n".join(loopir_pretty_proc(self, PrintEnv(), "")))
 
 
 @extclass(LoopIR.fnarg)
@@ -330,7 +331,7 @@ def __str__(self):
 
 @extclass(LoopIR.stmt)
 def __str__(self):
-    return _format_code('\n'.join(loopir_pretty_stmt(self, PrintEnv(), '')))
+    return _format_code("\n".join(loopir_pretty_stmt(self, PrintEnv(), "")))
 
 
 @extclass(LoopIR.expr)
@@ -350,15 +351,9 @@ del __str__
 class PrintEnv:
     env: ChainMap[Sym, str] = field(default_factory=ChainMap)
     names: ChainMap[str, int] = field(default_factory=ChainMap)
-    _parent: Optional['PrintEnv'] = None
 
-    def push(self) -> 'PrintEnv':
-        return PrintEnv(self.env.new_child(), self.names.new_child(), self)
-
-    def pop(self) -> 'PrintEnv':
-        if self._parent:
-            return self._parent
-        raise ValueError('no parent PrintEnv!')
+    def push(self) -> "PrintEnv":
+        return PrintEnv(self.env.new_child(), self.names.new_child())
 
     def get_name(self, nm):
         if resolved := self.env.get(nm):
@@ -378,14 +373,12 @@ class PrintEnv:
 def loopir_pretty_proc(p, env: PrintEnv, indent: str) -> list[str]:
     args = [loopir_pretty_fnarg(a, env) for a in p.args]
 
-    lines = [
-        f"{indent}def {p.name}({', '.join(args)}):"
-    ]
+    lines = [f"{indent}def {p.name}({', '.join(args)}):"]
 
-    indent = indent + '  '
+    indent = indent + "  "
 
     if p.instr:
-        for i, line in enumerate(p.instr.split('\n')):
+        for i, line in enumerate(p.instr.split("\n")):
             if i == 0:
                 lines.append(f"{indent}# @instr {line}")
             else:
@@ -402,18 +395,18 @@ def loopir_pretty_proc(p, env: PrintEnv, indent: str) -> list[str]:
 
 def loopir_pretty_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     if isinstance(stmt, LoopIR.Pass):
-        return [f'{indent}pass']
+        return [f"{indent}pass"]
     elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
         op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
 
         lhs = env.get_name(stmt.name)
 
         idx = [loopir_pretty_expr(e, env) for e in stmt.idx]
-        idx = f"[{','.join(idx)}]" if idx else ''
+        idx = f"[{','.join(idx)}]" if idx else ""
 
         rhs = loopir_pretty_expr(stmt.rhs, env)
 
-        return [f'{indent}{lhs}{idx} {op} {rhs}']
+        return [f"{indent}{lhs}{idx} {op} {rhs}"]
     elif isinstance(stmt, LoopIR.WriteConfig):
         cname = stmt.config.name()
         rhs = loopir_pretty_expr(stmt.rhs, env)
@@ -433,21 +426,21 @@ def loopir_pretty_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         return [f"{indent}{stmt.f.name}({','.join(args)})"]
     elif isinstance(stmt, LoopIR.If):
         cond = loopir_pretty_expr(stmt.cond, env)
-        lines = [f'{indent}if {cond}:']
+        lines = [f"{indent}if {cond}:"]
         for s in stmt.body:
-            lines.extend(loopir_pretty_stmt(s, env.push(), indent + '  '))
+            lines.extend(loopir_pretty_stmt(s, env.push(), indent + "  "))
         if stmt.orelse:
-            lines.append(f'{indent}else:')
+            lines.append(f"{indent}else:")
             for s in stmt.orelse:
-                lines.extend(loopir_pretty_stmt(s, env.push(), indent + '  '))
+                lines.extend(loopir_pretty_stmt(s, env.push(), indent + "  "))
         return lines
 
     elif isinstance(stmt, LoopIR.Seq):
         hi = loopir_pretty_expr(stmt.hi, env)
         body_env = env.push()
-        lines = [f'{indent}for {body_env.get_name(stmt.iter)} in seq(0, {hi}):']
+        lines = [f"{indent}for {body_env.get_name(stmt.iter)} in seq(0, {hi}):"]
         for p in stmt.body:
-            lines.extend(loopir_pretty_stmt(p, body_env, indent + '  '))
+            lines.extend(loopir_pretty_stmt(p, body_env, indent + "  "))
         return lines
 
     assert False, f"unrecognized stmt: {type(stmt)}"
