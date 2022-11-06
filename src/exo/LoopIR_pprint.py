@@ -363,6 +363,9 @@ class LoopIR_PPrinter:
         self._tab = ""
         self._lines = []
 
+        self.pretty(node)
+
+    def pretty(self, node):
         if isinstance(node, LoopIR.proc):
             self.pproc(node)
         elif isinstance(node, LoopIR.fnarg):
@@ -376,7 +379,7 @@ class LoopIR_PPrinter:
         elif isinstance(node, LoopIR.w_access):
             if isinstance(node, LoopIR.Interval):
                 self.addline(
-                    f"Interval({self.pexpr(node.lo)}," f"{self.pexpr(node.hi)})"
+                    f"Interval({self.pexpr(node.lo)}, {self.pexpr(node.hi)})"
                 )
             elif isinstance(node, LoopIR.Point):
                 self.addline(f"Point({self.pexpr(node.pt)})")
