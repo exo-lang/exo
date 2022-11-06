@@ -377,14 +377,7 @@ class LoopIR_PPrinter:
         elif isinstance(node, LoopIR.type):
             self.addline(self.ptype(node))
         elif isinstance(node, LoopIR.w_access):
-            if isinstance(node, LoopIR.Interval):
-                self.addline(
-                    f"Interval({self.pexpr(node.lo)}, {self.pexpr(node.hi)})"
-                )
-            elif isinstance(node, LoopIR.Point):
-                self.addline(f"Point({self.pexpr(node.pt)})")
-            else:
-                assert False, "bad case"
+            self.addline(self.pwacc(node))
         else:
             assert False, f"cannot print a {type(node)}"
 
