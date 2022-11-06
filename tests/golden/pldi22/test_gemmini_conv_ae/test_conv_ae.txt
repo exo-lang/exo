@@ -58,12 +58,12 @@ struct exo_win_3i8c{
     const int_fast32_t strides[3];
 };
 // conv_on_gemmini(
-//     output : i8[4,56,56,64]  @DRAM,
-//     bias : i32[1,64]  @DRAM,
-//     inp : i8[4,58,58,64]  @DRAM,
-//     weights : i8[3,3,64,64]  @DRAM,
+//     output : i8[4, 56, 56, 64] @DRAM,
+//     bias : i32[1, 64] @DRAM,
+//     inp : i8[4, 58, 58, 64] @DRAM,
+//     weights : i8[3, 3, 64, 64] @DRAM,
 //     act : bool,
-//     scale : f32  @DRAM
+//     scale : f32 @DRAM
 // )
 void conv_on_gemmini( c_code_str_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale );
 
@@ -108,12 +108,12 @@ gemmini_extended_config_st({dst_stride}, {act}, {scale}[0]);
 
 */
 // conv_on_gemmini(
-//     output : i8[4,56,56,64]  @DRAM,
-//     bias : i32[1,64]  @DRAM,
-//     inp : i8[4,58,58,64]  @DRAM,
-//     weights : i8[3,3,64,64]  @DRAM,
+//     output : i8[4, 56, 56, 64] @DRAM,
+//     bias : i32[1, 64] @DRAM,
+//     inp : i8[4, 58, 58, 64] @DRAM,
+//     weights : i8[3, 3, 64, 64] @DRAM,
 //     act : bool,
-//     scale : f32  @DRAM
+//     scale : f32 @DRAM
 // )
 void conv_on_gemmini( c_code_str_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
 gemmini_extended_config_st((64), (act), (scale)[0]);

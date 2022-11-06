@@ -358,8 +358,6 @@ class PrintEnv:
 
 class LoopIR_PPrinter:
     def __init__(self, node):
-        self._node = node
-
         self.env = PrintEnv()
 
         self._tab = ""
@@ -388,12 +386,8 @@ class LoopIR_PPrinter:
             assert False, f"cannot print a {type(node)}"
 
     def str(self):
-        if isinstance(self._node, (LoopIR.type, LoopIR.w_access)):
-            assert len(self._lines) == 1
-            return self._lines[0]
-
         fmtstr, _ = FormatCode("\n".join(self._lines))
-        return fmtstr
+        return fmtstr.rstrip('\n')
 
     def push(self, only=None):
         if only is None:

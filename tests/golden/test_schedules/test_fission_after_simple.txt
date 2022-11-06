@@ -7,7 +7,6 @@ def foo(n: size, m: size):
         for j in seq(0, m):
             y: f32 @ DRAM
             y = 1.1
-
 def bar(n: size, m: size):
     for i in seq(0, n):
         for j in seq(0, m):

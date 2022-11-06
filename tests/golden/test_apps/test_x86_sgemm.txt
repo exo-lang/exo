@@ -50,9 +50,9 @@ struct exo_win_2f32c{
 //     M : size,
 //     N : size,
 //     K : size,
-//     A : f32[M,K]  @DRAM,
-//     B : f32[K,N]  @DRAM,
-//     C : f32[M,N]  @DRAM
+//     A : f32[M, K] @DRAM,
+//     B : f32[K, N] @DRAM,
+//     C : f32[M, N] @DRAM
 // )
 void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C );
 
@@ -78,18 +78,18 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
 // bottom_panel_kernel_scheduled(
 //     M : size,
 //     K : size,
-//     A : [f32][M,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][M,64]  @DRAM
+//     A : [f32][M, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][M, 64] @DRAM
 // )
 static void bottom_panel_kernel_scheduled( void *ctxt, int_fast32_t M, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // right_panel_kernel_scheduled(
 //     N : size,
 //     K : size,
-//     A : [f32][6,K]  @DRAM,
-//     B : [f32][K,N]  @DRAM,
-//     C : [f32][6,N]  @DRAM
+//     A : [f32][6, K] @DRAM,
+//     B : [f32][K, N] @DRAM,
+//     C : [f32][6, N] @DRAM
 // )
 static void right_panel_kernel_scheduled( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
@@ -97,66 +97,66 @@ static void right_panel_kernel_scheduled( void *ctxt, int_fast32_t N, int_fast32
 //     M : size,
 //     N : size,
 //     K : size,
-//     A : [f32][M,K]  @DRAM,
-//     B : [f32][K,N]  @DRAM,
-//     C : [f32][M,N]  @DRAM
+//     A : [f32][M, K] @DRAM,
+//     B : [f32][K, N] @DRAM,
+//     C : [f32][M, N] @DRAM
 // )
 static void sgemm_above_kernel( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // sgemm_kernel_avx512_1x4(
 //     K : size,
-//     A : [f32][1,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][1,64]  @DRAM
+//     A : [f32][1, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][1, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_1x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // sgemm_kernel_avx512_2x4(
 //     K : size,
-//     A : [f32][2,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][2,64]  @DRAM
+//     A : [f32][2, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][2, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_2x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // sgemm_kernel_avx512_3x4(
 //     K : size,
-//     A : [f32][3,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][3,64]  @DRAM
+//     A : [f32][3, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][3, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_3x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // sgemm_kernel_avx512_4x4(
 //     K : size,
-//     A : [f32][4,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][4,64]  @DRAM
+//     A : [f32][4, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][4, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_4x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // sgemm_kernel_avx512_5x4(
 //     K : size,
-//     A : [f32][5,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][5,64]  @DRAM
+//     A : [f32][5, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][5, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_5x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // sgemm_kernel_avx512_6x4(
 //     K : size,
-//     A : [f32][6,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][6,64]  @DRAM
+//     A : [f32][6, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][6, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_6x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // bottom_panel_kernel_scheduled(
 //     M : size,
 //     K : size,
-//     A : [f32][M,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][M,64]  @DRAM
+//     A : [f32][M, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][M, 64] @DRAM
 // )
 static void bottom_panel_kernel_scheduled( void *ctxt, int_fast32_t M, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(M >= 1);
@@ -237,9 +237,9 @@ _mm512_storeu_ps(&{dst_data}, {src_data});
 // right_panel_kernel_scheduled(
 //     N : size,
 //     K : size,
-//     A : [f32][6,K]  @DRAM,
-//     B : [f32][K,N]  @DRAM,
-//     C : [f32][6,N]  @DRAM
+//     A : [f32][6, K] @DRAM,
+//     B : [f32][K, N] @DRAM,
+//     C : [f32][6, N] @DRAM
 // )
 static void right_panel_kernel_scheduled( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(N >= 1);
@@ -403,9 +403,9 @@ if (((N) / (16)) == 0) {
 //     M : size,
 //     N : size,
 //     K : size,
-//     A : [f32][M,K]  @DRAM,
-//     B : [f32][K,N]  @DRAM,
-//     C : [f32][M,N]  @DRAM
+//     A : [f32][M, K] @DRAM,
+//     B : [f32][K, N] @DRAM,
+//     C : [f32][M, N] @DRAM
 // )
 static void sgemm_above_kernel( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(M >= 1);
@@ -444,9 +444,9 @@ if (M % 6 > 0) {
 //     M : size,
 //     N : size,
 //     K : size,
-//     A : f32[M,K]  @DRAM,
-//     B : f32[K,N]  @DRAM,
-//     C : f32[M,N]  @DRAM
+//     A : f32[M, K] @DRAM,
+//     B : f32[K, N] @DRAM,
+//     C : f32[M, N] @DRAM
 // )
 void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C ) {
 EXO_ASSUME(M >= 1);
@@ -569,9 +569,9 @@ if (K % 512 > 0) {
 
 // sgemm_kernel_avx512_1x4(
 //     K : size,
-//     A : [f32][1,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][1,64]  @DRAM
+//     A : [f32][1, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][1, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_1x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
@@ -604,9 +604,9 @@ for (int i = 0; i < 1; i++) {
 
 // sgemm_kernel_avx512_2x4(
 //     K : size,
-//     A : [f32][2,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][2,64]  @DRAM
+//     A : [f32][2, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][2, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_2x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
@@ -639,9 +639,9 @@ for (int i = 0; i < 2; i++) {
 
 // sgemm_kernel_avx512_3x4(
 //     K : size,
-//     A : [f32][3,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][3,64]  @DRAM
+//     A : [f32][3, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][3, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_3x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
@@ -674,9 +674,9 @@ for (int i = 0; i < 3; i++) {
 
 // sgemm_kernel_avx512_4x4(
 //     K : size,
-//     A : [f32][4,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][4,64]  @DRAM
+//     A : [f32][4, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][4, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_4x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
@@ -709,9 +709,9 @@ for (int i = 0; i < 4; i++) {
 
 // sgemm_kernel_avx512_5x4(
 //     K : size,
-//     A : [f32][5,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][5,64]  @DRAM
+//     A : [f32][5, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][5, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_5x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
@@ -744,9 +744,9 @@ for (int i = 0; i < 5; i++) {
 
 // sgemm_kernel_avx512_6x4(
 //     K : size,
-//     A : [f32][6,K]  @DRAM,
-//     B : [f32][K,64]  @DRAM,
-//     C : [f32][6,64]  @DRAM
+//     A : [f32][6, K] @DRAM,
+//     B : [f32][K, 64] @DRAM,
+//     C : [f32][6, 64] @DRAM
 // )
 static void sgemm_kernel_avx512_6x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);

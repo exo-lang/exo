@@ -50,9 +50,9 @@ struct exo_win_2f32c{
 //     M : size,
 //     N : size,
 //     K : size,
-//     A : f32[M,K]  @DRAM,
-//     B : f32[K,N]  @DRAM,
-//     C : f32[M,N]  @DRAM
+//     A : f32[M, K] @DRAM,
+//     B : f32[K, N] @DRAM,
+//     C : f32[M, N] @DRAM
 // )
 void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C );
 
@@ -74,9 +74,9 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
 
 // neon_microkernel(
 //     K : size,
-//     A : [f32][4,K]  @DRAM,
-//     B : [f32][K,16]  @DRAM,
-//     C : [f32][4,16]  @DRAM
+//     A : [f32][4, K] @DRAM,
+//     B : [f32][K, 16] @DRAM,
+//     C : [f32][4, 16] @DRAM
 // )
 static void neon_microkernel( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
@@ -87,9 +87,9 @@ neon_broadcast_4xf32(dst,src)
 */
 // neon_microkernel(
 //     K : size,
-//     A : [f32][4,K]  @DRAM,
-//     B : [f32][K,16]  @DRAM,
-//     C : [f32][4,16]  @DRAM
+//     A : [f32][4, K] @DRAM,
+//     B : [f32][K, 16] @DRAM,
+//     C : [f32][4, 16] @DRAM
 // )
 static void neon_microkernel( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
@@ -143,9 +143,9 @@ vst1q_f32(&{dst_data}, {src_data});
 //     M : size,
 //     N : size,
 //     K : size,
-//     A : f32[M,K]  @DRAM,
-//     B : f32[K,N]  @DRAM,
-//     C : f32[M,N]  @DRAM
+//     A : f32[M, K] @DRAM,
+//     B : f32[K, N] @DRAM,
+//     C : f32[M, N] @DRAM
 // )
 void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C ) {
 EXO_ASSUME(M >= 1);

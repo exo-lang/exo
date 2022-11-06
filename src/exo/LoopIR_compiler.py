@@ -484,7 +484,7 @@ class Compiler:
                     ctyp = a.type.basetype().ctype()
                     arg_strs.append(f"{const_kwd}{ctyp}* {name_arg}")
                 mem = f" @{a.mem.name()}" if a.mem else ""
-                comment_str = f"{name_arg} : {a.type} {mem}"
+                comment_str = f"{name_arg} : {a.type}{mem}"
                 typ_comments.append(comment_str)
 
         for pred in proc.preds:
