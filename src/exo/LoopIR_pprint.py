@@ -321,7 +321,9 @@ class UAST_PPrinter:
 @extclass(LoopIR.expr)
 @extclass(LoopIR.type)
 def __str__(self):
-    return LoopIR_PPrinter(self).str()
+    lines = loopir_pretty(self)
+    fmtstr, _ = FormatCode("\n".join(lines))
+    return fmtstr.rstrip('\n')
 
 
 del __str__
@@ -356,224 +358,197 @@ class PrintEnv:
         return candidate
 
 
-class LoopIR_PPrinter:
-    def __init__(self, node):
-        self.env = PrintEnv()
+def loopir_pretty_proc(p, env: PrintEnv, indent: str) -> list[str]:
+    args = [loopir_pretty_fnarg(a, env) for a in p.args]
 
-        self._tab = ""
-        self._lines = []
+    lines = [
+        f"{indent}def {p.name}({', '.join(args)}):"
+    ]
 
-        self.pretty(node)
+    indent = indent + '  '
 
-    def pretty(self, node):
-        if isinstance(node, LoopIR.proc):
-            self.pproc(node)
-        elif isinstance(node, LoopIR.fnarg):
-            self.addline(self.pfnarg(node))
-        elif isinstance(node, LoopIR.stmt):
-            self.pstmt(node)
-        elif isinstance(node, LoopIR.expr):
-            self.addline(self.pexpr(node))
-        elif isinstance(node, LoopIR.type):
-            self.addline(self.ptype(node))
-        elif isinstance(node, LoopIR.w_access):
-            self.addline(self.pwacc(node))
-        else:
-            assert False, f"cannot print a {type(node)}"
-
-    def str(self):
-        fmtstr, _ = FormatCode("\n".join(self._lines))
-        return fmtstr.rstrip('\n')
-
-    def push(self, only=None):
-        if only is None:
-            self.env = self.env.push()
-            self._tab = self._tab + "  "
-        elif only == "env":
-            self.env = self.env.push()
-        elif only == "tab":
-            self._tab = self._tab + "  "
-        else:
-            assert False, f"BAD only parameter {only}"
-
-    def pop(self):
-        self.env = self.env.pop()
-        self._tab = self._tab[:-2]
-
-    def get_name(self, nm):
-        return self.env.get_name(nm)
-
-    def addline(self, line):
-        self._lines.append(f"{self._tab}{line}")
-
-    def pproc(self, p):
-        assert p.name
-
-        args = [self.pfnarg(a) for a in p.args]
-
-        self.addline(f"def {p.name}({','.join(args)}):")
-
-        self.push()
-        if p.instr:
-            instr_lines = p.instr.split("\n")
-            instr_lines = [f"# @instr {instr_lines[0]}"] + [
-                f"#        {l}" for l in instr_lines[1:]
-            ]
-            for l in instr_lines:
-                self.addline(l)
-        for pred in p.preds:
-            self.addline(f"assert {self.pexpr(pred)}")
-        for proc in p.body:
-            self.pstmt(proc)
-        self.pop()
-
-    def pfnarg(self, a):
-        if a.type == T.size:
-            return f"{self.get_name(a.name)} : size"
-        elif a.type == T.index:
-            return f"{self.get_name(a.name)} : index"
-        else:
-            mem = f" @{a.mem.name()}" if a.mem else ""
-            return f"{self.get_name(a.name)} : {self.ptype(a.type)} {mem}"
-
-    def pstmt(self, stmt):
-        if isinstance(stmt, LoopIR.Pass):
-            self.addline("pass")
-        elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
-            op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
-
-            rhs = self.pexpr(stmt.rhs)
-
-            if len(stmt.idx) > 0:
-                idx = [self.pexpr(e) for e in stmt.idx]
-                lhs = f"{self.get_name(stmt.name)}[{','.join(idx)}]"
+    if p.instr:
+        for i, line in enumerate(p.instr.split('\n')):
+            if i == 0:
+                lines.append(f"{indent}# @instr {line}")
             else:
-                lhs = self.get_name(stmt.name)
+                lines.append(f"{indent}#        {line}")
 
-            self.addline(f"{lhs} {op} {rhs}")
-        elif isinstance(stmt, LoopIR.WriteConfig):
-            cname = stmt.config.name()
-            rhs = self.pexpr(stmt.rhs)
-            self.addline(f"{cname}.{stmt.field} = {rhs}")
-        elif isinstance(stmt, LoopIR.WindowStmt):
-            rhs = self.pexpr(stmt.rhs)
-            self.addline(f"{self.get_name(stmt.lhs)} = {rhs}")
-        elif isinstance(stmt, LoopIR.Alloc):
-            mem = f" @{stmt.mem.name()}" if stmt.mem else ""
-            self.addline(
-                f"{self.get_name(stmt.name)} : " f"{self.ptype(stmt.type)}{mem}"
-            )
-        elif isinstance(stmt, LoopIR.Free):
-            mem = f" @{stmt.mem.name()}" if stmt.mem else ""
-            self.addline(f"free({self.get_name(stmt.name)})")
-        elif isinstance(stmt, LoopIR.Call):
-            args = [self.pexpr(a) for a in stmt.args]
-            self.addline(f"{stmt.f.name}({','.join(args)})")
-        elif isinstance(stmt, LoopIR.If):
-            cond = self.pexpr(stmt.cond)
-            self.addline(f"if {cond}:")
-            self.push()
-            for p in stmt.body:
-                self.pstmt(p)
-            self.pop()
-            if len(stmt.orelse) > 0:
-                self.addline(f"else:")
-                self.push()
-                for p in stmt.orelse:
-                    self.pstmt(p)
-                self.pop()
+    for pred in p.preds:
+        lines.append(f"{indent}assert {loopir_pretty_expr(pred, env)}")
 
-        elif isinstance(stmt, LoopIR.Seq):
-            hi = self.pexpr(stmt.hi)
-            self.push(only="env")
-            self.addline(f"for {self.get_name(stmt.iter)} in seq(0, {hi}):")
-            self.push(only="tab")
-            for p in stmt.body:
-                self.pstmt(p)
-            self.pop()
+    for s in p.body:
+        lines.extend(loopir_pretty_stmt(s, env, indent))
+
+    return lines
+
+
+def loopir_pretty_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
+    if isinstance(stmt, LoopIR.Pass):
+        return [f'{indent}pass']
+    elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
+        op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
+
+        lhs = env.get_name(stmt.name)
+
+        idx = [loopir_pretty_expr(e, env) for e in stmt.idx]
+        idx = f"[{','.join(idx)}]" if idx else ''
+
+        rhs = loopir_pretty_expr(stmt.rhs, env)
+
+        return [f'{indent}{lhs}{idx} {op} {rhs}']
+    elif isinstance(stmt, LoopIR.WriteConfig):
+        cname = stmt.config.name()
+        rhs = loopir_pretty_expr(stmt.rhs, env)
+        return [f"{indent}{cname}.{stmt.field} = {rhs}"]
+    elif isinstance(stmt, LoopIR.WindowStmt):
+        rhs = loopir_pretty_expr(stmt.rhs, env)
+        return [f"{indent}{env.get_name(stmt.lhs)} = {rhs}"]
+    elif isinstance(stmt, LoopIR.Alloc):
+        mem = f" @{stmt.mem.name()}" if stmt.mem else ""
+        ty = loopir_pretty_type(stmt.type, env)
+        return [f"{indent}{env.get_name(stmt.name)} : {ty}{mem}"]
+    elif isinstance(stmt, LoopIR.Free):
+        # mem = f"@{stmt.mem.name()}" if stmt.mem else ""
+        return [f"{indent}free({env.get_name(stmt.name)})"]
+    elif isinstance(stmt, LoopIR.Call):
+        args = [loopir_pretty_expr(a, env) for a in stmt.args]
+        return [f"{indent}{stmt.f.name}({','.join(args)})"]
+    elif isinstance(stmt, LoopIR.If):
+        cond = loopir_pretty_expr(stmt.cond, env)
+        lines = [f'{indent}if {cond}:']
+        for s in stmt.body:
+            lines.extend(loopir_pretty_stmt(s, env.push(), indent + '  '))
+        if stmt.orelse:
+            lines.append(f'{indent}else:')
+            for s in stmt.orelse:
+                lines.extend(loopir_pretty_stmt(s, env.push(), indent + '  '))
+        return lines
+
+    elif isinstance(stmt, LoopIR.Seq):
+        hi = loopir_pretty_expr(stmt.hi, env)
+        body_env = env.push()
+        lines = [f'{indent}for {body_env.get_name(stmt.iter)} in seq(0, {hi}):']
+        for p in stmt.body:
+            lines.extend(loopir_pretty_stmt(p, body_env, indent + '  '))
+        return lines
+
+    assert False, f"unrecognized stmt: {type(stmt)}"
+
+
+def loopir_pretty_fnarg(a, env: PrintEnv) -> str:
+    if a.type == T.size:
+        return f"{env.get_name(a.name)} : size"
+    elif a.type == T.index:
+        return f"{env.get_name(a.name)} : index"
+    else:
+        ty = loopir_pretty_type(a.type, env)
+        mem = f" @{a.mem.name()}" if a.mem else ""
+        return f"{env.get_name(a.name)} : {ty}{mem}"
+
+
+def loopir_pretty_expr(e, env: PrintEnv, prec: int = 0) -> str:
+    if isinstance(e, LoopIR.Read):
+        if len(e.idx) > 0:
+            idx = [loopir_pretty_expr(i, env) for i in e.idx]
+            return f"{env.get_name(e.name)}[{','.join(idx)}]"
         else:
-            assert False, f"unrecognized stmt: {type(stmt)}"
+            return env.get_name(e.name)
+    elif isinstance(e, LoopIR.Const):
+        return str(e.val)
+    elif isinstance(e, LoopIR.USub):
+        return f'-{loopir_pretty_expr(e.arg, env, prec=op_prec["~"])}'
+    elif isinstance(e, LoopIR.BinOp):
+        local_prec = op_prec[e.op]
+        # increment rhs by 1 to account for left-associativity
+        lhs = loopir_pretty_expr(e.lhs, env, prec=local_prec)
+        rhs = loopir_pretty_expr(e.rhs, env, prec=local_prec + 1)
+        s = f"{lhs} {e.op} {rhs}"
+        # if we have a lower precedence than the environment...
+        if local_prec < prec:
+            s = f"({s})"
+        return s
+    elif isinstance(e, LoopIR.WindowExpr):
+        return (
+            f"{env.get_name(e.name)}"
+            f"[{', '.join([loopir_pretty_w_access(w, env) for w in e.idx])}]"
+        )
+    elif isinstance(e, LoopIR.StrideExpr):
+        return f"stride({env.get_name(e.name)}, {e.dim})"
+    elif isinstance(e, LoopIR.BuiltIn):
+        pname = e.f.name() or "_anon_"
+        args = [loopir_pretty_expr(a, env) for a in e.args]
+        return f"{pname}({','.join(args)})"
+    elif isinstance(e, LoopIR.ReadConfig):
+        cname = e.config.name()
+        return f"{cname}.{e.field}"
 
-    def pexpr(self, e, prec=0):
-        if isinstance(e, LoopIR.Read):
-            if len(e.idx) > 0:
-                idx = [self.pexpr(i) for i in e.idx]
-                return f"{self.get_name(e.name)}[{','.join(idx)}]"
-            else:
-                return self.get_name(e.name)
-        elif isinstance(e, LoopIR.Const):
-            return str(e.val)
-        elif isinstance(e, LoopIR.USub):
-            return f'-{self.pexpr(e.arg, op_prec["~"])}'
-        elif isinstance(e, LoopIR.BinOp):
-            local_prec = op_prec[e.op]
-            # increment rhs by 1 to account for left-associativity
-            lhs = self.pexpr(e.lhs, prec=local_prec)
-            rhs = self.pexpr(e.rhs, prec=local_prec + 1)
-            s = f"{lhs} {e.op} {rhs}"
-            # if we have a lower precedence than the environment...
-            if local_prec < prec:
-                s = f"({s})"
-            return s
-        elif isinstance(e, LoopIR.WindowExpr):
-            return (
-                f"{self.get_name(e.name)}"
-                f"[{', '.join([self.pwacc(w) for w in e.idx])}]"
-            )
-        elif isinstance(e, LoopIR.StrideExpr):
-            return f"stride({self.get_name(e.name)}, {e.dim})"
-        elif isinstance(e, LoopIR.BuiltIn):
-            pname = e.f.name() or "_anon_"
-            args = [self.pexpr(a) for a in e.args]
-            return f"{pname}({','.join(args)})"
-        elif isinstance(e, LoopIR.ReadConfig):
-            cname = e.config.name()
-            return f"{cname}.{e.field}"
-        else:
-            assert False, f"unrecognized expr: {type(e)}"
+    assert False, f"unrecognized expr: {type(e)}"
 
-    def pwacc(self, w):
-        if isinstance(w, LoopIR.Point):
-            return self.pexpr(w.pt)
-        elif isinstance(w, LoopIR.Interval):
-            return f"{self.pexpr(w.lo)}:{self.pexpr(w.hi)}"
-        else:
-            assert False, "bad case"
 
-    def ptype(self, t):
-        if isinstance(t, T.Num):
-            return "R"
-        elif isinstance(t, T.F32):
-            return "f32"
-        elif isinstance(t, T.F64):
-            return "f64"
-        elif isinstance(t, T.INT8):
-            return "i8"
-        elif isinstance(t, T.INT32):
-            return "i32"
-        elif isinstance(t, T.Bool):
-            return "bool"
-        elif isinstance(t, T.Int):
-            return "int"
-        elif isinstance(t, T.Index):
-            return "index"
-        elif isinstance(t, T.Size):
-            return "size"
-        elif isinstance(t, T.Error):
-            return "err"
-        elif isinstance(t, T.Tensor):
-            base = self.ptype(t.basetype())
-            if t.is_window:
-                base = f"[{base}]"
-            rngs = ",".join([self.pexpr(r) for r in t.shape()])
-            return f"{base}[{rngs}]"
-        elif isinstance(t, T.Window):
-            return (
-                f"Window(src_type={t.src_type},as_tensor={t.as_tensor},"
-                f"src_buf={t.src_buf},"
-                f"idx=[{', '.join([self.pwacc(w) for w in t.idx])}])"
-            )
-        elif isinstance(t, T.Stride):
-            return "stride"
-        else:
-            assert False, f"impossible type {type(t)}"
+def loopir_pretty_type(t, env: PrintEnv) -> str:
+    if isinstance(t, T.Num):
+        return "R"
+    elif isinstance(t, T.F32):
+        return "f32"
+    elif isinstance(t, T.F64):
+        return "f64"
+    elif isinstance(t, T.INT8):
+        return "i8"
+    elif isinstance(t, T.INT32):
+        return "i32"
+    elif isinstance(t, T.Bool):
+        return "bool"
+    elif isinstance(t, T.Int):
+        return "int"
+    elif isinstance(t, T.Index):
+        return "index"
+    elif isinstance(t, T.Size):
+        return "size"
+    elif isinstance(t, T.Error):
+        return "err"
+    elif isinstance(t, T.Tensor):
+        base = loopir_pretty_type(t.basetype(), env)
+        if t.is_window:
+            base = f"[{base}]"
+        rngs = ",".join([loopir_pretty_expr(r, env) for r in t.shape()])
+        return f"{base}[{rngs}]"
+    elif isinstance(t, T.Window):
+        return (
+            f"Window(src_type={t.src_type},as_tensor={t.as_tensor},"
+            f"src_buf={t.src_buf},"
+            f"idx=[{', '.join([loopir_pretty_expr(w, env) for w in t.idx])}])"
+        )
+    elif isinstance(t, T.Stride):
+        return "stride"
+
+    assert False, f"impossible type {type(t)}"
+
+
+def loopir_pretty_w_access(node, env: PrintEnv) -> str:
+    if isinstance(node, LoopIR.Interval):
+        lo = loopir_pretty_expr(node.lo, env)
+        hi = loopir_pretty_expr(node.hi, env)
+        return f"{lo}:{hi}"
+    if isinstance(node, LoopIR.Point):
+        return loopir_pretty_expr(node.pt, env)
+
+    assert False, "bad case"
+
+
+def loopir_pretty(node, env: Optional[PrintEnv] = None, indent: str = '') -> list[str]:
+    env = env or PrintEnv()
+    if isinstance(node, LoopIR.proc):
+        return loopir_pretty_proc(node, env, indent)
+    elif isinstance(node, LoopIR.fnarg):
+        return [loopir_pretty_fnarg(node, env)]
+    elif isinstance(node, LoopIR.stmt):
+        return loopir_pretty_stmt(node, env, indent)
+    elif isinstance(node, LoopIR.expr):
+        return [loopir_pretty_expr(node, env)]
+    elif isinstance(node, LoopIR.type):
+        return [loopir_pretty_type(node, env)]
+    elif isinstance(node, LoopIR.w_access):
+        return [loopir_pretty_w_access(node, env)]
+
+    assert False, f'cannot print a {type(node)}'
