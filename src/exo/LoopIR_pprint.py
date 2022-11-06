@@ -388,9 +388,7 @@ class LoopIR_PPrinter:
             assert False, f"cannot print a {type(node)}"
 
     def str(self):
-        if isinstance(self._node, LoopIR.type) or isinstance(
-            self._node, LoopIR.w_access
-        ):
+        if isinstance(self._node, (LoopIR.type, LoopIR.w_access)):
             assert len(self._lines) == 1
             return self._lines[0]
 
@@ -574,7 +572,7 @@ class LoopIR_PPrinter:
         elif isinstance(t, T.Error):
             return "err"
         elif isinstance(t, T.Tensor):
-            base = str(t.basetype())
+            base = self.ptype(t.basetype())
             if t.is_window:
                 base = f"[{base}]"
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
