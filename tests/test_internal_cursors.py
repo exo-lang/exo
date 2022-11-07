@@ -821,3 +821,24 @@ def test_cursor_pretty_print_gaps(proc_bar, golden):
     output.append(_print_cursor(c))
 
     assert "\n".join(output) == golden
+
+
+def test_cursor_pretty_print_blocks(proc_bar, golden):
+    output = []
+
+    c = proc_bar._TEST_find_stmt("for j in _: _").as_block()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_cursors("x = 1.0; _; x = 3.0")[0]
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_cursors("x = 0.0; x = 1.0")[0]
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_cursors("x = 4.0; x = 5.0")[0]
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_cursors("x = 0.0; _; x = 5.0")[0]
+    output.append(_print_cursor(c))
+
+    assert "\n".join(output) == golden

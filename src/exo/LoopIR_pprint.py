@@ -564,14 +564,12 @@ def _print_w_access(node, env: PrintEnv) -> str:
 
 
 def _print_cursor(cur):
-    if isinstance(cur, Node):
-        if not isinstance(cur._node(), (LoopIR.proc, LoopIR.stmt)):
-            raise NotImplementedError(
-                "Cursor printing is only implemented for procs and statements"
-            )
-
-    if isinstance(cur, Block):
-        raise NotImplementedError("Cursor printing is not implemented for blocks")
+    if isinstance(cur, Node) and not isinstance(
+        cur._node(), (LoopIR.proc, LoopIR.stmt)
+    ):
+        raise NotImplementedError(
+            "Cursor printing is only implemented for procs and statements"
+        )
 
     root_cur = Cursor.root(cur._proc())
     lines = _print_cursor_proc(root_cur, cur, PrintEnv(), "")
@@ -633,6 +631,17 @@ def _print_cursor_block(
             *if_cursor(target, lambda g: g.after(2), more_stmts),
         ]
 
+    elif isinstance(target, Block) and target in cur:
+        block = [f"{indent}# BLOCK START"]
+        for stmt in target:
+            block.extend(local_stmt(stmt))
+        block.append(f"{indent}# BLOCK END")
+        return [
+            *if_cursor(target, lambda g: g.before(2), more_stmts),
+            *block,
+            *if_cursor(target, lambda g: g.after(2), more_stmts),
+        ]
+
     else:
         stmt = next(filter(lambda s: s.is_ancestor_of(target), cur), None)
         if stmt is None:
@@ -640,7 +649,7 @@ def _print_cursor_block(
 
         return [
             *if_cursor(stmt, lambda g: g.before(2), more_stmts),
-            *_print_cursor_stmt(stmt, target, env, indent),
+            *local_stmt(stmt),
             *if_cursor(stmt, lambda g: g.after(2), more_stmts),
         ]
 
