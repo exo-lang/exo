@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import exo
 import exo.main
 
@@ -36,11 +38,13 @@ def test_neon_sgemm(golden):
     assert _test_app(module_file) == golden
 
 
+@pytest.mark.slow
 def test_gemmini_matmul(golden):
     module_file = REPO_ROOT / "apps" / "gemmini" / "src" / "exo" / "matmul.py"
     assert _test_app(module_file) == golden
 
 
+@pytest.mark.slow
 def test_gemmini_conv(golden):
     module_file = REPO_ROOT / "apps" / "gemmini" / "src" / "exo" / "conv.py"
     assert _test_app(module_file) == golden

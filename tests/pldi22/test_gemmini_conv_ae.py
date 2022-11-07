@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from exo.platforms.gemmini import *
 
 
@@ -63,6 +65,7 @@ def conv_algorithm():
 
 # Conv test for the artifact evaluation. The same algorithm and schedule
 # was used for Table 2 (first row) and Table 3 (code size)
+@pytest.mark.slow
 def test_conv_ae(golden):
     batch_size = 4
     out_channel = 64
