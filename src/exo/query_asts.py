@@ -174,17 +174,29 @@ class Read(Expr):
     idx: list[Expr]
     type: Type
 
+    def __str__(self):
+        if self.idx:
+            return f"{self.name}[_]"
+        else:
+            return f"{self.name}"
+
 
 @_dataclass
 class Const(Expr):
     val: _Any
     type: Type
 
+    def __str__(self):
+        return f"{self.val}"
+
 
 @_dataclass
 class USub(Expr):
     arg: Expr
     type: Type
+
+    def __str__(self):
+        return f"-{str(self.arg)}"
 
 
 @_dataclass
@@ -193,6 +205,11 @@ class BinOp(Expr):
     lhs: Expr
     rhs: Expr
     type: Type
+
+    def __str__(self):
+        lhs = str(self.lhs)
+        rhs = str(self.rhs)
+        return f"{lhs} {self.op} {rhs}"
 
 
 @_dataclass
@@ -234,6 +251,12 @@ class Assign(Stmt):
     idx: list[Expr]
     rhs: Expr
 
+    def __str__(self):
+        if len(self.idx) > 0:
+            return f"{self.name}[_] = {str(self.rhs)}"
+        else:
+            return f"{self.name} = {str(self.rhs)}"
+
 
 @_dataclass
 class Reduce(Stmt):
@@ -242,12 +265,21 @@ class Reduce(Stmt):
     idx: list[Expr]
     rhs: Expr
 
+    def __str__(self):
+        if len(self.idx) > 0:
+            return f"{self.name}[_] = {str(self.rhs)}"
+        else:
+            return f"{self.name} = {str(self.rhs)}"
+
 
 @_dataclass
 class WriteConfig(Stmt):
     config: _Config
     field: str
     rhs: Expr
+
+    def __str__(self):
+        return f"{self.config.name()}.{self.field} = {str(self.rhs)}"
 
 
 @_dataclass
@@ -261,6 +293,9 @@ class If(Stmt):
     body: list[Expr]
     orelse: list[Expr]
 
+    def __str__(self):
+        return f"if {self.cond}: _"
+
 
 @_dataclass
 class For(Stmt):
@@ -270,6 +305,9 @@ class For(Stmt):
     body: list[Expr]
     is_par: bool
 
+    def __str__(self):
+        return f"for {self.name} in seq(0, {str(self.hi)}):_"
+
 
 @_dataclass
 class Alloc(Stmt):
@@ -277,11 +315,17 @@ class Alloc(Stmt):
     type: Type
     memory: _Optional[_Memory]
 
+    def __str__(self):
+        return f"{self.name} : _"
+
 
 @_dataclass
 class Call(Stmt):
     proc: str
     args: list[Expr]
+
+    def __str__(self):
+        return f"{self.proc}(_)"
 
 
 @_dataclass
