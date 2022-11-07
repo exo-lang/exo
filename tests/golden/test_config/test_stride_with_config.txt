@@ -1,7 +1,6 @@
 def bar(n: size, src: [i8][n] @ DRAM):
     assert stride(src, 0) == ConfigLoad.src_stride
     pass
-
 def foo(n: size, src: [i8][n] @ DRAM):
     assert stride(src, 0) == ConfigLoad.src_stride
     bar(n, src)

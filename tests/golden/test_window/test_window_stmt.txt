@@ -28,7 +28,7 @@ struct exo_win_1f32c{
 // window_stmt(
 //     n : size,
 //     m : size,
-//     x : f32[n,m]  @DRAM
+//     x : f32[n, m] @DRAM
 // )
 void window_stmt( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x );
 
@@ -43,7 +43,7 @@ void window_stmt( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x );
 // window_stmt(
 //     n : size,
 //     m : size,
-//     x : f32[n,m]  @DRAM
+//     x : f32[n, m] @DRAM
 // )
 void window_stmt( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x ) {
 struct exo_win_1f32c y = (struct exo_win_1f32c){ &x[(0) * (m) + (0) * (1)], { m } };

@@ -62,11 +62,11 @@ struct exo_win_3i8c{
     const int_fast32_t strides[3];
 };
 // matmul_on_gemmini(
-//     scale : f32  @DRAM,
+//     scale : f32 @DRAM,
 //     act : bool,
-//     A : i8[512,512]  @DRAM,
-//     B : i8[512,512]  @DRAM,
-//     C : i8[512,512]  @DRAM
+//     A : i8[512, 512] @DRAM,
+//     B : i8[512, 512] @DRAM,
+//     C : i8[512, 512] @DRAM
 // )
 void matmul_on_gemmini( c_code_str_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
@@ -143,11 +143,11 @@ do_zero_acc_i32(n,m,dst)
 gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),{m}, {n} );
 */
 // matmul_on_gemmini(
-//     scale : f32  @DRAM,
+//     scale : f32 @DRAM,
 //     act : bool,
-//     A : i8[512,512]  @DRAM,
-//     B : i8[512,512]  @DRAM,
-//     C : i8[512,512]  @DRAM
+//     A : i8[512, 512] @DRAM,
+//     B : i8[512, 512] @DRAM,
+//     C : i8[512, 512] @DRAM
 // )
 void matmul_on_gemmini( c_code_str_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
 gemmini_extended_config_st((512), (act), (scale)[0]);

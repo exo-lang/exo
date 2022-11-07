@@ -3,7 +3,6 @@ def foo(n: size, m: size, x: i8 @ DRAM):
     if n > 0:
         for j in seq(0, m):
             x = a
-
 def bar(n: size, m: size, x: i8 @ DRAM):
     a: i8 @ DRAM
     if n > 0:

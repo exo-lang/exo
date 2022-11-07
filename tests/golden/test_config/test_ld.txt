@@ -3,7 +3,6 @@ def config_ld_i8(scale: f32 @ DRAM, src_stride: stride @ DRAM):
     #
     ConfigLoad.scale = scale
     ConfigLoad.src_stride = src_stride
-
 def ld_i8(n: size, m: size, scale: f32 @ DRAM, src: i8[n, m] @ DRAM,
           dst: i8[n, 16] @ GEMM_SCRATCH):
     assert n <= 16
