@@ -28,6 +28,21 @@ class ForwardingPolicy(Enum):
     AnchorPost = auto()
 
 
+def _starts_with(a: list, b: list):
+    """
+    Returns true if the first elements of `a` equal `b` exactly
+    >>> _starts_with([1, 2, 3], [1, 2])
+    True
+    >>> _starts_with(['x'], ['x'])
+    True
+    >>> _starts_with([1, 2, 3], [])
+    True
+    >>> _starts_with(['a', 'b', 'c'], ['a', 'b', 'c', 'd'])
+    False
+    """
+    return len(a) >= len(b) and all(a[i] == b[i] for i in range(len(b)))
+
+
 def _is_sub_range(a: range, b: range):
     """
     Returns true if `a` is a STRICT sub-range of `b`.
@@ -257,6 +272,35 @@ class Block(Cursor):
         #  2. The block shifted over?
         #  3. The block of nodes past the end?
         raise NotImplementedError("Block.next")
+
+    # ------------------------------------------------------------------------ #
+    # Container interface implementation
+    # ------------------------------------------------------------------------ #
+
+    def __contains__(self, cur):
+        n = len(self._path)
+        blk_path = self._path
+        cur_path = cur._path
+
+        if n != len(cur_path):
+            return False
+
+        if (
+            any(cur_path[i] != blk_path[i] for i in range(n - 1))
+            or cur_path[-1][0] != blk_path[-1][0]
+        ):
+            return False
+
+        if isinstance(cur, Node):
+            return cur_path[-1][1] in blk_path[-1][1]
+        elif isinstance(cur, Gap):
+            return blk_path[-1][1].start <= cur_path[-1][1] <= blk_path[-1][1].stop
+        else:
+            assert isinstance(cur, Block)
+            return (
+                _is_sub_range(cur_path[-1][1], blk_path[-1][1])
+                or cur_path[-1][1] == blk_path[-1][1]
+            )
 
     # ------------------------------------------------------------------------ #
     # Sequence interface implementation
@@ -516,6 +560,14 @@ class Node(Cursor):
         if i is None:
             raise InvalidCursorError("node is not inside a block")
         return Block(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
+
+    # ------------------------------------------------------------------------ #
+    # Location queries
+    # ------------------------------------------------------------------------ #
+
+    def is_ancestor_of(self, other: Cursor) -> bool:
+        """Return true if this node is an ancestor of another"""
+        return _starts_with(other._path, self._path)
 
     # ------------------------------------------------------------------------ #
     # AST mutation
