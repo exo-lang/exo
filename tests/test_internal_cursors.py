@@ -14,7 +14,7 @@ from exo.internal_cursors import (
     ForwardingPolicy,
     Node,
 )
-from exo.syntax import size, par, f32
+from exo.syntax import size, f32
 
 
 @pytest.fixture(scope="session")
@@ -775,3 +775,26 @@ def test_block_replace_forward_block(proc_bar, old, new):
             fwd(old_c)
     else:
         assert fwd(old_c) == bar_new._TEST_find_cursors(new)[0]
+
+
+def test_cursor_pretty_print_nodes(proc_bar, golden):
+    from exo.LoopIR_pprint import _print_cursor
+
+    output = []
+
+    root = Cursor.root(proc_bar)
+    output.append(_print_cursor(root))
+
+    c = proc_bar._TEST_find_stmt("for i in _: _")
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("for j in _: _")
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 0.0")
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 2.0")
+    output.append(_print_cursor(c))
+
+    assert "\n".join(output) == golden
