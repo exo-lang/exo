@@ -1831,17 +1831,14 @@ def unroll_loop(proc, loop_cursor):
 # Guard Conditions
 
 
-@sched_op([IfCursorA])
-def reorder_scope(proc, if_cursor):
+@sched_op([ForSeqOrIfCursorA])
+def reorder_scope(proc, scope_cursor):
     """
-    Move the indicated If-statement upwards through other control-flow,
+    Move the indicated For/If-statement upwards through other control-flow,
     if possible.
 
-    DEPRECATED
-    TODO: This directive and reorder_loops should be rethought together.
-
     args:
-        if_cursor       - cursor to the if-statement to lift up
+        scope_cursor       - cursor to the inner scope statement to lift up
 
     rewrite: (one example)
         `for i in _:`
@@ -1857,7 +1854,7 @@ def reorder_scope(proc, if_cursor):
         `    for i in _:`
         `        s2`
     """
-    stmt_c = if_cursor._impl
+    stmt_c = scope_cursor._impl
     proc_c = ic.Cursor.root(proc)
 
     return Schedules.DoReorderScopes(proc_c, stmt_c).result()
