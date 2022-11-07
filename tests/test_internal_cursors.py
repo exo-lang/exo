@@ -15,6 +15,7 @@ from exo.internal_cursors import (
     Node,
 )
 from exo.syntax import size, f32
+from exo.LoopIR_pprint import _print_cursor
 
 
 @pytest.fixture(scope="session")
@@ -778,8 +779,6 @@ def test_block_replace_forward_block(proc_bar, old, new):
 
 
 def test_cursor_pretty_print_nodes(proc_bar, golden):
-    from exo.LoopIR_pprint import _print_cursor
-
     output = []
 
     root = Cursor.root(proc_bar)
@@ -795,6 +794,30 @@ def test_cursor_pretty_print_nodes(proc_bar, golden):
     output.append(_print_cursor(c))
 
     c = proc_bar._TEST_find_stmt("x = 2.0")
+    output.append(_print_cursor(c))
+
+    assert "\n".join(output) == golden
+
+
+def test_cursor_pretty_print_gaps(proc_bar, golden):
+    output = []
+
+    c = proc_bar._TEST_find_stmt("x: f32").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("for i in _: _").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("for j in _: _").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 0.0").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 2.0").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 5.0").after()
     output.append(_print_cursor(c))
 
     assert "\n".join(output) == golden

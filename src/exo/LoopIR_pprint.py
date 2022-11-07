@@ -9,7 +9,7 @@ from yapf.yapflib.yapf_api import FormatCode
 
 from .LoopIR import T
 from .LoopIR import UAST, LoopIR
-from .internal_cursors import Node, Gap, Block, Cursor
+from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError
 from .prelude import *
 
 # --------------------------------------------------------------------------- #
@@ -570,9 +570,6 @@ def _print_cursor(cur):
                 "Cursor printing is only implemented for procs and statements"
             )
 
-    if isinstance(cur, Gap):
-        raise NotImplementedError("Cursor printing is not implemented for gaps")
-
     if isinstance(cur, Block):
         raise NotImplementedError("Cursor printing is not implemented for blocks")
 
@@ -615,25 +612,37 @@ def _print_cursor_proc(
 def _print_cursor_block(
     cur: Block, target: Cursor, env: PrintEnv, indent: str
 ) -> list[str]:
-    lo, hi = None, None
-    lines = []
+    def if_cursor(c, move, k):
+        try:
+            return k(move(c))
+        except InvalidCursorError:
+            return []
 
-    for i, stmt in enumerate(cur):
-        if stmt.is_ancestor_of(target):
-            if lo is None:
-                lo = i
-            hi = i
-            lines.extend(_print_cursor_stmt(stmt, target, env, indent))
-
-    if lo is None or hi is None:
+    def more_stmts(_):
         return [f'{indent}"..."']
 
-    if lo > 0:
-        lines.insert(0, f'{indent}"..."')
-    if hi < len(cur) - 1:
-        lines.append(f'{indent}"..."')
+    def local_stmt(c):
+        return _print_cursor_stmt(c, target, env, indent)
 
-    return lines
+    if isinstance(target, Gap) and target in cur:
+        return [
+            *if_cursor(target, lambda g: g.before(2), more_stmts),
+            *if_cursor(target, lambda g: g.before(), local_stmt),
+            f"{indent}[GAP]",
+            *if_cursor(target, lambda g: g.after(), local_stmt),
+            *if_cursor(target, lambda g: g.after(2), more_stmts),
+        ]
+
+    else:
+        stmt = next(filter(lambda s: s.is_ancestor_of(target), cur), None)
+        if stmt is None:
+            return [f'{indent}"..."']
+
+        return [
+            *if_cursor(stmt, lambda g: g.before(2), more_stmts),
+            *_print_cursor_stmt(stmt, target, env, indent),
+            *if_cursor(stmt, lambda g: g.after(2), more_stmts),
+        ]
 
 
 def _print_cursor_stmt(

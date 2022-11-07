@@ -274,6 +274,35 @@ class Block(Cursor):
         raise NotImplementedError("Block.next")
 
     # ------------------------------------------------------------------------ #
+    # Container interface implementation
+    # ------------------------------------------------------------------------ #
+
+    def __contains__(self, cur):
+        n = len(self._path)
+        blk_path = self._path
+        cur_path = cur._path
+
+        if n != len(cur_path):
+            return False
+
+        if (
+            any(cur_path[i] != blk_path[i] for i in range(n - 1))
+            or cur_path[-1][0] != blk_path[-1][0]
+        ):
+            return False
+
+        if isinstance(cur, Node):
+            return cur_path[-1][1] in blk_path[-1][1]
+        elif isinstance(cur, Gap):
+            return blk_path[-1][1].start <= cur_path[-1][1] <= blk_path[-1][1].stop
+        else:
+            assert isinstance(cur, Block)
+            return (
+                _is_sub_range(cur_path[-1][1], blk_path[-1][1])
+                or cur_path[-1][1] == blk_path[-1][1]
+            )
+
+    # ------------------------------------------------------------------------ #
     # Sequence interface implementation
     # ------------------------------------------------------------------------ #
 
