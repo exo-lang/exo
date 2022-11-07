@@ -5,6 +5,7 @@ def bar(n: size, m: size):
         for j in seq(0, m):
             ...
         # BLOCK END
+
 def bar(n: size, m: size):
     ...
     for i in seq(0, n):
@@ -16,6 +17,7 @@ def bar(n: size, m: size):
             x = 3.0
             # BLOCK END
             ...
+
 def bar(n: size, m: size):
     ...
     for i in seq(0, n):
@@ -25,6 +27,7 @@ def bar(n: size, m: size):
             x = 1.0
             # BLOCK END
             ...
+
 def bar(n: size, m: size):
     ...
     for i in seq(0, n):
@@ -34,6 +37,7 @@ def bar(n: size, m: size):
             x = 4.0
             x = 5.0
             # BLOCK END
+
 def bar(n: size, m: size):
     ...
     for i in seq(0, n):
