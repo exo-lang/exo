@@ -1357,27 +1357,40 @@ class _DoReorderScopes(Cursor_Rewrite):
                         "expected if statement to be directly nested in parents"
                     )
 
-                #                    if INNER:
-                # if OUTER:            if OUTER: A
-                #   if INNER: A        else:     C
-                #   else:     B  ~>  else:
-                # else: C              if OUTER: B
-                #                      else:     C
-                stmt_a = self.target.body
-                stmt_b = self.target.orelse
-                stmt_c = s.orelse
+                if isinstance(self.target, LoopIR.If):
+                    #                    if INNER:
+                    # if OUTER:            if OUTER: A
+                    #   if INNER: A        else:     C
+                    #   else:     B  ~>  else:
+                    # else: C              if OUTER: B
+                    #                      else:     C
+                    stmt_a = self.target.body
+                    stmt_b = self.target.orelse
+                    stmt_c = s.orelse
 
-                if_ac = [s.update(body=stmt_a, orelse=stmt_c)]
-                if stmt_b or stmt_c:
-                    stmt_b = stmt_b or [LoopIR.Pass(None, self.target.srcinfo)]
-                    if_bc = [s.update(body=stmt_b, orelse=stmt_c)]
-                else:
-                    if_bc = []
+                    if_ac = [s.update(body=stmt_a, orelse=stmt_c)]
+                    if stmt_b or stmt_c:
+                        stmt_b = stmt_b or [LoopIR.Pass(None, self.target.srcinfo)]
+                        if_bc = [s.update(body=stmt_b, orelse=stmt_c)]
+                    else:
+                        if_bc = []
 
-                new_if = self.target.update(body=if_ac, orelse=if_bc)
-                return self.resolve_lift(new_if)
+                    new_if = self.target.update(body=if_ac, orelse=if_bc)
+                    return self.resolve_lift(new_if)
 
-            if self.target in s.orelse:
+                if isinstance(self.target, LoopIR.Seq):
+                    # if OUTER:                for INNER in _:
+                    #   for INNER in _: A  ~>    if OUTER: A
+                    if len(s.orelse) > 0:
+                        raise SchedulingError(
+                            "cannot lift for loop when if has an orelse clause"
+                        )
+
+                    new_if = s.update(body=self.target.body, orelse=[])
+                    new_for = self.target.update(body=[new_if])
+                    return self.resolve_lift(new_for)
+
+            if self.target in s.orelse and isinstance(self.target, LoopIR.If):
                 if len(s.orelse) > 1:
                     raise SchedulingError(
                         "expected if statement to be directly nested in parents"
@@ -1398,9 +1411,6 @@ class _DoReorderScopes(Cursor_Rewrite):
 
                 new_if = self.target.update(body=if_ab, orelse=if_ac)
                 return self.resolve_lift(new_if)
-
-            # TODO: implement lifting a for loop out of an if statement
-            # without an else clause
         if isinstance(s, LoopIR.Seq):
             if self.target in s.body:
                 if len(s.body) > 1:
@@ -1409,15 +1419,15 @@ class _DoReorderScopes(Cursor_Rewrite):
                     )
 
                 if isinstance(s.body[0], LoopIR.If):
+                    # for OUTER in _:      if INNER:
+                    #   if INNER: A    ~>    for OUTER in _: A
+                    #   else:     B        else:
+                    #                        for OUTER in _: B
                     if s.iter in vars_in_expr(self.target.cond):
                         raise SchedulingError(
                             "if statement depends on iteration variable"
                         )
 
-                    # for OUTER in _:      if INNER:
-                    #   if INNER: A    ~>    for OUTER in _: A
-                    #   else:     B        else:
-                    #                        for OUTER in _: B
                     stmt_a = self.target.body
                     stmt_b = self.target.orelse
 
@@ -1427,6 +1437,8 @@ class _DoReorderScopes(Cursor_Rewrite):
                     new_if = self.target.update(body=for_a, orelse=for_b)
                     return self.resolve_lift(new_if)
                 if isinstance(s.body[0], LoopIR.Seq):
+                    # for OUTER in _:          for INNER in _:
+                    #   for INNER in _: A  ~>    for OUTER in _: A
                     styp = type(s)
                     Check_ReorderLoops(self.orig_proc, s)
 

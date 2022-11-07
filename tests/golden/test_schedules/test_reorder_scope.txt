@@ -1,0 +1,5 @@
+def foo(n: size, x: R[n, n] @ DRAM):
+    for j in seq(0, n):
+        for i in seq(0, n):
+            if j < 10:
+                x[i, j] = 1.0

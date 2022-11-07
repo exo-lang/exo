@@ -1293,6 +1293,33 @@ def test_lift_if_in_full_nest(golden):
     assert str(foo) == golden
 
 
+def test_reorder_scope(golden):
+    @proc
+    def foo(n: size, x: R[n, n]):
+        for j in seq(0, n):
+            if j < 10:
+                for i in seq(0, n):
+                    x[i, j] = 1.0
+
+    foo = reorder_scope(foo, "for i in _: _")
+    assert str(foo) == golden
+
+
+def test_reorder_scope_lift_for_when_outer_if_has_noelse_error(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        if n < 10:
+            for i in seq(0, n):
+                x[i] = 1.0
+        else:
+            pass
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift for loop when if has an orelse clause"
+    ):
+        foo = reorder_scope(foo, "for i in _: _")
+
+
 def test_stage_mem(golden):
     # This test stages a buffer being accumulated in
     # on a per-tile basis
