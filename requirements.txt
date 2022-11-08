@@ -1,6 +1,6 @@
 Pillow==9.1.1
 PySMT==0.9.0
-asdl-adt==0.1.0
+asdl-adt==0.2.0
 asdl==0.1.5
 astor==0.8.1
 build==0.7.0
