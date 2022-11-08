@@ -8,7 +8,7 @@ from . import LoopIR_pprint as PPrint
 from .builtins import BuiltIn
 from .configs import Config
 from .memory import Memory
-from .prelude import Sym, SrcInfo, extclass
+from .prelude import Sym, SrcInfo
 
 
 # --------------------------------------------------------------------------- #
@@ -75,6 +75,136 @@ class LoopIRMixinExpr:
 class LoopIRMixinType:
     def __str__(self):
         return PPrint.LoopIR_PPrinter.type(self)
+
+    def is_real_scalar(self):
+        return False
+
+    def is_tensor_or_window(self):
+        return False
+
+    def is_win(self):
+        return False
+
+    def is_numeric(self):
+        return self.is_real_scalar() or self.is_tensor_or_window()
+
+    def is_bool(self):
+        return False
+
+    def is_indexable(self):
+        return False
+
+    def is_stridable(self):
+        return False
+
+    def basetype(self):
+        return self
+
+
+class LoopIRScalarType(LoopIRMixinType):
+    def shape(self):
+        return []
+
+    def is_real_scalar(self):
+        return True
+
+
+class LoopIRMixinNum(LoopIRScalarType):
+    def ctype(self):
+        assert False, "Don't ask for ctype of Num"
+
+
+class LoopIRMixinF32(LoopIRScalarType):
+    def ctype(self):
+        return "float"
+
+
+class LoopIRMixinF64(LoopIRScalarType):
+    def ctype(self):
+        return "double"
+
+
+class LoopIRMixinINT8(LoopIRScalarType):
+    def ctype(self):
+        return "int8_t"
+
+
+class LoopIRMixinINT32(LoopIRScalarType):
+    def ctype(self):
+        return "int32_t"
+
+
+class LoopIRMixinBool(LoopIRMixinType):
+    def ctype(self):
+        return "bool"
+
+    def is_bool(self):
+        return True
+
+
+class LoopIRMixinInt(LoopIRMixinType):
+    def ctype(self):
+        return "int_fast32_t"
+
+    def is_indexable(self):
+        return True
+
+    def is_stridable(self):
+        return True
+
+
+class LoopIRMixinIndex(LoopIRMixinType):
+    def ctype(self):
+        return "int_fast32_t"
+
+    def is_indexable(self):
+        return True
+
+
+class LoopIRMixinSize(LoopIRMixinType):
+    def ctype(self):
+        return "int_fast32_t"
+
+    def is_indexable(self):
+        return True
+
+
+class LoopIRMixinStride(LoopIRMixinType):
+    def ctype(self):
+        return "int_fast32_t"
+
+    def is_stridable(self):
+        return True
+
+
+class LoopIRMixinTensor(LoopIRMixinType):
+    def shape(self):
+        assert not isinstance(self.type, T.Tensor), "expect no nesting"
+        return self.hi
+
+    def is_tensor_or_window(self):
+        return True
+
+    def is_win(self):
+        return self.is_window
+
+    def basetype(self):
+        assert not self.type.is_tensor_or_window()
+        return self.type
+
+
+class LoopIRMixinWindowType(LoopIRMixinType):
+    def shape(self):
+        return self.as_tensor.shape()
+
+    def is_tensor_or_window(self):
+        return True
+
+    def is_win(self):
+        return True
+
+    def basetype(self):
+        return self.as_tensor.basetype()
 
 
 LoopIR = ADT(
@@ -155,7 +285,8 @@ module LoopIR {
         "F32",
         "F64",
         "INT8",
-        "INT32" "Bool",
+        "INT32",
+        "Bool",
         "Int",
         "Index",
         "Size",
@@ -168,8 +299,24 @@ module LoopIR {
         "stmt": LoopIRMixinStmt,
         "expr": LoopIRMixinExpr,
         "type": LoopIRMixinType,
+        "Num": LoopIRMixinNum,
+        "F32": LoopIRMixinF32,
+        "F64": LoopIRMixinF64,
+        "INT8": LoopIRMixinINT8,
+        "INT32": LoopIRMixinINT32,
+        "Bool": LoopIRMixinBool,
+        "Int": LoopIRMixinInt,
+        "Index": LoopIRMixinIndex,
+        "Size": LoopIRMixinSize,
+        "Stride": LoopIRMixinStride,
+        "Tensor": LoopIRMixinTensor,
+        "WindowType": LoopIRMixinWindowType,
     },
 )
+
+# Hack: make procs hashable by their location in memory, rather than by their
+# contents.
+LoopIR.proc.__hash__ = lambda self: id(self)
 
 
 # --------------------------------------------------------------------------- #
@@ -374,20 +521,6 @@ module Effects {
 
 
 # --------------------------------------------------------------------------- #
-# Extension methods
-# --------------------------------------------------------------------------- #
-
-
-# make proc be a hashable object
-@extclass(LoopIR.proc)
-def __hash__(self):
-    return id(self)
-
-
-del __hash__
-
-
-# --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Types
 
@@ -420,137 +553,6 @@ class T:
     size = Size()
     stride = Stride()
     err = Error()
-
-
-# --------------------------------------------------------------------------- #
-# type helper functions
-
-
-@extclass(T.Tensor)
-@extclass(T.Window)
-@extclass(T.Num)
-@extclass(T.F32)
-@extclass(T.F64)
-@extclass(T.INT8)
-@extclass(T.INT32)
-def shape(t):
-    if isinstance(t, T.Window):
-        return t.as_tensor.shape()
-    elif isinstance(t, T.Tensor):
-        assert not isinstance(t.type, T.Tensor), "expect no nesting"
-        return t.hi
-    else:
-        return []
-
-
-del shape
-
-
-@extclass(T.Num)
-@extclass(T.F32)
-@extclass(T.F64)
-@extclass(T.INT8)
-@extclass(T.INT32)
-@extclass(T.Bool)
-@extclass(T.Int)
-@extclass(T.Index)
-@extclass(T.Size)
-@extclass(T.Stride)
-def ctype(t):
-    if isinstance(t, T.Num):
-        assert False, "Don't ask for ctype of Num"
-    elif isinstance(t, T.F32):
-        return "float"
-    elif isinstance(t, T.F64):
-        return "double"
-    elif isinstance(t, T.INT8):
-        return "int8_t"
-    elif isinstance(t, T.INT32):
-        return "int32_t"
-    elif isinstance(t, T.Bool):
-        return "bool"
-    elif isinstance(t, (T.Int, T.Index, T.Size, T.Stride)):
-        return "int_fast32_t"
-
-
-del ctype
-
-
-@extclass(LoopIR.type)
-def is_real_scalar(t):
-    return isinstance(t, (T.Num, T.F32, T.F64, T.INT8, T.INT32))
-
-
-del is_real_scalar
-
-
-@extclass(LoopIR.type)
-def is_tensor_or_window(t):
-    return isinstance(t, (T.Tensor, T.Window))
-
-
-del is_tensor_or_window
-
-
-@extclass(LoopIR.type)
-def is_win(t):
-    return (isinstance(t, T.Tensor) and t.is_window) or isinstance(t, T.Window)
-
-
-del is_win
-
-
-@extclass(LoopIR.type)
-def is_numeric(t):
-    return t.is_real_scalar() or isinstance(t, (T.Tensor, T.Window))
-
-
-del is_numeric
-
-
-@extclass(LoopIR.type)
-def is_bool(t):
-    return isinstance(t, (T.Bool))
-
-
-del is_bool
-
-
-@extclass(LoopIR.type)
-def is_indexable(t):
-    return isinstance(t, (T.Int, T.Index, T.Size))
-
-
-del is_indexable
-
-
-@extclass(LoopIR.type)
-def is_stridable(t):
-    return isinstance(t, (T.Int, T.Stride))
-
-
-@extclass(LoopIR.type)
-def basetype(t):
-    if isinstance(t, T.Window):
-        return t.as_tensor.basetype()
-    elif isinstance(t, T.Tensor):
-        assert not t.type.is_tensor_or_window()
-        return t.type
-    else:
-        return t
-
-
-del basetype
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-
-# Install string printing functions on LoopIR, UAST and T
-# This must be imported after those objects are defined to
-# prevent circular inclusion problems
-# TODO: FIX THIS!!!
-# noinspection PyUnresolvedReferences
-from . import LoopIR_pprint
 
 
 # --------------------------------------------------------------------------- #
