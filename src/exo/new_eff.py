@@ -463,6 +463,11 @@ def is_type_bound(val):
     raise ValidationError(Union[tuple, LoopIR.type], type(val))
 
 
+class LSMixin:
+    def __str__(self):
+        return _lsstr(self)
+
+
 LS = ADT(
     """
 module LocSet {
@@ -483,6 +488,7 @@ module LocSet {
         "aenv": AEnv,
         "type": is_type_bound,
     },
+    mixin_types={"locset": LSMixin},
 )
 
 ls_prec = {
@@ -586,11 +592,6 @@ def _lsstr(ls, prec=0):
         return f"alloc({ls.name},{arg})"
     else:
         assert False, f"bad case: {type(ls)}"
-
-
-@extclass(LS.locset)
-def __str__(ls):
-    return _lsstr(ls)
 
 
 def is_elem(pt, ls, win_map=None, alloc_masks=None):
@@ -706,6 +707,11 @@ def is_empty(ls):
 # Effects
 
 
+class EMixin:
+    def __str__(self):
+        return _effstr(self)
+
+
 E = ADT(
     """
 module EffectsNew {
@@ -730,6 +736,7 @@ module EffectsNew {
         "type": is_type_bound,
         # 'srcinfo': lambda x: isinstance(x, SrcInfo),
     },
+    mixin_types={"eff": EMixin},
 )
 
 
@@ -763,11 +770,6 @@ def _effstr(eff, tab=""):
         return f"{tab}Alloc({eff.name}|{eff.ndim})"
     else:
         assert False, f"bad case: {type(eff)}"
-
-
-@extclass(E.eff)
-def __str__(eff):
-    return _effstr(eff)
 
 
 # Here are codes for different location sets...
