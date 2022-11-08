@@ -1534,8 +1534,9 @@ def cut_loop(proc, loop_cursor, cut_point):
     """
     stmt = loop_cursor._impl
     proc_c = ic.Cursor.root(proc)
+    loopir = Schedules.DoPartitionLoop(proc_c._node(), stmt, cut_point).result()
 
-    return Schedules.DoPartitionLoop(proc_c, stmt, cut_point).result()
+    return Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([NestedForSeqCursorA])

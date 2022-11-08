@@ -46,12 +46,126 @@ from . import API as api
 class Cursor_Rewrite(LoopIR_Rewrite):
     def __init__(self, proc_cursor):
         self.provenance = proc_cursor.proc()
-        super().__init__(proc_cursor._node())
+        super().__init__(proc_cursor)
 
     def result(self, mod_config=None):
         return api.Procedure(
             self.proc, _provenance_eq_Procedure=self.provenance, _mod_config=mod_config
         )
+
+    def map_proc(self, pc):
+        p = pc._node()
+        new_args = self._map_list(self.map_fnarg, p.args)
+        new_preds = self.map_exprs(p.preds)
+        new_body = self.map_stmts(pc.body())
+        new_eff = self.map_eff(p.eff)
+
+        if any(
+            (new_args is not None, new_preds is not None, new_body is not None, new_eff)
+        ):
+            new_preds = new_preds or p.preds
+            new_preds = [
+                p for p in new_preds if not (isinstance(p, LoopIR.Const) and p.val)
+            ]
+            return p.update(
+                args=new_args or p.args,
+                preds=new_preds,
+                body=new_body or p.body,
+                eff=new_eff or p.eff,
+            )
+
+        return None
+
+    def apply_stmts(self, old):
+        if (new := self.map_stmts(old)) is not None:
+            return new
+        return [o._node() for o in old]
+
+    def apply_s(self, old):
+        if (new := self.map_s(old)) is not None:
+            return new
+        return [old._node()]
+
+    def map_stmts(self, stmts):
+        new_stmts = []
+        needs_update = False
+
+        for s in stmts:
+            s2 = self.map_s(s)
+            if s2 is None:
+                new_stmts.append(s._node())
+            else:
+                needs_update = True
+                if isinstance(s2, list):
+                    new_stmts.extend(s2)
+                else:
+                    new_stmts.append(s2)
+
+        if not needs_update:
+            return None
+
+        return new_stmts
+
+    def map_s(self, sc):
+        s = sc._node()
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            new_type = self.map_t(s.type)
+            new_idx = self.map_exprs(s.idx)
+            new_rhs = self.map_e(s.rhs)
+            new_eff = self.map_eff(s.eff)
+            if any((new_type, new_idx is not None, new_rhs, new_eff)):
+                return [
+                    s.update(
+                        type=new_type or s.type,
+                        idx=new_idx or s.idx,
+                        rhs=new_rhs or s.rhs,
+                        eff=new_eff or s.eff,
+                    )
+                ]
+        elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
+            new_rhs = self.map_e(s.rhs)
+            new_eff = self.map_eff(s.eff)
+            if any((new_rhs, new_eff)):
+                return [s.update(rhs=new_rhs or s.rhs, eff=new_eff or s.eff)]
+        elif isinstance(s, LoopIR.If):
+            new_cond = self.map_e(s.cond)
+            new_body = self.map_stmts(sc.body())
+            new_orelse = self.map_stmts(sc.orelse())
+            new_eff = self.map_eff(s.eff)
+            if any((new_cond, new_body is not None, new_orelse is not None, new_eff)):
+                return [
+                    s.update(
+                        cond=new_cond or s.cond,
+                        body=new_body or s.body,
+                        orelse=new_orelse or s.orelse,
+                        eff=new_eff or s.eff,
+                    )
+                ]
+        elif isinstance(s, LoopIR.Seq):
+            new_hi = self.map_e(s.hi)
+            new_body = self.map_stmts(sc.body())
+            new_eff = self.map_eff(s.eff)
+            if any((new_hi, new_body is not None, new_eff)):
+                return [
+                    s.update(
+                        hi=new_hi or s.hi, body=new_body or s.body, eff=new_eff or s.eff
+                    )
+                ]
+        elif isinstance(s, LoopIR.Call):
+            new_args = self.map_exprs(s.args)
+            new_eff = self.map_eff(s.eff)
+            if any((new_args is not None, new_eff)):
+                return [s.update(args=new_args or s.args, eff=new_eff or s.eff)]
+        elif isinstance(s, LoopIR.Alloc):
+            new_type = self.map_t(s.type)
+            new_eff = self.map_eff(s.eff)
+            if any((new_type, new_eff)):
+                return [s.update(type=new_type or s.type, eff=new_eff or s.eff)]
+        elif isinstance(s, LoopIR.Pass):
+            return None
+        else:
+            raise NotImplementedError(f"bad case {type(s)}")
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -118,85 +232,57 @@ class _DoReorderStmt(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_stmts(self, stmts):
+    def map_stmts(self, stmts_c):
+        stmts = [s._node() for s in stmts_c]
         for i, (s1, s2) in enumerate(zip(stmts, stmts[1:])):
             if s1 is self.f_stmt:
                 if s2 is self.s_stmt:
-                    Check_ReorderStmts(self.orig_proc, s1, s2)
+                    Check_ReorderStmts(self.orig_proc._node(), s1, s2)
                     return stmts[:i] + [s2, s1] + stmts[i + 2 :]
 
                 raise SchedulingError(
                     "expected the second statement to be directly after the first"
                 )
 
-        return super().map_stmts(stmts)
+        return super().map_stmts(stmts_c)
 
 
-class _PartitionLoop(Cursor_Rewrite):
-    def __init__(self, proc_cursor, loop_cursor, num):
+class _PartitionLoop(LoopIR_Rewrite):
+    def __init__(self, proc, loop_cursor, num):
         self.stmt = loop_cursor._node()
         self.partition_by = num
-        self.second = False
-        self.second_iter = None
 
-        super().__init__(proc_cursor)
-
-        self.proc = InferEffects(self.proc).result()
+        super().__init__(proc)
 
     def map_s(self, s):
         if s is self.stmt:
             assert isinstance(s, LoopIR.Seq)
 
             if not isinstance(s.hi, LoopIR.Const):
-                raise SchedulingError("expected loop bound to be constant")
+                raise SchedulingError("expected loop bound to be a literal")
 
             if s.hi.val <= self.partition_by:
                 raise SchedulingError(
                     "expected loop bound to be larger than partitioning value"
                 )
 
-            body = self.apply_stmts(s.body)
-            first_loop = s.update(
-                hi=LoopIR.Const(self.partition_by, T.int, s.srcinfo),
-                body=body,
-                eff=None,
-            )
+            part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
+            loop1 = s.update(hi=part_by, eff=None)
 
-            # Should add partition_by to everything in body
-            self.second = True
+            # all uses of the loop iteration in the second body need
+            # to be offset by the partition value
+            iter2 = s.iter.copy()
+            hi2 = LoopIR.Const(s.hi.val - part_by.val, T.int, s.srcinfo)
+            iter2_node = LoopIR.Read(iter2, [], T.index, s.srcinfo)
+            iter_off = LoopIR.BinOp("+", iter2_node, part_by, T.index, s.srcinfo)
+            env = {s.iter: iter_off}
 
-            new_iter = s.iter.copy()
+            body2 = SubstArgs(s.body, env).result()
+            loop2 = s.update(iter=iter2, hi=hi2, body=body2, eff=None)
 
-            self.second_iter = new_iter
-
-            second_body = SubstArgs(
-                body, {s.iter: LoopIR.Read(new_iter, [], T.index, s.srcinfo)}
-            ).result()
-
-            second_loop = s.update(
-                iter=new_iter,
-                hi=LoopIR.Const(s.hi.val - self.partition_by, T.int, s.srcinfo),
-                body=self.apply_stmts(second_body),
-                eff=None,
-            )
-
-            return [first_loop] + [second_loop]
+            return [loop1, loop2]
 
         return super().map_s(s)
-
-    def map_e(self, e):
-        if self.second:
-            if isinstance(e, LoopIR.Read) and e.name == self.second_iter:
-                assert e.type.is_indexable()
-                return LoopIR.BinOp(
-                    "+",
-                    e,
-                    LoopIR.Const(self.partition_by, T.int, e.srcinfo),
-                    T.index,
-                    e.srcinfo,
-                )
-
-        return super().map_e(e)
 
 
 class _DoProductLoop(Cursor_Rewrite):
@@ -220,11 +306,12 @@ class _DoProductLoop(Cursor_Rewrite):
 
         super().__init__(proc_cursor)
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         styp = type(s)
         if s is self.stmt:
             self.inside = True
-            body = self.map_stmts(s.body[0].body)
+            body = self.map_stmts(sc.body()[0].body())
             self.inside = False
             new_hi = LoopIR.BinOp(
                 "*", self.out_loop.hi, self.in_loop.hi, T.index, s.srcinfo
@@ -232,7 +319,7 @@ class _DoProductLoop(Cursor_Rewrite):
 
             return [s.update(iter=self.new_var, hi=new_hi, body=body)]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if self.inside and isinstance(e, LoopIR.Read):
@@ -262,14 +349,13 @@ def get_reads(e):
 
 class _DoMergeWrites(Cursor_Rewrite):
     def __init__(self, proc_cursor, f_cursor, s_cursor):
-        self.proc = proc_cursor._node()
         self.s1 = f_cursor._node()
         self.s2 = s_cursor._node()
 
         try:
             assert len(self.s1.idx) == len(self.s2.idx)
             for i, j in zip(self.s1.idx, self.s2.idx):
-                Check_ExprEqvInContext(self.proc, [self.s1, self.s2], i, j)
+                Check_ExprEqvInContext(proc_cursor._node(), [self.s1, self.s2], i, j)
         except SchedulingError as e:
             raise SchedulingError(
                 "expected the left hand side's indices to be the same."
@@ -292,7 +378,8 @@ class _DoMergeWrites(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_stmts(self, stmts):
+    def map_stmts(self, stmts_c):
+        stmts = [o._node() for o in stmts_c]
         if isinstance(self.s2, LoopIR.Assign):
             for i, s in enumerate(stmts):
                 if s is self.s2:
@@ -302,7 +389,7 @@ class _DoMergeWrites(Cursor_Rewrite):
                 if s is self.s1:
                     return stmts[:i] + [s.update(rhs=self.new_rhs)] + stmts[i + 2 :]
 
-        return super().map_stmts(stmts)
+        return super().map_stmts(stmts_c)
 
 
 # --------------------------------------------------------------------------- #
@@ -341,7 +428,8 @@ class _Split(Cursor_Rewrite):
     def cut_tail_sub(self, srcinfo):
         return self._cut_tail_sub
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         styp = type(s)
         if s is self.split_loop:
             # short-hands for sanity
@@ -374,7 +462,7 @@ class _Split(Cursor_Rewrite):
 
             # in the simple case, wrap body in a guard
             if self._tail_strategy == "guard":
-                body = self.map_stmts(s.body)
+                body = self.map_stmts(sc.body())
                 body_eff = get_effect_of_stmts(body)
                 idx_sub = self.substitute(s.srcinfo)
                 cond = boolop("<", idx_sub, s.hi)
@@ -415,9 +503,9 @@ class _Split(Cursor_Rewrite):
                 # be mapped instead to (Ncut*Q + cut_i)
                 self._cut_tail_sub = szop("+", rd(self.cut_i), szop("*", Ncut, Q))
 
-                main_body = self.map_stmts(s.body)
+                main_body = self.map_stmts(sc.body())
                 self._in_cut_tail = True
-                tail_body = Alpha_Rename(self.map_stmts(s.body)).result()
+                tail_body = Alpha_Rename(self.map_stmts(sc.body())).result()
                 self._in_cut_tail = False
 
                 main_eff = get_effect_of_stmts(main_body)
@@ -471,7 +559,7 @@ class _Split(Cursor_Rewrite):
                     )
 
                 # otherwise, we're good to go
-                body = self.map_stmts(s.body)
+                body = self.map_stmts(sc.body())
                 body_eff = get_effect_of_stmts(body)
 
                 lo_rng = cnst(self.quot)
@@ -494,7 +582,7 @@ class _Split(Cursor_Rewrite):
                 assert False, f"bad tail strategy: {self._tail_strategy}"
 
         # fall-through
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):
@@ -538,7 +626,8 @@ class _Unroll(Cursor_Rewrite):
 
         super().__init__(proc_cursor)
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.unroll_loop:
             if not isinstance(s.hi, LoopIR.Const):
                 raise SchedulingError(
@@ -549,7 +638,7 @@ class _Unroll(Cursor_Rewrite):
             if hi == 0:
                 return []
 
-            orig_body = s.body
+            orig_body = sc.body()
 
             self.unroll_itr = 0
 
@@ -561,7 +650,7 @@ class _Unroll(Cursor_Rewrite):
             return body
 
         # fall-through
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):
@@ -599,7 +688,8 @@ class _Inline(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.call_stmt:
             # handle potential window expressions in call positions
             win_binds = []
@@ -630,7 +720,7 @@ class _Inline(Cursor_Rewrite):
             return Alpha_Rename(win_binds + body).result()
 
         # fall-through
-        return super().map_s(s)
+        return super().map_s(sc)
 
     # make this more efficient by not rewriting
     # most of the sub-trees
@@ -773,7 +863,8 @@ class _SetTypAndMem(Cursor_Rewrite):
 
         return LoopIR.fnarg(a.name, typ, mem, a.srcinfo)
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if self.early_exit():
             return [s]
 
@@ -798,7 +889,7 @@ class _SetTypAndMem(Cursor_Rewrite):
                 return [LoopIR.Alloc(s.name, typ, mem, s.eff, s.srcinfo)]
 
         # fall-through
-        return super().map_s(s)
+        return super().map_s(sc)
 
     # make this more efficient by not rewriting
     # most of the sub-trees
@@ -828,7 +919,8 @@ class _CallSwap(Cursor_Rewrite):
     def mod_eq(self):
         return self.eq_mod_config
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.call_stmt:
             old_f = s.f
             new_f = self.new_subproc
@@ -839,13 +931,13 @@ class _CallSwap(Cursor_Rewrite):
                     f"{s.srcinfo}: Cannot swap call because the two "
                     f"procedures are not equivalent"
                 )
-            mod_cfg = Check_ExtendEqv(self.orig_proc, [s], [s_new], configkeys)
+            mod_cfg = Check_ExtendEqv(self.orig_proc._node(), [s], [s_new], configkeys)
             self.eq_mod_config = mod_cfg
 
             return [s_new]
 
         # fall-through
-        return super().map_s(s)
+        return super().map_s(sc)
 
     # make this more efficient by not rewriting
     # most of the sub-trees
@@ -884,7 +976,25 @@ class _InlineWindow(Cursor_Rewrite):
 
         return new_idxs
 
-    def map_s(self, s):
+    def calc_dim(self, dim):
+        assert dim < len(
+            [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
+        )
+
+        # Because our goal here is to offset `dim` in the original
+        # call argument to the point indexing to the windowing expression,
+        # new_dim should essencially be:
+        # `dim` + "number of LoopIR.Points in the windowing expression before the `dim` number of LoopIR.Interval"
+        new_dim = 0
+        for w in self.win_stmt.rhs.idx:
+            if isinstance(w, LoopIR.Interval):
+                dim -= 1
+            if dim == -1:
+                return new_dim
+            new_dim += 1
+
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.win_stmt:
             return []
 
@@ -904,7 +1014,7 @@ class _InlineWindow(Cursor_Rewrite):
                     )
                 ]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         etyp = type(e)
@@ -959,7 +1069,7 @@ class _InlineWindow(Cursor_Rewrite):
         elif etyp is LoopIR.StrideExpr:
             if self.win_stmt.lhs == e.name:
                 return LoopIR.StrideExpr(
-                    self.win_stmt.rhs.name, e.dim, e.type, e.srcinfo
+                    self.win_stmt.rhs.name, self.calc_dim(e.dim), e.type, e.srcinfo
                 )
 
         return super().map_e(e)
@@ -968,11 +1078,7 @@ class _InlineWindow(Cursor_Rewrite):
 # TODO: Rewrite this to directly use stmt_cursor instead of after
 class _ConfigWrite(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, config, field, expr, before=False):
-        assert (
-            isinstance(expr, LoopIR.Read)
-            or isinstance(expr, LoopIR.StrideExpr)
-            or isinstance(expr, LoopIR.Const)
-        )
+        assert isinstance(expr, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const))
 
         self.stmt = stmt_cursor._node()
         self.config = config
@@ -994,9 +1100,10 @@ class _ConfigWrite(Cursor_Rewrite):
     def mod_eq(self):
         return self.eq_mod_config
 
-    def map_stmts(self, stmts):
+    def map_stmts(self, stmts_c):
         body = []
-        for i, s in enumerate(stmts):
+        for i, sc in enumerate(stmts_c):
+            s = sc._node()
             if s is self.stmt:
                 cw_s = LoopIR.WriteConfig(
                     self.config, self.field, self.expr, None, s.srcinfo
@@ -1009,12 +1116,12 @@ class _ConfigWrite(Cursor_Rewrite):
                     body += [s, cw_s]
 
                 # finish and exit
-                body += stmts[i + 1 :]
+                body += [s._node() for s in stmts_c[i + 1 :]]
                 return body
 
             else:
                 # TODO: be smarter about None handling
-                body += self.apply_s(s)
+                body += self.apply_s(sc)
 
         return body
 
@@ -1071,7 +1178,7 @@ class _BindConfig(Cursor_Rewrite):
     def mod_eq(self):
         return self.eq_mod_config
 
-    def process_block(self, block):
+    def process_block(self, block_c):
         if self.sub_done:
             return None
 
@@ -1080,8 +1187,8 @@ class _BindConfig(Cursor_Rewrite):
 
         modified = False
 
-        for stmt in block:
-            new_stmt = self.map_s(stmt)
+        for stmt_c in block_c:
+            new_stmt = self.map_s(stmt_c)
 
             if self.found_expr and not self.placed_writeconfig:
                 self.placed_writeconfig = True
@@ -1093,7 +1200,7 @@ class _BindConfig(Cursor_Rewrite):
                 new_block.extend([wc])
 
             if new_stmt is None:
-                new_block.append(stmt)
+                new_block.append(stmt_c._node())
             else:
                 new_block.extend(new_stmt)
                 modified = True
@@ -1106,7 +1213,8 @@ class _BindConfig(Cursor_Rewrite):
 
         return new_block
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if self.sub_done:
             return None  # TODO: is this right?
 
@@ -1114,14 +1222,14 @@ class _BindConfig(Cursor_Rewrite):
         #   ignored.
 
         if isinstance(s, LoopIR.Seq):
-            body = self.process_block(s.body)
+            body = self.process_block(sc.body())
             if body:
                 return [s.update(body=body)]
             return None
 
         if isinstance(s, LoopIR.If):
-            if_then = self.process_block(s.body)
-            if_else = self.process_block(s.orelse)
+            if_then = self.process_block(sc.body())
+            if_else = self.process_block(sc.orelse())
             cond = self.map_e(s.cond)
             if any((if_then, if_else, cond)):
                 return [
@@ -1134,7 +1242,7 @@ class _BindConfig(Cursor_Rewrite):
 
             return None
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if e is self.expr and not self.sub_done:
@@ -1198,7 +1306,7 @@ class _BindExpr(Cursor_Rewrite):
             if stmt is not None:
                 is_updated = True
             else:
-                stmt = [_stmt]
+                stmt = [_stmt._node()]
 
             if self.found_expr and not self.placed_alloc:
                 self.placed_alloc = True
@@ -1229,15 +1337,16 @@ class _BindExpr(Cursor_Rewrite):
 
         return None
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if self.found_write:
             return None
 
         if self.sub_done:
-            return super().map_s(s)
+            return super().map_s(sc)
 
         if isinstance(s, LoopIR.Seq):
-            body = self.process_block(s.body)
+            body = self.process_block(sc.body())
             if body is None:
                 return None
             else:
@@ -1247,8 +1356,8 @@ class _BindExpr(Cursor_Rewrite):
             # TODO: our CSE here is very conservative. It won't look for
             #  matches between the then and else branches; in other words,
             #  it is restricted to a single basic block.
-            if_then = self.process_block(s.body)
-            if_else = self.process_block(s.orelse)
+            if_then = self.process_block(sc.body())
+            if_else = self.process_block(sc.orelse())
             if (if_then is not None) or (if_else is not None):
                 return [s.update(body=if_then or s.body, orelse=if_else or s.orelse)]
             else:
@@ -1268,7 +1377,7 @@ class _BindExpr(Cursor_Rewrite):
                 return [s.update(rhs=new_rhs)]
             return None
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if e in self.exprs and not self.sub_done:
@@ -1292,7 +1401,8 @@ class _DoStageAssn(Cursor_Rewrite):
         # repair effects...
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         tmp = self.new_name
         if s is self.assn and isinstance(s, LoopIR.Assign):
             rdtmp = LoopIR.Read(tmp, [], s.type, s.srcinfo)
@@ -1318,7 +1428,7 @@ class _DoStageAssn(Cursor_Rewrite):
                 LoopIR.Assign(s.name, s.type, None, s.idx, rdtmp, None, s.srcinfo),
             ]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 # Lift if no variable dependency
@@ -1341,12 +1451,13 @@ class _DoReorderScopes(Cursor_Rewrite):
         self.reordered = True
         return [new_if]
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if not isinstance(s, (LoopIR.If, LoopIR.Seq)):
             # Only ifs and loops can be interchanged
             return None
 
-        s2 = super().map_s(s)
+        s2 = super().map_s(sc)
         if s2:
             return s2
 
@@ -1423,7 +1534,7 @@ class _DoReorderScopes(Cursor_Rewrite):
                     #   if INNER: A    ~>    for OUTER in _: A
                     #   else:     B        else:
                     #                        for OUTER in _: B
-                    if s.iter in vars_in_expr(self.target.cond):
+                    if s.iter in _FV(self.target.cond):
                         raise SchedulingError(
                             "if statement depends on iteration variable"
                         )
@@ -1440,7 +1551,7 @@ class _DoReorderScopes(Cursor_Rewrite):
                     # for OUTER in _:          for INNER in _:
                     #   for INNER in _: A  ~>    for OUTER in _: A
                     styp = type(s)
-                    Check_ReorderLoops(self.orig_proc, s)
+                    Check_ReorderLoops(self.orig_proc._node(), s)
 
                     # short-hands for sanity
                     def boolop(op, lhs, rhs):
@@ -1504,7 +1615,8 @@ class _DoExpandDim(Cursor_Rewrite):
         # repair effects...
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.alloc_stmt:
             old_typ = s.type
             new_rngs = [self.alloc_dim]
@@ -1523,7 +1635,7 @@ class _DoExpandDim(Cursor_Rewrite):
             rhs = self.apply_e(s.rhs)
             return [s.update(idx=idx, rhs=rhs, eff=None)]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
@@ -1551,7 +1663,8 @@ class _DoRearrangeDim(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         # simply change the dimension
         if s is self.alloc_stmt:
             # construct new_hi
@@ -1570,7 +1683,7 @@ class _DoRearrangeDim(Cursor_Rewrite):
                     type(s)(s.name, s.type, s.cast, new_idx, s.rhs, None, s.srcinfo)
                 ]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         # TODO: I am not sure what rearrange_dim should do in terms of StrideExpr
@@ -1607,7 +1720,8 @@ class _DoDivideDim(Cursor_Rewrite):
         lo = LoopIR.BinOp("%", orig_i, quot, orig_i.type, srcinfo)
         return idx[: self.dim_idx] + [hi, lo] + idx[self.dim_idx + 1 :]
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.alloc_stmt:
             old_typ = s.type
             old_shp = old_typ.shape()
@@ -1640,7 +1754,7 @@ class _DoDivideDim(Cursor_Rewrite):
             rhs = self.apply_e(s.rhs)
             return [s.update(idx=idx, rhs=rhs, eff=None)]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
@@ -1693,7 +1807,8 @@ class _DoMultiplyDim(Cursor_Rewrite):
         del idx[self.lo_idx]
         return idx
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.alloc_stmt:
             old_typ = s.type
             shp = old_typ.shape().copy()
@@ -1717,7 +1832,7 @@ class _DoMultiplyDim(Cursor_Rewrite):
                 )
             ]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
@@ -1758,22 +1873,36 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.alloc_stmt:
             if self.n_lifts > len(self.ctrl_ctxt):
                 raise SchedulingError(
-                    "specified lift level {self.n_lifts} "
-                    + "is higher than the number of loop "
-                    + "{len(self.ctrl_ctxt)}"
+                    f"specified lift level {self.n_lifts} "
+                    f"is more than {len(self.ctrl_ctxt)}, "
+                    f"the number of loops "
+                    f"and ifs above the allocation"
                 )
+            if s.type.shape():
+                szvars = set.union(*[_FV(sz) for sz in s.type.shape()])
+                for i in self.get_ctrl_iters():
+                    if i in szvars:
+                        raise SchedulingError(
+                            f"Cannot lift allocation statement {s} past loop "
+                            f"with iteration variable {i} because "
+                            f"the allocation size depends on {i}."
+                        )
             self.lift_site = self.ctrl_ctxt[-self.n_lifts]
 
             return []
 
         elif isinstance(s, (LoopIR.If, LoopIR.Seq)):
             self.ctrl_ctxt.append(s)
-            stmts = super().map_s(s)
+            stmts = super().map_s(sc)
             self.ctrl_ctxt.pop()
+            # TODO: it is technically possible to end up with for-loops
+            # and if-statements that have empty bodies.  We should check
+            # for this situation, even if it's extremely unlikely.
 
             if s is self.lift_site:
                 new_alloc = LoopIR.Alloc(
@@ -1787,7 +1916,12 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
 
             return stmts
 
-        return super().map_s(s)
+        return super().map_s(sc)
+
+    def get_ctrl_iters(self):
+        return [
+            s.iter for s in self.ctrl_ctxt[-self.n_lifts :] if isinstance(s, LoopIR.Seq)
+        ]
 
 
 # --------------------------------------------------------------------------- #
@@ -1806,10 +1940,9 @@ class _LiftAlloc(Cursor_Rewrite):
         if mode not in ("row", "col"):
             raise SchedulingError(f"Unknown lift mode {mode}, should be 'row' or 'col'")
 
-        self.orig_proc = proc_cursor._node()
         self.alloc_sym = self.alloc_stmt.name
         self.alloc_deps = LoopIR_Dependencies(
-            self.alloc_sym, self.orig_proc.body
+            self.alloc_sym, proc_cursor._node().body
         ).result()
         self.lift_mode = mode
         self.lift_size = size
@@ -1837,7 +1970,8 @@ class _LiftAlloc(Cursor_Rewrite):
             return orig + access
         assert False
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.alloc_stmt:
             if self.n_lifts > len(self.ctrl_ctxt):
                 raise SchedulingError(
@@ -1893,7 +2027,7 @@ class _LiftAlloc(Cursor_Rewrite):
         elif isinstance(s, (LoopIR.If, LoopIR.Seq)):
             # handle recursive part of pass at this statement
             self.ctrl_ctxt.append(s)
-            stmts = super().map_s(s)
+            stmts = super().map_s(sc)
             self.ctrl_ctxt.pop()
 
             # splice in lifted statement at the point to lift-to
@@ -1919,12 +2053,12 @@ class _LiftAlloc(Cursor_Rewrite):
             # substitution in call arguments currently unsupported;
             # so setting flag here
             self._in_call_arg = True
-            stmts = super().map_s(s)
+            stmts = super().map_s(sc)
             self._in_call_arg = False
             return stmts
 
         # fall-through
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
@@ -2085,7 +2219,10 @@ class _FreeVars(LoopIR_Do):
         self._fvs = set()
         self._bound = set()
 
-        self.do_stmts(stmts)
+        if isinstance(stmts, LoopIR.expr):
+            self.do_e(stmts)
+        else:
+            self.do_stmts(stmts)
 
     def result(self):
         return self._fvs
@@ -2111,27 +2248,6 @@ class _FreeVars(LoopIR_Do):
 
 def _FV(stmts):
     return _FreeVars(stmts).result()
-
-
-class _VarsInExpr(LoopIR_Do):
-    def __init__(self, expr):
-        assert isinstance(expr, LoopIR.expr)
-
-        self.vars = set()
-        self.do_e(expr)
-
-    def result(self):
-        return self.vars
-
-    def do_e(self, e):
-        if isinstance(e, LoopIR.Read):
-            self.vars.add(e.name)
-
-        super().do_e(e)
-
-
-def vars_in_expr(expr):
-    return _VarsInExpr(expr).result()
 
 
 def _is_idempotent(stmts):
@@ -2299,7 +2415,8 @@ class _DoRemoveLoop(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.stmt:
             # Check if we can remove the loop
             # Conditions are:
@@ -2312,7 +2429,7 @@ class _DoRemoveLoop(Cursor_Rewrite):
                 if _is_idempotent(s.body):
                     zero = LoopIR.Const(0, T.int, s.srcinfo)
                     cond = LoopIR.BinOp(">", s.hi, zero, T.bool, s.srcinfo)
-                    body = self.apply_stmts(s.body)
+                    body = self.apply_stmts(sc.body())
                     guard = LoopIR.If(cond, body, [], None, s.srcinfo)
                     # remove loop and alpha rename
                     return Alpha_Rename([guard]).result()
@@ -2325,7 +2442,7 @@ class _DoRemoveLoop(Cursor_Rewrite):
                     f"Cannot remove loop, {s.iter} is not " "free in the loop body."
                 )
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 # This is same as original FissionAfter, except that
@@ -2585,7 +2702,8 @@ class _DoAddUnsafeGuard(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.stmt:
             # Check_ExprEqvInContext(self.orig_proc, [s],
             #                       self.cond,
@@ -2593,7 +2711,7 @@ class _DoAddUnsafeGuard(Cursor_Rewrite):
             s1 = Alpha_Rename([s]).result()
             return [LoopIR.If(self.cond, s1, [], None, s.srcinfo)]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 class _DoSpecialize(Cursor_Rewrite):
@@ -2606,7 +2724,8 @@ class _DoSpecialize(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.stmt:
             else_br = Alpha_Rename([s]).result()
             for cond in reversed(self.conds):
@@ -2614,7 +2733,7 @@ class _DoSpecialize(Cursor_Rewrite):
                 else_br = [LoopIR.If(cond, then_br, else_br, None, s.srcinfo)]
             return else_br
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 def _get_constant_bound(e):
@@ -2628,7 +2747,8 @@ class _DoBoundAndGuard(Cursor_Rewrite):
         self.loop = loop_cursor._node()
         super().__init__(proc_cursor)
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s == self.loop:
             assert isinstance(s, LoopIR.Seq)
             bound = _get_constant_bound(s.hi)
@@ -2647,7 +2767,7 @@ class _DoBoundAndGuard(Cursor_Rewrite):
             )
             return [s.update(hi=bound, body=[guard], eff=None)]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 class _DoFuseLoop(Cursor_Rewrite):
@@ -2663,7 +2783,8 @@ class _DoFuseLoop(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_stmts(self, stmts):
+    def map_stmts(self, stmts_c):
+        stmts = [s._node() for s in stmts_c]
         new_stmts = []
 
         for i, b in enumerate(stmts):
@@ -2678,7 +2799,7 @@ class _DoFuseLoop(Cursor_Rewrite):
 
                 # check if the loop bounds are equivalent
                 Check_ExprEqvInContext(
-                    self.orig_proc, [loop1, loop2], loop1.hi, loop2.hi
+                    self.orig_proc._node(), [loop1, loop2], loop1.hi, loop2.hi
                 )
 
                 x = loop1.iter
@@ -2694,15 +2815,15 @@ class _DoFuseLoop(Cursor_Rewrite):
                 return stmts[:i] + [loop] + stmts[i + 2 :]
 
         # if we reached this point, we didn't find the loop
-        return super().map_stmts(stmts)
+        return super().map_stmts(stmts_c)
 
 
-class _DoFuseIf(Cursor_Rewrite):
-    def __init__(self, proc_cursor, f_cursor, s_cursor):
+class _DoFuseIf(LoopIR_Rewrite):
+    def __init__(self, proc, f_cursor, s_cursor):
         self.if1 = f_cursor._node()
         self.if2 = s_cursor._node()
 
-        super().__init__(proc_cursor)
+        super().__init__(proc)
 
         self.proc = InferEffects(self.proc).result()
 
@@ -2752,7 +2873,8 @@ class _DoAddLoop(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.stmt:
             if not _is_idempotent([s]):
                 raise SchedulingError("expected stmt to be idempotent!")
@@ -2773,7 +2895,7 @@ class _DoAddLoop(Cursor_Rewrite):
             ir = LoopIR.Seq(sym, self.hi, [new_s], None, new_s.srcinfo)
             return [ir]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 # --------------------------------------------------------------------------- #
@@ -2825,14 +2947,15 @@ class _DoInsertPass(Cursor_Rewrite):
         self.before = before
         super().__init__(proc_cursor)
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.stmt:
             pass_s = LoopIR.Pass(eff_null(s.srcinfo), srcinfo=s.srcinfo)
             if self.before:
                 return [pass_s, s]
             else:
                 return [s, pass_s]
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 class _DoDeleteConfig(Cursor_Rewrite):
@@ -2844,25 +2967,27 @@ class _DoDeleteConfig(Cursor_Rewrite):
     def mod_eq(self):
         return self.eq_mod_config
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.stmt:
-            mod_cfg = Check_DeleteConfigWrite(self.orig_proc, [self.stmt])
+            mod_cfg = Check_DeleteConfigWrite(self.orig_proc._node(), [self.stmt])
             self.eq_mod_config = mod_cfg
             return []
         else:
-            return super().map_s(s)
+            return super().map_s(sc)
 
 
 class _DoDeletePass(Cursor_Rewrite):
     def __init__(self, proc_cursor):
         super().__init__(proc_cursor)
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if isinstance(s, LoopIR.Pass):
             return []
 
         elif isinstance(s, LoopIR.Seq):
-            body = self.map_stmts(s.body)
+            body = self.map_stmts(sc.body())
             if body is None:
                 return None
             elif body == []:
@@ -2870,7 +2995,7 @@ class _DoDeletePass(Cursor_Rewrite):
             else:
                 return [s.update(body=body)]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 class _DoExtractMethod(Cursor_Rewrite):
@@ -2897,7 +3022,8 @@ class _DoExtractMethod(Cursor_Rewrite):
     def pop(self):
         self.var_types = self.var_types.parents
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.match_stmt:
             subproc, args = _make_closure(self.sub_proc_name, [s], self.var_types)
             self.new_subproc = subproc
@@ -2908,7 +3034,7 @@ class _DoExtractMethod(Cursor_Rewrite):
         elif isinstance(s, LoopIR.Seq):
             self.push()
             self.var_types[s.iter] = T.index
-            body = self.map_stmts(s.body)
+            body = self.map_stmts(sc.body())
             self.pop()
 
             if body:
@@ -2917,10 +3043,10 @@ class _DoExtractMethod(Cursor_Rewrite):
             return None
         elif isinstance(s, LoopIR.If):
             self.push()
-            body = self.map_stmts(s.body)
+            body = self.map_stmts(sc.body())
             self.pop()
             self.push()
-            orelse = self.map_stmts(s.orelse)
+            orelse = self.map_stmts(sc.orelse())
             self.pop()
 
             if body or orelse:
@@ -2930,7 +3056,7 @@ class _DoExtractMethod(Cursor_Rewrite):
 
             return None
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         return None
@@ -3244,7 +3370,8 @@ class _DoSimplify(Cursor_Rewrite):
             return self.facts.get(str(e))
         return None
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if isinstance(s, LoopIR.If):
             cond = self.map_e(s.cond)
 
@@ -3253,20 +3380,20 @@ class _DoSimplify(Cursor_Rewrite):
             # If constant true or false, then drop the branch
             if isinstance(safe_cond, LoopIR.Const):
                 if safe_cond.val:
-                    return super().map_stmts(s.body)
+                    return super().map_stmts(sc.body())
                 else:
-                    return super().map_stmts(s.orelse)
+                    return super().map_stmts(sc.orelse())
 
             # Try to use the condition while simplifying body
             self.facts = self.facts.new_child()
             self.add_fact(safe_cond)
-            body = self.map_stmts(s.body)
+            body = self.map_stmts(sc.body())
             self.facts = self.facts.parents
 
             # Try to use the negation while simplifying orelse
             self.facts = self.facts.new_child()
             # TODO: negate fact here
-            orelse = self.map_stmts(s.orelse)
+            orelse = self.map_stmts(sc.orelse())
             self.facts = self.facts.parents
 
             eff = self.map_eff(s.eff)
@@ -3288,7 +3415,7 @@ class _DoSimplify(Cursor_Rewrite):
                 return []
 
             # Delete the loop if it would have an empty body
-            body = self.map_stmts(s.body)
+            body = self.map_stmts(sc.body())
             if body == []:
                 return []
 
@@ -3298,7 +3425,7 @@ class _DoSimplify(Cursor_Rewrite):
 
             return None
         else:
-            return super().map_s(s)
+            return super().map_s(sc)
 
 
 class _AssertIf(Cursor_Rewrite):
@@ -3314,21 +3441,22 @@ class _AssertIf(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.if_stmt:
             # TODO: Gilbert's SMT thing should do this safely
             if self.cond:
-                return self.map_stmts(s.body)
+                return self.map_stmts(sc.body())
             else:
-                return self.map_stmts(s.orelse)
+                return self.map_stmts(sc.orelse())
         elif isinstance(s, LoopIR.Seq):
-            body = self.map_stmts(s.body)
+            body = self.map_stmts(sc.body())
             if not body:
                 return []
             else:
                 return [s.update(body=body)]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 # TODO: This analysis is overly conservative.
@@ -3351,7 +3479,8 @@ class _DoDataReuse(Cursor_Rewrite):
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         # Check that buf_name is only used
         # before the first assignment of rep_pat
         if self.first_assn:
@@ -3376,7 +3505,7 @@ class _DoDataReuse(Cursor_Rewrite):
 
                 return s.update(name=name, cast=None, rhs=rhs, eff=None)
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.rep_name:
@@ -3526,23 +3655,26 @@ class _DoStageMem(Cursor_Rewrite):
 
         return [off_w(w_i, w_e[0]) for w_i, w_e in zip(w_idx, self.w_exprs)]
 
-    def map_stmts(self, stmts):
+    def map_stmts(self, stmts_c):
         """This method overload simply tries to find the indicated block"""
         if not self.in_block:
-            for i, s1 in enumerate(stmts):
-                if s1 is self.stmt_start:
-                    for j, s2 in enumerate(stmts):
-                        if s2 is self.stmt_end:
+            for i, s1 in enumerate(stmts_c):
+                if s1._node() is self.stmt_start:
+                    for j, s2 in enumerate(stmts_c):
+                        if s2._node() is self.stmt_end:
                             self.found_stmt = True
                             assert j >= i
-                            pre = stmts[:i]
-                            block = stmts[i : j + 1]
-                            post = stmts[j + 1 :]
+                            pre = [s._node() for s in stmts_c[:i]]
+                            post = [s._node() for s in stmts_c[j + 1 :]]
+                            block = stmts_c[i : j + 1]
 
                             if self.use_accum_zero:
                                 n_dims = len(self.buf_typ.shape())
                                 Check_BufferReduceOnly(
-                                    self.orig_proc, block, self.buf_name, n_dims
+                                    self.orig_proc._node(),
+                                    [s._node() for s in block],
+                                    self.buf_name,
+                                    n_dims,
                                 )
 
                             block = self.wrap_block(block)
@@ -3551,12 +3683,13 @@ class _DoStageMem(Cursor_Rewrite):
                             return pre + block + post
 
         # fall through
-        return super().map_stmts(stmts)
+        return super().map_stmts(stmts_c)
 
-    def wrap_block(self, block):
+    def wrap_block(self, block_c):
         """This method rewrites the structure around the block.
         `map_s` and `map_e` below substitute the buffer
         name within the block."""
+        block = [s._node() for s in block_c]
         orig_typ = self.buf_typ
         new_typ = self.new_typ
         mem = self.buf_mem
@@ -3565,7 +3698,7 @@ class _DoStageMem(Cursor_Rewrite):
         n_dims = len(orig_typ.shape())
         basetyp = new_typ.basetype() if isinstance(new_typ, T.Tensor) else new_typ
 
-        isR, isW = Check_BufferRW(self.orig_proc, block, self.buf_name, n_dims)
+        isR, isW = Check_BufferRW(self.orig_proc._node(), block, self.buf_name, n_dims)
         srcinfo = block[0].srcinfo
 
         new_alloc = [LoopIR.Alloc(self.new_name, new_typ, mem, None, srcinfo)]
@@ -3627,13 +3760,14 @@ class _DoStageMem(Cursor_Rewrite):
                 store_nest = [loop]
 
         self.in_block = True
-        block = self.map_stmts(block)
+        block = self.map_stmts(block_c)
         self.in_block = False
 
         return new_alloc + load_nest + block + store_nest
 
-    def map_s(self, s):
-        new_s = super().map_s(s)
+    def map_s(self, sc):
+        s = sc._node()
+        new_s = super().map_s(sc)
 
         if self.in_block:
             if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
@@ -3812,7 +3946,8 @@ class _DoBoundAlloc(Cursor_Rewrite):
         self.bounds = bounds
         super().__init__(proc_cursor)
 
-    def map_s(self, s):
+    def map_s(self, sc):
+        s = sc._node()
         if s is self.alloc_site:
             assert isinstance(s.type, T.Tensor)
             if len(self.bounds) != len(s.type.hi):
@@ -3829,7 +3964,7 @@ class _DoBoundAlloc(Cursor_Rewrite):
 
             return [LoopIR.Alloc(s.name, new_type, s.mem, s.eff, s.srcinfo)]
 
-        return super().map_s(s)
+        return super().map_s(sc)
 
 
 # --------------------------------------------------------------------------- #

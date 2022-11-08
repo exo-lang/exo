@@ -384,6 +384,32 @@ def test_lift_alloc_simple2(golden):
     assert str(bar) == golden
 
 
+def test_lift_alloc_simple3(golden):
+    @proc
+    def bar(n: size, A: i8[n]):
+        for k in seq(0, n):
+            for i in seq(0, n):
+                for j in seq(0, n):
+                    tmp_a: i8
+                    tmp_a = A[i]
+
+    bar = lift_alloc(bar, "tmp_a : _", n_lifts=3)
+    assert str(bar) == golden
+
+
+def test_lift_alloc_simple_fv_error():
+    @proc
+    def bar(n: size, A: i8[n]):
+        for k in seq(0, n):
+            for i in seq(0, n):
+                for j in seq(0, n):
+                    tmp_a: i8[k + 1]
+                    tmp_a[k] = A[i]
+
+    with pytest.raises(SchedulingError, match="Cannot lift allocation statement"):
+        lift_alloc(bar, "tmp_a : _", n_lifts=3)
+
+
 def test_lift_alloc_simple_error():
     @proc
     def bar(n: size, A: i8[n]):
@@ -1077,6 +1103,22 @@ def test_inline_window(golden):
 
     foo = inline_window(foo, "y = _")
     assert str(foo) == golden
+
+
+def test_inline_window2(golden):
+    @proc
+    def bar(s: stride):
+        x: R
+        x = 0.0
+
+    @proc
+    def foo(n: size, m: size, k: size, x: R[n, m, k, 10]):
+        y = x[0, :, :, 0]
+        y[0, 0] = 0.0
+        bar(stride(y, 1))
+
+    foo = inline_window(foo, "y = _")
+    assert str(simplify(foo)) == golden
 
 
 def test_lift_if_second_statement_in_then_error():

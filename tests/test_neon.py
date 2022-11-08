@@ -9,8 +9,19 @@ import pytest
 from exo import proc
 from exo.platforms.neon import *
 from exo.stdlib.scheduling import *
+from exo.memory import MemGenError
 
 import numpy as np
+
+
+def test_neon_can_read():
+    @proc
+    def read_neon(n: size, dst: R[n] @ DRAM, src: R[n] @ Neon4f):
+        for i in seq(0, n):
+            dst[i] = src[i]
+
+    with pytest.raises(MemGenError, match="cannot read"):
+        read_neon.c_code_str()
 
 
 @pytest.mark.isa("neon")

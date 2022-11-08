@@ -8,6 +8,9 @@ filterwarnings = [
 ]
 norecursedirs = ['dependencies']
 pythonpath = "src/"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 [tool.black]
-exclude = '(demo_stage\.py|dependencies/.*)'
+exclude = '(demo_stage\.py|dependencies/.*|build/.*)'

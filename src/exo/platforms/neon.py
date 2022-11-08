@@ -22,6 +22,10 @@ class Neon4f(Memory):
         return "#include <arm_neon.h>"
 
     @classmethod
+    def can_read(cls):
+        return False
+
+    @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         if not shape:
             raise MemGenError(f"{srcinfo}: Neon vectors are not scalar values")
