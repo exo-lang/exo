@@ -477,7 +477,7 @@ module LocSet {
             | LetEnv    ( aenv   env, locset arg )
             | HideAlloc ( sym   name, locset arg )
 } """,
-    {
+    ext_types={
         "sym": Sym,
         "aexpr": A.expr,
         "aenv": AEnv,
@@ -723,7 +723,7 @@ module EffectsNew {
          --
          | Alloc        ( sym name, int ndim )
 } """,
-    {
+    ext_types={
         "sym": Sym,
         "aexpr": A.expr,
         "aenv": AEnv,

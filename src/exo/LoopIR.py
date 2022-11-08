@@ -298,7 +298,7 @@ module Effects {
                 attributes( type type, srcinfo srcinfo )
 
 } """,
-    {
+    ext_types={
         "sym": Sym,
         "type": LoopIR.type,
         "binop": validators.instance_of(Operator, convert=True),

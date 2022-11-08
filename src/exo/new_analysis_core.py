@@ -79,7 +79,7 @@ module AExpr {
             | Let( sym* names, expr* rhs, expr body )
             attributes( type type, srcinfo srcinfo )
 } """,
-    {
+    ext_types={
         "sym": Sym,
         "type": is_type_bound,
         "binop": validators.instance_of(AOp, convert=True),

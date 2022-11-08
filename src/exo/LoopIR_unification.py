@@ -162,9 +162,7 @@ module UEq {
           |  Scale( int coeff, expr e )
 
 } """,
-    {
-        "sym": Sym,
-    },
+    ext_types={"sym": Sym},
 )
 
 
