@@ -48,11 +48,6 @@ class Sym:
         return Sym(self._nm)
 
 
-# from a github gist by victorlei
-def extclass(cls):
-    return lambda f: (setattr(cls, f.__name__, f) or f)
-
-
 class SrcInfo:
     def __init__(
         self,
