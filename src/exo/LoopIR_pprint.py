@@ -7,28 +7,11 @@ from dataclasses import dataclass, field
 # string
 from yapf.yapflib.yapf_api import FormatCode
 
-from .LoopIR import T
-from .LoopIR import UAST, LoopIR
+from . import LoopIR as L
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError
-from .prelude import *
+from .prelude import Sym
 
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-#   Notes on Layout Schemes...
-
-"""
-  functions should return a list of strings, one for each line
-
-  standard inputs
-  tab     - holds a string of white-space
-  prec    - the operator precedence of the surrounding text
-            if this string contains a lower precedence operation then
-            we must wrap it in parentheses.
-"""
-
-# We expect pprint to install functions on the IR rather than
-# expose functions; therefore hide all variables as local
-__all__ = []
+__all__ = ["UAST_PPrinter", "LoopIR_PPrinter"]
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -62,19 +45,6 @@ op_prec = {
 # UAST Pretty Printing
 
 
-@extclass(UAST.proc)
-@extclass(UAST.fnarg)
-@extclass(UAST.stmt)
-@extclass(UAST.expr)
-@extclass(UAST.type)
-@extclass(UAST.w_access)
-def __str__(self):
-    return UAST_PPrinter(self).str()
-
-
-del __str__
-
-
 class UAST_PPrinter:
     def __init__(self, node):
         self._node = node
@@ -83,22 +53,22 @@ class UAST_PPrinter:
         self._tab = ""
         self._lines = []
 
-        if isinstance(node, UAST.proc):
+        if isinstance(node, L.UAST.proc):
             self.pproc(node)
-        elif isinstance(node, UAST.fnarg):
+        elif isinstance(node, L.UAST.fnarg):
             self.addline(self.pfnarg(node))
-        elif isinstance(node, UAST.stmt):
+        elif isinstance(node, L.UAST.stmt):
             self.pstmts([node])
-        elif isinstance(node, UAST.expr):
+        elif isinstance(node, L.UAST.expr):
             self.addline(self.pexpr(node))
-        elif isinstance(node, UAST.type):
+        elif isinstance(node, L.UAST.type):
             self.addline(self.ptype(node))
-        elif isinstance(node, UAST.w_access):
-            if isinstance(node, UAST.Interval):
+        elif isinstance(node, L.UAST.w_access):
+            if isinstance(node, L.UAST.Interval):
                 lo = self.pexpr(node.lo) if node.lo else "None"
                 hi = self.pexpr(node.hi) if node.hi else "None"
                 self.addline(f"Interval({lo},{hi})")
-            elif isinstance(node, UAST.Point):
+            elif isinstance(node, L.UAST.Point):
                 self.addline(f"Point({self.pexpr(node.pt)})")
             else:
                 assert False, "bad case"
@@ -106,12 +76,12 @@ class UAST_PPrinter:
             assert False, f"cannot print a {type(node)}"
 
     def str(self):
-        if isinstance(self._node, (UAST.type, UAST.w_access)):
+        if isinstance(self._node, (L.UAST.type, L.UAST.w_access)):
             assert len(self._lines) == 1
             return self._lines[0]
 
         fmtstr, linted = FormatCode("\n".join(self._lines))
-        if isinstance(self._node, LoopIR.proc):
+        if isinstance(self._node, L.LoopIR.proc):
             assert linted, "generated unlinted code..."
         return fmtstr
 
@@ -180,10 +150,10 @@ class UAST_PPrinter:
 
     def pstmts(self, body):
         for stmt in body:
-            if isinstance(stmt, UAST.Pass):
+            if isinstance(stmt, L.UAST.Pass):
                 self.addline("pass")
-            elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
-                op = "=" if isinstance(stmt, UAST.Assign) else "+="
+            elif isinstance(stmt, L.UAST.Assign) or isinstance(stmt, L.UAST.Reduce):
+                op = "=" if isinstance(stmt, L.UAST.Assign) else "+="
 
                 rhs = self.pexpr(stmt.rhs)
 
@@ -194,23 +164,23 @@ class UAST_PPrinter:
                     lhs = self.get_name(stmt.name)
 
                 self.addline(f"{lhs} {op} {rhs}")
-            elif isinstance(stmt, LoopIR.WriteConfig):
+            elif isinstance(stmt, L.LoopIR.WriteConfig):
                 cname = stmt.config.name()
                 rhs = self.pexpr(stmt.rhs)
                 self.addline(f"{cname}.{stmt.field} = {rhs}")
-            elif isinstance(stmt, UAST.FreshAssign):
+            elif isinstance(stmt, L.UAST.FreshAssign):
                 rhs = self.pexpr(stmt.rhs)
                 self.addline(f"{self.new_name(stmt.name)} = {rhs}")
-            elif isinstance(stmt, UAST.Alloc):
+            elif isinstance(stmt, L.UAST.Alloc):
                 mem = f" @{stmt.mem.name()}" if stmt.mem else ""
                 self.addline(
                     f"{self.new_name(stmt.name)} : {self.ptype(stmt.type)}{mem}"
                 )
-            elif isinstance(stmt, UAST.Call):
+            elif isinstance(stmt, L.UAST.Call):
                 pname = stmt.f.name or "_anon_"
                 args = [self.pexpr(a) for a in stmt.args]
                 self.addline(f"{pname}({','.join(args)})")
-            elif isinstance(stmt, UAST.If):
+            elif isinstance(stmt, L.UAST.If):
                 cond = self.pexpr(stmt.cond)
                 self.addline(f"if {cond}:")
                 self.push()
@@ -221,7 +191,7 @@ class UAST_PPrinter:
                     self.push()
                     self.pstmts(stmt.orelse)
                     self.pop()
-            elif isinstance(stmt, UAST.Seq):
+            elif isinstance(stmt, L.UAST.Seq):
                 cond = self.pexpr(stmt.cond)
                 self.push(only="env")
                 self.addline(f"for {self.new_name(stmt.iter)} in {cond}:")
@@ -232,15 +202,15 @@ class UAST_PPrinter:
                 assert False, "unrecognized stmt type"
 
     def pexpr(self, e, prec=0):
-        if isinstance(e, UAST.Read):
+        if isinstance(e, L.UAST.Read):
             if len(e.idx) > 0:
                 idx = [self.pexpr(i) for i in e.idx]
                 return f"{self.get_name(e.name)}[{','.join(idx)}]"
             else:
                 return self.get_name(e.name)
-        elif isinstance(e, UAST.Const):
+        elif isinstance(e, L.UAST.Const):
             return str(e.val)
-        elif isinstance(e, UAST.BinOp):
+        elif isinstance(e, L.UAST.BinOp):
             local_prec = op_prec[e.op]
             # increment rhs by 1 to account for left-associativity
             lhs = self.pexpr(e.lhs, prec=local_prec)
@@ -250,18 +220,18 @@ class UAST_PPrinter:
             if local_prec < prec:
                 s = f"({s})"
             return s
-        elif isinstance(e, UAST.USub):
+        elif isinstance(e, L.UAST.USub):
             return f"-{self.pexpr(e.arg, prec=op_prec['~'])}"
-        elif isinstance(e, UAST.ParRange):
+        elif isinstance(e, L.UAST.ParRange):
             return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
-        elif isinstance(e, UAST.SeqRange):
+        elif isinstance(e, L.UAST.SeqRange):
             return f"seq({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
-        elif isinstance(e, UAST.WindowExpr):
+        elif isinstance(e, L.UAST.WindowExpr):
 
             def pacc(w):
-                if isinstance(w, UAST.Point):
+                if isinstance(w, L.UAST.Point):
                     return self.pexpr(w.pt)
-                elif isinstance(w, UAST.Interval):
+                elif isinstance(w, L.UAST.Interval):
                     lo = self.pexpr(w.lo) if w.lo else ""
                     hi = self.pexpr(w.hi) if w.hi else ""
                     return f"{lo}:{hi}"
@@ -269,38 +239,38 @@ class UAST_PPrinter:
                     assert False, "bad case"
 
             return f"{self.get_name(e.name)}" f"[{', '.join([pacc(w) for w in e.idx])}]"
-        elif isinstance(e, UAST.StrideExpr):
+        elif isinstance(e, L.UAST.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
-        elif isinstance(e, UAST.BuiltIn):
+        elif isinstance(e, L.UAST.BuiltIn):
             pname = e.f.name() or "_anon_"
             args = [self.pexpr(a) for a in e.args]
             return f"{pname}({','.join(args)})"
-        elif isinstance(e, LoopIR.ReadConfig):
+        elif isinstance(e, L.LoopIR.ReadConfig):
             cname = e.config.name()
             return f"{cname}.{e.field}"
         else:
             assert False, "unrecognized expr type"
 
     def ptype(self, t):
-        if isinstance(t, UAST.Num):
+        if isinstance(t, L.UAST.Num):
             return "R"
-        elif isinstance(t, UAST.F32):
+        elif isinstance(t, L.UAST.F32):
             return "f32"
-        elif isinstance(t, UAST.F64):
+        elif isinstance(t, L.UAST.F64):
             return "f64"
-        elif isinstance(t, UAST.INT8):
+        elif isinstance(t, L.UAST.INT8):
             return "i8"
-        elif isinstance(t, UAST.INT32):
+        elif isinstance(t, L.UAST.INT32):
             return "i32"
-        elif isinstance(t, UAST.Bool):
+        elif isinstance(t, L.UAST.Bool):
             return "bool"
-        elif isinstance(t, UAST.Int):
+        elif isinstance(t, L.UAST.Int):
             return "int"
-        elif isinstance(t, UAST.Index):
+        elif isinstance(t, L.UAST.Index):
             return "index"
-        elif isinstance(t, UAST.Size):
+        elif isinstance(t, L.UAST.Size):
             return "size"
-        elif isinstance(t, UAST.Tensor):
+        elif isinstance(t, L.UAST.Tensor):
             base = str(t.basetype())
             if t.is_window:
                 base = f"[{base}]"
@@ -315,36 +285,30 @@ class UAST_PPrinter:
 # LoopIR Pretty Printing
 
 
+class LoopIR_PPrinter:
+    @staticmethod
+    def proc(p):
+        return _format_code("\n".join(_print_proc(p, PrintEnv(), "")))
+
+    @staticmethod
+    def fnarg(a):
+        return _format_code(_print_fnarg(a, PrintEnv()))
+
+    @staticmethod
+    def stmt(s):
+        return _format_code("\n".join(_print_stmt(s, PrintEnv(), "")))
+
+    @staticmethod
+    def expr(e):
+        return _format_code(_print_expr(e, PrintEnv()))
+
+    @staticmethod
+    def type(t):
+        return _format_code(_print_type(t, PrintEnv()))
+
+
 def _format_code(code):
     return FormatCode(code)[0].rstrip("\n")
-
-
-@extclass(LoopIR.proc)
-def __str__(self):
-    return _format_code("\n".join(_print_proc(self, PrintEnv(), "")))
-
-
-@extclass(LoopIR.fnarg)
-def __str__(self):
-    return _format_code(_print_fnarg(self, PrintEnv()))
-
-
-@extclass(LoopIR.stmt)
-def __str__(self):
-    return _format_code("\n".join(_print_stmt(self, PrintEnv(), "")))
-
-
-@extclass(LoopIR.expr)
-def __str__(self):
-    return _format_code(_print_expr(self, PrintEnv()))
-
-
-@extclass(LoopIR.type)
-def __str__(self):
-    return _format_code(_print_type(self, PrintEnv()))
-
-
-del __str__
 
 
 @dataclass
@@ -400,11 +364,11 @@ def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
 
 
 def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
-    if isinstance(stmt, LoopIR.Pass):
+    if isinstance(stmt, L.LoopIR.Pass):
         return [f"{indent}pass"]
 
-    elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
-        op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
+    elif isinstance(stmt, (L.LoopIR.Assign, L.LoopIR.Reduce)):
+        op = "=" if isinstance(stmt, L.LoopIR.Assign) else "+="
 
         lhs = env.get_name(stmt.name)
 
@@ -415,29 +379,29 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
         return [f"{indent}{lhs}{idx} {op} {rhs}"]
 
-    elif isinstance(stmt, LoopIR.WriteConfig):
+    elif isinstance(stmt, L.LoopIR.WriteConfig):
         cname = stmt.config.name()
         rhs = _print_expr(stmt.rhs, env)
         return [f"{indent}{cname}.{stmt.field} = {rhs}"]
 
-    elif isinstance(stmt, LoopIR.WindowStmt):
+    elif isinstance(stmt, L.LoopIR.WindowStmt):
         rhs = _print_expr(stmt.rhs, env)
         return [f"{indent}{env.get_name(stmt.lhs)} = {rhs}"]
 
-    elif isinstance(stmt, LoopIR.Alloc):
+    elif isinstance(stmt, L.LoopIR.Alloc):
         mem = f" @{stmt.mem.name()}" if stmt.mem else ""
         ty = _print_type(stmt.type, env)
         return [f"{indent}{env.get_name(stmt.name)} : {ty}{mem}"]
 
-    elif isinstance(stmt, LoopIR.Free):
+    elif isinstance(stmt, L.LoopIR.Free):
         # mem = f"@{stmt.mem.name()}" if stmt.mem else ""
         return [f"{indent}free({env.get_name(stmt.name)})"]
 
-    elif isinstance(stmt, LoopIR.Call):
+    elif isinstance(stmt, L.LoopIR.Call):
         args = [_print_expr(a, env) for a in stmt.args]
         return [f"{indent}{stmt.f.name}({', '.join(args)})"]
 
-    elif isinstance(stmt, LoopIR.If):
+    elif isinstance(stmt, L.LoopIR.If):
         cond = _print_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
         lines.extend(_print_block(stmt.body, env.push(), indent + "  "))
@@ -446,7 +410,7 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
             lines.extend(_print_block(stmt.orelse, env.push(), indent + "  "))
         return lines
 
-    elif isinstance(stmt, LoopIR.Seq):
+    elif isinstance(stmt, L.LoopIR.Seq):
         hi = _print_expr(stmt.hi, env)
         body_env = env.push()
         lines = [f"{indent}for {body_env.get_name(stmt.iter)} in seq(0, {hi}):"]
@@ -457,9 +421,9 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
 
 def _print_fnarg(a, env: PrintEnv) -> str:
-    if a.type == T.size:
+    if a.type == L.T.size:
         return f"{env.get_name(a.name)} : size"
-    elif a.type == T.index:
+    elif a.type == L.T.index:
         return f"{env.get_name(a.name)} : index"
     else:
         ty = _print_type(a.type, env)
@@ -468,18 +432,18 @@ def _print_fnarg(a, env: PrintEnv) -> str:
 
 
 def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
-    if isinstance(e, LoopIR.Read):
+    if isinstance(e, L.LoopIR.Read):
         name = env.get_name(e.name)
         idx = f"[{', '.join(_print_expr(i, env) for i in e.idx)}]" if e.idx else ""
         return f"{name}{idx}"
 
-    elif isinstance(e, LoopIR.Const):
+    elif isinstance(e, L.LoopIR.Const):
         return str(e.val)
 
-    elif isinstance(e, LoopIR.USub):
+    elif isinstance(e, L.LoopIR.USub):
         return f'-{_print_expr(e.arg, env, prec=op_prec["~"])}'
 
-    elif isinstance(e, LoopIR.BinOp):
+    elif isinstance(e, L.LoopIR.BinOp):
         local_prec = op_prec[e.op]
         # increment rhs by 1 to account for left-associativity
         lhs = _print_expr(e.lhs, env, prec=local_prec)
@@ -490,19 +454,19 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
             s = f"({s})"
         return s
 
-    elif isinstance(e, LoopIR.WindowExpr):
+    elif isinstance(e, L.LoopIR.WindowExpr):
         name = env.get_name(e.name)
         return f"{name}[{', '.join([_print_w_access(w, env) for w in e.idx])}]"
 
-    elif isinstance(e, LoopIR.StrideExpr):
+    elif isinstance(e, L.LoopIR.StrideExpr):
         return f"stride({env.get_name(e.name)}, {e.dim})"
 
-    elif isinstance(e, LoopIR.BuiltIn):
+    elif isinstance(e, L.LoopIR.BuiltIn):
         pname = e.f.name() or "_anon_"
         args = [_print_expr(a, env) for a in e.args]
         return f"{pname}({', '.join(args)})"
 
-    elif isinstance(e, LoopIR.ReadConfig):
+    elif isinstance(e, L.LoopIR.ReadConfig):
         cname = e.config.name()
         return f"{cname}.{e.field}"
 
@@ -510,54 +474,54 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
 
 
 def _print_type(t, env: PrintEnv) -> str:
-    if isinstance(t, T.Num):
+    if isinstance(t, L.T.Num):
         return "R"
-    elif isinstance(t, T.F32):
+    elif isinstance(t, L.T.F32):
         return "f32"
-    elif isinstance(t, T.F64):
+    elif isinstance(t, L.T.F64):
         return "f64"
-    elif isinstance(t, T.INT8):
+    elif isinstance(t, L.T.INT8):
         return "i8"
-    elif isinstance(t, T.INT32):
+    elif isinstance(t, L.T.INT32):
         return "i32"
-    elif isinstance(t, T.Bool):
+    elif isinstance(t, L.T.Bool):
         return "bool"
-    elif isinstance(t, T.Int):
+    elif isinstance(t, L.T.Int):
         return "int"
-    elif isinstance(t, T.Index):
+    elif isinstance(t, L.T.Index):
         return "index"
-    elif isinstance(t, T.Size):
+    elif isinstance(t, L.T.Size):
         return "size"
-    elif isinstance(t, T.Error):
+    elif isinstance(t, L.T.Error):
         return "err"
 
-    elif isinstance(t, T.Tensor):
+    elif isinstance(t, L.T.Tensor):
         base = _print_type(t.basetype(), env)
         if t.is_window:
             base = f"[{base}]"
         ranges = ", ".join([_print_expr(r, env) for r in t.shape()])
         return f"{base}[{ranges}]"
 
-    elif isinstance(t, T.Window):
+    elif isinstance(t, L.T.Window):
         return (
             f"Window(src_type={t.src_type},as_tensor={t.as_tensor},"
             f"src_buf={t.src_buf},"
             f"idx=[{', '.join([_print_expr(w, env) for w in t.idx])}])"
         )
 
-    elif isinstance(t, T.Stride):
+    elif isinstance(t, L.T.Stride):
         return "stride"
 
     assert False, f"impossible type {type(t)}"
 
 
 def _print_w_access(node, env: PrintEnv) -> str:
-    if isinstance(node, LoopIR.Interval):
+    if isinstance(node, L.LoopIR.Interval):
         lo = _print_expr(node.lo, env)
         hi = _print_expr(node.hi, env)
         return f"{lo}:{hi}"
 
-    elif isinstance(node, LoopIR.Point):
+    elif isinstance(node, L.LoopIR.Point):
         return _print_expr(node.pt, env)
 
     assert False, "bad case"
@@ -565,7 +529,7 @@ def _print_w_access(node, env: PrintEnv) -> str:
 
 def _print_cursor(cur):
     if isinstance(cur, Node) and not isinstance(
-        cur._node(), (LoopIR.proc, LoopIR.stmt)
+        cur._node(), (L.LoopIR.proc, L.LoopIR.stmt)
     ):
         raise NotImplementedError(
             "Cursor printing is only implemented for procs and statements"
@@ -583,7 +547,7 @@ def _print_cursor_proc(
     cur: Node, target: Cursor, env: PrintEnv, indent: str
 ) -> list[str]:
     p = cur._node()
-    assert isinstance(p, LoopIR.proc)
+    assert isinstance(p, L.LoopIR.proc)
 
     match_comment = "  # <-- NODE" if cur == target else ""
 
@@ -659,7 +623,7 @@ def _print_cursor_stmt(
 ) -> list[str]:
     stmt = cur._node()
 
-    if isinstance(stmt, LoopIR.If):
+    if isinstance(stmt, L.LoopIR.If):
         cond = _print_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
         lines.extend(_print_cursor_block(cur.body(), target, env.push(), indent + "  "))
@@ -669,7 +633,7 @@ def _print_cursor_stmt(
                 _print_cursor_block(cur.orelse(), target, env.push(), indent + "  ")
             )
 
-    elif isinstance(stmt, LoopIR.Seq):
+    elif isinstance(stmt, L.LoopIR.Seq):
         hi = _print_expr(stmt.hi, env)
         body_env = env.push()
         lines = [

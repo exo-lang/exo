@@ -4,6 +4,7 @@ from typing import Type
 
 from asdl_adt import ADT, validators
 
+from . import LoopIR_pprint as PPrint
 from .builtins import BuiltIn
 from .configs import Config
 from .memory import Memory
@@ -49,6 +50,31 @@ class Operator(str):
 # --------------------------------------------------------------------------- #
 # Loop IR
 # --------------------------------------------------------------------------- #
+
+
+class LoopIRMixinProc:
+    def __str__(self):
+        return PPrint.LoopIR_PPrinter.proc(self)
+
+
+class LoopIRMixinFnarg:
+    def __str__(self):
+        return PPrint.LoopIR_PPrinter.fnarg(self)
+
+
+class LoopIRMixinStmt:
+    def __str__(self):
+        return PPrint.LoopIR_PPrinter.stmt(self)
+
+
+class LoopIRMixinExpr:
+    def __str__(self):
+        return PPrint.LoopIR_PPrinter.expr(self)
+
+
+class LoopIRMixinType:
+    def __str__(self):
+        return PPrint.LoopIR_PPrinter.type(self)
 
 
 LoopIR = ADT(
@@ -136,11 +162,41 @@ module LoopIR {
         "Stride",
         "Error",
     },
+    mixin_types={
+        "proc": LoopIRMixinProc,
+        "fnarg": LoopIRMixinFnarg,
+        "stmt": LoopIRMixinStmt,
+        "expr": LoopIRMixinExpr,
+        "type": LoopIRMixinType,
+    },
 )
+
 
 # --------------------------------------------------------------------------- #
 # Untyped AST
 # --------------------------------------------------------------------------- #
+
+
+class UASTStringMixin:
+    def __str__(self):
+        return PPrint.UAST_PPrinter(self).str()
+
+
+class UASTTypeMixin(UASTStringMixin):
+    def shape(self):
+        return []
+
+    def basetype(self):
+        return self
+
+
+class UASTTensorMixin(UASTTypeMixin):
+    def shape(self):
+        return self.hi
+
+    def basetype(self):
+        return self.type
+
 
 UAST = ADT(
     """
@@ -217,6 +273,15 @@ module UAST {
         "Size",
         "Index",
         "Stride",
+    },
+    mixin_types={
+        "proc": UASTStringMixin,
+        "fnarg": UASTStringMixin,
+        "stmt": UASTStringMixin,
+        "expr": UASTStringMixin,
+        "w_access": UASTStringMixin,
+        "type": UASTTypeMixin,
+        "Tensor": UASTTensorMixin,
     },
 )
 
@@ -311,30 +376,6 @@ module Effects {
 # --------------------------------------------------------------------------- #
 # Extension methods
 # --------------------------------------------------------------------------- #
-
-
-@extclass(UAST.Tensor)
-@extclass(UAST.Num)
-@extclass(UAST.F32)
-@extclass(UAST.F64)
-@extclass(UAST.INT8)
-@extclass(UAST.INT32)
-def shape(t):
-    shp = t.hi if isinstance(t, UAST.Tensor) else []
-    return shp
-
-
-del shape
-
-
-@extclass(UAST.type)
-def basetype(t):
-    if isinstance(t, UAST.Tensor):
-        t = t.type
-    return t
-
-
-del basetype
 
 
 # make proc be a hashable object
