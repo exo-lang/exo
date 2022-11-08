@@ -4,11 +4,11 @@ from typing import Any, Union
 
 import pysmt
 import z3 as z3lib
+from asdl_adt import ADT, validators
+from asdl_adt.validators import ValidationError
 from pysmt import logics
 from pysmt import shortcuts as SMT
 
-from asdl_adt import ADT, validators
-from asdl_adt.validators import ValidationError
 from .LoopIR import T, LoopIR
 from .prelude import *
 
@@ -58,6 +58,41 @@ class AOp(str):
         raise ValueError(f"invalid operator: {op}")
 
 
+class AMixinExpr:
+    def __neg__(self):
+        return A.USub(self, T.bool, self.srcinfo)
+
+    def __add__(self, rhs):
+        return A.BinOp("+", self, rhs, T.index, self.srcinfo)
+
+    def __sub__(self, rhs):
+        return A.BinOp("-", self, rhs, T.index, self.srcinfo)
+
+    def __mul__(self, rhs):
+        return A.BinOp("*", self, rhs, T.index, self.srcinfo)
+
+    def __truediv__(self, rhs):
+        return A.BinOp("/", self, rhs, T.index, self.srcinfo)
+
+    def __mod__(self, rhs):
+        return A.BinOp("%", self, rhs, T.index, self.srcinfo)
+
+    def __lt__(self, rhs):
+        return A.BinOp("<", self, rhs, T.bool, self.srcinfo)
+
+    def __gt__(self, rhs):
+        return A.BinOp(">", self, rhs, T.bool, self.srcinfo)
+
+    def __le__(self, rhs):
+        return A.BinOp("<=", self, rhs, T.bool, self.srcinfo)
+
+    def __ge__(self, rhs):
+        return A.BinOp(">=", self, rhs, T.bool, self.srcinfo)
+
+    def __str__(self):
+        return _estr(self)
+
+
 A = ADT(
     """
 module AExpr {
@@ -85,7 +120,9 @@ module AExpr {
         "binop": validators.instance_of(AOp, convert=True),
         "srcinfo": SrcInfo,
     },
+    mixin_types={"expr": AMixinExpr},
 )
+
 
 # constructor helpers...
 def AInt(x):
@@ -184,59 +221,6 @@ def ADef(arg):
     return A.Definitely(arg, T.bool, arg.srcinfo)
 
 
-@extclass(A.expr)
-def __neg__(arg):
-    return A.USub(arg, T.bool, arg.srcinfo)
-
-
-# USub
-# Binop
-#   + - * / %  < > <= >= ==  and or
-@extclass(A.expr)
-def __add__(lhs, rhs):
-    return A.BinOp("+", lhs, rhs, T.index, lhs.srcinfo)
-
-
-@extclass(A.expr)
-def __sub__(lhs, rhs):
-    return A.BinOp("-", lhs, rhs, T.index, lhs.srcinfo)
-
-
-@extclass(A.expr)
-def __mul__(lhs, rhs):
-    return A.BinOp("*", lhs, rhs, T.index, lhs.srcinfo)
-
-
-@extclass(A.expr)
-def __truediv__(lhs, rhs):
-    return A.BinOp("/", lhs, rhs, T.index, lhs.srcinfo)
-
-
-@extclass(A.expr)
-def __mod__(lhs, rhs):
-    return A.BinOp("%", lhs, rhs, T.index, lhs.srcinfo)
-
-
-@extclass(A.expr)
-def __lt__(lhs, rhs):
-    return A.BinOp("<", lhs, rhs, T.bool, lhs.srcinfo)
-
-
-@extclass(A.expr)
-def __gt__(lhs, rhs):
-    return A.BinOp(">", lhs, rhs, T.bool, lhs.srcinfo)
-
-
-@extclass(A.expr)
-def __le__(lhs, rhs):
-    return A.BinOp("<=", lhs, rhs, T.bool, lhs.srcinfo)
-
-
-@extclass(A.expr)
-def __ge__(lhs, rhs):
-    return A.BinOp(">=", lhs, rhs, T.bool, lhs.srcinfo)
-
-
 op_prec = {
     "exists": 10,
     "forall": 10,
@@ -287,9 +271,9 @@ def _estr(e, prec=0, tab=""):
     elif isinstance(e, A.Unk):
         return "⊥"
     elif isinstance(e, A.Not):
-        return f"¬{_estr(e.arg,op_prec['unary'],tab=tab)}"
+        return f"¬{_estr(e.arg, op_prec['unary'], tab=tab)}"
     elif isinstance(e, A.USub):
-        return f"-{_estr(e.arg,op_prec['unary'],tab=tab)}"
+        return f"-{_estr(e.arg, op_prec['unary'], tab=tab)}"
     elif isinstance(e, A.Const):
         return str(e.val)
     elif isinstance(e, A.BinOp):
@@ -320,13 +304,13 @@ def _estr(e, prec=0, tab=""):
     elif isinstance(e, (A.ForAll, A.Exists)):
         op = "∀" if isinstance(e, A.ForAll) else "∃"
         local_prec = op_prec["forall" if isinstance(e, A.ForAll) else "exists"]
-        s = f"{op}{e.name},{_estr(e.arg,op_prec['forall'],tab=tab)}"
+        s = f"{op}{e.name},{_estr(e.arg, op_prec['forall'], tab=tab)}"
         if local_prec < prec:
             s = f"({s})"
         return s
     elif isinstance(e, (A.Definitely, A.Maybe)):
         op = "D" if isinstance(e, A.Definitely) else "M"
-        return f"{op}{_estr(e.arg,op_prec['unary'],tab=tab)}"
+        return f"{op}{_estr(e.arg, op_prec['unary'], tab=tab)}"
     elif isinstance(e, A.Let):
         # compress nested lets for printing
         if isinstance(e.body, A.Let):
@@ -342,7 +326,10 @@ def _estr(e, prec=0, tab=""):
                 tab=tab,
             )
         binds = "\n".join(
-            [f"{tab}{x} = {_estr(rhs,tab=tab+'  ')}" for x, rhs in zip(e.names, e.rhs)]
+            [
+                f"{tab}{x} = {_estr(rhs, tab=tab + '  ')}"
+                for x, rhs in zip(e.names, e.rhs)
+            ]
         )
         body = _estr(e.body, tab=tab + "  ")
         s = f"let\n{binds}\n{tab}in {body}"
@@ -352,17 +339,12 @@ def _estr(e, prec=0, tab=""):
         return f"({args})"
     elif isinstance(e, A.LetTuple):
         names = ",".join([str(n) for n in e.names])
-        bind = f"{names} = {_estr(e.rhs,tab=tab+'  ')}"
+        bind = f"{names} = {_estr(e.rhs, tab=tab + '  ')}"
         body = _estr(e.body, tab=tab + "  ")
         s = f"let_tuple {bind}\n{tab}in {body}"
         return f"({s}\n{tab})" if prec > 0 else s
     else:
         assert False, "bad case"
-
-
-@extclass(A.expr)
-def __str__(e):
-    return _estr(e)
 
 
 def aeFV(e, env=None):
