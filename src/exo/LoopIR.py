@@ -4,6 +4,7 @@ from typing import Type
 
 from asdl_adt import ADT, validators
 
+from . import LoopIR_effects as Eff
 from . import LoopIR_pprint as PPrint
 from .builtins import BuiltIn
 from .configs import Config
@@ -471,9 +472,32 @@ module PAST {
     },
 )
 
+
 # --------------------------------------------------------------------------- #
 # Effects
 # --------------------------------------------------------------------------- #
+
+
+class EffectMixin:
+    def subst(self, env):
+        return Eff.eff_subst(env, self)
+
+    def config_subst(self, env):
+        return Eff._subcfg(env, self)
+
+
+class EffectMixinExpr(EffectMixin):
+    def __str__(self):
+        return Eff._exprstr(self)
+
+    def negate(self):
+        return Eff.negate_expr(self)
+
+
+class EffectMixinEffect(EffectMixin):
+    def __str__(self):
+        return Eff._effect_as_str(self)
+
 
 Effects = ADT(
     """
@@ -516,6 +540,11 @@ module Effects {
         "binop": validators.instance_of(Operator, convert=True),
         "config": Config,
         "srcinfo": SrcInfo,
+    },
+    mixin_types={
+        "effset": EffectMixin,
+        "effect": EffectMixinEffect,
+        "expr": EffectMixinExpr,
     },
 )
 

@@ -1,18 +1,20 @@
 import re
 from collections import ChainMap
 
+from . import API as api
+from . import internal_cursors as ic
 from .LoopIR import (
     LoopIR,
     LoopIR_Rewrite,
     Alpha_Rename,
     LoopIR_Do,
     SubstArgs,
+    Effects as E,
     T,
     lift_to_eff_expr,
 )
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_effects import (
-    Effects as E,
     eff_filter,
     eff_bind,
     eff_null,
@@ -33,8 +35,6 @@ from .new_eff import (
 )
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
-from . import internal_cursors as ic
-from . import API as api
 
 
 # --------------------------------------------------------------------------- #

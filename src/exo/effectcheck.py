@@ -3,11 +3,8 @@ from collections import ChainMap
 import pysmt
 from pysmt import shortcuts as SMT
 
-from .LoopIR import LoopIR
-from .LoopIR import T
-from .LoopIR import lift_to_eff_expr as lift_expr
+from .LoopIR import LoopIR, T, lift_to_eff_expr as lift_expr, Effects as E
 from .LoopIR_dataflow import LoopIR_Dependencies
-from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (
     eff_null,
     eff_read,
