@@ -142,6 +142,35 @@ class DoReplace(LoopIR_Rewrite):
 # as "holes" (variables to solve for) and "knowns" (variables to express
 # a solution as an affine combination of).  Any variable not in either of
 # those lists is unknown but not permissible in a solution expression.
+class UEqMixinExpr:
+    def __str__(self):
+        return _str_uexpr(self)
+
+    def normalize(self):
+        return _normalize(self)
+
+    def sub(self, rhs):
+        return UEq.Add(self, UEq.Scale(-1, rhs))
+
+
+class UEqMixinPred:
+    def __str__(self):
+        return _str_upred(self)
+
+
+class UEqMixinProblem:
+    def __str__(self):
+        lines = [
+            "Holes:   " + ", ".join([str(x) for x in self.holes]),
+            "Knowns:  " + ", ".join([str(x) for x in self.knowns]),
+        ]
+        lines += [str(p) for p in self.preds]
+        return "\n".join(lines)
+
+    def solve(self):
+        return _solve(self)
+
+
 UEq = ADT(
     """
 module UEq {
@@ -163,6 +192,11 @@ module UEq {
 
 } """,
     ext_types={"sym": Sym},
+    mixin_types={
+        "problem": UEqMixinProblem,
+        "expr": UEqMixinExpr,
+        "pred": UEqMixinPred,
+    },
 )
 
 
@@ -187,17 +221,6 @@ def _str_uexpr(e, prec=0):
         assert False, "bad case"
 
 
-@extclass(UEq.Const)
-@extclass(UEq.Var)
-@extclass(UEq.Add)
-@extclass(UEq.Scale)
-def __str__(self):
-    return _str_uexpr(self)
-
-
-del __str__
-
-
 def _str_upred(p, prec=0):
     ptyp = type(p)
     if ptyp is UEq.Eq:
@@ -214,36 +237,11 @@ def _str_upred(p, prec=0):
         assert False, "bad case"
 
 
-@extclass(UEq.Conj)
-@extclass(UEq.Cases)
-@extclass(UEq.Disj)
-@extclass(UEq.Eq)
-def __str__(self):
-    return _str_upred(self)
-
-
-del __str__
-
-
-@extclass(UEq.problem)
-def __str__(prob):
-    lines = [
-        "Holes:   " + ", ".join([str(x) for x in prob.holes]),
-        "Knowns:  " + ", ".join([str(x) for x in prob.knowns]),
-    ]
-    lines += [str(p) for p in prob.preds]
-    return "\n".join(lines)
-
-
-del __str__
-
-
 # -------------------------------------- #
 # How to solve this system of equations
 
 
-@extclass(UEq.expr)
-def normalize(orig_e):
+def _normalize(orig_e):
     def to_nform(e):
         if isinstance(e, UEq.Const):
             return [], e.val
@@ -304,13 +302,7 @@ def normalize(orig_e):
     return from_nform(cs, off)
 
 
-@extclass(UEq.expr)
-def sub(x, y):
-    return UEq.Add(x, UEq.Scale(-1, y))
-
-
-@extclass(UEq.problem)
-def solve(prob):
+def _solve(prob):
     solver = _get_smt_solver()
 
     known_list = prob.knowns
@@ -928,8 +920,8 @@ class Unification:
         elif isinstance(ps, LoopIR.WriteConfig):
             if ps.config != bs.config or ps.field != bs.field:
                 raise UnificationError(
-                    f"cannot unify Writeconfig '{pe.config.name()}.{pe.field}' "
-                    f"with Writeconfig '{be.config.name()}.{be.field}'"
+                    f"cannot unify Writeconfig '{ps.config.name()}.{ps.field}' "
+                    f"with Writeconfig '{bs.config.name()}.{bs.field}'"
                 )
             self.unify_e(ps.rhs, bs.rhs)
         elif isinstance(ps, LoopIR.Pass):
