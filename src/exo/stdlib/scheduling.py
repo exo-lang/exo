@@ -226,7 +226,7 @@ def lift_if(proc, cursor, n_lifts=1):
             proc = reorder_scope(proc, cursor)
         except SchedulingError as e:
             raise SchedulingError(
-                f"Could not fully lift if statement! {n_lifts-i} lift(s) remain!",
+                f"Could not fully lift if statement! {n_lifts-i} lift(s) remain! {str(e)}",
                 orig=orig_proc,
                 proc=proc,
             ) from e
