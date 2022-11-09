@@ -1,0 +1,43 @@
+def bar(n: size, m: size):
+    [GAP]
+    x: f32 @ DRAM
+    ...
+
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    [GAP]
+    for i in seq(0, n):
+        ...
+
+def bar(n: size, m: size):
+    ...
+    for i in seq(0, n):
+        [GAP]
+        for j in seq(0, m):
+            ...
+
+def bar(n: size, m: size):
+    ...
+    for i in seq(0, n):
+        for j in seq(0, m):
+            [GAP]
+            x = 0.0
+            ...
+
+def bar(n: size, m: size):
+    ...
+    for i in seq(0, n):
+        for j in seq(0, m):
+            ...
+            x = 1.0
+            [GAP]
+            x = 2.0
+            ...
+
+def bar(n: size, m: size):
+    ...
+    for i in seq(0, n):
+        for j in seq(0, m):
+            ...
+            x = 5.0
+            [GAP]

@@ -32,8 +32,8 @@ struct exo_win_2i8c{
 // window(
 //     n : size,
 //     m : size,
-//     src : [i8][n,m]  @DRAM,
-//     dst : [i8][n,16]  @DRAM
+//     src : [i8][n, m] @DRAM,
+//     dst : [i8][n, 16] @DRAM
 // )
 void window( void *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst );
 
@@ -48,8 +48,8 @@ void window( void *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src
 // window(
 //     n : size,
 //     m : size,
-//     src : [i8][n,m]  @DRAM,
-//     dst : [i8][n,16]  @DRAM
+//     src : [i8][n, m] @DRAM,
+//     dst : [i8][n, 16] @DRAM
 // )
 void window( void *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst ) {
 EXO_ASSUME(n <= 16);

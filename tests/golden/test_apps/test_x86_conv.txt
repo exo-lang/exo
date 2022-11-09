@@ -39,10 +39,10 @@ struct exo_win_1f32c{
     const int_fast32_t strides[1];
 };
 // conv_specialized(
-//     inp : f32[5,82,102,128]  @DRAM,
-//     output : f32[5,80,100,128]  @DRAM,
-//     weights : f32[128,3,3,128]  @DRAM,
-//     bias : f32[128]  @DRAM
+//     inp : f32[5, 82, 102, 128] @DRAM,
+//     output : f32[5, 80, 100, 128] @DRAM,
+//     weights : f32[128, 3, 3, 128] @DRAM,
+//     bias : f32[128] @DRAM
 // )
 void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias );
 
@@ -68,10 +68,10 @@ double _relu_(double x) {
 
 
 // conv_specialized(
-//     inp : f32[5,82,102,128]  @DRAM,
-//     output : f32[5,80,100,128]  @DRAM,
-//     weights : f32[128,3,3,128]  @DRAM,
-//     bias : f32[128]  @DRAM
+//     inp : f32[5, 82, 102, 128] @DRAM,
+//     output : f32[5, 80, 100, 128] @DRAM,
+//     weights : f32[128, 3, 3, 128] @DRAM,
+//     bias : f32[128] @DRAM
 // )
 void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias ) {
 for (int oc_o = 0; oc_o < 2; oc_o++) {

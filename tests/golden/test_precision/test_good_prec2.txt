@@ -24,8 +24,8 @@
 
 // hoge(
 //     n : size,
-//     x : f32[n]  @DRAM,
-//     y : f32[n]  @DRAM
+//     x : f32[n] @DRAM,
+//     y : f32[n] @DRAM
 // )
 void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y );
 
@@ -38,17 +38,17 @@ void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y );
 
 // dot(
 //     m : size,
-//     x : f32[m]  @DRAM,
-//     y : f32[m]  @DRAM,
-//     r : f32  @DRAM
+//     x : f32[m] @DRAM,
+//     y : f32[m] @DRAM,
+//     r : f32 @DRAM
 // )
 static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, float* r );
 
 // dot(
 //     m : size,
-//     x : f32[m]  @DRAM,
-//     y : f32[m]  @DRAM,
-//     r : f32  @DRAM
+//     x : f32[m] @DRAM,
+//     y : f32[m] @DRAM,
+//     r : f32 @DRAM
 // )
 static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, float* r ) {
 *r = 0.0;
@@ -59,8 +59,8 @@ for (int i = 0; i < m; i++) {
 
 // hoge(
 //     n : size,
-//     x : f32[n]  @DRAM,
-//     y : f32[n]  @DRAM
+//     x : f32[n] @DRAM,
+//     y : f32[n] @DRAM
 // )
 void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y ) {
 float xy;

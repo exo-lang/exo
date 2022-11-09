@@ -40,22 +40,22 @@ struct exo_win_1f32c{
 };
 // memcpy(
 //     N : size,
-//     A : f32[N]  @DRAM,
-//     B : f32[N]  @DRAM
+//     A : f32[N] @DRAM,
+//     B : f32[N] @DRAM
 // )
 void memcpy( void *ctxt, int_fast32_t N, float* A, const float* B );
 
 // memcpy_ab(
 //     N : size,
-//     A : [f32][N]  @DRAM,
-//     B : [f32][N]  @DRAM
+//     A : [f32][N] @DRAM,
+//     B : [f32][N] @DRAM
 // )
 void memcpy_ab( void *ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B );
 
 // memcpy_b(
 //     N : size,
-//     A : f32[N]  @DRAM,
-//     B : [f32][N]  @DRAM
+//     A : f32[N] @DRAM,
+//     B : [f32][N] @DRAM
 // )
 void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B );
 
@@ -77,8 +77,8 @@ void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B );
 
 // memcpy(
 //     N : size,
-//     A : f32[N]  @DRAM,
-//     B : f32[N]  @DRAM
+//     A : f32[N] @DRAM,
+//     B : f32[N] @DRAM
 // )
 void memcpy( void *ctxt, int_fast32_t N, float* A, const float* B ) {
 for (int i = 0; i < N; i++) {
@@ -88,8 +88,8 @@ for (int i = 0; i < N; i++) {
 
 // memcpy_ab(
 //     N : size,
-//     A : [f32][N]  @DRAM,
-//     B : [f32][N]  @DRAM
+//     A : [f32][N] @DRAM,
+//     B : [f32][N] @DRAM
 // )
 void memcpy_ab( void *ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B ) {
 for (int i = 0; i < N; i++) {
@@ -99,8 +99,8 @@ for (int i = 0; i < N; i++) {
 
 // memcpy_b(
 //     N : size,
-//     A : f32[N]  @DRAM,
-//     B : [f32][N]  @DRAM
+//     A : f32[N] @DRAM,
+//     B : [f32][N] @DRAM
 // )
 void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B ) {
 for (int i = 0; i < N; i++) {

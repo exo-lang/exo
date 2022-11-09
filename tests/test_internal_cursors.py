@@ -14,7 +14,8 @@ from exo.internal_cursors import (
     ForwardingPolicy,
     Node,
 )
-from exo.syntax import size, par, f32
+from exo.syntax import size, f32
+from exo.LoopIR_pprint import _print_cursor
 
 
 @pytest.fixture(scope="session")
@@ -232,7 +233,7 @@ def test_cursor_gap(proc_foo):
     x_assn = proc_foo._TEST_find_stmt("x = 0.0")
     y_assn = proc_foo._TEST_find_stmt("y = 1.1")
 
-    assert str(x_alloc._node()) == "x: f32 @ DRAM\n"
+    assert str(x_alloc._node()) == "x: f32 @ DRAM"
 
     g1 = x_alloc.after()
     assert g1 == x_assn.before()
@@ -775,3 +776,69 @@ def test_block_replace_forward_block(proc_bar, old, new):
             fwd(old_c)
     else:
         assert fwd(old_c) == bar_new._TEST_find_cursors(new)[0]
+
+
+def test_cursor_pretty_print_nodes(proc_bar, golden):
+    output = []
+
+    root = Cursor.root(proc_bar)
+    output.append(_print_cursor(root))
+
+    c = proc_bar._TEST_find_stmt("for i in _: _")
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("for j in _: _")
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 0.0")
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 2.0")
+    output.append(_print_cursor(c))
+
+    assert "\n\n".join(output) == golden
+
+
+def test_cursor_pretty_print_gaps(proc_bar, golden):
+    output = []
+
+    c = proc_bar._TEST_find_stmt("x: f32").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("for i in _: _").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("for j in _: _").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 0.0").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 2.0").before()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_stmt("x = 5.0").after()
+    output.append(_print_cursor(c))
+
+    assert "\n\n".join(output) == golden
+
+
+def test_cursor_pretty_print_blocks(proc_bar, golden):
+    output = []
+
+    c = proc_bar._TEST_find_stmt("for j in _: _").as_block()
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_cursors("x = 1.0; _; x = 3.0")[0]
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_cursors("x = 0.0; x = 1.0")[0]
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_cursors("x = 4.0; x = 5.0")[0]
+    output.append(_print_cursor(c))
+
+    c = proc_bar._TEST_find_cursors("x = 0.0; _; x = 5.0")[0]
+    output.append(_print_cursor(c))
+
+    assert "\n\n".join(output) == golden
