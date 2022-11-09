@@ -1835,8 +1835,7 @@ def unroll_loop(proc, loop_cursor):
 @sched_op([ForSeqOrIfCursorA])
 def lift_scope(proc, scope_cursor):
     """
-    Move the indicated For/If-statement upwards through other control-flow,
-    if possible.
+    Lift the indicated For/If-statement upwards one scope.
 
     args:
         scope_cursor       - cursor to the inner scope statement to lift up
