@@ -64,7 +64,7 @@ from ..API_scheduling import (
     unroll_loop,
     #
     # guard rewriting
-    reorder_scope,
+    lift_scope,
     assert_if,
     specialize,
     #
@@ -223,7 +223,7 @@ def lift_if(proc, cursor, n_lifts=1):
     orig_proc = proc
     for i in range(n_lifts):
         try:
-            proc = reorder_scope(proc, cursor)
+            proc = lift_scope(proc, cursor)
         except SchedulingError as e:
             raise SchedulingError(
                 f"Could not fully lift if statement! {n_lifts-i} lift(s) remain! {str(e)}",

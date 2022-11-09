@@ -1131,7 +1131,7 @@ def test_lift_if_second_statement_in_then_error():
                     x[i] = 2.0
 
     with pytest.raises(
-        SchedulingError, match="expected if statement to be directly nested in parents"
+        SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
         print(foo)
@@ -1149,7 +1149,7 @@ def test_lift_if_second_statement_in_else_error():
                     x[i] = 2.0
 
     with pytest.raises(
-        SchedulingError, match="expected if statement to be directly nested in parents"
+        SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
         print(foo)
@@ -1164,7 +1164,7 @@ def test_lift_if_second_statement_in_for_error():
                 pass
 
     with pytest.raises(
-        SchedulingError, match="expected if statement to be directly nested in parents"
+        SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if m > 12: _")
         print(foo)
@@ -1177,7 +1177,9 @@ def test_lift_if_too_high_error():
             if j < 10:
                 x[i] = 2.0
 
-    with pytest.raises(SchedulingError, match=r"1 lift\(s\) remain!"):
+    with pytest.raises(
+        SchedulingError, match=r"Cannot lift scope of top-level statement"
+    ):
         foo = lift_if(foo, "if j < 10: _", n_lifts=2)
         print(foo)
 
@@ -1343,7 +1345,7 @@ def test_lift_if_in_full_nest(golden):
     assert str(foo) == golden
 
 
-def test_reorder_scope(golden):
+def test_lift_scope(golden):
     @proc
     def foo(n: size, x: R[n, n]):
         for j in seq(0, n):
@@ -1351,11 +1353,11 @@ def test_reorder_scope(golden):
                 for i in seq(0, n):
                     x[i, j] = 1.0
 
-    foo = reorder_scope(foo, "for i in _: _")
+    foo = lift_scope(foo, "for i in _: _")
     assert str(foo) == golden
 
 
-def test_reorder_scope_lift_for_when_outer_if_has_noelse_error(golden):
+def test_lift_scope_lift_for_when_outer_if_has_noelse_error(golden):
     @proc
     def foo(n: size, x: R[n]):
         if n < 10:
@@ -1367,7 +1369,7 @@ def test_reorder_scope_lift_for_when_outer_if_has_noelse_error(golden):
     with pytest.raises(
         SchedulingError, match="cannot lift for loop when if has an orelse clause"
     ):
-        foo = reorder_scope(foo, "for i in _: _")
+        foo = lift_scope(foo, "for i in _: _")
 
 
 def test_stage_mem(golden):

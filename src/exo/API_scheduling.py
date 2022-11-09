@@ -1574,7 +1574,7 @@ def reorder_loops(proc, nested_loops):
 
     proc_c = ic.Cursor.root(proc)
 
-    return Schedules.DoReorderScopes(proc_c, stmt_c.body()[0]).result()
+    return Schedules.DoLiftScope(proc_c, stmt_c.body()[0]).result()
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1833,7 +1833,7 @@ def unroll_loop(proc, loop_cursor):
 
 
 @sched_op([ForSeqOrIfCursorA])
-def reorder_scope(proc, scope_cursor):
+def lift_scope(proc, scope_cursor):
     """
     Move the indicated For/If-statement upwards through other control-flow,
     if possible.
@@ -1858,7 +1858,7 @@ def reorder_scope(proc, scope_cursor):
     stmt_c = scope_cursor._impl
     proc_c = ic.Cursor.root(proc)
 
-    return Schedules.DoReorderScopes(proc_c, stmt_c).result()
+    return Schedules.DoLiftScope(proc_c, stmt_c).result()
 
 
 @sched_op([IfCursorA, BoolA])
