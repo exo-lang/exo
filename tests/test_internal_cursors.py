@@ -840,22 +840,25 @@ def test_block_move_identity_2(proc_bar):
         assert cur._path == fwd(cur)._path
 
 
-def test_block_move_within_block(proc_bar):
+def test_block_move_within_block(proc_bar, golden):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
     bar_new, fwd = for_j[0:3]._move_to(for_j[-1].after())
     print(bar_new)
+    assert str(bar_new) == golden
 
 
-def test_block_move_before_parent(proc_bar):
+def test_block_move_before_parent(proc_bar, golden):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
     bar_new, fwd = for_j[0:3]._move_to(for_j.parent().before())
     print(bar_new)
+    assert str(bar_new) == golden
 
 
-def test_block_move_after_parent(proc_bar):
+def test_block_move_after_parent(proc_bar, golden):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
     bar_new, fwd = for_j[0:3]._move_to(for_j.parent().after())
     print(bar_new)
+    assert str(bar_new) == golden
 
 
 def test_cursor_pretty_print_nodes(proc_bar, golden):

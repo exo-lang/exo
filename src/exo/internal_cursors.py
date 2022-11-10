@@ -353,6 +353,13 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
         return Block(self._proc, self._path[:-1] + [(attr, new_range)])
 
     # ------------------------------------------------------------------------ #
+    # Location queries
+    # ------------------------------------------------------------------------ #
+
+    def is_ancestor_of(self, other: Cursor) -> bool:
+        return any(node.is_ancestor_of(other) for node in self)
+
+    # ------------------------------------------------------------------------ #
     # AST mutation
     # ------------------------------------------------------------------------ #
 
