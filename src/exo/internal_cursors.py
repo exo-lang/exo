@@ -356,7 +356,7 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def _move_to(self, dest: Gap):
+    def _move_to(self, dst: Gap):
         """
         This is an UNSAFE internal function for moving a block in an AST to some
         other location, defined by the gap "dest". It is meant to be
@@ -369,13 +369,12 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
         nodes = [x._node() for x in self]
 
         _, fwd_del = self._delete()
-        dest = fwd_del(dest)
-        assert isinstance(dest, Gap)
-        p, fwd_ins = dest._insert(nodes, policy=ForwardingPolicy.PreferInvalidation)
+        dst = fwd_del(dst)
+        assert isinstance(dst, Gap)
+        p, fwd_ins = dst._insert(nodes, policy=ForwardingPolicy.PreferInvalidation)
 
         def _forward_move_to(c):
-            # TODO: forward the moved nodes
-            return fwd_ins(fwd_del(c))
+            return c.update(_proc=p)
 
         return p, _forward_move_to
 

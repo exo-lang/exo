@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 import gc
+import itertools
 import weakref
 
 import pytest
 
-from exo import proc
+from exo import proc, Procedure
 from exo.LoopIR import LoopIR, T
+from exo.LoopIR_pprint import _print_cursor
 from exo.internal_cursors import (
     Cursor,
     Block,
     InvalidCursorError,
     ForwardingPolicy,
     Node,
+    Gap,
 )
 from exo.syntax import size, f32
-from exo.LoopIR_pprint import _print_cursor
 
 
 @pytest.fixture(scope="session")
@@ -778,20 +780,81 @@ def test_block_replace_forward_block(proc_bar, old, new):
         assert fwd(old_c) == bar_new._TEST_find_cursors(new)[0]
 
 
-def test_block_move(proc_bar):
+def _check_cursor_fwd(fwd, old_c, new_c):
+    try:
+        new_from_old = fwd(old_c)
+    except InvalidCursorError:
+        new_from_old = None
+    assert new_from_old == new_c
+
+
+def _enumerate_cursors(cur):
+    if isinstance(cur, Procedure):
+        cur = Cursor.root(cur)
+
+    if isinstance(cur, Node):
+        yield cur
+
+        if isinstance(cur._node(), (LoopIR.proc, LoopIR.Seq)):
+            yield from _enumerate_cursors(cur.body())
+
+        elif isinstance(cur._node(), LoopIR.If):
+            yield from _enumerate_cursors(cur.body())
+            yield from _enumerate_cursors(cur.orelse())
+
+    if isinstance(cur, Block):
+        # Yield all sub-blocks
+        for i, j in itertools.combinations(range(len(cur) + 1), 2):
+            yield cur[i:j]
+
+        # Yield all gaps
+        yield cur[0].before()
+        for n in cur:
+            yield n.after()
+
+        # Yield all nodes
+        for n in cur:
+            yield from _enumerate_cursors(n)
+
+    assert not isinstance(cur, Gap), "Should not call _enumerate_cursors on a gap"
+
+
+def test_block_move_identity_1(proc_bar, subtests):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
+    bar_new, fwd = for_j[0:3]._move_to(for_j[0].before())
 
-    # for_j[0].before() and for_j[3].before() should do nothing
+    assert str(proc_bar) == str(bar_new)
+
+    for cur in _enumerate_cursors(proc_bar):
+        with subtests.test(msg=str(cur._path)):
+            assert cur._path == fwd(cur)._path
+
+
+def test_block_move_identity_2(proc_bar):
+    for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
+    bar_new, fwd = for_j[0:3]._move_to(for_j[3].before())
+
+    assert str(proc_bar) == str(bar_new)
+
+    for cur in _enumerate_cursors(proc_bar):
+        assert cur._path == fwd(cur)._path
+
+
+def test_block_move_within_block(proc_bar):
+    for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
     bar_new, fwd = for_j[0:3]._move_to(for_j[-1].after())
-
     print(bar_new)
 
+
+def test_block_move_before_parent(proc_bar):
+    for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
     bar_new, fwd = for_j[0:3]._move_to(for_j.parent().before())
-
     print(bar_new)
 
-    bar_new, fwd = for_j[0:3]._move_to(for_j.parent().after())
 
+def test_block_move_after_parent(proc_bar):
+    for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
+    bar_new, fwd = for_j[0:3]._move_to(for_j.parent().after())
     print(bar_new)
 
 
