@@ -123,6 +123,18 @@ def neon_vmul_4xf32(
     for i in seq(0, 4):
         dst[i] = lhs[i] * rhs[i]
 
+@instr("{dst_data} = vfmaq_laneq_f32({dst_data}, {lhs_data}, {rhs_data}, {lane});")
+def neon_vfmla_4xf32_4xf32(
+        dst: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f, lane: index
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert lane >= 0
+    assert lane < 4
+    for i in seq(0, 4):
+        dst[i] += lhs[i] * rhs[lane]
+        
 
 @instr("{dst_data} = vmlaq_f32({dst_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_4xf32_4xf32(
