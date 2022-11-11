@@ -45,7 +45,7 @@ from . import API as api
 
 class Cursor_Rewrite(LoopIR_Rewrite):
     def __init__(self, proc_cursor):
-        self.provenance = proc_cursor.proc()
+        self.provenance = proc_cursor.proc
         super().__init__(proc_cursor)
 
     def result(self, mod_config=None):
@@ -2297,7 +2297,7 @@ class _DoDoubleFission:
         assert is_pos_int(n_lifts)
         self.orig_proc = proc_cursor._node()
         self.n_lifts = n_lifts
-        self.provenance = proc_cursor.proc()
+        self.provenance = proc_cursor.proc
 
         self.hit_fission1 = False
         self.hit_fission2 = False
@@ -2473,7 +2473,7 @@ class _DoFissionAfterSimple:
         self.tgt_stmt = stmt_cursor._node()
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
         assert is_pos_int(n_lifts)
-        self.provenance = proc_cursor.proc()
+        self.provenance = proc_cursor.proc
         self.orig_proc = proc_cursor._node()
         self.n_lifts = n_lifts
 
@@ -2593,7 +2593,7 @@ class _FissionLoops:
         self.tgt_stmt = stmt_cursor._node()
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
         assert is_pos_int(n_lifts)
-        self.provenance = proc_cursor.proc()
+        self.provenance = proc_cursor.proc
         self.orig_proc = proc_cursor._node()
         self.n_lifts = n_lifts
 
