@@ -238,13 +238,8 @@ class Cursor(ABC, Generic[T]):
         return self.ctx.apply(self.proc.INTERNAL_proc(), fn)
 
     def _make_local_forward(self, new_proc, fwd_node, fwd_gap, fwd_blk):
-        def dummy_fwd(c):
-            return c.update(_proc=new_proc)
-
-        return dummy_fwd
-
         orig_proc = self._proc
-        path = self._path
+        path = self.ctx.path + [(self.ctx.attr, self.sel)]
         depth = len(path)
         attr = path[-1][0]
 
@@ -252,7 +247,7 @@ class Cursor(ABC, Generic[T]):
             if cursor._proc != orig_proc:
                 raise InvalidCursorError("cannot forward unknown procs")
 
-            old_path = cursor._path
+            old_path = cursor.ctx.path + [(cursor.ctx.attr, cursor.sel)]
 
             # Too shallow?
             if len(old_path) < depth:
@@ -272,9 +267,12 @@ class Cursor(ABC, Generic[T]):
                 assert isinstance(cursor, Block)
                 idx = fwd_blk(old_idx)
 
+            new_path = old_path[: depth - 1] + [(attr, idx)] + old_path[depth:]
+
             return cursor.update(
                 _proc=new_proc,
-                _path=old_path[: depth - 1] + [(attr, idx)] + old_path[depth:],
+                ctx=Context(new_path[:-1], new_path[-1][0]),
+                sel=new_path[-1][1],
             )
 
         return forward
