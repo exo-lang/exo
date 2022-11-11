@@ -150,16 +150,6 @@ class Context:
     def __bool__(self):
         return self.attr is not None
 
-    def is_ancestor_of(self, other: Context) -> bool:
-        depth = len(self.path)
-        if len(other.path) < depth:
-            return False
-
-        if len(other.path) == depth:
-            return self == other
-
-        return _starts_with(other.path, self.path) and other.path[depth][1] == self.attr
-
 
 @dataclass(frozen=True)
 class Cursor(ABC, Generic[T]):
@@ -297,10 +287,10 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
     # ------------------------------------------------------------------------ #
 
     def before(self, dist=1) -> Gap:
-        return Gap(self._proc, self.ctx, self.sel.start - (dist - 1))
+        return self[0].before(dist)
 
     def after(self, dist=1) -> Gap:
-        return Gap(self._proc, self.ctx, self.sel.stop + (dist - 1))
+        return self[-1].after(dist)
 
     def prev(self, dist=1) -> Cursor:
         # TODO: what should this mean?
@@ -618,7 +608,10 @@ class Node(Cursor[Optional[int]]):
 
     def is_ancestor_of(self, other: Cursor) -> bool:
         """Return true if this node is an ancestor of another"""
-        return self == other or self.ctx.is_ancestor_of(other.ctx)
+        return _starts_with(
+            other.ctx.path + [(other.ctx.attr, other.sel)],
+            self.ctx.path + [(self.ctx.attr, self.sel)],
+        )
 
     # ------------------------------------------------------------------------ #
     # AST mutation
