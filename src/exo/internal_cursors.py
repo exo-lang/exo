@@ -143,12 +143,20 @@ class Context:
 
     def pop(self) -> (Context, (Optional[int], Optional[str])):
         if not self.path:
+            assert self.attr is not None
             return Context(), (None, self.attr)
         attr, i = self.path[-1]
         return Context(self.path[:-1], attr), (i, self.attr)
 
     def __bool__(self):
         return self.attr is not None
+
+    def is_ancestor_of(self, ctx: Context) -> bool:
+        if not _starts_with(ctx.path, self.path):
+            return False
+        depth = len(self.path)
+        ctx_attr = ctx.attr if depth == len(ctx.path) else ctx.path[depth][0]
+        return self.attr == ctx_attr
 
 
 @dataclass(frozen=True)
@@ -384,8 +392,17 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
         assert isinstance(dst, Gap)
         p, fwd_ins = dst.insert(nodes, policy=ForwardingPolicy.PreferInvalidation)
 
-        def _forward_move_to(c):
-            return c.update(_proc=weakref.ref(p))
+        src_ctx = self.ctx
+
+        def _forward_move_to(c: Cursor) -> Cursor:
+            if isinstance(c, Node):
+                if src_ctx.is_ancestor_of(c):
+                    pass
+            elif isinstance(c, Gap):
+                pass
+            else:
+                assert isinstance(c, Block)
+                return fwd_ins(fwd_del(c))
 
         return p, _forward_move_to
 
@@ -607,10 +624,17 @@ class Node(Cursor[Optional[int]]):
 
     def is_ancestor_of(self, other: Cursor) -> bool:
         """Return true if this node is an ancestor of another"""
-        return _starts_with(
-            other.ctx.path + [(other.ctx.attr, other.sel)],
-            self.ctx.path + [(self.ctx.attr, self.sel)],
-        )
+        if not self.ctx.is_ancestor_of(other.ctx):
+            return False
+
+        depth = len(self.ctx.path)
+
+        if isinstance(other, Node):
+            if len(other.ctx.path) == depth:
+                return self.sel == other.sel
+            return self.sel == other.ctx.path[depth][1]
+
+        return len(other.ctx.path) > depth and self.sel == other.ctx.path[depth][1]
 
     # ------------------------------------------------------------------------ #
     # AST mutation
