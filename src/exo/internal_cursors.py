@@ -239,9 +239,9 @@ class Cursor(ABC, Generic[T]):
 
     def _make_local_forward(self, new_proc, fwd_node, fwd_gap, fwd_blk):
         orig_proc = self._proc
-        path = self.ctx.path + [(self.ctx.attr, self.sel)]
-        depth = len(path)
-        attr = path[-1][0]
+        this_ctx = self.ctx
+        depth = len(self.ctx.path) + 1
+        attr = self.ctx.attr
 
         def forward(cursor: Cursor) -> Cursor:
             if cursor._proc != orig_proc:
@@ -256,7 +256,7 @@ class Cursor(ABC, Generic[T]):
             old_attr, old_idx = old_path[depth - 1]
 
             # Check contexts are the same
-            if (path[:-1], attr) != (old_path[: depth - 1], old_attr):
+            if this_ctx != Context(old_path[: depth - 1], old_attr):
                 return cursor.update(_proc=new_proc)
 
             if len(old_path) > depth or isinstance(cursor, Node):
