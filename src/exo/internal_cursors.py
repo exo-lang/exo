@@ -104,9 +104,50 @@ T = TypeVar("T")
 
 
 @dataclass(frozen=True)
+class Context:
+    path: list[(str, Optional[int])] = dataclasses.field(default_factory=list)
+    attr: Optional[str] = None
+
+    def apply(self, obj):
+        for attr, idx in self.path:
+            obj = getattr(obj, attr)
+            if idx is not None:
+                obj = obj[idx]
+        if self.attr is not None:
+            obj = getattr(obj, self.attr)
+        return obj
+
+    def push(self, i, attr) -> Context:
+        if self.attr is None:
+            assert i is None and not self.path
+            return Context([], attr)
+        return Context(self.path + [(self.attr, i)], attr)
+
+    def pop(self) -> (Context, (Optional[int], Optional[str])):
+        if not self.path:
+            return Context(), (None, self.attr)
+        attr, i = self.path[-1]
+        return Context(self.path[:-1], attr), (i, self.attr)
+
+    def __bool__(self):
+        return self.attr is not None
+
+    def is_ancestor_of(self, other: Context) -> bool:
+        depth = len(self.path)
+        if len(other.path) < depth:
+            return False
+
+        if len(other.path) == depth:
+            return self == other
+
+        return _starts_with(other.path, self.path) and other.path[depth][1] == self.attr
+
+
+@dataclass(frozen=True)
 class Cursor(ABC, Generic[T]):
     _proc: ReferenceType[API.Procedure]
-    _path: list[tuple[str, T]]
+    ctx: Context
+    sel: T
 
     # ------------------------------------------------------------------------ #
     # Static constructors
@@ -114,7 +155,7 @@ class Cursor(ABC, Generic[T]):
 
     @staticmethod
     def root(proc: API.Procedure):
-        return Node(weakref.ref(proc), [])
+        return Node(weakref.ref(proc), Context(), None)
 
     def update(self, **kwargs):
         return dataclasses.replace(self, **kwargs)
@@ -123,6 +164,7 @@ class Cursor(ABC, Generic[T]):
     # Validating accessors
     # ------------------------------------------------------------------------ #
 
+    @property
     def proc(self):
         if (p := self._proc()) is None:
             raise InvalidCursorError("underlying proc was destroyed")
@@ -132,9 +174,30 @@ class Cursor(ABC, Generic[T]):
     # Navigation (abstract)
     # ------------------------------------------------------------------------ #
 
-    @abstractmethod
     def parent(self) -> Node:
-        """Get the node containing the current cursor"""
+        # TODO: this is revealing a conceptual ugliness... the popped attr is
+        #   irrelevant because we don't have a way of pointing at an attribute
+        #   of an ast node (like body or orelse). The parent of an if body is
+        #   the same as the parent of its orelse branch.
+        #   ...on the other hand, this doesn't need to be abstract anymore!
+        if not self.ctx:
+            raise InvalidCursorError("cursor does not have a parent")
+
+        ctx, (i, _) = self.ctx.pop()
+        return Node(self._proc, ctx, i)
+
+    def _translate(self, ctor, dist):
+        if self.sel is None:
+            if not self.ctx:
+                raise InvalidCursorError("cannot move root cursor")
+            raise InvalidCursorError("cursor is not inside block")
+        new_i = self.sel + dist
+        rng = self.parent().child_block(self.ctx.attr).sel
+        if ctor is Gap:
+            rng = range(rng.start, rng.stop + 1)
+        if new_i not in rng:
+            raise InvalidCursorError("cursor is out of range")
+        return ctor(self._proc, self.ctx, self.sel + dist)
 
     @abstractmethod
     def before(self, dist=1) -> Cursor:
@@ -155,34 +218,8 @@ class Cursor(ABC, Generic[T]):
         """Get the next node/gap in the block. Undefined for blocks."""
 
     # ------------------------------------------------------------------------ #
-    # Block Navigation
-    # ------------------------------------------------------------------------ #
-
-    def _whole_block(self) -> Block:
-        attr, _range = self._path[-1]
-        parent = self.parent()
-        return parent._child_block(attr)
-
-    # ------------------------------------------------------------------------ #
     # Protected path / mutation helpers
     # ------------------------------------------------------------------------ #
-
-    def _translate(self, ty, dist):
-        assert isinstance(self, (Node, Gap))
-        if not self._path:
-            raise InvalidCursorError("cannot move root cursor")
-        attr, i = self._path[-1]
-        if i is None:
-            raise InvalidCursorError("cursor is not inside block")
-        return ty(self.parent(), attr, i + dist)
-
-    @staticmethod
-    def _walk_path(n, path):
-        for attr, idx in path:
-            n = getattr(n, attr)
-            if idx is not None:
-                n = n[idx]
-        return n
 
     @staticmethod
     def _rewrite_ast(fn, root, path_):
@@ -208,7 +245,7 @@ class Cursor(ABC, Generic[T]):
         passed the raw parent of the pointed-to node/block/gap. The callback is
         expected to return a single, updated node to be placed in the new tree.
         """
-        return self._rewrite_ast(fn, self.proc().INTERNAL_proc(), self._path)
+        return self._rewrite_ast(fn, self.proc.INTERNAL_proc(), self._path)
 
     def _make_local_forward(self, new_proc, fwd_node, fwd_gap, fwd_blk):
         orig_proc = self._proc
@@ -254,18 +291,11 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
     # Navigation (implementation)
     # ------------------------------------------------------------------------ #
 
-    def parent(self) -> Node:
-        return Node(self._proc, self._path[:-1])
-
     def before(self, dist=1) -> Gap:
-        attr, _range = self._path[-1]
-        assert len(_range) > 0
-        return self.parent()._child_node(attr, _range.start).before(dist)
+        return Gap(self._proc, self.ctx, self.sel.start - (dist - 1))
 
     def after(self, dist=1) -> Gap:
-        attr, _range = self._path[-1]
-        assert len(_range) > 0
-        return self.parent()._child_node(attr, _range.stop - 1).after(dist)
+        return Gap(self._proc, self.ctx, self.sel.stop + (dist - 1))
 
     def prev(self, dist=1) -> Cursor:
         # TODO: what should this mean?
@@ -285,72 +315,53 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
     # Container interface implementation
     # ------------------------------------------------------------------------ #
 
-    def __contains__(self, cur):
-        n = len(self._path)
-        blk_path = self._path
-        cur_path = cur._path
-
-        if n != len(cur_path):
-            return False
-
-        if (
-            any(cur_path[i] != blk_path[i] for i in range(n - 1))
-            or cur_path[-1][0] != blk_path[-1][0]
-        ):
+    def __contains__(self, cur: Cursor):
+        if self.ctx != cur.ctx:
             return False
 
         if isinstance(cur, Node):
-            return cur_path[-1][1] in blk_path[-1][1]
-        elif isinstance(cur, Gap):
-            return blk_path[-1][1].start <= cur_path[-1][1] <= blk_path[-1][1].stop
-        else:
-            assert isinstance(cur, Block)
-            return (
-                _is_sub_range(cur_path[-1][1], blk_path[-1][1])
-                or cur_path[-1][1] == blk_path[-1][1]
-            )
+            return cur.sel in self.sel
+
+        if isinstance(cur, Gap):
+            return self.sel.start <= cur.sel <= self.sel.stop
+
+        assert isinstance(cur, Block)
+        return _is_sub_range(cur.sel, self.sel) or cur.sel == self.sel
 
     # ------------------------------------------------------------------------ #
     # Sequence interface implementation
     # ------------------------------------------------------------------------ #
 
     def __iter__(self):
-        attr, _range = self._path[-1]
-        block = self.parent()
-        for i in _range:
-            yield block._child_node(attr, i)
+        for i in self.sel:
+            yield Node(self._proc, self.ctx, i)
 
     def __getitem__(self, i):
-        attr, r = self._path[-1]
-        r = r[i]
+        r = self.sel[i]
         if isinstance(r, range):
             if r.step != 1:
                 raise IndexError("block cursors must be contiguous")
-            return Block(self._proc, self._path[:-1] + [(attr, r)])
+            return Block(self._proc, self.ctx, r)
         else:
-            return self.parent()._child_node(attr, r)
+            return Node(self._proc, self.ctx, r)
 
     def __len__(self):
-        _, _range = self._path[-1]
-        return len(_range)
+        return len(self.sel)
 
     # ------------------------------------------------------------------------ #
     # Block-specific operations
     # ------------------------------------------------------------------------ #
 
     def expand(self, lo=None, hi=None):
-        attr, _range = self._path[-1]
-        full_block = self.parent()._child_block(attr)
-        _, full_range = full_block._path[-1]
-        if lo is None:
-            return full_block
+        full_block = self.parent().child_block(self.ctx.attr).sel
 
-        lo = _range.start - lo
-        lo = lo if lo >= 0 else 0
-        hi = _range.stop + hi
-        new_range = full_range[lo:hi]
+        lo = float("-inf") if lo is None else lo
+        lo = max(0, self.sel.start - lo)
 
-        return Block(self._proc, self._path[:-1] + [(attr, new_range)])
+        hi = float("inf") if hi is None else hi
+        hi = min(len(full_block), self.sel.stop + hi)
+
+        return self.update(sel=range(lo, hi))
 
     # ------------------------------------------------------------------------ #
     # Location queries
@@ -466,66 +477,67 @@ class Node(Cursor[Optional[int]]):
 
     @cached_property
     def _node_ref(self):
-        n = self.proc().INTERNAL_proc()
-        n = self._walk_path(n, self._path)
+        n = self.proc.INTERNAL_proc()
+        n = self.ctx.apply(n)
+        if self.sel is not None:
+            n = n[self.sel]
         return weakref.ref(n)
 
     # ------------------------------------------------------------------------ #
     # Navigation (implementation)
     # ------------------------------------------------------------------------ #
 
-    def parent(self) -> Node:
-        if not self._path:
-            raise InvalidCursorError("cursor does not have a parent")
-        return Node(self._proc, self._path[:-1])
-
     def before(self, dist=1) -> Gap:
-        return self._translate(Node._child_gap, 1 - dist)
+        return self._translate(Gap, -(dist - 1))
 
     def after(self, dist=1) -> Gap:
-        return self._translate(Node._child_gap, dist)
+        return self._translate(Gap, dist)
 
     def prev(self, dist=1) -> Node:
-        return self._translate(Node._child_node, -dist)
+        return self._translate(Node, -dist)
 
     def next(self, dist=1) -> Node:
-        return self._translate(Node._child_node, dist)
+        return self._translate(Node, dist)
 
     # ------------------------------------------------------------------------ #
     # Navigation (children)
     # ------------------------------------------------------------------------ #
 
-    def _child_node(self, attr, i=None) -> Node:
-        _node = getattr(self._node(), attr)
+    def child_node(self, attr, i=None) -> Node:
+        node = getattr(self._node(), attr)
+
         if i is not None:
-            if 0 <= i < len(_node):
-                _node = _node[i]
+            if 0 <= i < len(node):
+                node = node[i]
             else:
                 raise InvalidCursorError("cursor is out of range")
-        elif isinstance(_node, list):
+
+        elif isinstance(node, list):
             raise ValueError("must index into block attribute")
-        cur = self.update(_path=self._path + [(attr, i)])
+
+        cur = Node(self._proc, self.ctx.push(self.sel, attr), i)
         # This simply overrides the cached property to avoid computing it
         # later since we know the correct value now. Since these classes
         # are frozen, we have to go around Python's back here.
-        object.__setattr__(cur, "_node_ref", weakref.ref(_node))
+        object.__setattr__(cur, "_node_ref", weakref.ref(node))
         return cur
 
-    def _child_gap(self, attr, i=None) -> Gap:
+    def child_gap(self, attr, i=None) -> Gap:
         _node = getattr(self._node(), attr)
+
         if i is not None:
-            if not 0 <= i <= len(_node):
+            if i not in range(len(_node) + 1):
                 raise InvalidCursorError("cursor is out of range")
+
         elif isinstance(_node, list):
             raise ValueError("must index into block attribute")
-        return Gap(self._proc, self._path + [(attr, i)])
 
-    def _child_block(self, attr: str):
+        return Gap(self._proc, self.ctx.push(self.sel, attr), i)
+
+    def child_block(self, attr: str):
         stmts = getattr(self._node(), attr)
         assert isinstance(stmts, list)
-        context: list[tuple[str, Union[int, range]]] = self._path
-        selection = [(attr, range(len(stmts)))]
-        return Block(self._proc, context + selection)
+        return Block(self._proc, self.ctx.push(self.sel, attr), range(len(stmts)))
 
     def children(self) -> Iterable[Node]:
         n = self._node()
@@ -574,31 +586,28 @@ class Node(Cursor[Optional[int]]):
             children = getattr(n, attr)
             if isinstance(children, list):
                 for i in range(len(children)):
-                    yield self._child_node(attr, i)
+                    yield self.child_node(attr, i)
             else:
-                yield self._child_node(attr, None)
+                yield self.child_node(attr)
 
     # ------------------------------------------------------------------------ #
     # Navigation (block selectors)
     # ------------------------------------------------------------------------ #
 
     def body(self) -> Block:
-        return self._child_block("body")
+        return self.child_block("body")
 
     def orelse(self) -> Block:
-        return self._child_block("orelse")
+        return self.child_block("orelse")
 
     # ------------------------------------------------------------------------ #
     # Conversions
     # ------------------------------------------------------------------------ #
 
     def as_block(self) -> Block:
-        attr, i = self._path[-1]
-        if i is None:
+        if self.sel is None:
             raise InvalidCursorError("node is not inside a block")
-        context: list[tuple[str, Union[int, range]]] = self._path[:-1]
-        selection = [(attr, range(i, i + 1))]
-        return Block(self._proc, context + selection)
+        return Block(self._proc, self.ctx, range(self.sel, self.sel + 1))
 
     # ------------------------------------------------------------------------ #
     # Location queries
@@ -606,7 +615,7 @@ class Node(Cursor[Optional[int]]):
 
     def is_ancestor_of(self, other: Cursor) -> bool:
         """Return true if this node is an ancestor of another"""
-        return _starts_with(other._path, self._path)
+        return self == other or self.ctx.is_ancestor_of(other.ctx)
 
     # ------------------------------------------------------------------------ #
     # AST mutation
@@ -658,21 +667,17 @@ class Gap(Cursor[int]):
     # Navigation (implementation)
     # ------------------------------------------------------------------------ #
 
-    def parent(self) -> Node:
-        assert self._path
-        return Node(self._proc, self._path[:-1])
-
     def before(self, dist=1) -> Node:
-        return self._translate(Node._child_node, -dist)
+        return self._translate(Node, -dist)
 
     def after(self, dist=1) -> Node:
-        return self._translate(Node._child_node, dist - 1)
+        return self._translate(Node, dist - 1)
 
     def prev(self, dist=1) -> Gap:
-        return self._translate(Node._child_gap, -dist)
+        return self._translate(Gap, -dist)
 
     def next(self, dist=1) -> Gap:
-        return self._translate(Node._child_gap, dist)
+        return self._translate(Gap, dist)
 
     # ------------------------------------------------------------------------ #
     # AST mutation

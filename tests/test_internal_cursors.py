@@ -309,7 +309,7 @@ def test_cursor_forward_expr_deep():
 
 def test_cursor_loop_bound(proc_foo):
     c_for_i = Cursor.root(proc_foo).body()[0]
-    c_bound = c_for_i._child_node("hi")
+    c_bound = c_for_i.child_node("hi")
     assert isinstance(c_bound._node(), LoopIR.Read)
 
 
@@ -317,16 +317,16 @@ def test_cursor_invalid_child(proc_foo):
     c = Cursor.root(proc_foo)
 
     # Quick sanity check
-    assert c._child_node("body", 0) == c.body()[0]
+    assert c.child_node("body", 0) == c.body()[0]
 
     with pytest.raises(AttributeError, match="has no attribute '_invalid'"):
-        c._child_node("_invalid", None)
+        c.child_node("_invalid", None)
 
     with pytest.raises(ValueError, match="must index into block attribute"):
-        c._child_node("body", None)
+        c.child_node("body", None)
 
     with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c._child_node("body", 42)
+        c.child_node("body", 42)
 
 
 def test_cursor_lifetime():
@@ -819,15 +819,18 @@ def _enumerate_cursors(cur):
     assert not isinstance(cur, Gap), "Should not call _enumerate_cursors on a gap"
 
 
-def test_block_move_identity_1(proc_bar, subtests):
+def test_block_move_identity_1(proc_bar):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
     bar_new, fwd = for_j[0:3]._move_to(for_j[0].before())
 
     assert str(proc_bar) == str(bar_new)
 
     for cur in _enumerate_cursors(proc_bar):
-        with subtests.test(msg=str(cur._path)):
-            assert cur._path == fwd(cur)._path
+        if isinstance(cur, (Gap, Block)):
+            continue
+
+        print(_print_cursor(cur))
+        assert cur._path == fwd(cur)._path
 
 
 def test_block_move_identity_2(proc_bar):
@@ -837,6 +840,10 @@ def test_block_move_identity_2(proc_bar):
     assert str(proc_bar) == str(bar_new)
 
     for cur in _enumerate_cursors(proc_bar):
+        if isinstance(cur, (Gap, Block)):
+            continue
+
+        print(_print_cursor(cur))
         assert cur._path == fwd(cur)._path
 
 
@@ -845,6 +852,17 @@ def test_block_move_within_block(proc_bar, golden):
     bar_new, fwd = for_j[0:3]._move_to(for_j[-1].after())
     print(bar_new)
     assert str(bar_new) == golden
+
+    print("============================================================")
+    for cur in _enumerate_cursors(proc_bar):
+        if isinstance(cur, (Gap, Block)):
+            continue
+
+        print(_print_cursor(cur))
+        print("------")
+        print(_print_cursor(fwd(cur)))
+        print("============================================================")
+        assert cur._path == fwd(cur)._path
 
 
 def test_block_move_before_parent(proc_bar, golden):
