@@ -108,7 +108,7 @@ class Context:
     path: list[(str, Optional[int])] = dataclasses.field(default_factory=list)
     attr: Optional[str] = None
 
-    def apply(self, obj):
+    def follow_path(self, obj):
         for attr, idx in self.path:
             obj = getattr(obj, attr)
             if idx is not None:
@@ -116,6 +116,24 @@ class Context:
         if self.attr is not None:
             obj = getattr(obj, self.attr)
         return obj
+
+    def apply(self, obj, fn):
+        if self.attr is None:
+            return fn(obj)
+
+        def traverse(cur_obj, i):
+            assert i <= len(self.path), "bug!"
+            if i == len(self.path):
+                return cur_obj.update(**{self.attr: fn(getattr(cur_obj, self.attr))})
+            attr, j = self.path[i]
+            sub = getattr(cur_obj, attr)
+            if j is not None:
+                return cur_obj.update(
+                    **{attr: sub[:j] + [traverse(sub[j], i + 1)] + sub[j + 1 :]}
+                )
+            return cur_obj.update(**{attr: traverse(sub, i + 1)})
+
+        return traverse(obj, 0)
 
     def push(self, i, attr) -> Context:
         if self.attr is None:
@@ -221,33 +239,20 @@ class Cursor(ABC, Generic[T]):
     # Protected path / mutation helpers
     # ------------------------------------------------------------------------ #
 
-    @staticmethod
-    def _rewrite_ast(fn, root, path_):
-        def impl(node, path):
-            if len(path) == 1:
-                return fn(node)
-
-            (attr, i), path = path[0], path[1:]
-            children = getattr(node, attr)
-
-            if i is None:
-                return node.update(**{attr: impl(children, path)})
-
-            return node.update(
-                **{attr: children[:i] + [impl(children[i], path)] + children[i + 1 :]}
-            )
-
-        return impl(root, path_)
-
     def _rewrite_node(self, fn):
         """
         Applies `fn` to the AST node containing the cursor. The callback is
         passed the raw parent of the pointed-to node/block/gap. The callback is
         expected to return a single, updated node to be placed in the new tree.
         """
-        return self._rewrite_ast(fn, self.proc.INTERNAL_proc(), self._path)
+        return self.ctx.apply(self.proc.INTERNAL_proc(), fn)
 
     def _make_local_forward(self, new_proc, fwd_node, fwd_gap, fwd_blk):
+        def dummy_fwd(c):
+            return c.update(_proc=new_proc)
+
+        return dummy_fwd
+
         orig_proc = self._proc
         path = self._path
         depth = len(path)
@@ -374,29 +379,28 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def _move_to(self, dst: Gap):
+    def move_to(self, dst: Gap):
         """
         This is an UNSAFE internal function for moving a block in an AST to some
         other location, defined by the gap "dest". It is meant to be
         package-private, not class-private, so it may be called from other
         internal classes and modules, but not from end-user code.
         """
-        assert self._path
         assert len(self) > 0
 
         nodes = [x._node() for x in self]
 
-        _, fwd_del = self._delete()
+        _, fwd_del = self.delete()
         dst = fwd_del(dst)
         assert isinstance(dst, Gap)
-        p, fwd_ins = dst._insert(nodes, policy=ForwardingPolicy.PreferInvalidation)
+        p, fwd_ins = dst.insert(nodes, policy=ForwardingPolicy.PreferInvalidation)
 
         def _forward_move_to(c):
             return c.update(_proc=p)
 
         return p, _forward_move_to
 
-    def _replace(self, nodes: list, *, empty_default=None):
+    def replace(self, nodes: list, *, empty_default=None):
         """
         This is an UNSAFE internal function for replacing a block in an AST with
         a list of statements and providing a forwarding function as collateral.
@@ -404,22 +408,21 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
         called from other internal classes and modules, but not from end-user
         code.
         """
-        assert self._path
         assert len(self) > 0
 
-        def update(parent):
-            attr, i = self._path[-1]
-            children = getattr(parent, attr)
-            new_children = children[: i.start] + nodes + children[i.stop :]
+        i = self.sel
+
+        def update(obj):
+            new_children = obj[: i.start] + nodes + obj[i.stop :]
             new_children = new_children or empty_default or []
-            return parent.update(**{attr: new_children})
+            return new_children
 
         p = API.Procedure(self._rewrite_node(update))
 
         return p, self._forward_replace(weakref.ref(p), len(nodes))
 
     def _forward_replace(self, new_proc, n_ins):
-        _, del_range = self._path[-1]
+        del_range = self.sel
         n_diff = n_ins - len(del_range)
 
         def fwd_node(i):
@@ -448,7 +451,7 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
 
         return self._make_local_forward(new_proc, fwd_node, fwd_gap, fwd_blk)
 
-    def _delete(self):
+    def delete(self):
         """
         This is an UNSAFE internal function for deleting a block in an AST and
         providing a forwarding function as collateral. It is meant to be
@@ -456,7 +459,7 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
         internal classes and modules, but not from end-user code.
         """
         pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node().srcinfo)]
-        return self._replace([], empty_default=pass_stmt)
+        return self.replace([], empty_default=pass_stmt)
 
 
 @dataclass(frozen=True)
@@ -478,7 +481,7 @@ class Node(Cursor[Optional[int]]):
     @cached_property
     def _node_ref(self):
         n = self.proc.INTERNAL_proc()
-        n = self.ctx.apply(n)
+        n = self.ctx.follow_path(n)
         if self.sel is not None:
             n = n[self.sel]
         return weakref.ref(n)
@@ -621,7 +624,7 @@ class Node(Cursor[Optional[int]]):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def _replace(self, ast):
+    def replace(self, ast):
         """
         This is an UNSAFE internal function for replacing a node in an AST with
         either a list of statements or another single node and providing a
@@ -629,24 +632,22 @@ class Node(Cursor[Optional[int]]):
         not class-private, so it may be called from other internal classes and
         modules, but not from end-user code.
         """
-        attr, idx = self._path[-1]
-        if idx is not None:
+        if self.sel is not None:
             # noinspection PyProtectedMember
             # delegate block replacement to the Block class
-            return self.as_block()._replace(ast)
+            return self.as_block().replace(ast)
 
         # replacing a single expression, or something not in a block
         assert not isinstance(ast, list), "replaced node is not in a block"
 
-        def update(parent):
-            return parent.update(**{attr: ast})
+        def update(_):
+            return ast
 
         p = API.Procedure(self._rewrite_node(update))
-
         return p, self._forward_replace(weakref.ref(p))
 
     def _forward_replace(self, new_proc):
-        _, idx = self._path[-1]
+        idx = self.sel
         assert idx is None
 
         def fwd_node(_):
@@ -683,7 +684,7 @@ class Gap(Cursor[int]):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def _insert(self, stmts: list, policy=ForwardingPolicy.AnchorPre):
+    def insert(self, stmts: list, policy=ForwardingPolicy.AnchorPre):
         """
         This is an UNSAFE internal function for inserting a list of nodes at a
         particular gap in an AST block and providing a forwarding function as
@@ -691,12 +692,9 @@ class Gap(Cursor[int]):
         may be called from other internal classes and modules, but not from
         end-user code.
         """
-        assert self._path
 
-        def update(parent):
-            attr, i = self._path[-1]
-            children = getattr(parent, attr)
-            return parent.update(**{attr: children[:i] + stmts + children[i:]})
+        def update(obj):
+            return obj[: self.sel] + stmts + obj[self.sel :]
 
         p = API.Procedure(self._rewrite_node(update))
 
@@ -704,7 +702,7 @@ class Gap(Cursor[int]):
         return p, forward
 
     def _forward_insert(self, new_proc, ins_len, policy):
-        _, ins_idx = self._path[-1]
+        ins_idx = self.sel
 
         def fwd_node(i):
             return i + ins_len * (i >= ins_idx)

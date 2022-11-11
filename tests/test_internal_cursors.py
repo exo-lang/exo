@@ -81,19 +81,19 @@ def test_gap_insert_pass(proc_foo, golden):
     c = proc_foo._TEST_find_stmt("x = 0.0")
     assn = c._node()
     g = c.after()
-    foo2, _ = g._insert([LoopIR.Pass(None, assn.srcinfo)])
+    foo2, _ = g.insert([LoopIR.Pass(None, assn.srcinfo)])
     assert str(foo2) == golden
 
 
 def test_insert_root_front(proc_foo, golden):
     c = Cursor.root(proc_foo)
-    foo2, _ = c.body().before()._insert([LoopIR.Pass(None, c._node().srcinfo)])
+    foo2, _ = c.body().before().insert([LoopIR.Pass(None, c._node().srcinfo)])
     assert str(foo2) == golden
 
 
 def test_insert_root_end(proc_foo, golden):
     c = Cursor.root(proc_foo)
-    foo2, _ = c.body().after()._insert([LoopIR.Pass(None, c._node().srcinfo)])
+    foo2, _ = c.body().after().insert([LoopIR.Pass(None, c._node().srcinfo)])
     assert str(foo2) == golden
 
 
@@ -130,7 +130,7 @@ def test_block_delete(proc_bar, golden):
     c = proc_bar._TEST_find_stmt("for j in _: _")
     stmts = c.body()[1:4]
 
-    bar2, _ = stmts._delete()
+    bar2, _ = stmts.delete()
     assert str(bar2) == golden
 
 
@@ -138,13 +138,13 @@ def test_block_replace(proc_bar, golden):
     c = proc_bar._TEST_find_stmt("for j in _: _")
     stmts = c.body()[1:4]
 
-    bar2, _ = stmts._replace([LoopIR.Pass(None, c._node().srcinfo)])
+    bar2, _ = stmts.replace([LoopIR.Pass(None, c._node().srcinfo)])
     assert str(bar2) == golden
 
 
 def test_block_delete_whole_block(proc_bar, golden):
     c = proc_bar._TEST_find_stmt("for j in _: _")
-    bar2, _ = c.body()._delete()
+    bar2, _ = c.body().delete()
     assert str(bar2) == golden
 
 
@@ -152,7 +152,7 @@ def test_node_replace(proc_bar, golden):
     c = proc_bar._TEST_find_stmt("x = 3.0")
     assert isinstance(c, Node)
 
-    bar2, _ = c._replace([LoopIR.Pass(None, c._node().srcinfo)])
+    bar2, _ = c.replace([LoopIR.Pass(None, c._node().srcinfo)])
     assert str(bar2) == golden
 
 
@@ -254,7 +254,7 @@ def test_cursor_gap(proc_foo):
 
 def test_cursor_replace_expr(proc_foo, golden):
     c = proc_foo._TEST_find_cursors("m")[0]
-    foo2, _ = c._replace(LoopIR.Const(42, T.size, c._node().srcinfo))
+    foo2, _ = c.replace(LoopIR.Const(42, T.size, c._node().srcinfo))
     assert str(foo2) == golden
 
 
@@ -274,7 +274,7 @@ def test_cursor_replace_expr_deep(golden):
     c: Node = example._TEST_find_cursors("2.0")[0]
     four = LoopIR.Const(4.0, T.f32, c._node().srcinfo)
 
-    example_new, _ = c._replace(four)
+    example_new, _ = c.replace(four)
     assert str(example_new) == golden
 
 
@@ -288,7 +288,7 @@ def test_cursor_forward_expr_deep():
     c2: Node = example._TEST_find_cursors("2.0")[0]
     four = LoopIR.Const(4.0, T.f32, c2._node().srcinfo)
 
-    example_new, fwd = c2._replace(four)
+    example_new, fwd = c2.replace(four)
     with pytest.raises(InvalidCursorError, match="cannot forward replaced nodes"):
         fwd(c2)
 
@@ -379,7 +379,7 @@ def test_insert_forwarding(policy):
 
     ins_gap = x_old[3].after()
 
-    example_new, fwd = ins_gap._insert(stmt, policy)
+    example_new, fwd = ins_gap.insert(stmt, policy)
     x_new = [example_new._TEST_find_stmt(f"x = {n}.0") for n in range(8)]
 
     # Check that the root is forwarded:
@@ -429,13 +429,13 @@ def test_insert_forwarding_policy(proc_bar):
 
     stmt = [LoopIR.Pass(None, x2._node().srcinfo)]
 
-    bar_pre, fwd_pre = gap._insert(stmt, ForwardingPolicy.AnchorPre)
+    bar_pre, fwd_pre = gap.insert(stmt, ForwardingPolicy.AnchorPre)
     assert fwd_pre(gap) == bar_pre._TEST_find_stmt("x = 2.0").after()
 
-    bar_post, fwd_post = gap._insert(stmt, ForwardingPolicy.AnchorPost)
+    bar_post, fwd_post = gap.insert(stmt, ForwardingPolicy.AnchorPost)
     assert fwd_post(gap) == bar_post._TEST_find_stmt("x = 3.0").before()
 
-    bar_invalid, fwd_invalid = gap._insert(stmt, ForwardingPolicy.PreferInvalidation)
+    bar_invalid, fwd_invalid = gap.insert(stmt, ForwardingPolicy.PreferInvalidation)
     with pytest.raises(InvalidCursorError, match="insertion gap was invalidated"):
         fwd_invalid(gap)
 
@@ -455,7 +455,7 @@ def test_insert_forward_orelse():
 
     stmt = [LoopIR.Pass(None, x1_old._node().srcinfo)]
 
-    example_new, fwd = gap._insert(stmt)
+    example_new, fwd = gap.insert(stmt)
     x2_new = example_new._TEST_find_stmt("x = 2.0")
 
     assert fwd(x2_old) == x2_new
@@ -478,8 +478,8 @@ def test_double_insert_forwarding(golden):
     x2_stmt = x1_s1._node().update(rhs=LoopIR.Const(2.0, T.f32, x1_s1._node().srcinfo))
     x4_stmt = x1_s1._node().update(rhs=LoopIR.Const(4.0, T.f32, x1_s1._node().srcinfo))
 
-    proc_s2, fwd_12 = x1_s1.after()._insert([x2_stmt])
-    proc_s3, fwd_23 = fwd_12(x3_s1).after()._insert([x4_stmt])
+    proc_s2, fwd_12 = x1_s1.after().insert([x2_stmt])
+    proc_s3, fwd_23 = fwd_12(x3_s1).after().insert([x4_stmt])
     assert str(proc_s3) == golden
 
     def fwd_13(cur):
@@ -511,7 +511,7 @@ def test_double_insert_forwarding(golden):
 )
 def test_delete_forward_node(proc_bar, old, new):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[2:4]._delete()
+    bar_new, fwd = for_j[2:4].delete()
     for_j_new = bar_new._TEST_find_stmt("for j in _: _").body()
 
     if new is None:
@@ -536,7 +536,7 @@ def test_delete_forward_node(proc_bar, old, new):
 )
 def test_delete_forward_gap(proc_bar, old, new):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[2:4]._delete()
+    bar_new, fwd = for_j[2:4].delete()
     for_j_new = bar_new._TEST_find_stmt("for j in _: _").body()
 
     old_i, old_gap = old
@@ -576,7 +576,7 @@ def test_delete_forward_gap(proc_bar, old, new):
 )
 def test_delete_forward_block(proc_bar, old, new):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[2:4]._delete()
+    bar_new, fwd = for_j[2:4].delete()
     for_j_new = bar_new._TEST_find_stmt("for j in _: _").body()
 
     if new is None:
@@ -615,7 +615,7 @@ def test_delete_forward_block(proc_bar, old, new):
 )
 def test_delete_forward_block_with_patterns(proc_bar, old, new):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[2:4]._delete()
+    bar_new, fwd = for_j[2:4].delete()
 
     old_c = proc_bar._TEST_find_cursors(old)[0]
     if new is None:
@@ -636,7 +636,7 @@ def test_forward_lifetime(proc_bar):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()[2:4]
     for_j_weak = weakref.ref(for_j)
 
-    bar_new, fwd = for_j._delete()
+    bar_new, fwd = for_j.delete()
     bar_new_weak = weakref.ref(bar_new)
 
     c = Cursor.root(bar_new).body()[0]
@@ -667,7 +667,7 @@ def test_forward_lifetime(proc_bar):
 )
 def test_block_replace_forward_node(proc_bar, old, new):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[1:4]._replace(
+    bar_new, fwd = for_j[1:4].replace(
         [
             LoopIR.Pass(None, for_j.parent()._node().srcinfo),
             LoopIR.Pass(None, for_j.parent()._node().srcinfo),
@@ -714,7 +714,7 @@ def test_block_replace_forward_node(proc_bar, old, new):
 )
 def test_block_replace_forward_gap(proc_bar, old, new):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[1:4]._replace(
+    bar_new, fwd = for_j[1:4].replace(
         [
             LoopIR.Pass(None, for_j.parent()._node().srcinfo),
             LoopIR.Pass(None, for_j.parent()._node().srcinfo),
@@ -760,7 +760,7 @@ def test_block_replace_forward_gap(proc_bar, old, new):
 )
 def test_block_replace_forward_block(proc_bar, old, new):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[1:4]._replace(
+    bar_new, fwd = for_j[1:4].replace(
         [
             LoopIR.Pass(None, for_j.parent()._node().srcinfo),
             LoopIR.Pass(None, for_j.parent()._node().srcinfo),
@@ -821,7 +821,7 @@ def _enumerate_cursors(cur):
 
 def test_block_move_identity_1(proc_bar):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[0:3]._move_to(for_j[0].before())
+    bar_new, fwd = for_j[0:3].move_to(for_j[0].before())
 
     assert str(proc_bar) == str(bar_new)
 
@@ -835,7 +835,7 @@ def test_block_move_identity_1(proc_bar):
 
 def test_block_move_identity_2(proc_bar):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[0:3]._move_to(for_j[3].before())
+    bar_new, fwd = for_j[0:3].move_to(for_j[3].before())
 
     assert str(proc_bar) == str(bar_new)
 
@@ -849,7 +849,7 @@ def test_block_move_identity_2(proc_bar):
 
 def test_block_move_within_block(proc_bar, golden):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[0:3]._move_to(for_j[-1].after())
+    bar_new, fwd = for_j[0:3].move_to(for_j[-1].after())
     print(bar_new)
     assert str(bar_new) == golden
 
@@ -867,14 +867,14 @@ def test_block_move_within_block(proc_bar, golden):
 
 def test_block_move_before_parent(proc_bar, golden):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[0:3]._move_to(for_j.parent().before())
+    bar_new, fwd = for_j[0:3].move_to(for_j.parent().before())
     print(bar_new)
     assert str(bar_new) == golden
 
 
 def test_block_move_after_parent(proc_bar, golden):
     for_j = proc_bar._TEST_find_stmt("for j in _: _").body()
-    bar_new, fwd = for_j[0:3]._move_to(for_j.parent().after())
+    bar_new, fwd = for_j[0:3].move_to(for_j.parent().after())
     print(bar_new)
     assert str(bar_new) == golden
 
