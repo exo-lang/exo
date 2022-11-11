@@ -396,7 +396,7 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
 
         def _forward_move_to(c: Cursor) -> Cursor:
             if isinstance(c, Node):
-                if src_ctx.is_ancestor_of(c):
+                if src_ctx.is_ancestor_of(c.ctx):
                     pass
             elif isinstance(c, Gap):
                 pass
