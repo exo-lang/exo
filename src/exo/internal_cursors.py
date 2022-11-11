@@ -240,7 +240,7 @@ class Cursor(ABC, Generic[T]):
     def _make_local_forward(self, new_proc, fwd_node, fwd_gap, fwd_blk):
         orig_proc = self._proc
         this_ctx = self.ctx
-        depth = len(self.ctx.path) + 1
+        depth = len(self.ctx.path)
         attr = self.ctx.attr
 
         def forward(cursor: Cursor) -> Cursor:
@@ -248,18 +248,19 @@ class Cursor(ABC, Generic[T]):
                 raise InvalidCursorError("cannot forward unknown procs")
 
             old_path = cursor.ctx.path + [(cursor.ctx.attr, cursor.sel)]
+            old_depth = len(cursor.ctx.path)
 
             # Too shallow?
-            if len(old_path) < depth:
+            if old_depth < depth:
                 return cursor.update(_proc=new_proc)
 
-            old_attr, old_idx = old_path[depth - 1]
+            old_attr, old_idx = old_path[depth]
 
             # Check contexts are the same
-            if this_ctx != Context(old_path[: depth - 1], old_attr):
+            if this_ctx != Context(old_path[:depth], old_attr):
                 return cursor.update(_proc=new_proc)
 
-            if len(old_path) > depth or isinstance(cursor, Node):
+            if old_depth > depth or isinstance(cursor, Node):
                 idx = fwd_node(old_idx)
             elif isinstance(cursor, Gap):
                 idx = fwd_gap(old_idx)
@@ -267,7 +268,7 @@ class Cursor(ABC, Generic[T]):
                 assert isinstance(cursor, Block)
                 idx = fwd_blk(old_idx)
 
-            new_path = old_path[: depth - 1] + [(attr, idx)] + old_path[depth:]
+            new_path = old_path[:depth] + [(attr, idx)] + old_path[depth + 1 :]
 
             return cursor.update(
                 _proc=new_proc,
@@ -292,7 +293,7 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
 
     def prev(self, dist=1) -> Cursor:
         # TODO: what should this mean?
-        #  1. The node after the block?
+        #  1. The node before the block?
         #  2. The block shifted over?
         #  3. The block of nodes leading up to the start?
         raise NotImplementedError("Block.prev")
