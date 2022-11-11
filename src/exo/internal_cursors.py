@@ -385,7 +385,7 @@ class Block(Cursor[Union[int, range]]):  # is range iff last entry
         p, fwd_ins = dst.insert(nodes, policy=ForwardingPolicy.PreferInvalidation)
 
         def _forward_move_to(c):
-            return c.update(_proc=p)
+            return c.update(_proc=weakref.ref(p))
 
         return p, _forward_move_to
 

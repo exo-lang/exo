@@ -830,7 +830,8 @@ def test_block_move_identity_1(proc_bar):
             continue
 
         print(_print_cursor(cur))
-        assert cur._path == fwd(cur)._path
+        assert cur.ctx == fwd(cur).ctx
+        assert cur.sel == fwd(cur).sel
 
 
 def test_block_move_identity_2(proc_bar):
@@ -844,7 +845,8 @@ def test_block_move_identity_2(proc_bar):
             continue
 
         print(_print_cursor(cur))
-        assert cur._path == fwd(cur)._path
+        assert cur.ctx == fwd(cur).ctx
+        assert cur.sel == fwd(cur).sel
 
 
 def test_block_move_within_block(proc_bar, golden):
@@ -862,7 +864,6 @@ def test_block_move_within_block(proc_bar, golden):
         print("------")
         print(_print_cursor(fwd(cur)))
         print("============================================================")
-        assert cur._path == fwd(cur)._path
 
 
 def test_block_move_before_parent(proc_bar, golden):
