@@ -246,10 +246,10 @@ def run_compile(proc_list, h_file_name: str):
     lib_name = sanitize_str(file_stem)
     fwd_decls, body = compile_to_strings(lib_name, proc_list)
 
-    body = f'#include "{h_file_name}"\n\n{body}'
+    source = f'#include "{h_file_name}"\n\n{body}'
 
     header_guard = f"{lib_name}_H".upper()
-    fwd_decls = f"""
+    header = f"""
 #pragma once
 #ifndef {header_guard}
 #define {header_guard}
@@ -266,7 +266,7 @@ extern "C" {{
 #endif  // {header_guard}
 """
 
-    return body, fwd_decls
+    return source, header
 
 
 _static_helpers = {
@@ -608,7 +608,7 @@ class Compiler:
         acc = " + ".join([f"({i}) * ({s})" for i, s in zip(idx, strides)])
         return acc
 
-    def get_window_type(self, typ):
+    def get_window_type(self, typ, is_const=None):
         assert isinstance(typ, T.Window) or (
             isinstance(typ, LoopIR.fnarg) and typ.type.is_win()
         )
@@ -616,11 +616,13 @@ class Compiler:
         if isinstance(typ, T.Window):
             base = typ.as_tensor.basetype()
             n_dims = len(typ.as_tensor.shape())
-            is_const = typ.src_buf not in self.non_const
+            if is_const is None:
+                is_const = typ.src_buf not in self.non_const
         else:
             base = typ.type.basetype()
             n_dims = len(typ.type.shape())
-            is_const = typ.name not in self.non_const
+            if is_const is None:
+                is_const = typ.name not in self.non_const
 
         win = window_struct(base, n_dims, is_const)
         self.window_defns.add(win)
@@ -729,7 +731,7 @@ class Compiler:
             assert all(
                 a.type.is_win() == fna.type.is_win() for a, fna in zip(s.args, s.f.args)
             )
-            args = [self.comp_e(e, call_arg=True) for e in s.args]
+            args = [self.comp_fnarg(e, s.f, i) for i, e in enumerate(s.args)]
             if s.f.instr is not None:
                 d = dict()
                 assert len(s.f.args) == len(args)
@@ -753,53 +755,67 @@ class Compiler:
         else:
             assert False, "bad case"
 
-    def comp_e(self, e, prec=0, call_arg=False):
-        etyp = type(e)
-
-        if etyp is LoopIR.Read:
+    def comp_fnarg(self, e, fn, i, *, prec=0):
+        if isinstance(e, LoopIR.Read):
+            assert not e.idx
             rtyp = self.envtyp[e.name]
-            if call_arg:
-                assert len(e.idx) == 0
-                if rtyp.is_indexable():
-                    return self.env[e.name]
-                elif rtyp is T.bool:
-                    return self.env[e.name]
-                elif rtyp is T.stride:
-                    return self.env[e.name]
-                elif e.name in self._scalar_refs:
-                    return self.env[e.name]
-                elif rtyp.is_tensor_or_window():
-                    return self.env[e.name]
-                else:
-                    assert rtyp.is_real_scalar()
-                    return f"&{self.env[e.name]}"
+            if rtyp.is_indexable():
+                return self.env[e.name]
+            elif rtyp is T.bool:
+                return self.env[e.name]
+            elif rtyp is T.stride:
+                return self.env[e.name]
+            elif e.name in self._scalar_refs:
+                return self.env[e.name]
+            elif rtyp.is_tensor_or_window():
+                return self.env[e.name]
             else:
-                if rtyp.is_indexable() or rtyp is T.bool or rtyp == T.stride:
-                    return self.env[e.name]
+                assert rtyp.is_real_scalar()
+                return f"&{self.env[e.name]}"
+        elif isinstance(e, LoopIR.WindowExpr):
+            if isinstance(fn, LoopIR.proc):
+                callee_buf = fn.args[i].name
+                is_const = callee_buf not in set(x.buffer for x in fn.eff.writes + fn.eff.reduces)
+            else:
+                raise NotImplementedError("Passing windows to built-ins")
+            win_struct = self.get_window_type(e.type, is_const)
+            data, strides = self.window_struct_fields(e)
+            return f"(struct {win_struct}){{ &{data}, {{ {strides} }} }}"
+        else:
+            return self.comp_e(e, prec)
 
-                mem: Memory = self.mems[e.name]
+    def comp_e(self, e, prec=0):
+        if isinstance(e, LoopIR.Read):
+            rtyp = self.envtyp[e.name]
+            if rtyp.is_indexable() or rtyp is T.bool or rtyp == T.stride:
+                return self.env[e.name]
 
-                if not mem.can_read():
-                    raise MemGenError(
-                        f"{e.srcinfo}: cannot read from buffer "
-                        f"'{e.name}' in memory '{mem.name()}'"
-                    )
+            mem: Memory = self.mems[e.name]
 
-                if e.name in self._scalar_refs:
-                    return f"*{self.env[e.name]}"
-                elif not rtyp.is_tensor_or_window():
-                    return self.env[e.name]
-                else:
-                    return self.access_str(e.name, e.idx)
-        elif etyp is LoopIR.WindowExpr:
+            if not mem.can_read():
+                raise MemGenError(
+                    f"{e.srcinfo}: cannot read from buffer "
+                    f"'{e.name}' in memory '{mem.name()}'"
+                )
+
+            if e.name in self._scalar_refs:
+                return f"*{self.env[e.name]}"
+            elif not rtyp.is_tensor_or_window():
+                return self.env[e.name]
+            else:
+                return self.access_str(e.name, e.idx)
+
+        elif isinstance(e, LoopIR.WindowExpr):
             win_struct = self.get_window_type(e.type)
             data, strides = self.window_struct_fields(e)
             return f"(struct {win_struct}){{ &{data}, {{ {strides} }} }}"
-        elif etyp is LoopIR.Const:
+
+        elif isinstance(e, LoopIR.Const):
             if isinstance(e.val, bool):
                 return "true" if e.val else "false"
             return str(e.val)
-        elif etyp is LoopIR.BinOp:
+
+        elif isinstance(e, LoopIR.BinOp):
             local_prec = op_prec[e.op]
             int_div = e.op == "/" and not e.type.is_numeric()
             if int_div:
@@ -824,19 +840,19 @@ class Compiler:
                 s = f"({s})"
 
             return s
-        elif etyp is LoopIR.USub:
+        elif isinstance(e, LoopIR.USub):
             return f'-{self.comp_e(e.arg, op_prec["~"])}'
 
-        elif etyp is LoopIR.BuiltIn:
-            args = [self.comp_e(a, call_arg=True) for a in e.args]
+        elif isinstance(e, LoopIR.BuiltIn):
+            args = [self.comp_fnarg(a, e, i) for i, a in enumerate(e.args)]
             return e.f.compile(args)
 
-        elif etyp is LoopIR.StrideExpr:
+        elif isinstance(e, LoopIR.StrideExpr):
             basetyp = self.envtyp[e.name]
             strides = self.get_strides(e.name, basetyp)
 
             return strides[e.dim]
-        elif etyp is LoopIR.ReadConfig:
+        elif isinstance(e, LoopIR.ReadConfig):
             if not e.config.is_allow_rw():
                 raise ConfigError(
                     f"{e.srcinfo}: cannot read from config '{e.config.name()}'"

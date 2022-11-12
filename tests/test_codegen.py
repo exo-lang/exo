@@ -71,18 +71,55 @@ def test_free3(compiler):
 old_split = repeat(divide_loop)
 
 
+# Tests for constness
+
+
+def test_const_local_buffer(golden, compiler):
+    @proc
+    def callee(N: size, A: [f32][N]):
+        for i in seq(0, N):
+            A[i] = 0.0
+
+    @proc
+    def caller():
+        A: f32[10]
+        callee(10, A)
+
+    cc, hh = compile_procs_to_strings([caller], 'test.h')
+    assert f'{hh}{cc}' == golden
+
+    compiler.compile(caller)
+
+
+def test_const_local_window(golden, compiler):
+    @proc
+    def callee(N: size, A: [f32][N]):
+        for i in seq(0, N):
+            A[i] = 0.0
+
+    @proc
+    def caller():
+        A: f32[100]
+        callee(10, A[10:20])
+
+    cc, hh = compile_procs_to_strings([caller], 'test.h')
+    assert f'{hh}{cc}' == golden
+
+    compiler.compile(caller)
+
+
 # --- Start Blur Test ---
 
 
 def gen_blur() -> Procedure:
     @proc
     def blur(
-        n: size,
-        m: size,
-        k_size: size,
-        image: R[n, m],
-        kernel: R[k_size, k_size],
-        res: R[n, m],
+            n: size,
+            m: size,
+            k_size: size,
+            image: R[n, m],
+            kernel: R[k_size, k_size],
+            res: R[n, m],
     ):
         for i in seq(0, n):
             for j in seq(0, m):
@@ -92,10 +129,10 @@ def gen_blur() -> Procedure:
                 for k in seq(0, k_size):
                     for l in seq(0, k_size):
                         if (
-                            i + k >= 1
-                            and i + k - n < 1
-                            and j + l >= 1
-                            and j + l - m < 1
+                                i + k >= 1
+                                and i + k - n < 1
+                                and j + l >= 1
+                                and j + l - m < 1
                         ):
                             res[i, j] += kernel[k, l] * image[i + k - 1, j + l - 1]
 
@@ -130,12 +167,12 @@ def test_simple_blur(compiler, tmp_path):
 def test_simple_blur_split(compiler, tmp_path):
     @proc
     def simple_blur_split(
-        n: size,
-        m: size,
-        k_size: size,
-        image: R[n, m],
-        kernel: R[k_size, k_size],
-        res: R[n, m],
+            n: size,
+            m: size,
+            k_size: size,
+            image: R[n, m],
+            kernel: R[k_size, k_size],
+            res: R[n, m],
     ):
         for i in seq(0, n):
             for j1 in seq(0, m / 2):
@@ -147,13 +184,14 @@ def test_simple_blur_split(compiler, tmp_path):
                     for k in seq(0, k_size):
                         for l in seq(0, k_size):
                             if (
-                                i + k >= 1
-                                and i + k - n < 1
-                                and j1 * 2 + j2 + l >= 1
-                                and j1 * 2 + j2 + l - m < 1
+                                    i + k >= 1
+                                    and i + k - n < 1
+                                    and j1 * 2 + j2 + l >= 1
+                                    and j1 * 2 + j2 + l - m < 1
                             ):
                                 res[i, j1 * 2 + j2] += (
-                                    kernel[k, l] * image[i + k - 1, j1 * 2 + j2 + l - 1]
+                                        kernel[k, l] * image[
+                                    i + k - 1, j1 * 2 + j2 + l - 1]
                                 )
 
     _test_blur(compiler, tmp_path, simple_blur_split)
@@ -221,7 +259,7 @@ def test_conv1d(compiler):
 def test_alloc_nest(compiler, tmp_path):
     @proc
     def alloc_nest(
-        n: size, m: size, x: R[n, m], y: R[n, m] @ DRAM, res: R[n, m] @ DRAM
+            n: size, m: size, x: R[n, m], y: R[n, m] @ DRAM, res: R[n, m] @ DRAM
     ):
         for i in seq(0, n):
             rloc: R[m] @ DRAM
@@ -259,7 +297,8 @@ def test_alloc_nest(compiler, tmp_path):
 def test_alloc_nest_malloc(compiler):
     @proc
     def alloc_nest_malloc(
-        n: size, m: size, x: R[n, m] @ MDRAM, y: R[n, m] @ MDRAM, res: R[n, m] @ MDRAM
+            n: size, m: size, x: R[n, m] @ MDRAM, y: R[n, m] @ MDRAM,
+            res: R[n, m] @ MDRAM
     ):
         for i in seq(0, n):
             rloc: R[m] @ MDRAM
