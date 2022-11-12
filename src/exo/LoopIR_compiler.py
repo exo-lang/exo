@@ -775,7 +775,9 @@ class Compiler:
         elif isinstance(e, LoopIR.WindowExpr):
             if isinstance(fn, LoopIR.proc):
                 callee_buf = fn.args[i].name
-                is_const = callee_buf not in set(x.buffer for x in fn.eff.writes + fn.eff.reduces)
+                is_const = callee_buf not in set(
+                    x.buffer for x in fn.eff.writes + fn.eff.reduces
+                )
             else:
                 raise NotImplementedError("Passing windows to built-ins")
             win_struct = self.get_window_type(e.type, is_const)
