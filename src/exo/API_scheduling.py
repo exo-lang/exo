@@ -1566,10 +1566,15 @@ def reorder_loops(proc, nested_loops):
         `        s`
     """
 
-    stmt = nested_loops._impl
+    stmt_c = nested_loops._impl
+    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node(), LoopIR.Seq):
+        raise ValueError(
+            f"expected loop directly inside of " f"{stmt_c._node().iter} loop"
+        )
+
     proc_c = ic.Cursor.root(proc)
 
-    return Schedules.DoReorder(proc_c, stmt).result()
+    return Schedules.DoLiftScope(proc_c, stmt_c.body()[0]).result()
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1827,17 +1832,13 @@ def unroll_loop(proc, loop_cursor):
 # Guard Conditions
 
 
-@sched_op([IfCursorA, PosIntA])
-def lift_if(proc, if_cursor, n_lifts=1):
+@sched_op([ForSeqOrIfCursorA])
+def lift_scope(proc, scope_cursor):
     """
-    Move the indicated If-statement upwards through other control-flow,
-    if possible.
-
-    DEPRECATED
-    TODO: This directive and reorder_loops should be rethought together.
+    Lift the indicated For/If-statement upwards one scope.
 
     args:
-        if_cursor       - cursor to the if-statement to lift up
+        scope_cursor       - cursor to the inner scope statement to lift up
 
     rewrite: (one example)
         `for i in _:`
@@ -1853,10 +1854,10 @@ def lift_if(proc, if_cursor, n_lifts=1):
         `    for i in _:`
         `        s2`
     """
-    stmt = if_cursor._impl
+    stmt_c = scope_cursor._impl
     proc_c = ic.Cursor.root(proc)
 
-    return Schedules.DoLiftIf(proc_c, stmt, n_lifts).result()
+    return Schedules.DoLiftScope(proc_c, stmt_c).result()
 
 
 @sched_op([IfCursorA, BoolA])
