@@ -13,8 +13,7 @@ endif ()
 # Dependencies
 
 ## Exo
-find_package(Python3 REQUIRED)
-find_package(Exo REQUIRED HINTS "${Python3_SITELIB}")
+find_package(Exo REQUIRED)
 
 ## oneAPI MKL
 set(MKL_ARCH "intel64"

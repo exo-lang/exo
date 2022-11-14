@@ -29,8 +29,7 @@ endif ()
 # Dependencies
 
 ## Exo
-find_package(Python3 REQUIRED)
-find_package(Exo REQUIRED HINTS "${Python3_SITELIB}")
+find_package(Exo REQUIRED)
 
 ## gemmini-rocc-tests
 include(FetchContent)
