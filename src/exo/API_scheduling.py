@@ -1700,7 +1700,7 @@ def autofission(proc, gap_cursor, n_lifts=1):
 
 
 @sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA])
-def fusion(proc, stmt1, stmt2):
+def fuse(proc, stmt1, stmt2):
     """
     fuse together two loops or if-guards, provided that the loop bounds
     or guard conditions are compatible.
