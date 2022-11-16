@@ -17,7 +17,7 @@ def reorder_up(p, stmt_pattern, n=1):
 def fuse_after(p, stmt):
     c = p.find_loop(stmt)
     c2 = c.next()
-    return fusion(p, c, c2)
+    return fuse(p, c, c2)
 
 
 # noinspection PyPep8Naming
