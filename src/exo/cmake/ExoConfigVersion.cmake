@@ -11,7 +11,7 @@
 # This is all that Exo should need to change.
 set(CVF_VERSION_MAJOR "0")
 set(CVF_VERSION_MINOR "0")
-set(CVF_VERSION_PATCH "1")
+set(CVF_VERSION_PATCH "2")
 
 set(PACKAGE_VERSION "${CVF_VERSION_MAJOR}.${CVF_VERSION_MINOR}.${CVF_VERSION_PATCH}")
 

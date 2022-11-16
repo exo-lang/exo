@@ -102,7 +102,6 @@ Take a look at `exo/examples` for scheduling examples.
 | `.set_window(name, is_window)`   | If `is_window` is True, it sets the buffer `name` to window type, instead of a tensor type.                                                                                                  |
 | `.set_memory(name, mem_type)`    | Sets a buffer `name`'s memory type to `mem_type`.                                                                                                                                            |
 
-
 # Developing Exo
 
 If you plan to work on the compiler directly, you should run the following
@@ -139,7 +138,6 @@ In this repository, folders are structured as follows:
    ignored.
 5. `tests/` contains the Exo test suite.
 
-
 # Build Exo from source
 
 We make active use of newer Python 3.x features, so please use the same version
@@ -153,7 +151,7 @@ $ git clone git@github.com:exo-lang/exo.git
 $ cd exo/
 $ git submodule update --init --recursive
 $ python -m venv ~/.venv/exo
-$ . ~/.venv/exo
+$ source ~/.venv/exo/bin/activate
 (exo) $ python -m pip install -U pip setuptools wheel
 (exo) $ python -m pip install -r requirements.txt
 (exo) $ python -m build
@@ -216,7 +214,8 @@ Then, if you want to see annotated source files, open `./htmlcov/index.html`.
 
 # Publication
 
-The first paper on Exo was published at PLDI '22. You can download the paper [from ACM Digital Library](https://dl.acm.org/doi/abs/10.1145/3519939.3523446).
+The first paper on Exo was published at PLDI '22. You can download the
+paper [from ACM Digital Library](https://dl.acm.org/doi/abs/10.1145/3519939.3523446).
 If you use Exo, please consider citing.
 
 ```
