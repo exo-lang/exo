@@ -5,6 +5,7 @@ import types
 from pathlib import Path
 from typing import Optional, Union, List
 
+from .API_scheduling import SchedulingError
 from .API_types import ProcedureBase
 from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
@@ -12,7 +13,6 @@ from .LoopIR_interpreter import run_interpreter
 from .LoopIR_scheduling import (
     Schedules,
     name_plus_count,
-    SchedulingError,
     iter_name_to_pattern,
     nested_iter_names_to_pattern,
 )
@@ -417,7 +417,9 @@ class Procedure(ProcedureBase):
 
         return call_stmt
 
-    def add_assertion(self, assertion, configs=[]):
+    def add_assertion(self, assertion, configs=None):
+        configs = configs or []
+
         if not isinstance(assertion, str):
             raise TypeError("assertion must be an Exo string")
 

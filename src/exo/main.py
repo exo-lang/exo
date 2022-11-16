@@ -13,9 +13,9 @@ def main():
     parser = make_argument_parser()
     args = parser.parse_args()
 
-    library = load_libraries(args.source)
-
     try:
+        library = load_libraries(args.source)
+
         if args.debug:
             debug_mode(args, library)
         else:
@@ -24,7 +24,7 @@ def main():
     except exo.SchedulingError as e:
         sys.exit(str(e))
 
-    except AssertionError as e:
+    except Exception as e:
         sys.exit(
             textwrap.dedent(
                 f"""

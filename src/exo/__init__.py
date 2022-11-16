@@ -7,7 +7,6 @@ from .API import (
     instr,
     config,
 )
-from .LoopIR_scheduling import SchedulingError
 from .parse_fragment import ParseFragmentError
 from .configs import Config
 from .memory import Memory, DRAM
