@@ -3,44 +3,154 @@ import importlib
 import importlib.machinery
 import importlib.util
 import sys
+import textwrap
 from pathlib import Path
 
 import exo
 
 
 def main():
+    parser = make_argument_parser()
+    args = parser.parse_args()
+
+    library = load_libraries(args.source)
+
+    try:
+        if args.debug:
+            debug_mode(args, library)
+        else:
+            exo.compile_procs_to_files(library, *resolve_paths(parser, args))
+
+    except exo.SchedulingError as e:
+        sys.exit(str(e))
+
+    except AssertionError as e:
+        sys.exit(
+            textwrap.dedent(
+                f"""
+                **INTERNAL COMPILER ERROR**
+                {e}
+                
+                Please file a report at https://github.com/exo-lang/exo/issues
+                """
+            )
+        )
+
+
+def load_libraries(source_files):
+    library = [
+        proc
+        for mod in source_files
+        for proc in get_procs_from_module(load_user_code(mod))
+    ]
+    return library
+
+
+def make_argument_parser():
     parser = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name, description="Compile an Exo library."
     )
-    parser.add_argument(
+
+    simple = parser.add_argument_group()
+    simple.add_argument(
         "-o",
         "--outdir",
         metavar="OUTDIR",
-        required=True,
-        help="output directory for build artifacts",
+        help=(
+            "output directory for .c and .h files. Mutually exclusive with "
+            "--cfile/--hfile."
+        ),
     )
-    parser.add_argument("--stem", required=True, help="base name for .c and .h files")
-    parser.add_argument("source", type=str, nargs="+", help="source file to compile")
+    simple.add_argument(
+        "-s",
+        "--stem",
+        help=(
+            "base name for .c and .h files. Defaults to the stem of the single Exo "
+            "source file being processed. Required when compiling multiple source "
+            "files."
+        ),
+    )
+
+    full_paths = parser.add_argument_group()
+    full_paths.add_argument(
+        "-oc",
+        "--cfile",
+        metavar="CFILE",
+        help="output path for .c file. Mutually exclusive with --outdir/--stem.",
+    )
+    full_paths.add_argument(
+        "-oh",
+        "--hfile",
+        metavar="HFILE",
+        help="output path for .h file Mutually exclusive with --outdir/--stem.",
+    )
+
+    parser.add_argument("source", type=str, nargs="+", help="source files to compile")
     parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s version {exo.__version__}",
         help="print the version and exit",
     )
+    parser.add_argument(
+        "-d",
+        "--debug",
+        type=str,
+        metavar="DEBUG",
+        choices=["schedule"],
+        help=(
+            "Run the specified debugging tool. 'schedule' prints the fully scheduled "
+            "procs prior to codegen"
+        ),
+    )
+    return parser
 
-    args = parser.parse_args()
 
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-    outdir = outdir.resolve(strict=True)
+def debug_mode(args, library):
+    if args.debug == "schedule":
+        for p in library:
+            print(p)
+    else:
+        assert False, f"Unknown debug mode `{args.debug}`"
 
-    library = [
-        proc
-        for mod in args.source
-        for proc in get_procs_from_module(load_user_code(mod))
-    ]
 
-    exo.compile_procs(library, outdir, f"{args.stem}.c", f"{args.stem}.h")
+def resolve_paths(parser, args):
+    if args.outdir and (args.cfile or args.hfile):
+        parser.error(
+            "The --outdir/--stem output mode is mutually exclusive with the "
+            "--cfile/--hfile output mode"
+        )
+
+    if not args.outdir and not args.cfile and not args.hfile:
+        parser.error(
+            "Must specify output either by providing an --outdir and a --stem (when "
+            "processing multiple source files) OR by providing the --cfile and --hfile "
+            "output paths."
+        )
+
+    if args.outdir:
+        if args.stem:
+            stem = args.stem
+        elif len(args.source) == 1:
+            stem = Path(args.source[0]).stem
+        else:
+            parser.error("Must provide --stem when processing multiple source files.")
+
+        outdir = Path(args.outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        outdir = outdir.resolve(strict=True)
+        return outdir / f"{stem}.c", outdir / f"{stem}.h"
+
+    else:
+        if not args.cfile:
+            parser.error("Must pass --cfile/--hfile when not using --outdir/--stem")
+        cfile = Path(args.cfile)
+        hfile = Path(args.hfile)
+
+        cfile.parent.mkdir(parents=True, exist_ok=True)
+        hfile.parent.mkdir(parents=True, exist_ok=True)
+
+        return cfile, hfile
 
 
 def get_procs_from_module(user_module):

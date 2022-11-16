@@ -150,9 +150,13 @@ class FindDup(LoopIR.LoopIR_Do):
 
 
 def compile_procs(proc_list, basedir: Path, c_file: str, h_file: str):
-    c_data, h_data = compile_procs_to_strings(proc_list, h_file)
-    (basedir / c_file).write_text(c_data)
-    (basedir / h_file).write_text(h_data)
+    compile_procs_to_files(proc_list, basedir / c_file, basedir / h_file)
+
+
+def compile_procs_to_files(proc_list, c_file: Path, h_file: Path):
+    c_data, h_data = compile_procs_to_strings(proc_list, h_file.name)
+    c_file.write_text(c_data)
+    h_file.write_text(h_data)
 
 
 def compile_procs_to_strings(proc_list, h_file_name: str):
