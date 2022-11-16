@@ -58,13 +58,13 @@ from ..API_scheduling import (
     reorder_loops,
     merge_writes,
     fission,
-    fusion,
+    fuse,
     remove_loop,
     add_loop,
     unroll_loop,
     #
     # guard rewriting
-    lift_if,
+    lift_scope,
     assert_if,
     specialize,
     #
@@ -217,3 +217,39 @@ def replace_all(proc, subproc):
             raise
         except _UnificationError:
             i += 1
+
+
+def lift_if(proc, cursor, n_lifts=1):
+    """
+    Move the indicated If-statement upwards through other control-flow
+    for a total of n_lifts times.
+
+    args:
+        cursor       - cursor to the innermost if statement to lift up
+        n_lifts      - number of times to lift the if statement up
+
+    rewrite: (one example)
+        `for i in _:`
+        `    if p:`
+        `        s1`
+        `    else:`
+        `        s2`
+        ->
+        `if p:`
+        `    for i in _:`
+        `        s1`
+        `else:`
+        `    for i in _:`
+        `        s2`
+    """
+    orig_proc = proc
+    for i in range(n_lifts):
+        try:
+            proc = lift_scope(proc, cursor)
+        except SchedulingError as e:
+            raise SchedulingError(
+                f"Could not fully lift if statement! {n_lifts-i} lift(s) remain! {str(e)}",
+                orig=orig_proc,
+                proc=proc,
+            ) from e
+    return proc
