@@ -4,7 +4,7 @@ import inspect
 import re
 from typing import Optional
 
-from . import pyparser
+import exo.pyparser as pyparser
 from .LoopIR import LoopIR, PAST
 
 
