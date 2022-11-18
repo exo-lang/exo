@@ -8,8 +8,8 @@ from functools import cached_property
 from typing import Optional, Iterable, Union
 from weakref import ReferenceType
 
-from . import API
-from . import LoopIR
+import exo.API as API
+import exo.LoopIR as LoopIR
 
 
 class InvalidCursorError(Exception):
