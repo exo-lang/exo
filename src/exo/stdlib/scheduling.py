@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from functools import wraps as _wraps
 
 from exo.API_scheduling import *
