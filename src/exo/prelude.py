@@ -1,20 +1,30 @@
-from inspect import currentframe as _curr_frame, getframeinfo as _get_frame_info
-from re import compile as _re_compile
+from __future__ import annotations
+
+import inspect
+import re
+
+__all__ = [
+    "is_pos_int",
+    "is_valid_name",
+    "Sym",
+    "extclass",
+    "SrcInfo",
+    "get_srcinfo",
+    "null_srcinfo",
+]
 
 
 def is_pos_int(obj):
     return isinstance(obj, int) and obj >= 1
 
 
-_valid_pattern = _re_compile(r"^[a-zA-Z_]\w*$")
-valid_name_pattern = r"[a-zA-Z_]\w*"
+_valid_pattern = re.compile(r"^[a-zA-Z_]\w*$")
 
 
 def is_valid_name(obj):
+    # prohibit the name '_' universally
     return (
-        isinstance(obj, str)
-        and obj != "_"
-        and (_valid_pattern.match(obj) is not None)  # prohibit the name '_' universally
+        isinstance(obj, str) and obj != "_" and (_valid_pattern.match(obj) is not None)
     )
 
 
@@ -76,10 +86,10 @@ class SrcInfo:
 
 
 def get_srcinfo(depth=1):
-    f = _curr_frame()
+    f = inspect.currentframe()
     for k in range(0, depth):
         f = f.f_back
-    finfo = _get_frame_info(f)
+    finfo = inspect.getframeinfo(f)
     filename, lineno, function = finfo.filename, finfo.lineno, finfo.function
     del f, finfo
     return SrcInfo(filename, lineno, function)
