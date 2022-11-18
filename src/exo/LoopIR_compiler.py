@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import functools
 import re
 import textwrap
@@ -6,8 +8,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .LoopIR import LoopIR, LoopIR_Do
-from .LoopIR import T
+from .LoopIR import LoopIR, LoopIR_Do, T
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from .memory import MemGenError, Memory, DRAM
