@@ -1,14 +1,17 @@
+from __future__ import annotations
+
 from collections import ChainMap
 from dataclasses import dataclass
 from typing import Any, Union
 
 import pysmt
+import pysmt.factory
+import pysmt.logics
+import pysmt.shortcuts as SMT
 import z3 as z3lib
-from pysmt import logics
-from pysmt import shortcuts as SMT
-
 from asdl_adt import ADT, validators
 from asdl_adt.validators import ValidationError
+
 from .LoopIR import T, LoopIR
 from .prelude import *
 
@@ -16,11 +19,11 @@ _first_run = True
 
 
 def _get_smt_solver():
-    factory = pysmt.factory.Factory(pysmt.shortcuts.get_env())
-    slvs = factory.all_solvers(logic=logics.LIA)
+    factory = pysmt.factory.Factory(SMT.get_env())
+    slvs = factory.all_solvers(logic=pysmt.logics.LIA)
     if len(slvs) == 0:
         raise OSError("Could not find any SMT solvers")
-    return pysmt.shortcuts.Solver(name=next(iter(slvs)))
+    return SMT.Solver(name=next(iter(slvs)))
 
 
 # --------------------------------------------------------------------------- #
@@ -86,6 +89,7 @@ module AExpr {
         "srcinfo": SrcInfo,
     },
 )
+
 
 # constructor helpers...
 def AInt(x):
@@ -287,9 +291,9 @@ def _estr(e, prec=0, tab=""):
     elif isinstance(e, A.Unk):
         return "⊥"
     elif isinstance(e, A.Not):
-        return f"¬{_estr(e.arg,op_prec['unary'],tab=tab)}"
+        return f"¬{_estr(e.arg, op_prec['unary'], tab=tab)}"
     elif isinstance(e, A.USub):
-        return f"-{_estr(e.arg,op_prec['unary'],tab=tab)}"
+        return f"-{_estr(e.arg, op_prec['unary'], tab=tab)}"
     elif isinstance(e, A.Const):
         return str(e.val)
     elif isinstance(e, A.BinOp):
@@ -320,13 +324,13 @@ def _estr(e, prec=0, tab=""):
     elif isinstance(e, (A.ForAll, A.Exists)):
         op = "∀" if isinstance(e, A.ForAll) else "∃"
         local_prec = op_prec["forall" if isinstance(e, A.ForAll) else "exists"]
-        s = f"{op}{e.name},{_estr(e.arg,op_prec['forall'],tab=tab)}"
+        s = f"{op}{e.name},{_estr(e.arg, op_prec['forall'], tab=tab)}"
         if local_prec < prec:
             s = f"({s})"
         return s
     elif isinstance(e, (A.Definitely, A.Maybe)):
         op = "D" if isinstance(e, A.Definitely) else "M"
-        return f"{op}{_estr(e.arg,op_prec['unary'],tab=tab)}"
+        return f"{op}{_estr(e.arg, op_prec['unary'], tab=tab)}"
     elif isinstance(e, A.Let):
         # compress nested lets for printing
         if isinstance(e.body, A.Let):
@@ -342,7 +346,10 @@ def _estr(e, prec=0, tab=""):
                 tab=tab,
             )
         binds = "\n".join(
-            [f"{tab}{x} = {_estr(rhs,tab=tab+'  ')}" for x, rhs in zip(e.names, e.rhs)]
+            [
+                f"{tab}{x} = {_estr(rhs, tab=tab + '  ')}"
+                for x, rhs in zip(e.names, e.rhs)
+            ]
         )
         body = _estr(e.body, tab=tab + "  ")
         s = f"let\n{binds}\n{tab}in {body}"
@@ -352,7 +359,7 @@ def _estr(e, prec=0, tab=""):
         return f"({args})"
     elif isinstance(e, A.LetTuple):
         names = ",".join([str(n) for n in e.names])
-        bind = f"{names} = {_estr(e.rhs,tab=tab+'  ')}"
+        bind = f"{names} = {_estr(e.rhs, tab=tab + '  ')}"
         body = _estr(e.body, tab=tab + "  ")
         s = f"let_tuple {bind}\n{tab}in {body}"
         return f"({s}\n{tab})" if prec > 0 else s
