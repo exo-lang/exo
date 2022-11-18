@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from collections import ChainMap
 from dataclasses import dataclass, field
@@ -7,8 +9,7 @@ from dataclasses import dataclass, field
 # string
 from yapf.yapflib.yapf_api import FormatCode
 
-from .LoopIR import T
-from .LoopIR import UAST, LoopIR
+from .LoopIR import T, UAST, LoopIR
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError
 from .prelude import *
 
