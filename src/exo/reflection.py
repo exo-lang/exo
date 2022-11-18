@@ -1,4 +1,6 @@
-from . import query_asts as QAST
+from __future__ import annotations
+
+import exo.query_asts as QAST
 from .LoopIR import LoopIR, T
 from .prelude import *
 
