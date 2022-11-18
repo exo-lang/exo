@@ -1,14 +1,13 @@
 from collections import ChainMap
 
 import pysmt
-from pysmt import shortcuts as SMT
+import pysmt.factory
+import pysmt.shortcuts as SMT
 
-from .LoopIR import LoopIR
-from .LoopIR import T
-from .LoopIR import lift_to_eff_expr as lift_expr
+from .LoopIR import LoopIR, T, lift_to_eff_expr as lift_expr
 from .LoopIR_dataflow import LoopIR_Dependencies
-from .LoopIR_effects import Effects as E
 from .LoopIR_effects import (
+    Effects as E,
     eff_null,
     eff_read,
     eff_write,
@@ -25,11 +24,11 @@ from .prelude import *
 
 
 def _get_smt_solver():
-    factory = pysmt.factory.Factory(pysmt.shortcuts.get_env())
+    factory = pysmt.factory.Factory(SMT.get_env())
     slvs = factory.all_solvers()
     if len(slvs) == 0:
         raise OSError("Could not find any SMT solvers")
-    return pysmt.shortcuts.Solver(name=next(iter(slvs)))
+    return SMT.Solver(name=next(iter(slvs)))
 
 
 # --------------------------------------------------------------------------- #
@@ -949,8 +948,8 @@ class CheckEffects:
                 node,
                 "type-shape of calling argument may not equal "
                 "the required type-shape: "
-                f"[{','.join(map(str,argshp))}] vs. "
-                f"[{','.join(map(str,sigshp))}]."
+                f"[{','.join(map(str, argshp))}] vs. "
+                f"[{','.join(map(str, sigshp))}]."
                 f" It could be non equal when:\n  {eg}",
             )
 
