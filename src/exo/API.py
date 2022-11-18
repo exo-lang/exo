@@ -1,37 +1,29 @@
+from __future__ import annotations
+
 import ast as pyast
 import inspect
 import re
 import types
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Optional
 
+import exo.API_cursors as API_cursors
+import exo.LoopIR as LoopIR
+import exo.internal_cursors as ic
 from .API_types import ProcedureBase
-from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_interpreter import run_interpreter
-from .LoopIR_scheduling import (
-    Schedules,
-    name_plus_count,
-    SchedulingError,
-    iter_name_to_pattern,
-    nested_iter_names_to_pattern,
-)
-from .LoopIR_unification import DoReplace, UnificationError
+from .LoopIR_scheduling import Schedules
 from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
-from .memory import Memory
+from .new_eff import SchedulingError
 from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern, get_match_no, match_cursors
-from .prelude import *
-
-# Moved to new file
 from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
 from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
-from . import API_cursors
-from . import internal_cursors
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -232,7 +224,7 @@ class Procedure(ProcedureBase):
         """
         Return a BlockCursor selecting the entire body of the Procedure
         """
-        impl = internal_cursors.Cursor.root(self).body()
+        impl = ic.Cursor.root(self).body()
         return API_cursors.new_Cursor(impl)
 
     def find(self, pattern, many=False):
