@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Optional
 
 import exo.API_cursors as API_cursors
-import exo.LoopIR as LoopIR
 import exo.internal_cursors as ic
 from .API_types import ProcedureBase
+from .LoopIR import LoopIR, UAST
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_interpreter import run_interpreter
 from .LoopIR_scheduling import Schedules
@@ -125,12 +125,12 @@ class Procedure(ProcedureBase):
 
         _mod_config = _mod_config or frozenset()
 
-        if isinstance(proc, LoopIR.UAST.proc):
+        if isinstance(proc, UAST.proc):
             proc = TypeChecker(proc).get_loopir()
             proc = InferEffects(proc).result()
             CheckEffects(proc)
 
-        assert isinstance(proc, LoopIR.LoopIR.proc)
+        assert isinstance(proc, LoopIR.proc)
 
         # add this procedure into the equivalence tracking mechanism
         if _provenance_eq_Procedure:
@@ -270,13 +270,11 @@ class Procedure(ProcedureBase):
             assert isinstance(match, list)
             if len(match) == 0:
                 return None
-            elif isinstance(match[0], LoopIR.LoopIR.expr):
+            elif isinstance(match[0], LoopIR.expr):
                 results = [LoopIR_to_QAST(e).result() for e in match]
             elif isinstance(match[0], list):
                 # statements
-                assert all(
-                    isinstance(s, LoopIR.LoopIR.stmt) for stmts in match for s in stmts
-                )
+                assert all(isinstance(s, LoopIR.stmt) for stmts in match for s in stmts)
                 results = [LoopIR_to_QAST(stmts).result() for stmts in match]
             else:
                 assert False, "bad case"
@@ -355,7 +353,7 @@ class Procedure(ProcedureBase):
 
     def _find_callsite(self, call_site_pattern):
         call_stmt = self._find_stmt(call_site_pattern, call_depth=3)
-        if not isinstance(call_stmt, LoopIR.LoopIR.Call):
+        if not isinstance(call_stmt, LoopIR.Call):
             raise TypeError("pattern did not describe a call-site")
 
         return call_stmt
@@ -368,7 +366,7 @@ class Procedure(ProcedureBase):
 
         p = self._loopir_proc
         assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
-        p = LoopIR.LoopIR.proc(
+        p = LoopIR.proc(
             p.name, p.args, p.preds + [assertion], p.body, p.instr, p.eff, p.srcinfo
         )
         return Procedure(p, _provenance_eq_Procedure=None)
