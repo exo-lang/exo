@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .LoopIR import T, UAST, LoopIR
 from .builtins import BuiltIn_Typecheck_Error
 from .memory import *
