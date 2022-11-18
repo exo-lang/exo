@@ -8,12 +8,11 @@ import textwrap
 from collections import ChainMap
 
 import astor
-from asdl_adt.validators import ValidationError
 
 from .API_types import ProcedureBase
+from .LoopIR import UAST, PAST, front_ops
 from .builtins import *
 from .configs import Config
-from .LoopIR import UAST, PAST, front_ops
 from .prelude import *
 
 
