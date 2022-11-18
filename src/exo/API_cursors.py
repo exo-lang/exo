@@ -1,25 +1,19 @@
-# from __future__ import annotations
-#
-# import weakref
-# from abc import ABC, abstractmethod
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import Optional, List, Any
 
-# from enum import Enum, auto
-# from functools import cached_property
-from typing import Optional, Iterable, Union, List, Any
-
-# from weakref import ReferenceType
-#
-from . import API
+import exo.API as API
 from .LoopIR import LoopIR
 from .configs import Config
 from .memory import Memory
-
-from . import internal_cursors as C
 from .prelude import Sym
 
+# TODO: this import must come after the others due to circular imports
+import exo.internal_cursors as ic
+
 # expose this particular exception as part of the API
-from .internal_cursors import InvalidCursorError
+InvalidCursorError = ic.InvalidCursorError
 
 
 # --------------------------------------------------------------------------- #
@@ -85,10 +79,10 @@ class Cursor:
         interval slicing/windowing.
     """
 
-    _impl: C.Cursor
+    _impl: ic.Cursor
 
     def __init__(self, impl):
-        if not isinstance(impl, C.Cursor):
+        if not isinstance(impl, ic.Cursor):
             raise TypeError(
                 "Do not try to directly construct a Cursor.  "
                 "Use the provided methods to obtain cursors "
@@ -731,13 +725,13 @@ for c in [
 
 # helper function to dispatch to constructors
 def new_Cursor(impl):
-    assert isinstance(impl, C.Cursor)
+    assert isinstance(impl, ic.Cursor)
 
     # dispatch to the correct constructor...
-    if isinstance(impl, C.Gap):
+    if isinstance(impl, ic.Gap):
         return GapCursor(impl)
 
-    elif isinstance(impl, C.Block):
+    elif isinstance(impl, ic.Block):
         # TODO: Rename internal Cursor type to Sequence?
         assert len(impl) > 0
         n0 = impl[0]._node()
@@ -750,7 +744,7 @@ def new_Cursor(impl):
         else:
             assert False, "bad case"
 
-    elif isinstance(impl, C.Node):
+    elif isinstance(impl, ic.Node):
         n = impl._node()
 
         # statements
