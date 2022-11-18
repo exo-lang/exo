@@ -97,25 +97,6 @@ class MarkDownBlob:
         return self.mstr
 
 
-class FindDup(LoopIR.LoopIR_Do):
-    def __init__(self, proc):
-        self.result = False
-        self.env = []
-        super().__init__(proc)
-
-    def result(self):
-        return self.result
-
-    def do_s(self, s):
-        for e in self.env:
-            if s is e:
-                self.result = True
-                print(s)
-        self.env.append(s)
-
-        super().do_s(s)
-
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   Procedure Objects
@@ -328,12 +309,6 @@ class Procedure(ProcedureBase):
     # ------------------------------- #
     #     scheduling operations
     # ------------------------------- #
-
-    def has_dup(self):
-        """
-        Internal check to see if there are any reference diamonds in the AST
-        """
-        return FindDup(self._loopir_proc).result
 
     def unsafe_assert_eq(self, other_proc):
         if not isinstance(other_proc, Procedure):
