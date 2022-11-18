@@ -1,6 +1,6 @@
-from . import LoopIR
-
 from weakref import WeakKeyDictionary
+
+import exo.LoopIR as LoopIR
 from .prelude import *
 
 # --------------------------------------------------------------------------- #
