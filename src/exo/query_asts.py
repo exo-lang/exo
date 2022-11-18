@@ -50,13 +50,53 @@ QueryAST
     tensor( hi : list[Expr], is_window : bool, type : Type )
 
 """
+from __future__ import annotations
 
-from dataclasses import dataclass as _dataclass
-from typing import Any as _Any
-from typing import Optional as _Optional
+from dataclasses import dataclass
+from typing import Any, Optional
 
-from .configs import Config as _Config
-from .memory import Memory as _Memory
+from .configs import Config
+from .memory import Memory
+
+__all__ = [
+    "QueryAST",
+    "Type",
+    "Expr",
+    "WAccess",
+    "Stmt",
+    "R",
+    "f32",
+    "f64",
+    "i8",
+    "i32",
+    "bool",
+    "int",
+    "index",
+    "size",
+    "stride",
+    "tensor",
+    "Interval",
+    "Point",
+    "Read",
+    "Const",
+    "USub",
+    "BinOp",
+    "BuiltIn",
+    "WindowExpr",
+    "StrideExpr",
+    "ReadConfig",
+    "Assign",
+    "Reduce",
+    "WriteConfig",
+    "Pass",
+    "If",
+    "For",
+    "Alloc",
+    "Call",
+    "WindowStmt",
+    "FnArg",
+    "Proc",
+]
 
 
 # ----------------------------------------------------------------------
@@ -92,57 +132,57 @@ class Stmt(QueryAST):
 # -- QueryAST --> Type --> _______ --
 
 
-@_dataclass
+@dataclass
 class R(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class f32(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class f64(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class i8(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class i32(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class bool(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class int(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class index(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class size(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class stride(Type):
     pass
 
 
-@_dataclass
+@dataclass
 class tensor(Type):
     hi: list[Expr]
     is_window: bool
@@ -153,13 +193,13 @@ class tensor(Type):
 # -- QueryAST --> WAccess --> _______ --
 
 
-@_dataclass
+@dataclass
 class Interval(WAccess):
     lo: Expr
     hi: Expr
 
 
-@_dataclass
+@dataclass
 class Point(WAccess):
     pt: Expr
 
@@ -168,26 +208,26 @@ class Point(WAccess):
 # -- QueryAST --> Expr --> _______ --
 
 
-@_dataclass
+@dataclass
 class Read(Expr):
     name: str
     idx: list[Expr]
     type: Type
 
 
-@_dataclass
+@dataclass
 class Const(Expr):
-    val: _Any
+    val: Any
     type: Type
 
 
-@_dataclass
+@dataclass
 class USub(Expr):
     arg: Expr
     type: Type
 
 
-@_dataclass
+@dataclass
 class BinOp(Expr):
     op: str
     lhs: Expr
@@ -195,30 +235,30 @@ class BinOp(Expr):
     type: Type
 
 
-@_dataclass
+@dataclass
 class BuiltIn(Expr):
     func: str
     args: list[Expr]
     type: Type
 
 
-@_dataclass
+@dataclass
 class WindowExpr(Expr):
     name: str
     idx: list[WAccess]
     type: Type
 
 
-@_dataclass
+@dataclass
 class StrideExpr(Expr):
     name: str
     dim: int
     type: Type
 
 
-@_dataclass
+@dataclass
 class ReadConfig(Expr):
-    config: _Config
+    config: Config
     field: str
     type: Type
 
@@ -227,7 +267,7 @@ class ReadConfig(Expr):
 # -- QueryAST --> Stmt --> _______ --
 
 
-@_dataclass
+@dataclass
 class Assign(Stmt):
     name: str
     lhs_type: Type
@@ -235,7 +275,7 @@ class Assign(Stmt):
     rhs: Expr
 
 
-@_dataclass
+@dataclass
 class Reduce(Stmt):
     name: str
     lhs_type: Type
@@ -243,26 +283,26 @@ class Reduce(Stmt):
     rhs: Expr
 
 
-@_dataclass
+@dataclass
 class WriteConfig(Stmt):
-    config: _Config
+    config: Config
     field: str
     rhs: Expr
 
 
-@_dataclass
+@dataclass
 class Pass(Stmt):
     pass
 
 
-@_dataclass
+@dataclass
 class If(Stmt):
     cond: Expr
     body: list[Expr]
     orelse: list[Expr]
 
 
-@_dataclass
+@dataclass
 class For(Stmt):
     name: str
     lo: Expr
@@ -271,20 +311,20 @@ class For(Stmt):
     is_par: bool
 
 
-@_dataclass
+@dataclass
 class Alloc(Stmt):
     name: str
     type: Type
-    memory: _Optional[_Memory]
+    memory: Optional[Memory]
 
 
-@_dataclass
+@dataclass
 class Call(Stmt):
     proc: str
     args: list[Expr]
 
 
-@_dataclass
+@dataclass
 class WindowStmt(Stmt):
     name: str
     rhs: Expr
@@ -294,17 +334,17 @@ class WindowStmt(Stmt):
 # -- QueryAST --> _______ --
 
 
-@_dataclass
+@dataclass
 class FnArg(QueryAST):
     name: str
     type: Type
-    memory: _Optional[_Memory]
+    memory: Optional[Memory]
 
 
-@_dataclass
+@dataclass
 class Proc(QueryAST):
     name: str
     args: list[FnArg]
     assertions: list[Expr]
     body: list[Stmt]
-    instruction: _Optional[str]
+    instruction: Optional[str]
