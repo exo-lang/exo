@@ -1,14 +1,7 @@
-# import inspect
-# import types
+from __future__ import annotations
+
 from weakref import WeakKeyDictionary
 
-from collections import defaultdict  # ChainMap, OrderedDict
-from itertools import chain
-from dataclasses import dataclass
-from typing import Any, Optional
-from enum import Enum
-
-from .LoopIR import LoopIR, T, Alpha_Rename
 
 # This file keeps track of equivalence of procedures due to
 # scheduling.  We sometimes refer to this as "provenance" since
