@@ -1,37 +1,20 @@
-# import ast as pyast
 import functools
 import inspect
 import re
-
-# import types
 from dataclasses import dataclass
 from typing import Any, List
 
+import exo.internal_cursors as ic
 from .API import Procedure
 from .API_cursors import public_cursors as PC
-from .LoopIR import LoopIR, T  # , UAST, LoopIR_Do
+from .LoopIR import LoopIR, T
 from .LoopIR_scheduling import Schedules
-
-# from .LoopIR_compiler import run_compile, compile_to_strings
-# from .LoopIR_interpreter import run_interpreter
-# from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
-#                                iter_name_to_pattern,
-#                                nested_iter_names_to_pattern)
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
 from .effectcheck import CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
 from .prelude import *
-from . import internal_cursors as ic
-
-
-## Moved to new file
-# from .proc_eqv import (decl_new_proc, derive_proc,
-#                       assert_eqv_proc, check_eqv_proc)
-# from .pyparser import get_ast_from_python, Parser, get_src_locals
-# from .reflection import LoopIR_to_QAST
-# from .typecheck import TypeChecker
 
 
 def is_subclass_obj(x, cls):
