@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import inspect
 from collections import ChainMap
 
-from . import pyparser
+import exo.pyparser as pyparser
 from .LoopIR import T, LoopIR_Do, LoopIR, PAST
 
 
