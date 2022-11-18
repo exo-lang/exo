@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Helper Functions
@@ -15,10 +19,7 @@
 #           * read from the memory (optional)
 #           * write to the memory (optional)
 #           * reduce to the memory (optional)
-"""
-from abc import ABC, abstractmethod
 
-"""
 --- Alloc specifications ---
     - new_name is a string with the variable name to be allocated.
     - prim_type is a string with the c-type of elements of the new
