@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .LoopIR import LoopIR, T, Effects
 from .prelude import *
 
