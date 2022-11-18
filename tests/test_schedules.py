@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from exo import ParseFragmentError
-from exo import proc, DRAM, Procedure
+from exo import ParseFragmentError, proc, DRAM, Procedure
 from exo.libs.memories import GEMM_SCRATCH
+from exo.new_eff import SchedulingError
 from exo.stdlib.scheduling import *
 
 

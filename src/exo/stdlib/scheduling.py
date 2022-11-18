@@ -1,83 +1,89 @@
 from functools import wraps as _wraps
 
+from exo.API_scheduling import *
+from exo.new_eff import SchedulingError
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Expose the built-in Scheduling operators here
 
-from ..API import (
-    SchedulingError,
-)
-
-from ..API_scheduling import (
-    is_atomic_scheduling_op,
+__all__ = [
+    "repeat",
+    "sched_seq",
+    "loop_hack",
+    "replace_all",
+    "lift_if",
+    # Re-exported from API_scheduling
+    # TODO: don't do this
+    "is_atomic_scheduling_op",
     # basic operations
-    simplify,
-    rename,
-    make_instr,
+    "simplify",
+    "rename",
+    "make_instr",
     #
     # general statement and expression operations
-    insert_pass,
-    delete_pass,
-    reorder_stmts,
-    bind_expr,
-    commute_expr,
+    "insert_pass",
+    "delete_pass",
+    "reorder_stmts",
+    "bind_expr",
+    "commute_expr",
     #
     # subprocedure oriented operations
-    extract_subproc,
-    inline,
-    replace,
-    call_eqv,
+    "extract_subproc",
+    "inline",
+    "replace",
+    "call_eqv",
     #
     # precision, memory, and window annotation setting
-    set_precision,
-    set_window,
-    set_memory,
+    "set_precision",
+    "set_window",
+    "set_memory",
     #
     # Configuration modifying operations
-    bind_config,
-    delete_config,
-    write_config,
+    "bind_config",
+    "delete_config",
+    "write_config",
     #
     # buffer and window oriented operations
-    expand_dim,
-    rearrange_dim,
-    bound_alloc,
-    divide_dim,
-    mult_dim,
-    lift_alloc,
-    reuse_buffer,
-    inline_window,
-    stage_window,
-    stage_mem,
+    "expand_dim",
+    "rearrange_dim",
+    "bound_alloc",
+    "divide_dim",
+    "mult_dim",
+    "lift_alloc",
+    "reuse_buffer",
+    "inline_window",
+    "stage_window",
+    "stage_mem",
     #
     # loop rewriting
-    divide_loop,
-    mult_loops,
-    cut_loop,
-    reorder_loops,
-    merge_writes,
-    fission,
-    fuse,
-    remove_loop,
-    add_loop,
-    unroll_loop,
+    "divide_loop",
+    "mult_loops",
+    "cut_loop",
+    "reorder_loops",
+    "merge_writes",
+    "fission",
+    "fuse",
+    "remove_loop",
+    "add_loop",
+    "unroll_loop",
     #
     # guard rewriting
-    lift_scope,
-    assert_if,
-    specialize,
+    "lift_scope",
+    "assert_if",
+    "specialize",
     #
     # deprecated scheduling operations
-    add_unsafe_guard,
-    double_fission,
-    bound_and_guard,
-    stage_assn,
+    "add_unsafe_guard",
+    "double_fission",
+    "bound_and_guard",
+    "stage_assn",
     #
     # to be replaced by stdlib compositions eventually
-    autofission,
-    autolift_alloc,
-)
+    "autofission",
+    "autolift_alloc",
+]
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -248,7 +254,7 @@ def lift_if(proc, cursor, n_lifts=1):
             proc = lift_scope(proc, cursor)
         except SchedulingError as e:
             raise SchedulingError(
-                f"Could not fully lift if statement! {n_lifts-i} lift(s) remain! {str(e)}",
+                f"Could not fully lift if statement! {n_lifts - i} lift(s) remain! {e}",
                 orig=orig_proc,
                 proc=proc,
             ) from e
