@@ -360,9 +360,11 @@ class Procedure(ProcedureBase):
 
         return call_stmt
 
-    def add_assertion(self, assertion, configs=[]):
+    def add_assertion(self, assertion, configs=None):
         if not isinstance(assertion, str):
             raise TypeError("assertion must be an Exo string")
+
+        configs = configs or []
 
         p = self._loopir_proc
         assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
@@ -374,7 +376,3 @@ class Procedure(ProcedureBase):
     def is_eq(self, proc: "Procedure"):
         eqv_set = check_eqv_proc(self._loopir_proc, proc._loopir_proc)
         return eqv_set == frozenset()
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
