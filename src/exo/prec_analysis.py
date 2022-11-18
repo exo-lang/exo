@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .LoopIR import LoopIR, LoopIR_Rewrite, T
 
 # --------------------------------------------------------------------------- #
