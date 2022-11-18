@@ -1,6 +1,8 @@
-from collections import ChainMap
-from .LoopIR import LoopIR
+from __future__ import annotations
 
+from collections import ChainMap
+
+from .LoopIR import LoopIR
 from .memory import DRAM
 
 
