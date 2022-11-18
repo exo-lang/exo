@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from collections import ChainMap
 from typing import Type
@@ -509,7 +511,7 @@ del basetype
 # prevent circular inclusion problems
 # TODO: FIX THIS!!!
 # noinspection PyUnresolvedReferences
-from . import LoopIR_pprint
+import exo.LoopIR_pprint
 
 
 # --------------------------------------------------------------------------- #
