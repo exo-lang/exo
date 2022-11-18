@@ -21,7 +21,11 @@ class ParseFragmentError(Exception):
 # General Fragment Parsing
 
 
-def parse_fragment(proc, fragment, ctx_stmt, call_depth=0, configs=[], scope="before"):
+def parse_fragment(
+    proc, fragment, ctx_stmt, call_depth=0, configs=None, scope="before"
+):
+    configs = configs or []
+
     # get source location where this is getting called from
     caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
 
