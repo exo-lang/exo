@@ -97,26 +97,6 @@ class MarkDownBlob:
         return self.mstr
 
 
-class FindBefore(LoopIR.LoopIR_Do):
-    def __init__(self, proc, stmt):
-        self.stmt = stmt
-        self.result = None
-        super().__init__(proc)
-
-    def result(self):
-        return self.result
-
-    def do_stmts(self, stmts):
-        prev = None
-        for s in stmts:
-            if s == self.stmt:
-                self.result = prev
-                return
-            else:
-                self.do_s(s)
-                prev = s
-
-
 class FindDup(LoopIR.LoopIR_Do):
     def __init__(self, proc):
         self.result = False
