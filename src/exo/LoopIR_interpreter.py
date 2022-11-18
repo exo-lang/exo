@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 from collections import ChainMap
 
 import numpy as np
 
-from .LoopIR import LoopIR
-from .LoopIR import T
+from .LoopIR import LoopIR, T
 from .prelude import *
 
 
