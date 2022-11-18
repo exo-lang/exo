@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from .. import instr, DRAM
-from ..libs.memories import AVX2, AVX512
+from exo import instr, DRAM
+from exo.libs.memories import AVX2, AVX512
 
 
 # --------------------------------------------------------------------------- #
