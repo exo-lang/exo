@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import functools
 import itertools
 import re
 from collections import ChainMap
 
 import pysmt
+import pysmt.factory
+import pysmt.shortcuts as SMT
 from asdl_adt import ADT
-from pysmt import shortcuts as SMT
 
 from .LoopIR import LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars, Alpha_Rename
 from .LoopIR_dataflow import LoopIR_Dependencies
@@ -14,11 +17,11 @@ from .prelude import *
 
 
 def _get_smt_solver():
-    factory = pysmt.factory.Factory(pysmt.shortcuts.get_env())
+    factory = pysmt.factory.Factory(SMT.get_env())
     slvs = factory.all_solvers()
     if len(slvs) == 0:
         raise OSError("Could not find any SMT solvers")
-    return pysmt.shortcuts.Solver(name=next(iter(slvs)))
+    return SMT.Solver(name=next(iter(slvs)))
 
 
 def sanitize_str(s):
