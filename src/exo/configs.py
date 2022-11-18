@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from weakref import WeakKeyDictionary
 
 import exo.LoopIR as LoopIR
