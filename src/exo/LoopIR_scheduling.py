@@ -355,7 +355,7 @@ class _DoMergeWrites(Cursor_Rewrite):
         try:
             assert len(self.s1.idx) == len(self.s2.idx)
             for i, j in zip(self.s1.idx, self.s2.idx):
-                Check_ExprEqvInContext(proc_cursor._node(), [self.s1, self.s2], i, j)
+                Check_ExprEqvInContext(proc_cursor._node(), i, [self.s1], j, [self.s2])
         except SchedulingError as e:
             raise SchedulingError(
                 "expected the left hand side's indices to be the same."
@@ -2793,7 +2793,7 @@ class _DoFuseLoop(Cursor_Rewrite):
 
                 # check if the loop bounds are equivalent
                 Check_ExprEqvInContext(
-                    self.orig_proc._node(), [loop1, loop2], loop1.hi, loop2.hi
+                    self.orig_proc._node(), loop1.hi, [loop1], loop2.hi, [loop2]
                 )
 
                 x = loop1.iter
