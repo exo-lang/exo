@@ -8,13 +8,12 @@ import textwrap
 from collections import ChainMap
 
 import astor
-from asdl_adt.validators import ValidationError
 
-from .API_types import ProcedureBase
-from .builtins import *
-from .configs import Config
-from .LoopIR import UAST, PAST, front_ops
-from .prelude import *
+import exo
+from exo.LoopIR import UAST, PAST, front_ops
+from exo.builtins import *
+from exo.configs import Config
+from exo.prelude import *
 
 
 # --------------------------------------------------------------------------- #
@@ -709,7 +708,7 @@ class Parser:
                         )
                 else:
                     f = self.eval_expr(s.value.func)
-                    if not isinstance(f, ProcedureBase):
+                    if not isinstance(f, exo.Procedure):
                         self.err(
                             s.value.func, f"expected called object " "to be a procedure"
                         )

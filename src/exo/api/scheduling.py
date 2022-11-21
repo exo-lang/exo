@@ -1,37 +1,92 @@
-# import ast as pyast
+from __future__ import annotations
+
 import functools
 import inspect
 import re
-
-# import types
 from dataclasses import dataclass
 from typing import Any, List
 
-from .API import Procedure
-from .API_cursors import public_cursors as PC
-from .LoopIR import LoopIR, T  # , UAST, LoopIR_Do
-from .LoopIR_scheduling import Schedules
+import exo.api as API
+import exo.api.cursors as C
+import exo.internal_cursors as IC
+from exo.LoopIR import LoopIR, T
+from exo.LoopIR_scheduling import Schedules
+from exo.LoopIR_unification import DoReplace, UnificationError
+from exo.configs import Config
+from exo.effectcheck import CheckEffects
+from exo.memory import Memory
+from exo.parse_fragment import parse_fragment
+from exo.prelude import *
 
-# from .LoopIR_compiler import run_compile, compile_to_strings
-# from .LoopIR_interpreter import run_interpreter
-# from .LoopIR_scheduling import (Schedules, name_plus_count, SchedulingError,
-#                                iter_name_to_pattern,
-#                                nested_iter_names_to_pattern)
-from .LoopIR_unification import DoReplace, UnificationError
-from .configs import Config
-from .effectcheck import CheckEffects
-from .memory import Memory
-from .parse_fragment import parse_fragment
-from .prelude import *
-from . import internal_cursors as ic
-
-
-## Moved to new file
-# from .proc_eqv import (decl_new_proc, derive_proc,
-#                       assert_eqv_proc, check_eqv_proc)
-# from .pyparser import get_ast_from_python, Parser, get_src_locals
-# from .reflection import LoopIR_to_QAST
-# from .typecheck import TypeChecker
+__all__ = [
+    "is_atomic_scheduling_op",
+    # basic operations
+    "simplify",
+    "rename",
+    "make_instr",
+    #
+    # general statement and expression operations
+    "insert_pass",
+    "delete_pass",
+    "reorder_stmts",
+    "bind_expr",
+    "commute_expr",
+    #
+    # subprocedure oriented operations
+    "extract_subproc",
+    "inline",
+    "replace",
+    "call_eqv",
+    #
+    # precision, memory, and window annotation setting
+    "set_precision",
+    "set_window",
+    "set_memory",
+    #
+    # Configuration modifying operations
+    "bind_config",
+    "delete_config",
+    "write_config",
+    #
+    # buffer and window oriented operations
+    "expand_dim",
+    "rearrange_dim",
+    "bound_alloc",
+    "divide_dim",
+    "mult_dim",
+    "lift_alloc",
+    "reuse_buffer",
+    "inline_window",
+    "stage_window",
+    "stage_mem",
+    #
+    # loop rewriting
+    "divide_loop",
+    "mult_loops",
+    "cut_loop",
+    "reorder_loops",
+    "merge_writes",
+    "fission",
+    "fuse",
+    "remove_loop",
+    "add_loop",
+    "unroll_loop",
+    #
+    # guard rewriting
+    "lift_scope",
+    "assert_if",
+    "specialize",
+    #
+    # deprecated scheduling operations
+    "add_unsafe_guard",
+    "double_fission",
+    "bound_and_guard",
+    "stage_assn",
+    #
+    # to be replaced by stdlib compositions eventually
+    "autofission",
+    "autolift_alloc",
+]
 
 
 def is_subclass_obj(x, cls):
@@ -145,7 +200,7 @@ class IdA(ArgumentProcessor):
 
 class ProcA(ArgumentProcessor):
     def __call__(self, proc, all_args):
-        if not isinstance(proc, Procedure):
+        if not isinstance(proc, API.Procedure):
             self.err("expected a Procedure object")
         return proc
 
@@ -336,11 +391,11 @@ class ExprCursorA(ArgumentProcessor):
     def __call__(self, expr_pattern, all_args):
         if self.match_many:
             if isinstance(expr_pattern, list):
-                if all(isinstance(ec, PC.ExprCursor) for ec in expr_pattern):
+                if all(isinstance(ec, C.ExprCursor) for ec in expr_pattern):
                     return expr_pattern
                 else:
                     for ec in expr_pattern:
-                        if not isinstance(ec, PC.ExprCursor):
+                        if not isinstance(ec, C.ExprCursor):
                             self.err(
                                 f"expected a list of ExprCursor, "
                                 f"not {type(expr_pattern)}"
@@ -348,9 +403,9 @@ class ExprCursorA(ArgumentProcessor):
             elif not isinstance(expr_pattern, str):
                 self.err("expected an ExprCursor or pattern string")
         else:
-            if isinstance(expr_pattern, PC.ExprCursor):
+            if isinstance(expr_pattern, C.ExprCursor):
                 return expr_pattern
-            elif isinstance(expr_pattern, PC.Cursor):
+            elif isinstance(expr_pattern, C.Cursor):
                 self.err(f"expected an ExprCursor, not {type(expr_pattern)}")
             elif not isinstance(expr_pattern, str):
                 self.err("expected an ExprCursor or pattern string")
@@ -361,14 +416,14 @@ class ExprCursorA(ArgumentProcessor):
 
         if self.match_many:
             for m in matches:
-                if not isinstance(m, PC.ExprCursor):
+                if not isinstance(m, C.ExprCursor):
                     self.err(
                         f"expected pattern to match only ExprCursors, " f"not {type(m)}"
                     )
             return matches
         else:
             match = matches
-            if not isinstance(match, PC.ExprCursor):
+            if not isinstance(match, C.ExprCursor):
                 self.err(
                     f"expected pattern to match an ExprCursor, " f"not {type(match)}"
                 )
@@ -380,9 +435,9 @@ class StmtCursorA(ArgumentProcessor):
         self.match_many = many
 
     def __call__(self, stmt_pattern, all_args):
-        if isinstance(stmt_pattern, PC.StmtCursor):
+        if isinstance(stmt_pattern, C.StmtCursor):
             return stmt_pattern
-        elif isinstance(stmt_pattern, PC.Cursor):
+        elif isinstance(stmt_pattern, C.Cursor):
             self.err(f"expected an StmtCursor, not {type(stmt_pattern)}")
         elif not isinstance(stmt_pattern, str):
             self.err("expected a StmtCursor or pattern string")
@@ -392,7 +447,7 @@ class StmtCursorA(ArgumentProcessor):
         matches = proc.find(stmt_pattern, many=self.match_many)
 
         match = matches[0] if self.match_many else matches
-        if not isinstance(match, PC.StmtCursor):
+        if not isinstance(match, C.StmtCursor):
             self.err(f"expected pattern to match a StmtCursor, " f"not {type(match)}")
 
         return match
@@ -404,12 +459,12 @@ class BlockCursorA(ArgumentProcessor):
         self.block_size = block_size
 
     def __call__(self, block_pattern, all_args):
-        if isinstance(block_pattern, PC.BlockCursor):
+        if isinstance(block_pattern, C.BlockCursor):
             cursor = block_pattern
-        elif isinstance(block_pattern, PC.StmtCursor):
+        elif isinstance(block_pattern, C.StmtCursor):
             cursor = block_pattern.as_block()
         else:
-            if isinstance(block_pattern, PC.Cursor):
+            if isinstance(block_pattern, C.Cursor):
                 self.err(
                     f"expected a StmtCursor or BlockCursor, "
                     f"not {type(block_pattern)}"
@@ -422,9 +477,9 @@ class BlockCursorA(ArgumentProcessor):
             matches = proc.find(block_pattern, many=self.match_many)
 
             match = matches[0] if self.match_many else matches
-            if isinstance(match, PC.StmtCursor):
+            if isinstance(match, C.StmtCursor):
                 match = match.as_block()
-            elif not isinstance(match, PC.BlockCursor):
+            elif not isinstance(match, C.BlockCursor):
                 self.err(
                     f"expected pattern to match a BlockCursor, " f"not {type(match)}"
                 )
@@ -444,7 +499,7 @@ class BlockCursorA(ArgumentProcessor):
 
 class GapCursorA(ArgumentProcessor):
     def __call__(self, gap_cursor, all_args):
-        if not isinstance(gap_cursor, PC.GapCursor):
+        if not isinstance(gap_cursor, C.GapCursor):
             self.err("expected a GapCursor")
         return gap_cursor
 
@@ -459,7 +514,7 @@ class AllocCursorA(StmtCursorA):
             pass
 
         cursor = super().__call__(alloc_pattern, all_args)
-        if not isinstance(cursor, PC.AllocCursor):
+        if not isinstance(cursor, C.AllocCursor):
             self.err(f"expected an AllocCursor, not {type(cursor)}")
         return cursor
 
@@ -467,7 +522,7 @@ class AllocCursorA(StmtCursorA):
 class WindowStmtCursorA(StmtCursorA):
     def __call__(self, alloc_pattern, all_args):
         cursor = super().__call__(alloc_pattern, all_args)
-        if not isinstance(cursor, PC.WindowStmtCursor):
+        if not isinstance(cursor, C.WindowStmtCursor):
             self.err(f"expected a WindowStmtCursor, not {type(cursor)}")
         return cursor
 
@@ -485,7 +540,7 @@ class ForSeqOrIfCursorA(StmtCursorA):
             pass
 
         cursor = super().__call__(cursor_pat, all_args)
-        if not isinstance(cursor, (PC.ForSeqCursor, PC.IfCursor)):
+        if not isinstance(cursor, (C.ForSeqCursor, C.IfCursor)):
             self.err(f"expected a ForSeqCursor or IfCursor, " f"not {type(cursor)}")
         return cursor
 
@@ -502,7 +557,7 @@ class ForSeqCursorA(StmtCursorA):
             pass
 
         cursor = super().__call__(loop_pattern, all_args)
-        if not isinstance(cursor, PC.ForSeqCursor):
+        if not isinstance(cursor, C.ForSeqCursor):
             self.err(f"expected a ForSeqCursor, not {type(cursor)}")
         return cursor
 
@@ -510,7 +565,7 @@ class ForSeqCursorA(StmtCursorA):
 class IfCursorA(StmtCursorA):
     def __call__(self, if_pattern, all_args):
         cursor = super().__call__(if_pattern, all_args)
-        if not isinstance(cursor, PC.IfCursor):
+        if not isinstance(cursor, C.IfCursor):
             self.err(f"expected an IfCursor, not {type(cursor)}")
         return cursor
 
@@ -521,9 +576,9 @@ _name_name_count_re = r"^([a-zA-Z_]\w*)\s*([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$"
 class NestedForSeqCursorA(StmtCursorA):
     def __call__(self, loops_pattern, all_args):
 
-        if isinstance(loops_pattern, PC.ForSeqCursor):
+        if isinstance(loops_pattern, C.ForSeqCursor):
             if len(loops_pattern.body()) != 1 or not isinstance(
-                loops_pattern.body()[0], PC.ForSeqCursor
+                loops_pattern.body()[0], C.ForSeqCursor
             ):
                 self.err(
                     f"expected the body of the outer loop "
@@ -532,7 +587,7 @@ class NestedForSeqCursorA(StmtCursorA):
                     ValueError,
                 )
             cursor = loops_pattern
-        elif isinstance(loops_pattern, PC.Cursor):
+        elif isinstance(loops_pattern, C.Cursor):
             self.err(f"expected a ForSeqCursor, not {type(loops_pattern)}")
         elif isinstance(loops_pattern, str) and (
             match_result := re.search(_name_name_count_re, loops_pattern)
@@ -555,7 +610,7 @@ class NestedForSeqCursorA(StmtCursorA):
 class AssignOrReduceCursorA(StmtCursorA):
     def __call__(self, stmt_pattern, all_args):
         cursor = super().__call__(stmt_pattern, all_args)
-        if not isinstance(cursor, (PC.AssignCursor, PC.ReduceCursor)):
+        if not isinstance(cursor, (C.AssignCursor, C.ReduceCursor)):
             self.err(
                 f"expected an AssignCursor or ReduceCursor, " f"not {type(cursor)}"
             )
@@ -566,7 +621,7 @@ class CallCursorA(StmtCursorA):
     def __call__(self, call_pattern, all_args):
         # allow for special pattern short-hands, but otherwise
         # handle as expected for a normal statement cursor
-        if isinstance(call_pattern, Procedure):
+        if isinstance(call_pattern, API.Procedure):
             call_pattern = f"{call_pattern.name()}(_)"
         try:
             name, count = NameCountA()(call_pattern, all_args)
@@ -576,7 +631,7 @@ class CallCursorA(StmtCursorA):
             pass
 
         cursor = super().__call__(call_pattern, all_args)
-        if not isinstance(cursor, PC.CallCursor):
+        if not isinstance(cursor, C.CallCursor):
             self.err(f"expected a CallCursor, not {type(cursor)}")
         return cursor
 
@@ -596,7 +651,7 @@ class NewExprA(ArgumentProcessor):
         cursor = all_args[self.cursor_arg]
 
         # if we don't have a gap cursor, convert to a gap cursor
-        if not isinstance(cursor, PC.GapCursor):
+        if not isinstance(cursor, C.GapCursor):
             cursor = cursor.before() if self.before else cursor.after()
 
         # resolve gaps down to statements in a somewhat silly way
@@ -690,7 +745,7 @@ def simplify(proc):
     to constants and eliminate dead branches and loops. Uses branch
     conditions to simplify expressions inside the branches.
     """
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.DoSimplify(proc_c).result()
 
 
@@ -704,7 +759,7 @@ def rename(proc, name):
     """
     p = proc._loopir_proc
     p = p.update(name=name)
-    return Procedure(p, _provenance_eq_Procedure=proc)
+    return API.Procedure(p, _provenance_eq_Procedure=proc)
 
 
 @sched_op([InstrStrA])
@@ -717,7 +772,7 @@ def make_instr(proc, instr):
     """
     p = proc._loopir_proc
     p = p.update(instr=instr)
-    return Procedure(p, _provenance_eq_Procedure=proc)
+    return API.Procedure(p, _provenance_eq_Procedure=proc)
 
 
 # --------------------------------------------------------------------------- #
@@ -744,7 +799,7 @@ def insert_pass(proc, gap_cursor):
         before = False
     stmt = stmtc._impl
 
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.DoInsertPass(proc_c, stmt, before=before).result()
 
 
@@ -755,7 +810,7 @@ def delete_pass(proc):
 
     Delete all `pass` statements in the procedure.
     """
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.DoDeletePass(proc_c).result()
 
 
@@ -775,7 +830,7 @@ def reorder_stmts(proc, block_cursor):
     s1 = block_cursor[0]._impl
     s2 = block_cursor[1]._impl
 
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.DoReorderStmt(proc_c, s1, s2).result()
 
 
@@ -811,7 +866,7 @@ def commute_expr(proc, expr_cursors):
             "can commute by commute_expr()"
         )
 
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.DoCommuteExpr(proc_c, exprs).result()
 
 
@@ -845,7 +900,7 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
             "can be bound by bind_expr()"
         )
 
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.DoBindExpr(proc_c, new_name, exprs, cse).result()
 
 
@@ -859,7 +914,7 @@ def extract_subproc(proc, subproc_name, body_stmt):
     """
     Documentation TODO
     """
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     stmt = body_stmt._impl
     passobj = Schedules.DoExtractMethod(proc_c, subproc_name, stmt)
     return (passobj.result(), passobj.subproc())
@@ -875,7 +930,7 @@ def inline(proc, call_cursor):
                           whose body we want to inline
     """
     call_stmt = call_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.DoInline(proc_c, call_stmt).result()
 
 
@@ -896,7 +951,7 @@ def replace(proc, block_cursor, subproc, quiet=False):
     stmts = [sc._impl._node() for sc in block_cursor]
     try:
         p = DoReplace(proc._loopir_proc, subproc._loopir_proc, stmts).result()
-        return Procedure(p, _provenance_eq_Procedure=proc)
+        return API.Procedure(p, _provenance_eq_Procedure=proc)
     except UnificationError:
         if quiet:
             raise
@@ -924,7 +979,7 @@ def call_eqv(proc, call_cursor, eqv_proc):
     call_stmt = call_cursor._impl
     new_loopir = eqv_proc._loopir_proc
 
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     rewrite_pass = Schedules.DoCallSwap(proc_c, call_stmt, new_loopir)
     mod_config = rewrite_pass.mod_eq()
     return rewrite_pass.result(mod_config=mod_config)
@@ -949,7 +1004,7 @@ def set_precision(proc, name, typ):
         `name : _[...]    ->    name : typ[...]`
     """
     name, count = name
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.SetTypAndMem(proc_c, name, count, basetyp=typ).result()
 
 
@@ -967,7 +1022,7 @@ def set_window(proc, name, is_window=True):
         `name : R[...]    ->    name : [R][...]`
     """
     name, count = name
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.SetTypAndMem(proc_c, name, count, win=is_window).result()
 
 
@@ -984,7 +1039,7 @@ def set_memory(proc, name, memory_type):
         `name : _ @ _    ->    name : _ @ mem`
     """
     name, count = name
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     return Schedules.SetTypAndMem(proc_c, name, count, mem=memory_type).result()
 
 
@@ -1020,7 +1075,7 @@ def bind_config(proc, var_cursor, config, field):
             f"to match type of Config variable ({cfg_f_type})"
         )
 
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     rewrite_pass = Schedules.DoBindConfig(proc_c, config, field, var_cursor._impl)
     mod_config = rewrite_pass.mod_eq()
     return rewrite_pass.result(mod_config=mod_config)
@@ -1039,7 +1094,7 @@ def delete_config(proc, stmt_cursor):
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
     stmt = stmt_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     rewrite_pass = Schedules.DoDeleteConfig(proc_c, stmt)
     mod_config = rewrite_pass.mod_eq()
     return rewrite_pass.result(mod_config=mod_config)
@@ -1068,7 +1123,7 @@ def write_config(proc, gap_cursor, config, field, rhs):
         before = False
     stmt = stmtc._impl
 
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     rewrite_pass = Schedules.DoConfigWrite(
         proc_c, stmt, config, field, rhs, before=before
     )
@@ -1103,7 +1158,7 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
         The provided dimension size is checked for positivity and the
         provided indexing expression is checked to make sure it is in-bounds
     """
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     stmt = buf_cursor._impl
     new_proc_c = Schedules.DoExpandDim(proc_c, stmt, alloc_dim, indexing_expr).result()
     if not unsafe_disable_checks:
@@ -1127,7 +1182,7 @@ def rearrange_dim(proc, buf_cursor, dimensions):
         (with dimensions = [2,0,1])
         `x : T[N,M,K]` -> `x : T[K,N,M]`
     """
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     stmt = buf_cursor._impl
     # extra sanity check
     N = len(stmt._node().type.hi)
@@ -1161,7 +1216,7 @@ def bound_alloc(proc, buf_cursor, new_bounds, unsafe_disable_checks=False):
         The new bounds are checked to make sure they don't cause any
         out-of-bounds memory accesses
     """
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     stmt = buf_cursor._impl
     if len(stmt._node().type.hi) != len(new_bounds):
         raise ValueError(
@@ -1201,7 +1256,7 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     """
     if quotient == 1:
         raise ValueError("why are you trying to divide by 1?")
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     stmt = alloc_cursor._impl
     if not (0 <= dim_idx < len(stmt._node().type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds " f"dimension index {dim_idx}")
@@ -1230,7 +1285,7 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
         `x : R[4*n, m]`
         `x[4*i + k, j] = ...`
     """
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     stmt = alloc_cursor._impl
     for dim_idx in [hi_dim_idx, lo_dim_idx]:
         if not (0 <= dim_idx < len(stmt._node().type.shape())):
@@ -1261,7 +1316,7 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
         `for i in _:`
         `    ...`
     """
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     stmt = alloc_cursor._impl
 
     return Schedules.DoLiftAllocSimple(proc_c, stmt, n_lifts).result()
@@ -1294,7 +1349,7 @@ def autolift_alloc(
         `for i in _:`
         `    ...`
     """
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     stmt = alloc_cursor._impl
 
     return Schedules.DoLiftAlloc(proc_c, stmt, n_lifts, mode, size, keep_dims).result()
@@ -1322,7 +1377,7 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoDataReuse(proc_c, buf_s, rep_s).result()
 
@@ -1340,7 +1395,7 @@ def inline_window(proc, winstmt_cursor):
         `y = x[...] ; s` -> `s[ y -> x[...] ]`
     """
     stmt = winstmt_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoInlineWindow(proc_c, stmt).result()
 
@@ -1355,7 +1410,7 @@ def stage_window(proc, expr_cursor, win_name, memory=None):
     Should it resemble `stage_mem` instead?
     """
     e = expr_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoStageWindow(proc_c, win_name, memory, e).result()
 
@@ -1405,7 +1460,7 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     buf_name, w_exprs = win_expr
     stmt_start = block_cursor[0]._impl
     stmt_end = block_cursor[-1]._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoStageMem(
         proc_c,
@@ -1471,7 +1526,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         raise ValueError("why are you trying to split by 1?")
 
     stmt = loop_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoSplit(
         proc_c,
@@ -1505,7 +1560,7 @@ def mult_loops(proc, nested_loops, new_iter_name):
         `    s[ i -> k/c, j -> k%c ]`
     """
     stmt = nested_loops._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoProductLoop(proc_c, stmt, new_iter_name).result()
 
@@ -1533,10 +1588,10 @@ def cut_loop(proc, loop_cursor, cut_point):
         `    s[i -> i+cut]`
     """
     stmt = loop_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     loopir = Schedules.DoPartitionLoop(proc_c._node(), stmt, cut_point).result()
 
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    return API.Procedure(loopir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([NestedForSeqCursorA])
@@ -1572,7 +1627,7 @@ def reorder_loops(proc, nested_loops):
             f"expected loop directly inside of " f"{stmt_c._node().iter} loop"
         )
 
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoLiftScope(proc_c, stmt_c.body()[0]).result()
 
@@ -1630,7 +1685,7 @@ def merge_writes(proc, block_cursor):
             "expected the two statements' right hand sides to have the same type."
         )
 
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoMergeWrites(
         proc_c, block_cursor[0]._impl, block_cursor[1]._impl
@@ -1665,7 +1720,7 @@ def fission(proc, gap_cursor, n_lifts=1):
     if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
         raise ValueError("expected cursor to point to " "a gap between statements")
     stmt = stmtc._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoFissionAfterSimple(proc_c, stmt, n_lifts).result()
 
@@ -1699,7 +1754,7 @@ def autofission(proc, gap_cursor, n_lifts=1):
     if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
         raise ValueError("expected cursor to point to " "a gap between statements")
     stmt = stmtc._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoFissionLoops(proc_c, stmt, n_lifts).result()
 
@@ -1733,16 +1788,16 @@ def fuse(proc, stmt1, stmt2):
         `    s1`
         `    s2`
     """
-    if isinstance(stmt1, PC.IfCursor) != isinstance(stmt2, PC.IfCursor):
+    if isinstance(stmt1, C.IfCursor) != isinstance(stmt2, C.IfCursor):
         raise ValueError(
             "expected the two argument cursors to either both "
             "point to loops or both point to if-guards"
         )
     s1 = stmt1._impl
     s2 = stmt2._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
     SCHED = (
-        Schedules.DoFuseIf if isinstance(stmt1, PC.IfCursor) else Schedules.DoFuseLoop
+        Schedules.DoFuseIf if isinstance(stmt1, C.IfCursor) else Schedules.DoFuseLoop
     )
 
     return SCHED(proc_c, s1, s2).result()
@@ -1766,7 +1821,7 @@ def remove_loop(proc, loop_cursor):
     """
 
     stmt = loop_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoRemoveLoop(proc_c, stmt).result()
 
@@ -1799,7 +1854,7 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
         raise NotImplementedError("TODO: support blocks of size > 1")
 
     stmt = block_cursor[0]._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoAddLoop(proc_c, stmt, iter_name, hi_expr, guard).result()
 
@@ -1822,7 +1877,7 @@ def unroll_loop(proc, loop_cursor):
     """
 
     stmt = loop_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoUnroll(proc_c, stmt).result()
 
@@ -1855,7 +1910,7 @@ def lift_scope(proc, scope_cursor):
         `        s2`
     """
     stmt_c = scope_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoLiftScope(proc_c, stmt_c).result()
 
@@ -1883,7 +1938,7 @@ def assert_if(proc, if_cursor, cond):
         `s1`
     """
     stmt = if_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoAssertIf(proc_c, stmt, cond).result()
 
@@ -1920,7 +1975,7 @@ def specialize(proc, block_cursor, conds):
         raise NotImplementedError("TODO: support blocks of size > 1")
 
     stmt = block_cursor[0]._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoSpecialize(proc_c, stmt, conds).result()
 
@@ -1937,7 +1992,7 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     This operation is deprecated, and will be removed soon.
     """
     stmt = block_cursor._impl[0]
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoAddUnsafeGuard(proc_c, stmt, var_expr).result()
 
@@ -1950,7 +2005,7 @@ def double_fission(proc, stmt1, stmt2, n_lifts=1):
     """
     s1 = stmt1._impl
     s2 = stmt2._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoDoubleFission(proc_c, s1, s2, n_lifts).result()
 
@@ -1971,7 +2026,7 @@ def bound_and_guard(proc, loop):
     This currently only works when e is of the form x % n
     """
     stmt = loop._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoBoundAndGuard(proc_c, stmt).result()
 
@@ -1984,6 +2039,6 @@ def stage_assn(proc, stmt_cursor, buf_name):
     calls to `stage_mem` or something similar.
     """
     stmt = stmt_cursor._impl
-    proc_c = ic.Cursor.root(proc)
+    proc_c = IC.Cursor.root(proc)
 
     return Schedules.DoStageAssn(proc_c, buf_name, stmt).result()

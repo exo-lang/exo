@@ -1,83 +1,96 @@
 from functools import wraps as _wraps
 
+import exo.api as API
+import exo.api.cursors as C
+from exo.LoopIR_unification import UnificationError
+from exo.api.scheduling import *
+from exo.new_eff import SchedulingError
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Expose the built-in Scheduling operators here
 
-from ..API import (
-    SchedulingError,
-)
-
-from ..API_scheduling import (
-    is_atomic_scheduling_op,
+__all__ = [
+    # ******************************
+    # ** Symbols from this module **
+    # ******************************
+    "repeat",
+    "sched_seq",
+    "loop_hack",
+    "replace_all",
+    "lift_if",
+    # ***************************************
+    # ** Re-export from exo.api.scheduling **
+    # ***************************************
+    "is_atomic_scheduling_op",
     # basic operations
-    simplify,
-    rename,
-    make_instr,
+    "simplify",
+    "rename",
+    "make_instr",
     #
     # general statement and expression operations
-    insert_pass,
-    delete_pass,
-    reorder_stmts,
-    bind_expr,
-    commute_expr,
+    "insert_pass",
+    "delete_pass",
+    "reorder_stmts",
+    "bind_expr",
+    "commute_expr",
     #
     # subprocedure oriented operations
-    extract_subproc,
-    inline,
-    replace,
-    call_eqv,
+    "extract_subproc",
+    "inline",
+    "replace",
+    "call_eqv",
     #
     # precision, memory, and window annotation setting
-    set_precision,
-    set_window,
-    set_memory,
+    "set_precision",
+    "set_window",
+    "set_memory",
     #
     # Configuration modifying operations
-    bind_config,
-    delete_config,
-    write_config,
+    "bind_config",
+    "delete_config",
+    "write_config",
     #
     # buffer and window oriented operations
-    expand_dim,
-    rearrange_dim,
-    bound_alloc,
-    divide_dim,
-    mult_dim,
-    lift_alloc,
-    reuse_buffer,
-    inline_window,
-    stage_window,
-    stage_mem,
+    "expand_dim",
+    "rearrange_dim",
+    "bound_alloc",
+    "divide_dim",
+    "mult_dim",
+    "lift_alloc",
+    "reuse_buffer",
+    "inline_window",
+    "stage_window",
+    "stage_mem",
     #
     # loop rewriting
-    divide_loop,
-    mult_loops,
-    cut_loop,
-    reorder_loops,
-    merge_writes,
-    fission,
-    fuse,
-    remove_loop,
-    add_loop,
-    unroll_loop,
+    "divide_loop",
+    "mult_loops",
+    "cut_loop",
+    "reorder_loops",
+    "merge_writes",
+    "fission",
+    "fuse",
+    "remove_loop",
+    "add_loop",
+    "unroll_loop",
     #
     # guard rewriting
-    lift_scope,
-    assert_if,
-    specialize,
+    "lift_scope",
+    "assert_if",
+    "specialize",
     #
     # deprecated scheduling operations
-    add_unsafe_guard,
-    double_fission,
-    bound_and_guard,
-    stage_assn,
+    "add_unsafe_guard",
+    "double_fission",
+    "bound_and_guard",
+    "stage_assn",
     #
     # to be replaced by stdlib compositions eventually
-    autofission,
-    autolift_alloc,
-)
+    "autofission",
+    "autolift_alloc",
+]
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -177,33 +190,28 @@ def loop_hack(sched, find_func, verbose=False):
     return loop_hack_sched
 
 
-from ..API_cursors import public_cursors as _PC
-from ..API import Procedure as _Procedure
-from ..LoopIR_unification import UnificationError as _UnificationError
-
-
 def replace_all(proc, subproc):
     """
     DEPRECATED ?
     Is there a better way to write this out of primitives?
     Does this simply require that we have better introspection facilities?
     """
-    assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
+    assert isinstance(subproc, API.Procedure), "expected Procedure as 2nd argument"
     body = subproc.body()
     assert len(body) == 1, (
         "replace_all only supports single statement " "subprocedure bodies right now"
     )
 
     patterns = {
-        _PC.AssignCursor: "_ = _",
-        _PC.ReduceCursor: "_ += _",
-        _PC.AssignConfigCursor: "TODO",
-        _PC.PassCursor: "TODO",
-        _PC.IfCursor: "TODO",
-        _PC.ForSeqCursor: "for _ in _: _",
-        _PC.AllocCursor: "TODO",
-        _PC.CallCursor: "TODO",
-        _PC.WindowStmtCursor: "TODO",
+        C.AssignCursor: "_ = _",
+        C.ReduceCursor: "_ += _",
+        C.AssignConfigCursor: "TODO",
+        C.PassCursor: "TODO",
+        C.IfCursor: "TODO",
+        C.ForSeqCursor: "for _ in _: _",
+        C.AllocCursor: "TODO",
+        C.CallCursor: "TODO",
+        C.WindowStmtCursor: "TODO",
     }
 
     pattern = patterns[type(body[0])]
@@ -215,7 +223,7 @@ def replace_all(proc, subproc):
             if "failed to find matches" in str(e):
                 return proc
             raise
-        except _UnificationError:
+        except UnificationError:
             i += 1
 
 
@@ -248,7 +256,7 @@ def lift_if(proc, cursor, n_lifts=1):
             proc = lift_scope(proc, cursor)
         except SchedulingError as e:
             raise SchedulingError(
-                f"Could not fully lift if statement! {n_lifts-i} lift(s) remain! {str(e)}",
+                f"Could not fully lift if statement! {n_lifts - i} lift(s) remain! {str(e)}",
                 orig=orig_proc,
                 proc=proc,
             ) from e

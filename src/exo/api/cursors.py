@@ -1,25 +1,47 @@
-# from __future__ import annotations
-#
-# import weakref
-# from abc import ABC, abstractmethod
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import Optional, List, Any
 
-# from enum import Enum, auto
-# from functools import cached_property
-from typing import Optional, Iterable, Union, List, Any
+import exo.internal_cursors as C
+from exo.LoopIR import LoopIR
+from exo.configs import Config
+from exo.internal_cursors import InvalidCursorError
+from exo.memory import Memory
+from exo.prelude import Sym
 
-# from weakref import ReferenceType
-#
-from . import API
-from .LoopIR import LoopIR
-from .configs import Config
-from .memory import Memory
-
-from . import internal_cursors as C
-from .prelude import Sym
-
-# expose this particular exception as part of the API
-from .internal_cursors import InvalidCursorError
+__all__ = [
+    "Cursor",
+    "InvalidCursor",
+    "StmtCursorPrototype",
+    "StmtCursor",
+    "BlockCursor",
+    "GapCursor",
+    "ExprCursorPrototype",
+    "ExprCursor",
+    "ExprListCursor",
+    #
+    "AssignCursor",
+    "ReduceCursor",
+    "AssignConfigCursor",
+    "PassCursor",
+    "IfCursor",
+    "ForSeqCursor",
+    "AllocCursor",
+    "CallCursor",
+    "WindowStmtCursor",
+    #
+    "ReadCursor",
+    "ReadConfigCursor",
+    "LiteralCursor",
+    "UnaryMinusCursor",
+    "BinaryOpCursor",
+    "BuiltInFunctionCursor",
+    "WindowExprCursor",
+    "StrideExprCursor",
+    #
+    "InvalidCursorError",
+]
 
 
 # --------------------------------------------------------------------------- #
@@ -176,7 +198,7 @@ class InvalidCursor(Cursor):
         return False
 
     def proc(self):
-        raise InvalidCursorError("Cannot get the Procedure " "of an invalid cursor")
+        raise InvalidCursorError("Cannot get the Procedure of an invalid cursor")
 
     def parent(self) -> Cursor:
         """The parent of an invalid cursor is an invalid cursor"""
@@ -681,49 +703,6 @@ class StrideExprCursor(ExprCursor):
     def dim(self) -> int:
         return self._impl._node().dim
 
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# List of objects to expose
-
-
-class public_cursors:
-    pass
-
-
-for c in [
-    Cursor,
-    InvalidCursor,
-    StmtCursorPrototype,
-    StmtCursor,
-    BlockCursor,
-    GapCursor,
-    ExprCursorPrototype,
-    ExprCursor,
-    ExprListCursor,
-    #
-    AssignCursor,
-    ReduceCursor,
-    AssignConfigCursor,
-    PassCursor,
-    IfCursor,
-    ForSeqCursor,
-    AllocCursor,
-    CallCursor,
-    WindowStmtCursor,
-    #
-    ReadCursor,
-    ReadConfigCursor,
-    LiteralCursor,
-    UnaryMinusCursor,
-    BinaryOpCursor,
-    BuiltInFunctionCursor,
-    WindowExprCursor,
-    StrideExprCursor,
-    #
-    InvalidCursorError,
-]:
-    setattr(public_cursors, c.__name__, c)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

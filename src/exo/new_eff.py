@@ -1,11 +1,16 @@
-from collections import OrderedDict, ChainMap
+from __future__ import annotations
+
+import inspect
+import textwrap
+from collections import OrderedDict
 from enum import Enum
 from itertools import chain
 
-from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
-from .configs import reverse_config_lookup, Config
-from .new_analysis_core import *
-from .proc_eqv import get_repr_proc
+import exo.api as API
+from exo.LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
+from exo.configs import reverse_config_lookup
+from exo.new_analysis_core import *
+from exo.proc_eqv import get_repr_proc
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -1530,10 +1535,6 @@ def Shadows(a1, a2):
 # --------------------------------------------------------------------------- #
 # Scheduling Checks
 
-import inspect
-import textwrap
-from .API_types import ProcedureBase
-
 
 class SchedulingError(Exception):
     def __init__(self, message, **kwargs):
@@ -1557,7 +1558,7 @@ class SchedulingError(Exception):
         for frame in inspect.stack():
             if obj := frame[0].f_locals.get("self"):
                 fn = frame.function
-                if isinstance(obj, ProcedureBase) and not fn.startswith("_"):
+                if isinstance(obj, API.Procedure) and not fn.startswith("_"):
                     ops.append(fn)
         if not ops:
             ops = ["<<<unknown directive>>>"]

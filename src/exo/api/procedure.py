@@ -1,167 +1,27 @@
-import ast as pyast
-import inspect
+from __future__ import annotations
+
 import re
-import types
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Optional
 
-from .API_types import ProcedureBase
-from . import LoopIR as LoopIR
-from .LoopIR_compiler import run_compile, compile_to_strings
-from .LoopIR_interpreter import run_interpreter
-from .LoopIR_scheduling import (
-    Schedules,
-    name_plus_count,
-    SchedulingError,
-    iter_name_to_pattern,
-    nested_iter_names_to_pattern,
-)
-from .LoopIR_unification import DoReplace, UnificationError
-from .configs import Config
-from .effectcheck import InferEffects, CheckEffects
-from .memory import Memory
-from .parse_fragment import parse_fragment
-from .pattern_match import match_pattern, get_match_no, match_cursors
-from .prelude import *
+import exo.LoopIR as LoopIR
+import exo.api as API
+import exo.api.cursors as C
+import exo.internal_cursors as IC
+from exo.LoopIR_compiler import compile_to_strings
+from exo.LoopIR_interpreter import run_interpreter
+from exo.LoopIR_scheduling import Schedules, SchedulingError
+from exo.effectcheck import InferEffects, CheckEffects
+from exo.parse_fragment import parse_fragment
+from exo.pattern_match import match_pattern, get_match_no, match_cursors
+from exo.proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
+from exo.reflection import LoopIR_to_QAST
+from exo.typecheck import TypeChecker
 
-# Moved to new file
-from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
-from .pyparser import get_ast_from_python, Parser, get_src_locals
-from .reflection import LoopIR_to_QAST
-from .typecheck import TypeChecker
-
-from . import API_cursors
-from . import internal_cursors
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Top-level decorator
+__all__ = ["Procedure"]
 
 
-def proc(f, _instr=None) -> "Procedure":
-    if not isinstance(f, types.FunctionType):
-        raise TypeError("@proc decorator must be applied to a function")
-
-    body, getsrcinfo = get_ast_from_python(f)
-    assert isinstance(body, pyast.FunctionDef)
-
-    parser = Parser(
-        body,
-        getsrcinfo,
-        func_globals=f.__globals__,
-        srclocals=get_src_locals(depth=3 if _instr else 2),
-        instr=_instr,
-        as_func=True,
-    )
-    return Procedure(parser.result())
-
-
-def instr(instruction):
-    if not isinstance(instruction, str):
-        raise TypeError("@instr decorator must be @instr(<your instuction>)")
-
-    def inner(f):
-        if not isinstance(f, types.FunctionType):
-            raise TypeError("@instr decorator must be applied to a function")
-
-        return proc(f, _instr=instruction)
-
-    return inner
-
-
-def config(_cls=None, *, readwrite=True):
-    def parse_config(cls):
-        if not inspect.isclass(cls):
-            raise TypeError("@config decorator must be applied to a class")
-
-        body, getsrcinfo = get_ast_from_python(cls)
-        assert isinstance(body, pyast.ClassDef)
-
-        parser = Parser(
-            body,
-            getsrcinfo,
-            func_globals={},
-            srclocals=get_src_locals(depth=2),
-            as_config=True,
-        )
-        return Config(*parser.result(), not readwrite)
-
-    if _cls is None:
-        return parse_config
-    else:
-        return parse_config(_cls)
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-#   iPython Display Object
-
-
-class MarkDownBlob:
-    def __init__(self, mkdwn_str):
-        self.mstr = mkdwn_str
-
-    def _repr_markdown_(self):
-        return self.mstr
-
-
-class FindBefore(LoopIR.LoopIR_Do):
-    def __init__(self, proc, stmt):
-        self.stmt = stmt
-        self.result = None
-        super().__init__(proc)
-
-    def result(self):
-        return self.result
-
-    def do_stmts(self, stmts):
-        prev = None
-        for s in stmts:
-            if s == self.stmt:
-                self.result = prev
-                return
-            else:
-                self.do_s(s)
-                prev = s
-
-
-class FindDup(LoopIR.LoopIR_Do):
-    def __init__(self, proc):
-        self.result = False
-        self.env = []
-        super().__init__(proc)
-
-    def result(self):
-        return self.result
-
-    def do_s(self, s):
-        for e in self.env:
-            if s is e:
-                self.result = True
-                print(s)
-        self.env.append(s)
-
-        super().do_s(s)
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-#   Procedure Objects
-
-
-def compile_procs(proc_list, basedir: Path, c_file: str, h_file: str):
-    c_data, h_data = compile_procs_to_strings(proc_list, h_file)
-    (basedir / c_file).write_text(c_data)
-    (basedir / h_file).write_text(h_data)
-
-
-def compile_procs_to_strings(proc_list, h_file_name: str):
-    assert isinstance(proc_list, list)
-    assert all(isinstance(p, Procedure) for p in proc_list)
-    return run_compile([p._loopir_proc for p in proc_list], h_file_name)
-
-
-class Procedure(ProcedureBase):
+class Procedure:
     def __init__(
         self,
         proc,
@@ -232,8 +92,8 @@ class Procedure(ProcedureBase):
         """
         Return a BlockCursor selecting the entire body of the Procedure
         """
-        impl = internal_cursors.Cursor.root(self).body()
-        return API_cursors.new_Cursor(impl)
+        impl = IC.Cursor.root(self).body()
+        return C.new_Cursor(impl)
 
     def find(self, pattern, many=False):
         """
@@ -255,11 +115,8 @@ class Procedure(ProcedureBase):
         assert isinstance(raw_cursors, list)
         cursors = []
         for c in raw_cursors:
-            c = API_cursors.new_Cursor(c)
-            if (
-                isinstance(c, (API_cursors.BlockCursor, API_cursors.ExprListCursor))
-                and len(c) == 1
-            ):
+            c = C.new_Cursor(c)
+            if isinstance(c, (C.BlockCursor, C.ExprListCursor)) and len(c) == 1:
                 c = c[0]
             cursors.append(c)
 
@@ -348,7 +205,9 @@ class Procedure(ProcedureBase):
         return decls + "\n" + defns
 
     def compile_c(self, directory: Path, filename: str):
-        compile_procs([self._loopir_proc], directory, f"{filename}.c", f"{filename}.h")
+        API.compile_procs(
+            [self._loopir_proc], directory, f"{filename}.c", f"{filename}.h"
+        )
 
     def interpret(self, **kwargs):
         run_interpreter(self._loopir_proc, kwargs)
@@ -356,12 +215,6 @@ class Procedure(ProcedureBase):
     # ------------------------------- #
     #     scheduling operations
     # ------------------------------- #
-
-    def has_dup(self):
-        """
-        Internal check to see if there are any reference diamonds in the AST
-        """
-        return FindDup(self._loopir_proc).result
 
     def unsafe_assert_eq(self, other_proc):
         if not isinstance(other_proc, Procedure):
@@ -429,5 +282,9 @@ class Procedure(ProcedureBase):
         return eqv_set == frozenset()
 
 
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
+class MarkDownBlob:
+    def __init__(self, mkdwn_str):
+        self.mstr = mkdwn_str
+
+    def _repr_markdown_(self):
+        return self.mstr

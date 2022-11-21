@@ -1,6 +1,8 @@
 import re
 from collections import ChainMap
 
+import exo.api as API
+import exo.internal_cursors as IC
 from .LoopIR import (
     LoopIR,
     LoopIR_Rewrite,
@@ -33,8 +35,6 @@ from .new_eff import (
 )
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
-from . import internal_cursors as ic
-from . import API as api
 
 
 # --------------------------------------------------------------------------- #
@@ -49,7 +49,7 @@ class Cursor_Rewrite(LoopIR_Rewrite):
         super().__init__(proc_cursor)
 
     def result(self, mod_config=None):
-        return api.Procedure(
+        return API.Procedure(
             self.proc, _provenance_eq_Procedure=self.provenance, _mod_config=mod_config
         )
 
@@ -2290,7 +2290,7 @@ class _DoDoubleFission:
         self.proc = InferEffects(self.proc).result()
 
     def result(self):
-        return api.Procedure(self.proc, _provenance_eq_Procedure=self.provenance)
+        return API.Procedure(self.proc, _provenance_eq_Procedure=self.provenance)
 
     def alloc_check(self, pre, post):
         if not _is_alloc_free(pre, post):
@@ -2466,7 +2466,7 @@ class _DoFissionAfterSimple:
         self.proc = InferEffects(self.proc).result()
 
     def result(self):
-        return api.Procedure(self.proc, _provenance_eq_Procedure=self.provenance)
+        return API.Procedure(self.proc, _provenance_eq_Procedure=self.provenance)
 
     def alloc_check(self, pre, post):
         if not _is_alloc_free(pre, post):
@@ -2586,7 +2586,7 @@ class _FissionLoops:
         self.proc = InferEffects(self.proc).result()
 
     def result(self):
-        return api.Procedure(self.proc, _provenance_eq_Procedure=self.provenance)
+        return API.Procedure(self.proc, _provenance_eq_Procedure=self.provenance)
 
     def alloc_check(self, pre, post):
         if not _is_alloc_free(pre, post):
@@ -3008,7 +3008,7 @@ class _DoExtractMethod(Cursor_Rewrite):
         super().__init__(proc_cursor)
 
     def subproc(self):
-        return api.Procedure(self.new_subproc)
+        return API.Procedure(self.new_subproc)
 
     def push(self):
         self.var_types = self.var_types.new_child()
@@ -3187,7 +3187,7 @@ class _DoSimplify(Cursor_Rewrite):
     def __init__(self, proc_cursor):
         self.facts = ChainMap()
         new_procedure = _DoNormalize(proc_cursor).result()
-        self.proc_cursor = ic.Cursor.root(new_procedure)
+        self.proc_cursor = IC.Cursor.root(new_procedure)
 
         super().__init__(self.proc_cursor)
 
