@@ -1,9 +1,9 @@
-from collections import OrderedDict
+from collections import OrderedDict, ChainMap
 from enum import Enum
 from itertools import chain
 
-from .LoopIR import Alpha_Rename, SubstArgs
-from .configs import reverse_config_lookup
+from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
+from .configs import reverse_config_lookup, Config
 from .new_analysis_core import *
 from .proc_eqv import get_repr_proc
 
@@ -186,6 +186,7 @@ class AEnv:
             if isinstance(lb, BindingList) and isinstance(rb, BindingList):
                 mb = BindingList(lb.names + rb.names, lb.rhs + rb.rhs)
                 result.bindings = lhs.bindings[:-1] + [mb] + rhs.bindings[1:]
+                result.names = lhs.names.union(rhs.names)
                 return result
         # otherwise
         result.bindings = lhs.bindings + rhs.bindings
@@ -263,7 +264,7 @@ class AEnv:
         body = self(body)
         # then construct an AEnv that maps the new variable symbols
         # to these values
-        new_env = AEnv([v.name for v in copy_vars], body, addnames=True)
+        new_env = AEnv([v.name for v in copy_vars], body, addnames=False)
         return varmap, new_env
 
 
@@ -289,6 +290,33 @@ def AEnvPar(bind_dict, addnames=False):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Basic Global Dataflow Analysis
+
+
+def filter_reals(e, changeset):
+    def rec(e):
+        if isinstance(e, A.ConstSym):
+            if e.name in changeset:
+                return A.Unk(e.type, e.srcinfo)
+            else:
+                return e
+        elif isinstance(e, (A.Not, A.USub, A.ForAll, A.Exists, A.Definitely, A.Maybe)):
+            return e.update(arg=rec(e.arg))
+        elif isinstance(e, A.BinOp):
+            return e.update(lhs=rec(e.lhs), rhs=rec(e.rhs))
+        elif isinstance(e, A.LetStrides):
+            return e.update(strides=[rec(s) for s in e.strides], body=rec(e.body))
+        elif isinstance(e, A.Select):
+            return e.update(cond=rec(e.cond), tcase=rec(e.tcase), fcase=rec(e.fcase))
+        elif isinstance(e, A.Tuple):
+            return e.update(args=[rec(a) for a in e.args])
+        elif isinstance(e, A.LetTuple):
+            return e.update(rhs=rec(e.rhs), body=rec(e.body))
+        elif isinstance(e, A.Let):
+            return e.update(rhs=[rec(a) for a in e.rhs], body=rec(e.body))
+        else:
+            return e
+
+    return rec(e)
 
 
 def lift_e(e):
@@ -324,6 +352,16 @@ def lift_e(e):
             else:
                 f"bad case: {type(e)}"
         else:
+            assert e.type.is_numeric()
+            if e.type.is_real_scalar():
+                if isinstance(e, LoopIR.Const):
+                    return A.Const(e.val, e.type, e.srcinfo)
+                elif isinstance(e, LoopIR.Read):
+                    return A.ConstSym(e.name, e.type, e.srcinfo)
+                elif isinstance(e, LoopIR.ReadConfig):
+                    globname = e.config._INTERNAL_sym(e.field)
+                    return A.Var(globname, e.type, e.srcinfo)
+
             return A.Unk(T.err, e.srcinfo)
 
 
@@ -331,15 +369,102 @@ def lift_es(es):
     return [lift_e(e) for e in es]
 
 
+# Produce a set of AExprs which occur as right-hand-sides
+# of config writes.
+def possible_config_writes(stmts):
+    class Find_RHS(LoopIR_Do):
+        def __init__(self, stmts):
+            # to collect the results in
+            self.writes = dict()
+            self.windows = [AEnv()]
+
+            self.do_stmts(stmts)
+
+        def add_write(self, config, field, rhs):
+            rhs = lift_e(rhs)
+            rhs = self.windows[-1](rhs).simplify()
+            key = config._INTERNAL_sym(field)
+            if key not in self.writes:
+                self.writes[key] = set()
+            self.writes[key].add(rhs)
+
+        def result(self):
+            return self.writes
+
+        # remove any candidate expressions that use the given name
+        def filter(self, name):
+            for key in self.writes:
+                exprs = self.writes[key]
+                exprs = {e for e in exprs if name not in aeFV(e)}
+                if len(exprs) == 0:
+                    del self.writes[key]
+                else:
+                    self.writes[key] = exprs
+
+        def push(self):
+            self.windows.append(self.windows[-1])
+
+        def pop(self):
+            self.windows.pop()
+
+        def do_s(self, s):
+            if isinstance(s, LoopIR.WriteConfig):
+                self.add_write(s.config, s.field, s.rhs)
+
+            elif isinstance(s, LoopIR.If):
+                self.push()
+                self.do_stmts(s.body)
+                self.pop()
+                self.push()
+                self.do_stmts(s.orelse)
+                self.pop()
+
+            elif isinstance(s, LoopIR.Seq):
+                self.push()
+                self.do_stmts(s.body)
+                self.filter(s.iter)
+                self.pop()
+
+            elif isinstance(s, LoopIR.WindowStmt):
+                # accumulate windowing expressions
+                awin = lift_e(s.rhs)
+                assert isinstance(awin, AWin)
+                aenv = self.windows[-1] + AEnv(s.lhs, awin, addnames=False)
+                self.windows[-1] = aenv
+
+            elif isinstance(s, LoopIR.Call):
+                call_env = call_bindings(s.args, s.f.args)
+                sub_writes = Find_RHS(s.f.body).result()
+                win_env = self.windows[-1]
+                for key in sub_writes:
+                    if key not in self.writes:
+                        self.writes[key] = set()
+                    for rhs in sub_writes[key]:
+                        rhs = win_env(call_env(rhs)).simplify()
+                        self.writes[key].add(rhs)
+
+            super().do_s(s)
+
+        # short-circuiting for efficiency
+        def do_e(self, e):
+            pass
+
+        def do_t(self, t):
+            pass
+
+        def do_eff(self, eff):
+            pass
+
+    return Find_RHS(stmts).result()
+
+
 def globenv(stmts):
     aenvs = []
     for s in stmts:
         if isinstance(s, LoopIR.WriteConfig):
-            # don't bother tracking
-            if not s.rhs.type.is_numeric():
-                globname = s.config._INTERNAL_sym(s.field)
-                rhs = lift_e(s.rhs)
-                aenvs.append(AEnv(globname, rhs, addnames=True))
+            globname = s.config._INTERNAL_sym(s.field)
+            rhs = lift_e(s.rhs)
+            aenvs.append(AEnv(globname, rhs, addnames=True))
         elif isinstance(s, LoopIR.WindowStmt):
             win = lift_e(s.rhs)
             aenvs.append(AEnv(s.lhs, win))
@@ -379,18 +504,55 @@ def globenv(stmts):
         elif isinstance(s, LoopIR.Seq):
             # extract environment for the body and bind its
             # results via copies of the variables
+            i, j = s.iter, s.iter.copy()
             body_env = globenv(s.body)
             bvarmap, benv = body_env.bind_to_copies()
             aenvs.append(benv)
 
             # bind the bounds condition so it isn't duplicated
-            # bdssym      = Sym('for_bounds')
-            # bdsvar      = ABool(bdssym)
-            bds = AAnd(AInt(0) <= AInt(s.iter), AInt(s.iter) < lift_e(s.hi))
+            # non_empty   = AInt(0) < lift_e(s.hi)
+            def fix(x, body_x, lower=0):
+                bds = AAnd(AInt(lower) <= AInt(i), AInt(i) < lift_e(s.hi))
+                no_change = AImplies(bds, AEq(body_x, x))
+                return A.ForAll(i, no_change, T.bool, s.srcinfo)
 
-            def fix(x, body_x):
-                arg = AImplies(bds, AEq(body_x, x))
-                return A.ForAll(s.iter, arg, T.bool, s.srcinfo)
+            # extract possible RHS values for config-fields
+            # cfg_writes = possible_config_writes([s])
+            # for cfgfld in cfg_writes:
+            #     pass
+
+            def fix_cfg(x, rhs, body_x, lower=0):
+                bds = AAnd(AInt(lower) <= AInt(i), AInt(i) < lift_e(s.hi))
+                is_assigned = A.Exists(
+                    i, AAnd(bds, AEq(body_x, rhs)), T.bool, s.srcinfo
+                )
+                no_change_or_assign = AOr(AEq(body_x, rhs), AEq(body_x, x))
+                AImplies
+
+                no_change = 23
+                # A.Exists(i, is_assigned, T.bool, s.srcinfo)
+                no_change = A
+                no_change = AImplies(bds, AEq(body_x, x))
+                return A.ForAll(i, no_change, T.bool, s.srcinfo)
+
+            # define the value of variables due to the first iteration alone
+            # def iter0(x,body_x):
+            #    non_empty   = AInt(0) < lift_e(s.hi)
+            #    is_iter0    = AEq(AInt(i), AInt(0))
+
+            # optional attempt to have tricky conditions
+            # body_j_env  = AEnv(i, AInt(j)) + body_env
+            # j_bvarmap, j_benv = body_j_env.bind_to_copies()
+            # aenvs.append(j_benv)
+            # bds_j       = AAnd(AInt(0) <= AInt(j),
+            #                   AInt(j) < lift_e(s.hi))
+            # def same_after(body_x,body_j_x):
+            #    consistent =  A.ForAll(i, AImplies(bds,
+            #                    A.ForAll(j, AImplies(bds_j,
+            #                                AEq(body_x, body_j_x)),
+            #                             T.bool, s.srcinfo)),
+            #                    T.bool, s.srcinfo)
+            #    return AAnd(non_empty, consistent)
 
             # Now construct an environment that defines the new
             # value for variables `x` based on fixed-point conditions
@@ -404,6 +566,17 @@ def globenv(stmts):
                     oldvar.type,
                     s.srcinfo,
                 )
+
+                # j_bvar  = j_bvarmap[nm]
+                # oldvar  = A.Var(nm, bvar.type, s.srcinfo)
+                # val     = A.Select(fix(oldvar, bvar),
+                #                   oldvar,
+                #                   A.Unk(oldvar.type, s.srcinfo),
+                #                   #A.Select(same_after(bvar, j_bvar),
+                #                   #         bvar,
+                #                   #         A.Unk(oldvar.type, s.srcinfo),
+                #                   #         oldvar.type, s.srcinfo),
+                #                   oldvar.type, s.srcinfo)
                 newbinds[nm] = val
             aenvs.append(AEnvPar(newbinds, addnames=True))
 
@@ -484,6 +657,7 @@ module LocSet {
         "type": is_type_bound,
     },
 )
+
 
 ls_prec = {
     #
@@ -716,7 +890,7 @@ module EffectsNew {
          | BindEnv      ( aenv env )
          --
          | GlobalRead   ( sym name, type   type   )
-         | GlobalWrite  ( sym name, type   type   )
+         | GlobalWrite  ( sym name, type   type,  aexpr? rhs )
          | Read         ( sym name, aexpr* coords )
          | Write        ( sym name, aexpr* coords )
          | Reduce       ( sym name, aexpr* coords )
@@ -731,7 +905,6 @@ module EffectsNew {
         # 'srcinfo': lambda x: isinstance(x, SrcInfo),
     },
 )
-
 
 # pretty printing
 def _effstr(eff, tab=""):
@@ -748,7 +921,8 @@ def _effstr(eff, tab=""):
         return f"{tab}{eff.env}"
     elif isinstance(eff, (E.GlobalRead, E.GlobalWrite)):
         nm = "GlobalRead" if isinstance(eff, E.GlobalRead) else "GlobalWrite"
-        return f"{tab}{nm}({eff.name},{eff.type})"
+        rhs = "" if isinstance(eff, E.GlobalRead) or not eff.rhs else f",{eff.rhs}"
+        return f"{tab}{nm}({eff.name},{eff.type}{rhs})"
     elif isinstance(eff, (E.Read, E.Write, E.Reduce)):
         nm = (
             "Read"
@@ -784,10 +958,12 @@ class ES(Enum):
     WRITE_ALL = 8
     REDUCE = 9
     ALL = 10
-    MODIFY = 11
-    READ_WRITE = 12
+    ALL_H = 11
+    MODIFY = 12
+    MODIFY_H = 13
+    READ_WRITE = 14
 
-    ALLOC = 13
+    ALLOC = 15
 
 
 def get_basic_locsets(effs):
@@ -861,8 +1037,10 @@ def getsets(codes, effs):
     WAll = LUnion(WG, WH)
     Red = LDiff(preRed, WH)
     Mod = LUnion(WAll, preRed)
+    ModH = LUnion(WH, preRed)
     RW = LUnion(RAll, WAll)
     All = LUnion(RW, preRed)
+    AllH = LUnion(RH, ModH)
 
     def get_code(code):
         if code == ES.READ_G:
@@ -883,8 +1061,12 @@ def getsets(codes, effs):
             return Red
         elif code == ES.ALL:
             return All
+        elif code == ES.ALL_H:
+            return AllH
         elif code == ES.MODIFY:
             return Mod
+        elif code == ES.MODIFY_H:
+            return ModH
         elif code == ES.READ_WRITE:
             return RW
         elif code == ES.ALLOC:
@@ -893,6 +1075,25 @@ def getsets(codes, effs):
             assert False, f"bad case: {code}"
 
     return [get_code(c) for c in codes]
+
+
+def get_changing_globset(env):
+    """Computes a Location Set from an environment, corresponding
+    to all globals / configuration-variables whose value is
+    changed by that environment"""
+    varmap, env = env.bind_to_copies()
+    aenvs = [env]
+
+    def change(x_old, x_new):
+        return ANot(AEq(x_old, x_new))
+
+    locs = LS.Empty()
+    for name, newvar in varmap.items():
+        oldvar = A.Var(name, newvar.type, newvar.srcinfo)
+        cfgloc = LFilter(change(oldvar, newvar), LS.Point(name, [], newvar.type))
+        locs = LUnion(locs, cfgloc)
+    locs = LLetEnv(env, locs)
+    return locs
 
 
 # --------------------------------------------------------------------------- #
@@ -947,7 +1148,9 @@ def stmts_effs(stmts):
         elif isinstance(s, LoopIR.WriteConfig):
             effs += expr_effs(s.rhs)
             globname = s.config._INTERNAL_sym(s.field)
-            effs.append(E.GlobalWrite(globname, s.config.lookup(s.field)[1]))
+            effs.append(
+                E.GlobalWrite(globname, s.config.lookup(s.field)[1], lift_e(s.rhs))
+            )
         elif isinstance(s, LoopIR.If):
             effs += expr_effs(s.cond)
             effs += [
@@ -965,10 +1168,14 @@ def stmts_effs(stmts):
         elif isinstance(s, LoopIR.Call):
             # must filter out arguments that are simply
             # Read of a numeric buffer, since those arguments are
-            # passed by reference, not by reading and passing a value
+            # passed by reference, not by reading and passing a value.
+            # Must also filter out numeric ReadConfigs, since those are
+            # likewise being passed by reference, not being accessed
             for fa, a in zip(s.f.args, s.args):
                 if fa.type.is_numeric() and isinstance(a, LoopIR.Read):
                     pass  # this is the case we want to skip
+                elif fa.type.is_numeric() and isinstance(a, LoopIR.ReadConfig):
+                    pass
                 else:
                     effs += expr_effs(a)
             sub_proc = get_simple_proc(s.f)
@@ -1003,6 +1210,53 @@ def proc_effs(proc):
     raise NotImplementedError("TODO")
 
 
+_proc_changeset_cache = dict()
+
+
+def proc_changing_scalars(proc):
+    if proc not in _proc_changeset_cache:
+        _proc_changeset_cache[proc] = get_changing_scalars(proc.body)
+    return _proc_changeset_cache[proc]
+
+
+def get_changing_scalars(stmts, changeset=None, aliases=None):
+    aliases = aliases or dict()
+    changeset = changeset or set()
+
+    def add_name(name):
+        changeset.add(name)
+        while name in aliases:
+            name = aliases[name]
+            changeset.add(name)
+
+    for s in stmts:
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            if len(s.idx) == 0:
+                add_name(s.name)
+        elif isinstance(s, LoopIR.If):
+            get_changing_scalars(s.body, changeset, aliases)
+            get_changing_scalars(s.orelse, changeset, aliases)
+        elif isinstance(s, LoopIR.Seq):
+            get_changing_scalars(s.body, changeset, aliases)
+        elif isinstance(s, LoopIR.Call):
+            for fa, a in zip(s.f.args, s.args):
+                if fa.type.is_numeric():
+                    if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)):
+                        aliases[fa.name] = a.name
+                    else:
+                        assert isinstance(a, LoopIR.ReadConfig)
+                        # ignore these; check that they don't matter elsewhere
+            pchgs = proc_changing_scalars(s.f)
+            for nm in pchgs:
+                add_name(nm)
+        elif isinstance(s, LoopIR.WindowStmt):
+            aliases[s.lhs] = s.rhs.name
+        else:
+            pass
+
+    return changeset
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Context Processing
@@ -1015,8 +1269,12 @@ class ContextExtraction:
 
     def get_control_predicate(self):
         assumed = AAnd(*[lift_e(p) for p in self.proc.preds])
+        # collect assumptions that size arguments are positive
+        pos_sizes = AAnd(
+            *[AInt(a.name) > AInt(0) for a in self.proc.args if a.type == T.size]
+        )
         ctrlp = self.ctrlp_stmts(self.proc.body)
-        return AAnd(assumed, ctrlp)
+        return AAnd(assumed, pos_sizes, ctrlp)
 
     def get_pre_globenv(self):
         return self.preenv_stmts(self.proc.body)
@@ -1188,7 +1446,68 @@ def Commutes(a1, a2):
     return pred
 
 
+def Commutes_Fissioning(a1, a2, aenv1, aenv2, a1_no_loop_var=False):
+    W1, R1, RG1, Red1, All1 = getsets(
+        [ES.WRITE_H, ES.READ_H, ES.READ_G, ES.REDUCE, ES.ALL_H], a1
+    )
+    W2, R2, RG2, Red2, All2 = getsets(
+        [ES.WRITE_H, ES.READ_H, ES.READ_G, ES.REDUCE, ES.ALL_H], a2
+    )
+    WG1 = get_changing_globset(aenv1)
+    WG2 = get_changing_globset(aenv2)
+    """
+    print("CHANGING GLOB SET")
+    print(WG1)
+    print(WG2)
+    print("W1 R1 RG1 Red1 All1")
+    print(W1)
+    print(R1)
+    print(RG1)
+    print(Red1)
+    print(All1)
+    print("W2 R2 RG2 Red2 All2")
+    print(W2)
+    print(R2)
+    print(RG2)
+    print(Red2)
+    print(All2)
+    """
+
+    write_commute12 = ADef(is_empty(LIsct(W1, All2)))
+    if a1_no_loop_var:
+        # a1 does not vary syntactically between loop iterations,
+        # so under the following conditions, we can assume that
+        # a1 is idempotent
+        #   - a1 contains no reductions
+        a1_idempotent = AAnd(
+            ADef(is_empty(Red1)),
+            #   - a1 does not depend on (read) any modified values, namely
+            #       + any values modified by a2 (accounted for below)
+            #       + any heap value written by a1 (W1)
+            ADef(is_empty(LIsct(W1, R1))),
+            #       + any global value changed by a1 (WG1)
+            ADef(is_empty(LIsct(WG1, RG1))),
+        )
+        # In this case, a1 being idempotent is sufficient as an
+        # alternative to proving that a1 doesn't write anything
+        # read by a2; since idempotency ensures that
+        # a2 will always read the same values regardless of commuting
+        write_commute12 = AOr(write_commute12, a1_idempotent)
+
+    pred = AAnd(
+        write_commute12,
+        ADef(is_empty(LIsct(W2, All1))),
+        ADef(is_empty(LIsct(Red1, R2))),
+        ADef(is_empty(LIsct(Red2, R1))),
+        ADef(is_empty(LIsct(WG1, RG2))),
+        ADef(is_empty(LIsct(WG2, RG1))),
+    )
+
+    return pred
+
+
 def AllocCommutes(a1, a2):
+
     Alc1, All1 = getsets([ES.ALLOC, ES.ALL], a1)
     Alc2, All2 = getsets([ES.ALLOC, ES.ALL], a2)
     pred = AAnd(ADef(is_empty(LIsct(Alc1, All2))), ADef(is_empty(LIsct(Alc2, All1))))
@@ -1196,15 +1515,14 @@ def AllocCommutes(a1, a2):
 
 
 def Shadows(a1, a2):
-    Alc1, Mod1 = getsets([ES.ALLOC, ES.MODIFY], a1)
-    Rd2, Wr2, Red2, All2 = getsets([ES.READ_ALL, ES.WRITE_ALL, ES.REDUCE, ES.ALL], a2)
+    Mod1 = getsets([ES.MODIFY], a1)[0]
+    Rd2, Wr2, Red2 = getsets([ES.READ_ALL, ES.WRITE_ALL, ES.REDUCE], a2)
 
     # predicate via constituent conditions
-    alloc_is_dead = ADef(is_empty(LIsct(Alc1, All2)))
     mod_is_unread = ADef(is_empty(LIsct(Mod1, LUnion(Rd2, Red2))))
     mod_is_shadowed = ADef(is_empty(LDiff(Mod1, Wr2)))
 
-    pred = AAnd(alloc_is_dead, mod_is_unread, mod_is_shadowed)
+    pred = AAnd(mod_is_unread, mod_is_shadowed)
     return pred
 
 
@@ -1244,6 +1562,13 @@ class SchedulingError(Exception):
         if not ops:
             ops = ["<<<unknown directive>>>"]
         return ops
+
+
+def loop_globenv(i, hi_expr, body):
+    assert isinstance(hi_expr, LoopIR.expr)
+
+    loop = [LoopIR.Seq(i, hi_expr, body, None, null_srcinfo())]
+    return globenv(loop)
 
 
 def Check_ReorderStmts(proc, s1, s2):
@@ -1340,8 +1665,9 @@ def Check_ReorderLoops(proc, s):
 #   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i')  =>
 #                     Commutes(a1', a2) /\ AllocCommutes(a1, a2) )
 #
-def Check_FissionLoop(proc, loop, stmts1, stmts2):
+def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     ctxt = ContextExtraction(proc, [loop])
+    chgG = get_changing_scalars(proc.body)
 
     p = ctxt.get_control_predicate()
     G = ctxt.get_pre_globenv()
@@ -1357,6 +1683,10 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
     subenv = {i: LoopIR.Read(j, [], T.index, null_srcinfo())}
     stmts1_j = SubstArgs(stmts1, subenv).result()
 
+    Gloop = loop_globenv(i, LoopIR.Read(j, [], T.index, null_srcinfo()), stmts1)
+    # print("GLOOP")
+    # print(Gloop)
+
     a_bd = expr_effs(hi)
     a1 = stmts_effs(stmts1)
     a1_j = stmts_effs(stmts1_j)
@@ -1365,6 +1695,12 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
     def bds(x, hi):
         return AAnd(AInt(0) <= AInt(x), AInt(x) < lift_e(hi))
 
+    commute12 = Gloop(
+        Commutes_Fissioning(
+            a1_j, a2, globenv(stmts1_j), globenv(stmts2), a1_no_loop_var=no_loop_var_1
+        )
+    )
+
     no_bound_change = AForAll(
         [i], AImplies(AMay(bds(i, hi)), AAnd(Commutes(a_bd, a1), Commutes(a_bd, a2)))
     )
@@ -1372,11 +1708,12 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2):
         [i, j],
         AImplies(
             AMay(AAnd(bds(i, hi), bds(j, hi), AInt(i) < AInt(j))),
-            AAnd(Commutes(a1_j, a2), AllocCommutes(a1, a2)),
+            AAnd(commute12, AllocCommutes(a1, a2)),
         ),
     )
 
-    pred = G(AAnd(no_bound_change, stmts_commute))
+    pred = filter_reals(G(AAnd(no_bound_change, stmts_commute)), chgG)
+    # pred    = G(AAnd(no_bound_change, stmts_commute))
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1415,7 +1752,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     # the statement block being focused on.  Filter out any
     # such configuration variables whose values are definitely unchanged
     def is_cfg_unmod_by_stmts(pt):
-        pt_e = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name)
+        pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
         # cfg_unwritten = ADef( ANot(is_elem(pt, WrG)) )
         cfg_unchanged = ADef(G(AEq(pt_e, stmtsG(pt_e))))
         return slv.verify(cfg_unchanged)
@@ -1427,7 +1764,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     # consider every global that might be modified
     cfg_mod_visible = set()
     for _, pt in cfg_mod.items():
-        pt_e = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name)
+        pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
         is_written = is_elem(pt, WrG)
         is_unchanged = G(AEq(pt_e, stmtsG(pt_e)))
         is_read_post = is_elem(pt, RdGp)
@@ -1510,21 +1847,25 @@ def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
     return cfg_mod_visible
 
 
-def Check_ExprEqvInContext(proc, stmts, expr0, expr1):
-    assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
+def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
+    assert len(stmts0) > 0
+    stmts1 = stmts1 or stmts0
+    ctxt0 = ContextExtraction(proc, stmts0)
+    ctxt1 = ContextExtraction(proc, stmts1)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    p0 = ctxt0.get_control_predicate()
+    G0 = ctxt0.get_pre_globenv()
+    p1 = ctxt1.get_control_predicate()
+    G1 = ctxt1.get_pre_globenv()
 
     slv = SMTSolver(verbose=False)
     slv.push()
-    slv.assume(AMay(p))
+    slv.assume(AMay(AAnd(p0, p1)))
 
-    e0 = lift_e(expr0)
-    e1 = lift_e(expr1)
+    e0 = G0(lift_e(expr0))
+    e1 = G1(lift_e(expr1))
 
-    test = G(AEq(e0, e1))
+    test = AEq(e0, e1)
     is_ok = slv.verify(test)
     slv.pop()
     if not is_ok:
@@ -1619,3 +1960,280 @@ def Check_Bounds(proc, alloc_stmt, block):
     slv.pop()
     if not is_ok:
         raise SchedulingError(f"The buffer {alloc_stmt.name} is accessed out-of-bounds")
+
+
+def Check_IsDeadAfter(proc, stmts, bufname, ndim):
+    assert len(stmts) > 0
+    ctxt = ContextExtraction(proc, stmts)
+
+    ap = ctxt.get_posteffs()
+
+    slv = SMTSolver(verbose=False)
+    slv.push()
+
+    # extract effect location sets
+    Allp = getsets([ES.ALL], ap)[0]
+
+    wholebuf = LS.WholeBuf(bufname, ndim)
+    is_dead = slv.verify(ADef(is_empty(LIsct(Allp, wholebuf))))
+    slv.pop()
+    if not is_dead:
+        raise SchedulingError(
+            f"The variable {bufname} can potentially be used after "
+            + f"the statement at {stmts[0].srcinfo} executes."
+        )
+
+
+def Check_IsIdempotent(proc, stmts):
+    assert len(stmts) > 0
+    ctxt = ContextExtraction(proc, stmts)
+
+    p = ctxt.get_control_predicate()
+    G = ctxt.get_pre_globenv()
+    ap = ctxt.get_posteffs()
+    a = G(stmts_effs(stmts))
+
+    slv = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    is_idempotent = slv.verify(ADef(Shadows(a, a)))
+    slv.pop()
+    if not is_idempotent:
+        raise SchedulingError(f"The statement at {stmts[0].srcinfo} is not idempotent.")
+
+
+def Check_IsPositiveExpr(proc, stmts, expr):
+    assert len(stmts) > 0
+    ctxt = ContextExtraction(proc, stmts)
+
+    p = ctxt.get_control_predicate()
+    G = ctxt.get_pre_globenv()
+
+    slv = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    e = G(lift_e(expr))
+    is_pos = slv.verify(ADef(e > AInt(0)))
+    slv.pop()
+    if not is_pos:
+        estr = str(expr)
+        if estr[-1] == "\n":
+            estr = estr[:-1]
+        raise SchedulingError(
+            f"The expression {estr} is not guaranteed to be positive."
+        )
+
+
+def Check_CodeIsDead(proc, stmts):
+    assert len(stmts) > 0
+    ctxt = ContextExtraction(proc, stmts)
+
+    p = ctxt.get_control_predicate()
+    G = ctxt.get_pre_globenv()
+    ap = ctxt.get_posteffs()
+    a = G(stmts_effs(stmts))
+
+    # apply control predicate
+    a = [E.Guard(AMay(p), a)]
+
+    # The basic question for dead code is to ask:
+    #       Is there any way that any memory modified by `stmts`
+    #       could possibly affect any other code that runs later?
+    #
+    # Let X be some memory location modified by `stmts`.
+    # If any code running after `stmts` reads/reduces/depends-on X,
+    #   then `stmts` is not dead.
+    # Otherwise if X is allocated local to `proc`, then `stmts`
+    #   is dead w.r.t. X
+    # Otherwise X is a global or an argument buffer;
+    #   If X is not definitely overwritten before exiting `proc`,
+    #   then `stmts` is not dead.
+    #
+    # The preceding analysis should never erroneously report code
+    # as dead when it is not.
+
+    Modp, WGp = getsets([ES.MODIFY, ES.WRITE_G], G(a))
+    R_ap, Red_ap, W_ap = getsets([ES.READ_ALL, ES.REDUCE, ES.WRITE_ALL], ap)
+
+    # get a set of globals and function arguments that
+    # overapproximates the set of locations that might have been written
+    # and are all memory locations visible after the lifetime of `proc`
+    globs = {pt.name: pt.typ for pt in get_point_exprs(WGp)}
+    args = {fa.name: len(fa.type.shape()) for fa in proc.args if fa.type.is_numeric()}
+    # now we'll construct a location set out of these
+    Outside = LS.Empty()
+    for gnm, typ in globs.items():
+        Outside = LUnion(Outside, LS.Point(gnm, [], typ))
+    for nm, ndim in globs.items():
+        Outside = LUnion(Outside, LS.WholeBuf(nm, ndim))
+
+    # first condition
+    mod_unread_in_proc = ADef(is_empty(LIsct(Modp, LUnion(R_ap, Red_ap))))
+    # second condition
+    mod_unread_outside = ADef(is_empty(LIsct(LDiff(Modp, W_ap), Outside)))
+
+    slv = SMTSolver(verbose=False)
+    slv.push()
+    mod_unread_in_proc = slv.verify(mod_unread_in_proc)
+    mod_unread_outside = slv.verify(mod_unread_outside)
+    slv.pop()
+    if not mod_unread_in_proc:
+        raise SchedulingError(
+            f"Code is not dead, because values modified might be "
+            f"read later in this proc"
+        )
+    if not mod_unread_outside:
+        raise SchedulingError(
+            f"Code is not dead, because values modified might be "
+            f"read later outside this proc"
+        )
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# The following is a kludge to prevent aliasing problems
+# and problems stemming from passing real_scalar configuration variables
+# as data arguments to functions (related, but distinct)
+
+
+class _OverApproxEffects(LoopIR_Do):
+    """Computes all buffers and globals potentially accessed by a proc
+    or any sub-procs transitively"""
+
+    def __init__(self, proc):
+        self._touched = set()
+        self._aliases = dict()
+        self._globals = set()
+
+        super().__init__(proc)
+
+        # filter the results down to arguments and globals
+        args = {fa.name for fa in proc.args}
+        self._touched = {
+            nm for nm in self._touched if nm in self._globals or nm in args
+        }
+
+    def results(self):
+        return self._touched
+
+    def add_name(self, name):
+        self._touched.add(name)
+        while name in self._aliases:
+            name = self._aliases[name]
+            self._touched.add(name)
+
+    def do_s(self, s):
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            self.add_name(s.name)
+        elif isinstance(s, LoopIR.WriteConfig):
+            globname = s.config._INTERNAL_sym(s.field)
+            self.add_name(globname)
+            self._globals.add(globname)
+        elif isinstance(s, LoopIR.Call):
+            # build translation of the results of analysis from the sub-proc
+            for fa, a in zip(s.f.args, s.args):
+                # treat numeric arguments as aliases rather than
+                # accesses to the corresponding expressions
+                if fa.type.is_numeric():
+                    if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)):
+                        self._aliases[fa.name] = a.name
+                        if isinstance(a, LoopIR.Read):
+                            for i in a.idx:
+                                self.do_e(i)
+                        else:
+                            for w in a.idx:
+                                self.do_w_access(w)
+                    else:
+                        assert isinstance(a, LoopIR.ReadConfig)
+                        globname = a.config._INTERNAL_sym(a.field)
+                        self._aliases[fa.name] = globname
+                else:
+                    self.do_e(a)
+            # now add all effect approximations from the sub-proc
+            for name in overapprox_proc_effs(s.f):
+                self.add_name(name)
+            return  # don't call do_e on all of the arguments
+        elif isinstance(s, LoopIR.WindowStmt):
+            self._aliases[s.lhs] = s.rhs.name
+
+        super().do_s(s)
+
+    def do_e(self, e):
+        if isinstance(s, LoopIR.Read):
+            self.add_name(e.name)
+        elif isinstance(s, LoopIR.ReadConfig):
+            globname = e.config._INTERNAL_sym(e.field)
+            self.add_name(globname)
+            self._globals.add(globname)
+
+        super().do_s(s)
+
+
+_overapprox_proc_cache = dict()
+
+
+def overapprox_proc_effs(proc):
+    if proc not in _overapprox_proc_cache:
+        _overapprox_proc_cache[proc] = _OverApproxEffects(proc).results()
+    return _overapprox_proc_cache[proc]
+
+
+class _Check_Aliasing_Helper(LoopIR_Do):
+    def __init__(self, proc):
+        self._aliases = dict()
+        super().__init__(proc)
+
+    def translate(self, name):
+        if name in self._aliases:
+            return self._aliases[name]
+        else:
+            return name
+
+    def do_s(self, s):
+        if isinstance(s, LoopIR.Call):
+            # check for duplicate buffer argument names
+            passed_buffers = set()
+            argnames = {
+                self.translate(a.name)
+                for a in s.args
+                if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr))
+            }
+            for fa, a in zip(s.f.args, s.args):
+                if fa.type.is_numeric():
+                    if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)):
+                        name = self.translate(a.name)
+                        if name in passed_buffers:
+                            raise SchedulingError(
+                                f"Cannot Pass the same buffer '{name}' via "
+                                f"multiple arguments in call to {s.f.name}, "
+                                f"since doing so would introduce aliased "
+                                f"arguments.  "
+                                f"Please contact the Exo developers if you "
+                                f"need support for aliased arguments."
+                            )
+                        passed_buffers.add(name)
+                    elif isinstance(a, LoopIR.ReadConfig):
+                        sub_effs = overapprox_proc_effs(s.f)
+                        globname = a.config._INTERNAL_sym(a.field)
+                        if globname in sub_effs:
+                            raise SchedulingError(
+                                f"Passing numeric-type (R, f32, i8, etc.) "
+                                f"configuration variables is not currently "
+                                f"supported in Exo due to internal "
+                                f"complications and potential aliasing "
+                                f"issues."
+                            )
+        elif isinstance(s, LoopIR.WindowStmt):
+            name = s.rhs.name
+            while name in self._aliases:
+                name = self._aliases[name]
+            self._aliases[s.lhs] = name
+        else:
+            super().do_s(s)
+
+
+def Check_Aliasing(proc):
+    helper = _Check_Aliasing_Helper(proc)
+    # that's it
