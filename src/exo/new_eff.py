@@ -517,9 +517,9 @@ def globenv(stmts):
                 return A.ForAll(i, no_change, T.bool, s.srcinfo)
 
             # extract possible RHS values for config-fields
-            cfg_writes = possible_config_writes([s])
-            for cfgfld in cfg_writes:
-                pass
+            # cfg_writes = possible_config_writes([s])
+            # for cfgfld in cfg_writes:
+            #     pass
 
             def fix_cfg(x, rhs, body_x, lower=0):
                 bds = AAnd(AInt(lower) <= AInt(i), AInt(i) < lift_e(s.hi))
