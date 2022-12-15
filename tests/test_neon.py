@@ -83,7 +83,53 @@ def test_neon_simple_math(compiler):
         fn(None, n, x, y)
         assert np.allclose(x, expected)
 
+#@pytest.fixture
+def test_neon_vfmla():
+    """
+    Compute C[i] = A[i] * B[l] 
+    """
 
+    @proc
+    def vfmla(n: size, C: R[n] @ DRAM, A: R[n] @ DRAM, B: R[n] @ DRAM):  # pragma: no cover
+        assert n == 4
+        for l in seq(0,4):
+            for i in seq(0, 4):
+                C[i] += A[i] * B[l]
+
+    def simple_vfmla(p=vfmla):
+        p = stage_mem(p, 'C[_] += _','C[i]', 'C_reg')
+        p = expand_dim(p, 'C_reg', 4, 'i', unsafe_disable_checks=True)
+        p = lift_alloc(p, 'C_reg', n_lifts=2)
+        p = autofission(p, p.find('C_reg[_] = _').after(), n_lifts=2)
+        p = autofission(p, p.find('C[_] = _').before(), n_lifts=2)
+        p = replace(p, 'for i in _: _ #0', neon_vld_4xf32)
+        p = replace(p, 'for i in _: _ #1', neon_vst_4xf32)
+        p = set_memory(p, 'C_reg', Neon4f)
+       
+        p = bind_expr(p, 'A[_]', 'A_vec')
+        p = expand_dim(p, 'A_vec', 4, 'i', unsafe_disable_checks=True)
+        p = lift_alloc(p, 'A_vec', n_lifts=2)
+        p = autofission(p, p.find('A_vec[_] = _').after(), n_lifts=2)
+        p = replace(p, 'for i in _: _ #0', neon_vld_4xf32)
+        p = set_memory(p, 'A_vec', Neon4f)
+        
+        p = bind_expr(p, 'B[_]', 'B_vec')
+        p = expand_dim(p, 'B_vec', 4, 'l', unsafe_disable_checks=True)
+        p = lift_alloc(p, 'B_vec', n_lifts=2)
+        p = autofission(p, p.find('B_vec[_] = _').after(), n_lifts=2)
+        p = replace(p, 'for l in _: _ #0', neon_vld_4xf32)
+        p = set_memory(p, 'B_vec', Neon4f)
+        print(p)
+        p = replace(p, 'for i in _: _ #0', neon_vfmla_4xf32_4xf32)
+        p = unroll_loop(p,'l #0')
+        return p
+
+    simple_neon_vfmla = simple_vfmla()
+
+    return simple_neon_vfmla
+
+p = test_neon_vfmla()
+print(p)
 @pytest.fixture
 def simple_math_neon_sched():
     @proc
