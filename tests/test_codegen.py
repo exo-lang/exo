@@ -71,6 +71,43 @@ def test_free3(compiler):
 old_split = repeat(divide_loop)
 
 
+# Tests for constness
+
+
+def test_const_local_buffer(golden, compiler):
+    @proc
+    def callee(N: size, A: [f32][N]):
+        for i in seq(0, N):
+            A[i] = 0.0
+
+    @proc
+    def caller():
+        A: f32[10]
+        callee(10, A)
+
+    cc, hh = compile_procs_to_strings([caller], "test.h")
+    assert f"{hh}{cc}" == golden
+
+    compiler.compile(caller)
+
+
+def test_const_local_window(golden, compiler):
+    @proc
+    def callee(N: size, A: [f32][N]):
+        for i in seq(0, N):
+            A[i] = 0.0
+
+    @proc
+    def caller():
+        A: f32[100]
+        callee(10, A[10:20])
+
+    cc, hh = compile_procs_to_strings([caller], "test.h")
+    assert f"{hh}{cc}" == golden
+
+    compiler.compile(caller)
+
+
 # --- Start Blur Test ---
 
 

@@ -54,6 +54,10 @@ typedef struct test_case_Context {
     } ConfigStore;
 
 } test_case_Context;
+struct exo_win_2i32{
+    int32_t * const data;
+    const int_fast32_t strides[2];
+};
 struct exo_win_2i32c{
     const int32_t * const data;
     const int_fast32_t strides[2];
@@ -66,8 +70,8 @@ struct exo_win_2i8c{
     const int8_t * const data;
     const int_fast32_t strides[2];
 };
-struct exo_win_3i8c{
-    const int8_t * const data;
+struct exo_win_3i8{
+    int8_t * const data;
     const int_fast32_t strides[3];
 };
 // cpu_matmul_14(
