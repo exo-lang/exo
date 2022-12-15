@@ -4,6 +4,8 @@ from typing import Any, Union
 
 import pysmt
 import z3 as z3lib
+
+Z3 = z3lib.z3
 from pysmt import logics
 from pysmt import shortcuts as SMT
 
@@ -66,6 +68,7 @@ module AExpr {
             | Not( expr arg )
             | USub( expr arg )
             | Const( object val )
+            | ConstSym( sym name ) -- represents a named, opaque value
             | BinOp( binop op, expr lhs, expr rhs )
             | Stride( sym name, int dim )
             | LetStrides( sym name, expr* strides, expr body )
@@ -292,6 +295,8 @@ def _estr(e, prec=0, tab=""):
         return f"-{_estr(e.arg,op_prec['unary'],tab=tab)}"
     elif isinstance(e, A.Const):
         return str(e.val)
+    elif isinstance(e, A.ConstSym):
+        return f"CONST({e.name})"
     elif isinstance(e, A.BinOp):
         local_prec = op_prec[e.op]
         lhs = _estr(e.lhs, prec=local_prec, tab=tab)
@@ -365,6 +370,14 @@ def __str__(e):
     return _estr(e)
 
 
+@dataclass
+class ConstSymFV:
+    name: Sym
+
+    def __hash__(self):
+        return self.name.__hash__()
+
+
 def aeFV(e, env=None):
     env = env or ChainMap()
 
@@ -387,6 +400,8 @@ def aeFV(e, env=None):
         return aeFV(e.arg, env)
     elif isinstance(e, A.BinOp):
         return aeFV(e.lhs, env) | aeFV(e.rhs, env)
+    elif isinstance(e, A.ConstSym):
+        return {ConstSymFV(e.name): e.type}
     elif isinstance(e, A.Stride):
         # stride symbol gets encoded as a tuple
         key = (e.name, e.dim)
@@ -476,7 +491,7 @@ def aeNegPos(e, pos, env=None, res=None):
             old_pos = env[e.name]
             if pos != old_pos:
                 env[e.name] = "0"
-    elif isinstance(e, (A.Unk, A.Const, A.Stride)):
+    elif isinstance(e, (A.Unk, A.Const, A.Stride, A.ConstSym)):
         pass
     elif isinstance(e, A.Not):
         negpos = "-" if pos == "+" else "+" if pos == "-" else "0"
@@ -599,17 +614,18 @@ def is_ternary(x):
     return isinstance(x, TernVal)
 
 
-def to_ternary(x):
-    return x if is_ternary(x) else TernVal(x, SMT.Bool(True))
-
-
 class SMTSolver:
     def __init__(self, verbose=False):
         self.env = ChainMap()
         self.stride_sym = ChainMap()
+        self.const_sym = dict()
+        self.const_sym_count = 1
         self.solver = _get_smt_solver()
         self.verbose = verbose
         self.z3 = Z3SubProc()
+
+        self.Z3_MODE = True
+        self.z3slv = z3lib.Solver()
 
         # used during lowering
         self.mod_div_tmp_bins = []
@@ -618,15 +634,23 @@ class SMTSolver:
         # debug info
         self.frames = [DebugSolverFrame()]
 
+    def to_ternary(self, x):
+        if self.Z3_MODE:
+            return x if is_ternary(x) else TernVal(x, Z3.BoolVal(True))
+        else:
+            return x if is_ternary(x) else TernVal(x, SMT.Bool(True))
+
     def push(self):
         self.solver.push()
         self.z3.push()
         self.internal_push()
+        self.z3slv.push()
 
     def pop(self):
         self.internal_pop()
         self.z3.pop()
         self.solver.pop()
+        self.z3slv.pop()
 
     def internal_push(self):
         self.env = self.env.new_child()
@@ -646,41 +670,6 @@ class SMTSolver:
                 lines.append("")
             lines += lns
         return "\n".join(lines)
-
-    # deprecated
-    def defvar(self, names, rhs):
-        """bind will make sure the provided names are equal to
-        the provided right-hand-sides for the remainder of the
-        scope that we're in"""
-        # note that it's important that we
-        # lower all right-hand-sides before calling _newvar
-        # or else the name shadowing might be incorrect
-        smt_rhs = [self._lower(e) for e in rhs]
-        self.frames[-1].add_bind(names, rhs, smt_rhs)
-        self._bind_internal(names, smt_rhs, [e.type for e in rhs])
-
-    # def bind_tuple(self, names, rhs):
-    #    """ bind will make sure the provided names are equal to
-    #        the provided right-hand-sides for the remainder of the
-    #        scope that we're in.
-    #        bind_tuple will simultaneously bind the whole list of
-    #        names to a tuple-type right-hand-side """
-    #    smt_rhs         = self._lower(rhs)
-    #    self.frames[-1].add_tuple_bind(names, rhs, smt_rhs)
-    #    self._bind_internal(e.names, smt_rhs, rhs.type)
-
-    # deprecated
-    def _def_internal(self, names, smt_rhs, typs):
-        # we further must handle the cases where the variables
-        # being defined are classical vs. ternary
-        for x, smt_e, typ in zip(names, smt_rhs, typs):
-            smt_sym = self._newvar(x, typ, is_ternary(smt_e))
-            EQ = SMT.Iff if typ == T.bool else SMT.Equals
-            if is_ternary(smt_e):
-                self.solver.add_assertion(EQ(smt_sym.v, smt_e.v))
-                self.solver.add_assertion(SMT.Iff(smt_sym.d, smt_e.d))
-            else:
-                self.solver.add_assertion(EQ(smt_sym, smt_e))
 
     def _bind(self, names, rhs):
         """bind will make sure the provided names are equal to
@@ -702,58 +691,103 @@ class SMTSolver:
 
     def _add_free_vars(self, e):
         fv = aeFV(e)
+        # print("\n\n\nADDING FREE VAR\n")
+        # print(e)
+        # print(fv)
+        # print()
         for x, typ in fv.items():
             if type(x) is tuple:
                 x = self._get_stride_sym(*x)
+            elif type(x) is ConstSymFV:
+                x = self._get_const_sym(x.name)
+                # print("CONST SYM", x)
             if x in self.env:
                 pass  # already defined; no worries
             else:
                 v = self._getvar(x, typ)  # force adding to environment
-                self.z3.add_var(v.symbol_name(), typ)
+                if self.Z3_MODE:
+                    pass
+                else:
+                    self.z3.add_var(v.symbol_name(), typ)
 
     def assume(self, e):
         assert e.type is T.bool
+        e = e.simplify()
         self._add_free_vars(e)
         self.negative_pos = aeNegPos(e, "-")
         smt_e = self._lower(e)
         assert not is_ternary(smt_e), "assumptions must be classical"
         self.frames[-1].add_assumption(e, smt_e)
-        self.solver.add_assertion(smt_e)
+        if self.Z3_MODE:
+            self.z3slv.assert_exprs(smt_e)
+        else:
+            self.z3.add_assertion(smt_e)
+            # self.solver.add_assertion(smt_e)
 
     def satisfy(self, e):
         assert e.type is T.bool
+        e = e.simplify()
         self.push()
         self._add_free_vars(e)
         self.negative_pos = aeNegPos(e, "-")
         smt_e = self._lower(e)
         assert not is_ternary(smt_e), "formulas must be classical"
-        self.z3.add_assertion(smt_e)
-        is_sat = self.z3.run_check_sat()
+        if self.Z3_MODE:
+            self.z3slv.assert_exprs(smt_e)
+            result = self.z3slv.check()
+            if result == Z3.sat:
+                is_sat = True
+            elif result == Z3.unsat:
+                is_sat = False
+            else:
+                raise Error("unknown result from z3")
+        else:
+            self.z3.add_assertion(smt_e)
+            is_sat = self.z3.run_check_sat()
         # is_sat      = self.solver.is_sat(smt_e)
         self.pop()
         return is_sat
 
     def verify(self, e):
         assert e.type is T.bool
+        e = e.simplify()
         self.push()
         self._add_free_vars(e)
         self.negative_pos = aeNegPos(e, "+")
         smt_e = self._lower(e)
         assert not is_ternary(smt_e), "formulas must be classical"
-        self.z3.add_assertion(SMT.Not(smt_e))
         if self.verbose:
             print("*******\n*******\n*******")
             print(self.debug_str(smt=False))
             print("to verify")
             print(e)
-            print(SMT.to_smtlib(smt_e))
-
-        is_valid = not self.z3.run_check_sat()
+            print(smt_e)
+            print("smtlib2")
+            if self.Z3_MODE:
+                pass  # print(Z3.to_smt2(smt_e))
+            else:
+                print(SMT.to_smtlib(smt_e))
+        if self.Z3_MODE:
+            self.z3slv.assert_exprs(Z3.Not(smt_e))
+            if self.verbose and self.Z3_MODE:
+                print(self.z3slv.to_smt2())
+            result = self.z3slv.check()
+            if result == Z3.sat:
+                is_valid = False
+            elif result == Z3.unsat:
+                is_valid = True
+            else:
+                raise Error("unknown result from z3")
+        else:
+            self.z3.add_assertion(SMT.Not(smt_e))
+            is_valid = not self.z3.run_check_sat()
         # is_valid    = self.solver.is_valid(smt_e)
         self.pop()
         return is_valid
 
     def counter_example(self):
+        raise NotImplementedError("Out of Date")
+
         def keep_sym(s):
             if type(s) is tuple:
                 return True
@@ -785,24 +819,66 @@ class SMTSolver:
         sym = self.stride_sym[key]
         return sym
 
+    def _get_const_sym(self, name):
+        if name not in self.const_sym:
+            self.const_sym[name] = Sym(f"CONST_{name}")  # self.const_sym_count
+            # self.const_sym_count += 1
+        return self.const_sym[name]
+        # return self._getvar(self.const_sym[name])
+        # return SMT.Int(self.const_sym[name])
+
+    def _get_real_const(self, val):
+        if val not in self.const_sym:
+            self.const_sym[name] = self.const_sym_count
+            self.const_sym_count += 1
+        if self.Z3_MODE:
+            return Z3.Int(self.const_sym[name])
+        else:
+            return SMT.Int(self.const_sym[name])
+
     def _getvar(self, sym, typ=T.index):
         if sym not in self.env:
-            if typ.is_indexable() or typ.is_stridable():
-                self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
-            elif typ is T.bool:
-                self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
+            if self.Z3_MODE:
+                if typ.is_indexable() or typ.is_stridable():
+                    self.env[sym] = Z3.Int(repr(sym))
+                elif typ is T.bool:
+                    self.env[sym] = Z3.Bool(repr(sym))
+                elif typ.is_real_scalar():
+                    self.env[sym] = Z3.Int(repr(sym))
+                else:
+                    assert False, f"bad type: {typ}"
+            else:
+                if typ.is_indexable() or typ.is_stridable():
+                    self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
+                elif typ is T.bool:
+                    self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
+                elif typ.is_real_scalar():
+                    self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
+                else:
+                    assert False, f"bad type: {typ}"
         return self.env[sym]
 
     def _newvar(self, sym, typ=T.index, ternary=False):
         """make sure that we have a new distinct copy of this name."""
         nm = repr(sym) if sym not in self.env else repr(sym.copy())
-        smt_typ = SMT.INT if typ.is_indexable() or typ.is_stridable() else SMT.BOOL
-        smt_sym = SMT.Symbol(nm, smt_typ)
-        if ternary:
-            self.env[sym] = TernVal(smt_sym, SMT.Symbol(nm + "_def", SMT.BOOL))
+        if self.Z3_MODE:
+            smt_typ = Z3.Bool if typ == T.bool else Z3.Int
+
+            smt_sym = smt_typ(nm)
+            if ternary:
+                self.env[sym] = TernVal(smt_sym, Z3.Bool(nm + "_def"))
+            else:
+                self.env[sym] = smt_sym
+            return self.env[sym]
         else:
-            self.env[sym] = smt_sym
-        return self.env[sym]
+            smt_typ = SMT.BOOL if typ == T.bool else SMT.INT
+
+            smt_sym = SMT.Symbol(nm, smt_typ)
+            if ternary:
+                self.env[sym] = TernVal(smt_sym, SMT.Symbol(nm + "_def", SMT.BOOL))
+            else:
+                self.env[sym] = smt_sym
+            return self.env[sym]
 
     def _add_mod_div_eq(self, new_sym, eq):
         self.mod_div_tmp_bins[-1].append((new_sym, eq))
@@ -817,40 +893,70 @@ class SMTSolver:
             if len(tmp_bin) > 0:
                 assert not is_ternary(smt_e), "TODO: handle ternary"
                 all_syms = [sym for sym, eq in tmp_bin]
-                all_eq = SMT.And(*[eq for sym, eq in tmp_bin])
-                if self.negative_pos[id(e)] == "+":
-                    smt_e = SMT.ForAll(all_syms, SMT.Implies(all_eq, smt_e))
+                if self.Z3_MODE:
+                    all_eq = Z3.And(*[eq for sym, eq in tmp_bin])
+                    if self.negative_pos[id(e)] == "+":
+                        smt_e = Z3.ForAll(all_syms, Z3.Implies(all_eq, smt_e))
+                    else:
+                        smt_e = Z3.Exists(all_syms, Z3.And(all_eq, smt_e))
                 else:
-                    smt_e = SMT.Exists(all_syms, SMT.And(all_eq, smt_e))
+                    all_eq = SMT.And(*[eq for sym, eq in tmp_bin])
+                    if self.negative_pos[id(e)] == "+":
+                        smt_e = SMT.ForAll(all_syms, SMT.Implies(all_eq, smt_e))
+                    else:
+                        smt_e = SMT.Exists(all_syms, SMT.And(all_eq, smt_e))
         return smt_e
 
     def _lower_body(self, e):
         if isinstance(e, A.Const):
             if e.type == T.bool:
-                return SMT.Bool(e.val)
+                if self.Z3_MODE:
+                    return Z3.BoolVal(e.val)
+                else:
+                    return SMT.Bool(e.val)
             elif e.type.is_indexable():
-                return SMT.Int(e.val)
+                if self.Z3_MODE:
+                    return Z3.IntVal(e.val)
+                else:
+                    return SMT.Int(e.val)
+            elif e.type.is_real_scalar():
+                return self._get_real_const(e.val)
             else:
                 assert False, f"unrecognized const type: {type(e.val)}"
+        elif isinstance(e, A.ConstSym):
+            # convert constant symbol to a unique integer for this symbol
+            assert e.type.is_real_scalar()
+            return self._getvar(self._get_const_sym(e.name))
         elif isinstance(e, A.Var):
             return self._getvar(e.name, e.type)
         elif isinstance(e, A.Unk):
-            val = SMT.Bool(False) if e.type == T.bool else SMT.Int(0)
-            return TernVal(val, SMT.Bool(False))
+            if self.Z3_MODE:
+                val = Z3.BoolVal(False) if e.type == T.bool else Z3.IntVal(0)
+                return TernVal(val, Z3.BoolVal(False))
+            else:
+                val = SMT.Bool(False) if e.type == T.bool else SMT.Int(0)
+                return TernVal(val, SMT.Bool(False))
         elif isinstance(e, A.Not):
             assert e.arg.type == T.bool
             a = self._lower(e.arg)
+            NOT = Z3.Not if self.Z3_MODE else SMT.Not
             if is_ternary(a):
-                return TernVal(SMT.Not(a.v), a.d)
+                return TernVal(NOT(a.v), a.d)
             else:
-                return SMT.Not(a)
+                return NOT(a)
         elif isinstance(e, A.USub):
             assert e.arg.type.is_indexable()
             a = self._lower(e.arg)
-            if is_ternary(a):
-                return TernVal(SMT.Minus(SMT.Int(0), a.v), a.d)
+            if self.Z3_MODE:
+                if is_ternary(a):
+                    return TernVal(-a.v, a.d)
+                else:
+                    return -a
             else:
-                return SMT.Minus(SMT.Int(0), a)
+                if is_ternary(a):
+                    return TernVal(SMT.Minus(SMT.Int(0), a.v), a.d)
+                else:
+                    return SMT.Minus(SMT.Int(0), a)
         elif isinstance(e, A.Stride):
             return self._getvar(self._get_stride_sym(e.name, e.dim))
         elif isinstance(e, A.LetStrides):
@@ -867,39 +973,66 @@ class SMTSolver:
             tcase = self._lower(e.tcase)
             fcase = self._lower(e.fcase)
             if is_ternary(cond) or is_ternary(tcase) or is_ternary(fcase):
-                c = to_ternary(cond)
-                t = to_ternary(tcase)
-                f = to_ternary(fcase)
-                return TernVal(
-                    SMT.Ite(c.v, t.v, f.v), SMT.And(c.d, SMT.Ite(c.v, t.d, f.d))
-                )
+                c = self.to_ternary(cond)
+                t = self.to_ternary(tcase)
+                f = self.to_ternary(fcase)
+                if self.Z3_MODE:
+                    return TernVal(
+                        Z3.If(c.v, t.v, f.v), Z3.And(c.d, Z3.If(c.v, t.d, f.d))
+                    )
+                else:
+                    return TernVal(
+                        SMT.Ite(c.v, t.v, f.v), SMT.And(c.d, SMT.Ite(c.v, t.d, f.d))
+                    )
             else:
-                return SMT.Ite(cond, tcase, fcase)
+                if self.Z3_MODE:
+                    return Z3.If(cond, tcase, fcase)
+                else:
+                    return SMT.Ite(cond, tcase, fcase)
         elif isinstance(e, (A.ForAll, A.Exists)):
             assert e.arg.type == T.bool
             self.internal_push()
             nm = self._newvar(e.name)
             a = self._lower(e.arg)
             self.internal_pop()
-            OP = SMT.ForAll if isinstance(e, A.ForAll) else SMT.Exists
-            if is_ternary(a):
-                # forall defined when (forall nm. d) \/ (exists nm. ¬a /\ d)
-                # exists defined when (forall nm. d) \/ (exists nm. a /\ d)
-                short_a = a.v if isinstance(e, A.Exists) else SMT.Not(a.v)
-                is_def = SMT.Or(
-                    SMT.ForAll([nm], a.d), SMT.Exists([nm], SMT.And(short_a, a.d))
-                )
-                return TernVal(OP([nm], a.v), is_def)
+            if self.Z3_MODE:
+                OP = Z3.ForAll if isinstance(e, A.ForAll) else Z3.Exists
+                if is_ternary(a):
+                    # forall defined if (forall nm. d) \/ (exists nm. ¬a /\ d)
+                    # exists defined if (forall nm. d) \/ (exists nm. a /\ d)
+                    short_a = a.v if isinstance(e, A.Exists) else Z3.Not(a.v)
+                    is_def = Z3.Or(
+                        Z3.ForAll([nm], a.d), Z3.Exists([nm], Z3.And(short_a, a.d))
+                    )
+                    return TernVal(OP([nm], a.v), is_def)
+                else:
+                    return OP([nm], a)
             else:
-                return OP([nm], a)
+                OP = SMT.ForAll if isinstance(e, A.ForAll) else SMT.Exists
+                if is_ternary(a):
+                    # forall defined if (forall nm. d) \/ (exists nm. ¬a /\ d)
+                    # exists defined if (forall nm. d) \/ (exists nm. a /\ d)
+                    short_a = a.v if isinstance(e, A.Exists) else SMT.Not(a.v)
+                    is_def = SMT.Or(
+                        SMT.ForAll([nm], a.d), SMT.Exists([nm], SMT.And(short_a, a.d))
+                    )
+                    return TernVal(OP([nm], a.v), is_def)
+                else:
+                    return OP([nm], a)
         elif isinstance(e, (A.Definitely, A.Maybe)):
             assert e.arg.type == T.bool
             a = self._lower(e.arg)
             if is_ternary(a):
-                if isinstance(e, A.Definitely):
-                    return SMT.And(a.v, a.d)
+                if self.Z3_MODE:
+                    if isinstance(e, A.Definitely):
+                        return Z3.And(a.v, a.d)
+                    else:
+                        return Z3.Or(a.v, Z3.Not(a.d))
                 else:
-                    return SMT.Or(a.v, SMT.Not(a.d))
+                    if isinstance(e, A.Definitely):
+                        return SMT.And(a.v, a.d)
+                    else:
+                        return SMT.Or(a.v, SMT.Not(a.d))
             else:
                 return a
         elif isinstance(e, A.Let):
@@ -922,28 +1055,35 @@ class SMTSolver:
             lhs = self._lower(e.lhs)
             rhs = self._lower(e.rhs)
             tern = is_ternary(lhs) or is_ternary(rhs)
+            AND = Z3.And if self.Z3_MODE else SMT.And
+            OR = Z3.Or if self.Z3_MODE else SMT.Or
+            NOT = Z3.Not if self.Z3_MODE else SMT.Not
             if tern:
-                lhs = to_ternary(lhs)
-                rhs = to_ternary(rhs)
+                lhs = self.to_ternary(lhs)
+                rhs = self.to_ternary(rhs)
                 lhs, dl = lhs.v, lhs.d
                 rhs, dr = rhs.v, rhs.d
-                dval = SMT.And(dl, dr)  # default for int sort
+                dval = AND(dl, dr)  # default for int sort
 
             if e.op == "+":
-                val = SMT.Plus(lhs, rhs)
+                val = (lhs + rhs) if self.Z3_MODE else SMT.Plus(lhs, rhs)
             elif e.op == "-":
-                val = SMT.Minus(lhs, rhs)
+                val = (lhs - rhs) if self.Z3_MODE else SMT.Minus(lhs, rhs)
             elif e.op == "*":
-                val = SMT.Times(lhs, rhs)
+                val = (lhs * rhs) if self.Z3_MODE else SMT.Times(lhs, rhs)
             elif e.op == "/":
                 assert isinstance(e.rhs, A.Const)
                 assert e.rhs.val > 0
                 # Introduce new Sym (z in formula below)
                 div_tmp = self._getvar(Sym("div_tmp"))
                 # rhs*z <= lhs < rhs*(z+1)
-                rhs_eq = SMT.LE(SMT.Times(rhs, div_tmp), lhs)
-                lhs_eq = SMT.LT(lhs, SMT.Times(rhs, SMT.Plus(div_tmp, SMT.Int(1))))
-                self._add_mod_div_eq(div_tmp, SMT.And(rhs_eq, lhs_eq))
+                if self.Z3_MODE:
+                    rhs_eq = rhs * div_tmp <= lhs
+                    lhs_eq = lhs < rhs * (div_tmp + Z3.IntVal(1))
+                else:
+                    rhs_eq = SMT.LE(SMT.Times(rhs, div_tmp), lhs)
+                    lhs_eq = SMT.LT(lhs, SMT.Times(rhs, SMT.Plus(div_tmp, SMT.Int(1))))
+                self._add_mod_div_eq(div_tmp, AND(rhs_eq, lhs_eq))
                 val = div_tmp
             elif e.op == "%":
                 assert isinstance(e.rhs, A.Const)
@@ -954,46 +1094,50 @@ class SMTSolver:
                 # Then,
                 #   lhs % rhs = lhs - rhs * mod_tmp
                 mod_tmp = self._getvar(Sym("mod_tmp"))
-                rhs_eq = SMT.LE(SMT.Times(rhs, mod_tmp), lhs)
-                lhs_eq = SMT.LT(lhs, SMT.Times(rhs, SMT.Plus(mod_tmp, SMT.Int(1))))
-                self._add_mod_div_eq(mod_tmp, SMT.And(rhs_eq, lhs_eq))
-                val = SMT.Minus(lhs, SMT.Times(rhs, mod_tmp))
+                if self.Z3_MODE:
+                    rhs_eq = rhs * mod_tmp <= lhs
+                    lhs_eq = lhs < rhs * (mod_tmp + Z3.IntVal(1))
+                    self._add_mod_div_eq(mod_tmp, AND(rhs_eq, lhs_eq))
+                    val = lhs - rhs * mod_tmp
+                else:
+                    rhs_eq = SMT.LE(SMT.Times(rhs, mod_tmp), lhs)
+                    lhs_eq = SMT.LT(lhs, SMT.Times(rhs, SMT.Plus(mod_tmp, SMT.Int(1))))
+                    self._add_mod_div_eq(mod_tmp, AND(rhs_eq, lhs_eq))
+                    val = SMT.Minus(lhs, SMT.Times(rhs, mod_tmp))
 
             elif e.op == "<":
-                val = SMT.LT(lhs, rhs)
+                val = (lhs < rhs) if self.Z3_MODE else SMT.LT(lhs, rhs)
             elif e.op == ">":
-                val = SMT.GT(lhs, rhs)
+                val = (lhs > rhs) if self.Z3_MODE else SMT.GT(lhs, rhs)
             elif e.op == "<=":
-                val = SMT.LE(lhs, rhs)
+                val = (lhs <= rhs) if self.Z3_MODE else SMT.LE(lhs, rhs)
             elif e.op == ">=":
-                val = SMT.GE(lhs, rhs)
+                val = (lhs >= rhs) if self.Z3_MODE else SMT.GE(lhs, rhs)
             elif e.op == "==":
                 if e.lhs.type == T.bool and e.rhs.type == T.bool:
-                    val = SMT.Iff(lhs, rhs)
+                    val = (lhs == rhs) if self.Z3_MODE else SMT.Iff(lhs, rhs)
                 elif e.lhs.type.is_indexable() and e.rhs.type.is_indexable():
-                    val = SMT.Equals(lhs, rhs)
+                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
                 elif e.lhs.type.is_stridable() and e.rhs.type.is_stridable():
-                    val = SMT.Equals(lhs, rhs)
+                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
+                elif e.lhs.type == e.rhs.type:
+                    assert e.lhs.type.is_real_scalar()
+                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
                 else:
                     assert False, "bad case"
             elif e.op == "and":
-                val = SMT.And(lhs, rhs)
+                val = AND(lhs, rhs)
                 if tern:
-                    dval = SMT.Or(
-                        SMT.And(dl, dr),
-                        SMT.And(SMT.Not(lhs), dl),
-                        SMT.And(SMT.Not(rhs), dr),
-                    )
+                    dval = OR(AND(dl, dr), AND(NOT(lhs), dl), AND(NOT(rhs), dr))
             elif e.op == "or":
-                val = SMT.Or(lhs, rhs)
+                val = OR(lhs, rhs)
                 if tern:
-                    dval = SMT.Or(SMT.And(dl, dr), SMT.And(lhs, dl), SMT.And(rhs, dr))
+                    dval = OR(AND(dl, dr), AND(lhs, dl), AND(rhs, dr))
             elif e.op == "==>":
-                val = SMT.Implies(lhs, rhs)
+                IMPLIES = Z3.Implies if self.Z3_MODE else SMT.Implies
+                val = IMPLIES(lhs, rhs)
                 if tern:
-                    dval = SMT.Or(
-                        SMT.And(dl, dr), SMT.And(SMT.Not(lhs), dl), SMT.And(rhs, dr)
-                    )
+                    dval = OR(AND(dl, dr), AND(NOT(lhs), dl), AND(rhs, dr))
 
             else:
                 assert False, f"bad op: {e.op}"
@@ -1036,3 +1180,7 @@ class Z3SubProc:
             return False
         else:
             raise Error("unknown result from z3")
+
+
+# install simplify
+from . import analysis_simplify
