@@ -83,7 +83,7 @@ def test_neon_simple_math(compiler):
         fn(None, n, x, y)
         assert np.allclose(x, expected)
 
-#@pytest.fixture
+@pytest.mark.isa("neon")
 def test_neon_vfmla():
     """
     Compute C[i] = A[i] * B[l] 
@@ -119,7 +119,7 @@ def test_neon_vfmla():
         p = autofission(p, p.find('B_vec[_] = _').after(), n_lifts=2)
         p = replace(p, 'for l in _: _ #0', neon_vld_4xf32)
         p = set_memory(p, 'B_vec', Neon4f)
-        print(p)
+        
         p = replace(p, 'for i in _: _ #0', neon_vfmla_4xf32_4xf32)
         p = unroll_loop(p,'l #0')
         return p
@@ -128,8 +128,9 @@ def test_neon_vfmla():
 
     return simple_neon_vfmla
 
-p = test_neon_vfmla()
-print(p)
+def test_gen_neon_vfmla(golden, test_neon_vfmla):
+    assert str(test_neon_vfmla) == golden
+
 @pytest.fixture
 def simple_math_neon_sched():
     @proc
