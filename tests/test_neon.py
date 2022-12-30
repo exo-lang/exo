@@ -83,7 +83,6 @@ def test_neon_simple_math(compiler):
         fn(None, n, x, y)
         assert np.allclose(x, expected)
 
-@pytest.mark.isa("neon")
 def test_neon_vfmla():
     """
     Compute C[i] = A[i] * B[l] 
@@ -128,6 +127,7 @@ def test_neon_vfmla():
 
     return simple_neon_vfmla
 
+@pytest.mark.isa("neon")
 def test_gen_neon_vfmla(golden, test_neon_vfmla):
     assert str(test_neon_vfmla) == golden
 
