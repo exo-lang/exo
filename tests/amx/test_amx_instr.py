@@ -7,6 +7,7 @@ from exo import proc
 from exo.stdlib.scheduling import *
 from .amx import *
 from .harness_amx import AMXTestBuilder
+from exo.memory import MemGenError
 
 
 def reorder_back(proc, pattern):
@@ -484,6 +485,32 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
         ],
         t,
     )
+
+
+def test_amx_memories(compiler, sde64):
+    @proc
+    def nine_amx_tiles():
+        tile0: i32[16, 16] @ AMX_TILE
+        tile1: i32[16, 16] @ AMX_TILE
+        tile2: i32[16, 16] @ AMX_TILE
+        tile3: i8[16, 64] @ AMX_TILE
+        tile4: i8[16, 64] @ AMX_TILE
+        tile5: i8[16, 64] @ AMX_TILE
+        tile6: i8[16, 64] @ AMX_TILE
+        tile7: i8[16, 64] @ AMX_TILE
+        tile8: i8[16, 64] @ AMX_TILE
+        dpbssd(16, 16, 16, tile3, tile6, tile0)
+        dpbssd(16, 16, 16, tile4, tile7, tile1)
+        dpbssd(16, 16, 16, tile5, tile8, tile2)
+
+    with pytest.raises(
+        MemGenError, match="Cannot allocate more than 8 AMX tiles at a time"
+    ):
+        test_exe = compiler.compile(
+            [nine_amx_tiles],
+            CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
+            CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
+        )
 
 
 def _run_amx(compiler, sde64, procs, test_source):

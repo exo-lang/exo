@@ -258,6 +258,10 @@ class AMX_TILE(Memory):
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         global num_amx_tiles_alloced
+
+        if num_amx_tiles_alloced == 8:
+            raise MemGenError("Cannot allocate more than 8 AMX tiles at a time.")
+
         num_amx_tiles_alloced += 1
         return f"#define {new_name} {num_amx_tiles_alloced-1}"
 
