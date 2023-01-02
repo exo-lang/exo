@@ -487,21 +487,21 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
     )
 
 
-def test_amx_memories(compiler, sde64):
+def test_amx_memories_tile_limit(compiler, sde64):
     @proc
     def nine_amx_tiles():
-        tile0: i32[16, 16] @ AMX_TILE
-        tile1: i32[16, 16] @ AMX_TILE
-        tile2: i32[16, 16] @ AMX_TILE
-        tile3: i8[16, 64] @ AMX_TILE
-        tile4: i8[16, 64] @ AMX_TILE
-        tile5: i8[16, 64] @ AMX_TILE
-        tile6: i8[16, 64] @ AMX_TILE
-        tile7: i8[16, 64] @ AMX_TILE
-        tile8: i8[16, 64] @ AMX_TILE
-        dpbssd(16, 16, 16, tile3, tile6, tile0)
-        dpbssd(16, 16, 16, tile4, tile7, tile1)
-        dpbssd(16, 16, 16, tile5, tile8, tile2)
+        ztile0: i8[16, 64] @ AMX_TILE
+        ztile1: i8[16, 64] @ AMX_TILE
+        ztile2: i32[16, 16] @ AMX_TILE
+        ztile3: i8[16, 64] @ AMX_TILE
+        ztile4: i8[16, 64] @ AMX_TILE
+        ztile5: i32[16, 16] @ AMX_TILE
+        ztile6: i8[16, 64] @ AMX_TILE
+        ztile7: i8[16, 64] @ AMX_TILE
+        ztile8: i32[16, 16] @ AMX_TILE
+        dpbssd(16, 16, 16, ztile0, ztile1, ztile2)
+        dpbssd(16, 16, 16, ztile3, ztile4, ztile5)
+        dpbssd(16, 16, 16, ztile6, ztile7, ztile8)
 
     with pytest.raises(
         MemGenError, match="Cannot allocate more than 8 AMX tiles at a time"
@@ -511,6 +511,108 @@ def test_amx_memories(compiler, sde64):
             CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
             CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
         )
+
+
+def test_amx_memories_free(compiler, sde64):
+    @proc
+    def two_dpbssds(
+        x1: i8[16, 64] @ DRAM,
+        y1: i8[16, 64] @ DRAM,
+        z1: i32[16, 16] @ DRAM,
+        x2: i8[16, 64] @ DRAM,
+        y2: i8[16, 64] @ DRAM,
+        z2: i32[16, 16] @ DRAM,
+    ):
+        config()
+
+        tile0: i8[16, 64] @ AMX_TILE
+        tile1: i8[16, 64] @ AMX_TILE
+        tile2: i32[16, 16] @ AMX_TILE
+        tile3: i8[16, 64] @ AMX_TILE
+        tile4: i8[16, 64] @ AMX_TILE
+        tile5: i32[16, 16] @ AMX_TILE
+
+        ld_i8(16, 64, x1, tile0)
+        ld_i8(16, 64, y1, tile1)
+        ld_i8(16, 64, x2, tile3)
+        ld_i8(16, 64, y2, tile4)
+        dpbssd(16, 16, 16, tile0, tile1, tile2)
+        dpbssd(16, 16, 16, tile3, tile4, tile5)
+        st_i32(16, 16, tile2, z1)
+        st_i32(16, 16, tile5, z2)
+
+    @proc
+    def jank_two_dpbssds(
+        x1: i8[16, 64] @ DRAM,
+        y1: i8[16, 64] @ DRAM,
+        z1: i32[16, 16] @ DRAM,
+        x2: i8[16, 64] @ DRAM,
+        y2: i8[16, 64] @ DRAM,
+        z2: i32[16, 16] @ DRAM,
+    ):
+        config()
+
+        # jank allocations
+        tile6: i8[16, 64] @ AMX_TILE
+        tile7: i8[16, 64] @ AMX_TILE
+        tile8: i32[16, 16] @ AMX_TILE
+        tile3: i8[16, 64] @ AMX_TILE
+        tile4: i8[16, 64] @ AMX_TILE
+        tile5: i32[16, 16] @ AMX_TILE
+        dpbssd(16, 16, 16, tile6, tile7, tile8)
+        tile0: i8[16, 64] @ AMX_TILE
+        tile1: i8[16, 64] @ AMX_TILE
+        tile2: i32[16, 16] @ AMX_TILE
+
+        ld_i8(16, 64, x1, tile0)
+        ld_i8(16, 64, y1, tile1)
+        ld_i8(16, 64, x2, tile3)
+        ld_i8(16, 64, y2, tile4)
+        dpbssd(16, 16, 16, tile0, tile1, tile2)
+        dpbssd(16, 16, 16, tile3, tile4, tile5)
+        st_i32(16, 16, tile2, z1)
+        st_i32(16, 16, tile5, z2)
+
+    t = AMXTestBuilder(compiler.basename)
+
+    # duplicate from the fixture above
+    size1 = 16
+    size2 = 64
+
+    t.alloc_dram_2i8("x1", size1, size2, "i+j")
+    t.alloc_dram_2i8("y1", size2 // 4, 4 * size1, "i")  # after transform_memory
+    t.alloc_dram_2i32("z1", size1, size1, "0")  # expected result
+    t.alloc_dram_2i32("res1", size1, size1, "0")
+    t.alloc_dram_2i8("x2", size1, size2, "i+j")
+    t.alloc_dram_2i8("y2", size2 // 4, 4 * size1, "j")  # after transform_memory
+    t.alloc_dram_2i32("z2", size1, size1, "0")  # expected result
+    t.alloc_dram_2i32("res2", size1, size1, "0")
+
+    t.add_body([f"two_dpbssds(NULL, x1, y1, res1, x2, y2, res2);"])
+    t.add_body([f"jank_two_dpbssds(NULL, x1, y1, z1, x2, y2, z2);"])
+
+    t.add_body(
+        [
+            f"if(check_eq_2i32({size1}, {size1}, z1, res1)) {{",
+            '    printf("Correct\\n");',
+            "} else {",
+            '    printf("Results Don\'t Match\\n");',
+            '    printf("Correct Result (z1):\\n");',
+            f"    print_2i32({size1}, {size1}, z1);",
+            '    printf("Computed Roundtrip (res1):\\n");',
+            f"    print_2i32({size1}, {size1}, res1);",
+            "    exit(1);",
+            "}",
+            "",
+        ]
+    )
+
+    _run_amx(
+        compiler,
+        sde64,
+        [two_dpbssds, jank_two_dpbssds],
+        t,
+    )
 
 
 def _run_amx(compiler, sde64, procs, test_source):

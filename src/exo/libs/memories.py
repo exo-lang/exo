@@ -243,10 +243,11 @@ class AVX512(Memory):
 
 # ----------- AMX tile! ----------------
 
-num_amx_tiles_alloced = 0
-
 
 class AMX_TILE(Memory):
+    tile_allocated = [False for i in range(8)]
+    tile_dict = {}
+
     @classmethod
     def global_(cls):
         return "#include <immintrin.h>"
@@ -257,16 +258,20 @@ class AMX_TILE(Memory):
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
-        global num_amx_tiles_alloced
-
-        if num_amx_tiles_alloced == 8:
-            raise MemGenError("Cannot allocate more than 8 AMX tiles at a time.")
-
-        num_amx_tiles_alloced += 1
-        return f"#define {new_name} {num_amx_tiles_alloced-1}"
+        try:
+            tile_num = cls.tile_allocated.index(False)
+            cls.tile_allocated[tile_num] = True
+            cls.tile_dict[new_name] = tile_num
+            print(f"assigning {new_name} to {tile_num}")
+            return f"#define {new_name} {tile_num}"
+        except ValueError as e:
+            print(cls.tile_dict)
+            raise MemGenError("Cannot allocate more than 8 AMX tiles at a time.") from e
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
-        global num_amx_tiles_alloced
-        num_amx_tiles_alloced -= 1
+        tile_num = cls.tile_dict[new_name]
+        cls.tile_allocated[tile_num] = False
+        del cls.tile_dict[new_name]
+        print(f"freeing {tile_num} from {new_name}")
         return f"#undef {new_name}"
