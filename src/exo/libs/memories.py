@@ -249,6 +249,11 @@ class AMX_TILE(Memory):
     tile_dict = {}
 
     @classmethod
+    def reset_allocations(cls):
+        cls.tile_allocated = [False for i in range(8)]
+        cls.tile_dict = {}
+
+    @classmethod
     def global_(cls):
         return "#include <immintrin.h>"
 

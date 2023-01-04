@@ -490,6 +490,8 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
 def test_amx_memories_tile_limit(compiler, sde64):
     @proc
     def nine_amx_tiles():
+        config()
+
         ztile0: i8[16, 64] @ AMX_TILE
         ztile1: i8[16, 64] @ AMX_TILE
         ztile2: i32[16, 16] @ AMX_TILE
@@ -511,6 +513,8 @@ def test_amx_memories_tile_limit(compiler, sde64):
             CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
             CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
         )
+
+    AMX_TILE.reset_allocations()
 
 
 def test_amx_memories_free(compiler, sde64):
@@ -550,6 +554,10 @@ def test_amx_memories_free(compiler, sde64):
         y2: i8[16, 64] @ DRAM,
         z2: i32[16, 16] @ DRAM,
     ):
+        """
+        This breaks the original AMX tile allocation because tile0 and
+        tile3 are both assigned index 3, which shouldn't happen.
+        """
         config()
 
         # jank allocations
