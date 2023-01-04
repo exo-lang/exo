@@ -306,6 +306,7 @@ class EnumA(ArgumentProcessor):
 class TypeAbbrevA(ArgumentProcessor):
     _shorthand = {
         "R": T.R,
+        "f16": T.f16,
         "f32": T.f32,
         "f64": T.f64,
         "i8": T.int8,

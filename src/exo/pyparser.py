@@ -400,6 +400,7 @@ class Parser:
 
     _prim_types = {
         "R": UAST.Num(),
+        "f16": UAST.F16(),
         "f32": UAST.F32(),
         "f64": UAST.F64(),
         "i8": UAST.INT8(),

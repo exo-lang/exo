@@ -284,6 +284,8 @@ class UAST_PPrinter:
     def ptype(self, t):
         if isinstance(t, UAST.Num):
             return "R"
+        elif isinstance(t, UAST.F16):
+            return "f16"
         elif isinstance(t, UAST.F32):
             return "f32"
         elif isinstance(t, UAST.F64):
@@ -512,6 +514,8 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
 def _print_type(t, env: PrintEnv) -> str:
     if isinstance(t, T.Num):
         return "R"
+    elif isinstance(t, T.F16):
+        return "f16"
     elif isinstance(t, T.F32):
         return "f32"
     elif isinstance(t, T.F64):

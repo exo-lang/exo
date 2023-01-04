@@ -68,7 +68,7 @@ class Interpreter:
         pre = f"bad argument '{nm}'"
         if not isinstance(buf, np.ndarray):
             raise TypeError(f"{pre}: expected numpy.ndarray")
-        elif buf.dtype != float and buf.dtype != np.float32:
+        elif buf.dtype != float and buf.dtype != np.float32 and buf.dtype != np.float16:
             raise TypeError(
                 f"{pre}: expected buffer of floating-point values; "
                 f"had '{buf.dtype}' values"

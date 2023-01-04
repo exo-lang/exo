@@ -10,6 +10,7 @@ _default_prec = T.f32
 def set_default_prec(name):
     global _default_prec
     vals = {
+        "f16": T.f16,
         "f32": T.f32,
         "f64": T.f64,
         "i8": T.i8,

@@ -3201,7 +3201,7 @@ class _DoSimplify(Cursor_Rewrite):
         if op == "*":
             return lhs.val * rhs.val
         if op == "/":
-            if lhs.type == T.f64 or lhs.type == T.f32:
+            if lhs.type == T.f64 or lhs.type == T.f32 or lhs.type == T.f16:
                 return lhs.val / rhs.val
             else:
                 return lhs.val // rhs.val

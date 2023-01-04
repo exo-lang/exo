@@ -95,6 +95,7 @@ module LoopIR {
              attributes( srcinfo srcinfo )
 
     type = Num()
+         | F16()
          | F32()
          | F64()
          | INT8()
@@ -126,6 +127,7 @@ module LoopIR {
     },
     memoize={
         "Num",
+        "F16",
         "F32",
         "F64",
         "INT8",
@@ -185,6 +187,7 @@ module UAST {
             attributes( srcinfo srcinfo )
 
     type    = Num   ()
+            | F16   ()
             | F32   ()
             | F64   ()
             | INT8  ()
@@ -208,6 +211,7 @@ module UAST {
     },
     memoize={
         "Num",
+        "F16",
         "F32",
         "F64",
         "INT8",
@@ -315,6 +319,7 @@ module Effects {
 
 @extclass(UAST.Tensor)
 @extclass(UAST.Num)
+@extclass(UAST.F16)
 @extclass(UAST.F32)
 @extclass(UAST.F64)
 @extclass(UAST.INT8)
@@ -353,6 +358,7 @@ del __hash__
 
 class T:
     Num = LoopIR.Num
+    F16 = LoopIR.F16
     F32 = LoopIR.F32
     F64 = LoopIR.F64
     INT8 = LoopIR.INT8
@@ -367,6 +373,7 @@ class T:
     Window = LoopIR.WindowType
     type = LoopIR.type
     R = Num()
+    f16 = F16()
     f32 = F32()
     int8 = INT8()
     i8 = INT8()
@@ -388,6 +395,7 @@ class T:
 @extclass(T.Tensor)
 @extclass(T.Window)
 @extclass(T.Num)
+@extclass(T.F16)
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
@@ -406,6 +414,7 @@ del shape
 
 
 @extclass(T.Num)
+@extclass(T.F16)
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
@@ -418,6 +427,8 @@ del shape
 def ctype(t):
     if isinstance(t, T.Num):
         assert False, "Don't ask for ctype of Num"
+    elif isinstance(t, T.F16):
+        return "__fp16"
     elif isinstance(t, T.F32):
         return "float"
     elif isinstance(t, T.F64):
@@ -437,7 +448,7 @@ del ctype
 
 @extclass(LoopIR.type)
 def is_real_scalar(t):
-    return isinstance(t, (T.Num, T.F32, T.F64, T.INT8, T.INT32))
+    return isinstance(t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.INT32))
 
 
 del is_real_scalar

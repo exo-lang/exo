@@ -223,6 +223,7 @@ def window_struct(base_type, n_dims, is_const) -> WindowStruct:
     assert n_dims >= 1
 
     _window_struct_shorthand = {
+        T.f16: "f16",
         T.f32: "f32",
         T.f64: "f64",
         T.i8: "i8",
@@ -331,7 +332,6 @@ def compile_to_strings(lib_name, proc_list):
             )
         else:
             is_public_decl = id(p) in orig_procs
-
             p = PrecisionAnalysis(p).result()
             p = WindowAnalysis(p).result()
             p = MemoryAnalysis(p).result()
