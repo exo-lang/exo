@@ -1098,7 +1098,7 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
     rewrite:
         `x : T[...] ; s`
           ->
-        `x : T[..., alloc_dim] ; s[ x[...] -> x[..., indexing_expr] ]`
+        `x : T[alloc_dim, ...] ; s[ x[...] -> x[indexing_expr, ...] ]`
     checks:
         The provided dimension size is checked for positivity and the
         provided indexing expression is checked to make sure it is in-bounds
