@@ -100,17 +100,12 @@ def simple_math_avx2_sched():
 
     def sched_simple_math_avx2_sched(p=simple_math_avx2_sched):
         p = old_split(p, "i", 8, ["io", "ii"], tail="cut_and_guard")
-        p = stage_assn(p, "x[_] = _ #0", "xyy")
-        p = autolift_alloc(p, "xyy: _", keep_dims=True)
-        p = set_memory(p, "xyy", AVX2)
-        p = old_fission_after(p, "xyy[_] = _")
 
-        p = replace_all(p, mm256_storeu_ps)
-
-        p = bind_expr(p, "x[_]", "xVec")
-        p = autolift_alloc(p, "xVec: _", keep_dims=True)
+        p = stage_mem(p, "for ii in _:_", "x[8 * io: 8 * io + 8]", "xVec")
         p = set_memory(p, "xVec", AVX2)
-        p = old_fission_after(p, "xVec[_] = _")
+
+        p = replace(p, "for i0 in _:_ #0", mm256_loadu_ps)
+        p = replace(p, "for i0 in _:_ #0", mm256_storeu_ps)
 
         p = bind_expr(p, "y[_]", "yVec", cse=True)
         p = autolift_alloc(p, "yVec: _", keep_dims=True)
@@ -125,6 +120,7 @@ def simple_math_avx2_sched():
         p = old_fission_after(p, "xy[_] = _")
 
         p = replace_all(p, mm256_mul_ps)
+        p = simplify(p)
         return p
 
     simple_math_avx2_sched = sched_simple_math_avx2_sched()
@@ -184,7 +180,7 @@ def sgemm_6x16():
 def avx2_sgemm_6x16(sgemm_6x16):
     avx = rename(sgemm_6x16, "rank_k_reduce_6x16_scheduled")
     print(avx)
-    avx = stage_assn(avx, "C[_] += _", "C_reg")
+    avx = stage_mem(avx, "C[_] += _", "C[i, j]", "C_reg")
     avx = set_memory(avx, "C_reg", AVX2)
     avx = old_split(avx, "j", 8, ["jo", "ji"], perfect=True)
     avx = reorder_loops(avx, "ji k")

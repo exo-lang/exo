@@ -1390,47 +1390,6 @@ class _BindExpr(Cursor_Rewrite):
             return super().map_e(e)
 
 
-class _DoStageAssn(Cursor_Rewrite):
-    def __init__(self, proc_cursor, new_name, assn_cursor):
-        self.assn = assn_cursor._node()
-        assert isinstance(self.assn, (LoopIR.Assign, LoopIR.Reduce))
-        self.new_name = Sym(new_name)
-
-        super().__init__(proc_cursor)
-
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-
-    def map_s(self, sc):
-        s = sc._node()
-        tmp = self.new_name
-        if s is self.assn and isinstance(s, LoopIR.Assign):
-            rdtmp = LoopIR.Read(tmp, [], s.type, s.srcinfo)
-            return [
-                # tmp : R
-                LoopIR.Alloc(tmp, T.R, None, None, s.srcinfo),
-                # tmp = rhs
-                LoopIR.Assign(tmp, s.type, None, [], s.rhs, None, s.srcinfo),
-                # lhs = tmp
-                LoopIR.Assign(s.name, s.type, None, s.idx, rdtmp, None, s.srcinfo),
-            ]
-        elif s is self.assn and isinstance(s, LoopIR.Reduce):
-            rdbuf = LoopIR.Read(s.name, s.idx, s.type, s.srcinfo)
-            rdtmp = LoopIR.Read(tmp, [], s.type, s.srcinfo)
-            return [
-                # tmp : R
-                LoopIR.Alloc(tmp, T.R, None, None, s.srcinfo),
-                # tmp = lhs
-                LoopIR.Assign(tmp, s.type, None, [], rdbuf, None, s.srcinfo),
-                # tmp += rhs
-                LoopIR.Reduce(tmp, s.type, None, [], s.rhs, None, s.srcinfo),
-                # lhs = tmp
-                LoopIR.Assign(s.name, s.type, None, s.idx, rdtmp, None, s.srcinfo),
-            ]
-
-        return super().map_s(sc)
-
-
 # Lift if no variable dependency
 class _DoLiftScope(Cursor_Rewrite):
     def __init__(self, proc_cursor, if_cursor):
@@ -3835,7 +3794,6 @@ class Schedules:
     DoCallSwap = _CallSwap
     DoBindExpr = _BindExpr
     DoBindConfig = _BindConfig
-    DoStageAssn = _DoStageAssn
     DoLiftAlloc = _LiftAlloc
     DoFissionLoops = _FissionLoops
     DoExtractMethod = _DoExtractMethod
