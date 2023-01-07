@@ -248,6 +248,8 @@ class AMX_TILE(Memory):
     tile_allocated = [False for i in range(8)]
     tile_dict = {}
 
+    # TODO: have a better way of doing this rather than manually
+    # calling this after each test that fails to compile.
     @classmethod
     def reset_allocations(cls):
         cls.tile_allocated = [False for i in range(8)]
@@ -267,10 +269,8 @@ class AMX_TILE(Memory):
             tile_num = cls.tile_allocated.index(False)
             cls.tile_allocated[tile_num] = True
             cls.tile_dict[new_name] = tile_num
-            print(f"assigning {new_name} to {tile_num}")
             return f"#define {new_name} {tile_num}"
         except ValueError as e:
-            print(cls.tile_dict)
             raise MemGenError("Cannot allocate more than 8 AMX tiles at a time.") from e
 
     @classmethod
@@ -278,5 +278,4 @@ class AMX_TILE(Memory):
         tile_num = cls.tile_dict[new_name]
         cls.tile_allocated[tile_num] = False
         del cls.tile_dict[new_name]
-        print(f"freeing {tile_num} from {new_name}")
         return f"#undef {new_name}"

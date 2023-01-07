@@ -554,10 +554,8 @@ def test_amx_memories_free(compiler, sde64):
         y2: i8[16, 64] @ DRAM,
         z2: i32[16, 16] @ DRAM,
     ):
-        """
-        This breaks the original AMX tile allocation because tile0 and
-        tile3 are both assigned index 3, which shouldn't happen.
-        """
+        # This breaks the original AMX tile allocation because tile0 and
+        # tile3 are both assigned index 3, which shouldn't happen.
         config()
 
         # jank allocations
