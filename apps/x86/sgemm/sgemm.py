@@ -83,7 +83,7 @@ for M in range(1, M_REG_BLK + 1):
         # Vectorize columns
         p = divide_loop(p, "j", VEC_W, ["jo", "ji"], perfect=True)
         # Stage C for reduction
-        p = stage_assn(p, "C[_] += _", "C_reg")
+        p = stage_mem(p, "C[_] += _", f"C[i, {VEC_W} * jo + ji]", "C_reg")
         p = set_memory(p, "C_reg", AVX512)
         p = autolift_alloc(p, "C_reg: _", n_lifts=3, keep_dims=True)
         p = autolift_alloc(p, "C_reg: _")
@@ -111,6 +111,7 @@ for M in range(1, M_REG_BLK + 1):
         p = autofission(p, p.find("mm512_set1_ps(_)").after())
         # Clean up
         p = simplify(p)
+        print(p)
         return p
 
     sgemm_kernel_avx512_Mx4[M] = make_avx512_kernel(basic_kernel_Mx4[M])
@@ -155,7 +156,7 @@ right_panel_kernel = make_right_panel_kernel()
 def make_right_panel_kernel_opt(p=right_panel_kernel):
     p = rename(p, "right_panel_kernel_opt")
     #
-    p = stage_assn(p, "C[_] += _", "C_reg")
+    p = stage_mem(p, "C[_] += _", "C[i, j]", "C_reg")
     p = divide_loop(p, "j", VEC_W, ["jo", "ji"], tail="cut")
     p = bound_and_guard(p, "for ji in _: _ #1")
     p = fission(p, p.find("for jo in _: _").after(), n_lifts=2)

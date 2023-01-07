@@ -1961,16 +1961,3 @@ def bound_and_guard(proc, loop):
     proc_c = ic.Cursor.root(proc)
 
     return Schedules.DoBoundAndGuard(proc_c, stmt).result()
-
-
-@sched_op([AssignOrReduceCursorA, NameA])
-def stage_assn(proc, stmt_cursor, buf_name):
-    """
-    DEPRECATED
-    This operation is deprecated, and should be replaced by
-    calls to `stage_mem` or something similar.
-    """
-    stmt = stmt_cursor._impl
-    proc_c = ic.Cursor.root(proc)
-
-    return Schedules.DoStageAssn(proc_c, buf_name, stmt).result()
