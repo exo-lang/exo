@@ -359,8 +359,8 @@ def test_matmul_paper(golden):
 
     # Stage memories, so that we can use gemmini scratchpad & accumulator
     gemmini = stage_mem(gemmini, "for k in _: _", "C[i, j]", "res")
-    gemmini = bind_expr(gemmini, "A[_]", "a")
-    gemmini = bind_expr(gemmini, "B[_]", "b")
+    gemmini = stage_mem(gemmini, "res += _", "A[i, k]", "a")
+    gemmini = stage_mem(gemmini, "res += _", "B[k, j]", "b")
 
     # Tile dimensions
     gemmini = old_split(gemmini, "i", 16, ["io", "ii"], perfect=True)

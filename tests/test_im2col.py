@@ -43,7 +43,7 @@ def test_im2col(golden):
     # Let's start applying scheduling
     im2col_conv = rename(conv1d, "im2col_conv")
     im2col_conv = reorder_loops(im2col_conv, "i r")
-    im2col_conv = bind_expr(im2col_conv, "x[c, i-r]", "y")
+    im2col_conv = stage_mem(im2col_conv, "res[_] += _", "x[c, i-r]", "y")
 
     # next, we can start to lift that allocation
     # up and out of the loop

@@ -108,18 +108,12 @@ def test_neon_vfmla():
         p = replace(p, "for i in _: _ #1", neon_vst_4xf32)
         p = set_memory(p, "C_reg", Neon4f)
 
-        p = bind_expr(p, "A[_]", "A_vec")
-        p = expand_dim(p, "A_vec", 4, "i", unsafe_disable_checks=True)
-        p = lift_alloc(p, "A_vec", n_lifts=2)
-        p = autofission(p, p.find("A_vec[_] = _").after(), n_lifts=2)
-        p = replace(p, "for i in _: _ #0", neon_vld_4xf32)
+        p = stage_mem(p, "for l in _:_", "A[0:4]", "A_vec")
+        p = replace(p, "for i0 in _: _ #0", neon_vld_4xf32)
         p = set_memory(p, "A_vec", Neon4f)
 
-        p = bind_expr(p, "B[_]", "B_vec")
-        p = expand_dim(p, "B_vec", 4, "l", unsafe_disable_checks=True)
-        p = lift_alloc(p, "B_vec", n_lifts=2)
-        p = autofission(p, p.find("B_vec[_] = _").after(), n_lifts=2)
-        p = replace(p, "for l in _: _ #0", neon_vld_4xf32)
+        p = stage_mem(p, "for l in _:_", "B[0:4]", "B_vec")
+        p = replace(p, "for i0 in _: _ #0", neon_vld_4xf32)
         p = set_memory(p, "B_vec", Neon4f)
 
         p = replace(p, "for i in _: _ #0", neon_vfmla_4xf32_4xf32)
@@ -150,9 +144,7 @@ def simple_math_neon_sched():
 
         p = stage_mem(p, "for ii in _:_ #0", "x[4 * io : 4 * io + 4]", "xVec")
 
-        p = bind_expr(p, "y[_]", "yVec", cse=True)
-        p = autolift_alloc(p, "yVec: _", keep_dims=True)
-        p = fission(p, p.find("yVec[_] = _").after())
+        p = stage_mem(p, "for ii in _:_ #0", "y[4 * io : 4 * io + 4]", "yVec")
 
         p = bind_expr(p, "xVec[_] * yVec[_]", "xy")
         p = autolift_alloc(p, "xy: _", keep_dims=True)
@@ -161,7 +153,7 @@ def simple_math_neon_sched():
         p = set_memory(p, "xVec", Neon4f)
         p = set_memory(p, "yVec", Neon4f)
         p = set_memory(p, "xy", Neon4f)
-        p = replace(p, "for i0 in _: _ #1", neon_vst_4xf32)
+        p = replace(p, "for i0 in _: _ #2", neon_vst_4xf32)
         p = replace_all(p, neon_vld_4xf32)
         p = replace_all(p, neon_vmul_4xf32)
 
