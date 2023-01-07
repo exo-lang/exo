@@ -94,11 +94,8 @@ def do_specialization(p):
     p = repeat(reorder_loops)(p, "oc_u ox_i")
     #
     def stage_input(p, read_expr, name):
-        p = bind_expr(p, read_expr, name)
-        p = expand_dim(p, name, 16, "oc_v")
-        p = lift_alloc(p, name)
+        p = stage_expr(p, read_expr, 16, "oc_v", name)
         p = set_memory(p, name, AVX512)
-        p = fission(p, p.find(f"{name}[_] = _").after())
         return p
 
     p = stage_input(p, "weights[_]", "wt_vec")

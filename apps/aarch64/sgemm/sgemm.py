@@ -104,10 +104,7 @@ neon_microkernel = stage_C_microkernel()
 
 def stage_A_B_microkernel(p=neon_microkernel):
     for buf in ("A", "B"):
-        p = bind_expr(p, f"{buf}[_]", f"{buf}_vec")
-        p = expand_dim(p, f"{buf}_vec", 4, "ji", unsafe_disable_checks=True)
-        p = lift_alloc(p, f"{buf}_vec")
-        p = fission(p, p.find(f"{buf}_vec[_] = _").after())
+        p = stage_expr(p, f"{buf}[_]", 4, "ji", f"{buf}_vec")
         p = set_memory(p, f"{buf}_vec", Neon4f)
     #
     p = replace_all(p, neon_vld_4xf32)

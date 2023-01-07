@@ -251,3 +251,15 @@ def lift_if(proc, cursor, n_lifts=1):
                 proc=proc,
             ) from e
     return proc
+
+
+def stage_expr(
+    proc, expr_cursor, new_dim, iter, new_name, n_lifts=1, unsafe_disable_checks=False
+):
+    proc = bind_expr(proc, expr_cursor, new_name)
+    proc = expand_dim(
+        proc, new_name, new_dim, iter, unsafe_disable_checks=unsafe_disable_checks
+    )
+    proc = lift_alloc(proc, new_name, n_lifts=n_lifts)
+    proc = fission(proc, proc.find(f"{new_name} = _").after(), n_lifts=n_lifts)
+    return proc

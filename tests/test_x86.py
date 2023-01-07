@@ -112,10 +112,8 @@ def simple_math_avx2_sched():
 
         p = replace_all(p, mm256_loadu_ps)
 
-        p = bind_expr(p, "xVec[_] * yVec[_]", "xy")
-        p = autolift_alloc(p, "xy: _", keep_dims=True)
+        p = stage_expr(p, "xVec[_] * yVec[_]", 8, "ii", "xy")
         p = set_memory(p, "xy", AVX2)
-        p = old_fission_after(p, "xy[_] = _")
 
         p = replace_all(p, mm256_mul_ps)
         p = simplify(p)
@@ -195,11 +193,8 @@ def avx2_sgemm_6x16(sgemm_6x16):
     avx2_sgemm_6x16 = avx
 
     def sched_avx2_sgemm_6x16(p=avx2_sgemm_6x16):
-        p = bind_expr(p, "A[i, k]", "a_vec")
+        p = stage_expr(p, "A[i, k]", "8", "ji", "a_vec")
         p = set_memory(p, "a_vec", AVX2)
-        p = expand_dim(p, "a_vec:_", "8", "ji")
-        p = autolift_alloc(p, "a_vec:_")
-        p = old_fission_after(p, "a_vec[_] = _")
         #
         p = stage_mem(p, "for ji in _:_ #2", "B[k, 8 * jo:8 + 8 * jo]", "b_vec")
         p = set_memory(p, "b_vec", AVX2)

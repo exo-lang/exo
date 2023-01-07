@@ -146,9 +146,7 @@ def simple_math_neon_sched():
 
         p = stage_mem(p, "for ii in _:_ #0", "y[4 * io : 4 * io + 4]", "yVec")
 
-        p = bind_expr(p, "xVec[_] * yVec[_]", "xy")
-        p = autolift_alloc(p, "xy: _", keep_dims=True)
-        p = fission(p, p.find("xy[_] = _").after())
+        p = stage_expr(p, "xVec[_] * yVec[_]", 4, "ii", "xy")
 
         p = set_memory(p, "xVec", Neon4f)
         p = set_memory(p, "yVec", Neon4f)

@@ -91,11 +91,8 @@ for M in range(1, M_REG_BLK + 1):
         p = autofission(p, p.find("C[_] = _").before(), n_lifts=4)
         # Stage A & B
         def stage_input(p, expr, new_buf):
-            p = bind_expr(p, expr, new_buf)
-            p = expand_dim(p, new_buf, 16, "ji")
-            p = lift_alloc(p, new_buf)
+            p = stage_expr(p, expr, 16, "ji", new_buf)
             p = set_memory(p, new_buf, AVX512)
-            p = fission(p, p.find(f"{new_buf} = _").after())
             return p
 
         p = stage_input(p, "A[_]", "A_vec")
@@ -181,11 +178,10 @@ def make_right_panel_kernel_opt(p=right_panel_kernel):
     p = set_memory(p, "C_reg", AVX512)
     #
     def stage_input(p, expr, new_buf, n_lifts=1):
-        p = bind_expr(p, expr, new_buf)
-        p = expand_dim(p, new_buf, 16, "ji", unsafe_disable_checks=True)
-        p = lift_alloc(p, new_buf, n_lifts=n_lifts)
+        p = stage_expr(
+            p, expr, 16, "ji", new_buf, n_lifts=n_lifts, unsafe_disable_checks=True
+        )
         p = set_memory(p, new_buf, AVX512)
-        p = fission(p, p.find(f"{new_buf} = _").after(), n_lifts=n_lifts)
         return p
 
     p = stage_input(p, "A[_]", "A_reg")
