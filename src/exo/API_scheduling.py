@@ -1942,19 +1942,6 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     return Schedules.DoAddUnsafeGuard(proc_c, stmt, var_expr).result()
 
 
-@sched_op([StmtCursorA, StmtCursorA, PosIntA])
-def double_fission(proc, stmt1, stmt2, n_lifts=1):
-    """
-    DEPRECATED
-    This operation is deprecated, and will be removed soon.
-    """
-    s1 = stmt1._impl
-    s2 = stmt2._impl
-    proc_c = ic.Cursor.root(proc)
-
-    return Schedules.DoDoubleFission(proc_c, s1, s2, n_lifts).result()
-
-
 @sched_op([ForSeqCursorA])
 def bound_and_guard(proc, loop):
     """

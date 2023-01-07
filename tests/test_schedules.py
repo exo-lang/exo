@@ -593,22 +593,6 @@ def test_mult_dim_fail_1():
         mult_dim(foo, "x", 0, 1)
 
 
-def test_double_fission(golden):
-    @proc
-    def foo(N: size, a: f32[N], b: f32[N], out: f32[N]):
-        for i in seq(0, N):
-            res: f32
-            res = 0.0
-
-            res += a[i] * b[i]
-
-            out[i] = res
-
-    foo = autolift_alloc(foo, "res : _", keep_dims=True)
-    foo = double_fission(foo, "res = _ #0", "res += _ #0")
-    assert str(foo) == golden
-
-
 def test_reuse_buffer(golden):
     @proc
     def foo(a: f32 @ DRAM, b: f32 @ DRAM):

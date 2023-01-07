@@ -87,7 +87,8 @@ for M in range(1, M_REG_BLK + 1):
         p = set_memory(p, "C_reg", AVX512)
         p = autolift_alloc(p, "C_reg: _", n_lifts=3, keep_dims=True)
         p = autolift_alloc(p, "C_reg: _")
-        p = double_fission(p, "C_reg[_] = C[_]", "C_reg[_] += _", n_lifts=4)
+        p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=4)
+        p = autofission(p, p.find("C[_] = _").before(), n_lifts=4)
         # Stage A & B
         def stage_input(p, expr, new_buf):
             p = bind_expr(p, expr, new_buf)
