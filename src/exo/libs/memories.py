@@ -265,6 +265,22 @@ class AMX_TILE(Memory):
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
+        if not (shape[0].isdecimal() and int(shape[0]) <= 16):
+            raise MemGenError("Number of tile rows must be a constant and <= 16.")
+
+        ctype_size = {
+            "float": 4,
+            "double": 8,
+            "int8_t": 1,
+            "int32_t": 4,
+            "int_fast32_t": 4,
+        }
+
+        if not (shape[1].isdecimal() and int(shape[1]) * ctype_size[prim_type] <= 64):
+            raise MemGenError(
+                f"Number of bytes per row must be a constant and <= 64, currently trying to allocate {int(shape[1]) * ctype_size[prim_type]} bytes per row."
+            )
+
         try:
             tile_num = cls.tile_allocated.index(False)
             cls.tile_allocated[tile_num] = True

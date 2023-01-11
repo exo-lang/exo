@@ -487,7 +487,7 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
     )
 
 
-def test_amx_memories_tile_limit(compiler, sde64):
+def test_amx_memories_tile_number_limit(compiler, sde64):
     @proc
     def nine_amx_tiles():
         config()
@@ -619,6 +619,40 @@ def test_amx_memories_free(compiler, sde64):
         [two_dpbssds, jank_two_dpbssds],
         t,
     )
+
+
+def test_amx_memories_tile_size_limit(compiler, sde64):
+    @proc
+    def too_many_bytes_i8():
+        config()
+        tile: i8[16, 65] @ AMX_TILE
+
+    @proc
+    def too_many_rows():
+        config()
+        tile: i8[17, 64] @ AMX_TILE
+
+    @proc
+    def too_many_bytes_i32():
+        config()
+        tile: i32[16, 17] @ AMX_TILE
+
+    with pytest.raises(MemGenError, match="Number of tile rows must"):
+        test_exe = compiler.compile(
+            [too_many_rows],
+            CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
+            CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
+        )
+    AMX_TILE.reset_allocations()
+
+    for bad_byte_proc in [too_many_bytes_i8, too_many_bytes_i32]:
+        with pytest.raises(MemGenError, match="Number of bytes per row"):
+            test_exe = compiler.compile(
+                [bad_byte_proc],
+                CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
+                CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
+            )
+        AMX_TILE.reset_allocations()
 
 
 def _run_amx(compiler, sde64, procs, test_source):
