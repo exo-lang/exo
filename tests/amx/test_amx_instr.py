@@ -506,7 +506,7 @@ def test_amx_memories_tile_number_limit(compiler, sde64):
         dpbssd(16, 16, 16, ztile6, ztile7, ztile8)
 
     with pytest.raises(
-        MemGenError, match="Cannot allocate more than 8 AMX tiles at a time"
+        MemGenError, match="Cannot allocate more than 8 chunks at a time"
     ):
         test_exe = compiler.compile(
             [nine_amx_tiles],

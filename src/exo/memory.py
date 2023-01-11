@@ -145,3 +145,37 @@ class DRAM(Memory):
     @classmethod
     def reduce(cls, s, lhs, rhs):
         return f"{lhs} += {rhs};"
+
+
+# ----------- Static Memory "Register Allocation"  ----------------
+
+
+class StaticMemory(Memory):
+    """
+    A free list implementation of register allocation for static
+    memory.
+    """
+
+    is_chunk_allocated = []
+
+    @classmethod
+    def init_state(cls, size):
+        cls.is_chunk_allocated = [False for i in range(size)]
+
+    @classmethod
+    def find_free_chunk(cls):
+        try:
+            idx = cls.is_chunk_allocated.index(False)
+        except ValueError as e:
+            raise MemGenError(
+                f"Cannot allocate more than {len(cls.is_chunk_allocated)} chunks at a time."
+            ) from e
+        return idx
+
+    @classmethod
+    def mark(cls, idx):
+        cls.is_chunk_allocated[idx] = True
+
+    @classmethod
+    def unmark(cls, idx):
+        cls.is_chunk_allocated[idx] = False
