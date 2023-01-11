@@ -646,6 +646,20 @@ def test_simple_reorder(golden):
     assert str(bar) == golden
 
 
+def test_reorder_stmts(golden):
+    @proc
+    def bar(g: R[100] @ DRAM):
+        f: R[101] @ DRAM
+        for i in seq(0, 100):
+            f[i] = 1.0
+        f[100] = 1.0
+        for i in seq(0, 100):
+            g[i] = f[i] + f[i + 1]
+
+    bar = reorder_stmts(bar, "for i in _:_ ;\nf[_] = _")
+    assert str(bar) == golden
+
+
 def test_merge_writes_all_4_cases(golden):
     @proc
     def bar(x: R[4], y: R[4]):
