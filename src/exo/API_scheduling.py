@@ -1098,7 +1098,7 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
     rewrite:
         `x : T[...] ; s`
           ->
-        `x : T[..., alloc_dim] ; s[ x[...] -> x[..., indexing_expr] ]`
+        `x : T[alloc_dim, ...] ; s[ x[...] -> x[indexing_expr, ...] ]`
     checks:
         The provided dimension size is checked for positivity and the
         provided indexing expression is checked to make sure it is in-bounds
@@ -1566,10 +1566,15 @@ def reorder_loops(proc, nested_loops):
         `        s`
     """
 
-    stmt = nested_loops._impl
+    stmt_c = nested_loops._impl
+    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node(), LoopIR.Seq):
+        raise ValueError(
+            f"expected loop directly inside of " f"{stmt_c._node().iter} loop"
+        )
+
     proc_c = ic.Cursor.root(proc)
 
-    return Schedules.DoReorder(proc_c, stmt).result()
+    return Schedules.DoLiftScope(proc_c, stmt_c.body()[0]).result()
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1700,7 +1705,7 @@ def autofission(proc, gap_cursor, n_lifts=1):
 
 
 @sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA])
-def fusion(proc, stmt1, stmt2):
+def fuse(proc, stmt1, stmt2):
     """
     fuse together two loops or if-guards, provided that the loop bounds
     or guard conditions are compatible.
@@ -1827,17 +1832,13 @@ def unroll_loop(proc, loop_cursor):
 # Guard Conditions
 
 
-@sched_op([IfCursorA, PosIntA])
-def lift_if(proc, if_cursor, n_lifts=1):
+@sched_op([ForSeqOrIfCursorA])
+def lift_scope(proc, scope_cursor):
     """
-    Move the indicated If-statement upwards through other control-flow,
-    if possible.
-
-    DEPRECATED
-    TODO: This directive and reorder_loops should be rethought together.
+    Lift the indicated For/If-statement upwards one scope.
 
     args:
-        if_cursor       - cursor to the if-statement to lift up
+        scope_cursor       - cursor to the inner scope statement to lift up
 
     rewrite: (one example)
         `for i in _:`
@@ -1853,10 +1854,10 @@ def lift_if(proc, if_cursor, n_lifts=1):
         `    for i in _:`
         `        s2`
     """
-    stmt = if_cursor._impl
+    stmt_c = scope_cursor._impl
     proc_c = ic.Cursor.root(proc)
 
-    return Schedules.DoLiftIf(proc_c, stmt, n_lifts).result()
+    return Schedules.DoLiftScope(proc_c, stmt_c).result()
 
 
 @sched_op([IfCursorA, BoolA])
@@ -1941,19 +1942,6 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     return Schedules.DoAddUnsafeGuard(proc_c, stmt, var_expr).result()
 
 
-@sched_op([StmtCursorA, StmtCursorA, PosIntA])
-def double_fission(proc, stmt1, stmt2, n_lifts=1):
-    """
-    DEPRECATED
-    This operation is deprecated, and will be removed soon.
-    """
-    s1 = stmt1._impl
-    s2 = stmt2._impl
-    proc_c = ic.Cursor.root(proc)
-
-    return Schedules.DoDoubleFission(proc_c, s1, s2, n_lifts).result()
-
-
 @sched_op([ForSeqCursorA])
 def bound_and_guard(proc, loop):
     """
@@ -1973,16 +1961,3 @@ def bound_and_guard(proc, loop):
     proc_c = ic.Cursor.root(proc)
 
     return Schedules.DoBoundAndGuard(proc_c, stmt).result()
-
-
-@sched_op([AssignOrReduceCursorA, NameA])
-def stage_assn(proc, stmt_cursor, buf_name):
-    """
-    DEPRECATED
-    This operation is deprecated, and should be replaced by
-    calls to `stage_mem` or something similar.
-    """
-    stmt = stmt_cursor._impl
-    proc_c = ic.Cursor.root(proc)
-
-    return Schedules.DoStageAssn(proc_c, buf_name, stmt).result()

@@ -593,22 +593,6 @@ def test_mult_dim_fail_1():
         mult_dim(foo, "x", 0, 1)
 
 
-def test_double_fission(golden):
-    @proc
-    def foo(N: size, a: f32[N], b: f32[N], out: f32[N]):
-        for i in seq(0, N):
-            res: f32
-            res = 0.0
-
-            res += a[i] * b[i]
-
-            out[i] = res
-
-    foo = autolift_alloc(foo, "res : _", keep_dims=True)
-    foo = double_fission(foo, "res = _ #0", "res += _ #0")
-    assert str(foo) == golden
-
-
 def test_reuse_buffer(golden):
     @proc
     def foo(a: f32 @ DRAM, b: f32 @ DRAM):
@@ -1131,7 +1115,7 @@ def test_lift_if_second_statement_in_then_error():
                     x[i] = 2.0
 
     with pytest.raises(
-        SchedulingError, match="expected if statement to be directly nested in parents"
+        SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
         print(foo)
@@ -1149,7 +1133,7 @@ def test_lift_if_second_statement_in_else_error():
                     x[i] = 2.0
 
     with pytest.raises(
-        SchedulingError, match="expected if statement to be directly nested in parents"
+        SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
         print(foo)
@@ -1164,7 +1148,7 @@ def test_lift_if_second_statement_in_for_error():
                 pass
 
     with pytest.raises(
-        SchedulingError, match="expected if statement to be directly nested in parents"
+        SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if m > 12: _")
         print(foo)
@@ -1177,7 +1161,9 @@ def test_lift_if_too_high_error():
             if j < 10:
                 x[i] = 2.0
 
-    with pytest.raises(SchedulingError, match=r"1 lift\(s\) remain!"):
+    with pytest.raises(
+        SchedulingError, match=r"Cannot lift scope of top-level statement"
+    ):
         foo = lift_if(foo, "if j < 10: _", n_lifts=2)
         print(foo)
 
@@ -1341,6 +1327,33 @@ def test_lift_if_in_full_nest(golden):
 
     foo = lift_if(foo, "if n < 20: _")
     assert str(foo) == golden
+
+
+def test_lift_scope(golden):
+    @proc
+    def foo(n: size, x: R[n, n]):
+        for j in seq(0, n):
+            if j < 10:
+                for i in seq(0, n):
+                    x[i, j] = 1.0
+
+    foo = lift_scope(foo, "for i in _: _")
+    assert str(foo) == golden
+
+
+def test_lift_scope_lift_for_when_outer_if_has_noelse_error(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        if n < 10:
+            for i in seq(0, n):
+                x[i] = 1.0
+        else:
+            pass
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift for loop when if has an orelse clause"
+    ):
+        foo = lift_scope(foo, "for i in _: _")
 
 
 def test_stage_mem(golden):

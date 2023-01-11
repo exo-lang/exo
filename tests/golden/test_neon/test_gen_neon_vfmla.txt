@@ -1,0 +1,11 @@
+def vfmla(n: size, C: R[n] @ DRAM, A: R[n] @ DRAM, B: R[n] @ DRAM):
+    assert n == 4
+    C_reg: R[4] @ Neon4f
+    neon_vld_4xf32(C_reg[0:4], C[0:4])
+    A_vec: R[4] @ Neon4f
+    neon_vld_4xf32(A_vec[0:4], A[0:4])
+    B_vec: R[4] @ Neon4f
+    neon_vld_4xf32(B_vec[0:4], B[0:4])
+    for l in seq(0, 4):
+        neon_vfmla_4xf32_4xf32(C_reg[0:4], A_vec[0:4], B_vec[0:4], l + 0)
+    neon_vst_4xf32(C[0:4], C_reg[0:4])

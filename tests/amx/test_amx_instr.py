@@ -386,9 +386,7 @@ def matmul_i8():
     amx = cut_loop(amx, "ii_unroll", 1)
     A_mem_template = "A[32 * io + 16*(ii_unroll+{i_lo}):32 * io + 16*(ii_unroll+{i_lo}+1), 64*ko:64*(ko+1)]"
     for i in range(2):
-        amx = fusion(
-            amx, f"for ji_unroll in _:_ #{i+2}", f"for ji_unroll in _:_ #{i+3}"
-        )
+        amx = fuse(amx, f"for ji_unroll in _:_ #{i+2}", f"for ji_unroll in _:_ #{i+3}")
         amx = stage_mem(
             amx,
             f"for ji_unroll in _:_ #{i+2}",

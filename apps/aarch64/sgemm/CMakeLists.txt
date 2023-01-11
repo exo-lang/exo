@@ -15,9 +15,7 @@ if (EXISTS "$ENV{PYENV_ROOT}")
       CACHE PATH "Path to Python3 root directory")
 endif ()
 
-find_package(Python3 REQUIRED)
-message("STATUS" "${Python3_ROOT_DIR}")
-find_package(Exo REQUIRED HINTS "${Python3_SITELIB}")
+find_package(Exo REQUIRED)
 
 # ---------------------------------------------------------------------------- #
 # Exo libraries

@@ -1,14 +1,13 @@
 def simple_math_avx2_sched(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):
     for io in seq(0, n / 8):
-        xyy: R[8] @ AVX2
         xVec: R[8] @ AVX2
-        mm256_loadu_ps(xVec[0:8], x[8 * io + 0:8 * io + 8])
+        mm256_loadu_ps(xVec[0:8], x[8 * io:8 + 8 * io])
         yVec: R[8] @ AVX2
-        mm256_loadu_ps(yVec[0:8], y[8 * io + 0:8 * io + 8])
+        mm256_loadu_ps(yVec[0:8], y[8 * io:8 + 8 * io])
         xy: R[8] @ AVX2
         mm256_mul_ps(xy, xVec, yVec)
-        mm256_mul_ps(xyy, xy, yVec)
-        mm256_storeu_ps(x[8 * io + 0:8 * io + 8], xyy[0:8])
+        mm256_mul_ps(xVec, xy, yVec)
+        mm256_storeu_ps(x[8 * io:8 + 8 * io], xVec[0:8])
     if n % 8 > 0:
         for ii in seq(0, n % 8):
             x[ii + n / 8 *

@@ -53,7 +53,6 @@ Take a look at `exo/examples` for scheduling examples.
 | `.expand_dim(stmt, alloc_dim, indexing)`                    | Expands the dimension of the allocation statement `stmt` with dimension `alloc_dim` of indexing `indexing`.                                                                                                                                                                   |
 | `.bind_expr(new_name, expr)`                                | Binds the right hand side expression `expr` to a newly allocated buffer named `new_name`                                                                                                                                                                                      |
 | `.stage_mem(win_expr, new_name, stmt_start, stmt_end=None)` | Stages the buffer `win_expr` to the new window expression `new_name` in statement block (`stmt_start` to `stmt_end`), and adds an initialization loop and a write-back loop.                                                                                                  |
-| `.stage_assn(new_name, stmt)`                               | Binds the left hand side expression of `stmt` to a newly allocated buffer named `new_name`.                                                                                                                                                                                   |
 | `.rearrange_dim(alloc, dimensions)`                         | Takes an allocation statement and a list of integers to map the dimension. It rearranges the dimensions of `alloc` in `dimension` order. E.g., if `alloc` were `foo[N,M,K]` and the `dimension` were `[2,0,1]`, it would become `foo[K,N,M]` after this operation.            |
 | `.lift_alloc(alloc, n_lifts=1, keep_dims=False)`            | Lifts the allocation statement `alloc` out of `n_lifts` number of scopes. If and For statements are the only statements in Exo which introduce a scope. When lifting the allocation out of a for loop, it will expand its dimension to the loop bound if `keep_dims` is True. |
 
@@ -102,7 +101,6 @@ Take a look at `exo/examples` for scheduling examples.
 | `.set_window(name, is_window)`   | If `is_window` is True, it sets the buffer `name` to window type, instead of a tensor type.                                                                                                  |
 | `.set_memory(name, mem_type)`    | Sets a buffer `name`'s memory type to `mem_type`.                                                                                                                                            |
 
-
 # Developing Exo
 
 If you plan to work on the compiler directly, you should run the following
@@ -139,7 +137,6 @@ In this repository, folders are structured as follows:
    ignored.
 5. `tests/` contains the Exo test suite.
 
-
 # Build Exo from source
 
 We make active use of newer Python 3.x features, so please use the same version
@@ -153,7 +150,7 @@ $ git clone git@github.com:exo-lang/exo.git
 $ cd exo/
 $ git submodule update --init --recursive
 $ python -m venv ~/.venv/exo
-$ . ~/.venv/exo
+$ source ~/.venv/exo/bin/activate
 (exo) $ python -m pip install -U pip setuptools wheel
 (exo) $ python -m pip install -r requirements.txt
 (exo) $ python -m build
@@ -216,7 +213,8 @@ Then, if you want to see annotated source files, open `./htmlcov/index.html`.
 
 # Publication
 
-The first paper on Exo was published at PLDI '22. You can download the paper [from ACM Digital Library](https://dl.acm.org/doi/abs/10.1145/3519939.3523446).
+The first paper on Exo was published at PLDI '22. You can download the
+paper [from ACM Digital Library](https://dl.acm.org/doi/abs/10.1145/3519939.3523446).
 If you use Exo, please consider citing.
 
 ```
