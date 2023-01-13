@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, List
 
 from .API import Procedure
-from .API_cursors import public_cursors as PC
+from .API_cursors import public_cursors as PC, ExprCursor
 from .LoopIR import LoopIR, T  # , UAST, LoopIR_Do
 from .LoopIR_scheduling import Schedules
 
@@ -586,6 +586,12 @@ class CallCursorA(StmtCursorA):
 # New Code Fragment Argument Processing
 
 
+@dataclass
+class FormattedExpr:
+    _str: str
+    _holes: List[ExprCursor]
+
+
 class NewExprA(ArgumentProcessor):
     def __init__(self, cursor_arg, before=True):
         self.cursor_arg = cursor_arg
@@ -608,20 +614,23 @@ class NewExprA(ArgumentProcessor):
         return ctxt_stmt
 
     def __call__(self, expr_str, all_args):
+        holes = []
         if isinstance(expr_str, int):
             return LoopIR.Const(expr_str, T.int, null_srcinfo())
         elif isinstance(expr_str, float):
             return LoopIR.Const(expr_str, T.R, null_srcinfo())
         elif isinstance(expr_str, bool):
             return LoopIR.Const(expr_str, T.bool, null_srcinfo())
+        elif isinstance(expr_str, FormattedExpr):
+            holes = [i._impl._node() for i in expr_str._holes]
+            expr_str = expr_str._str
         elif not isinstance(expr_str, str):
             self.err("expected a string")
 
         proc = all_args["proc"]
         ctxt_stmt = self._get_ctxt_stmt(all_args)
 
-        expr = parse_fragment(proc._loopir_proc, expr_str, ctxt_stmt)
-
+        expr = parse_fragment(proc._loopir_proc, expr_str, ctxt_stmt, expr_holes=holes)
         return expr
 
 

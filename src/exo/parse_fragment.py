@@ -19,17 +19,23 @@ class ParseFragmentError(Exception):
 # General Fragment Parsing
 
 
-def parse_fragment(proc, fragment, ctx_stmt, call_depth=0, configs=[], scope="before"):
+def parse_fragment(
+    proc, fragment, ctx_stmt, call_depth=0, configs=[], scope="before", expr_holes=[]
+):
     # get source location where this is getting called from
     caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
 
     # parse the pattern we're going to use to match
     p_ast = pyparser.pattern(fragment, filename=caller.filename, lineno=caller.lineno)
     if isinstance(p_ast, PAST.expr):
-        return ParseFragment(p_ast, proc, ctx_stmt, configs, scope).results()
+        return ParseFragment(
+            p_ast, proc, ctx_stmt, configs, scope, expr_holes
+        ).results()
     else:
         assert len(p_ast) == 1
-        return ParseFragment(p_ast[0], proc, ctx_stmt, configs, scope).results()
+        return ParseFragment(
+            p_ast[0], proc, ctx_stmt, configs, scope, expr_holes
+        ).results()
 
 
 _PAST_to_LoopIR = {
@@ -162,7 +168,7 @@ class BuildEnv_after(LoopIR_Do):
 
 
 class ParseFragment:
-    def __init__(self, pat, proc, stmt, configs, scope):
+    def __init__(self, pat, proc, stmt, configs, scope, expr_holes):
         assert isinstance(stmt, LoopIR.stmt) or (stmt is None)
         assert isinstance(pat, PAST.expr)
 
@@ -170,6 +176,7 @@ class ParseFragment:
         self.stmt = stmt
         self.env = ChainMap()
         self.configs = {c.name(): c for c in configs}
+        self.expr_holes = expr_holes
 
         if stmt is None:
             self.srcinfo = proc.srcinfo
@@ -249,6 +256,12 @@ class ParseFragment:
 
             typ = cfg.lookup(pat.field)[1]
             return LoopIR.ReadConfig(cfg, pat.field, typ, self.srcinfo)
+        elif isinstance(pat, PAST.E_Hole):
+            if len(self.expr_holes) == 0:
+                raise ParseFragmentError("Too many holes in expression")
+            subtree = self.expr_holes[0]
+            self.expr_holes = self.expr_holes[1:]
+            return subtree
         else:
             assert False, f"bad case: {type(pat)}"
 

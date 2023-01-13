@@ -11,6 +11,7 @@ from ..API import (
 
 from ..API_scheduling import (
     is_atomic_scheduling_op,
+    FormattedExpr,
     # basic operations
     simplify,
     rename,

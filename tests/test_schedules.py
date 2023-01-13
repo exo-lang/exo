@@ -1497,4 +1497,40 @@ def test_new_expr_multi_vars(golden):
         i = 1.0
 
     bar = expand_dim(bar, "tmp : _", "n", "i")
+
+
+def test_formatted_expr_1(golden):
+    @proc
+    def bar(n: size, arr: R[n] @ DRAM):
+        for i in seq(0, n):
+            tmp: R
+            tmp = 1.0
+            arr[i] = tmp
+
+    alloc_stmt = bar.find("tmp : _")
+    seq_for_hi = alloc_stmt.parent().hi()
+    seq_for_iter = alloc_stmt.parent().name()
+    bar = expand_dim(
+        bar, "tmp : _", FormattedExpr("_ + 1", [seq_for_hi]), str(seq_for_iter)
+    )
+    assert str(bar) == golden
+
+
+def test_formatted_expr_2(golden):
+    @proc
+    def bar(n: size, m: size, arr: R[n, m] @ DRAM):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                tmp: R
+                tmp = 1.0
+                arr[i, j] = tmp
+
+    alloc_stmt = bar.find("tmp : _")
+    seq_i = alloc_stmt.parent()
+    seq_o = seq_i.parent()
+    new_dim = FormattedExpr("(_ + 1) * (1 + _)", [seq_o.hi(), seq_i.hi()])
+    indexing_expr = FormattedExpr(f"{seq_o.name()} * _ + {seq_i.name()}", [seq_i.hi()])
+
+    bar = expand_dim(bar, "tmp : _", new_dim, indexing_expr)
+
     assert str(bar) == golden
