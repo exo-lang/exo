@@ -160,7 +160,7 @@ class StaticMemory(Memory):
 
     @classmethod
     def init_state(cls, size):
-        cls.is_chunk_allocated = [False for i in range(size)]
+        cls.is_chunk_allocated = [False] * size
 
     @classmethod
     def find_free_chunk(cls):
