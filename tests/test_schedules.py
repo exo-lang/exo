@@ -1534,3 +1534,31 @@ def test_formatted_expr_2(golden):
     bar = expand_dim(bar, "tmp : _", new_dim, indexing_expr)
 
     assert str(bar) == golden
+
+
+def test_formatted_expr_3(golden):
+    @proc
+    def bar(n: size, arr: R[n] @ DRAM):
+        for i in seq(0, n):
+            tmp: R
+            tmp = 1.0
+            arr[i] = tmp
+
+    with pytest.raises(ParseFragmentError, match="Too many holes in expression"):
+        expand_dim(bar, "tmp : _", FormattedExpr("1 + _", []), "i")  # should be error
+
+    with pytest.raises(ParseFragmentError, match="Too many holes in expression"):
+        alloc_stmt = bar.find("tmp : _")
+        seq_for_hi = alloc_stmt.parent().hi()
+        expand_dim(
+            bar, "tmp : _", FormattedExpr("1 + _ + _", [seq_for_hi]), "i"
+        )  # should be error
+
+    with pytest.raises(
+        ParseFragmentError,
+        match="Cannot fill hole in an expression fragment using a non-expression",
+    ):
+        alloc_stmt = bar.find("tmp : _")
+        expand_dim(
+            bar, "tmp : _", FormattedExpr("1 + _", [alloc_stmt]), "i"
+        )  # should be error
