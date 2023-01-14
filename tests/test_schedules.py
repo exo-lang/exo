@@ -1562,10 +1562,17 @@ def test_formatted_expr_3(golden):
         expand_dim(bar, "tmp : _", "1 + _", "i")  # should be error
 
     with pytest.raises(
-        ParseFragmentError,
-        match="Cannot fill hole in an expression fragment using a non-expression",
+        TypeError,
+        match="Cursor provided to fill a hole must be a ExprCursor",
     ):
         alloc_stmt = bar.find("tmp : _")
         expand_dim(
             bar, "tmp : _", FormattedExpr("1 + _", [alloc_stmt]), "i"
         )  # should be error
+
+    with pytest.raises(ValueError, match="Cannot reuse FormattedExpr object"):
+        alloc_stmt = bar.find("tmp : _")
+        seq_for_hi = alloc_stmt.parent().hi()
+        formatted_expr = FormattedExpr("1 + _", [seq_for_hi])
+        new_bar = expand_dim(bar, "tmp : _", formatted_expr, "i")  # should be error
+        new_bar = expand_dim(new_bar, "tmp : _", formatted_expr, "i")  # should be error

@@ -264,10 +264,6 @@ class ParseFragment:
                     "String contains more holes than expressions provided"
                 )
             subtree = self.expr_holes[0]
-            if not isinstance(subtree, LoopIR.expr):
-                raise ParseFragmentError(
-                    "Cannot fill hole in an expression fragment using a non-expression"
-                )
             self.expr_holes = self.expr_holes[1:]
             return subtree
         else:

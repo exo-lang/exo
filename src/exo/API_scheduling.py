@@ -5,7 +5,7 @@ import re
 
 # import types
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any, List, Union
 
 from .API import Procedure
 from .API_cursors import public_cursors as PC, ExprCursor
@@ -588,8 +588,35 @@ class CallCursorA(StmtCursorA):
 
 @dataclass
 class FormattedExpr:
-    _str: str
-    _holes: List[ExprCursor]
+    """
+    Allows the user to provide a string with holes in it along with a list of
+    `CursorExprs` to fill the holes. The object is designed as a wrapper to allow
+    the user to give those inputs as an argument to scheduling operations.
+
+    The object can only be used once as an argument to a scheduling operation. If it
+    is reused, a `ValueError` will be thrown since it is invalid at that point.
+    """
+
+    _expr_str: Union[str, None]
+    _expr_holes: Union[List[LoopIR.expr], None]
+
+    def __init__(self, expr_str: str, expr_holes: List[ExprCursor]) -> None:
+        if not isinstance(expr_str, str):
+            raise TypeError("expr_str must be a string")
+        self._expr_str = expr_str
+        for cursor in expr_holes:
+            if not isinstance(cursor, ExprCursor):
+                raise TypeError("Cursor provided to fill a hole must be a ExprCursor")
+        self._expr_holes = [cursor._impl._node() for cursor in expr_holes]
+
+    def _get(self):
+        if self._expr_str is None:
+            raise ValueError("Cannot reuse FormattedExpr object")
+
+        expr_str, expr_holes = self._expr_str, self._expr_holes
+        self._expr_str = None
+        self._expr_holes = None
+        return expr_str, expr_holes
 
 
 class NewExprA(ArgumentProcessor):
@@ -622,8 +649,7 @@ class NewExprA(ArgumentProcessor):
         elif isinstance(expr_str, bool):
             return LoopIR.Const(expr_str, T.bool, null_srcinfo())
         elif isinstance(expr_str, FormattedExpr):
-            expr_holes = [i._impl._node() for i in expr_str._holes]
-            expr_str = expr_str._str
+            expr_str, expr_holes = expr_str._get()
         elif not isinstance(expr_str, str):
             self.err("expected a string")
 
