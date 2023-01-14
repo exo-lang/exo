@@ -587,7 +587,7 @@ class CallCursorA(StmtCursorA):
 
 
 @dataclass
-class FormattedExpr:
+class FormattedExprStr:
     """
     Allows the user to provide a string with holes in it along with a list of
     `CursorExprs` to fill the holes. The object is designed as a wrapper to allow
@@ -611,7 +611,7 @@ class FormattedExpr:
 
     def _get(self):
         if self._expr_str is None:
-            raise ValueError("Cannot reuse FormattedExpr object")
+            raise ValueError("Cannot reuse FormattedExprStr object")
 
         expr_str, expr_holes = self._expr_str, self._expr_holes
         self._expr_str = None
@@ -648,7 +648,7 @@ class NewExprA(ArgumentProcessor):
             return LoopIR.Const(expr_str, T.R, null_srcinfo())
         elif isinstance(expr_str, bool):
             return LoopIR.Const(expr_str, T.bool, null_srcinfo())
-        elif isinstance(expr_str, FormattedExpr):
+        elif isinstance(expr_str, FormattedExprStr):
             expr_str, expr_holes = expr_str._get()
         elif not isinstance(expr_str, str):
             self.err("expected a string")
