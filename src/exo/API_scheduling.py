@@ -614,7 +614,7 @@ class NewExprA(ArgumentProcessor):
         return ctxt_stmt
 
     def __call__(self, expr_str, all_args):
-        holes = []
+        expr_holes = None
         if isinstance(expr_str, int):
             return LoopIR.Const(expr_str, T.int, null_srcinfo())
         elif isinstance(expr_str, float):
@@ -622,7 +622,7 @@ class NewExprA(ArgumentProcessor):
         elif isinstance(expr_str, bool):
             return LoopIR.Const(expr_str, T.bool, null_srcinfo())
         elif isinstance(expr_str, FormattedExpr):
-            holes = [i._impl._node() for i in expr_str._holes]
+            expr_holes = [i._impl._node() for i in expr_str._holes]
             expr_str = expr_str._str
         elif not isinstance(expr_str, str):
             self.err("expected a string")
@@ -630,7 +630,9 @@ class NewExprA(ArgumentProcessor):
         proc = all_args["proc"]
         ctxt_stmt = self._get_ctxt_stmt(all_args)
 
-        expr = parse_fragment(proc._loopir_proc, expr_str, ctxt_stmt, expr_holes=holes)
+        expr = parse_fragment(
+            proc._loopir_proc, expr_str, ctxt_stmt, expr_holes=expr_holes
+        )
         return expr
 
 

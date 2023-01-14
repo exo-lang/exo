@@ -20,7 +20,7 @@ class ParseFragmentError(Exception):
 
 
 def parse_fragment(
-    proc, fragment, ctx_stmt, call_depth=0, configs=[], scope="before", expr_holes=[]
+    proc, fragment, ctx_stmt, call_depth=0, configs=[], scope="before", expr_holes=None
 ):
     # get source location where this is getting called from
     caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
@@ -257,8 +257,12 @@ class ParseFragment:
             typ = cfg.lookup(pat.field)[1]
             return LoopIR.ReadConfig(cfg, pat.field, typ, self.srcinfo)
         elif isinstance(pat, PAST.E_Hole):
+            if self.expr_holes == None:
+                raise ParseFragmentError("String cannot contain holes")
             if len(self.expr_holes) == 0:
-                raise ParseFragmentError("Too many holes in expression")
+                raise ParseFragmentError(
+                    "String contains more holes than expressions provided"
+                )
             subtree = self.expr_holes[0]
             if not isinstance(subtree, LoopIR.expr):
                 raise ParseFragmentError(

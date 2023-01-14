@@ -1544,15 +1544,22 @@ def test_formatted_expr_3(golden):
             tmp = 1.0
             arr[i] = tmp
 
-    with pytest.raises(ParseFragmentError, match="Too many holes in expression"):
+    with pytest.raises(
+        ParseFragmentError, match="String contains more holes than expressions provided"
+    ):
         expand_dim(bar, "tmp : _", FormattedExpr("1 + _", []), "i")  # should be error
 
-    with pytest.raises(ParseFragmentError, match="Too many holes in expression"):
+    with pytest.raises(
+        ParseFragmentError, match="String contains more holes than expressions provided"
+    ):
         alloc_stmt = bar.find("tmp : _")
         seq_for_hi = alloc_stmt.parent().hi()
         expand_dim(
             bar, "tmp : _", FormattedExpr("1 + _ + _", [seq_for_hi]), "i"
         )  # should be error
+
+    with pytest.raises(ParseFragmentError, match="String cannot contain holes"):
+        expand_dim(bar, "tmp : _", "1 + _", "i")  # should be error
 
     with pytest.raises(
         ParseFragmentError,
