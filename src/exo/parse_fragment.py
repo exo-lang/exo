@@ -52,6 +52,7 @@ class BuildEnv(LoopIR_Do):
         self.result = None
         self.trg = stmt
         self.proc = proc
+        self.halt = False
 
         for a in self.proc.args:
             self.env[a.name] = a.type
@@ -72,7 +73,10 @@ class BuildEnv(LoopIR_Do):
 
     def do_s(self, s):
         if s == self.trg:
-            self.result = self.env.copy()
+            self.result = self.env
+            self.halt = True
+        if self.halt:
+            return
 
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
