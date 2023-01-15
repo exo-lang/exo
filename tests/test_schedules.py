@@ -1538,7 +1538,7 @@ def test_formatted_expr_2(golden):
     assert str(bar) == golden
 
 
-def test_formatted_expr_3(golden):
+def test_formatted_expr_errors_1():
     @proc
     def bar(n: size, arr: R[n] @ DRAM):
         for i in seq(0, n):
@@ -1578,5 +1578,31 @@ def test_formatted_expr_3(golden):
         alloc_stmt = bar.find("tmp : _")
         seq_for_hi = alloc_stmt.parent().hi()
         formatted_expr = FormattedExprStr("1 + _", [seq_for_hi])
-        new_bar = expand_dim(bar, "tmp : _", formatted_expr, "i")  # should be error
+        new_bar = expand_dim(bar, "tmp : _", formatted_expr, "i")
         new_bar = expand_dim(new_bar, "tmp : _", formatted_expr, "i")  # should be error
+
+
+def test_formatted_expr_errors_2():
+    @proc
+    def bar(n: size, arr: R[n] @ DRAM):
+        for i in seq(0, n):
+            tmp: R
+            tmp = 1.0
+            arr[i] = tmp
+        i: R
+        i = 1.0
+        j: R
+        j = i
+
+    with pytest.raises(
+        ParseFragmentError, match="has a different type in current environment"
+    ):
+        assign_stmt = bar.find("j = i")
+        i_type_R_read_cursor = assign_stmt.rhs()
+
+        alloc_stmt = bar.find("tmp : _")
+        seq_for_hi = alloc_stmt.parent().hi()
+        seq_for_iter = alloc_stmt.parent().name()
+        expand_dim(
+            bar, "tmp : _", "n", FormattedExprStr("_", [i_type_R_read_cursor])
+        )  # should be error

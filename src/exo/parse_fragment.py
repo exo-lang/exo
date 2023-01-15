@@ -263,11 +263,76 @@ class ParseFragment:
                 raise ParseFragmentError(
                     "String contains more holes than expressions provided"
                 )
-            subtree = self.expr_holes[0]
+            subtree = self.rebuild_ast(self.expr_holes[0])
             self.expr_holes = self.expr_holes[1:]
             return subtree
         else:
             assert False, f"bad case: {type(pat)}"
+
+    def rebuild_ast(self, loopIR_expr):
+        def expr_hole_parsing_error(name, msg):
+            raise ParseFragmentError(
+                f"{name} used in an expression to fill a string hole, but {msg}"
+            )
+
+        if isinstance(loopIR_expr, LoopIR.Read):
+            nm = self.find_sym(str(loopIR_expr.name))
+            if nm is None:
+                expr_hole_parsing_error(
+                    loopIR_expr.name, "not found in current environment"
+                )
+            idx = [self.find_sym(i) for i in loopIR_expr.idx]
+            typ = self.env[nm]
+            if typ != loopIR_expr.type:
+                expr_hole_parsing_error(
+                    loopIR_expr.name, "has a different type in current environment"
+                )
+            return LoopIR.Read(nm, idx, typ, self.srcinfo)
+        elif isinstance(loopIR_expr, LoopIR.BinOp):
+            lhs = self.rebuild_ast(loopIR_expr.lhs)
+            rhs = self.rebuild_ast(loopIR_expr.rhs)
+            typ = self.type_for_binop(pat.op, lhs, rhs)
+            if typ != loopIR_expr.type:
+                expr_hole_parsing_error(
+                    loopIR_expr.name, "has a different type in current environment"
+                )
+            return LoopIR.BinOp(loopIR_expr.op, lhs, rhs, typ, self.srcinfo)
+        elif isinstance(loopIR_expr, LoopIR.USub):
+            arg = self.rebuild_ast(rebuild_ast.arg)
+            if arg.type != loopIR_expr.type:
+                expr_hole_parsing_error(
+                    loopIR_expr.name, "has a different type in current environment"
+                )
+            return LoopIR.UnaryOp(arg, arg.type, self.srcinfo)
+        elif isinstance(loopIR_expr, LoopIR.StrideExpr):
+            nm = self.find_sym(loopIR_expr.name)
+            return LoopIR.StrideExpr(nm, loopIR_expr.dim, T.stride, self.srcinfo)
+        elif isinstance(loopIR_expr, LoopIR.Const):
+            typ = {float: T.R, bool: T.bool, int: T.int}.get(type(loopIR_expr.val))
+            assert typ is not None, "bad type!"
+            return LoopIR.Const(loopIR_expr.val, typ, self.srcinfo)
+        elif isinstance(loopIR_expr, LoopIR.BuiltIn):
+            args = [self.rebuild_ast(a) for a in loopIR_expr.args]
+            try:
+                typ = loopIR_expr.f.typecheck(args)
+            except BuiltIn_Typecheck_Error as err:
+                expr_hole_parsing_error(loopIR_expr.f.name(), err)
+
+            return LoopIR.BuiltIn(loopIR_expr.f, args, typ, self.srcinfo)
+        elif isinstance(loopIR_expr, LoopIR.ReadConfig):
+            cfg_name = loopIR_expr.config.name()
+            if cfg_name not in self.configs:
+                expr_hole_parsing_error(
+                    cfg_name,
+                    f"could not find Config in the current environment"
+                    f"Try supplying a list of Config objects via an "
+                    f"optional 'configs' argument",
+                )
+
+            cfg = loopIR_expr.config
+            return LoopIR.ReadConfig(cfg, cfg.field, cfg.typ, self.srcinfo)
+        else:
+            assert False, f"bad case: {type(loopIR_expr)}"
 
     def find_sym(self, expr):
         for k in self.env.keys():
