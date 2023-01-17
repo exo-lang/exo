@@ -1484,3 +1484,17 @@ def test_stage_mem_accum2(golden):
     accum = stage_mem(accum, "for i in _:_", "out[k, 0:16, 0:16]", "o")
 
     assert str(simplify(accum)) == golden
+
+
+def test_new_expr_multi_vars(golden):
+    @proc
+    def bar(n: size, arr: R[n] @ DRAM):
+        for i in seq(0, n):
+            tmp: R @ DRAM
+            tmp = 1.0
+            arr[i] = tmp
+        i: R @ DRAM
+        i = 1.0
+
+    bar = expand_dim(bar, "tmp : _", "n", "i")
+    assert str(bar) == golden
