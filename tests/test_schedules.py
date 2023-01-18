@@ -1590,9 +1590,7 @@ def test_formatted_expr_errors_2():
         j: R
         j = i
 
-    with pytest.raises(
-        ParseFragmentError, match="has a different type in current environment"
-    ):
+    with pytest.raises(ParseFragmentError, match="not found in current environment"):
         assign_stmt = bar.find("j = i")
         i_type_R_read_cursor = assign_stmt.rhs()
 

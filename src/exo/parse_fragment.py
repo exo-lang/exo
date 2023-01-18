@@ -263,9 +263,10 @@ class ParseFragment:
                 raise ParseFragmentError(
                     "String contains more holes than expressions provided"
                 )
-            subtree = self.rebuild_ast(self.expr_holes[0])
+            subtree = self.expr_holes[0]
             self.expr_holes = self.expr_holes[1:]
-            return subtree
+            assert isinstance(subtree, LoopIR.expr)
+            return self.rebuild_ast(subtree)
         else:
             assert False, f"bad case: {type(pat)}"
 
@@ -275,64 +276,78 @@ class ParseFragment:
                 f"{name} used in an expression to fill a string hole, but {msg}"
             )
 
+        def check_sym_consistency(sym):
+            env_sym = self.find_sym(str(sym))
+            if env_sym != sym:
+                expr_hole_parsing_error(sym, "not found in current environment")
+            if self.env[env_sym] != self.env[sym]:
+                expr_hole_parsing_error(
+                    sym, "has a different type in current environment"
+                )
+
         if isinstance(loopIR_expr, LoopIR.Read):
-            nm = self.find_sym(str(loopIR_expr.name))
-            if nm is None:
-                expr_hole_parsing_error(
-                    loopIR_expr.name, "not found in current environment"
-                )
-            idx = [self.find_sym(i) for i in loopIR_expr.idx]
-            typ = self.env[nm]
-            if typ != loopIR_expr.type:
-                expr_hole_parsing_error(
-                    loopIR_expr.name, "has a different type in current environment"
-                )
-            return LoopIR.Read(nm, idx, typ, self.srcinfo)
-        elif isinstance(loopIR_expr, LoopIR.BinOp):
-            lhs = self.rebuild_ast(loopIR_expr.lhs)
-            rhs = self.rebuild_ast(loopIR_expr.rhs)
-            typ = self.type_for_binop(pat.op, lhs, rhs)
-            if typ != loopIR_expr.type:
-                expr_hole_parsing_error(
-                    loopIR_expr.name, "has a different type in current environment"
-                )
-            return LoopIR.BinOp(loopIR_expr.op, lhs, rhs, typ, self.srcinfo)
-        elif isinstance(loopIR_expr, LoopIR.USub):
-            arg = self.rebuild_ast(rebuild_ast.arg)
-            if arg.type != loopIR_expr.type:
-                expr_hole_parsing_error(
-                    loopIR_expr.name, "has a different type in current environment"
-                )
-            return LoopIR.UnaryOp(arg, arg.type, self.srcinfo)
-        elif isinstance(loopIR_expr, LoopIR.StrideExpr):
-            nm = self.find_sym(loopIR_expr.name)
-            return LoopIR.StrideExpr(nm, loopIR_expr.dim, T.stride, self.srcinfo)
+            check_sym_consistency(loopIR_expr.name)
+            for idx in loopIR_expr.idx:
+                check_sym_consistency(idx)
+            return loopIR_expr.update(srcinfo=self.srcinfo)
         elif isinstance(loopIR_expr, LoopIR.Const):
-            typ = {float: T.R, bool: T.bool, int: T.int}.get(type(loopIR_expr.val))
-            assert typ is not None, "bad type!"
-            return LoopIR.Const(loopIR_expr.val, typ, self.srcinfo)
+            return loopIR_expr.update(srcinfo=self.srcinfo)
+        elif isinstance(loopIR_expr, loopIR.USub):
+            return loopIR_expr.update(
+                arg=self.rebuild_ast(loopIR_expr.arg), srcinfo=self.srcinfo
+            )
+        elif isinstance(loopIR_expr, LoopIR.BinOp):
+            return loopIR_expr.update(
+                lhs=self.rebuild_ast(loopIR_expr.lhs),
+                rhs=self.rebuild_ast(loopIR_expr.rhs),
+                srcinfo=self.srcinfo,
+            )
         elif isinstance(loopIR_expr, LoopIR.BuiltIn):
             args = [self.rebuild_ast(a) for a in loopIR_expr.args]
+
             try:
                 typ = loopIR_expr.f.typecheck(args)
             except BuiltIn_Typecheck_Error as err:
-                expr_hole_parsing_error(loopIR_expr.f.name(), err)
+                raise ParseFragmentError(err)
 
-            return LoopIR.BuiltIn(loopIR_expr.f, args, typ, self.srcinfo)
-        elif isinstance(loopIR_expr, LoopIR.ReadConfig):
-            cfg_name = loopIR_expr.config.name()
-            if cfg_name not in self.configs:
+            if typ != loopIR_expr.typ:
                 expr_hole_parsing_error(
-                    cfg_name,
-                    f"could not find Config in the current environment"
-                    f"Try supplying a list of Config objects via an "
-                    f"optional 'configs' argument",
+                    loopIR_expr.f.name(),
+                    "builtin is called with different argument types",
                 )
 
-            cfg = loopIR_expr.config
-            return LoopIR.ReadConfig(cfg, cfg.field, cfg.typ, self.srcinfo)
+            return loopIR_expr.update(args=args, srcinfo=self.srcinfo)
+        elif isinstance(loopIR_expr, LoopIR.WindowExpr):
+            raise ParseFragmentError(
+                "Using a window expression is not allowed to fill a hole in an expression"
+            )
+        elif isinstance(loopIR_expr, LoopIR.StrideExpr):
+            check_sym_consistency(loopIR_expr.name)
+            return loopIR_expr.update(srcinfo=self.srcinfo)
+        elif isinstance(loopIR_expr, loopIR.ReadConfig):
+            config_name = loopIR_expr.config.name()
+            if config_name not in self.configs:
+                raise ParseFragmentError(
+                    f"Could not find Config named '{config_name}'. "
+                    f"Try supplying a list of Config objects via an "
+                    f"optional 'configs' argument"
+                )
+
+            cfg = self.configs[config_name]
+            if not cfg.has_field(loopIR_expr.field):
+                raise ParseFragmentError(
+                    f"Config named '{config_name}' does not have a field "
+                    f"named '{loopIR_expr.field}'"
+                )
+
+            typ = cfg.lookup(loopIR_expr.field)[1]
+            if typ != loopIR_expr.typ:
+                raise ParseFragmentError(
+                    f"Type of field '{loopIR_expr.field}' in Config named '{config_name}' is different"
+                )
+            return loopIR_expr.update(srcinfo=self.srcinfo)
         else:
-            assert False, f"bad case: {type(loopIR_expr)}"
+            assert False, "Bad Case"
 
     def find_sym(self, expr):
         for k in self.env.keys():
