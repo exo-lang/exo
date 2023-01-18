@@ -5,7 +5,7 @@ import re
 
 # import types
 from dataclasses import dataclass
-from typing import Any, List, Union
+from typing import Any, List, Union, Tuple
 
 from .API import Procedure
 from .API_cursors import public_cursors as PC, ExprCursor
@@ -589,25 +589,29 @@ class CallCursorA(StmtCursorA):
 @dataclass
 class FormattedExprStr:
     """
-    Allows the user to provide a string with holes in it along with a list of
-    `CursorExprs` to fill the holes. The object is designed as a wrapper to allow
-    the user to give those inputs as an argument to scheduling operations.
+    Allows the user to provide a string with holes in it along with
+    `ExprCursor`s to fill the holes. The object is designed as a wrapper to
+    allow the user to give those inputs as an argument to scheduling
+    operations. The object's does not evaluate the expression, but merely
+    holds those arguments until they are passed to scheduling operations
+    where they are evaluated.
 
-    The object can only be used once as an argument to a scheduling operation. If it
-    is reused, a `ValueError` will be thrown since it is invalid at that point.
+    The object can only be used once as an argument to a scheduling
+    operation. If it is reused, a `ValueError` will be thrown since it is
+    invalid at that point.
     """
 
     _expr_str: Union[str, None]
-    _expr_holes: Union[List[LoopIR.expr], None]
+    _expr_holes: Union[Tuple[LoopIR.expr], None]
 
-    def __init__(self, expr_str: str, expr_holes: List[ExprCursor]) -> None:
+    def __init__(self, expr_str: str, *expr_holes) -> None:
         if not isinstance(expr_str, str):
             raise TypeError("expr_str must be a string")
         self._expr_str = expr_str
         for cursor in expr_holes:
             if not isinstance(cursor, ExprCursor):
                 raise TypeError("Cursor provided to fill a hole must be a ExprCursor")
-        self._expr_holes = [cursor._impl._node() for cursor in expr_holes]
+        self._expr_holes = tuple(cursor._impl._node() for cursor in expr_holes)
 
     def _get(self):
         if self._expr_str is None:

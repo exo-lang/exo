@@ -1511,7 +1511,7 @@ def test_formatted_expr_1(golden):
     seq_for_hi = alloc_stmt.parent().hi()
     seq_for_iter = alloc_stmt.parent().name()
     bar = expand_dim(
-        bar, "tmp : _", FormattedExprStr("_ + 1", [seq_for_hi]), str(seq_for_iter)
+        bar, "tmp : _", FormattedExprStr("_ + 1", seq_for_hi), str(seq_for_iter)
     )
     assert str(bar) == golden
 
@@ -1528,10 +1528,8 @@ def test_formatted_expr_2(golden):
     alloc_stmt = bar.find("tmp : _")
     seq_i = alloc_stmt.parent()
     seq_o = seq_i.parent()
-    new_dim = FormattedExprStr("(_ + 1) * (1 + _)", [seq_o.hi(), seq_i.hi()])
-    indexing_expr = FormattedExprStr(
-        f"{seq_o.name()} * _ + {seq_i.name()}", [seq_i.hi()]
-    )
+    new_dim = FormattedExprStr("(_ + 1) * (1 + _)", seq_o.hi(), seq_i.hi())
+    indexing_expr = FormattedExprStr(f"{seq_o.name()} * _ + {seq_i.name()}", seq_i.hi())
 
     bar = expand_dim(bar, "tmp : _", new_dim, indexing_expr)
 
@@ -1549,9 +1547,7 @@ def test_formatted_expr_errors_1():
     with pytest.raises(
         ParseFragmentError, match="String contains more holes than expressions provided"
     ):
-        expand_dim(
-            bar, "tmp : _", FormattedExprStr("1 + _", []), "i"
-        )  # should be error
+        expand_dim(bar, "tmp : _", FormattedExprStr("1 + _"), "i")  # should be error
 
     with pytest.raises(
         ParseFragmentError, match="String contains more holes than expressions provided"
@@ -1559,7 +1555,7 @@ def test_formatted_expr_errors_1():
         alloc_stmt = bar.find("tmp : _")
         seq_for_hi = alloc_stmt.parent().hi()
         expand_dim(
-            bar, "tmp : _", FormattedExprStr("1 + _ + _", [seq_for_hi]), "i"
+            bar, "tmp : _", FormattedExprStr("1 + _ + _", seq_for_hi), "i"
         )  # should be error
 
     with pytest.raises(ParseFragmentError, match="String cannot contain holes"):
@@ -1571,13 +1567,13 @@ def test_formatted_expr_errors_1():
     ):
         alloc_stmt = bar.find("tmp : _")
         expand_dim(
-            bar, "tmp : _", FormattedExprStr("1 + _", [alloc_stmt]), "i"
+            bar, "tmp : _", FormattedExprStr("1 + _", alloc_stmt), "i"
         )  # should be error
 
     with pytest.raises(ValueError, match="Cannot reuse FormattedExprStr object"):
         alloc_stmt = bar.find("tmp : _")
         seq_for_hi = alloc_stmt.parent().hi()
-        formatted_expr = FormattedExprStr("1 + _", [seq_for_hi])
+        formatted_expr = FormattedExprStr("1 + _", seq_for_hi)
         new_bar = expand_dim(bar, "tmp : _", formatted_expr, "i")
         new_bar = expand_dim(new_bar, "tmp : _", formatted_expr, "i")  # should be error
 
@@ -1604,5 +1600,5 @@ def test_formatted_expr_errors_2():
         seq_for_hi = alloc_stmt.parent().hi()
         seq_for_iter = alloc_stmt.parent().name()
         expand_dim(
-            bar, "tmp : _", "n", FormattedExprStr("_", [i_type_R_read_cursor])
+            bar, "tmp : _", "n", FormattedExprStr("_", i_type_R_read_cursor)
         )  # should be error
