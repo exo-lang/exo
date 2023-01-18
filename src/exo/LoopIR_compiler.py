@@ -10,7 +10,7 @@ from .LoopIR import LoopIR, LoopIR_Do
 from .LoopIR import T
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
-from .memory import MemGenError, Memory, DRAM
+from .memory import MemGenError, Memory, DRAM, StaticMemory
 from .prec_analysis import PrecisionAnalysis
 from .prelude import *
 from .win_analysis import WindowAnalysis
@@ -491,6 +491,9 @@ class Compiler:
             if not isinstance(pred, LoopIR.Const):
                 self.add_line(f"EXO_ASSUME({self.comp_e(pred)});")
 
+        if not self.static_memory_check(self.proc.body):
+            raise MemGenError("Cannot generate static memory in non-leaf procs")
+
         self.comp_stmts(self.proc.body)
 
         static_kwd = "" if is_public_decl else "static "
@@ -511,6 +514,22 @@ class Compiler:
 
         self.proc_decl = proc_decl
         self.proc_def = proc_def
+
+    def static_memory_check(self, stmts):
+        allocates_static_memory = False
+        for s in stmts:
+            if isinstance(s, LoopIR.Alloc):
+                allocates_static_memory |= issubclass(s.mem, StaticMemory)
+
+        is_leaf_proc = True
+        for s in stmts:
+            if isinstance(s, LoopIR.Call):
+                # Since intrinsics don't allocate memory, we can ignore
+                # them for leaf-node classification purposes. We want
+                # to avoid nested procs that both allocate static memory.
+                is_leaf_proc &= s.f.instr is not None
+
+        return not allocates_static_memory or is_leaf_proc
 
     def add_line(self, line):
         if line:
