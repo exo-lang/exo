@@ -30,7 +30,7 @@ def rank_k_reduce_6x16(K: size, C: f32[6, 16] @ DRAM, A: f32[6, K] @ DRAM,
 ```
 
 Next, please uncomment the code in the first block by deleting the multi-line string
-markers (`"""`). Now, you will see that `stage_assn()` stages `C` to a buffer
+markers (`"""`). Now, you will see that `stage_mem()` stages `C` to a buffer
 called `C_reg`. `set_memory()` sets `C_reg`'s memory to AVX2 to use it as an AVX vector,
 which is denoted by `@ AVX2`.
 
@@ -41,7 +41,7 @@ def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
     for i in seq(0, 6):
         for j in seq(0, 16):
             for k in seq(0, K):
-                C_reg: R @ AVX2
+                C_reg: f32 @ AVX2
                 C_reg = C[i, j]
                 C_reg += A[i, k] * B[k, j]
                 C[i, j] = C_reg
@@ -59,7 +59,7 @@ def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
         for i in seq(0, 6):
             for jo in seq(0, 2):
                 for ji in seq(0, 8):
-                    C_reg: R @ AVX2
+                    C_reg: f32 @ AVX2
                     C_reg = C[i, 8 * jo + ji]
                     C_reg += A[i, k] * B[k, 8 * jo + ji]
                     C[i, 8 * jo + ji] = C_reg
@@ -75,7 +75,7 @@ Please uncomment the code in the third block. Please notice that
 # Third block:
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
-    C_reg: R[1 + K, 6, 2, 8] @ AVX2
+    C_reg: f32[1 + K, 6, 2, 8] @ AVX2
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
@@ -100,7 +100,7 @@ register `a_vec` by `bind_expr()` and `set_memory()`.
 # Fourth block:
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
-    C_reg: R[1 + K, 6, 2, 8] @ AVX2
+    C_reg: f32[1 + K, 6, 2, 8] @ AVX2
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
@@ -128,7 +128,7 @@ to `B`.
 # Fifth block:
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
-    C_reg: R[1 + K, 6, 2, 8] @ AVX2
+    C_reg: f32[1 + K, 6, 2, 8] @ AVX2
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):
@@ -164,7 +164,7 @@ statement with the call to AVX2 instruction procedures to get the final schedule
 # Sixth block:
 def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
                                  A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM):
-    C_reg: R[1 + K, 6, 2, 8] @ AVX2
+    C_reg: f32[1 + K, 6, 2, 8] @ AVX2
     for k in seq(0, K):
         for i in seq(0, 6):
             for jo in seq(0, 2):

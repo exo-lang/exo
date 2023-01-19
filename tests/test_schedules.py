@@ -593,22 +593,6 @@ def test_mult_dim_fail_1():
         mult_dim(foo, "x", 0, 1)
 
 
-def test_double_fission(golden):
-    @proc
-    def foo(N: size, a: f32[N], b: f32[N], out: f32[N]):
-        for i in seq(0, N):
-            res: f32
-            res = 0.0
-
-            res += a[i] * b[i]
-
-            out[i] = res
-
-    foo = autolift_alloc(foo, "res : _", keep_dims=True)
-    foo = double_fission(foo, "res = _ #0", "res += _ #0")
-    assert str(foo) == golden
-
-
 def test_reuse_buffer(golden):
     @proc
     def foo(a: f32 @ DRAM, b: f32 @ DRAM):
@@ -659,6 +643,20 @@ def test_simple_reorder(golden):
                 tmp[i, j] = A[i, j]
 
     bar = reorder_loops(bar, "i j")
+    assert str(bar) == golden
+
+
+def test_reorder_stmts(golden):
+    @proc
+    def bar(g: R[100] @ DRAM):
+        f: R[101] @ DRAM
+        for i in seq(0, 100):
+            f[i] = 1.0
+        f[100] = 1.0
+        for i in seq(0, 100):
+            g[i] = f[i] + f[i + 1]
+
+    bar = reorder_stmts(bar, "for i in _:_ ;\nf[_] = _")
     assert str(bar) == golden
 
 
@@ -1486,3 +1484,17 @@ def test_stage_mem_accum2(golden):
     accum = stage_mem(accum, "for i in _:_", "out[k, 0:16, 0:16]", "o")
 
     assert str(simplify(accum)) == golden
+
+
+def test_new_expr_multi_vars(golden):
+    @proc
+    def bar(n: size, arr: R[n] @ DRAM):
+        for i in seq(0, n):
+            tmp: R @ DRAM
+            tmp = 1.0
+            arr[i] = tmp
+        i: R @ DRAM
+        i = 1.0
+
+    bar = expand_dim(bar, "tmp : _", "n", "i")
+    assert str(bar) == golden

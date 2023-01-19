@@ -1098,7 +1098,7 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
     rewrite:
         `x : T[...] ; s`
           ->
-        `x : T[..., alloc_dim] ; s[ x[...] -> x[..., indexing_expr] ]`
+        `x : T[alloc_dim, ...] ; s[ x[...] -> x[indexing_expr, ...] ]`
     checks:
         The provided dimension size is checked for positivity and the
         provided indexing expression is checked to make sure it is in-bounds
@@ -1942,19 +1942,6 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     return Schedules.DoAddUnsafeGuard(proc_c, stmt, var_expr).result()
 
 
-@sched_op([StmtCursorA, StmtCursorA, PosIntA])
-def double_fission(proc, stmt1, stmt2, n_lifts=1):
-    """
-    DEPRECATED
-    This operation is deprecated, and will be removed soon.
-    """
-    s1 = stmt1._impl
-    s2 = stmt2._impl
-    proc_c = ic.Cursor.root(proc)
-
-    return Schedules.DoDoubleFission(proc_c, s1, s2, n_lifts).result()
-
-
 @sched_op([ForSeqCursorA])
 def bound_and_guard(proc, loop):
     """
@@ -1974,16 +1961,3 @@ def bound_and_guard(proc, loop):
     proc_c = ic.Cursor.root(proc)
 
     return Schedules.DoBoundAndGuard(proc_c, stmt).result()
-
-
-@sched_op([AssignOrReduceCursorA, NameA])
-def stage_assn(proc, stmt_cursor, buf_name):
-    """
-    DEPRECATED
-    This operation is deprecated, and should be replaced by
-    calls to `stage_mem` or something similar.
-    """
-    stmt = stmt_cursor._impl
-    proc_c = ic.Cursor.root(proc)
-
-    return Schedules.DoStageAssn(proc_c, buf_name, stmt).result()

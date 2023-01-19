@@ -70,9 +70,7 @@ from ..API_scheduling import (
     #
     # deprecated scheduling operations
     add_unsafe_guard,
-    double_fission,
     bound_and_guard,
-    stage_assn,
     #
     # to be replaced by stdlib compositions eventually
     autofission,

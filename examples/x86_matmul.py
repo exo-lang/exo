@@ -34,7 +34,7 @@ print(rank_k_reduce_6x16)
 # First block
 """
 avx = rename(rank_k_reduce_6x16, "rank_k_reduce_6x16_scheduled")
-avx = stage_assn(avx, 'C[_] += _', 'C_reg')
+avx = stage_mem(avx, 'C[_] += _', 'C[i, j]', 'C_reg')
 avx = set_memory(avx, 'C_reg', AVX2)
 print("First block:")
 print(avx)

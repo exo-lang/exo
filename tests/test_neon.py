@@ -84,6 +84,58 @@ def test_neon_simple_math(compiler):
         assert np.allclose(x, expected)
 
 
+def test_neon_vfmla():
+    """
+    Compute C[i] = A[i] * B[l]
+    """
+
+    @proc
+    def vfmla(
+        n: size, C: R[n] @ DRAM, A: R[n] @ DRAM, B: R[n] @ DRAM
+    ):  # pragma: no cover
+        assert n == 4
+        for l in seq(0, 4):
+            for i in seq(0, 4):
+                C[i] += A[i] * B[l]
+
+    def simple_vfmla(p=vfmla):
+        p = stage_mem(p, "C[_] += _", "C[i]", "C_reg")
+        p = expand_dim(p, "C_reg", 4, "i", unsafe_disable_checks=True)
+        p = lift_alloc(p, "C_reg", n_lifts=2)
+        p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=2)
+        p = autofission(p, p.find("C[_] = _").before(), n_lifts=2)
+        p = replace(p, "for i in _: _ #0", neon_vld_4xf32)
+        p = replace(p, "for i in _: _ #1", neon_vst_4xf32)
+        p = set_memory(p, "C_reg", Neon4f)
+
+        p = bind_expr(p, "A[_]", "A_vec")
+        p = expand_dim(p, "A_vec", 4, "i", unsafe_disable_checks=True)
+        p = lift_alloc(p, "A_vec", n_lifts=2)
+        p = autofission(p, p.find("A_vec[_] = _").after(), n_lifts=2)
+        p = replace(p, "for i in _: _ #0", neon_vld_4xf32)
+        p = set_memory(p, "A_vec", Neon4f)
+
+        p = bind_expr(p, "B[_]", "B_vec")
+        p = expand_dim(p, "B_vec", 4, "l", unsafe_disable_checks=True)
+        p = lift_alloc(p, "B_vec", n_lifts=2)
+        p = autofission(p, p.find("B_vec[_] = _").after(), n_lifts=2)
+        p = replace(p, "for l in _: _ #0", neon_vld_4xf32)
+        p = set_memory(p, "B_vec", Neon4f)
+
+        p = replace(p, "for i in _: _ #0", neon_vfmla_4xf32_4xf32)
+        p = unroll_loop(p, "l #0")
+        return p
+
+    simple_neon_vfmla = simple_vfmla()
+
+    return simple_neon_vfmla
+
+
+@pytest.mark.isa("neon")
+def test_gen_neon_vfmla(golden, test_neon_vfmla):
+    assert str(test_neon_vfmla) == golden
+
+
 @pytest.fixture
 def simple_math_neon_sched():
     @proc
@@ -95,13 +147,8 @@ def simple_math_neon_sched():
 
     def sched_neon(p=simple_math_neon_sched):
         p = divide_loop(p, "i", 4, ["io", "ii"], tail="cut_and_guard")
-        p = stage_assn(p, "x[_] = _ #0", "xyy")
-        p = autolift_alloc(p, "xyy: _", keep_dims=True)
-        p = fission(p, p.find("xyy[_] = _").after())
 
-        p = bind_expr(p, "x[_]", "xVec")
-        p = autolift_alloc(p, "xVec: _", keep_dims=True)
-        p = fission(p, p.find("xVec[_] = _").after())
+        p = stage_mem(p, "for ii in _:_ #0", "x[4 * io : 4 * io + 4]", "xVec")
 
         p = bind_expr(p, "y[_]", "yVec", cse=True)
         p = autolift_alloc(p, "yVec: _", keep_dims=True)
@@ -114,11 +161,11 @@ def simple_math_neon_sched():
         p = set_memory(p, "xVec", Neon4f)
         p = set_memory(p, "yVec", Neon4f)
         p = set_memory(p, "xy", Neon4f)
-        p = set_memory(p, "xyy", Neon4f)
-        p = replace(p, "for ii in _: _ #4", neon_vst_4xf32)
+        p = replace(p, "for i0 in _: _ #1", neon_vst_4xf32)
         p = replace_all(p, neon_vld_4xf32)
         p = replace_all(p, neon_vmul_4xf32)
 
+        p = simplify(p)
         return p
 
     simple_math_neon_sched = sched_neon()
