@@ -655,6 +655,32 @@ def test_amx_memories_tile_size_limit(compiler, sde64):
         AMX_TILE.reset_allocations()
 
 
+def test_static_memory_register_allocation(compiler, sde64):
+    @proc
+    def proc_inner():
+        tile: i8[16, 64] @ AMX_TILE
+
+    @proc
+    def proc_outer():
+        tile: i8[16, 64] @ AMX_TILE
+        proc_inner()
+
+    test_exe = compiler.compile(
+        [proc_inner],
+        CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
+        CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
+    )
+    with pytest.raises(
+        MemGenError, match="Cannot generate static memory in non-leaf procs"
+    ):
+        test_exe = compiler.compile(
+            [proc_outer],
+            CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
+            CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
+        )
+    AMX_TILE.reset_allocations()
+
+
 def _run_amx(compiler, sde64, procs, test_source):
     test_exe = compiler.compile(
         procs,
