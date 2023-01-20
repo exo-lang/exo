@@ -213,7 +213,7 @@ class ParseFragment:
                 raise ParseFragmentError(
                     f"{pat.name} not found in the " + "current environment"
                 )
-            idx = [self.find_sym(i) for i in pat.idx]
+            idx = [self.parse_e(i) for i in pat.idx]
             return LoopIR.Read(nm, idx, self.env[nm], self.srcinfo)
         elif isinstance(pat, PAST.BinOp):
             lhs = self.parse_e(pat.lhs)
@@ -287,9 +287,8 @@ class ParseFragment:
 
         if isinstance(loopIR_expr, LoopIR.Read):
             check_sym_consistency(loopIR_expr.name)
-            for idx in loopIR_expr.idx:
-                check_sym_consistency(idx)
-            return loopIR_expr.update(srcinfo=self.srcinfo)
+            idx = [self.rebuild_ast(i) for i in loopIR_expr.idx]
+            return loopIR_expr.update(idx=idx, srcinfo=self.srcinfo)
         elif isinstance(loopIR_expr, LoopIR.Const):
             return loopIR_expr.update(srcinfo=self.srcinfo)
         elif isinstance(loopIR_expr, loopIR.USub):
