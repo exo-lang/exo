@@ -1570,13 +1570,6 @@ def test_formatted_expr_errors_1():
             bar, "tmp : _", FormattedExprStr("1 + _", alloc_stmt), "i"
         )  # should be error
 
-    with pytest.raises(ValueError, match="Cannot reuse FormattedExprStr object"):
-        alloc_stmt = bar.find("tmp : _")
-        seq_for_hi = alloc_stmt.parent().hi()
-        formatted_expr = FormattedExprStr("1 + _", seq_for_hi)
-        new_bar = expand_dim(bar, "tmp : _", formatted_expr, "i")
-        new_bar = expand_dim(new_bar, "tmp : _", formatted_expr, "i")  # should be error
-
 
 def test_formatted_expr_errors_2():
     @proc
