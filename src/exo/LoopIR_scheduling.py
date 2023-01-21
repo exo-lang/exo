@@ -1167,6 +1167,7 @@ class _BindConfig(Cursor_Rewrite):
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+        Check_Aliasing(self.proc)
 
     def mod_eq(self):
         return self.eq_mod_config
@@ -1284,6 +1285,7 @@ class _BindExpr(Cursor_Rewrite):
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+        Check_Aliasing(self.proc)
 
     def process_block(self, block):
         if self.sub_done:
