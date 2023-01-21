@@ -920,6 +920,7 @@ class _CallSwap(Cursor_Rewrite):
         self.new_subproc = new_subproc
 
         super().__init__(proc_cursor)
+        Check_Aliasing(self.proc)
 
     def mod_eq(self):
         return self.eq_mod_config
