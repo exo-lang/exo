@@ -30,6 +30,11 @@ from .new_eff import (
     Check_BufferRW,
     Check_BufferReduceOnly,
     Check_Bounds,
+    Check_IsDeadAfter,
+    Check_IsIdempotent,
+    Check_IsPositiveExpr,
+    Check_CodeIsDead,
+    Check_Aliasing,
 )
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
@@ -967,15 +972,34 @@ class _InlineWindow(Cursor_Rewrite):
         ) == len(idxs)
 
         new_idxs = []
-        for w in self.win_stmt.rhs.idx:
-            if isinstance(w, LoopIR.Interval):
-                new_idxs.append(LoopIR.BinOp("+", w.lo, idxs[0], T.index, w.srcinfo))
-                idxs.pop()
-            else:
-                new_idxs.append(w.pt)
+        win_idx = self.win_stmt.rhs.idx
+        idxs = idxs.copy()  # make function non-destructive to input
+        assert len(idxs) == sum([isinstance(w, LoopIR.Interval) for w in win_idx])
 
-        return new_idxs
+        def add(x, y):
+            return LoopIR.BinOp("+", x, y, T.index, x.srcinfo)
 
+        if len(idxs) > 0 and isinstance(idxs[0], LoopIR.w_access):
+
+            def map_w(w):
+                if isinstance(w, LoopIR.Point):
+                    return w
+                # i is from the windowing expression we're substituting into
+                i = idxs.pop(0)
+                if isinstance(i, LoopIR.Point):
+                    return LoopIR.Point(add(i.pt, w.lo), i.srcinfo)
+                else:
+                    return LoopIR.Interval(add(i.lo, w.lo), add(i.hi, w.lo), i.srcinfo)
+
+        else:
+
+            def map_w(w):
+                return w.pt if isinstance(w, LoopIR.Point) else add(idxs.pop(0), w.lo)
+
+        return [map_w(w) for w in win_idx]
+
+    # used to offset the stride in order to account for
+    # dimensions hidden due to window-point accesses
     def calc_dim(self, dim):
         assert dim < len(
             [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
@@ -995,82 +1019,50 @@ class _InlineWindow(Cursor_Rewrite):
 
     def map_s(self, sc):
         s = sc._node()
+        # remove the windowing statement
         if s is self.win_stmt:
             return []
 
-        if isinstance(s, LoopIR.Assign) or isinstance(s, LoopIR.Reduce):
-            if self.win_stmt.lhs == s.name:
-                new_idxs = self.calc_idx(s.idx)
-
-                return [
-                    type(s)(
-                        self.win_stmt.rhs.name,
-                        s.type,
-                        s.cast,
-                        new_idxs,
-                        s.rhs,
-                        None,
-                        s.srcinfo,
-                    )
-                ]
+        # substitute the indexing at assignment and reduction statements
+        if (
+            isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
+            and self.win_stmt.lhs == s.name
+        ):
+            idxs = self.calc_idx(s.idx)
+            return [
+                type(s)(
+                    self.win_stmt.rhs.name, s.type, s.cast, idxs, s.rhs, None, s.srcinfo
+                )
+            ]
 
         return super().map_s(sc)
 
     def map_e(self, e):
-        etyp = type(e)
-        assert isinstance(self.win_stmt.rhs, LoopIR.WindowExpr)
+        # etyp    = type(e)
+        win_name = self.win_stmt.lhs
+        buf_name = self.win_stmt.rhs.name
+        win_idx = self.win_stmt.rhs.idx
 
-        # TODO: Add more safety check?
-        if etyp is LoopIR.WindowExpr:
-            if self.win_stmt.lhs == e.name:
-                assert len(
-                    [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
-                ) == len(e.idx)
-                idxs = e.idx
-                new_idxs = []
-                for w in self.win_stmt.rhs.idx:
-                    if isinstance(w, LoopIR.Interval):
-                        if isinstance(idxs[0], LoopIR.Interval):
-                            # window again, so
-                            # w.lo + idxs[0].lo : w.lo + idxs[0].hi
-                            lo = LoopIR.BinOp("+", w.lo, idxs[0].lo, T.index, w.srcinfo)
-                            hi = LoopIR.BinOp("+", w.lo, idxs[0].hi, T.index, w.srcinfo)
-                            ivl = LoopIR.Interval(lo, hi, w.srcinfo)
-                            new_idxs.append(ivl)
-                        else:  # Point
-                            p = LoopIR.Point(
-                                LoopIR.BinOp("+", w.lo, idxs[0].pt, T.index, w.srcinfo),
-                                w.srcinfo,
-                            )
-                            new_idxs.append(p)
-                        idxs = idxs[1:]
-                    else:
-                        new_idxs.append(w)
+        if isinstance(e, LoopIR.WindowExpr) and win_name == e.name:
+            new_idxs = self.calc_idx(e.idx)
 
-                # repair window type..
-                old_typ = self.win_stmt.rhs.type
-                new_type = LoopIR.WindowType(
-                    old_typ.src_type,
-                    old_typ.as_tensor,
-                    self.win_stmt.rhs.name,
-                    new_idxs,
-                )
+            # repair window type..
+            old_typ = self.win_stmt.rhs.type
+            new_type = LoopIR.WindowType(
+                old_typ.src_type, old_typ.as_tensor, buf_name, new_idxs
+            )
 
-                return LoopIR.WindowExpr(
-                    self.win_stmt.rhs.name, new_idxs, new_type, e.srcinfo
-                )
+            return LoopIR.WindowExpr(
+                self.win_stmt.rhs.name, new_idxs, new_type, e.srcinfo
+            )
 
-        elif etyp is LoopIR.Read:
-            if self.win_stmt.lhs == e.name:
-                new_idxs = self.calc_idx(e.idx)
+        elif isinstance(e, LoopIR.Read) and win_name == e.name:
+            new_idxs = self.calc_idx(e.idx)
+            return LoopIR.Read(buf_name, new_idxs, e.type, e.srcinfo)
 
-                return LoopIR.Read(self.win_stmt.rhs.name, new_idxs, e.type, e.srcinfo)
-
-        elif etyp is LoopIR.StrideExpr:
-            if self.win_stmt.lhs == e.name:
-                return LoopIR.StrideExpr(
-                    self.win_stmt.rhs.name, self.calc_dim(e.dim), e.type, e.srcinfo
-                )
+        elif isinstance(e, LoopIR.StrideExpr) and win_name == e.name:
+            dim = self.calc_dim(e.dim)
+            return LoopIR.StrideExpr(buf_name, dim, e.type, e.srcinfo)
 
         return super().map_e(e)
 
