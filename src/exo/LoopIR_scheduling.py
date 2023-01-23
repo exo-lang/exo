@@ -1557,11 +1557,31 @@ class _DoExpandDim(Cursor_Rewrite):
         self.alloc_dim = alloc_dim
         self.indexing = indexing
         self.alloc_type = None
+        self.new_alloc_stmt = False
+        self.in_call_arg = False
+
+        # size positivity check
+        Check_IsPositiveExpr(proc_cursor._node(), [self.alloc_stmt], alloc_dim)
 
         super().__init__(proc_cursor)
 
+        # bounds check
+        Check_Bounds(self.proc, self.new_alloc_stmt, self.after_alloc)
+
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        # this chunk of code just finds the statement block
+        # that comes after the allocation
+        stmts = super().map_stmts(stmts)
+        if stmts is not None and self.new_alloc_stmt:
+            for i, s in enumerate(stmts):
+                if s is self.new_alloc_stmt:
+                    self.after_alloc = stmts[i + 1 :]
+                    break
+
+        return stmts
 
     def map_s(self, sc):
         s = sc._node()
@@ -1575,19 +1595,33 @@ class _DoExpandDim(Cursor_Rewrite):
             basetyp = old_typ.basetype()
             new_typ = T.Tensor(new_rngs, False, basetyp)
             self.alloc_type = new_typ
+            new_alloc = LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)
+            self.new_alloc_stmt = new_alloc
 
-            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
+            return [new_alloc]
 
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)) and s.name == self.alloc_sym:
             idx = [self.indexing] + self.apply_exprs(s.idx)
             rhs = self.apply_e(s.rhs)
             return [s.update(idx=idx, rhs=rhs, eff=None)]
 
+        if isinstance(s, LoopIR.Call):
+            self.in_call_arg = True
+            args = self._map_list(self.map_e, s.args) or s.args
+            self.in_call_arg = False
+            return [LoopIR.Call(s.f, args, None, s.srcinfo)]
+
         return super().map_s(sc)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            return e.update(idx=[self.indexing] + self.apply_exprs(e.idx))
+            if self.in_call_arg and len(e.idx) == 0:
+                raise SchedulingError(
+                    "TODO: Please Contact the developers to fix (i.e. add) "
+                    "support for passing windows to scalar arguments"
+                )
+            else:
+                return e.update(idx=[self.indexing] + self.apply_exprs(e.idx))
 
         if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
             w_idx = self._map_list(self.map_w_access, e.idx) or e.idx

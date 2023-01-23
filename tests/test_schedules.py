@@ -434,19 +434,19 @@ def test_autolift_alloc_error():
         autolift_alloc(bar, "tmp_a : _", n_lifts=3)
 
 
-def test_expand_dim(golden):
+def test_expand_dim1_bad_scope():
     @proc
     def foo(n: size, m: size, x: i8):
+        a: i8
         for i in seq(0, n):
             for j in seq(0, m):
-                a: i8
                 x = a
 
-    foo = expand_dim(foo, "a : i8", "n", "i")
-    assert str(foo) == golden
+    with pytest.raises(ParseFragmentError, match="i not found in"):
+        expand_dim(foo, "a : i8", "n", "i")  # should be error
 
 
-def test_expand_dim2():
+def test_expand_dim2_bad_scope():
     @proc
     def foo(n: size, m: size, x: i8):
         for i in seq(0, n):
@@ -499,16 +499,20 @@ def test_expand_dim4(golden):
             for j in seq(0, m):
                 pass
 
-    with pytest.raises(TypeError, match="effect checking"):
+    with pytest.raises(
+        SchedulingError, match="The expression 10 - 20 is not guaranteed to be positive"
+    ):
         expand_dim(foo, "a : i8", "10-20", "10")  # this is not fine
 
-    with pytest.raises(TypeError, match="effect checking"):
+    with pytest.raises(
+        SchedulingError, match="The expression n - m is not guaranteed to be positive"
+    ):
         expand_dim(foo, "a : i8", "n - m", "i")  # out of bounds
 
     with pytest.raises(ParseFragmentError, match="not found in"):
         expand_dim(foo, "a : i8", "hoge", "i")  # does not exist
 
-    with pytest.raises(TypeError, match="effect checking"):
+    with pytest.raises(SchedulingError, match="The buffer a is accessed out-of-bounds"):
         expand_dim(foo, "a : i8", "n", "i-j")  # bound check should fail
 
     cases = [
