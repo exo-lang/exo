@@ -2346,15 +2346,7 @@ class _DoFissionAfterSimple:
         self.hit_fission = False  # signal to map_stmts
 
         pre_body, post_body = self.map_stmts(self.orig_proc.body)
-        self.proc = LoopIR.proc(
-            name=self.orig_proc.name,
-            args=self.orig_proc.args,
-            preds=self.orig_proc.preds,
-            body=pre_body + post_body,
-            instr=None,
-            eff=self.orig_proc.eff,
-            srcinfo=self.orig_proc.srcinfo,
-        )
+        self.proc = proc_cursor._node().update(body=pre_body + post_body, instr=None)
         self.proc = InferEffects(self.proc).result()
 
     def result(self):
@@ -2362,11 +2354,15 @@ class _DoFissionAfterSimple:
 
     def alloc_check(self, pre, post):
         if not _is_alloc_free(pre, post):
-            raise SchedulingError(
-                "Will not fission here, because "
-                "an allocation might be buried "
-                "in a different scope than some use-site"
-            )
+            pre_allocs = {s.name for s in pre if isinstance(s, LoopIR.Alloc)}
+            post_FV = _FV(post)
+            for nm in pre_allocs:
+                if nm in post_FV:
+                    raise SchedulingError(
+                        f"Will not fission here, because "
+                        f"doing so will hide the allocation "
+                        f"of {nm} from a later use site."
+                    )
 
     # returns a pair of stmt-lists
     # for those statements occurring before and
@@ -2427,6 +2423,11 @@ class _DoFissionAfterSimple:
             if pre and post and self.n_lifts > 0:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
+
+                # we must check whether the two parts of the
+                # fission can commute appropriately
+                no_loop_var_pre = s.iter not in _FV(pre)
+                # Check_FissionLoop(self.orig_proc, s, pre, post, no_loop_var_pre)
 
                 # we can skip the loop iteration if the
                 # body doesn't depend on the loop
