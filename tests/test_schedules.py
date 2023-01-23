@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from exo import ParseFragmentError
-from exo import proc, DRAM, Procedure
+from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
 
@@ -643,6 +643,50 @@ def test_reuse_buffer(golden):
         b = c
 
     foo = reuse_buffer(foo, "bb:_", "c:_")
+    assert str(foo) == golden
+
+
+def test_fuse_loop(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        y: R[n]
+        for i in seq(0, n):
+            y[i] = x[i]
+        for j in seq(0, n):
+            x[j] = y[j] + 1.0
+
+    foo = fuse(foo, "for i in _:_", "for j in _:_")
+    assert str(foo) == golden
+
+
+def test_fuse_loop_fail():
+    @proc
+    def foo(n: size, x: R[n + 1]):
+        y: R[n + 1]
+        y[0] = x[0]
+        for i in seq(0, n):
+            y[i + 1] = x[i]
+        for j in seq(0, n):
+            x[j + 1] = y[j + 1] + 1.0
+
+    with pytest.raises(SchedulingError, match="Cannot fission loop"):
+        fuse(foo, "for i in _:_", "for j in _:_")
+
+
+def test_fuse_loop_commute_config(golden):
+    @config
+    class CFG:
+        j: index
+
+    @proc
+    def foo(n: size, x: R[n]):
+        y: R[n]
+        for i in seq(0, n):
+            CFG.j = 0
+        for j in seq(0, n):
+            CFG.j = 0
+
+    foo = fuse(foo, "for i in _:_", "for j in _:_")
     assert str(foo) == golden
 
 
