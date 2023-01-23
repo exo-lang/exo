@@ -2705,48 +2705,45 @@ class _DoFuseLoop(Cursor_Rewrite):
         return super().map_stmts(stmts_c)
 
 
-class _DoFuseIf(LoopIR_Rewrite):
-    def __init__(self, proc, f_cursor, s_cursor):
+class _DoFuseIf(Cursor_Rewrite):
+    def __init__(self, proc_cursor, f_cursor, s_cursor):
         self.if1 = f_cursor._node()
         self.if2 = s_cursor._node()
 
-        super().__init__(proc)
+        super().__init__(proc_cursor)
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_stmts(self, stmts):
-        new_stmts = []
-
-        found_first = False
-        for stmt in stmts:
-            if stmt is self.if1:
-                found_first = True
-                continue
-
-            if found_first:
-                found_first = False  # Must have been set on previous iteration
-
-                if stmt is not self.if2:
+    def map_stmts(self, stmts_c):
+        stmts = [s._node() for s in stmts_c]
+        for i, s in enumerate(stmts):
+            if s is self.if1:
+                if i + 1 >= len(stmts) or stmts[i + 1] is not self.if2:
                     raise SchedulingError(
-                        "expected the second stmt to be "
-                        "directly after the first stmt"
+                        "expected the two if statements to be "
+                        "fused to come one right after the other"
                     )
 
-                # Check that conditions are identical
-                if self.if1.cond != self.if2.cond:
-                    raise SchedulingError("expected conditions to match")
+                if1, if2 = self.if1, self.if2
 
-                stmt = LoopIR.If(
-                    self.if1.cond,
-                    self.if1.body + self.if2.body,
-                    self.if1.orelse + self.if2.orelse,
-                    None,
-                    self.if1.srcinfo,
+                # check if the loop bounds are equivalent
+                Check_ExprEqvInContext(
+                    self.orig_proc._node(), if1.cond, [if1], if2.cond, [if2]
                 )
 
-            new_stmts.extend(self.map_s(stmt))
+                cond = if1.cond
+                body1 = if1.body
+                body2 = if2.body
+                orelse1 = if1.orelse
+                orelse2 = if2.orelse
+                ifstmt = LoopIR.If(
+                    cond, body1 + body2, orelse1 + orelse2, None, if1.srcinfo
+                )
 
-        return new_stmts
+                return stmts[:i] + [ifstmt] + stmts[i + 2 :]
+
+        # if we reached this point, we didn't find the if statement
+        return super().map_stmts(stmts)
 
 
 class _DoAddLoop(Cursor_Rewrite):

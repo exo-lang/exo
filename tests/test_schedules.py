@@ -646,6 +646,32 @@ def test_reuse_buffer(golden):
     assert str(foo) == golden
 
 
+def test_fuse_if(golden):
+    @proc
+    def foo(x: R, a: index, b: index):
+        if a == b:
+            x += 1.0
+        if a - b == 0:
+            x += 2.0
+        else:
+            x += 3.0
+
+    foo = fuse(foo, "if a==b:_", "if _==0: _")
+    assert str(foo) == golden
+
+
+def test_fuse_if_fail():
+    @proc
+    def foo(x: R, a: index, b: index):
+        if a == b:
+            x += 1.0
+        if a + b == 0:
+            x += 2.0
+
+    with pytest.raises(SchedulingError, match="Expressions are not equivalent"):
+        fuse(foo, "if a==b:_", "if _==0: _")
+
+
 def test_bind_lhs(golden):
     @proc
     def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
