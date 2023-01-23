@@ -2749,7 +2749,7 @@ class _DoFuseIf(Cursor_Rewrite):
 class _DoAddLoop(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, var, hi, guard):
         self.stmt = stmt_cursor._node()
-        self.var = var
+        self.var = Sym(var)
         self.hi = hi
         self.guard = guard
 
@@ -2760,24 +2760,21 @@ class _DoAddLoop(Cursor_Rewrite):
     def map_s(self, sc):
         s = sc._node()
         if s is self.stmt:
-            if not _is_idempotent([s]):
-                raise SchedulingError("expected stmt to be idempotent!")
+            Check_IsIdempotent(self.orig_proc._node(), [s])
+            Check_IsPositiveExpr(self.orig_proc._node(), [s], self.hi)
 
-            sym = Sym(self.var)
+            sym = self.var
+            hi = self.hi
+            body = [s]
 
-            new_s = s
             if self.guard:
-                cond = LoopIR.BinOp(
-                    "==",
-                    LoopIR.Read(sym, [], T.index, s.srcinfo),
-                    LoopIR.Const(0, T.int, s.srcinfo),
-                    T.bool,
-                    s.srcinfo,
-                )
-                new_s = LoopIR.If(cond, [s], [], None, s.srcinfo)
+                rdsym = LoopIR.Read(sym, [], T.index, s.srcinfo)
+                zero = LoopIR.Const(0, T.int, s.srcinfo)
+                cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
+                body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
 
-            ir = LoopIR.Seq(sym, self.hi, [new_s], None, new_s.srcinfo)
-            return [ir]
+            ir = [LoopIR.Seq(sym, hi, body, None, s.srcinfo)]
+            return ir
 
         return super().map_s(sc)
 

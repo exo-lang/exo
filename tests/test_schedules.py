@@ -120,6 +120,17 @@ def test_delete_pass(golden):
     assert str(delete_pass(foo)) == golden
 
 
+def test_add_loop(golden):
+    @proc
+    def foo(x: R):
+        x = 1.0
+        x = 2.0
+        x = 3.0
+
+    foo = add_loop(foo, "x = 2.0", "i", 5)
+    assert str(foo) == golden
+
+
 def test_add_loop1(golden):
     @proc
     def foo():
@@ -138,23 +149,49 @@ def test_add_loop2(golden):
     assert str(add_loop(foo, "x = _", "i", 10, guard=True)) == golden
 
 
-def test_add_loop3():
-    @proc
-    def foo():
-        x: R
-        x = 0.0
-
-    with pytest.raises(TypeError, match="expected a bool"):
-        add_loop(foo, "x = _", "i", 10, guard=100)
-
-
-def test_add_loop4(golden):
+def test_add_loop3(golden):
     @proc
     def foo(n: size, m: size):
         x: R
         x = 0.0
 
     assert str(add_loop(foo, "x = _", "i", "n+m", guard=True)) == golden
+
+
+def test_add_loop4_fail():
+    @proc
+    def foo():
+        x: R
+        x = 0.0
+
+    with pytest.raises(
+        TypeError, match="argument 4, 'guard' to add_loop: expected a bool"
+    ):
+        add_loop(foo, "x = _", "i", 10, guard=100)
+
+
+def test_add_loop5_fail():
+    @proc
+    def foo(x: R):
+        x += 1.0
+        x += 2.0
+        x += 3.0
+
+    with pytest.raises(SchedulingError, match="The statement at .* is not idempotent"):
+        add_loop(foo, "x += 2.0", "i", 5)
+
+
+def test_add_loop6_runs_fail():
+    @proc
+    def foo(x: R):
+        x = 1.0
+        x = 2.0
+        x = 3.0
+
+    with pytest.raises(
+        SchedulingError, match="The expression 0 is not " "guaranteed to be positive"
+    ):
+        add_loop(foo, "x = 2.0", "i", 0)
 
 
 # Should fix this test with program analysis
