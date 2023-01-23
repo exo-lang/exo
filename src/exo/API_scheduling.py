@@ -1113,30 +1113,30 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
 
 
 @sched_op([AllocCursorA, ListA(IntA)])
-def rearrange_dim(proc, buf_cursor, dimensions):
+def rearrange_dim(proc, buf_cursor, permute_vector):
     """
     Rearranges the dimensions of the indicated buffer allocation according
-    to the supplied permutation (`dimensions`).
+    to the supplied permutation (`permute_vector`).
 
     args:
         buf_cursor      - cursor pointing to an Alloc statement
                           for an N-dimensional array
-        dimensions      - a permutation of the integers (0,1,...,N-1)
+        permute_vector  - a permutation of the integers (0,1,...,N-1)
 
     rewrite:
-        (with dimensions = [2,0,1])
+        (with permute_vector = [2,0,1])
         `x : T[N,M,K]` -> `x : T[K,N,M]`
     """
     proc_c = ic.Cursor.root(proc)
     stmt = buf_cursor._impl
     # extra sanity check
     N = len(stmt._node().type.hi)
-    if set(range(0, N)) != set(dimensions):
+    if set(range(0, N)) != set(permute_vector):
         raise ValueError(
-            f"dimensions argument ({dimensions}) "
+            f"permute_vector argument ({permute_vector}) "
             f"was not a permutation of {set(range(0, N))}"
         )
-    return Schedules.DoRearrangeDim(proc_c, stmt, dimensions).result()
+    return Schedules.DoRearrangeDim(proc_c, stmt, permute_vector).result()
 
 
 @sched_op([AllocCursorA, ListA(OptionalA(NewExprA("buf_cursor"))), BoolA])

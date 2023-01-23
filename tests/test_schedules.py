@@ -320,12 +320,33 @@ def test_rearrange_dim(golden):
                 for k in seq(0, K):
                     a[m, k, n] = x[n, m, k]
 
+    @proc
+    def baz(N: size, M: size, x: i8[N, M]):
+        a: i8[N, M]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                a[n, m] = x[n, m]
+
     foo = rearrange_dim(foo, "a : i8[_]", [1, 2, 0])
     bar = rearrange_dim(bar, "a : i8[_]", [1, 0, 2])
     bar = rearrange_dim(bar, "a : i8[_] #1", [1, 0, 2])
-    cases = [foo, bar]
+    baz = rearrange_dim(baz, "a : i8[_]", [1, 0])
+    cases = [foo, bar, baz]
 
     assert "\n".join(map(str, cases)) == golden
+
+
+def test_rearrange_dim_fail():
+    @proc
+    def foo(N: size, M: size, K: size, x: i8[N, M, K]):
+        a: i8[N, M, K]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[n, m, k] = x[n, m, k]
+
+    with pytest.raises(ValueError, match="was not a permutation of"):
+        rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
 
 
 def test_remove_loop(golden):

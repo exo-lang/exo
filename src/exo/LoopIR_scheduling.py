@@ -1635,44 +1635,89 @@ class _DoExpandDim(Cursor_Rewrite):
 
 
 class _DoRearrangeDim(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, dimensions):
+    def __init__(self, proc_cursor, alloc_cursor, permute_vector):
         self.alloc_stmt = alloc_cursor._node()
         assert isinstance(self.alloc_stmt, LoopIR.Alloc)
 
-        self.dimensions = dimensions
+        # dictionary can be used to permute windows in the future...
+        self.all_permute = {self.alloc_stmt.name: permute_vector}
 
         super().__init__(proc_cursor)
 
         self.proc = InferEffects(self.proc).result()
+
+    def should_permute(self, buf):
+        return buf in self.all_permute
+
+    def permute(self, buf, es):
+        permutation = self.all_permute[buf]
+        return [es[i] for i in permutation]
+
+    def permute_single_idx(self, buf, i):
+        return self.all_permute[buf].index(i)
+
+    def check_permute_window(self, buf, idx):
+        # for now just enforce a stability criteria on windowing
+        # expressions w.r.t. dimension reordering
+        permutation = self.all_permute[name]
+        # where each index of the output window now refers to in the
+        # buffer being windowed
+        keep_perm = [i for i in permutation if isinstance(idx[i], LoopIR.Interval)]
+        # check that these indices are monotonic
+        for i, ii in zip(keep_perm[:-1], keep_perm[1:]):
+            if i > ii:
+                return False
+        return True
 
     def map_s(self, sc):
         s = sc._node()
         # simply change the dimension
         if s is self.alloc_stmt:
             # construct new_hi
-            new_hi = [s.type.hi[i] for i in self.dimensions]
+            new_hi = self.permute(s.name, s.type.hi)
             # construct new_type
             new_type = LoopIR.Tensor(new_hi, s.type.is_window, s.type.type)
 
             return [LoopIR.Alloc(s.name, new_type, s.mem, None, s.srcinfo)]
 
         # Adjust the use-site
-        if isinstance(s, LoopIR.Assign) or isinstance(s, LoopIR.Reduce):
-            if s.name is self.alloc_stmt.name:
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            if self.should_permute(s.name):
                 # shuffle
-                new_idx = [s.idx[i] for i in self.dimensions]
+                new_idx = self.permute(s.name, s.idx)
                 return [
                     type(s)(s.name, s.type, s.cast, new_idx, s.rhs, None, s.srcinfo)
                 ]
 
+        if isinstance(s, LoopIR.Call):
+            # check that the arguments are not permuted buffers
+            for a in s.args:
+                if isinstance(a, LoopIR.Read) and self.should_permute(a.name):
+                    raise SchedulingError(
+                        "Cannot permute buffer '{a.name}' because it is "
+                        "passed as an sub-procedure argument at {s.srcinfo}"
+                    )
+
         return super().map_s(sc)
 
     def map_e(self, e):
-        # TODO: I am not sure what rearrange_dim should do in terms of StrideExpr
-        if isinstance(e, LoopIR.Read) or isinstance(e, LoopIR.WindowExpr):
-            if e.name is self.alloc_stmt.name:
-                new_idx = [e.idx[i] for i in self.dimensions]
-                return type(e)(e.name, new_idx, e.type, e.srcinfo)
+        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr)):
+            if self.should_permute(e.name):
+                if isinstance(e, LoopIR.WindowExpr) and not self.check_permute_window(
+                    e.name, e.idx
+                ):
+                    raise SchedulingError(
+                        f"Permuting the window expression at {e.srcinfo} "
+                        f"would change the meaning of the window; "
+                        f"propogating dimension rearrangement through "
+                        f"windows is not currently supported"
+                    )
+                return type(e)(e.name, self.permute(e.name, e.idx), e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.StrideExpr):
+            if self.should_permute(e.name):
+                dim = self.permute_single_idx(e.dim)
+                return e.update(dim=dim)
 
         return super().map_e(e)
 
