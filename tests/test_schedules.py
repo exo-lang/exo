@@ -376,6 +376,18 @@ def test_remove_loop(golden):
     assert "\n".join(map(str, cases)) == golden
 
 
+def test_remove_loop_fail(golden):
+    @proc
+    def foo(n: size, m: size, x: i8):
+        a: i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x += a
+
+    with pytest.raises(SchedulingError, match="The statement at .* is not idempotent"):
+        remove_loop(foo, "for i in _:_")
+
+
 def test_lift_alloc_simple(golden):
     @proc
     def bar(n: size, A: i8[n]):

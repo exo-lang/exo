@@ -2308,26 +2308,25 @@ class _DoRemoveLoop(Cursor_Rewrite):
             # Check if we can remove the loop
             # Conditions are:
             # 1. Body does not depend on the loop iteration variable
-            # 2. Body is idempotent
-            # 3. The loop runs at least once
-            # TODO: (3) could be checked statically using something similar to the legacy is_pos_int.
-
-            if s.iter not in _FV(s.body):
-                if _is_idempotent(s.body):
-                    zero = LoopIR.Const(0, T.int, s.srcinfo)
-                    cond = LoopIR.BinOp(">", s.hi, zero, T.bool, s.srcinfo)
-                    body = self.apply_stmts(sc.body())
-                    guard = LoopIR.If(cond, body, [], None, s.srcinfo)
-                    # remove loop and alpha rename
-                    return Alpha_Rename([guard]).result()
-                else:
-                    raise SchedulingError(
-                        "Cannot remove loop, loop body is " "not idempotent"
-                    )
-            else:
+            if s.iter in _FV(s.body):
                 raise SchedulingError(
                     f"Cannot remove loop, {s.iter} is not " "free in the loop body."
                 )
+
+            # 2. Body is idemopotent
+            Check_IsIdempotent(self.orig_proc._node(), [s])
+
+            # 3. The loop runs at least once;
+            #    If not, then place a guard around the statement
+            body = Alpha_Rename(s.body).result()
+            try:
+                Check_IsPositiveExpr(self.orig_proc._node(), [s], s.hi)
+            except SchedulingError:
+                zero = LoopIR.Const(0, T.int, s.srcinfo)
+                cond = LoopIR.BinOp(">", s.hi, zero, T.bool, s.srcinfo)
+                body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
+
+            return body
 
         return super().map_s(sc)
 
