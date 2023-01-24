@@ -1173,10 +1173,10 @@ def test_unify4(golden):
                 dst[i] = src[i] + src[i + 1]
 
     @proc
-    def foo(x: R[50, 2]):
+    def foo(x: R[50, 2], y: R[50, 2]):
         for j in seq(0, 50):
             if j < 48:
-                x[j, 1] = x[j, 0] + x[j + 1, 0]
+                y[j, 1] = x[j, 0] + x[j + 1, 0]
 
     foo = replace(foo, "for j in _ : _", bar)
     assert str(foo) == golden
