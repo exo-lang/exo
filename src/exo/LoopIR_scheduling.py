@@ -2893,6 +2893,7 @@ class _DoExtractMethod(Cursor_Rewrite):
             self.var_types[a.name] = a.type
 
         super().__init__(proc_cursor)
+        Check_Aliasing(self.proc)
 
     def subproc(self):
         return api.Procedure(self.new_subproc)
