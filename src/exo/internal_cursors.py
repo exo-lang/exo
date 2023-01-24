@@ -3,7 +3,6 @@ from __future__ import annotations
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum, auto
 from functools import cached_property
 from typing import Optional, Iterable, Union
 from weakref import ReferenceType
@@ -14,18 +13,6 @@ from . import LoopIR
 
 class InvalidCursorError(Exception):
     pass
-
-
-class ForwardingPolicy(Enum):
-    # Invalidate any cursor that could be forwarded reasonably in more than one
-    # way.
-    PreferInvalidation = auto()
-    # When forwarding insertions, prefer to forward the insertion gap to the gap
-    # BEFORE the inserted block, rather than invalidating it.
-    AnchorPre = auto()
-    # When forwarding insertions, prefer to forward the insertion gap to the gap
-    # AFTER the inserted block, rather than invalidating it.
-    AnchorPost = auto()
 
 
 def _starts_with(a: list, b: list):
@@ -200,7 +187,7 @@ class Cursor(ABC):
 
         return impl(self.proc().INTERNAL_proc(), self._path)
 
-    def _make_forward(self, new_proc, fwd_node, fwd_gap, fwd_sel):
+    def _make_forward(self, new_proc, fwd_node):
         orig_proc = self._proc
         depth = len(self._path)
         attr = self._path[depth - 1][0]
@@ -208,6 +195,9 @@ class Cursor(ABC):
         def forward(cursor: Cursor) -> Cursor:
             if cursor._proc != orig_proc:
                 raise InvalidCursorError("cannot forward unknown procs")
+
+            if not isinstance(cursor, Node):
+                raise InvalidCursorError("can only forward nodes")
 
             # TODO: use attrs + attrs.evolve
             def evolve(p):
@@ -225,13 +215,7 @@ class Cursor(ABC):
                 # At least as deep, but wrong branch
                 return evolve(old_path)
 
-            if len(old_path) > depth or isinstance(cursor, Node):
-                idx = fwd_node(old_idx)
-            elif isinstance(cursor, Gap):
-                idx = fwd_gap(old_idx)
-            else:
-                assert isinstance(cursor, Block)
-                idx = fwd_sel(old_idx)
+            idx = fwd_node(old_idx)
 
             return evolve(old_path[: depth - 1] + [(attr, idx)] + old_path[depth:])
 
@@ -380,26 +364,7 @@ class Block(Cursor):
                 raise InvalidCursorError("node no longer exists")
             return i + n_diff * (i >= del_range.stop)
 
-        def fwd_gap(i):
-            if i in del_range[1:]:
-                raise InvalidCursorError("gap no longer exists")
-            return i + n_diff * (i >= del_range.stop)
-
-        def fwd_sel(rng: range):
-            if _is_sub_range(rng, del_range):
-                raise InvalidCursorError("block no longer exists")
-            if _overlaps_one_side(rng, del_range):
-                raise InvalidCursorError("block was partially destroyed")
-
-            start = rng.start + n_diff * (rng.start >= del_range.stop)
-            stop = rng.stop + n_diff * (rng.stop >= del_range.stop)
-
-            if start >= stop:
-                raise InvalidCursorError("block no longer exists")
-
-            return range(start, stop)
-
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._make_forward(new_proc, fwd_node)
 
     def _delete(self):
         """
@@ -604,13 +569,7 @@ class Node(Cursor):
         def fwd_node(_):
             raise InvalidCursorError("cannot forward replaced nodes")
 
-        def fwd_gap(_):
-            assert False, "should never get here"
-
-        def fwd_sel(_):
-            assert False, "should never get here"
-
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._make_forward(new_proc, fwd_node)
 
 
 @dataclass
@@ -641,7 +600,7 @@ class Gap(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def _insert(self, stmts: list, policy=ForwardingPolicy.AnchorPre):
+    def _insert(self, stmts: list):
         """
         This is an UNSAFE internal function for inserting a list of nodes at a
         particular gap in an AST block and providing a forwarding function as
@@ -657,37 +616,14 @@ class Gap(Cursor):
             return parent.update(**{attr: children[:i] + stmts + children[i:]})
 
         p = API.Procedure(self._rewrite_node(update))
+        forward = self._forward_insert(weakref.ref(p), len(stmts))
 
-        forward = self._forward_insert(weakref.ref(p), len(stmts), policy)
         return p, forward
 
-    def _forward_insert(self, new_proc, ins_len, policy):
+    def _forward_insert(self, new_proc, ins_len):
         _, ins_idx = self._path[-1]
 
         def fwd_node(i):
             return i + ins_len * (i >= ins_idx)
 
-        if policy == ForwardingPolicy.AnchorPre:
-
-            def fwd_gap(i):
-                return i + ins_len * (i > ins_idx)
-
-        elif policy == ForwardingPolicy.AnchorPost:
-
-            def fwd_gap(i):
-                return i + ins_len * (i >= ins_idx)
-
-        else:
-
-            def fwd_gap(i):
-                if i == ins_idx:
-                    raise InvalidCursorError("insertion gap was invalidated")
-                return i + ins_len * (i > ins_idx)
-
-        def fwd_sel(rng):
-            return range(
-                rng.start + ins_len * (rng.start >= ins_idx),
-                rng.stop + ins_len * (rng.stop > ins_idx),
-            )
-
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._make_forward(new_proc, fwd_node)
