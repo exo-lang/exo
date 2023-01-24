@@ -2592,8 +2592,8 @@ class _DoAddUnsafeGuard(Cursor_Rewrite):
     def map_s(self, sc):
         s = sc._node()
         if s is self.stmt:
-            # Check_ExprEqvInContext(self.orig_proc, [s],
-            #                       self.cond,
+            # Check_ExprEqvInContext(self.orig_proc,
+            #                       self.cond, [s],
             #                       LoopIR.Const(True, T.bool, s.srcinfo))
             s1 = Alpha_Rename([s]).result()
             return [LoopIR.If(self.cond, s1, [], None, s.srcinfo)]
