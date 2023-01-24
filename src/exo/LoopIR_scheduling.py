@@ -3702,6 +3702,7 @@ class _DoStageWindow(Cursor_Rewrite):
         self._copy_code = None
 
         super().__init__(proc_cursor)
+        Check_Aliasing(self.proc)
 
         self.proc = InferEffects(self.proc).result()
 
