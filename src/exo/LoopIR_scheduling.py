@@ -3326,7 +3326,10 @@ class _AssertIf(Cursor_Rewrite):
     def map_s(self, sc):
         s = sc._node()
         if s is self.if_stmt:
-            # TODO: Gilbert's SMT thing should do this safely
+            # check if the condition matches the asserted constant
+            cond_node = LoopIR.Const(self.cond, T.bool, s.srcinfo)
+            Check_ExprEqvInContext(self.orig_proc, s.cond, [s], cond_node)
+            # if so, then we can simplify away the guard
             if self.cond:
                 return self.map_stmts(sc.body())
             else:
