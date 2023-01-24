@@ -3829,25 +3829,31 @@ class _DoBoundAlloc(Cursor_Rewrite):
         self.bounds = bounds
         super().__init__(proc_cursor)
 
-    def map_s(self, sc):
-        s = sc._node()
-        if s is self.alloc_site:
-            assert isinstance(s.type, T.Tensor)
-            if len(self.bounds) != len(s.type.hi):
-                raise SchedulingError(
-                    f"bound_alloc: dimensions do not match: {len(self.bounds)} "
-                    f"!= {len(s.type.hi)} (expected)"
-                )
+    def map_stmts(self, stmts_c):
+        new_stmts = []
+        for i, sc in enumerate(stmts_c):
+            s = sc._node()
+            if s is self.alloc_site:
+                assert isinstance(s.type, T.Tensor)
+                if len(self.bounds) != len(s.type.hi):
+                    raise SchedulingError(
+                        f"bound_alloc: dimensions do not match: "
+                        f"{len(self.bounds)} != {len(s.type.hi)} (expected)"
+                    )
 
-            new_type = T.Tensor(
-                [(new if new else old) for old, new in zip(s.type.hi, self.bounds)],
-                s.type.is_window,
-                s.type.type,
-            )
+                new_bounds = [
+                    new if new else old for old, new in zip(s.type.hi, self.bounds)
+                ]
+                newtyp = T.Tensor(new_bounds, s.type.is_window, s.type.type)
 
-            return [LoopIR.Alloc(s.name, new_type, s.mem, s.eff, s.srcinfo)]
+                # TODO: CHECK THE BOUNDS OF ACCESSES IN stmts[i+1:] here
 
-        return super().map_s(sc)
+                s = LoopIR.Alloc(s.name, newtyp, s.mem, s.eff, s.srcinfo)
+                return new_stmts + [s] + [s._node() for s in stmts_c[i + 1 :]]
+            else:
+                new_stmts += self.map_s(sc) or [s]
+
+        return new_stmts
 
 
 # --------------------------------------------------------------------------- #
