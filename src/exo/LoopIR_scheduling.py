@@ -3344,9 +3344,6 @@ class _AssertIf(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-# TODO: This analysis is overly conservative.
-# However, it might be a bit involved to come up with
-# a more precise analysis.
 class _DoDataReuse(Cursor_Rewrite):
     def __init__(self, proc_cursor, buf_cursor, rep_cursor):
         assert isinstance(buf_cursor._node(), LoopIR.Alloc)
@@ -3354,11 +3351,12 @@ class _DoDataReuse(Cursor_Rewrite):
         assert buf_cursor._node().type == rep_cursor._node().type
 
         self.buf_name = buf_cursor._node().name
+        self.buf_dims = len(buf_cursor._node().type.shape())
         self.rep_name = rep_cursor._node().name
         self.rep_pat = rep_cursor._node()
 
-        self.found_rep = False
-        self.first_assn = False
+        self.found_rep_alloc = False
+        self.first_assn = True
 
         super().__init__(proc_cursor)
 
@@ -3366,29 +3364,28 @@ class _DoDataReuse(Cursor_Rewrite):
 
     def map_s(self, sc):
         s = sc._node()
-        # Check that buf_name is only used
-        # before the first assignment of rep_pat
-        if self.first_assn:
-            if self.buf_name in _FV([s]):
-                raise SchedulingError(
-                    "buf_name should not be used after the "
-                    "first assignment of rep_pat"
-                )
-
+        # remove the allocation that we are eliminating through re-use
         if s is self.rep_pat:
-            self.found_rep = True
+            self.found_rep_alloc = True
             return []
 
-        if self.found_rep:
-            if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-                rhs = self.apply_e(s.rhs)
-                name = s.name
-                if s.name == self.rep_name:
-                    name = self.buf_name
-                    if not self.first_assn:
-                        self.first_assn = True
+        # make replacements after the first write to the buffer
+        if self.found_rep_alloc:
+            if (
+                type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce
+            ) and s.name == self.rep_name:
+                name = self.buf_name
+                rhs = self.map_e(s.rhs) or s.rhs
 
-                return s.update(name=name, cast=None, rhs=rhs, eff=None)
+                # check whether the buffer we are trying to re-use
+                # is live or not at this point in the execution
+                if self.first_assn:
+                    self.first_assn = False
+                    Check_IsDeadAfter(
+                        self.orig_proc._node(), [s], self.buf_name, self.buf_dims
+                    )
+
+                return [type(s)(name, s.type, None, s.idx, rhs, None, s.srcinfo)]
 
         return super().map_s(sc)
 
