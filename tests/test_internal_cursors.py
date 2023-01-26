@@ -585,6 +585,19 @@ def test_move_block(proc_bar, golden):
     assert actual == golden
 
 
+def _debug_print_forwarding(x, fwd):
+    fx = fwd(x)
+    print(x._path)
+    print(_print_cursor(x))
+    print(x._proc())
+    print("-----------")
+    print(fx._path)
+    print(_print_cursor(fx))
+    print(fx._proc())
+    print()
+    print()
+
+
 def test_move_block_forwarding(proc_bar, golden):
     c = proc_bar._TEST_find_cursors("x = 1.0 ; x = 2.0")[0]
 
@@ -594,17 +607,8 @@ def test_move_block_forwarding(proc_bar, golden):
 
     def _test_fwd(fwd):
         for x in x_orig:
-            fx = fwd(x)
-            # print(x._path)
-            # print(_print_cursor(x))
-            # print(x._proc())
-            # print("-----------")
-            # print(fx._path)
-            # print(_print_cursor(fx))
-            # print(fx._proc())
-            # print()
-            # print()
-            assert str(fx._node()) == str(x._node())
+            # _debug_print_forwarding(x, fwd)
+            assert str(fwd(x)._node()) == str(x._node())
 
     # Movement within block
     _, fwd0 = c._move(c.before(2))
