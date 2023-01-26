@@ -548,3 +548,34 @@ def test_cursor_pretty_print_blocks(proc_bar, golden):
     output.append(_print_cursor(c))
 
     assert "\n\n".join(output) == golden
+
+
+def test_move_block(proc_bar, golden):
+    c = proc_bar._TEST_find_cursors("x = 1.0 ; x = 2.0")[0]
+
+    # Movement within block
+    p0, _ = c._move(c.before(2))
+    p1, _ = c._move(c.before())
+    p2, _ = c._move(c.after())
+    p3, _ = c._move(c.after(2))
+    p4, _ = c._move(c.after(3))
+    p5, _ = c._move(c.after(4))
+
+    assert str(p1) == str(p2), "Both before and after should keep block in place."
+
+    # Movement upward
+    pu0, _ = c._move(c.parent().before())
+    pu1, _ = c._move(c.parent().after())
+    pu2, _ = c._move(c.parent().parent().before())
+    pu3, _ = c._move(c.parent().parent().before(2))
+    pu4, _ = c._move(c.parent().parent().after())
+
+    # Movement downward (abbreviated)
+    c2 = proc_bar._TEST_find_cursors("x: _")[0]
+    pd0, _ = c2._move(c.before(2))
+    pd1, _ = c2._move(c.before())
+    pd2, _ = c2._move(c2.after(2))
+
+    all_tests = [p0, p1, p2, p3, p4, p5, pu0, pu1, pu2, pu3, pu4, pd0, pd1, pd2]
+    actual = "\n".join(str(p) for p in all_tests)
+    assert actual == golden

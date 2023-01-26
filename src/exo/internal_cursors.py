@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -199,9 +200,8 @@ class Cursor(ABC):
             if not isinstance(cursor, Node):
                 raise InvalidCursorError("can only forward nodes")
 
-            # TODO: use attrs + attrs.evolve
             def evolve(p):
-                return type(cursor)(new_proc, p)
+                return dataclasses.replace(cursor, _proc=new_proc, _path=p)
 
             old_path = cursor._path
 
@@ -375,6 +375,52 @@ class Block(Cursor):
         """
         pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node().srcinfo)]
         return self._replace([], empty_default=pass_stmt)
+
+    def _move(self, target: Gap):
+        if target in self:
+            target = self.before()
+
+        # TODO: This is slow since it walks down the tree each time.
+        nodes = [n._node() for n in self]
+
+        def _is_before(g: Gap, b: Block):
+            b_path = b._path[:-1] + [(b._path[-1][0], b._path[-1][1].start)]
+
+            for (g_attr, g_idx), (b_attr, b_idx) in zip(g._path, b_path):
+                if g_attr != b_attr:
+                    # arbitrary because they're in disjoint branches
+                    return False
+
+                if g_idx != b_idx:
+                    return g_idx < b_idx
+
+            return True
+
+        if _is_before(target, self):
+            # If the gap comes first in a pre-order traversal, then we want to
+            # delete the original block of nodes first, to keep the path to the
+            # gap stable, before inserting the nodes in the new position.
+            p, _ = self._delete()
+            p, _ = dataclasses.replace(target, _proc=weakref.ref(p))._insert(nodes)
+        else:
+            # Conversely, if the moved block comes first, then we want to jump
+            # ahead and insert the block into the gap position before coming back
+            # to delete the original nodes, so that the path to the deletion stays
+            # stable.
+            p, _ = target._insert(nodes)
+            p, _ = dataclasses.replace(self, _proc=weakref.ref(p))._delete()
+
+        def _forward(*args):
+            """
+            xxYYxzxxx      xxxzYYxxx
+            012345678  ->  012345678
+
+            if after orig. block end, subtract n (-2)
+            if after orig. gap, add n (+2)
+            """
+            raise InvalidCursorError("not implemented")
+
+        return p, _forward
 
 
 @dataclass
