@@ -376,12 +376,32 @@ class Block(Cursor):
         pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node().srcinfo)]
         return self._replace([], empty_default=pass_stmt)
 
+    def _wrap(self, template, attr):
+        """
+        This is an UNSAFE internal function for wrapping a block in an AST
+        with another block-containing node and providing a forwarding function
+        as collateral. It is meant to be package-private, not class-private,
+        so it may be called from other internal classes and modules, but not
+        from end-user code.
+        """
+        pass
+
     def _move(self, target: Gap):
+        """
+        This is an UNSAFE internal function for relocating a block in an AST
+        and providing a forwarding function as collateral. It is meant to be
+        package-private, not class-private, so it may be called from other
+        internal classes and modules, but not from end-user code.
+        """
+
         if target in self:
             target = self.before()
 
-        # TODO: This is slow since it walks down the tree each time.
-        nodes = [n._node() for n in self]
+        # Do this rather than [n._node() for n in self] because that would
+        # walk down the tree once per node in the block, whereas this walks
+        # down once.
+        attr, rng = self._path[-1]
+        nodes = getattr(self.parent()._node(), attr)[rng.start : rng.stop]
 
         def _is_before(g: Gap, b: Block):
             b_path = b._path[:-1] + [(b._path[-1][0], b._path[-1][1].start)]
