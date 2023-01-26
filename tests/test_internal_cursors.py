@@ -576,7 +576,11 @@ def test_move_block(proc_bar, golden):
     pd1, _ = c2._move(c.before())
     pd2, _ = c2._move(c2.after(2))
 
-    all_tests = [p0, p1, p2, p3, p4, p5, pu0, pu1, pu2, pu3, pu4, pd0, pd1, pd2]
+    # Move out a whole loop (needs to insert pass)
+    c3 = proc_bar._TEST_find_cursors("for j in _: _")[0]
+    pl0, _ = c3._move(c3.parent().after())
+
+    all_tests = [p0, p1, p2, p3, p4, p5, pu0, pu1, pu2, pu3, pu4, pd0, pd1, pd2, pl0]
     actual = "\n".join(str(p) for p in all_tests)
     assert actual == golden
 
@@ -590,7 +594,17 @@ def test_move_block_forwarding(proc_bar, golden):
 
     def _test_fwd(fwd):
         for x in x_orig:
-            assert str(fwd(x)._node()) == str(x._node())
+            fx = fwd(x)
+            # print(x._path)
+            # print(_print_cursor(x))
+            # print(x._proc())
+            # print("-----------")
+            # print(fx._path)
+            # print(_print_cursor(fx))
+            # print(fx._proc())
+            # print()
+            # print()
+            assert str(fx._node()) == str(x._node())
 
     # Movement within block
     _, fwd0 = c._move(c.before(2))
@@ -626,3 +640,8 @@ def test_move_block_forwarding(proc_bar, golden):
     _test_fwd(fwd12)
     _, fwd13 = c2._move(c2.after(2))
     _test_fwd(fwd13)
+
+    # Move out a whole loop
+    c3 = proc_bar._TEST_find_cursors("for j in _: _")[0]
+    _, fwd14 = c3._move(c3.parent().after())
+    _test_fwd(fwd14)

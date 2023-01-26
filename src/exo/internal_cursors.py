@@ -424,6 +424,17 @@ class Block(Cursor):
             cur_path = list(cur._path)
             cur_n = len(cur_path)
 
+            # Compute the gap offset when moving within a block
+            if (
+                block_n == gap_n
+                and block_path[: block_n - 1] == gap_path[: block_n - 1]
+                and block_path[block_n - 1][0] == gap_path[block_n - 1][0]
+                and block_path[block_n - 1][1].stop <= gap_path[block_n - 1][1]
+            ):
+                gap_off = -edit_n
+            else:
+                gap_off = 0
+
             # Handle nodes around the edit points
             offsets = []
 
@@ -443,7 +454,7 @@ class Block(Cursor):
                         _proc=weakref.ref(p),
                         _path=(
                             gap_path[:-1]
-                            + [(gap_path[-1][0], gap_path[-1][1] + off)]
+                            + [(gap_path[-1][0], gap_path[-1][1] + gap_off + off)]
                             + cur_path[block_n:]
                         ),
                     )
