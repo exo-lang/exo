@@ -579,3 +579,50 @@ def test_move_block(proc_bar, golden):
     all_tests = [p0, p1, p2, p3, p4, p5, pu0, pu1, pu2, pu3, pu4, pd0, pd1, pd2]
     actual = "\n".join(str(p) for p in all_tests)
     assert actual == golden
+
+
+def test_move_block_forwarding(proc_bar, golden):
+    c = proc_bar._TEST_find_cursors("x = 1.0 ; x = 2.0")[0]
+
+    x_orig = []
+    for i in range(6):
+        x_orig.append(proc_bar._TEST_find_stmt(f"x = {i}.0"))
+
+    def _test_fwd(fwd):
+        for x in x_orig:
+            assert str(fwd(x)._node()) == str(x._node())
+
+    # Movement within block
+    _, fwd0 = c._move(c.before(2))
+    _test_fwd(fwd0)
+    _, fwd1 = c._move(c.before())
+    _test_fwd(fwd1)
+    _, fwd2 = c._move(c.after())
+    _test_fwd(fwd2)
+    _, fwd3 = c._move(c.after(2))
+    _test_fwd(fwd3)
+    _, fwd4 = c._move(c.after(3))
+    _test_fwd(fwd4)
+    _, fwd5 = c._move(c.after(4))
+    _test_fwd(fwd5)
+
+    # Movement upward
+    _, fwd6 = c._move(c.parent().before())
+    _test_fwd(fwd6)
+    _, fwd7 = c._move(c.parent().after())
+    _test_fwd(fwd7)
+    _, fwd8 = c._move(c.parent().parent().before())
+    _test_fwd(fwd8)
+    _, fwd9 = c._move(c.parent().parent().before(2))
+    _test_fwd(fwd9)
+    _, fwd10 = c._move(c.parent().parent().after())
+    _test_fwd(fwd10)
+
+    # Movement downward (abbreviated)
+    c2 = proc_bar._TEST_find_cursors("x: _")[0]
+    _, fwd11 = c2._move(c.before(2))
+    _test_fwd(fwd11)
+    _, fwd12 = c2._move(c.before())
+    _test_fwd(fwd12)
+    _, fwd13 = c2._move(c2.after(2))
+    _test_fwd(fwd13)

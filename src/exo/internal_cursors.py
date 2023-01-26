@@ -410,15 +410,60 @@ class Block(Cursor):
             p, _ = target._insert(nodes)
             p, _ = dataclasses.replace(self, _proc=weakref.ref(p))._delete()
 
-        def _forward(*args):
-            """
-            xxYYxzxxx      xxxzYYxxx
-            012345678  ->  012345678
+        def _forward(cur: Node):
+            # TODO: add validations
 
-            if after orig. block end, subtract n (-2)
-            if after orig. gap, add n (+2)
-            """
-            raise InvalidCursorError("not implemented")
+            edit_n = len(nodes)
+
+            block_path = self._path
+            gap_path = target._path
+
+            block_n = len(block_path)
+            gap_n = len(gap_path)
+
+            cur_path = list(cur._path)
+            cur_n = len(cur_path)
+
+            # Handle nodes around the edit points
+            offsets = []
+
+            if (
+                cur_n >= block_n
+                and block_path[: block_n - 1] == cur_path[: block_n - 1]
+                and block_path[block_n - 1][0] == cur_path[block_n - 1][0]
+            ):
+                if block_path[block_n - 1][1].stop <= cur_path[block_n - 1][1]:
+                    # if after orig. block end, subtract edit_n
+                    offsets.append((block_n - 1, -edit_n))
+                elif block_path[block_n - 1][1].start <= cur_path[block_n - 1][1]:
+                    # if inside orig block, move to gap location
+                    off = cur_path[block_n - 1][1] - block_path[block_n - 1][1].start
+                    return dataclasses.replace(
+                        cur,
+                        _proc=weakref.ref(p),
+                        _path=(
+                            gap_path[:-1]
+                            + [(gap_path[-1][0], gap_path[-1][1] + off)]
+                            + cur_path[block_n:]
+                        ),
+                    )
+                else:
+                    # before orig block, do nothing
+                    pass
+
+            # if after orig. gap, add edit_n
+            if (
+                cur_n >= gap_n
+                and gap_path[: gap_n - 1] == cur_path[: gap_n - 1]
+                and gap_path[gap_n - 1][0] == cur_path[gap_n - 1][0]
+                and gap_path[gap_n - 1][1] <= cur_path[gap_n - 1][1]
+            ):
+                offsets.append((gap_n - 1, edit_n))
+
+            for off_i, off_d in offsets:
+                cur_path[off_i] = (cur_path[off_i][0], cur_path[off_i][1] + off_d)
+
+            return dataclasses.replace(cur, _proc=weakref.ref(p), _path=cur_path)
 
         return p, _forward
 
