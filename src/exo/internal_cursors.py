@@ -376,7 +376,14 @@ class Block(Cursor):
         pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node().srcinfo)]
         return self._replace([], empty_default=pass_stmt)
 
-    def _wrap(self, template, attr):
+    def _get_loopir(self):
+        # Do this rather than [n._node() for n in self] because that would
+        # walk down the tree once per node in the block, whereas this walks
+        # down once.
+        attr, rng = self._path[-1]
+        return getattr(self.parent()._node(), attr)[rng.start : rng.stop]
+
+    def _wrap(self, ctor, attr):
         """
         This is an UNSAFE internal function for wrapping a block in an AST
         with another block-containing node and providing a forwarding function
@@ -384,7 +391,17 @@ class Block(Cursor):
         so it may be called from other internal classes and modules, but not
         from end-user code.
         """
-        pass
+        nodes = self._get_loopir()
+        new_node = ctor(**{attr: nodes})
+
+        def update(parent):
+            orig_attr, i = self._path[-1]
+            children = getattr(parent, orig_attr)
+            new_children = children[: i.start] + [new_node] + children[i.stop :]
+            return parent.update(**{orig_attr: new_children})
+
+        p = API.Procedure(self._rewrite_node(update))
+        return p, None
 
     def _move(self, target: Gap):
         """
@@ -397,11 +414,7 @@ class Block(Cursor):
         if target in self:
             target = self.before()
 
-        # Do this rather than [n._node() for n in self] because that would
-        # walk down the tree once per node in the block, whereas this walks
-        # down once.
-        attr, rng = self._path[-1]
-        nodes = getattr(self.parent()._node(), attr)[rng.start : rng.stop]
+        nodes = self._get_loopir()
 
         def _is_before(g: Gap, b: Block):
             b_path = b._path[:-1] + [(b._path[-1][0], b._path[-1][1].start)]
@@ -416,6 +429,11 @@ class Block(Cursor):
 
             return True
 
+        # The following implementation "unsafely" coerces a cursor along the
+        # intermediate procs by ordering the edits so that identity-forwarding
+        # is actually safe. This is somewhat simpler to reason about than a
+        # recursive function that has to walk down two branches simultaneously.
+        # Intuition: do the "later" edit first, then the "earlier" one.
         if _is_before(target, self):
             # If the gap comes first in a pre-order traversal, then we want to
             # delete the original block of nodes first, to keep the path to the

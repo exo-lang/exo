@@ -14,6 +14,7 @@ from exo.internal_cursors import (
     InvalidCursorError,
     Node,
 )
+from exo.prelude import Sym
 from exo.syntax import size, f32
 
 
@@ -649,3 +650,21 @@ def test_move_block_forwarding(proc_bar, golden):
     c3 = proc_bar._TEST_find_cursors("for j in _: _")[0]
     _, fwd14 = c3._move(c3.parent().after())
     _test_fwd(fwd14)
+
+
+def test_wrap_block(proc_bar, golden):
+    k = Sym("k")
+
+    def wrapper(body):
+        src = body[0].srcinfo
+        eight = LoopIR.Const(8, T.index, src)
+        return LoopIR.Seq(k, eight, body, None, src)
+
+    procs = []
+    for i in range(0, 6):
+        for j in range(i + 1, 6):
+            c = proc_bar._TEST_find_cursors(f"x = {i}.0 ; _ ; x = {j}.0")[0]
+            p, _ = c._wrap(wrapper, "body")
+            procs.append(p)
+
+    assert "\n".join(map(str, procs)) == golden
