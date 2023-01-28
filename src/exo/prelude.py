@@ -41,6 +41,14 @@ class Sym:
         assert isinstance(rhs, Sym)
         return (self._nm, self._id) < (rhs._nm, rhs._id)
 
+    def __eq__(self, rhs):
+        if not isinstance(rhs, Sym):
+            return False
+        return self._nm == rhs._nm and self._id == rhs._id
+
+    def __ne__(self, rhs):
+        return not (self == rhs)
+
     def name(self):
         return self._nm
 
