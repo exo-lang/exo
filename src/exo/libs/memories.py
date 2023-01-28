@@ -1,4 +1,4 @@
-from ..memory import Memory, DRAM, MemGenError
+from ..memory import Memory, DRAM, StaticMemory, MemGenError
 
 
 def _is_const_size(sz, c):
@@ -243,10 +243,19 @@ class AVX512(Memory):
 
 # ----------- AMX tile! ----------------
 
-num_amx_tiles_alloced = 0
 
+class AMX_TILE(StaticMemory):
+    NUM_AMX_TILES = 8
+    StaticMemory.init_state(NUM_AMX_TILES)
+    tile_dict = {}
 
-class AMX_TILE(Memory):
+    # TODO: have a better way of doing this rather than manually
+    # calling this after each test that fails to compile.
+    @classmethod
+    def reset_allocations(cls):
+        cls.init_state(cls.NUM_AMX_TILES)
+        cls.tile_dict = {}
+
     @classmethod
     def global_(cls):
         return "#include <immintrin.h>"
@@ -257,12 +266,30 @@ class AMX_TILE(Memory):
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
-        global num_amx_tiles_alloced
-        num_amx_tiles_alloced += 1
-        return f"#define {new_name} {num_amx_tiles_alloced-1}"
+        if not (shape[0].isdecimal() and int(shape[0]) <= 16):
+            raise MemGenError("Number of tile rows must be a constant and <= 16.")
+
+        ctype_size = {
+            "float": 4,
+            "double": 8,
+            "int8_t": 1,
+            "int32_t": 4,
+            "int_fast32_t": 4,
+        }
+
+        if not (shape[1].isdecimal() and int(shape[1]) * ctype_size[prim_type] <= 64):
+            raise MemGenError(
+                f"Number of bytes per row must be a constant and <= 64, currently trying to allocate {int(shape[1]) * ctype_size[prim_type]} bytes per row."
+            )
+
+        tile_num = cls.find_free_chunk()
+        cls.mark(tile_num)
+        cls.tile_dict[new_name] = tile_num
+        return f"#define {new_name} {tile_num}"
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
-        global num_amx_tiles_alloced
-        num_amx_tiles_alloced -= 1
+        tile_num = cls.tile_dict[new_name]
+        del cls.tile_dict[new_name]
+        cls.unmark(tile_num)
         return f"#undef {new_name}"
