@@ -347,8 +347,177 @@ def test_matmul_on_amx_by_hand_i8(compiler, sde64):
     )
 
 
+@pytest.mark.skip("example for future reference")
+def test_mimicking_double_fission_behavior():
+    @proc
+    def matmul(A: i8[256, 256] @ DRAM, B: i8[64, 1024] @ DRAM, C: i32[256, 256] @ DRAM):
+        for ko in seq(0, 4):
+            for ii in seq(0, 16):
+                for ji in seq(0, 16):
+                    C[ii, ji] += 1.0
+            for ii in seq(0, 16):
+                for ji in seq(0, 16):
+                    C[16 + ii, 16 + ji] += 1.0
+
+    # R[2,2,16,16] -> R[16,16] x 4
+
+    @proc
+    def goal_matmul(
+        A: i8[256, 256] @ DRAM, B: i8[64, 1024] @ DRAM, C: i32[256, 256] @ DRAM
+    ):
+        Ctile0: i32[16, 16] @ AMX_TILE
+        Ctile1: i32[16, 16] @ AMX_TILE
+        ld_i8(16, 16, C[0:16, 0:16], Ctile0)
+        ld_i8(16, 16, C[0:16, 0:16], Ctile1)
+        for ko in seq(0, 4):
+            for ii in seq(0, 16):
+                for ji in seq(0, 16):
+                    Ctile0[ii, ji] += 1.0
+            for ii in seq(0, 16):
+                for ji in seq(0, 16):
+                    Ctile1[ii, ji] += 1.0
+        st_i32(16, 16, Ctile0, C[0:16, 0:16])
+        st_i32(16, 16, Ctile1, C[0:16, 0:16])
+
+    print(matmul)
+
+    # fails because Ctile0 is accsessed out-of-bounds
+    # matmul = stage_mem(matmul, "for ko in _:_", "C[0:16,0:16]", "Ctile")
+
+    # could work if we had "unroll_memory", although note that divide_dim fails on buffers
+    # that are later windowed (e.g. in AMX)
+    matmul = stage_mem(matmul, "for ko in _:_", "C[0:32,0:32]", "Ctile")
+    matmul = simplify(matmul)
+    matmul = divide_dim(matmul, "Ctile:_", 0, 16)
+
+    # doesn't quite do what I want, we'd need double_fission to make this work
+    # matmul = stage_mem(matmul, "for ii in _:_", "C[0:16,0:16]", "Ctile0")
+    # matmul = lift_alloc(matmul, "Ctile0", n_lifts=1)
+    # matmul = stage_mem(matmul, "for ii in _:_#1", "C[16:32,16:32]", "Ctile1")
+    # matmul = lift_alloc(matmul, "Ctile1", n_lifts=1)
+
+    matmul = simplify(matmul)
+    print(matmul)
+
+
+@pytest.mark.skip("unfinished")
+def test_partial_sched_of_blocks():
+    @proc
+    def matmul(A: i8[256, 256] @ DRAM, B: i8[64, 1024] @ DRAM, C: i32[256, 256] @ DRAM):
+        config()
+        for io in seq(0, 8):
+            for jo in seq(0, 8):
+                for ko in seq(0, 4):
+                    for ii_unroll in seq(0, 2):
+                        for ji_unroll in seq(0, 2):
+                            for ii in seq(0, 16):
+                                for ji in seq(0, 16):
+                                    for ki in seq(0, 16):
+                                        for byte in seq(0, 4):
+                                            a: i32 @ DRAM
+                                            b: i32 @ DRAM
+                                            a = A[
+                                                32 * io + (16 * ii_unroll + ii),
+                                                4 * (16 * ko + ki) + byte,
+                                            ]
+                                            b = B[
+                                                16 * ko + ki,
+                                                4 * (32 * jo + (16 * ji_unroll + ji))
+                                                + byte,
+                                            ]
+                                            C[
+                                                32 * io + (16 * ii_unroll + ii),
+                                                32 * jo + (16 * ji_unroll + ji),
+                                            ] += (
+                                                a * b
+                                            )
+
+    print(matmul)
+
+    # matmul = stage_mem(
+    #     matmul,
+    #     "for ii in _:_",
+    #     "A[32*io+16*ii_unroll:32*io+16*ii_unroll+16, 64*ko:64*(ko+1)]",
+    #     "Atile"
+    # )
+    # matmul = replace(matmul, "for i0 in _:_", ld_i8)
+    # matmul = stage_mem(
+    #     matmul,
+    #     "for ii in _:_",
+    #     "B[16*ko:16*(ko+2), 4*(32*jo+16*ji_unroll):4*(32*jo+16*ji_unroll)+64]",
+    #     "Btile"
+    # )
+    # matmul = replace(matmul, "for i0 in _:_", ld_i8)
+    # matmul = stage_mem(
+    #     matmul,
+    #     "for ko in _:_",
+    #     "C[32*io:32*io+32, 32*jo:32*jo+32]",
+    #     "Ctile"
+    # )
+    # matmul = replace(matmul, "for i0 in _:_", ld_i32)
+    # matmul = replace(matmul, "for i0 in _:_", st_i32)
+    # matmul = replace(matmul, "for ii in _:_", dpbssd)
+
+    # matmul = simplify(matmul)
+    # print("Staging memory and replacing instructions")
+    # print(matmul)
+
+    # matmul = lift_alloc(matmul, "Btile", n_lifts=2)
+    # matmul = lift_alloc(matmul, "Atile", n_lifts=2)
+    # matmul = unroll_loop(matmul, "for ii_unroll in _:_")
+    # matmul = unroll_loop(matmul, "for ji_unroll in _:_")
+
+    # matmul = simplify(matmul)
+    # print("Using 8 AMX tiles")
+    # print(matmul)
+
+    # matmul = divide_dim(matmul, "Btile:_", 0, 2)
+    matmul = simplify(matmul)
+    print("Final schedule")
+    print(matmul)
+
+
 @pytest.fixture
 def matmul_i8():
+    size1 = 256
+    size2 = 256
+
+    amx = modified_matmul_algorithm_i8().partial_eval(size1, size2 // 4, size1)
+
+    print("Base Implementation: ")
+    print(amx)
+
+    amx = divide_loop(amx, "i", 16, ["io", "ii"], perfect=True)
+    amx = divide_loop(amx, "j", 16, ["jo", "ji"], perfect=True)
+    amx = reorder_loops(amx, "ii jo")
+    amx = divide_loop(amx, "k", 16, ["ko", "ki"], perfect=True)
+    amx = reorder_loops(amx, "ji ko")
+    amx = reorder_loops(amx, "ii ko")
+    amx = simplify(amx)
+    print("Loop splitting and reordering:")
+    print(amx)
+
+    amx = stage_mem(amx, "for ii in _:_", "A[16*io:16*io+16, 64*ko:64*ko+64]", "Atile")
+    amx = replace(amx, "for i0 in _:_", ld_i8)
+    amx = stage_mem(amx, "for ii in _:_", "B[16*ko:16*ko+16, 64*jo:64*jo+64]", "Btile")
+    amx = replace(amx, "for i0 in _:_", ld_i8)
+    amx = stage_mem(amx, "for ko in _:_", "C[16*io:16*io+16, 16*jo:16*jo+16]", "Ctile")
+    amx = replace(amx, "for i0 in _:_", ld_i32)
+    amx = replace(amx, "for ii in _:_", dpbssd)
+    amx = replace(amx, "for i0 in _:_", st_i32)
+
+    amx = set_memory(amx, "Atile", AMX_TILE)
+    amx = set_memory(amx, "Btile", AMX_TILE)
+    amx = set_memory(amx, "Ctile", AMX_TILE)
+
+    amx = simplify(amx)
+    print("Final scheduled algorithm:")
+    print(amx)
+
+    return amx
+
+
+def matmul_i8_2x2_blocks():
     size1 = 256
     size2 = 256
 
@@ -402,6 +571,7 @@ def matmul_i8():
     amx = repeat(unroll_loop)(amx, "ii_unroll")
     amx = simplify(amx)
     amx = repeat(replace)(amx, "for i0 in _:_", ld_i8)
+    print(amx)
 
     print("Staging C memory")
     C_mem_template = "C[32*io + 16*({i_lo}):32*io + 16*({i_lo}+1), 32*jo + 16*({j_lo}):32*jo + 16*({j_lo}+1)]"
