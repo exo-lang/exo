@@ -1,0 +1,151 @@
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 1.0
+            x = 2.0
+            x = 0.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 1.0
+            x = 2.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 1.0
+            x = 2.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 3.0
+            x = 1.0
+            x = 2.0
+            x = 4.0
+            x = 5.0
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 3.0
+            x = 4.0
+            x = 1.0
+            x = 2.0
+            x = 5.0
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+            x = 1.0
+            x = 2.0
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        x = 1.0
+        x = 2.0
+        for j in seq(0, m):
+            x = 0.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+        x = 1.0
+        x = 2.0
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    x = 1.0
+    x = 2.0
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+def bar(n: size, m: size):
+    x = 1.0
+    x = 2.0
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+    x = 1.0
+    x = 2.0
+def bar(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x: f32 @ DRAM
+            x = 0.0
+            x = 1.0
+            x = 2.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+def bar(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x: f32 @ DRAM
+            x = 1.0
+            x = 2.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+def bar(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            x = 0.0
+            x = 1.0
+            x = 2.0
+            x = 3.0
+            x = 4.0
+            x = 5.0
+    x: f32 @ DRAM
+def bar(n: size, m: size):
+    x: f32 @ DRAM
+    for i in seq(0, n):
+        pass
+    for j in seq(0, m):
+        x = 0.0
+        x = 1.0
+        x = 2.0
+        x = 3.0
+        x = 4.0
+        x = 5.0

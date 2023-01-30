@@ -1,31 +1,19 @@
 from __future__ import annotations
 
+import dataclasses
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum, auto
 from functools import cached_property
 from typing import Optional, Iterable, Union
 from weakref import ReferenceType
 
-from . import API
-from . import LoopIR
+from exo import API
+from exo import LoopIR
 
 
 class InvalidCursorError(Exception):
     pass
-
-
-class ForwardingPolicy(Enum):
-    # Invalidate any cursor that could be forwarded reasonably in more than one
-    # way.
-    PreferInvalidation = auto()
-    # When forwarding insertions, prefer to forward the insertion gap to the gap
-    # BEFORE the inserted block, rather than invalidating it.
-    AnchorPre = auto()
-    # When forwarding insertions, prefer to forward the insertion gap to the gap
-    # AFTER the inserted block, rather than invalidating it.
-    AnchorPost = auto()
 
 
 def _starts_with(a: list, b: list):
@@ -40,7 +28,7 @@ def _starts_with(a: list, b: list):
     >>> _starts_with(['a', 'b', 'c'], ['a', 'b', 'c', 'd'])
     False
     """
-    return len(a) >= len(b) and all(a[i] == b[i] for i in range(len(b)))
+    return len(a) >= len(b) and all(x == y for x, y in zip(a, b))
 
 
 def _is_sub_range(a: range, b: range):
@@ -200,18 +188,34 @@ class Cursor(ABC):
 
         return impl(self.proc().INTERNAL_proc(), self._path)
 
-    def _make_forward(self, new_proc, fwd_node, fwd_gap, fwd_sel):
+    def _local_forward(self, new_proc, fwd_node):
+        """
+        Creates a forwarding function for "local" edits to the AST.
+        Here, local means that all affected nodes share a common LCA,
+        taking into account details about block identity (i.e. body
+        vs orelse). It is assumed that the edited locale is the block
+        in which the present cursor resides.
+
+        The fwd_node function is applied to one of this cursor's siblings
+        and is expected to return a list of new tree edges which are adjusted
+        for the edit. See the implementation of insert and delete for some
+        simple examples, or wrap for a more complex example (that lengthens
+        certain paths).
+        """
         orig_proc = self._proc
-        depth = len(self._path)
-        attr = self._path[depth - 1][0]
+        edit_path = self._path
+        depth = len(edit_path)
+        attr = edit_path[depth - 1][0]
 
         def forward(cursor: Cursor) -> Cursor:
             if cursor._proc != orig_proc:
                 raise InvalidCursorError("cannot forward unknown procs")
 
-            # TODO: use attrs + attrs.evolve
+            if not isinstance(cursor, Node):
+                raise InvalidCursorError("can only forward nodes")
+
             def evolve(p):
-                return type(cursor)(new_proc, p)
+                return dataclasses.replace(cursor, _proc=new_proc, _path=p)
 
             old_path = cursor._path
 
@@ -221,19 +225,13 @@ class Cursor(ABC):
 
             old_attr, old_idx = old_path[depth - 1]
 
-            if old_attr != attr:
-                # At least as deep, but wrong branch
+            if not (_starts_with(old_path, edit_path[:-1]) and old_attr == attr):
+                # Same path down tree
                 return evolve(old_path)
 
-            if len(old_path) > depth or isinstance(cursor, Node):
-                idx = fwd_node(old_idx)
-            elif isinstance(cursor, Gap):
-                idx = fwd_gap(old_idx)
-            else:
-                assert isinstance(cursor, Block)
-                idx = fwd_sel(old_idx)
-
-            return evolve(old_path[: depth - 1] + [(attr, idx)] + old_path[depth:])
+            return evolve(
+                old_path[: depth - 1] + fwd_node(attr, old_idx) + old_path[depth:]
+            )
 
         return forward
 
@@ -375,31 +373,12 @@ class Block(Cursor):
         _, del_range = self._path[-1]
         n_diff = n_ins - len(del_range)
 
-        def fwd_node(i):
+        def fwd_node(attr, i):
             if i in del_range:
                 raise InvalidCursorError("node no longer exists")
-            return i + n_diff * (i >= del_range.stop)
+            return [(attr, i + n_diff * (i >= del_range.stop))]
 
-        def fwd_gap(i):
-            if i in del_range[1:]:
-                raise InvalidCursorError("gap no longer exists")
-            return i + n_diff * (i >= del_range.stop)
-
-        def fwd_sel(rng: range):
-            if _is_sub_range(rng, del_range):
-                raise InvalidCursorError("block no longer exists")
-            if _overlaps_one_side(rng, del_range):
-                raise InvalidCursorError("block was partially destroyed")
-
-            start = rng.start + n_diff * (rng.start >= del_range.stop)
-            stop = rng.stop + n_diff * (rng.stop >= del_range.stop)
-
-            if start >= stop:
-                raise InvalidCursorError("block no longer exists")
-
-            return range(start, stop)
-
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._local_forward(new_proc, fwd_node)
 
     def _delete(self):
         """
@@ -410,6 +389,169 @@ class Block(Cursor):
         """
         pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node().srcinfo)]
         return self._replace([], empty_default=pass_stmt)
+
+    def _get_loopir(self):
+        # Do this rather than [n._node() for n in self] because that would
+        # walk down the tree once per node in the block, whereas this walks
+        # down once.
+        attr, rng = self._path[-1]
+        return getattr(self.parent()._node(), attr)[rng.start : rng.stop]
+
+    def _wrap(self, ctor, wrap_attr):
+        """
+        This is an UNSAFE internal function for wrapping a block in an AST
+        with another block-containing node and providing a forwarding function
+        as collateral. It is meant to be package-private, not class-private,
+        so it may be called from other internal classes and modules, but not
+        from end-user code.
+        """
+        nodes = self._get_loopir()
+        new_node = ctor(**{wrap_attr: nodes})
+
+        def update(parent):
+            orig_attr, i = self._path[-1]
+            children = getattr(parent, orig_attr)
+            new_children = children[: i.start] + [new_node] + children[i.stop :]
+            return parent.update(**{orig_attr: new_children})
+
+        p = API.Procedure(self._rewrite_node(update))
+
+        return p, self._forward_wrap(weakref.ref(p), wrap_attr)
+
+    def _forward_wrap(self, p, wrap_attr):
+        rng = self._path[-1][1]
+
+        def forward(attr, i):
+            if i >= rng.stop:
+                return [(attr, i - len(rng) + 1)]
+            elif i >= rng.start:
+                return [(attr, rng.start), (wrap_attr, i - rng.start)]
+            else:
+                return [(attr, i)]
+
+        return self._local_forward(p, forward)
+
+    def _move(self, target: Gap):
+        """
+        This is an UNSAFE internal function for relocating a block in an AST
+        and providing a forwarding function as collateral. It is meant to be
+        package-private, not class-private, so it may be called from other
+        internal classes and modules, but not from end-user code.
+        """
+
+        if target in self:
+            target = self.before()
+
+        nodes = self._get_loopir()
+
+        def _is_before(g: Gap, b: Block):
+            b_path = b._path[:-1] + [(b._path[-1][0], b._path[-1][1].start)]
+
+            for (g_attr, g_idx), (b_attr, b_idx) in zip(g._path, b_path):
+                if g_attr != b_attr:
+                    # arbitrary because they're in disjoint branches
+                    return False
+
+                if g_idx != b_idx:
+                    return g_idx < b_idx
+
+            return True
+
+        # The following implementation "unsafely" coerces a cursor along the
+        # intermediate procs by ordering the edits so that identity-forwarding
+        # is actually safe. This is somewhat simpler to reason about than a
+        # recursive function that has to walk down two branches simultaneously.
+        # Intuition: do the "later" edit first, then the "earlier" one.
+        if _is_before(target, self):
+            # If the gap comes first in a pre-order traversal, then we want to
+            # delete the original block of nodes first, to keep the path to the
+            # gap stable, before inserting the nodes in the new position.
+            p, _ = self._delete()
+            p, _ = dataclasses.replace(target, _proc=weakref.ref(p))._insert(nodes)
+        else:
+            # Conversely, if the moved block comes first, then we want to jump
+            # ahead and insert the block into the gap position before coming back
+            # to delete the original nodes, so that the path to the deletion stays
+            # stable.
+            p, _ = target._insert(nodes)
+            p, _ = dataclasses.replace(self, _proc=weakref.ref(p))._delete()
+
+        return p, self._forward_move(weakref.ref(p), target)
+
+    def _forward_move(self, p, target):
+        orig_proc = self._proc
+
+        block_path = self._path
+        block_n = len(block_path)
+
+        edit_n = len(block_path[-1][1])
+
+        gap_path = target._path
+        gap_n = len(gap_path)
+
+        def forward(cursor: Node):
+            if cursor._proc != orig_proc:
+                raise InvalidCursorError("cannot forward unknown procs")
+
+            if not isinstance(cursor, Node):
+                raise InvalidCursorError("can only forward nodes")
+
+            cur_path = list(cursor._path)
+            cur_n = len(cur_path)
+
+            # Compute the gap offset when moving within a block
+            if (
+                block_n == gap_n
+                and block_path[: block_n - 1] == gap_path[: block_n - 1]
+                and block_path[block_n - 1][0] == gap_path[block_n - 1][0]
+                and block_path[block_n - 1][1].stop <= gap_path[block_n - 1][1]
+            ):
+                gap_off = -edit_n
+            else:
+                gap_off = 0
+
+            # Handle nodes around the edit points
+            offsets = []
+
+            if (
+                cur_n >= block_n
+                and block_path[: block_n - 1] == cur_path[: block_n - 1]
+                and block_path[block_n - 1][0] == cur_path[block_n - 1][0]
+            ):
+                if block_path[block_n - 1][1].stop <= cur_path[block_n - 1][1]:
+                    # if after orig. block end, subtract edit_n
+                    offsets.append((block_n - 1, -edit_n))
+                elif block_path[block_n - 1][1].start <= cur_path[block_n - 1][1]:
+                    # if inside orig block, move to gap location
+                    off = cur_path[block_n - 1][1] - block_path[block_n - 1][1].start
+                    return dataclasses.replace(
+                        cursor,
+                        _proc=p,
+                        _path=(
+                            gap_path[:-1]
+                            + [(gap_path[-1][0], gap_path[-1][1] + gap_off + off)]
+                            + cur_path[block_n:]
+                        ),
+                    )
+                else:
+                    # before orig block, do nothing
+                    pass
+
+            # if after orig. gap, add edit_n
+            if (
+                cur_n >= gap_n
+                and gap_path[: gap_n - 1] == cur_path[: gap_n - 1]
+                and gap_path[gap_n - 1][0] == cur_path[gap_n - 1][0]
+                and gap_path[gap_n - 1][1] <= cur_path[gap_n - 1][1]
+            ):
+                offsets.append((gap_n - 1, edit_n))
+
+            for off_i, off_d in offsets:
+                cur_path[off_i] = (cur_path[off_i][0], cur_path[off_i][1] + off_d)
+
+            return dataclasses.replace(cursor, _proc=p, _path=cur_path)
+
+        return forward
 
 
 @dataclass
@@ -601,16 +743,10 @@ class Node(Cursor):
         _, idx = self._path[-1]
         assert idx is None
 
-        def fwd_node(_):
+        def fwd_node(*_):
             raise InvalidCursorError("cannot forward replaced nodes")
 
-        def fwd_gap(_):
-            assert False, "should never get here"
-
-        def fwd_sel(_):
-            assert False, "should never get here"
-
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._local_forward(new_proc, fwd_node)
 
 
 @dataclass
@@ -641,7 +777,7 @@ class Gap(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
-    def _insert(self, stmts: list, policy=ForwardingPolicy.AnchorPre):
+    def _insert(self, stmts: list):
         """
         This is an UNSAFE internal function for inserting a list of nodes at a
         particular gap in an AST block and providing a forwarding function as
@@ -657,37 +793,14 @@ class Gap(Cursor):
             return parent.update(**{attr: children[:i] + stmts + children[i:]})
 
         p = API.Procedure(self._rewrite_node(update))
+        forward = self._forward_insert(weakref.ref(p), len(stmts))
 
-        forward = self._forward_insert(weakref.ref(p), len(stmts), policy)
         return p, forward
 
-    def _forward_insert(self, new_proc, ins_len, policy):
+    def _forward_insert(self, new_proc, ins_len):
         _, ins_idx = self._path[-1]
 
-        def fwd_node(i):
-            return i + ins_len * (i >= ins_idx)
+        def fwd_node(attr, i):
+            return [(attr, i + ins_len * (i >= ins_idx))]
 
-        if policy == ForwardingPolicy.AnchorPre:
-
-            def fwd_gap(i):
-                return i + ins_len * (i > ins_idx)
-
-        elif policy == ForwardingPolicy.AnchorPost:
-
-            def fwd_gap(i):
-                return i + ins_len * (i >= ins_idx)
-
-        else:
-
-            def fwd_gap(i):
-                if i == ins_idx:
-                    raise InvalidCursorError("insertion gap was invalidated")
-                return i + ins_len * (i > ins_idx)
-
-        def fwd_sel(rng):
-            return range(
-                rng.start + ins_len * (rng.start >= ins_idx),
-                rng.stop + ins_len * (rng.stop > ins_idx),
-            )
-
-        return self._make_forward(new_proc, fwd_node, fwd_gap, fwd_sel)
+        return self._local_forward(new_proc, fwd_node)
