@@ -189,6 +189,19 @@ class Cursor(ABC):
         return impl(self.proc().INTERNAL_proc(), self._path)
 
     def _local_forward(self, new_proc, fwd_node):
+        """
+        Creates a forwarding function for "local" edits to the AST.
+        Here, local means that all affected nodes share a common LCA,
+        taking into account details about block identity (i.e. body
+        vs orelse). It is assumed that the edited locale is the block
+        in which the present cursor resides.
+
+        The fwd_node function is applied to one of this cursor's siblings
+        and is expected to return a list of new tree edges which are adjusted
+        for the edit. See the implementation of insert and delete for some
+        simple examples, or wrap for a more complex example (that lengthens
+        certain paths).
+        """
         orig_proc = self._proc
         edit_path = self._path
         depth = len(edit_path)
