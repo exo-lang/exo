@@ -8,8 +8,8 @@ from functools import cached_property
 from typing import Optional, Iterable, Union
 from weakref import ReferenceType
 
-from . import API
-from . import LoopIR
+from exo import API
+from exo import LoopIR
 
 
 class InvalidCursorError(Exception):
@@ -28,7 +28,7 @@ def _starts_with(a: list, b: list):
     >>> _starts_with(['a', 'b', 'c'], ['a', 'b', 'c', 'd'])
     False
     """
-    return len(a) >= len(b) and all(a[i] == b[i] for i in range(len(b)))
+    return len(a) >= len(b) and all(x == y for x, y in zip(a, b))
 
 
 def _is_sub_range(a: range, b: range):
@@ -190,8 +190,9 @@ class Cursor(ABC):
 
     def _make_forward(self, new_proc, fwd_node):
         orig_proc = self._proc
-        depth = len(self._path)
-        attr = self._path[depth - 1][0]
+        edit_path = self._path
+        depth = len(edit_path)
+        attr = edit_path[depth - 1][0]
 
         def forward(cursor: Cursor) -> Cursor:
             if cursor._proc != orig_proc:
@@ -211,13 +212,13 @@ class Cursor(ABC):
 
             old_attr, old_idx = old_path[depth - 1]
 
-            if old_attr != attr:
-                # At least as deep, but wrong branch
+            if not (_starts_with(old_path, edit_path[:-1]) and old_attr == attr):
+                # Same path down tree
                 return evolve(old_path)
 
-            idx = fwd_node(old_idx)
-
-            return evolve(old_path[: depth - 1] + [(attr, idx)] + old_path[depth:])
+            return evolve(
+                old_path[: depth - 1] + [(attr, fwd_node(old_idx))] + old_path[depth:]
+            )
 
         return forward
 
