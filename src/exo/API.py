@@ -5,6 +5,7 @@ import types
 from pathlib import Path
 from typing import Optional, Union, List
 
+from .API_scheduling import SchedulingError
 from .API_types import ProcedureBase
 from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
@@ -12,7 +13,6 @@ from .LoopIR_interpreter import run_interpreter
 from .LoopIR_scheduling import (
     Schedules,
     name_plus_count,
-    SchedulingError,
     iter_name_to_pattern,
     nested_iter_names_to_pattern,
 )
@@ -150,9 +150,13 @@ class FindDup(LoopIR.LoopIR_Do):
 
 
 def compile_procs(proc_list, basedir: Path, c_file: str, h_file: str):
-    c_data, h_data = compile_procs_to_strings(proc_list, h_file)
-    (basedir / c_file).write_text(c_data)
-    (basedir / h_file).write_text(h_data)
+    compile_procs_to_files(proc_list, basedir / c_file, basedir / h_file)
+
+
+def compile_procs_to_files(proc_list, c_file: Path, h_file: Path):
+    c_data, h_data = compile_procs_to_strings(proc_list, h_file.name)
+    c_file.write_text(c_data)
+    h_file.write_text(h_data)
 
 
 def compile_procs_to_strings(proc_list, h_file_name: str):
@@ -413,7 +417,9 @@ class Procedure(ProcedureBase):
 
         return call_stmt
 
-    def add_assertion(self, assertion, configs=[]):
+    def add_assertion(self, assertion, configs=None):
+        configs = configs or []
+
         if not isinstance(assertion, str):
             raise TypeError("assertion must be an Exo string")
 
