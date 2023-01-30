@@ -188,7 +188,7 @@ class Cursor(ABC):
 
         return impl(self.proc().INTERNAL_proc(), self._path)
 
-    def _make_forward(self, new_proc, fwd_node):
+    def _local_forward(self, new_proc, fwd_node):
         orig_proc = self._proc
         edit_path = self._path
         depth = len(edit_path)
@@ -217,7 +217,7 @@ class Cursor(ABC):
                 return evolve(old_path)
 
             return evolve(
-                old_path[: depth - 1] + [(attr, fwd_node(old_idx))] + old_path[depth:]
+                old_path[: depth - 1] + fwd_node(attr, old_idx) + old_path[depth:]
             )
 
         return forward
@@ -360,12 +360,12 @@ class Block(Cursor):
         _, del_range = self._path[-1]
         n_diff = n_ins - len(del_range)
 
-        def fwd_node(i):
+        def fwd_node(attr, i):
             if i in del_range:
                 raise InvalidCursorError("node no longer exists")
-            return i + n_diff * (i >= del_range.stop)
+            return [(attr, i + n_diff * (i >= del_range.stop))]
 
-        return self._make_forward(new_proc, fwd_node)
+        return self._local_forward(new_proc, fwd_node)
 
     def _delete(self):
         """
@@ -402,47 +402,17 @@ class Block(Cursor):
             return parent.update(**{orig_attr: new_children})
 
         p = API.Procedure(self._rewrite_node(update))
-        p_ref = weakref.ref(p)
+        rng = self._path[-1][1]
 
-        ctx = self._path[:-1]
-        ctx_n = len(ctx)
-
-        attr, rng = self._path[-1]
-
-        orig_proc = self._proc
-
-        def forward(cursor: Node):
-            if cursor._proc != orig_proc:
-                raise InvalidCursorError("cannot forward unknown cursor")
-
-            path = cursor._path
-
-            if len(path) < ctx_n:
-                # Too shallow
-                return dataclasses.replace(cursor, _proc=p_ref)
-
-            old_attr, old_idx = path[ctx_n]
-
-            if not (_starts_with(path, ctx) and old_attr == attr):
-                # Same path down tree
-                return dataclasses.replace(cursor, _proc=p_ref)
-
-            if old_idx in rng:
-                new_path = (
-                    path[:ctx_n]
-                    + [(attr, rng.start), (wrap_attr, old_idx - rng.start)]
-                    + path[ctx_n + 1 :]
-                )
-            elif old_idx >= rng.stop:
-                new_path = (
-                    path[:ctx_n] + [(attr, old_idx - len(rng) + 1)] + path[ctx_n + 1 :]
-                )
+        def forward(attr, i):
+            if i in rng:
+                return [(attr, rng.start), (wrap_attr, i - rng.start)]
+            elif i >= rng.stop:
+                return [(attr, i - len(rng) + 1)]
             else:
-                new_path = path
+                return [(attr, i)]
 
-            return dataclasses.replace(cursor, _proc=p_ref, _path=new_path)
-
-        return p, forward
+        return p, self._local_forward(weakref.ref(p), forward)
 
     def _move(self, target: Gap):
         """
@@ -747,10 +717,10 @@ class Node(Cursor):
         _, idx = self._path[-1]
         assert idx is None
 
-        def fwd_node(_):
+        def fwd_node(*_):
             raise InvalidCursorError("cannot forward replaced nodes")
 
-        return self._make_forward(new_proc, fwd_node)
+        return self._local_forward(new_proc, fwd_node)
 
 
 @dataclass
@@ -804,7 +774,7 @@ class Gap(Cursor):
     def _forward_insert(self, new_proc, ins_len):
         _, ins_idx = self._path[-1]
 
-        def fwd_node(i):
-            return i + ins_len * (i >= ins_idx)
+        def fwd_node(attr, i):
+            return [(attr, i + ins_len * (i >= ins_idx))]
 
-        return self._make_forward(new_proc, fwd_node)
+        return self._local_forward(new_proc, fwd_node)
