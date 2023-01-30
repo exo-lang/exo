@@ -49,7 +49,6 @@ jobs:
       - name: Install Clang 13 (Linux)
         if: runner.os == 'Linux'
         run: |
-          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 13
