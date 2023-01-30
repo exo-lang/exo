@@ -492,7 +492,7 @@ class ForSeqCursor(StmtCursor):
     """
 
     def name(self) -> Sym:
-        return self._impl._node().name
+        return self._impl._node().iter
 
     def hi(self) -> ExprCursor:
         return new_Cursor(self._impl._child_node("hi"))

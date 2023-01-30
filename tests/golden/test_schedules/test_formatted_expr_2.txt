@@ -1,0 +1,6 @@
+def bar(n: size, m: size, arr: R[n, m] @ DRAM):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            tmp: R[(n + 1) * (1 + m)] @ DRAM
+            tmp[i * m + j] = 1.0
+            arr[i, j] = tmp[i * m + j]
