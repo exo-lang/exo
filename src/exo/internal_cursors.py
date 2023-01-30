@@ -384,7 +384,7 @@ class Block(Cursor):
         attr, rng = self._path[-1]
         return getattr(self.parent()._node(), attr)[rng.start : rng.stop]
 
-    def _wrap(self, ctor, attr):
+    def _wrap(self, ctor, wrap_attr):
         """
         This is an UNSAFE internal function for wrapping a block in an AST
         with another block-containing node and providing a forwarding function
@@ -393,7 +393,7 @@ class Block(Cursor):
         from end-user code.
         """
         nodes = self._get_loopir()
-        new_node = ctor(**{attr: nodes})
+        new_node = ctor(**{wrap_attr: nodes})
 
         def update(parent):
             orig_attr, i = self._path[-1]
@@ -402,7 +402,47 @@ class Block(Cursor):
             return parent.update(**{orig_attr: new_children})
 
         p = API.Procedure(self._rewrite_node(update))
-        return p, None
+        p_ref = weakref.ref(p)
+
+        ctx = self._path[:-1]
+        ctx_n = len(ctx)
+
+        attr, rng = self._path[-1]
+
+        orig_proc = self._proc
+
+        def forward(cursor: Node):
+            if cursor._proc != orig_proc:
+                raise InvalidCursorError("cannot forward unknown cursor")
+
+            path = cursor._path
+
+            if len(path) < ctx_n:
+                # Too shallow
+                return dataclasses.replace(cursor, _proc=p_ref)
+
+            old_attr, old_idx = path[ctx_n]
+
+            if not (_starts_with(path, ctx) and old_attr == attr):
+                # Same path down tree
+                return dataclasses.replace(cursor, _proc=p_ref)
+
+            if old_idx in rng:
+                new_path = (
+                    path[:ctx_n]
+                    + [(attr, rng.start), (wrap_attr, old_idx - rng.start)]
+                    + path[ctx_n + 1 :]
+                )
+            elif old_idx >= rng.stop:
+                new_path = (
+                    path[:ctx_n] + [(attr, old_idx - len(rng) + 1)] + path[ctx_n + 1 :]
+                )
+            else:
+                new_path = path
+
+            return dataclasses.replace(cursor, _proc=p_ref, _path=new_path)
+
+        return p, forward
 
     def _move(self, target: Gap):
         """

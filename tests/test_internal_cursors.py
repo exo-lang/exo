@@ -668,3 +668,25 @@ def test_wrap_block(proc_bar, golden):
             procs.append(p)
 
     assert "\n".join(map(str, procs)) == golden
+
+
+def test_wrap_block_forward(proc_bar):
+    x_orig = []
+    for i in range(6):
+        x_orig.append(proc_bar._TEST_find_stmt(f"x = {i}.0"))
+
+    def _test_fwd(fwd):
+        for x in x_orig:
+            # _debug_print_forwarding(x, fwd)
+            assert str(fwd(x)._node()) == str(x._node())
+
+    def wrapper(orelse):
+        src = orelse[0].srcinfo
+        true = LoopIR.Const(True, T.bool, src)
+        return LoopIR.If(true, [LoopIR.Pass(None, src)], orelse, None, src)
+
+    for i in range(0, 6):
+        for j in range(i + 1, 6):
+            c = proc_bar._TEST_find_cursors(f"x = {i}.0 ; _ ; x = {j}.0")[0]
+            _, fwd = c._wrap(wrapper, "orelse")
+            _test_fwd(fwd)
