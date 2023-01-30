@@ -7,8 +7,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 
 ## Compiler configuration
 
-: "${CC:=clang-13}"
-: "${CXX:=clang++-13}"
+: "${CC:=clang-15}"
+: "${CXX:=clang++-15}"
 : "${CFLAGS:=-march=native}"
 : "${CXXFLAGS:=$CFLAGS}"
 : "${CMAKE_BUILD_TYPE:=Release}"
