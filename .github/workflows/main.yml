@@ -10,9 +10,9 @@ jobs:
         runner: [ ubuntu-latest, macos-latest ]
         include:
           - runner: ubuntu-latest
-            CC: clang-15
-            CXX: clang++-15
-            CLANG: clang-15
+            CC: clang-13
+            CXX: clang++-13
+            CLANG: clang-13
           - runner: macos-latest
             CC: clang # This will be system AppleClang
             CXX: clang++ # This will be system AppleClang
@@ -46,16 +46,16 @@ jobs:
         if: runner.os != 'macOS'
         uses: petarpetrovt/setup-sde@v2
 
-      - name: Install Clang 15 (Linux)
+      - name: Install Clang 13 (Linux)
         if: runner.os == 'Linux'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 15
+          sudo ./llvm.sh 13
 
-      - name: Install Clang 15 (macOS)
+      - name: Install Clang 13 (macOS)
         if: runner.os == 'macOS'
-        run: brew install llvm@15
+        run: brew install llvm@13
 
       - name: Run tox
         run: tox

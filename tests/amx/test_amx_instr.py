@@ -510,7 +510,7 @@ def test_amx_memories_tile_number_limit(compiler, sde64):
     ):
         test_exe = compiler.compile(
             [nine_amx_tiles],
-            CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-15")),
+            CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
             CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
         )
 
@@ -640,7 +640,7 @@ def test_amx_memories_tile_size_limit(compiler, sde64):
     with pytest.raises(MemGenError, match="Number of tile rows must"):
         test_exe = compiler.compile(
             [too_many_rows],
-            CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-15")),
+            CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
             CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
         )
     AMX_TILE.reset_allocations()
@@ -649,7 +649,7 @@ def test_amx_memories_tile_size_limit(compiler, sde64):
         with pytest.raises(MemGenError, match="Number of bytes per row"):
             test_exe = compiler.compile(
                 [bad_byte_proc],
-                CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-15")),
+                CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
                 CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
             )
         AMX_TILE.reset_allocations()
@@ -667,7 +667,7 @@ def test_static_memory_register_allocation(compiler, sde64):
 
     test_exe = compiler.compile(
         [proc_inner],
-        CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-15")),
+        CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
         CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
     )
     with pytest.raises(
@@ -675,7 +675,7 @@ def test_static_memory_register_allocation(compiler, sde64):
     ):
         test_exe = compiler.compile(
             [proc_outer],
-            CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-15")),
+            CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
             CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
         )
     AMX_TILE.reset_allocations()
@@ -685,7 +685,7 @@ def _run_amx(compiler, sde64, procs, test_source):
     test_exe = compiler.compile(
         procs,
         test_files={"main.c": str(test_source)},
-        CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-15")),
+        CMAKE_C_COMPILER=os.getenv("CLANG", os.getenv("CC", "clang-13")),
         CMAKE_C_FLAGS="-mamx-int8 -mamx-tile",
     )
 
