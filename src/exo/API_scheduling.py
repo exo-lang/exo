@@ -5,10 +5,10 @@ import re
 
 # import types
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any, List, Union, Tuple
 
 from .API import Procedure
-from .API_cursors import public_cursors as PC
+from .API_cursors import public_cursors as PC, ExprCursor
 from .LoopIR import LoopIR, T  # , UAST, LoopIR_Do
 from .LoopIR_scheduling import Schedules
 
@@ -586,6 +586,31 @@ class CallCursorA(StmtCursorA):
 # New Code Fragment Argument Processing
 
 
+@dataclass
+class FormattedExprStr:
+    """
+    Allows the user to provide a string with holes in it along with
+    `ExprCursor`s to fill the holes. The object is designed as a wrapper to
+    allow the user to give those inputs as an argument to scheduling
+    operations. The object does not evaluate the expression, but merely
+    holds the string and AST nodes the cursors point to until they are
+    passed to the scheduling operation where they are extracted
+    and evaluated to a new expression.
+    """
+
+    _expr_str: str
+    _expr_holes: Tuple[LoopIR.expr]
+
+    def __init__(self, expr_str: str, *expr_holes) -> None:
+        if not isinstance(expr_str, str):
+            raise TypeError("expr_str must be a string")
+        self._expr_str = expr_str
+        for cursor in expr_holes:
+            if not isinstance(cursor, ExprCursor):
+                raise TypeError("Cursor provided to fill a hole must be a ExprCursor")
+        self._expr_holes = tuple(cursor._impl._node() for cursor in expr_holes)
+
+
 class NewExprA(ArgumentProcessor):
     def __init__(self, cursor_arg, before=True):
         self.cursor_arg = cursor_arg
@@ -608,20 +633,24 @@ class NewExprA(ArgumentProcessor):
         return ctxt_stmt
 
     def __call__(self, expr_str, all_args):
+        expr_holes = None
         if isinstance(expr_str, int):
             return LoopIR.Const(expr_str, T.int, null_srcinfo())
         elif isinstance(expr_str, float):
             return LoopIR.Const(expr_str, T.R, null_srcinfo())
         elif isinstance(expr_str, bool):
             return LoopIR.Const(expr_str, T.bool, null_srcinfo())
+        elif isinstance(expr_str, FormattedExprStr):
+            expr_str, expr_holes = expr_str._expr_str, expr_str._expr_holes
         elif not isinstance(expr_str, str):
             self.err("expected a string")
 
         proc = all_args["proc"]
         ctxt_stmt = self._get_ctxt_stmt(all_args)
 
-        expr = parse_fragment(proc._loopir_proc, expr_str, ctxt_stmt)
-
+        expr = parse_fragment(
+            proc._loopir_proc, expr_str, ctxt_stmt, expr_holes=expr_holes
+        )
         return expr
 
 
