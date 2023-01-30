@@ -415,17 +415,21 @@ class Block(Cursor):
             return parent.update(**{orig_attr: new_children})
 
         p = API.Procedure(self._rewrite_node(update))
+
+        return p, self._forward_wrap(weakref.ref(p), wrap_attr)
+
+    def _forward_wrap(self, p, wrap_attr):
         rng = self._path[-1][1]
 
         def forward(attr, i):
-            if i in rng:
-                return [(attr, rng.start), (wrap_attr, i - rng.start)]
-            elif i >= rng.stop:
+            if i >= rng.stop:
                 return [(attr, i - len(rng) + 1)]
+            elif i >= rng.start:
+                return [(attr, rng.start), (wrap_attr, i - rng.start)]
             else:
                 return [(attr, i)]
 
-        return p, self._local_forward(weakref.ref(p), forward)
+        return self._local_forward(p, forward)
 
     def _move(self, target: Gap):
         """
@@ -472,18 +476,27 @@ class Block(Cursor):
             p, _ = target._insert(nodes)
             p, _ = dataclasses.replace(self, _proc=weakref.ref(p))._delete()
 
-        def _forward(cur: Node):
-            # TODO: add validations
+        return p, self._forward_move(weakref.ref(p), target)
 
-            edit_n = len(nodes)
+    def _forward_move(self, p, target):
+        orig_proc = self._proc
 
-            block_path = self._path
-            gap_path = target._path
+        block_path = self._path
+        block_n = len(block_path)
 
-            block_n = len(block_path)
-            gap_n = len(gap_path)
+        edit_n = len(block_path[-1][1])
 
-            cur_path = list(cur._path)
+        gap_path = target._path
+        gap_n = len(gap_path)
+
+        def forward(cursor: Node):
+            if cursor._proc != orig_proc:
+                raise InvalidCursorError("cannot forward unknown procs")
+
+            if not isinstance(cursor, Node):
+                raise InvalidCursorError("can only forward nodes")
+
+            cur_path = list(cursor._path)
             cur_n = len(cur_path)
 
             # Compute the gap offset when moving within a block
@@ -512,8 +525,8 @@ class Block(Cursor):
                     # if inside orig block, move to gap location
                     off = cur_path[block_n - 1][1] - block_path[block_n - 1][1].start
                     return dataclasses.replace(
-                        cur,
-                        _proc=weakref.ref(p),
+                        cursor,
+                        _proc=p,
                         _path=(
                             gap_path[:-1]
                             + [(gap_path[-1][0], gap_path[-1][1] + gap_off + off)]
@@ -536,9 +549,9 @@ class Block(Cursor):
             for off_i, off_d in offsets:
                 cur_path[off_i] = (cur_path[off_i][0], cur_path[off_i][1] + off_d)
 
-            return dataclasses.replace(cur, _proc=weakref.ref(p), _path=cur_path)
+            return dataclasses.replace(cursor, _proc=p, _path=cur_path)
 
-        return p, _forward
+        return forward
 
 
 @dataclass
