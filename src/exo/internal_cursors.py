@@ -715,6 +715,9 @@ class Node(Cursor):
     # AST mutation
     # ------------------------------------------------------------------------ #
 
+    def _delete(self):
+        return self.as_block()._delete()
+
     def _replace(self, ast):
         """
         This is an UNSAFE internal function for replacing a node in an AST with

@@ -2580,51 +2580,37 @@ class DoBoundAndGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class DoFuseLoop(Cursor_Rewrite):
+class DoFuseLoop:
     def __init__(self, proc_cursor, f_cursor, s_cursor):
-        self.loop1 = f_cursor._node()
-        self.loop2 = s_cursor._node()
-        self.modified_stmts = None
+        proc = proc_cursor._node()
+        loop1 = f_cursor._node()
+        loop2 = s_cursor._node()
 
-        super().__init__(proc_cursor)
+        if f_cursor.next() != s_cursor:
+            raise SchedulingError(
+                "expected the two loops to be fused to come one right after the other"
+            )
 
-        loop, body1, body2 = self.modified_stmts
-        Check_FissionLoop(self.proc, loop, body1, body2)
+        # check if the loop bounds are equivalent
+        Check_ExprEqvInContext(proc, loop1.hi, [loop1], loop2.hi, [loop2])
 
-        self.proc = InferEffects(self.proc).result()
+        x = loop1.iter
+        y = loop2.iter
+        body1 = loop1.body
+        body2 = SubstArgs(
+            loop2.body, {y: LoopIR.Read(x, [], T.index, loop1.srcinfo)}
+        ).result()
 
-    def map_stmts(self, stmts_c):
-        stmts = [s._node() for s in stmts_c]
+        proc, fwd1 = f_cursor.body()[-1].after()._insert(body2)
+        proc, fwd2 = fwd1(s_cursor)._delete()
+        loop = fwd2(fwd1(f_cursor))._node()
 
-        for i, b in enumerate(stmts):
-            if b is self.loop1:
-                if i + 1 >= len(stmts) or stmts[i + 1] is not self.loop2:
-                    raise SchedulingError(
-                        "expected the two loops to be "
-                        "fused to come one right after the other"
-                    )
+        Check_FissionLoop(proc._loopir_proc, loop, body1, body2)
+        proc = InferEffects(proc._loopir_proc).result()
+        self.proc = api.Procedure(proc, _provenance_eq_Procedure=proc_cursor.proc())
 
-                loop1, loop2 = self.loop1, self.loop2
-
-                # check if the loop bounds are equivalent
-                Check_ExprEqvInContext(
-                    self.orig_proc._node(), loop1.hi, [loop1], loop2.hi, [loop2]
-                )
-
-                x = loop1.iter
-                y = loop2.iter
-                hi = loop1.hi
-                body1 = loop1.body
-                body2 = SubstArgs(
-                    loop2.body, {y: LoopIR.Read(x, [], T.index, loop1.srcinfo)}
-                ).result()
-                loop = type(loop1)(x, hi, body1 + body2, None, loop1.srcinfo)
-                self.modified_stmts = (loop, body1, body2)
-
-                return stmts[:i] + [loop] + stmts[i + 2 :]
-
-        # if we reached this point, we didn't find the loop
-        return super().map_stmts(stmts_c)
+    def result(self):
+        return self.proc
 
 
 class DoFuseIf(LoopIR_Rewrite):
