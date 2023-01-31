@@ -2580,37 +2580,31 @@ class DoBoundAndGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class DoFuseLoop:
-    def __init__(self, proc_cursor, f_cursor, s_cursor):
-        proc = proc_cursor._node()
-        loop1 = f_cursor._node()
-        loop2 = s_cursor._node()
+def DoFuseLoop(proc_cursor, f_cursor, s_cursor):
+    proc = proc_cursor._node()
+    loop1 = f_cursor._node()
+    loop2 = s_cursor._node()
 
-        if f_cursor.next() != s_cursor:
-            raise SchedulingError(
-                "expected the two loops to be fused to come one right after the other"
-            )
+    if f_cursor.next() != s_cursor:
+        raise SchedulingError(
+            "expected the two loops to be fused to come one right after the other"
+        )
 
-        # check if the loop bounds are equivalent
-        Check_ExprEqvInContext(proc, loop1.hi, [loop1], loop2.hi, [loop2])
+    # check if the loop bounds are equivalent
+    Check_ExprEqvInContext(proc, loop1.hi, [loop1], loop2.hi, [loop2])
 
-        x = loop1.iter
-        y = loop2.iter
-        body1 = loop1.body
-        body2 = SubstArgs(
-            loop2.body, {y: LoopIR.Read(x, [], T.index, loop1.srcinfo)}
-        ).result()
+    x = LoopIR.Read(loop1.iter, [], T.index, loop1.srcinfo)
+    y = loop2.iter
+    body1 = loop1.body
+    body2 = SubstArgs(loop2.body, {y: x}).result()
 
-        proc, fwd1 = f_cursor.body()[-1].after()._insert(body2)
-        proc, fwd2 = fwd1(s_cursor)._delete()
-        loop = fwd2(fwd1(f_cursor))._node()
+    proc, fwd1 = f_cursor.body()[-1].after()._insert(body2)
+    proc, fwd2 = fwd1(s_cursor)._delete()
+    loop = fwd2(fwd1(f_cursor))._node()
 
-        Check_FissionLoop(proc._loopir_proc, loop, body1, body2)
-        proc = InferEffects(proc._loopir_proc).result()
-        self.proc = api.Procedure(proc, _provenance_eq_Procedure=proc_cursor.proc())
-
-    def result(self):
-        return self.proc
+    Check_FissionLoop(proc._loopir_proc, loop, body1, body2)
+    proc = InferEffects(proc._loopir_proc).result()
+    return api.Procedure(proc, _provenance_eq_Procedure=proc_cursor.proc())
 
 
 class DoFuseIf(LoopIR_Rewrite):

@@ -1760,7 +1760,7 @@ def fuse(proc, stmt1, stmt2):
     if isinstance(stmt1, PC.IfCursor):
         return scheduling.DoFuseIf(proc_c, s1, s2).result()
     else:
-        return scheduling.DoFuseLoop(proc_c, s1, s2).result()
+        return scheduling.DoFuseLoop(proc_c, s1, s2)
 
 
 @sched_op([ForSeqCursorA])
