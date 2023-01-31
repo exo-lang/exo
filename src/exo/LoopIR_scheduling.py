@@ -1716,7 +1716,7 @@ class _DoRearrangeDim(Cursor_Rewrite):
 
         elif isinstance(e, LoopIR.StrideExpr):
             if self.should_permute(e.name):
-                dim = self.permute_single_idx(e.dim)
+                dim = self.permute(e.name, e.dim)
                 return e.update(dim=dim)
 
         return super().map_e(e)
