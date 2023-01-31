@@ -51,7 +51,8 @@ from . import API as api
 class Cursor_Rewrite(LoopIR_Rewrite):
     def __init__(self, proc_cursor):
         self.provenance = proc_cursor.proc()
-        super().__init__(proc_cursor)
+        self.orig_proc = proc_cursor
+        self.proc = self.apply_proc(proc_cursor)
 
     def result(self, mod_config=None):
         return api.Procedure(
@@ -225,7 +226,7 @@ def nested_iter_names_to_pattern(namestr, inner):
 # Take a conservative approach and allow stmt reordering only when they are
 # writing to different buffers
 # TODO: Do effectcheck's check_commutes-ish thing using SMT here
-class _DoReorderStmt(Cursor_Rewrite):
+class DoReorderStmt(Cursor_Rewrite):
     def __init__(self, proc_cursor, f_cursor, s_cursor):
         self.f_stmt = f_cursor._node()
         self.s_stmt = s_cursor._node()
@@ -252,12 +253,10 @@ class _DoReorderStmt(Cursor_Rewrite):
         return super().map_stmts(stmts_c)
 
 
-class _PartitionLoop(LoopIR_Rewrite):
-    def __init__(self, proc, loop_cursor, num):
+class DoPartitionLoop(LoopIR_Rewrite):
+    def __init__(self, loop_cursor, num):
         self.stmt = loop_cursor._node()
         self.partition_by = num
-
-        super().__init__(proc)
 
     def map_s(self, s):
         if s is self.stmt:
@@ -290,7 +289,7 @@ class _PartitionLoop(LoopIR_Rewrite):
         return super().map_s(s)
 
 
-class _DoProductLoop(Cursor_Rewrite):
+class DoProductLoop(Cursor_Rewrite):
     def __init__(self, proc_cursor, loop_cursor, new_name):
         self.stmt = loop_cursor._node()
         self.out_loop = self.stmt
@@ -352,7 +351,7 @@ def get_reads(e):
         assert False, "bad case"
 
 
-class _DoMergeWrites(Cursor_Rewrite):
+class DoMergeWrites(Cursor_Rewrite):
     def __init__(self, proc_cursor, f_cursor, s_cursor):
         self.s1 = f_cursor._node()
         self.s2 = s_cursor._node()
@@ -402,7 +401,7 @@ class _DoMergeWrites(Cursor_Rewrite):
 # Split scheduling directive
 
 
-class _Split(Cursor_Rewrite):
+class DoSplit(Cursor_Rewrite):
     def __init__(
         self, proc_cursor, loop_cursor, quot, hi, lo, tail="guard", perfect=False
     ):
@@ -622,7 +621,7 @@ class _Split(Cursor_Rewrite):
 # Unroll scheduling directive
 
 
-class _Unroll(Cursor_Rewrite):
+class DoUnroll(Cursor_Rewrite):
     def __init__(self, proc_cursor, loop_cursor):
         self.unroll_loop = loop_cursor._node()
         self.unroll_var = self.unroll_loop.iter
@@ -683,7 +682,7 @@ class _Unroll(Cursor_Rewrite):
 # Inline scheduling directive
 
 
-class _Inline(Cursor_Rewrite):
+class DoInline(Cursor_Rewrite):
     def __init__(self, proc_cursor, call_cursor):
         self.call_stmt = call_cursor._node()
         assert isinstance(self.call_stmt, LoopIR.Call)
@@ -744,14 +743,14 @@ class _Inline(Cursor_Rewrite):
 # Partial Evaluation scheduling directive
 
 
-class _PartialEval(LoopIR_Rewrite):
-    def __init__(self, p, arg_vals):
-        assert arg_vals, "Don't call _PartialEval without any substitutions"
-        self.env = arg_vals
-        self.proc = p
-        arg_types = {p.name: p.type for p in self.proc.args}
+class DoPartialEval(LoopIR_Rewrite):
+    def __init__(self, env):
+        assert env, "Don't call _PartialEval without any substitutions"
+        self.env = env
 
+    def map_proc(self, p):
         # Validate env:
+        arg_types = {x.name: x.type for x in p.args}
         for k, v in self.env.items():
             if not arg_types[k].is_indexable() and not arg_types[k].is_bool():
                 raise SchedulingError(
@@ -762,10 +761,9 @@ class _PartialEval(LoopIR_Rewrite):
                     "cannot partially evaluate to a non-int, non-bool value"
                 )
 
-        super().__init__(p)
-        self.proc = self.proc.update(
-            args=[a for a in self.proc.args if a.name not in arg_vals]
-        )
+        p = super().map_proc(p) or p
+
+        return p.update(args=[a for a in p.args if a.name not in self.env])
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):
@@ -796,7 +794,7 @@ class _PartialEval(LoopIR_Rewrite):
 
 # This pass uses a raw name string instead of a pattern
 # TODO: This op shouldn't take name, it should just take Alloc cursor...
-class _SetTypAndMem(Cursor_Rewrite):
+class DoSetTypAndMem(Cursor_Rewrite):
     def __init__(self, proc_cursor, name, inst_no, basetyp=None, win=None, mem=None):
         ind = lambda x: 1 if x else 0
         assert ind(basetyp) + ind(win) + ind(mem) == 1
@@ -913,7 +911,7 @@ class _SetTypAndMem(Cursor_Rewrite):
 # Call Swap scheduling directive
 
 
-class _CallSwap(Cursor_Rewrite):
+class DoCallSwap(Cursor_Rewrite):
     def __init__(self, proc_cursor, call_cursor, new_subproc):
         self.call_stmt = call_cursor._node()
         assert isinstance(self.call_stmt, LoopIR.Call)
@@ -957,7 +955,7 @@ class _CallSwap(Cursor_Rewrite):
         return eff
 
 
-class _InlineWindow(Cursor_Rewrite):
+class DoInlineWindow(Cursor_Rewrite):
     def __init__(self, proc_cursor, window_cursor):
         self.win_stmt = window_cursor._node()
         assert isinstance(self.win_stmt, LoopIR.WindowStmt)
@@ -1069,7 +1067,7 @@ class _InlineWindow(Cursor_Rewrite):
 
 
 # TODO: Rewrite this to directly use stmt_cursor instead of after
-class _ConfigWrite(Cursor_Rewrite):
+class DoConfigWrite(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, config, field, expr, before=False):
         assert isinstance(expr, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const))
 
@@ -1125,11 +1123,10 @@ class _ConfigWrite(Cursor_Rewrite):
 
 
 class _BindConfig_AnalysisSubst(LoopIR_Rewrite):
-    def __init__(self, proc, keep_s, old_e, new_e):
+    def __init__(self, keep_s, old_e, new_e):
         self.keep_s = keep_s
         self.old_e = old_e
         self.new_e = new_e
-        super().__init__(proc)
 
     def map_s(self, s):
         if s is self.keep_s:
@@ -1144,7 +1141,7 @@ class _BindConfig_AnalysisSubst(LoopIR_Rewrite):
             return super().map_e(e)
 
 
-class _BindConfig(Cursor_Rewrite):
+class DoBindConfig(Cursor_Rewrite):
     def __init__(self, proc_cursor, config, field, expr_cursor):
         self.expr = expr_cursor._node()
         assert isinstance(self.expr, LoopIR.Read)
@@ -1160,8 +1157,8 @@ class _BindConfig(Cursor_Rewrite):
         super().__init__(proc_cursor)
 
         proc_analysis = _BindConfig_AnalysisSubst(
-            self.proc, self.cfg_write_s, self.cfg_read_e, self.expr
-        ).result()
+            self.cfg_write_s, self.cfg_read_e, self.expr
+        ).apply_proc(self.proc)
         mod_cfg = Check_DeleteConfigWrite(proc_analysis, [self.cfg_write_s])
         self.eq_mod_config = mod_cfg
 
@@ -1251,7 +1248,7 @@ class _BindConfig(Cursor_Rewrite):
             return super().map_e(e)
 
 
-class _DoCommuteExpr(Cursor_Rewrite):
+class DoCommuteExpr(Cursor_Rewrite):
     def __init__(self, proc_cursor, expr_cursors):
         self.exprs = [e._node() for e in expr_cursors]
         super().__init__(proc_cursor)
@@ -1265,7 +1262,7 @@ class _DoCommuteExpr(Cursor_Rewrite):
             return super().map_e(e)
 
 
-class _BindExpr(Cursor_Rewrite):
+class DoBindExpr(Cursor_Rewrite):
     def __init__(self, proc_cursor, new_name, expr_cursors, cse=False):
         self.exprs = [e._node() for e in expr_cursors]
         assert all(isinstance(expr, LoopIR.expr) for expr in self.exprs)
@@ -1386,7 +1383,7 @@ class _BindExpr(Cursor_Rewrite):
 
 
 # Lift if no variable dependency
-class _DoLiftScope(Cursor_Rewrite):
+class DoLiftScope(Cursor_Rewrite):
     def __init__(self, proc_cursor, if_cursor):
         self.target = if_cursor._node()
         self.target_type = (
@@ -1545,7 +1542,7 @@ class _DoLiftScope(Cursor_Rewrite):
         return None
 
 
-class _DoExpandDim(Cursor_Rewrite):
+class DoExpandDim(Cursor_Rewrite):
     def __init__(self, proc_cursor, alloc_cursor, alloc_dim, indexing):
         self.alloc_stmt = alloc_cursor._node()
 
@@ -1634,7 +1631,7 @@ class _DoExpandDim(Cursor_Rewrite):
         return super().map_e(e)
 
 
-class _DoRearrangeDim(Cursor_Rewrite):
+class DoRearrangeDim(Cursor_Rewrite):
     def __init__(self, proc_cursor, alloc_cursor, permute_vector):
         self.alloc_stmt = alloc_cursor._node()
         assert isinstance(self.alloc_stmt, LoopIR.Alloc)
@@ -1722,7 +1719,7 @@ class _DoRearrangeDim(Cursor_Rewrite):
         return super().map_e(e)
 
 
-class _DoDivideDim(Cursor_Rewrite):
+class DoDivideDim(Cursor_Rewrite):
     def __init__(self, proc_cursor, alloc_cursor, dim_idx, quotient):
         self.alloc_stmt = alloc_cursor._node()
 
@@ -1801,7 +1798,7 @@ class _DoDivideDim(Cursor_Rewrite):
         return super().map_e(e)
 
 
-class _DoMultiplyDim(Cursor_Rewrite):
+class DoMultiplyDim(Cursor_Rewrite):
     def __init__(self, proc_cursor, alloc_cursor, hi_idx, lo_idx):
         self.alloc_stmt = alloc_cursor._node()
 
@@ -1885,7 +1882,7 @@ class _DoMultiplyDim(Cursor_Rewrite):
 # *Only* lifting an allocation
 
 
-class _DoLiftAllocSimple(Cursor_Rewrite):
+class DoLiftAllocSimple(Cursor_Rewrite):
     def __init__(self, proc_cursor, alloc_cursor, n_lifts):
         self.alloc_stmt = alloc_cursor._node()
 
@@ -1957,7 +1954,7 @@ class _DoLiftAllocSimple(Cursor_Rewrite):
 
 # TODO: Implement autolift_alloc's logic using high-level scheduling metaprogramming and
 #       delete this code
-class _LiftAlloc(Cursor_Rewrite):
+class DoLiftAlloc(Cursor_Rewrite):
     def __init__(self, proc_cursor, alloc_cursor, n_lifts, mode, size, keep_dims):
         self.alloc_stmt = alloc_cursor._node()
 
@@ -2294,7 +2291,7 @@ def _is_idempotent(stmts):
     return all(_stmt(s) for s in stmts)
 
 
-class _DoRemoveLoop(Cursor_Rewrite):
+class DoRemoveLoop(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor):
         self.stmt = stmt_cursor._node()
         assert isinstance(self.stmt, LoopIR.stmt)
@@ -2334,7 +2331,7 @@ class _DoRemoveLoop(Cursor_Rewrite):
 # This is same as original FissionAfter, except that
 # this does not remove loop. We have separate remove_loop
 # operator for that purpose.
-class _DoFissionAfterSimple:
+class DoFissionAfterSimple:
     def __init__(self, proc_cursor, stmt_cursor, n_lifts):
         self.tgt_stmt = stmt_cursor._node()
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
@@ -2455,7 +2452,7 @@ class _DoFissionAfterSimple:
 
 # TODO: Deprecate this with the one above
 # structure is weird enough to skip using the Rewrite-pass super-class
-class _FissionLoops:
+class DoFissionLoops:
     def __init__(self, proc_cursor, stmt_cursor, n_lifts):
         self.tgt_stmt = stmt_cursor._node()
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
@@ -2579,7 +2576,7 @@ class _FissionLoops:
             return [single_stmt], []
 
 
-class _DoAddUnsafeGuard(Cursor_Rewrite):
+class DoAddUnsafeGuard(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, cond):
         self.stmt = stmt_cursor._node()
         self.cond = cond
@@ -2601,7 +2598,7 @@ class _DoAddUnsafeGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class _DoSpecialize(Cursor_Rewrite):
+class DoSpecialize(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, conds):
         assert conds, "Must add at least one condition"
         self.stmt = stmt_cursor._node()
@@ -2629,7 +2626,7 @@ def _get_constant_bound(e):
     raise SchedulingError(f"Could not derive constant bound on {e}")
 
 
-class _DoBoundAndGuard(Cursor_Rewrite):
+class DoBoundAndGuard(Cursor_Rewrite):
     def __init__(self, proc_cursor, loop_cursor):
         self.loop = loop_cursor._node()
         super().__init__(proc_cursor)
@@ -2657,55 +2654,34 @@ class _DoBoundAndGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class _DoFuseLoop(Cursor_Rewrite):
-    def __init__(self, proc_cursor, f_cursor, s_cursor):
-        self.loop1 = f_cursor._node()
-        self.loop2 = s_cursor._node()
-        self.modified_stmts = None
+def DoFuseLoop(proc_cursor, f_cursor, s_cursor):
+    proc = proc_cursor._node()
+    loop1 = f_cursor._node()
+    loop2 = s_cursor._node()
 
-        super().__init__(proc_cursor)
+    if f_cursor.next() != s_cursor:
+        raise SchedulingError(
+            "expected the two loops to be fused to come one right after the other"
+        )
 
-        loop, body1, body2 = self.modified_stmts
-        Check_FissionLoop(self.proc, loop, body1, body2)
+    # check if the loop bounds are equivalent
+    Check_ExprEqvInContext(proc, loop1.hi, [loop1], loop2.hi, [loop2])
 
-        self.proc = InferEffects(self.proc).result()
+    x = LoopIR.Read(loop1.iter, [], T.index, loop1.srcinfo)
+    y = loop2.iter
+    body1 = loop1.body
+    body2 = SubstArgs(loop2.body, {y: x}).result()
 
-    def map_stmts(self, stmts_c):
-        stmts = [s._node() for s in stmts_c]
-        new_stmts = []
+    proc, fwd1 = f_cursor.body()[-1].after()._insert(body2)
+    proc, fwd2 = fwd1(s_cursor)._delete()
+    loop = fwd2(fwd1(f_cursor))._node()
 
-        for i, b in enumerate(stmts):
-            if b is self.loop1:
-                if i + 1 >= len(stmts) or stmts[i + 1] is not self.loop2:
-                    raise SchedulingError(
-                        "expected the two loops to be "
-                        "fused to come one right after the other"
-                    )
-
-                loop1, loop2 = self.loop1, self.loop2
-
-                # check if the loop bounds are equivalent
-                Check_ExprEqvInContext(
-                    self.orig_proc._node(), loop1.hi, [loop1], loop2.hi, [loop2]
-                )
-
-                x = loop1.iter
-                y = loop2.iter
-                hi = loop1.hi
-                body1 = loop1.body
-                body2 = SubstArgs(
-                    loop2.body, {y: LoopIR.Read(x, [], T.index, loop1.srcinfo)}
-                ).result()
-                loop = type(loop1)(x, hi, body1 + body2, None, loop1.srcinfo)
-                self.modified_stmts = (loop, body1, body2)
-
-                return stmts[:i] + [loop] + stmts[i + 2 :]
-
-        # if we reached this point, we didn't find the loop
-        return super().map_stmts(stmts_c)
+    Check_FissionLoop(proc._loopir_proc, loop, body1, body2)
+    proc = InferEffects(proc._loopir_proc).result()
+    return api.Procedure(proc, _provenance_eq_Procedure=proc_cursor.proc())
 
 
-class _DoFuseIf(Cursor_Rewrite):
+class DoFuseIf(Cursor_Rewrite):
     def __init__(self, proc_cursor, f_cursor, s_cursor):
         self.if1 = f_cursor._node()
         self.if2 = s_cursor._node()
@@ -2746,7 +2722,7 @@ class _DoFuseIf(Cursor_Rewrite):
         return super().map_stmts(stmts)
 
 
-class _DoAddLoop(Cursor_Rewrite):
+class DoAddLoop(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, var, hi, guard):
         self.stmt = stmt_cursor._node()
         self.var = Sym(var)
@@ -2822,7 +2798,7 @@ def _make_closure(name, stmts, var_types):
     return closure, args
 
 
-class _DoInsertPass(Cursor_Rewrite):
+class DoInsertPass(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, before=True):
         self.stmt = stmt_cursor._node()
         self.before = before
@@ -2839,7 +2815,7 @@ class _DoInsertPass(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class _DoDeleteConfig(Cursor_Rewrite):
+class DoDeleteConfig(Cursor_Rewrite):
     def __init__(self, proc_cursor, config_cursor):
         self.stmt = config_cursor._node()
         self.eq_mod_config = set()
@@ -2858,7 +2834,7 @@ class _DoDeleteConfig(Cursor_Rewrite):
             return super().map_s(sc)
 
 
-class _DoDeletePass(Cursor_Rewrite):
+class DoDeletePass(Cursor_Rewrite):
     def __init__(self, proc_cursor):
         super().__init__(proc_cursor)
 
@@ -2879,7 +2855,7 @@ class _DoDeletePass(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class _DoExtractMethod(Cursor_Rewrite):
+class DoExtractMethod(Cursor_Rewrite):
     def __init__(self, proc_cursor, name, stmt_cursor):
         self.match_stmt = stmt_cursor._node()
         assert isinstance(self.match_stmt, LoopIR.stmt)
@@ -3071,7 +3047,7 @@ class _DoNormalize(Cursor_Rewrite):
         return super().map_e(e)
 
 
-class _DoSimplify(Cursor_Rewrite):
+class DoSimplify(Cursor_Rewrite):
     def __init__(self, proc_cursor):
         self.facts = ChainMap()
         new_procedure = _DoNormalize(proc_cursor).result()
@@ -3310,7 +3286,7 @@ class _DoSimplify(Cursor_Rewrite):
             return super().map_s(sc)
 
 
-class _AssertIf(Cursor_Rewrite):
+class DoAssertIf(Cursor_Rewrite):
     def __init__(self, proc_cursor, if_cursor, cond):
         self.if_stmt = if_cursor._node()
 
@@ -3344,7 +3320,7 @@ class _AssertIf(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class _DoDataReuse(Cursor_Rewrite):
+class DoDataReuse(Cursor_Rewrite):
     def __init__(self, proc_cursor, buf_cursor, rep_cursor):
         assert isinstance(buf_cursor._node(), LoopIR.Alloc)
         assert isinstance(rep_cursor._node(), LoopIR.Alloc)
@@ -3460,7 +3436,7 @@ class _DoStageMem_FindBufData(LoopIR_Do):
         pass
 
 
-class _DoStageMem(Cursor_Rewrite):
+class DoStageMem(Cursor_Rewrite):
     def __init__(
         self,
         proc_cursor,
@@ -3689,7 +3665,7 @@ class _DoStageMem(Cursor_Rewrite):
         return new_e
 
 
-class _DoStageWindow(Cursor_Rewrite):
+class DoStageWindow(Cursor_Rewrite):
     def __init__(self, proc_cursor, new_name, memory, expr):
         # Inputs
         self.new_name = Sym(new_name)
@@ -3823,7 +3799,7 @@ class _DoStageWindow(Cursor_Rewrite):
         return super().map_e(e)
 
 
-class _DoBoundAlloc(Cursor_Rewrite):
+class DoBoundAlloc(Cursor_Rewrite):
     def __init__(self, proc_cursor, alloc_cursor, bounds):
         self.alloc_site = alloc_cursor._node()
         self.bounds = bounds
@@ -3860,46 +3836,46 @@ class _DoBoundAlloc(Cursor_Rewrite):
 # --------------------------------------------------------------------------- #
 # The Passes to export
 
-
-class Schedules:
-    DoSplit = _Split
-    DoUnroll = _Unroll
-    DoInline = _Inline
-    DoPartialEval = _PartialEval
-    SetTypAndMem = _SetTypAndMem
-    DoCallSwap = _CallSwap
-    DoBindExpr = _BindExpr
-    DoBindConfig = _BindConfig
-    DoLiftAlloc = _LiftAlloc
-    DoFissionLoops = _FissionLoops
-    DoExtractMethod = _DoExtractMethod
-    DoReorderStmt = _DoReorderStmt
-    DoConfigWrite = _ConfigWrite
-    DoInlineWindow = _InlineWindow
-    DoInsertPass = _DoInsertPass
-    DoDeletePass = _DoDeletePass
-    DoSimplify = _DoSimplify
-    DoBoundAndGuard = _DoBoundAndGuard
-    DoFuseLoop = _DoFuseLoop
-    DoAddLoop = _DoAddLoop
-    DoDataReuse = _DoDataReuse
-    DoLiftScope = _DoLiftScope
-    DoPartitionLoop = _PartitionLoop
-    DoAssertIf = _AssertIf
-    DoSpecialize = _DoSpecialize
-    DoAddUnsafeGuard = _DoAddUnsafeGuard
-    DoDeleteConfig = _DoDeleteConfig
-    DoFuseIf = _DoFuseIf
-    DoStageMem = _DoStageMem
-    DoStageWindow = _DoStageWindow
-    DoBoundAlloc = _DoBoundAlloc
-    DoExpandDim = _DoExpandDim
-    DoRearrangeDim = _DoRearrangeDim
-    DoDivideDim = _DoDivideDim
-    DoMultiplyDim = _DoMultiplyDim
-    DoRemoveLoop = _DoRemoveLoop
-    DoLiftAllocSimple = _DoLiftAllocSimple
-    DoFissionAfterSimple = _DoFissionAfterSimple
-    DoProductLoop = _DoProductLoop
-    DoCommuteExpr = _DoCommuteExpr
-    DoMergeWrites = _DoMergeWrites
+__all__ = [
+    "DoSplit",
+    "DoUnroll",
+    "DoInline",
+    "DoPartialEval",
+    "DoSetTypAndMem",
+    "DoCallSwap",
+    "DoBindExpr",
+    "DoBindConfig",
+    "DoLiftAlloc",
+    "DoFissionLoops",
+    "DoExtractMethod",
+    "DoReorderStmt",
+    "DoConfigWrite",
+    "DoInlineWindow",
+    "DoInsertPass",
+    "DoDeletePass",
+    "DoSimplify",
+    "DoBoundAndGuard",
+    "DoFuseLoop",
+    "DoAddLoop",
+    "DoDataReuse",
+    "DoLiftScope",
+    "DoPartitionLoop",
+    "DoAssertIf",
+    "DoSpecialize",
+    "DoAddUnsafeGuard",
+    "DoDeleteConfig",
+    "DoFuseIf",
+    "DoStageMem",
+    "DoStageWindow",
+    "DoBoundAlloc",
+    "DoExpandDim",
+    "DoRearrangeDim",
+    "DoDivideDim",
+    "DoMultiplyDim",
+    "DoRemoveLoop",
+    "DoLiftAllocSimple",
+    "DoFissionAfterSimple",
+    "DoProductLoop",
+    "DoCommuteExpr",
+    "DoMergeWrites",
+]

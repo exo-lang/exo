@@ -5,17 +5,13 @@ import types
 from pathlib import Path
 from typing import Optional, Union, List
 
+import exo.LoopIR_scheduling as scheduling
+from exo.LoopIR_scheduling import SchedulingError
+
 from .API_types import ProcedureBase
 from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_interpreter import run_interpreter
-from .LoopIR_scheduling import (
-    Schedules,
-    name_plus_count,
-    SchedulingError,
-    iter_name_to_pattern,
-    nested_iter_names_to_pattern,
-)
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
@@ -390,7 +386,7 @@ class Procedure(ProcedureBase):
             params_map = {sym.name.name(): sym.name for sym in p.args}
             kwargs = {params_map[k]: v for k, v in kwargs.items()}
 
-        p = Schedules.DoPartialEval(p, kwargs).result()
+        p = scheduling.DoPartialEval(kwargs).apply_proc(p)
         return Procedure(p)  # No provenance because signature changed
 
     def _find_stmt(

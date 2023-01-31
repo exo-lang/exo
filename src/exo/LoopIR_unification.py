@@ -39,7 +39,7 @@ class UnificationError(Exception):
 
 
 class DoReplace(LoopIR_Rewrite):
-    def __init__(self, proc, subproc, stmt_block):
+    def __init__(self, subproc, stmt_block):
         # ensure that subproc and stmt_block match in # of statements
         n_stmts = len(subproc.body)
         if len(stmt_block) < n_stmts:
@@ -50,24 +50,10 @@ class DoReplace(LoopIR_Rewrite):
         self.target_block = stmt_block
         self.live_vars = ChainMap()
 
-        super().__init__(proc)
-        Check_Aliasing(self.proc)
-        # fix up effects post-hoc
-        # self.proc = InferEffects(self.proc).result()
-        # and then check that all effect-check conditions are
-        # still satisfied...
-        # try:
-        #    CheckEffects(self.proc)
-        # except TypeError as te:
-        #    errmsg = te.args[0]
-        #    premsg = ("After performing a `replace()` operation, the "
-        #              "resulting procedure was not safe, failing an effect-"
-        #              "check.  This may be due to current limitations with "
-        #              "`replace()` or due to an internal compiler bug.  "
-        #              "Regardless, here is the text of the procedure "
-        #              "failing the effect-check:\n"
-        #              str(self.proc)+"\n"+errmsg)
-        #    raise TypeError(premsg)
+    def map_proc(self, p):
+        if p := super().map_proc(p):
+            Check_Aliasing(p)
+        return p
 
     def push(self):
         self.live_vars = self.live_vars.new_child()
