@@ -15,3 +15,8 @@ def bar(N: size, M: size, K: size, x: i8[N, M, K] @ DRAM):
         for m in seq(0, M):
             for k in seq(0, K):
                 a_1[k, m, n] = x[n, m, k]
+def baz(N: size, M: size, x: i8[N, M] @ DRAM):
+    a: i8[M, N] @ DRAM
+    for n in seq(0, N):
+        for m in seq(0, M):
+            a[m, n] = x[n, m]

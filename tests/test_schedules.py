@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from exo import ParseFragmentError
-from exo import proc, DRAM, Procedure
+from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
 
@@ -120,6 +120,17 @@ def test_delete_pass(golden):
     assert str(delete_pass(foo)) == golden
 
 
+def test_add_loop(golden):
+    @proc
+    def foo(x: R):
+        x = 1.0
+        x = 2.0
+        x = 3.0
+
+    foo = add_loop(foo, "x = 2.0", "i", 5)
+    assert str(foo) == golden
+
+
 def test_add_loop1(golden):
     @proc
     def foo():
@@ -138,23 +149,49 @@ def test_add_loop2(golden):
     assert str(add_loop(foo, "x = _", "i", 10, guard=True)) == golden
 
 
-def test_add_loop3():
-    @proc
-    def foo():
-        x: R
-        x = 0.0
-
-    with pytest.raises(TypeError, match="expected a bool"):
-        add_loop(foo, "x = _", "i", 10, guard=100)
-
-
-def test_add_loop4(golden):
+def test_add_loop3(golden):
     @proc
     def foo(n: size, m: size):
         x: R
         x = 0.0
 
     assert str(add_loop(foo, "x = _", "i", "n+m", guard=True)) == golden
+
+
+def test_add_loop4_fail():
+    @proc
+    def foo():
+        x: R
+        x = 0.0
+
+    with pytest.raises(
+        TypeError, match="argument 4, 'guard' to add_loop: expected a bool"
+    ):
+        add_loop(foo, "x = _", "i", 10, guard=100)
+
+
+def test_add_loop5_fail():
+    @proc
+    def foo(x: R):
+        x += 1.0
+        x += 2.0
+        x += 3.0
+
+    with pytest.raises(SchedulingError, match="The statement at .* is not idempotent"):
+        add_loop(foo, "x += 2.0", "i", 5)
+
+
+def test_add_loop6_runs_fail():
+    @proc
+    def foo(x: R):
+        x = 1.0
+        x = 2.0
+        x = 3.0
+
+    with pytest.raises(
+        SchedulingError, match="The expression 0 is not " "guaranteed to be positive"
+    ):
+        add_loop(foo, "x = 2.0", "i", 0)
 
 
 # Should fix this test with program analysis
@@ -320,12 +357,33 @@ def test_rearrange_dim(golden):
                 for k in seq(0, K):
                     a[m, k, n] = x[n, m, k]
 
+    @proc
+    def baz(N: size, M: size, x: i8[N, M]):
+        a: i8[N, M]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                a[n, m] = x[n, m]
+
     foo = rearrange_dim(foo, "a : i8[_]", [1, 2, 0])
     bar = rearrange_dim(bar, "a : i8[_]", [1, 0, 2])
     bar = rearrange_dim(bar, "a : i8[_] #1", [1, 0, 2])
-    cases = [foo, bar]
+    baz = rearrange_dim(baz, "a : i8[_]", [1, 0])
+    cases = [foo, bar, baz]
 
     assert "\n".join(map(str, cases)) == golden
+
+
+def test_rearrange_dim_fail():
+    @proc
+    def foo(N: size, M: size, K: size, x: i8[N, M, K]):
+        a: i8[N, M, K]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[n, m, k] = x[n, m, k]
+
+    with pytest.raises(ValueError, match="was not a permutation of"):
+        rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
 
 
 def test_remove_loop(golden):
@@ -353,6 +411,18 @@ def test_remove_loop(golden):
     ]
 
     assert "\n".join(map(str, cases)) == golden
+
+
+def test_remove_loop_fail(golden):
+    @proc
+    def foo(n: size, m: size, x: i8):
+        a: i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x += a
+
+    with pytest.raises(SchedulingError, match="The statement at .* is not idempotent"):
+        remove_loop(foo, "for i in _:_")
 
 
 def test_lift_alloc_simple(golden):
@@ -434,19 +504,19 @@ def test_autolift_alloc_error():
         autolift_alloc(bar, "tmp_a : _", n_lifts=3)
 
 
-def test_expand_dim(golden):
+def test_expand_dim1_bad_scope():
     @proc
     def foo(n: size, m: size, x: i8):
+        a: i8
         for i in seq(0, n):
             for j in seq(0, m):
-                a: i8
                 x = a
 
-    foo = expand_dim(foo, "a : i8", "n", "i")
-    assert str(foo) == golden
+    with pytest.raises(ParseFragmentError, match="i not found in"):
+        expand_dim(foo, "a : i8", "n", "i")  # should be error
 
 
-def test_expand_dim2():
+def test_expand_dim2_bad_scope():
     @proc
     def foo(n: size, m: size, x: i8):
         for i in seq(0, n):
@@ -499,16 +569,20 @@ def test_expand_dim4(golden):
             for j in seq(0, m):
                 pass
 
-    with pytest.raises(TypeError, match="effect checking"):
+    with pytest.raises(
+        SchedulingError, match="The expression 10 - 20 is not guaranteed to be positive"
+    ):
         expand_dim(foo, "a : i8", "10-20", "10")  # this is not fine
 
-    with pytest.raises(TypeError, match="effect checking"):
+    with pytest.raises(
+        SchedulingError, match="The expression n - m is not guaranteed to be positive"
+    ):
         expand_dim(foo, "a : i8", "n - m", "i")  # out of bounds
 
     with pytest.raises(ParseFragmentError, match="not found in"):
         expand_dim(foo, "a : i8", "hoge", "i")  # does not exist
 
-    with pytest.raises(TypeError, match="effect checking"):
+    with pytest.raises(SchedulingError, match="The buffer a is accessed out-of-bounds"):
         expand_dim(foo, "a : i8", "n", "i-j")  # bound check should fail
 
     cases = [
@@ -607,6 +681,95 @@ def test_reuse_buffer(golden):
 
     foo = reuse_buffer(foo, "bb:_", "c:_")
     assert str(foo) == golden
+
+
+def test_reuse_buffer_loop_fail():
+    @proc
+    def foo(a: f32 @ DRAM, b: f32 @ DRAM):
+        aa: f32
+        bb: f32
+        aa = a
+        bb = b
+
+        c: f32
+        for i in seq(0, 10):
+            c = aa + bb
+        b = c
+
+    with pytest.raises(
+        SchedulingError, match="The variable bb can potentially be used after"
+    ):
+        foo = reuse_buffer(foo, "bb:_", "c:_")
+
+
+def test_fuse_loop(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        y: R[n]
+        for i in seq(0, n):
+            y[i] = x[i]
+        for j in seq(0, n):
+            x[j] = y[j] + 1.0
+
+    foo = fuse(foo, "for i in _:_", "for j in _:_")
+    assert str(foo) == golden
+
+
+def test_fuse_loop_fail():
+    @proc
+    def foo(n: size, x: R[n + 1]):
+        y: R[n + 1]
+        y[0] = x[0]
+        for i in seq(0, n):
+            y[i + 1] = x[i]
+        for j in seq(0, n):
+            x[j + 1] = y[j + 1] + 1.0
+
+    with pytest.raises(SchedulingError, match="Cannot fission loop"):
+        fuse(foo, "for i in _:_", "for j in _:_")
+
+
+def test_fuse_loop_commute_config(golden):
+    @config
+    class CFG:
+        j: index
+
+    @proc
+    def foo(n: size, x: R[n]):
+        y: R[n]
+        for i in seq(0, n):
+            CFG.j = 0
+        for j in seq(0, n):
+            CFG.j = 0
+
+    foo = fuse(foo, "for i in _:_", "for j in _:_")
+    assert str(foo) == golden
+
+
+def test_fuse_if(golden):
+    @proc
+    def foo(x: R, a: index, b: index):
+        if a == b:
+            x += 1.0
+        if a - b == 0:
+            x += 2.0
+        else:
+            x += 3.0
+
+    foo = fuse(foo, "if a==b:_", "if _==0: _")
+    assert str(foo) == golden
+
+
+def test_fuse_if_fail():
+    @proc
+    def foo(x: R, a: index, b: index):
+        if a == b:
+            x += 1.0
+        if a + b == 0:
+            x += 2.0
+
+    with pytest.raises(SchedulingError, match="Expressions are not equivalent"):
+        fuse(foo, "if a==b:_", "if _==0: _")
 
 
 def test_bind_lhs(golden):
@@ -1010,10 +1173,10 @@ def test_unify4(golden):
                 dst[i] = src[i] + src[i + 1]
 
     @proc
-    def foo(x: R[50, 2]):
+    def foo(x: R[50, 2], y: R[50, 2]):
         for j in seq(0, 50):
             if j < 48:
-                x[j, 1] = x[j, 0] + x[j + 1, 0]
+                y[j, 1] = x[j, 0] + x[j + 1, 0]
 
     foo = replace(foo, "for j in _ : _", bar)
     assert str(foo) == golden

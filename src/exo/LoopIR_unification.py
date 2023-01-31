@@ -11,6 +11,7 @@ from .LoopIR import LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars, Alpha_Rename
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
+from .new_eff import Check_Aliasing
 
 
 def _get_smt_solver():
@@ -48,6 +49,11 @@ class DoReplace(LoopIR_Rewrite):
         self.subproc = subproc
         self.target_block = stmt_block
         self.live_vars = ChainMap()
+
+    def map_proc(self, p):
+        if p := super().map_proc(p):
+            Check_Aliasing(p)
+        return p
 
     def push(self):
         self.live_vars = self.live_vars.new_child()

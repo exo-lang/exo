@@ -1,2 +1,2 @@
-def foo(x: R[50, 2] @ DRAM):
-    bar(50, x[0:50, 0], x[0:50, 1])
+def foo(x: R[50, 2] @ DRAM, y: R[50, 2] @ DRAM):
+    bar(50, x[0:50, 0], y[0:50, 1])
