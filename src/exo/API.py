@@ -386,7 +386,7 @@ class Procedure(ProcedureBase):
             params_map = {sym.name.name(): sym.name for sym in p.args}
             kwargs = {params_map[k]: v for k, v in kwargs.items()}
 
-        p = scheduling.DoPartialEval(p, kwargs).result()
+        p = scheduling.DoPartialEval(kwargs).apply_proc(p)
         return Procedure(p)  # No provenance because signature changed
 
     def _find_stmt(

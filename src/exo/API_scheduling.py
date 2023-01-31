@@ -911,7 +911,7 @@ def replace(proc, block_cursor, subproc, quiet=False):
     """
     stmts = [sc._impl._node() for sc in block_cursor]
     try:
-        p = DoReplace(proc._loopir_proc, subproc._loopir_proc, stmts).result()
+        p = DoReplace(subproc._loopir_proc, stmts).apply_proc(proc._loopir_proc)
         return Procedure(p, _provenance_eq_Procedure=proc)
     except UnificationError:
         if quiet:
@@ -1550,7 +1550,7 @@ def cut_loop(proc, loop_cursor, cut_point):
     """
     stmt = loop_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = scheduling.DoPartitionLoop(proc_c._node(), stmt, cut_point).result()
+    loopir = scheduling.DoPartitionLoop(stmt, cut_point).apply_proc(proc_c._node())
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 
@@ -1757,11 +1757,10 @@ def fuse(proc, stmt1, stmt2):
     s1 = stmt1._impl
     s2 = stmt2._impl
     proc_c = ic.Cursor.root(proc)
-    SCHED = (
-        scheduling.DoFuseIf if isinstance(stmt1, PC.IfCursor) else scheduling.DoFuseLoop
-    )
-
-    return SCHED(proc_c, s1, s2).result()
+    if isinstance(stmt1, PC.IfCursor):
+        return scheduling.DoFuseIf(proc_c, s1, s2).result()
+    else:
+        return scheduling.DoFuseLoop(proc_c, s1, s2).result()
 
 
 @sched_op([ForSeqCursorA])

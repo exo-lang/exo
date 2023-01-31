@@ -46,7 +46,8 @@ from . import API as api
 class Cursor_Rewrite(LoopIR_Rewrite):
     def __init__(self, proc_cursor):
         self.provenance = proc_cursor.proc()
-        super().__init__(proc_cursor)
+        self.orig_proc = proc_cursor
+        self.proc = self.apply_proc(proc_cursor)
 
     def result(self, mod_config=None):
         return api.Procedure(
@@ -248,11 +249,9 @@ class DoReorderStmt(Cursor_Rewrite):
 
 
 class DoPartitionLoop(LoopIR_Rewrite):
-    def __init__(self, proc, loop_cursor, num):
+    def __init__(self, loop_cursor, num):
         self.stmt = loop_cursor._node()
         self.partition_by = num
-
-        super().__init__(proc)
 
     def map_s(self, s):
         if s is self.stmt:
@@ -740,13 +739,13 @@ class DoInline(Cursor_Rewrite):
 
 
 class DoPartialEval(LoopIR_Rewrite):
-    def __init__(self, p, arg_vals):
-        assert arg_vals, "Don't call _PartialEval without any substitutions"
-        self.env = arg_vals
-        self.proc = p
-        arg_types = {p.name: p.type for p in self.proc.args}
+    def __init__(self, env):
+        assert env, "Don't call _PartialEval without any substitutions"
+        self.env = env
 
+    def map_proc(self, p):
         # Validate env:
+        arg_types = {x.name: x.type for x in p.args}
         for k, v in self.env.items():
             if not arg_types[k].is_indexable() and not arg_types[k].is_bool():
                 raise SchedulingError(
@@ -757,10 +756,9 @@ class DoPartialEval(LoopIR_Rewrite):
                     "cannot partially evaluate to a non-int, non-bool value"
                 )
 
-        super().__init__(p)
-        self.proc = self.proc.update(
-            args=[a for a in self.proc.args if a.name not in arg_vals]
-        )
+        p = super().map_proc(p) or p
+
+        return p.update(args=[a for a in p.args if a.name not in self.env])
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):
@@ -1132,11 +1130,10 @@ class DoConfigWrite(Cursor_Rewrite):
 
 
 class _BindConfig_AnalysisSubst(LoopIR_Rewrite):
-    def __init__(self, proc, keep_s, old_e, new_e):
+    def __init__(self, keep_s, old_e, new_e):
         self.keep_s = keep_s
         self.old_e = old_e
         self.new_e = new_e
-        super().__init__(proc)
 
     def map_s(self, s):
         if s is self.keep_s:
@@ -1167,8 +1164,8 @@ class DoBindConfig(Cursor_Rewrite):
         super().__init__(proc_cursor)
 
         proc_analysis = _BindConfig_AnalysisSubst(
-            self.proc, self.cfg_write_s, self.cfg_read_e, self.expr
-        ).result()
+            self.cfg_write_s, self.cfg_read_e, self.expr
+        ).apply_proc(self.proc)
         mod_cfg = Check_DeleteConfigWrite(proc_analysis, [self.cfg_write_s])
         self.eq_mod_config = mod_cfg
 
@@ -2598,7 +2595,6 @@ class DoFuseLoop(Cursor_Rewrite):
 
     def map_stmts(self, stmts_c):
         stmts = [s._node() for s in stmts_c]
-        new_stmts = []
 
         for i, b in enumerate(stmts):
             if b is self.loop1:
