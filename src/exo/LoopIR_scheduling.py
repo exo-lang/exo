@@ -30,6 +30,11 @@ from .new_eff import (
     Check_BufferRW,
     Check_BufferReduceOnly,
     Check_Bounds,
+    Check_IsDeadAfter,
+    Check_IsIdempotent,
+    Check_IsPositiveExpr,
+    Check_CodeIsDead,
+    Check_Aliasing,
 )
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
@@ -915,6 +920,7 @@ class _CallSwap(Cursor_Rewrite):
         self.new_subproc = new_subproc
 
         super().__init__(proc_cursor)
+        Check_Aliasing(self.proc)
 
     def mod_eq(self):
         return self.eq_mod_config
@@ -967,15 +973,34 @@ class _InlineWindow(Cursor_Rewrite):
         ) == len(idxs)
 
         new_idxs = []
-        for w in self.win_stmt.rhs.idx:
-            if isinstance(w, LoopIR.Interval):
-                new_idxs.append(LoopIR.BinOp("+", w.lo, idxs[0], T.index, w.srcinfo))
-                idxs.pop()
-            else:
-                new_idxs.append(w.pt)
+        win_idx = self.win_stmt.rhs.idx
+        idxs = idxs.copy()  # make function non-destructive to input
+        assert len(idxs) == sum([isinstance(w, LoopIR.Interval) for w in win_idx])
 
-        return new_idxs
+        def add(x, y):
+            return LoopIR.BinOp("+", x, y, T.index, x.srcinfo)
 
+        if len(idxs) > 0 and isinstance(idxs[0], LoopIR.w_access):
+
+            def map_w(w):
+                if isinstance(w, LoopIR.Point):
+                    return w
+                # i is from the windowing expression we're substituting into
+                i = idxs.pop(0)
+                if isinstance(i, LoopIR.Point):
+                    return LoopIR.Point(add(i.pt, w.lo), i.srcinfo)
+                else:
+                    return LoopIR.Interval(add(i.lo, w.lo), add(i.hi, w.lo), i.srcinfo)
+
+        else:
+
+            def map_w(w):
+                return w.pt if isinstance(w, LoopIR.Point) else add(idxs.pop(0), w.lo)
+
+        return [map_w(w) for w in win_idx]
+
+    # used to offset the stride in order to account for
+    # dimensions hidden due to window-point accesses
     def calc_dim(self, dim):
         assert dim < len(
             [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
@@ -995,82 +1020,50 @@ class _InlineWindow(Cursor_Rewrite):
 
     def map_s(self, sc):
         s = sc._node()
+        # remove the windowing statement
         if s is self.win_stmt:
             return []
 
-        if isinstance(s, LoopIR.Assign) or isinstance(s, LoopIR.Reduce):
-            if self.win_stmt.lhs == s.name:
-                new_idxs = self.calc_idx(s.idx)
-
-                return [
-                    type(s)(
-                        self.win_stmt.rhs.name,
-                        s.type,
-                        s.cast,
-                        new_idxs,
-                        s.rhs,
-                        None,
-                        s.srcinfo,
-                    )
-                ]
+        # substitute the indexing at assignment and reduction statements
+        if (
+            isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
+            and self.win_stmt.lhs == s.name
+        ):
+            idxs = self.calc_idx(s.idx)
+            return [
+                type(s)(
+                    self.win_stmt.rhs.name, s.type, s.cast, idxs, s.rhs, None, s.srcinfo
+                )
+            ]
 
         return super().map_s(sc)
 
     def map_e(self, e):
-        etyp = type(e)
-        assert isinstance(self.win_stmt.rhs, LoopIR.WindowExpr)
+        # etyp    = type(e)
+        win_name = self.win_stmt.lhs
+        buf_name = self.win_stmt.rhs.name
+        win_idx = self.win_stmt.rhs.idx
 
-        # TODO: Add more safety check?
-        if etyp is LoopIR.WindowExpr:
-            if self.win_stmt.lhs == e.name:
-                assert len(
-                    [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
-                ) == len(e.idx)
-                idxs = e.idx
-                new_idxs = []
-                for w in self.win_stmt.rhs.idx:
-                    if isinstance(w, LoopIR.Interval):
-                        if isinstance(idxs[0], LoopIR.Interval):
-                            # window again, so
-                            # w.lo + idxs[0].lo : w.lo + idxs[0].hi
-                            lo = LoopIR.BinOp("+", w.lo, idxs[0].lo, T.index, w.srcinfo)
-                            hi = LoopIR.BinOp("+", w.lo, idxs[0].hi, T.index, w.srcinfo)
-                            ivl = LoopIR.Interval(lo, hi, w.srcinfo)
-                            new_idxs.append(ivl)
-                        else:  # Point
-                            p = LoopIR.Point(
-                                LoopIR.BinOp("+", w.lo, idxs[0].pt, T.index, w.srcinfo),
-                                w.srcinfo,
-                            )
-                            new_idxs.append(p)
-                        idxs = idxs[1:]
-                    else:
-                        new_idxs.append(w)
+        if isinstance(e, LoopIR.WindowExpr) and win_name == e.name:
+            new_idxs = self.calc_idx(e.idx)
 
-                # repair window type..
-                old_typ = self.win_stmt.rhs.type
-                new_type = LoopIR.WindowType(
-                    old_typ.src_type,
-                    old_typ.as_tensor,
-                    self.win_stmt.rhs.name,
-                    new_idxs,
-                )
+            # repair window type..
+            old_typ = self.win_stmt.rhs.type
+            new_type = LoopIR.WindowType(
+                old_typ.src_type, old_typ.as_tensor, buf_name, new_idxs
+            )
 
-                return LoopIR.WindowExpr(
-                    self.win_stmt.rhs.name, new_idxs, new_type, e.srcinfo
-                )
+            return LoopIR.WindowExpr(
+                self.win_stmt.rhs.name, new_idxs, new_type, e.srcinfo
+            )
 
-        elif etyp is LoopIR.Read:
-            if self.win_stmt.lhs == e.name:
-                new_idxs = self.calc_idx(e.idx)
+        elif isinstance(e, LoopIR.Read) and win_name == e.name:
+            new_idxs = self.calc_idx(e.idx)
+            return LoopIR.Read(buf_name, new_idxs, e.type, e.srcinfo)
 
-                return LoopIR.Read(self.win_stmt.rhs.name, new_idxs, e.type, e.srcinfo)
-
-        elif etyp is LoopIR.StrideExpr:
-            if self.win_stmt.lhs == e.name:
-                return LoopIR.StrideExpr(
-                    self.win_stmt.rhs.name, self.calc_dim(e.dim), e.type, e.srcinfo
-                )
+        elif isinstance(e, LoopIR.StrideExpr) and win_name == e.name:
+            dim = self.calc_dim(e.dim)
+            return LoopIR.StrideExpr(buf_name, dim, e.type, e.srcinfo)
 
         return super().map_e(e)
 
@@ -1174,6 +1167,7 @@ class _BindConfig(Cursor_Rewrite):
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+        Check_Aliasing(self.proc)
 
     def mod_eq(self):
         return self.eq_mod_config
@@ -1291,6 +1285,7 @@ class _BindExpr(Cursor_Rewrite):
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+        Check_Aliasing(self.proc)
 
     def process_block(self, block):
         if self.sub_done:
@@ -1562,11 +1557,31 @@ class _DoExpandDim(Cursor_Rewrite):
         self.alloc_dim = alloc_dim
         self.indexing = indexing
         self.alloc_type = None
+        self.new_alloc_stmt = False
+        self.in_call_arg = False
+
+        # size positivity check
+        Check_IsPositiveExpr(proc_cursor._node(), [self.alloc_stmt], alloc_dim)
 
         super().__init__(proc_cursor)
 
+        # bounds check
+        Check_Bounds(self.proc, self.new_alloc_stmt, self.after_alloc)
+
         # repair effects...
         self.proc = InferEffects(self.proc).result()
+
+    def map_stmts(self, stmts):
+        # this chunk of code just finds the statement block
+        # that comes after the allocation
+        stmts = super().map_stmts(stmts)
+        if stmts is not None and self.new_alloc_stmt:
+            for i, s in enumerate(stmts):
+                if s is self.new_alloc_stmt:
+                    self.after_alloc = stmts[i + 1 :]
+                    break
+
+        return stmts
 
     def map_s(self, sc):
         s = sc._node()
@@ -1580,19 +1595,33 @@ class _DoExpandDim(Cursor_Rewrite):
             basetyp = old_typ.basetype()
             new_typ = T.Tensor(new_rngs, False, basetyp)
             self.alloc_type = new_typ
+            new_alloc = LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)
+            self.new_alloc_stmt = new_alloc
 
-            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
+            return [new_alloc]
 
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)) and s.name == self.alloc_sym:
             idx = [self.indexing] + self.apply_exprs(s.idx)
             rhs = self.apply_e(s.rhs)
             return [s.update(idx=idx, rhs=rhs, eff=None)]
 
+        if isinstance(s, LoopIR.Call):
+            self.in_call_arg = True
+            args = self._map_list(self.map_e, s.args) or s.args
+            self.in_call_arg = False
+            return [LoopIR.Call(s.f, args, None, s.srcinfo)]
+
         return super().map_s(sc)
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            return e.update(idx=[self.indexing] + self.apply_exprs(e.idx))
+            if self.in_call_arg and len(e.idx) == 0:
+                raise SchedulingError(
+                    "TODO: Please Contact the developers to fix (i.e. add) "
+                    "support for passing windows to scalar arguments"
+                )
+            else:
+                return e.update(idx=[self.indexing] + self.apply_exprs(e.idx))
 
         if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
             w_idx = self._map_list(self.map_w_access, e.idx) or e.idx
@@ -1606,44 +1635,89 @@ class _DoExpandDim(Cursor_Rewrite):
 
 
 class _DoRearrangeDim(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, dimensions):
+    def __init__(self, proc_cursor, alloc_cursor, permute_vector):
         self.alloc_stmt = alloc_cursor._node()
         assert isinstance(self.alloc_stmt, LoopIR.Alloc)
 
-        self.dimensions = dimensions
+        # dictionary can be used to permute windows in the future...
+        self.all_permute = {self.alloc_stmt.name: permute_vector}
 
         super().__init__(proc_cursor)
 
         self.proc = InferEffects(self.proc).result()
+
+    def should_permute(self, buf):
+        return buf in self.all_permute
+
+    def permute(self, buf, es):
+        permutation = self.all_permute[buf]
+        return [es[i] for i in permutation]
+
+    def permute_single_idx(self, buf, i):
+        return self.all_permute[buf].index(i)
+
+    def check_permute_window(self, buf, idx):
+        # for now just enforce a stability criteria on windowing
+        # expressions w.r.t. dimension reordering
+        permutation = self.all_permute[name]
+        # where each index of the output window now refers to in the
+        # buffer being windowed
+        keep_perm = [i for i in permutation if isinstance(idx[i], LoopIR.Interval)]
+        # check that these indices are monotonic
+        for i, ii in zip(keep_perm[:-1], keep_perm[1:]):
+            if i > ii:
+                return False
+        return True
 
     def map_s(self, sc):
         s = sc._node()
         # simply change the dimension
         if s is self.alloc_stmt:
             # construct new_hi
-            new_hi = [s.type.hi[i] for i in self.dimensions]
+            new_hi = self.permute(s.name, s.type.hi)
             # construct new_type
             new_type = LoopIR.Tensor(new_hi, s.type.is_window, s.type.type)
 
             return [LoopIR.Alloc(s.name, new_type, s.mem, None, s.srcinfo)]
 
         # Adjust the use-site
-        if isinstance(s, LoopIR.Assign) or isinstance(s, LoopIR.Reduce):
-            if s.name is self.alloc_stmt.name:
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            if self.should_permute(s.name):
                 # shuffle
-                new_idx = [s.idx[i] for i in self.dimensions]
+                new_idx = self.permute(s.name, s.idx)
                 return [
                     type(s)(s.name, s.type, s.cast, new_idx, s.rhs, None, s.srcinfo)
                 ]
 
+        if isinstance(s, LoopIR.Call):
+            # check that the arguments are not permuted buffers
+            for a in s.args:
+                if isinstance(a, LoopIR.Read) and self.should_permute(a.name):
+                    raise SchedulingError(
+                        "Cannot permute buffer '{a.name}' because it is "
+                        "passed as an sub-procedure argument at {s.srcinfo}"
+                    )
+
         return super().map_s(sc)
 
     def map_e(self, e):
-        # TODO: I am not sure what rearrange_dim should do in terms of StrideExpr
-        if isinstance(e, LoopIR.Read) or isinstance(e, LoopIR.WindowExpr):
-            if e.name is self.alloc_stmt.name:
-                new_idx = [e.idx[i] for i in self.dimensions]
-                return type(e)(e.name, new_idx, e.type, e.srcinfo)
+        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr)):
+            if self.should_permute(e.name):
+                if isinstance(e, LoopIR.WindowExpr) and not self.check_permute_window(
+                    e.name, e.idx
+                ):
+                    raise SchedulingError(
+                        f"Permuting the window expression at {e.srcinfo} "
+                        f"would change the meaning of the window; "
+                        f"propogating dimension rearrangement through "
+                        f"windows is not currently supported"
+                    )
+                return type(e)(e.name, self.permute(e.name, e.idx), e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.StrideExpr):
+            if self.should_permute(e.name):
+                dim = self.permute(e.name, e.dim)
+                return e.update(dim=dim)
 
         return super().map_e(e)
 
@@ -2234,26 +2308,25 @@ class _DoRemoveLoop(Cursor_Rewrite):
             # Check if we can remove the loop
             # Conditions are:
             # 1. Body does not depend on the loop iteration variable
-            # 2. Body is idempotent
-            # 3. The loop runs at least once
-            # TODO: (3) could be checked statically using something similar to the legacy is_pos_int.
-
-            if s.iter not in _FV(s.body):
-                if _is_idempotent(s.body):
-                    zero = LoopIR.Const(0, T.int, s.srcinfo)
-                    cond = LoopIR.BinOp(">", s.hi, zero, T.bool, s.srcinfo)
-                    body = self.apply_stmts(sc.body())
-                    guard = LoopIR.If(cond, body, [], None, s.srcinfo)
-                    # remove loop and alpha rename
-                    return Alpha_Rename([guard]).result()
-                else:
-                    raise SchedulingError(
-                        "Cannot remove loop, loop body is " "not idempotent"
-                    )
-            else:
+            if s.iter in _FV(s.body):
                 raise SchedulingError(
                     f"Cannot remove loop, {s.iter} is not " "free in the loop body."
                 )
+
+            # 2. Body is idemopotent
+            Check_IsIdempotent(self.orig_proc._node(), [s])
+
+            # 3. The loop runs at least once;
+            #    If not, then place a guard around the statement
+            body = Alpha_Rename(s.body).result()
+            try:
+                Check_IsPositiveExpr(self.orig_proc._node(), [s], s.hi)
+            except SchedulingError:
+                zero = LoopIR.Const(0, T.int, s.srcinfo)
+                cond = LoopIR.BinOp(">", s.hi, zero, T.bool, s.srcinfo)
+                body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
+
+            return body
 
         return super().map_s(sc)
 
@@ -2273,15 +2346,7 @@ class _DoFissionAfterSimple:
         self.hit_fission = False  # signal to map_stmts
 
         pre_body, post_body = self.map_stmts(self.orig_proc.body)
-        self.proc = LoopIR.proc(
-            name=self.orig_proc.name,
-            args=self.orig_proc.args,
-            preds=self.orig_proc.preds,
-            body=pre_body + post_body,
-            instr=None,
-            eff=self.orig_proc.eff,
-            srcinfo=self.orig_proc.srcinfo,
-        )
+        self.proc = proc_cursor._node().update(body=pre_body + post_body, instr=None)
         self.proc = InferEffects(self.proc).result()
 
     def result(self):
@@ -2289,11 +2354,15 @@ class _DoFissionAfterSimple:
 
     def alloc_check(self, pre, post):
         if not _is_alloc_free(pre, post):
-            raise SchedulingError(
-                "Will not fission here, because "
-                "an allocation might be buried "
-                "in a different scope than some use-site"
-            )
+            pre_allocs = {s.name for s in pre if isinstance(s, LoopIR.Alloc)}
+            post_FV = _FV(post)
+            for nm in pre_allocs:
+                if nm in post_FV:
+                    raise SchedulingError(
+                        f"Will not fission here, because "
+                        f"doing so will hide the allocation "
+                        f"of {nm} from a later use site."
+                    )
 
     # returns a pair of stmt-lists
     # for those statements occurring before and
@@ -2354,6 +2423,11 @@ class _DoFissionAfterSimple:
             if pre and post and self.n_lifts > 0:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
+
+                # we must check whether the two parts of the
+                # fission can commute appropriately
+                no_loop_var_pre = s.iter not in _FV(pre)
+                Check_FissionLoop(self.orig_proc, s, pre, post, no_loop_var_pre)
 
                 # we can skip the loop iteration if the
                 # body doesn't depend on the loop
@@ -2518,8 +2592,8 @@ class _DoAddUnsafeGuard(Cursor_Rewrite):
     def map_s(self, sc):
         s = sc._node()
         if s is self.stmt:
-            # Check_ExprEqvInContext(self.orig_proc, [s],
-            #                       self.cond,
+            # Check_ExprEqvInContext(self.orig_proc,
+            #                       self.cond, [s],
             #                       LoopIR.Const(True, T.bool, s.srcinfo))
             s1 = Alpha_Rename([s]).result()
             return [LoopIR.If(self.cond, s1, [], None, s.srcinfo)]
@@ -2631,54 +2705,51 @@ class _DoFuseLoop(Cursor_Rewrite):
         return super().map_stmts(stmts_c)
 
 
-class _DoFuseIf(LoopIR_Rewrite):
-    def __init__(self, proc, f_cursor, s_cursor):
+class _DoFuseIf(Cursor_Rewrite):
+    def __init__(self, proc_cursor, f_cursor, s_cursor):
         self.if1 = f_cursor._node()
         self.if2 = s_cursor._node()
 
-        super().__init__(proc)
+        super().__init__(proc_cursor)
 
         self.proc = InferEffects(self.proc).result()
 
-    def map_stmts(self, stmts):
-        new_stmts = []
-
-        found_first = False
-        for stmt in stmts:
-            if stmt is self.if1:
-                found_first = True
-                continue
-
-            if found_first:
-                found_first = False  # Must have been set on previous iteration
-
-                if stmt is not self.if2:
+    def map_stmts(self, stmts_c):
+        stmts = [s._node() for s in stmts_c]
+        for i, s in enumerate(stmts):
+            if s is self.if1:
+                if i + 1 >= len(stmts) or stmts[i + 1] is not self.if2:
                     raise SchedulingError(
-                        "expected the second stmt to be "
-                        "directly after the first stmt"
+                        "expected the two if statements to be "
+                        "fused to come one right after the other"
                     )
 
-                # Check that conditions are identical
-                if self.if1.cond != self.if2.cond:
-                    raise SchedulingError("expected conditions to match")
+                if1, if2 = self.if1, self.if2
 
-                stmt = LoopIR.If(
-                    self.if1.cond,
-                    self.if1.body + self.if2.body,
-                    self.if1.orelse + self.if2.orelse,
-                    None,
-                    self.if1.srcinfo,
+                # check if the loop bounds are equivalent
+                Check_ExprEqvInContext(
+                    self.orig_proc._node(), if1.cond, [if1], if2.cond, [if2]
                 )
 
-            new_stmts.extend(self.map_s(stmt))
+                cond = if1.cond
+                body1 = if1.body
+                body2 = if2.body
+                orelse1 = if1.orelse
+                orelse2 = if2.orelse
+                ifstmt = LoopIR.If(
+                    cond, body1 + body2, orelse1 + orelse2, None, if1.srcinfo
+                )
 
-        return new_stmts
+                return stmts[:i] + [ifstmt] + stmts[i + 2 :]
+
+        # if we reached this point, we didn't find the if statement
+        return super().map_stmts(stmts)
 
 
 class _DoAddLoop(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, var, hi, guard):
         self.stmt = stmt_cursor._node()
-        self.var = var
+        self.var = Sym(var)
         self.hi = hi
         self.guard = guard
 
@@ -2689,24 +2760,21 @@ class _DoAddLoop(Cursor_Rewrite):
     def map_s(self, sc):
         s = sc._node()
         if s is self.stmt:
-            if not _is_idempotent([s]):
-                raise SchedulingError("expected stmt to be idempotent!")
+            Check_IsIdempotent(self.orig_proc._node(), [s])
+            Check_IsPositiveExpr(self.orig_proc._node(), [s], self.hi)
 
-            sym = Sym(self.var)
+            sym = self.var
+            hi = self.hi
+            body = [s]
 
-            new_s = s
             if self.guard:
-                cond = LoopIR.BinOp(
-                    "==",
-                    LoopIR.Read(sym, [], T.index, s.srcinfo),
-                    LoopIR.Const(0, T.int, s.srcinfo),
-                    T.bool,
-                    s.srcinfo,
-                )
-                new_s = LoopIR.If(cond, [s], [], None, s.srcinfo)
+                rdsym = LoopIR.Read(sym, [], T.index, s.srcinfo)
+                zero = LoopIR.Const(0, T.int, s.srcinfo)
+                cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
+                body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
 
-            ir = LoopIR.Seq(sym, self.hi, [new_s], None, new_s.srcinfo)
-            return [ir]
+            ir = [LoopIR.Seq(sym, hi, body, None, s.srcinfo)]
+            return ir
 
         return super().map_s(sc)
 
@@ -2825,6 +2893,7 @@ class _DoExtractMethod(Cursor_Rewrite):
             self.var_types[a.name] = a.type
 
         super().__init__(proc_cursor)
+        Check_Aliasing(self.proc)
 
     def subproc(self):
         return api.Procedure(self.new_subproc)
@@ -3257,7 +3326,10 @@ class _AssertIf(Cursor_Rewrite):
     def map_s(self, sc):
         s = sc._node()
         if s is self.if_stmt:
-            # TODO: Gilbert's SMT thing should do this safely
+            # check if the condition matches the asserted constant
+            cond_node = LoopIR.Const(self.cond, T.bool, s.srcinfo)
+            Check_ExprEqvInContext(self.orig_proc, s.cond, [s], cond_node)
+            # if so, then we can simplify away the guard
             if self.cond:
                 return self.map_stmts(sc.body())
             else:
@@ -3272,9 +3344,6 @@ class _AssertIf(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-# TODO: This analysis is overly conservative.
-# However, it might be a bit involved to come up with
-# a more precise analysis.
 class _DoDataReuse(Cursor_Rewrite):
     def __init__(self, proc_cursor, buf_cursor, rep_cursor):
         assert isinstance(buf_cursor._node(), LoopIR.Alloc)
@@ -3282,11 +3351,12 @@ class _DoDataReuse(Cursor_Rewrite):
         assert buf_cursor._node().type == rep_cursor._node().type
 
         self.buf_name = buf_cursor._node().name
+        self.buf_dims = len(buf_cursor._node().type.shape())
         self.rep_name = rep_cursor._node().name
         self.rep_pat = rep_cursor._node()
 
-        self.found_rep = False
-        self.first_assn = False
+        self.found_rep_alloc = False
+        self.first_assn = True
 
         super().__init__(proc_cursor)
 
@@ -3294,29 +3364,28 @@ class _DoDataReuse(Cursor_Rewrite):
 
     def map_s(self, sc):
         s = sc._node()
-        # Check that buf_name is only used
-        # before the first assignment of rep_pat
-        if self.first_assn:
-            if self.buf_name in _FV([s]):
-                raise SchedulingError(
-                    "buf_name should not be used after the "
-                    "first assignment of rep_pat"
-                )
-
+        # remove the allocation that we are eliminating through re-use
         if s is self.rep_pat:
-            self.found_rep = True
+            self.found_rep_alloc = True
             return []
 
-        if self.found_rep:
-            if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-                rhs = self.apply_e(s.rhs)
-                name = s.name
-                if s.name == self.rep_name:
-                    name = self.buf_name
-                    if not self.first_assn:
-                        self.first_assn = True
+        # make replacements after the first write to the buffer
+        if self.found_rep_alloc:
+            if (
+                type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce
+            ) and s.name == self.rep_name:
+                name = self.buf_name
+                rhs = self.map_e(s.rhs) or s.rhs
 
-                return s.update(name=name, cast=None, rhs=rhs, eff=None)
+                # check whether the buffer we are trying to re-use
+                # is live or not at this point in the execution
+                if self.first_assn:
+                    self.first_assn = False
+                    Check_IsDeadAfter(
+                        self.orig_proc._node(), [s], self.buf_name, self.buf_dims
+                    )
+
+                return [type(s)(name, s.type, None, s.idx, rhs, None, s.srcinfo)]
 
         return super().map_s(sc)
 
@@ -3633,6 +3702,7 @@ class _DoStageWindow(Cursor_Rewrite):
         self._copy_code = None
 
         super().__init__(proc_cursor)
+        Check_Aliasing(self.proc)
 
         self.proc = InferEffects(self.proc).result()
 
@@ -3759,25 +3829,31 @@ class _DoBoundAlloc(Cursor_Rewrite):
         self.bounds = bounds
         super().__init__(proc_cursor)
 
-    def map_s(self, sc):
-        s = sc._node()
-        if s is self.alloc_site:
-            assert isinstance(s.type, T.Tensor)
-            if len(self.bounds) != len(s.type.hi):
-                raise SchedulingError(
-                    f"bound_alloc: dimensions do not match: {len(self.bounds)} "
-                    f"!= {len(s.type.hi)} (expected)"
-                )
+    def map_stmts(self, stmts_c):
+        new_stmts = []
+        for i, sc in enumerate(stmts_c):
+            s = sc._node()
+            if s is self.alloc_site:
+                assert isinstance(s.type, T.Tensor)
+                if len(self.bounds) != len(s.type.hi):
+                    raise SchedulingError(
+                        f"bound_alloc: dimensions do not match: "
+                        f"{len(self.bounds)} != {len(s.type.hi)} (expected)"
+                    )
 
-            new_type = T.Tensor(
-                [(new if new else old) for old, new in zip(s.type.hi, self.bounds)],
-                s.type.is_window,
-                s.type.type,
-            )
+                new_bounds = [
+                    new if new else old for old, new in zip(s.type.hi, self.bounds)
+                ]
+                newtyp = T.Tensor(new_bounds, s.type.is_window, s.type.type)
 
-            return [LoopIR.Alloc(s.name, new_type, s.mem, s.eff, s.srcinfo)]
+                # TODO: CHECK THE BOUNDS OF ACCESSES IN stmts[i+1:] here
 
-        return super().map_s(sc)
+                s = LoopIR.Alloc(s.name, newtyp, s.mem, s.eff, s.srcinfo)
+                return new_stmts + [s] + [s._node() for s in stmts_c[i + 1 :]]
+            else:
+                new_stmts += self.map_s(sc) or [s]
+
+        return new_stmts
 
 
 # --------------------------------------------------------------------------- #

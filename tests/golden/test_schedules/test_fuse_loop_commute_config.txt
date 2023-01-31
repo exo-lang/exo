@@ -1,0 +1,5 @@
+def foo(n: size, x: R[n] @ DRAM):
+    y: R[n] @ DRAM
+    for i in seq(0, n):
+        CFG.j = 0
+        CFG.j = 0
