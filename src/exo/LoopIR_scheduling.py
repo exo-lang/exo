@@ -2983,19 +2983,20 @@ class _DoNormalize(Cursor_Rewrite):
                 + f" an indexing expression. e was {e}"
             )
 
-    def has_div_mod_config(self, e):
+    @staticmethod
+    def has_div_mod_config(e):
         if isinstance(e, LoopIR.Read):
             return False
         elif isinstance(e, LoopIR.Const):
             return False
         elif isinstance(e, LoopIR.USub):
-            return self.has_div_mod_config(e.arg)
+            return _DoNormalize.has_div_mod_config(e.arg)
         elif isinstance(e, LoopIR.BinOp):
             if e.op == "/" or e.op == "%":
                 return True
             else:
-                lhs = self.has_div_mod_config(e.lhs)
-                rhs = self.has_div_mod_config(e.rhs)
+                lhs = _DoNormalize.has_div_mod_config(e.lhs)
+                rhs = _DoNormalize.has_div_mod_config(e.rhs)
                 return lhs or rhs
         elif isinstance(e, LoopIR.ReadConfig):
             return True
@@ -3005,40 +3006,129 @@ class _DoNormalize(Cursor_Rewrite):
     # Call this when e is one indexing expression
     # e should be an indexing expression
     def index_start(self, e):
+        def get_normalized_expr(e):
+            # Make a map of symbols and coefficients
+            n_map = self.normalize_e(e)
+
+            new_e = LoopIR.Const(n_map.get(self.C, 0), T.int, e.srcinfo)
+
+            delete_zero = [
+                (n_map[v], v) for v in n_map if v != self.C and n_map[v] != 0
+            ]
+
+            return (new_e, delete_zero)
+
+        def division_simplification(e):
+            constant, normalization_list = get_normalized_expr(e.lhs)
+
+            d = e.rhs.val
+
+            non_divisible_count = 0
+            non_divisible_term = None
+
+            if constant.val % d != 0:
+                non_divisible_count += 1
+                non_divisible_term = constant.val
+
+            for coeff, v in normalization_list:
+                if coeff % d != 0:
+                    non_divisible_count += 1
+                    non_divisible_term = (coeff, v)
+
+            if non_divisible_count == 0:
+                normalization_list = [
+                    (coeff // d, v) for coeff, v in normalization_list
+                ]
+                return generate_loopIR(
+                    e.lhs, constant.update(val=constant.val // d), normalization_list
+                )
+
+            # TODO: value-range-analyis on non_divisible_term when non_divisible_count = 1
+            #      to check if 0 < non_divisible_term < d
+
+            new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
+            return LoopIR.BinOp("/", new_lhs, e.rhs, e.type, e.srcinfo)
+
+        def modulo_simplification(e):
+            constant, normalization_list = get_normalized_expr(e.lhs)
+
+            d = e.rhs.val
+
+            non_divisible_count = 0
+            non_divisible_term = None
+
+            normalization_list = [
+                (coeff, v) for coeff, v in normalization_list if coeff % d != 0
+            ]
+
+            if len(normalization_list) == 0:
+                return constant.update(val=constant.val % d)
+
+            if constant.val % d == 0:
+                constant = constant.update(val=0)
+
+            # TODO: value-range-analyis if exactly one term remains to see if 0 < term < d
+
+            new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
+            return LoopIR.BinOp("%", new_lhs, e.rhs, e.type, e.srcinfo)
+
+        def generate_loopIR(e_context, constant, normalization_list):
+            def scale_read(coeff, key):
+                return LoopIR.BinOp(
+                    "*",
+                    LoopIR.Const(coeff, T.int, e_context.srcinfo),
+                    LoopIR.Read(key, [], e_context.type, e_context.srcinfo),
+                    e_context.type,
+                    e_context.srcinfo,
+                )
+
+            new_e = constant
+            for coeff, v in sorted(normalization_list):
+                if coeff > 0:
+                    new_e = LoopIR.BinOp(
+                        "+",
+                        new_e,
+                        scale_read(coeff, v),
+                        e_context.type,
+                        e_context.srcinfo,
+                    )
+                else:
+                    new_e = LoopIR.BinOp(
+                        "-",
+                        new_e,
+                        scale_read(-coeff, v),
+                        e_context.type,
+                        e_context.srcinfo,
+                    )
+            return new_e
+
         assert isinstance(e, LoopIR.expr)
-        # Div and mod need more subtle handling. Don't normalize for now.
+
+        if isinstance(e, LoopIR.BinOp):
+            new_lhs = self.index_start(e.lhs)
+            new_rhs = self.index_start(e.rhs)
+            e = e.update(lhs=new_lhs, rhs=new_rhs)
+
+        if (
+            isinstance(e, LoopIR.BinOp)
+            and e.op in ("/", "%")
+            and isinstance(e.rhs, LoopIR.Const)
+        ):
+            if self.has_div_mod_config(e.lhs):
+                return e
+
+            if e.op == "/":
+                return division_simplification(e)
+
+            return modulo_simplification(e)
+
+        # Div and mod special cases are handleded before, if that didn't succeed we cannot normalize
         # Skip ReadConfigs, they need careful handling because they're not Sym.
         if self.has_div_mod_config(e):
             return e
 
-        # Make a map of symbols and coefficients
-        n_map = self.normalize_e(e)
-
-        # Write back to LoopIR.expr
-        def scale_read(coeff, key):
-            return LoopIR.BinOp(
-                "*",
-                LoopIR.Const(coeff, T.int, e.srcinfo),
-                LoopIR.Read(key, [], e.type, e.srcinfo),
-                e.type,
-                e.srcinfo,
-            )
-
-        new_e = LoopIR.Const(n_map.get(self.C, 0), T.int, e.srcinfo)
-
-        delete_zero = [(n_map[v], v) for v in n_map if v != self.C and n_map[v] != 0]
-
-        for coeff, v in sorted(delete_zero):
-            if coeff > 0:
-                new_e = LoopIR.BinOp(
-                    "+", new_e, scale_read(coeff, v), e.type, e.srcinfo
-                )
-            else:
-                new_e = LoopIR.BinOp(
-                    "-", new_e, scale_read(-coeff, v), e.type, e.srcinfo
-                )
-
-        return new_e
+        constant, normalization_list = get_normalized_expr(e)
+        return generate_loopIR(e, constant, normalization_list)
 
     def map_e(self, e):
         if e.type.is_indexable():
@@ -3138,6 +3228,20 @@ class DoSimplify(Cursor_Rewrite):
             return None
 
         return check_quot(quot.lhs, quot.rhs) or check_quot(quot.rhs, quot.lhs)
+
+    @staticmethod
+    def simplify_div(e):
+        """
+        Simplifies expression of the of form:
+            (c + Sigma a_i x_i) / d
+        to:
+            c / d + Sigma (a_i / d)x_i
+            if c mod d = 0 and a_i mod d = 0 for all i
+        """
+        assert e.op == "/"
+
+        def check_form(e):
+            pass
 
     def map_binop(self, e: LoopIR.BinOp):
         lhs = self.map_e(e.lhs) or e.lhs

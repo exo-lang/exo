@@ -1756,3 +1756,111 @@ def test_formatted_expr_errors_2():
         expand_dim(
             bar, "tmp : _", "n", FormattedExprStr("_", i_type_R_read_cursor)
         )  # should be error
+
+
+def test_simplify_index_div(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) / 3] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div1(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div2(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 24) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) % 5] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod1(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) % 3] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod2(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) % 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod3(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 3 + 2 * j + 3) % 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod4(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[((i * 6 + i * 4 + 5 * j + 9) % 5 + 2 * i + 2) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_nested_div_mod(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[
+                    (
+                        (
+                            (((i * 4 + i * 12 + 2 * j + 2) % 2) + (20 * i + 40 * j) / 5)
+                            / 2
+                        )
+                        + (3 + 8 * j)
+                    )
+                    % 4
+                ] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
