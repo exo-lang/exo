@@ -1550,7 +1550,9 @@ def cut_loop(proc, loop_cursor, cut_point):
     """
     stmt = loop_cursor._impl
     proc_c = ic.Cursor.root(proc)
-    loopir = scheduling.DoPartitionLoop(stmt, cut_point).apply_proc(proc_c._node())
+    loopir = scheduling.DoPartitionLoop(proc_c._node(), stmt, cut_point).apply_proc(
+        proc_c._node()
+    )
 
     return Procedure(loopir, _provenance_eq_Procedure=proc)
 

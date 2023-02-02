@@ -1756,3 +1756,32 @@ def test_formatted_expr_errors_2():
         expand_dim(
             bar, "tmp : _", "n", FormattedExprStr("_", i_type_R_read_cursor)
         )  # should be error
+
+
+def test_syrk():
+    @proc
+    def SYRK(
+        M: size,
+        K: size,
+        A: [f32][M, K] @ DRAM,
+        A_t: [f32][M, K] @ DRAM,
+        C: [f32][M, M] @ DRAM,
+    ):
+        assert M >= 1
+        assert K >= 1
+        assert stride(A, 1) == 1
+        assert stride(A_t, 1) == 1
+        assert stride(C, 1) == 1
+        for io in seq(0, M / 4):
+            for ii in seq(0, 4):
+                for j in seq(0, 4 * io + ii + 1):
+                    for k in seq(0, K):
+                        C[4 * io + ii, j] += A[4 * io + ii, k] * A_t[j, k]
+        if M % 4 > 0:
+            for ii in seq(0, M % 4):
+                for j in seq(0, ii + M / 4 * 4):
+                    for k in seq(0, K):
+                        C[ii + M / 4 * 4, j] += A[ii + M / 4 * 4, k] * A_t[j, k]
+
+    SYRK = cut_loop(SYRK, "for j in _:_", 1)
+    print(SYRK)
