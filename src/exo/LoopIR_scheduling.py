@@ -248,6 +248,7 @@ def DoReorderStmt(f_cursor, s_cursor):
 
 class DoPartitionLoop(LoopIR_Rewrite):
     def __init__(self, proc, loop_cursor, num):
+        assert num > 0
         self.stmt = loop_cursor._node()
         self.partition_by = num
         self.proc = proc
@@ -258,13 +259,18 @@ class DoPartitionLoop(LoopIR_Rewrite):
 
             part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
             new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
-            Check_IsPositiveExpr(
-                self.proc,
-                [s],
-                LoopIR.BinOp(
-                    "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
-                ),
-            )
+            try:
+                Check_IsPositiveExpr(
+                    self.proc,
+                    [s],
+                    LoopIR.BinOp(
+                        "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
+                    ),
+                )
+            except SchedulingError:
+                raise SchedulingError(
+                    f"expected the new loop bound {new_hi} to be always non-negative"
+                )
 
             loop1 = s.update(hi=part_by, eff=None)
 

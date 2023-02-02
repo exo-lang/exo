@@ -1,0 +1,15 @@
+def SYRK(M: size, K: size, A: [f32][M, K] @ DRAM, A_t: [f32][M, K] @ DRAM,
+         C: [f32][M, M] @ DRAM):
+    assert M >= 1
+    assert K >= 1
+    assert stride(A, 1) == 1
+    assert stride(A_t, 1) == 1
+    assert stride(C, 1) == 1
+    for io in seq(0, M / 4):
+        for ii in seq(0, 4):
+            for j in seq(0, 1):
+                for k in seq(0, K):
+                    C[ii + 4 * io, j] += A[ii + 4 * io, k] * A_t[j, k]
+            for j in seq(0, ii + 4 * io):
+                for k in seq(0, K):
+                    C[ii + 4 * io, 1 + j] += A[ii + 4 * io, k] * A_t[1 + j, k]

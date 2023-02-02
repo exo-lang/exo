@@ -1758,7 +1758,7 @@ def test_formatted_expr_errors_2():
         )  # should be error
 
 
-def test_syrk():
+def test_syrk_cut_loop(golden):
     @proc
     def SYRK(
         M: size,
@@ -1777,11 +1777,40 @@ def test_syrk():
                 for j in seq(0, 4 * io + ii + 1):
                     for k in seq(0, K):
                         C[4 * io + ii, j] += A[4 * io + ii, k] * A_t[j, k]
-        if M % 4 > 0:
-            for ii in seq(0, M % 4):
-                for j in seq(0, ii + M / 4 * 4):
-                    for k in seq(0, K):
-                        C[ii + M / 4 * 4, j] += A[ii + M / 4 * 4, k] * A_t[j, k]
 
     SYRK = cut_loop(SYRK, "for j in _:_", 1)
-    print(SYRK)
+    assert str(simplify(SYRK)) == golden
+
+
+def test_cut_loop1():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            x: R
+            x = 0.0
+
+    with pytest.raises(SchedulingError, match="expected the new loop bound"):
+        foo = cut_loop(foo, "for i in _:_", 3)
+
+
+def test_cut_loop2(golden):
+    @proc
+    def foo(n: size):
+        assert n > 3
+        for i in seq(0, n):
+            x: R
+            x = 0.0
+
+    foo = cut_loop(foo, "for i in _:_", 3)
+    assert str(simplify(foo)) == golden
+
+
+def test_cut_loop3():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            x: R
+            x = 0.0
+
+    with pytest.raises(TypeError, match="cut_loop: expected a positive integer"):
+        foo = cut_loop(foo, "for i in _:_", -3)
