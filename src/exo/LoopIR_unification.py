@@ -450,7 +450,7 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
             tuple_node = self.tupleify(e)
             if tuple_node is None:
                 raise UnificationError(
-                    f"{e.srcinfo}: cannot handle this " f"'{e.op}' operation"
+                    f"{e.srcinfo}: cannot handle this '{e.op}' operation"
                 )
 
             # either we have already seen this expression
@@ -696,7 +696,7 @@ class Unification:
         for nm in self.buf_holes:
             if self.buf_holes[nm].solution_buf is None:
                 raise UnificationError(
-                    f"Cannot perform unification due to an un-unused " f"argument: {nm}"
+                    f"Cannot perform unification due to an un-unused argument: {nm}"
                 )
 
         holes = self.index_holes + [

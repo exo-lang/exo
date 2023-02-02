@@ -214,7 +214,7 @@ def nested_iter_names_to_pattern(namestr, inner):
         count = ""
     assert is_valid_name(inner)
 
-    pattern = f"for {name} in _:\n" f"  for {inner} in _: _{count}"
+    pattern = f"for {name} in _:\n  for {inner} in _: _{count}"
     return pattern
 
 
@@ -297,7 +297,7 @@ class DoProductLoop(Cursor_Rewrite):
 
         if len(self.out_loop.body) != 1 or not isinstance(self.in_loop, LoopIR.Seq):
             raise SchedulingError(
-                f"expected loop directly inside of " f"{self.out_loop.iter} loop"
+                f"expected loop directly inside of {self.out_loop.iter} loop"
             )
 
         if not isinstance(self.in_loop.hi, LoopIR.Const):
@@ -1753,11 +1753,11 @@ class DoDivideDim(Cursor_Rewrite):
 
             if not isinstance(dim, LoopIR.Const):
                 raise SchedulingError(
-                    f"Cannot divide non-literal dimension: " f"{str(dim)}"
+                    f"Cannot divide non-literal dimension: {str(dim)}"
                 )
             if not dim.val % self.quotient == 0:
                 raise SchedulingError(
-                    f"Cannot divide {dim.val} evenly by " f"{self.quotient}"
+                    f"Cannot divide {dim.val} evenly by {self.quotient}"
                 )
             denom = self.quotient
             numer = dim.val // denom
@@ -1812,7 +1812,7 @@ class DoMultiplyDim(Cursor_Rewrite):
         lo_dim = self.alloc_stmt.type.shape()[lo_idx]
         if not isinstance(lo_dim, LoopIR.Const):
             raise SchedulingError(
-                f"Cannot multiply with non-literal second " f"dimension: {str(lo_dim)}"
+                f"Cannot multiply with non-literal second dimension: {str(lo_dim)}"
             )
         self.lo_val = lo_dim.val
 
