@@ -23,7 +23,7 @@ class Sym:
 
     def __init__(self, nm):
         if not is_valid_name(nm):
-            raise TypeError(f"expected an alphanumeric name string, " f"but got '{nm}'")
+            raise TypeError(f"expected an alphanumeric name string, but got '{nm}'")
         self._nm = nm
         self._id = Sym._unq_count
         Sym._unq_count += 1

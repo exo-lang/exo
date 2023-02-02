@@ -37,7 +37,7 @@ class Neon4f(Memory):
         if shape:
             if not all(_is_some_const_size(s) for s in shape):
                 raise MemGenError(
-                    f"{srcinfo}: Cannot allocate variable " f"numbers of Neon4f vectors"
+                    f"{srcinfo}: Cannot allocate variable numbers of Neon4f vectors"
                 )
             result = f'float32x4_t {new_name}[{"][".join(map(str, shape))}];'
         else:
