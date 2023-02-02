@@ -36,6 +36,7 @@ from .new_eff import (
     Check_CodeIsDead,
     Check_Aliasing,
 )
+from .range_analysis import AffineIndexRangeAnalysis
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
 from . import internal_cursors as ic
@@ -2935,6 +2936,9 @@ class _DoNormalize(Cursor_Rewrite):
     # This map concatnation is handled by concat_map function.
     def __init__(self, proc_cursor):
         self.C = Sym("temporary_constant_symbol")
+        self.env = ChainMap()
+        for arg in proc_cursor._node().args:
+            self.env[arg.name] = None
         super().__init__(proc_cursor)
 
         self.proc = InferEffects(self.proc).result()
@@ -3023,28 +3027,59 @@ class _DoNormalize(Cursor_Rewrite):
 
             d = e.rhs.val
 
-            non_divisible_count = 0
-            non_divisible_term = None
-
-            if constant.val % d != 0:
-                non_divisible_count += 1
-                non_divisible_term = constant.val
+            non_divisible_terms = []
 
             for coeff, v in normalization_list:
                 if coeff % d != 0:
-                    non_divisible_count += 1
-                    non_divisible_term = (coeff, v)
+                    non_divisible_terms.append((coeff, v))
 
-            if non_divisible_count == 0:
+            if len(non_divisible_terms) == 0:
                 normalization_list = [
                     (coeff // d, v) for coeff, v in normalization_list
                 ]
                 return generate_loopIR(
                     e.lhs, constant.update(val=constant.val // d), normalization_list
                 )
+            elif constant.val % d == 0:
+                non_divisible_expr = generate_loopIR(
+                    e.lhs, constant.update(val=0), non_divisible_terms
+                )
+                non_divisible_expr_range = AffineIndexRangeAnalysis(
+                    non_divisible_expr, self.env
+                ).result()
 
-            # TODO: value-range-analyis on non_divisible_term when non_divisible_count = 1
-            #      to check if 0 < non_divisible_term < d
+                if (
+                    non_divisible_expr_range is not None
+                    and non_divisible_expr_range[1] < d
+                ):
+                    divisible_terms = [
+                        (coeff // d, v)
+                        for coeff, v in normalization_list
+                        if coeff % d == 0
+                    ]
+                    return generate_loopIR(
+                        e.lhs, constant.update(val=constant.val // d), divisible_terms
+                    )
+            else:
+                non_divisible_expr = generate_loopIR(
+                    e.lhs, constant, non_divisible_terms
+                )
+                non_divisible_expr_range = AffineIndexRangeAnalysis(
+                    non_divisible_expr, self.env
+                ).result()
+
+                if (
+                    non_divisible_expr_range is not None
+                    and non_divisible_expr_range[1] < d
+                ):
+                    divisible_terms = [
+                        (coeff // d, v)
+                        for coeff, v in normalization_list
+                        if coeff % d == 0
+                    ]
+                    return generate_loopIR(
+                        e.lhs, constant.update(val=0), divisible_terms
+                    )
 
             new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
             return LoopIR.BinOp("/", new_lhs, e.rhs, e.type, e.srcinfo)
@@ -3052,24 +3087,23 @@ class _DoNormalize(Cursor_Rewrite):
         def modulo_simplification(e):
             constant, normalization_list = get_normalized_expr(e.lhs)
 
-            d = e.rhs.val
-
-            non_divisible_count = 0
-            non_divisible_term = None
+            m = e.rhs.val
 
             normalization_list = [
-                (coeff, v) for coeff, v in normalization_list if coeff % d != 0
+                (coeff, v) for coeff, v in normalization_list if coeff % m != 0
             ]
 
             if len(normalization_list) == 0:
-                return constant.update(val=constant.val % d)
+                return constant.update(val=constant.val % m)
 
-            if constant.val % d == 0:
+            if constant.val % m == 0:
                 constant = constant.update(val=0)
 
-            # TODO: value-range-analyis if exactly one term remains to see if 0 < term < d
-
             new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
+            new_lhs_range = AffineIndexRangeAnalysis(new_lhs, self.env).result()
+            if new_lhs_range is not None and new_lhs_range[1] < m:
+                return new_lhs
+
             return LoopIR.BinOp("%", new_lhs, e.rhs, e.type, e.srcinfo)
 
         def generate_loopIR(e_context, constant, normalization_list):
@@ -3135,6 +3169,25 @@ class _DoNormalize(Cursor_Rewrite):
             return self.index_start(e)
 
         return super().map_e(e)
+
+    def map_s(self, sc):
+        s = sc._node()
+        if isinstance(s, LoopIR.Seq):
+            self.env = self.env.new_child()
+
+            hi_range = AffineIndexRangeAnalysis(s.hi, self.env).result()
+            if hi_range is not None:
+                assert hi_range[0] >= 0
+                hi_range = (0, hi_range[1] - 1)
+                self.env[s.iter] = hi_range
+            else:
+                self.env[s.iter] = None
+
+            new_s = super().map_s(sc)
+            self.env = self.env.parents
+            return new_s
+
+        return super().map_s(sc)
 
 
 class DoSimplify(Cursor_Rewrite):
