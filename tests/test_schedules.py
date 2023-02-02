@@ -1756,3 +1756,61 @@ def test_formatted_expr_errors_2():
         expand_dim(
             bar, "tmp : _", "n", FormattedExprStr("_", i_type_R_read_cursor)
         )  # should be error
+
+
+def test_syrk_cut_loop(golden):
+    @proc
+    def SYRK(
+        M: size,
+        K: size,
+        A: [f32][M, K] @ DRAM,
+        A_t: [f32][M, K] @ DRAM,
+        C: [f32][M, M] @ DRAM,
+    ):
+        assert M >= 1
+        assert K >= 1
+        assert stride(A, 1) == 1
+        assert stride(A_t, 1) == 1
+        assert stride(C, 1) == 1
+        for io in seq(0, M / 4):
+            for ii in seq(0, 4):
+                for j in seq(0, 4 * io + ii + 1):
+                    for k in seq(0, K):
+                        C[4 * io + ii, j] += A[4 * io + ii, k] * A_t[j, k]
+
+    SYRK = cut_loop(SYRK, "for j in _:_", 1)
+    assert str(simplify(SYRK)) == golden
+
+
+def test_cut_loop1():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            x: R
+            x = 0.0
+
+    with pytest.raises(SchedulingError, match="expected the new loop bound"):
+        foo = cut_loop(foo, "for i in _:_", 3)
+
+
+def test_cut_loop2(golden):
+    @proc
+    def foo(n: size):
+        assert n > 3
+        for i in seq(0, n):
+            x: R
+            x = 0.0
+
+    foo = cut_loop(foo, "for i in _:_", 3)
+    assert str(simplify(foo)) == golden
+
+
+def test_cut_loop3():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            x: R
+            x = 0.0
+
+    with pytest.raises(TypeError, match="cut_loop: expected a positive integer"):
+        foo = cut_loop(foo, "for i in _:_", -3)

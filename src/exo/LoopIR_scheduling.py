@@ -247,35 +247,42 @@ def DoReorderStmt(f_cursor, s_cursor):
 
 
 class DoPartitionLoop(LoopIR_Rewrite):
-    def __init__(self, loop_cursor, num):
+    def __init__(self, proc, loop_cursor, num):
+        assert num > 0
         self.stmt = loop_cursor._node()
         self.partition_by = num
+        self.proc = proc
 
     def map_s(self, s):
         if s is self.stmt:
             assert isinstance(s, LoopIR.Seq)
 
-            if not isinstance(s.hi, LoopIR.Const):
-                raise SchedulingError("expected loop bound to be a literal")
-
-            if s.hi.val <= self.partition_by:
+            part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
+            new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
+            try:
+                Check_IsPositiveExpr(
+                    self.proc,
+                    [s],
+                    LoopIR.BinOp(
+                        "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
+                    ),
+                )
+            except SchedulingError:
                 raise SchedulingError(
-                    "expected loop bound to be larger than partitioning value"
+                    f"expected the new loop bound {new_hi} to be always non-negative"
                 )
 
-            part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
             loop1 = s.update(hi=part_by, eff=None)
 
             # all uses of the loop iteration in the second body need
             # to be offset by the partition value
             iter2 = s.iter.copy()
-            hi2 = LoopIR.Const(s.hi.val - part_by.val, T.int, s.srcinfo)
             iter2_node = LoopIR.Read(iter2, [], T.index, s.srcinfo)
             iter_off = LoopIR.BinOp("+", iter2_node, part_by, T.index, s.srcinfo)
             env = {s.iter: iter_off}
 
             body2 = SubstArgs(s.body, env).result()
-            loop2 = s.update(iter=iter2, hi=hi2, body=body2, eff=None)
+            loop2 = s.update(iter=iter2, hi=new_hi, body=body2, eff=None)
 
             return [loop1, loop2]
 
