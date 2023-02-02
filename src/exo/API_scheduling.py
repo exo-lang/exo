@@ -768,7 +768,7 @@ def delete_pass(proc):
 
 
 @sched_op([BlockCursorA(block_size=2)])
-def reorder_stmts(_proc, block_cursor):
+def reorder_stmts(proc, block_cursor):
     """
     swap the order of two statements within a block.
 
