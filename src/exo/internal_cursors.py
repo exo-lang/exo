@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -85,6 +86,15 @@ def _overlaps_one_side(a: range, b: range):
         or a.start == b.start < a.stop < b.stop
         or b.start < a.start < b.stop < a.stop
     )
+
+
+def forward_identity(p, fwd):
+    @functools.wraps(fwd)
+    def forward(cursor):
+        cursor = fwd(cursor)
+        return dataclasses.replace(cursor, _proc=p)
+
+    return forward
 
 
 @dataclass

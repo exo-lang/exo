@@ -46,7 +46,7 @@ class DRAM_STATIC(DRAM):
                 int(extent)
             except ValueError as e:
                 raise MemGenError(
-                    f"DRAM_STATIC requires constant shapes. " f"Saw: {extent}"
+                    f"DRAM_STATIC requires constant shapes. Saw: {extent}"
                 ) from e
 
         return f'static {prim_type} {new_name}[{" * ".join(shape)}];'

@@ -41,9 +41,7 @@ class ArgumentProcessor:
         pass
 
     def err(self, message, Error=TypeError):
-        raise Error(
-            f"argument {self.i}, '{self.arg_name}' to {self.f_name}: " f"{message}"
-        )
+        raise Error(f"argument {self.i}, '{self.arg_name}' to {self.f_name}: {message}")
 
     def setdata(self, i, arg_name, f_name):
         self.i = i
@@ -161,7 +159,7 @@ class ConfigFieldA(ArgumentProcessor):
             self.err("expected a valid name string")
         elif not config.has_field(field):
             self.err(
-                f"expected '{field}' to be a field " f"of config '{config.name()}'",
+                f"expected '{field}' to be a field of config '{config.name()}'",
                 ValueError,
             )
         return field
@@ -350,15 +348,13 @@ class ExprCursorA(ArgumentProcessor):
             for m in matches:
                 if not isinstance(m, PC.ExprCursor):
                     self.err(
-                        f"expected pattern to match only ExprCursors, " f"not {type(m)}"
+                        f"expected pattern to match only ExprCursors, not {type(m)}"
                     )
             return matches
         else:
             match = matches
             if not isinstance(match, PC.ExprCursor):
-                self.err(
-                    f"expected pattern to match an ExprCursor, " f"not {type(match)}"
-                )
+                self.err(f"expected pattern to match an ExprCursor, not {type(match)}")
             return match
 
 
@@ -380,7 +376,7 @@ class StmtCursorA(ArgumentProcessor):
 
         match = matches[0] if self.match_many else matches
         if not isinstance(match, PC.StmtCursor):
-            self.err(f"expected pattern to match a StmtCursor, " f"not {type(match)}")
+            self.err(f"expected pattern to match a StmtCursor, not {type(match)}")
 
         return match
 
@@ -412,9 +408,7 @@ class BlockCursorA(ArgumentProcessor):
             if isinstance(match, PC.StmtCursor):
                 match = match.as_block()
             elif not isinstance(match, PC.BlockCursor):
-                self.err(
-                    f"expected pattern to match a BlockCursor, " f"not {type(match)}"
-                )
+                self.err(f"expected pattern to match a BlockCursor, not {type(match)}")
             cursor = match
 
         # regardless, check block size
@@ -473,7 +467,7 @@ class ForSeqOrIfCursorA(StmtCursorA):
 
         cursor = super().__call__(cursor_pat, all_args)
         if not isinstance(cursor, (PC.ForSeqCursor, PC.IfCursor)):
-            self.err(f"expected a ForSeqCursor or IfCursor, " f"not {type(cursor)}")
+            self.err(f"expected a ForSeqCursor or IfCursor, not {type(cursor)}")
         return cursor
 
 
@@ -528,7 +522,7 @@ class NestedForSeqCursorA(StmtCursorA):
             out_name = match_result[1]
             in_name = match_result[2]
             count = f" #{match_result[3]}" if match_result[3] else ""
-            pattern = f"for {out_name} in _:\n" f"  for {in_name} in _: _{count}"
+            pattern = f"for {out_name} in _:\n  for {in_name} in _: _{count}"
             cursor = super().__call__(pattern, all_args)
         else:
             self.err(
@@ -543,9 +537,7 @@ class AssignOrReduceCursorA(StmtCursorA):
     def __call__(self, stmt_pattern, all_args):
         cursor = super().__call__(stmt_pattern, all_args)
         if not isinstance(cursor, (PC.AssignCursor, PC.ReduceCursor)):
-            self.err(
-                f"expected an AssignCursor or ReduceCursor, " f"not {type(cursor)}"
-            )
+            self.err(f"expected an AssignCursor or ReduceCursor, not {type(cursor)}")
         return cursor
 
 
@@ -791,8 +783,8 @@ def reorder_stmts(proc, block_cursor):
     s1 = block_cursor[0]._impl
     s2 = block_cursor[1]._impl
 
-    proc_c = ic.Cursor.root(proc)
-    return scheduling.DoReorderStmt(proc_c, s1, s2).result()
+    proc, _fwd = scheduling.DoReorderStmt(s1, s2)
+    return proc
 
 
 @sched_op([ExprCursorA(many=True)])
@@ -916,7 +908,7 @@ def replace(proc, block_cursor, subproc, quiet=False):
     except UnificationError:
         if quiet:
             raise
-        print(f"Failed to unify the following:\nSubproc:\n{subproc}" f"Statements:\n")
+        print(f"Failed to unify the following:\nSubproc:\n{subproc}Statements:\n")
         [print(s) for s in stmts]
         raise
 
@@ -1220,7 +1212,7 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     proc_c = ic.Cursor.root(proc)
     stmt = alloc_cursor._impl
     if not (0 <= dim_idx < len(stmt._node().type.shape())):
-        raise ValueError(f"Cannot divide out-of-bounds " f"dimension index {dim_idx}")
+        raise ValueError(f"Cannot divide out-of-bounds dimension index {dim_idx}")
 
     return scheduling.DoDivideDim(proc_c, stmt, dim_idx, quotient).result()
 
@@ -1250,11 +1242,9 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
     stmt = alloc_cursor._impl
     for dim_idx in [hi_dim_idx, lo_dim_idx]:
         if not (0 <= dim_idx < len(stmt._node().type.shape())):
-            raise ValueError(
-                f"Cannot multiply out-of-bounds " f"dimension index {dim_idx}"
-            )
+            raise ValueError(f"Cannot multiply out-of-bounds dimension index {dim_idx}")
     if hi_dim_idx == lo_dim_idx:
-        raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by " f"itself")
+        raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by itself")
 
     return scheduling.DoMultiplyDim(proc_c, stmt, hi_dim_idx, lo_dim_idx).result()
 
@@ -1586,9 +1576,7 @@ def reorder_loops(proc, nested_loops):
 
     stmt_c = nested_loops._impl
     if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node(), LoopIR.Seq):
-        raise ValueError(
-            f"expected loop directly inside of " f"{stmt_c._node().iter} loop"
-        )
+        raise ValueError(f"expected loop directly inside of {stmt_c._node().iter} loop")
 
     proc_c = ic.Cursor.root(proc)
 
