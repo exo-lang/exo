@@ -265,7 +265,13 @@ class DoPartitionLoop(LoopIR_Rewrite):
 
             part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
             new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
-            Check_IsPositiveExpr(self.proc, [s], new_hi)
+            Check_IsPositiveExpr(
+                self.proc,
+                [s],
+                LoopIR.BinOp(
+                    "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
+                ),
+            )
 
             loop1 = s.update(hi=part_by, eff=None)
 
