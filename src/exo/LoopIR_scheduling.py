@@ -1,3 +1,4 @@
+import dataclasses
 import re
 from collections import ChainMap
 
@@ -226,31 +227,18 @@ def nested_iter_names_to_pattern(namestr, inner):
 # Take a conservative approach and allow stmt reordering only when they are
 # writing to different buffers
 # TODO: Do effectcheck's check_commutes-ish thing using SMT here
-class DoReorderStmt(Cursor_Rewrite):
-    def __init__(self, proc_cursor, f_cursor, s_cursor):
-        self.f_stmt = f_cursor._node()
-        self.s_stmt = s_cursor._node()
-        # self.found_first = False
-
-        # raise NotImplementedError("HIT REORDER STMTS")
-
-        super().__init__(proc_cursor)
-
-        self.proc = InferEffects(self.proc).result()
-
-    def map_stmts(self, stmts_c):
-        stmts = [s._node() for s in stmts_c]
-        for i, (s1, s2) in enumerate(zip(stmts, stmts[1:])):
-            if s1 is self.f_stmt:
-                if s2 is self.s_stmt:
-                    Check_ReorderStmts(self.orig_proc._node(), s1, s2)
-                    return stmts[:i] + [s2, s1] + stmts[i + 2 :]
-
-                raise SchedulingError(
-                    "expected the second statement to be directly after the first"
-                )
-
-        return super().map_stmts(stmts_c)
+def DoReorderStmt(f_cursor, s_cursor):
+    if f_cursor.next() != s_cursor:
+        raise SchedulingError(
+            "expected the second statement to be directly after the first"
+        )
+    orig_proc = f_cursor.proc()
+    Check_ReorderStmts(orig_proc._loopir_proc, f_cursor._node(), s_cursor._node())
+    p, fwd = s_cursor.as_block()._move(f_cursor.before())
+    p_ir = InferEffects(p._loopir_proc).result()
+    p = api.Procedure(p_ir, _provenance_eq_Procedure=orig_proc)
+    fwd = ic.forward_identity(p, fwd)
+    return p, fwd
 
 
 class DoPartitionLoop(LoopIR_Rewrite):

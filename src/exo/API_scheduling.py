@@ -768,7 +768,7 @@ def delete_pass(proc):
 
 
 @sched_op([BlockCursorA(block_size=2)])
-def reorder_stmts(proc, block_cursor):
+def reorder_stmts(_proc, block_cursor):
     """
     swap the order of two statements within a block.
 
@@ -783,8 +783,8 @@ def reorder_stmts(proc, block_cursor):
     s1 = block_cursor[0]._impl
     s2 = block_cursor[1]._impl
 
-    proc_c = ic.Cursor.root(proc)
-    return scheduling.DoReorderStmt(proc_c, s1, s2).result()
+    proc, _fwd = scheduling.DoReorderStmt(s1, s2)
+    return proc
 
 
 @sched_op([ExprCursorA(many=True)])
