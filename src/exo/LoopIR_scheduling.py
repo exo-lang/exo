@@ -224,6 +224,14 @@ def nested_iter_names_to_pattern(namestr, inner):
 # Reorder scheduling directive
 
 
+def _fixup_effects(orig_proc, p, fwd):
+    p = api.Procedure(
+        InferEffects(p._loopir_proc).result(), _provenance_eq_Procedure=orig_proc
+    )
+    fwd = ic.forward_identity(p, fwd)
+    return p, fwd
+
+
 # Take a conservative approach and allow stmt reordering only when they are
 # writing to different buffers
 # TODO: Do effectcheck's check_commutes-ish thing using SMT here
@@ -235,10 +243,7 @@ def DoReorderStmt(f_cursor, s_cursor):
     orig_proc = f_cursor.proc()
     Check_ReorderStmts(orig_proc._loopir_proc, f_cursor._node(), s_cursor._node())
     p, fwd = s_cursor.as_block()._move(f_cursor.before())
-    p_ir = InferEffects(p._loopir_proc).result()
-    p = api.Procedure(p_ir, _provenance_eq_Procedure=orig_proc)
-    fwd = ic.forward_identity(p, fwd)
-    return p, fwd
+    return _fixup_effects(orig_proc, p, fwd)
 
 
 class DoPartitionLoop(LoopIR_Rewrite):
