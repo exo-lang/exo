@@ -17,7 +17,7 @@ from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
-from .pattern_match import match_pattern, get_match_no, match_cursors
+from .pattern_match import match_pattern, get_match_no
 from .prelude import *
 
 # Moved to new file
@@ -215,8 +215,10 @@ class Procedure(ProcedureBase):
         return str(self._loopir_proc.eff)
 
     def show_effect(self, stmt_pattern):
-        stmt = self._find_stmt(stmt_pattern)
-        return str(stmt.eff)
+        if match := match_pattern(self, stmt_pattern, call_depth=1, default_match_no=0):
+            assert len(match[0]) == 1, "Must match single statements"
+            return str(match[0][0]._node().eff)
+        raise SchedulingError("failed to find statement", pattern=stmt_pattern)
 
     def is_instr(self):
         return self._loopir_proc.instr is not None
@@ -245,7 +247,7 @@ class Procedure(ProcedureBase):
         if not isinstance(pattern, str):
             raise TypeError("expected a pattern string")
         default_match_no = None if many else 0
-        raw_cursors = match_cursors(
+        raw_cursors = match_pattern(
             self, pattern, call_depth=1, default_match_no=default_match_no
         )
         assert isinstance(raw_cursors, list)
@@ -285,7 +287,7 @@ class Procedure(ProcedureBase):
         return self.find(pattern, many=True)
 
     def _TEST_find_cursors(self, pattern):
-        cursors = match_cursors(self, pattern, call_depth=1)
+        cursors = match_pattern(self, pattern, call_depth=1)
         assert isinstance(cursors, list)
         if not cursors:
             raise SchedulingError("failed to find matches", pattern=pattern)
@@ -304,33 +306,18 @@ class Procedure(ProcedureBase):
     def get_ast(self, pattern=None):
         if pattern is None:
             return LoopIR_to_QAST(self._loopir_proc).result()
-        else:
-            # do pattern matching
-            match_no = get_match_no(pattern)
-            match = match_pattern(self, pattern, call_depth=1)
 
-            # convert matched sub-trees to QAST
-            assert isinstance(match, list)
-            if len(match) == 0:
-                return None
-            elif isinstance(match[0], LoopIR.LoopIR.expr):
-                results = [LoopIR_to_QAST(e).result() for e in match]
-            elif isinstance(match[0], list):
-                # statements
-                assert all(
-                    isinstance(s, LoopIR.LoopIR.stmt) for stmts in match for s in stmts
-                )
-                results = [LoopIR_to_QAST(stmts).result() for stmts in match]
-            else:
-                assert False, "bad case"
+        # do pattern matching
+        match = match_pattern(self, pattern, call_depth=1)
 
-            # modulate the return type depending on whether this
-            # was a query for a specific match or for all matches
-            if match_no is None:
-                return results
-            else:
-                assert len(results) == 1
-                return results[0]
+        # convert matched sub-trees to QAST
+        assert isinstance(match, list)
+        if not match:
+            return None
+
+        return [
+            LoopIR_to_QAST(node._node()).result() for block in match for node in block
+        ]
 
     # ---------------------------------------------- #
     #     execution / interpretation operations
@@ -388,26 +375,6 @@ class Procedure(ProcedureBase):
 
         p = scheduling.DoPartialEval(kwargs).apply_proc(p)
         return Procedure(p)  # No provenance because signature changed
-
-    def _find_stmt(
-        self, stmt_pattern, call_depth=2, default_match_no: Optional[int] = 0
-    ):
-        stmt_lists = match_pattern(
-            self, stmt_pattern, call_depth=call_depth, default_match_no=default_match_no
-        )
-        if len(stmt_lists) == 0 or len(stmt_lists[0]) == 0:
-            raise SchedulingError("failed to find statement", pattern=stmt_pattern)
-        elif default_match_no is None:
-            return [s[0] for s in stmt_lists]
-        else:
-            return stmt_lists[0][0]
-
-    def _find_callsite(self, call_site_pattern):
-        call_stmt = self._find_stmt(call_site_pattern, call_depth=3)
-        if not isinstance(call_stmt, LoopIR.LoopIR.Call):
-            raise TypeError("pattern did not describe a call-site")
-
-        return call_stmt
 
     def add_assertion(self, assertion, configs=[]):
         if not isinstance(assertion, str):
