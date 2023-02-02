@@ -3027,11 +3027,9 @@ class _DoNormalize(Cursor_Rewrite):
 
             d = e.rhs.val
 
-            non_divisible_terms = []
-
-            for coeff, v in normalization_list:
-                if coeff % d != 0:
-                    non_divisible_terms.append((coeff, v))
+            non_divisible_terms = [
+                (coeff, v) for coeff, v in normalization_list if coeff % d != 0
+            ]
 
             if len(non_divisible_terms) == 0:
                 normalization_list = [
@@ -3050,6 +3048,7 @@ class _DoNormalize(Cursor_Rewrite):
 
                 if (
                     non_divisible_expr_range is not None
+                    and 0 <= non_divisible_expr_range[0]
                     and non_divisible_expr_range[1] < d
                 ):
                     divisible_terms = [
@@ -3070,6 +3069,7 @@ class _DoNormalize(Cursor_Rewrite):
 
                 if (
                     non_divisible_expr_range is not None
+                    and 0 <= non_divisible_expr_range[0]
                     and non_divisible_expr_range[1] < d
                 ):
                     divisible_terms = [
@@ -3102,6 +3102,7 @@ class _DoNormalize(Cursor_Rewrite):
             new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
             new_lhs_range = AffineIndexRangeAnalysis(new_lhs, self.env).result()
             if new_lhs_range is not None and new_lhs_range[1] < m:
+                assert new_lhs_range[0] >= 0
                 return new_lhs
 
             return LoopIR.BinOp("%", new_lhs, e.rhs, e.type, e.srcinfo)
@@ -3143,11 +3144,8 @@ class _DoNormalize(Cursor_Rewrite):
             new_rhs = self.index_start(e.rhs)
             e = e.update(lhs=new_lhs, rhs=new_rhs)
 
-        if (
-            isinstance(e, LoopIR.BinOp)
-            and e.op in ("/", "%")
-            and isinstance(e.rhs, LoopIR.Const)
-        ):
+        if isinstance(e, LoopIR.BinOp) and e.op in ("/", "%"):
+            assert isinstance(e.rhs, LoopIR.Const)
             if self.has_div_mod_config(e.lhs):
                 return e
 

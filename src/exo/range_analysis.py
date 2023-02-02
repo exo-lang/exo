@@ -57,7 +57,7 @@ class AffineIndexRangeAnalysis:
             return None
 
         if isinstance(e, LoopIR.Read):
-            return self._env[e.name]
+            return self._env.get(e.name)
         elif isinstance(e, LoopIR.Const):
             return (e.val, e.val)
         elif isinstance(e, LoopIR.USub):
