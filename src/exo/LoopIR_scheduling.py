@@ -3176,7 +3176,13 @@ class _DoNormalize(Cursor_Rewrite):
             hi_range = AffineIndexRangeAnalysis(s.hi, self.env).result()
             if hi_range is not None:
                 assert hi_range[0] >= 0
-                hi_range = (0, hi_range[1] - 1)
+                if hi_range[1] == 0:
+                    # We allow loop hi to be zero, however, that means that the loop
+                    # variable doesn't have a defined range. We can set it to None
+                    # since any simplification is not necessary since loop won't run
+                    hi_range = None
+                else:
+                    hi_range = (0, hi_range[1] - 1)
                 self.env[s.iter] = hi_range
             else:
                 self.env[s.iter] = None
