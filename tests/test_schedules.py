@@ -6,6 +6,7 @@ from exo import ParseFragmentError
 from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
+from exo.platforms.x86 import *
 
 
 def test_commute(golden):
@@ -1814,3 +1815,66 @@ def test_cut_loop3():
 
     with pytest.raises(TypeError, match="cut_loop: expected a positive integer"):
         foo = cut_loop(foo, "for i in _:_", -3)
+
+
+def test_mem_aware_replace(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    bar = mem_aware_replace(bar, "for i in _:_", mm256_loadu_ps)
+    bar = mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+    assert str(bar) == golden
+
+
+def test_mem_aware_replace_fail():
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    with pytest.raises(MemoryError, match="failed due to memory type mismatch"):
+        bar = mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+
+
+def test_mem_aware_replace_fail1():
+    @proc
+    def dummy_load(dst: [f32][8] @ DRAM, src: [f32][8] @ DRAM):
+        assert stride(src, 0) == 1
+        assert stride(dst, 0) == 1
+
+        x: R @ DRAM
+        for i in seq(0, 8):
+            dst[i] = src[i]
+
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+
+        x: R @ DRAM
+        for i in seq(0, 8):
+            dst[i] = src[i]
+
+    with pytest.raises(MemoryError, match="reasoning about memories allocated"):
+        bar = mem_aware_replace(bar, bar.find("x: _").expand(1), dummy_load)
+
+
+def test_replace_all_unambiguous(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    bar = replace_all(bar, mm256_loadu_ps)
+    bar = replace_all(bar, mm256_storeu_ps)
+    assert str(bar) == golden
