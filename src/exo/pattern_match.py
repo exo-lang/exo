@@ -4,14 +4,13 @@ import inspect
 import re
 from typing import Optional
 
-from . import pyparser
-from .LoopIR import LoopIR, PAST
-
+import exo.pyparser as pyparser
+from exo.LoopIR import LoopIR, PAST
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern Matching Errors
-from .internal_cursors import Cursor, Node, Block
+from exo.internal_cursors import Cursor, Node, Block
 
 
 class PatternMatchError(Exception):
@@ -58,18 +57,6 @@ def get_match_no(pattern_str: str) -> Optional[int]:
 
 
 def match_pattern(proc, pattern_str, call_depth=0, default_match_no=None):
-    return _match_pattern_impl(
-        proc, pattern_str, call_depth, default_match_no
-    ).results()
-
-
-def match_cursors(proc, pattern_str, call_depth=0, default_match_no=None):
-    return _match_pattern_impl(
-        proc, pattern_str, call_depth, default_match_no
-    ).cursors()
-
-
-def _match_pattern_impl(proc, pattern_str, call_depth, default_match_no):
     # break-down pattern_str for possible #<num> post-fix
     if match := re.search(r"^([^#]+)#(\d+)\s*$", pattern_str):
         pattern_str = match[1]
@@ -78,7 +65,7 @@ def _match_pattern_impl(proc, pattern_str, call_depth, default_match_no):
         match_no = default_match_no  # None means match-all
 
     # get source location where this is getting called from
-    caller = inspect.getframeinfo(inspect.stack()[call_depth + 2][0])
+    caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
 
     # parse the pattern we're going to use to match
     p_ast = pyparser.pattern(
@@ -86,7 +73,7 @@ def _match_pattern_impl(proc, pattern_str, call_depth, default_match_no):
     )
 
     # do the pattern match, to find the nodes in ast
-    return PatternMatch(proc, p_ast, match_no=match_no)
+    return PatternMatch().find(Cursor.root(proc), p_ast, match_no=match_no)
 
 
 _PAST_to_LoopIR = {
@@ -118,8 +105,12 @@ class _MatchComplete(Exception):
 
 
 class PatternMatch:
-    def __init__(self, proc, pat, match_no=None, limit_stmt=False):
-        self._match_i = match_no
+    def __init__(self):
+        self._match_no = None
+        self._results = []
+
+    def find(self, cur, pat, match_no=None):
+        self._match_no = match_no
         self._results = []
 
         # prevent the top level of a pattern being just a hole
@@ -128,36 +119,27 @@ class PatternMatch:
         elif isinstance(pat, list) and all(isinstance(p, PAST.S_Hole) for p in pat):
             raise PatternMatchError("pattern match on 'anything' unsupported")
 
-        cur = Cursor.root(proc)
-
         try:
             if isinstance(pat, list):
                 assert len(pat) > 0
-                self.find_stmts(pat, cur.body())
+                self.find_stmts(pat, cur)
             else:
                 assert isinstance(pat, PAST.expr)
                 self.find_expr(pat, cur)
         except _MatchComplete:
             pass
 
-    def results(self):
-        return [
-            [n._node() for n in cur] if isinstance(cur, Block) else cur._node()
-            for cur in self._results
-        ]
-
-    def cursors(self):
         return self._results
 
     def _add_result(self, result):
         assert isinstance(result, (Node, Block))
 
-        if self._match_i is None:
+        if self._match_no is None:
             self._results.append(result)
             return
 
-        i = self._match_i
-        self._match_i -= 1
+        i = self._match_no
+        self._match_no -= 1
         if i == 0:
             self._results.append(result)
             raise _MatchComplete()
@@ -173,7 +155,13 @@ class PatternMatch:
         for child in cur.children():
             self.find_expr(pat, child)
 
-    def find_stmts(self, pats, curs):
+    def find_stmts(self, pats, cur: Node):
+        if isinstance(cur._node(), LoopIR.proc):
+            return self.find_stmts_in_block(pats, cur.body())
+
+        return self.find_stmts_in_block(pats, cur.as_block())
+
+    def find_stmts_in_block(self, pats, curs: Block):
         # may encounter empty statement blocks, which we should ignore
         if len(curs) == 0:
             return
@@ -187,15 +175,15 @@ class PatternMatch:
         # first, look for any subsequences of statements in the first
         # statement of the sequence `stmts`
         if isinstance(curs[0]._node(), LoopIR.If):
-            self.find_stmts(pats, curs[0].body())
-            self.find_stmts(pats, curs[0].orelse())
-        elif isinstance(curs[0]._node(), (LoopIR.proc, LoopIR.Seq)):
-            self.find_stmts(pats, curs[0].body())
+            self.find_stmts_in_block(pats, curs[0].body())
+            self.find_stmts_in_block(pats, curs[0].orelse())
+        elif isinstance(curs[0]._node(), LoopIR.Seq):
+            self.find_stmts_in_block(pats, curs[0].body())
         else:
             pass  # other forms of statement do not contain stmt blocks
 
         # second, recurse on the tail of this sequence...
-        self.find_stmts(pats, curs[1:])
+        self.find_stmts_in_block(pats, curs[1:])
 
     ## -------------------
     ##  matching methods

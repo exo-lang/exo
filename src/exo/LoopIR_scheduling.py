@@ -1,3 +1,4 @@
+import dataclasses
 import re
 from collections import ChainMap
 
@@ -215,7 +216,7 @@ def nested_iter_names_to_pattern(namestr, inner):
         count = ""
     assert is_valid_name(inner)
 
-    pattern = f"for {name} in _:\n" f"  for {inner} in _: _{count}"
+    pattern = f"for {name} in _:\n  for {inner} in _: _{count}"
     return pattern
 
 
@@ -224,66 +225,65 @@ def nested_iter_names_to_pattern(namestr, inner):
 # Reorder scheduling directive
 
 
+def _fixup_effects(orig_proc, p, fwd):
+    p = api.Procedure(
+        InferEffects(p._loopir_proc).result(), _provenance_eq_Procedure=orig_proc
+    )
+    fwd = ic.forward_identity(p, fwd)
+    return p, fwd
+
+
 # Take a conservative approach and allow stmt reordering only when they are
 # writing to different buffers
 # TODO: Do effectcheck's check_commutes-ish thing using SMT here
-class DoReorderStmt(Cursor_Rewrite):
-    def __init__(self, proc_cursor, f_cursor, s_cursor):
-        self.f_stmt = f_cursor._node()
-        self.s_stmt = s_cursor._node()
-        # self.found_first = False
-
-        # raise NotImplementedError("HIT REORDER STMTS")
-
-        super().__init__(proc_cursor)
-
-        self.proc = InferEffects(self.proc).result()
-
-    def map_stmts(self, stmts_c):
-        stmts = [s._node() for s in stmts_c]
-        for i, (s1, s2) in enumerate(zip(stmts, stmts[1:])):
-            if s1 is self.f_stmt:
-                if s2 is self.s_stmt:
-                    Check_ReorderStmts(self.orig_proc._node(), s1, s2)
-                    return stmts[:i] + [s2, s1] + stmts[i + 2 :]
-
-                raise SchedulingError(
-                    "expected the second statement to be directly after the first"
-                )
-
-        return super().map_stmts(stmts_c)
+def DoReorderStmt(f_cursor, s_cursor):
+    if f_cursor.next() != s_cursor:
+        raise SchedulingError(
+            "expected the second statement to be directly after the first"
+        )
+    orig_proc = f_cursor.proc()
+    Check_ReorderStmts(orig_proc._loopir_proc, f_cursor._node(), s_cursor._node())
+    p, fwd = s_cursor.as_block()._move(f_cursor.before())
+    return _fixup_effects(orig_proc, p, fwd)
 
 
 class DoPartitionLoop(LoopIR_Rewrite):
-    def __init__(self, loop_cursor, num):
+    def __init__(self, proc, loop_cursor, num):
+        assert num > 0
         self.stmt = loop_cursor._node()
         self.partition_by = num
+        self.proc = proc
 
     def map_s(self, s):
         if s is self.stmt:
             assert isinstance(s, LoopIR.Seq)
 
-            if not isinstance(s.hi, LoopIR.Const):
-                raise SchedulingError("expected loop bound to be a literal")
-
-            if s.hi.val <= self.partition_by:
+            part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
+            new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
+            try:
+                Check_IsPositiveExpr(
+                    self.proc,
+                    [s],
+                    LoopIR.BinOp(
+                        "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
+                    ),
+                )
+            except SchedulingError:
                 raise SchedulingError(
-                    "expected loop bound to be larger than partitioning value"
+                    f"expected the new loop bound {new_hi} to be always non-negative"
                 )
 
-            part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
             loop1 = s.update(hi=part_by, eff=None)
 
             # all uses of the loop iteration in the second body need
             # to be offset by the partition value
             iter2 = s.iter.copy()
-            hi2 = LoopIR.Const(s.hi.val - part_by.val, T.int, s.srcinfo)
             iter2_node = LoopIR.Read(iter2, [], T.index, s.srcinfo)
             iter_off = LoopIR.BinOp("+", iter2_node, part_by, T.index, s.srcinfo)
             env = {s.iter: iter_off}
 
             body2 = SubstArgs(s.body, env).result()
-            loop2 = s.update(iter=iter2, hi=hi2, body=body2, eff=None)
+            loop2 = s.update(iter=iter2, hi=new_hi, body=body2, eff=None)
 
             return [loop1, loop2]
 
@@ -298,7 +298,7 @@ class DoProductLoop(Cursor_Rewrite):
 
         if len(self.out_loop.body) != 1 or not isinstance(self.in_loop, LoopIR.Seq):
             raise SchedulingError(
-                f"expected loop directly inside of " f"{self.out_loop.iter} loop"
+                f"expected loop directly inside of {self.out_loop.iter} loop"
             )
 
         if not isinstance(self.in_loop.hi, LoopIR.Const):
@@ -1754,11 +1754,11 @@ class DoDivideDim(Cursor_Rewrite):
 
             if not isinstance(dim, LoopIR.Const):
                 raise SchedulingError(
-                    f"Cannot divide non-literal dimension: " f"{str(dim)}"
+                    f"Cannot divide non-literal dimension: {str(dim)}"
                 )
             if not dim.val % self.quotient == 0:
                 raise SchedulingError(
-                    f"Cannot divide {dim.val} evenly by " f"{self.quotient}"
+                    f"Cannot divide {dim.val} evenly by {self.quotient}"
                 )
             denom = self.quotient
             numer = dim.val // denom
@@ -1813,7 +1813,7 @@ class DoMultiplyDim(Cursor_Rewrite):
         lo_dim = self.alloc_stmt.type.shape()[lo_idx]
         if not isinstance(lo_dim, LoopIR.Const):
             raise SchedulingError(
-                f"Cannot multiply with non-literal second " f"dimension: {str(lo_dim)}"
+                f"Cannot multiply with non-literal second dimension: {str(lo_dim)}"
             )
         self.lo_val = lo_dim.val
 

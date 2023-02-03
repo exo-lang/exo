@@ -310,7 +310,7 @@ class CanReorder(QAST_Do):
 
 def lift_config(conv, string, nth=0):
     stmt = conv.get_ast(string)
-    stmt = stmt[nth][0]  # Get the match
+    stmt = stmt[nth]  # Get the match
 
     while True:
         proc = conv.get_ast()

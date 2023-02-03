@@ -268,7 +268,7 @@ class UAST_PPrinter:
                 else:
                     assert False, "bad case"
 
-            return f"{self.get_name(e.name)}" f"[{', '.join([pacc(w) for w in e.idx])}]"
+            return f"{self.get_name(e.name)}[{', '.join([pacc(w) for w in e.idx])}]"
         elif isinstance(e, UAST.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
         elif isinstance(e, UAST.BuiltIn):

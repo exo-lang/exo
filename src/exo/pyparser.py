@@ -610,7 +610,7 @@ class Parser:
                         if isinstance(nm, SizeStub):
                             self.err(
                                 name_node,
-                                f"cannot write to " f"size variable '{name_node.id}'",
+                                f"cannot write to size variable '{name_node.id}'",
                             )
                         elif not isinstance(nm, Sym):
                             self.err(

@@ -1,0 +1,8 @@
+Reads:
+  { A : (i,k) for (j,k) in Z if
+    0 <= j and j < M and (0 <= k and k < K) }
+  { B : (k,j) for (j,k) in Z if
+    0 <= j and j < M and (0 <= k and k < K) }
+Reduces:
+    { C : (i,j) for (j,k) in Z if
+    0 <= j and j < M and (0 <= k and k < K) }
