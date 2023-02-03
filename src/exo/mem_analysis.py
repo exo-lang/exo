@@ -9,21 +9,97 @@ from .memory import DRAM
 # Memory Analysis Pass
 
 
-class MemoryAnalysis:
+class Check_CallsMemoryTypes:
     def __init__(self):
         self.mem_env = ChainMap()
-        self.tofree = []
+        self.call_stmts = None
+        self.reason = ""
 
-    def run(self, proc):
+    def check(self, proc, call_stmts=None):
         assert isinstance(proc, LoopIR.proc)
 
         self.mem_env = ChainMap()
-        self.tofree = []
+        self.call_stmts = call_stmts
+        self.check_passed = True
+        self.reason = ""
 
         for a in proc.args:
             if a.type.is_numeric():
                 mem = a.mem if a.mem else DRAM
                 self.mem_env[a.name] = mem
+
+        self.push()
+        self.check_stmts(proc.body)
+        self.pop()
+
+        return self.check_passed, self.reason
+
+    def push(self):
+        self.mem_env = self.mem_env.new_child()
+
+    def pop(self):
+        self.mem_env = self.mem_env.parents
+
+    def get_e_mem(self, e):
+        if isinstance(e, (LoopIR.WindowExpr, LoopIR.Read)):
+            return self.mem_env[e.name]
+        else:
+            assert False
+
+    def check_stmts(self, stmts):
+        for stmt in stmts:
+            self.check_s(stmt)
+
+    def check_s(self, s):
+        styp = type(s)
+
+        if styp is LoopIR.WindowStmt:
+            mem = self.get_e_mem(s.rhs)
+            self.mem_env[s.lhs] = mem
+
+        elif styp is LoopIR.Call:
+            if self.call_stmts is None or s in self.call_stmts:
+                # check memory consistency at call boundaries
+                for ca, sa in zip(s.args, s.f.args):
+                    if sa.type.is_numeric():
+                        smem = sa.mem if sa.mem else DRAM
+                        cmem = self.get_e_mem(ca)
+                        if not issubclass(cmem, smem):
+                            self.check_passed = False
+                            self.reason = (
+                                f"{ca.srcinfo}: expected "
+                                f"argument in {smem.name()} but got an "
+                                f"argument in {cmem.name()}"
+                            )
+
+        elif styp is LoopIR.If:
+            self.push()
+            self.check_stmts(s.body)
+            self.pop()
+            self.push()
+            self.check_stmts(s.orelse)
+            self.pop()
+        elif styp is LoopIR.Seq:
+            self.push()
+            self.check_stmts(s.body)
+            self.pop()
+        elif styp is LoopIR.Alloc:
+            mem = s.mem if s.mem else DRAM
+            self.mem_env[s.name] = mem
+
+
+class MemoryAnalysis:
+    def __init__(self):
+        self.tofree = []
+
+    def run(self, proc):
+        assert isinstance(proc, LoopIR.proc)
+
+        check, reason = Check_CallsMemoryTypes().check(proc)
+        if not check:
+            raise TypeError(reason)
+
+        self.tofree = []
 
         self.push()
         body = self.mem_stmts(proc.body)
@@ -41,11 +117,9 @@ class MemoryAnalysis:
         )
 
     def push(self):
-        self.mem_env = self.mem_env.new_child()
         self.tofree.append([])
 
     def pop(self):
-        self.mem_env = self.mem_env.parents
         assert len(self.tofree[-1]) == 0
         self.tofree.pop()
 
@@ -115,12 +189,6 @@ class MemoryAnalysis:
 
         return list(reversed(body))
 
-    def get_e_mem(self, e):
-        if isinstance(e, (LoopIR.WindowExpr, LoopIR.Read)):
-            return self.mem_env[e.name]
-        else:
-            assert False
-
     def mem_s(self, s):
         styp = type(s)
 
@@ -129,27 +197,9 @@ class MemoryAnalysis:
             or styp is LoopIR.Assign
             or styp is LoopIR.Reduce
             or styp is LoopIR.WriteConfig
+            or styp is LoopIR.WindowStmt
+            or styp is LoopIR.Call
         ):
-            return s
-
-        elif styp is LoopIR.WindowStmt:
-            mem = self.get_e_mem(s.rhs)
-            self.mem_env[s.lhs] = mem
-            return s
-
-        elif styp is LoopIR.Call:
-            # check memory consistency at call boundaries
-            for ca, sa in zip(s.args, s.f.args):
-                if sa.type.is_numeric():
-                    smem = sa.mem if sa.mem else DRAM
-                    cmem = self.get_e_mem(ca)
-                    if not issubclass(cmem, smem):
-                        raise TypeError(
-                            f"{ca.srcinfo}: expected "
-                            f"argument in {smem.name()} but got an "
-                            f"argument in {cmem.name()}"
-                        )
-
             return s
 
         elif styp is LoopIR.If:
@@ -166,8 +216,6 @@ class MemoryAnalysis:
             self.pop()
             return styp(s.iter, s.hi, body, None, s.srcinfo)
         elif styp is LoopIR.Alloc:
-            mem = s.mem if s.mem else DRAM
-            self.mem_env[s.name] = mem
             self.add_malloc(s.name, s.type, s.mem)
             return s
         elif styp is LoopIR.Free:
