@@ -1791,6 +1791,84 @@ def test_simplify_index_div2(golden):
     assert str(bar) == golden
 
 
+def test_simplify_index_div3(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div4(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii + 8) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div5(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 5 + ii + 1) / 5] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div_fail(golden):
+    @proc
+    def bar(N: size, x: R[1 + N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii + 1) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div_fail1(golden):
+    @proc
+    def bar(N: size, x: R[1 + N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 5):
+                x[(io * 4 + ii) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div_fail2(golden):
+    @proc
+    def bar(N: size, x: R[2 * N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 5):
+                x[(N + ii + 4 * io) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
 def test_simplify_index_mod(golden):
     @proc
     def bar(x: R[1000]):
@@ -1846,6 +1924,19 @@ def test_simplify_index_mod4(golden):
     assert str(bar) == golden
 
 
+def test_simplify_index_mod5(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii) % 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
 def test_simplify_index_nested_div_mod(golden):
     @proc
     def bar(x: R[1000]):
@@ -1862,5 +1953,20 @@ def test_simplify_index_nested_div_mod(golden):
                     % 4
                 ] = 1.0
 
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_div_mod_staging(golden):
+    @proc
+    def bar(x: R[64], y: R[64], out: R[64]):
+        for i in seq(0, 64):
+            out[i] = x[i] * y[i]
+
+    bar = divide_loop(bar, "for i in _:_", 4, ("io", "ii"), tail="cut")
+    bar = stage_mem(bar, "for io in _:_", "x[0:64]", "xReg")
+    bar = simplify(bar)
+    bar = divide_loop(bar, "for i0 in _:_", 4, ("io", "ii"), tail="cut")
+    bar = divide_dim(bar, "xReg", 0, 4)
     bar = simplify(bar)
     assert str(bar) == golden
