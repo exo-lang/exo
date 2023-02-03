@@ -2937,6 +2937,7 @@ class _DoNormalize(Cursor_Rewrite):
     def __init__(self, proc_cursor):
         self.C = Sym("temporary_constant_symbol")
         self.env = ChainMap()
+        # TODO: dispatch to Z3 to reason about preds ranges
         for arg in proc_cursor._node().args:
             self.env[arg.name] = None
         super().__init__(proc_cursor)
