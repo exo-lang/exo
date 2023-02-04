@@ -1,4 +1,3 @@
-import dataclasses
 import re
 from collections import ChainMap
 
@@ -34,13 +33,13 @@ from .new_eff import (
     Check_IsDeadAfter,
     Check_IsIdempotent,
     Check_IsPositiveExpr,
-    Check_CodeIsDead,
     Check_Aliasing,
 )
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
-from . import internal_cursors as ic
-from . import API as api
+import exo.internal_cursors as ic
+import exo.API as api
+from .pattern_match import match_pattern
 
 
 # --------------------------------------------------------------------------- #
@@ -282,51 +281,82 @@ def DoPartitionLoop(stmt, partition_by):
     return _fixup_effects(stmt.proc(), p, fwd)
 
 
-class DoProductLoop(Cursor_Rewrite):
-    def __init__(self, proc_cursor, loop_cursor, new_name):
-        self.stmt = loop_cursor._node()
-        self.out_loop = self.stmt
-        self.in_loop = self.out_loop.body[0]
+def _compose(f, g):
+    return lambda x: f(g(x))
 
-        if len(self.out_loop.body) != 1 or not isinstance(self.in_loop, LoopIR.Seq):
-            raise SchedulingError(
-                f"expected loop directly inside of {self.out_loop.iter} loop"
-            )
 
-        if not isinstance(self.in_loop.hi, LoopIR.Const):
-            raise SchedulingError(
-                f"expected the inner loop to have a constant bound, "
-                f"got {self.in_loop.hi}."
-            )
-        self.inside = False
-        self.new_var = Sym(new_name)
+def _replace_pats(p, fwd, c, pat, repl):
+    # TODO: consider the implications of composing O(n) forwarding functions.
+    #   will we need a special data structure? A chunkier operation for
+    #   multi-way replacement?
+    for rd in match_pattern(c, pat):
+        rd = fwd(rd)
+        p, fwd_rd = rd._replace(repl(rd))
+        fwd = _compose(fwd_rd, fwd)
+    return p, fwd
 
-        super().__init__(proc_cursor)
 
-    def map_s(self, sc):
-        s = sc._node()
-        styp = type(s)
-        if s is self.stmt:
-            self.inside = True
-            body = self.map_stmts(sc.body()[0].body())
-            self.inside = False
-            new_hi = LoopIR.BinOp(
-                "*", self.out_loop.hi, self.in_loop.hi, T.index, s.srcinfo
-            )
+def DoProductLoop(outer_loop, new_name):
+    orig_proc = outer_loop.proc()
 
-            return [s.update(iter=self.new_var, hi=new_hi, body=body)]
+    body = outer_loop.body()
+    outer_loop_ir = outer_loop._node()
 
-        return super().map_s(sc)
+    if len(body) != 1 or not isinstance(body[0]._node(), LoopIR.Seq):
+        raise SchedulingError(
+            f"expected loop directly inside of {body[0]._node().iter} loop"
+        )
 
-    def map_e(self, e):
-        if self.inside and isinstance(e, LoopIR.Read):
-            var = LoopIR.Read(self.new_var, [], T.index, e.srcinfo)
-            if e.name == self.out_loop.iter:
-                return LoopIR.BinOp("/", var, self.in_loop.hi, T.index, e.srcinfo)
-            if e.name == self.in_loop.iter:
-                return LoopIR.BinOp("%", var, self.in_loop.hi, T.index, e.srcinfo)
+    inner_loop = body[0]
+    inner_loop_ir = inner_loop._node()
+    inner_hi = inner_loop_ir.hi
 
-        return super().map_e(e)
+    if not isinstance(inner_hi, LoopIR.Const):
+        raise SchedulingError(
+            f"expected the inner loop to have a constant bound, " f"got {inner_hi}."
+        )
+
+    # Only spend a name once the other parameters are validated
+    new_var = Sym(new_name)
+
+    # Construct replacement expressions
+    srcinfo = inner_hi.srcinfo
+    var = LoopIR.Read(new_var, [], T.index, srcinfo)
+    outer_expr = LoopIR.BinOp("/", var, inner_hi, T.index, srcinfo)
+    inner_expr = LoopIR.BinOp("%", var, inner_hi, T.index, srcinfo)
+
+    # TODO: indexes are inside expression blocks... need a more
+    #   uniform way to treat this.
+    mk_outer_expr = lambda _: [outer_expr]
+    mk_inner_expr = lambda _: [inner_expr]
+
+    # Initial state of editing transaction
+    p, fwd = orig_proc, lambda x: x
+
+    # Replace inner reads to loop variables
+    for c in inner_loop.body():
+        p, fwd = _replace_pats(p, fwd, c, f"{outer_loop_ir.iter}", mk_outer_expr)
+        p, fwd = _replace_pats(p, fwd, c, f"{inner_loop_ir.iter}", mk_inner_expr)
+
+    def mk_product_loop(body):
+        return outer_loop_ir.update(
+            iter=new_var,
+            hi=LoopIR.BinOp(
+                "*", outer_loop_ir.hi, inner_hi, T.index, outer_loop_ir.srcinfo
+            ),
+            body=body,
+        )
+
+    p, fwdIn = fwd(inner_loop).body()._wrap(mk_product_loop, "body")
+    fwd = _compose(fwdIn, fwd)
+
+    p, fwdMv = fwd(inner_loop).body()._move(fwd(outer_loop).after())
+    fwd = _compose(fwdMv, fwd)
+
+    p, fwdDel = fwd(outer_loop)._delete()
+    fwd = _compose(fwdDel, fwd)
+
+    return _fixup_effects(orig_proc, p, fwd)
 
 
 def get_reads(e):

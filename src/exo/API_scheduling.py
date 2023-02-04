@@ -1510,10 +1510,8 @@ def mult_loops(proc, nested_loops, new_iter_name):
         `for k in seq(0,e*c):`      # k is new_iter_name
         `    s[ i -> k/c, j -> k%c ]`
     """
-    stmt = nested_loops._impl
-    proc_c = ic.Cursor.root(proc)
-
-    return scheduling.DoProductLoop(proc_c, stmt, new_iter_name).result()
+    p, _fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
+    return p
 
 
 @sched_op([ForSeqCursorA, PosIntA])
