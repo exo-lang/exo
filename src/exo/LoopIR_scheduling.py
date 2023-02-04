@@ -246,47 +246,40 @@ def DoReorderStmt(f_cursor, s_cursor):
     return _fixup_effects(orig_proc, p, fwd)
 
 
-class DoPartitionLoop(LoopIR_Rewrite):
-    def __init__(self, proc, loop_cursor, num):
-        assert num > 0
-        self.stmt = loop_cursor._node()
-        self.partition_by = num
-        self.proc = proc
+def DoPartitionLoop(stmt, partition_by):
+    s = stmt._node()
 
-    def map_s(self, s):
-        if s is self.stmt:
-            assert isinstance(s, LoopIR.Seq)
+    assert isinstance(s, LoopIR.Seq)
 
-            part_by = LoopIR.Const(self.partition_by, T.int, s.srcinfo)
-            new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
-            try:
-                Check_IsPositiveExpr(
-                    self.proc,
-                    [s],
-                    LoopIR.BinOp(
-                        "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
-                    ),
-                )
-            except SchedulingError:
-                raise SchedulingError(
-                    f"expected the new loop bound {new_hi} to be always non-negative"
-                )
+    part_by = LoopIR.Const(partition_by, T.int, s.srcinfo)
+    new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
+    try:
+        Check_IsPositiveExpr(
+            stmt.proc()._loopir_proc,
+            [s],
+            LoopIR.BinOp(
+                "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
+            ),
+        )
+    except SchedulingError:
+        raise SchedulingError(
+            f"expected the new loop bound {new_hi} to be always non-negative"
+        )
 
-            loop1 = s.update(hi=part_by, eff=None)
+    loop1 = s.update(hi=part_by, eff=None)
 
-            # all uses of the loop iteration in the second body need
-            # to be offset by the partition value
-            iter2 = s.iter.copy()
-            iter2_node = LoopIR.Read(iter2, [], T.index, s.srcinfo)
-            iter_off = LoopIR.BinOp("+", iter2_node, part_by, T.index, s.srcinfo)
-            env = {s.iter: iter_off}
+    # all uses of the loop iteration in the second body need
+    # to be offset by the partition value
+    iter2 = s.iter.copy()
+    iter2_node = LoopIR.Read(iter2, [], T.index, s.srcinfo)
+    iter_off = LoopIR.BinOp("+", iter2_node, part_by, T.index, s.srcinfo)
+    env = {s.iter: iter_off}
 
-            body2 = SubstArgs(s.body, env).result()
-            loop2 = s.update(iter=iter2, hi=new_hi, body=body2, eff=None)
+    body2 = SubstArgs(s.body, env).result()
+    loop2 = s.update(iter=iter2, hi=new_hi, body=body2, eff=None)
 
-            return [loop1, loop2]
-
-        return super().map_s(s)
+    p, fwd = stmt._replace([loop1, loop2])
+    return _fixup_effects(stmt.proc(), p, fwd)
 
 
 class DoProductLoop(Cursor_Rewrite):

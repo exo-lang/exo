@@ -1517,7 +1517,7 @@ def mult_loops(proc, nested_loops, new_iter_name):
 
 
 @sched_op([ForSeqCursorA, PosIntA])
-def cut_loop(proc, loop_cursor, cut_point):
+def cut_loop(proc, loop, cut_point):
     """
     Cut a loop into two loops, one iterating from 0 to `cut_point` and
     the second iterating from `cut_point` to the original loop upper bound.
@@ -1526,7 +1526,7 @@ def cut_loop(proc, loop_cursor, cut_point):
     TODO: support expressions for the cut_point.
 
     args:
-        loop_cursor     - cursor pointing to the loop to split
+        loop            - cursor pointing to the loop to split
         cut_point       - integer saying which iteration to cut at
 
     rewrite:
@@ -1538,13 +1538,8 @@ def cut_loop(proc, loop_cursor, cut_point):
         `for i in seq(0,n-cut):`
         `    s[i -> i+cut]`
     """
-    stmt = loop_cursor._impl
-    proc_c = ic.Cursor.root(proc)
-    loopir = scheduling.DoPartitionLoop(proc_c._node(), stmt, cut_point).apply_proc(
-        proc_c._node()
-    )
-
-    return Procedure(loopir, _provenance_eq_Procedure=proc)
+    p, _fwd = scheduling.DoPartitionLoop(loop._impl, cut_point)
+    return p
 
 
 @sched_op([NestedForSeqCursorA])
