@@ -1,7 +1,23 @@
 from .LoopIR import LoopIR
 
 
-class AffineIndexRangeAnalysis:
+class IndexRangeAnalysis:
+    """
+    Performs range-analysis on an index expression.
+
+    Class takes in an environment in which the expression exists.
+    The environment is a mapping from `Sym` -> range.
+    It calculates the range of possible values that the index
+    expression could be in.
+
+    Any range, in the environment mapping or the result of the
+    analysis is either:
+        1. A tuple `T` of length 2 s.t. it represents the range
+        `[T[0], T[1]]` (both inclusive).
+        2. A `None` representing no knowledge of the value range
+        or a failure to perform the analysis.
+    """
+
     @staticmethod
     def merge_add(lhs_range, rhs_range):
         return (lhs_range[0] + rhs_range[0], lhs_range[1] + rhs_range[1])
@@ -71,11 +87,11 @@ class AffineIndexRangeAnalysis:
             if lhs_range is None or rhs_range is None:
                 return None
             merge_binop = {
-                "+": AffineIndexRangeAnalysis.merge_add,
-                "-": AffineIndexRangeAnalysis.merge_sub,
-                "*": AffineIndexRangeAnalysis.merge_mul,
-                "/": AffineIndexRangeAnalysis.merge_div,
-                "%": AffineIndexRangeAnalysis.merge_mod,
+                "+": IndexRangeAnalysis.merge_add,
+                "-": IndexRangeAnalysis.merge_sub,
+                "*": IndexRangeAnalysis.merge_mul,
+                "/": IndexRangeAnalysis.merge_div,
+                "%": IndexRangeAnalysis.merge_mod,
             }
             return merge_binop[e.op](lhs_range, rhs_range)
         else:

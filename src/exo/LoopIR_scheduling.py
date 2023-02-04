@@ -37,7 +37,7 @@ from .new_eff import (
     Check_CodeIsDead,
     Check_Aliasing,
 )
-from .range_analysis import AffineIndexRangeAnalysis
+from .range_analysis import IndexRangeAnalysis
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
 from . import internal_cursors as ic
@@ -3043,7 +3043,7 @@ class _DoNormalize(Cursor_Rewrite):
                 non_divisible_expr = generate_loopIR(
                     e.lhs, constant.update(val=0), non_divisible_terms
                 )
-                non_divisible_expr_range = AffineIndexRangeAnalysis(
+                non_divisible_expr_range = IndexRangeAnalysis(
                     non_divisible_expr, self.env
                 ).result()
 
@@ -3064,7 +3064,7 @@ class _DoNormalize(Cursor_Rewrite):
                 non_divisible_expr = generate_loopIR(
                     e.lhs, constant, non_divisible_terms
                 )
-                non_divisible_expr_range = AffineIndexRangeAnalysis(
+                non_divisible_expr_range = IndexRangeAnalysis(
                     non_divisible_expr, self.env
                 ).result()
 
@@ -3101,7 +3101,7 @@ class _DoNormalize(Cursor_Rewrite):
                 constant = constant.update(val=0)
 
             new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
-            new_lhs_range = AffineIndexRangeAnalysis(new_lhs, self.env).result()
+            new_lhs_range = IndexRangeAnalysis(new_lhs, self.env).result()
             if new_lhs_range is not None and new_lhs_range[1] < m:
                 assert new_lhs_range[0] >= 0
                 return new_lhs
@@ -3174,7 +3174,7 @@ class _DoNormalize(Cursor_Rewrite):
         if isinstance(s, LoopIR.Seq):
             self.env = self.env.new_child()
 
-            hi_range = AffineIndexRangeAnalysis(s.hi, self.env).result()
+            hi_range = IndexRangeAnalysis(s.hi, self.env).result()
             if hi_range is not None:
                 assert hi_range[0] >= 0
                 if hi_range[1] == 0:
@@ -3286,20 +3286,6 @@ class DoSimplify(Cursor_Rewrite):
             return None
 
         return check_quot(quot.lhs, quot.rhs) or check_quot(quot.rhs, quot.lhs)
-
-    @staticmethod
-    def simplify_div(e):
-        """
-        Simplifies expression of the of form:
-            (c + Sigma a_i x_i) / d
-        to:
-            c / d + Sigma (a_i / d)x_i
-            if c mod d = 0 and a_i mod d = 0 for all i
-        """
-        assert e.op == "/"
-
-        def check_form(e):
-            pass
 
     def map_binop(self, e: LoopIR.BinOp):
         lhs = self.map_e(e.lhs) or e.lhs

@@ -4,7 +4,7 @@ import pytest
 
 from exo.stdlib.scheduling import *
 from exo import proc, DRAM, Procedure
-from exo.range_analysis import AffineIndexRangeAnalysis
+from exo.range_analysis import IndexRangeAnalysis
 
 
 def test_affine_index_range():
@@ -16,7 +16,7 @@ def test_affine_index_range():
 
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == (2, 7)
 
 
@@ -29,7 +29,7 @@ def test_affine_index_range1():
 
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == (10, 35)
 
 
@@ -45,7 +45,7 @@ def test_affine_index_range2():
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
     N_sym = bar._loopir_proc.args[0].name
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (11, 40)
 
 
@@ -61,7 +61,7 @@ def test_affine_index_range3():
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
     N_sym = bar._loopir_proc.args[0].name
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (5, 20)
 
 
@@ -77,7 +77,7 @@ def test_affine_index_range4():
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
     N_sym = bar._loopir_proc.args[0].name
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (7, 36)
 
 
@@ -93,7 +93,7 @@ def test_affine_index_range5():
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
     N_sym = bar._loopir_proc.args[0].name
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (5, 34)
 
 
@@ -109,7 +109,7 @@ def test_affine_index_range6():
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
     N_sym = bar._loopir_proc.args[0].name
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (5, 34)
 
 
@@ -125,7 +125,7 @@ def test_affine_index_range7():
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
     N_sym = bar._loopir_proc.args[0].name
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (2, 31)
 
 
@@ -138,7 +138,7 @@ def test_affine_index_range8():
 
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == (0, 4)
 
 
@@ -151,7 +151,7 @@ def test_affine_index_range9():
 
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == (1, 6)
 
 
@@ -166,7 +166,7 @@ def test_affine_index_range10():
     e = bar.find("for k in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
     j_sym = bar.find("for j in _:_").name()
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5), j_sym: (0, 7)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), j_sym: (0, 7)}).result()
     assert e_range == (0, 31)
 
 
@@ -179,7 +179,7 @@ def test_affine_index_range_fail():
 
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == None
 
 
@@ -192,5 +192,5 @@ def test_affine_index_range_fail1():
 
     e = bar.find("for j in _:_").hi()._impl._node()
     i_sym = bar.find("for i in _:_").name()
-    e_range = AffineIndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == None
