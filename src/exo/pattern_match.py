@@ -56,7 +56,10 @@ def get_match_no(pattern_str: str) -> Optional[int]:
     return int(pattern_str[pos + 1 :])
 
 
-def match_pattern(proc, pattern_str, call_depth=0, default_match_no=None):
+def match_pattern(context, pattern_str, call_depth=0, default_match_no=None):
+    if not isinstance(context, Cursor):
+        context = Cursor.root(context)
+
     # break-down pattern_str for possible #<num> post-fix
     if match := re.search(r"^([^#]+)#(\d+)\s*$", pattern_str):
         pattern_str = match[1]
@@ -73,7 +76,7 @@ def match_pattern(proc, pattern_str, call_depth=0, default_match_no=None):
     )
 
     # do the pattern match, to find the nodes in ast
-    return PatternMatch().find(Cursor.root(proc), p_ast, match_no=match_no)
+    return PatternMatch().find(context, p_ast, match_no=match_no)
 
 
 _PAST_to_LoopIR = {
