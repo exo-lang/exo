@@ -233,11 +233,9 @@ def avx2_select_ps(
     y: [f32][8] @ AVX2,
     z: [f32][8] @ AVX2,
 ):
-    """
-    WARNING: the instructions above use a lower precision
-            float32 (C float) than the implementation of
-            the builtin which uses float64 (C double)
-    """
+    # WARNING: This instruction above use a lower precision
+    #    float32 (C float) than the implementation of
+    #    the builtin which uses float64 (C double)
     assert stride(out, 0) == 1
     assert stride(x, 0) == 1
     assert stride(v, 0) == 1

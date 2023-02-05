@@ -471,7 +471,7 @@ def test_avx2_fselect(compiler):
     max = replace(max, loop_fragment("i0"), mm256_loadu_ps)
     max = replace(max, loop_fragment("i0"), mm256_loadu_ps)
     max = replace(max, loop_fragment("i0"), mm256_loadu_ps)
-    max = replace(max, loop_fragment(inner_it), avx2_fselect)
+    max = replace(max, loop_fragment(inner_it), avx2_select_ps)
     max = replace(max, loop_fragment("i0"), mm256_storeu_ps)
     max = bind_expr(max, "x[ii + N / 8 * 8]", "x_temp")
     max = bind_expr(max, "v[ii + N / 8 * 8]", "v_temp")
