@@ -430,10 +430,10 @@ def test_avx512_sgemm_full(compiler, spec_kernel):
     )
 
 
-@pytest.mark.isa("AVX2")
-def test_avx2_fselect(compiler):
+@pytest.fixture
+def simple_buffer_select():
     @proc
-    def max(
+    def simple_buffer_select(
         N: size,
         out: f32[N] @ DRAM,
         x: f32[N] @ DRAM,
@@ -451,35 +451,69 @@ def test_avx2_fselect(compiler):
     inner_it = "ii"
     loop_fragment = lambda it, idx=0: f"for {it} in _:_ #{idx}"
 
-    max = divide_loop(max, loop_fragment("i"), VEC_W, (outer_it, inner_it), tail="cut")
-    stage = lambda proc, buffer: set_memory(
-        stage_mem(
-            proc,
-            loop_fragment(inner_it),
-            f"{buffer}[{VEC_W} * {outer_it}:{VEC_W} * {outer_it} + {VEC_W}]",
+    def sched_simple_buffer_select(proc):
+        proc = divide_loop(
+            proc, loop_fragment("i"), VEC_W, (outer_it, inner_it), tail="cut"
+        )
+        stage = lambda proc, buffer: set_memory(
+            stage_mem(
+                proc,
+                loop_fragment(inner_it),
+                f"{buffer}[{VEC_W} * {outer_it}:{VEC_W} * {outer_it} + {VEC_W}]",
+                f"{buffer}Reg",
+            ),
             f"{buffer}Reg",
-        ),
-        f"{buffer}Reg",
-        AVX2,
-    )
-    max = stage(max, "x")
-    max = stage(max, "v")
-    max = stage(max, "y")
-    max = stage(max, "z")
-    max = stage(max, "out")
-    max = replace(max, loop_fragment("i0"), mm256_loadu_ps)
-    max = replace(max, loop_fragment("i0"), mm256_loadu_ps)
-    max = replace(max, loop_fragment("i0"), mm256_loadu_ps)
-    max = replace(max, loop_fragment("i0"), mm256_loadu_ps)
-    max = replace(max, loop_fragment(inner_it), avx2_select_ps)
-    max = replace(max, loop_fragment("i0"), mm256_storeu_ps)
-    max = bind_expr(max, "x[ii + N / 8 * 8]", "x_temp")
-    max = bind_expr(max, "v[ii + N / 8 * 8]", "v_temp")
-    max = bind_expr(max, "y[ii + N / 8 * 8]", "y_temp")
-    max = bind_expr(max, "z[ii + N / 8 * 8]", "z_temp")
-    max = simplify(max)
+            AVX2,
+        )
+        proc = stage(proc, "x")
+        proc = stage(proc, "v")
+        proc = stage(proc, "y")
+        proc = stage(proc, "z")
+        proc = stage(proc, "out")
+        proc = replace(proc, loop_fragment("i0"), mm256_loadu_ps)
+        proc = replace(proc, loop_fragment("i0"), mm256_loadu_ps)
+        proc = replace(proc, loop_fragment("i0"), mm256_loadu_ps)
+        proc = replace(proc, loop_fragment("i0"), mm256_loadu_ps)
+        proc = replace(proc, loop_fragment(inner_it), avx2_select_ps)
+        proc = replace(proc, loop_fragment("i0"), mm256_storeu_ps)
+        proc = bind_expr(proc, "x[ii + N / 8 * 8]", "x_temp")
+        proc = bind_expr(proc, "v[ii + N / 8 * 8]", "v_temp")
+        proc = bind_expr(proc, "y[ii + N / 8 * 8]", "y_temp")
+        proc = bind_expr(proc, "z[ii + N / 8 * 8]", "z_temp")
+        proc = simplify(proc)
 
-    fn = compiler.compile(max, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake")
+        return proc
+
+    return sched_simple_buffer_select(simple_buffer_select)
+
+
+@pytest.mark.isa("AVX2")
+def test_avx2_select_ps(compiler, simple_buffer_select):
+    fn = compiler.compile(
+        simple_buffer_select, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+    )
+
+    def run_and_check(N, x, v, y, z):
+        excepted = np.zeros(N, dtype=np.float32)
+        for i in range(N):
+            if x[i] < v[i]:
+                excepted[i] = y[i]
+            else:
+                excepted[i] = z[i]
+
+        out = np.array(np.random.rand(N), dtype=np.float32)
+        x_copy = x.copy()
+        v_copy = v.copy()
+        y_copy = y.copy()
+        z_copy = z.copy()
+
+        fn(None, N, out, x, v, y, z)
+
+        np.testing.assert_almost_equal(out, excepted)
+        np.testing.assert_almost_equal(x, x_copy)
+        np.testing.assert_almost_equal(v, v_copy)
+        np.testing.assert_almost_equal(y, y_copy)
+        np.testing.assert_almost_equal(z, z_copy)
 
     N = 50
     x = np.array([float(i) for i in range(N)], dtype=np.float32)
@@ -492,15 +526,16 @@ def test_avx2_fselect(compiler):
     )
     y = np.array([float(i) for i in range(200, 200 + N)], dtype=np.float32)
     z = np.array([float(i) for i in range(300, 300 + N)], dtype=np.float32)
-    out = np.zeros(N, dtype=np.float32)
 
-    excepted = np.zeros(N, dtype=np.float32)
-    for i in range(N):
-        if x[i] < v[i]:
-            excepted[i] = y[i]
-        else:
-            excepted[i] = z[i]
+    # Correctness testing
+    run_and_check(N, x, v, y, z)
 
-    fn(None, N, out, x, v, y, z)
-
-    np.testing.assert_almost_equal(out, excepted)
+    # Precision testing
+    N = 111
+    run_and_check(
+        N,
+        np.array(np.random.rand(N), dtype=np.float32),
+        np.array(np.random.rand(N), dtype=np.float32),
+        np.array(np.random.rand(N), dtype=np.float32),
+        np.array(np.random.rand(N), dtype=np.float32),
+    )
