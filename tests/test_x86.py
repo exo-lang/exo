@@ -494,12 +494,12 @@ def test_avx2_select_ps(compiler, simple_buffer_select):
     )
 
     def run_and_check(N, x, v, y, z):
-        excepted = np.zeros(N, dtype=np.float32)
+        expected = np.zeros(N, dtype=np.float32)
         for i in range(N):
             if x[i] < v[i]:
-                excepted[i] = y[i]
+                expected[i] = y[i]
             else:
-                excepted[i] = z[i]
+                expected[i] = z[i]
 
         out = np.array(np.random.rand(N), dtype=np.float32)
         x_copy = x.copy()
@@ -509,7 +509,7 @@ def test_avx2_select_ps(compiler, simple_buffer_select):
 
         fn(None, N, out, x, v, y, z)
 
-        np.testing.assert_almost_equal(out, excepted)
+        np.testing.assert_almost_equal(out, expected)
         np.testing.assert_almost_equal(x, x_copy)
         np.testing.assert_almost_equal(v, v_copy)
         np.testing.assert_almost_equal(y, y_copy)
