@@ -539,3 +539,50 @@ def test_avx2_select_ps(compiler, simple_buffer_select):
         np.array(np.random.rand(N), dtype=np.float32),
         np.array(np.random.rand(N), dtype=np.float32),
     )
+
+
+@pytest.mark.isa("AVX2")
+def test_avx2_accumulate_assume_associative(compiler):
+    @proc
+    def accumulate_buffer(x: f32[8], result: [f32][1]):
+        tmp_result: f32
+        tmp_result = result[0]
+        for i in seq(0, 8):
+            tmp_result += x[i]
+        result[0] = tmp_result
+
+    accumulate_buffer = stage_mem(accumulate_buffer, "for i in _:_", "x[0:8]", "xReg")
+    accumulate_buffer = set_memory(accumulate_buffer, "xReg", AVX2)
+    accumulate_buffer = replace(accumulate_buffer, "for i0 in _:_", mm256_loadu_ps)
+    accumulate_buffer = replace(
+        accumulate_buffer, "for i in _:_", avx2_accumulate_assume_associative
+    )
+    accumulate_buffer = simplify(accumulate_buffer)
+
+    fn = compiler.compile(
+        accumulate_buffer, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+    )
+
+    def run_and_check(x, result):
+        expected = result.copy()
+        for i in range(8):
+            expected[0] += x[i]
+
+        x_copy = x.copy()
+
+        fn(None, x, result)
+
+        # lower precision checking because we are assuming float addition is associative in the instruction
+        np.testing.assert_almost_equal(result, expected, decimal=4)
+        np.testing.assert_almost_equal(x, x_copy)
+
+    result = np.array([0.0], dtype=np.float32)
+    x = np.array([1, 2, 3, 1, 2, 3, 7, 2], dtype=np.float32)
+
+    fn(None, x, result)
+
+    run_and_check(x, result)
+    run_and_check(
+        np.array(np.random.rand(8), dtype=np.float32),
+        np.array([np.random.rand()], dtype=np.float32),
+    )

@@ -244,3 +244,21 @@ def avx2_select_ps(
 
     for i in seq(0, 8):
         out[i] = select(x[i], v[i], y[i], z[i])
+
+
+@instr(
+    """
+    {{
+        __m256 tmp = _mm256_hadd_ps({x_data}, {x_data});
+        tmp = _mm256_hadd_ps(tmp, tmp);
+        __m256 upper_bits = _mm256_castps128_ps256(_mm256_extractf128_ps(tmp, 1));
+        tmp = _mm256_add_ps(tmp, upper_bits);
+        *{result} += _mm256_cvtss_f32(tmp);
+    }}
+    """
+)
+def avx2_accumulate_assume_associative(x: [f32][8] @ AVX2, result: f32):
+    # WARNING: This instruction assumes float addition associativity
+    assert stride(x, 0) == 1
+    for i in seq(0, 8):
+        result += x[i]
