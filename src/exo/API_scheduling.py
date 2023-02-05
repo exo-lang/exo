@@ -746,14 +746,8 @@ def insert_pass(proc, gap_cursor):
         -->
         `s1 ; pass ; s2`
     """
-    before = True
-    if not (stmtc := gap_cursor.after()):
-        assert (stmtc := gap_cursor.before())
-        before = False
-    stmt = stmtc._impl
-
-    proc_c = ic.Cursor.root(proc)
-    return scheduling.DoInsertPass(proc_c, stmt, before=before).result()
+    p, _fwd = scheduling.DoInsertPass(gap_cursor._impl)
+    return p
 
 
 @sched_op([])

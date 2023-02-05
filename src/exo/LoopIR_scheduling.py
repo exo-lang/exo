@@ -2821,21 +2821,9 @@ def _make_closure(name, stmts, var_types):
     return closure, args
 
 
-class DoInsertPass(Cursor_Rewrite):
-    def __init__(self, proc_cursor, stmt_cursor, before=True):
-        self.stmt = stmt_cursor._node()
-        self.before = before
-        super().__init__(proc_cursor)
-
-    def map_s(self, sc):
-        s = sc._node()
-        if s is self.stmt:
-            pass_s = LoopIR.Pass(eff_null(s.srcinfo), srcinfo=s.srcinfo)
-            if self.before:
-                return [pass_s, s]
-            else:
-                return [s, pass_s]
-        return super().map_s(sc)
+def DoInsertPass(gap):
+    srcinfo = gap.parent()._node().srcinfo
+    return gap._insert([LoopIR.Pass(eff_null(srcinfo), srcinfo=srcinfo)])
 
 
 class DoDeleteConfig(Cursor_Rewrite):
