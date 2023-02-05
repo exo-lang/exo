@@ -216,3 +216,33 @@ def avx2_fmadd_memu_ps(dst: [f32][8] @ DRAM, val: [f32][8] @ AVX2):
 
     for i in seq(0, 8):
         dst[i] += val[i]
+
+
+@instr(
+    """
+    {{
+        __m256 cmp = _mm256_cmp_ps ({x_data}, {v_data}, _CMP_LT_OQ);
+        {out_data} = _mm256_blendv_ps ({z_data}, {y_data}, cmp);
+    }}
+    """
+)
+def avx2_select_ps(
+    out: [f32][8] @ AVX2,
+    x: [f32][8] @ AVX2,
+    v: [f32][8] @ AVX2,
+    y: [f32][8] @ AVX2,
+    z: [f32][8] @ AVX2,
+):
+    """
+    WARNING: the instructions above use a lower precision
+            float32 (C float) than the implementation of
+            the builtin which uses float64 (C double)
+    """
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(v, 0) == 1
+    assert stride(y, 0) == 1
+    assert stride(z, 0) == 1
+
+    for i in seq(0, 8):
+        out[i] = select(x[i], v[i], y[i], z[i])
