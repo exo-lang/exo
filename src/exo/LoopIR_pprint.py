@@ -571,7 +571,7 @@ def _print_cursor(cur):
             "Cursor printing is only implemented for procs and statements"
         )
 
-    root_cur = Cursor.root(cur._proc())
+    root_cur = Cursor.root(cur.get_root())
     lines = _print_cursor_proc(root_cur, cur, PrintEnv(), "")
     code = _format_code("\n".join(lines))
     # need to use "..." for Python parsing, but unquoted ellipses are prettier

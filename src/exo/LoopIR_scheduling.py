@@ -50,7 +50,7 @@ from .pattern_match import match_pattern
 
 class Cursor_Rewrite(LoopIR_Rewrite):
     def __init__(self, proc_cursor):
-        self.provenance = proc_cursor.proc()
+        self.provenance = proc_cursor.get_root()
         self.orig_proc = proc_cursor
         self.proc = self.apply_proc(proc_cursor)
 
@@ -239,7 +239,7 @@ def DoReorderStmt(f_cursor, s_cursor):
         raise SchedulingError(
             "expected the second statement to be directly after the first"
         )
-    orig_proc = f_cursor.proc()
+    orig_proc = f_cursor.get_root()
     Check_ReorderStmts(orig_proc._loopir_proc, f_cursor._node(), s_cursor._node())
     p, fwd = s_cursor.as_block()._move(f_cursor.before())
     return _fixup_effects(orig_proc, p, fwd)
@@ -254,7 +254,7 @@ def DoPartitionLoop(stmt, partition_by):
     new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
     try:
         Check_IsPositiveExpr(
-            stmt.proc()._loopir_proc,
+            stmt.get_root()._loopir_proc,
             [s],
             LoopIR.BinOp(
                 "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
@@ -278,7 +278,7 @@ def DoPartitionLoop(stmt, partition_by):
     loop2 = s.update(iter=iter2, hi=new_hi, body=body2, eff=None)
 
     p, fwd = stmt._replace([loop1, loop2])
-    return _fixup_effects(stmt.proc(), p, fwd)
+    return _fixup_effects(stmt.get_root(), p, fwd)
 
 
 def _compose(f, g):
@@ -297,7 +297,7 @@ def _replace_pats(p, fwd, c, pat, repl):
 
 
 def DoProductLoop(outer_loop, new_name):
-    orig_proc = outer_loop.proc()
+    orig_proc = outer_loop.get_root()
 
     body = outer_loop.body()
     outer_loop_ir = outer_loop._node()
@@ -2359,7 +2359,7 @@ class DoFissionAfterSimple:
         self.tgt_stmt = stmt_cursor._node()
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
         assert is_pos_int(n_lifts)
-        self.provenance = proc_cursor.proc()
+        self.provenance = proc_cursor.get_root()
         self.orig_proc = proc_cursor._node()
         self.n_lifts = n_lifts
 
@@ -2480,7 +2480,7 @@ class DoFissionLoops:
         self.tgt_stmt = stmt_cursor._node()
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
         assert is_pos_int(n_lifts)
-        self.provenance = proc_cursor.proc()
+        self.provenance = proc_cursor.get_root()
         self.orig_proc = proc_cursor._node()
         self.n_lifts = n_lifts
 
@@ -2701,7 +2701,7 @@ def DoFuseLoop(proc_cursor, f_cursor, s_cursor):
 
     Check_FissionLoop(proc._loopir_proc, loop, body1, body2)
     proc = InferEffects(proc._loopir_proc).result()
-    return api.Procedure(proc, _provenance_eq_Procedure=proc_cursor.proc())
+    return api.Procedure(proc, _provenance_eq_Procedure=proc_cursor.get_root())
 
 
 class DoFuseIf(Cursor_Rewrite):

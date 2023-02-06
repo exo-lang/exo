@@ -92,29 +92,29 @@ def forward_identity(p, fwd):
     @functools.wraps(fwd)
     def forward(cursor):
         cursor = fwd(cursor)
-        return dataclasses.replace(cursor, _proc=p)
+        return dataclasses.replace(cursor, _root=p)
 
     return forward
 
 
 @dataclass
 class Cursor(ABC):
-    _proc: ReferenceType[API.Procedure]
+    _root: ReferenceType[object]
 
     # ------------------------------------------------------------------------ #
     # Static constructors
     # ------------------------------------------------------------------------ #
 
     @staticmethod
-    def root(proc: API.Procedure):
-        return Node(weakref.ref(proc), [])
+    def root(obj: object):
+        return Node(weakref.ref(obj), [])
 
     # ------------------------------------------------------------------------ #
     # Validating accessors
     # ------------------------------------------------------------------------ #
 
-    def proc(self):
-        if (p := self._proc()) is None:
+    def get_root(self):
+        if (p := self._root()) is None:
             raise InvalidCursorError("underlying proc was destroyed")
         return p
 
@@ -196,7 +196,7 @@ class Cursor(ABC):
                 **{attr: children[:i] + [impl(children[i], path)] + children[i + 1 :]}
             )
 
-        return impl(self.proc().INTERNAL_proc(), self._path)
+        return impl(self.get_root().INTERNAL_proc(), self._path)
 
     def _local_forward(self, new_proc, fwd_node):
         """
@@ -212,20 +212,20 @@ class Cursor(ABC):
         simple examples, or wrap for a more complex example (that lengthens
         certain paths).
         """
-        orig_proc = self._proc
+        orig_proc = self._root
         edit_path = self._path
         depth = len(edit_path)
         attr = edit_path[depth - 1][0]
 
         def forward(cursor: Cursor) -> Cursor:
-            if cursor._proc != orig_proc:
+            if cursor._root != orig_proc:
                 raise InvalidCursorError("cannot forward unknown procs")
 
             if not isinstance(cursor, Node):
                 raise InvalidCursorError("can only forward nodes")
 
             def evolve(p):
-                return dataclasses.replace(cursor, _proc=new_proc, _path=p)
+                return dataclasses.replace(cursor, _root=new_proc, _path=p)
 
             old_path = cursor._path
 
@@ -255,7 +255,7 @@ class Block(Cursor):
     # ------------------------------------------------------------------------ #
 
     def parent(self) -> Node:
-        return Node(self._proc, self._path[:-1])
+        return Node(self._root, self._path[:-1])
 
     def before(self, dist=1) -> Gap:
         attr, _range = self._path[-1]
@@ -326,7 +326,7 @@ class Block(Cursor):
         if isinstance(r, range):
             if r.step != 1:
                 raise IndexError("block cursors must be contiguous")
-            return Block(self._proc, self._path[:-1] + [(attr, r)])
+            return Block(self._root, self._path[:-1] + [(attr, r)])
         else:
             return self.parent()._child_node(attr, r)
 
@@ -350,7 +350,7 @@ class Block(Cursor):
         hi = _range.stop + hi
         new_range = full_range[lo:hi]
 
-        return Block(self._proc, self._path[:-1] + [(attr, new_range)])
+        return Block(self._root, self._path[:-1] + [(attr, new_range)])
 
     # ------------------------------------------------------------------------ #
     # AST mutation
@@ -477,19 +477,19 @@ class Block(Cursor):
             # delete the original block of nodes first, to keep the path to the
             # gap stable, before inserting the nodes in the new position.
             p, _ = self._delete()
-            p, _ = dataclasses.replace(target, _proc=weakref.ref(p))._insert(nodes)
+            p, _ = dataclasses.replace(target, _root=weakref.ref(p))._insert(nodes)
         else:
             # Conversely, if the moved block comes first, then we want to jump
             # ahead and insert the block into the gap position before coming back
             # to delete the original nodes, so that the path to the deletion stays
             # stable.
             p, _ = target._insert(nodes)
-            p, _ = dataclasses.replace(self, _proc=weakref.ref(p))._delete()
+            p, _ = dataclasses.replace(self, _root=weakref.ref(p))._delete()
 
         return p, self._forward_move(weakref.ref(p), target)
 
     def _forward_move(self, p, target):
-        orig_proc = self._proc
+        orig_proc = self._root
 
         block_path = self._path
         block_n = len(block_path)
@@ -500,7 +500,7 @@ class Block(Cursor):
         gap_n = len(gap_path)
 
         def forward(cursor: Node):
-            if cursor._proc != orig_proc:
+            if cursor._root != orig_proc:
                 raise InvalidCursorError("cannot forward unknown procs")
 
             if not isinstance(cursor, Node):
@@ -536,7 +536,7 @@ class Block(Cursor):
                     off = cur_path[block_n - 1][1] - block_path[block_n - 1][1].start
                     return dataclasses.replace(
                         cursor,
-                        _proc=p,
+                        _root=p,
                         _path=(
                             gap_path[:-1]
                             + [(gap_path[-1][0], gap_path[-1][1] + gap_off + off)]
@@ -559,7 +559,7 @@ class Block(Cursor):
             for off_i, off_d in offsets:
                 cur_path[off_i] = (cur_path[off_i][0], cur_path[off_i][1] + off_d)
 
-            return dataclasses.replace(cursor, _proc=p, _path=cur_path)
+            return dataclasses.replace(cursor, _root=p, _path=cur_path)
 
         return forward
 
@@ -584,7 +584,7 @@ class Node(Cursor):
 
     @cached_property
     def _node_ref(self):
-        n = self.proc().INTERNAL_proc()
+        n = self.get_root().INTERNAL_proc()
         n = self._walk_path(n, self._path)
         return weakref.ref(n)
 
@@ -595,7 +595,7 @@ class Node(Cursor):
     def parent(self) -> Node:
         if not self._path:
             raise InvalidCursorError("cursor does not have a parent")
-        return Node(self._proc, self._path[:-1])
+        return Node(self._root, self._path[:-1])
 
     def before(self, dist=1) -> Gap:
         return self._translate(Node._child_gap, 1 - dist)
@@ -622,7 +622,7 @@ class Node(Cursor):
                 raise InvalidCursorError("cursor is out of range")
         elif isinstance(_node, list):
             raise ValueError("must index into block attribute")
-        cur = Node(self._proc, self._path + [(attr, i)])
+        cur = Node(self._root, self._path + [(attr, i)])
         # noinspection PyPropertyAccess
         # cached_property is settable, bug in static analysis
         cur._node_ref = weakref.ref(_node)
@@ -635,12 +635,12 @@ class Node(Cursor):
                 raise InvalidCursorError("cursor is out of range")
         elif isinstance(_node, list):
             raise ValueError("must index into block attribute")
-        return Gap(self._proc, self._path + [(attr, i)])
+        return Gap(self._root, self._path + [(attr, i)])
 
     def _child_block(self, attr: str):
         stmts = getattr(self._node(), attr)
         assert isinstance(stmts, list)
-        return Block(self._proc, self._path + [(attr, range(len(stmts)))])
+        return Block(self._root, self._path + [(attr, range(len(stmts)))])
 
     def children(self) -> Iterable[Node]:
         n = self._node()
@@ -711,7 +711,7 @@ class Node(Cursor):
         attr, i = self._path[-1]
         if i is None:
             raise InvalidCursorError("node is not inside a block")
-        return Block(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
+        return Block(self._root, self._path[:-1] + [(attr, range(i, i + 1))])
 
     # ------------------------------------------------------------------------ #
     # Location queries
@@ -772,7 +772,7 @@ class Gap(Cursor):
 
     def parent(self) -> Node:
         assert self._path
-        return Node(self._proc, self._path[:-1])
+        return Node(self._root, self._path[:-1])
 
     def before(self, dist=1) -> Node:
         return self._translate(Node._child_node, -dist)

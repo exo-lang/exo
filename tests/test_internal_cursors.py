@@ -340,7 +340,7 @@ def test_cursor_lifetime():
     gc.collect()
 
     with pytest.raises(InvalidCursorError, match="underlying proc was destroyed"):
-        cur.proc()
+        cur.get_root()
 
     # TODO: The WeakKeyDictionary-ies in other modules seem to keep the IR alive as
     #   they keep references to them in the values.
@@ -590,11 +590,11 @@ def _debug_print_forwarding(x, fwd):
     fx = fwd(x)
     print(x._path)
     print(_print_cursor(x))
-    print(x._proc())
+    print(x._root())
     print("-----------")
     print(fx._path)
     print(_print_cursor(fx))
-    print(fx._proc())
+    print(fx._root())
     print()
     print()
 
