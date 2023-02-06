@@ -3058,7 +3058,7 @@ class DoSimplify(Cursor_Rewrite):
     def __init__(self, proc_cursor):
         self.facts = ChainMap()
         new_procedure = _DoNormalize(proc_cursor).result()
-        self.proc_cursor = ic.Cursor.root(new_procedure)
+        self.proc_cursor = ic.Cursor.create(new_procedure)
 
         super().__init__(self.proc_cursor)
 

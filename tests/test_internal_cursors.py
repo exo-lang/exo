@@ -50,12 +50,12 @@ def proc_bar():
 
 
 def test_get_root(proc_foo):
-    cursor = Cursor.root(proc_foo)
+    cursor = Cursor.create(proc_foo)
     assert cursor._node() is proc_foo.INTERNAL_proc()
 
 
 def test_get_child(proc_foo):
-    cursor = Cursor.root(proc_foo).children()
+    cursor = Cursor.create(proc_foo).children()
     cursor = next(iter(cursor))
     assert cursor._node() is proc_foo.INTERNAL_proc().body[0]
 
@@ -84,13 +84,13 @@ def test_gap_insert_pass(proc_foo, golden):
 
 
 def test_insert_root_front(proc_foo, golden):
-    c = Cursor.root(proc_foo)
+    c = Cursor.create(proc_foo)
     foo2, _ = c.body().before()._insert([LoopIR.Pass(None, c._node().srcinfo)])
     assert str(foo2) == golden
 
 
 def test_insert_root_end(proc_foo, golden):
-    c = Cursor.root(proc_foo)
+    c = Cursor.create(proc_foo)
     foo2, _ = c.body().after()._insert([LoopIR.Pass(None, c._node().srcinfo)])
     assert str(foo2) == golden
 
@@ -182,7 +182,7 @@ def test_cursor_move(proc_foo):
 
 def test_cursor_move_invalid(proc_foo):
     # Edge cases near the root
-    c = Cursor.root(proc_foo)
+    c = Cursor.create(proc_foo)
     with pytest.raises(InvalidCursorError, match="cannot move root cursor"):
         c.next()
 
@@ -306,13 +306,13 @@ def test_cursor_forward_expr_deep():
 
 
 def test_cursor_loop_bound(proc_foo):
-    c_for_i = Cursor.root(proc_foo).body()[0]
+    c_for_i = Cursor.create(proc_foo).body()[0]
     c_bound = c_for_i._child_node("hi")
     assert isinstance(c_bound._node(), LoopIR.Read)
 
 
 def test_cursor_invalid_child(proc_foo):
-    c = Cursor.root(proc_foo)
+    c = Cursor.create(proc_foo)
 
     # Quick sanity check
     assert c._child_node("body", 0) == c.body()[0]
@@ -441,7 +441,7 @@ def test_forward_lifetime(proc_bar):
     bar_new, fwd = for_j._delete()
     bar_new_weak = weakref.ref(bar_new)
 
-    c = Cursor.root(bar_new).body()[0]
+    c = Cursor.create(bar_new).body()[0]
     assert c._node() is not None
 
     gc.collect()
@@ -488,7 +488,7 @@ def test_block_replace_forward_node(proc_bar, old, new):
 def test_cursor_pretty_print_nodes(proc_bar, golden):
     output = []
 
-    root = Cursor.root(proc_bar)
+    root = Cursor.create(proc_bar)
     output.append(_print_cursor(root))
 
     c = proc_bar._TEST_find_stmt("for i in _: _")

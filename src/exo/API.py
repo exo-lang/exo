@@ -230,7 +230,7 @@ class Procedure(ProcedureBase):
         """
         Return a BlockCursor selecting the entire body of the Procedure
         """
-        impl = internal_cursors.Cursor.root(self).body()
+        impl = internal_cursors.Cursor.create(self).body()
         return API_cursors.new_Cursor(impl)
 
     def find(self, pattern, many=False):

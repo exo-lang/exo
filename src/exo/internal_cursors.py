@@ -106,7 +106,7 @@ class Cursor(ABC):
     # ------------------------------------------------------------------------ #
 
     @staticmethod
-    def root(obj: object):
+    def create(obj: object):
         return Node(weakref.ref(obj), [])
 
     # ------------------------------------------------------------------------ #
