@@ -1040,11 +1040,8 @@ def delete_config(proc, stmt_cursor):
     rewrite:
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
-    stmt = stmt_cursor._impl
-    proc_c = ic.Cursor.root(proc)
-    rewrite_pass = scheduling.DoDeleteConfig(proc_c, stmt)
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    p, _fwd = scheduling.DoDeleteConfig(ic.Cursor.root(proc), stmt_cursor._impl)
+    return p
 
 
 @sched_op([GapCursorA, ConfigA, ConfigFieldA, NewExprA("gap_cursor")])

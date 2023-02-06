@@ -2826,23 +2826,19 @@ def DoInsertPass(gap):
     return gap._insert([LoopIR.Pass(eff_null(srcinfo), srcinfo=srcinfo)])
 
 
-class DoDeleteConfig(Cursor_Rewrite):
-    def __init__(self, proc_cursor, config_cursor):
-        self.stmt = config_cursor._node()
-        self.eq_mod_config = set()
-        super().__init__(proc_cursor)
-
-    def mod_eq(self):
-        return self.eq_mod_config
-
-    def map_s(self, sc):
-        s = sc._node()
-        if s is self.stmt:
-            mod_cfg = Check_DeleteConfigWrite(self.orig_proc._node(), [self.stmt])
-            self.eq_mod_config = mod_cfg
-            return []
-        else:
-            return super().map_s(sc)
+def DoDeleteConfig(proc_cursor, config_cursor):
+    eq_mod_config = Check_DeleteConfigWrite(
+        proc_cursor._node(), [config_cursor._node()]
+    )
+    p, fwd = config_cursor._delete()
+    # TODO: this is revealing a design flaw in the internal cursors.
+    #   The internal cursors should not return API procedures and their
+    #   forwarding functions should not validate provenance on their own.
+    p = api.Procedure(
+        p._loopir_proc, _provenance_eq_Procedure=p, _mod_config=eq_mod_config
+    )
+    fwd = ic.forward_identity(p, fwd)
+    return p, fwd
 
 
 class DoDeletePass(Cursor_Rewrite):
