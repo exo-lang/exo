@@ -1,0 +1,4 @@
+def bar(x: R[1000] @ DRAM):
+    for i in seq(0, 4):
+        for j in seq(0, 5):
+            x[12 + j + 4 * i] = 1.0
