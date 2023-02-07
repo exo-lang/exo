@@ -542,7 +542,7 @@ def test_avx2_select_ps(compiler, simple_buffer_select):
 
 
 @pytest.mark.isa("AVX2")
-def test_avx2_accumulate_assume_associative(compiler):
+def test_avx2_assoc_reduce_add_ps(compiler):
     @proc
     def accumulate_buffer(x: f32[8], result: [f32][1]):
         tmp_result: f32
@@ -555,7 +555,7 @@ def test_avx2_accumulate_assume_associative(compiler):
     accumulate_buffer = set_memory(accumulate_buffer, "xReg", AVX2)
     accumulate_buffer = replace(accumulate_buffer, "for i0 in _:_", mm256_loadu_ps)
     accumulate_buffer = replace(
-        accumulate_buffer, "for i in _:_", avx2_accumulate_assume_associative
+        accumulate_buffer, "for i in _:_", avx2_assoc_reduce_add_ps
     )
     accumulate_buffer = simplify(accumulate_buffer)
 

@@ -257,7 +257,7 @@ def avx2_select_ps(
     }}
     """
 )
-def avx2_accumulate_assume_associative(x: [f32][8] @ AVX2, result: f32):
+def avx2_assoc_reduce_add_ps(x: [f32][8] @ AVX2, result: f32):
     # WARNING: This instruction assumes float addition associativity
     assert stride(x, 0) == 1
     for i in seq(0, 8):
