@@ -583,6 +583,18 @@ def test_avx2_assoc_reduce_add_ps(compiler):
 
     run_and_check(x, result)
     run_and_check(
-        np.array(np.random.rand(8), dtype=np.float32),
-        np.array([np.random.rand()], dtype=np.float32),
+        np.array(
+            [
+                0.47299325,
+                0.2869141,
+                0.23663807,
+                0.12012372,
+                0.93651915,
+                0.06829825,
+                0.22391547,
+                0.20829211,
+            ],
+            dtype=np.float32,
+        ),
+        np.array([0.11827405109974021], dtype=np.float32),
     )
