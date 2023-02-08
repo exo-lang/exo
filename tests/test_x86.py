@@ -428,3 +428,173 @@ def test_avx512_sgemm_full(compiler, spec_kernel):
     _sgemm_test_cases(
         fn, M=range(10, 600, 200), N=range(20, 400, 120), K=range(1, 512, 160)
     )
+
+
+@pytest.fixture
+def simple_buffer_select():
+    @proc
+    def simple_buffer_select(
+        N: size,
+        out: f32[N] @ DRAM,
+        x: f32[N] @ DRAM,
+        v: f32[N] @ DRAM,
+        y: f32[N] @ DRAM,
+        z: f32[N] @ DRAM,
+    ):
+        assert N >= 1
+
+        for i in seq(0, N):
+            out[i] = select(x[i], v[i], y[i], z[i])
+
+    VEC_W = 256 // 32
+    outer_it = "io"
+    inner_it = "ii"
+    loop_fragment = lambda it, idx=0: f"for {it} in _:_ #{idx}"
+
+    def sched_simple_buffer_select(proc):
+        proc = divide_loop(
+            proc, loop_fragment("i"), VEC_W, (outer_it, inner_it), tail="cut"
+        )
+        stage = lambda proc, buffer: set_memory(
+            stage_mem(
+                proc,
+                loop_fragment(inner_it),
+                f"{buffer}[{VEC_W} * {outer_it}:{VEC_W} * {outer_it} + {VEC_W}]",
+                f"{buffer}Reg",
+            ),
+            f"{buffer}Reg",
+            AVX2,
+        )
+        proc = stage(proc, "x")
+        proc = stage(proc, "v")
+        proc = stage(proc, "y")
+        proc = stage(proc, "z")
+        proc = stage(proc, "out")
+        proc = replace(proc, loop_fragment("i0"), mm256_loadu_ps)
+        proc = replace(proc, loop_fragment("i0"), mm256_loadu_ps)
+        proc = replace(proc, loop_fragment("i0"), mm256_loadu_ps)
+        proc = replace(proc, loop_fragment("i0"), mm256_loadu_ps)
+        proc = replace(proc, loop_fragment(inner_it), avx2_select_ps)
+        proc = replace(proc, loop_fragment("i0"), mm256_storeu_ps)
+        proc = bind_expr(proc, "x[ii + N / 8 * 8]", "x_temp")
+        proc = bind_expr(proc, "v[ii + N / 8 * 8]", "v_temp")
+        proc = bind_expr(proc, "y[ii + N / 8 * 8]", "y_temp")
+        proc = bind_expr(proc, "z[ii + N / 8 * 8]", "z_temp")
+        proc = simplify(proc)
+
+        return proc
+
+    return sched_simple_buffer_select(simple_buffer_select)
+
+
+@pytest.mark.isa("AVX2")
+def test_avx2_select_ps(compiler, simple_buffer_select):
+    fn = compiler.compile(
+        simple_buffer_select, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+    )
+
+    def run_and_check(N, x, v, y, z):
+        expected = np.zeros(N, dtype=np.float32)
+        for i in range(N):
+            if x[i] < v[i]:
+                expected[i] = y[i]
+            else:
+                expected[i] = z[i]
+
+        out = np.array(np.random.rand(N), dtype=np.float32)
+        x_copy = x.copy()
+        v_copy = v.copy()
+        y_copy = y.copy()
+        z_copy = z.copy()
+
+        fn(None, N, out, x, v, y, z)
+
+        np.testing.assert_almost_equal(out, expected)
+        np.testing.assert_almost_equal(x, x_copy)
+        np.testing.assert_almost_equal(v, v_copy)
+        np.testing.assert_almost_equal(y, y_copy)
+        np.testing.assert_almost_equal(z, z_copy)
+
+    N = 50
+    x = np.array([float(i) for i in range(N)], dtype=np.float32)
+    v = np.array(
+        [1, 0, 3, 4, 1, 1, 9, 0]
+        + [100] * 8
+        + [0] * 8
+        + [float(i) for i in range(24, N)],
+        dtype=np.float32,
+    )
+    y = np.array([float(i) for i in range(200, 200 + N)], dtype=np.float32)
+    z = np.array([float(i) for i in range(300, 300 + N)], dtype=np.float32)
+
+    # Correctness testing
+    run_and_check(N, x, v, y, z)
+
+    # Precision testing
+    N = 111
+    run_and_check(
+        N,
+        np.array(np.random.rand(N), dtype=np.float32),
+        np.array(np.random.rand(N), dtype=np.float32),
+        np.array(np.random.rand(N), dtype=np.float32),
+        np.array(np.random.rand(N), dtype=np.float32),
+    )
+
+
+@pytest.mark.isa("AVX2")
+def test_avx2_assoc_reduce_add_ps(compiler):
+    @proc
+    def accumulate_buffer(x: f32[8], result: [f32][1]):
+        tmp_result: f32
+        tmp_result = result[0]
+        for i in seq(0, 8):
+            tmp_result += x[i]
+        result[0] = tmp_result
+
+    accumulate_buffer = stage_mem(accumulate_buffer, "for i in _:_", "x[0:8]", "xReg")
+    accumulate_buffer = set_memory(accumulate_buffer, "xReg", AVX2)
+    accumulate_buffer = replace(accumulate_buffer, "for i0 in _:_", mm256_loadu_ps)
+    accumulate_buffer = replace(
+        accumulate_buffer, "for i in _:_", avx2_assoc_reduce_add_ps
+    )
+    accumulate_buffer = simplify(accumulate_buffer)
+
+    fn = compiler.compile(
+        accumulate_buffer, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+    )
+
+    def run_and_check(x, result):
+        expected = result.copy()
+        for i in range(8):
+            expected[0] += x[i]
+
+        x_copy = x.copy()
+
+        fn(None, x, result)
+
+        # lower precision checking because we are assuming float addition is associative in the instruction
+        np.testing.assert_almost_equal(result, expected, decimal=4)
+        np.testing.assert_almost_equal(x, x_copy)
+
+    result = np.array([0.0], dtype=np.float32)
+    x = np.array([1, 2, 3, 1, 2, 3, 7, 2], dtype=np.float32)
+
+    fn(None, x, result)
+
+    run_and_check(x, result)
+    run_and_check(
+        np.array(
+            [
+                0.47299325,
+                0.2869141,
+                0.23663807,
+                0.12012372,
+                0.93651915,
+                0.06829825,
+                0.22391547,
+                0.20829211,
+            ],
+            dtype=np.float32,
+        ),
+        np.array([0.11827405109974021], dtype=np.float32),
+    )

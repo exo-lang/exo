@@ -216,3 +216,49 @@ def avx2_fmadd_memu_ps(dst: [f32][8] @ DRAM, val: [f32][8] @ AVX2):
 
     for i in seq(0, 8):
         dst[i] += val[i]
+
+
+@instr(
+    """
+    {{
+        __m256 cmp = _mm256_cmp_ps ({x_data}, {v_data}, _CMP_LT_OQ);
+        {out_data} = _mm256_blendv_ps ({z_data}, {y_data}, cmp);
+    }}
+    """
+)
+def avx2_select_ps(
+    out: [f32][8] @ AVX2,
+    x: [f32][8] @ AVX2,
+    v: [f32][8] @ AVX2,
+    y: [f32][8] @ AVX2,
+    z: [f32][8] @ AVX2,
+):
+    # WARNING: This instruction above use a lower precision
+    #    float32 (C float) than the implementation of
+    #    the builtin which uses float64 (C double)
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(v, 0) == 1
+    assert stride(y, 0) == 1
+    assert stride(z, 0) == 1
+
+    for i in seq(0, 8):
+        out[i] = select(x[i], v[i], y[i], z[i])
+
+
+@instr(
+    """
+    {{
+        __m256 tmp = _mm256_hadd_ps({x_data}, {x_data});
+        tmp = _mm256_hadd_ps(tmp, tmp);
+        __m256 upper_bits = _mm256_castps128_ps256(_mm256_extractf128_ps(tmp, 1));
+        tmp = _mm256_add_ps(tmp, upper_bits);
+        *{result} += _mm256_cvtss_f32(tmp);
+    }}
+    """
+)
+def avx2_assoc_reduce_add_ps(x: [f32][8] @ AVX2, result: f32):
+    # WARNING: This instruction assumes float addition associativity
+    assert stride(x, 0) == 1
+    for i in seq(0, 8):
+        result += x[i]
