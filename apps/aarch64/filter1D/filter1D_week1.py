@@ -11,7 +11,6 @@ neon_instructions = [
     neon_vst_4xf32,
 ]
 
-
 @proc
 def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
     for o in seq(0, ow):
@@ -40,8 +39,8 @@ filter1D = set_memory(filter1D, "sum", Neon4f)
 filter1D = set_memory(filter1D, "xX4", Neon4f)
 
 # replace
-filter1D = replace_all_mockup(filter1D, neon_instructions)
-print(filter1D)
+filter1D = replace_all(filter1D, neon_instructions)
 
+print(filter1D)
 
 __all__ = ["filter1D"]
