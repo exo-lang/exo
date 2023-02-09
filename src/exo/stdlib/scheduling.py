@@ -199,40 +199,8 @@ class MemoryError(Exception):
 
 
 @sched_op([BlockCursorA, ProcA, BoolA])
-def mem_aware_replace(proc, block_cursor, subproc, quiet=False):
-    def has_alloc(body):
-        if not isinstance(body, _PC.BlockCursor):
-            return
-        check = False
-        for stmt in body:
-            stype = type(stmt)
-            if stype is _PC.AllocCursor:
-                return True
-            elif stype is _PC.IfCursor:
-                check = check or has_alloc(stmt.body())
-                check = check or has_alloc(stmt.orelse())
-            elif stype is _PC.ForSeqCursor:
-                check = check or has_alloc(stmt.body())
-        return check
-
-    if has_alloc(block_cursor):
-        raise MemoryError(
-            "reasoning about memories allocated within a block is not supported"
-        )
-
-    if has_alloc(subproc):
-        raise MemoryError(
-            "reasoning about memories allocated within a procedure is not supported"
-        )
-
+def call_site_mem_aware_replace(proc, block_cursor, subproc, quiet=False):
     proc = replace(proc, block_cursor, subproc, quiet=quiet)
-
-    # TODO: specifically pass a cursor to the new call statement with forwarding
-    # this check might throw an error for an unrelated reason
-    # if not check_call_mem_types(forwarded_cursor):
-    #     raise MemoryError(
-    #         "replace failed due to memory type mismatch between block and subproc"
-    #     )
 
     def check_all_calls(body_cursor):
         check_passed = True
@@ -241,7 +209,8 @@ def mem_aware_replace(proc, block_cursor, subproc, quiet=False):
                 check_passed = check_passed and check_call_mem_types(cursor)
             elif isinstance(cursor, _PC.IfCursor):
                 check_passed = check_passed and check_all_calls(cursor.body())
-                check_passed = check_passed and check_all_calls(cursor.orlese())
+                if type(cursor.orelse()) is not _PC.InvalidCursor:
+                    check_passed = check_passed and check_all_calls(cursor.orelse())
             elif isinstance(cursor, _PC.ForSeqCursor):
                 check_passed = check_passed and check_all_calls(cursor.body())
         return check_passed
@@ -254,17 +223,23 @@ def mem_aware_replace(proc, block_cursor, subproc, quiet=False):
     return proc
 
 
-def replace_all(proc, subproc):
+def replace_all(proc, subprocs, mem_aware=True):
     """
     DEPRECATED ?
     Is there a better way to write this out of primitives?
     Does this simply require that we have better introspection facilities?
     """
-    assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
-    body = subproc.body()
-    assert len(body) == 1, (
-        "replace_all only supports single statement " "subprocedure bodies right now"
-    )
+
+    if not isinstance(subprocs, list):
+        subprocs = [subprocs]
+
+    for subproc in subprocs:
+        assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
+        body = subproc.body()
+        assert len(body) == 1, (
+            "replace_all only supports single statement "
+            "subprocedure bodies right now"
+        )
 
     patterns = {
         _PC.AssignCursor: "_ = _",
@@ -278,17 +253,26 @@ def replace_all(proc, subproc):
         _PC.WindowStmtCursor: "TODO",
     }
 
-    pattern = patterns[type(body[0])]
-    i = 0
-    while True:
-        try:
-            proc = mem_aware_replace(proc, f"{pattern} #{i}", subproc, quiet=True)
-        except (TypeError, SchedulingError) as e:
-            if "failed to find matches" in str(e):
-                return proc
-            raise
-        except (_UnificationError, MemoryError):
-            i += 1
+    for subproc in subprocs:
+        body = subproc.body()
+        pattern = patterns[type(body[0])]
+        i = 0
+        while True:
+            try:
+                if mem_aware:
+                    proc = call_site_mem_aware_replace(
+                        proc, f"{pattern} #{i}", subproc, quiet=True
+                    )
+                else:
+                    proc = replace(proc, f"{pattern} #{i}", subproc, quiet=True)
+            except (TypeError, SchedulingError) as e:
+                if "failed to find matches" in str(e):
+                    break
+                raise
+            except (_UnificationError, MemoryError):
+                i += 1
+
+    return proc
 
 
 def replace_all_arch(proc, arch_instrs):
