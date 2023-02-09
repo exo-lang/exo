@@ -8,6 +8,12 @@ from ..libs.memories import AVX2, AVX512
 #   AVX2 intrinsics
 # --------------------------------------------------------------------------- #
 
+@instr("{dst_data} = _mm256_setzero_ps()")
+def mm256_setzero(dst: [f32][8] @ AVX2):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = 0.0
 
 @instr("{dst_data} = _mm256_loadu_ps(&{src_data});")
 def mm256_loadu_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ DRAM):
@@ -51,6 +57,15 @@ def mm256_broadcast_ss(
     for i in seq(0, 8):
         out[i] = val[0]
 
+@instr("{dst_data} = _mm512_fmadd_ps({dst_data), {lhs_data}, {rhs_data);")
+def mm256_fmadd_ps_broadcast(
+    dst: [f32][8] @ AVX2, lhs: [f32][8] @ AVX2, rhs: [f32][1] @ DRAM
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] += lhs[i] * rhs[0]
 
 @instr("{out} = _mm256_mul_ps({x}, {y});")
 def mm256_mul_ps(out: f32[8] @ AVX2, x: f32[8] @ AVX2, y: f32[8] @ AVX2):
