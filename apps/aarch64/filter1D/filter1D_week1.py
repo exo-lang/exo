@@ -11,6 +11,7 @@ neon_instructions = [
     neon_vst_4xf32,
 ]
 
+
 @proc
 def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
     for o in seq(0, ow):
