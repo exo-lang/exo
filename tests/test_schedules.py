@@ -1878,3 +1878,18 @@ def test_replace_all_unambiguous(golden):
     bar = replace_all(bar, mm256_loadu_ps)
     bar = replace_all(bar, mm256_storeu_ps)
     assert str(bar) == golden
+
+
+def test_replace_all_arch(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
+    bar = replace_all_arch(bar, arch)
+    print(bar)
+    assert str(bar) == golden
