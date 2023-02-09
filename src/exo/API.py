@@ -25,7 +25,6 @@ from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_pro
 from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
-from .mem_analysis import Check_CallsMemoryTypes
 
 from . import API_cursors
 from . import internal_cursors
@@ -319,24 +318,6 @@ class Procedure(ProcedureBase):
         return [
             LoopIR_to_QAST(node._node()).result() for block in match for node in block
         ]
-
-    def check_call_mem_types(self, call_stmt_cursors=None):
-        if call_stmt_cursors is not None:
-            if not isinstance(call_stmt_cursors, list):
-                call_stmt_cursors = [call_stmt_cursors]
-
-            if not all(
-                isinstance(stmt, API_cursors.CallCursor) for stmt in call_stmt_cursors
-            ):
-                raise TypeError(
-                    "expected CallCursor or list of CallCursor as an arguments"
-                )
-
-            call_stmt_cursors = [stmt._impl._node() for stmt in call_stmt_cursors]
-
-        check, _ = Check_CallsMemoryTypes().check(self._loopir_proc, call_stmt_cursors)
-
-        return check
 
     # ---------------------------------------------- #
     #     execution / interpretation operations
