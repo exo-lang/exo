@@ -11,6 +11,11 @@ from ..API import (
 
 from ..API_scheduling import (
     is_atomic_scheduling_op,
+    # argument processing
+    sched_op,
+    BlockCursorA,
+    ProcA,
+    BoolA,
     FormattedExprStr,
     # basic operations
     simplify,
@@ -181,6 +186,53 @@ from ..API import Procedure as _Procedure
 from ..LoopIR_unification import UnificationError as _UnificationError
 
 
+class MemoryError(Exception):
+    def __init__(self, msg):
+        self._err_msg = str(msg)
+
+    def __str__(self):
+        return self._err_msg
+
+
+@sched_op([BlockCursorA, ProcA, BoolA])
+def mem_aware_replace(proc, block_cursor, subproc, quiet=False):
+    def has_alloc(body):
+        if not isinstance(body, _PC.BlockCursor):
+            return
+        check = False
+        for stmt in body:
+            stype = type(stmt)
+            if stype is _PC.AllocCursor:
+                return True
+            elif stype is _PC.IfCursor:
+                check = check or has_alloc(stmt.body())
+                check = check or has_alloc(stmt.orelse())
+            elif stype is _PC.ForSeqCursor:
+                check = check or has_alloc(stmt.body())
+        return check
+
+    if has_alloc(block_cursor):
+        raise MemoryError(
+            "reasoning about memories allocated within a block is not supported"
+        )
+
+    if has_alloc(subproc):
+        raise MemoryError(
+            "reasoning about memories allocated within a procedure is not supported"
+        )
+
+    proc = replace(proc, block_cursor, subproc, quiet=quiet)
+
+    # TODO: specifically pass a cursor to the new call statement with forwarding
+    # this check might throw an error for an unrelated reason
+    if not proc.check_call_mem_types():
+        raise MemoryError(
+            "replace failed due to memory type mismatch between block and subproc"
+        )
+
+    return proc
+
+
 def replace_all(proc, subproc):
     """
     DEPRECATED ?
@@ -209,12 +261,12 @@ def replace_all(proc, subproc):
     i = 0
     while True:
         try:
-            proc = replace(proc, f"{pattern} #{i}", subproc, quiet=True)
+            proc = mem_aware_replace(proc, f"{pattern} #{i}", subproc, quiet=True)
         except (TypeError, SchedulingError) as e:
             if "failed to find matches" in str(e):
                 return proc
             raise
-        except _UnificationError:
+        except (_UnificationError, MemoryError):
             i += 1
 
 
