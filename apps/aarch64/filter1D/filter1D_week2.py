@@ -5,6 +5,7 @@ from exo.platforms.neon import *
 from exo.platforms.x86 import *
 from exo.stdlib.scheduling import *
 
+
 class Neon:
     mem = Neon4f
     vec_width = 4
@@ -14,6 +15,7 @@ class Neon:
         neon_vld_4xf32,
         neon_vst_4xf32,
     ]
+
 
 class AVX2:
     mem = AVX2
@@ -33,20 +35,33 @@ def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
         for k in seq(0, kw):
             y[o] += x[o + k] * w[k]
 
+
 def generate_filter1D(filter1D, arch):
     # divide
-    filter1D = divide_loop(filter1D, "o", arch.vec_width, ["outXo", "outXi"], tail="cut_and_guard")
+    filter1D = divide_loop(
+        filter1D, "o", arch.vec_width, ["outXo", "outXi"], tail="cut_and_guard"
+    )
 
     # stage sum
     filter1D = simplify(
-        stage_mem(filter1D, "for outXi in _:_", f"y[{arch.vec_width}*outXo:{arch.vec_width}*outXo+{arch.vec_width}]", "sum")
+        stage_mem(
+            filter1D,
+            "for outXi in _:_",
+            f"y[{arch.vec_width}*outXo:{arch.vec_width}*outXo+{arch.vec_width}]",
+            "sum",
+        )
     )
     filter1D = fission(filter1D, filter1D.find("sum[_] = 0.0").after())
     filter1D = reorder_loops(filter1D, "outXi k")
 
     # stage x
     filter1D = simplify(
-        stage_mem(filter1D, "for outXi in _:_ #1", f"x[k+{arch.vec_width} * outXo: k+{arch.vec_width}*outXo + {arch.vec_width}]", "xX4")
+        stage_mem(
+            filter1D,
+            "for outXi in _:_ #1",
+            f"x[k+{arch.vec_width} * outXo: k+{arch.vec_width}*outXo + {arch.vec_width}]",
+            "xX4",
+        )
     )
 
     # set memories & precision
@@ -56,6 +71,7 @@ def generate_filter1D(filter1D, arch):
     # replace
     filter1D = replace_all_mockup(filter1D, arch.instructions)
     return filter1D
+
 
 new_filter1D = generate_filter1D(filter1D, Neon)
 print(new_filter1D)
