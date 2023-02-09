@@ -1826,8 +1826,8 @@ def test_mem_aware_replace(golden):
         for i in seq(0, 8):
             src[i] = dst[i]
 
-    bar = mem_aware_replace(bar, "for i in _:_", mm256_loadu_ps)
-    bar = mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+    bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_loadu_ps)
+    bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
     assert str(bar) == golden
 
 
@@ -1841,7 +1841,7 @@ def test_mem_aware_replace_fail():
             src[i] = dst[i]
 
     with pytest.raises(MemoryError, match="failed due to memory type mismatch"):
-        bar = mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+        bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
 
 
 def test_mem_aware_replace_fail1():
@@ -1863,7 +1863,7 @@ def test_mem_aware_replace_fail1():
             dst[i] = src[i]
 
     with pytest.raises(MemoryError, match="reasoning about memories allocated"):
-        bar = mem_aware_replace(bar, bar.find("x: _").expand(1), dummy_load)
+        bar = call_site_mem_aware_replace(bar, bar.find("x: _").expand(1), dummy_load)
 
 
 def test_replace_all_unambiguous(golden):
@@ -1890,6 +1890,6 @@ def test_replace_all_arch(golden):
             src[i] = dst[i]
 
     arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
-    bar = replace_all_arch(bar, arch)
+    bar = replace_all(bar, arch)
     print(bar)
     assert str(bar) == golden

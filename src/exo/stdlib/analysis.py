@@ -4,79 +4,49 @@ from ..API_cursors import public_cursors as _PC
 from ..API import Procedure, SchedulingError
 
 
-class SymProperties:
+def get_observed_stmts(stmt_cursor):
     """
-    An object that holds information about the properties of a `Sym`
-    """
-
-    def __init__(self, mem=None):
-        self.mem = mem
-
-    def get_mem(self):
-        """
-        The memory type of the `Sym` or `None`
-        if the symbol is not a buffer.
-
-        Returns:
-            Memory | None: memory type of the symbol
-        """
-        return self.mem
-
-    def __repr__(self) -> str:
-        return f"{{mem: {self.mem}}}"
-
-
-def build_env(stmt_cursor):
-    """
-    A function that build the environment observed by a statement
+    Generator of observed statement by this statement cursor
 
     Args:
-        stmt_cursor (StmtCursor): a cursor to the statement to build the environment
+        stmt_cursor (StmtCursor): a statement cursor
 
     Raises:
-        TypeError: if `stmt_cursor` is not of type `StmtCursor`
+        TypeError: if stmt_cursor is not of the correct type
 
-    Returns:
-        dict: a mapping from `Sym` to `SymProperties` where the keys
-            are all the symbols in the environment observed by the statement
+    Yields:
+        StmtCursor: cursors to all the previous statements
+
+    def proc(...):
+        s1;
+        s2;
+        if ... : (s3)
+            s4;
+            s5;
+        for ... : (s6) <- stmt_cursor.parent()
+            s7; <- stmt_cursor.prev()
+            s8; <- stmt_cursor
+            s9;
+
+        yields: s8, s7, s6, s3; s2; s1
     """
     if not isinstance(stmt_cursor, _PC.StmtCursor):
-        raise TypeError("cursor to build the environment around must be a StmtCursor")
+        raise TypeError("stmt_cursor must be an instance of StmtCursor")
 
-    env = {}
-    proc = stmt_cursor.proc()
-
-    # Add proc arguments to env
-    for arg in proc._loopir_proc.args:
-        if arg.type.is_numeric():
-            mem = arg.mem
-            mem = mem if mem is not None else DRAM
-            env[arg.name] = SymProperties(mem=mem)
-
-    def build_s(cursor):
+    cursor = stmt_cursor
+    while True:
         prev_cursor = cursor.prev()
 
         # This means cursor was the first statement in a body
         if type(prev_cursor) is _PC.InvalidCursor:
             prev_cursor = cursor.parent()
 
-        # This means cursor was the first statement in the proc
-        if type(prev_cursor) is _PC.InvalidCursor:
-            return
+            # This means cursor was the first statement in the proc
+            if type(prev_cursor) is _PC.InvalidCursor:
+                return
 
-        if type(prev_cursor) is _PC.AllocCursor:
-            mem = prev_cursor.mem()
-            mem = mem if mem is not None else DRAM
-            env[prev_cursor.name()] = SymProperties(mem=mem)
-
-        if type(prev_cursor) is _PC.ForSeqCursor:
-            env[prev_cursor.name()] = SymProperties(mem=None)
-
-        return build_s(prev_cursor)
-
-    build_s(stmt_cursor)
-
-    return env
+        cursor = prev_cursor
+        yield cursor
 
 
 def check_call_mem_types(call_cursor):
@@ -96,18 +66,40 @@ def check_call_mem_types(call_cursor):
     if not isinstance(call_cursor, _PC.CallCursor):
         raise TypeError("call_cursor must be a CallCursor")
 
-    env = build_env(call_cursor)
+    ###################################################################
+    # build an env of symbols this call statement observes.
+    # e.g. {x: DRAM, y: Neon4f}
+    ###################################################################
+    env = {}
+    proc = call_cursor.proc()
 
-    def get_e_mem(e_cursor):
-        if isinstance(e_cursor, (_PC.ReadCursor, _PC.WindowExprCursor)):
-            return env[e_cursor.name()].get_mem()
-        else:
-            assert False
+    # Add proc parameters to env
+    proc_parameters = proc._loopir_proc.args
+    for arg in proc_parameters:
+        if arg.type.is_numeric():
+            mem = arg.mem
+            mem = mem if mem is not None else DRAM
+            env[arg.name] = mem
 
-    for ca, sa in zip(call_cursor.args(), call_cursor.subproc()._loopir_proc.args):
+    # Search through observed statement to find allocations
+    for stmt_cursor in get_observed_stmts(call_cursor):
+        # Found a buffer allocation, record memory type
+        if type(stmt_cursor) is _PC.AllocCursor:
+            mem = stmt_cursor.mem()
+            mem = mem if mem is not None else DRAM
+            env[stmt_cursor.name()] = mem
+
+    ###################################################################
+    # Check memory consistency at call site
+    ###################################################################
+    call_args = call_cursor.args()
+    callee_parameters = call_cursor.subproc()._loopir_proc.args
+    for ca, sa in zip(call_args, callee_parameters):
         if sa.type.is_numeric():
             smem = sa.mem if sa.mem else DRAM
-            cmem = get_e_mem(ca)
+            cmem = env[ca.name()]
+
+            # Check if the argument memory type is a subclass of the callee's parameter
             if not issubclass(cmem, smem):
                 return False
 
