@@ -326,14 +326,3 @@ def lift_if(proc, cursor, n_lifts=1):
                 proc=proc,
             ) from e
     return proc
-
-
-def replace_all_mockup(proc, l):
-    # Get all instructions in global scope
-    # for each statements, we rum replace on all instructions
-    # run memoryanalysis on every succussful replace
-    proc = replace_all(proc, l[0])
-    proc = replace_all(proc, l[1])
-    proc = replace(proc, "for i0 in _:_", l[2])
-    proc = replace(proc, "for i0 in _:_", l[3])
-    return proc

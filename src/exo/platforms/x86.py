@@ -9,7 +9,7 @@ from ..libs.memories import AVX2, AVX512
 # --------------------------------------------------------------------------- #
 
 
-@instr("{dst_data} = _mm256_setzero_ps()")
+@instr("{dst_data} = _mm256_setzero_ps();")
 def mm256_setzero(dst: [f32][8] @ AVX2):
     assert stride(dst, 0) == 1
 
@@ -60,7 +60,7 @@ def mm256_broadcast_ss(
         out[i] = val[0]
 
 
-@instr("{dst_data} = _mm512_fmadd_ps({dst_data), {lhs_data}, {rhs_data);")
+@instr("{dst_data} = _mm512_fmadd_ps({dst_data}, {lhs_data}, {rhs_data});")
 def mm256_fmadd_ps_broadcast(
     dst: [f32][8] @ AVX2, lhs: [f32][8] @ AVX2, rhs: [f32][1] @ DRAM
 ):

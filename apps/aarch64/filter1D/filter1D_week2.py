@@ -35,45 +35,31 @@ def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
         for k in seq(0, kw):
             y[o] += x[o + k] * w[k]
 
+arch = AVX2
 
-def generate_filter1D(filter1D, arch):
-    # divide
-    filter1D = divide_loop(
-        filter1D, "o", arch.vec_width, ["outXo", "outXi"], tail="cut_and_guard"
-    )
+VW = arch.vec_width
 
-    # stage sum
-    filter1D = simplify(
-        stage_mem(
-            filter1D,
-            "for outXi in _:_",
-            f"y[{arch.vec_width}*outXo:{arch.vec_width}*outXo+{arch.vec_width}]",
-            "sum",
-        )
-    )
-    filter1D = fission(filter1D, filter1D.find("sum[_] = 0.0").after())
-    filter1D = reorder_loops(filter1D, "outXi k")
+# divide
+filter1D = divide_loop(filter1D, "o", VW, ["outXo", "outXi"], tail="cut_and_guard")
 
-    # stage x
-    filter1D = simplify(
-        stage_mem(
-            filter1D,
-            "for outXi in _:_ #1",
-            f"x[k+{arch.vec_width} * outXo: k+{arch.vec_width}*outXo + {arch.vec_width}]",
-            "xX4",
-        )
-    )
+# stage sum
+filter1D = simplify(
+    stage_mem(filter1D, "for outXi in _:_", f"y[{VW}*outXo:{VW}*outXo+{VW}]", "sum")
+)
+filter1D = fission(filter1D, filter1D.find("sum[_] = 0.0").after())
+filter1D = reorder_loops(filter1D, "outXi k")
 
-    # set memories & precision
-    filter1D = set_memory(filter1D, "sum", arch.mem)
-    filter1D = set_memory(filter1D, "xX4", arch.mem)
+# stage x
+filter1D = simplify(
+    stage_mem(filter1D, "for outXi in _:_ #1", f"x[k+{VW} * outXo: k+{VW}*outXo + {VW}]", f"xX{VW}")
+)
 
-    # replace
-    filter1D = replace_all_mockup(filter1D, arch.instructions)
-    return filter1D
+# set memories & precision
+filter1D = set_memory(filter1D, "sum", arch.mem)
+filter1D = set_memory(filter1D, f"xX{VW}", arch.mem)
 
-
-new_filter1D = generate_filter1D(filter1D, Neon)
-print(new_filter1D)
+# replace
+filter1D = replace_all(filter1D, arch.instructions)
+print(filter1D)
 
 __all__ = ["filter1D"]

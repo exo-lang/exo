@@ -20,10 +20,6 @@ def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
             y[o] += x[o + k] * w[k]
 
 
-# filter1D = vectorize(filter1D, 'o', 4, Neon4f, neon_instructions) #Goal interface
-# sdot?
-# filter1D = vectorize(filter1D, 'k', 4, Neon4f, neon_instructions) #Goal interface
-
 # divide
 filter1D = divide_loop(filter1D, "o", 4, ["outXo", "outXi"], tail="cut_and_guard")
 
