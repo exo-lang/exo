@@ -291,6 +291,12 @@ def replace_all(proc, subproc):
             i += 1
 
 
+def replace_all_arch(proc, arch_instrs):
+    for instr in arch_instrs:
+        proc = replace_all(proc, instr)
+    return proc
+
+
 def lift_if(proc, cursor, n_lifts=1):
     """
     Move the indicated If-statement upwards through other control-flow
