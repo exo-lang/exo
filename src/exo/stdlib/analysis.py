@@ -74,8 +74,8 @@ def check_call_mem_types(call_cursor):
     caller = call_cursor.proc()
 
     # Add proc parameters to env
-    caller_parameters = proc._loopir_proc.args
-    for arg in proc_parameters:
+    caller_parameters = caller._loopir_proc.args
+    for arg in caller_parameters:
         if arg.type.is_numeric():
             mem = arg.mem
             mem = mem if mem is not None else DRAM
