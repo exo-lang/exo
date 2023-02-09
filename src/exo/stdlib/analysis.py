@@ -34,10 +34,10 @@ def build_env(stmt_cursor):
         stmt_cursor (StmtCursor): a cursor to the statement to build the environment
 
     Raises:
-        SchedulingError: if `stmt_cursor` is not of type `StmtCursor`
+        TypeError: if `stmt_cursor` is not of type `StmtCursor`
 
     Returns:
-        dict: a mapping from `Sym` to `VarProperties` where the keys
+        dict: a mapping from `Sym` to `SymProperties` where the keys
             are all the symbols in the environment observed by the statement
     """
     if not isinstance(stmt_cursor, _PC.StmtCursor):
@@ -80,7 +80,19 @@ def build_env(stmt_cursor):
 
 
 def check_call_mem_types(call_cursor):
+    """
+    check memory consistency between the called procedure
+    and the arguments passed at the call site.
 
+    Args:
+        call_cursor (CallCursor): call to check memory consistency at
+
+    Raises:
+        TypeError: if the cursor provided isn't a `CallCursor`
+
+    Returns:
+        bool: whether memory consistency holds at the call site
+    """
     if not isinstance(call_cursor, _PC.CallCursor):
         raise TypeError("call_cursor must be a CallCursor")
 
