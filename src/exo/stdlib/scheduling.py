@@ -83,6 +83,10 @@ from ..API_scheduling import (
     autolift_alloc,
 )
 
+from .analysis import (
+    check_call_mem_types,
+)
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Higher-order Scheduling operations
@@ -225,7 +229,24 @@ def mem_aware_replace(proc, block_cursor, subproc, quiet=False):
 
     # TODO: specifically pass a cursor to the new call statement with forwarding
     # this check might throw an error for an unrelated reason
-    if not proc.check_call_mem_types():
+    # if not check_call_mem_types(forwarded_cursor):
+    #     raise MemoryError(
+    #         "replace failed due to memory type mismatch between block and subproc"
+    #     )
+
+    def check_all_calls(body_cursor):
+        check_passed = True
+        for cursor in body_cursor:
+            if isinstance(cursor, _PC.CallCursor):
+                check_passed = check_passed and check_call_mem_types(cursor)
+            elif isinstance(cursor, _PC.IfCursor):
+                check_passed = check_passed and check_all_calls(cursor.body())
+                check_passed = check_passed and check_all_calls(cursor.orlese())
+            elif isinstance(cursor, _PC.ForSeqCursor):
+                check_passed = check_passed and check_all_calls(cursor.body())
+        return check_passed
+
+    if not check_all_calls(proc.body()):
         raise MemoryError(
             "replace failed due to memory type mismatch between block and subproc"
         )
