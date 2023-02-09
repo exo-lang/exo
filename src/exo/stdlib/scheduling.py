@@ -275,23 +275,6 @@ def replace_all(proc, subprocs, mem_aware=True):
     return proc
 
 
-def replace_all_arch(proc, arch_instrs):
-    """
-    try to replace every procedure in `arch_instrs`
-    with every statement in the `proc`
-
-    Args:
-        proc (Procedure): proc to replace statements in
-        arch_instrs (Iterable): an iterable containing Procedures
-
-    Returns:
-        Procedure: the result after procedure after attempting all the replacements
-    """
-    for instr in arch_instrs:
-        proc = replace_all(proc, instr)
-    return proc
-
-
 def lift_if(proc, cursor, n_lifts=1):
     """
     Move the indicated If-statement upwards through other control-flow

@@ -28,7 +28,7 @@ def get_observed_stmts(stmt_cursor):
             s8; <- stmt_cursor
             s9;
 
-        yields: s8, s7, s6, s3; s2; s1
+        yields: s7, s6, s3; s2; s1
     """
     if not isinstance(stmt_cursor, _PC.StmtCursor):
         raise TypeError("stmt_cursor must be an instance of StmtCursor")
@@ -71,10 +71,10 @@ def check_call_mem_types(call_cursor):
     # e.g. {x: DRAM, y: Neon4f}
     ###################################################################
     env = {}
-    proc = call_cursor.proc()
+    caller = call_cursor.proc()
 
     # Add proc parameters to env
-    proc_parameters = proc._loopir_proc.args
+    caller_parameters = proc._loopir_proc.args
     for arg in proc_parameters:
         if arg.type.is_numeric():
             mem = arg.mem
