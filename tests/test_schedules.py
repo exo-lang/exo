@@ -1759,7 +1759,6 @@ def test_formatted_expr_errors_2():
         )  # should be error
 
 
-<<<<<<< HEAD
 def test_simplify_index_div(golden):
     @proc
     def bar(x: R[1000]):
@@ -1974,8 +1973,6 @@ def test_simplify_div_mod_staging(golden):
     assert str(bar) == golden
 
 
-=======
->>>>>>> ab511d1 (memory aware stdlib version of replace)
 def test_syrk_cut_loop(golden):
     @proc
     def SYRK(
