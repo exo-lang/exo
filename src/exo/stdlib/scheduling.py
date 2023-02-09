@@ -292,6 +292,17 @@ def replace_all(proc, subproc):
 
 
 def replace_all_arch(proc, arch_instrs):
+    """
+    try to replace every procedure in `arch_instrs`
+    with every statement in the `proc`
+
+    Args:
+        proc (Procedure): proc to replace statements in
+        arch_instrs (Iterable): an iterable containing Procedures
+
+    Returns:
+        Procedure: the result after procedure after attempting all the replacements
+    """
     for instr in arch_instrs:
         proc = replace_all(proc, instr)
     return proc
