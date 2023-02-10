@@ -11,6 +11,11 @@ from ..API import (
 
 from ..API_scheduling import (
     is_atomic_scheduling_op,
+    # argument processing
+    sched_op,
+    BlockCursorA,
+    ProcA,
+    BoolA,
     FormattedExprStr,
     # basic operations
     simplify,
@@ -76,6 +81,10 @@ from ..API_scheduling import (
     # to be replaced by stdlib compositions eventually
     autofission,
     autolift_alloc,
+)
+
+from .analysis import (
+    check_call_mem_types,
 )
 
 # --------------------------------------------------------------------------- #
@@ -181,17 +190,56 @@ from ..API import Procedure as _Procedure
 from ..LoopIR_unification import UnificationError as _UnificationError
 
 
-def replace_all(proc, subproc):
+class MemoryError(Exception):
+    def __init__(self, msg):
+        self._err_msg = str(msg)
+
+    def __str__(self):
+        return self._err_msg
+
+
+@sched_op([BlockCursorA, ProcA, BoolA])
+def call_site_mem_aware_replace(proc, block_cursor, subproc, quiet=False):
+    proc = replace(proc, block_cursor, subproc, quiet=quiet)
+
+    def check_all_calls(body_cursor):
+        check_passed = True
+        for cursor in body_cursor:
+            if isinstance(cursor, _PC.CallCursor):
+                check_passed = check_passed and check_call_mem_types(cursor)
+            elif isinstance(cursor, _PC.IfCursor):
+                check_passed = check_passed and check_all_calls(cursor.body())
+                if type(cursor.orelse()) is not _PC.InvalidCursor:
+                    check_passed = check_passed and check_all_calls(cursor.orelse())
+            elif isinstance(cursor, _PC.ForSeqCursor):
+                check_passed = check_passed and check_all_calls(cursor.body())
+        return check_passed
+
+    if not check_all_calls(proc.body()):
+        raise MemoryError(
+            "replace failed due to memory type mismatch between block and subproc"
+        )
+
+    return proc
+
+
+def replace_all(proc, subprocs, mem_aware=True):
     """
     DEPRECATED ?
     Is there a better way to write this out of primitives?
     Does this simply require that we have better introspection facilities?
     """
-    assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
-    body = subproc.body()
-    assert len(body) == 1, (
-        "replace_all only supports single statement " "subprocedure bodies right now"
-    )
+
+    if not isinstance(subprocs, list):
+        subprocs = [subprocs]
+
+    for subproc in subprocs:
+        assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
+        body = subproc.body()
+        assert len(body) == 1, (
+            "replace_all only supports single statement "
+            "subprocedure bodies right now"
+        )
 
     patterns = {
         _PC.AssignCursor: "_ = _",
@@ -205,17 +253,26 @@ def replace_all(proc, subproc):
         _PC.WindowStmtCursor: "TODO",
     }
 
-    pattern = patterns[type(body[0])]
-    i = 0
-    while True:
-        try:
-            proc = replace(proc, f"{pattern} #{i}", subproc, quiet=True)
-        except (TypeError, SchedulingError) as e:
-            if "failed to find matches" in str(e):
-                return proc
-            raise
-        except _UnificationError:
-            i += 1
+    for subproc in subprocs:
+        body = subproc.body()
+        pattern = patterns[type(body[0])]
+        i = 0
+        while True:
+            try:
+                if mem_aware:
+                    proc = call_site_mem_aware_replace(
+                        proc, f"{pattern} #{i}", subproc, quiet=True
+                    )
+                else:
+                    proc = replace(proc, f"{pattern} #{i}", subproc, quiet=True)
+            except (TypeError, SchedulingError) as e:
+                if "failed to find matches" in str(e):
+                    break
+                raise
+            except (_UnificationError, MemoryError):
+                i += 1
+
+    return proc
 
 
 def lift_if(proc, cursor, n_lifts=1):

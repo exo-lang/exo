@@ -1,0 +1,4 @@
+def bar(src: f32[8] @ DRAM):
+    dst: f32[8] @ AVX2
+    mm256_loadu_ps(dst[0:8], src[0:8])
+    mm256_storeu_ps(src[0:8], dst[0:8])

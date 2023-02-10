@@ -6,6 +6,7 @@ from exo import ParseFragmentError
 from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
+from exo.platforms.x86 import *
 
 
 def test_commute(golden):
@@ -2028,3 +2029,59 @@ def test_cut_loop3():
 
     with pytest.raises(TypeError, match="cut_loop: expected a positive integer"):
         foo = cut_loop(foo, "for i in _:_", -3)
+
+
+def test_mem_aware_replace(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_loadu_ps)
+    bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+    assert str(bar) == golden
+
+
+def test_mem_aware_replace_fail():
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    with pytest.raises(MemoryError, match="failed due to memory type mismatch"):
+        bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+
+
+def test_replace_all_unambiguous(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    bar = replace_all(bar, mm256_loadu_ps)
+    bar = replace_all(bar, mm256_storeu_ps)
+    assert str(bar) == golden
+
+
+def test_replace_all_arch(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
+    bar = replace_all(bar, arch)
+    print(bar)
+    assert str(bar) == golden
