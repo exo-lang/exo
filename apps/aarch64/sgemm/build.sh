@@ -13,7 +13,7 @@ if [ "$1" = "update" ]; then
 fi
 
 # set up cmake build
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
 
 # do the build
 cmake --build build --verbose
