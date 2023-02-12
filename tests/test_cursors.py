@@ -54,4 +54,14 @@ def test_asblock_cursor(proc_foo):
     assert jloop.as_block() == iloop.body()
 
 
+def test_builtin_cursor():
+    @proc
+    def bar():
+        x: f32
+        x = select(0.0, 1.0, 2.0, 3.0)
+
+    select_builtin = bar.find("select(_)")
+    assert select_builtin == bar.body()[1].rhs()
+
+
 # Need some more tests here...
