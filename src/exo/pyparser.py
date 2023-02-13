@@ -150,14 +150,14 @@ class Parser:
 
         self.push()
 
+        builtins = {"sin": sin, "relu": relu, "select": select}
         if is_fragment:
             self.AST = PAST
         else:
             self.AST = UAST
             # add builtins
-            self.locals["sin"] = sin
-            self.locals["relu"] = relu
-            self.locals["select"] = select
+            for key, val in builtins.items():
+                self.locals[key] = val
 
         if as_func:
             self._cached_result = self.parse_fdef(module_ast, instr=instr)
@@ -167,7 +167,9 @@ class Parser:
             is_expr = False
             if len(module_ast) == 1:
                 s = module_ast[0]
-                if isinstance(s, pyast.Expr) and not isinstance(s.value, pyast.Call):
+                if isinstance(s, pyast.Expr) and (
+                    not isinstance(s.value, pyast.Call) or s.value.func.id in builtins
+                ):
                     is_expr = True
 
             if is_expr:
@@ -1036,8 +1038,6 @@ class Parser:
 
             # handle built-in functions
             else:
-                assert not self.is_fragment, "PAST does not have BuiltIn atm"
-
                 f = self.eval_expr(e.func)
                 fname = e.func.id
 
@@ -1050,10 +1050,9 @@ class Parser:
                     self.err(
                         f, "cannot call a builtin function " "with keyword arguments"
                     )
-
                 args = [self.parse_expr(a) for a in e.args]
 
-                return UAST.BuiltIn(f, args, self.getsrcinfo(e))
+                return self.AST.BuiltIn(f, args, self.getsrcinfo(e))
 
         else:
             self.err(e, "unsupported form of expression")
