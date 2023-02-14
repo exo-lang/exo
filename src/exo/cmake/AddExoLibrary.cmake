@@ -1,24 +1,30 @@
-function(add_exo_library target)
+function(add_exo_library)
+  cmake_parse_arguments(PARSE_ARGV 0 ARG "" "NAME" "SOURCES;PYTHONPATH")
+
   set(source_files "")
 
-  foreach (src IN LISTS ARGN)
+  foreach (src IN LISTS ARG_SOURCES)
     cmake_path(ABSOLUTE_PATH src
                BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
                NORMALIZE)
     list(APPEND source_files "${src}")
   endforeach ()
 
-  set(intdir "${CMAKE_CURRENT_BINARY_DIR}/${target}.exo")
-  set(files "${intdir}/${target}.c" "${intdir}/${target}.h")
+  set(intdir "${CMAKE_CURRENT_BINARY_DIR}/${ARG_NAME}.exo")
+  set(files "${intdir}/${ARG_NAME}.c" "${intdir}/${ARG_NAME}.h")
+
+  list(TRANSFORM ARG_PYTHONPATH PREPEND "--modify;PYTHONPATH=path_list_append:")
 
   add_custom_command(
     OUTPUT ${files}
-    COMMAND Exo::compiler -o "${intdir}" --stem "${target}" ${source_files}
+    COMMAND ${CMAKE_COMMAND} -E env ${ARG_PYTHONPATH} --
+            $<TARGET_FILE:Exo::compiler> -o "${intdir}" --stem "${ARG_NAME}"
+            ${source_files}
     DEPENDS ${source_files}
     VERBATIM
   )
 
-  add_library(${target} ${files})
-  add_library(${PROJECT_NAME}::${target} ALIAS ${target})
-  target_include_directories(${target} PUBLIC "$<BUILD_INTERFACE:${intdir}>")
+  add_library(${ARG_NAME} ${files})
+  add_library(${PROJECT_NAME}::${ARG_NAME} ALIAS ${ARG_NAME})
+  target_include_directories(${ARG_NAME} PUBLIC "$<BUILD_INTERFACE:${intdir}>")
 endfunction()
