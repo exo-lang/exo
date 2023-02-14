@@ -20,7 +20,10 @@ find_package(Exo REQUIRED)
 # ---------------------------------------------------------------------------- #
 # Exo libraries
 
-add_exo_library(sgemm sgemm.py)
+add_exo_library(
+  NAME sgemm
+  SOURCES sgemm.py
+)
 
 # ---------------------------------------------------------------------------- #
 
