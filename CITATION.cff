@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Ikarashi"
+  given-names: "Yuka"
+  orcid: "https://orcid.org/0000-0001-5255-0918"
+- family-names: "Bernstein"
+  given-names: "Gilbert Louis"
+  orcid: "https://orcid.org/0000-0002-3016-1169"
+- family-names: "Reinking"
+  given-names: "Alex"
+  orcid: "https://orcid.org/0000-0003-3285-2112"
+- family-names: "Genc"
+  given-names: "Hasan"
+  orcid: "https://orcid.org/0000-0002-6884-941X"
+- family-names: "Ragan-Kelley"
+  given-names: "Jonathan"
+  orcid: "https://orcid.org/0000-0001-6243-9543"
+title: "Exocompilation for Productive Programming of Hardware Accelerators"
+version: 0.0.2
+doi: 10.1145/3519939.3523446
+date-released: 2022-02-28
+url: "https://github.com/exo-lang/exo"
