@@ -56,8 +56,9 @@ def write_depfile(outdir, stem):
     h_file = outdir / f"{stem}.h"
     depfile = outdir / f"{stem}.d"
 
-    sep = "\\\n  "
-    contents = f"{c_file} {h_file} : {sep.join(modules)}"
+    sep = " \\\n  "
+    deps = sep.join(sorted(modules))
+    contents = f"{c_file} {h_file} : {deps}"
 
     depfile.write_text(contents)
 
