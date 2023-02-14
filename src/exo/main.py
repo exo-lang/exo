@@ -2,6 +2,7 @@ import argparse
 import importlib
 import importlib.machinery
 import importlib.util
+import inspect
 import sys
 from pathlib import Path
 
@@ -32,7 +33,6 @@ def main():
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    outdir = outdir.resolve(strict=True)
 
     library = [
         proc
@@ -41,6 +41,25 @@ def main():
     ]
 
     exo.compile_procs(library, outdir, f"{args.stem}.c", f"{args.stem}.h")
+    write_depfile(outdir, args.stem)
+
+
+def write_depfile(outdir, stem):
+    modules = set()
+    for mod in sys.modules.values():
+        try:
+            modules.add(inspect.getfile(mod))
+        except TypeError:
+            pass  # this is the case for built-in modules
+
+    c_file = outdir / f"{stem}.c"
+    h_file = outdir / f"{stem}.h"
+    depfile = outdir / f"{stem}.d"
+
+    sep = "\\\n  "
+    contents = f"{c_file} {h_file} : {sep.join(modules)}"
+
+    depfile.write_text(contents)
 
 
 def get_procs_from_module(user_module):
