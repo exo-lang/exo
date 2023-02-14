@@ -746,8 +746,8 @@ def insert_pass(proc, gap_cursor):
         -->
         `s1 ; pass ; s2`
     """
-    p, _fwd = scheduling.DoInsertPass(gap_cursor._impl)
-    return p
+    ir, _fwd = scheduling.DoInsertPass(gap_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([])
@@ -777,8 +777,8 @@ def reorder_stmts(proc, block_cursor):
     s1 = block_cursor[0]._impl
     s2 = block_cursor[1]._impl
 
-    proc, _fwd = scheduling.DoReorderStmt(s1, s2)
-    return proc
+    ir, _fwd = scheduling.DoReorderStmt(s1, s2)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([ExprCursorA(many=True)])
@@ -1040,8 +1040,8 @@ def delete_config(proc, stmt_cursor):
     rewrite:
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
-    p, _fwd = scheduling.DoDeleteConfig(ic.Cursor.create(proc), stmt_cursor._impl)
-    return p
+    ir, _fwd = scheduling.DoDeleteConfig(ic.Cursor.create(proc), stmt_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([GapCursorA, ConfigA, ConfigFieldA, NewExprA("gap_cursor")])
@@ -1501,8 +1501,8 @@ def mult_loops(proc, nested_loops, new_iter_name):
         `for k in seq(0,e*c):`      # k is new_iter_name
         `    s[ i -> k/c, j -> k%c ]`
     """
-    p, _fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
-    return p
+    ir, _fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([ForSeqCursorA, PosIntA])
@@ -1527,8 +1527,8 @@ def cut_loop(proc, loop, cut_point):
         `for i in seq(0,n-cut):`
         `    s[i -> i+cut]`
     """
-    p, _fwd = scheduling.DoPartitionLoop(loop._impl, cut_point)
-    return p
+    ir, _fwd = scheduling.DoPartitionLoop(loop._impl, cut_point)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([NestedForSeqCursorA])
@@ -1734,7 +1734,8 @@ def fuse(proc, stmt1, stmt2):
     if isinstance(stmt1, PC.IfCursor):
         return scheduling.DoFuseIf(proc_c, s1, s2).result()
     else:
-        return scheduling.DoFuseLoop(proc_c, s1, s2)
+        ir, _fwd = scheduling.DoFuseLoop(proc_c, s1, s2)
+        return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([ForSeqCursorA])

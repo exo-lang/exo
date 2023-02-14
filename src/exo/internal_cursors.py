@@ -9,7 +9,6 @@ from functools import cached_property
 from typing import Optional, Iterable, Union
 from weakref import ReferenceType
 
-from exo import API
 from exo import LoopIR
 
 
@@ -114,9 +113,15 @@ class Cursor(ABC):
     # ------------------------------------------------------------------------ #
 
     def get_root(self):
-        if (p := self._root()) is None:
-            raise InvalidCursorError("underlying proc was destroyed")
-        return p
+        return self.root()._node()
+
+    # ------------------------------------------------------------------------ #
+    # Navigation (universal)
+    # ------------------------------------------------------------------------ #
+
+    def root(self) -> Node:
+        """Get a cursor to the root of the tree this cursor resides in"""
+        return Node(self._root, [])
 
     # ------------------------------------------------------------------------ #
     # Navigation (abstract)
@@ -166,14 +171,6 @@ class Cursor(ABC):
             raise InvalidCursorError("cursor is not inside block")
         return ty(self.parent(), attr, i + dist)
 
-    @staticmethod
-    def _walk_path(n, path):
-        for attr, idx in path:
-            n = getattr(n, attr)
-            if idx is not None:
-                n = n[idx]
-        return n
-
     def _rewrite_node(self, fn):
         """
         Applies `fn` to the AST node containing the cursor. The callback is
@@ -196,9 +193,9 @@ class Cursor(ABC):
                 **{attr: children[:i] + [impl(children[i], path)] + children[i + 1 :]}
             )
 
-        return impl(self.get_root().INTERNAL_proc(), self._path)
+        return impl(self.root()._node(), self._path)
 
-    def _local_forward(self, new_proc, fwd_node):
+    def _local_forward(self, new_root, fwd_node):
         """
         Creates a forwarding function for "local" edits to the AST.
         Here, local means that all affected nodes share a common LCA,
@@ -225,7 +222,7 @@ class Cursor(ABC):
                 raise InvalidCursorError("can only forward nodes")
 
             def evolve(p):
-                return dataclasses.replace(cursor, _root=new_proc, _path=p)
+                return dataclasses.replace(cursor, _root=new_root, _path=p)
 
             old_path = cursor._path
 
@@ -375,9 +372,9 @@ class Block(Cursor):
             new_children = new_children or empty_default or []
             return parent.update(**{attr: new_children})
 
-        p = API.Procedure(self._rewrite_node(update))
-
-        return p, self._forward_replace(weakref.ref(p), len(nodes))
+        p = self._rewrite_node(update)
+        fwd = self._forward_replace(weakref.ref(p), len(nodes))
+        return p, fwd
 
     def _forward_replace(self, new_proc, n_ins):
         _, del_range = self._path[-1]
@@ -424,9 +421,9 @@ class Block(Cursor):
             new_children = children[: i.start] + [new_node] + children[i.stop :]
             return parent.update(**{orig_attr: new_children})
 
-        p = API.Procedure(self._rewrite_node(update))
-
-        return p, self._forward_wrap(weakref.ref(p), wrap_attr)
+        p = self._rewrite_node(update)
+        fwd = self._forward_wrap(weakref.ref(p), wrap_attr)
+        return p, fwd
 
     def _forward_wrap(self, p, wrap_attr):
         rng = self._path[-1][1]
@@ -486,10 +483,11 @@ class Block(Cursor):
             p, _ = target._insert(nodes)
             p, _ = dataclasses.replace(self, _root=weakref.ref(p))._delete()
 
-        return p, self._forward_move(weakref.ref(p), target)
+        fwd = self._forward_move(weakref.ref(p), target)
+        return p, fwd
 
     def _forward_move(self, p, target):
-        orig_proc = self._root
+        orig_root = self._root
 
         block_path = self._path
         block_n = len(block_path)
@@ -500,8 +498,8 @@ class Block(Cursor):
         gap_n = len(gap_path)
 
         def forward(cursor: Node):
-            if cursor._root != orig_proc:
-                raise InvalidCursorError("cannot forward unknown procs")
+            if cursor._root != orig_root:
+                raise InvalidCursorError("cannot forward from unknown root")
 
             if not isinstance(cursor, Node):
                 raise InvalidCursorError("can only forward nodes")
@@ -584,8 +582,20 @@ class Node(Cursor):
 
     @cached_property
     def _node_ref(self):
-        n = self.get_root().INTERNAL_proc()
-        n = self._walk_path(n, self._path)
+        if (n := self._root()) is None:
+            raise InvalidCursorError("underlying root was destroyed")
+
+        # TODO: this is what we're trying to remove.
+        if isinstance(n, LoopIR.LoopIR.proc):
+            pass
+        else:
+            n = n.INTERNAL_proc()
+
+        for attr, idx in self._path:
+            n = getattr(n, attr)
+            if idx is not None:
+                n = n[idx]
+
         return weakref.ref(n)
 
     # ------------------------------------------------------------------------ #
@@ -748,18 +758,18 @@ class Node(Cursor):
         def update(parent):
             return parent.update(**{attr: ast})
 
-        p = API.Procedure(self._rewrite_node(update))
+        p = self._rewrite_node(update)
+        fwd = self._forward_replace(weakref.ref(p))
+        return p, fwd
 
-        return p, self._forward_replace(weakref.ref(p))
-
-    def _forward_replace(self, new_proc):
+    def _forward_replace(self, new_root):
         _, idx = self._path[-1]
         assert idx is None
 
         def fwd_node(*_):
             raise InvalidCursorError("cannot forward replaced nodes")
 
-        return self._local_forward(new_proc, fwd_node)
+        return self._local_forward(new_root, fwd_node)
 
 
 @dataclass
@@ -805,15 +815,14 @@ class Gap(Cursor):
             children = getattr(parent, attr)
             return parent.update(**{attr: children[:i] + stmts + children[i:]})
 
-        p = API.Procedure(self._rewrite_node(update))
-        forward = self._forward_insert(weakref.ref(p), len(stmts))
+        p = self._rewrite_node(update)
+        fwd = self._forward_insert(weakref.ref(p), len(stmts))
+        return p, fwd
 
-        return p, forward
-
-    def _forward_insert(self, new_proc, ins_len):
+    def _forward_insert(self, new_root, ins_len):
         _, ins_idx = self._path[-1]
 
         def fwd_node(attr, i):
             return [(attr, i + ins_len * (i >= ins_idx))]
 
-        return self._local_forward(new_proc, fwd_node)
+        return self._local_forward(new_root, fwd_node)

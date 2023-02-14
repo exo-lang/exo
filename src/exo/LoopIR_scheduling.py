@@ -50,7 +50,8 @@ from .pattern_match import match_pattern
 
 class Cursor_Rewrite(LoopIR_Rewrite):
     def __init__(self, proc_cursor):
-        self.provenance = proc_cursor.get_root()
+        # TODO: naughty! we're trying to remove this
+        self.provenance = proc_cursor._root()
         self.orig_proc = proc_cursor
         self.proc = self.apply_proc(proc_cursor)
 
@@ -223,12 +224,10 @@ def nested_iter_names_to_pattern(namestr, inner):
 # Reorder scheduling directive
 
 
-def _fixup_effects(orig_proc, p, fwd):
-    p = api.Procedure(
-        InferEffects(p._loopir_proc).result(), _provenance_eq_Procedure=orig_proc
-    )
-    fwd = ic.forward_identity(p, fwd)
-    return p, fwd
+def _fixup_effects(ir, fwd):
+    ir = InferEffects(ir).result()
+    fwd = ic.forward_identity(ir, fwd)
+    return ir, fwd
 
 
 # Take a conservative approach and allow stmt reordering only when they are
@@ -239,10 +238,9 @@ def DoReorderStmt(f_cursor, s_cursor):
         raise SchedulingError(
             "expected the second statement to be directly after the first"
         )
-    orig_proc = f_cursor.get_root()
-    Check_ReorderStmts(orig_proc._loopir_proc, f_cursor._node(), s_cursor._node())
-    p, fwd = s_cursor.as_block()._move(f_cursor.before())
-    return _fixup_effects(orig_proc, p, fwd)
+    Check_ReorderStmts(f_cursor.get_root(), f_cursor._node(), s_cursor._node())
+    ir, fwd = s_cursor.as_block()._move(f_cursor.before())
+    return _fixup_effects(ir, fwd)
 
 
 def DoPartitionLoop(stmt, partition_by):
@@ -254,7 +252,7 @@ def DoPartitionLoop(stmt, partition_by):
     new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
     try:
         Check_IsPositiveExpr(
-            stmt.get_root()._loopir_proc,
+            stmt.get_root(),
             [s],
             LoopIR.BinOp(
                 "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
@@ -277,28 +275,27 @@ def DoPartitionLoop(stmt, partition_by):
     body2 = SubstArgs(s.body, env).result()
     loop2 = s.update(iter=iter2, hi=new_hi, body=body2, eff=None)
 
-    p, fwd = stmt._replace([loop1, loop2])
-    return _fixup_effects(stmt.get_root(), p, fwd)
+    ir, fwd = stmt._replace([loop1, loop2])
+    return _fixup_effects(ir, fwd)
 
 
 def _compose(f, g):
     return lambda x: f(g(x))
 
 
-def _replace_pats(p, fwd, c, pat, repl):
+def _replace_pats(fwd, c, pat, repl):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
+    ir = c._node()
     for rd in match_pattern(c, pat):
         rd = fwd(rd)
-        p, fwd_rd = rd._replace(repl(rd))
+        ir, fwd_rd = rd._replace(repl(rd))
         fwd = _compose(fwd_rd, fwd)
-    return p, fwd
+    return ir, fwd
 
 
 def DoProductLoop(outer_loop, new_name):
-    orig_proc = outer_loop.get_root()
-
     body = outer_loop.body()
     outer_loop_ir = outer_loop._node()
 
@@ -331,12 +328,12 @@ def DoProductLoop(outer_loop, new_name):
     mk_inner_expr = lambda _: [inner_expr]
 
     # Initial state of editing transaction
-    p, fwd = orig_proc, lambda x: x
+    ir, fwd = outer_loop.get_root(), lambda x: x
 
     # Replace inner reads to loop variables
     for c in inner_loop.body():
-        p, fwd = _replace_pats(p, fwd, c, f"{outer_loop_ir.iter}", mk_outer_expr)
-        p, fwd = _replace_pats(p, fwd, c, f"{inner_loop_ir.iter}", mk_inner_expr)
+        ir, fwd = _replace_pats(fwd, c, f"{outer_loop_ir.iter}", mk_outer_expr)
+        ir, fwd = _replace_pats(fwd, c, f"{inner_loop_ir.iter}", mk_inner_expr)
 
     def mk_product_loop(body):
         return outer_loop_ir.update(
@@ -347,16 +344,16 @@ def DoProductLoop(outer_loop, new_name):
             body=body,
         )
 
-    p, fwdIn = fwd(inner_loop).body()._wrap(mk_product_loop, "body")
+    ir, fwdIn = fwd(inner_loop).body()._wrap(mk_product_loop, "body")
     fwd = _compose(fwdIn, fwd)
 
-    p, fwdMv = fwd(inner_loop).body()._move(fwd(outer_loop).after())
+    ir, fwdMv = fwd(inner_loop).body()._move(fwd(outer_loop).after())
     fwd = _compose(fwdMv, fwd)
 
-    p, fwdDel = fwd(outer_loop)._delete()
+    ir, fwdDel = fwd(outer_loop)._delete()
     fwd = _compose(fwdDel, fwd)
 
-    return _fixup_effects(orig_proc, p, fwd)
+    return _fixup_effects(ir, fwd)
 
 
 def get_reads(e):
@@ -2359,7 +2356,7 @@ class DoFissionAfterSimple:
         self.tgt_stmt = stmt_cursor._node()
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
         assert is_pos_int(n_lifts)
-        self.provenance = proc_cursor.get_root()
+        self.provenance = proc_cursor._root()
         self.orig_proc = proc_cursor._node()
         self.n_lifts = n_lifts
 
@@ -2480,7 +2477,7 @@ class DoFissionLoops:
         self.tgt_stmt = stmt_cursor._node()
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
         assert is_pos_int(n_lifts)
-        self.provenance = proc_cursor.get_root()
+        self.provenance = proc_cursor._root()
         self.orig_proc = proc_cursor._node()
         self.n_lifts = n_lifts
 
@@ -2695,13 +2692,15 @@ def DoFuseLoop(proc_cursor, f_cursor, s_cursor):
     body1 = loop1.body
     body2 = SubstArgs(loop2.body, {y: x}).result()
 
-    proc, fwd1 = f_cursor.body()[-1].after()._insert(body2)
-    proc, fwd2 = fwd1(s_cursor)._delete()
-    loop = fwd2(fwd1(f_cursor))._node()
+    ir, fwd = f_cursor.body()[-1].after()._insert(body2)
 
-    Check_FissionLoop(proc._loopir_proc, loop, body1, body2)
-    proc = InferEffects(proc._loopir_proc).result()
-    return api.Procedure(proc, _provenance_eq_Procedure=proc_cursor.get_root())
+    ir, fwdDel = fwd(s_cursor)._delete()
+    fwd = _compose(fwdDel, fwd)
+
+    loop = fwd(f_cursor)._node()
+
+    Check_FissionLoop(ir, loop, body1, body2)
+    return _fixup_effects(ir, fwd)
 
 
 class DoFuseIf(Cursor_Rewrite):
@@ -2823,7 +2822,8 @@ def _make_closure(name, stmts, var_types):
 
 def DoInsertPass(gap):
     srcinfo = gap.parent()._node().srcinfo
-    return gap._insert([LoopIR.Pass(eff_null(srcinfo), srcinfo=srcinfo)])
+    ir, fwd = gap._insert([LoopIR.Pass(eff_null(srcinfo), srcinfo=srcinfo)])
+    return ir, fwd
 
 
 def DoDeleteConfig(proc_cursor, config_cursor):
