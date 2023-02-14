@@ -10,7 +10,7 @@ function(add_exo_library)
     list(APPEND source_files "${src}")
   endforeach ()
 
-  set(intdir "${CMAKE_CURRENT_BINARY_DIR}/${ARG_NAME}.exo")
+  set(intdir "${ARG_NAME}.exo")
   set(files "${intdir}/${ARG_NAME}.c" "${intdir}/${ARG_NAME}.h")
 
   list(TRANSFORM ARG_PYTHONPATH PREPEND "--modify;PYTHONPATH=path_list_append:")
@@ -21,10 +21,12 @@ function(add_exo_library)
             $<TARGET_FILE:Exo::compiler> -o "${intdir}" --stem "${ARG_NAME}"
             ${source_files}
     DEPENDS ${source_files}
+    DEPFILE "${intdir}/${ARG_NAME}.d"
     VERBATIM
   )
 
+  list(TRANSFORM files PREPEND "${CMAKE_CURRENT_BINARY_DIR}/")
   add_library(${ARG_NAME} ${files})
   add_library(${PROJECT_NAME}::${ARG_NAME} ALIAS ${ARG_NAME})
-  target_include_directories(${ARG_NAME} PUBLIC "$<BUILD_INTERFACE:${intdir}>")
+  target_include_directories(${ARG_NAME} PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/${intdir}>")
 endfunction()
