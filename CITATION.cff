@@ -1,0 +1,76 @@
+cff-version: 1.2.0
+title: Exo Programming Language
+message: If you use Exo, please cite both the compiler and the paper.
+type: software
+authors:
+  # These are the authors of the compiler implementation, not of the paper.
+  # They were determined by inspecting the git commit history and contribution
+  # graph, here: https://github.com/exo-lang/exo/graphs/contributors
+  - given-names: Yuka
+    family-names: Ikarashi
+    orcid: https://orcid.org/0000-0001-5255-0918
+  - given-names: Alex
+    family-names: Reinking
+    orcid: https://orcid.org/0000-0003-3285-2112
+  - given-names: Gilbert Louis
+    family-names: Bernstein
+    orcid: https://orcid.org/0000-0002-3016-1169
+  - given-names: Kevin
+    family-names: Qian
+  - given-names: Samir
+    family-names: Droubi
+  - given-names: Jonathan
+    family-names: Ragan-Kelley
+    orcid: https://orcid.org/0000-0001-6243-9543
+repository-code: https://github.com/exo-lang/exo
+url: https://exo-lang.dev
+license: MIT
+# These fields should point to the latest release and be updated as soon as a
+# new release is tagged.
+commit: 09e666ee0690797a6c56103b65f5d83abd79c60e
+version: 0.0.2
+date-released: 2022-02-28
+
+# This is the citation for the PLDI 2022 paper.
+preferred-citation:
+  type: conference-paper
+  title: Exocompilation for Productive Programming of Hardware Accelerators
+  authors:
+    - given-names: Yuka
+      family-names: Ikarashi
+      orcid: https://orcid.org/0000-0001-5255-0918
+    - given-names: Gilbert Louis
+      family-names: Bernstein
+      orcid: https://orcid.org/0000-0002-3016-1169
+    - given-names: Alex
+      family-names: Reinking
+      orcid: https://orcid.org/0000-0003-3285-2112
+    - given-names: Hasan
+      family-names: Genc
+      orcid: https://orcid.org/0000-0002-6884-941X
+    - given-names: Jonathan
+      family-names: Ragan-Kelley
+      orcid: https://orcid.org/0000-0001-6243-9543
+  year: 2022
+  collection-title: >-
+    Proceedings of the 43rd ACM SIGPLAN International Conference on Programming
+    Language Design and Implementation
+  collection-doi: 10.1145/3519939
+  # editors:
+  #  - family-names: Kirk
+  #    given-names: James T.
+  conference:
+    name: >-
+      43rd ACM SIGPLAN International Conference on Programming Language Design
+      and Implementation
+    # location: Spocks Inn Hotel and Bar
+    # address: 123 Main St
+    city: San Diego
+    # region: Jarvis Island
+    # post-code: 12345
+    country: US
+    date-start: 2022-06-13
+    date-end: 2022-06-17
+  start: 703
+  end: 718
+  doi: 10.1145/3519939.3523446
