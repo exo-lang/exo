@@ -217,7 +217,7 @@ class Procedure(ProcedureBase):
     def show_effect(self, stmt_pattern):
         if match := match_pattern(self, stmt_pattern, call_depth=1, default_match_no=0):
             assert len(match[0]) == 1, "Must match single statements"
-            return str(match[0][0]._node().eff)
+            return str(match[0][0]._node.eff)
         raise SchedulingError("failed to find statement", pattern=stmt_pattern)
 
     def is_instr(self):
@@ -230,7 +230,7 @@ class Procedure(ProcedureBase):
         """
         Return a BlockCursor selecting the entire body of the Procedure
         """
-        impl = internal_cursors.Cursor.root(self).body()
+        impl = internal_cursors.Cursor.create(self).body()
         return API_cursors.new_Cursor(impl)
 
     def find(self, pattern, many=False):
@@ -286,23 +286,6 @@ class Procedure(ProcedureBase):
     def find_all(self, pattern):
         return self.find(pattern, many=True)
 
-    def _TEST_find_cursors(self, pattern):
-        cursors = match_pattern(self, pattern, call_depth=1)
-        assert isinstance(cursors, list)
-        if not cursors:
-            raise SchedulingError("failed to find matches", pattern=pattern)
-        return cursors
-
-    def _TEST_find_stmt(self, pattern):
-        curs = self._TEST_find_cursors(pattern)
-        assert len(curs) == 1
-        curs = curs[0]
-        if len(curs) != 1:
-            raise SchedulingError(
-                "pattern did not match a single statement", pattern=pattern
-            )
-        return curs[0]
-
     def get_ast(self, pattern=None):
         if pattern is None:
             return LoopIR_to_QAST(self._loopir_proc).result()
@@ -316,7 +299,7 @@ class Procedure(ProcedureBase):
             return None
 
         return [
-            LoopIR_to_QAST(node._node()).result() for block in match for node in block
+            LoopIR_to_QAST(node._node).result() for block in match for node in block
         ]
 
     # ---------------------------------------------- #
