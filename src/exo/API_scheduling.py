@@ -587,7 +587,7 @@ class FormattedExprStr:
         for cursor in expr_holes:
             if not isinstance(cursor, ExprCursor):
                 raise TypeError("Cursor provided to fill a hole must be a ExprCursor")
-        self._expr_holes = tuple(cursor._impl._node() for cursor in expr_holes)
+        self._expr_holes = tuple(cursor._impl._node for cursor in expr_holes)
 
 
 class NewExprA(ArgumentProcessor):
@@ -607,7 +607,7 @@ class NewExprA(ArgumentProcessor):
         # TODO: improve parse_fragment to just take gaps
         if not (stmtc := cursor.after()):
             assert (stmtc := cursor.before())
-        ctxt_stmt = stmtc._impl._node()
+        ctxt_stmt = stmtc._impl._node
 
         return ctxt_stmt
 
@@ -803,11 +803,11 @@ def commute_expr(proc, expr_cursors):
 
     exprs = [ec._impl for ec in expr_cursors]
     for e in exprs:
-        if not isinstance(e._node(), LoopIR.BinOp) or (
-            e._node().op != "+" and e._node().op != "*"
+        if not isinstance(e._node, LoopIR.BinOp) or (
+            e._node.op != "+" and e._node.op != "*"
         ):
-            raise TypeError(f"only '+' or '*' can commute, got {e._node().op}")
-    if any(not e._node().type.is_numeric() for e in exprs):
+            raise TypeError(f"only '+' or '*' can commute, got {e._node.op}")
+    if any(not e._node.type.is_numeric() for e in exprs):
         raise TypeError(
             "only numeric (not index or size) expressions "
             "can commute by commute_expr()"
@@ -841,7 +841,7 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
         `a = b + 4.0`
     """
     exprs = [ec._impl for ec in expr_cursors]
-    if any(not e._node().type.is_numeric() for e in exprs):
+    if any(not e._node.type.is_numeric() for e in exprs):
         raise TypeError(
             "only numeric (not index or size) expressions "
             "can be bound by bind_expr()"
@@ -895,7 +895,7 @@ def replace(proc, block_cursor, subproc, quiet=False):
         quiet           - (bool) control how much this operation prints
                           out debug info
     """
-    stmts = [sc._impl._node() for sc in block_cursor]
+    stmts = [sc._impl._node for sc in block_cursor]
     try:
         p = DoReplace(subproc._loopir_proc, stmts).apply_proc(proc._loopir_proc)
         return Procedure(p, _provenance_eq_Procedure=proc)
@@ -1012,7 +1012,7 @@ def bind_config(proc, var_cursor, config, field):
         within it.  Then,
         `s[ e ]    ->    config.field = e ; s[ config.field ]`
     """
-    e = var_cursor._impl._node()
+    e = var_cursor._impl._node
     cfg_f_type = config.lookup(field)[1]
     if not isinstance(e, LoopIR.Read):
         raise ValueError("expected a cursor to a single variable Read")
@@ -1040,8 +1040,10 @@ def delete_config(proc, stmt_cursor):
     rewrite:
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
-    ir, _fwd = scheduling.DoDeleteConfig(ic.Cursor.create(proc), stmt_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    (ir, cfg), _fwd = scheduling.DoDeleteConfig(
+        ic.Cursor.create(proc), stmt_cursor._impl
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 
 @sched_op([GapCursorA, ConfigA, ConfigFieldA, NewExprA("gap_cursor")])
@@ -1129,7 +1131,7 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
     proc_c = ic.Cursor.create(proc)
     stmt = buf_cursor._impl
     # extra sanity check
-    N = len(stmt._node().type.hi)
+    N = len(stmt._node.type.hi)
     if set(range(0, N)) != set(permute_vector):
         raise ValueError(
             f"permute_vector argument ({permute_vector}) "
@@ -1162,15 +1164,15 @@ def bound_alloc(proc, buf_cursor, new_bounds, unsafe_disable_checks=False):
     """
     proc_c = ic.Cursor.create(proc)
     stmt = buf_cursor._impl
-    if len(stmt._node().type.hi) != len(new_bounds):
+    if len(stmt._node.type.hi) != len(new_bounds):
         raise ValueError(
-            f"buffer has {len(stmt._node().type.hi)} dimensions, "
+            f"buffer has {len(stmt._node.type.hi)} dimensions, "
             f"but only {len(new_bounds)} bounds were supplied"
         )
     new_proc_c = scheduling.DoBoundAlloc(proc_c, stmt, new_bounds).result()
 
     if not unsafe_disable_checks:
-        CheckEffects(new_proc_c._node())
+        CheckEffects(new_proc_c._node)
 
     return new_proc_c
 
@@ -1202,7 +1204,7 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
         raise ValueError("why are you trying to divide by 1?")
     proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
-    if not (0 <= dim_idx < len(stmt._node().type.shape())):
+    if not (0 <= dim_idx < len(stmt._node.type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds dimension index {dim_idx}")
 
     return scheduling.DoDivideDim(proc_c, stmt, dim_idx, quotient).result()
@@ -1232,7 +1234,7 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
     proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
     for dim_idx in [hi_dim_idx, lo_dim_idx]:
-        if not (0 <= dim_idx < len(stmt._node().type.shape())):
+        if not (0 <= dim_idx < len(stmt._node.type.shape())):
             raise ValueError(f"Cannot multiply out-of-bounds dimension index {dim_idx}")
     if hi_dim_idx == lo_dim_idx:
         raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by itself")
@@ -1559,8 +1561,8 @@ def reorder_loops(proc, nested_loops):
     """
 
     stmt_c = nested_loops._impl
-    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node(), LoopIR.Seq):
-        raise ValueError(f"expected loop directly inside of {stmt_c._node().iter} loop")
+    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.Seq):
+        raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
     proc_c = ic.Cursor.create(proc)
 
@@ -1600,8 +1602,8 @@ def merge_writes(proc, block_cursor):
         ----------------------
 
     """
-    stmt1 = block_cursor[0]._impl._node()
-    stmt2 = block_cursor[1]._impl._node()
+    stmt1 = block_cursor[0]._impl._node
+    stmt2 = block_cursor[1]._impl._node
 
     # TODO: We should seriously consider how to improve Scheduling errors in general
     if not isinstance(stmt1, (LoopIR.Assign, LoopIR.Reduce)) or not isinstance(

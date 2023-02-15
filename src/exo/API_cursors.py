@@ -123,9 +123,9 @@ class Cursor:
         Raises InvalidCursorError if no parent exists
         """
         impl_parent = self._impl.parent()
-        if isinstance(impl_parent._node(), LoopIR.w_access):
+        if isinstance(impl_parent._node, LoopIR.w_access):
             impl_parent = impl_parent.parent()
-        elif isinstance(impl_parent._node(), LoopIR.proc):
+        elif isinstance(impl_parent._node, LoopIR.proc):
             return InvalidCursor()
         return new_Cursor(impl_parent)
 
@@ -406,7 +406,7 @@ class AssignCursor(StmtCursor):
     """
 
     def name(self) -> Sym:
-        return self._impl._node().name
+        return self._impl._node.name
 
     def idx(self) -> ExprListCursor:
         return ExprListCursor(self._impl._child_block("idx"))
@@ -422,7 +422,7 @@ class ReduceCursor(StmtCursor):
     """
 
     def name(self) -> Sym:
-        return self._impl._node().name
+        return self._impl._node.name
 
     def idx(self) -> ExprListCursor:
         return ExprListCursor(self._impl._child_block("idx"))
@@ -438,10 +438,10 @@ class AssignConfigCursor(StmtCursor):
     """
 
     def config(self) -> Config:
-        return self._impl._node().config
+        return self._impl._node.config
 
     def field(self) -> str:
-        return self._impl._node().field
+        return self._impl._node.field
 
     def rhs(self) -> ExprCursor:
         return new_Cursor(self._impl._child_node("rhs"))
@@ -492,7 +492,7 @@ class ForSeqCursor(StmtCursor):
     """
 
     def name(self) -> Sym:
-        return self._impl._node().iter
+        return self._impl._node.iter
 
     def hi(self) -> ExprCursor:
         return new_Cursor(self._impl._child_node("hi"))
@@ -510,10 +510,10 @@ class AllocCursor(StmtCursor):
     """
 
     def name(self) -> Sym:
-        return self._impl._node().name
+        return self._impl._node.name
 
     def mem(self) -> Optional[Memory]:
-        return self._impl._node().mem
+        return self._impl._node.mem
 
 
 class CallCursor(StmtCursor):
@@ -525,7 +525,7 @@ class CallCursor(StmtCursor):
     """
 
     def subproc(self):
-        return API.Procedure(self._impl._node().f)
+        return API.Procedure(self._impl._node.f)
 
     def args(self) -> ExprListCursor:
         return ExprListCursor(self._impl._child_block("args"))
@@ -540,7 +540,7 @@ class WindowStmtCursor(StmtCursor):
     """
 
     def name(self) -> Sym:
-        return self._impl._node().name
+        return self._impl._node.name
 
     def winexpr(self) -> ExprCursor:
         return WindowExprCursor(self._impl._child_node("rhs"))
@@ -560,7 +560,7 @@ class ReadCursor(ExprCursor):
     """
 
     def name(self) -> Sym:
-        return self._impl._node().name
+        return self._impl._node.name
 
     def idx(self) -> ExprListCursor:
         return ExprListCursor(self._impl._child_block("idx"))
@@ -573,10 +573,10 @@ class ReadConfigCursor(ExprCursor):
     """
 
     def config(self) -> Config:
-        return self._impl._node().config
+        return self._impl._node.config
 
     def field(self) -> str:
-        return self._impl._node().field
+        return self._impl._node.field
 
 
 class LiteralCursor(ExprCursor):
@@ -590,7 +590,7 @@ class LiteralCursor(ExprCursor):
     """
 
     def value(self) -> Any:
-        n = self._impl._node()
+        n = self._impl._node
         assert (
             (n.type == T.bool and type(n.val) == bool)
             or (n.type.is_indexable() and type(n.val) == int)
@@ -618,7 +618,7 @@ class BinaryOpCursor(ExprCursor):
     """
 
     def op(self) -> str:
-        return self._impl._node().op
+        return self._impl._node.op
 
     def lhs(self) -> ExprCursor:
         return new_Cursor(self._impl._child_node("lhs"))
@@ -634,7 +634,7 @@ class BuiltInFunctionCursor(ExprCursor):
     """
 
     def name(self) -> str:
-        return self._impl._node().f.name()
+        return self._impl._node.f.name()
 
     def args(self) -> ExprListCursor:
         return ExprListCursor(self._impl._child_block("args"))
@@ -652,11 +652,11 @@ class WindowExprCursor(ExprCursor):
     """
 
     def name(self) -> str:
-        return self._impl._node().f.name()
+        return self._impl._node.f.name()
 
     def idx(self) -> List:
         def convert_w(w):
-            if isinstance(w._node(), LoopIR.Interval):
+            if isinstance(w._node, LoopIR.Interval):
                 return (
                     new_Cursor(w._child_node("lo")),
                     new_Cursor(w._child_node("hi")),
@@ -676,10 +676,10 @@ class StrideExprCursor(ExprCursor):
     """
 
     def name(self) -> Sym:
-        return self._impl._node().name
+        return self._impl._node.name
 
     def dim(self) -> int:
-        return self._impl._node().dim
+        return self._impl._node.dim
 
 
 # --------------------------------------------------------------------------- #
@@ -740,18 +740,18 @@ def new_Cursor(impl):
     elif isinstance(impl, C.Block):
         # TODO: Rename internal Cursor type to Sequence?
         assert len(impl) > 0
-        n0 = impl[0]._node()
+        n0 = impl[0]._node
         if isinstance(n0, LoopIR.stmt):
-            assert all(isinstance(c._node(), LoopIR.stmt) for c in impl)
+            assert all(isinstance(c._node, LoopIR.stmt) for c in impl)
             return BlockCursor(impl)
         elif isinstance(n0, LoopIR.expr):
-            assert all(isinstance(c._node(), LoopIR.expr) for c in impl)
+            assert all(isinstance(c._node, LoopIR.expr) for c in impl)
             return ExprListCursor(impl)
         else:
             assert False, "bad case"
 
     elif isinstance(impl, C.Node):
-        n = impl._node()
+        n = impl._node
 
         # statements
         if isinstance(n, LoopIR.Assign):

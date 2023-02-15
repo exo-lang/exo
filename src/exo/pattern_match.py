@@ -152,14 +152,14 @@ class PatternMatch:
 
     def find_expr(self, pat, cur):
         # try to match
-        if self.match_e(pat, cur._node()):
+        if self.match_e(pat, cur._node):
             self._add_result(cur)
 
         for child in cur.children():
             self.find_expr(pat, child)
 
     def find_stmts(self, pats, cur: Node):
-        if isinstance(cur._node(), LoopIR.proc):
+        if isinstance(cur._node, LoopIR.proc):
             return self.find_stmts_in_block(pats, cur.body())
 
         return self.find_stmts_in_block(pats, cur.as_block())
@@ -177,10 +177,10 @@ class PatternMatch:
 
         # first, look for any subsequences of statements in the first
         # statement of the sequence `stmts`
-        if isinstance(curs[0]._node(), LoopIR.If):
+        if isinstance(curs[0]._node, LoopIR.If):
             self.find_stmts_in_block(pats, curs[0].body())
             self.find_stmts_in_block(pats, curs[0].orelse())
-        elif isinstance(curs[0]._node(), LoopIR.Seq):
+        elif isinstance(curs[0]._node, LoopIR.Seq):
             self.find_stmts_in_block(pats, curs[0].body())
         else:
             pass  # other forms of statement do not contain stmt blocks
@@ -214,7 +214,7 @@ class PatternMatch:
         # first ensure that the pattern and statement
         # are the same constructor
 
-        stmt = cur._node()
+        stmt = cur._node
 
         if not isinstance(
             stmt, (LoopIR.WindowStmt,) + tuple(_PAST_to_LoopIR[type(pat)])
