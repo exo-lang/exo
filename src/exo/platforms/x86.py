@@ -35,11 +35,11 @@ def mm256_storeu_ps(dst: [f32][8] @ DRAM, src: [f32][8] @ AVX2):
         dst[i] = src[i]
 
 
-@instr("{dst_data} = _mm256_fmadd_ps({src1}, {src2}, {dst_data});")
+@instr("{dst_data} = _mm256_fmadd_ps({src1_data}, {src2_data}, {dst_data});")
 def mm256_fmadd_ps(
     dst: [f32][8] @ AVX2,
-    src1: f32[8] @ AVX2,
-    src2: f32[8] @ AVX2,
+    src1: [f32][8] @ AVX2,
+    src2: [f32][8] @ AVX2,
 ):
     assert stride(src1, 0) == 1
     assert stride(src2, 0) == 1
@@ -49,9 +49,9 @@ def mm256_fmadd_ps(
         dst[i] += src1[i] * src2[i]
 
 
-@instr("{out} = _mm256_broadcast_ss(&{val_data});")
+@instr("{out_data} = _mm256_broadcast_ss(&{val_data});")
 def mm256_broadcast_ss(
-    out: f32[8] @ AVX2,
+    out: [f32][8] @ AVX2,
     val: [f32][1],
 ):
     assert stride(out, 0) == 1
@@ -71,7 +71,7 @@ def mm256_fmadd_ps_broadcast(
         dst[i] += lhs[i] * rhs[0]
 
 
-@instr("{out} = _mm256_mul_ps({x}, {y});")
+@instr("{out_data} = _mm256_mul_ps({x_data}, {y_data});")
 def mm256_mul_ps(out: f32[8] @ AVX2, x: f32[8] @ AVX2, y: f32[8] @ AVX2):
     assert stride(out, 0) == 1
     assert stride(x, 0) == 1

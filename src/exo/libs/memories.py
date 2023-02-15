@@ -176,7 +176,7 @@ class AVX2(Memory):
         if not prim_type == "float":
             raise MemGenError(f"{srcinfo}: AVX2 vectors must be f32 (for now)")
         if not _is_const_size(shape[-1], 8):
-            raise MemGenError(f"{srcinfo}: AVX2 vectors must be 8-wide")
+            raise MemGenError(f"{srcinfo}: AVX2 vectors must be 8-wide, got {shape}")
         shape = shape[:-1]
         if shape:
             result = f'__m256 {new_name}[{"][".join(map(str, shape))}];'
