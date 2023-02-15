@@ -1809,11 +1809,8 @@ def unroll_loop(proc, loop_cursor):
         `s[ i -> 1 ]`
         `s[ i -> 2 ]`
     """
-
-    stmt = loop_cursor._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoUnroll(proc_c, stmt).result()
+    ir, _fwd = scheduling.DoUnroll(loop_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 # --------------------------------------------------------------------------- #

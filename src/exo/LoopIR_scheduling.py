@@ -632,60 +632,21 @@ class DoSplit(Cursor_Rewrite):
 # Unroll scheduling directive
 
 
-class DoUnroll(Cursor_Rewrite):
-    def __init__(self, proc_cursor, loop_cursor):
-        self.unroll_loop = loop_cursor._node
-        self.unroll_var = self.unroll_loop.iter
-        self.unroll_itr = 0
-        self.env = {}
+def DoUnroll(c_loop):
+    s = c_loop._node
 
-        super().__init__(proc_cursor)
+    if not isinstance(s.hi, LoopIR.Const):
+        raise SchedulingError(f"expected loop '{s.iter}' to have constant bounds")
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.unroll_loop:
-            if not isinstance(s.hi, LoopIR.Const):
-                raise SchedulingError(
-                    f"expected loop '{s.iter}' to have constant bounds"
-                )
+    hi = s.hi.val
+    orig_body = c_loop.body()._get_loopir()
 
-            hi = s.hi.val
-            if hi == 0:
-                return []
+    unrolled = []
+    for i in range(hi):
+        env = {s.iter: LoopIR.Const(i, T.index, s.srcinfo)}
+        unrolled += Alpha_Rename(SubstArgs(orig_body, env).result()).result()
 
-            orig_body = sc.body()
-
-            self.unroll_itr = 0
-
-            body = Alpha_Rename(self.apply_stmts(orig_body)).result()
-            for i in range(1, hi):
-                self.unroll_itr = i
-                body += Alpha_Rename(self.apply_stmts(orig_body)).result()
-
-            return body
-
-        # fall-through
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if isinstance(e, LoopIR.Read):
-            if e.type is T.index:
-                # This is an unrolled variable, substitute it!
-                if e.name is self.unroll_var:
-                    return LoopIR.Const(self.unroll_itr, T.index, e.srcinfo)
-
-        # fall-through
-        return super().map_e(e)
-
-    def map_eff_e(self, e):
-        if isinstance(e, E.Var):
-            if e.type is T.index:
-                # This is an unrolled variable, substitute it!
-                if e.name is self.unroll_var:
-                    return E.Const(self.unroll_itr, T.index, e.srcinfo)
-
-        # fall-through
-        return super().map_eff_e(e)
+    return c_loop._replace(unrolled)
 
 
 # --------------------------------------------------------------------------- #
