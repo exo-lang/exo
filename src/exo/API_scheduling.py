@@ -1622,11 +1622,8 @@ def merge_writes(proc, block_cursor):
             "expected the two statements' right hand sides to have the same type."
         )
 
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoMergeWrites(
-        proc_c, block_cursor[0]._impl, block_cursor[1]._impl
-    ).result()
+    ir, _fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([GapCursorA, PosIntA])

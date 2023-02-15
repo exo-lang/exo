@@ -376,49 +376,35 @@ def get_reads(e):
         assert False, "bad case"
 
 
-class DoMergeWrites(Cursor_Rewrite):
-    def __init__(self, proc_cursor, f_cursor, s_cursor):
-        self.s1 = f_cursor._node
-        self.s2 = s_cursor._node
+def DoMergeWrites(c1, c2):
+    s1, s2 = c1._node, c2._node
 
-        try:
-            assert len(self.s1.idx) == len(self.s2.idx)
-            for i, j in zip(self.s1.idx, self.s2.idx):
-                Check_ExprEqvInContext(proc_cursor._node, i, [self.s1], j, [self.s2])
-        except SchedulingError as e:
-            raise SchedulingError(
-                "expected the left hand side's indices to be the same."
-            ) from e
+    try:
+        for i, j in zip(s1.idx, s2.idx):
+            Check_ExprEqvInContext(c1.get_root(), i, [s1], j, [s2])
+    except SchedulingError as e:
+        raise SchedulingError(
+            "expected the left hand side's indices to be the same."
+        ) from e
 
-        if any(
-            self.s1.name == name and self.s1.type == typ
-            for name, typ in get_reads(self.s2.rhs)
-        ):
-            raise SchedulingError(
-                "expected the right hand side of the second statement to not "
-                "depend on the left hand side of the first statement."
-            )
-
-        self.new_rhs = LoopIR.BinOp(
-            "+", self.s1.rhs, self.s2.rhs, self.s1.type, self.s1.srcinfo
+    if any(s1.name == name and s1.type == typ for name, typ in get_reads(s2.rhs)):
+        raise SchedulingError(
+            "expected the right hand side of the second statement to not "
+            "depend on the left hand side of the first statement."
         )
 
-        super().__init__(proc_cursor)
+    # Always delete the first assignment or reduction
+    ir, fwd = c1._delete()
 
-        self.proc = InferEffects(self.proc).result()
+    # If the second statement is a reduction, the first one's type
+    # "wins" and we add the two right-hand sides together.
+    if isinstance(s2, LoopIR.Reduce):
+        ir, fwd_repl = fwd(c2)._replace(
+            [s1.update(rhs=LoopIR.BinOp("+", s1.rhs, s2.rhs, s1.type, s1.srcinfo))]
+        )
+        fwd = _compose(fwd_repl, fwd)
 
-    def map_stmts(self, stmts_c):
-        stmts = [o._node for o in stmts_c]
-        if isinstance(self.s2, LoopIR.Assign):
-            for i, s in enumerate(stmts):
-                if s is self.s2:
-                    return stmts[: i - 1] + stmts[i:]
-        else:
-            for i, s in enumerate(stmts):
-                if s is self.s1:
-                    return stmts[:i] + [s.update(rhs=self.new_rhs)] + stmts[i + 2 :]
-
-        return super().map_stmts(stmts_c)
+    return _fixup_effects(ir, fwd)
 
 
 # --------------------------------------------------------------------------- #
