@@ -215,7 +215,7 @@ Then, if you want to see annotated source files, open `./htmlcov/index.html`.
 
 The first paper on Exo was published at PLDI '22. You can download the
 paper [from ACM Digital Library](https://dl.acm.org/doi/abs/10.1145/3519939.3523446).
-If you use Exo, please consider citing this paper as well as the software!
+If you use Exo, please cite both the compiler and the paper!
 
 ```
 @inproceedings{pldi22:exo,
