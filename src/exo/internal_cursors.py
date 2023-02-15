@@ -730,6 +730,9 @@ class Node(Cursor):
     def _delete(self):
         return self.as_block()._delete()
 
+    def _move(self, gap: Gap):
+        return self.as_block()._move(gap)
+
     def _replace(self, ast):
         """
         This is an UNSAFE internal function for replacing a node in an AST with

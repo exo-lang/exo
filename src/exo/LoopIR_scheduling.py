@@ -221,13 +221,34 @@ def nested_iter_names_to_pattern(namestr, inner):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Reorder scheduling directive
+# Cursor form scheduling directive helpers
 
 
 def _fixup_effects(ir, fwd):
     ir = InferEffects(ir).result()
     fwd = ic.forward_identity(ir, fwd)
     return ir, fwd
+
+
+def _compose(f, g):
+    return lambda x: f(g(x))
+
+
+def _replace_pats(fwd, c, pat, repl):
+    # TODO: consider the implications of composing O(n) forwarding functions.
+    #   will we need a special data structure? A chunkier operation for
+    #   multi-way replacement?
+    ir = c._node
+    for rd in match_pattern(c, pat):
+        rd = fwd(rd)
+        ir, fwd_rd = rd._replace(repl(rd))
+        fwd = _compose(fwd_rd, fwd)
+    return ir, fwd
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Scheduling directives
 
 
 # Take a conservative approach and allow stmt reordering only when they are
@@ -239,7 +260,7 @@ def DoReorderStmt(f_cursor, s_cursor):
             "expected the second statement to be directly after the first"
         )
     Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node)
-    ir, fwd = s_cursor.as_block()._move(f_cursor.before())
+    ir, fwd = s_cursor._move(f_cursor.before())
     return _fixup_effects(ir, fwd)
 
 
@@ -277,22 +298,6 @@ def DoPartitionLoop(stmt, partition_by):
 
     ir, fwd = stmt._replace([loop1, loop2])
     return _fixup_effects(ir, fwd)
-
-
-def _compose(f, g):
-    return lambda x: f(g(x))
-
-
-def _replace_pats(fwd, c, pat, repl):
-    # TODO: consider the implications of composing O(n) forwarding functions.
-    #   will we need a special data structure? A chunkier operation for
-    #   multi-way replacement?
-    ir = c._node
-    for rd in match_pattern(c, pat):
-        rd = fwd(rd)
-        ir, fwd_rd = rd._replace(repl(rd))
-        fwd = _compose(fwd_rd, fwd)
-    return ir, fwd
 
 
 def DoProductLoop(outer_loop, new_name):
