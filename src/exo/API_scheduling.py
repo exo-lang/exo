@@ -876,9 +876,8 @@ def inline(proc, call_cursor):
         call_cursor     - Cursor or pattern pointing to a Call statement
                           whose body we want to inline
     """
-    call_stmt = call_cursor._impl
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoInline(proc_c, call_stmt).result()
+    ir, _fwd = scheduling.DoInline(call_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([BlockCursorA, ProcA, BoolA])

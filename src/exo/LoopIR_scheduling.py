@@ -654,60 +654,36 @@ def DoUnroll(c_loop):
 # Inline scheduling directive
 
 
-class DoInline(Cursor_Rewrite):
-    def __init__(self, proc_cursor, call_cursor):
-        self.call_stmt = call_cursor._node
-        assert isinstance(self.call_stmt, LoopIR.Call)
-        self.env = {}
+def DoInline(call):
+    s = call._node
 
-        super().__init__(proc_cursor)
+    # handle potential window expressions in call positions
+    win_binds = []
 
-        self.proc = InferEffects(self.proc).result()
+    def map_bind(nm, a):
+        if isinstance(a, LoopIR.WindowExpr):
+            stmt = LoopIR.WindowStmt(nm, a, eff_null(a.srcinfo), a.srcinfo)
+            win_binds.append(stmt)
+            return LoopIR.Read(nm, [], a.type, a.srcinfo)
+        return a
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.call_stmt:
-            # handle potential window expressions in call positions
-            win_binds = []
+    # first, set-up a binding from sub-proc arguments
+    # to supplied expressions at the call-site
+    call_bind = {xd.name: map_bind(xd.name, a) for xd, a in zip(s.f.args, s.args)}
 
-            def map_bind(nm, a):
-                if isinstance(a, LoopIR.WindowExpr):
-                    stmt = LoopIR.WindowStmt(nm, a, eff_null(a.srcinfo), a.srcinfo)
-                    win_binds.append(stmt)
-                    return LoopIR.Read(nm, [], a.type, a.srcinfo)
-                else:
-                    return a
+    # we will substitute the bindings for the call
+    body = SubstArgs(s.f.body, call_bind).result()
 
-            # first, set-up a binding from sub-proc arguments
-            # to supplied expressions at the call-site
-            call_bind = {
-                xd.name: map_bind(xd.name, a) for xd, a in zip(s.f.args, s.args)
-            }
+    # note that all sub-procedure assertions must be true
+    # even if not asserted, or else this call being inlined
+    # wouldn't have been valid to make in the first place
 
-            # we will substitute the bindings for the call
-            body = SubstArgs(s.f.body, call_bind).result()
+    # whenever we copy code we need to alpha-rename for safety
+    # the code to splice in at this point
+    new_body = Alpha_Rename(win_binds + body).result()
 
-            # note that all sub-procedure assertions must be true
-            # even if not asserted, or else this call being inlined
-            # wouldn't have been valid to make in the first place
-
-            # whenever we copy code we need to alpha-rename for safety
-            # the code to splice in at this point
-            return Alpha_Rename(win_binds + body).result()
-
-        # fall-through
-        return super().map_s(sc)
-
-    # make this more efficient by not rewriting
-    # most of the sub-trees
-    def map_e(self, e):
-        return e
-
-    def map_t(self, t):
-        return t
-
-    def map_eff(self, eff):
-        return eff
+    ir, fwd = call._replace(new_body)
+    return _fixup_effects(ir, fwd)
 
 
 # --------------------------------------------------------------------------- #
