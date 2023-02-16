@@ -1752,11 +1752,8 @@ def remove_loop(proc, loop_cursor):
             ->
         `s`
     """
-
-    stmt = loop_cursor._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoRemoveLoop(proc_c, stmt).result()
+    ir, _fwd = scheduling.DoRemoveLoop(loop_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA])

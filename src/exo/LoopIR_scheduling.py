@@ -2239,41 +2239,32 @@ def _is_idempotent(stmts):
     return all(_stmt(s) for s in stmts)
 
 
-class DoRemoveLoop(Cursor_Rewrite):
-    def __init__(self, proc_cursor, stmt_cursor):
-        self.stmt = stmt_cursor._node
-        assert isinstance(self.stmt, LoopIR.stmt)
-        super().__init__(proc_cursor)
+def DoRemoveLoop(loop):
+    s = loop._node
 
-        self.proc = InferEffects(self.proc).result()
+    # Check if we can remove the loop. Conditions are:
+    # 1. Body does not depend on the loop iteration variable
+    if s.iter in _FV(s.body):
+        raise SchedulingError(
+            f"Cannot remove loop, {s.iter} is not " "free in the loop body."
+        )
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.stmt:
-            # Check if we can remove the loop
-            # Conditions are:
-            # 1. Body does not depend on the loop iteration variable
-            if s.iter in _FV(s.body):
-                raise SchedulingError(
-                    f"Cannot remove loop, {s.iter} is not " "free in the loop body."
-                )
+    # 2. Body is idempotent
+    Check_IsIdempotent(loop.get_root(), [s])
 
-            # 2. Body is idemopotent
-            Check_IsIdempotent(self.orig_proc._node, [s])
+    # 3. The loop runs at least once;
+    #    If not, then place a guard around the statement
+    body = Alpha_Rename(s.body).result()
+    try:
+        Check_IsPositiveExpr(loop.get_root(), [s], s.hi)
+    except SchedulingError:
+        zero = LoopIR.Const(0, T.int, s.srcinfo)
+        cond = LoopIR.BinOp(">", s.hi, zero, T.bool, s.srcinfo)
+        body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
 
-            # 3. The loop runs at least once;
-            #    If not, then place a guard around the statement
-            body = Alpha_Rename(s.body).result()
-            try:
-                Check_IsPositiveExpr(self.orig_proc._node, [s], s.hi)
-            except SchedulingError:
-                zero = LoopIR.Const(0, T.int, s.srcinfo)
-                cond = LoopIR.BinOp(">", s.hi, zero, T.bool, s.srcinfo)
-                body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
-
-            return body
-
-        return super().map_s(sc)
+    # TODO: use move and/or wrap
+    ir, fwd = loop._replace(body)
+    return _fixup_effects(ir, fwd)
 
 
 # This is same as original FissionAfter, except that
@@ -2773,7 +2764,7 @@ class DoDeletePass(Cursor_Rewrite):
             body = self.map_stmts(sc.body())
             if body is None:
                 return None
-            elif body == []:
+            elif not body:
                 return []
             else:
                 return [s.update(body=body)]
@@ -3764,8 +3755,8 @@ class DoBoundAlloc(Cursor_Rewrite):
 
 __all__ = [
     "DoSplit",
-    "DoUnroll",
-    "DoInline",
+    "DoUnroll",  # done
+    "DoInline",  # done
     "DoPartialEval",
     "DoSetTypAndMem",
     "DoCallSwap",
@@ -3774,22 +3765,22 @@ __all__ = [
     "DoLiftAlloc",
     "DoFissionLoops",
     "DoExtractMethod",
-    "DoReorderStmt",
+    "DoReorderStmt",  # done
     "DoConfigWrite",
     "DoInlineWindow",
-    "DoInsertPass",
+    "DoInsertPass",  # done
     "DoDeletePass",
     "DoSimplify",
     "DoBoundAndGuard",
-    "DoFuseLoop",
+    "DoFuseLoop",  # done
     "DoAddLoop",
     "DoDataReuse",
     "DoLiftScope",
-    "DoPartitionLoop",
+    "DoPartitionLoop",  # done
     "DoAssertIf",
     "DoSpecialize",
     "DoAddUnsafeGuard",
-    "DoDeleteConfig",
+    "DoDeleteConfig",  # done
     "DoFuseIf",
     "DoStageMem",
     "DoStageWindow",
@@ -3798,10 +3789,10 @@ __all__ = [
     "DoRearrangeDim",
     "DoDivideDim",
     "DoMultiplyDim",
-    "DoRemoveLoop",
+    "DoRemoveLoop",  # done
     "DoLiftAllocSimple",
     "DoFissionAfterSimple",
-    "DoProductLoop",
+    "DoProductLoop",  # done
     "DoCommuteExpr",
-    "DoMergeWrites",
+    "DoMergeWrites",  # done
 ]
