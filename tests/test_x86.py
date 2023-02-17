@@ -598,3 +598,192 @@ def test_avx2_assoc_reduce_add_ps(compiler):
         ),
         np.array([0.11827405109974021], dtype=np.float32),
     )
+
+
+def test_mm256_broadcast_ss_scalar(compiler):
+    @proc
+    def mm256_broadcast_ss_scalar_wrapper(out: f32[8] @ DRAM, val: f32[1] @ DRAM):
+        tmp_val: f32
+        tmp_val = val[0]
+        tmp_buffer_0: f32[8] @ AVX2
+        mm256_loadu_ps(tmp_buffer_0, out)
+        mm256_broadcast_ss_scalar(tmp_buffer_0, tmp_val)
+        mm256_storeu_ps(out, tmp_buffer_0)
+        val[0] = tmp_val
+
+    @proc
+    def mm256_broadcast_ss_scalar_ref(out: f32[8] @ DRAM, val: f32[1] @ DRAM):
+        # @instr {out_data} = _mm256_broadcast_ss(*{val});
+        assert stride(out, 0) == 1
+        for i in seq(0, 8):
+            out[i] = val[0]
+
+    fn = compiler.compile(
+        [mm256_broadcast_ss_scalar_wrapper, mm256_broadcast_ss_scalar_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+
+    out = np.array(
+        [
+            0.8352003,
+            0.119042955,
+            0.05500923,
+            0.9115426,
+            0.8030574,
+            0.07465152,
+            0.5667018,
+            0.53294945,
+        ],
+        dtype=np.float32,
+    )
+    val = np.array([2.44])
+    out_copy = out.copy()
+    val_copy = val.copy()
+
+    getattr(fn, "mm256_broadcast_ss_scalar_wrapper")(None, out, val)
+    getattr(fn, "mm256_broadcast_ss_scalar_ref")(None, out_copy, val_copy)
+
+    np.testing.assert_almost_equal(out, out_copy)
+    np.testing.assert_almost_equal(val, val_copy)
+
+
+def test_mm256_add_ps(compiler):
+    @proc
+    def mm256_add_ps_wrapper(out: f32[8] @ DRAM, x: f32[8] @ DRAM, y: f32[8] @ DRAM):
+        tmp_buffer_0: f32[8] @ AVX2
+        mm256_loadu_ps(tmp_buffer_0, out)
+        tmp_buffer_1: f32[8] @ AVX2
+        mm256_loadu_ps(tmp_buffer_1, x)
+        tmp_buffer_2: f32[8] @ AVX2
+        mm256_loadu_ps(tmp_buffer_2, y)
+        mm256_add_ps(tmp_buffer_0, tmp_buffer_1, tmp_buffer_2)
+        mm256_storeu_ps(out, tmp_buffer_0)
+        mm256_storeu_ps(x, tmp_buffer_1)
+        mm256_storeu_ps(y, tmp_buffer_2)
+
+    @proc
+    def mm256_add_ps_ref(out: f32[8] @ DRAM, x: f32[8] @ DRAM, y: f32[8] @ DRAM):
+        # @instr {out_data} _mm256_add_ps ({x_data}, {y_data});
+        assert stride(out, 0) == 1
+        assert stride(x, 0) == 1
+        assert stride(y, 0) == 1
+        for i in seq(0, 8):
+            out[i] = x[i] + y[i]
+
+    fn = compiler.compile(
+        [mm256_add_ps_wrapper, mm256_add_ps_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+
+    out = np.array(
+        [
+            0.19168626,
+            0.9292728,
+            0.08044847,
+            0.118411385,
+            0.586027,
+            0.9493457,
+            0.91186064,
+            0.97682995,
+        ],
+        dtype=np.float32,
+    )
+    x = np.array(
+        [
+            0.29922104,
+            0.6485327,
+            0.111039855,
+            0.12260633,
+            0.86832726,
+            0.06105361,
+            0.26866043,
+            0.38205943,
+        ],
+        dtype=np.float32,
+    )
+    y = np.array(
+        [
+            0.30989048,
+            0.3230521,
+            0.70411354,
+            0.117873766,
+            0.5853253,
+            0.08196206,
+            0.31477037,
+            0.8284393,
+        ],
+        dtype=np.float32,
+    )
+    out_copy = out.copy()
+    x_copy = x.copy()
+    y_copy = y.copy()
+
+    getattr(fn, "mm256_add_ps_wrapper")(None, out, x, y)
+    getattr(fn, "mm256_add_ps_ref")(None, out_copy, x_copy, y_copy)
+
+    np.testing.assert_almost_equal(out, out_copy)
+    np.testing.assert_almost_equal(x, x_copy)
+    np.testing.assert_almost_equal(y, y_copy)
+
+
+def test_mm256_reg_copy(compiler):
+    @proc
+    def mm256_reg_copy_wrapper(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
+        tmp_buffer_0: f32[8] @ AVX2
+        mm256_loadu_ps(tmp_buffer_0, dst)
+        tmp_buffer_1: f32[8] @ AVX2
+        mm256_loadu_ps(tmp_buffer_1, src)
+        mm256_reg_copy(tmp_buffer_0, tmp_buffer_1)
+        mm256_storeu_ps(dst, tmp_buffer_0)
+        mm256_storeu_ps(src, tmp_buffer_1)
+
+    @proc
+    def mm256_reg_copy_ref(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
+        # @instr {dst_data} = {src_data};
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 8):
+            dst[i] = src[i]
+
+    fn = compiler.compile(
+        [mm256_reg_copy_wrapper, mm256_reg_copy_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+
+    dst = np.array(
+        [
+            0.95774984,
+            0.5476575,
+            0.2301955,
+            0.69115007,
+            0.6172301,
+            0.37313432,
+            0.5556015,
+            0.7339064,
+        ],
+        dtype=np.float32,
+    )
+    src = np.array(
+        [
+            0.29309168,
+            0.034619242,
+            0.0769644,
+            0.9533431,
+            0.11209598,
+            0.5699761,
+            0.36666384,
+            0.32560244,
+        ],
+        dtype=np.float32,
+    )
+    dst_copy = dst.copy()
+    src_copy = src.copy()
+
+    getattr(fn, "mm256_reg_copy_wrapper")(None, dst, src)
+    getattr(fn, "mm256_reg_copy_ref")(None, dst_copy, src_copy)
+
+    np.testing.assert_almost_equal(dst, dst_copy)
+    np.testing.assert_almost_equal(src, src_copy)
