@@ -519,7 +519,8 @@ class Compiler:
         allocates_static_memory = False
         for s in stmts:
             if isinstance(s, LoopIR.Alloc):
-                allocates_static_memory |= issubclass(s.mem, StaticMemory)
+                mem = s.mem if s.mem else DRAM
+                allocates_static_memory |= issubclass(mem, StaticMemory)
 
         is_leaf_proc = True
         for s in stmts:
