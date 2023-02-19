@@ -600,6 +600,7 @@ def test_avx2_assoc_reduce_add_ps(compiler):
     )
 
 
+@pytest.mark.isa("AVX2")
 def test_mm256_broadcast_ss_scalar(compiler):
     @proc
     def mm256_broadcast_ss_scalar_wrapper(out: f32[8] @ DRAM, val: f32[1] @ DRAM):
@@ -648,6 +649,7 @@ def test_mm256_broadcast_ss_scalar(compiler):
     np.testing.assert_almost_equal(val, val_copy)
 
 
+@pytest.mark.isa("AVX2")
 def test_mm256_add_ps(compiler):
     @proc
     def mm256_add_ps_wrapper(out: f32[8] @ DRAM, x: f32[8] @ DRAM, y: f32[8] @ DRAM):
@@ -728,6 +730,7 @@ def test_mm256_add_ps(compiler):
     np.testing.assert_almost_equal(y, y_copy)
 
 
+@pytest.mark.isa("AVX2")
 def test_mm256_reg_copy(compiler):
     @proc
     def mm256_reg_copy_wrapper(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
