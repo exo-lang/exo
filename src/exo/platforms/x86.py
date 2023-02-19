@@ -99,6 +99,15 @@ def mm256_add_ps(out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2):
         out[i] = x[i] + y[i]
 
 
+@instr("{dst_data} = _mm256_add_ps ({src_data}, {dst_data});")
+def mm256_reduce_add_wide_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] += src[i]
+
+
 @instr("{dst_data} = {src_data};")
 def mm256_reg_copy(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
     assert stride(dst, 0) == 1
@@ -308,3 +317,12 @@ def avx2_assoc_reduce_add_ps(x: [f32][8] @ AVX2, result: f32):
     assert stride(x, 0) == 1
     for i in seq(0, 8):
         result += x[i]
+
+
+@instr("{dst_data} = _mm256_mul_ps({src_data}, _mm256_set1_ps(-1.0f));")
+def mm256_sign_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = -src[i]
