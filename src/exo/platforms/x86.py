@@ -319,7 +319,7 @@ def avx2_sign_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
         dst[i] = -src[i]
 
 
-@instr("{dst_data} = _mm256_add_ps ({src_data}, {dst_data});")
+@instr("{dst_data} = _mm256_add_ps({src_data}, {dst_data});")
 def avx2_reduce_add_wide_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
