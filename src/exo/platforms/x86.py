@@ -89,7 +89,7 @@ def mm256_mul_ps(out: f32[8] @ AVX2, x: f32[8] @ AVX2, y: f32[8] @ AVX2):
         out[i] = x[i] * y[i]
 
 
-@instr("{out_data} = _mm256_add_ps ({x_data}, {y_data});")
+@instr("{out_data} = _mm256_add_ps({x_data}, {y_data});")
 def mm256_add_ps(out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2):
     assert stride(out, 0) == 1
     assert stride(x, 0) == 1
