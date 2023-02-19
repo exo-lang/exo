@@ -790,26 +790,26 @@ def test_mm256_reg_copy(compiler):
 
 
 @pytest.mark.isa("AVX2")
-def test_mm256_sign_ps(compiler):
+def test_avx2_sign_ps(compiler):
     @proc
-    def mm256_sign_ps_wrapper(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
+    def avx2_sign_ps_wrapper(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
         tmp_buffer_0: f32[8] @ AVX2
         mm256_loadu_ps(tmp_buffer_0, dst)
         tmp_buffer_1: f32[8] @ AVX2
         mm256_loadu_ps(tmp_buffer_1, src)
-        mm256_sign_ps(tmp_buffer_0, tmp_buffer_1)
+        avx2_sign_ps(tmp_buffer_0, tmp_buffer_1)
         mm256_storeu_ps(dst, tmp_buffer_0)
         mm256_storeu_ps(src, tmp_buffer_1)
 
     @proc
-    def mm256_sign_ps_ref(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
+    def avx2_sign_ps_ref(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
         assert stride(dst, 0) == 1
         assert stride(src, 0) == 1
         for i in seq(0, 8):
             dst[i] = -src[i]
 
     fn = compiler.compile(
-        [mm256_sign_ps_wrapper, mm256_sign_ps_ref],
+        [avx2_sign_ps_wrapper, avx2_sign_ps_ref],
         skip_on_fail=True,
         CMAKE_C_FLAGS="-march=skylake",
     )
@@ -844,34 +844,34 @@ def test_mm256_sign_ps(compiler):
     dst_copy = dst.copy()
     src_copy = src.copy()
 
-    getattr(fn, "mm256_sign_ps_wrapper")(None, dst, src)
-    getattr(fn, "mm256_sign_ps_ref")(None, dst_copy, src_copy)
+    getattr(fn, "avx2_sign_ps_wrapper")(None, dst, src)
+    getattr(fn, "avx2_sign_ps_ref")(None, dst_copy, src_copy)
 
     np.testing.assert_almost_equal(dst, dst_copy)
     np.testing.assert_almost_equal(src, src_copy)
 
 
 @pytest.mark.isa("AVX2")
-def test_mm256_reduce_add_wide_ps(compiler):
+def test_avx2_reduce_add_wide_ps(compiler):
     @proc
-    def mm256_reduce_add_wide_ps_wrapper(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
+    def avx2_reduce_add_wide_ps_wrapper(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
         tmp_buffer_0: f32[8] @ AVX2
         mm256_loadu_ps(tmp_buffer_0, dst)
         tmp_buffer_1: f32[8] @ AVX2
         mm256_loadu_ps(tmp_buffer_1, src)
-        mm256_reduce_add_wide_ps(tmp_buffer_0, tmp_buffer_1)
+        avx2_reduce_add_wide_ps(tmp_buffer_0, tmp_buffer_1)
         mm256_storeu_ps(dst, tmp_buffer_0)
         mm256_storeu_ps(src, tmp_buffer_1)
 
     @proc
-    def mm256_reduce_add_wide_ps_ref(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
+    def avx2_reduce_add_wide_ps_ref(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
         assert stride(dst, 0) == 1
         assert stride(src, 0) == 1
         for i in seq(0, 8):
             dst[i] += src[i]
 
     fn = compiler.compile(
-        [mm256_reduce_add_wide_ps_wrapper, mm256_reduce_add_wide_ps_ref],
+        [avx2_reduce_add_wide_ps_wrapper, avx2_reduce_add_wide_ps_ref],
         skip_on_fail=True,
         CMAKE_C_FLAGS="-march=skylake",
     )
@@ -905,8 +905,8 @@ def test_mm256_reduce_add_wide_ps(compiler):
     dst_copy = dst.copy()
     src_copy = src.copy()
 
-    getattr(fn, "mm256_reduce_add_wide_ps_wrapper")(None, dst, src)
-    getattr(fn, "mm256_reduce_add_wide_ps_ref")(None, dst_copy, src_copy)
+    getattr(fn, "avx2_reduce_add_wide_ps_wrapper")(None, dst, src)
+    getattr(fn, "avx2_reduce_add_wide_ps_ref")(None, dst_copy, src_copy)
 
     np.testing.assert_almost_equal(dst, dst_copy)
     np.testing.assert_almost_equal(src, src_copy)
