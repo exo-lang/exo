@@ -273,7 +273,7 @@ class DoPartitionLoop(LoopIR_Rewrite):
                     f"expected the new loop bound {new_hi} to be always non-negative"
                 )
 
-            loop1 = s.update(hi=part_by, eff=None)
+            loop1 = Alpha_Rename([s.update(hi=part_by, eff=None)]).result()[0]
 
             # all uses of the loop iteration in the second body need
             # to be offset by the partition value
@@ -283,7 +283,9 @@ class DoPartitionLoop(LoopIR_Rewrite):
             env = {s.iter: iter_off}
 
             body2 = SubstArgs(s.body, env).result()
-            loop2 = s.update(iter=iter2, hi=new_hi, body=body2, eff=None)
+            loop2 = Alpha_Rename(
+                [s.update(iter=iter2, hi=new_hi, body=body2, eff=None)]
+            ).result()[0]
 
             return [loop1, loop2]
 
