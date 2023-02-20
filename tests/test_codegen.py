@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from exo import proc, Procedure, DRAM, compile_procs_to_strings
-from exo.libs.memories import MDRAM, MemGenError
+from exo.libs.memories import MDRAM, MemGenError, StaticMemory
 from exo.stdlib.scheduling import *
 
 mock_registers = 0
@@ -439,3 +439,25 @@ def test_const_buffer_parameters(golden, compiler):
     code = f"{h_file}\n{c_file}"
 
     assert code == golden
+
+
+# Tests for static memory
+
+
+def test_static_memory_check(compiler):
+    @proc
+    def callee():
+        pass
+
+    @proc
+    def caller():
+        x: R
+        if 1 < 2:
+            y: R @ StaticMemory
+        for i in seq(0, 8):
+            callee()
+
+    with pytest.raises(
+        MemGenError, match="Cannot generate static memory in non-leaf procs"
+    ):
+        compiler.compile(caller)
