@@ -491,7 +491,7 @@ class Compiler:
             if not isinstance(pred, LoopIR.Const):
                 self.add_line(f"EXO_ASSUME({self.comp_e(pred)});")
 
-        if not self.static_memory_check(self.proc.body):
+        if not self.static_memory_check(self.proc):
             raise MemGenError("Cannot generate static memory in non-leaf procs")
 
         self.comp_stmts(self.proc.body)
@@ -515,22 +515,36 @@ class Compiler:
         self.proc_decl = proc_decl
         self.proc_def = proc_def
 
-    def static_memory_check(self, stmts):
-        allocates_static_memory = False
-        for s in stmts:
-            if isinstance(s, LoopIR.Alloc):
-                mem = s.mem if s.mem else DRAM
-                allocates_static_memory |= issubclass(mem, StaticMemory)
+    def static_memory_check(self, proc):
+        def allocates_static_memory(stmts):
+            check = False
+            for s in stmts:
+                if isinstance(s, LoopIR.Alloc):
+                    mem = s.mem if s.mem else DRAM
+                    check |= issubclass(mem, StaticMemory)
+                elif isinstance(s, LoopIR.Seq):
+                    check |= allocates_static_memory(s.body)
+                elif isinstance(s, LoopIR.If):
+                    check |= allocates_static_memory(s.body)
+                    check |= allocates_static_memory(s.orelse)
+            return check
 
-        is_leaf_proc = True
-        for s in stmts:
-            if isinstance(s, LoopIR.Call):
-                # Since intrinsics don't allocate memory, we can ignore
-                # them for leaf-node classification purposes. We want
-                # to avoid nested procs that both allocate static memory.
-                is_leaf_proc &= s.f.instr is not None
+        def is_leaf_proc(stmts):
+            check = True
+            for s in stmts:
+                if isinstance(s, LoopIR.Call):
+                    # Since intrinsics don't allocate memory, we can ignore
+                    # them for leaf-node classification purposes. We want
+                    # to avoid nested procs that both allocate static memory.
+                    check &= s.f.instr is not None
+                elif isinstance(s, LoopIR.Seq):
+                    check &= is_leaf_proc(s.body)
+                elif isinstance(s, LoopIR.If):
+                    check &= is_leaf_proc(s.body)
+                    check &= is_leaf_proc(s.orelse)
+            return check
 
-        return not allocates_static_memory or is_leaf_proc
+        return not allocates_static_memory(proc.body) or is_leaf_proc(proc.body)
 
     def add_line(self, line):
         if line:
