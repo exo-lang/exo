@@ -3452,15 +3452,25 @@ class DoAssertIf(Cursor_Rewrite):
         if s is self.if_stmt:
             # check if the condition matches the asserted constant
             cond_node = LoopIR.Const(self.cond, T.bool, s.srcinfo)
-            Check_ExprEqvInContext(self.orig_proc, s.cond, [s], cond_node)
+            Check_ExprEqvInContext(self.orig_proc._node(), s.cond, [s], cond_node)
             # if so, then we can simplify away the guard
             if self.cond:
-                return self.map_stmts(sc.body())
+                body = self.map_stmts(sc.body())
+                if body is None:
+                    return [node._node() for node in sc.body()]
+                else:
+                    return body
             else:
-                return self.map_stmts(sc.orelse())
+                orelse = self.map_stmts(sc.orelse())
+                if orelse is None:
+                    return [node._node() for node in sc.orelse()]
+                else:
+                    return orelse
         elif isinstance(s, LoopIR.Seq):
             body = self.map_stmts(sc.body())
-            if not body:
+            if body is None:
+                return None
+            elif body == []:
                 return []
             else:
                 return [s.update(body=body)]
