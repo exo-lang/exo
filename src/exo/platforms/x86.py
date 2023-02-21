@@ -80,7 +80,7 @@ def mm256_fmadd_ps_broadcast(
 
 
 @instr("{out_data} = _mm256_mul_ps({x_data}, {y_data});")
-def mm256_mul_ps(out: f32[8] @ AVX2, x: f32[8] @ AVX2, y: f32[8] @ AVX2):
+def mm256_mul_ps(out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2):
     assert stride(out, 0) == 1
     assert stride(x, 0) == 1
     assert stride(y, 0) == 1
@@ -157,10 +157,10 @@ def mm512_mask_storeu_ps(N: size, dst: [f32][N] @ DRAM, src: [f32][16] @ AVX512)
             dst[i] = src[i]
 
 
-@instr("{C_data} = _mm512_fmadd_ps({A}, {B}, {C_data});")
+@instr("{C_data} = _mm512_fmadd_ps({A_data}, {B_data}, {C_data});")
 def mm512_fmadd_ps(
-    A: f32[16] @ AVX512,
-    B: f32[16] @ AVX512,
+    A: [f32][16] @ AVX512,
+    B: [f32][16] @ AVX512,
     C: [f32][16] @ AVX512,
 ):
     assert stride(A, 0) == 1
@@ -171,11 +171,13 @@ def mm512_fmadd_ps(
         C[i] += A[i] * B[i]
 
 
-@instr("{C_data} = _mm512_mask_fmadd_ps({A}, ((1 << {N}) - 1), {B}, {C_data});")
+@instr(
+    "{C_data} = _mm512_mask_fmadd_ps({A_data}, ((1 << {N}) - 1), {B_data}, {C_data});"
+)
 def mm512_mask_fmadd_ps(
     N: size,
-    A: f32[16] @ AVX512,
-    B: f32[16] @ AVX512,
+    A: [f32][16] @ AVX512,
+    B: [f32][16] @ AVX512,
     C: [f32][16] @ AVX512,
 ):
     assert N >= 1
@@ -205,10 +207,10 @@ def mm512_relu_ps(dst: [f32][16] @ AVX512, src: [f32][16] @ AVX512):
 #  overcompute. We'll revisit the proper way of doing this post-deadline.
 
 
-@instr("{dst} = _mm512_set1_ps({src_data});")
+@instr("{dst_data} = _mm512_set1_ps({src_data});")
 def mm512_mask_set1_ps(
     N: size,
-    dst: f32[16] @ AVX512,
+    dst: [f32][16] @ AVX512,
     src: [f32][1],
 ):
     assert N >= 1
@@ -223,9 +225,9 @@ def mm512_mask_set1_ps(
 # ---------------------------------------------------------------------------- #
 
 
-@instr("{dst} = _mm512_set1_ps({src_data});")
+@instr("{dst_data} = _mm512_set1_ps({src_data});")
 def mm512_set1_ps(
-    dst: f32[16] @ AVX512,
+    dst: [f32][16] @ AVX512,
     src: [f32][1],
 ):
     assert stride(dst, 0) == 1
