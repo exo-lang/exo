@@ -197,7 +197,7 @@ if (M == 1) {
 
 /* relying on the following instruction..."
 mm512_fmadd_ps(A,B,C)
-{C_data} = _mm512_fmadd_ps({A}, {B}, {C_data});
+{C_data} = _mm512_fmadd_ps({A_data}, {B_data}, {C_data});
 */
 
 /* relying on the following instruction..."
@@ -207,12 +207,12 @@ mm512_loadu_ps(dst,src)
 
 /* relying on the following instruction..."
 mm512_mask_fmadd_ps(N,A,B,C)
-{C_data} = _mm512_mask_fmadd_ps({A}, ((1 << {N}) - 1), {B}, {C_data});
+{C_data} = _mm512_mask_fmadd_ps({A_data}, ((1 << {N}) - 1), {B_data}, {C_data});
 */
 
 /* relying on the following instruction..."
 mm512_mask_set1_ps(N,dst,src)
-{dst} = _mm512_set1_ps({src_data});
+{dst_data} = _mm512_set1_ps({src_data});
 */
 
 /* relying on the following instruction..."
@@ -227,7 +227,7 @@ mm512_maskz_loadu_ps(N,dst,src)
 
 /* relying on the following instruction..."
 mm512_set1_ps(dst,src)
-{dst} = _mm512_set1_ps({src_data});
+{dst_data} = _mm512_set1_ps({src_data});
 */
 
 /* relying on the following instruction..."
@@ -257,10 +257,10 @@ if (((N) / (16)) == 0) {
   for (int k = 0; k < K; k++) {
     for (int i = 0; i < 6; i++) {
       __m512 A_reg2;
-      (A_reg2) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+      A_reg2 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
       __m512 B_reg2;
       B_reg2 = _mm512_maskz_loadu_ps(((1 << (N)) - 1), &B.data[(k) * (B.strides[0]) + (0) * (B.strides[1])]);
-      C_reg_1[i] = _mm512_mask_fmadd_ps((A_reg2), ((1 << (N)) - 1), (B_reg2), C_reg_1[i]);
+      C_reg_1[i] = _mm512_mask_fmadd_ps(A_reg2, ((1 << (N)) - 1), B_reg2, C_reg_1[i]);
     }
   }
   for (int i = 0; i < 6; i++) {
@@ -280,16 +280,16 @@ if (((N) / (16)) == 0) {
       for (int i = 0; i < 6; i++) {
         for (int jo = 0; jo < 1; jo++) {
           __m512 A_reg;
-          (A_reg) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+          A_reg = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
           __m512 B_reg;
           B_reg = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-          C_reg[i][jo] = _mm512_fmadd_ps((A_reg), (B_reg), C_reg[i][jo]);
+          C_reg[i][jo] = _mm512_fmadd_ps(A_reg, B_reg, C_reg[i][jo]);
         }
         __m512 A_reg2;
-        (A_reg2) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+        A_reg2 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
         __m512 B_reg2;
         B_reg2 = _mm512_maskz_loadu_ps(((1 << (N % 16)) - 1), &B.data[(k) * (B.strides[0]) + (16) * (B.strides[1])]);
-        C_reg_1[i] = _mm512_mask_fmadd_ps((A_reg2), ((1 << (N % 16)) - 1), (B_reg2), C_reg_1[i]);
+        C_reg_1[i] = _mm512_mask_fmadd_ps(A_reg2, ((1 << (N % 16)) - 1), B_reg2, C_reg_1[i]);
       }
     }
     for (int i = 0; i < 6; i++) {
@@ -312,16 +312,16 @@ if (((N) / (16)) == 0) {
         for (int i = 0; i < 6; i++) {
           for (int jo = 0; jo < 2; jo++) {
             __m512 A_reg;
-            (A_reg) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+            A_reg = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
             __m512 B_reg;
             B_reg = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-            C_reg[i][jo] = _mm512_fmadd_ps((A_reg), (B_reg), C_reg[i][jo]);
+            C_reg[i][jo] = _mm512_fmadd_ps(A_reg, B_reg, C_reg[i][jo]);
           }
           __m512 A_reg2;
-          (A_reg2) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+          A_reg2 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
           __m512 B_reg2;
           B_reg2 = _mm512_maskz_loadu_ps(((1 << (N % 16)) - 1), &B.data[(k) * (B.strides[0]) + (32) * (B.strides[1])]);
-          C_reg_1[i] = _mm512_mask_fmadd_ps((A_reg2), ((1 << (N % 16)) - 1), (B_reg2), C_reg_1[i]);
+          C_reg_1[i] = _mm512_mask_fmadd_ps(A_reg2, ((1 << (N % 16)) - 1), B_reg2, C_reg_1[i]);
         }
       }
       for (int i = 0; i < 6; i++) {
@@ -344,16 +344,16 @@ if (((N) / (16)) == 0) {
           for (int i = 0; i < 6; i++) {
             for (int jo = 0; jo < 3; jo++) {
               __m512 A_reg;
-              (A_reg) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+              A_reg = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
               __m512 B_reg;
               B_reg = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-              C_reg[i][jo] = _mm512_fmadd_ps((A_reg), (B_reg), C_reg[i][jo]);
+              C_reg[i][jo] = _mm512_fmadd_ps(A_reg, B_reg, C_reg[i][jo]);
             }
             __m512 A_reg2;
-            (A_reg2) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+            A_reg2 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
             __m512 B_reg2;
             B_reg2 = _mm512_maskz_loadu_ps(((1 << (N % 16)) - 1), &B.data[(k) * (B.strides[0]) + (48) * (B.strides[1])]);
-            C_reg_1[i] = _mm512_mask_fmadd_ps((A_reg2), ((1 << (N % 16)) - 1), (B_reg2), C_reg_1[i]);
+            C_reg_1[i] = _mm512_mask_fmadd_ps(A_reg2, ((1 << (N % 16)) - 1), B_reg2, C_reg_1[i]);
           }
         }
         for (int i = 0; i < 6; i++) {
@@ -375,16 +375,16 @@ if (((N) / (16)) == 0) {
           for (int i = 0; i < 6; i++) {
             for (int jo = 0; jo < ((N) / (16)); jo++) {
               __m512 A_reg;
-              (A_reg) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+              A_reg = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
               __m512 B_reg;
               B_reg = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-              C_reg[i][jo] = _mm512_fmadd_ps((A_reg), (B_reg), C_reg[i][jo]);
+              C_reg[i][jo] = _mm512_fmadd_ps(A_reg, B_reg, C_reg[i][jo]);
             }
             __m512 A_reg2;
-            (A_reg2) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+            A_reg2 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
             __m512 B_reg2;
             B_reg2 = _mm512_maskz_loadu_ps(((1 << (N % 16)) - 1), &B.data[(k) * (B.strides[0]) + (16 * ((N) / (16))) * (B.strides[1])]);
-            C_reg_1[i] = _mm512_mask_fmadd_ps((A_reg2), ((1 << (N % 16)) - 1), (B_reg2), C_reg_1[i]);
+            C_reg_1[i] = _mm512_mask_fmadd_ps(A_reg2, ((1 << (N % 16)) - 1), B_reg2, C_reg_1[i]);
           }
         }
         for (int i = 0; i < 6; i++) {
@@ -587,11 +587,11 @@ for (int i = 0; i < 1; i++) {
 for (int k = 0; k < K; k++) {
   for (int i = 0; i < 1; i++) {
     __m512 A_vec;
-    (A_vec) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+    A_vec = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
     for (int jo = 0; jo < 4; jo++) {
       __m512 B_vec;
       B_vec = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-      C_reg[i][jo] = _mm512_fmadd_ps((A_vec), (B_vec), C_reg[i][jo]);
+      C_reg[i][jo] = _mm512_fmadd_ps(A_vec, B_vec, C_reg[i][jo]);
     }
   }
 }
@@ -622,11 +622,11 @@ for (int i = 0; i < 2; i++) {
 for (int k = 0; k < K; k++) {
   for (int i = 0; i < 2; i++) {
     __m512 A_vec;
-    (A_vec) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+    A_vec = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
     for (int jo = 0; jo < 4; jo++) {
       __m512 B_vec;
       B_vec = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-      C_reg[i][jo] = _mm512_fmadd_ps((A_vec), (B_vec), C_reg[i][jo]);
+      C_reg[i][jo] = _mm512_fmadd_ps(A_vec, B_vec, C_reg[i][jo]);
     }
   }
 }
@@ -657,11 +657,11 @@ for (int i = 0; i < 3; i++) {
 for (int k = 0; k < K; k++) {
   for (int i = 0; i < 3; i++) {
     __m512 A_vec;
-    (A_vec) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+    A_vec = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
     for (int jo = 0; jo < 4; jo++) {
       __m512 B_vec;
       B_vec = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-      C_reg[i][jo] = _mm512_fmadd_ps((A_vec), (B_vec), C_reg[i][jo]);
+      C_reg[i][jo] = _mm512_fmadd_ps(A_vec, B_vec, C_reg[i][jo]);
     }
   }
 }
@@ -692,11 +692,11 @@ for (int i = 0; i < 4; i++) {
 for (int k = 0; k < K; k++) {
   for (int i = 0; i < 4; i++) {
     __m512 A_vec;
-    (A_vec) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+    A_vec = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
     for (int jo = 0; jo < 4; jo++) {
       __m512 B_vec;
       B_vec = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-      C_reg[i][jo] = _mm512_fmadd_ps((A_vec), (B_vec), C_reg[i][jo]);
+      C_reg[i][jo] = _mm512_fmadd_ps(A_vec, B_vec, C_reg[i][jo]);
     }
   }
 }
@@ -727,11 +727,11 @@ for (int i = 0; i < 5; i++) {
 for (int k = 0; k < K; k++) {
   for (int i = 0; i < 5; i++) {
     __m512 A_vec;
-    (A_vec) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+    A_vec = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
     for (int jo = 0; jo < 4; jo++) {
       __m512 B_vec;
       B_vec = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-      C_reg[i][jo] = _mm512_fmadd_ps((A_vec), (B_vec), C_reg[i][jo]);
+      C_reg[i][jo] = _mm512_fmadd_ps(A_vec, B_vec, C_reg[i][jo]);
     }
   }
 }
@@ -762,11 +762,11 @@ for (int i = 0; i < 6; i++) {
 for (int k = 0; k < K; k++) {
   for (int i = 0; i < 6; i++) {
     __m512 A_vec;
-    (A_vec) = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+    A_vec = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
     for (int jo = 0; jo < 4; jo++) {
       __m512 B_vec;
       B_vec = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + (16 * jo) * (B.strides[1])]);
-      C_reg[i][jo] = _mm512_fmadd_ps((A_vec), (B_vec), C_reg[i][jo]);
+      C_reg[i][jo] = _mm512_fmadd_ps(A_vec, B_vec, C_reg[i][jo]);
     }
   }
 }
