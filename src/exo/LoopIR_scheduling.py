@@ -1659,7 +1659,7 @@ class DoRearrangeDim(Cursor_Rewrite):
     def check_permute_window(self, buf, idx):
         # for now just enforce a stability criteria on windowing
         # expressions w.r.t. dimension reordering
-        permutation = self.all_permute[name]
+        permutation = self.all_permute[buf]
         # where each index of the output window now refers to in the
         # buffer being windowed
         keep_perm = [i for i in permutation if isinstance(idx[i], LoopIR.Interval)]

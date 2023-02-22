@@ -57,6 +57,49 @@ class Neon4f(Memory):
         return f"{baseptr}{idxs}"
 
 
+class Neon4x4f(Memory):
+    @classmethod
+    def global_(cls):
+        return "#include <arm_neon.h>"
+
+    @classmethod
+    def can_read(cls):
+        return False
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        if not shape:
+            raise MemGenError(f"{srcinfo}: Neon vectors are not scalar values")
+        if not prim_type == "float":
+            raise MemGenError(f"{srcinfo}: Neon4x4f vectors must be f32")
+        if not _is_const_size(shape[-1], 4):
+            raise MemGenError(f"{srcinfo}: Neon4x4f vectors must be 4-wide")
+        if not _is_const_size(shape[-2], 4):
+            raise MemGenError(f"{srcinfo}: Neon4x4f vectors must be 4-tall")
+        shape = shape[:-2]
+        if shape:
+            if not all(_is_some_const_size(s) for s in shape):
+                raise MemGenError(
+                    f"{srcinfo}: Cannot allocate variable numbers of Neon4f vectors"
+                )
+            result = f'float32x4x4_t {new_name}[{"][".join(map(str, shape))}];'
+        else:
+            result = f"float32x4x4_t {new_name};"
+        return result
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ""
+
+    @classmethod
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        assert strides[-1] == "1"
+        idxs = indices[:-2] or ""
+        if idxs:
+            idxs = "[" + "][".join(idxs) + "]"
+        return f"{baseptr}{idxs}.val[{indices[-2]}]"
+
+
 # --------------------------------------------------------------------------- #
 #   Neon intrinsics
 # --------------------------------------------------------------------------- #
@@ -169,3 +212,6 @@ def neon_vfmadd_1xf32_4xf32(
 
     for i in seq(0, 4):
         dst[i] += lhs[0] * rhs[i]
+
+
+# TODO: add vld4q_f32 for transpose, vmulq_laneq_f32, vadd alias
