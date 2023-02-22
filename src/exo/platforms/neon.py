@@ -125,9 +125,7 @@ def neon_vmul_4xf32(
 
 
 @instr("{dst_data} = {src_data};")
-def neon_reg_copy_4xf32(
-    dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f
-):
+def neon_reg_copy_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
@@ -136,9 +134,7 @@ def neon_reg_copy_4xf32(
 
 
 @instr("{dst_data} = vmulq_f32({dst_data}, {rhs_data});")
-def neon_vmul_4xf32_alias_hack(
-    dst: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f
-):
+def neon_vmul_4xf32_alias_hack(dst: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f):
     assert stride(dst, 0) == 1
     assert stride(rhs, 0) == 1
 
