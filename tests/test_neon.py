@@ -83,7 +83,7 @@ def test_neon_simple_math(compiler):
         fn(None, n, x, y)
         assert np.allclose(x, expected)
 
-
+@pytest.fixture
 def test_neon_vfmla():
     """
     Compute C[i] = A[i] * B[l]
@@ -194,3 +194,62 @@ def test_neon_simple_math_scheduling(compiler, simple_math_neon_sched):
 
         fn(None, n, x, y)
         assert np.allclose(x, expected)
+
+@pytest.mark.isa("neon")
+def test_neon_mul_alias_hack(compiler):
+    @proc
+    def neon_vmul_4xf32_alias_hack_wrapper(dst: f32[4] @ DRAM,
+                                        rhs: f32[4] @ DRAM):
+        tmp_buffer_0: f32[4] @ Neon4f
+        neon_vld_4xf32(tmp_buffer_0, dst)
+        tmp_buffer_1: f32[4] @ Neon4f
+        neon_vld_4xf32(tmp_buffer_1, rhs)
+        neon_vmul_4xf32_alias_hack(tmp_buffer_0, tmp_buffer_1)
+        neon_vst_4xf32(dst, tmp_buffer_0)
+        neon_vst_4xf32(rhs, tmp_buffer_1)
+    @proc
+    def neon_vmul_4xf32_alias_hack_ref(dst: f32[4] @ DRAM,
+                                    rhs: f32[4] @ DRAM):
+        # @instr {dst_data} = vmulq_f32({dst_data}, {rhs_data});
+        assert stride(dst, 0) == 1
+        assert stride(rhs, 0) == 1
+        for i in seq(0, 4):
+            dst[i] = dst[i] * rhs[i]
+    fn = compiler.compile([neon_vmul_4xf32_alias_hack_wrapper, neon_vmul_4xf32_alias_hack_ref], skip_on_fail=True)
+    dst = np.array([0.03267257, 0.70744205, 0.0064026015, 0.9334069], dtype=np.float32)
+    rhs = np.array([0.8566227, 0.8331061, 0.6870745, 0.078659], dtype=np.float32)
+    dst_copy = dst.copy()
+    rhs_copy = rhs.copy()
+    getattr(fn, 'neon_vmul_4xf32_alias_hack_wrapper')(None, dst, rhs)
+    getattr(fn, 'neon_vmul_4xf32_alias_hack_ref')(None, dst_copy, rhs_copy)
+    np.testing.assert_almost_equal(dst, dst_copy)
+    np.testing.assert_almost_equal(rhs, rhs_copy)
+
+@pytest.mark.isa("neon")
+def test_neon_reg_copy(compiler):
+    @proc
+    def neon_reg_copy_4xf32_wrapper(dst: f32[4] @ DRAM,
+                                    src: f32[4] @ DRAM):
+        tmp_buffer_0: f32[4] @ Neon4f
+        neon_vld_4xf32(tmp_buffer_0, dst)
+        tmp_buffer_1: f32[4] @ Neon4f
+        neon_vld_4xf32(tmp_buffer_1, src)
+        neon_reg_copy_4xf32(tmp_buffer_0, tmp_buffer_1)
+        neon_vst_4xf32(dst, tmp_buffer_0)
+        neon_vst_4xf32(src, tmp_buffer_1)
+    @proc
+    def neon_reg_copy_4xf32_ref(dst: f32[4] @ DRAM, src: f32[4] @ DRAM):
+        # @instr {dst_data} = {src_data};
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 4):
+            dst[i] = src[i]
+    fn = compiler.compile([neon_reg_copy_4xf32_wrapper, neon_reg_copy_4xf32_ref], skip_on_fail=True)
+    dst = np.array([0.673626, 0.17301883, 0.3578481, 0.25818807], dtype=np.float32)
+    src = np.array([0.077489585, 0.57495946, 0.4729017, 0.93222266], dtype=np.float32)
+    dst_copy = dst.copy()
+    src_copy = src.copy()
+    getattr(fn, 'neon_reg_copy_4xf32_wrapper')(None, dst, src)
+    getattr(fn, 'neon_reg_copy_4xf32_ref')(None, dst_copy, src_copy)
+    np.testing.assert_almost_equal(dst, dst_copy)
+    np.testing.assert_almost_equal(src, src_copy)
