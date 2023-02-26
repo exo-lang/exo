@@ -1643,6 +1643,31 @@ def merge_writes(proc, block_cursor):
     ).result()
 
 
+@sched_op([BlockCursorA(block_size=2)])
+def lift_constant(proc, block_cursor):
+    """
+    Lift a constant scaling factor out of a loop.
+
+    args:
+        block_cursor       - block of size 2 containing the zero assignment and the for loop to lift the constant out of
+
+    rewrite:
+        `x = 0.0`
+        `for i in _:`
+        `    x += c * y[i]`
+        ->
+        `x = 0.0`
+        `for i in _:`
+        `    x += y[i]`
+        `x = c * x`
+    """
+    stmt_c = block_cursor[0]._impl
+    loop_c = block_cursor[1]._impl
+    proc_c = ic.Cursor.root(proc)
+
+    return scheduling.DoLiftConstant(proc_c, stmt_c, loop_c).result()
+
+
 @sched_op([GapCursorA, PosIntA])
 def fission(proc, gap_cursor, n_lifts=1):
     """

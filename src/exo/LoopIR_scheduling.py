@@ -339,19 +339,29 @@ class DoProductLoop(Cursor_Rewrite):
         return super().map_e(e)
 
 
-def get_reads(e):
+def get_reads_of_expr(e):
     if isinstance(e, LoopIR.Read):
-        return sum([get_reads(e) for e in e.idx], [(e.name, e.type)])
+        return sum([get_reads_of_expr(e) for e in e.idx], [(e.name, e.type)])
     elif isinstance(e, LoopIR.USub):
-        return get_reads(e.arg)
+        return get_reads_of_expr(e.arg)
     elif isinstance(e, LoopIR.BinOp):
-        return get_reads(e.lhs) + get_reads(e.rhs)
+        return get_reads_of_expr(e.lhs) + get_reads_of_expr(e.rhs)
     elif isinstance(e, LoopIR.BuiltIn):
-        return sum([get_reads(a) for a in e.args], [])
+        return sum([get_reads_of_expr(a) for a in e.args], [])
     elif isinstance(e, LoopIR.Const):
         return []
     else:
-        assert False, "bad case"
+        raise NotImplementedError(f"get_reads_of_expr: {e}")
+
+
+def same_write_dest(proc_cursor, s1, s2):
+    try:
+        assert len(s1.idx) == len(s2.idx)
+        for i, j in zip(s1.idx, s2.idx):
+            Check_ExprEqvInContext(proc_cursor._node(), i, [s1], j, [s2])
+        return True
+    except SchedulingError as e:
+        return False
 
 
 class DoMergeWrites(Cursor_Rewrite):
@@ -359,18 +369,14 @@ class DoMergeWrites(Cursor_Rewrite):
         self.s1 = f_cursor._node()
         self.s2 = s_cursor._node()
 
-        try:
-            assert len(self.s1.idx) == len(self.s2.idx)
-            for i, j in zip(self.s1.idx, self.s2.idx):
-                Check_ExprEqvInContext(proc_cursor._node(), i, [self.s1], j, [self.s2])
-        except SchedulingError as e:
+        if not same_write_dest(proc_cursor, self.s1, self.s2):
             raise SchedulingError(
                 "expected the left hand side's indices to be the same."
-            ) from e
+            )
 
         if any(
             self.s1.name == name and self.s1.type == typ
-            for name, typ in get_reads(self.s2.rhs)
+            for name, typ in get_reads_of_expr(self.s2.rhs)
         ):
             raise SchedulingError(
                 "expected the right hand side of the second statement to not "
@@ -1274,7 +1280,7 @@ class DoBindExpr(Cursor_Rewrite):
         self.exprs = self.exprs if cse else [self.exprs[0]]
 
         self.new_name = Sym(new_name)
-        self.expr_reads = set(sum([get_reads(e) for e in self.exprs], []))
+        self.expr_reads = set(sum([get_reads_of_expr(e) for e in self.exprs], []))
         self.use_cse = cse
         self.found_expr = None
         self.placed_alloc = False
@@ -1543,6 +1549,135 @@ class DoLiftScope(Cursor_Rewrite):
 
     def map_e(self, e):
         return None
+
+
+def get_reads_of_stmts(stmts):
+    reads = []
+    for s in stmts:
+        if isinstance(s, LoopIR.Assign):
+            reads += get_reads_of_expr(s.rhs)
+            reads += sum([get_reads_of_expr(idx) for idx in s.idx], [])
+        elif isinstance(s, LoopIR.Reduce):
+            reads += get_reads_of_expr(s.rhs)
+            reads += sum([get_reads_of_expr(idx) for idx in s.idx], [])
+        elif isinstance(s, LoopIR.If):
+            reads += get_reads_of_stmts(s.body)
+            if s.orelse:
+                reads += get_reads_of_stmts(s.orelse)
+        elif isinstance(s, LoopIR.Seq):
+            reads += get_reads_of_stmts(s.body)
+        elif isinstance(s, LoopIR.Call):
+            reads += sum([get_reads_of_expr(arg) for arg in s.args], [])
+        elif isinstance(s, [LoopIR.WindowStmt, LoopIR.WriteConfig]):
+            raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
+        elif isinstance(s, [LoopIR.Pass, LoopIR.Alloc, LoopIR.Free]):
+            pass
+        else:
+            raise NotImplementedError(f"unknown stmt type {type(s)}")
+    return reads
+
+
+class DoLiftConstant(Cursor_Rewrite):
+    def __init__(self, proc_cursor, assign_cursor, loop_cursor):
+        self.orig_proc = proc_cursor
+        self.assign_s = assign_cursor._node()
+        self.loop = loop_cursor._node()
+        self.constant = None
+        self.modify_reduces = False
+
+        for (name, type) in get_reads_of_stmts(self.loop.body):
+            if self.assign_s.name == name and self.assign_s.type == type:
+                raise SchedulingError(
+                    "cannot lift constant because the buffer is read in the loop body"
+                )
+        if not self.check_only_scaled_reduces(self.loop.body):
+            raise SchedulingError(
+                f"cannot lift constant because the reduces to buffer {self.assign_s.name} in the loop body are not all of the same form"
+            )
+        if self.constant is None:
+            raise SchedulingError(
+                "cannot lift constant because did not find a reduce in the loop body of the form `buffer += c * expr`"
+            )
+
+        super().__init__(proc_cursor)
+
+        # repair effects...
+        self.proc = InferEffects(self.proc).result()
+
+    # check that all reduces are only of the form buffer[i] += c * expr
+    def check_only_scaled_reduces(self, stmts):
+        check = True
+        for s in stmts:
+            if isinstance(s, LoopIR.Assign):
+                if s.name == self.assign_s.name:
+                    return False
+            elif isinstance(s, LoopIR.Reduce):
+                if s.name == self.assign_s.name:
+                    if (
+                        same_write_dest(self.orig_proc, self.assign_s, s)
+                        and isinstance(s.rhs, LoopIR.BinOp)
+                        and s.rhs.op == "*"
+                        and isinstance(s.rhs.lhs, LoopIR.Const)
+                    ):
+                        if self.constant:
+                            check &= s.rhs.lhs.val == self.constant.val
+                        self.constant = s.rhs.lhs
+                    else:
+                        return False
+            elif isinstance(s, LoopIR.If):
+                check &= self.check_only_scaled_reduces(s.body)
+                if s.orelse:
+                    check &= self.check_only_scaled_reduces(s.orelse)
+            elif isinstance(s, LoopIR.Seq):
+                check &= self.check_only_scaled_reduces(s.body)
+            elif isinstance(s, LoopIR.Call):
+                check &= self.check_only_scaled_reduces(s.proc.body)
+            elif isinstance(s, [LoopIR.WindowStmt, LoopIR.WriteConfig]):
+                raise NotImplementedError(
+                    "WindowStmt and WriteConfig not supported yet"
+                )
+            elif isinstance(s, [LoopIR.Pass, LoopIR.Alloc, LoopIR.Free]):
+                pass
+            else:
+                raise NotImplementedError(f"unknown stmt type {type(s)}")
+        return check
+
+    def map_s(self, sc):
+        s = sc._node()
+        if s == self.loop:
+            assert isinstance(s, LoopIR.Seq)
+            self.modify_reduces = True
+            new_loop = super().map_s(sc)[0]
+            self.modify_reduces = False
+            # TODO: check type and srcinfo
+            scale_stmt = self.assign_s.update(
+                rhs=LoopIR.BinOp(
+                    "*",
+                    self.constant,
+                    LoopIR.Read(
+                        self.assign_s.name,
+                        self.assign_s.idx,
+                        self.assign_s.type,
+                        self.assign_s.srcinfo,
+                    ),
+                    self.assign_s.type,
+                    self.loop.srcinfo,
+                )
+            )
+            return [new_loop, scale_stmt]
+
+        if self.modify_reduces and isinstance(s, LoopIR.Reduce):
+            if s.name == self.assign_s.name and same_write_dest(
+                self.orig_proc, self.assign_s, s
+            ):
+                assert (
+                    isinstance(s.rhs, LoopIR.BinOp)
+                    and s.rhs.op == "*"
+                    and isinstance(s.rhs.lhs, LoopIR.Const)
+                )
+                return [s.update(rhs=s.rhs.rhs)]
+
+        return super().map_s(sc)
 
 
 class DoExpandDim(Cursor_Rewrite):
@@ -4019,6 +4154,7 @@ __all__ = [
     "DoAddLoop",
     "DoDataReuse",
     "DoLiftScope",
+    "DoLiftConstant",
     "DoPartitionLoop",
     "DoAssertIf",
     "DoSpecialize",

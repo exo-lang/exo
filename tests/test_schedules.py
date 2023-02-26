@@ -2117,3 +2117,112 @@ def test_assert_if2(golden):
                 b = x
 
     assert str(assert_if(foo, "if _:_ #0", False)) == golden
+
+
+def test_lift_constant_1(golden):
+    @proc
+    def foo():
+        x: R @ DRAM
+        x = 0.0
+        for i in seq(0, 8):
+            x += 3.0 * 2.0
+
+    assert str(lift_constant(foo, "x = 0.0; _")) == golden
+
+
+def test_lift_constant_2(golden):
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            for j in seq(0, 8):
+                y[i] += y[i] * 2.0
+            for k in seq(0, 8):
+                x[0] += 3.0 * y[i]
+            x[0] += 3.0 * y[i]
+
+    assert str(lift_constant(foo, "x[0] = 0.0; _")) == golden
+
+
+def test_lift_constant_3():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            x[0] += 3.0 * y[i]
+            x[1] += 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift constant because the reduces to buffer x"
+    ):
+        lift_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_constant_4():
+    @proc
+    def foo():
+        x: R[4] @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 2):
+            x[2 * j + 1] = 0.0
+            x[j + 2] = 0.0
+            for i in seq(0, 8):
+                x[2 * j + 1] += 3.0 * y[i]
+                x[j + 2] += 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift constant because the reduces to buffer x"
+    ):
+        lift_constant(foo, "x[j+2] = 0.0; _")
+
+
+def test_lift_constant_5():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            x[0] += 3.0 * y[i]
+            x[0] += 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift constant because the reduces to buffer x"
+    ):
+        lift_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_constant_6():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            y[i] = x[0]
+            x[0] += 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="cannot lift constant because the buffer is read in the loop body",
+    ):
+        lift_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_constant_7():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            y[i] = 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift constant because did not find a reduce"
+    ):
+        lift_constant(foo, "x[0] = 0.0; _")

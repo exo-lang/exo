@@ -1,0 +1,6 @@
+def foo():
+    x: R @ DRAM
+    x = 0.0
+    for i in seq(0, 8):
+        x += 2.0
+    x = 3.0 * x
