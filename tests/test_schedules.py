@@ -2119,7 +2119,7 @@ def test_assert_if2(golden):
     assert str(assert_if(foo, "if _:_ #0", False)) == golden
 
 
-def test_lift_constant_1(golden):
+def test_lift_reduce_constant_1(golden):
     @proc
     def foo():
         x: R @ DRAM
@@ -2127,10 +2127,10 @@ def test_lift_constant_1(golden):
         for i in seq(0, 8):
             x += 3.0 * 2.0
 
-    assert str(lift_constant(foo, "x = 0.0; _")) == golden
+    assert str(lift_reduce_constant(foo, "x = 0.0; _")) == golden
 
 
-def test_lift_constant_2(golden):
+def test_lift_reduce_constant_2(golden):
     @proc
     def foo():
         x: R[2] @ DRAM
@@ -2143,10 +2143,23 @@ def test_lift_constant_2(golden):
                 x[0] += 3.0 * y[i]
             x[0] += 3.0 * y[i]
 
-    assert str(lift_constant(foo, "x[0] = 0.0; _")) == golden
+    assert str(lift_reduce_constant(foo, "x[0] = 0.0; _")) == golden
 
 
-def test_lift_constant_3():
+def test_lift_reduce_constant_3(golden):
+    @proc
+    def foo():
+        x: R @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 8):
+            x = 0.0
+            for i in seq(0, 8):
+                x += y[j] * 2.0
+
+    assert str(lift_reduce_constant(foo, "x = 0.0; _")) == golden
+
+
+def test_lift_reduce_constant_bad_1():
     @proc
     def foo():
         x: R[2] @ DRAM
@@ -2159,10 +2172,10 @@ def test_lift_constant_3():
     with pytest.raises(
         SchedulingError, match="cannot lift constant because the reduces to buffer x"
     ):
-        lift_constant(foo, "x[0] = 0.0; _")
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
 
 
-def test_lift_constant_4():
+def test_lift_reduce_constant_bad_2():
     @proc
     def foo():
         x: R[4] @ DRAM
@@ -2177,10 +2190,10 @@ def test_lift_constant_4():
     with pytest.raises(
         SchedulingError, match="cannot lift constant because the reduces to buffer x"
     ):
-        lift_constant(foo, "x[j+2] = 0.0; _")
+        lift_reduce_constant(foo, "x[j+2] = 0.0; _")
 
 
-def test_lift_constant_5():
+def test_lift_reduce_constant_bad_3():
     @proc
     def foo():
         x: R[2] @ DRAM
@@ -2193,10 +2206,10 @@ def test_lift_constant_5():
     with pytest.raises(
         SchedulingError, match="cannot lift constant because the reduces to buffer x"
     ):
-        lift_constant(foo, "x[0] = 0.0; _")
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
 
 
-def test_lift_constant_6():
+def test_lift_reduce_constant_bad_4():
     @proc
     def foo():
         x: R[2] @ DRAM
@@ -2210,10 +2223,10 @@ def test_lift_constant_6():
         SchedulingError,
         match="cannot lift constant because the buffer is read in the loop body",
     ):
-        lift_constant(foo, "x[0] = 0.0; _")
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
 
 
-def test_lift_constant_7():
+def test_lift_reduce_constant_bad_5():
     @proc
     def foo():
         x: R[2] @ DRAM
@@ -2225,4 +2238,38 @@ def test_lift_constant_7():
     with pytest.raises(
         SchedulingError, match="cannot lift constant because did not find a reduce"
     ):
-        lift_constant(foo, "x[0] = 0.0; _")
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_6():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            x[0] += y[1] * 2.0
+            x[0] += y[2] * 2.0
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift constant because the reduces to buffer x"
+    ):
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_7():
+    @proc
+    def foo():
+        x: R @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 8):
+            x = 0.0
+            for i in seq(0, 8):
+                y[1] = 0.0
+                x += y[j] * 2.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="cannot lift constant because it is a buffer that is written",
+    ):
+        lift_reduce_constant(foo, "x[0] = 0.0; _")

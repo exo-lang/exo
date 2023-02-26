@@ -1644,7 +1644,7 @@ def merge_writes(proc, block_cursor):
 
 
 @sched_op([BlockCursorA(block_size=2)])
-def lift_constant(proc, block_cursor):
+def lift_reduce_constant(proc, block_cursor):
     """
     Lift a constant scaling factor out of a loop.
 

@@ -354,14 +354,18 @@ def get_reads_of_expr(e):
         raise NotImplementedError(f"get_reads_of_expr: {e}")
 
 
-def same_write_dest(proc_cursor, s1, s2):
+def same_index_exprs(proc_cursor, idx1, s1, idx2, s2):
     try:
-        assert len(s1.idx) == len(s2.idx)
-        for i, j in zip(s1.idx, s2.idx):
+        assert len(idx1) == len(idx2)
+        for i, j in zip(idx1, idx2):
             Check_ExprEqvInContext(proc_cursor._node(), i, [s1], j, [s2])
         return True
     except SchedulingError as e:
         return False
+
+
+def same_write_dest(proc_cursor, s1, s2):
+    return same_index_exprs(proc_cursor, s1.idx, s1, s2.idx, s2)
 
 
 class DoMergeWrites(Cursor_Rewrite):
@@ -1577,12 +1581,35 @@ def get_reads_of_stmts(stmts):
     return reads
 
 
+def get_writes_of_stmts(stmts):
+    writes = []
+    for s in stmts:
+        if isinstance(s, LoopIR.Assign):
+            writes += [(s.name, s.type)]
+        elif isinstance(s, LoopIR.Reduce):
+            writes += [(s.name, s.type)]
+        elif isinstance(s, LoopIR.If):
+            writes += get_writes_of_stmts(s.body)
+            if s.orelse:
+                writes += get_writes_of_stmts(s.orelse)
+        elif isinstance(s, LoopIR.Seq):
+            writes += get_writes_of_stmts(s.body)
+        elif isinstance(s, [LoopIR.WindowStmt, LoopIR.WriteConfig]):
+            raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
+        elif isinstance(s, [LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.Call]):
+            pass
+        else:
+            raise NotImplementedError(f"unknown stmt type {type(s)}")
+    return writes
+
+
 class DoLiftConstant(Cursor_Rewrite):
     def __init__(self, proc_cursor, assign_cursor, loop_cursor):
         self.orig_proc = proc_cursor
         self.assign_s = assign_cursor._node()
         self.loop = loop_cursor._node()
         self.constant = None
+        self.constant_src_stmt = None
         self.modify_reduces = False
 
         for (name, type) in get_reads_of_stmts(self.loop.body):
@@ -1598,6 +1625,17 @@ class DoLiftConstant(Cursor_Rewrite):
             raise SchedulingError(
                 "cannot lift constant because did not find a reduce in the loop body of the form `buffer += c * expr`"
             )
+
+        if isinstance(self.constant, LoopIR.Read):
+            print()
+            print(get_writes_of_stmts(self.loop.body))
+            print(self.constant)
+            for (name, type) in get_writes_of_stmts(self.loop.body):
+                print(self.constant.name, name, self.constant.type, type)
+                if self.constant.name == name and self.constant.type == type:
+                    raise SchedulingError(
+                        "cannot lift constant because it is a buffer that is written in the loop body"
+                    )
 
         super().__init__(proc_cursor)
 
@@ -1617,11 +1655,35 @@ class DoLiftConstant(Cursor_Rewrite):
                         same_write_dest(self.orig_proc, self.assign_s, s)
                         and isinstance(s.rhs, LoopIR.BinOp)
                         and s.rhs.op == "*"
-                        and isinstance(s.rhs.lhs, LoopIR.Const)
                     ):
                         if self.constant:
-                            check &= s.rhs.lhs.val == self.constant.val
-                        self.constant = s.rhs.lhs
+                            if isinstance(self.constant, LoopIR.Const):
+                                if (
+                                    not isinstance(s.rhs.lhs, LoopIR.Const)
+                                    or self.constant.val != s.rhs.lhs.val
+                                ):
+                                    return False
+                            elif isinstance(self.constant, LoopIR.Read):
+                                if (
+                                    not isinstance(s.rhs.lhs, LoopIR.Read)
+                                    or self.constant.name != s.rhs.lhs.name
+                                    or not same_index_exprs(
+                                        self.orig_proc,
+                                        self.constant.idx,
+                                        self.constant_src_stmt,
+                                        s.rhs.lhs.idx,
+                                        s,
+                                    )
+                                ):
+                                    return False
+                            else:
+                                raise TypeError("unknown type for self.constant")
+                        else:
+                            if isinstance(s.rhs.lhs, (LoopIR.Const, LoopIR.Read)):
+                                self.constant = s.rhs.lhs
+                                self.constant_src_stmt = s
+                            else:
+                                return False
                     else:
                         return False
             elif isinstance(s, LoopIR.If):
@@ -1673,7 +1735,7 @@ class DoLiftConstant(Cursor_Rewrite):
                 assert (
                     isinstance(s.rhs, LoopIR.BinOp)
                     and s.rhs.op == "*"
-                    and isinstance(s.rhs.lhs, LoopIR.Const)
+                    and isinstance(s.rhs.lhs, (LoopIR.Const, LoopIR.Read))
                 )
                 return [s.update(rhs=s.rhs.rhs)]
 
