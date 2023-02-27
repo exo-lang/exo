@@ -1,0 +1,8 @@
+def bar(x: R[64] @ DRAM, y: R[64] @ DRAM, out: R[64] @ DRAM):
+    xReg: R[16, 4] @ DRAM
+    for io in seq(0, 16):
+        for ii in seq(0, 4):
+            xReg[io, ii] = x[ii + 4 * io]
+    for io in seq(0, 16):
+        for ii in seq(0, 4):
+            out[ii + 4 * io] = xReg[io, ii] * y[ii + 4 * io]

@@ -6,6 +6,7 @@ from exo import ParseFragmentError
 from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
+from exo.platforms.x86 import *
 
 
 def test_commute(golden):
@@ -1758,6 +1759,220 @@ def test_formatted_expr_errors_2():
         )  # should be error
 
 
+def test_simplify_index_div(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) / 3] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div1(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div2(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 24) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div3(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div4(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii + 8) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div5(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 5 + ii + 1) / 5] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div_fail(golden):
+    @proc
+    def bar(N: size, x: R[1 + N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii + 1) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div_fail1(golden):
+    @proc
+    def bar(N: size, x: R[1 + N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 5):
+                x[(io * 4 + ii) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div_fail2(golden):
+    @proc
+    def bar(N: size, x: R[2 * N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 5):
+                x[(N + ii + 4 * io) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) % 5] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod1(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) % 3] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod2(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) % 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod3(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 3 + 2 * j + 3) % 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod4(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[((i * 6 + i * 4 + 5 * j + 9) % 5 + 2 * i + 2) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod5(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii) % 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_nested_div_mod(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[
+                    (
+                        (
+                            (((i * 4 + i * 12 + 2 * j + 2) % 2) + (20 * i + 40 * j) / 5)
+                            / 2
+                        )
+                        + (3 + 8 * j)
+                    )
+                    % 4
+                ] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_div_mod_staging(golden):
+    @proc
+    def bar(x: R[64], y: R[64], out: R[64]):
+        for i in seq(0, 64):
+            out[i] = x[i] * y[i]
+
+    bar = divide_loop(bar, "for i in _:_", 4, ("io", "ii"), tail="cut")
+    bar = stage_mem(bar, "for io in _:_", "x[0:64]", "xReg")
+    bar = simplify(bar)
+    bar = divide_loop(bar, "for i0 in _:_", 4, ("io", "ii"), tail="cut")
+    bar = divide_dim(bar, "xReg", 0, 4)
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
 def test_syrk_cut_loop(golden):
     @proc
     def SYRK(
@@ -1814,3 +2029,91 @@ def test_cut_loop3():
 
     with pytest.raises(TypeError, match="cut_loop: expected a positive integer"):
         foo = cut_loop(foo, "for i in _:_", -3)
+
+
+def test_mem_aware_replace(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_loadu_ps)
+    bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+    assert str(bar) == golden
+
+
+def test_mem_aware_replace_fail():
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    with pytest.raises(MemoryError, match="failed due to memory type mismatch"):
+        bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+
+
+def test_replace_all_unambiguous(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    bar = replace_all(bar, mm256_loadu_ps)
+    bar = replace_all(bar, mm256_storeu_ps)
+    assert str(bar) == golden
+
+
+def test_replace_all_arch(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
+    bar = replace_all(bar, arch)
+    print(bar)
+    assert str(bar) == golden
+
+
+def test_assert_if(golden):
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 > -1:
+                x = 0.0
+                a: R
+                a = x
+            else:
+                b: R
+                b = x
+
+    assert str(assert_if(foo, "if _:_ #0", True)) == golden
+
+
+def test_assert_if2(golden):
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 < -1:
+                x = 0.0
+                a: R
+                a = x
+            else:
+                b: R
+                b = x
+
+    assert str(assert_if(foo, "if _:_ #0", False)) == golden

@@ -76,7 +76,7 @@ class Cursor:
                | UnaryMinus( arg : Expr )
                | BinaryOp( op : str, lhs : Expr, rhs : Expr )
                | BuiltIn( name : str, args : ExprList )
-               | WindowExpr( name : str, idx : *(see below) )
+               | WindowExpr( name : Sym, idx : *(see below) )
                | BuiltIn( name : str, args : ExprList )
 
         The `idx` argument of `WindowExpr` is a list containing either
@@ -651,8 +651,8 @@ class WindowExprCursor(ExprCursor):
     expression represents a point-access in that dimension.
     """
 
-    def name(self) -> str:
-        return self._impl._node.f.name()
+    def name(self) -> Sym:
+        return self._impl._node.name
 
     def idx(self) -> List:
         def convert_w(w):

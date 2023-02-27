@@ -35,6 +35,7 @@ from .new_eff import (
     Check_IsPositiveExpr,
     Check_Aliasing,
 )
+from .range_analysis import IndexRangeAnalysis
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
 import exo.internal_cursors as ic
@@ -284,7 +285,7 @@ def DoPartitionLoop(stmt, partition_by):
             f"expected the new loop bound {new_hi} to be always non-negative"
         )
 
-    loop1 = s.update(hi=part_by, eff=None)
+    loop1 = Alpha_Rename([s.update(hi=part_by, eff=None)]).result()[0]
 
     # all uses of the loop iteration in the second body need
     # to be offset by the partition value
@@ -294,7 +295,9 @@ def DoPartitionLoop(stmt, partition_by):
     env = {s.iter: iter_off}
 
     body2 = SubstArgs(s.body, env).result()
-    loop2 = s.update(iter=iter2, hi=new_hi, body=body2, eff=None)
+    loop2 = Alpha_Rename(
+        [s.update(iter=iter2, hi=new_hi, body=body2, eff=None)]
+    ).result()[0]
 
     ir, fwd = stmt._replace([loop1, loop2])
     return _fixup_effects(ir, fwd)
@@ -2852,6 +2855,10 @@ class _DoNormalize(Cursor_Rewrite):
     # This map concatnation is handled by concat_map function.
     def __init__(self, proc_cursor):
         self.C = Sym("temporary_constant_symbol")
+        self.env = ChainMap()
+        # TODO: dispatch to Z3 to reason about preds ranges
+        for arg in proc_cursor._node().args:
+            self.env[arg.name] = None
         super().__init__(proc_cursor)
 
         self.proc = InferEffects(self.proc).result()
@@ -2900,19 +2907,20 @@ class _DoNormalize(Cursor_Rewrite):
                 + f" an indexing expression. e was {e}"
             )
 
-    def has_div_mod_config(self, e):
+    @staticmethod
+    def has_div_mod_config(e):
         if isinstance(e, LoopIR.Read):
             return False
         elif isinstance(e, LoopIR.Const):
             return False
         elif isinstance(e, LoopIR.USub):
-            return self.has_div_mod_config(e.arg)
+            return _DoNormalize.has_div_mod_config(e.arg)
         elif isinstance(e, LoopIR.BinOp):
             if e.op == "/" or e.op == "%":
                 return True
             else:
-                lhs = self.has_div_mod_config(e.lhs)
-                rhs = self.has_div_mod_config(e.rhs)
+                lhs = _DoNormalize.has_div_mod_config(e.lhs)
+                rhs = _DoNormalize.has_div_mod_config(e.rhs)
                 return lhs or rhs
         elif isinstance(e, LoopIR.ReadConfig):
             return True
@@ -2922,46 +2930,188 @@ class _DoNormalize(Cursor_Rewrite):
     # Call this when e is one indexing expression
     # e should be an indexing expression
     def index_start(self, e):
+        def get_normalized_expr(e):
+            # Make a map of symbols and coefficients
+            n_map = self.normalize_e(e)
+
+            new_e = LoopIR.Const(n_map.get(self.C, 0), T.int, e.srcinfo)
+
+            delete_zero = [
+                (n_map[v], v) for v in n_map if v != self.C and n_map[v] != 0
+            ]
+
+            return (new_e, delete_zero)
+
+        def division_simplification(e):
+            constant, normalization_list = get_normalized_expr(e.lhs)
+
+            d = e.rhs.val
+
+            non_divisible_terms = [
+                (coeff, v) for coeff, v in normalization_list if coeff % d != 0
+            ]
+
+            if len(non_divisible_terms) == 0:
+                normalization_list = [
+                    (coeff // d, v) for coeff, v in normalization_list
+                ]
+                return generate_loopIR(
+                    e.lhs, constant.update(val=constant.val // d), normalization_list
+                )
+            elif constant.val % d == 0:
+                non_divisible_expr = generate_loopIR(
+                    e.lhs, constant.update(val=0), non_divisible_terms
+                )
+                non_divisible_expr_range = IndexRangeAnalysis(
+                    non_divisible_expr, self.env
+                ).result()
+
+                if (
+                    non_divisible_expr_range is not None
+                    and 0 <= non_divisible_expr_range[0]
+                    and non_divisible_expr_range[1] < d
+                ):
+                    divisible_terms = [
+                        (coeff // d, v)
+                        for coeff, v in normalization_list
+                        if coeff % d == 0
+                    ]
+                    return generate_loopIR(
+                        e.lhs, constant.update(val=constant.val // d), divisible_terms
+                    )
+            else:
+                non_divisible_expr = generate_loopIR(
+                    e.lhs, constant, non_divisible_terms
+                )
+                non_divisible_expr_range = IndexRangeAnalysis(
+                    non_divisible_expr, self.env
+                ).result()
+
+                if (
+                    non_divisible_expr_range is not None
+                    and 0 <= non_divisible_expr_range[0]
+                    and non_divisible_expr_range[1] < d
+                ):
+                    divisible_terms = [
+                        (coeff // d, v)
+                        for coeff, v in normalization_list
+                        if coeff % d == 0
+                    ]
+                    return generate_loopIR(
+                        e.lhs, constant.update(val=0), divisible_terms
+                    )
+
+            new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
+            return LoopIR.BinOp("/", new_lhs, e.rhs, e.type, e.srcinfo)
+
+        def modulo_simplification(e):
+            constant, normalization_list = get_normalized_expr(e.lhs)
+
+            m = e.rhs.val
+
+            normalization_list = [
+                (coeff, v) for coeff, v in normalization_list if coeff % m != 0
+            ]
+
+            if len(normalization_list) == 0:
+                return constant.update(val=constant.val % m)
+
+            if constant.val % m == 0:
+                constant = constant.update(val=0)
+
+            new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
+            new_lhs_range = IndexRangeAnalysis(new_lhs, self.env).result()
+            if new_lhs_range is not None and new_lhs_range[1] < m:
+                assert new_lhs_range[0] >= 0
+                return new_lhs
+
+            return LoopIR.BinOp("%", new_lhs, e.rhs, e.type, e.srcinfo)
+
+        def generate_loopIR(e_context, constant, normalization_list):
+            def scale_read(coeff, key):
+                return LoopIR.BinOp(
+                    "*",
+                    LoopIR.Const(coeff, T.int, e_context.srcinfo),
+                    LoopIR.Read(key, [], e_context.type, e_context.srcinfo),
+                    e_context.type,
+                    e_context.srcinfo,
+                )
+
+            new_e = constant
+            for coeff, v in sorted(normalization_list):
+                if coeff > 0:
+                    new_e = LoopIR.BinOp(
+                        "+",
+                        new_e,
+                        scale_read(coeff, v),
+                        e_context.type,
+                        e_context.srcinfo,
+                    )
+                else:
+                    new_e = LoopIR.BinOp(
+                        "-",
+                        new_e,
+                        scale_read(-coeff, v),
+                        e_context.type,
+                        e_context.srcinfo,
+                    )
+            return new_e
+
         assert isinstance(e, LoopIR.expr)
-        # Div and mod need more subtle handling. Don't normalize for now.
+
+        if isinstance(e, LoopIR.BinOp):
+            new_lhs = self.index_start(e.lhs)
+            new_rhs = self.index_start(e.rhs)
+            e = e.update(lhs=new_lhs, rhs=new_rhs)
+
+        if isinstance(e, LoopIR.BinOp) and e.op in ("/", "%"):
+            assert isinstance(e.rhs, LoopIR.Const)
+            if self.has_div_mod_config(e.lhs):
+                return e
+
+            if e.op == "/":
+                return division_simplification(e)
+
+            return modulo_simplification(e)
+
+        # Div and mod special cases are handleded before, if that didn't succeed we cannot normalize
         # Skip ReadConfigs, they need careful handling because they're not Sym.
         if self.has_div_mod_config(e):
             return e
 
-        # Make a map of symbols and coefficients
-        n_map = self.normalize_e(e)
-
-        # Write back to LoopIR.expr
-        def scale_read(coeff, key):
-            return LoopIR.BinOp(
-                "*",
-                LoopIR.Const(coeff, T.int, e.srcinfo),
-                LoopIR.Read(key, [], e.type, e.srcinfo),
-                e.type,
-                e.srcinfo,
-            )
-
-        new_e = LoopIR.Const(n_map.get(self.C, 0), T.int, e.srcinfo)
-
-        delete_zero = [(n_map[v], v) for v in n_map if v != self.C and n_map[v] != 0]
-
-        for coeff, v in sorted(delete_zero):
-            if coeff > 0:
-                new_e = LoopIR.BinOp(
-                    "+", new_e, scale_read(coeff, v), e.type, e.srcinfo
-                )
-            else:
-                new_e = LoopIR.BinOp(
-                    "-", new_e, scale_read(-coeff, v), e.type, e.srcinfo
-                )
-
-        return new_e
+        constant, normalization_list = get_normalized_expr(e)
+        return generate_loopIR(e, constant, normalization_list)
 
     def map_e(self, e):
         if e.type.is_indexable():
             return self.index_start(e)
 
         return super().map_e(e)
+
+    def map_s(self, sc):
+        s = sc._node()
+        if isinstance(s, LoopIR.Seq):
+            self.env = self.env.new_child()
+
+            hi_range = IndexRangeAnalysis(s.hi, self.env).result()
+            if hi_range is not None:
+                assert hi_range[0] >= 0
+                if hi_range[1] == 0:
+                    # We allow loop hi to be zero, however, that means that the loop
+                    # variable doesn't have a defined range. We can set it to None
+                    # since any simplification is not necessary since loop won't run
+                    hi_range = None
+                else:
+                    hi_range = (0, hi_range[1] - 1)
+                self.env[s.iter] = hi_range
+            else:
+                self.env[s.iter] = None
+
+            new_s = super().map_s(sc)
+            self.env = self.env.parents
+            return new_s
+
+        return super().map_s(sc)
 
 
 class DoSimplify(Cursor_Rewrite):
@@ -3221,15 +3371,25 @@ class DoAssertIf(Cursor_Rewrite):
         if s is self.if_stmt:
             # check if the condition matches the asserted constant
             cond_node = LoopIR.Const(self.cond, T.bool, s.srcinfo)
-            Check_ExprEqvInContext(self.orig_proc, s.cond, [s], cond_node)
+            Check_ExprEqvInContext(self.orig_proc._node(), s.cond, [s], cond_node)
             # if so, then we can simplify away the guard
             if self.cond:
-                return self.map_stmts(sc.body())
+                body = self.map_stmts(sc.body())
+                if body is None:
+                    return [node._node() for node in sc.body()]
+                else:
+                    return body
             else:
-                return self.map_stmts(sc.orelse())
+                orelse = self.map_stmts(sc.orelse())
+                if orelse is None:
+                    return [node._node() for node in sc.orelse()]
+                else:
+                    return orelse
         elif isinstance(s, LoopIR.Seq):
             body = self.map_stmts(sc.body())
-            if not body:
+            if body is None:
+                return None
+            elif body == []:
                 return []
             else:
                 return [s.update(body=body)]
