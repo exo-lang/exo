@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Optional, Iterable, Union
-from weakref import ReferenceType
 
-from exo import API
 from exo import LoopIR
 
 
@@ -92,31 +89,37 @@ def forward_identity(p, fwd):
     @functools.wraps(fwd)
     def forward(cursor):
         cursor = fwd(cursor)
-        return dataclasses.replace(cursor, _proc=p)
+        return dataclasses.replace(cursor, _root=p)
 
     return forward
 
 
 @dataclass
 class Cursor(ABC):
-    _proc: ReferenceType[API.Procedure]
+    _root: object
 
     # ------------------------------------------------------------------------ #
     # Static constructors
     # ------------------------------------------------------------------------ #
 
     @staticmethod
-    def root(proc: API.Procedure):
-        return Node(weakref.ref(proc), [])
+    def create(obj: object):
+        return Node(obj, [])
 
     # ------------------------------------------------------------------------ #
     # Validating accessors
     # ------------------------------------------------------------------------ #
 
-    def proc(self):
-        if (p := self._proc()) is None:
-            raise InvalidCursorError("underlying proc was destroyed")
-        return p
+    def get_root(self):
+        return self.root()._node
+
+    # ------------------------------------------------------------------------ #
+    # Navigation (universal)
+    # ------------------------------------------------------------------------ #
+
+    def root(self) -> Node:
+        """Get a cursor to the root of the tree this cursor resides in"""
+        return Node(self._root, [])
 
     # ------------------------------------------------------------------------ #
     # Navigation (abstract)
@@ -166,14 +169,6 @@ class Cursor(ABC):
             raise InvalidCursorError("cursor is not inside block")
         return ty(self.parent(), attr, i + dist)
 
-    @staticmethod
-    def _walk_path(n, path):
-        for attr, idx in path:
-            n = getattr(n, attr)
-            if idx is not None:
-                n = n[idx]
-        return n
-
     def _rewrite_node(self, fn):
         """
         Applies `fn` to the AST node containing the cursor. The callback is
@@ -196,9 +191,9 @@ class Cursor(ABC):
                 **{attr: children[:i] + [impl(children[i], path)] + children[i + 1 :]}
             )
 
-        return impl(self.proc().INTERNAL_proc(), self._path)
+        return impl(self.get_root(), self._path)
 
-    def _local_forward(self, new_proc, fwd_node):
+    def _local_forward(self, new_root, fwd_node):
         """
         Creates a forwarding function for "local" edits to the AST.
         Here, local means that all affected nodes share a common LCA,
@@ -212,20 +207,20 @@ class Cursor(ABC):
         simple examples, or wrap for a more complex example (that lengthens
         certain paths).
         """
-        orig_proc = self._proc
+        orig_root = self._root
         edit_path = self._path
         depth = len(edit_path)
         attr = edit_path[depth - 1][0]
 
         def forward(cursor: Cursor) -> Cursor:
-            if cursor._proc != orig_proc:
-                raise InvalidCursorError("cannot forward unknown procs")
+            if cursor._root != orig_root:
+                raise InvalidCursorError("cannot forward from unknown root")
 
             if not isinstance(cursor, Node):
                 raise InvalidCursorError("can only forward nodes")
 
             def evolve(p):
-                return dataclasses.replace(cursor, _proc=new_proc, _path=p)
+                return dataclasses.replace(cursor, _root=new_root, _path=p)
 
             old_path = cursor._path
 
@@ -255,7 +250,7 @@ class Block(Cursor):
     # ------------------------------------------------------------------------ #
 
     def parent(self) -> Node:
-        return Node(self._proc, self._path[:-1])
+        return Node(self._root, self._path[:-1])
 
     def before(self, dist=1) -> Gap:
         attr, _range = self._path[-1]
@@ -326,7 +321,7 @@ class Block(Cursor):
         if isinstance(r, range):
             if r.step != 1:
                 raise IndexError("block cursors must be contiguous")
-            return Block(self._proc, self._path[:-1] + [(attr, r)])
+            return Block(self._root, self._path[:-1] + [(attr, r)])
         else:
             return self.parent()._child_node(attr, r)
 
@@ -350,7 +345,7 @@ class Block(Cursor):
         hi = _range.stop + hi
         new_range = full_range[lo:hi]
 
-        return Block(self._proc, self._path[:-1] + [(attr, new_range)])
+        return Block(self._root, self._path[:-1] + [(attr, new_range)])
 
     # ------------------------------------------------------------------------ #
     # AST mutation
@@ -375,9 +370,9 @@ class Block(Cursor):
             new_children = new_children or empty_default or []
             return parent.update(**{attr: new_children})
 
-        p = API.Procedure(self._rewrite_node(update))
-
-        return p, self._forward_replace(weakref.ref(p), len(nodes))
+        p = self._rewrite_node(update)
+        fwd = self._forward_replace(p, len(nodes))
+        return p, fwd
 
     def _forward_replace(self, new_proc, n_ins):
         _, del_range = self._path[-1]
@@ -397,15 +392,15 @@ class Block(Cursor):
         package-private, not class-private, so it may be called from other
         internal classes and modules, but not from end-user code.
         """
-        pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node().srcinfo)]
+        pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node.srcinfo)]
         return self._replace([], empty_default=pass_stmt)
 
     def _get_loopir(self):
-        # Do this rather than [n._node() for n in self] because that would
+        # Do this rather than [n._node for n in self] because that would
         # walk down the tree once per node in the block, whereas this walks
         # down once.
         attr, rng = self._path[-1]
-        return getattr(self.parent()._node(), attr)[rng.start : rng.stop]
+        return getattr(self.parent()._node, attr)[rng.start : rng.stop]
 
     def _wrap(self, ctor, wrap_attr):
         """
@@ -424,9 +419,9 @@ class Block(Cursor):
             new_children = children[: i.start] + [new_node] + children[i.stop :]
             return parent.update(**{orig_attr: new_children})
 
-        p = API.Procedure(self._rewrite_node(update))
-
-        return p, self._forward_wrap(weakref.ref(p), wrap_attr)
+        p = self._rewrite_node(update)
+        fwd = self._forward_wrap(p, wrap_attr)
+        return p, fwd
 
     def _forward_wrap(self, p, wrap_attr):
         rng = self._path[-1][1]
@@ -477,19 +472,20 @@ class Block(Cursor):
             # delete the original block of nodes first, to keep the path to the
             # gap stable, before inserting the nodes in the new position.
             p, _ = self._delete()
-            p, _ = dataclasses.replace(target, _proc=weakref.ref(p))._insert(nodes)
+            p, _ = dataclasses.replace(target, _root=p)._insert(nodes)
         else:
             # Conversely, if the moved block comes first, then we want to jump
             # ahead and insert the block into the gap position before coming back
             # to delete the original nodes, so that the path to the deletion stays
             # stable.
             p, _ = target._insert(nodes)
-            p, _ = dataclasses.replace(self, _proc=weakref.ref(p))._delete()
+            p, _ = dataclasses.replace(self, _root=p)._delete()
 
-        return p, self._forward_move(weakref.ref(p), target)
+        fwd = self._forward_move(p, target)
+        return p, fwd
 
     def _forward_move(self, p, target):
-        orig_proc = self._proc
+        orig_root = self._root
 
         block_path = self._path
         block_n = len(block_path)
@@ -500,8 +496,8 @@ class Block(Cursor):
         gap_n = len(gap_path)
 
         def forward(cursor: Node):
-            if cursor._proc != orig_proc:
-                raise InvalidCursorError("cannot forward unknown procs")
+            if cursor._root != orig_root:
+                raise InvalidCursorError("cannot forward from unknown root")
 
             if not isinstance(cursor, Node):
                 raise InvalidCursorError("can only forward nodes")
@@ -536,7 +532,7 @@ class Block(Cursor):
                     off = cur_path[block_n - 1][1] - block_path[block_n - 1][1].start
                     return dataclasses.replace(
                         cursor,
-                        _proc=p,
+                        _root=p,
                         _path=(
                             gap_path[:-1]
                             + [(gap_path[-1][0], gap_path[-1][1] + gap_off + off)]
@@ -559,7 +555,7 @@ class Block(Cursor):
             for off_i, off_d in offsets:
                 cur_path[off_i] = (cur_path[off_i][0], cur_path[off_i][1] + off_d)
 
-            return dataclasses.replace(cursor, _proc=p, _path=cur_path)
+            return dataclasses.replace(cursor, _root=p, _path=cur_path)
 
         return forward
 
@@ -572,21 +568,27 @@ class Node(Cursor):
     # Validating accessors
     # ------------------------------------------------------------------------ #
 
+    @cached_property
     def _node(self):
         """
         Gets the raw underlying node that's pointed-to. This is meant to be
         compiler-internal, not class-private, so other parts of the compiler
         may call this, while users should not.
         """
-        if (n := self._node_ref()) is None:
-            raise InvalidCursorError("underlying node was destroyed")
-        return n
+        n = self._root
 
-    @cached_property
-    def _node_ref(self):
-        n = self.proc().INTERNAL_proc()
-        n = self._walk_path(n, self._path)
-        return weakref.ref(n)
+        # TODO: this is what we're trying to remove.
+        if isinstance(n, LoopIR.LoopIR.proc):
+            pass
+        else:
+            n = n.INTERNAL_proc()
+
+        for attr, idx in self._path:
+            n = getattr(n, attr)
+            if idx is not None:
+                n = n[idx]
+
+        return n
 
     # ------------------------------------------------------------------------ #
     # Navigation (implementation)
@@ -595,7 +597,7 @@ class Node(Cursor):
     def parent(self) -> Node:
         if not self._path:
             raise InvalidCursorError("cursor does not have a parent")
-        return Node(self._proc, self._path[:-1])
+        return Node(self._root, self._path[:-1])
 
     def before(self, dist=1) -> Gap:
         return self._translate(Node._child_gap, 1 - dist)
@@ -614,7 +616,7 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
 
     def _child_node(self, attr, i=None) -> Node:
-        _node = getattr(self._node(), attr)
+        _node = getattr(self._node, attr)
         if i is not None:
             if 0 <= i < len(_node):
                 _node = _node[i]
@@ -622,28 +624,28 @@ class Node(Cursor):
                 raise InvalidCursorError("cursor is out of range")
         elif isinstance(_node, list):
             raise ValueError("must index into block attribute")
-        cur = Node(self._proc, self._path + [(attr, i)])
+        cur = Node(self._root, self._path + [(attr, i)])
         # noinspection PyPropertyAccess
         # cached_property is settable, bug in static analysis
-        cur._node_ref = weakref.ref(_node)
+        cur._node = _node
         return cur
 
     def _child_gap(self, attr, i=None) -> Gap:
-        _node = getattr(self._node(), attr)
+        _node = getattr(self._node, attr)
         if i is not None:
             if not 0 <= i <= len(_node):
                 raise InvalidCursorError("cursor is out of range")
         elif isinstance(_node, list):
             raise ValueError("must index into block attribute")
-        return Gap(self._proc, self._path + [(attr, i)])
+        return Gap(self._root, self._path + [(attr, i)])
 
     def _child_block(self, attr: str):
-        stmts = getattr(self._node(), attr)
+        stmts = getattr(self._node, attr)
         assert isinstance(stmts, list)
-        return Block(self._proc, self._path + [(attr, range(len(stmts)))])
+        return Block(self._root, self._path + [(attr, range(len(stmts)))])
 
     def children(self) -> Iterable[Node]:
-        n = self._node()
+        n = self._node
         # Top-level proc
         if isinstance(n, LoopIR.LoopIR.proc):
             yield from self._children_from_attrs(n, "body")
@@ -711,7 +713,7 @@ class Node(Cursor):
         attr, i = self._path[-1]
         if i is None:
             raise InvalidCursorError("node is not inside a block")
-        return Block(self._proc, self._path[:-1] + [(attr, range(i, i + 1))])
+        return Block(self._root, self._path[:-1] + [(attr, range(i, i + 1))])
 
     # ------------------------------------------------------------------------ #
     # Location queries
@@ -727,6 +729,9 @@ class Node(Cursor):
 
     def _delete(self):
         return self.as_block()._delete()
+
+    def _move(self, gap: Gap):
+        return self.as_block()._move(gap)
 
     def _replace(self, ast):
         """
@@ -748,18 +753,18 @@ class Node(Cursor):
         def update(parent):
             return parent.update(**{attr: ast})
 
-        p = API.Procedure(self._rewrite_node(update))
+        p = self._rewrite_node(update)
+        fwd = self._forward_replace(p)
+        return p, fwd
 
-        return p, self._forward_replace(weakref.ref(p))
-
-    def _forward_replace(self, new_proc):
+    def _forward_replace(self, new_root):
         _, idx = self._path[-1]
         assert idx is None
 
         def fwd_node(*_):
             raise InvalidCursorError("cannot forward replaced nodes")
 
-        return self._local_forward(new_proc, fwd_node)
+        return self._local_forward(new_root, fwd_node)
 
 
 @dataclass
@@ -772,7 +777,7 @@ class Gap(Cursor):
 
     def parent(self) -> Node:
         assert self._path
-        return Node(self._proc, self._path[:-1])
+        return Node(self._root, self._path[:-1])
 
     def before(self, dist=1) -> Node:
         return self._translate(Node._child_node, -dist)
@@ -805,15 +810,14 @@ class Gap(Cursor):
             children = getattr(parent, attr)
             return parent.update(**{attr: children[:i] + stmts + children[i:]})
 
-        p = API.Procedure(self._rewrite_node(update))
-        forward = self._forward_insert(weakref.ref(p), len(stmts))
+        p = self._rewrite_node(update)
+        fwd = self._forward_insert(p, len(stmts))
+        return p, fwd
 
-        return p, forward
-
-    def _forward_insert(self, new_proc, ins_len):
+    def _forward_insert(self, new_root, ins_len):
         _, ins_idx = self._path[-1]
 
         def fwd_node(attr, i):
             return [(attr, i + ins_len * (i >= ins_idx))]
 
-        return self._local_forward(new_proc, fwd_node)
+        return self._local_forward(new_root, fwd_node)
