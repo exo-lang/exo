@@ -106,7 +106,7 @@ class Cursor:
         """
         Get the Procedure object that this Cursor points into
         """
-        return self._impl.proc()
+        return self._impl._root
 
     def __bool__(self):
         """

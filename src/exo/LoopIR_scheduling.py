@@ -2857,7 +2857,7 @@ class _DoNormalize(Cursor_Rewrite):
         self.C = Sym("temporary_constant_symbol")
         self.env = ChainMap()
         # TODO: dispatch to Z3 to reason about preds ranges
-        for arg in proc_cursor._node().args:
+        for arg in proc_cursor._node.args:
             self.env[arg.name] = None
         super().__init__(proc_cursor)
 
@@ -3089,7 +3089,7 @@ class _DoNormalize(Cursor_Rewrite):
         return super().map_e(e)
 
     def map_s(self, sc):
-        s = sc._node()
+        s = sc._node
         if isinstance(s, LoopIR.Seq):
             self.env = self.env.new_child()
 
@@ -3371,18 +3371,18 @@ class DoAssertIf(Cursor_Rewrite):
         if s is self.if_stmt:
             # check if the condition matches the asserted constant
             cond_node = LoopIR.Const(self.cond, T.bool, s.srcinfo)
-            Check_ExprEqvInContext(self.orig_proc._node(), s.cond, [s], cond_node)
+            Check_ExprEqvInContext(self.orig_proc._node, s.cond, [s], cond_node)
             # if so, then we can simplify away the guard
             if self.cond:
                 body = self.map_stmts(sc.body())
                 if body is None:
-                    return [node._node() for node in sc.body()]
+                    return [node._node for node in sc.body()]
                 else:
                     return body
             else:
                 orelse = self.map_stmts(sc.orelse())
                 if orelse is None:
-                    return [node._node() for node in sc.orelse()]
+                    return [node._node for node in sc.orelse()]
                 else:
                     return orelse
         elif isinstance(s, LoopIR.Seq):
