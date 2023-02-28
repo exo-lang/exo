@@ -179,7 +179,7 @@ def sgemm_6x16():
 @pytest.fixture
 def avx2_sgemm_6x16(sgemm_6x16):
     avx = rename(sgemm_6x16, "rank_k_reduce_6x16_scheduled")
-    print(avx)
+
     avx = stage_mem(avx, "C[_] += _", "C[i, j]", "C_reg")
     avx = set_memory(avx, "C_reg", AVX2)
     avx = old_split(avx, "j", 8, ["jo", "ji"], perfect=True)

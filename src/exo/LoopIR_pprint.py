@@ -564,14 +564,12 @@ def _print_w_access(node, env: PrintEnv) -> str:
 
 
 def _print_cursor(cur):
-    if isinstance(cur, Node) and not isinstance(
-        cur._node(), (LoopIR.proc, LoopIR.stmt)
-    ):
+    if isinstance(cur, Node) and not isinstance(cur._node, (LoopIR.proc, LoopIR.stmt)):
         raise NotImplementedError(
             "Cursor printing is only implemented for procs and statements"
         )
 
-    root_cur = Cursor.root(cur._proc())
+    root_cur = Cursor.create(cur.get_root())
     lines = _print_cursor_proc(root_cur, cur, PrintEnv(), "")
     code = _format_code("\n".join(lines))
     # need to use "..." for Python parsing, but unquoted ellipses are prettier
@@ -582,7 +580,7 @@ def _print_cursor(cur):
 def _print_cursor_proc(
     cur: Node, target: Cursor, env: PrintEnv, indent: str
 ) -> list[str]:
-    p = cur._node()
+    p = cur._node
     assert isinstance(p, LoopIR.proc)
 
     match_comment = "  # <-- NODE" if cur == target else ""
@@ -657,7 +655,7 @@ def _print_cursor_block(
 def _print_cursor_stmt(
     cur: Node, target: Cursor, env: PrintEnv, indent: str
 ) -> list[str]:
-    stmt = cur._node()
+    stmt = cur._node
 
     if isinstance(stmt, LoopIR.If):
         cond = _print_expr(stmt.cond, env)
@@ -679,7 +677,6 @@ def _print_cursor_stmt(
 
     else:
         lines = _print_stmt(stmt, env, indent)
-
     if cur == target:
         lines[0] = f"{lines[0]}  # <-- NODE"
 
