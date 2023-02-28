@@ -10,10 +10,18 @@ from ..libs.memories import AVX2, AVX512
 
 
 @instr("{dst_data} = _mm256_setzero_ps();")
-def mm256_setzero(dst: [f32][8] @ AVX2):
+def mm256_setzero_ps(dst: [f32][8] @ AVX2):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 8):
+        dst[i] = 0.0
+
+
+@instr("{dst_data} = _mm256_setzero_pd();")
+def mm256_setzero_pd(dst: [f64][4] @ AVX2):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 4):
         dst[i] = 0.0
 
 
@@ -26,12 +34,30 @@ def mm256_loadu_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ DRAM):
         dst[i] = src[i]
 
 
+@instr("{dst_data} = _mm256_loadu_pd(&{src_data});")
+def mm256_loadu_pd(dst: [f64][4] @ AVX2, src: [f64][4] @ DRAM):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src[i]
+
+
 @instr("_mm256_storeu_ps(&{dst_data}, {src_data});")
 def mm256_storeu_ps(dst: [f32][8] @ DRAM, src: [f32][8] @ AVX2):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
     for i in seq(0, 8):
+        dst[i] = src[i]
+
+
+@instr("_mm256_storeu_pd(&{dst_data}, {src_data});")
+def mm256_storeu_pd(dst: [f64][4] @ DRAM, src: [f64][4] @ AVX2):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 4):
         dst[i] = src[i]
 
 
@@ -49,6 +75,20 @@ def mm256_fmadd_ps(
         dst[i] += src1[i] * src2[i]
 
 
+@instr("{dst_data} = _mm256_fmadd_pd({src1_data}, {src2_data}, {dst_data});")
+def mm256_fmadd_pd(
+    dst: [f64][4] @ AVX2,
+    src1: [f64][4] @ AVX2,
+    src2: [f64][4] @ AVX2,
+):
+    assert stride(src1, 0) == 1
+    assert stride(src2, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] += src1[i] * src2[i]
+
+
 @instr("{out_data} = _mm256_broadcast_ss(&{val_data});")
 def mm256_broadcast_ss(
     out: [f32][8] @ AVX2,
@@ -60,11 +100,30 @@ def mm256_broadcast_ss(
         out[i] = val[0]
 
 
+@instr("{out_data} = _mm256_broadcast_sd(&{val_data});")
+def mm256_broadcast_sd(
+    out: [f64][4] @ AVX2,
+    val: [f64][1],
+):
+    assert stride(out, 0) == 1
+
+    for i in seq(0, 4):
+        out[i] = val[0]
+
+
 @instr("{out_data} = _mm256_broadcast_ss({val_data});")
 def mm256_broadcast_ss_scalar(out: [f32][8] @ AVX2, val: f32):
     assert stride(out, 0) == 1
 
     for i in seq(0, 8):
+        out[i] = val
+
+
+@instr("{out_data} = _mm256_broadcast_sd({val_data});")
+def mm256_broadcast_sd_scalar(out: [f64][4] @ AVX2, val: f64):
+    assert stride(out, 0) == 1
+
+    for i in seq(0, 4):
         out[i] = val
 
 
@@ -89,6 +148,16 @@ def mm256_mul_ps(out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2):
         out[i] = x[i] * y[i]
 
 
+@instr("{out_data} = _mm256_mul_pd({x_data}, {y_data});")
+def mm256_mul_pd(out: [f64][4] @ AVX2, x: [f64][4] @ AVX2, y: [f64][4] @ AVX2):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+
+    for i in seq(0, 4):
+        out[i] = x[i] * y[i]
+
+
 @instr("{out_data} = _mm256_add_ps({x_data}, {y_data});")
 def mm256_add_ps(out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2):
     assert stride(out, 0) == 1
@@ -99,13 +168,14 @@ def mm256_add_ps(out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2):
         out[i] = x[i] + y[i]
 
 
-@instr("{dst_data} = {src_data};")
-def mm256_reg_copy(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
-    assert stride(dst, 0) == 1
-    assert stride(src, 0) == 1
+@instr("{out_data} = _mm256_add_pd({x_data}, {y_data});")
+def mm256_add_pd(out: [f64][4] @ AVX2, x: [f64][4] @ AVX2, y: [f64][4] @ AVX2):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
 
-    for i in seq(0, 8):
-        dst[i] = src[i]
+    for i in seq(0, 4):
+        out[i] = x[i] + y[i]
 
 
 # --------------------------------------------------------------------------- #
@@ -268,11 +338,9 @@ def avx2_fmadd_memu_ps(dst: [f32][8] @ DRAM, val: [f32][8] @ AVX2):
 
 @instr(
     """
-    {{
-        __m256 cmp = _mm256_cmp_ps ({x_data}, {v_data}, _CMP_LT_OQ);
-        {out_data} = _mm256_blendv_ps ({z_data}, {y_data}, cmp);
-    }}
-    """
+{out_data} = _mm256_blendv_ps ({z_data}, {y_data}, 
+_mm256_cmp_ps ({x_data}, {v_data}, _CMP_LT_OQ));
+"""
 )
 def avx2_select_ps(
     out: [f32][8] @ AVX2,
@@ -296,6 +364,29 @@ def avx2_select_ps(
 
 @instr(
     """
+{out_data} = _mm256_blendv_pd ({z_data}, {y_data}, 
+_mm256_cmp_pd ({x_data}, {v_data}, _CMP_LT_OQ));
+"""
+)
+def avx2_select_pd(
+    out: [f64][4] @ AVX2,
+    x: [f64][4] @ AVX2,
+    v: [f64][4] @ AVX2,
+    y: [f64][4] @ AVX2,
+    z: [f64][4] @ AVX2,
+):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(v, 0) == 1
+    assert stride(y, 0) == 1
+    assert stride(z, 0) == 1
+
+    for i in seq(0, 4):
+        out[i] = select(x[i], v[i], y[i], z[i])
+
+
+@instr(
+    """
     {{
         __m256 tmp = _mm256_hadd_ps({x_data}, {x_data});
         tmp = _mm256_hadd_ps(tmp, tmp);
@@ -312,12 +403,38 @@ def avx2_assoc_reduce_add_ps(x: [f32][8] @ AVX2, result: f32):
         result += x[i]
 
 
+@instr(
+    """
+    {{
+        __m256d tmp = _mm256_hadd_pd({x_data}, {x_data});
+        __m256d upper_bits = _mm256_castpd128_pd256(_mm256_extractf128_pd (tmp, 1));
+        tmp = _mm256_add_pd(tmp, upper_bits);
+        *{result} += _mm256_cvtsd_f64(tmp);
+    }}
+    """
+)
+def avx2_assoc_reduce_add_pd(x: [f64][4] @ AVX2, result: f64):
+    # WARNING: This instruction assumes float addition associativity
+    assert stride(x, 0) == 1
+    for i in seq(0, 4):
+        result += x[i]
+
+
 @instr("{dst_data} = _mm256_mul_ps({src_data}, _mm256_set1_ps(-1.0f));")
 def avx2_sign_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
     for i in seq(0, 8):
+        dst[i] = -src[i]
+
+
+@instr("{dst_data} = _mm256_mul_pd({src_data}, _mm256_set1_pd(-1.0f));")
+def avx2_sign_pd(dst: [f64][4] @ AVX2, src: [f64][4] @ AVX2):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
         dst[i] = -src[i]
 
 
@@ -328,3 +445,30 @@ def avx2_reduce_add_wide_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
 
     for i in seq(0, 8):
         dst[i] += src[i]
+
+
+@instr("{dst_data} = _mm256_add_pd({src_data}, {dst_data});")
+def avx2_reduce_add_wide_pd(dst: [f64][4] @ AVX2, src: [f64][4] @ AVX2):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] += src[i]
+
+
+@instr("{dst_data} = {src_data};")
+def avx2_reg_copy_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = src[i]
+
+
+@instr("{dst_data} = {src_data};")
+def avx2_reg_copy_pd(dst: [f64][4] @ AVX2, src: [f64][4] @ AVX2):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src[i]

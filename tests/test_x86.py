@@ -729,26 +729,26 @@ def test_mm256_add_ps(compiler):
 
 
 @pytest.mark.isa("AVX2")
-def test_mm256_reg_copy(compiler):
+def test_avx2_reg_copy_ps(compiler):
     @proc
-    def mm256_reg_copy_wrapper(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
+    def avx2_reg_copy_ps_wrapper(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
         tmp_buffer_0: f32[8] @ AVX2
         mm256_loadu_ps(tmp_buffer_0, dst)
         tmp_buffer_1: f32[8] @ AVX2
         mm256_loadu_ps(tmp_buffer_1, src)
-        mm256_reg_copy(tmp_buffer_0, tmp_buffer_1)
+        avx2_reg_copy_ps(tmp_buffer_0, tmp_buffer_1)
         mm256_storeu_ps(dst, tmp_buffer_0)
         mm256_storeu_ps(src, tmp_buffer_1)
 
     @proc
-    def mm256_reg_copy_ref(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
+    def avx2_reg_copy_ps_ref(dst: f32[8] @ DRAM, src: f32[8] @ DRAM):
         assert stride(dst, 0) == 1
         assert stride(src, 0) == 1
         for i in seq(0, 8):
             dst[i] = src[i]
 
     fn = compiler.compile(
-        [mm256_reg_copy_wrapper, mm256_reg_copy_ref],
+        [avx2_reg_copy_ps_wrapper, avx2_reg_copy_ps_ref],
         skip_on_fail=True,
         CMAKE_C_FLAGS="-march=skylake",
     )
@@ -782,8 +782,8 @@ def test_mm256_reg_copy(compiler):
     dst_copy = dst.copy()
     src_copy = src.copy()
 
-    getattr(fn, "mm256_reg_copy_wrapper")(None, dst, src)
-    getattr(fn, "mm256_reg_copy_ref")(None, dst_copy, src_copy)
+    getattr(fn, "avx2_reg_copy_ps_wrapper")(None, dst, src)
+    getattr(fn, "avx2_reg_copy_ps_ref")(None, dst_copy, src_copy)
 
     np.testing.assert_almost_equal(dst, dst_copy)
     np.testing.assert_almost_equal(src, src_copy)
@@ -908,5 +908,625 @@ def test_avx2_reduce_add_wide_ps(compiler):
     getattr(fn, "avx2_reduce_add_wide_ps_wrapper")(None, dst, src)
     getattr(fn, "avx2_reduce_add_wide_ps_ref")(None, dst_copy, src_copy)
 
+    np.testing.assert_almost_equal(dst, dst_copy)
+    np.testing.assert_almost_equal(src, src_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_mm256_setzero_pd(compiler):
+    @proc
+    def mm256_setzero_pd_wrapper(dst: f64[4] @ DRAM):
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, dst)
+        mm256_setzero_pd(tmp_buffer_0)
+        mm256_storeu_pd(dst, tmp_buffer_0)
+
+    @proc
+    def mm256_setzero_pd_ref(dst: f64[4] @ DRAM):
+        assert stride(dst, 0) == 1
+        for i in seq(0, 4):
+            dst[i] = 0.0
+
+    fn = compiler.compile(
+        [mm256_setzero_pd_wrapper, mm256_setzero_pd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    dst = np.array(
+        [
+            0.7702997103754631,
+            0.45626842944141055,
+            0.7439364522403988,
+            0.701510512624819,
+        ],
+        dtype=np.float64,
+    )
+    dst_copy = dst.copy()
+    getattr(fn, "mm256_setzero_pd_wrapper")(None, dst)
+    getattr(fn, "mm256_setzero_pd_ref")(None, dst_copy)
+    np.testing.assert_almost_equal(dst, dst_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_mm256_fmadd_pd(compiler):
+    @proc
+    def mm256_fmadd_pd_wrapper(
+        dst: f64[4] @ DRAM, src1: f64[4] @ DRAM, src2: f64[4] @ DRAM
+    ):
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, dst)
+        tmp_buffer_1: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_1, src1)
+        tmp_buffer_2: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_2, src2)
+        mm256_fmadd_pd(tmp_buffer_0, tmp_buffer_1, tmp_buffer_2)
+        mm256_storeu_pd(dst, tmp_buffer_0)
+        mm256_storeu_pd(src1, tmp_buffer_1)
+        mm256_storeu_pd(src2, tmp_buffer_2)
+
+    @proc
+    def mm256_fmadd_pd_ref(
+        dst: f64[4] @ DRAM, src1: f64[4] @ DRAM, src2: f64[4] @ DRAM
+    ):
+        assert stride(src1, 0) == 1
+        assert stride(src2, 0) == 1
+        assert stride(dst, 0) == 1
+        for i in seq(0, 4):
+            dst[i] += src1[i] * src2[i]
+
+    fn = compiler.compile(
+        [mm256_fmadd_pd_wrapper, mm256_fmadd_pd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    dst = np.array(
+        [
+            0.06690474560928039,
+            0.0850078709985519,
+            0.029640255722781395,
+            0.7284983930187073,
+        ],
+        dtype=np.float64,
+    )
+    src1 = np.array(
+        [
+            0.16333810334859344,
+            0.773775867984533,
+            0.4243993631288452,
+            0.03447281200342622,
+        ],
+        dtype=np.float64,
+    )
+    src2 = np.array(
+        [
+            0.6898950978728396,
+            0.7565890349219402,
+            0.9694891176666618,
+            0.18128624734877385,
+        ],
+        dtype=np.float64,
+    )
+    dst_copy = dst.copy()
+    src1_copy = src1.copy()
+    src2_copy = src2.copy()
+    getattr(fn, "mm256_fmadd_pd_wrapper")(None, dst, src1, src2)
+    getattr(fn, "mm256_fmadd_pd_ref")(None, dst_copy, src1_copy, src2_copy)
+    np.testing.assert_almost_equal(dst, dst_copy)
+    np.testing.assert_almost_equal(src1, src1_copy)
+    np.testing.assert_almost_equal(src2, src2_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_mm256_broadcast_sd(compiler):
+    @proc
+    def mm256_broadcast_sd_wrapper(out: f64[4] @ DRAM, val: f64[1] @ DRAM):
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, out)
+        mm256_broadcast_sd(tmp_buffer_0, val)
+        mm256_storeu_pd(out, tmp_buffer_0)
+
+    @proc
+    def mm256_broadcast_sd_ref(out: f64[4] @ DRAM, val: f64[1] @ DRAM):
+        assert stride(out, 0) == 1
+        for i in seq(0, 4):
+            out[i] = val[0]
+
+    fn = compiler.compile(
+        [mm256_broadcast_sd_wrapper, mm256_broadcast_sd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    out = np.array(
+        [
+            0.9992828001754692,
+            0.6054592176163047,
+            0.21423730227883409,
+            0.06414175723973703,
+        ],
+        dtype=np.float64,
+    )
+    val = np.array([0.6716955229801979], dtype=np.float64)
+    out_copy = out.copy()
+    val_copy = val.copy()
+    getattr(fn, "mm256_broadcast_sd_wrapper")(None, out, val)
+    getattr(fn, "mm256_broadcast_sd_ref")(None, out_copy, val_copy)
+    np.testing.assert_almost_equal(out, out_copy)
+    np.testing.assert_almost_equal(val, val_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_mm256_broadcast_sd_scalar(compiler):
+    @proc
+    def mm256_broadcast_sd_scalar_wrapper(out: f64[4] @ DRAM, val: f64[1] @ DRAM):
+        tmp_val: f64
+        tmp_val = val[0]
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, out)
+        mm256_broadcast_sd_scalar(tmp_buffer_0, tmp_val)
+        mm256_storeu_pd(out, tmp_buffer_0)
+
+    @proc
+    def mm256_broadcast_sd_scalar_ref(out: f64[4] @ DRAM, val: f64[1] @ DRAM):
+        assert stride(out, 0) == 1
+        for i in seq(0, 4):
+            out[i] = val[0]
+
+    fn = compiler.compile(
+        [mm256_broadcast_sd_scalar_wrapper, mm256_broadcast_sd_scalar_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    out = np.array(
+        [
+            0.08715297607238981,
+            0.2554485029748307,
+            0.8467682976066226,
+            0.9005310811939783,
+        ],
+        dtype=np.float64,
+    )
+    val = np.array([3.51])
+    out_copy = out.copy()
+    val_copy = val.copy()
+    getattr(fn, "mm256_broadcast_sd_scalar_wrapper")(None, out, val)
+    getattr(fn, "mm256_broadcast_sd_scalar_ref")(None, out_copy, val_copy)
+    np.testing.assert_almost_equal(out, out_copy)
+    np.testing.assert_almost_equal(val, val_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_mm256_mul_pd(compiler):
+    @proc
+    def mm256_mul_pd_wrapper(out: f64[4] @ DRAM, x: f64[4] @ DRAM, y: f64[4] @ DRAM):
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, out)
+        tmp_buffer_1: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_1, x)
+        tmp_buffer_2: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_2, y)
+        mm256_mul_pd(tmp_buffer_0, tmp_buffer_1, tmp_buffer_2)
+        mm256_storeu_pd(out, tmp_buffer_0)
+        mm256_storeu_pd(x, tmp_buffer_1)
+        mm256_storeu_pd(y, tmp_buffer_2)
+
+    @proc
+    def mm256_mul_pd_ref(out: f64[4] @ DRAM, x: f64[4] @ DRAM, y: f64[4] @ DRAM):
+        assert stride(out, 0) == 1
+        assert stride(x, 0) == 1
+        assert stride(y, 0) == 1
+        for i in seq(0, 4):
+            out[i] = x[i] * y[i]
+
+    fn = compiler.compile(
+        [mm256_mul_pd_wrapper, mm256_mul_pd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    out = np.array(
+        [
+            0.20493105389880395,
+            0.9358746107512442,
+            0.5513072892432449,
+            0.1416622828015115,
+        ],
+        dtype=np.float64,
+    )
+    x = np.array(
+        [
+            0.6359108492392163,
+            0.7391629379581788,
+            0.8894695567639811,
+            0.6009249216013818,
+        ],
+        dtype=np.float64,
+    )
+    y = np.array(
+        [
+            0.9102732096226585,
+            0.6246662381685367,
+            0.8297542680325571,
+            0.7470065913040405,
+        ],
+        dtype=np.float64,
+    )
+    out_copy = out.copy()
+    x_copy = x.copy()
+    y_copy = y.copy()
+    getattr(fn, "mm256_mul_pd_wrapper")(None, out, x, y)
+    getattr(fn, "mm256_mul_pd_ref")(None, out_copy, x_copy, y_copy)
+    np.testing.assert_almost_equal(out, out_copy)
+    np.testing.assert_almost_equal(x, x_copy)
+    np.testing.assert_almost_equal(y, y_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_mm256_add_pd(compiler):
+    @proc
+    def mm256_add_pd_wrapper(out: f64[4] @ DRAM, x: f64[4] @ DRAM, y: f64[4] @ DRAM):
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, out)
+        tmp_buffer_1: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_1, x)
+        tmp_buffer_2: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_2, y)
+        mm256_add_pd(tmp_buffer_0, tmp_buffer_1, tmp_buffer_2)
+        mm256_storeu_pd(out, tmp_buffer_0)
+        mm256_storeu_pd(x, tmp_buffer_1)
+        mm256_storeu_pd(y, tmp_buffer_2)
+
+    @proc
+    def mm256_add_pd_ref(out: f64[4] @ DRAM, x: f64[4] @ DRAM, y: f64[4] @ DRAM):
+        assert stride(out, 0) == 1
+        assert stride(x, 0) == 1
+        assert stride(y, 0) == 1
+        for i in seq(0, 4):
+            out[i] = x[i] + y[i]
+
+    fn = compiler.compile(
+        [mm256_add_pd_wrapper, mm256_add_pd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    out = np.array(
+        [
+            0.8527647836251072,
+            0.4656462939895032,
+            0.35186540014581635,
+            0.630313690114371,
+        ],
+        dtype=np.float64,
+    )
+    x = np.array(
+        [
+            0.24068467638706337,
+            0.8464360008490506,
+            0.783023994276535,
+            0.7109937138465194,
+        ],
+        dtype=np.float64,
+    )
+    y = np.array(
+        [
+            0.9352666294024309,
+            0.32475739858813224,
+            0.15796304969982733,
+            0.31789446356547857,
+        ],
+        dtype=np.float64,
+    )
+    out_copy = out.copy()
+    x_copy = x.copy()
+    y_copy = y.copy()
+    getattr(fn, "mm256_add_pd_wrapper")(None, out, x, y)
+    getattr(fn, "mm256_add_pd_ref")(None, out_copy, x_copy, y_copy)
+    np.testing.assert_almost_equal(out, out_copy)
+    np.testing.assert_almost_equal(x, x_copy)
+    np.testing.assert_almost_equal(y, y_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_avx2_select_pd(compiler):
+    @proc
+    def avx2_select_pd_wrapper(
+        out: f64[4] @ DRAM,
+        x: f64[4] @ DRAM,
+        v: f64[4] @ DRAM,
+        y: f64[4] @ DRAM,
+        z: f64[4] @ DRAM,
+    ):
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, out)
+        tmp_buffer_1: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_1, x)
+        tmp_buffer_2: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_2, v)
+        tmp_buffer_3: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_3, y)
+        tmp_buffer_4: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_4, z)
+        avx2_select_pd(
+            tmp_buffer_0, tmp_buffer_1, tmp_buffer_2, tmp_buffer_3, tmp_buffer_4
+        )
+        mm256_storeu_pd(out, tmp_buffer_0)
+        mm256_storeu_pd(x, tmp_buffer_1)
+        mm256_storeu_pd(v, tmp_buffer_2)
+        mm256_storeu_pd(y, tmp_buffer_3)
+        mm256_storeu_pd(z, tmp_buffer_4)
+
+    @proc
+    def avx2_select_pd_ref(
+        out: f64[4] @ DRAM,
+        x: f64[4] @ DRAM,
+        v: f64[4] @ DRAM,
+        y: f64[4] @ DRAM,
+        z: f64[4] @ DRAM,
+    ):
+        assert stride(out, 0) == 1
+        assert stride(x, 0) == 1
+        assert stride(v, 0) == 1
+        assert stride(y, 0) == 1
+        assert stride(z, 0) == 1
+        for i in seq(0, 4):
+            xTmp: f64
+            xTmp = x[i]
+            vTmp: f64
+            vTmp = v[i]
+            yTmp: f64
+            yTmp = y[i]
+            zTmp: f64
+            zTmp = z[i]
+            out[i] = select(xTmp, vTmp, yTmp, zTmp)
+
+    fn = compiler.compile(
+        [avx2_select_pd_wrapper, avx2_select_pd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    out = np.array(
+        [
+            0.15072544011156797,
+            0.36126593942879226,
+            0.2962307720690991,
+            0.5533859089478346,
+        ],
+        dtype=np.float64,
+    )
+    x = np.array(
+        [
+            0.8735799415726602,
+            0.29340630006863155,
+            0.3845715188628306,
+            0.04794077205280567,
+        ],
+        dtype=np.float64,
+    )
+    v = np.array(
+        [
+            0.47764878514866593,
+            0.7121357194784308,
+            0.08003544890580039,
+            0.16599111414940448,
+        ],
+        dtype=np.float64,
+    )
+    y = np.array(
+        [
+            0.18912116677473167,
+            0.012455292110266747,
+            0.9069633225674659,
+            0.5928029432231223,
+        ],
+        dtype=np.float64,
+    )
+    z = np.array(
+        [
+            0.4357337303927791,
+            0.7667888372979041,
+            0.6989032832260329,
+            0.006324755999849274,
+        ],
+        dtype=np.float64,
+    )
+    out_copy = out.copy()
+    x_copy = x.copy()
+    v_copy = v.copy()
+    y_copy = y.copy()
+    z_copy = z.copy()
+    getattr(fn, "avx2_select_pd_wrapper")(None, out, x, v, y, z)
+    getattr(fn, "avx2_select_pd_ref")(None, out_copy, x_copy, v_copy, y_copy, z_copy)
+    np.testing.assert_almost_equal(out, out_copy)
+    np.testing.assert_almost_equal(x, x_copy)
+    np.testing.assert_almost_equal(v, v_copy)
+    np.testing.assert_almost_equal(y, y_copy)
+    np.testing.assert_almost_equal(z, z_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_avx2_assoc_reduce_add_pd(compiler):
+    @proc
+    def avx2_assoc_reduce_add_pd_wrapper(x: f64[4] @ DRAM, result: f64[1] @ DRAM):
+        tmp_result: f64
+        tmp_result = result[0]
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, x)
+        avx2_assoc_reduce_add_pd(tmp_buffer_0, tmp_result)
+        mm256_storeu_pd(x, tmp_buffer_0)
+        result[0] = tmp_result
+
+    @proc
+    def avx2_assoc_reduce_add_pd_ref(x: f64[4] @ DRAM, result: f64[1] @ DRAM):
+        assert stride(x, 0) == 1
+        for i in seq(0, 4):
+            result[0] += x[i]
+
+    fn = compiler.compile(
+        [avx2_assoc_reduce_add_pd_wrapper, avx2_assoc_reduce_add_pd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    x = np.array(
+        [
+            0.24349706300899643,
+            0.44304522832871585,
+            0.7845959927912908,
+            0.27109035501352363,
+        ],
+        dtype=np.float64,
+    )
+    result = np.array([-1.253])
+    x_copy = x.copy()
+    result_copy = result.copy()
+    getattr(fn, "avx2_assoc_reduce_add_pd_wrapper")(None, x, result)
+    getattr(fn, "avx2_assoc_reduce_add_pd_ref")(None, x_copy, result_copy)
+    np.testing.assert_almost_equal(x, x_copy)
+    np.testing.assert_almost_equal(result, result_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_avx2_sign_pd(compiler):
+    @proc
+    def avx2_sign_pd_wrapper(dst: f64[4] @ DRAM, src: f64[4] @ DRAM):
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, dst)
+        tmp_buffer_1: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_1, src)
+        avx2_sign_pd(tmp_buffer_0, tmp_buffer_1)
+        mm256_storeu_pd(dst, tmp_buffer_0)
+        mm256_storeu_pd(src, tmp_buffer_1)
+
+    @proc
+    def avx2_sign_pd_ref(dst: f64[4] @ DRAM, src: f64[4] @ DRAM):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 4):
+            dst[i] = -src[i]
+
+    fn = compiler.compile(
+        [avx2_sign_pd_wrapper, avx2_sign_pd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    dst = np.array(
+        [
+            0.066282086666972,
+            0.23414881487540895,
+            0.4922961364730185,
+            0.11810813857973845,
+        ],
+        dtype=np.float64,
+    )
+    src = np.array(
+        [
+            0.06436446994101086,
+            0.637838437168881,
+            0.6797374431407577,
+            0.040744738211098475,
+        ],
+        dtype=np.float64,
+    )
+    dst_copy = dst.copy()
+    src_copy = src.copy()
+    getattr(fn, "avx2_sign_pd_wrapper")(None, dst, src)
+    getattr(fn, "avx2_sign_pd_ref")(None, dst_copy, src_copy)
+    np.testing.assert_almost_equal(dst, dst_copy)
+    np.testing.assert_almost_equal(src, src_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_avx2_reduce_add_wide_pd(compiler):
+    @proc
+    def avx2_reduce_add_wide_pd_wrapper(dst: f64[4] @ DRAM, src: f64[4] @ DRAM):
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, dst)
+        tmp_buffer_1: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_1, src)
+        avx2_reduce_add_wide_pd(tmp_buffer_0, tmp_buffer_1)
+        mm256_storeu_pd(dst, tmp_buffer_0)
+        mm256_storeu_pd(src, tmp_buffer_1)
+
+    @proc
+    def avx2_reduce_add_wide_pd_ref(dst: f64[4] @ DRAM, src: f64[4] @ DRAM):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 4):
+            dst[i] += src[i]
+
+    fn = compiler.compile(
+        [avx2_reduce_add_wide_pd_wrapper, avx2_reduce_add_wide_pd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    dst = np.array(
+        [
+            0.15640257715569084,
+            0.6783560522800346,
+            0.3288580779472433,
+            0.05681854279921417,
+        ],
+        dtype=np.float64,
+    )
+    src = np.array(
+        [
+            0.9117144753906365,
+            0.6016906956921138,
+            0.3095551646830016,
+            0.5330758995820801,
+        ],
+        dtype=np.float64,
+    )
+    dst_copy = dst.copy()
+    src_copy = src.copy()
+    getattr(fn, "avx2_reduce_add_wide_pd_wrapper")(None, dst, src)
+    getattr(fn, "avx2_reduce_add_wide_pd_ref")(None, dst_copy, src_copy)
+    np.testing.assert_almost_equal(dst, dst_copy)
+    np.testing.assert_almost_equal(src, src_copy)
+
+
+@pytest.mark.isa("AVX2")
+def test_avx2_reg_copy_pd(compiler):
+    @proc
+    def avx2_reg_copy_pd_wrapper(dst: f64[4] @ DRAM, src: f64[4] @ DRAM):
+        tmp_buffer_0: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_0, dst)
+        tmp_buffer_1: f64[4] @ AVX2
+        mm256_loadu_pd(tmp_buffer_1, src)
+        avx2_reg_copy_pd(tmp_buffer_0, tmp_buffer_1)
+        mm256_storeu_pd(dst, tmp_buffer_0)
+        mm256_storeu_pd(src, tmp_buffer_1)
+
+    @proc
+    def avx2_reg_copy_pd_ref(dst: f64[4] @ DRAM, src: f64[4] @ DRAM):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 4):
+            dst[i] = src[i]
+
+    fn = compiler.compile(
+        [avx2_reg_copy_pd_wrapper, avx2_reg_copy_pd_ref],
+        skip_on_fail=True,
+        CMAKE_C_FLAGS="-march=skylake",
+    )
+    dst = np.array(
+        [
+            0.8230485448185485,
+            0.400123708278312,
+            0.49373866892708396,
+            0.7150382338404423,
+        ],
+        dtype=np.float64,
+    )
+    src = np.array(
+        [
+            0.15711822012981025,
+            0.9644952348521756,
+            0.770817397283775,
+            0.9775115541309777,
+        ],
+        dtype=np.float64,
+    )
+    dst_copy = dst.copy()
+    src_copy = src.copy()
+    getattr(fn, "avx2_reg_copy_pd_wrapper")(None, dst, src)
+    getattr(fn, "avx2_reg_copy_pd_ref")(None, dst_copy, src_copy)
     np.testing.assert_almost_equal(dst, dst_copy)
     np.testing.assert_almost_equal(src, src_copy)
