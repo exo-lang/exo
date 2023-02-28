@@ -1616,9 +1616,9 @@ def merge_writes(proc, block_cursor):
         raise ValueError(
             "expected the two statements' left hand sides to have the same name & type"
         )
-    if stmt1.rhs.type != stmt2.rhs.type:
+    if not stmt1.rhs.type.is_numeric() or not stmt2.rhs.type.is_numeric():
         raise ValueError(
-            "expected the two statements' right hand sides to have the same type."
+            "expected the two statements' right hand sides to have numeric types."
         )
 
     ir, _fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
