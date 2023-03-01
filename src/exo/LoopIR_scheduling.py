@@ -1521,9 +1521,9 @@ def get_reads_of_stmts(stmts):
             reads += get_reads_of_stmts(s.body)
         elif isinstance(s, LoopIR.Call):
             reads += sum([get_reads_of_expr(arg) for arg in s.args], [])
-        elif isinstance(s, [LoopIR.WindowStmt, LoopIR.WriteConfig]):
+        elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig)):
             raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
-        elif isinstance(s, [LoopIR.Pass, LoopIR.Alloc, LoopIR.Free]):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
             pass
         else:
             raise NotImplementedError(f"unknown stmt type {type(s)}")
@@ -1543,9 +1543,9 @@ def get_writes_of_stmts(stmts):
                 writes += get_writes_of_stmts(s.orelse)
         elif isinstance(s, LoopIR.Seq):
             writes += get_writes_of_stmts(s.body)
-        elif isinstance(s, [LoopIR.WindowStmt, LoopIR.WriteConfig]):
+        elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig)):
             raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
-        elif isinstance(s, [LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.Call]):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.Call)):
             pass
         else:
             raise NotImplementedError(f"unknown stmt type {type(s)}")
@@ -1559,8 +1559,8 @@ def DoLiftConstant(assign_cursor, loop_cursor):
     constant = None
     constant_src_stmt = None
 
-    for (name, type) in get_reads_of_stmts(loop.body):
-        if assign_s.name == name and assign_s.type == type:
+    for (name, typ) in get_reads_of_stmts(loop.body):
+        if assign_s.name == name and assign_s.type == typ:
             raise SchedulingError(
                 "cannot lift constant because the buffer is read in the loop body"
             )
@@ -1616,15 +1616,11 @@ def DoLiftConstant(assign_cursor, loop_cursor):
                     check &= check_only_scaled_reduces(s.orelse)
             elif isinstance(s, LoopIR.Seq):
                 check &= check_only_scaled_reduces(s.body)
-            elif isinstance(s, LoopIR.Call):
-                # TODO: WRONG, if the call arguments use the read-only buffer,
-                # then we can't perform this scheduling operation
-                check &= check_only_scaled_reduces(s.proc.body)
-            elif isinstance(s, [LoopIR.WindowStmt, LoopIR.WriteConfig]):
+            elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig, LoopIR.Call)):
                 raise NotImplementedError(
-                    "WindowStmt and WriteConfig not supported yet"
+                    f"unsupported stmt type in loop body: {type(s)}"
                 )
-            elif isinstance(s, [LoopIR.Pass, LoopIR.Alloc, LoopIR.Free]):
+            elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
                 pass
             else:
                 raise NotImplementedError(f"unknown stmt type {type(s)}")
@@ -1639,8 +1635,8 @@ def DoLiftConstant(assign_cursor, loop_cursor):
             "cannot lift constant because did not find a reduce in the loop body of the form `buffer += c * expr`"
         )
     if isinstance(constant, LoopIR.Read):
-        for (name, type) in get_writes_of_stmts(loop.body):
-            if constant.name == name and constant.type == type:
+        for (name, typ) in get_writes_of_stmts(loop.body):
+            if constant.name == name and constant.type == typ:
                 raise SchedulingError(
                     "cannot lift constant because it is a buffer that is written in the loop body"
                 )

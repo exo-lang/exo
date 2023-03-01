@@ -2273,3 +2273,25 @@ def test_lift_reduce_constant_bad_7():
         match="cannot lift constant because it is a buffer that is written",
     ):
         lift_reduce_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_8():
+    @proc
+    def write(x: R[8] @ DRAM):
+        x[0] = 1.0
+
+    @proc
+    def foo():
+        x: R @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 8):
+            x = 0.0
+            for i in seq(0, 8):
+                write(y)
+                x += y[j] * 2.0
+
+    with pytest.raises(
+        NotImplementedError,
+        match="unsupported stmt type",
+    ):
+        lift_reduce_constant(foo, "x = 0.0; _")
