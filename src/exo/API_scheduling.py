@@ -1647,7 +1647,8 @@ def lift_reduce_constant(proc, block_cursor):
     loop_c = block_cursor[1]._impl
     proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoLiftConstant(proc_c, stmt_c, loop_c).result()
+    ir, _fwd = scheduling.DoLiftConstant(stmt_c, loop_c)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([GapCursorA, PosIntA])

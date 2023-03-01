@@ -1552,7 +1552,6 @@ def get_writes_of_stmts(stmts):
     return writes
 
 
-"""
 def DoLiftConstant(assign_cursor, loop_cursor):
     orig_proc = assign_cursor.get_root()
     assign_s = assign_cursor._node
@@ -1564,9 +1563,11 @@ def DoLiftConstant(assign_cursor, loop_cursor):
         if assign_s.name == name and assign_s.type == type:
             raise SchedulingError(
                 "cannot lift constant because the buffer is read in the loop body"
-                )
+            )
 
     def check_only_scaled_reduces(stmts):
+        nonlocal constant
+        nonlocal constant_src_stmt
         check = True
         for s in stmts:
             if isinstance(s, LoopIR.Assign):
@@ -1579,7 +1580,7 @@ def DoLiftConstant(assign_cursor, loop_cursor):
                         and isinstance(s.rhs, LoopIR.BinOp)
                         and s.rhs.op == "*"
                     ):
-                        if constant:
+                        if constant is not None:
                             if isinstance(constant, LoopIR.Const):
                                 if (
                                     not isinstance(s.rhs.lhs, LoopIR.Const)
@@ -1630,9 +1631,9 @@ def DoLiftConstant(assign_cursor, loop_cursor):
         return check
 
     if not check_only_scaled_reduces(loop.body):
-            raise SchedulingError(
-                f"cannot lift constant because the reduces to buffer {assign_s.name} in the loop body are not all of the same form"
-            )
+        raise SchedulingError(
+            f"cannot lift constant because the reduces to buffer {assign_s.name} in the loop body are not all of the same form"
+        )
     if constant is None:
         raise SchedulingError(
             "cannot lift constant because did not find a reduce in the loop body of the form `buffer += c * expr`"
@@ -1645,143 +1646,54 @@ def DoLiftConstant(assign_cursor, loop_cursor):
                 )
 
     ir, fwd = assign_cursor.get_root(), lambda x: x
-"""
 
-
-class DoLiftConstant(Cursor_Rewrite):
-    def __init__(self, proc_cursor, assign_cursor, loop_cursor):
-        self.orig_proc = assign_cursor.get_root()
-        self.assign_s = assign_cursor._node
-        self.loop = loop_cursor._node
-        self.constant = None
-        self.constant_src_stmt = None
-        self.modify_reduces = False
-
-        for (name, type) in get_reads_of_stmts(self.loop.body):
-            if self.assign_s.name == name and self.assign_s.type == type:
-                raise SchedulingError(
-                    "cannot lift constant because the buffer is read in the loop body"
-                )
-        if not self.check_only_scaled_reduces(self.loop.body):
-            raise SchedulingError(
-                f"cannot lift constant because the reduces to buffer {self.assign_s.name} in the loop body are not all of the same form"
-            )
-        if self.constant is None:
-            raise SchedulingError(
-                "cannot lift constant because did not find a reduce in the loop body of the form `buffer += c * expr`"
-            )
-
-        if isinstance(self.constant, LoopIR.Read):
-            for (name, type) in get_writes_of_stmts(self.loop.body):
-                print(self.constant.name, name, self.constant.type, type)
-                if self.constant.name == name and self.constant.type == type:
-                    raise SchedulingError(
-                        "cannot lift constant because it is a buffer that is written in the loop body"
-                    )
-
-        super().__init__(proc_cursor)
-
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-
-    # check that all reduces are only of the form buffer[i] += c * expr
-    def check_only_scaled_reduces(self, stmts):
-        check = True
-        for s in stmts:
-            if isinstance(s, LoopIR.Assign):
-                if s.name == self.assign_s.name:
-                    return False
-            elif isinstance(s, LoopIR.Reduce):
-                if s.name == self.assign_s.name:
-                    if (
-                        same_write_dest(self.orig_proc, self.assign_s, s)
-                        and isinstance(s.rhs, LoopIR.BinOp)
+    def lift_constant(stmts):
+        nonlocal ir
+        nonlocal fwd
+        for sc in stmts:
+            s = sc._node
+            if isinstance(s, LoopIR.Reduce):
+                if s.name == assign_s.name and same_write_dest(orig_proc, assign_s, s):
+                    assert (
+                        isinstance(s.rhs, LoopIR.BinOp)
                         and s.rhs.op == "*"
-                    ):
-                        if self.constant:
-                            if isinstance(self.constant, LoopIR.Const):
-                                if (
-                                    not isinstance(s.rhs.lhs, LoopIR.Const)
-                                    or self.constant.val != s.rhs.lhs.val
-                                ):
-                                    return False
-                            elif isinstance(self.constant, LoopIR.Read):
-                                if (
-                                    not isinstance(s.rhs.lhs, LoopIR.Read)
-                                    or self.constant.name != s.rhs.lhs.name
-                                    or not same_index_exprs(
-                                        self.orig_proc,
-                                        self.constant.idx,
-                                        self.constant_src_stmt,
-                                        s.rhs.lhs.idx,
-                                        s,
-                                    )
-                                ):
-                                    return False
-                            else:
-                                raise TypeError("unknown type for self.constant")
-                        else:
-                            if isinstance(s.rhs.lhs, (LoopIR.Const, LoopIR.Read)):
-                                self.constant = s.rhs.lhs
-                                self.constant_src_stmt = s
-                            else:
-                                return False
-                    else:
-                        return False
-            elif isinstance(s, LoopIR.If):
-                check &= self.check_only_scaled_reduces(s.body)
-                if s.orelse:
-                    check &= self.check_only_scaled_reduces(s.orelse)
-            elif isinstance(s, LoopIR.Seq):
-                check &= self.check_only_scaled_reduces(s.body)
-            elif isinstance(s, LoopIR.Call):
-                check &= self.check_only_scaled_reduces(s.proc.body)
-            elif isinstance(s, [LoopIR.WindowStmt, LoopIR.WriteConfig]):
-                raise NotImplementedError(
-                    "WindowStmt and WriteConfig not supported yet"
-                )
-            elif isinstance(s, [LoopIR.Pass, LoopIR.Alloc, LoopIR.Free]):
-                pass
-            else:
-                raise NotImplementedError(f"unknown stmt type {type(s)}")
-        return check
+                        and isinstance(s.rhs.lhs, (LoopIR.Const, LoopIR.Read))
+                    )
+                    ir, fwd_repl = fwd(sc)._replace([s.update(rhs=s.rhs.rhs)])
+                    fwd = _compose(fwd_repl, fwd)
+            if isinstance(s, LoopIR.Seq):
+                lift_constant(sc.body())
+            if isinstance(s, LoopIR.If):
+                lift_constant(sc.body())
+                if sc.orelse():
+                    lift_constant(sc.orelse())
 
-    def map_s(self, sc):
-        s = sc._node
-        if s == self.loop:
-            assert isinstance(s, LoopIR.Seq)
-            self.modify_reduces = True
-            new_loop = super().map_s(sc)[0]
-            self.modify_reduces = False
-            # TODO: check type and srcinfo
-            scale_stmt = self.assign_s.update(
-                rhs=LoopIR.BinOp(
-                    "*",
-                    self.constant,
-                    LoopIR.Read(
-                        self.assign_s.name,
-                        self.assign_s.idx,
-                        self.assign_s.type,
-                        self.assign_s.srcinfo,
-                    ),
-                    self.assign_s.type,
-                    self.loop.srcinfo,
+    lift_constant(loop_cursor.body())
+    ir, fwd_ins = (
+        fwd(loop_cursor)
+        .after()
+        ._insert(
+            [
+                assign_s.update(
+                    rhs=LoopIR.BinOp(
+                        "*",
+                        constant,
+                        LoopIR.Read(
+                            assign_s.name,
+                            assign_s.idx,
+                            assign_s.type,
+                            assign_s.srcinfo,
+                        ),
+                        assign_s.type,
+                        assign_s.srcinfo,
+                    )
                 )
-            )
-            return [new_loop, scale_stmt]
+            ]
+        )
+    )
+    fwd = _compose(fwd_ins, fwd)
 
-        if self.modify_reduces and isinstance(s, LoopIR.Reduce):
-            if s.name == self.assign_s.name and same_write_dest(
-                self.orig_proc, self.assign_s, s
-            ):
-                assert (
-                    isinstance(s.rhs, LoopIR.BinOp)
-                    and s.rhs.op == "*"
-                    and isinstance(s.rhs.lhs, (LoopIR.Const, LoopIR.Read))
-                )
-                return [s.update(rhs=s.rhs.rhs)]
-
-        return super().map_s(sc)
+    return _fixup_effects(ir, fwd)
 
 
 class DoExpandDim(Cursor_Rewrite):
