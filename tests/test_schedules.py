@@ -873,7 +873,18 @@ def test_merge_writes_array_indexing(golden):
     assert str(bar) == golden
 
 
-def test_merge_writes_second_rhs_depends_on_first_lhs(golden):
+def test_merge_writes_type_check(golden):
+    @proc
+    def bar(y: f32):
+        x: f32 @ DRAM
+        x = 0.0
+        x += y
+
+    bar = merge_writes(bar, "x = 0.0; x += y")
+    assert str(bar) == golden
+
+
+def test_merge_writes_second_rhs_depends_on_first_lhs():
     @proc
     def bar(x: R[5], y: R[3]):
         for i in seq(0, 3):
@@ -887,7 +898,7 @@ def test_merge_writes_second_rhs_depends_on_first_lhs(golden):
         bar = merge_writes(bar, "x[2*i-1] = x[i] + y[i]; x[2*i-1] += x[i]")
 
 
-def test_merge_writes_wrong_type_error(golden):
+def test_merge_writes_wrong_type_error():
     @proc
     def bar(x: R, y: R):
         for i in seq(0, 10):
@@ -901,7 +912,7 @@ def test_merge_writes_wrong_type_error(golden):
         bar = merge_writes(bar, "y = x; _")
 
 
-def test_merge_writes_different_lhs_error(golden):
+def test_merge_writes_different_lhs_error():
     @proc
     def bar(x: R, y: R):
         x = y
@@ -914,7 +925,7 @@ def test_merge_writes_different_lhs_error(golden):
         bar = merge_writes(bar, "x = y; y += x")
 
 
-def test_merge_writes_different_lhs_arrays_error(golden):
+def test_merge_writes_different_lhs_arrays_error():
     @proc
     def bar(x: R[3], y: R):
         x[0] = y
@@ -926,7 +937,7 @@ def test_merge_writes_different_lhs_arrays_error(golden):
         bar = merge_writes(bar, "x[0] = y; x[1] += y")
 
 
-def test_merge_writes_different_lhs_arrays_error(golden):
+def test_merge_writes_different_lhs_arrays_error():
     @proc
     def bar(x: R[3, 3], y: R):
         z = x[0:2, 0:2]

@@ -173,15 +173,22 @@ class AVX2(Memory):
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         if not shape:
             raise MemGenError(f"{srcinfo}: AVX2 vectors are not scalar values")
-        if not prim_type == "float":
-            raise MemGenError(f"{srcinfo}: AVX2 vectors must be f32 (for now)")
-        if not _is_const_size(shape[-1], 8):
-            raise MemGenError(f"{srcinfo}: AVX2 vectors must be 8-wide, got {shape}")
+
+        vec_types = {"float": (8, "__m256"), "double": (4, "__m256d")}
+
+        if not prim_type in vec_types.keys():
+            raise MemGenError(f"{srcinfo}: AVX2 vectors must be f32/f64 (for now)")
+
+        reg_width, C_reg_type_name = vec_types[prim_type]
+        if not _is_const_size(shape[-1], reg_width):
+            raise MemGenError(
+                f"{srcinfo}: AVX2 vectors of type {prim_type} must be {reg_width}-wide, got {shape}"
+            )
         shape = shape[:-1]
         if shape:
-            result = f'__m256 {new_name}[{"][".join(map(str, shape))}];'
+            result = f'{C_reg_type_name} {new_name}[{"][".join(map(str, shape))}];'
         else:
-            result = f"__m256 {new_name};"
+            result = f"{C_reg_type_name} {new_name};"
         return result
 
     @classmethod

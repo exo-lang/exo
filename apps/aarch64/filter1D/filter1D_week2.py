@@ -21,7 +21,7 @@ class AVX2:
     mem = AVX2
     vec_width = 8
     instructions = [
-        mm256_setzero,
+        mm256_setzero_ps,
         mm256_fmadd_ps_broadcast,
         mm256_loadu_ps,
         mm256_storeu_ps,
