@@ -1552,10 +1552,10 @@ def get_writes_of_stmts(stmts):
     return writes
 
 
-def DoLiftConstant(assign_cursor, loop_cursor):
-    orig_proc = assign_cursor.get_root()
-    assign_s = assign_cursor._node
-    loop = loop_cursor._node
+def DoLiftConstant(assign_c, loop_c):
+    orig_proc = assign_c.get_root()
+    assign_s = assign_c._node
+    loop = loop_c._node
 
     for (name, typ) in get_reads_of_stmts(loop.body):
         if assign_s.name == name and assign_s.type == typ:
@@ -1565,10 +1565,11 @@ def DoLiftConstant(assign_cursor, loop_cursor):
 
     only_has_scaled_reduces = True
 
-    def find_scaled_reduces(stmts):
+    def find_relevant_scaled_reduces(stmts_c):
         nonlocal only_has_scaled_reduces
         reduces = []
-        for s in stmts:
+        for sc in stmts_c:
+            s = sc._node
             if isinstance(s, LoopIR.Assign):
                 if s.name == assign_s.name:
                     only_has_scaled_reduces = False
@@ -1584,13 +1585,13 @@ def DoLiftConstant(assign_cursor, loop_cursor):
                 ):
                     only_has_scaled_reduces = False
 
-                reduces.append(s)
+                reduces.append(sc)
             elif isinstance(s, LoopIR.If):
-                reduces += find_scaled_reduces(s.body)
+                reduces += find_relevant_scaled_reduces(sc.body())
                 if s.orelse:
-                    reduces += find_scaled_reduces(s.orelse)
+                    reduces += find_relevant_scaled_reduces(sc.orelse())
             elif isinstance(s, LoopIR.Seq):
-                reduces += find_scaled_reduces(s.body)
+                reduces += find_relevant_scaled_reduces(sc.body())
             elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig, LoopIR.Call)):
                 raise NotImplementedError(
                     f"unsupported stmt type in loop body: {type(s)}"
@@ -1601,7 +1602,7 @@ def DoLiftConstant(assign_cursor, loop_cursor):
                 raise NotImplementedError(f"unknown stmt type {type(s)}")
         return reduces
 
-    relevant_reduces = find_scaled_reduces(loop.body)
+    relevant_reduces = find_relevant_scaled_reduces(loop_c.body())
 
     if not only_has_scaled_reduces:
         raise SchedulingError(
@@ -1629,13 +1630,12 @@ def DoLiftConstant(assign_cursor, loop_cursor):
             return False
 
     for s in relevant_reduces[1:]:
-        if not reduces_have_same_constant(relevant_reduces[0], s):
+        if not reduces_have_same_constant(relevant_reduces[0]._node, s._node):
             raise SchedulingError(
                 f"cannot lift constant because the reduces to buffer {assign_s.name} in the loop body have different constants"
             )
 
-    constant = relevant_reduces[0].rhs.lhs
-
+    constant = relevant_reduces[0]._node.rhs.lhs
     if isinstance(constant, LoopIR.Read):
         for (name, typ) in get_writes_of_stmts(loop.body):
             if constant.name == name and constant.type == typ:
@@ -1643,53 +1643,29 @@ def DoLiftConstant(assign_cursor, loop_cursor):
                     "cannot lift constant because it is a buffer that is written in the loop body"
                 )
 
-    ir, fwd = assign_cursor.get_root(), lambda x: x
-
-    def lift_constant(stmts):
-        nonlocal ir
-        nonlocal fwd
-        for sc in stmts:
-            s = sc._node
-            if isinstance(s, LoopIR.Reduce):
-                if s.name == assign_s.name and same_write_dest(orig_proc, assign_s, s):
-                    assert (
-                        isinstance(s.rhs, LoopIR.BinOp)
-                        and s.rhs.op == "*"
-                        and isinstance(s.rhs.lhs, (LoopIR.Const, LoopIR.Read))
-                    )
-                    ir, fwd_repl = fwd(sc)._replace([s.update(rhs=s.rhs.rhs)])
-                    fwd = _compose(fwd_repl, fwd)
-            if isinstance(s, LoopIR.Seq):
-                lift_constant(sc.body())
-            if isinstance(s, LoopIR.If):
-                lift_constant(sc.body())
-                if sc.orelse():
-                    lift_constant(sc.orelse())
-
-    lift_constant(loop_cursor.body())
-    ir, fwd_ins = (
-        fwd(loop_cursor)
-        .after()
-        ._insert(
-            [
-                assign_s.update(
-                    rhs=LoopIR.BinOp(
-                        "*",
-                        constant,
-                        LoopIR.Read(
-                            assign_s.name,
-                            assign_s.idx,
-                            assign_s.type,
-                            assign_s.srcinfo,
-                        ),
-                        assign_s.type,
-                        assign_s.srcinfo,
-                    )
-                )
-            ]
-        )
+    new_assign_buffer_read = LoopIR.Read(
+        assign_s.name,
+        assign_s.idx,
+        assign_s.type,
+        assign_s.srcinfo,
     )
+    new_assign_rhs = LoopIR.BinOp(
+        "*",
+        constant,
+        new_assign_buffer_read,
+        assign_s.type,
+        assign_s.srcinfo,
+    )
+    new_assign = assign_s.update(rhs=new_assign_rhs)
+
+    ir, fwd = orig_proc, lambda x: x
+    ir, fwd_ins = fwd(loop_c).after()._insert([new_assign])
     fwd = _compose(fwd_ins, fwd)
+
+    for sc in relevant_reduces:
+        s = sc._node
+        ir, fwd_repl = fwd(sc)._replace([s.update(rhs=s.rhs.rhs)])
+        fwd = _compose(fwd_repl, fwd)
 
     return _fixup_effects(ir, fwd)
 
