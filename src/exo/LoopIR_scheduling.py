@@ -1556,8 +1556,6 @@ def DoLiftConstant(assign_cursor, loop_cursor):
     orig_proc = assign_cursor.get_root()
     assign_s = assign_cursor._node
     loop = loop_cursor._node
-    constant = None
-    constant_src_stmt = None
 
     for (name, typ) in get_reads_of_stmts(loop.body):
         if assign_s.name == name and assign_s.type == typ:
@@ -1565,57 +1563,34 @@ def DoLiftConstant(assign_cursor, loop_cursor):
                 "cannot lift constant because the buffer is read in the loop body"
             )
 
-    def check_only_scaled_reduces(stmts):
-        nonlocal constant
-        nonlocal constant_src_stmt
-        check = True
+    only_has_scaled_reduces = True
+
+    def find_scaled_reduces(stmts):
+        nonlocal only_has_scaled_reduces
+        reduces = []
         for s in stmts:
             if isinstance(s, LoopIR.Assign):
                 if s.name == assign_s.name:
-                    return False
+                    only_has_scaled_reduces = False
             elif isinstance(s, LoopIR.Reduce):
-                if s.name == assign_s.name:
-                    if (
-                        same_write_dest(orig_proc, assign_s, s)
-                        and isinstance(s.rhs, LoopIR.BinOp)
-                        and s.rhs.op == "*"
-                    ):
-                        if constant is not None:
-                            if isinstance(constant, LoopIR.Const):
-                                if (
-                                    not isinstance(s.rhs.lhs, LoopIR.Const)
-                                    or constant.val != s.rhs.lhs.val
-                                ):
-                                    return False
-                            elif isinstance(constant, LoopIR.Read):
-                                if (
-                                    not isinstance(s.rhs.lhs, LoopIR.Read)
-                                    or constant.name != s.rhs.lhs.name
-                                    or not same_index_exprs(
-                                        orig_proc,
-                                        constant.idx,
-                                        constant_src_stmt,
-                                        s.rhs.lhs.idx,
-                                        s,
-                                    )
-                                ):
-                                    return False
-                            else:
-                                raise TypeError("unknown type for self.constant")
-                        else:
-                            if isinstance(s.rhs.lhs, (LoopIR.Const, LoopIR.Read)):
-                                constant = s.rhs.lhs
-                                constant_src_stmt = s
-                            else:
-                                return False
-                    else:
-                        return False
+                if s.name != assign_s.name:
+                    continue
+
+                if not (
+                    same_write_dest(orig_proc, assign_s, s)
+                    and isinstance(s.rhs, LoopIR.BinOp)
+                    and s.rhs.op == "*"
+                    and isinstance(s.rhs.lhs, (LoopIR.Const, LoopIR.Read))
+                ):
+                    only_has_scaled_reduces = False
+
+                reduces.append(s)
             elif isinstance(s, LoopIR.If):
-                check &= check_only_scaled_reduces(s.body)
+                reduces += find_scaled_reduces(s.body)
                 if s.orelse:
-                    check &= check_only_scaled_reduces(s.orelse)
+                    reduces += find_scaled_reduces(s.orelse)
             elif isinstance(s, LoopIR.Seq):
-                check &= check_only_scaled_reduces(s.body)
+                reduces += find_scaled_reduces(s.body)
             elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig, LoopIR.Call)):
                 raise NotImplementedError(
                     f"unsupported stmt type in loop body: {type(s)}"
@@ -1624,16 +1599,43 @@ def DoLiftConstant(assign_cursor, loop_cursor):
                 pass
             else:
                 raise NotImplementedError(f"unknown stmt type {type(s)}")
-        return check
+        return reduces
 
-    if not check_only_scaled_reduces(loop.body):
+    relevant_reduces = find_scaled_reduces(loop.body)
+
+    if not only_has_scaled_reduces:
         raise SchedulingError(
-            f"cannot lift constant because the reduces to buffer {assign_s.name} in the loop body are not all of the same form"
+            f"cannot lift constant because there are other operations on the same buffer that may interfere"
         )
-    if constant is None:
+    if len(relevant_reduces) == 0:
         raise SchedulingError(
             "cannot lift constant because did not find a reduce in the loop body of the form `buffer += c * expr`"
         )
+
+    def reduces_have_same_constant(s1, s2):
+        c1 = s1.rhs.lhs
+        c2 = s2.rhs.lhs
+        if isinstance(c1, LoopIR.Const) and isinstance(c2, LoopIR.Const):
+            return c1.val == c2.val
+        elif isinstance(c1, LoopIR.Read) and isinstance(c2, LoopIR.Read):
+            return c1.name == c2.name and same_index_exprs(
+                orig_proc,
+                c1.idx,
+                s1,
+                c2.idx,
+                s2,
+            )
+        else:
+            return False
+
+    for s in relevant_reduces[1:]:
+        if not reduces_have_same_constant(relevant_reduces[0], s):
+            raise SchedulingError(
+                f"cannot lift constant because the reduces to buffer {assign_s.name} in the loop body have different constants"
+            )
+
+    constant = relevant_reduces[0].rhs.lhs
+
     if isinstance(constant, LoopIR.Read):
         for (name, typ) in get_writes_of_stmts(loop.body):
             if constant.name == name and constant.type == typ:

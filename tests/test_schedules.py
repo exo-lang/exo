@@ -2181,7 +2181,8 @@ def test_lift_reduce_constant_bad_1():
             x[1] += 2.0 * y[i]
 
     with pytest.raises(
-        SchedulingError, match="cannot lift constant because the reduces to buffer x"
+        SchedulingError,
+        match="cannot lift constant because there are other operations on the same buffer that may interfere",
     ):
         lift_reduce_constant(foo, "x[0] = 0.0; _")
 
@@ -2199,7 +2200,8 @@ def test_lift_reduce_constant_bad_2():
                 x[j + 2] += 2.0 * y[i]
 
     with pytest.raises(
-        SchedulingError, match="cannot lift constant because the reduces to buffer x"
+        SchedulingError,
+        match="cannot lift constant because there are other operations on the same buffer that may interfere",
     ):
         lift_reduce_constant(foo, "x[j+2] = 0.0; _")
 
