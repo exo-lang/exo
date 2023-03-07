@@ -1199,18 +1199,16 @@ class DoBindConfig(Cursor_Rewrite):
             return super().map_e(e)
 
 
-class DoCommuteExpr(Cursor_Rewrite):
-    def __init__(self, proc_cursor, expr_cursors):
-        self.exprs = [e._node for e in expr_cursors]
-        super().__init__(proc_cursor)
-        self.proc = InferEffects(self.proc).result()
-
-    def map_e(self, e):
-        if e in self.exprs:
-            assert isinstance(e, LoopIR.BinOp)
-            return e.update(lhs=e.rhs, rhs=e.lhs)
-        else:
-            return super().map_e(e)
+def DoCommuteExpr(proc_cursor, expr_cursors):
+    ir, fwd = proc_cursor, lambda x: x
+    for expr_c in expr_cursors:
+        e = expr_c._node
+        assert isinstance(e, LoopIR.BinOp)
+        ir, fwd_repl = fwd(expr_c._child_node("lhs"))._replace(e.rhs)
+        fwd = _compose(fwd_repl, fwd)
+        ir, fwd_repl = fwd(expr_c._child_node("rhs"))._replace(e.lhs)
+        fwd = _compose(fwd_repl, fwd)
+    return _fixup_effects(ir, fwd)
 
 
 class DoBindExpr(Cursor_Rewrite):
@@ -3953,6 +3951,6 @@ __all__ = [
     "DoLiftAllocSimple",
     "DoFissionAfterSimple",
     "DoProductLoop",  # done
-    "DoCommuteExpr",
+    "DoCommuteExpr",  # done
     "DoMergeWrites",  # done
 ]
