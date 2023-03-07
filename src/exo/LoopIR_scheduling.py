@@ -2666,37 +2666,25 @@ class DoFuseIf(Cursor_Rewrite):
         return super().map_stmts(stmts)
 
 
-class DoAddLoop(Cursor_Rewrite):
-    def __init__(self, proc_cursor, stmt_cursor, var, hi, guard):
-        self.stmt = stmt_cursor._node
-        self.var = Sym(var)
-        self.hi = hi
-        self.guard = guard
+def DoAddLoop(proc_cursor, stmt_cursor, var, hi, guard):
+    s = stmt_cursor._node
 
-        super().__init__(proc_cursor)
+    Check_IsIdempotent(proc_cursor._node, [s])
+    Check_IsPositiveExpr(proc_cursor._node, [s], hi)
 
-        self.proc = InferEffects(self.proc).result()
+    sym = Sym(var)
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.stmt:
-            Check_IsIdempotent(self.orig_proc._node, [s])
-            Check_IsPositiveExpr(self.orig_proc._node, [s], self.hi)
+    def wrapper(body):
+        if guard:
+            rdsym = LoopIR.Read(sym, [], T.index, s.srcinfo)
+            zero = LoopIR.Const(0, T.int, s.srcinfo)
+            cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
+            body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
 
-            sym = self.var
-            hi = self.hi
-            body = [s]
+        return LoopIR.Seq(sym, hi, body, None, s.srcinfo)
 
-            if self.guard:
-                rdsym = LoopIR.Read(sym, [], T.index, s.srcinfo)
-                zero = LoopIR.Const(0, T.int, s.srcinfo)
-                cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
-                body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
-
-            ir = [LoopIR.Seq(sym, hi, body, None, s.srcinfo)]
-            return ir
-
-        return super().map_s(sc)
+    ir, fwd = stmt_cursor.as_block()._wrap(wrapper, "body")
+    return _fixup_effects(ir, fwd)
 
 
 # --------------------------------------------------------------------------- #
