@@ -1629,6 +1629,7 @@ def DoLiftConstant(assign_c, loop_c):
         else:
             return False
 
+    # check that reduces have the same constant scaling factor
     for s in relevant_reduces[1:]:
         if not reduces_have_same_constant(relevant_reduces[0]._node, s._node):
             raise SchedulingError(
@@ -1643,6 +1644,16 @@ def DoLiftConstant(assign_c, loop_c):
                     "cannot lift constant because it is a buffer that is written in the loop body"
                 )
 
+    ir, fwd = orig_proc, lambda x: x
+
+    # replace all the relevant reduce statements
+    for sc in relevant_reduces:
+        rhs_c = sc._child_node("rhs")
+        rhs = rhs_c._node
+        ir, fwd_repl = fwd(rhs_c)._replace(rhs.rhs)
+        fwd = _compose(fwd_repl, fwd)
+
+    # insert new scaled assign statement after loop
     new_assign_buffer_read = LoopIR.Read(
         assign_s.name,
         assign_s.idx,
@@ -1657,15 +1668,8 @@ def DoLiftConstant(assign_c, loop_c):
         assign_s.srcinfo,
     )
     new_assign = assign_s.update(rhs=new_assign_rhs)
-
-    ir, fwd = orig_proc, lambda x: x
     ir, fwd_ins = fwd(loop_c).after()._insert([new_assign])
     fwd = _compose(fwd_ins, fwd)
-
-    for sc in relevant_reduces:
-        s = sc._node
-        ir, fwd_repl = fwd(sc)._replace([s.update(rhs=s.rhs.rhs)])
-        fwd = _compose(fwd_repl, fwd)
 
     return _fixup_effects(ir, fwd)
 
