@@ -3921,7 +3921,7 @@ __all__ = [
     "DoSimplify",
     "DoBoundAndGuard",
     "DoFuseLoop",  # done
-    "DoAddLoop",
+    "DoAddLoop",  # done
     "DoDataReuse",
     "DoLiftScope",
     "DoPartitionLoop",  # done
