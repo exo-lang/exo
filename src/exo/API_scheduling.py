@@ -813,8 +813,8 @@ def commute_expr(proc, expr_cursors):
             "can commute by commute_expr()"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoCommuteExpr(proc_c, exprs).result()
+    ir, _fwd = scheduling.DoCommuteExpr(exprs)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([ExprCursorA(many=True), NameA, BoolA])
