@@ -813,8 +813,8 @@ def commute_expr(proc, expr_cursors):
             "can commute by commute_expr()"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoCommuteExpr(proc_c, exprs).result()
+    ir, _fwd = scheduling.DoCommuteExpr(exprs)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([ExprCursorA(many=True), NameA, BoolA])
@@ -1901,9 +1901,9 @@ def specialize(proc, block_cursor, conds):
         raise NotImplementedError("TODO: support blocks of size > 1")
 
     stmt = block_cursor[0]._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoSpecialize(proc_c, stmt, conds).result()
+    ir, _fwd = scheduling.DoSpecialize(stmt, conds)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 # --------------------------------------------------------------------------- #
