@@ -2540,7 +2540,7 @@ class DoAddUnsafeGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-def DoSpecialize(proc_cursor, stmt_cursor, conds):
+def DoSpecialize(stmt_cursor, conds):
     assert conds, "Must add at least one condition"
     s = stmt_cursor._node
 
