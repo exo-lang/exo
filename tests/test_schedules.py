@@ -2128,3 +2128,13 @@ def test_assert_if2(golden):
                 b = x
 
     assert str(assert_if(foo, "if _:_ #0", False)) == golden
+
+
+def test_specialize(golden):
+    @proc
+    def foo(x: f32[4] @ DRAM):
+        for i in seq(0, 4):
+            x[i] += 1.0
+
+    foo = specialize(foo, "x[i] += 1.0", [f"i == {i}" for i in range(4)])
+    assert str(foo) == golden
