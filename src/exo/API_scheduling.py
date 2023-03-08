@@ -1728,11 +1728,10 @@ def fuse(proc, stmt1, stmt2):
         )
     s1 = stmt1._impl
     s2 = stmt2._impl
-    proc_c = ic.Cursor.create(proc)
     if isinstance(stmt1, PC.IfCursor):
-        ir, _fwd = scheduling.DoFuseIf(proc_c, s1, s2)
+        ir, _fwd = scheduling.DoFuseIf(s1, s2)
     else:
-        ir, _fwd = scheduling.DoFuseLoop(proc_c, s1, s2)
+        ir, _fwd = scheduling.DoFuseLoop(s1, s2)
     return Procedure(ir, _provenance_eq_Procedure=proc)
 
 

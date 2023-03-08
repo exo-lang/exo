@@ -2596,8 +2596,8 @@ class DoBoundAndGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-def DoFuseLoop(proc_cursor, f_cursor, s_cursor):
-    proc = proc_cursor._node
+def DoFuseLoop(f_cursor, s_cursor):
+    proc = f_cursor.get_root()
     loop1 = f_cursor._node
     loop2 = s_cursor._node
 
@@ -2625,7 +2625,8 @@ def DoFuseLoop(proc_cursor, f_cursor, s_cursor):
     return _fixup_effects(ir, fwd)
 
 
-def DoFuseIf(proc_cursor, f_cursor, s_cursor):
+def DoFuseIf(f_cursor, s_cursor):
+    proc = f_cursor.get_root()
     if f_cursor.next() != s_cursor:
         raise SchedulingError(
             "expected the two if statements to be fused to come one right after the other"
@@ -2633,7 +2634,7 @@ def DoFuseIf(proc_cursor, f_cursor, s_cursor):
 
     if1 = f_cursor._node
     if2 = s_cursor._node
-    Check_ExprEqvInContext(proc_cursor._node, if1.cond, [if1], if2.cond, [if2])
+    Check_ExprEqvInContext(proc, if1.cond, [if1], if2.cond, [if2])
 
     cond = if1.cond
     body1 = if1.body
