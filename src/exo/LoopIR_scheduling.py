@@ -1199,8 +1199,8 @@ class DoBindConfig(Cursor_Rewrite):
             return super().map_e(e)
 
 
-def DoCommuteExpr(proc_cursor, expr_cursors):
-    ir, fwd = proc_cursor, lambda x: x
+def DoCommuteExpr(expr_cursors):
+    ir, fwd = expr_cursors[0].get_root(), lambda x: x
     for expr_c in expr_cursors:
         e = expr_c._node
         assert isinstance(e, LoopIR.BinOp)
