@@ -2644,7 +2644,8 @@ def DoFuseIf(f_cursor, s_cursor):
     ifstmt = LoopIR.If(cond, body1 + body2, orelse1 + orelse2, None, if1.srcinfo)
 
     ir, fwd = f_cursor._delete()
-    ir, fwd = fwd(s_cursor)._replace([ifstmt])
+    ir, fwd_repl = fwd(s_cursor)._replace([ifstmt])
+    fwd = _compose(fwd_repl, fwd)
     return _fixup_effects(ir, fwd)
 
 
