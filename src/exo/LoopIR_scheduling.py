@@ -2540,26 +2540,17 @@ class DoAddUnsafeGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class DoSpecialize(Cursor_Rewrite):
-    def __init__(self, proc_cursor, stmt_cursor, conds):
-        assert conds, "Must add at least one condition"
-        self.stmt = stmt_cursor._node
-        self.conds = conds
+def DoSpecialize(proc_cursor, stmt_cursor, conds):
+    assert conds, "Must add at least one condition"
+    s = stmt_cursor._node
 
-        super().__init__(proc_cursor)
+    else_br = Alpha_Rename([s]).result()
+    for cond in reversed(conds):
+        then_br = Alpha_Rename([s]).result()
+        else_br = [LoopIR.If(cond, then_br, else_br, None, s.srcinfo)]
 
-        self.proc = InferEffects(self.proc).result()
-
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.stmt:
-            else_br = Alpha_Rename([s]).result()
-            for cond in reversed(self.conds):
-                then_br = Alpha_Rename([s]).result()
-                else_br = [LoopIR.If(cond, then_br, else_br, None, s.srcinfo)]
-            return else_br
-
-        return super().map_s(sc)
+    ir, fwd = stmt_cursor._replace(else_br)
+    return _fixup_effects(ir, fwd)
 
 
 def _get_constant_bound(e):
@@ -3938,7 +3929,7 @@ __all__ = [
     "DoLiftScope",
     "DoPartitionLoop",  # done
     "DoAssertIf",
-    "DoSpecialize",
+    "DoSpecialize",  # done
     "DoAddUnsafeGuard",
     "DoDeleteConfig",  # done
     "DoFuseIf",

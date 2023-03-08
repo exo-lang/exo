@@ -1904,7 +1904,8 @@ def specialize(proc, block_cursor, conds):
     stmt = block_cursor[0]._impl
     proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoSpecialize(proc_c, stmt, conds).result()
+    ir, fwd = scheduling.DoSpecialize(proc_c, stmt, conds)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 # --------------------------------------------------------------------------- #
