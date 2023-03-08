@@ -2625,45 +2625,26 @@ def DoFuseLoop(proc_cursor, f_cursor, s_cursor):
     return _fixup_effects(ir, fwd)
 
 
-class DoFuseIf(Cursor_Rewrite):
-    def __init__(self, proc_cursor, f_cursor, s_cursor):
-        self.if1 = f_cursor._node
-        self.if2 = s_cursor._node
+def DoFuseIf(proc_cursor, f_cursor, s_cursor):
+    if f_cursor.next() != s_cursor:
+        raise SchedulingError(
+            "expected the two if statements to be fused to come one right after the other"
+        )
 
-        super().__init__(proc_cursor)
+    if1 = f_cursor._node
+    if2 = s_cursor._node
+    Check_ExprEqvInContext(proc_cursor._node, if1.cond, [if1], if2.cond, [if2])
 
-        self.proc = InferEffects(self.proc).result()
+    cond = if1.cond
+    body1 = if1.body
+    body2 = if2.body
+    orelse1 = if1.orelse
+    orelse2 = if2.orelse
+    ifstmt = LoopIR.If(cond, body1 + body2, orelse1 + orelse2, None, if1.srcinfo)
 
-    def map_stmts(self, stmts_c):
-        stmts = [s._node for s in stmts_c]
-        for i, s in enumerate(stmts):
-            if s is self.if1:
-                if i + 1 >= len(stmts) or stmts[i + 1] is not self.if2:
-                    raise SchedulingError(
-                        "expected the two if statements to be "
-                        "fused to come one right after the other"
-                    )
-
-                if1, if2 = self.if1, self.if2
-
-                # check if the loop bounds are equivalent
-                Check_ExprEqvInContext(
-                    self.orig_proc._node, if1.cond, [if1], if2.cond, [if2]
-                )
-
-                cond = if1.cond
-                body1 = if1.body
-                body2 = if2.body
-                orelse1 = if1.orelse
-                orelse2 = if2.orelse
-                ifstmt = LoopIR.If(
-                    cond, body1 + body2, orelse1 + orelse2, None, if1.srcinfo
-                )
-
-                return stmts[:i] + [ifstmt] + stmts[i + 2 :]
-
-        # if we reached this point, we didn't find the if statement
-        return super().map_stmts(stmts)
+    ir, fwd = f_cursor._delete()
+    ir, fwd = fwd(s_cursor)._replace([ifstmt])
+    return _fixup_effects(ir, fwd)
 
 
 class DoAddLoop(Cursor_Rewrite):
@@ -3941,7 +3922,7 @@ __all__ = [
     "DoSpecialize",
     "DoAddUnsafeGuard",
     "DoDeleteConfig",  # done
-    "DoFuseIf",
+    "DoFuseIf",  # done
     "DoStageMem",
     "DoStageWindow",
     "DoBoundAlloc",
