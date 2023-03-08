@@ -1784,9 +1784,7 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
         raise NotImplementedError("TODO: support blocks of size > 1")
 
     stmt_c = block_cursor[0]._impl
-    proc_c = ic.Cursor.create(proc)
-
-    ir, _fwd = scheduling.DoAddLoop(proc_c, stmt_c, iter_name, hi_expr, guard)
+    ir, _fwd = scheduling.DoAddLoop(stmt_c, iter_name, hi_expr, guard)
     return Procedure(ir, _provenance_eq_Procedure=proc)
 
 

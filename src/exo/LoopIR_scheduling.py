@@ -2666,11 +2666,12 @@ class DoFuseIf(Cursor_Rewrite):
         return super().map_stmts(stmts)
 
 
-def DoAddLoop(proc_cursor, stmt_cursor, var, hi, guard):
+def DoAddLoop(stmt_cursor, var, hi, guard):
+    proc = stmt_cursor.get_root()
     s = stmt_cursor._node
 
-    Check_IsIdempotent(proc_cursor._node, [s])
-    Check_IsPositiveExpr(proc_cursor._node, [s], hi)
+    Check_IsIdempotent(proc, [s])
+    Check_IsPositiveExpr(proc, [s], hi)
 
     sym = Sym(var)
 
