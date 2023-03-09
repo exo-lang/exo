@@ -176,6 +176,84 @@ class Cursor_Rewrite(LoopIR_Rewrite):
         return None
 
 
+class WalkAST:
+    """
+    Expects that stmt_func and expr_func are commutative and only operate on that particular statement/expression (e.g. no AST navigation)
+    """
+
+    def __init__(self, cursor, stmt_func=lambda x: None, expr_func=lambda x: None):
+        self.stmt_func = stmt_func
+        self.expr_func = expr_func
+        if isinstance(cursor, ic.Block):
+            self.walk_block(cursor)
+        else:
+            if isinstance(
+                cursor._node,
+                (
+                    LoopIR.Read,
+                    LoopIR.Const,
+                    LoopIR.USub,
+                    LoopIR.BinOp,
+                    LoopIR.BuiltIn,
+                    LoopIR.WindowExpr,
+                    LoopIR.StrideExpr,
+                    LoopIR.ReadConfig,
+                ),
+            ):
+                self.walk_expr(cursor)
+            else:
+                self.walk_stmt(cursor)
+
+    def walk_block(self, block_cursor):
+        for sc in block_cursor:
+            self.walk_stmt(sc)
+
+    def walk_stmt(self, sc):
+        self.stmt_func(sc)
+        s = sc._node
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            for i in range(len(s.idx)):
+                self.walk_expr(sc._child_node("idx", i))
+            self.walk_expr(sc._child_node("rhs"))
+        elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
+            self.walk_expr(sc._child_node("rhs"))
+        elif isinstance(s, LoopIR.If):
+            self.walk_expr(sc._child_node("cond"))
+            self.walk_block(sc.body())
+            self.walk_block(sc.orelse())
+        elif isinstance(s, LoopIR.Seq):
+            self.walk_expr(sc._child_node("hi"))
+            self.walk_block(sc.body())
+        elif isinstance(s, LoopIR.Call):
+            for i in range(len(s.args)):
+                self.walk_expr(sc._child_node("args", i))
+        elif isinstance(s, (LoopIR.Alloc, LoopIR.Pass, LoopIR.Free)):
+            pass
+        else:
+            raise NotImplementedError(f"bad case {type(s)}")
+
+    def walk_expr(self, ec):
+        self.expr_func(ec)
+        e = ec._node
+        if isinstance(e, LoopIR.Read):
+            for i in range(len(e.idx)):
+                self.walk_expr(ec._child_node("idx", i))
+        elif isinstance(e, LoopIR.USub):
+            self.walk_expr(ec._child_node("arg"))
+        elif isinstance(e, LoopIR.BinOp):
+            self.walk_expr(ec._child_node("lhs"))
+            self.walk_expr(ec._child_node("rhs"))
+        elif isinstance(e, LoopIR.BuiltIn):
+            for i in range(len(e.args)):
+                self.walk_expr(ec._child_node("args", i))
+        elif isinstance(
+            e, (LoopIR.Const, LoopIR.StrideExpr, LoopIR.WindowExpr, LoopIR.ReadConfig)
+        ):
+            pass
+        else:
+            raise NotImplementedError(f"bad case {type(e)}")
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Finding Names
@@ -364,19 +442,17 @@ def DoProductLoop(outer_loop, new_name):
     return _fixup_effects(ir, fwd)
 
 
-def get_reads_of_expr(e):
-    if isinstance(e, LoopIR.Read):
-        return sum([get_reads_of_expr(e) for e in e.idx], [(e.name, e.type)])
-    elif isinstance(e, LoopIR.USub):
-        return get_reads_of_expr(e.arg)
-    elif isinstance(e, LoopIR.BinOp):
-        return get_reads_of_expr(e.lhs) + get_reads_of_expr(e.rhs)
-    elif isinstance(e, LoopIR.BuiltIn):
-        return sum([get_reads_of_expr(a) for a in e.args], [])
-    elif isinstance(e, LoopIR.Const):
-        return []
-    else:
-        raise NotImplementedError(f"get_reads_of_expr: {e}")
+def get_reads(cursor):
+    reads = []
+
+    def store_reads(ec):
+        nonlocal reads
+        e = ec._node
+        if isinstance(e, LoopIR.Read):
+            reads.append((e.name, e.type))
+
+    WalkAST(cursor, expr_func=store_reads)
+    return reads
 
 
 def same_index_exprs(proc_cursor, idx1, s1, idx2, s2):
@@ -400,7 +476,8 @@ def DoMergeWrites(c1, c2):
         raise SchedulingError("expected the left hand side's indices to be the same.")
 
     if any(
-        s1.name == name and s1.type == typ for name, typ in get_reads_of_expr(s2.rhs)
+        s1.name == name and s1.type == typ
+        for name, typ in get_reads(c2._child_node("rhs"))
     ):
         raise SchedulingError(
             "expected the right hand side of the second statement to not "
@@ -1231,7 +1308,7 @@ class DoBindExpr(Cursor_Rewrite):
         self.exprs = self.exprs if cse else [self.exprs[0]]
 
         self.new_name = Sym(new_name)
-        self.expr_reads = set(sum([get_reads_of_expr(e) for e in self.exprs], []))
+        self.expr_reads = set(sum([get_reads(ec) for ec in expr_cursors], []))
         self.use_cse = cse
         self.found_expr = None
         self.placed_alloc = False
@@ -1502,51 +1579,16 @@ class DoLiftScope(Cursor_Rewrite):
         return None
 
 
-def get_reads_of_stmts(stmts):
-    reads = []
-    for s in stmts:
-        if isinstance(s, LoopIR.Assign):
-            reads += get_reads_of_expr(s.rhs)
-            reads += sum([get_reads_of_expr(idx) for idx in s.idx], [])
-        elif isinstance(s, LoopIR.Reduce):
-            reads += get_reads_of_expr(s.rhs)
-            reads += sum([get_reads_of_expr(idx) for idx in s.idx], [])
-        elif isinstance(s, LoopIR.If):
-            reads += get_reads_of_stmts(s.body)
-            if s.orelse:
-                reads += get_reads_of_stmts(s.orelse)
-        elif isinstance(s, LoopIR.Seq):
-            reads += get_reads_of_stmts(s.body)
-        elif isinstance(s, LoopIR.Call):
-            reads += sum([get_reads_of_expr(arg) for arg in s.args], [])
-        elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig)):
-            raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
-        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
-            pass
-        else:
-            raise NotImplementedError(f"unknown stmt type {type(s)}")
-    return reads
-
-
-def get_writes_of_stmts(stmts):
+def get_writes_of_block(block):
     writes = []
-    for s in stmts:
-        if isinstance(s, LoopIR.Assign):
-            writes += [(s.name, s.type)]
-        elif isinstance(s, LoopIR.Reduce):
-            writes += [(s.name, s.type)]
-        elif isinstance(s, LoopIR.If):
-            writes += get_writes_of_stmts(s.body)
-            if s.orelse:
-                writes += get_writes_of_stmts(s.orelse)
-        elif isinstance(s, LoopIR.Seq):
-            writes += get_writes_of_stmts(s.body)
-        elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig)):
-            raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
-        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.Call)):
-            pass
-        else:
-            raise NotImplementedError(f"unknown stmt type {type(s)}")
+
+    def store_writes(sc):
+        nonlocal writes
+        s = sc._node
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            writes.append((s.name, s.type))
+
+    WalkAST(block, stmt_func=store_writes)
     return writes
 
 
@@ -1555,7 +1597,7 @@ def DoLiftConstant(assign_c, loop_c):
     assign_s = assign_c._node
     loop = loop_c._node
 
-    for (name, typ) in get_reads_of_stmts(loop.body):
+    for (name, typ) in get_reads(loop_c.body()):
         if assign_s.name == name and assign_s.type == typ:
             raise SchedulingError(
                 "cannot lift constant because the buffer is read in the loop body"
@@ -1636,7 +1678,7 @@ def DoLiftConstant(assign_c, loop_c):
 
     constant = relevant_reduces[0]._node.rhs.lhs
     if isinstance(constant, LoopIR.Read):
-        for (name, typ) in get_writes_of_stmts(loop.body):
+        for (name, typ) in get_writes_of_block(loop_c.body()):
             if constant.name == name and constant.type == typ:
                 raise SchedulingError(
                     "cannot lift constant because it is a buffer that is written in the loop body"
