@@ -2308,3 +2308,13 @@ def test_lift_reduce_constant_bad_8():
         match="unsupported stmt type",
     ):
         lift_reduce_constant(foo, "x = 0.0; _")
+
+
+def test_specialize(golden):
+    @proc
+    def foo(x: f32[4] @ DRAM):
+        for i in seq(0, 4):
+            x[i] += 1.0
+
+    foo = specialize(foo, "x[i] += 1.0", [f"i == {i}" for i in range(4)])
+    assert str(foo) == golden

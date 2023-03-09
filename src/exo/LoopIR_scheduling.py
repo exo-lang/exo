@@ -1210,18 +1210,16 @@ class DoBindConfig(Cursor_Rewrite):
             return super().map_e(e)
 
 
-class DoCommuteExpr(Cursor_Rewrite):
-    def __init__(self, proc_cursor, expr_cursors):
-        self.exprs = [e._node for e in expr_cursors]
-        super().__init__(proc_cursor)
-        self.proc = InferEffects(self.proc).result()
-
-    def map_e(self, e):
-        if e in self.exprs:
-            assert isinstance(e, LoopIR.BinOp)
-            return e.update(lhs=e.rhs, rhs=e.lhs)
-        else:
-            return super().map_e(e)
+def DoCommuteExpr(expr_cursors):
+    ir, fwd = expr_cursors[0].get_root(), lambda x: x
+    for expr_c in expr_cursors:
+        e = expr_c._node
+        assert isinstance(e, LoopIR.BinOp)
+        ir, fwd_repl = fwd(expr_c._child_node("lhs"))._replace(e.rhs)
+        fwd = _compose(fwd_repl, fwd)
+        ir, fwd_repl = fwd(expr_c._child_node("rhs"))._replace(e.lhs)
+        fwd = _compose(fwd_repl, fwd)
+    return _fixup_effects(ir, fwd)
 
 
 class DoBindExpr(Cursor_Rewrite):
@@ -2721,26 +2719,17 @@ class DoAddUnsafeGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class DoSpecialize(Cursor_Rewrite):
-    def __init__(self, proc_cursor, stmt_cursor, conds):
-        assert conds, "Must add at least one condition"
-        self.stmt = stmt_cursor._node
-        self.conds = conds
+def DoSpecialize(stmt_cursor, conds):
+    assert conds, "Must add at least one condition"
+    s = stmt_cursor._node
 
-        super().__init__(proc_cursor)
+    else_br = Alpha_Rename([s]).result()
+    for cond in reversed(conds):
+        then_br = Alpha_Rename([s]).result()
+        else_br = [LoopIR.If(cond, then_br, else_br, None, s.srcinfo)]
 
-        self.proc = InferEffects(self.proc).result()
-
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.stmt:
-            else_br = Alpha_Rename([s]).result()
-            for cond in reversed(self.conds):
-                then_br = Alpha_Rename([s]).result()
-                else_br = [LoopIR.If(cond, then_br, else_br, None, s.srcinfo)]
-            return else_br
-
-        return super().map_s(sc)
+    ir, fwd = stmt_cursor._replace(else_br)
+    return _fixup_effects(ir, fwd)
 
 
 def _get_constant_bound(e):
@@ -2777,8 +2766,8 @@ class DoBoundAndGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-def DoFuseLoop(proc_cursor, f_cursor, s_cursor):
-    proc = proc_cursor._node
+def DoFuseLoop(f_cursor, s_cursor):
+    proc = f_cursor.get_root()
     loop1 = f_cursor._node
     loop2 = s_cursor._node
 
@@ -2806,78 +2795,50 @@ def DoFuseLoop(proc_cursor, f_cursor, s_cursor):
     return _fixup_effects(ir, fwd)
 
 
-class DoFuseIf(Cursor_Rewrite):
-    def __init__(self, proc_cursor, f_cursor, s_cursor):
-        self.if1 = f_cursor._node
-        self.if2 = s_cursor._node
+def DoFuseIf(f_cursor, s_cursor):
+    proc = f_cursor.get_root()
+    if f_cursor.next() != s_cursor:
+        raise SchedulingError(
+            "expected the two if statements to be fused to come one right after the other"
+        )
 
-        super().__init__(proc_cursor)
+    if1 = f_cursor._node
+    if2 = s_cursor._node
+    Check_ExprEqvInContext(proc, if1.cond, [if1], if2.cond, [if2])
 
-        self.proc = InferEffects(self.proc).result()
+    cond = if1.cond
+    body1 = if1.body
+    body2 = if2.body
+    orelse1 = if1.orelse
+    orelse2 = if2.orelse
+    ifstmt = LoopIR.If(cond, body1 + body2, orelse1 + orelse2, None, if1.srcinfo)
 
-    def map_stmts(self, stmts_c):
-        stmts = [s._node for s in stmts_c]
-        for i, s in enumerate(stmts):
-            if s is self.if1:
-                if i + 1 >= len(stmts) or stmts[i + 1] is not self.if2:
-                    raise SchedulingError(
-                        "expected the two if statements to be "
-                        "fused to come one right after the other"
-                    )
-
-                if1, if2 = self.if1, self.if2
-
-                # check if the loop bounds are equivalent
-                Check_ExprEqvInContext(
-                    self.orig_proc._node, if1.cond, [if1], if2.cond, [if2]
-                )
-
-                cond = if1.cond
-                body1 = if1.body
-                body2 = if2.body
-                orelse1 = if1.orelse
-                orelse2 = if2.orelse
-                ifstmt = LoopIR.If(
-                    cond, body1 + body2, orelse1 + orelse2, None, if1.srcinfo
-                )
-
-                return stmts[:i] + [ifstmt] + stmts[i + 2 :]
-
-        # if we reached this point, we didn't find the if statement
-        return super().map_stmts(stmts)
+    ir, fwd = f_cursor._delete()
+    ir, fwd_repl = fwd(s_cursor)._replace([ifstmt])
+    fwd = _compose(fwd_repl, fwd)
+    return _fixup_effects(ir, fwd)
 
 
-class DoAddLoop(Cursor_Rewrite):
-    def __init__(self, proc_cursor, stmt_cursor, var, hi, guard):
-        self.stmt = stmt_cursor._node
-        self.var = Sym(var)
-        self.hi = hi
-        self.guard = guard
+def DoAddLoop(stmt_cursor, var, hi, guard):
+    proc = stmt_cursor.get_root()
+    s = stmt_cursor._node
 
-        super().__init__(proc_cursor)
+    Check_IsIdempotent(proc, [s])
+    Check_IsPositiveExpr(proc, [s], hi)
 
-        self.proc = InferEffects(self.proc).result()
+    sym = Sym(var)
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.stmt:
-            Check_IsIdempotent(self.orig_proc._node, [s])
-            Check_IsPositiveExpr(self.orig_proc._node, [s], self.hi)
+    def wrapper(body):
+        if guard:
+            rdsym = LoopIR.Read(sym, [], T.index, s.srcinfo)
+            zero = LoopIR.Const(0, T.int, s.srcinfo)
+            cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
+            body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
 
-            sym = self.var
-            hi = self.hi
-            body = [s]
+        return LoopIR.Seq(sym, hi, body, None, s.srcinfo)
 
-            if self.guard:
-                rdsym = LoopIR.Read(sym, [], T.index, s.srcinfo)
-                zero = LoopIR.Const(0, T.int, s.srcinfo)
-                cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
-                body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
-
-            ir = [LoopIR.Seq(sym, hi, body, None, s.srcinfo)]
-            return ir
-
-        return super().map_s(sc)
+    ir, fwd = stmt_cursor.as_block()._wrap(wrapper, "body")
+    return _fixup_effects(ir, fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -4114,16 +4075,16 @@ __all__ = [
     "DoSimplify",
     "DoBoundAndGuard",
     "DoFuseLoop",  # done
-    "DoAddLoop",
+    "DoAddLoop",  # done
     "DoDataReuse",
     "DoLiftScope",
     "DoLiftConstant",
     "DoPartitionLoop",  # done
     "DoAssertIf",
-    "DoSpecialize",
+    "DoSpecialize",  # done
     "DoAddUnsafeGuard",
     "DoDeleteConfig",  # done
-    "DoFuseIf",
+    "DoFuseIf",  # done
     "DoStageMem",
     "DoStageWindow",
     "DoBoundAlloc",
@@ -4135,6 +4096,6 @@ __all__ = [
     "DoLiftAllocSimple",
     "DoFissionAfterSimple",
     "DoProductLoop",  # done
-    "DoCommuteExpr",
+    "DoCommuteExpr",  # done
     "DoMergeWrites",  # done
 ]

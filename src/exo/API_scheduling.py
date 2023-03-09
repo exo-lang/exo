@@ -813,8 +813,8 @@ def commute_expr(proc, expr_cursors):
             "can commute by commute_expr()"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoCommuteExpr(proc_c, exprs).result()
+    ir, _fwd = scheduling.DoCommuteExpr(exprs)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([ExprCursorA(many=True), NameA, BoolA])
@@ -1754,12 +1754,11 @@ def fuse(proc, stmt1, stmt2):
         )
     s1 = stmt1._impl
     s2 = stmt2._impl
-    proc_c = ic.Cursor.create(proc)
     if isinstance(stmt1, PC.IfCursor):
-        return scheduling.DoFuseIf(proc_c, s1, s2).result()
+        ir, _fwd = scheduling.DoFuseIf(s1, s2)
     else:
-        ir, _fwd = scheduling.DoFuseLoop(proc_c, s1, s2)
-        return Procedure(ir, _provenance_eq_Procedure=proc)
+        ir, _fwd = scheduling.DoFuseLoop(s1, s2)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([ForSeqCursorA])
@@ -1809,10 +1808,9 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
     if len(block_cursor) != 1:
         raise NotImplementedError("TODO: support blocks of size > 1")
 
-    stmt = block_cursor[0]._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoAddLoop(proc_c, stmt, iter_name, hi_expr, guard).result()
+    stmt_c = block_cursor[0]._impl
+    ir, _fwd = scheduling.DoAddLoop(stmt_c, iter_name, hi_expr, guard)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([ForSeqCursorA])
@@ -1928,9 +1926,9 @@ def specialize(proc, block_cursor, conds):
         raise NotImplementedError("TODO: support blocks of size > 1")
 
     stmt = block_cursor[0]._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoSpecialize(proc_c, stmt, conds).result()
+    ir, _fwd = scheduling.DoSpecialize(stmt, conds)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 # --------------------------------------------------------------------------- #
