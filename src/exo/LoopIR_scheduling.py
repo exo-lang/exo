@@ -364,33 +364,44 @@ def DoProductLoop(outer_loop, new_name):
     return _fixup_effects(ir, fwd)
 
 
-def get_reads(e):
+def get_reads_of_expr(e):
     if isinstance(e, LoopIR.Read):
-        return sum([get_reads(e) for e in e.idx], [(e.name, e.type)])
+        return sum([get_reads_of_expr(e) for e in e.idx], [(e.name, e.type)])
     elif isinstance(e, LoopIR.USub):
-        return get_reads(e.arg)
+        return get_reads_of_expr(e.arg)
     elif isinstance(e, LoopIR.BinOp):
-        return get_reads(e.lhs) + get_reads(e.rhs)
+        return get_reads_of_expr(e.lhs) + get_reads_of_expr(e.rhs)
     elif isinstance(e, LoopIR.BuiltIn):
-        return sum([get_reads(a) for a in e.args], [])
+        return sum([get_reads_of_expr(a) for a in e.args], [])
     elif isinstance(e, LoopIR.Const):
         return []
     else:
-        assert False, "bad case"
+        raise NotImplementedError(f"get_reads_of_expr: {e}")
+
+
+def same_index_exprs(proc_cursor, idx1, s1, idx2, s2):
+    try:
+        assert len(idx1) == len(idx2)
+        for i, j in zip(idx1, idx2):
+            Check_ExprEqvInContext(proc_cursor, i, [s1], j, [s2])
+        return True
+    except SchedulingError as e:
+        return False
+
+
+def same_write_dest(proc_cursor, s1, s2):
+    return same_index_exprs(proc_cursor, s1.idx, s1, s2.idx, s2)
 
 
 def DoMergeWrites(c1, c2):
     s1, s2 = c1._node, c2._node
 
-    try:
-        for i, j in zip(s1.idx, s2.idx):
-            Check_ExprEqvInContext(c1.get_root(), i, [s1], j, [s2])
-    except SchedulingError as e:
-        raise SchedulingError(
-            "expected the left hand side's indices to be the same."
-        ) from e
+    if not same_write_dest(c1.get_root(), s1, s2):
+        raise SchedulingError("expected the left hand side's indices to be the same.")
 
-    if any(s1.name == name and s1.type == typ for name, typ in get_reads(s2.rhs)):
+    if any(
+        s1.name == name and s1.type == typ for name, typ in get_reads_of_expr(s2.rhs)
+    ):
         raise SchedulingError(
             "expected the right hand side of the second statement to not "
             "depend on the left hand side of the first statement."
@@ -1220,7 +1231,7 @@ class DoBindExpr(Cursor_Rewrite):
         self.exprs = self.exprs if cse else [self.exprs[0]]
 
         self.new_name = Sym(new_name)
-        self.expr_reads = set(sum([get_reads(e) for e in self.exprs], []))
+        self.expr_reads = set(sum([get_reads_of_expr(e) for e in self.exprs], []))
         self.use_cse = cse
         self.found_expr = None
         self.placed_alloc = False
@@ -1489,6 +1500,176 @@ class DoLiftScope(Cursor_Rewrite):
 
     def map_e(self, e):
         return None
+
+
+def get_reads_of_stmts(stmts):
+    reads = []
+    for s in stmts:
+        if isinstance(s, LoopIR.Assign):
+            reads += get_reads_of_expr(s.rhs)
+            reads += sum([get_reads_of_expr(idx) for idx in s.idx], [])
+        elif isinstance(s, LoopIR.Reduce):
+            reads += get_reads_of_expr(s.rhs)
+            reads += sum([get_reads_of_expr(idx) for idx in s.idx], [])
+        elif isinstance(s, LoopIR.If):
+            reads += get_reads_of_stmts(s.body)
+            if s.orelse:
+                reads += get_reads_of_stmts(s.orelse)
+        elif isinstance(s, LoopIR.Seq):
+            reads += get_reads_of_stmts(s.body)
+        elif isinstance(s, LoopIR.Call):
+            reads += sum([get_reads_of_expr(arg) for arg in s.args], [])
+        elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig)):
+            raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
+        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+            pass
+        else:
+            raise NotImplementedError(f"unknown stmt type {type(s)}")
+    return reads
+
+
+def get_writes_of_stmts(stmts):
+    writes = []
+    for s in stmts:
+        if isinstance(s, LoopIR.Assign):
+            writes += [(s.name, s.type)]
+        elif isinstance(s, LoopIR.Reduce):
+            writes += [(s.name, s.type)]
+        elif isinstance(s, LoopIR.If):
+            writes += get_writes_of_stmts(s.body)
+            if s.orelse:
+                writes += get_writes_of_stmts(s.orelse)
+        elif isinstance(s, LoopIR.Seq):
+            writes += get_writes_of_stmts(s.body)
+        elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig)):
+            raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
+        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.Call)):
+            pass
+        else:
+            raise NotImplementedError(f"unknown stmt type {type(s)}")
+    return writes
+
+
+def DoLiftConstant(assign_c, loop_c):
+    orig_proc = assign_c.get_root()
+    assign_s = assign_c._node
+    loop = loop_c._node
+
+    for (name, typ) in get_reads_of_stmts(loop.body):
+        if assign_s.name == name and assign_s.type == typ:
+            raise SchedulingError(
+                "cannot lift constant because the buffer is read in the loop body"
+            )
+
+    only_has_scaled_reduces = True
+
+    def find_relevant_scaled_reduces(stmts_c):
+        nonlocal only_has_scaled_reduces
+        reduces = []
+        for sc in stmts_c:
+            s = sc._node
+            if isinstance(s, LoopIR.Assign):
+                if s.name == assign_s.name:
+                    only_has_scaled_reduces = False
+            elif isinstance(s, LoopIR.Reduce):
+                if s.name != assign_s.name:
+                    continue
+
+                if not (
+                    same_write_dest(orig_proc, assign_s, s)
+                    and isinstance(s.rhs, LoopIR.BinOp)
+                    and s.rhs.op == "*"
+                    and isinstance(s.rhs.lhs, (LoopIR.Const, LoopIR.Read))
+                ):
+                    only_has_scaled_reduces = False
+
+                reduces.append(sc)
+            elif isinstance(s, LoopIR.If):
+                reduces += find_relevant_scaled_reduces(sc.body())
+                if s.orelse:
+                    reduces += find_relevant_scaled_reduces(sc.orelse())
+            elif isinstance(s, LoopIR.Seq):
+                reduces += find_relevant_scaled_reduces(sc.body())
+            elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig, LoopIR.Call)):
+                raise NotImplementedError(
+                    f"unsupported stmt type in loop body: {type(s)}"
+                )
+            elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+                pass
+            else:
+                raise NotImplementedError(f"unknown stmt type {type(s)}")
+        return reduces
+
+    relevant_reduces = find_relevant_scaled_reduces(loop_c.body())
+
+    if not only_has_scaled_reduces:
+        raise SchedulingError(
+            f"cannot lift constant because there are other operations on the same buffer that may interfere"
+        )
+    if len(relevant_reduces) == 0:
+        raise SchedulingError(
+            "cannot lift constant because did not find a reduce in the loop body of the form `buffer += c * expr`"
+        )
+
+    def reduces_have_same_constant(s1, s2):
+        c1 = s1.rhs.lhs
+        c2 = s2.rhs.lhs
+        if isinstance(c1, LoopIR.Const) and isinstance(c2, LoopIR.Const):
+            return c1.val == c2.val
+        elif isinstance(c1, LoopIR.Read) and isinstance(c2, LoopIR.Read):
+            return c1.name == c2.name and same_index_exprs(
+                orig_proc,
+                c1.idx,
+                s1,
+                c2.idx,
+                s2,
+            )
+        else:
+            return False
+
+    # check that reduces have the same constant scaling factor
+    for s in relevant_reduces[1:]:
+        if not reduces_have_same_constant(relevant_reduces[0]._node, s._node):
+            raise SchedulingError(
+                f"cannot lift constant because the reduces to buffer {assign_s.name} in the loop body have different constants"
+            )
+
+    constant = relevant_reduces[0]._node.rhs.lhs
+    if isinstance(constant, LoopIR.Read):
+        for (name, typ) in get_writes_of_stmts(loop.body):
+            if constant.name == name and constant.type == typ:
+                raise SchedulingError(
+                    "cannot lift constant because it is a buffer that is written in the loop body"
+                )
+
+    ir, fwd = orig_proc, lambda x: x
+
+    # replace all the relevant reduce statements
+    for sc in relevant_reduces:
+        rhs_c = sc._child_node("rhs")
+        rhs = rhs_c._node
+        ir, fwd_repl = fwd(rhs_c)._replace(rhs.rhs)
+        fwd = _compose(fwd_repl, fwd)
+
+    # insert new scaled assign statement after loop
+    new_assign_buffer_read = LoopIR.Read(
+        assign_s.name,
+        assign_s.idx,
+        assign_s.type,
+        assign_s.srcinfo,
+    )
+    new_assign_rhs = LoopIR.BinOp(
+        "*",
+        constant,
+        new_assign_buffer_read,
+        assign_s.type,
+        assign_s.srcinfo,
+    )
+    new_assign = assign_s.update(rhs=new_assign_rhs)
+    ir, fwd_ins = fwd(loop_c).after()._insert([new_assign])
+    fwd = _compose(fwd_ins, fwd)
+
+    return _fixup_effects(ir, fwd)
 
 
 class DoExpandDim(Cursor_Rewrite):
@@ -3897,6 +4078,7 @@ __all__ = [
     "DoAddLoop",  # done
     "DoDataReuse",
     "DoLiftScope",
+    "DoLiftConstant",
     "DoPartitionLoop",  # done
     "DoAssertIf",
     "DoSpecialize",  # done

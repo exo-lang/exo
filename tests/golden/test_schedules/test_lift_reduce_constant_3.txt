@@ -1,0 +1,8 @@
+def foo():
+    x: R @ DRAM
+    y: R[8] @ DRAM
+    for j in seq(0, 8):
+        x = 0.0
+        for i in seq(0, 8):
+            x += 2.0
+        x = y[j] * x

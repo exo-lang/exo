@@ -1,0 +1,11 @@
+def foo():
+    x: R[2] @ DRAM
+    y: R[8] @ DRAM
+    x[0] = 0.0
+    for i in seq(0, 8):
+        for j in seq(0, 8):
+            y[i] += y[i] * 2.0
+        for k in seq(0, 8):
+            x[0] += y[i]
+        x[0] += y[i]
+    x[0] = 3.0 * x[0]
