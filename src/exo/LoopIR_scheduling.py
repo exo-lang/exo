@@ -2012,70 +2012,41 @@ class DoMultiplyDim(Cursor_Rewrite):
 # *Only* lifting an allocation
 
 
-class DoLiftAllocSimple(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, n_lifts):
-        self.alloc_stmt = alloc_cursor._node
+def DoLiftAllocSimple(alloc_cursor, n_lifts):
+    alloc_stmt = alloc_cursor._node
 
-        assert isinstance(self.alloc_stmt, LoopIR.Alloc)
-        assert is_pos_int(n_lifts)
+    assert isinstance(alloc_stmt, LoopIR.Alloc)
+    assert is_pos_int(n_lifts)
 
-        self.n_lifts = n_lifts
-        self.ctrl_ctxt = []
-        self.lift_site = None
+    szvars = set()
+    if alloc_stmt.type.shape():
+        szvars = set.union(*[_FV(sz) for sz in alloc_stmt.type.shape()])
 
-        super().__init__(proc_cursor)
+    stmt_c = alloc_cursor
+    for i in range(n_lifts):
+        try:
+            stmt_c = stmt_c.parent()
+            if stmt_c == stmt_c.root():
+                raise ic.InvalidCursorError
+            if isinstance(stmt_c._node, LoopIR.Seq):
+                if stmt_c._node.iter in szvars:
+                    raise SchedulingError(
+                        f"Cannot lift allocation statement {alloc_stmt} past loop "
+                        f"with iteration variable {i} because "
+                        f"the allocation size depends on {i}."
+                    )
+        except ic.InvalidCursorError:
+            raise SchedulingError(
+                f"specified lift level {n_lifts} is more than {i}, "
+                "the number of loops and ifs above the allocation"
+            )
 
-        self.proc = InferEffects(self.proc).result()
-
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.alloc_stmt:
-            if self.n_lifts > len(self.ctrl_ctxt):
-                raise SchedulingError(
-                    f"specified lift level {self.n_lifts} "
-                    f"is more than {len(self.ctrl_ctxt)}, "
-                    f"the number of loops "
-                    f"and ifs above the allocation"
-                )
-            if s.type.shape():
-                szvars = set.union(*[_FV(sz) for sz in s.type.shape()])
-                for i in self.get_ctrl_iters():
-                    if i in szvars:
-                        raise SchedulingError(
-                            f"Cannot lift allocation statement {s} past loop "
-                            f"with iteration variable {i} because "
-                            f"the allocation size depends on {i}."
-                        )
-            self.lift_site = self.ctrl_ctxt[-self.n_lifts]
-
-            return []
-
-        elif isinstance(s, (LoopIR.If, LoopIR.Seq)):
-            self.ctrl_ctxt.append(s)
-            stmts = super().map_s(sc)
-            self.ctrl_ctxt.pop()
-            # TODO: it is technically possible to end up with for-loops
-            # and if-statements that have empty bodies.  We should check
-            # for this situation, even if it's extremely unlikely.
-
-            if s is self.lift_site:
-                new_alloc = LoopIR.Alloc(
-                    self.alloc_stmt.name,
-                    self.alloc_stmt.type,
-                    self.alloc_stmt.mem,
-                    None,
-                    s.srcinfo,
-                )
-                stmts = [new_alloc] + stmts
-
-            return stmts
-
-        return super().map_s(sc)
-
-    def get_ctrl_iters(self):
-        return [
-            s.iter for s in self.ctrl_ctxt[-self.n_lifts :] if isinstance(s, LoopIR.Seq)
-        ]
+    gap_c = stmt_c.before()
+    # TODO: it is technically possible to end up with for-loops
+    # and if-statements that have empty bodies.  We should check
+    # for this situation, even if it's extremely unlikely.
+    ir, fwd = alloc_cursor._move(gap_c)
+    return _fixup_effects(ir, fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -4093,7 +4064,7 @@ __all__ = [
     "DoDivideDim",
     "DoMultiplyDim",
     "DoRemoveLoop",  # done
-    "DoLiftAllocSimple",
+    "DoLiftAllocSimple",  # done
     "DoFissionAfterSimple",
     "DoProductLoop",  # done
     "DoCommuteExpr",  # done
