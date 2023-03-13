@@ -2042,9 +2042,6 @@ def DoLiftAllocSimple(alloc_cursor, n_lifts):
             )
 
     gap_c = stmt_c.before()
-    # TODO: it is technically possible to end up with for-loops
-    # and if-statements that have empty bodies.  We should check
-    # for this situation, even if it's extremely unlikely.
     ir, fwd = alloc_cursor._move(gap_c)
     return _fixup_effects(ir, fwd)
 
