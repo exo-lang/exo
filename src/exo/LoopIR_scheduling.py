@@ -1461,40 +1461,7 @@ class DoLiftScope(Cursor_Rewrite):
                     #   for INNER in _: A  ~>    for OUTER in _: A
                     Check_ReorderLoops(self.orig_proc._node, s)
 
-                    # TODO: This is a copy paste from old _Reorder class.
-                    # Deprecate this when we deprecate effects.
-                    # short-hands for sanity
-                    def boolop(op, lhs, rhs):
-                        return LoopIR.BinOp(op, lhs, rhs, T.bool, s.srcinfo)
-
-                    def cnst(intval):
-                        return LoopIR.Const(intval, T.int, s.srcinfo)
-
-                    def rd(i):
-                        return LoopIR.Read(i, [], T.index, s.srcinfo)
-
-                    def rng(x, hi):
-                        lhs = boolop("<=", cnst(0), x)
-                        rhs = boolop("<", x, hi)
-                        return boolop("and", lhs, rhs)
-
-                    def do_bind(x, hi, eff):
-                        cond = lift_to_eff_expr(rng(rd(x), hi))
-                        cond_nz = boolop("<", cnst(0), hi)
-                        return eff_bind(
-                            x, eff, pred=cond
-                        )  # TODO: , config_pred=cond_nz)
-
-                    # this is the actual body inside both for-loops
-                    body = s.body[0].body
-                    body_eff = get_effect_of_stmts(body)
-                    inner_eff = do_bind(s.iter, s.hi, body_eff)
-                    outer_eff = do_bind(s.body[0].iter, s.body[0].hi, inner_eff)
-                    return [
-                        s.body[0].update(
-                            body=[s.update(body=body, eff=inner_eff)], eff=outer_eff
-                        )
-                    ]
+                    return [s.body[0].update(body=[s.update(body=s.body[0].body)])]
 
         return None
 
