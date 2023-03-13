@@ -1262,7 +1262,8 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
     proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
 
-    return scheduling.DoLiftAllocSimple(proc_c, stmt, n_lifts).result()
+    ir, _fwd = scheduling.DoLiftAllocSimple(stmt, n_lifts)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([AllocCursorA, PosIntA, EnumA(["row", "col"]), OptionalA(PosIntA), BoolA])

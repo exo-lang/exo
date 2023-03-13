@@ -468,6 +468,16 @@ def test_lift_alloc_simple3(golden):
     assert str(bar) == golden
 
 
+def test_lift_alloc_simple_empty_body(golden):
+    @proc
+    def bar():
+        for i in seq(0, 4):
+            tmp: i8
+
+    bar = lift_alloc(bar, "tmp: _")
+    assert str(bar) == golden
+
+
 def test_lift_alloc_simple_fv_error():
     @proc
     def bar(n: size, A: i8[n]):
