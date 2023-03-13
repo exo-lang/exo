@@ -2027,7 +2027,9 @@ def DoLiftAllocSimple(alloc_cursor, n_lifts):
         try:
             stmt_c = stmt_c.parent()
             if stmt_c == stmt_c.root():
-                raise ic.InvalidCursorError
+                raise ic.InvalidCursorError(
+                    f"Cannot lift allocation {alloc_stmt} beyond its root proc."
+                )
             if isinstance(stmt_c._node, LoopIR.Seq):
                 if stmt_c._node.iter in szvars:
                     raise SchedulingError(
