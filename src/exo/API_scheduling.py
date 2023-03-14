@@ -1103,13 +1103,9 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
         The provided dimension size is checked for positivity and the
         provided indexing expression is checked to make sure it is in-bounds
     """
-    proc_c = ic.Cursor.create(proc)
-    stmt = buf_cursor._impl
-    new_proc_c = scheduling.DoExpandDim(proc_c, stmt, alloc_dim, indexing_expr).result()
-    if not unsafe_disable_checks:
-        CheckEffects(new_proc_c._loopir_proc)
-
-    return new_proc_c
+    stmt_c = buf_cursor._impl
+    ir, _fwd = scheduling.DoExpandDim(stmt_c, alloc_dim, indexing_expr)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([AllocCursorA, ListA(IntA)])

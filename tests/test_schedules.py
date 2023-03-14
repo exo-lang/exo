@@ -617,6 +617,18 @@ def test_expand_dim5(golden):
     assert str(foo) == golden
 
 
+def test_expand_dim6(golden):
+    @proc
+    def foo(n: size, m: size, x: i8):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                a: i8[m]
+                a[j] = a[j] + 1.0
+
+    foo = expand_dim(foo, "a : _", "n", "i")
+    assert str(foo) == golden
+
+
 def test_divide_dim_1(golden):
     @proc
     def foo(n: size, m: size, A: R[n + m + 12]):
