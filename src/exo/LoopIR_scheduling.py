@@ -4036,7 +4036,7 @@ __all__ = [
     "DoFuseLoop",  # done
     "DoAddLoop",  # done
     "DoDataReuse",
-    "DoLiftScope",
+    "DoLiftScope",  # done
     "DoLiftConstant",
     "DoPartitionLoop",  # done
     "DoAssertIf",
