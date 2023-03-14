@@ -1694,22 +1694,24 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         new_rngs += old_typ.shape()
     basetyp = old_typ.basetype()
     new_typ = T.Tensor(new_rngs, False, basetyp)
-    new_alloc = LoopIR.Alloc(alloc_s.name, new_typ, alloc_s.mem, None, alloc_s.srcinfo)
+    new_alloc = alloc_s.update(type=new_typ)
 
     ir, fwd = alloc_cursor._replace([new_alloc])
 
     def mk_read(c):
         rd = c._node
-        new_idx = (
-            [indexing]
-            if isinstance(rd, LoopIR.Read)
-            else [LoopIR.Point(indexing, rd.srcinfo)]
-        )
-        new_rd = type(rd)(rd.name, new_idx + rd.idx, rd.type, rd.srcinfo)
+        if isinstance(rd, LoopIR.Read):
+            new_rd = rd.update(idx=[indexing] + rd.idx)
+        elif isinstance(rd, LoopIR.WindowExpr):
+            new_rd = rd.update(idx=[LoopIR.Point(indexing, rd.srcinfo)] + rd.idx)
+        else:
+            raise NotImplementedError(
+                f"Did not implement {type(rd)}. This may be a bug."
+            )
 
         # TODO: do I need to worry about Builtins too?
         if isinstance(c.parent()._node, (LoopIR.Call)):
-            if len(rd.idx) == 0:
+            if not rd.idx:
                 raise SchedulingError(
                     "TODO: Please Contact the developers to fix (i.e. add) "
                     "support for passing windows to scalar arguments"
@@ -1721,9 +1723,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
 
     def mk_write(c):
         s = c._node
-        return [
-            type(s)(s.name, s.type, s.cast, [indexing] + s.idx, s.rhs, None, s.srcinfo)
-        ]
+        return [s.update(idx=[indexing] + s.idx)]
 
     c = alloc_cursor
     while True:
