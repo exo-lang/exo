@@ -247,10 +247,10 @@ def _replace_pats(ir, fwd, c, pat, repl):
 
 
 def _replace_pats_stmts(ir, fwd, c, pat, repl):
-    for rd in match_pattern(c, pat):
+    for block in match_pattern(c, pat):
         # needed because match_pattern on stmts return blocks
-        rd = rd.__getitem__(0)
-        ir, fwd_rd = rd._replace(repl(rd))
+        s = block.__getitem__(0)
+        ir, fwd_rd = s._replace(repl(s))
         fwd = _compose(fwd_rd, fwd)
     return ir, fwd
 
@@ -1699,16 +1699,31 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
     ir, fwd = alloc_cursor._replace([new_alloc])
 
     def make_expanded_read(c):
-        s = c._node
-        return LoopIR.Read(s.name, [indexing] + s.idx, s.type, s.srcinfo)
+        rd = c._node
+        new_idx = (
+            [indexing]
+            if isinstance(rd, LoopIR.Read)
+            else [LoopIR.Point(indexing, rd.srcinfo)]
+        )
+        new_rd = type(rd)(rd.name, new_idx + rd.idx, rd.type, rd.srcinfo)
+
+        # TODO: do I need to worry about Builtins too?
+        if isinstance(c.parent()._node, (LoopIR.Call)):
+            if len(rd.idx) == 0:
+                raise SchedulingError(
+                    "TODO: Please Contact the developers to fix (i.e. add) "
+                    "support for passing windows to scalar arguments"
+                )
+
+            # Needed because _replace calls as_block() if path[-1] has an idx
+            new_rd = [new_rd]
+        return new_rd
 
     def make_expanded_write(c):
         s = c._node
         return [
             type(s)(s.name, s.type, s.cast, [indexing] + s.idx, s.rhs, None, s.srcinfo)
         ]
-
-        # Assign( sym name, type type, string? cast, expr* idx, expr rhs )
 
     c = alloc_cursor
     while True:
@@ -1717,11 +1732,18 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         except ic.InvalidCursorError as e:
             break
 
-        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}", make_expanded_read)
-        # TODO: I think replacing the LHS replaces the whole statement, which would
-        # invavlidate any cursors to RHS expressions?
+        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", make_expanded_read)
+
+        # TODO: These replace the whole statement, which would invavlidate any existing
+        # cursors to RHS expressions?
+        temp_c = fwd(
+            c
+        )  # so we don't lose the cursor after the assign's _replace_pat_stmts
         ir, fwd = _replace_pats_stmts(
-            ir, fwd, fwd(c), f"{alloc_s.name} = _", make_expanded_write
+            ir, fwd, temp_c, f"{alloc_s.name} = _", make_expanded_write
+        )
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, temp_c, f"{alloc_s.name} += _", make_expanded_write
         )
 
     found_new_alloc = False

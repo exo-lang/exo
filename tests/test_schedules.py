@@ -619,14 +619,39 @@ def test_expand_dim5(golden):
 
 def test_expand_dim6(golden):
     @proc
+    def bar(m: size, a: i8[m]):
+        a[0] += 1.0
+
+    @proc
     def foo(n: size, m: size, x: i8):
         for i in seq(0, n):
             for j in seq(0, m):
                 a: i8[m]
                 a[j] = a[j] + 1.0
+                a[j] += 1.0
+                bar(m, a[0:m])
 
     foo = expand_dim(foo, "a : _", "n", "i")
     assert str(foo) == golden
+
+
+def test_expand_dim7():
+    @proc
+    def bar(m: size, a: i8[m]):
+        a[0] += 1.0
+
+    @proc
+    def foo(n: size, m: size, x: i8):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                a: i8[m]
+                a[j] = a[j] + 1.0
+                bar(m, a)
+
+    with pytest.raises(
+        SchedulingError, match="support for passing windows to scalar arguments"
+    ):
+        foo = expand_dim(foo, "a : _", "n", "i")
 
 
 def test_divide_dim_1(golden):
