@@ -1381,7 +1381,7 @@ def DoLiftScope(inner_c):
                     )
 
                 blk_c = outer_s.orelse
-                wrapper = lambda block: if_wrapper(block, insert_orelse=blk_c)
+                wrapper = lambda block: if_wrapper(block, insert_orelse=bool(blk_c))
 
                 ir, fwd = inner_c.body()._wrap(wrapper, "block")
                 if blk_c:
