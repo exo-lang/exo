@@ -249,7 +249,7 @@ def _replace_pats(ir, fwd, c, pat, repl):
 def _replace_pats_stmts(ir, fwd, c, pat, repl):
     for block in match_pattern(c, pat):
         # needed because match_pattern on stmts return blocks
-        s = block.__getitem__(0)
+        s = block[0]
         ir, fwd_rd = s._replace(repl(s))
         fwd = _compose(fwd_rd, fwd)
     return ir, fwd
@@ -1698,7 +1698,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
 
     ir, fwd = alloc_cursor._replace([new_alloc])
 
-    def make_expanded_read(c):
+    def mk_read(c):
         rd = c._node
         new_idx = (
             [indexing]
@@ -1719,7 +1719,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
             new_rd = [new_rd]
         return new_rd
 
-    def make_expanded_write(c):
+    def mk_write(c):
         s = c._node
         return [
             type(s)(s.name, s.type, s.cast, [indexing] + s.idx, s.rhs, None, s.srcinfo)
@@ -1732,19 +1732,13 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         except ic.InvalidCursorError as e:
             break
 
-        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", make_expanded_read)
+        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
+        new_c = fwd(c)
 
         # TODO: These replace the whole statement, which would invavlidate any existing
         # cursors to RHS expressions?
-        temp_c = fwd(
-            c
-        )  # so we don't lose the cursor after the assign's _replace_pat_stmts
-        ir, fwd = _replace_pats_stmts(
-            ir, fwd, temp_c, f"{alloc_s.name} = _", make_expanded_write
-        )
-        ir, fwd = _replace_pats_stmts(
-            ir, fwd, temp_c, f"{alloc_s.name} += _", make_expanded_write
-        )
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} += _", mk_write)
 
     found_new_alloc = False
     after_alloc = []
