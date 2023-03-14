@@ -1564,9 +1564,8 @@ def reorder_loops(proc, nested_loops):
     if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.Seq):
         raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoLiftScope(proc_c, stmt_c.body()[0]).result()
+    ir, _fwd = scheduling.DoLiftScope(stmt_c.body()[0])
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1862,9 +1861,10 @@ def lift_scope(proc, scope_cursor):
         `        s2`
     """
     stmt_c = scope_cursor._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoLiftScope(proc_c, stmt_c).result()
+    # return scheduling.DoLiftScope(proc_c, stmt_c).result()
+    ir, _fwd = scheduling.DoLiftScope(stmt_c)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([IfCursorA, BoolA])
