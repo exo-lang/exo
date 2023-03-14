@@ -1342,27 +1342,27 @@ class DoBindExpr(Cursor_Rewrite):
             return super().map_e(e)
 
 
-def DoLiftScope(inner_cursor):
-    inner_s = inner_cursor._node
+def DoLiftScope(inner_c):
+    inner_s = inner_c._node
     assert isinstance(inner_s, (LoopIR.If, LoopIR.Seq))
     target_type = "if statement" if isinstance(inner_s, LoopIR.If) else "for loop"
 
-    outer_cursor = inner_cursor.parent()
-    if outer_cursor.root() == outer_cursor:
+    outer_c = inner_c.parent()
+    if outer_c.root() == outer_c:
         raise SchedulingError("Cannot lift scope of top-level statement")
-    outer_s = outer_cursor._node
+    outer_s = outer_c._node
 
-    ir, fwd = inner_cursor.get_root(), lambda x: x
+    ir, fwd = inner_c.get_root(), lambda x: x
 
     if isinstance(outer_s, LoopIR.If):
 
-        def if_body_wrapper(block, insert_orelse=False):
+        def if_wrapper(block, insert_orelse=False):
             src = outer_s.srcinfo
             # this is needed because _replace expects a non-zero length block
             orelse = [LoopIR.Pass(None, src)] if insert_orelse else []
             return LoopIR.If(outer_s.cond, block, orelse, None, src)
 
-        def if_orelse_wrapper(block):
+        def orelse_wrapper(block):
             src = outer_s.srcinfo
             body = [LoopIR.Pass(None, src)]
             return LoopIR.If(outer_s.cond, body, block, None, src)
@@ -1380,32 +1380,19 @@ def DoLiftScope(inner_cursor):
                         f"expected {target_type} to be directly nested in parent"
                     )
 
-                block_c = outer_s.orelse
-                wrapper = lambda block: if_body_wrapper(
-                    block, insert_orelse=(len(block_c) > 0)
-                )
+                blk_c = outer_s.orelse
+                wrapper = lambda block: if_wrapper(block, insert_orelse=blk_c)
 
-                ir, fwd = inner_cursor.body()._wrap(wrapper, "block")
-                if len(block_c) > 0:
-                    ir, fwd_repl = (
-                        fwd(inner_cursor)
-                        ._child_node("body", 0)
-                        .orelse()
-                        ._replace(block_c)
-                    )
+                ir, fwd = inner_c.body()._wrap(wrapper, "block")
+                if blk_c:
+                    ir, fwd_repl = fwd(inner_c).body()[0].orelse()._replace(blk_c)
                     fwd = _compose(fwd_repl, fwd)
 
-                block_b = inner_s.orelse
-                if len(block_b) > 0:  # if B exists
-                    ir, fwd_wrap = fwd(inner_cursor).orelse()._wrap(wrapper, "block")
+                if inner_s.orelse:
+                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(wrapper, "block")
                     fwd = _compose(fwd_wrap, fwd)
-                    if len(block_c) > 0:
-                        ir, fwd_repl = (
-                            fwd(inner_cursor)
-                            ._child_node("orelse", 0)
-                            .orelse()
-                            ._replace(block_c)
-                        )
+                    if blk_c:
+                        ir, fwd_repl = fwd(inner_c).orelse()[0].orelse()._replace(blk_c)
                         fwd = _compose(fwd_repl, fwd)
             else:
                 #                    if INNER:
@@ -1420,26 +1407,16 @@ def DoLiftScope(inner_cursor):
                         f"expected {target_type} to be directly nested in parent"
                     )
 
-                block_a = outer_s.body
+                blk_a = outer_s.body
 
-                ir, fwd = inner_cursor.body()._wrap(if_orelse_wrapper, "block")
-                ir, fwd_repl = (
-                    fwd(inner_cursor)._child_node("body", 0).body()._replace(block_a)
-                )
+                ir, fwd = inner_c.body()._wrap(orelse_wrapper, "block")
+                ir, fwd_repl = fwd(inner_c).body()[0].body()._replace(blk_a)
                 fwd = _compose(fwd_repl, fwd)
 
-                block_c = inner_s.orelse
-                if len(block_c) > 0:
-                    ir, fwd_wrap = (
-                        fwd(inner_cursor).orelse()._wrap(if_orelse_wrapper, "block")
-                    )
+                if inner_s.orelse:
+                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(orelse_wrapper, "block")
                     fwd = _compose(fwd_wrap, fwd)
-                    ir, fwd_repl = (
-                        fwd(inner_cursor)
-                        ._child_node("orelse", 0)
-                        .body()
-                        ._replace(block_a)
-                    )
+                    ir, fwd_repl = fwd(inner_c).orelse()[0].body()._replace(blk_a)
                     fwd = _compose(fwd_repl, fwd)
         elif isinstance(inner_s, LoopIR.Seq):
             # if OUTER:                for INNER in _:
@@ -1449,12 +1426,12 @@ def DoLiftScope(inner_cursor):
                     f"expected {target_type} to be directly nested in parent"
                 )
 
-            if len(outer_s.orelse) > 0:
+            if outer_s.orelse:
                 raise SchedulingError(
                     "cannot lift for loop when if has an orelse clause"
                 )
 
-            ir, fwd = inner_cursor.body()._wrap(if_body_wrapper, "block")
+            ir, fwd = inner_c.body()._wrap(if_wrapper, "block")
     elif isinstance(outer_s, LoopIR.Seq):
         if len(outer_s.body) > 1:
             raise SchedulingError(
@@ -1472,20 +1449,19 @@ def DoLiftScope(inner_cursor):
             if outer_s.iter in _FV(inner_s.cond):
                 raise SchedulingError("if statement depends on iteration variable")
 
-            ir, fwd = inner_cursor.body()._wrap(loop_wrapper, "block")
+            ir, fwd = inner_c.body()._wrap(loop_wrapper, "block")
 
-            block_b = inner_s.orelse
-            if len(block_b) > 0:
-                ir, fwd_wrap = fwd(inner_cursor).orelse()._wrap(loop_wrapper, "block")
+            if inner_s.orelse:
+                ir, fwd_wrap = fwd(inner_c).orelse()._wrap(loop_wrapper, "block")
                 fwd = _compose(fwd_wrap, fwd)
         elif isinstance(inner_s, LoopIR.Seq):
             # for OUTER in _:          for INNER in _:
             #   for INNER in _: A  ~>    for OUTER in _: A
-            Check_ReorderLoops(inner_cursor.get_root(), outer_s)
+            Check_ReorderLoops(inner_c.get_root(), outer_s)
 
-            ir, fwd = inner_cursor.body()._wrap(loop_wrapper, "block")
+            ir, fwd = inner_c.body()._wrap(loop_wrapper, "block")
 
-    ir, fwd_repl = fwd(outer_cursor)._replace([fwd(inner_cursor)._node])
+    ir, fwd_repl = fwd(outer_c)._replace([fwd(inner_c)._node])
     fwd = _compose(fwd_repl, fwd)
 
     return _fixup_effects(ir, fwd)
