@@ -4050,7 +4050,7 @@ __all__ = [
     "DoStageMem",
     "DoStageWindow",
     "DoBoundAlloc",
-    "DoExpandDim",
+    "DoExpandDim",  # done
     "DoRearrangeDim",
     "DoDivideDim",
     "DoMultiplyDim",
