@@ -235,14 +235,22 @@ def _compose(f, g):
     return lambda x: f(g(x))
 
 
-def _replace_pats(fwd, c, pat, repl):
+def _replace_pats(ir, fwd, c, pat, repl):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
-    ir = c._node
     for rd in match_pattern(c, pat):
         rd = fwd(rd)
         ir, fwd_rd = rd._replace(repl(rd))
+        fwd = _compose(fwd_rd, fwd)
+    return ir, fwd
+
+
+def _replace_pats_stmts(ir, fwd, c, pat, repl):
+    for block in match_pattern(c, pat):
+        # needed because match_pattern on stmts return blocks
+        s = block[0]
+        ir, fwd_rd = s._replace(repl(s))
         fwd = _compose(fwd_rd, fwd)
     return ir, fwd
 
@@ -340,8 +348,8 @@ def DoProductLoop(outer_loop, new_name):
 
     # Replace inner reads to loop variables
     for c in inner_loop.body():
-        ir, fwd = _replace_pats(fwd, c, f"{outer_loop_ir.iter}", mk_outer_expr)
-        ir, fwd = _replace_pats(fwd, c, f"{inner_loop_ir.iter}", mk_inner_expr)
+        ir, fwd = _replace_pats(ir, fwd, c, f"{outer_loop_ir.iter}", mk_outer_expr)
+        ir, fwd = _replace_pats(ir, fwd, c, f"{inner_loop_ir.iter}", mk_inner_expr)
 
     def mk_product_loop(body):
         return outer_loop_ir.update(
@@ -1637,93 +1645,77 @@ def DoLiftConstant(assign_c, loop_c):
     return _fixup_effects(ir, fwd)
 
 
-class DoExpandDim(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, alloc_dim, indexing):
-        self.alloc_stmt = alloc_cursor._node
+def DoExpandDim(alloc_cursor, alloc_dim, indexing):
+    alloc_s = alloc_cursor._node
+    assert isinstance(alloc_s, LoopIR.Alloc)
+    assert isinstance(alloc_dim, LoopIR.expr)
+    assert isinstance(indexing, LoopIR.expr)
 
-        assert isinstance(self.alloc_stmt, LoopIR.Alloc)
-        assert isinstance(alloc_dim, LoopIR.expr)
-        assert isinstance(indexing, LoopIR.expr)
+    Check_IsPositiveExpr(alloc_cursor.get_root(), [alloc_s], alloc_dim)
 
-        self.alloc_sym = self.alloc_stmt.name
-        self.alloc_dim = alloc_dim
-        self.indexing = indexing
-        self.alloc_type = None
-        self.new_alloc_stmt = False
-        self.in_call_arg = False
+    old_typ = alloc_s.type
+    new_rngs = [alloc_dim]
+    if isinstance(old_typ, T.Tensor):
+        new_rngs += old_typ.shape()
+    basetyp = old_typ.basetype()
+    new_typ = T.Tensor(new_rngs, False, basetyp)
+    new_alloc = alloc_s.update(type=new_typ)
 
-        # size positivity check
-        Check_IsPositiveExpr(proc_cursor._node, [self.alloc_stmt], alloc_dim)
+    ir, fwd = alloc_cursor._replace([new_alloc])
 
-        super().__init__(proc_cursor)
+    def mk_read(c):
+        rd = c._node
+        if isinstance(rd, LoopIR.Read):
+            new_rd = rd.update(idx=[indexing] + rd.idx)
+        elif isinstance(rd, LoopIR.WindowExpr):
+            new_rd = rd.update(idx=[LoopIR.Point(indexing, rd.srcinfo)] + rd.idx)
+        else:
+            raise NotImplementedError(
+                f"Did not implement {type(rd)}. This may be a bug."
+            )
 
-        # bounds check
-        Check_Bounds(self.proc, self.new_alloc_stmt, self.after_alloc)
-
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-
-    def map_stmts(self, stmts):
-        # this chunk of code just finds the statement block
-        # that comes after the allocation
-        stmts = super().map_stmts(stmts)
-        if stmts is not None and self.new_alloc_stmt:
-            for i, s in enumerate(stmts):
-                if s is self.new_alloc_stmt:
-                    self.after_alloc = stmts[i + 1 :]
-                    break
-
-        return stmts
-
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.alloc_stmt:
-            old_typ = s.type
-            new_rngs = [self.alloc_dim]
-
-            if isinstance(old_typ, T.Tensor):
-                new_rngs += old_typ.shape()
-
-            basetyp = old_typ.basetype()
-            new_typ = T.Tensor(new_rngs, False, basetyp)
-            self.alloc_type = new_typ
-            new_alloc = LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)
-            self.new_alloc_stmt = new_alloc
-
-            return [new_alloc]
-
-        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)) and s.name == self.alloc_sym:
-            idx = [self.indexing] + self.apply_exprs(s.idx)
-            rhs = self.apply_e(s.rhs)
-            return [s.update(idx=idx, rhs=rhs, eff=None)]
-
-        if isinstance(s, LoopIR.Call):
-            self.in_call_arg = True
-            args = self._map_list(self.map_e, s.args) or s.args
-            self.in_call_arg = False
-            return [LoopIR.Call(s.f, args, None, s.srcinfo)]
-
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            if self.in_call_arg and len(e.idx) == 0:
+        # TODO: do I need to worry about Builtins too?
+        if isinstance(c.parent()._node, (LoopIR.Call)):
+            if not rd.idx:
                 raise SchedulingError(
                     "TODO: Please Contact the developers to fix (i.e. add) "
                     "support for passing windows to scalar arguments"
                 )
-            else:
-                return e.update(idx=[self.indexing] + self.apply_exprs(e.idx))
 
-        if isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
-            w_idx = self._map_list(self.map_w_access, e.idx) or e.idx
-            idx = [LoopIR.Point(self.indexing, e.srcinfo)] + w_idx
-            return e.update(
-                idx=idx, type=T.Window(self.alloc_type, e.type.as_tensor, e.name, idx)
-            )
+            # Needed because _replace calls as_block() if path[-1] has an idx
+            new_rd = [new_rd]
+        return new_rd
 
-        # fall-through
-        return super().map_e(e)
+    def mk_write(c):
+        s = c._node
+        return [s.update(idx=[indexing] + s.idx)]
+
+    c = alloc_cursor
+    while True:
+        try:
+            c = c.next()
+        except ic.InvalidCursorError as e:
+            break
+
+        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
+        new_c = fwd(c)
+
+        # TODO: These replace the whole statement, which would invavlidate any existing
+        # cursors to RHS expressions?
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} += _", mk_write)
+
+    found_new_alloc = False
+    after_alloc = []
+    for c in fwd(alloc_cursor.parent()).body():
+        if found_new_alloc:
+            after_alloc.append(c._node)
+        if c._node == new_alloc:
+            found_new_alloc = True
+
+    Check_Bounds(ir, new_alloc, after_alloc)
+
+    return _fixup_effects(ir, fwd)
 
 
 class DoRearrangeDim(Cursor_Rewrite):
@@ -4023,7 +4015,7 @@ __all__ = [
     "DoStageMem",
     "DoStageWindow",
     "DoBoundAlloc",
-    "DoExpandDim",
+    "DoExpandDim",  # done
     "DoRearrangeDim",
     "DoDivideDim",
     "DoMultiplyDim",
