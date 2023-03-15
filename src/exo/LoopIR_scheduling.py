@@ -1350,164 +1350,129 @@ class DoBindExpr(Cursor_Rewrite):
             return super().map_e(e)
 
 
-# Lift if no variable dependency
-class DoLiftScope(Cursor_Rewrite):
-    def __init__(self, proc_cursor, if_cursor):
-        self.target = if_cursor._node
-        self.target_type = (
-            "if statement" if isinstance(self.target, LoopIR.If) else "for loop"
-        )
+def DoLiftScope(inner_c):
+    inner_s = inner_c._node
+    assert isinstance(inner_s, (LoopIR.If, LoopIR.Seq))
+    target_type = "if statement" if isinstance(inner_s, LoopIR.If) else "for loop"
 
-        if if_cursor.parent()._node is proc_cursor._node:
-            raise SchedulingError("Cannot lift scope of top-level statement")
+    outer_c = inner_c.parent()
+    if outer_c.root() == outer_c:
+        raise SchedulingError("Cannot lift scope of top-level statement")
+    outer_s = outer_c._node
 
-        assert isinstance(self.target, (LoopIR.If, LoopIR.Seq))
+    ir, fwd = inner_c.get_root(), lambda x: x
 
-        super().__init__(proc_cursor)
+    if isinstance(outer_s, LoopIR.If):
 
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
+        def if_wrapper(block, insert_orelse=False):
+            src = outer_s.srcinfo
+            # this is needed because _replace expects a non-zero length block
+            orelse = [LoopIR.Pass(None, src)] if insert_orelse else []
+            return LoopIR.If(outer_s.cond, block, orelse, None, src)
 
-    def map_s(self, sc):
-        s = sc._node
-        if not isinstance(s, (LoopIR.If, LoopIR.Seq)):
-            # Only ifs and loops can be interchanged
-            return None
+        def orelse_wrapper(block):
+            src = outer_s.srcinfo
+            body = [LoopIR.Pass(None, src)]
+            return LoopIR.If(outer_s.cond, body, block, None, src)
 
-        s2 = super().map_s(sc)
-        if s2:
-            return s2
-
-        if isinstance(s, LoopIR.If):
-            if self.target in s.body:
-                if len(s.body) > 1:
+        if isinstance(inner_s, LoopIR.If):
+            if inner_s in outer_s.body:
+                #                    if INNER:
+                # if OUTER:            if OUTER: A
+                #   if INNER: A        else:     C
+                #   else:     B  ~>  else:
+                # else: C              if OUTER: B
+                #                      else:     C
+                if len(outer_s.body) > 1:
                     raise SchedulingError(
-                        f"expected {self.target_type} to be directly nested in parent"
+                        f"expected {target_type} to be directly nested in parent"
                     )
 
-                if isinstance(self.target, LoopIR.If):
-                    #                    if INNER:
-                    # if OUTER:            if OUTER: A
-                    #   if INNER: A        else:     C
-                    #   else:     B  ~>  else:
-                    # else: C              if OUTER: B
-                    #                      else:     C
-                    stmt_a = self.target.body
-                    stmt_b = self.target.orelse
-                    stmt_c = s.orelse
+                blk_c = outer_s.orelse
+                wrapper = lambda block: if_wrapper(block, insert_orelse=bool(blk_c))
 
-                    if_ac = [s.update(body=stmt_a, orelse=stmt_c)]
-                    if stmt_b or stmt_c:
-                        stmt_b = stmt_b or [LoopIR.Pass(None, self.target.srcinfo)]
-                        if_bc = [s.update(body=stmt_b, orelse=stmt_c)]
-                    else:
-                        if_bc = []
+                ir, fwd = inner_c.body()._wrap(wrapper, "block")
+                if blk_c:
+                    ir, fwd_repl = fwd(inner_c).body()[0].orelse()._replace(blk_c)
+                    fwd = _compose(fwd_repl, fwd)
 
-                    new_if = self.target.update(body=if_ac, orelse=if_bc)
-                    return [new_if]
-
-                if isinstance(self.target, LoopIR.Seq):
-                    # if OUTER:                for INNER in _:
-                    #   for INNER in _: A  ~>    if OUTER: A
-                    if len(s.orelse) > 0:
-                        raise SchedulingError(
-                            "cannot lift for loop when if has an orelse clause"
-                        )
-
-                    new_if = s.update(body=self.target.body, orelse=[])
-                    new_for = self.target.update(body=[new_if])
-                    return [new_for]
-
-            if self.target in s.orelse and isinstance(self.target, LoopIR.If):
-                if len(s.orelse) > 1:
-                    raise SchedulingError(
-                        f"expected {self.target_type} to be directly nested in parents"
-                    )
-
+                if inner_s.orelse:
+                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(wrapper, "block")
+                    fwd = _compose(fwd_wrap, fwd)
+                    if blk_c:
+                        ir, fwd_repl = fwd(inner_c).orelse()[0].orelse()._replace(blk_c)
+                        fwd = _compose(fwd_repl, fwd)
+            else:
                 #                    if INNER:
                 # if OUTER: A          if OUTER: A
                 # else:                else:     B
                 #   if INNER: B  ~>  else:
                 #   else: C            if OUTER: A
                 #                      else:     C
-                stmt_a = s.body
-                stmt_b = self.target.body
-                stmt_c = self.target.orelse
-
-                if_ab = [s.update(body=stmt_a, orelse=stmt_b)]
-                if_ac = [s.update(body=stmt_a, orelse=stmt_c)]
-
-                new_if = self.target.update(body=if_ab, orelse=if_ac)
-                return [new_if]
-        if isinstance(s, LoopIR.Seq):
-            if self.target in s.body:
-                if len(s.body) > 1:
+                assert inner_s in outer_s.orelse
+                if len(outer_s.orelse) > 1:
                     raise SchedulingError(
-                        "expected if statement to be directly nested in parents"
+                        f"expected {target_type} to be directly nested in parent"
                     )
 
-                if isinstance(s.body[0], LoopIR.If):
-                    # for OUTER in _:      if INNER:
-                    #   if INNER: A    ~>    for OUTER in _: A
-                    #   else:     B        else:
-                    #                        for OUTER in _: B
-                    if s.iter in _FV(self.target.cond):
-                        raise SchedulingError(
-                            "if statement depends on iteration variable"
-                        )
+                blk_a = outer_s.body
 
-                    stmt_a = self.target.body
-                    stmt_b = self.target.orelse
+                ir, fwd = inner_c.body()._wrap(orelse_wrapper, "block")
+                ir, fwd_repl = fwd(inner_c).body()[0].body()._replace(blk_a)
+                fwd = _compose(fwd_repl, fwd)
 
-                    for_a = [s.update(body=stmt_a)]
-                    for_b = [s.update(body=stmt_b)] if stmt_b else []
+                if inner_s.orelse:
+                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(orelse_wrapper, "block")
+                    fwd = _compose(fwd_wrap, fwd)
+                    ir, fwd_repl = fwd(inner_c).orelse()[0].body()._replace(blk_a)
+                    fwd = _compose(fwd_repl, fwd)
+        elif isinstance(inner_s, LoopIR.Seq):
+            # if OUTER:                for INNER in _:
+            #   for INNER in _: A  ~>    if OUTER: A
+            if len(outer_s.body) > 1:
+                raise SchedulingError(
+                    f"expected {target_type} to be directly nested in parent"
+                )
 
-                    new_if = self.target.update(body=for_a, orelse=for_b)
-                    return [new_if]
-                if isinstance(s.body[0], LoopIR.Seq):
-                    # for OUTER in _:          for INNER in _:
-                    #   for INNER in _: A  ~>    for OUTER in _: A
-                    Check_ReorderLoops(self.orig_proc._node, s)
+            if outer_s.orelse:
+                raise SchedulingError(
+                    "cannot lift for loop when if has an orelse clause"
+                )
 
-                    # TODO: This is a copy paste from old _Reorder class.
-                    # Deprecate this when we deprecate effects.
-                    # short-hands for sanity
-                    def boolop(op, lhs, rhs):
-                        return LoopIR.BinOp(op, lhs, rhs, T.bool, s.srcinfo)
+            ir, fwd = inner_c.body()._wrap(if_wrapper, "block")
+    elif isinstance(outer_s, LoopIR.Seq):
+        if len(outer_s.body) > 1:
+            raise SchedulingError(
+                f"expected {target_type} to be directly nested in parent"
+            )
 
-                    def cnst(intval):
-                        return LoopIR.Const(intval, T.int, s.srcinfo)
+        def loop_wrapper(block):
+            return LoopIR.Seq(outer_s.iter, outer_s.hi, block, None, outer_s.srcinfo)
 
-                    def rd(i):
-                        return LoopIR.Read(i, [], T.index, s.srcinfo)
+        if isinstance(inner_s, LoopIR.If):
+            # for OUTER in _:      if INNER:
+            #   if INNER: A    ~>    for OUTER in _: A
+            #   else:     B        else:
+            #                        for OUTER in _: B
+            if outer_s.iter in _FV(inner_s.cond):
+                raise SchedulingError("if statement depends on iteration variable")
 
-                    def rng(x, hi):
-                        lhs = boolop("<=", cnst(0), x)
-                        rhs = boolop("<", x, hi)
-                        return boolop("and", lhs, rhs)
+            ir, fwd = inner_c.body()._wrap(loop_wrapper, "block")
 
-                    def do_bind(x, hi, eff):
-                        cond = lift_to_eff_expr(rng(rd(x), hi))
-                        cond_nz = boolop("<", cnst(0), hi)
-                        return eff_bind(
-                            x, eff, pred=cond
-                        )  # TODO: , config_pred=cond_nz)
+            if inner_s.orelse:
+                ir, fwd_wrap = fwd(inner_c).orelse()._wrap(loop_wrapper, "block")
+                fwd = _compose(fwd_wrap, fwd)
+        elif isinstance(inner_s, LoopIR.Seq):
+            # for OUTER in _:          for INNER in _:
+            #   for INNER in _: A  ~>    for OUTER in _: A
+            Check_ReorderLoops(inner_c.get_root(), outer_s)
 
-                    # this is the actual body inside both for-loops
-                    body = s.body[0].body
-                    body_eff = get_effect_of_stmts(body)
-                    inner_eff = do_bind(s.iter, s.hi, body_eff)
-                    outer_eff = do_bind(s.body[0].iter, s.body[0].hi, inner_eff)
-                    return [
-                        s.body[0].update(
-                            body=[s.update(body=body, eff=inner_eff)], eff=outer_eff
-                        )
-                    ]
+            ir, fwd = inner_c.body()._wrap(loop_wrapper, "block")
 
-        return None
+    ir, fwd_repl = fwd(outer_c)._replace([fwd(inner_c)._node])
+    fwd = _compose(fwd_repl, fwd)
 
-    def map_e(self, e):
-        return None
+    return _fixup_effects(ir, fwd)
 
 
 def get_reads_of_stmts(stmts):
@@ -4039,7 +4004,7 @@ __all__ = [
     "DoFuseLoop",  # done
     "DoAddLoop",  # done
     "DoDataReuse",
-    "DoLiftScope",
+    "DoLiftScope",  # done
     "DoLiftConstant",
     "DoPartitionLoop",  # done
     "DoAssertIf",
