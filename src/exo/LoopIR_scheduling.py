@@ -3466,56 +3466,45 @@ class DoAssertIf(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class DoDataReuse(Cursor_Rewrite):
-    def __init__(self, proc_cursor, buf_cursor, rep_cursor):
-        assert isinstance(buf_cursor._node, LoopIR.Alloc)
-        assert isinstance(rep_cursor._node, LoopIR.Alloc)
-        assert buf_cursor._node.type == rep_cursor._node.type
+def DoDataReuse(buf_cursor, rep_cursor):
+    assert isinstance(buf_cursor._node, LoopIR.Alloc)
+    assert isinstance(rep_cursor._node, LoopIR.Alloc)
+    assert buf_cursor._node.type == rep_cursor._node.type
 
-        self.buf_name = buf_cursor._node.name
-        self.buf_dims = len(buf_cursor._node.type.shape())
-        self.rep_name = rep_cursor._node.name
-        self.rep_pat = rep_cursor._node
+    buf_name = buf_cursor._node.name
+    buf_dims = len(buf_cursor._node.type.shape())
+    rep_name = rep_cursor._node.name
+    first_assn = True
 
-        self.found_rep_alloc = False
-        self.first_assn = True
+    ir, fwd = rep_cursor._delete()
 
-        super().__init__(proc_cursor)
+    c = rep_cursor
+    while True:
+        try:
+            c = c.next()
+        except ic.InvalidCursorError:
+            break
 
-        self.proc = InferEffects(self.proc).result()
+        def mk_read(c):
+            new_rd = c._node.update(name=buf_name)
+            if isinstance(c.parent()._node, LoopIR.Call):
+                new_rd = [new_rd]
+            return new_rd
 
-    def map_s(self, sc):
-        s = sc._node
-        # remove the allocation that we are eliminating through re-use
-        if s is self.rep_pat:
-            self.found_rep_alloc = True
-            return []
+        def mk_write(c):
+            nonlocal first_assn
+            if first_assn:
+                first_assn = False
+                Check_IsDeadAfter(buf_cursor.get_root(), [c._node], buf_name, buf_dims)
+            return [c._node.update(name=buf_name)]
 
-        # make replacements after the first write to the buffer
-        if self.found_rep_alloc:
-            if (
-                type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce
-            ) and s.name == self.rep_name:
-                name = self.buf_name
-                rhs = self.map_e(s.rhs) or s.rhs
+        ir, fwd = _replace_pats(ir, fwd, c, f"{rep_name}[_]", mk_read)
+        new_c = fwd(c)
 
-                # check whether the buffer we are trying to re-use
-                # is live or not at this point in the execution
-                if self.first_assn:
-                    self.first_assn = False
-                    Check_IsDeadAfter(
-                        self.orig_proc._node, [s], self.buf_name, self.buf_dims
-                    )
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{rep_name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{rep_name} += _", mk_write)
 
-                return [type(s)(name, s.type, None, s.idx, rhs, None, s.srcinfo)]
-
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if isinstance(e, LoopIR.Read) and e.name == self.rep_name:
-            return e.update(name=self.buf_name)
-
-        return super().map_e(e)
+    return _fixup_effects(ir, fwd)
 
 
 # TODO: This can probably be re-factored into a generic
@@ -4003,7 +3992,7 @@ __all__ = [
     "DoBoundAndGuard",
     "DoFuseLoop",  # done
     "DoAddLoop",  # done
-    "DoDataReuse",
+    "DoDataReuse",  # done
     "DoLiftScope",  # done
     "DoLiftConstant",
     "DoPartitionLoop",  # done

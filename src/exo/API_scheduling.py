@@ -1317,9 +1317,8 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoDataReuse(proc_c, buf_s, rep_s).result()
+    ir, _fwd = scheduling.DoDataReuse(buf_s, rep_s)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([WindowStmtCursorA])

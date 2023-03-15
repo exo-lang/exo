@@ -731,6 +731,21 @@ def test_reuse_buffer(golden):
     assert str(foo) == golden
 
 
+def test_reuse_buffer2(golden):
+    @proc
+    def bar(a: f32):
+        pass
+
+    @proc
+    def foo():
+        bb: f32
+        c: f32
+        bar(c)
+
+    foo = reuse_buffer(foo, "bb:_", "c:_")
+    assert str(foo) == golden
+
+
 def test_reuse_buffer_loop_fail():
     @proc
     def foo(a: f32 @ DRAM, b: f32 @ DRAM):
