@@ -1718,6 +1718,45 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
     return _fixup_effects(ir, fwd)
 
 
+def _DoRearrangeDim(alloc_cursor, permute_vector):
+    alloc_s = alloc_cursor._node
+    assert isinstance(alloc_s, LoopIR.Alloc)
+
+    all_permute = {alloc_s.name: permute_vector}
+
+    def permute(buf, es):
+        nonlocal all_permute
+        permutation = all_permute[buf]
+        return [es[i] for i in permutation]
+
+    def check_permute_window(buf, idx):
+        # for now just enforce a stability criteria on windowing
+        # expressions w.r.t. dimension reordering
+        nonlocal all_permute
+        permutation = all_permute[buf]
+        # where each index of the output window now refers to in the
+        # buffer being windowed
+        keep_perm = [i for i in permutation if isinstance(idx[i], LoopIR.Interval)]
+        # check that these indices are monotonic
+        for i, ii in zip(keep_perm[:-1], keep_perm[1:]):
+            if i > ii:
+                return False
+        return True
+
+    # construct new_hi
+    new_hi = permute(alloc_s.name, alloc_s.type.hi)
+    # construct new_type
+    new_type = LoopIR.Tensor(new_hi, alloc_s.type.is_window, alloc_s.type.type)
+    ir, fwd = alloc_cursor._replace(alloc_s.update(type=new_type))
+
+    def mk_write(c):
+        s = c._node
+        new_idx = permute(s.name, s.idx)
+        return [s.update(idx=new_idx)]
+
+    return _fixup_effects(ir, fwd)
+
+
 class DoRearrangeDim(Cursor_Rewrite):
     def __init__(self, proc_cursor, alloc_cursor, permute_vector):
         self.alloc_stmt = alloc_cursor._node
@@ -1736,9 +1775,6 @@ class DoRearrangeDim(Cursor_Rewrite):
     def permute(self, buf, es):
         permutation = self.all_permute[buf]
         return [es[i] for i in permutation]
-
-    def permute_single_idx(self, buf, i):
-        return self.all_permute[buf].index(i)
 
     def check_permute_window(self, buf, idx):
         # for now just enforce a stability criteria on windowing
@@ -4016,7 +4052,7 @@ __all__ = [
     "DoStageWindow",
     "DoBoundAlloc",
     "DoExpandDim",  # done
-    "DoRearrangeDim",
+    "DoRearrangeDim",  # done
     "DoDivideDim",
     "DoMultiplyDim",
     "DoRemoveLoop",  # done
