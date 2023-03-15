@@ -387,6 +387,20 @@ def test_rearrange_dim_fail():
         rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
 
 
+def test_rearrange_dim_fail2():
+    @proc
+    def bar(m: size, a: [i8][m, m]):
+        a[0, 0] += 1.0
+
+    @proc
+    def foo():
+        a: i8[10, 10]
+        bar(10, a[0:10, 0:10])
+
+    with pytest.raises(SchedulingError, match="windows is not currently supported"):
+        rearrange_dim(foo, "a : i8[_]", [1, 0])
+
+
 def test_remove_loop(golden):
     @proc
     def foo(n: size, m: size, x: i8):
