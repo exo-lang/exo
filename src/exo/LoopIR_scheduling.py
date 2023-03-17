@@ -1805,83 +1805,75 @@ class DoRearrangeDim(Cursor_Rewrite):
         return super().map_e(e)
 
 
-class DoDivideDim(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, dim_idx, quotient):
-        self.alloc_stmt = alloc_cursor._node
+def DoDivideDim(alloc_cursor, dim_idx, quotient):
+    alloc_s = alloc_cursor._node
+    alloc_sym = alloc_s.name
 
-        assert isinstance(self.alloc_stmt, LoopIR.Alloc)
-        assert isinstance(dim_idx, int)
-        assert isinstance(quotient, int)
+    assert isinstance(alloc_s, LoopIR.Alloc)
+    assert isinstance(dim_idx, int)
+    assert isinstance(quotient, int)
 
-        self.alloc_sym = self.alloc_stmt.name
-        self.dim_idx = dim_idx
-        self.quotient = quotient
+    old_typ = alloc_s.type
+    old_shp = old_typ.shape()
+    dim = old_shp[dim_idx]
+    if not isinstance(dim, LoopIR.Const):
+        raise SchedulingError(f"Cannot divide non-literal dimension: {dim}")
+    if not dim.val % quotient == 0:
+        raise SchedulingError(f"Cannot divide {dim.val} evenly by {quotient}")
+    denom = quotient
+    numer = dim.val // denom
+    new_shp = (
+        old_shp[:dim_idx]
+        + [
+            LoopIR.Const(numer, T.int, dim.srcinfo),
+            LoopIR.Const(denom, T.int, dim.srcinfo),
+        ]
+        + old_shp[dim_idx + 1 :]
+    )
+    new_typ = T.Tensor(new_shp, False, old_typ.basetype())
 
-        super().__init__(proc_cursor)
+    ir, fwd = alloc_cursor._replace([alloc_s.update(type=new_typ)])
 
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-
-    def remap_idx(self, idx):
-        orig_i = idx[self.dim_idx]
+    def remap_idx(idx):
+        orig_i = idx[dim_idx]
         srcinfo = orig_i.srcinfo
-        quot = LoopIR.Const(self.quotient, T.int, srcinfo)
+        quot = LoopIR.Const(quotient, T.int, srcinfo)
         hi = LoopIR.BinOp("/", orig_i, quot, orig_i.type, srcinfo)
         lo = LoopIR.BinOp("%", orig_i, quot, orig_i.type, srcinfo)
-        return idx[: self.dim_idx] + [hi, lo] + idx[self.dim_idx + 1 :]
+        return idx[:dim_idx] + [hi, lo] + idx[dim_idx + 1 :]
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.alloc_stmt:
-            old_typ = s.type
-            old_shp = old_typ.shape()
-            dim = old_shp[self.dim_idx]
+    def mk_read(c):
+        rd = c._node
 
-            if not isinstance(dim, LoopIR.Const):
-                raise SchedulingError(
-                    f"Cannot divide non-literal dimension: {str(dim)}"
-                )
-            if not dim.val % self.quotient == 0:
-                raise SchedulingError(
-                    f"Cannot divide {dim.val} evenly by {self.quotient}"
-                )
-            denom = self.quotient
-            numer = dim.val // denom
-            new_shp = (
-                old_shp[: self.dim_idx]
-                + [
-                    LoopIR.Const(numer, T.int, dim.srcinfo),
-                    LoopIR.Const(denom, T.int, dim.srcinfo),
-                ]
-                + old_shp[self.dim_idx + 1 :]
-            )
-            new_typ = T.Tensor(new_shp, False, old_typ.basetype())
-
-            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
-
-        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)) and s.name == self.alloc_sym:
-            idx = self.remap_idx(self.apply_exprs(s.idx))
-            rhs = self.apply_e(s.rhs)
-            return [s.update(idx=idx, rhs=rhs, eff=None)]
-
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            if not e.idx:
-                raise SchedulingError(
-                    f"Cannot divide {self.alloc_sym} because "
-                    f"buffer is passed as an argument"
-                )
-            return e.update(idx=self.remap_idx(self.apply_exprs(e.idx)))
-        elif isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
+        if isinstance(rd, LoopIR.Read) and not rd.idx:
             raise SchedulingError(
-                f"Cannot divide {self.alloc_sym} because "
-                f"the buffer is windowed later on"
+                f"Cannot divide {alloc_sym} because buffer is passed as an argument"
+            )
+        elif isinstance(rd, LoopIR.WindowExpr):
+            raise SchedulingError(
+                f"Cannot divide {alloc_sym} because the buffer is windowed later on"
             )
 
-        # fall-through
-        return super().map_e(e)
+        return rd.update(idx=remap_idx(rd.idx))
+
+    def mk_write(c):
+        s = c._node
+        return s.update(idx=remap_idx(s.idx))
+
+    c = alloc_cursor
+    while True:
+        try:
+            c = c.next()
+        except ic.InvalidCursorError:
+            break
+
+        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
+        new_c = fwd(c)
+
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} += _", mk_write)
+
+    return _fixup_effects(ir, fwd)
 
 
 class DoMultiplyDim(Cursor_Rewrite):
@@ -4002,7 +3994,7 @@ __all__ = [
     "DoBoundAlloc",
     "DoExpandDim",  # done
     "DoRearrangeDim",
-    "DoDivideDim",
+    "DoDivideDim",  # done
     "DoMultiplyDim",
     "DoRemoveLoop",  # done
     "DoLiftAllocSimple",  # done
