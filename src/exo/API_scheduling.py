@@ -1066,14 +1066,10 @@ def write_config(proc, gap_cursor, config, field, rhs):
     if not (stmtc := gap_cursor.after()):
         assert (stmtc := gap_cursor.before())
         before = False
-    stmt = stmtc._impl
 
-    proc_c = ic.Cursor.create(proc)
-    rewrite_pass = scheduling.DoConfigWrite(
-        proc_c, stmt, config, field, rhs, before=before
-    )
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    stmt = stmtc._impl
+    (ir, cfg), _fwd = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 
 # --------------------------------------------------------------------------- #
