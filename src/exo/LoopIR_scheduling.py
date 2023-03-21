@@ -1095,130 +1095,26 @@ class DoConfigWrite(Cursor_Rewrite):
 # Bind Expression scheduling directive
 
 
-class _BindConfig_AnalysisSubst(LoopIR_Rewrite):
-    def __init__(self, keep_s, old_e, new_e):
-        self.keep_s = keep_s
-        self.old_e = old_e
-        self.new_e = new_e
+def DoBindConfig(config, field, expr_cursor):
+    e = expr_cursor._node
+    assert isinstance(e, LoopIR.Read)
 
-    def map_s(self, s):
-        if s is self.keep_s:
-            return [s]
-        else:
-            return super().map_s(s)
+    c = expr_cursor
+    while not isinstance(c._node, LoopIR.stmt):
+        c = c.parent()
 
-    def map_e(self, e):
-        if e is self.old_e:
-            return self.new_e
-        else:
-            return super().map_e(e)
+    cfg_write_s = LoopIR.WriteConfig(config, field, e, None, e.srcinfo)
+    ir, fwd = c.before()._insert([cfg_write_s])
 
+    mod_cfg = Check_DeleteConfigWrite(ir, [cfg_write_s])
 
-class DoBindConfig(Cursor_Rewrite):
-    def __init__(self, proc_cursor, config, field, expr_cursor):
-        self.expr = expr_cursor._node
-        assert isinstance(self.expr, LoopIR.Read)
+    cfg_read_e = LoopIR.ReadConfig(config, field, e.type, e.srcinfo)
+    ir, fwd_repl = fwd(expr_cursor)._replace(cfg_read_e)
+    fwd = _compose(fwd_repl, fwd)
 
-        self.config = config
-        self.field = field
-        self.found_expr = False
-        self.placed_writeconfig = False
-        self.sub_done = False
-        self.cfg_write_s = None
-        self.cfg_read_e = None
-
-        super().__init__(proc_cursor)
-
-        proc_analysis = _BindConfig_AnalysisSubst(
-            self.cfg_write_s, self.cfg_read_e, self.expr
-        ).apply_proc(self.proc)
-        mod_cfg = Check_DeleteConfigWrite(proc_analysis, [self.cfg_write_s])
-        self.eq_mod_config = mod_cfg
-
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-        Check_Aliasing(self.proc)
-
-    def mod_eq(self):
-        return self.eq_mod_config
-
-    def process_block(self, block_c):
-        if self.sub_done:
-            return None
-
-        new_block = []
-        is_writeconfig_block = False
-
-        modified = False
-
-        for stmt_c in block_c:
-            new_stmt = self.map_s(stmt_c)
-
-            if self.found_expr and not self.placed_writeconfig:
-                self.placed_writeconfig = True
-                is_writeconfig_block = True
-                wc = LoopIR.WriteConfig(
-                    self.config, self.field, self.expr, None, self.expr.srcinfo
-                )
-                self.cfg_write_s = wc
-                new_block.extend([wc])
-
-            if new_stmt is None:
-                new_block.append(stmt_c._node)
-            else:
-                new_block.extend(new_stmt)
-                modified = True
-
-        if is_writeconfig_block:
-            self.sub_done = True
-
-        if not modified:
-            return None
-
-        return new_block
-
-    def map_s(self, sc):
-        s = sc._node
-        if self.sub_done:
-            return None  # TODO: is this right?
-
-        # TODO: missing cases for multiple config writes. Subsequent writes are
-        #   ignored.
-
-        if isinstance(s, LoopIR.Seq):
-            body = self.process_block(sc.body())
-            if body:
-                return [s.update(body=body)]
-            return None
-
-        if isinstance(s, LoopIR.If):
-            if_then = self.process_block(sc.body())
-            if_else = self.process_block(sc.orelse())
-            cond = self.map_e(s.cond)
-            if any((if_then, if_else, cond)):
-                return [
-                    s.update(
-                        cond=cond or s.cond,
-                        body=if_then or s.body,
-                        orelse=if_else or s.orelse,
-                    )
-                ]
-
-            return None
-
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if e is self.expr and not self.sub_done:
-            assert not self.found_expr
-            self.found_expr = True
-
-            self.cfg_read_e = LoopIR.ReadConfig(
-                self.config, self.field, e.type, e.srcinfo
-            )
-            return self.cfg_read_e
-        else:
-            return super().map_e(e)
+    ir, fwd = _fixup_effects(ir, fwd)
+    Check_Aliasing(ir)
+    return (ir, mod_cfg), fwd
 
 
 def DoCommuteExpr(expr_cursors):
@@ -3975,7 +3871,7 @@ __all__ = [
     "DoSetTypAndMem",
     "DoCallSwap",
     "DoBindExpr",
-    "DoBindConfig",
+    "DoBindConfig",  # done
     "DoLiftAlloc",
     "DoFissionLoops",
     "DoExtractMethod",
