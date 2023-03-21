@@ -2378,25 +2378,14 @@ def DoRemoveLoop(loop):
 # This is same as original FissionAfter, except that
 # this does not remove loop. We have separate remove_loop
 # operator for that purpose.
-class DoFissionAfterSimple:
-    def __init__(self, proc_cursor, stmt_cursor, n_lifts):
-        self.tgt_stmt = stmt_cursor._node
-        assert isinstance(self.tgt_stmt, LoopIR.stmt)
-        assert is_pos_int(n_lifts)
-        self.provenance = proc_cursor._root
-        self.orig_proc = proc_cursor._node
-        self.n_lifts = n_lifts
+def DoFissionAfterSimple(stmt_cursor, n_lifts):
+    tgt_stmt = stmt_cursor._node
+    assert isinstance(tgt_stmt, LoopIR.stmt)
+    assert is_pos_int(n_lifts)
 
-        self.hit_fission = False  # signal to map_stmts
+    ir, fwd = stmt_cursor.get_root(), lambda x: x
 
-        pre_body, post_body = self.map_stmts(self.orig_proc.body)
-        self.proc = proc_cursor._node.update(body=pre_body + post_body, instr=None)
-        self.proc = InferEffects(self.proc).result()
-
-    def result(self):
-        return api.Procedure(self.proc, _provenance_eq_Procedure=self.provenance)
-
-    def alloc_check(self, pre, post):
+    def alloc_check(pre, post):
         if not _is_alloc_free(pre, post):
             pre_allocs = {s.name for s in pre if isinstance(s, LoopIR.Alloc)}
             post_FV = _FV(post)
@@ -2408,93 +2397,86 @@ class DoFissionAfterSimple:
                         f"of {nm} from a later use site."
                     )
 
-    # returns a pair of stmt-lists
-    # for those statements occurring before and
-    # after the fission point
-    def map_stmts(self, stmts):
-        pre_stmts = []
-        post_stmts = []
-        for orig_s in stmts:
-            pre, post = self.map_s(orig_s)
-            pre_stmts += pre
-            post_stmts += post
+    cur_c = stmt_cursor
+    while n_lifts > 0:
+        n_lifts -= 1
 
-        return pre_stmts, post_stmts
+        idx = cur_c.get_index() + 1
+        par_c = cur_c.parent()
+        par_s = par_c._node
 
-    # see map_stmts comment
-    def map_s(self, s):
-        if s is self.tgt_stmt:
-            assert self.hit_fission == False
-            self.hit_fission = True
-            # none-the-less make sure we return this statement in
-            # the pre-fission position
-            return [s], []
-
-        elif isinstance(s, LoopIR.If):
-
-            # first, check if we need to split the body
-            pre, post = self.map_stmts(s.body)
-            if pre and post and self.n_lifts > 0:
-                self.n_lifts -= 1
-                self.alloc_check(pre, post)
-                pre = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
-                post = LoopIR.If(s.cond, post, s.orelse, None, s.srcinfo)
-                return [pre], [post]
-
-            body = pre + post
-
-            # if we don't, then check if we need to split the or-else
-            pre, post = self.map_stmts(s.orelse)
-            if pre and post and self.n_lifts > 0:
-                self.n_lifts -= 1
-                self.alloc_check(pre, post)
-                pre = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
-                post = LoopIR.If(
-                    s.cond, [LoopIR.Pass(None, s.srcinfo)], post, None, s.srcinfo
-                )
-                return [pre], [post]
-
-            orelse = pre + post
-
-            # if we neither split the body nor the or-else,
-            # then we need to gather together the pre and post.
-            single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
-
-        elif isinstance(s, LoopIR.Seq):
-            styp = type(s)
-            # check if we need to split the loop
-            pre, post = self.map_stmts(s.body)
-            if pre and post and self.n_lifts > 0:
-                self.n_lifts -= 1
-                self.alloc_check(pre, post)
-
-                # we must check whether the two parts of the
-                # fission can commute appropriately
-                no_loop_var_pre = s.iter not in _FV(pre)
-                Check_FissionLoop(self.orig_proc, s, pre, post, no_loop_var_pre)
-
-                # we can skip the loop iteration if the
-                # body doesn't depend on the loop
-                # and the body is idempotent
-                pre = [styp(s.iter, s.hi, pre, None, s.srcinfo)]
-                pre = Alpha_Rename(pre).result()
-                post = [styp(s.iter, s.hi, post, None, s.srcinfo)]
-                post = Alpha_Rename(post).result()
-
-                return pre, post
-
-            # if we didn't split, then compose pre and post of the body
-            single_stmt = styp(s.iter, s.hi, pre + post, None, s.srcinfo)
-
+        if isinstance(par_s, LoopIR.Seq):
+            pre_c = par_c.body()[:idx]
+            post_c = par_c.body()[idx:]
+        elif isinstance(par_s, LoopIR.If):
+            if cur_c._node in par_s.body:
+                pre_c = par_c.body()[:idx]
+                post_c = par_c.body()[idx:]
+            else:
+                pre_c = par_c.orelse()[:idx]
+                post_c = par_c.orelse()[idx:]
         else:
-            # all other statements cannot recursively
-            # contain statements, so...
-            single_stmt = s
+            raise SchedulingError("Can only lift past a for loop or an if statement")
 
-        if self.hit_fission:
-            return [], [single_stmt]
-        else:
-            return [single_stmt], []
+        pre = [s._node for s in pre_c]
+        post = [s._node for s in post_c]
+
+        if not (pre and post):
+            continue
+
+        alloc_check(pre, post)
+
+        if isinstance(par_s, LoopIR.Seq):
+            # we must check whether the two parts of the
+            # fission can commute appropriately
+            no_loop_var_pre = par_s.iter not in _FV(pre)
+            Check_FissionLoop(ir, par_s, pre, post, no_loop_var_pre)
+
+            # we can skip the loop iteration if the
+            # body doesn't depend on the loop
+            # and the body is idempotent
+
+            def wrapper(block):
+                return par_s.update(body=block)
+
+            ir, fwd_wrap = post_c._wrap(wrapper, "block")
+            fwd = _compose(fwd_wrap, fwd)
+
+            post_c = fwd_wrap(par_c).body()[-1]
+            ir, fwd_move = post_c._move(fwd_wrap(par_c).after())
+            fwd = _compose(fwd_move, fwd)
+
+            cur_c = fwd_move(fwd_wrap(par_c))
+        elif isinstance(par_s, LoopIR.If):
+            if cur_c._node in par_s.body:
+
+                def wrapper(block):
+                    return par_s.update(body=block)
+
+                ir, fwd_wrap = pre_c._wrap(wrapper, "block")
+                fwd = _compose(fwd_wrap, fwd)
+
+                pre_c = fwd_wrap(par_c).body()[0]
+                ir, fwd_move = pre_c._move(fwd_wrap(par_c).before())
+                fwd = _compose(fwd_move, fwd)
+
+                cur_c = fwd_move(fwd_wrap(par_c)).prev()
+            else:
+                assert cur_c._node in par_s.orelse
+
+                def wrapper(block):
+                    return par_s.update(body=None, orelse=block)
+
+                ir, fwd_wrap = post_c._wrap(wrapper, "block")
+                fwd = _compose(fwd_wrap, fwd)
+
+                post_c = fwd_wrap(par_c).orelse()[-1]
+                ir, fwd_move = post_c._move(fwd_wrap(par_c).after())
+                fwd = _compose(fwd_move, fwd)
+
+                cur_c = fwd_move(fwd_wrap(par_c))
+
+    return _fixup_effects(ir, fwd)
 
 
 # TODO: Deprecate this with the one above
@@ -4006,7 +3988,7 @@ __all__ = [
     "DoMultiplyDim",
     "DoRemoveLoop",  # done
     "DoLiftAllocSimple",  # done
-    "DoFissionAfterSimple",
+    "DoFissionAfterSimple",  # done
     "DoProductLoop",  # done
     "DoCommuteExpr",  # done
     "DoMergeWrites",  # done

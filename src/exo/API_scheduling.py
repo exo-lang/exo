@@ -1674,9 +1674,8 @@ def fission(proc, gap_cursor, n_lifts=1):
     if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
         raise ValueError("expected cursor to point to " "a gap between statements")
     stmt = stmtc._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoFissionAfterSimple(proc_c, stmt, n_lifts).result()
+    ir, _fwd = scheduling.DoFissionAfterSimple(stmt, n_lifts)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([GapCursorA, PosIntA])
