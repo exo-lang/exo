@@ -1109,6 +1109,8 @@ def DoBindConfig(config, field, expr_cursor):
     mod_cfg = Check_DeleteConfigWrite(ir, [cfg_write_s])
 
     cfg_read_e = LoopIR.ReadConfig(config, field, e.type, e.srcinfo)
+    if isinstance(expr_cursor.parent()._node, LoopIR.Call):
+        cfg_read_e = [cfg_read_e]
     ir, fwd_repl = fwd(expr_cursor)._replace(cfg_read_e)
     fwd = _compose(fwd_repl, fwd)
 
