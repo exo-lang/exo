@@ -99,7 +99,7 @@ def neon_broadcast_4xf32(dst: [f32][4] @ Neon4f, src: [f32][1] @ DRAM):
 
 
 @instr("{dst_data} = vld1q_dup_f32({src_data});")
-def neon_broadcast_4xf32_scaler(dst: [f32][4] @ Neon4f, src: f32 @ DRAM):
+def neon_broadcast_4xf32_scalar(dst: [f32][4] @ Neon4f, src: f32 @ DRAM):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 4):
