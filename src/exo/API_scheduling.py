@@ -1068,7 +1068,7 @@ def write_config(proc, gap_cursor, config, field, rhs):
         before = False
 
     stmt = stmtc._impl
-    (ir, cfg), _fwd = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
+    ir, _fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
     return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 

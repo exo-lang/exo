@@ -1053,7 +1053,7 @@ def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
     cfg = Check_DeleteConfigWrite(ir, [cw_s])
 
     ir, fwd = _fixup_effects(ir, fwd)
-    return (ir, cfg), fwd
+    return ir, fwd, cfg
 
 
 # --------------------------------------------------------------------------- #
