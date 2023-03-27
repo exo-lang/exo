@@ -202,9 +202,16 @@ class Procedure(ProcedureBase):
             p = p._provenance_eq_Procedure
             fwds.append(p._forward)
 
+        fwds = fwds[:-1]  # ignore the root proc
+
         for fn in reversed(fwds):
             # modulo lifting to API level
-            cur = fn(cur)
+            new_impl = fn(cur._impl)
+            if type(new_impl) != type(cur._impl):
+                raise NotImplementedError(
+                    "need a proper lifting mechanism from internal cursors to API cursors"
+                )
+            cur = type(cur)(new_impl)  # todo: ick
 
         return cur
 

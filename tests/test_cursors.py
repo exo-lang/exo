@@ -66,8 +66,23 @@ def test_builtin_cursor():
 
 
 def test_basic_forwarding(proc_foo):
-    x_assn = proc_foo.find("x = _")
-    p = divide_loop(proc_foo, "j", 4, ["jo", "ji"], tail="cut_and_guard")
+    @proc
+    def p():
+        x: f32
+        if True:
+            x = 1.0
+        if True:
+            x = 2.0
+
+    x1 = p.find("x = _ #0")
+    x2 = p.find("x = _ #1")
+    if1 = x1.parent()
+    if2 = x2.parent()
+    print("\n")
+    p = insert_pass(p, if1.before())
+    print(p)
+    print("\n")
+    p = fuse(p, if1, if2)
     print(p)
 
 

@@ -55,11 +55,11 @@ class ArgumentProcessor:
 class CursorArgumentProcessor(ArgumentProcessor):
     def __call__(self, cur, all_args):
         p = all_args["proc"]
-        if isinstance(cur, CursorArgumentProcessor):
+        if isinstance(cur, PC.Cursor):
             cur = p.forward(cur)
-        self._handle_cursor(cur, all_args)
+        return self._cursor_call(cur, all_args)
 
-    def _handle_cursor(self, cur, all_args):
+    def _cursor_call(self, cur, all_args):
         raise NotImplementedError("abstract method")
 
 
@@ -325,11 +325,11 @@ class TypeAbbrevA(ArgumentProcessor):
 # Cursor Argument Processing
 
 
-class ExprCursorA(ArgumentProcessor):
+class ExprCursorA(CursorArgumentProcessor):
     def __init__(self, many=False):
         self.match_many = many
 
-    def __call__(self, expr_pattern, all_args):
+    def _cursor_call(self, expr_pattern, all_args):
         if self.match_many:
             if isinstance(expr_pattern, list):
                 if all(isinstance(ec, PC.ExprCursor) for ec in expr_pattern):
@@ -373,7 +373,7 @@ class StmtCursorA(CursorArgumentProcessor):
     def __init__(self, many=False):
         self.match_many = many
 
-    def _handle_cursor(self, stmt_pattern, all_args):
+    def _cursor_call(self, stmt_pattern, all_args):
         if isinstance(stmt_pattern, PC.StmtCursor):
             return stmt_pattern
         elif isinstance(stmt_pattern, PC.Cursor):
@@ -397,7 +397,7 @@ class BlockCursorA(CursorArgumentProcessor):
         self.match_many = many
         self.block_size = block_size
 
-    def _handle_cursor(self, block_pattern, all_args):
+    def _cursor_call(self, block_pattern, all_args):
         if isinstance(block_pattern, PC.BlockCursor):
             cursor = block_pattern
         elif isinstance(block_pattern, PC.StmtCursor):
@@ -435,14 +435,14 @@ class BlockCursorA(CursorArgumentProcessor):
 
 
 class GapCursorA(CursorArgumentProcessor):
-    def _handle_cursor(self, gap_cursor, all_args):
+    def _cursor_call(self, gap_cursor, all_args):
         if not isinstance(gap_cursor, PC.GapCursor):
             self.err("expected a GapCursor")
         return gap_cursor
 
 
 class AllocCursorA(StmtCursorA):
-    def __call__(self, alloc_pattern, all_args):
+    def _cursor_call(self, alloc_pattern, all_args):
         try:
             name, count = NameCountA()(alloc_pattern, all_args)
             count = f" #{count}" if count is not None else ""
@@ -450,22 +450,22 @@ class AllocCursorA(StmtCursorA):
         except:
             pass
 
-        cursor = super().__call__(alloc_pattern, all_args)
+        cursor = super()._cursor_call(alloc_pattern, all_args)
         if not isinstance(cursor, PC.AllocCursor):
             self.err(f"expected an AllocCursor, not {type(cursor)}")
         return cursor
 
 
 class WindowStmtCursorA(StmtCursorA):
-    def __call__(self, alloc_pattern, all_args):
-        cursor = super().__call__(alloc_pattern, all_args)
+    def _cursor_call(self, alloc_pattern, all_args):
+        cursor = super()._cursor_call(alloc_pattern, all_args)
         if not isinstance(cursor, PC.WindowStmtCursor):
             self.err(f"expected a WindowStmtCursor, not {type(cursor)}")
         return cursor
 
 
 class ForSeqOrIfCursorA(StmtCursorA):
-    def __call__(self, cursor_pat, all_args):
+    def _cursor_call(self, cursor_pat, all_args):
         # TODO: eliminate this redundancy with the ForSeqCursorA code
         # allow for a special pattern short-hand, but otherwise
         # handle as expected for a normal statement cursor
@@ -476,32 +476,32 @@ class ForSeqOrIfCursorA(StmtCursorA):
         except:
             pass
 
-        cursor = super().__call__(cursor_pat, all_args)
+        cursor = super()._cursor_call(cursor_pat, all_args)
         if not isinstance(cursor, (PC.ForSeqCursor, PC.IfCursor)):
             self.err(f"expected a ForSeqCursor or IfCursor, not {type(cursor)}")
         return cursor
 
 
 class ForSeqCursorA(StmtCursorA):
-    def __call__(self, loop_pattern, all_args):
+    def _cursor_call(self, loop_pattern, all_args):
         # allow for a special pattern short-hand, but otherwise
         # handle as expected for a normal statement cursor
         try:
             name, count = NameCountA()(loop_pattern, all_args)
-            count = f"#{count}" if count is not None else ""
+            count = f" #{count}" if count is not None else ""
             loop_pattern = f"for {name} in _: _{count}"
         except:
             pass
 
-        cursor = super().__call__(loop_pattern, all_args)
+        cursor = super()._cursor_call(loop_pattern, all_args)
         if not isinstance(cursor, PC.ForSeqCursor):
             self.err(f"expected a ForSeqCursor, not {type(cursor)}")
         return cursor
 
 
 class IfCursorA(StmtCursorA):
-    def __call__(self, if_pattern, all_args):
-        cursor = super().__call__(if_pattern, all_args)
+    def _cursor_call(self, if_pattern, all_args):
+        cursor = super()._cursor_call(if_pattern, all_args)
         if not isinstance(cursor, PC.IfCursor):
             self.err(f"expected an IfCursor, not {type(cursor)}")
         return cursor
@@ -511,7 +511,7 @@ _name_name_count_re = r"^([a-zA-Z_]\w*)\s*([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$"
 
 
 class NestedForSeqCursorA(StmtCursorA):
-    def __call__(self, loops_pattern, all_args):
+    def _cursor_call(self, loops_pattern, all_args):
 
         if isinstance(loops_pattern, PC.ForSeqCursor):
             if len(loops_pattern.body()) != 1 or not isinstance(
@@ -534,7 +534,7 @@ class NestedForSeqCursorA(StmtCursorA):
             in_name = match_result[2]
             count = f" #{match_result[3]}" if match_result[3] else ""
             pattern = f"for {out_name} in _:\n  for {in_name} in _: _{count}"
-            cursor = super().__call__(pattern, all_args)
+            cursor = super()._cursor_call(pattern, all_args)
         else:
             self.err(
                 "expected a ForSeqCursor, pattern match string, "
@@ -545,27 +545,27 @@ class NestedForSeqCursorA(StmtCursorA):
 
 
 class AssignOrReduceCursorA(StmtCursorA):
-    def __call__(self, stmt_pattern, all_args):
-        cursor = super().__call__(stmt_pattern, all_args)
+    def _cursor_call(self, stmt_pattern, all_args):
+        cursor = super()._cursor_call(stmt_pattern, all_args)
         if not isinstance(cursor, (PC.AssignCursor, PC.ReduceCursor)):
             self.err(f"expected an AssignCursor or ReduceCursor, not {type(cursor)}")
         return cursor
 
 
 class CallCursorA(StmtCursorA):
-    def __call__(self, call_pattern, all_args):
+    def _cursor_call(self, call_pattern, all_args):
         # allow for special pattern short-hands, but otherwise
         # handle as expected for a normal statement cursor
         if isinstance(call_pattern, Procedure):
             call_pattern = f"{call_pattern.name()}(_)"
         try:
             name, count = NameCountA()(call_pattern, all_args)
-            count = f"#{count}" if count is not None else ""
-            call_pattern = f"{name}(_)"
+            count = f" #{count}" if count is not None else ""
+            call_pattern = f"{name}(_){count}"
         except:
             pass
 
-        cursor = super().__call__(call_pattern, all_args)
+        cursor = super()._cursor_call(call_pattern, all_args)
         if not isinstance(cursor, PC.CallCursor):
             self.err(f"expected a CallCursor, not {type(cursor)}")
         return cursor
