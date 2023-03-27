@@ -199,10 +199,8 @@ class Procedure(ProcedureBase):
         p = self
         fwds = []
         while p is not None and p != cur.proc():
-            p = p._provenance_eq_Procedure
             fwds.append(p._forward)
-
-        fwds = fwds[:-1]  # ignore the root proc
+            p = p._provenance_eq_Procedure
 
         for fn in reversed(fwds):
             # modulo lifting to API level
