@@ -65,7 +65,7 @@ def test_builtin_cursor():
     assert select_builtin == bar.body()[1].rhs()
 
 
-def test_basic_forwarding(proc_foo):
+def test_basic_forwarding(golden):
     @proc
     def p():
         x: f32
@@ -78,12 +78,9 @@ def test_basic_forwarding(proc_foo):
     x2 = p.find("x = _ #1")
     if1 = x1.parent()
     if2 = x2.parent()
-    print("\n")
     p = insert_pass(p, if1.before())
-    print(p)
-    print("\n")
     p = fuse(p, if1, if2)
-    print(p)
+    assert str(p) == golden
 
 
 # Need some more tests here...
