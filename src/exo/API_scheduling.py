@@ -925,7 +925,7 @@ def call_eqv(proc, call_cursor, eqv_proc):
     call_stmt = call_cursor._impl
     new_loopir = eqv_proc._loopir_proc
 
-    (ir, cfg), _fwd = scheduling.DoCallSwap(call_stmt, new_loopir)
+    ir, _fwd, cfg = scheduling.DoCallSwap(call_stmt, new_loopir)
     return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 

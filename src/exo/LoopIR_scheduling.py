@@ -902,7 +902,7 @@ def DoCallSwap(call_cursor, new_subproc):
 
     Check_Aliasing(ir)
 
-    return (ir, mod_cfg), fwd
+    return ir, fwd, mod_cfg
 
 
 class DoInlineWindow(Cursor_Rewrite):
