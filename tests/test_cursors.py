@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from exo import proc
+from exo.stdlib.scheduling import *
 
 
 @pytest.fixture(scope="session")
@@ -62,6 +63,12 @@ def test_builtin_cursor():
 
     select_builtin = bar.find("select(_)")
     assert select_builtin == bar.body()[1].rhs()
+
+
+def test_basic_forwarding(proc_foo):
+    x_assn = proc_foo.find("x = _")
+    p = divide_loop(proc_foo, "j", 4, ["jo", "ji"], tail="cut_and_guard")
+    print(p)
 
 
 # Need some more tests here...

@@ -162,6 +162,7 @@ class Procedure(ProcedureBase):
         self,
         proc,
         _provenance_eq_Procedure: "Procedure" = None,
+        _forward=None,
         _mod_config=None,
     ):
         super().__init__()
@@ -183,7 +184,29 @@ class Procedure(ProcedureBase):
         else:
             decl_new_proc(proc)
 
+        if _forward is None:
+
+            def _forward(_):
+                raise NotImplementedError(
+                    "This forwarding function has not been implemented"
+                )
+
         self._loopir_proc = proc
+        self._provenance_eq_Procedure = _provenance_eq_Procedure
+        self._forward = _forward
+
+    def forward(self, cur: API_cursors.Cursor):
+        p = self
+        fwds = []
+        while p is not None and p != cur.proc():
+            p = p._provenance_eq_Procedure
+            fwds.append(p._forward)
+
+        for fn in reversed(fwds):
+            # modulo lifting to API level
+            cur = fn(cur)
+
+        return cur
 
     def __str__(self):
         return str(self._loopir_proc)

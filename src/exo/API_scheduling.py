@@ -52,6 +52,17 @@ class ArgumentProcessor:
         raise NotImplementedError("Must Sub-class and redefine __call__")
 
 
+class CursorArgumentProcessor(ArgumentProcessor):
+    def __call__(self, cur, all_args):
+        p = all_args["proc"]
+        if isinstance(cur, CursorArgumentProcessor):
+            cur = p.forward(cur)
+        self._handle_cursor(cur, all_args)
+
+    def _handle_cursor(self, cur, all_args):
+        raise NotImplementedError("abstract method")
+
+
 @dataclass
 class AtomicSchedulingOp:
     sig: inspect.Signature
@@ -358,11 +369,11 @@ class ExprCursorA(ArgumentProcessor):
             return match
 
 
-class StmtCursorA(ArgumentProcessor):
+class StmtCursorA(CursorArgumentProcessor):
     def __init__(self, many=False):
         self.match_many = many
 
-    def __call__(self, stmt_pattern, all_args):
+    def _handle_cursor(self, stmt_pattern, all_args):
         if isinstance(stmt_pattern, PC.StmtCursor):
             return stmt_pattern
         elif isinstance(stmt_pattern, PC.Cursor):
@@ -381,12 +392,12 @@ class StmtCursorA(ArgumentProcessor):
         return match
 
 
-class BlockCursorA(ArgumentProcessor):
+class BlockCursorA(CursorArgumentProcessor):
     def __init__(self, many=False, block_size=None):
         self.match_many = many
         self.block_size = block_size
 
-    def __call__(self, block_pattern, all_args):
+    def _handle_cursor(self, block_pattern, all_args):
         if isinstance(block_pattern, PC.BlockCursor):
             cursor = block_pattern
         elif isinstance(block_pattern, PC.StmtCursor):
@@ -423,8 +434,8 @@ class BlockCursorA(ArgumentProcessor):
         return cursor
 
 
-class GapCursorA(ArgumentProcessor):
-    def __call__(self, gap_cursor, all_args):
+class GapCursorA(CursorArgumentProcessor):
+    def _handle_cursor(self, gap_cursor, all_args):
         if not isinstance(gap_cursor, PC.GapCursor):
             self.err("expected a GapCursor")
         return gap_cursor
@@ -747,7 +758,7 @@ def insert_pass(proc, gap_cursor):
         `s1 ; pass ; s2`
     """
     ir, _fwd = scheduling.DoInsertPass(gap_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([])
@@ -778,7 +789,7 @@ def reorder_stmts(proc, block_cursor):
     s2 = block_cursor[1]._impl
 
     ir, _fwd = scheduling.DoReorderStmt(s1, s2)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([ExprCursorA(many=True)])
@@ -814,7 +825,7 @@ def commute_expr(proc, expr_cursors):
         )
 
     ir, _fwd = scheduling.DoCommuteExpr(exprs)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([ExprCursorA(many=True), NameA, BoolA])
@@ -877,7 +888,7 @@ def inline(proc, call_cursor):
                           whose body we want to inline
     """
     ir, _fwd = scheduling.DoInline(call_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([BlockCursorA, ProcA, BoolA])
@@ -1105,7 +1116,7 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
     """
     stmt_c = buf_cursor._impl
     ir, _fwd = scheduling.DoExpandDim(stmt_c, alloc_dim, indexing_expr)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([AllocCursorA, ListA(IntA)])
@@ -1259,7 +1270,7 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
     stmt = alloc_cursor._impl
 
     ir, _fwd = scheduling.DoLiftAllocSimple(stmt, n_lifts)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([AllocCursorA, PosIntA, EnumA(["row", "col"]), OptionalA(PosIntA), BoolA])
@@ -1500,7 +1511,7 @@ def mult_loops(proc, nested_loops, new_iter_name):
         `    s[ i -> k/c, j -> k%c ]`
     """
     ir, _fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([ForSeqCursorA, PosIntA])
@@ -1526,7 +1537,7 @@ def cut_loop(proc, loop, cut_point):
         `    s[i -> i+cut]`
     """
     ir, _fwd = scheduling.DoPartitionLoop(loop._impl, cut_point)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([NestedForSeqCursorA])
@@ -1561,7 +1572,7 @@ def reorder_loops(proc, nested_loops):
         raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
     ir, _fwd = scheduling.DoLiftScope(stmt_c.body()[0])
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1618,7 +1629,7 @@ def merge_writes(proc, block_cursor):
         )
 
     ir, _fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1644,7 +1655,7 @@ def lift_reduce_constant(proc, block_cursor):
     proc_c = ic.Cursor.create(proc)
 
     ir, _fwd = scheduling.DoLiftConstant(stmt_c, loop_c)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([GapCursorA, PosIntA])
@@ -1754,7 +1765,7 @@ def fuse(proc, stmt1, stmt2):
         ir, _fwd = scheduling.DoFuseIf(s1, s2)
     else:
         ir, _fwd = scheduling.DoFuseLoop(s1, s2)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([ForSeqCursorA])
@@ -1774,7 +1785,7 @@ def remove_loop(proc, loop_cursor):
         `s`
     """
     ir, _fwd = scheduling.DoRemoveLoop(loop_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA])
@@ -1806,7 +1817,7 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
 
     stmt_c = block_cursor[0]._impl
     ir, _fwd = scheduling.DoAddLoop(stmt_c, iter_name, hi_expr, guard)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([ForSeqCursorA])
@@ -1826,7 +1837,7 @@ def unroll_loop(proc, loop_cursor):
         `s[ i -> 2 ]`
     """
     ir, _fwd = scheduling.DoUnroll(loop_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -1860,7 +1871,7 @@ def lift_scope(proc, scope_cursor):
 
     # return scheduling.DoLiftScope(proc_c, stmt_c).result()
     ir, _fwd = scheduling.DoLiftScope(stmt_c)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 @sched_op([IfCursorA, BoolA])
@@ -1925,7 +1936,7 @@ def specialize(proc, block_cursor, conds):
     stmt = block_cursor[0]._impl
 
     ir, _fwd = scheduling.DoSpecialize(stmt, conds)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
 
 
 # --------------------------------------------------------------------------- #
