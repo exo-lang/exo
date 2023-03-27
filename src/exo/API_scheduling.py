@@ -1021,7 +1021,7 @@ def bind_config(proc, var_cursor, config, field):
             f"to match type of Config variable ({cfg_f_type})"
         )
 
-    (ir, cfg), _fwd = scheduling.DoBindConfig(config, field, var_cursor._impl)
+    ir, _fwd, cfg = scheduling.DoBindConfig(config, field, var_cursor._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 

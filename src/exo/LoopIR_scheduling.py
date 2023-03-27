@@ -1116,7 +1116,7 @@ def DoBindConfig(config, field, expr_cursor):
 
     ir, fwd = _fixup_effects(ir, fwd)
     Check_Aliasing(ir)
-    return (ir, mod_cfg), fwd
+    return ir, fwd, mod_cfg
 
 
 def DoCommuteExpr(expr_cursors):
