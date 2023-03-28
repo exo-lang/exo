@@ -884,48 +884,25 @@ class DoSetTypAndMem(Cursor_Rewrite):
 # Call Swap scheduling directive
 
 
-class DoCallSwap(Cursor_Rewrite):
-    def __init__(self, proc_cursor, call_cursor, new_subproc):
-        self.call_stmt = call_cursor._node
-        assert isinstance(self.call_stmt, LoopIR.Call)
-        self.new_subproc = new_subproc
+def DoCallSwap(call_cursor, new_subproc):
+    call_s = call_cursor._node
+    assert isinstance(call_s, LoopIR.Call)
 
-        super().__init__(proc_cursor)
-        Check_Aliasing(self.proc)
+    is_eqv, configkeys = get_strictest_eqv_proc(call_s.f, new_subproc)
+    if not is_eqv:
+        raise SchedulingError(
+            f"{call_s.srcinfo}: Cannot swap call because the two "
+            f"procedures are not equivalent"
+        )
 
-    def mod_eq(self):
-        return self.eq_mod_config
+    s_new = call_s.update(f=new_subproc)
+    ir = call_cursor.get_root()
+    mod_cfg = Check_ExtendEqv(ir, [call_s], [s_new], configkeys)
+    ir, fwd = call_cursor._replace([s_new])
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.call_stmt:
-            old_f = s.f
-            new_f = self.new_subproc
-            s_new = LoopIR.Call(new_f, s.args, None, s.srcinfo)
-            is_eqv, configkeys = get_strictest_eqv_proc(old_f, new_f)
-            if not is_eqv:
-                raise SchedulingError(
-                    f"{s.srcinfo}: Cannot swap call because the two "
-                    f"procedures are not equivalent"
-                )
-            mod_cfg = Check_ExtendEqv(self.orig_proc._node, [s], [s_new], configkeys)
-            self.eq_mod_config = mod_cfg
+    Check_Aliasing(ir)
 
-            return [s_new]
-
-        # fall-through
-        return super().map_s(sc)
-
-    # make this more efficient by not rewriting
-    # most of the sub-trees
-    def map_e(self, e):
-        return e
-
-    def map_t(self, t):
-        return t
-
-    def map_eff(self, eff):
-        return eff
+    return ir, fwd, mod_cfg
 
 
 class DoInlineWindow(Cursor_Rewrite):
@@ -3960,7 +3937,7 @@ __all__ = [
     "DoInline",  # done
     "DoPartialEval",
     "DoSetTypAndMem",
-    "DoCallSwap",
+    "DoCallSwap",  # done
     "DoBindExpr",
     "DoBindConfig",
     "DoLiftAlloc",

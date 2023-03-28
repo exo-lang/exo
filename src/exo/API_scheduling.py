@@ -925,10 +925,8 @@ def call_eqv(proc, call_cursor, eqv_proc):
     call_stmt = call_cursor._impl
     new_loopir = eqv_proc._loopir_proc
 
-    proc_c = ic.Cursor.create(proc)
-    rewrite_pass = scheduling.DoCallSwap(proc_c, call_stmt, new_loopir)
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    ir, _fwd, cfg = scheduling.DoCallSwap(call_stmt, new_loopir)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 
 # --------------------------------------------------------------------------- #
