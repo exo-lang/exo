@@ -1019,10 +1019,8 @@ def bind_config(proc, var_cursor, config, field):
             f"to match type of Config variable ({cfg_f_type})"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    rewrite_pass = scheduling.DoBindConfig(proc_c, config, field, var_cursor._impl)
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    ir, _fwd, cfg = scheduling.DoBindConfig(config, field, var_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 
 @sched_op([StmtCursorA])
