@@ -241,7 +241,10 @@ def _replace_pats(ir, fwd, c, pat, repl):
     #   multi-way replacement?
     for rd in match_pattern(c, pat):
         rd = fwd(rd)
-        ir, fwd_rd = rd._replace(repl(rd))
+        new_rd = repl(rd)
+        if isinstance(rd.parent()._node, LoopIR.Call):
+            new_rd = [new_rd]
+        ir, fwd_rd = rd._replace(new_rd)
         fwd = _compose(fwd_rd, fwd)
     return ir, fwd
 
@@ -250,7 +253,7 @@ def _replace_pats_stmts(ir, fwd, c, pat, repl):
     for block in match_pattern(c, pat):
         # needed because match_pattern on stmts return blocks
         s = block[0]
-        ir, fwd_rd = s._replace(repl(s))
+        ir, fwd_rd = s._replace([repl(s)])
         fwd = _compose(fwd_rd, fwd)
     return ir, fwd
 
@@ -1665,30 +1668,26 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
 
     def mk_read(c):
         rd = c._node
+
+        # TODO: do I need to worry about Builtins too?
+        if isinstance(c.parent()._node, (LoopIR.Call)) and not rd.idx:
+            raise SchedulingError(
+                "TODO: Please Contact the developers to fix (i.e. add) "
+                "support for passing windows to scalar arguments"
+            )
+
         if isinstance(rd, LoopIR.Read):
-            new_rd = rd.update(idx=[indexing] + rd.idx)
+            return rd.update(idx=[indexing] + rd.idx)
         elif isinstance(rd, LoopIR.WindowExpr):
-            new_rd = rd.update(idx=[LoopIR.Point(indexing, rd.srcinfo)] + rd.idx)
+            return rd.update(idx=[LoopIR.Point(indexing, rd.srcinfo)] + rd.idx)
         else:
             raise NotImplementedError(
                 f"Did not implement {type(rd)}. This may be a bug."
             )
 
-        # TODO: do I need to worry about Builtins too?
-        if isinstance(c.parent()._node, (LoopIR.Call)):
-            if not rd.idx:
-                raise SchedulingError(
-                    "TODO: Please Contact the developers to fix (i.e. add) "
-                    "support for passing windows to scalar arguments"
-                )
-
-            # Needed because _replace calls as_block() if path[-1] has an idx
-            new_rd = [new_rd]
-        return new_rd
-
     def mk_write(c):
         s = c._node
-        return [s.update(idx=[indexing] + s.idx)]
+        return s.update(idx=[indexing] + s.idx)
 
     c = alloc_cursor
     while True:
@@ -1885,83 +1884,78 @@ class DoDivideDim(Cursor_Rewrite):
         return super().map_e(e)
 
 
-class DoMultiplyDim(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, hi_idx, lo_idx):
-        self.alloc_stmt = alloc_cursor._node
+def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
+    alloc_s = alloc_cursor._node
+    alloc_sym = alloc_s.name
 
-        assert isinstance(self.alloc_stmt, LoopIR.Alloc)
-        assert isinstance(hi_idx, int)
-        assert isinstance(lo_idx, int)
+    assert isinstance(alloc_s, LoopIR.Alloc)
+    assert isinstance(hi_idx, int)
+    assert isinstance(lo_idx, int)
 
-        self.alloc_sym = self.alloc_stmt.name
-        self.hi_idx = hi_idx
-        self.lo_idx = lo_idx
-        lo_dim = self.alloc_stmt.type.shape()[lo_idx]
-        if not isinstance(lo_dim, LoopIR.Const):
-            raise SchedulingError(
-                f"Cannot multiply with non-literal second dimension: {str(lo_dim)}"
-            )
-        self.lo_val = lo_dim.val
+    lo_dim = alloc_s.type.shape()[lo_idx]
+    if not isinstance(lo_dim, LoopIR.Const):
+        raise SchedulingError(
+            f"Cannot multiply with non-literal second dimension: {str(lo_dim)}"
+        )
 
-        super().__init__(proc_cursor)
+    lo_val = lo_dim.val
 
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
+    old_typ = alloc_s.type
+    shp = old_typ.shape().copy()
+    hi_dim = shp[hi_idx]
+    lo_dim = shp[lo_idx]
+    prod = LoopIR.BinOp("*", lo_dim, hi_dim, hi_dim.type, hi_dim.srcinfo)
+    shp[hi_idx] = prod
+    del shp[lo_idx]
+    new_typ = T.Tensor(shp, False, old_typ.basetype())
 
-    def remap_idx(self, idx):
-        hi = idx[self.hi_idx]
-        lo = idx[self.lo_idx]
-        mulval = LoopIR.Const(self.lo_val, T.int, hi.srcinfo)
+    ir, fwd = alloc_cursor._replace([alloc_s.update(type=new_typ)])
+
+    def remap_idx(idx):
+        hi = idx[hi_idx]
+        lo = idx[lo_idx]
+        mulval = LoopIR.Const(lo_val, T.int, hi.srcinfo)
         mul_hi = LoopIR.BinOp("*", mulval, hi, hi.type, hi.srcinfo)
         prod = LoopIR.BinOp("+", mul_hi, lo, T.index, hi.srcinfo)
-        idx[self.hi_idx] = prod
-        del idx[self.lo_idx]
+        idx[hi_idx] = prod
+        del idx[lo_idx]
         return idx
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.alloc_stmt:
-            old_typ = s.type
-            shp = old_typ.shape().copy()
+    def mk_read(c):
+        rd = c._node
 
-            hi_dim = shp[self.hi_idx]
-            lo_dim = shp[self.lo_idx]
-            prod = LoopIR.BinOp("*", lo_dim, hi_dim, hi_dim.type, hi_dim.srcinfo)
-            shp[self.hi_idx] = prod
-            del shp[self.lo_idx]
-
-            new_typ = T.Tensor(shp, False, old_typ.basetype())
-
-            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
-
-        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)) and s.name == self.alloc_sym:
-            return [
-                s.update(
-                    idx=self.remap_idx(self.apply_exprs(s.idx)),
-                    rhs=self.apply_e(s.rhs),
-                    eff=None,
-                )
-            ]
-
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            if not e.idx:
-                raise SchedulingError(
-                    f"Cannot multiply {self.alloc_sym} because "
-                    f"buffer is passed as an argument"
-                )
-            return e.update(idx=self.remap_idx(self.apply_exprs(e.idx)))
-
-        elif isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
+        if isinstance(rd, LoopIR.Read) and not rd.idx:
             raise SchedulingError(
-                f"Cannot multiply {self.alloc_sym} because "
+                f"Cannot multiply {alloc_sym} because "
+                f"buffer is passed as an argument"
+            )
+
+        if isinstance(rd, LoopIR.WindowExpr):
+            raise SchedulingError(
+                f"Cannot multiply {alloc_sym} because "
                 f"the buffer is windowed later on"
             )
 
-        # fall-through
-        return super().map_e(e)
+        return rd.update(idx=remap_idx(rd.idx))
+
+    def mk_write(c):
+        s = c._node
+        return s.update(idx=remap_idx(s.idx))
+
+    c = alloc_cursor
+    while True:
+        try:
+            c = c.next()
+        except ic.InvalidCursorError:
+            break
+
+        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
+        new_c = fwd(c)
+
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} += _", mk_write)
+
+    return _fixup_effects(ir, fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -3466,56 +3460,42 @@ class DoAssertIf(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-class DoDataReuse(Cursor_Rewrite):
-    def __init__(self, proc_cursor, buf_cursor, rep_cursor):
-        assert isinstance(buf_cursor._node, LoopIR.Alloc)
-        assert isinstance(rep_cursor._node, LoopIR.Alloc)
-        assert buf_cursor._node.type == rep_cursor._node.type
+def DoDataReuse(buf_cursor, rep_cursor):
+    assert isinstance(buf_cursor._node, LoopIR.Alloc)
+    assert isinstance(rep_cursor._node, LoopIR.Alloc)
+    assert buf_cursor._node.type == rep_cursor._node.type
 
-        self.buf_name = buf_cursor._node.name
-        self.buf_dims = len(buf_cursor._node.type.shape())
-        self.rep_name = rep_cursor._node.name
-        self.rep_pat = rep_cursor._node
+    buf_name = buf_cursor._node.name
+    buf_dims = len(buf_cursor._node.type.shape())
+    rep_name = rep_cursor._node.name
+    first_assn = True
 
-        self.found_rep_alloc = False
-        self.first_assn = True
+    ir, fwd = rep_cursor._delete()
 
-        super().__init__(proc_cursor)
+    c = rep_cursor
+    while True:
+        try:
+            c = c.next()
+        except ic.InvalidCursorError:
+            break
 
-        self.proc = InferEffects(self.proc).result()
+        def mk_read(c):
+            return c._node.update(name=buf_name)
 
-    def map_s(self, sc):
-        s = sc._node
-        # remove the allocation that we are eliminating through re-use
-        if s is self.rep_pat:
-            self.found_rep_alloc = True
-            return []
+        def mk_write(c):
+            nonlocal first_assn
+            if first_assn:
+                first_assn = False
+                Check_IsDeadAfter(buf_cursor.get_root(), [c._node], buf_name, buf_dims)
+            return c._node.update(name=buf_name)
 
-        # make replacements after the first write to the buffer
-        if self.found_rep_alloc:
-            if (
-                type(s) is LoopIR.Assign or type(s) is LoopIR.Reduce
-            ) and s.name == self.rep_name:
-                name = self.buf_name
-                rhs = self.map_e(s.rhs) or s.rhs
+        ir, fwd = _replace_pats(ir, fwd, c, f"{rep_name}[_]", mk_read)
+        new_c = fwd(c)
 
-                # check whether the buffer we are trying to re-use
-                # is live or not at this point in the execution
-                if self.first_assn:
-                    self.first_assn = False
-                    Check_IsDeadAfter(
-                        self.orig_proc._node, [s], self.buf_name, self.buf_dims
-                    )
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{rep_name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{rep_name} += _", mk_write)
 
-                return [type(s)(name, s.type, None, s.idx, rhs, None, s.srcinfo)]
-
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if isinstance(e, LoopIR.Read) and e.name == self.rep_name:
-            return e.update(name=self.buf_name)
-
-        return super().map_e(e)
+    return _fixup_effects(ir, fwd)
 
 
 # TODO: This can probably be re-factored into a generic
@@ -4003,7 +3983,7 @@ __all__ = [
     "DoBoundAndGuard",
     "DoFuseLoop",  # done
     "DoAddLoop",  # done
-    "DoDataReuse",
+    "DoDataReuse",  # done
     "DoLiftScope",  # done
     "DoLiftConstant",
     "DoPartitionLoop",  # done
@@ -4018,7 +3998,7 @@ __all__ = [
     "DoExpandDim",  # done
     "DoRearrangeDim",
     "DoDivideDim",
-    "DoMultiplyDim",
+    "DoMultiplyDim",  # done
     "DoRemoveLoop",  # done
     "DoLiftAllocSimple",  # done
     "DoFissionAfterSimple",

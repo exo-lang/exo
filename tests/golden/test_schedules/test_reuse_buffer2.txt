@@ -1,0 +1,3 @@
+def foo():
+    bb: f32 @ DRAM
+    bar(bb)
