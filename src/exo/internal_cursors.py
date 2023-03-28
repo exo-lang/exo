@@ -719,6 +719,12 @@ class Node(Cursor):
     # Location queries
     # ------------------------------------------------------------------------ #
 
+    def get_index(self):
+        attr, i = self._path[-1]
+        if i is None:
+            raise InvalidCursorError("node is not inside a block")
+        return i
+
     def is_ancestor_of(self, other: Cursor) -> bool:
         """Return true if this node is an ancestor of another"""
         return _starts_with(other._path, self._path)
