@@ -1016,55 +1016,21 @@ class DoInlineWindow(Cursor_Rewrite):
         return super().map_e(e)
 
 
-# TODO: Rewrite this to directly use stmt_cursor instead of after
-class DoConfigWrite(Cursor_Rewrite):
-    def __init__(self, proc_cursor, stmt_cursor, config, field, expr, before=False):
-        assert isinstance(expr, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const))
+def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
+    assert isinstance(expr, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const))
+    s = stmt_cursor._node
 
-        self.stmt = stmt_cursor._node
-        self.config = config
-        self.field = field
-        self.expr = expr
-        self.before = before
+    cw_s = LoopIR.WriteConfig(config, field, expr, None, s.srcinfo)
 
-        self._new_cfgwrite_stmt = None
+    if before:
+        ir, fwd = stmt_cursor.before()._insert([cw_s])
+    else:
+        ir, fwd = stmt_cursor.after()._insert([cw_s])
 
-        super().__init__(proc_cursor)
+    cfg = Check_DeleteConfigWrite(ir, [cw_s])
 
-        # check safety...
-        mod_cfg = Check_DeleteConfigWrite(self.proc, [self._new_cfgwrite_stmt])
-        self.eq_mod_config = mod_cfg
-
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-
-    def mod_eq(self):
-        return self.eq_mod_config
-
-    def map_stmts(self, stmts_c):
-        body = []
-        for i, sc in enumerate(stmts_c):
-            s = sc._node
-            if s is self.stmt:
-                cw_s = LoopIR.WriteConfig(
-                    self.config, self.field, self.expr, None, s.srcinfo
-                )
-                self._new_cfgwrite_stmt = cw_s
-
-                if self.before:
-                    body += [cw_s, s]
-                else:
-                    body += [s, cw_s]
-
-                # finish and exit
-                body += [s._node for s in stmts_c[i + 1 :]]
-                return body
-
-            else:
-                # TODO: be smarter about None handling
-                body += self.apply_s(sc)
-
-        return body
+    ir, fwd = _fixup_effects(ir, fwd)
+    return ir, fwd, cfg
 
 
 # --------------------------------------------------------------------------- #
@@ -3926,7 +3892,7 @@ __all__ = [
     "DoFissionLoops",
     "DoExtractMethod",
     "DoReorderStmt",  # done
-    "DoConfigWrite",
+    "DoConfigWrite",  # done
     "DoInlineWindow",
     "DoInsertPass",  # done
     "DoDeletePass",
