@@ -1850,83 +1850,78 @@ class DoDivideDim(Cursor_Rewrite):
         return super().map_e(e)
 
 
-class DoMultiplyDim(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, hi_idx, lo_idx):
-        self.alloc_stmt = alloc_cursor._node
+def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
+    alloc_s = alloc_cursor._node
+    alloc_sym = alloc_s.name
 
-        assert isinstance(self.alloc_stmt, LoopIR.Alloc)
-        assert isinstance(hi_idx, int)
-        assert isinstance(lo_idx, int)
+    assert isinstance(alloc_s, LoopIR.Alloc)
+    assert isinstance(hi_idx, int)
+    assert isinstance(lo_idx, int)
 
-        self.alloc_sym = self.alloc_stmt.name
-        self.hi_idx = hi_idx
-        self.lo_idx = lo_idx
-        lo_dim = self.alloc_stmt.type.shape()[lo_idx]
-        if not isinstance(lo_dim, LoopIR.Const):
-            raise SchedulingError(
-                f"Cannot multiply with non-literal second dimension: {str(lo_dim)}"
-            )
-        self.lo_val = lo_dim.val
+    lo_dim = alloc_s.type.shape()[lo_idx]
+    if not isinstance(lo_dim, LoopIR.Const):
+        raise SchedulingError(
+            f"Cannot multiply with non-literal second dimension: {str(lo_dim)}"
+        )
 
-        super().__init__(proc_cursor)
+    lo_val = lo_dim.val
 
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
+    old_typ = alloc_s.type
+    shp = old_typ.shape().copy()
+    hi_dim = shp[hi_idx]
+    lo_dim = shp[lo_idx]
+    prod = LoopIR.BinOp("*", lo_dim, hi_dim, hi_dim.type, hi_dim.srcinfo)
+    shp[hi_idx] = prod
+    del shp[lo_idx]
+    new_typ = T.Tensor(shp, False, old_typ.basetype())
 
-    def remap_idx(self, idx):
-        hi = idx[self.hi_idx]
-        lo = idx[self.lo_idx]
-        mulval = LoopIR.Const(self.lo_val, T.int, hi.srcinfo)
+    ir, fwd = alloc_cursor._replace([alloc_s.update(type=new_typ)])
+
+    def remap_idx(idx):
+        hi = idx[hi_idx]
+        lo = idx[lo_idx]
+        mulval = LoopIR.Const(lo_val, T.int, hi.srcinfo)
         mul_hi = LoopIR.BinOp("*", mulval, hi, hi.type, hi.srcinfo)
         prod = LoopIR.BinOp("+", mul_hi, lo, T.index, hi.srcinfo)
-        idx[self.hi_idx] = prod
-        del idx[self.lo_idx]
+        idx[hi_idx] = prod
+        del idx[lo_idx]
         return idx
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.alloc_stmt:
-            old_typ = s.type
-            shp = old_typ.shape().copy()
+    def mk_read(c):
+        rd = c._node
 
-            hi_dim = shp[self.hi_idx]
-            lo_dim = shp[self.lo_idx]
-            prod = LoopIR.BinOp("*", lo_dim, hi_dim, hi_dim.type, hi_dim.srcinfo)
-            shp[self.hi_idx] = prod
-            del shp[self.lo_idx]
-
-            new_typ = T.Tensor(shp, False, old_typ.basetype())
-
-            return [LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)]
-
-        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)) and s.name == self.alloc_sym:
-            return [
-                s.update(
-                    idx=self.remap_idx(self.apply_exprs(s.idx)),
-                    rhs=self.apply_e(s.rhs),
-                    eff=None,
-                )
-            ]
-
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if isinstance(e, LoopIR.Read) and e.name == self.alloc_sym:
-            if not e.idx:
-                raise SchedulingError(
-                    f"Cannot multiply {self.alloc_sym} because "
-                    f"buffer is passed as an argument"
-                )
-            return e.update(idx=self.remap_idx(self.apply_exprs(e.idx)))
-
-        elif isinstance(e, LoopIR.WindowExpr) and e.name == self.alloc_sym:
+        if isinstance(rd, LoopIR.Read) and not rd.idx:
             raise SchedulingError(
-                f"Cannot multiply {self.alloc_sym} because "
+                f"Cannot multiply {alloc_sym} because "
+                f"buffer is passed as an argument"
+            )
+
+        if isinstance(rd, LoopIR.WindowExpr):
+            raise SchedulingError(
+                f"Cannot multiply {alloc_sym} because "
                 f"the buffer is windowed later on"
             )
 
-        # fall-through
-        return super().map_e(e)
+        return rd.update(idx=remap_idx(rd.idx))
+
+    def mk_write(c):
+        s = c._node
+        return s.update(idx=remap_idx(s.idx))
+
+    c = alloc_cursor
+    while True:
+        try:
+            c = c.next()
+        except ic.InvalidCursorError:
+            break
+
+        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
+        new_c = fwd(c)
+
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} += _", mk_write)
+
+    return _fixup_effects(ir, fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -3969,7 +3964,7 @@ __all__ = [
     "DoExpandDim",  # done
     "DoRearrangeDim",
     "DoDivideDim",
-    "DoMultiplyDim",
+    "DoMultiplyDim",  # done
     "DoRemoveLoop",  # done
     "DoLiftAllocSimple",  # done
     "DoFissionAfterSimple",
