@@ -456,6 +456,8 @@ def avx2_reduce_add_wide_pd(dst: [f64][4] @ AVX2, src: [f64][4] @ AVX2):
         dst[i] += src[i]
 
 
+# TODO: Hack for procedure aliasing issue, can be deleted once we have
+#      better way of handling aliasing
 @instr("{dst_data} = {src_data};")
 def avx2_reg_copy_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
     assert stride(dst, 0) == 1
