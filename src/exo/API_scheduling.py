@@ -1226,7 +1226,6 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
         `x : R[4*n, m]`
         `x[4*i + k, j] = ...`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
     for dim_idx in [hi_dim_idx, lo_dim_idx]:
         if not (0 <= dim_idx < len(stmt._node.type.shape())):
@@ -1234,7 +1233,8 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
     if hi_dim_idx == lo_dim_idx:
         raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by itself")
 
-    return scheduling.DoMultiplyDim(proc_c, stmt, hi_dim_idx, lo_dim_idx).result()
+    ir, _fwd = scheduling.DoMultiplyDim(stmt, hi_dim_idx, lo_dim_idx)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([AllocCursorA, PosIntA])
