@@ -1048,7 +1048,7 @@ def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
     if before:
         ir, fwd = stmt_cursor.before()._insert([cw_s])
     else:
-        ir, fwd = stmt_cursor.after()._isnert([cw_s])
+        ir, fwd = stmt_cursor.after()._insert([cw_s])
 
     cfg = Check_DeleteConfigWrite(ir, [cw_s])
 
