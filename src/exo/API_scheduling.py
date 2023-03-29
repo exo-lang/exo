@@ -5,11 +5,11 @@ import re
 
 # import types
 from dataclasses import dataclass
-from typing import Any, List, Union, Tuple
+from typing import Any, List, Tuple
 
 from .API import Procedure
 from .API_cursors import public_cursors as PC, ExprCursor
-from .LoopIR import LoopIR, T  # , UAST, LoopIR_Do
+from .LoopIR import LoopIR, T
 import exo.LoopIR_scheduling as scheduling
 
 from .LoopIR_unification import DoReplace, UnificationError
@@ -284,7 +284,7 @@ class NameCountA(ArgumentProcessor):
 
         name = results[1]
         count = int(results[3]) if results[3] else None
-        return (name, count)
+        return name, count
 
 
 class EnumA(ArgumentProcessor):
@@ -757,8 +757,8 @@ def insert_pass(proc, gap_cursor):
         -->
         `s1 ; pass ; s2`
     """
-    ir, _fwd = scheduling.DoInsertPass(gap_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoInsertPass(gap_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([])
@@ -788,8 +788,8 @@ def reorder_stmts(proc, block_cursor):
     s1 = block_cursor[0]._impl
     s2 = block_cursor[1]._impl
 
-    ir, _fwd = scheduling.DoReorderStmt(s1, s2)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoReorderStmt(s1, s2)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ExprCursorA(many=True)])
@@ -824,8 +824,8 @@ def commute_expr(proc, expr_cursors):
             "can commute by commute_expr()"
         )
 
-    ir, _fwd = scheduling.DoCommuteExpr(exprs)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoCommuteExpr(exprs)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ExprCursorA(many=True), NameA, BoolA])
@@ -875,7 +875,7 @@ def extract_subproc(proc, subproc_name, body_stmt):
     proc_c = ic.Cursor.create(proc)
     stmt = body_stmt._impl
     passobj = scheduling.DoExtractMethod(proc_c, subproc_name, stmt)
-    return (passobj.result(), passobj.subproc())
+    return passobj.result(), passobj.subproc()
 
 
 @sched_op([CallCursorA])
@@ -887,8 +887,8 @@ def inline(proc, call_cursor):
         call_cursor     - Cursor or pattern pointing to a Call statement
                           whose body we want to inline
     """
-    ir, _fwd = scheduling.DoInline(call_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoInline(call_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA, ProcA, BoolA])
@@ -1085,7 +1085,7 @@ def write_config(proc, gap_cursor, config, field, rhs):
 
 
 @sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor"), BoolA])
-def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks=False):
+def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr):
     """
     expand the number of dimensions of a buffer variable (`buf_cursor`).
     After expansion, the existing code will initially only use particular
@@ -1107,8 +1107,8 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
         provided indexing expression is checked to make sure it is in-bounds
     """
     stmt_c = buf_cursor._impl
-    ir, _fwd = scheduling.DoExpandDim(stmt_c, alloc_dim, indexing_expr)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoExpandDim(stmt_c, alloc_dim, indexing_expr)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, ListA(IntA)])
@@ -1204,8 +1204,8 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     if not (0 <= dim_idx < len(stmt._node.type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds dimension index {dim_idx}")
 
-    ir, _fwd = scheduling.DoDivideDim(stmt, dim_idx, quotient)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoDivideDim(stmt, dim_idx, quotient)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, IntA, IntA])
@@ -1236,8 +1236,8 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
     if hi_dim_idx == lo_dim_idx:
         raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by itself")
 
-    ir, _fwd = scheduling.DoMultiplyDim(stmt, hi_dim_idx, lo_dim_idx)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoMultiplyDim(stmt, hi_dim_idx, lo_dim_idx)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, PosIntA])
@@ -1258,11 +1258,10 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
         `for i in _:`
         `    ...`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
 
-    ir, _fwd = scheduling.DoLiftAllocSimple(stmt, n_lifts)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoLiftAllocSimple(stmt, n_lifts)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, PosIntA, EnumA(["row", "col"]), OptionalA(PosIntA), BoolA])
@@ -1320,8 +1319,8 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
-    ir, _fwd = scheduling.DoDataReuse(buf_s, rep_s)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoDataReuse(buf_s, rep_s)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([WindowStmtCursorA])
@@ -1501,8 +1500,8 @@ def mult_loops(proc, nested_loops, new_iter_name):
         `for k in seq(0,e*c):`      # k is new_iter_name
         `    s[ i -> k/c, j -> k%c ]`
     """
-    ir, _fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ForSeqCursorA, PosIntA])
@@ -1527,8 +1526,8 @@ def cut_loop(proc, loop, cut_point):
         `for i in seq(0,n-cut):`
         `    s[i -> i+cut]`
     """
-    ir, _fwd = scheduling.DoPartitionLoop(loop._impl, cut_point)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoPartitionLoop(loop._impl, cut_point)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([NestedForSeqCursorA])
@@ -1562,8 +1561,8 @@ def reorder_loops(proc, nested_loops):
     if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.Seq):
         raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
-    ir, _fwd = scheduling.DoLiftScope(stmt_c.body()[0])
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoLiftScope(stmt_c.body()[0])
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1619,8 +1618,8 @@ def merge_writes(proc, block_cursor):
             "expected the two statements' right hand sides to have numeric types."
         )
 
-    ir, _fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1643,10 +1642,9 @@ def lift_reduce_constant(proc, block_cursor):
     """
     stmt_c = block_cursor[0]._impl
     loop_c = block_cursor[1]._impl
-    proc_c = ic.Cursor.create(proc)
 
-    ir, _fwd = scheduling.DoLiftConstant(stmt_c, loop_c)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoLiftConstant(stmt_c, loop_c)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([GapCursorA, PosIntA])
@@ -1677,8 +1675,8 @@ def fission(proc, gap_cursor, n_lifts=1):
     if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
         raise ValueError("expected cursor to point to " "a gap between statements")
     stmt = stmtc._impl
-    ir, _fwd = scheduling.DoFissionAfterSimple(stmt, n_lifts)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoFissionAfterSimple(stmt, n_lifts)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([GapCursorA, PosIntA])
@@ -1752,10 +1750,10 @@ def fuse(proc, stmt1, stmt2):
     s1 = stmt1._impl
     s2 = stmt2._impl
     if isinstance(stmt1, PC.IfCursor):
-        ir, _fwd = scheduling.DoFuseIf(s1, s2)
+        ir, fwd = scheduling.DoFuseIf(s1, s2)
     else:
-        ir, _fwd = scheduling.DoFuseLoop(s1, s2)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+        ir, fwd = scheduling.DoFuseLoop(s1, s2)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ForSeqCursorA])
@@ -1774,8 +1772,8 @@ def remove_loop(proc, loop_cursor):
             ->
         `s`
     """
-    ir, _fwd = scheduling.DoRemoveLoop(loop_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoRemoveLoop(loop_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA])
@@ -1806,8 +1804,8 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
         raise NotImplementedError("TODO: support blocks of size > 1")
 
     stmt_c = block_cursor[0]._impl
-    ir, _fwd = scheduling.DoAddLoop(stmt_c, iter_name, hi_expr, guard)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoAddLoop(stmt_c, iter_name, hi_expr, guard)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ForSeqCursorA])
@@ -1816,7 +1814,7 @@ def unroll_loop(proc, loop_cursor):
     Unroll a loop with a constant, literal loop bound
 
     args:
-        loop_curosr     - cursor pointing to the loop to unroll
+        loop_cursor     - cursor pointing to the loop to unroll
 
     rewrite:
         `for i in seq(0,3):`
@@ -1826,8 +1824,8 @@ def unroll_loop(proc, loop_cursor):
         `s[ i -> 1 ]`
         `s[ i -> 2 ]`
     """
-    ir, _fwd = scheduling.DoUnroll(loop_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoUnroll(loop_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -1860,8 +1858,8 @@ def lift_scope(proc, scope_cursor):
     stmt_c = scope_cursor._impl
 
     # return scheduling.DoLiftScope(proc_c, stmt_c).result()
-    ir, _fwd = scheduling.DoLiftScope(stmt_c)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoLiftScope(stmt_c)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([IfCursorA, BoolA])
@@ -1896,7 +1894,7 @@ def assert_if(proc, if_cursor, cond):
 def specialize(proc, block_cursor, conds):
     """
     Duplicate a statement block multiple times, with the provided
-    `cond`itions indictaing when each copy should be invoked.
+    `cond`itions indicating when each copy should be invoked.
     Doing this allows one to then schedule differently the "specialized"
     variants of the blocks in different ways.
 
@@ -1925,8 +1923,8 @@ def specialize(proc, block_cursor, conds):
 
     stmt = block_cursor[0]._impl
 
-    ir, _fwd = scheduling.DoSpecialize(stmt, conds)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=_fwd)
+    ir, fwd = scheduling.DoSpecialize(stmt, conds)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
