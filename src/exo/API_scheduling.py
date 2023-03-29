@@ -936,10 +936,8 @@ def call_eqv(proc, call_cursor, eqv_proc):
     call_stmt = call_cursor._impl
     new_loopir = eqv_proc._loopir_proc
 
-    proc_c = ic.Cursor.create(proc)
-    rewrite_pass = scheduling.DoCallSwap(proc_c, call_stmt, new_loopir)
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    ir, _fwd, cfg = scheduling.DoCallSwap(call_stmt, new_loopir)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 
 # --------------------------------------------------------------------------- #
@@ -1032,10 +1030,8 @@ def bind_config(proc, var_cursor, config, field):
             f"to match type of Config variable ({cfg_f_type})"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    rewrite_pass = scheduling.DoBindConfig(proc_c, config, field, var_cursor._impl)
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    ir, _fwd, cfg = scheduling.DoBindConfig(config, field, var_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 
 @sched_op([StmtCursorA])
@@ -1077,14 +1073,10 @@ def write_config(proc, gap_cursor, config, field, rhs):
     if not (stmtc := gap_cursor.after()):
         assert (stmtc := gap_cursor.before())
         before = False
-    stmt = stmtc._impl
 
-    proc_c = ic.Cursor.create(proc)
-    rewrite_pass = scheduling.DoConfigWrite(
-        proc_c, stmt, config, field, rhs, before=before
-    )
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    stmt = stmtc._impl
+    ir, _fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
 
 
 # --------------------------------------------------------------------------- #
@@ -1208,12 +1200,12 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     """
     if quotient == 1:
         raise ValueError("why are you trying to divide by 1?")
-    proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
     if not (0 <= dim_idx < len(stmt._node.type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds dimension index {dim_idx}")
 
-    return scheduling.DoDivideDim(proc_c, stmt, dim_idx, quotient).result()
+    ir, _fwd = scheduling.DoDivideDim(stmt, dim_idx, quotient)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([AllocCursorA, IntA, IntA])
@@ -1237,7 +1229,6 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
         `x : R[4*n, m]`
         `x[4*i + k, j] = ...`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
     for dim_idx in [hi_dim_idx, lo_dim_idx]:
         if not (0 <= dim_idx < len(stmt._node.type.shape())):
@@ -1245,7 +1236,8 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
     if hi_dim_idx == lo_dim_idx:
         raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by itself")
 
-    return scheduling.DoMultiplyDim(proc_c, stmt, hi_dim_idx, lo_dim_idx).result()
+    ir, _fwd = scheduling.DoMultiplyDim(stmt, hi_dim_idx, lo_dim_idx)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([AllocCursorA, PosIntA])
@@ -1328,9 +1320,8 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoDataReuse(proc_c, buf_s, rep_s).result()
+    ir, _fwd = scheduling.DoDataReuse(buf_s, rep_s)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([WindowStmtCursorA])
@@ -1686,9 +1677,8 @@ def fission(proc, gap_cursor, n_lifts=1):
     if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
         raise ValueError("expected cursor to point to " "a gap between statements")
     stmt = stmtc._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoFissionAfterSimple(proc_c, stmt, n_lifts).result()
+    ir, _fwd = scheduling.DoFissionAfterSimple(stmt, n_lifts)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([GapCursorA, PosIntA])
