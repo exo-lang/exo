@@ -335,6 +335,19 @@ def test_fission_after_simple(golden):
     assert "\n".join(map(str, cases)) == golden
 
 
+def test_fission_after_simple_fail():
+    @proc
+    def foo():
+        for i in seq(0, 4):
+            x: i8
+            x = 0.0
+            y: i8
+            y = 1.0
+
+    with pytest.raises(SchedulingError, match="Can only lift past a for loop"):
+        fission(foo, foo.find("x = 0.0").after(), n_lifts=2)
+
+
 def test_rearrange_dim(golden):
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -740,6 +753,21 @@ def test_reuse_buffer(golden):
         c: f32
         c = aa + bb
         b = c
+
+    foo = reuse_buffer(foo, "bb:_", "c:_")
+    assert str(foo) == golden
+
+
+def test_reuse_buffer2(golden):
+    @proc
+    def bar(a: f32):
+        pass
+
+    @proc
+    def foo():
+        bb: f32
+        c: f32
+        bar(c)
 
     foo = reuse_buffer(foo, "bb:_", "c:_")
     assert str(foo) == golden
