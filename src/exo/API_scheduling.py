@@ -1337,8 +1337,8 @@ def inline_window(proc, winstmt_cursor):
         `y = x[...] ; s` -> `s[ y -> x[...] ]`
     """
     stmt = winstmt_cursor._impl
-    ir, _fwd = scheduling.DoInlineWindow(stmt)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoInlineWindow(stmt)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ExprCursorA, NameA, OptionalA(MemoryA)])
