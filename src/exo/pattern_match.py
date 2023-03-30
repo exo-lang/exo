@@ -94,6 +94,7 @@ _PAST_to_LoopIR = {
     PAST.S_Hole: None,
     #
     PAST.Read: [LoopIR.Read],
+    PAST.StrideExpr: [LoopIR.StrideExpr],
     PAST.Const: [LoopIR.Const],
     PAST.USub: [LoopIR.USub],
     PAST.BinOp: [LoopIR.BinOp],
@@ -315,6 +316,10 @@ class PatternMatch:
             )
         elif isinstance(e, LoopIR.ReadConfig):
             return pat.config == e.config.name() and pat.field == e.field
+        elif isinstance(e, LoopIR.StrideExpr):
+            return self.match_name(pat.name, e.name) and (
+                pat.dim == e.dim or not bool(pat.dim)
+            )
         else:
             assert False, "bad case"
 

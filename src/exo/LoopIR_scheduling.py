@@ -992,9 +992,12 @@ def DoInlineWindow(window_cursor):
         elif isinstance(rd, LoopIR.Read):
             new_idxs = calc_idx(rd.idx)
             return rd.update(name=buf_name, idx=new_idxs)
-        elif isinstance(rd, LoopIR.StrideExpr):
-            dim = calc_dim(rd.dim)
-            return rd.update(name=buf_name, dim=dim)
+
+    def mk_stride_expr(c):
+        e = c._node
+        dim = calc_dim(e.dim)
+        buf_name = window_s.rhs.name
+        return e.update(name=buf_name, dim=dim)
 
     def mk_write(c):
         s = c._node
@@ -1009,7 +1012,9 @@ def DoInlineWindow(window_cursor):
             break
 
         ir, fwd = _replace_pats(ir, fwd, c, f"{window_s.lhs}[_]", mk_read)
-        # TODO: how to pattern match StrideExprs?
+        ir, fwd = _replace_pats(
+            ir, fwd, c, f"stride({window_s.lhs}, _)", mk_stride_expr
+        )
         new_c = fwd(c)
 
         ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{window_s.lhs} = _", mk_write)
