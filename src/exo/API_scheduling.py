@@ -723,7 +723,9 @@ def rename(proc, name):
     """
     p = proc._loopir_proc
     p = p.update(name=name)
-    return Procedure(p, _provenance_eq_Procedure=proc)
+    return Procedure(
+        p, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(p._loopir_proc)
+    )
 
 
 @sched_op([InstrStrA])
@@ -736,7 +738,9 @@ def make_instr(proc, instr):
     """
     p = proc._loopir_proc
     p = p.update(instr=instr)
-    return Procedure(p, _provenance_eq_Procedure=proc)
+    return Procedure(
+        p, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(p._loopir_proc)
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -936,8 +940,8 @@ def call_eqv(proc, call_cursor, eqv_proc):
     call_stmt = call_cursor._impl
     new_loopir = eqv_proc._loopir_proc
 
-    ir, _fwd, cfg = scheduling.DoCallSwap(call_stmt, new_loopir)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
+    ir, fwd, cfg = scheduling.DoCallSwap(call_stmt, new_loopir)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
 # --------------------------------------------------------------------------- #
@@ -1030,8 +1034,8 @@ def bind_config(proc, var_cursor, config, field):
             f"to match type of Config variable ({cfg_f_type})"
         )
 
-    ir, _fwd, cfg = scheduling.DoBindConfig(config, field, var_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
+    ir, fwd, cfg = scheduling.DoBindConfig(config, field, var_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
 @sched_op([StmtCursorA])
@@ -1046,10 +1050,8 @@ def delete_config(proc, stmt_cursor):
     rewrite:
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
-    (ir, cfg), _fwd = scheduling.DoDeleteConfig(
-        ic.Cursor.create(proc), stmt_cursor._impl
-    )
-    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
+    ir, fwd, cfg = scheduling.DoDeleteConfig(ic.Cursor.create(proc), stmt_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
 @sched_op([GapCursorA, ConfigA, ConfigFieldA, NewExprA("gap_cursor")])
@@ -1075,8 +1077,8 @@ def write_config(proc, gap_cursor, config, field, rhs):
         before = False
 
     stmt = stmtc._impl
-    ir, _fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
+    ir, fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
 # --------------------------------------------------------------------------- #
