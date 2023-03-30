@@ -607,7 +607,6 @@ class NewExprA(ArgumentProcessor):
         self.before = before
 
     def _get_ctxt_stmt(self, all_args):
-        proc = all_args["proc"]
         cursor = all_args[self.cursor_arg]
 
         # if we don't have a gap cursor, convert to a gap cursor
@@ -721,10 +720,10 @@ def rename(proc, name):
     args:
         name    - string
     """
-    p = proc._loopir_proc
-    p = p.update(name=name)
+    ir = proc._loopir_proc
+    ir = ir.update(name=name)
     return Procedure(
-        p, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(p._loopir_proc)
+        ir, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(ir)
     )
 
 
@@ -736,10 +735,10 @@ def make_instr(proc, instr):
     args:
         name    - string representing an instruction macro
     """
-    p = proc._loopir_proc
-    p = p.update(instr=instr)
+    ir = proc._loopir_proc
+    ir = ir.update(instr=instr)
     return Procedure(
-        p, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(p._loopir_proc)
+        ir, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(ir)
     )
 
 
@@ -1087,7 +1086,7 @@ def write_config(proc, gap_cursor, config, field, rhs):
 
 
 @sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor"), BoolA])
-def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr):
+def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks=False):
     """
     expand the number of dimensions of a buffer variable (`buf_cursor`).
     After expansion, the existing code will initially only use particular
