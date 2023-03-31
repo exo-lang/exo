@@ -1469,7 +1469,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
 
     stmt = loop_cursor._impl
 
-    ir, _fwd = scheduling.DoSplit(
+    ir, fwd = scheduling.DoSplit(
         stmt,
         quot=div_const,
         hi=new_iters[0],
@@ -1477,7 +1477,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         tail=tail,
         perfect=perfect,
     )
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([NestedForSeqCursorA, NameA])
