@@ -1,0 +1,8 @@
+def bar(n: size, A: i8[n] @ DRAM):
+    tmp: i8[n] @ DRAM
+    for io in seq(0, n / 4):
+        for ii in seq(0, 4):
+            tmp[4 * io + ii] = A[4 * io + ii]
+    if n % 4 > 0:
+        for ii in seq(0, n % 4):
+            tmp[ii + n / 4 * 4] = A[ii + n / 4 * 4]

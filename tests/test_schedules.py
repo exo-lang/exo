@@ -873,6 +873,17 @@ def test_simple_divide_loop(golden):
     assert str(bar) == golden
 
 
+def test_divide_loop_cut_and_guard(golden):
+    @proc
+    def bar(n: size, A: i8[n]):
+        tmp: i8[n]
+        for i in seq(0, n):
+            tmp[i] = A[i]
+
+    bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="cut_and_guard")
+    assert str(bar) == golden
+
+
 def test_simple_reorder(golden):
     @proc
     def bar(n: size, m: size, A: i8[n, m]):

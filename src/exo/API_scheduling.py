@@ -1457,17 +1457,16 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         raise ValueError("why are you trying to split by 1?")
 
     stmt = loop_cursor._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoSplit(
-        proc_c,
+    ir, _fwd = scheduling.DoSplit(
         stmt,
         quot=div_const,
         hi=new_iters[0],
         lo=new_iters[1],
         tail=tail,
         perfect=perfect,
-    ).result()
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([NestedForSeqCursorA, NameA])
