@@ -520,7 +520,11 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
 
     # replace the iteration variable in the body
     def mk_main_iter(c):
-        return [substitute(c._node.srcinfo)]
+        ret = substitute(c._node.srcinfo)
+        # index-specific hack for _replace not supporting lists very well
+        if isinstance(c.parent()._node, (LoopIR.Reduce, LoopIR.Assign, LoopIR.Read)):
+            ret = [ret]
+        return ret
 
     ir, fwd = _replace_pats(
         ir, fwd, fwd(loop_cursor), f"{split_loop.iter}", mk_main_iter
@@ -545,7 +549,13 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         fwd = _compose(fwd_ins, fwd)
 
         def mk_cut_iter(c):
-            return [cut_tail_sub]
+            ret = cut_tail_sub
+            # index-specific hack for _replace not supporting lists very well
+            if isinstance(
+                c.parent()._node, (LoopIR.Reduce, LoopIR.Assign, LoopIR.Read)
+            ):
+                ret = [ret]
+            return ret
 
         c = fwd(loop_cursor).next()
         ir, fwd = _replace_pats(ir, fwd, c, f"{split_loop.iter}", mk_cut_iter)

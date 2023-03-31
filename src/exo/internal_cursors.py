@@ -667,11 +667,16 @@ class Node(Cursor):
         # Expressions
         elif isinstance(n, LoopIR.LoopIR.Read):
             yield from self._children_from_attrs(n, "idx")
+        elif isinstance(n, LoopIR.LoopIR.WindowExpr):
+            yield from self._children_from_attrs(n, "idx")
+        elif isinstance(n, LoopIR.LoopIR.Interval):
+            yield from self._children_from_attrs(n, "lo", "hi")
+        elif isinstance(n, LoopIR.LoopIR.Point):
+            yield from self._children_from_attrs(n, "pt")
         elif isinstance(
             n,
             (
                 LoopIR.LoopIR.Const,
-                LoopIR.LoopIR.WindowExpr,
                 LoopIR.LoopIR.StrideExpr,
                 LoopIR.LoopIR.ReadConfig,
             ),
