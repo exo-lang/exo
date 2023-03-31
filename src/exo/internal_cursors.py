@@ -85,7 +85,9 @@ def _overlaps_one_side(a: range, b: range):
     )
 
 
-def forward_identity(p, fwd):
+def forward_identity(p, fwd=None):
+    fwd = fwd or (lambda x: x)
+
     @functools.wraps(fwd)
     def forward(cursor):
         cursor = fwd(cursor)

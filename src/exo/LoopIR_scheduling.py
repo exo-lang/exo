@@ -2540,7 +2540,7 @@ def DoInsertPass(gap):
 def DoDeleteConfig(proc_cursor, config_cursor):
     eq_mod_config = Check_DeleteConfigWrite(proc_cursor._node, [config_cursor._node])
     p, fwd = config_cursor._delete()
-    return (p, eq_mod_config), fwd
+    return p, fwd, eq_mod_config
 
 
 class DoDeletePass(Cursor_Rewrite):

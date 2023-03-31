@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from exo import proc
+from exo.stdlib.scheduling import *
 
 
 @pytest.fixture(scope="session")
@@ -62,6 +63,24 @@ def test_builtin_cursor():
 
     select_builtin = bar.find("select(_)")
     assert select_builtin == bar.body()[1].rhs()
+
+
+def test_basic_forwarding(golden):
+    @proc
+    def p():
+        x: f32
+        if True:
+            x = 1.0
+        if True:
+            x = 2.0
+
+    x1 = p.find("x = _ #0")
+    x2 = p.find("x = _ #1")
+    if1 = x1.parent()
+    if2 = x2.parent()
+    p = insert_pass(p, if1.before())
+    p = fuse(p, if1, if2)
+    assert str(p) == golden
 
 
 # Need some more tests here...
