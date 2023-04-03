@@ -527,7 +527,7 @@ class CheckEffects:
             smt_p = self.expr_to_smt(lift_expr(p))
             if not self.solver.is_sat(smt_p):
                 self.err(
-                    p, f"The assertion {p} at {p.srcinfo} " f"is always unsatisfiable."
+                    p, f"The assertion {p} at {p.srcinfo} is always unsatisfiable."
                 )
             # independently, we will assume the assertion is
             # true while checking the rest of this procedure body
@@ -779,7 +779,7 @@ class CheckEffects:
 
             if not self.solver.is_valid(in_bds):
                 eg = self.counter_example()
-                self.err(eff, f"{sym} is {eff_str} out-of-bounds " f"when:\n  {eg}.")
+                self.err(eff, f"{sym} is {eff_str} out-of-bounds when:\n  {eg}.")
 
             self.pop()
 

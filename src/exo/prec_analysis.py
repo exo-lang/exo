@@ -35,18 +35,18 @@ def get_default_prec():
 
 
 class PrecisionAnalysis(LoopIR_Rewrite):
-    def __init__(self, proc):
-        assert isinstance(proc, LoopIR.proc)
+    def __init__(self):
         self._errors = []
         self._types = {}
         self.default = get_default_prec()
 
-        super().__init__(proc)
-
-        if len(self._errors) > 0:
-            raise TypeError(
-                "Errors occurred during precision checking:\n" + "\n".join(self._errors)
-            )
+    def run(self, proc):
+        assert isinstance(proc, LoopIR.proc)
+        proc = super().apply_proc(proc)
+        if self._errors:
+            errs = "\n".join(self._errors)
+            raise TypeError(f"Errors occurred during precision checking:\n{errs}")
+        return proc
 
     def err(self, node, msg):
         self._errors.append(f"{node.srcinfo}: {msg}")

@@ -159,7 +159,7 @@ class TypeChecker:
         if isinstance(stmt, (UAST.Assign, UAST.Reduce)):
             rhs = self.check_e(stmt.rhs)
             if rhs.type != T.err and not rhs.type.is_real_scalar():
-                self.err(rhs, f"cannot assign/reduce a " f"'{rhs.type}' type value")
+                self.err(rhs, f"cannot assign/reduce a '{rhs.type}' type value")
 
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx, lvalue=True)
             assert typ.is_real_scalar() or typ is T.err
@@ -198,7 +198,7 @@ class TypeChecker:
                     if rhs.type != T.bool:
                         self.err(
                             rhs,
-                            f"expected a bool expression, " f"but got type {rhs.type}",
+                            f"expected a bool expression, but got type {rhs.type}",
                         )
                 elif ftyp.is_stridable():
                     if not rhs.type.is_stridable():
@@ -323,7 +323,7 @@ class TypeChecker:
         if isinstance(e, UAST.Point):
             pt = self.check_e(e.pt)
             if pt.type != T.err and not pt.type.is_indexable():
-                self.err(pt, f"cannot index with expression " f"of type '{pt.type}'")
+                self.err(pt, f"cannot index with expression of type '{pt.type}'")
             return LoopIR.Point(pt, e.srcinfo)
 
         elif isinstance(e, UAST.Interval):
@@ -332,18 +332,14 @@ class TypeChecker:
             else:
                 lo = self.check_e(e.lo)
                 if lo.type != T.err and not lo.type.is_indexable():
-                    self.err(
-                        lo, f"cannot index with expression " f"of type '{lo.type}'"
-                    )
+                    self.err(lo, f"cannot index with expression of type '{lo.type}'")
 
             if e.hi is None:
                 hi = orig_hi
             else:
                 hi = self.check_e(e.hi)
                 if hi.type != T.err and not hi.type.is_indexable():
-                    self.err(
-                        hi, f"cannot index with expression " f"of type '{hi.type}'"
-                    )
+                    self.err(hi, f"cannot index with expression of type '{hi.type}'")
 
             return LoopIR.Interval(lo, hi, e.srcinfo)
 
@@ -588,7 +584,7 @@ class TypeChecker:
             if not e.config.has_field(e.field):
                 self.err(
                     e.field,
-                    f"'{e.field}' has to be a field in config " f"'{e.config.name()}'",
+                    f"'{e.field}' has to be a field in config '{e.config.name()}'",
                 )
 
             ftyp = e.config.lookup(e.field)[1]

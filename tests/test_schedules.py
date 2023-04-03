@@ -3,9 +3,10 @@ from __future__ import annotations
 import pytest
 
 from exo import ParseFragmentError
-from exo import proc, DRAM, Procedure
+from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
+from exo.platforms.x86 import *
 
 
 def test_commute(golden):
@@ -120,6 +121,17 @@ def test_delete_pass(golden):
     assert str(delete_pass(foo)) == golden
 
 
+def test_add_loop(golden):
+    @proc
+    def foo(x: R):
+        x = 1.0
+        x = 2.0
+        x = 3.0
+
+    foo = add_loop(foo, "x = 2.0", "i", 5)
+    assert str(foo) == golden
+
+
 def test_add_loop1(golden):
     @proc
     def foo():
@@ -138,23 +150,49 @@ def test_add_loop2(golden):
     assert str(add_loop(foo, "x = _", "i", 10, guard=True)) == golden
 
 
-def test_add_loop3():
-    @proc
-    def foo():
-        x: R
-        x = 0.0
-
-    with pytest.raises(TypeError, match="expected a bool"):
-        add_loop(foo, "x = _", "i", 10, guard=100)
-
-
-def test_add_loop4(golden):
+def test_add_loop3(golden):
     @proc
     def foo(n: size, m: size):
         x: R
         x = 0.0
 
     assert str(add_loop(foo, "x = _", "i", "n+m", guard=True)) == golden
+
+
+def test_add_loop4_fail():
+    @proc
+    def foo():
+        x: R
+        x = 0.0
+
+    with pytest.raises(
+        TypeError, match="argument 4, 'guard' to add_loop: expected a bool"
+    ):
+        add_loop(foo, "x = _", "i", 10, guard=100)
+
+
+def test_add_loop5_fail():
+    @proc
+    def foo(x: R):
+        x += 1.0
+        x += 2.0
+        x += 3.0
+
+    with pytest.raises(SchedulingError, match="The statement at .* is not idempotent"):
+        add_loop(foo, "x += 2.0", "i", 5)
+
+
+def test_add_loop6_runs_fail():
+    @proc
+    def foo(x: R):
+        x = 1.0
+        x = 2.0
+        x = 3.0
+
+    with pytest.raises(
+        SchedulingError, match="The expression 0 is not " "guaranteed to be positive"
+    ):
+        add_loop(foo, "x = 2.0", "i", 0)
 
 
 # Should fix this test with program analysis
@@ -297,6 +335,19 @@ def test_fission_after_simple(golden):
     assert "\n".join(map(str, cases)) == golden
 
 
+def test_fission_after_simple_fail():
+    @proc
+    def foo():
+        for i in seq(0, 4):
+            x: i8
+            x = 0.0
+            y: i8
+            y = 1.0
+
+    with pytest.raises(SchedulingError, match="Can only lift past a for loop"):
+        fission(foo, foo.find("x = 0.0").after(), n_lifts=2)
+
+
 def test_rearrange_dim(golden):
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -320,12 +371,33 @@ def test_rearrange_dim(golden):
                 for k in seq(0, K):
                     a[m, k, n] = x[n, m, k]
 
+    @proc
+    def baz(N: size, M: size, x: i8[N, M]):
+        a: i8[N, M]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                a[n, m] = x[n, m]
+
     foo = rearrange_dim(foo, "a : i8[_]", [1, 2, 0])
     bar = rearrange_dim(bar, "a : i8[_]", [1, 0, 2])
     bar = rearrange_dim(bar, "a : i8[_] #1", [1, 0, 2])
-    cases = [foo, bar]
+    baz = rearrange_dim(baz, "a : i8[_]", [1, 0])
+    cases = [foo, bar, baz]
 
     assert "\n".join(map(str, cases)) == golden
+
+
+def test_rearrange_dim_fail():
+    @proc
+    def foo(N: size, M: size, K: size, x: i8[N, M, K]):
+        a: i8[N, M, K]
+        for n in seq(0, N):
+            for m in seq(0, M):
+                for k in seq(0, K):
+                    a[n, m, k] = x[n, m, k]
+
+    with pytest.raises(ValueError, match="was not a permutation of"):
+        rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
 
 
 def test_remove_loop(golden):
@@ -353,6 +425,18 @@ def test_remove_loop(golden):
     ]
 
     assert "\n".join(map(str, cases)) == golden
+
+
+def test_remove_loop_fail(golden):
+    @proc
+    def foo(n: size, m: size, x: i8):
+        a: i8
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x += a
+
+    with pytest.raises(SchedulingError, match="The statement at .* is not idempotent"):
+        remove_loop(foo, "for i in _:_")
 
 
 def test_lift_alloc_simple(golden):
@@ -397,6 +481,16 @@ def test_lift_alloc_simple3(golden):
     assert str(bar) == golden
 
 
+def test_lift_alloc_simple_empty_body(golden):
+    @proc
+    def bar():
+        for i in seq(0, 4):
+            tmp: i8
+
+    bar = lift_alloc(bar, "tmp: _")
+    assert str(bar) == golden
+
+
 def test_lift_alloc_simple_fv_error():
     @proc
     def bar(n: size, A: i8[n]):
@@ -434,19 +528,19 @@ def test_autolift_alloc_error():
         autolift_alloc(bar, "tmp_a : _", n_lifts=3)
 
 
-def test_expand_dim(golden):
+def test_expand_dim1_bad_scope():
     @proc
     def foo(n: size, m: size, x: i8):
+        a: i8
         for i in seq(0, n):
             for j in seq(0, m):
-                a: i8
                 x = a
 
-    foo = expand_dim(foo, "a : i8", "n", "i")
-    assert str(foo) == golden
+    with pytest.raises(ParseFragmentError, match="i not found in"):
+        expand_dim(foo, "a : i8", "n", "i")  # should be error
 
 
-def test_expand_dim2():
+def test_expand_dim2_bad_scope():
     @proc
     def foo(n: size, m: size, x: i8):
         for i in seq(0, n):
@@ -499,16 +593,20 @@ def test_expand_dim4(golden):
             for j in seq(0, m):
                 pass
 
-    with pytest.raises(TypeError, match="effect checking"):
+    with pytest.raises(
+        SchedulingError, match="The expression 10 - 20 is not guaranteed to be positive"
+    ):
         expand_dim(foo, "a : i8", "10-20", "10")  # this is not fine
 
-    with pytest.raises(TypeError, match="effect checking"):
+    with pytest.raises(
+        SchedulingError, match="The expression n - m is not guaranteed to be positive"
+    ):
         expand_dim(foo, "a : i8", "n - m", "i")  # out of bounds
 
     with pytest.raises(ParseFragmentError, match="not found in"):
         expand_dim(foo, "a : i8", "hoge", "i")  # does not exist
 
-    with pytest.raises(TypeError, match="effect checking"):
+    with pytest.raises(SchedulingError, match="The buffer a is accessed out-of-bounds"):
         expand_dim(foo, "a : i8", "n", "i-j")  # bound check should fail
 
     cases = [
@@ -530,6 +628,43 @@ def test_expand_dim5(golden):
 
     foo = expand_dim(foo, "a : i8", "n", "i")
     assert str(foo) == golden
+
+
+def test_expand_dim6(golden):
+    @proc
+    def bar(m: size, a: i8[m]):
+        a[0] += 1.0
+
+    @proc
+    def foo(n: size, m: size, x: i8):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                a: i8[m]
+                a[j] = a[j] + 1.0
+                a[j] += 1.0
+                bar(m, a[0:m])
+
+    foo = expand_dim(foo, "a : _", "n", "i")
+    assert str(foo) == golden
+
+
+def test_expand_dim7():
+    @proc
+    def bar(m: size, a: i8[m]):
+        a[0] += 1.0
+
+    @proc
+    def foo(n: size, m: size, x: i8):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                a: i8[m]
+                a[j] = a[j] + 1.0
+                bar(m, a)
+
+    with pytest.raises(
+        SchedulingError, match="support for passing windows to scalar arguments"
+    ):
+        foo = expand_dim(foo, "a : _", "n", "i")
 
 
 def test_divide_dim_1(golden):
@@ -593,22 +728,6 @@ def test_mult_dim_fail_1():
         mult_dim(foo, "x", 0, 1)
 
 
-def test_double_fission(golden):
-    @proc
-    def foo(N: size, a: f32[N], b: f32[N], out: f32[N]):
-        for i in seq(0, N):
-            res: f32
-            res = 0.0
-
-            res += a[i] * b[i]
-
-            out[i] = res
-
-    foo = autolift_alloc(foo, "res : _", keep_dims=True)
-    foo = double_fission(foo, "res = _ #0", "res += _ #0")
-    assert str(foo) == golden
-
-
 def test_reuse_buffer(golden):
     @proc
     def foo(a: f32 @ DRAM, b: f32 @ DRAM):
@@ -623,6 +742,110 @@ def test_reuse_buffer(golden):
 
     foo = reuse_buffer(foo, "bb:_", "c:_")
     assert str(foo) == golden
+
+
+def test_reuse_buffer2(golden):
+    @proc
+    def bar(a: f32):
+        pass
+
+    @proc
+    def foo():
+        bb: f32
+        c: f32
+        bar(c)
+
+    foo = reuse_buffer(foo, "bb:_", "c:_")
+    assert str(foo) == golden
+
+
+def test_reuse_buffer_loop_fail():
+    @proc
+    def foo(a: f32 @ DRAM, b: f32 @ DRAM):
+        aa: f32
+        bb: f32
+        aa = a
+        bb = b
+
+        c: f32
+        for i in seq(0, 10):
+            c = aa + bb
+        b = c
+
+    with pytest.raises(
+        SchedulingError, match="The variable bb can potentially be used after"
+    ):
+        foo = reuse_buffer(foo, "bb:_", "c:_")
+
+
+def test_fuse_loop(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        y: R[n]
+        for i in seq(0, n):
+            y[i] = x[i]
+        for j in seq(0, n):
+            x[j] = y[j] + 1.0
+
+    foo = fuse(foo, "for i in _:_", "for j in _:_")
+    assert str(foo) == golden
+
+
+def test_fuse_loop_fail():
+    @proc
+    def foo(n: size, x: R[n + 1]):
+        y: R[n + 1]
+        y[0] = x[0]
+        for i in seq(0, n):
+            y[i + 1] = x[i]
+        for j in seq(0, n):
+            x[j + 1] = y[j + 1] + 1.0
+
+    with pytest.raises(SchedulingError, match="Cannot fission loop"):
+        fuse(foo, "for i in _:_", "for j in _:_")
+
+
+def test_fuse_loop_commute_config(golden):
+    @config
+    class CFG:
+        j: index
+
+    @proc
+    def foo(n: size, x: R[n]):
+        y: R[n]
+        for i in seq(0, n):
+            CFG.j = 0
+        for j in seq(0, n):
+            CFG.j = 0
+
+    foo = fuse(foo, "for i in _:_", "for j in _:_")
+    assert str(foo) == golden
+
+
+def test_fuse_if(golden):
+    @proc
+    def foo(x: R, a: index, b: index):
+        if a == b:
+            x += 1.0
+        if a - b == 0:
+            x += 2.0
+        else:
+            x += 3.0
+
+    foo = fuse(foo, "if a==b:_", "if _==0: _")
+    assert str(foo) == golden
+
+
+def test_fuse_if_fail():
+    @proc
+    def foo(x: R, a: index, b: index):
+        if a == b:
+            x += 1.0
+        if a + b == 0:
+            x += 2.0
+
+    with pytest.raises(SchedulingError, match="Expressions are not equivalent"):
+        fuse(foo, "if a==b:_", "if _==0: _")
 
 
 def test_bind_lhs(golden):
@@ -659,6 +882,20 @@ def test_simple_reorder(golden):
                 tmp[i, j] = A[i, j]
 
     bar = reorder_loops(bar, "i j")
+    assert str(bar) == golden
+
+
+def test_reorder_stmts(golden):
+    @proc
+    def bar(g: R[100] @ DRAM):
+        f: R[101] @ DRAM
+        for i in seq(0, 100):
+            f[i] = 1.0
+        f[100] = 1.0
+        for i in seq(0, 100):
+            g[i] = f[i] + f[i + 1]
+
+    bar = reorder_stmts(bar, "for i in _:_ ;\nf[_] = _")
     assert str(bar) == golden
 
 
@@ -711,7 +948,18 @@ def test_merge_writes_array_indexing(golden):
     assert str(bar) == golden
 
 
-def test_merge_writes_second_rhs_depends_on_first_lhs(golden):
+def test_merge_writes_type_check(golden):
+    @proc
+    def bar(y: f32):
+        x: f32 @ DRAM
+        x = 0.0
+        x += y
+
+    bar = merge_writes(bar, "x = 0.0; x += y")
+    assert str(bar) == golden
+
+
+def test_merge_writes_second_rhs_depends_on_first_lhs():
     @proc
     def bar(x: R[5], y: R[3]):
         for i in seq(0, 3):
@@ -725,7 +973,7 @@ def test_merge_writes_second_rhs_depends_on_first_lhs(golden):
         bar = merge_writes(bar, "x[2*i-1] = x[i] + y[i]; x[2*i-1] += x[i]")
 
 
-def test_merge_writes_wrong_type_error(golden):
+def test_merge_writes_wrong_type_error():
     @proc
     def bar(x: R, y: R):
         for i in seq(0, 10):
@@ -739,7 +987,7 @@ def test_merge_writes_wrong_type_error(golden):
         bar = merge_writes(bar, "y = x; _")
 
 
-def test_merge_writes_different_lhs_error(golden):
+def test_merge_writes_different_lhs_error():
     @proc
     def bar(x: R, y: R):
         x = y
@@ -752,7 +1000,7 @@ def test_merge_writes_different_lhs_error(golden):
         bar = merge_writes(bar, "x = y; y += x")
 
 
-def test_merge_writes_different_lhs_arrays_error(golden):
+def test_merge_writes_different_lhs_arrays_error():
     @proc
     def bar(x: R[3], y: R):
         x[0] = y
@@ -764,7 +1012,7 @@ def test_merge_writes_different_lhs_arrays_error(golden):
         bar = merge_writes(bar, "x[0] = y; x[1] += y")
 
 
-def test_merge_writes_different_lhs_arrays_error(golden):
+def test_merge_writes_different_lhs_arrays_error():
     @proc
     def bar(x: R[3, 3], y: R):
         z = x[0:2, 0:2]
@@ -1012,10 +1260,10 @@ def test_unify4(golden):
                 dst[i] = src[i] + src[i + 1]
 
     @proc
-    def foo(x: R[50, 2]):
+    def foo(x: R[50, 2], y: R[50, 2]):
         for j in seq(0, 50):
             if j < 48:
-                x[j, 1] = x[j, 0] + x[j + 1, 0]
+                y[j, 1] = x[j, 0] + x[j + 1, 0]
 
     foo = replace(foo, "for j in _ : _", bar)
     assert str(foo) == golden
@@ -1486,3 +1734,662 @@ def test_stage_mem_accum2(golden):
     accum = stage_mem(accum, "for i in _:_", "out[k, 0:16, 0:16]", "o")
 
     assert str(simplify(accum)) == golden
+
+
+def test_new_expr_multi_vars(golden):
+    @proc
+    def bar(n: size, arr: R[n] @ DRAM):
+        for i in seq(0, n):
+            tmp: R @ DRAM
+            tmp = 1.0
+            arr[i] = tmp
+        i: R @ DRAM
+        i = 1.0
+
+    bar = expand_dim(bar, "tmp : _", "n", "i")
+
+
+def test_formatted_expr_1(golden):
+    @proc
+    def bar(n: size, arr: R[n] @ DRAM):
+        for i in seq(0, n):
+            tmp: R
+            tmp = 1.0
+            arr[i] = tmp
+
+    alloc_stmt = bar.find("tmp : _")
+    seq_for_hi = alloc_stmt.parent().hi()
+    seq_for_iter = alloc_stmt.parent().name()
+    bar = expand_dim(
+        bar, "tmp : _", FormattedExprStr("_ + 1", seq_for_hi), str(seq_for_iter)
+    )
+    assert str(bar) == golden
+
+
+def test_formatted_expr_2(golden):
+    @proc
+    def bar(n: size, m: size, arr: R[n, m] @ DRAM):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                tmp: R
+                tmp = 1.0
+                arr[i, j] = tmp
+
+    alloc_stmt = bar.find("tmp : _")
+    seq_i = alloc_stmt.parent()
+    seq_o = seq_i.parent()
+    new_dim = FormattedExprStr("(_ + 1) * (1 + _)", seq_o.hi(), seq_i.hi())
+    indexing_expr = FormattedExprStr(f"{seq_o.name()} * _ + {seq_i.name()}", seq_i.hi())
+
+    bar = expand_dim(bar, "tmp : _", new_dim, indexing_expr)
+
+    assert str(bar) == golden
+
+
+def test_formatted_expr_errors_1():
+    @proc
+    def bar(n: size, arr: R[n] @ DRAM):
+        for i in seq(0, n):
+            tmp: R
+            tmp = 1.0
+            arr[i] = tmp
+
+    with pytest.raises(
+        ParseFragmentError, match="String contains more holes than expressions provided"
+    ):
+        expand_dim(bar, "tmp : _", FormattedExprStr("1 + _"), "i")  # should be error
+
+    with pytest.raises(
+        ParseFragmentError, match="String contains more holes than expressions provided"
+    ):
+        alloc_stmt = bar.find("tmp : _")
+        seq_for_hi = alloc_stmt.parent().hi()
+        expand_dim(
+            bar, "tmp : _", FormattedExprStr("1 + _ + _", seq_for_hi), "i"
+        )  # should be error
+
+    with pytest.raises(ParseFragmentError, match="String cannot contain holes"):
+        expand_dim(bar, "tmp : _", "1 + _", "i")  # should be error
+
+    with pytest.raises(
+        TypeError,
+        match="Cursor provided to fill a hole must be a ExprCursor",
+    ):
+        alloc_stmt = bar.find("tmp : _")
+        expand_dim(
+            bar, "tmp : _", FormattedExprStr("1 + _", alloc_stmt), "i"
+        )  # should be error
+
+
+def test_formatted_expr_errors_2():
+    @proc
+    def bar(n: size, arr: R[n] @ DRAM):
+        for i in seq(0, n):
+            tmp: R
+            tmp = 1.0
+            arr[i] = tmp
+        i: R
+        i = 1.0
+        j: R
+        j = i
+
+    with pytest.raises(ParseFragmentError, match="not found in current environment"):
+        assign_stmt = bar.find("j = i")
+        i_type_R_read_cursor = assign_stmt.rhs()
+
+        alloc_stmt = bar.find("tmp : _")
+        seq_for_hi = alloc_stmt.parent().hi()
+        seq_for_iter = alloc_stmt.parent().name()
+        expand_dim(
+            bar, "tmp : _", "n", FormattedExprStr("_", i_type_R_read_cursor)
+        )  # should be error
+
+
+def test_simplify_index_div(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) / 3] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div1(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div2(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 24) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div3(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div4(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii + 8) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div5(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 5 + ii + 1) / 5] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div_fail(golden):
+    @proc
+    def bar(N: size, x: R[1 + N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii + 1) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div_fail1(golden):
+    @proc
+    def bar(N: size, x: R[1 + N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 5):
+                x[(io * 4 + ii) / 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div_fail2(golden):
+    @proc
+    def bar(N: size, x: R[2 * N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 5):
+                x[(N + ii + 4 * io) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) % 5] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod1(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) % 3] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod2(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 4 + 2 * j + 3) % 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod3(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[(i * 4 + i * 3 + 2 * j + 3) % 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod4(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[((i * 6 + i * 4 + 5 * j + 9) % 5 + 2 * i + 2) / 2] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_mod5(golden):
+    @proc
+    def bar(N: size, x: R[N]):
+        assert N >= 1
+        assert N % 4 == 0
+        for io in seq(0, N / 4):
+            for ii in seq(0, 4):
+                x[(io * 4 + ii) % 4] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_nested_div_mod(golden):
+    @proc
+    def bar(x: R[1000]):
+        for i in seq(0, 4):
+            for j in seq(0, 5):
+                x[
+                    (
+                        (
+                            (((i * 4 + i * 12 + 2 * j + 2) % 2) + (20 * i + 40 * j) / 5)
+                            / 2
+                        )
+                        + (3 + 8 * j)
+                    )
+                    % 4
+                ] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_div_mod_staging(golden):
+    @proc
+    def bar(x: R[64], y: R[64], out: R[64]):
+        for i in seq(0, 64):
+            out[i] = x[i] * y[i]
+
+    bar = divide_loop(bar, "for i in _:_", 4, ("io", "ii"), tail="cut")
+    bar = stage_mem(bar, "for io in _:_", "x[0:64]", "xReg")
+    bar = simplify(bar)
+    bar = divide_loop(bar, "for i0 in _:_", 4, ("io", "ii"), tail="cut")
+    bar = divide_dim(bar, "xReg", 0, 4)
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_syrk_cut_loop(golden):
+    @proc
+    def SYRK(
+        M: size,
+        K: size,
+        A: [f32][M, K] @ DRAM,
+        A_t: [f32][M, K] @ DRAM,
+        C: [f32][M, M] @ DRAM,
+    ):
+        assert M >= 1
+        assert K >= 1
+        assert stride(A, 1) == 1
+        assert stride(A_t, 1) == 1
+        assert stride(C, 1) == 1
+        for io in seq(0, M / 4):
+            for ii in seq(0, 4):
+                for j in seq(0, 4 * io + ii + 1):
+                    for k in seq(0, K):
+                        C[4 * io + ii, j] += A[4 * io + ii, k] * A_t[j, k]
+
+    SYRK = cut_loop(SYRK, "for j in _:_", 1)
+    assert str(simplify(SYRK)) == golden
+
+
+def test_cut_loop1():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            x: R
+            x = 0.0
+
+    with pytest.raises(SchedulingError, match="expected the new loop bound"):
+        foo = cut_loop(foo, "for i in _:_", 3)
+
+
+def test_cut_loop2(golden):
+    @proc
+    def foo(n: size):
+        assert n > 3
+        for i in seq(0, n):
+            x: R
+            x = 0.0
+
+    foo = cut_loop(foo, "for i in _:_", 3)
+    assert str(simplify(foo)) == golden
+
+
+def test_cut_loop3():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            x: R
+            x = 0.0
+
+    with pytest.raises(TypeError, match="cut_loop: expected a positive integer"):
+        foo = cut_loop(foo, "for i in _:_", -3)
+
+
+def test_mem_aware_replace(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_loadu_ps)
+    bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+    assert str(bar) == golden
+
+
+def test_mem_aware_replace_fail():
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    with pytest.raises(MemoryError, match="failed due to memory type mismatch"):
+        bar = call_site_mem_aware_replace(bar, "for i in _:_", mm256_storeu_ps)
+
+
+def test_replace_all_unambiguous(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    bar = replace_all(bar, mm256_loadu_ps)
+    bar = replace_all(bar, mm256_storeu_ps)
+    assert str(bar) == golden
+
+
+def test_replace_all_arch(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
+    bar = replace_all(bar, arch)
+    print(bar)
+    assert str(bar) == golden
+
+
+def test_assert_if(golden):
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 > -1:
+                x = 0.0
+                a: R
+                a = x
+            else:
+                b: R
+                b = x
+
+    assert str(assert_if(foo, "if _:_ #0", True)) == golden
+
+
+def test_assert_if2(golden):
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 < -1:
+                x = 0.0
+                a: R
+                a = x
+            else:
+                b: R
+                b = x
+
+    assert str(assert_if(foo, "if _:_ #0", False)) == golden
+
+
+def test_lift_reduce_constant_1(golden):
+    @proc
+    def foo():
+        x: R @ DRAM
+        x = 0.0
+        for i in seq(0, 8):
+            x += 3.0 * 2.0
+
+    assert str(lift_reduce_constant(foo, "x = 0.0; _")) == golden
+
+
+def test_lift_reduce_constant_2(golden):
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            for j in seq(0, 8):
+                y[i] += y[i] * 2.0
+            for k in seq(0, 8):
+                x[0] += 3.0 * y[i]
+            x[0] += 3.0 * y[i]
+
+    assert str(lift_reduce_constant(foo, "x[0] = 0.0; _")) == golden
+
+
+def test_lift_reduce_constant_3(golden):
+    @proc
+    def foo():
+        x: R @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 8):
+            x = 0.0
+            for i in seq(0, 8):
+                x += y[j] * 2.0
+
+    assert str(lift_reduce_constant(foo, "x = 0.0; _")) == golden
+
+
+def test_lift_reduce_constant_bad_1():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            x[0] += 3.0 * y[i]
+            x[1] += 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="cannot lift constant because there are other operations on the same buffer that may interfere",
+    ):
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_2():
+    @proc
+    def foo():
+        x: R[4] @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 2):
+            x[2 * j + 1] = 0.0
+            x[j + 2] = 0.0
+            for i in seq(0, 8):
+                x[2 * j + 1] += 3.0 * y[i]
+                x[j + 2] += 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="cannot lift constant because there are other operations on the same buffer that may interfere",
+    ):
+        lift_reduce_constant(foo, "x[j+2] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_3():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            x[0] += 3.0 * y[i]
+            x[0] += 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift constant because the reduces to buffer x"
+    ):
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_4():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            y[i] = x[0]
+            x[0] += 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="cannot lift constant because the buffer is read in the loop body",
+    ):
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_5():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            y[i] = 2.0 * y[i]
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift constant because did not find a reduce"
+    ):
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_6():
+    @proc
+    def foo():
+        x: R[2] @ DRAM
+        y: R[8] @ DRAM
+        x[0] = 0.0
+        for i in seq(0, 8):
+            x[0] += y[1] * 2.0
+            x[0] += y[2] * 2.0
+
+    with pytest.raises(
+        SchedulingError, match="cannot lift constant because the reduces to buffer x"
+    ):
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_7():
+    @proc
+    def foo():
+        x: R @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 8):
+            x = 0.0
+            for i in seq(0, 8):
+                y[1] = 0.0
+                x += y[j] * 2.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="cannot lift constant because it is a buffer that is written",
+    ):
+        lift_reduce_constant(foo, "x[0] = 0.0; _")
+
+
+def test_lift_reduce_constant_bad_8():
+    @proc
+    def write(x: R[8] @ DRAM):
+        x[0] = 1.0
+
+    @proc
+    def foo():
+        x: R @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 8):
+            x = 0.0
+            for i in seq(0, 8):
+                write(y)
+                x += y[j] * 2.0
+
+    with pytest.raises(
+        NotImplementedError,
+        match="unsupported stmt type",
+    ):
+        lift_reduce_constant(foo, "x = 0.0; _")
+
+
+def test_specialize(golden):
+    @proc
+    def foo(x: f32[4] @ DRAM):
+        for i in seq(0, 4):
+            x[i] += 1.0
+
+    foo = specialize(foo, "x[i] += 1.0", [f"i == {i}" for i in range(4)])
+    assert str(foo) == golden

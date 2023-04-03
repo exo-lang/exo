@@ -30,25 +30,23 @@ class Interpreter:
 
         for a in proc.args:
             if not str(a.name) in kwargs:
-                raise TypeError(f"expected argument '{a.name}' " f"to be supplied")
+                raise TypeError(f"expected argument '{a.name}' to be supplied")
 
             if a.type is T.size:
                 if not is_pos_int(kwargs[str(a.name)]):
                     raise TypeError(
-                        f"expected size '{a.name}' to " f"have positive integer value"
+                        f"expected size '{a.name}' to have positive integer value"
                     )
                 self.env[a.name] = kwargs[str(a.name)]
             elif a.type is T.index:
                 if type(kwargs[str(a.name)]) is not T.index:
                     raise TypeError(
-                        f"expected index variable '{a.name}' " f"to be an integer"
+                        f"expected index variable '{a.name}' to be an integer"
                     )
                 self.env[a.name] = kwargs[str(a.name)]
             elif a.type is T.bool:
                 if type(kwargs[str(a.name)]) is not bool:
-                    raise TypeError(
-                        f"expected bool variable '{a.name}' " f"to be a bool"
-                    )
+                    raise TypeError(f"expected bool variable '{a.name}' to be a bool")
                 self.env[a.name] = kwargs[str(a.name)]
             else:
                 assert a.type.is_numeric()

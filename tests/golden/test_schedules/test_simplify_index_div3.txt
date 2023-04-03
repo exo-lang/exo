@@ -1,0 +1,6 @@
+def bar(N: size, x: R[N] @ DRAM):
+    assert N >= 1
+    assert N % 4 == 0
+    for io in seq(0, N / 4):
+        for ii in seq(0, 4):
+            x[io] = 1.0

@@ -11,6 +11,7 @@ from .LoopIR import LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars, Alpha_Rename
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
+from .new_eff import Check_Aliasing
 
 
 def _get_smt_solver():
@@ -38,7 +39,7 @@ class UnificationError(Exception):
 
 
 class DoReplace(LoopIR_Rewrite):
-    def __init__(self, proc, subproc, stmt_block):
+    def __init__(self, subproc, stmt_block):
         # ensure that subproc and stmt_block match in # of statements
         n_stmts = len(subproc.body)
         if len(stmt_block) < n_stmts:
@@ -49,23 +50,10 @@ class DoReplace(LoopIR_Rewrite):
         self.target_block = stmt_block
         self.live_vars = ChainMap()
 
-        super().__init__(proc)
-        # fix up effects post-hoc
-        # self.proc = InferEffects(self.proc).result()
-        # and then check that all effect-check conditions are
-        # still satisfied...
-        # try:
-        #    CheckEffects(self.proc)
-        # except TypeError as te:
-        #    errmsg = te.args[0]
-        #    premsg = ("After performing a `replace()` operation, the "
-        #              "resulting procedure was not safe, failing an effect-"
-        #              "check.  This may be due to current limitations with "
-        #              "`replace()` or due to an internal compiler bug.  "
-        #              "Regardless, here is the text of the procedure "
-        #              "failing the effect-check:\n"
-        #              str(self.proc)+"\n"+errmsg)
-        #    raise TypeError(premsg)
+    def map_proc(self, p):
+        if p := super().map_proc(p):
+            Check_Aliasing(p)
+        return p
 
     def push(self):
         self.live_vars = self.live_vars.new_child()
@@ -462,7 +450,7 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
             tuple_node = self.tupleify(e)
             if tuple_node is None:
                 raise UnificationError(
-                    f"{e.srcinfo}: cannot handle this " f"'{e.op}' operation"
+                    f"{e.srcinfo}: cannot handle this '{e.op}' operation"
                 )
 
             # either we have already seen this expression
@@ -708,7 +696,7 @@ class Unification:
         for nm in self.buf_holes:
             if self.buf_holes[nm].solution_buf is None:
                 raise UnificationError(
-                    f"Cannot perform unification due to an un-unused " f"argument: {nm}"
+                    f"Cannot perform unification due to an un-unused argument: {nm}"
                 )
 
         holes = self.index_holes + [
