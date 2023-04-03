@@ -1,0 +1,6 @@
+def foo():
+    a: i8[10, 10] @ DRAM
+    for i in seq(0, 10):
+        for j in seq(0, 10):
+            a[j, i] = a[i, j]
+            bar(stride(a, 0))

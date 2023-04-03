@@ -1115,7 +1115,6 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
         (with permute_vector = [2,0,1])
         `x : T[N,M,K]` -> `x : T[K,N,M]`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = buf_cursor._impl
     # extra sanity check
     N = len(stmt._node.type.hi)
@@ -1124,7 +1123,9 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
             f"permute_vector argument ({permute_vector}) "
             f"was not a permutation of {set(range(0, N))}"
         )
-    return scheduling.DoRearrangeDim(proc_c, stmt, permute_vector).result()
+    # TODO: link up forwarding
+    ir, _fwd = scheduling.DoRearrangeDim(stmt, permute_vector)
+    return Procedure(ir, _provenance_eq_Procedure=proc)
 
 
 @sched_op([AllocCursorA, ListA(OptionalA(NewExprA("buf_cursor"))), BoolA])

@@ -1558,21 +1558,20 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
     return _fixup_effects(ir, fwd)
 
 
-def _DoRearrangeDim(alloc_cursor, permute_vector):
+def DoRearrangeDim(alloc_cursor, permute_vector):
+    # TODO: deal with issue of same name, diff id = diff variable
     alloc_s = alloc_cursor._node
     assert isinstance(alloc_s, LoopIR.Alloc)
 
     all_permute = {alloc_s.name: permute_vector}
 
     def permute(buf, es):
-        nonlocal all_permute
         permutation = all_permute[buf]
         return [es[i] for i in permutation]
 
     def check_permute_window(buf, idx):
         # for now just enforce a stability criteria on windowing
         # expressions w.r.t. dimension reordering
-        nonlocal all_permute
         permutation = all_permute[buf]
         # where each index of the output window now refers to in the
         # buffer being windowed
@@ -1587,17 +1586,57 @@ def _DoRearrangeDim(alloc_cursor, permute_vector):
     new_hi = permute(alloc_s.name, alloc_s.type.hi)
     # construct new_type
     new_type = LoopIR.Tensor(new_hi, alloc_s.type.is_window, alloc_s.type.type)
-    ir, fwd = alloc_cursor._replace(alloc_s.update(type=new_type))
+    ir, fwd = alloc_cursor._replace([alloc_s.update(type=new_type)])
+
+    def mk_read(c):
+        rd = c._node
+        if isinstance(c.parent()._node, LoopIR.Call):
+            raise SchedulingError(
+                f"Cannot permute buffer '{rd.name}' because it is "
+                f"passed as a sub-procedure argument at {rd.srcinfo}"
+            )
+
+        if isinstance(rd, LoopIR.WindowExpr) and not check_permute_window(
+            rd.name, rd.idx
+        ):
+            raise SchedulingError(
+                f"Permuting the window expression at {rd.srcinfo} "
+                f"would change the meaning of the window; "
+                f"propogating dimension rearrangement through "
+                f"windows is not currently supported"
+            )
+        return rd.update(idx=permute(rd.name, rd.idx))
 
     def mk_write(c):
         s = c._node
         new_idx = permute(s.name, s.idx)
-        return [s.update(idx=new_idx)]
+        return s.update(idx=new_idx)
+
+    def mk_stride_expr(c):
+        e = c._node
+        new_dim = permute(e.name, e.dim)
+        return e.update(dim=new_dim)
+
+    c = alloc_cursor
+    while True:
+        try:
+            c = c.next()
+        except ic.InvalidCursorError:
+            break
+
+        for name in all_permute.keys():
+            ir, fwd = _replace_pats(ir, fwd, c, f"{name}[_]", mk_read)
+            # TODO: strideexprs after I merge the inline_window branch
+            # ir, fwd = _replace_pats(ir, fwd, c, f"stride({name}, _)", mk_stride_expr)
+            new_c = fwd(c)
+
+            ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{name} = _", mk_write)
+            ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{name} += _", mk_write)
 
     return _fixup_effects(ir, fwd)
 
 
-class DoRearrangeDim(Cursor_Rewrite):
+class _DoRearrangeDim(Cursor_Rewrite):
     def __init__(self, proc_cursor, alloc_cursor, permute_vector):
         self.alloc_stmt = alloc_cursor._node
         assert isinstance(self.alloc_stmt, LoopIR.Alloc)
@@ -1642,6 +1681,7 @@ class DoRearrangeDim(Cursor_Rewrite):
 
         # Adjust the use-site
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            print(s.name._id, self.should_permute(s.name))
             if self.should_permute(s.name):
                 # shuffle
                 new_idx = self.permute(s.name, s.idx)
@@ -1676,7 +1716,7 @@ class DoRearrangeDim(Cursor_Rewrite):
 
         elif isinstance(e, LoopIR.StrideExpr):
             if self.should_permute(e.name):
-                dim = self.permute(e.name, e.dim)
+                dim = self.all_permute[e.name].index(e.dim)
                 return e.update(dim=dim)
 
         return super().map_e(e)
