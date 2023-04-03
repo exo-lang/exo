@@ -1,0 +1,5 @@
+def foo(x: R @ DRAM):
+    x = 1.0
+    for i in seq(0, 5):
+        x = 2.0
+    x = 3.0

@@ -23,7 +23,7 @@ class Sym:
 
     def __init__(self, nm):
         if not is_valid_name(nm):
-            raise TypeError(f"expected an alphanumeric name string, " f"but got '{nm}'")
+            raise TypeError(f"expected an alphanumeric name string, but got '{nm}'")
         self._nm = nm
         self._id = Sym._unq_count
         Sym._unq_count += 1
@@ -40,6 +40,14 @@ class Sym:
     def __lt__(self, rhs):
         assert isinstance(rhs, Sym)
         return (self._nm, self._id) < (rhs._nm, rhs._id)
+
+    def __eq__(self, rhs):
+        if not isinstance(rhs, Sym):
+            return False
+        return self._nm == rhs._nm and self._id == rhs._id
+
+    def __ne__(self, rhs):
+        return not (self == rhs)
 
     def name(self):
         return self._nm

@@ -93,8 +93,8 @@ for (int oc_o = 0; oc_o < 2; oc_o++) {
                     __m512 wt_vec;
                     wt_vec = _mm512_loadu_ps(&weights[(kc_i + 2 * kc_o) * (3 * 3 * 128) + (ky) * (3 * 128) + (kx) * (128) + (16 * oc_u + 64 * oc_o) * (1)]);
                     __m512 in_vec;
-                    (in_vec) = _mm512_set1_ps(inp[(n) * (82 * 102 * 128) + (ky + oy) * (102 * 128) + (kx + ox_i + 5 * ox_o) * (128) + (kc_i + 2 * kc_o) * (1)]);
-                    res[ox_i][oc_u] = _mm512_fmadd_ps((wt_vec), (in_vec), res[ox_i][oc_u]);
+                    in_vec = _mm512_set1_ps(inp[(n) * (82 * 102 * 128) + (ky + oy) * (102 * 128) + (kx + ox_i + 5 * ox_o) * (128) + (kc_i + 2 * kc_o) * (1)]);
+                    res[ox_i][oc_u] = _mm512_fmadd_ps(wt_vec, in_vec, res[ox_i][oc_u]);
                   }
                 }
               }
@@ -117,7 +117,7 @@ for (int oc_o = 0; oc_o < 2; oc_o++) {
 
 /* relying on the following instruction..."
 mm512_fmadd_ps(A,B,C)
-{C_data} = _mm512_fmadd_ps({A}, {B}, {C_data});
+{C_data} = _mm512_fmadd_ps({A_data}, {B_data}, {C_data});
 */
 
 /* relying on the following instruction..."
@@ -132,7 +132,7 @@ mm512_relu_ps(dst,src)
 
 /* relying on the following instruction..."
 mm512_set1_ps(dst,src)
-{dst} = _mm512_set1_ps({src_data});
+{dst_data} = _mm512_set1_ps({src_data});
 */
 
 /* relying on the following instruction..."

@@ -19,17 +19,23 @@ class ParseFragmentError(Exception):
 # General Fragment Parsing
 
 
-def parse_fragment(proc, fragment, ctx_stmt, call_depth=0, configs=[], scope="before"):
+def parse_fragment(
+    proc, fragment, ctx_stmt, call_depth=0, configs=[], scope="before", expr_holes=None
+):
     # get source location where this is getting called from
     caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
 
     # parse the pattern we're going to use to match
     p_ast = pyparser.pattern(fragment, filename=caller.filename, lineno=caller.lineno)
     if isinstance(p_ast, PAST.expr):
-        return ParseFragment(p_ast, proc, ctx_stmt, configs, scope).results()
+        return ParseFragment(
+            p_ast, proc, ctx_stmt, configs, scope, expr_holes
+        ).results()
     else:
         assert len(p_ast) == 1
-        return ParseFragment(p_ast[0], proc, ctx_stmt, configs, scope).results()
+        return ParseFragment(
+            p_ast[0], proc, ctx_stmt, configs, scope, expr_holes
+        ).results()
 
 
 _PAST_to_LoopIR = {
@@ -52,6 +58,7 @@ class BuildEnv(LoopIR_Do):
         self.result = None
         self.trg = stmt
         self.proc = proc
+        self.halt = False
 
         for a in self.proc.args:
             self.env[a.name] = a.type
@@ -72,7 +79,10 @@ class BuildEnv(LoopIR_Do):
 
     def do_s(self, s):
         if s == self.trg:
-            self.result = self.env.copy()
+            self.result = self.env
+            self.halt = True
+        if self.halt:
+            return
 
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
@@ -158,7 +168,7 @@ class BuildEnv_after(LoopIR_Do):
 
 
 class ParseFragment:
-    def __init__(self, pat, proc, stmt, configs, scope):
+    def __init__(self, pat, proc, stmt, configs, scope, expr_holes):
         assert isinstance(stmt, LoopIR.stmt) or (stmt is None)
         assert isinstance(pat, PAST.expr)
 
@@ -166,6 +176,7 @@ class ParseFragment:
         self.stmt = stmt
         self.env = ChainMap()
         self.configs = {c.name(): c for c in configs}
+        self.expr_holes = expr_holes
 
         if stmt is None:
             self.srcinfo = proc.srcinfo
@@ -202,7 +213,7 @@ class ParseFragment:
                 raise ParseFragmentError(
                     f"{pat.name} not found in the " + "current environment"
                 )
-            idx = [self.find_sym(i) for i in pat.idx]
+            idx = [self.parse_e(i) for i in pat.idx]
             return LoopIR.Read(nm, idx, self.env[nm], self.srcinfo)
         elif isinstance(pat, PAST.BinOp):
             lhs = self.parse_e(pat.lhs)
@@ -245,8 +256,97 @@ class ParseFragment:
 
             typ = cfg.lookup(pat.field)[1]
             return LoopIR.ReadConfig(cfg, pat.field, typ, self.srcinfo)
+        elif isinstance(pat, PAST.E_Hole):
+            if self.expr_holes == None:
+                raise ParseFragmentError("String cannot contain holes")
+            if len(self.expr_holes) == 0:
+                raise ParseFragmentError(
+                    "String contains more holes than expressions provided"
+                )
+            subtree = self.expr_holes[0]
+            self.expr_holes = self.expr_holes[1:]
+            assert isinstance(subtree, LoopIR.expr)
+            return self.rebuild_ast(subtree)
         else:
             assert False, f"bad case: {type(pat)}"
+
+    def rebuild_ast(self, loopIR_expr):
+        def expr_hole_parsing_error(name, msg):
+            raise ParseFragmentError(
+                f"{name} used in an expression to fill a string hole, but {msg}"
+            )
+
+        def check_sym_consistency(sym):
+            env_sym = self.find_sym(str(sym))
+            if env_sym != sym:
+                expr_hole_parsing_error(sym, "not found in current environment")
+            if self.env[env_sym] != self.env[sym]:
+                expr_hole_parsing_error(
+                    sym, "has a different type in current environment"
+                )
+
+        if isinstance(loopIR_expr, LoopIR.Read):
+            check_sym_consistency(loopIR_expr.name)
+            idx = [self.rebuild_ast(i) for i in loopIR_expr.idx]
+            return loopIR_expr.update(idx=idx, srcinfo=self.srcinfo)
+        elif isinstance(loopIR_expr, LoopIR.Const):
+            return loopIR_expr.update(srcinfo=self.srcinfo)
+        elif isinstance(loopIR_expr, loopIR.USub):
+            return loopIR_expr.update(
+                arg=self.rebuild_ast(loopIR_expr.arg), srcinfo=self.srcinfo
+            )
+        elif isinstance(loopIR_expr, LoopIR.BinOp):
+            return loopIR_expr.update(
+                lhs=self.rebuild_ast(loopIR_expr.lhs),
+                rhs=self.rebuild_ast(loopIR_expr.rhs),
+                srcinfo=self.srcinfo,
+            )
+        elif isinstance(loopIR_expr, LoopIR.BuiltIn):
+            args = [self.rebuild_ast(a) for a in loopIR_expr.args]
+
+            try:
+                typ = loopIR_expr.f.typecheck(args)
+            except BuiltIn_Typecheck_Error as err:
+                raise ParseFragmentError(err)
+
+            if typ != loopIR_expr.typ:
+                expr_hole_parsing_error(
+                    loopIR_expr.f.name(),
+                    "builtin is called with different argument types",
+                )
+
+            return loopIR_expr.update(args=args, srcinfo=self.srcinfo)
+        elif isinstance(loopIR_expr, LoopIR.WindowExpr):
+            raise ParseFragmentError(
+                "Using a window expression is not allowed to fill a hole in an expression"
+            )
+        elif isinstance(loopIR_expr, LoopIR.StrideExpr):
+            check_sym_consistency(loopIR_expr.name)
+            return loopIR_expr.update(srcinfo=self.srcinfo)
+        elif isinstance(loopIR_expr, loopIR.ReadConfig):
+            config_name = loopIR_expr.config.name()
+            if config_name not in self.configs:
+                raise ParseFragmentError(
+                    f"Could not find Config named '{config_name}'. "
+                    f"Try supplying a list of Config objects via an "
+                    f"optional 'configs' argument"
+                )
+
+            cfg = self.configs[config_name]
+            if not cfg.has_field(loopIR_expr.field):
+                raise ParseFragmentError(
+                    f"Config named '{config_name}' does not have a field "
+                    f"named '{loopIR_expr.field}'"
+                )
+
+            typ = cfg.lookup(loopIR_expr.field)[1]
+            if typ != loopIR_expr.typ:
+                raise ParseFragmentError(
+                    f"Type of field '{loopIR_expr.field}' in Config named '{config_name}' is different"
+                )
+            return loopIR_expr.update(srcinfo=self.srcinfo)
+        else:
+            assert False, "Bad Case"
 
     def find_sym(self, expr):
         for k in self.env.keys():

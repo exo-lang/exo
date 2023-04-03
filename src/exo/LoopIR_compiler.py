@@ -10,7 +10,7 @@ from .LoopIR import LoopIR, LoopIR_Do
 from .LoopIR import T
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
-from .memory import MemGenError, Memory, DRAM
+from .memory import MemGenError, Memory, DRAM, StaticMemory
 from .prec_analysis import PrecisionAnalysis
 from .prelude import *
 from .win_analysis import WindowAnalysis
@@ -332,9 +332,11 @@ def compile_to_strings(lib_name, proc_list):
             )
         else:
             is_public_decl = id(p) in orig_procs
-            p = PrecisionAnalysis(p).result()
-            p = WindowAnalysis(p).result()
-            p = MemoryAnalysis(p).result()
+            
+            p = PrecisionAnalysis().run(p)
+            p = WindowAnalysis().apply_proc(p)
+            p = MemoryAnalysis().run(p)
+            
             comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
             d, b = comp.comp_top()
             struct_defns |= comp.struct_defns()
@@ -491,6 +493,9 @@ class Compiler:
             if not isinstance(pred, LoopIR.Const):
                 self.add_line(f"EXO_ASSUME({self.comp_e(pred)});")
 
+        if not self.static_memory_check(self.proc):
+            raise MemGenError("Cannot generate static memory in non-leaf procs")
+
         self.comp_stmts(self.proc.body)
 
         static_kwd = "" if is_public_decl else "static "
@@ -511,6 +516,37 @@ class Compiler:
 
         self.proc_decl = proc_decl
         self.proc_def = proc_def
+
+    def static_memory_check(self, proc):
+        def allocates_static_memory(stmts):
+            check = False
+            for s in stmts:
+                if isinstance(s, LoopIR.Alloc):
+                    mem = s.mem if s.mem else DRAM
+                    check |= issubclass(mem, StaticMemory)
+                elif isinstance(s, LoopIR.Seq):
+                    check |= allocates_static_memory(s.body)
+                elif isinstance(s, LoopIR.If):
+                    check |= allocates_static_memory(s.body)
+                    check |= allocates_static_memory(s.orelse)
+            return check
+
+        def is_leaf_proc(stmts):
+            check = True
+            for s in stmts:
+                if isinstance(s, LoopIR.Call):
+                    # Since intrinsics don't allocate memory, we can ignore
+                    # them for leaf-node classification purposes. We want
+                    # to avoid nested procs that both allocate static memory.
+                    check &= s.f.instr is not None
+                elif isinstance(s, LoopIR.Seq):
+                    check &= is_leaf_proc(s.body)
+                elif isinstance(s, LoopIR.If):
+                    check &= is_leaf_proc(s.body)
+                    check &= is_leaf_proc(s.orelse)
+            return check
+
+        return not allocates_static_memory(proc.body) or is_leaf_proc(proc.body)
 
     def add_line(self, line):
         if line:

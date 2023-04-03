@@ -1,0 +1,4 @@
+def bar():
+    tmp: i8 @ DRAM
+    for i in seq(0, 4):
+        pass

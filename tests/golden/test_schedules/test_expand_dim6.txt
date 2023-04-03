@@ -1,0 +1,7 @@
+def foo(n: size, m: size, x: i8 @ DRAM):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            a: i8[n, m] @ DRAM
+            a[i, j] = a[i, j] + 1.0
+            a[i, j] += 1.0
+            bar(m, a[i, 0:m])

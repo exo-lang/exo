@@ -24,3 +24,5 @@ autom4te.cache
 configure
 
 dependencies/chipyard
+
+.vscode

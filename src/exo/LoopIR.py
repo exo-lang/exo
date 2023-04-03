@@ -561,13 +561,6 @@ def lift_to_eff_expr(e):
 
 
 class LoopIR_Rewrite:
-    def __init__(self, proc):
-        self.orig_proc = proc
-        self.proc = self.apply_proc(proc)
-
-    def result(self):
-        return self.proc
-
     def apply_proc(self, old):
         return self.map_proc(old) or old
 
@@ -753,7 +746,7 @@ class LoopIR_Rewrite:
         elif isinstance(e, (LoopIR.Const, LoopIR.StrideExpr)):
             return None
         else:
-            raise NotImplementedError(f"bad case {type(s)}")
+            raise NotImplementedError(f"bad case {type(e)}")
         return None
 
     def map_w_access(self, w):

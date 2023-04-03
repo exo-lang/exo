@@ -53,7 +53,6 @@ Take a look at `exo/examples` for scheduling examples.
 | `.expand_dim(stmt, alloc_dim, indexing)`                    | Expands the dimension of the allocation statement `stmt` with dimension `alloc_dim` of indexing `indexing`.                                                                                                                                                                   |
 | `.bind_expr(new_name, expr)`                                | Binds the right hand side expression `expr` to a newly allocated buffer named `new_name`                                                                                                                                                                                      |
 | `.stage_mem(win_expr, new_name, stmt_start, stmt_end=None)` | Stages the buffer `win_expr` to the new window expression `new_name` in statement block (`stmt_start` to `stmt_end`), and adds an initialization loop and a write-back loop.                                                                                                  |
-| `.stage_assn(new_name, stmt)`                               | Binds the left hand side expression of `stmt` to a newly allocated buffer named `new_name`.                                                                                                                                                                                   |
 | `.rearrange_dim(alloc, dimensions)`                         | Takes an allocation statement and a list of integers to map the dimension. It rearranges the dimensions of `alloc` in `dimension` order. E.g., if `alloc` were `foo[N,M,K]` and the `dimension` were `[2,0,1]`, it would become `foo[K,N,M]` after this operation.            |
 | `.lift_alloc(alloc, n_lifts=1, keep_dims=False)`            | Lifts the allocation statement `alloc` out of `n_lifts` number of scopes. If and For statements are the only statements in Exo which introduce a scope. When lifting the allocation out of a for loop, it will expand its dimension to the loop bound if `keep_dims` is True. |
 
@@ -216,24 +215,54 @@ Then, if you want to see annotated source files, open `./htmlcov/index.html`.
 
 The first paper on Exo was published at PLDI '22. You can download the
 paper [from ACM Digital Library](https://dl.acm.org/doi/abs/10.1145/3519939.3523446).
-If you use Exo, please consider citing.
+If you use Exo, please cite both the compiler and the paper!
 
 ```
-@inproceedings{10.1145/3519939.3523446,
-author = {Ikarashi, Yuka and Bernstein, Gilbert Louis and Reinking, Alex and Genc, Hasan and Ragan-Kelley, Jonathan},
-title = {Exocompilation for Productive Programming of Hardware Accelerators},
-year = {2022},
-isbn = {9781450392655},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
-url = {https://doi.org/10.1145/3519939.3523446},
-doi = {10.1145/3519939.3523446},
-abstract = {High-performance kernel libraries are critical to exploiting accelerators and specialized instructions in many applications. Because compilers are difficult to extend to support diverse and rapidly-evolving hardware targets, and automatic optimization is often insufficient to guarantee state-of-the-art performance, these libraries are commonly still coded and optimized by hand, at great expense, in low-level C and assembly. To better support development of high-performance libraries for specialized hardware, we propose a new programming language, Exo, based on the principle of exocompilation: externalizing target-specific code generation support and optimization policies to user-level code. Exo allows custom hardware instructions, specialized memories, and accelerator configuration state to be defined in user libraries. It builds on the idea of user scheduling to externalize hardware mapping and optimization decisions. Schedules are defined as composable rewrites within the language, and we develop a set of effect analyses which guarantee program equivalence and memory safety through these transformations. We show that Exo enables rapid development of state-of-the-art matrix-matrix multiply and convolutional neural network kernels, for both an embedded neural accelerator and x86 with AVX-512 extensions, in a few dozen lines of code each.},
-booktitle = {Proceedings of the 43rd ACM SIGPLAN International Conference on Programming Language Design and Implementation},
-pages = {703–718},
-numpages = {16},
-keywords = {program optimization, user-schedulable languages, user-extensible backend &amp; scheduling, instruction abstraction, scheduling, hardware accelerators},
-location = {San Diego, CA, USA},
-series = {PLDI 2022}
+@inproceedings{pldi22:exo,
+  title        = {Exocompilation for Productive Programming of Hardware Accelerators},
+  author       = {
+    Ikarashi, Yuka and Bernstein, Gilbert Louis and Reinking, Alex and Genc,
+    Hasan and Ragan-Kelley, Jonathan
+  },
+  year         = 2022,
+  booktitle    = {
+    Proceedings of the 43rd ACM SIGPLAN International Conference on Programming
+    Language Design and Implementation
+  },
+  location     = {San Diego, CA, USA},
+  publisher    = {Association for Computing Machinery},
+  address      = {New York, NY, USA},
+  series       = {PLDI 2022},
+  pages        = {703–718},
+  doi          = {10.1145/3519939.3523446},
+  isbn         = 9781450392655,
+  url          = {https://doi.org/10.1145/3519939.3523446},
+  abstract     = {
+    High-performance kernel libraries are critical to exploiting accelerators
+    and specialized instructions in many applications. Because compilers are
+    difficult to extend to support diverse and rapidly-evolving hardware
+    targets, and automatic optimization is often insufficient to guarantee
+    state-of-the-art performance, these libraries are commonly still coded and
+    optimized by hand, at great expense, in low-level C and assembly. To better
+    support development of high-performance libraries for specialized hardware,
+    we propose a new programming language, Exo, based on the principle of
+    exocompilation: externalizing target-specific code generation support and
+    optimization policies to user-level code. Exo allows custom hardware
+    instructions, specialized memories, and accelerator configuration state to
+    be defined in user libraries. It builds on the idea of user scheduling to
+    externalize hardware mapping and optimization decisions. Schedules are
+    defined as composable rewrites within the language, and we develop a set of
+    effect analyses which guarantee program equivalence and memory safety
+    through these transformations. We show that Exo enables rapid development
+    of state-of-the-art matrix-matrix multiply and convolutional neural network
+    kernels, for both an embedded neural accelerator and x86 with AVX-512
+    extensions, in a few dozen lines of code each.
+  },
+  numpages     = 16,
+  keywords     = {
+    program optimization, user-schedulable languages, user-extensible backend
+    &amp; scheduling, instruction abstraction, scheduling, hardware
+    accelerators
+  }
 }
 ```

@@ -1,0 +1,8 @@
+def foo(n: size):
+    assert n > 3
+    for i in seq(0, 3):
+        x: R @ DRAM
+        x = 0.0
+    for i in seq(0, -3 + n):
+        x: R @ DRAM
+        x = 0.0

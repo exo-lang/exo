@@ -10,33 +10,34 @@ from .memory import DRAM
 
 
 class MemoryAnalysis:
-    def __init__(self, proc):
+    def __init__(self):
+        self.mem_env = ChainMap()
+        self.tofree = []
+
+    def run(self, proc):
         assert isinstance(proc, LoopIR.proc)
 
         self.mem_env = ChainMap()
         self.tofree = []
-
-        self.proc = proc
 
         for a in proc.args:
             if a.type.is_numeric():
                 mem = a.mem if a.mem else DRAM
                 self.mem_env[a.name] = mem
 
-    def result(self):
         self.push()
-        body = self.mem_stmts(self.proc.body)
+        body = self.mem_stmts(proc.body)
         self.pop()
         assert len(self.tofree) == 0
 
         return LoopIR.proc(
-            self.proc.name,
-            self.proc.args,
-            self.proc.preds,
+            proc.name,
+            proc.args,
+            proc.preds,
             body,
-            self.proc.instr,
-            self.proc.eff,
-            self.proc.srcinfo,
+            proc.instr,
+            proc.eff,
+            proc.srcinfo,
         )
 
     def push(self):

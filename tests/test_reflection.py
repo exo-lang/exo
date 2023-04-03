@@ -3,6 +3,7 @@ from __future__ import annotations
 from exo import proc, DRAM, QAST
 from exo.stdlib.scheduling import *
 
+
 # ------- Reflection tests ---------
 
 
@@ -64,7 +65,7 @@ def test_find_outer_loop():
 
 def get_loop_nest_info(p, pattern):
     loops = p.get_ast(pattern)
-    if loops == None:
+    if loops is None:
         return []
     assert isinstance(loops, list) and len(loops) > 0
     assert isinstance(loops[0], QAST.Stmt), "must call with ... #_ pattern"
@@ -130,3 +131,9 @@ def test_get_no_loop_info():
 
     info = get_loop_nest_info(sgemm, "for abc in _: _ #0")
     assert info == []
+
+
+def test_show_effect(golden):
+    sgemm = new_sgemm()
+
+    assert sgemm.show_effect("for j in _: _") == golden

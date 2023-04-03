@@ -4,7 +4,10 @@
 find_package(Halide REQUIRED)
 
 ## Exo
-add_exo_library(conv conv.py)
+add_exo_library(
+  NAME conv
+  SOURCES conv.py
+)
 
 ## Halide
 add_executable(halide_conv.gen halide_conv_gen.cpp)

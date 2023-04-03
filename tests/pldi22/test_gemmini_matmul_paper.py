@@ -358,8 +358,7 @@ def test_matmul_paper(golden):
     gemmini = gemmini.partial_eval(NN, MM, KK)
 
     # Stage memories, so that we can use gemmini scratchpad & accumulator
-    gemmini = stage_assn(gemmini, "C[_] += _", "res")
-    gemmini = double_fission(gemmini, "res = _", "res += _")
+    gemmini = stage_mem(gemmini, "for k in _: _", "C[i, j]", "res")
     gemmini = bind_expr(gemmini, "A[_]", "a")
     gemmini = bind_expr(gemmini, "B[_]", "b")
 

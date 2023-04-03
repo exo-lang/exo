@@ -37,7 +37,7 @@ class Neon4f(Memory):
         if shape:
             if not all(_is_some_const_size(s) for s in shape):
                 raise MemGenError(
-                    f"{srcinfo}: Cannot allocate variable " f"numbers of Neon4f vectors"
+                    f"{srcinfo}: Cannot allocate variable numbers of Neon4f vectors"
                 )
             result = f'float32x4_t {new_name}[{"][".join(map(str, shape))}];'
         else:
@@ -106,6 +106,12 @@ class Neon8f(Memory):
 #
 # float32
 
+@instr("*{result} += vaddvq_f32({x_data});")
+def neon_assoc_reduce_add_instr_4xf32(result: f32 @ DRAM, x: [f32][4] @ Neon4f):
+    for i in seq(0, 4):
+        result += x[i]
+
+
 @instr("{dst_data} = vld1q_f32(&{src_data});")
 def neon_vld_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ DRAM):
     assert stride(src, 0) == 1
@@ -132,6 +138,14 @@ def neon_broadcast_4xf32(dst: [f32][4] @ Neon4f, src: [f32][1] @ DRAM):
         dst[i] = src[0]
 
 
+@instr("{dst_data} = vld1q_dup_f32({src_data});")
+def neon_broadcast_4xf32_scalar(dst: [f32][4] @ Neon4f, src: f32 @ DRAM):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src
+
+
 @instr("{dst_data} = vmovq_n_f32(0.0f);")
 def neon_zero_4xf32(dst: [f32][4] @ Neon4f):
     assert stride(dst, 0) == 1
@@ -152,6 +166,15 @@ def neon_vadd_4xf32(
         dst[i] = lhs[i] + rhs[i]
 
 
+@instr("{dst_data} = vaddq_f32({src_data}, {dst_data});")
+def neon_reduce_vadd_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] += src[i]
+
+
 @instr("{dst_data} = vmulq_f32({lhs_data}, {rhs_data});")
 def neon_vmul_4xf32(
     dst: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f
@@ -163,9 +186,10 @@ def neon_vmul_4xf32(
     for i in seq(0, 4):
         dst[i] = lhs[i] * rhs[i]
 
+
 @instr("{dst_data} = vfmaq_laneq_f32({dst_data}, {lhs_data}, {rhs_data}, {lane});")
 def neon_vfmla_4xf32_4xf32(
-        dst: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f, lane: index
+    dst: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f, lane: index
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -174,7 +198,7 @@ def neon_vfmla_4xf32_4xf32(
     assert lane < 4
     for i in seq(0, 4):
         dst[i] += lhs[i] * rhs[lane]
-        
+
 
 @instr("{dst_data} = vmlaq_f32({dst_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_4xf32_4xf32(
@@ -343,3 +367,21 @@ def neon_vfmadd_1xf16_8xf16(
         dst[i] += lhs[0] * rhs[i]
 
 
+# TODO: Hack for procedure aliasing issue, can be deleted once we have
+#      better way of handling aliasing
+@instr("{dst_data} = {src_data};")
+def neon_reg_copy_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src[i]
+
+
+@instr("{dst_data} = vnegq_f32({src_data});")
+def neon_vneg_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = -src[i]

@@ -6,13 +6,6 @@ from .LoopIR import LoopIR, T, LoopIR_Rewrite
 
 
 class WindowAnalysis(LoopIR_Rewrite):
-    def __init__(self, proc):
-        assert isinstance(proc, LoopIR.proc)
-        super().__init__(proc)
-
-    def err(self, node, msg):
-        raise TypeError(f"{node.srcinfo}: {msg}")
-
     def map_s(self, s):
         if isinstance(s, LoopIR.Call):
             args = s.args
@@ -39,7 +32,7 @@ class WindowAnalysis(LoopIR_Rewrite):
                     and not sa.type.is_win()
                     and a.type.is_win()
                 ):
-                    self.err(a, "expected a non-window tensor")
+                    raise TypeError(f"{a.srcinfo}: expected a non-window tensor")
 
                 return a
 
