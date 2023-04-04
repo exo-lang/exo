@@ -1708,11 +1708,16 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         except ic.InvalidCursorError:
             break
 
-        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        new_c = fwd(c)
+        ir, fwd_c = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
+        new_c, fwd = fwd(c), _compose(fwd_c, fwd)
 
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd_c = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
+        fwd = _compose(fwd_c, fwd)
+
+        ir, fwd_c = _replace_pats_stmts(
+            ir, fwd, new_c, f"{alloc_s.name} += _", mk_write
+        )
+        fwd = _compose(fwd_c, fwd)
 
     return _fixup_effects(ir, fwd)
 
