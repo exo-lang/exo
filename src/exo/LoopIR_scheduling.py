@@ -1701,22 +1701,25 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         s = c._node
         return s.update(idx=remap_idx(s.idx))
 
-    c = alloc_cursor
+    # TODO: add better iteration primitive
+    c_iter = alloc_cursor
     while True:
         try:
-            c = c.next()
+            c_iter = c_iter.next()
         except ic.InvalidCursorError:
             break
 
+        c = fwd(c_iter)
+
         ir, fwd_c = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        new_c, fwd = fwd(c), _compose(fwd_c, fwd)
-
-        ir, fwd_c = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
         fwd = _compose(fwd_c, fwd)
+        c = fwd_c(c)
 
-        ir, fwd_c = _replace_pats_stmts(
-            ir, fwd, new_c, f"{alloc_s.name} += _", mk_write
-        )
+        ir, fwd_c = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
+        fwd = _compose(fwd_c, fwd)
+        c = fwd_c(c)
+
+        ir, fwd_c = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
         fwd = _compose(fwd_c, fwd)
 
     return _fixup_effects(ir, fwd)
