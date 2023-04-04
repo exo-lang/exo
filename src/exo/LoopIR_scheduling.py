@@ -626,7 +626,7 @@ class DoSplit(Cursor_Rewrite):
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):
-            if e.type is T.index:
+            if e.type.is_indexable():
                 # This is a split variable, substitute it!
                 if e.name is self.split_var:
                     if self._in_cut_tail:
@@ -639,7 +639,7 @@ class DoSplit(Cursor_Rewrite):
 
     def map_eff_e(self, e):
         if isinstance(e, E.Var):
-            if e.type is T.index:
+            if e.type.is_indexable():
                 # This is a split variable, substitute it!
                 if e.name is self.split_var:
                     if self._in_cut_tail:
