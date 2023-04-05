@@ -83,4 +83,42 @@ def test_basic_forwarding(golden):
     assert str(p) == golden
 
 
+def test_basic_forwarding2():
+    @proc
+    def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
+        for o in seq(0, ow):
+            sum: f32
+            sum = 0.0
+            for k in seq(0, kw):
+                sum += x[o + k] * w[k]
+            y[o] = sum
+
+    filter1D = divide_loop(filter1D, "o", 4, ["outXo", "outXi"], tail="cut_and_guard")
+
+    sum_c = filter1D.find("sum:_")
+
+    filter1D = expand_dim(filter1D, sum_c, "4", "outXi")
+    filter1D = lift_alloc(filter1D, sum_c)
+
+    print(filter1D)
+
+
+def test_basic_forwarding3():
+    @proc
+    def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
+        for o in seq(0, ow):
+            sum: f32
+            sum = 0.0
+            for k in seq(0, kw):
+                sum += x[o + k] * w[k]
+            y[o] = sum
+
+    filter1D = divide_loop(filter1D, "o", 4, ["outXo", "outXi"], tail="cut_and_guard")
+
+    sum_c = filter1D.find("sum:_")
+
+    filter1D = expand_dim(filter1D, sum_c, "4", "outXi")
+    filter1D = lift_alloc(filter1D, filter1D.forward(sum_c))
+
+
 # Need some more tests here...
