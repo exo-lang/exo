@@ -235,13 +235,16 @@ def _compose(f, g):
     return lambda x: f(g(x))
 
 
-def _replace_pats(ir, fwd, c, pat, repl):
+def _replace_pats(ir, fwd, c, pat, repl, c_is_fwded=False):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
     cur_fwd = lambda x: x
     for rd in match_pattern(c, pat):
-        rd = cur_fwd(rd)
+        if c_is_fwded:
+            rd = cur_fwd(rd)
+        else:
+            rd = cur_fwd(fwd(rd))
         new_rd = repl(rd)
         if isinstance(rd.parent()._node, LoopIR.Call):
             new_rd = [new_rd]
@@ -353,8 +356,8 @@ def DoProductLoop(outer_loop, new_name):
 
     # Replace inner reads to loop variables
     for c in inner_loop.body():
-        ir, fwd = _replace_pats(ir, fwd, fwd(c), f"{outer_loop_ir.iter}", mk_outer_expr)
-        ir, fwd = _replace_pats(ir, fwd, fwd(c), f"{inner_loop_ir.iter}", mk_inner_expr)
+        ir, fwd = _replace_pats(ir, fwd, c, f"{outer_loop_ir.iter}", mk_outer_expr)
+        ir, fwd = _replace_pats(ir, fwd, c, f"{inner_loop_ir.iter}", mk_inner_expr)
 
     def mk_product_loop(body):
         return outer_loop_ir.update(
@@ -527,9 +530,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
             ret = [ret]
         return ret
 
-    ir, fwd = _replace_pats(
-        ir, fwd, fwd(loop_cursor), f"{split_loop.iter}", mk_main_iter
-    )
+    ir, fwd = _replace_pats(ir, fwd, loop_cursor, f"{split_loop.iter}", mk_main_iter)
 
     # add the tail case
     if tail_strategy in ["cut", "cut_and_guard"]:
@@ -559,7 +560,9 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
             return ret
 
         c = fwd(loop_cursor).next()
-        ir, fwd = _replace_pats(ir, fwd, c, f"{split_loop.iter}", mk_cut_iter)
+        ir, fwd = _replace_pats(
+            ir, fwd, c, f"{split_loop.iter}", mk_cut_iter, c_is_fwded=True
+        )
 
     return _fixup_effects(ir, fwd)
 
