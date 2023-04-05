@@ -252,7 +252,8 @@ def _replace_pats(ir, fwd, c, pat, repl):
 def _replace_pats_stmts(ir, fwd, c, pat, repl):
     for block in match_pattern(c, pat):
         # needed because match_pattern on stmts return blocks
-        s = block[0]
+        assert len(block) == 1
+        s = fwd(block[0])
         ir, fwd_rd = s._replace([repl(s)])
         fwd = _compose(fwd_rd, fwd)
     return ir, fwd
@@ -626,7 +627,7 @@ class DoSplit(Cursor_Rewrite):
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):
-            if e.type is T.index:
+            if e.type.is_indexable():
                 # This is a split variable, substitute it!
                 if e.name is self.split_var:
                     if self._in_cut_tail:
@@ -639,7 +640,7 @@ class DoSplit(Cursor_Rewrite):
 
     def map_eff_e(self, e):
         if isinstance(e, E.Var):
-            if e.type is T.index:
+            if e.type.is_indexable():
                 # This is a split variable, substitute it!
                 if e.name is self.split_var:
                     if self._in_cut_tail:
@@ -1522,12 +1523,11 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
             break
 
         ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        new_c = fwd(c)
 
         # TODO: These replace the whole statement, which would invavlidate any existing
         # cursors to RHS expressions?
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
 
     found_new_alloc = False
     after_alloc = []
@@ -1685,6 +1685,7 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         s = c._node
         return s.update(idx=remap_idx(s.idx))
 
+    # TODO: add better iteration primitive
     c = alloc_cursor
     while True:
         try:
@@ -1693,10 +1694,8 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
             break
 
         ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        new_c = fwd(c)
-
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
 
     return _fixup_effects(ir, fwd)
 
@@ -1767,10 +1766,8 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
             break
 
         ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        new_c = fwd(c)
-
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
 
     return _fixup_effects(ir, fwd)
 
@@ -3289,10 +3286,8 @@ def DoDataReuse(buf_cursor, rep_cursor):
             return c._node.update(name=buf_name)
 
         ir, fwd = _replace_pats(ir, fwd, c, f"{rep_name}[_]", mk_read)
-        new_c = fwd(c)
-
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{rep_name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{rep_name} += _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{rep_name} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{rep_name} += _", mk_write)
 
     return _fixup_effects(ir, fwd)
 
