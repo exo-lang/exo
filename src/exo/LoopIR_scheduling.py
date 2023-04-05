@@ -235,18 +235,22 @@ def _compose(f, g):
     return lambda x: f(g(x))
 
 
-def _replace_pats(ir, fwd, c, pat, repl):
+def _replace_pats(ir, fwd, c, pat, repl, c_is_fwded=False):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
+    cur_fwd = lambda x: x
     for rd in match_pattern(c, pat):
-        rd = fwd(rd)
+        if c_is_fwded:
+            rd = cur_fwd(rd)
+        else:
+            rd = cur_fwd(fwd(rd))
         new_rd = repl(rd)
         if isinstance(rd.parent()._node, LoopIR.Call):
             new_rd = [new_rd]
         ir, fwd_rd = rd._replace(new_rd)
-        fwd = _compose(fwd_rd, fwd)
-    return ir, fwd
+        cur_fwd = _compose(fwd_rd, cur_fwd)
+    return ir, _compose(cur_fwd, fwd)
 
 
 def _replace_pats_stmts(ir, fwd, c, pat, repl):
@@ -438,219 +442,129 @@ def DoMergeWrites(c1, c2):
 # Split scheduling directive
 
 
-class DoSplit(Cursor_Rewrite):
-    def __init__(
-        self, proc_cursor, loop_cursor, quot, hi, lo, tail="guard", perfect=False
-    ):
-        self.split_loop = loop_cursor._node
-        self.split_var = self.split_loop.iter
-        self.quot = quot
-        self.hi_i = Sym(hi)
-        self.lo_i = Sym(lo)
-        self.cut_i = Sym(lo)
+def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
+    split_loop = loop_cursor._node
+    N = split_loop.hi
+    hi_i = Sym(hi)
+    lo_i = Sym(lo)
+    srcinfo = split_loop.srcinfo
 
-        assert quot > 1
+    assert quot > 1
 
-        # Tail strategies are 'cut', 'guard', and 'cut_and_guard'
-        self._tail_strategy = tail
-        if perfect:
-            self._tail_strategy = "perfect"
-        self._in_cut_tail = False
-
-        super().__init__(proc_cursor)
-
-    def substitute(self, srcinfo):
+    def substitute(srcinfo):
         cnst = lambda x: LoopIR.Const(x, T.int, srcinfo)
         rd = lambda x: LoopIR.Read(x, [], T.index, srcinfo)
         op = lambda op, lhs, rhs: LoopIR.BinOp(op, lhs, rhs, T.index, srcinfo)
 
-        return op("+", op("*", cnst(self.quot), rd(self.hi_i)), rd(self.lo_i))
+        return op("+", op("*", cnst(quot), rd(hi_i)), rd(lo_i))
 
-    def cut_tail_sub(self, srcinfo):
-        return self._cut_tail_sub
+    # short-hands for sanity
+    def boolop(op, lhs, rhs):
+        return LoopIR.BinOp(op, lhs, rhs, T.bool, srcinfo)
 
-    def map_s(self, sc):
-        s = sc._node
-        styp = type(s)
-        if s is self.split_loop:
-            # short-hands for sanity
-            def boolop(op, lhs, rhs):
-                return LoopIR.BinOp(op, lhs, rhs, T.bool, s.srcinfo)
+    def szop(op, lhs, rhs):
+        return LoopIR.BinOp(op, lhs, rhs, lhs.type, srcinfo)
 
-            def szop(op, lhs, rhs):
-                return LoopIR.BinOp(op, lhs, rhs, lhs.type, s.srcinfo)
+    def cnst(intval):
+        return LoopIR.Const(intval, T.int, srcinfo)
 
-            def cnst(intval):
-                return LoopIR.Const(intval, T.int, s.srcinfo)
+    def rd(i):
+        return LoopIR.Read(i, [], T.index, srcinfo)
 
-            def rd(i):
-                return LoopIR.Read(i, [], T.index, s.srcinfo)
+    def ceildiv(lhs, rhs):
+        assert isinstance(rhs, LoopIR.Const) and rhs.val > 1
+        rhs_1 = cnst(rhs.val - 1)
+        return szop("/", szop("+", lhs, rhs_1), rhs)
 
-            def ceildiv(lhs, rhs):
-                assert isinstance(rhs, LoopIR.Const) and rhs.val > 1
-                rhs_1 = cnst(rhs.val - 1)
-                return szop("/", szop("+", lhs, rhs_1), rhs)
+    ir, fwd = loop_cursor._child_node("iter")._replace(hi_i)
 
-            def rng(x, hi):
-                lhs = boolop("<=", cnst(0), x)
-                rhs = boolop("<", x, hi)
-                return boolop("and", lhs, rhs)
+    tail_strategy = "perfect" if perfect else tail
 
-            def do_bind(x, hi, eff):
-                cond = lift_to_eff_expr(rng(rd(x), hi))
-                cond_nz = lift_to_eff_expr(boolop("<", cnst(0), hi))
-                return eff_bind(x, eff, pred=cond, config_pred=cond_nz)
+    # wrap body in a guard
+    if tail_strategy == "guard":
+        idx_sub = substitute(srcinfo)
 
-            # in the simple case, wrap body in a guard
-            if self._tail_strategy == "guard":
-                body = self.map_stmts(sc.body())
-                body_eff = get_effect_of_stmts(body)
-                idx_sub = self.substitute(s.srcinfo)
-                cond = boolop("<", idx_sub, s.hi)
-                # condition for guarded loop is applied to effects
-                body_eff = eff_filter(lift_to_eff_expr(cond), body_eff)
-                body = [LoopIR.If(cond, body, [], body_eff, s.srcinfo)]
+        def guard_wrapper(body):
+            cond = boolop("<", idx_sub, N)
+            return LoopIR.If(cond, body, [], None, srcinfo)
 
-                lo_rng = cnst(self.quot)
-                hi_rng = ceildiv(s.hi, lo_rng)
+        ir, fwd_wrap = fwd(loop_cursor).body()._wrap(guard_wrapper, "body")
+        fwd = _compose(fwd_wrap, fwd)
 
-                # pred for inner loop is: 0 <= lo <= lo_rng
-                inner_eff = do_bind(self.lo_i, lo_rng, body_eff)
+    # determine loop bounds and wrap inner loop
+    lo_rng = cnst(quot)
+    if tail_strategy == "guard":
+        hi_rng = ceildiv(N, lo_rng)
+    elif tail_strategy in ["cut", "cut_and_guard"]:
+        hi_rng = szop("/", N, lo_rng)  # floor div
+    elif tail_strategy == "perfect":
+        if not isinstance(N, LoopIR.Const):
+            raise SchedulingError(
+                f"cannot perfectly split the '{split_loop.iter}' loop "
+                f"unless it has a constant bound"
+            )
+        elif N.val % quot != 0:
+            raise SchedulingError(
+                f"cannot perfectly split the '{split_loop.iter}' loop "
+                f"because {quot} does not evenly divide "
+                f"{N.val}"
+            )
+        hi_rng = cnst(N.val // quot)
+    else:
+        assert False, f"bad tail strategy: {tail_strategy}"
 
-                return [
-                    styp(
-                        self.hi_i,
-                        hi_rng,
-                        [styp(self.lo_i, lo_rng, body, inner_eff, s.srcinfo)],
-                        s.eff,
-                        s.srcinfo,
-                    )
-                ]
+    def inner_wrapper(body):
+        return LoopIR.Seq(lo_i, lo_rng, body, None, srcinfo)
 
-            # an alternate scheme is to split the loop in two
-            # by cutting off the tail into a second loop
-            elif self._tail_strategy == "cut" or self._tail_strategy == "cut_and_guard":
-                # if N == s.hi and Q == self.quot, then
-                #   we want Ncut == (N-Q+1)/Q
-                Q = cnst(self.quot)
-                N = s.hi
-                Ncut = szop("/", N, Q)  # floor div
+    ir, fwd_repl = fwd(loop_cursor)._child_node("hi")._replace(hi_rng)
+    fwd = _compose(fwd_repl, fwd)
 
-                # and then for the tail loop, we want to
-                # iterate from 0 to Ntail
-                # where Ntail == N % Q
-                Ntail = szop("%", N, Q)
-                # in that loop we want the iteration variable to
-                # be mapped instead to (Ncut*Q + cut_i)
-                self._cut_tail_sub = szop("+", rd(self.cut_i), szop("*", Ncut, Q))
+    ir, fwd_wrap = fwd(loop_cursor).body()._wrap(inner_wrapper, "body")
+    fwd = _compose(fwd_wrap, fwd)
 
-                main_body = self.apply_stmts(sc.body())
-                self._in_cut_tail = True
-                tail_body = Alpha_Rename(self.apply_stmts(sc.body())).result()
-                self._in_cut_tail = False
+    # replace the iteration variable in the body
+    def mk_main_iter(c):
+        ret = substitute(c._node.srcinfo)
+        # index-specific hack for _replace not supporting lists very well
+        if isinstance(c.parent()._node, (LoopIR.Reduce, LoopIR.Assign, LoopIR.Read)):
+            ret = [ret]
+        return ret
 
-                main_eff = get_effect_of_stmts(main_body)
-                tail_eff = get_effect_of_stmts(tail_body)
-                lo_eff = do_bind(self.lo_i, Q, main_eff)
-                hi_eff = do_bind(self.hi_i, Ncut, lo_eff)
-                tail_eff = do_bind(self.cut_i, Ntail, tail_eff)
+    ir, fwd = _replace_pats(ir, fwd, loop_cursor, f"{split_loop.iter}", mk_main_iter)
 
-                if self._tail_strategy == "cut_and_guard":
-                    body = [styp(self.cut_i, Ntail, tail_body, tail_eff, s.srcinfo)]
-                    body_eff = get_effect_of_stmts(body)
-                    cond = boolop(">", Ntail, LoopIR.Const(0, T.int, s.srcinfo))
-                    body_eff = eff_filter(lift_to_eff_expr(cond), body_eff)
+    # add the tail case
+    if tail_strategy in ["cut", "cut_and_guard"]:
+        cut_i = Sym(lo)
+        Ntail = szop("%", N, lo_rng)
 
-                    loops = [
-                        styp(
-                            self.hi_i,
-                            Ncut,
-                            [styp(self.lo_i, Q, main_body, lo_eff, s.srcinfo)],
-                            hi_eff,
-                            s.srcinfo,
-                        ),
-                        LoopIR.If(cond, body, [], body_eff, s.srcinfo),
-                    ]
+        # in the tail loop we want the iteration variable to
+        # be mapped instead to (Ncut*Q + cut_i)
+        cut_tail_sub = szop("+", rd(cut_i), szop("*", hi_rng, lo_rng))
 
-                else:
-                    loops = [
-                        styp(
-                            self.hi_i,
-                            Ncut,
-                            [styp(self.lo_i, Q, main_body, lo_eff, s.srcinfo)],
-                            hi_eff,
-                            s.srcinfo,
-                        ),
-                        styp(self.cut_i, Ntail, tail_body, tail_eff, s.srcinfo),
-                    ]
+        cut_body = Alpha_Rename(split_loop.body).result()
+        cut_s = LoopIR.Seq(cut_i, Ntail, cut_body, None, srcinfo)
+        if tail_strategy == "cut_and_guard":
+            cond = boolop(">", Ntail, LoopIR.Const(0, T.int, srcinfo))
+            cut_s = LoopIR.If(cond, [cut_s], [], None, srcinfo)
 
-                return loops
+        ir, fwd_ins = fwd(loop_cursor).after()._insert([cut_s])
+        fwd = _compose(fwd_ins, fwd)
 
-            elif self._tail_strategy == "perfect":
-                if not isinstance(s.hi, LoopIR.Const):
-                    raise SchedulingError(
-                        f"cannot perfectly split the '{s.iter}' loop "
-                        f"unless it has a constant bound"
-                    )
-                elif s.hi.val % self.quot != 0:
-                    raise SchedulingError(
-                        f"cannot perfectly split the '{s.iter}' loop "
-                        f"because {self.quot} does not evenly divide "
-                        f"{s.hi.val}"
-                    )
+        def mk_cut_iter(c):
+            ret = cut_tail_sub
+            # index-specific hack for _replace not supporting lists very well
+            if isinstance(
+                c.parent()._node, (LoopIR.Reduce, LoopIR.Assign, LoopIR.Read)
+            ):
+                ret = [ret]
+            return ret
 
-                # otherwise, we're good to go
-                body = self.map_stmts(sc.body())
-                body_eff = get_effect_of_stmts(body)
+        c = fwd(loop_cursor).next()
+        ir, fwd = _replace_pats(
+            ir, fwd, c, f"{split_loop.iter}", mk_cut_iter, c_is_fwded=True
+        )
 
-                lo_rng = cnst(self.quot)
-                hi_rng = cnst(s.hi.val // self.quot)
-
-                # pred for inner loop is: 0 <= lo <= lo_rng
-                inner_eff = do_bind(self.lo_i, lo_rng, body_eff)
-
-                return [
-                    styp(
-                        self.hi_i,
-                        hi_rng,
-                        [styp(self.lo_i, lo_rng, body, inner_eff, s.srcinfo)],
-                        s.eff,
-                        s.srcinfo,
-                    )
-                ]
-
-            else:
-                assert False, f"bad tail strategy: {self._tail_strategy}"
-
-        # fall-through
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if isinstance(e, LoopIR.Read):
-            if e.type.is_indexable():
-                # This is a split variable, substitute it!
-                if e.name is self.split_var:
-                    if self._in_cut_tail:
-                        return self.cut_tail_sub(e.srcinfo)
-                    else:
-                        return self.substitute(e.srcinfo)
-
-        # fall-through
-        return super().map_e(e)
-
-    def map_eff_e(self, e):
-        if isinstance(e, E.Var):
-            if e.type.is_indexable():
-                # This is a split variable, substitute it!
-                if e.name is self.split_var:
-                    if self._in_cut_tail:
-                        sub = self.cut_tail_sub(e.srcinfo)
-                    else:
-                        sub = self.substitute(e.srcinfo)
-                    return lift_to_eff_expr(sub)
-
-        # fall-through
-        return super().map_eff_e(e)
+    return _fixup_effects(ir, fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -3773,7 +3687,7 @@ class DoBoundAlloc(Cursor_Rewrite):
 # The Passes to export
 
 __all__ = [
-    "DoSplit",
+    "DoSplit",  # done
     "DoUnroll",  # done
     "DoInline",  # done
     "DoPartialEval",
