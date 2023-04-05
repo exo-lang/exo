@@ -677,7 +677,8 @@ def _print_cursor_stmt(
 
     else:
         lines = _print_stmt(stmt, env, indent)
-    if cur == target:
+
+    if isinstance(target, Node) and isinstance(cur, Node) and cur._node == target._node:
         lines[0] = f"{lines[0]}  # <-- NODE"
 
     return lines
