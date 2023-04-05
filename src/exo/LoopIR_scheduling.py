@@ -1420,7 +1420,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
     new_typ = T.Tensor(new_rngs, False, basetyp)
     new_alloc = alloc_s.update(type=new_typ)
 
-    ir, fwd = alloc_cursor._replace([new_alloc])
+    ir, fwd = alloc_cursor._child_node("type")._replace(new_typ)
 
     def mk_read(c):
         rd = c._node
@@ -1459,14 +1459,8 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
 
-    found_new_alloc = False
-    after_alloc = []
-    for c in fwd(alloc_cursor.parent()).body():
-        if found_new_alloc:
-            after_alloc.append(c._node)
-        if c._node == new_alloc:
-            found_new_alloc = True
-
+    idx = alloc_cursor.get_index()
+    after_alloc = [c._node for c in fwd(alloc_cursor.parent()).body()[idx + 1 :]]
     Check_Bounds(ir, new_alloc, after_alloc)
 
     return _fixup_effects(ir, fwd)
@@ -1587,7 +1581,7 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
     )
     new_typ = T.Tensor(new_shp, False, old_typ.basetype())
 
-    ir, fwd = alloc_cursor._replace([alloc_s.update(type=new_typ)])
+    ir, fwd = alloc_cursor._child_node("type")._replace(new_typ)
 
     def remap_idx(idx):
         orig_i = idx[dim_idx]
@@ -1655,7 +1649,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
     del shp[lo_idx]
     new_typ = T.Tensor(shp, False, old_typ.basetype())
 
-    ir, fwd = alloc_cursor._replace([alloc_s.update(type=new_typ)])
+    ir, fwd = alloc_cursor._child_node("type")._replace(new_typ)
 
     def remap_idx(idx):
         hi = idx[hi_idx]
