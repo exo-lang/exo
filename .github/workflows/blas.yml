@@ -45,8 +45,11 @@ jobs:
       - name: Install Google benchmark
         run: git clone https://github.com/google/benchmark; cmake -S benchmark -B benchmark/build -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_TESTING=NO ; cmake --build benchmark/build; cmake --install benchmark/build --prefix ~/.local
 
-      - name: Clone BLAS repo
-        run: git clone https://github.com/exo-lang/BLAS.git
+      - name: Checkout BLAS repo
+        uses: actions/checkout@v3
+        with:
+          repository: exo-lang/BLAS
+          token: ${{ secrets.BLAS_GITHUB_TOKEN }}
 
       - name: Configure CMake
         run: cmake -B BLAS/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} --preset avx2
