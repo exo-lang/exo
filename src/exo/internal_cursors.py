@@ -362,7 +362,7 @@ class Block(Cursor):
         code.
         """
         assert self._path
-        assert len(self) > 0
+        # assert len(self) > 0
         assert isinstance(nodes, list)
 
         def update(parent):
@@ -727,9 +727,7 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
 
     def get_index(self):
-        attr, i = self._path[-1]
-        if i is None:
-            raise InvalidCursorError("node is not inside a block")
+        _, i = self._path[-1]
         return i
 
     def is_ancestor_of(self, other: Cursor) -> bool:
