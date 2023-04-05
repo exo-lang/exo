@@ -83,7 +83,8 @@ def test_basic_forwarding(golden):
     assert str(p) == golden
 
 
-def test_basic_forwarding2():
+@pytest.fixture(scope="session")
+def proc_filter1D():
     @proc
     def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
         for o in seq(0, ow):
@@ -93,32 +94,40 @@ def test_basic_forwarding2():
                 sum += x[o + k] * w[k]
             y[o] = sum
 
-    filter1D = divide_loop(filter1D, "o", 4, ["outXo", "outXi"], tail="cut_and_guard")
-
-    sum_c = filter1D.find("sum:_")
-
-    filter1D = expand_dim(filter1D, sum_c, "4", "outXi")
-    filter1D = lift_alloc(filter1D, sum_c)
-
-    print(filter1D)
+    yield filter1D
 
 
-def test_basic_forwarding3():
-    @proc
-    def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
-        for o in seq(0, ow):
-            sum: f32
-            sum = 0.0
-            for k in seq(0, kw):
-                sum += x[o + k] * w[k]
-            y[o] = sum
+def test_basic_forwarding2(proc_filter1D):
+    filter1D_2 = divide_loop(
+        proc_filter1D, "o", 4, ["outXo", "outXi"], tail="cut_and_guard"
+    )
 
-    filter1D = divide_loop(filter1D, "o", 4, ["outXo", "outXi"], tail="cut_and_guard")
+    sum_c = filter1D_2.find("sum:_")
 
-    sum_c = filter1D.find("sum:_")
+    filter1D_2 = expand_dim(filter1D_2, sum_c, "4", "outXi")
+    filter1D_2 = lift_alloc(filter1D_2, sum_c)
 
-    filter1D = expand_dim(filter1D, sum_c, "4", "outXi")
-    filter1D = lift_alloc(filter1D, filter1D.forward(sum_c))
+
+def test_basic_forwarding3(proc_filter1D):
+    filter1D_3 = divide_loop(
+        proc_filter1D, "o", 4, ["outXo", "outXi"], tail="cut_and_guard"
+    )
+
+    sum_c = filter1D_3.find("sum:_")
+
+    filter1D_3 = expand_dim(filter1D_3, sum_c, "4", "outXi")
+    filter1D_3 = lift_alloc(filter1D_3, filter1D_3.forward(sum_c))
+
+
+def test_basic_forwarding4(proc_filter1D):
+    filter1D_4 = divide_loop(
+        proc_filter1D, "o", 4, ["outXo", "outXi"], tail="cut_and_guard"
+    )
+
+    sum_c = filter1D_4.find("sum:_")
+
+    filter1D_4 = expand_dim(filter1D_4, sum_c, "4", "outXi")
+    filter1D_4 = lift_alloc(filter1D_4, filter1D_4.forward(sum_c.next()))
 
 
 # Need some more tests here...
