@@ -235,7 +235,28 @@ def _compose(f, g):
     return lambda x: f(g(x))
 
 
-def _replace_pats(ir, fwd, c, pat, repl, c_is_fwded=False):
+def _replace_helper(c, c_repl, attrs):
+    if attrs:
+        ir, fwd_s = c.get_root(), lambda x: x
+        for attr in attrs:
+            if attr in ["body", "orelse", "idx"]:
+                ir, fwd_attr = c._child_block(attr)._replace(c_repl[attr])
+            else:
+                ir, fwd_attr = c._child_node(attr)._replace(c_repl[attr])
+            fwd_s = _compose(fwd_attr, fwd_s)
+        return ir, fwd_s
+    else:
+        if (
+            isinstance(c, ic.Block)
+            and not isinstance(c_repl, list)
+            or isinstance(c, ic.Node)
+            and c.get_index() is not None
+        ):
+            c_repl = [c_repl]
+        return c._replace(c_repl)
+
+
+def _replace_pats(ir, fwd, c, pat, repl, c_is_fwded=False, attrs=None):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
@@ -245,22 +266,23 @@ def _replace_pats(ir, fwd, c, pat, repl, c_is_fwded=False):
             rd = cur_fwd(rd)
         else:
             rd = cur_fwd(fwd(rd))
-        new_rd = repl(rd)
-        if isinstance(rd.parent()._node, LoopIR.Call):
-            new_rd = [new_rd]
-        ir, fwd_rd = rd._replace(new_rd)
+        ir, fwd_rd = _replace_helper(rd, repl(rd), attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
     return ir, _compose(cur_fwd, fwd)
 
 
-def _replace_pats_stmts(ir, fwd, c, pat, repl):
+def _replace_pats_stmts(ir, fwd, c, pat, repl, c_is_fwded=False, attrs=None):
+    cur_fwd = lambda x: x
     for block in match_pattern(c, pat):
         # needed because match_pattern on stmts return blocks
         assert len(block) == 1
-        s = fwd(block[0])
-        ir, fwd_rd = s._replace([repl(s)])
-        fwd = _compose(fwd_rd, fwd)
-    return ir, fwd
+        if c_is_fwded:
+            s = cur_fwd(block[0])
+        else:
+            s = cur_fwd(fwd(block[0]))
+        ir, fwd_s = _replace_helper(s, repl(s), attrs)
+        cur_fwd = _compose(fwd_s, cur_fwd)
+    return ir, _compose(cur_fwd, fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -348,8 +370,8 @@ def DoProductLoop(outer_loop, new_name):
 
     # TODO: indexes are inside expression blocks... need a more
     #   uniform way to treat this.
-    mk_outer_expr = lambda _: [outer_expr]
-    mk_inner_expr = lambda _: [inner_expr]
+    mk_outer_expr = lambda _: outer_expr
+    mk_inner_expr = lambda _: inner_expr
 
     # Initial state of editing transaction
     ir, fwd = outer_loop.get_root(), lambda x: x
@@ -524,11 +546,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
 
     # replace the iteration variable in the body
     def mk_main_iter(c):
-        ret = substitute(c._node.srcinfo)
-        # index-specific hack for _replace not supporting lists very well
-        if isinstance(c.parent()._node, (LoopIR.Reduce, LoopIR.Assign, LoopIR.Read)):
-            ret = [ret]
-        return ret
+        return substitute(c._node.srcinfo)
 
     ir, fwd = _replace_pats(ir, fwd, loop_cursor, f"{split_loop.iter}", mk_main_iter)
 
@@ -551,13 +569,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         fwd = _compose(fwd_ins, fwd)
 
         def mk_cut_iter(c):
-            ret = cut_tail_sub
-            # index-specific hack for _replace not supporting lists very well
-            if isinstance(
-                c.parent()._node, (LoopIR.Reduce, LoopIR.Assign, LoopIR.Read)
-            ):
-                ret = [ret]
-            return ret
+            return cut_tail_sub
 
         c = fwd(loop_cursor).next()
         ir, fwd = _replace_pats(
@@ -813,7 +825,7 @@ def DoCallSwap(call_cursor, new_subproc):
     s_new = call_s.update(f=new_subproc)
     ir = call_cursor.get_root()
     mod_cfg = Check_ExtendEqv(ir, [call_s], [s_new], configkeys)
-    ir, fwd = call_cursor._replace([s_new])
+    ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
 
     Check_Aliasing(ir)
 
@@ -1433,9 +1445,9 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
             )
 
         if isinstance(rd, LoopIR.Read):
-            return rd.update(idx=[indexing] + rd.idx)
+            return {"idx": [indexing] + rd.idx}
         elif isinstance(rd, LoopIR.WindowExpr):
-            return rd.update(idx=[LoopIR.Point(indexing, rd.srcinfo)] + rd.idx)
+            return {"idx": [LoopIR.Point(indexing, rd.srcinfo)] + rd.idx}
         else:
             raise NotImplementedError(
                 f"Did not implement {type(rd)}. This may be a bug."
@@ -1443,7 +1455,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
 
     def mk_write(c):
         s = c._node
-        return s.update(idx=[indexing] + s.idx)
+        return {"idx": [indexing] + s.idx}
 
     c = alloc_cursor
     while True:
@@ -1452,12 +1464,15 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         except ic.InvalidCursorError as e:
             break
 
-        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-
-        # TODO: These replace the whole statement, which would invavlidate any existing
-        # cursors to RHS expressions?
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd = _replace_pats(
+            ir, fwd, c, f"{alloc_s.name}[_]", mk_read, attrs=["idx"]
+        )
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{alloc_s.name} = _", mk_write, attrs=["idx"]
+        )
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{alloc_s.name} += _", mk_write, attrs=["idx"]
+        )
 
     idx = alloc_cursor.get_index()
     after_alloc = [c._node for c in fwd(alloc_cursor.parent()).body()[idx + 1 :]]
@@ -1603,11 +1618,11 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
                 f"Cannot divide {alloc_sym} because the buffer is windowed later on"
             )
 
-        return rd.update(idx=remap_idx(rd.idx))
+        return {"idx": remap_idx(rd.idx)}
 
     def mk_write(c):
         s = c._node
-        return s.update(idx=remap_idx(s.idx))
+        return {"idx": remap_idx(s.idx)}
 
     # TODO: add better iteration primitive
     c = alloc_cursor
@@ -1617,9 +1632,15 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         except ic.InvalidCursorError:
             break
 
-        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd = _replace_pats(
+            ir, fwd, c, f"{alloc_s.name}[_]", mk_read, attrs=["idx"]
+        )
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{alloc_s.name} = _", mk_write, attrs=["idx"]
+        )
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{alloc_s.name} += _", mk_write, attrs=["idx"]
+        )
 
     return _fixup_effects(ir, fwd)
 
@@ -1676,11 +1697,11 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
                 f"the buffer is windowed later on"
             )
 
-        return rd.update(idx=remap_idx(rd.idx))
+        return {"idx": remap_idx(rd.idx)}
 
     def mk_write(c):
         s = c._node
-        return s.update(idx=remap_idx(s.idx))
+        return {"idx": remap_idx(s.idx)}
 
     c = alloc_cursor
     while True:
@@ -1690,8 +1711,12 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
             break
 
         ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{alloc_s.name} = _", mk_write, attrs=["idx"]
+        )
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{alloc_s.name} += _", mk_write, attrs=["idx"]
+        )
 
     return _fixup_effects(ir, fwd)
 
@@ -2454,9 +2479,15 @@ def DoFuseIf(f_cursor, s_cursor):
     orelse2 = if2.orelse
     ifstmt = LoopIR.If(cond, body1 + body2, orelse1 + orelse2, None, if1.srcinfo)
 
-    ir, fwd = f_cursor._delete()
-    ir, fwd_repl = fwd(s_cursor)._replace([ifstmt])
-    fwd = _compose(fwd_repl, fwd)
+    ir, fwd = s_cursor.body()._move(f_cursor.body()[-1].after())
+    if f_cursor.orelse():
+        ir, fwd_move = fwd(s_cursor).orelse()._move(fwd(f_cursor).orelse()[-1].after())
+        fwd = _compose(fwd_move, fwd)
+    else:
+        ir, fwd_repl = fwd(f_cursor).orelse()._replace(orelse1 + orelse2)
+        fwd = _compose(fwd_repl, fwd)
+    ir, fwd_del = fwd(s_cursor)._delete()
+    fwd = _compose(fwd_del, fwd)
     return _fixup_effects(ir, fwd)
 
 
@@ -3200,18 +3231,22 @@ def DoDataReuse(buf_cursor, rep_cursor):
             break
 
         def mk_read(c):
-            return c._node.update(name=buf_name)
+            return {"name": buf_name}
 
         def mk_write(c):
             nonlocal first_assn
             if first_assn:
                 first_assn = False
                 Check_IsDeadAfter(buf_cursor.get_root(), [c._node], buf_name, buf_dims)
-            return c._node.update(name=buf_name)
+            return {"name": buf_name}
 
-        ir, fwd = _replace_pats(ir, fwd, c, f"{rep_name}[_]", mk_read)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{rep_name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{rep_name} += _", mk_write)
+        ir, fwd = _replace_pats(ir, fwd, c, f"{rep_name}[_]", mk_read, attrs=["name"])
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{rep_name} = _", mk_write, attrs=["name"]
+        )
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{rep_name} += _", mk_write, attrs=["name"]
+        )
 
     return _fixup_effects(ir, fwd)
 
