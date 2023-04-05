@@ -196,9 +196,17 @@ class Procedure(ProcedureBase):
         self._forward = _forward
 
     def forward(self, cur: API_cursors.Cursor):
+        # TODO: fix types
+        def as_loopir(c):
+            c = cur.proc()
+            if isinstance(c, Procedure):
+                return c._loopir_proc
+            assert isinstance(c, LoopIR.LoopIR.proc)
+            return c
+
         p = self
         fwds = []
-        while p is not None and p != cur.proc():
+        while p is not None and p._loopir_proc != as_loopir(cur):
             fwds.append(p._forward)
             p = p._provenance_eq_Procedure
 
