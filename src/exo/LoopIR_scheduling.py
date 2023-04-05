@@ -993,10 +993,8 @@ def DoInlineWindow(window_cursor):
         ir, fwd = _replace_pats(
             ir, fwd, c, f"stride({window_s.lhs}, _)", mk_stride_expr
         )
-        new_c = fwd(c)
-
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{window_s.lhs} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{window_s.lhs} += _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{window_s.lhs} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{window_s.lhs} += _", mk_write)
 
     return _fixup_effects(ir, fwd)
 
