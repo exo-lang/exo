@@ -1,10 +1,10 @@
-name: CI
+name: BLAS
 on:
   push:
     branches: [ 'master' ]
   pull_request:
 jobs:
-  build:
+  testing:
     strategy:
       matrix:
         runner: [ ubuntu-latest ]
