@@ -1467,9 +1467,6 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         ir, fwd = _replace_pats(
             ir, fwd, c, f"{alloc_s.name}[_]", mk_read, attrs=["idx"]
         )
-
-        # TODO: These replace the whole statement, which would invavlidate any existing
-        # cursors to RHS expressions?
         ir, fwd = _replace_pats_stmts(
             ir, fwd, c, f"{alloc_s.name} = _", mk_write, attrs=["idx"]
         )
