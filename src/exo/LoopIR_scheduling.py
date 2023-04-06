@@ -240,9 +240,9 @@ def _replace_helper(c, c_repl, attrs):
         ir, fwd_s = c.get_root(), lambda x: x
         for attr in attrs:
             if attr in ["body", "orelse", "idx"]:
-                ir, fwd_attr = c._child_block(attr)._replace(c_repl[attr])
+                ir, fwd_attr = fwd_s(c)._child_block(attr)._replace(c_repl[attr])
             else:
-                ir, fwd_attr = c._child_node(attr)._replace(c_repl[attr])
+                ir, fwd_attr = fwd_s(c)._child_node(attr)._replace(c_repl[attr])
             fwd_s = _compose(fwd_attr, fwd_s)
         return ir, fwd_s
     else:
@@ -3315,70 +3315,43 @@ class _DoStageMem_FindBufData(LoopIR_Do):
         pass
 
 
-class DoStageMem(Cursor_Rewrite):
-    def __init__(
-        self,
-        proc_cursor,
-        buf_name,
-        new_name,
-        w_exprs,
-        stmt_start,
-        stmt_end,
-        use_accum_zero=False,
-    ):
+def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
+    proc = block_cursor.get_root()
+    new_name = Sym(new_name)
 
-        self.stmt_start = stmt_start._node
-        self.stmt_end = stmt_end._node
-        self.use_accum_zero = use_accum_zero
+    # TODO: rewrite with internal cursors?
+    buf_name, buf_typ, mem = _DoStageMem_FindBufData(
+        proc, buf_name, block_cursor[0]._node
+    ).result()
+    buf_typ = buf_typ if not isinstance(buf_typ, T.Window) else buf_typ.as_tensor
 
-        nm, typ, mem = _DoStageMem_FindBufData(
-            proc_cursor._node, buf_name, self.stmt_start
-        ).result()
-        self.buf_name = nm  # this is a symbol
-        self.buf_typ = typ if not isinstance(typ, T.Window) else typ.as_tensor
-        self.buf_mem = mem
+    if len(w_exprs) != len(buf_typ.shape()):
+        raise SchedulingError(
+            f"expected windowing of '{buf_name}' "
+            f"to have {len(buf_typ.shape())} indices, "
+            f"but only got {len(w_exprs)}"
+        )
 
-        self.w_exprs = w_exprs
-        if len(w_exprs) != len(self.buf_typ.shape()):
-            raise SchedulingError(
-                f"expected windowing of '{buf_name}' "
-                f"to have {len(self.buf_typ.shape())} indices, "
-                f"but only got {len(w_exprs)}"
-            )
+    shape = [
+        LoopIR.BinOp("-", w[1], w[0], T.index, w[0].srcinfo)
+        for w in w_exprs
+        if isinstance(w, tuple)
+    ]
+    if all(isinstance(w, LoopIR.expr) for w in w_exprs):
+        new_typ = buf_typ.basetype()
+    else:
+        new_typ = T.Tensor(shape, False, buf_typ.basetype())
 
-        self.new_sizes = [
-            LoopIR.BinOp("-", w[1], w[0], T.index, w[0].srcinfo)
-            for w in w_exprs
-            if isinstance(w, tuple)
-        ]
-
-        self.new_name = Sym(new_name)
-
-        if all(isinstance(w, LoopIR.expr) for w in w_exprs):
-            self.new_typ = typ.basetype()
-        else:
-            self.new_typ = T.Tensor(self.new_sizes, False, typ.basetype())
-
-        self.found_stmt = False
-        self.new_block = []
-        self.in_block = False
-        super().__init__(proc_cursor)
-        assert self.found_stmt
-
-        Check_Bounds(self.proc, self.new_block[0], self.new_block[1:])
-
-        self.proc = InferEffects(self.proc).result()
-
-    def rewrite_idx(self, idx):
-        assert len(idx) == len(self.w_exprs)
+    def rewrite_idx(idx):
+        assert len(idx) == len(w_exprs)
         return [
             LoopIR.BinOp("-", i, w[0], T.index, i.srcinfo)
-            for i, w in zip(idx, self.w_exprs)
+            for i, w in zip(idx, w_exprs)
             if isinstance(w, tuple)
         ]
 
-    def rewrite_win(self, w_idx):
-        assert len(w_idx) == len(self.w_exprs)
+    def rewrite_win(w_idx):
+        assert len(w_idx) == len(w_exprs)
 
         def off_w(w, off):
             if isinstance(w, LoopIR.Interval):
@@ -3390,158 +3363,120 @@ class DoStageMem(Cursor_Rewrite):
                 pt = LoopIR.BinOp("-", w.pt, off, T.index, w.srcinfo)
                 return LoopIR.Point(pt, w.srcinfo)
 
-        return [off_w(w_i, w_e[0]) for w_i, w_e in zip(w_idx, self.w_exprs)]
+        return [off_w(w_i, w_e[0]) for w_i, w_e in zip(w_idx, w_exprs)]
 
-    def map_stmts(self, stmts_c):
-        """This method overload simply tries to find the indicated block"""
-        if not self.in_block:
-            for i, s1 in enumerate(stmts_c):
-                if s1._node is self.stmt_start:
-                    for j, s2 in enumerate(stmts_c):
-                        if s2._node is self.stmt_end:
-                            self.found_stmt = True
-                            assert j >= i
-                            pre = [s._node for s in stmts_c[:i]]
-                            post = [s._node for s in stmts_c[j + 1 :]]
-                            block = stmts_c[i : j + 1]
+    ir = block_cursor.get_root()
+    block = [s._node for s in block_cursor]
+    if use_accum_zero:
+        n_dims = len(buf_typ.shape())
+        Check_BufferReduceOnly(
+            ir,
+            block,
+            buf_name,
+            n_dims,
+        )
 
-                            if self.use_accum_zero:
-                                n_dims = len(self.buf_typ.shape())
-                                Check_BufferReduceOnly(
-                                    self.orig_proc._node,
-                                    [s._node for s in block],
-                                    self.buf_name,
-                                    n_dims,
-                                )
+    n_dims = len(buf_typ.shape())
+    basetyp = new_typ.basetype() if isinstance(new_typ, T.Tensor) else new_typ
+    srcinfo = block[0].srcinfo
 
-                            block = self.wrap_block(block)
-                            self.new_block = block
+    new_alloc = [LoopIR.Alloc(new_name, new_typ, mem, None, srcinfo)]
+    ir, fwd = block_cursor[0].before()._insert(new_alloc)
 
-                            return pre + block + post
-
-        # fall through
-        return super().map_stmts(stmts_c)
-
-    def wrap_block(self, block_c):
-        """This method rewrites the structure around the block.
-        `map_s` and `map_e` below substitute the buffer
-        name within the block."""
-        block = [s._node for s in block_c]
-        orig_typ = self.buf_typ
-        new_typ = self.new_typ
-        mem = self.buf_mem
-        shape = self.new_sizes
-
-        n_dims = len(orig_typ.shape())
-        basetyp = new_typ.basetype() if isinstance(new_typ, T.Tensor) else new_typ
-
-        isR, isW = Check_BufferRW(self.orig_proc._node, block, self.buf_name, n_dims)
-        srcinfo = block[0].srcinfo
-
-        new_alloc = [LoopIR.Alloc(self.new_name, new_typ, mem, None, srcinfo)]
-
-        load_nest = []
-        store_nest = []
-
-        if isR:
-            load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
-            load_widx = [LoopIR.Read(s, [], T.index, srcinfo) for s in load_iter]
-
+    isR, isW = Check_BufferRW(ir, block, buf_name, n_dims)
+    if isR:
+        load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
+        load_widx = [LoopIR.Read(s, [], T.index, srcinfo) for s in load_iter]
+        if use_accum_zero:
+            load_rhs = LoopIR.Const(0.0, basetyp, srcinfo)
+        else:
             cp_load_widx = load_widx.copy()
             load_ridx = []
-            for w in self.w_exprs:
+            for w in w_exprs:
                 if isinstance(w, tuple):
                     load_ridx.append(
                         LoopIR.BinOp("+", cp_load_widx.pop(0), w[0], T.index, srcinfo)
                     )
                 else:
                     load_ridx.append(w)
+            load_rhs = LoopIR.Read(buf_name, load_ridx, basetyp, srcinfo)
 
-            if self.use_accum_zero:
-                load_rhs = LoopIR.Const(0.0, basetyp, srcinfo)
+        load_nest = [
+            LoopIR.Assign(new_name, basetyp, None, load_widx, load_rhs, None, srcinfo)
+        ]
+
+        for i, n in reversed(list(zip(load_iter, shape))):
+            loop = LoopIR.Seq(i, n, load_nest, None, srcinfo)
+            load_nest = [loop]
+
+        ir, fwd_ins = fwd(block_cursor[0]).before()._insert(load_nest)
+        fwd = _compose(fwd_ins, fwd)
+    if isW:
+        store_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
+        store_ridx = [LoopIR.Read(s, [], T.index, srcinfo) for s in store_iter]
+        cp_store_ridx = store_ridx.copy()
+        store_widx = []
+        for w in w_exprs:
+            if isinstance(w, tuple):
+                store_widx.append(
+                    LoopIR.BinOp("+", cp_store_ridx.pop(0), w[0], T.index, srcinfo)
+                )
             else:
-                load_rhs = LoopIR.Read(self.buf_name, load_ridx, basetyp, srcinfo)
-            load_nest = [
-                LoopIR.Assign(
-                    self.new_name, basetyp, None, load_widx, load_rhs, None, srcinfo
-                )
-            ]
+                store_widx.append(w)
 
-            for i, n in reversed(list(zip(load_iter, shape))):
-                loop = LoopIR.Seq(i, n, load_nest, None, srcinfo)
-                load_nest = [loop]
+        store_rhs = LoopIR.Read(new_name, store_ridx, basetyp, srcinfo)
+        store_stmt = LoopIR.Reduce if use_accum_zero else LoopIR.Assign
+        store_nest = [
+            store_stmt(buf_name, basetyp, None, store_widx, store_rhs, None, srcinfo)
+        ]
 
-        if isW:
-            store_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
-            store_ridx = [LoopIR.Read(s, [], T.index, srcinfo) for s in store_iter]
-            cp_store_ridx = store_ridx.copy()
-            store_widx = []
-            for w in self.w_exprs:
-                if isinstance(w, tuple):
-                    store_widx.append(
-                        LoopIR.BinOp("+", cp_store_ridx.pop(0), w[0], T.index, srcinfo)
-                    )
-                else:
-                    store_widx.append(w)
+        for i, n in reversed(list(zip(store_iter, shape))):
+            loop = LoopIR.Seq(i, n, store_nest, None, srcinfo)
+            store_nest = [loop]
 
-            store_rhs = LoopIR.Read(self.new_name, store_ridx, basetyp, srcinfo)
-            store_stmt = LoopIR.Reduce if self.use_accum_zero else LoopIR.Assign
-            store_nest = [
-                store_stmt(
-                    self.buf_name, basetyp, None, store_widx, store_rhs, None, srcinfo
-                )
-            ]
+        ir, fwd_ins = fwd(block_cursor[-1]).after()._insert(store_nest)
+        fwd = _compose(fwd_ins, fwd)
 
-            for i, n in reversed(list(zip(store_iter, shape))):
-                loop = LoopIR.Seq(i, n, store_nest, None, srcinfo)
-                store_nest = [loop]
+    def mk_read(c):
+        rd = c._node
+        if isinstance(rd, LoopIR.Read):
+            return {
+                "name": new_name,
+                "idx": rewrite_idx(rd.idx),
+                "type": rd.type,  # non-ideal, but easiest for now
+            }
+        elif isinstance(rd, LoopIR.WindowExpr):
+            w_idx = rewrite_win(rd.idx)
+            return {
+                "name": new_name,
+                "idx": w_idx,
+                "type": T.Window(new_typ, rd.type.as_tensor, new_name, w_idx),
+            }
 
-        self.in_block = True
-        block = self.map_stmts(block_c)
-        self.in_block = False
+    def mk_write(c):
+        s = c._node
+        return {"name": new_name, "idx": rewrite_idx(s.idx)}
 
-        return new_alloc + load_nest + block + store_nest
+    for c in block_cursor:
+        ir, fwd = _replace_pats(
+            ir, fwd, c, f"{buf_name}[_]", mk_read, attrs=["name", "idx", "type"]
+        )
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{buf_name} += _", mk_write, attrs=["name", "idx"]
+        )
+        ir, fwd = _replace_pats_stmts(
+            ir, fwd, c, f"{buf_name} = _", mk_write, attrs=["name", "idx"]
+        )
 
-    def map_s(self, sc):
-        s = sc._node
-        new_s = super().map_s(sc)
-
-        if self.in_block:
-            if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-                if s.name is self.buf_name:
-                    new_s = new_s[0] if new_s is not None else s
-                    new_s = new_s.update(name=self.new_name)
-                    idx = self.rewrite_idx(new_s.idx)
-                    new_s = new_s.update(idx=idx)
-                    return new_s
-
-        return new_s
-
-    def map_e(self, e):
-        new_e = super().map_e(e)
-
-        if self.in_block:
-            if isinstance(e, LoopIR.Read):
-                if e.name is self.buf_name:
-                    new_e = new_e or e
-                    new_e = new_e.update(name=self.new_name)
-
-                    idx = self.rewrite_idx(new_e.idx)
-                    return new_e.update(idx=idx)
-
-            elif isinstance(e, LoopIR.WindowExpr):
-                if e.name is self.buf_name:
-                    new_e = new_e or e
-                    w_idx = self.rewrite_win(new_e.idx)
-                    return new_e.update(
-                        name=self.new_name,
-                        idx=w_idx,
-                        type=T.Window(
-                            self.new_typ, e.type.as_tensor, self.new_name, w_idx
-                        ),
-                    )
-
-        return new_e
+    # new alloc, load_nest + new_body + store_nest
+    new_block_c = fwd(block_cursor[0]).as_block().expand(0, len(block_cursor) - 1)
+    if isR:
+        new_block_c = new_block_c.expand(1, 0)
+    if isW:
+        new_block_c = new_block_c.expand(0, 1)
+    alloc_c = new_block_c[0].prev()
+    Check_Bounds(ir, alloc_c._node, [c._node for c in new_block_c])
+    return _fixup_effects(ir, fwd)
 
 
 class DoStageWindow(Cursor_Rewrite):
