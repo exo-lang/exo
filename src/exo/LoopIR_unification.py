@@ -40,15 +40,9 @@ class UnificationError(Exception):
         return self._err_msg
 
 
-def DoReplace(subproc, block_cursor):
-    n_stmts = len(subproc.body)
-    if len(block_cursor) < n_stmts:
-        raise SchedulingError("Not enough statements to match")
-
-    stmts = [c._node for c in block_cursor[:n_stmts]]
-
-    c = block_cursor[0]
-    prior_stmts = []
+def Get_Live_Variables(stmt_cursor):
+    c = stmt_cursor
+    covering_stmts = []
     while True:
         try:
             c = c.prev()
@@ -56,13 +50,15 @@ def DoReplace(subproc, block_cursor):
             c = c.parent()
             if c == c.root():
                 break
-        prior_stmts.append(c._node)
+        covering_stmts.append(c._node)
 
     live_vars = ChainMap()
-    proc = block_cursor.get_root()
+
+    proc = c.get_root()
     for arg in proc.args:
         live_vars[arg.name] = arg.type
-    for s in reversed(prior_stmts):
+
+    for s in reversed(covering_stmts):
         if isinstance(s, LoopIR.WindowStmt):
             live_vars[s.lhs] = s.rhs.type
         elif isinstance(s, LoopIR.Alloc):
@@ -73,15 +69,24 @@ def DoReplace(subproc, block_cursor):
             live_vars = live_vars.new_child()
             live_vars[s.iter] = T.index
 
+    return live_vars
+
+
+def DoReplace(subproc, block_cursor):
+    n_stmts = len(subproc.body)
+    if len(block_cursor) < n_stmts:
+        raise SchedulingError("Not enough statements to match")
+
     # prevent name clashes between the statement block and sub-proc
     temp_subproc = Alpha_Rename(subproc).result()
+    stmts = [c._node for c in block_cursor[:n_stmts]]
+    live_vars = Get_Live_Variables(block_cursor[0])
     new_args = Unification(temp_subproc, stmts, live_vars).result()
 
     # but don't use a different LoopIR.proc for the callsite itself
     new_call = LoopIR.Call(subproc, new_args, None, stmts[0].srcinfo)
 
     ir, fwd = block_cursor._replace([new_call])
-
     Check_Aliasing(ir)
     return ir, fwd
 
