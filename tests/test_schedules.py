@@ -1933,6 +1933,18 @@ def test_simplify_index_div5(golden):
     assert str(bar) == golden
 
 
+def test_simplify_index_div6(golden):
+    @proc
+    def bar(N: size):
+        for i in seq(0, N):
+            for j in seq(0, 4):
+                if (i * 4 + j) / 16 > 0:
+                    pass
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
 def test_simplify_index_div_fail(golden):
     @proc
     def bar(N: size, x: R[1 + N]):
