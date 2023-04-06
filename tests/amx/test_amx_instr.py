@@ -500,6 +500,7 @@ def matmul_i8():
 
     amx = stage_mem(amx, "for ii in _:_", "A[16*io:16*io+16, 64*ko:64*ko+64]", "Atile")
     amx = replace(amx, "for i0 in _:_", ld_i8)
+    print(amx)
     amx = stage_mem(amx, "for ii in _:_", "B[16*ko:16*ko+16, 64*jo:64*jo+64]", "Btile")
     amx = replace(amx, "for i0 in _:_", ld_i8)
     amx = stage_mem(amx, "for ko in _:_", "C[16*io:16*io+16, 16*jo:16*jo+16]", "Ctile")

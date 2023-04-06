@@ -12,6 +12,8 @@ from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
 from .new_eff import Check_Aliasing
+from .effectcheck import InferEffects
+import exo.internal_cursors as ic
 
 
 def _get_smt_solver():
@@ -38,88 +40,50 @@ class UnificationError(Exception):
         return self._err_msg
 
 
-class DoReplace(LoopIR_Rewrite):
-    def __init__(self, subproc, stmt_block):
-        # ensure that subproc and stmt_block match in # of statements
-        n_stmts = len(subproc.body)
-        if len(stmt_block) < n_stmts:
-            raise SchedulingError("Not enough statements to match")
-        stmt_block = stmt_block[:n_stmts]
+def DoReplace(subproc, block_cursor):
+    n_stmts = len(subproc.body)
+    if len(block_cursor) < n_stmts:
+        raise SchedulingError("Not enough statements to match")
 
-        self.subproc = subproc
-        self.target_block = stmt_block
-        self.live_vars = ChainMap()
+    stmts = [c._node for c in block_cursor[:n_stmts]]
 
-    def map_proc(self, p):
-        if p := super().map_proc(p):
-            Check_Aliasing(p)
-        return p
+    c = block_cursor[0]
+    prior_stmts = []
+    while True:
+        try:
+            c = c.prev()
+        except ic.InvalidCursorError:
+            c = c.parent()
+            if c == c.root():
+                break
+        prior_stmts.append(c._node)
 
-    def push(self):
-        self.live_vars = self.live_vars.new_child()
-
-    def pop(self):
-        self.live_vars = self.live_vars.parents
-
-    def map_fnarg(self, fa):
-        self.live_vars[fa.name] = fa.type
-        return super().map_fnarg(fa)
-
-    def map_s(self, s):
-        # For all leaf-statements (containing no sub-statements),
-        # just return the original statement.  Bind variables when
-        # necessary, and then for scoped blocks, manage scope and recursion
+    live_vars = ChainMap()
+    proc = block_cursor.get_root()
+    for arg in proc.args:
+        live_vars[arg.name] = arg.type
+    for s in reversed(prior_stmts):
         if isinstance(s, LoopIR.WindowStmt):
-            self.live_vars[s.lhs] = s.rhs.type
+            live_vars[s.lhs] = s.rhs.type
         elif isinstance(s, LoopIR.Alloc):
-            self.live_vars[s.name] = s.type
+            live_vars[s.name] = s.type
         elif isinstance(s, LoopIR.If):
-            self.push()
-            body = self.map_stmts(s.body)
-            self.pop()
-            self.push()
-            orelse = self.map_stmts(s.orelse)
-            self.pop()
-
-            if body or orelse:
-                return [s.update(body=body or s.body, orelse=orelse or s.orelse)]
-
+            live_vars = live_vars.new_child()
         elif isinstance(s, LoopIR.Seq):
-            self.push()
-            self.live_vars[s.iter] = T.index
-            body = self.map_stmts(s.body)
-            self.pop()
+            live_vars = live_vars.new_child()
+            live_vars[s.iter] = T.index
 
-            if body:
-                return [s.update(body=body)]
+    # prevent name clashes between the statement block and sub-proc
+    temp_subproc = Alpha_Rename(subproc).result()
+    new_args = Unification(temp_subproc, stmts, live_vars).result()
 
-        return None
+    # but don't use a different LoopIR.proc for the callsite itself
+    new_call = LoopIR.Call(subproc, new_args, None, stmts[0].srcinfo)
 
-    def map_stmts(self, stmts):
-        # see if we can find the target block in this block
-        n_stmts = len(self.target_block)
-        match_i = None
-        for i, s in enumerate(stmts):
-            if s == self.target_block[0]:
-                if stmts[i : i + n_stmts] == self.target_block:
-                    match_i = i
-                    break
+    ir, fwd = block_cursor._replace([new_call])
 
-        if match_i is None:
-            return super().map_stmts(stmts)
-        else:  # process the match
-            prefix_stmts = super().apply_stmts(stmts[:match_i])
-            suffix_stmts = stmts[match_i + n_stmts :]
-            stmts = stmts[match_i : match_i + n_stmts]
-
-            # prevent name clashes between the statement block and sub-proc
-            subproc = Alpha_Rename(self.subproc).result()
-            new_args = Unification(subproc, stmts, self.live_vars).result()
-
-            # but don't use a different LoopIR.proc for the callsite itself
-            new_call = LoopIR.Call(self.subproc, new_args, None, stmts[0].srcinfo)
-
-            return prefix_stmts + [new_call] + suffix_stmts
+    Check_Aliasing(ir)
+    return ir, fwd
 
 
 # --------------------------------------------------------------------------- #
