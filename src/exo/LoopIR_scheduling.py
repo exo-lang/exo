@@ -1001,124 +1001,81 @@ def DoCommuteExpr(expr_cursors):
     return _fixup_effects(ir, fwd)
 
 
-class DoBindExpr(Cursor_Rewrite):
-    def __init__(self, proc_cursor, new_name, expr_cursors, cse=False):
-        self.exprs = [e._node for e in expr_cursors]
-        assert all(isinstance(expr, LoopIR.expr) for expr in self.exprs)
-        assert all(expr.type.is_numeric() for expr in self.exprs)
-        assert self.exprs
-        self.exprs = self.exprs if cse else [self.exprs[0]]
+def get_enclosing_stmt_cursor(c):
+    while isinstance(c._node, LoopIR.expr):
+        c = c.parent()
+    assert isinstance(c._node, LoopIR.stmt)
+    return c
 
-        self.new_name = Sym(new_name)
-        self.expr_reads = set(sum([get_reads_of_expr(e) for e in self.exprs], []))
-        self.use_cse = cse
-        self.found_expr = None
-        self.placed_alloc = False
-        self.sub_done = False
-        self.found_write = False
 
-        super().__init__(proc_cursor)
+def less(c1, c2):
+    p1, p2 = c1._path, c2._path
+    for i in range(min(len(p1), len(p2))):
+        if p1[i] < p2[i]:
+            return True
+        elif p1[i] > p2[i]:
+            return False
+    return len(p1) < len(p2)
 
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-        Check_Aliasing(self.proc)
 
-    def process_block(self, block):
-        if self.sub_done:
-            return block
+def DoBindExpr(new_name, expr_cursors, cse=False):
+    assert expr_cursors
 
-        new_block = []
-        is_alloc_block = False
+    if not cse:
+        expr_cursors = expr_cursors[0:1]
 
-        is_updated = False
+    expr = expr_cursors[0]._node
+    assert isinstance(expr, LoopIR.expr)
+    assert expr.type.is_numeric()
 
-        for _stmt in block:
-            stmt = self.map_s(_stmt)
-            if stmt is not None:
-                is_updated = True
-            else:
-                stmt = [_stmt._node]
+    expr_reads = [name for (name, typ) in get_reads_of_expr(expr)]
+    # TODO: dirty hack. need real CSE-equality (i.e. modulo srcinfo)
+    expr_cursors = [c for c in expr_cursors if str(c._node) == str(expr)]
 
-            if self.found_expr and not self.placed_alloc:
-                self.placed_alloc = True
-                is_alloc_block = True
-                alloc = LoopIR.Alloc(
-                    self.new_name, T.R, None, None, self.found_expr.srcinfo
-                )
-                # TODO Fix Assign, probably wrong
-                assign = LoopIR.Assign(
-                    self.new_name,
-                    T.R,
-                    None,
-                    [],
-                    self.found_expr,
-                    None,
-                    self.found_expr.srcinfo,
-                )
-                new_block.extend([alloc, assign])
+    init_c = get_enclosing_stmt_cursor(expr_cursors[0])
 
-            new_block.extend(stmt)
+    new_name = Sym(new_name)
+    alloc_s = LoopIR.Alloc(new_name, T.R, None, None, expr.srcinfo)
+    assign_s = LoopIR.Assign(new_name, T.R, None, [], expr, None, expr.srcinfo)
+    ir, fwd = init_c.before()._insert([alloc_s, assign_s])
 
-        # If this is the block containing the new alloc, stop substituting
-        if is_alloc_block:
-            self.sub_done = True
-
-        if is_updated or is_alloc_block:
-            return new_block
-
-        return None
-
-    def map_s(self, sc):
-        s = sc._node
-        if self.found_write:
-            return None
-
-        if self.sub_done:
-            return super().map_s(sc)
-
-        if isinstance(s, LoopIR.Seq):
-            body = self.process_block(sc.body())
-            if body is None:
-                return None
-            else:
-                return [s.update(body=body)]
-
-        if isinstance(s, LoopIR.If):
-            # TODO: our CSE here is very conservative. It won't look for
-            #  matches between the then and else branches; in other words,
-            #  it is restricted to a single basic block.
-            if_then = self.process_block(sc.body())
-            if_else = self.process_block(sc.orelse())
-            if (if_then is not None) or (if_else is not None):
-                return [s.update(body=if_then or s.body, orelse=if_else or s.orelse)]
-            else:
-                return None
-
-        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            e = self.exprs[0]
-            new_rhs = self.map_e(s.rhs)
-
-            # terminate CSE if the expression is written to
-            if self.found_expr and self.use_cse:
-                for (name, type) in self.expr_reads:
-                    if s.name == name and s.type == type:
-                        self.found_write = True
-
-            if new_rhs is not None:
-                return [s.update(rhs=new_rhs)]
-            return None
-
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        if e in self.exprs and not self.sub_done:
-            if not self.found_expr:
-                # TODO: dirty hack. need real CSE-equality (i.e. modulo srcinfo)
-                self.exprs = [x for x in self.exprs if str(e) == str(x)]
-            self.found_expr = e
-            return LoopIR.Read(self.new_name, [], e.type, e.srcinfo)
+    new_read = LoopIR.Read(new_name, [], expr.type, expr.srcinfo)
+    first_write_c = None
+    for c in init_c.as_block().expand(lo=0):
+        for block in match_pattern(c, "_ = _"):
+            assert len(block) == 1
+            sc = block[0]
+            if sc._node.name in expr_reads:
+                first_write_c = sc
+                break
+        for block in match_pattern(c, "_ += _"):
+            assert len(block) == 1
+            sc = block[0]
+            if sc._node.name in expr_reads:
+                if first_write_c:
+                    if less(sc, first_write_c):
+                        first_write_c = sc
+                else:
+                    first_write_c = sc
+                break
+        if first_write_c:
+            while expr_cursors and (
+                less(expr_cursors[0], first_write_c)
+                or first_write_c.is_ancestor_of(expr_cursors[0])
+            ):
+                ir, fwd_repl = fwd(expr_cursors[0])._replace(new_read)
+                fwd = _compose(fwd_repl, fwd)
+                expr_cursors.pop(0)
+            break
         else:
-            return super().map_e(e)
+            while expr_cursors and c.is_ancestor_of(expr_cursors[0]):
+                ir, fwd_repl = fwd(expr_cursors[0])._replace(new_read)
+                fwd = _compose(fwd_repl, fwd)
+                expr_cursors.pop(0)
+
+    ir, fwd = _fixup_effects(ir, fwd)
+    Check_Aliasing(ir)
+    return ir, fwd
 
 
 def DoLiftScope(inner_c):
