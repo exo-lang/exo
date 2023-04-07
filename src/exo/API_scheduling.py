@@ -861,8 +861,8 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
             "can be bound by bind_expr()"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoBindExpr(proc_c, new_name, exprs, cse).result()
+    ir, fwd = scheduling.DoBindExpr(new_name, exprs, cse)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -1399,19 +1399,10 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 
     """
     buf_name, w_exprs = win_expr
-    stmt_start = block_cursor[0]._impl
-    stmt_end = block_cursor[-1]._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoStageMem(
-        proc_c,
-        buf_name,
-        new_buf_name,
-        w_exprs,
-        stmt_start,
-        stmt_end,
-        use_accum_zero=accum,
-    ).result()
+    ir, fwd = scheduling.DoStageMem(
+        block_cursor._impl, buf_name, w_exprs, new_buf_name, use_accum_zero=accum
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
