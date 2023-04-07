@@ -854,7 +854,7 @@ def test_bind_lhs(golden):
         for ii in seq(0, 1):
             for jj in seq(0, 1):
                 for kk in seq(0, 16):
-                    out[ii, jj, kk] = out[ii, jj, kk] + inp[ii, jj, kk]
+                    out[ii, jj, kk] += out[ii, jj, kk] + inp[ii, jj, kk]
                     out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
 
     myfunc_cpu = bind_expr(myfunc_cpu, "inp[_]", "inp_ram", cse=True)
