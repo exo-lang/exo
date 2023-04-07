@@ -861,8 +861,8 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
             "can be bound by bind_expr()"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoBindExpr(proc_c, new_name, exprs, cse).result()
+    ir, fwd = scheduling.DoBindExpr(new_name, exprs, cse)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
