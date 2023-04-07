@@ -908,15 +908,14 @@ def replace(proc, block_cursor, subproc, quiet=False):
         quiet           - (bool) control how much this operation prints
                           out debug info
     """
-    stmts = [sc._impl._node for sc in block_cursor]
     try:
-        p = DoReplace(subproc._loopir_proc, stmts).apply_proc(proc._loopir_proc)
-        return Procedure(p, _provenance_eq_Procedure=proc)
+        ir, fwd = DoReplace(subproc._loopir_proc, block_cursor._impl)
+        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     except UnificationError:
         if quiet:
             raise
         print(f"Failed to unify the following:\nSubproc:\n{subproc}Statements:\n")
-        [print(s) for s in stmts]
+        [print(sc._impl._node) for sc in block_cursor]
         raise
 
 
