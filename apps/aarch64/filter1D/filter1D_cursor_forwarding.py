@@ -24,6 +24,8 @@ sum_c = filter1D.find("sum:_")
 filter1D = expand_dim(filter1D, sum_c, "4", "outXi")
 filter1D = lift_alloc(filter1D, sum_c)
 
+print(filter1D.forward(sum_c))
+
 # TODO: We should probably have line number in pretty printing
 
 filter1D = fission(filter1D, filter1D.forward(sum_c.next()).after())
