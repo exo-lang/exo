@@ -235,7 +235,7 @@ def _compose(f, g):
     return lambda x: f(g(x))
 
 
-def _replace_helper(c, c_repl, attrs):
+def _replace_helper(c, c_repl, attrs=None):
     if attrs:
         ir, fwd_s = c.get_root(), lambda x: x
         for attr in attrs:
@@ -1063,13 +1063,13 @@ def DoBindExpr(new_name, expr_cursors, cse=False):
                 less(expr_cursors[0], first_write_c)
                 or first_write_c.is_ancestor_of(expr_cursors[0])
             ):
-                ir, fwd_repl = fwd(expr_cursors[0])._replace(new_read)
+                ir, fwd_repl = _replace_helper(fwd(expr_cursors[0]), new_read)
                 fwd = _compose(fwd_repl, fwd)
                 expr_cursors.pop(0)
             break
         else:
             while expr_cursors and c.is_ancestor_of(expr_cursors[0]):
-                ir, fwd_repl = fwd(expr_cursors[0])._replace(new_read)
+                ir, fwd_repl = _replace_helper(fwd(expr_cursors[0]), new_read)
                 fwd = _compose(fwd_repl, fwd)
                 expr_cursors.pop(0)
 
