@@ -2757,6 +2757,45 @@ class _DoNormalize(Cursor_Rewrite):
             new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
             return LoopIR.BinOp("/", new_lhs, e.rhs, e.type, e.srcinfo)
 
+        def division_simplification_and_try_spliting_denominator(e):
+            def still_division(e):
+                return isinstance(e, LoopIR.BinOp) and e.op == "/"
+
+            e = division_simplification(e)
+
+            if not still_division(e):
+                return e
+
+            d = e.rhs.val
+            lhs = e.lhs
+
+            divisor = 2
+            while divisor * divisor <= d:
+                if d % divisor == 0:
+                    new_e = LoopIR.BinOp(
+                        "/", lhs, e.rhs.update(val=divisor), e.type, e.srcinfo
+                    )
+                    new_e = division_simplification(new_e)
+                    if not still_division(new_e):
+                        return LoopIR.BinOp(
+                            "/",
+                            new_e,
+                            e.rhs.update(val=d // divisor),
+                            e.type,
+                            e.srcinfo,
+                        )
+                    new_e = LoopIR.BinOp(
+                        "/", lhs, e.rhs.update(val=d // divisor), e.type, e.srcinfo
+                    )
+                    new_e = division_simplification(new_e)
+                    if not still_division(new_e):
+                        return LoopIR.BinOp(
+                            "/", new_e, e.rhs.update(val=divisor), e.type, e.srcinfo
+                        )
+                divisor += 1
+
+            return e
+
         def modulo_simplification(e):
             constant, normalization_list = get_normalized_expr(e.lhs)
 
@@ -2823,7 +2862,7 @@ class _DoNormalize(Cursor_Rewrite):
                 return e
 
             if e.op == "/":
-                return division_simplification(e)
+                return division_simplification_and_try_spliting_denominator(e)
 
             return modulo_simplification(e)
 
