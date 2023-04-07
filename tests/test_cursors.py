@@ -83,7 +83,7 @@ def test_basic_forwarding(golden):
     assert str(p) == golden
 
 
-def test_basic_forwarding2():
+def test_basic_forwarding2(golden):
     @proc
     def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
         for o in seq(0, ow):
@@ -100,10 +100,10 @@ def test_basic_forwarding2():
     filter1D = expand_dim(filter1D, sum_c, "4", "outXi")
     filter1D = lift_alloc(filter1D, sum_c)
 
-    print(filter1D)
+    assert str(filter1D.forward(sum_c)) == golden
 
 
-def test_basic_forwarding3():
+def test_basic_forwarding3(golden):
     @proc
     def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
         for o in seq(0, ow):
@@ -119,6 +119,8 @@ def test_basic_forwarding3():
 
     filter1D = expand_dim(filter1D, sum_c, "4", "outXi")
     filter1D = lift_alloc(filter1D, filter1D.forward(sum_c))
+
+    assert str(filter1D.forward(sum_c)) == golden
 
 
 # Need some more tests here...
