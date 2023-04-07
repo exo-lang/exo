@@ -121,4 +121,16 @@ def test_basic_forwarding3():
     filter1D = lift_alloc(filter1D, filter1D.forward(sum_c))
 
 
+def test_bind_expr_forwarding(golden):
+    @proc
+    def scal(n: size, alpha: R, x: [R][n]):
+        for i in seq(0, n):
+            x[i] = alpha * x[i]
+
+    stmt = scal.find("x[_] = _")
+    scal1 = divide_loop(scal, "for i in _:_", 8, ("io", "ii"), tail="cut")
+    scal2 = bind_expr(scal1, [stmt.rhs().lhs()], "alphaReg")
+    assert str(scal2.forward(stmt)._impl.get_root()) == golden
+
+
 # Need some more tests here...

@@ -57,6 +57,9 @@ class CursorArgumentProcessor(ArgumentProcessor):
         p = all_args["proc"]
         if isinstance(cur, PC.Cursor):
             cur = p.forward(cur)
+        elif isinstance(cur, list):
+            for i in range(len(cur)):
+                cur[i] = p.forward(cur[i])
         return self._cursor_call(cur, all_args)
 
     def _cursor_call(self, cur, all_args):
