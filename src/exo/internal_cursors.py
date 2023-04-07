@@ -216,6 +216,9 @@ class Cursor(ABC):
 
         def forward(cursor: Cursor) -> Cursor:
             if cursor._root != orig_root:
+                # NOTE: These seem to output the same loopir...
+                print("cursor root", cursor._root)
+                print("orig root", orig_root)
                 raise InvalidCursorError("cannot forward from unknown root")
 
             if not isinstance(cursor, Node):
