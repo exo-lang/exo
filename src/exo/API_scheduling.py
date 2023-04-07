@@ -861,8 +861,8 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
             "can be bound by bind_expr()"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoBindExpr(proc_c, new_name, exprs, cse).result()
+    ir, fwd = scheduling.DoBindExpr(new_name, exprs, cse)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -908,15 +908,14 @@ def replace(proc, block_cursor, subproc, quiet=False):
         quiet           - (bool) control how much this operation prints
                           out debug info
     """
-    stmts = [sc._impl._node for sc in block_cursor]
     try:
-        p = DoReplace(subproc._loopir_proc, stmts).apply_proc(proc._loopir_proc)
-        return Procedure(p, _provenance_eq_Procedure=proc)
+        ir, fwd = DoReplace(subproc._loopir_proc, block_cursor._impl)
+        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     except UnificationError:
         if quiet:
             raise
         print(f"Failed to unify the following:\nSubproc:\n{subproc}Statements:\n")
-        [print(s) for s in stmts]
+        [print(sc._impl._node) for sc in block_cursor]
         raise
 
 
@@ -1399,19 +1398,10 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 
     """
     buf_name, w_exprs = win_expr
-    stmt_start = block_cursor[0]._impl
-    stmt_end = block_cursor[-1]._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoStageMem(
-        proc_c,
-        buf_name,
-        new_buf_name,
-        w_exprs,
-        stmt_start,
-        stmt_end,
-        use_accum_zero=accum,
-    ).result()
+    ir, fwd = scheduling.DoStageMem(
+        block_cursor._impl, buf_name, w_exprs, new_buf_name, use_accum_zero=accum
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -1467,17 +1457,16 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         raise ValueError("why are you trying to split by 1?")
 
     stmt = loop_cursor._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoSplit(
-        proc_c,
+    ir, fwd = scheduling.DoSplit(
         stmt,
         quot=div_const,
         hi=new_iters[0],
         lo=new_iters[1],
         tail=tail,
         perfect=perfect,
-    ).result()
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([NestedForSeqCursorA, NameA])

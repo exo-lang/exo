@@ -340,11 +340,14 @@ class Block(Cursor):
         full_block = self.parent()._child_block(attr)
         _, full_range = full_block._path[-1]
         if lo is None:
-            return full_block
-
-        lo = _range.start - lo
-        lo = lo if lo >= 0 else 0
-        hi = _range.stop + hi
+            lo = 0
+        else:
+            lo = _range.start - lo
+            lo = lo if lo >= 0 else 0
+        if hi is None:
+            hi = len(full_range)
+        else:
+            hi = _range.stop + hi
         new_range = full_range[lo:hi]
 
         return Block(self._root, self._path[:-1] + [(attr, new_range)])
@@ -362,7 +365,7 @@ class Block(Cursor):
         code.
         """
         assert self._path
-        assert len(self) > 0
+        # assert len(self) > 0
         assert isinstance(nodes, list)
 
         def update(parent):
@@ -669,11 +672,16 @@ class Node(Cursor):
         # Expressions
         elif isinstance(n, LoopIR.LoopIR.Read):
             yield from self._children_from_attrs(n, "idx")
+        elif isinstance(n, LoopIR.LoopIR.WindowExpr):
+            yield from self._children_from_attrs(n, "idx")
+        elif isinstance(n, LoopIR.LoopIR.Interval):
+            yield from self._children_from_attrs(n, "lo", "hi")
+        elif isinstance(n, LoopIR.LoopIR.Point):
+            yield from self._children_from_attrs(n, "pt")
         elif isinstance(
             n,
             (
                 LoopIR.LoopIR.Const,
-                LoopIR.LoopIR.WindowExpr,
                 LoopIR.LoopIR.StrideExpr,
                 LoopIR.LoopIR.ReadConfig,
             ),
@@ -722,9 +730,7 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
 
     def get_index(self):
-        attr, i = self._path[-1]
-        if i is None:
-            raise InvalidCursorError("node is not inside a block")
+        _, i = self._path[-1]
         return i
 
     def is_ancestor_of(self, other: Cursor) -> bool:

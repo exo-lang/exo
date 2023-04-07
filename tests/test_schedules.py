@@ -854,7 +854,7 @@ def test_bind_lhs(golden):
         for ii in seq(0, 1):
             for jj in seq(0, 1):
                 for kk in seq(0, 16):
-                    out[ii, jj, kk] = out[ii, jj, kk] + inp[ii, jj, kk]
+                    out[ii, jj, kk] += out[ii, jj, kk] + inp[ii, jj, kk]
                     out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
 
     myfunc_cpu = bind_expr(myfunc_cpu, "inp[_]", "inp_ram", cse=True)
@@ -870,6 +870,22 @@ def test_simple_divide_loop(golden):
             tmp[i] = A[i]
 
     bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="guard")
+    assert str(bar) == golden
+
+
+def test_divide_loop_cut_and_guard(golden):
+    @proc
+    def foo(x: i8[1]):
+        pass
+
+    @proc
+    def bar(n: size, A: i8[n]):
+        tmp: i8[n]
+        for i in seq(0, n):
+            tmp[i] = A[i]
+            foo(tmp[i : i + 1])
+
+    bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="cut_and_guard")
     assert str(bar) == golden
 
 
@@ -1912,6 +1928,18 @@ def test_simplify_index_div5(golden):
         for io in seq(0, N / 4):
             for ii in seq(0, 4):
                 x[(io * 5 + ii + 1) / 5] = 1.0
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
+def test_simplify_index_div6(golden):
+    @proc
+    def bar(N: size):
+        for i in seq(0, N):
+            for j in seq(0, 4):
+                if (i * 4 + j) / 16 > 0:
+                    pass
 
     bar = simplify(bar)
     assert str(bar) == golden

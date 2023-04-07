@@ -1,0 +1,64 @@
+name: BLAS
+on:
+  push:
+    branches: [ 'master' ]
+  pull_request:
+jobs:
+  testing:
+    strategy:
+      matrix:
+        runner: [ ubuntu-latest ]
+        include:
+          - runner: ubuntu-latest
+            CC: clang-13
+            CXX: clang++-13
+            CLANG: clang-13
+    env:
+      CC: ${{matrix.CC}}
+      CXX: ${{matrix.CXX}}
+      BUILD_TYPE: Release
+      CTEST_OUTPUT_ON_FAILURE: 1
+    runs-on: ${{matrix.runner}}
+    steps:
+      - name: Checkout sources (including submodules)
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+
+      - name: Setup Python environment
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install -U pip wheel
+          python -m pip install tox==3.24.5
+
+      - name: Install Exo
+        run: cd ${{github.workspace}}; python -m pip install build ; python -m build . ; python -m pip install dist/*.whl
+
+      - name: Install Ninja and git
+        run: sudo apt install ninja-build git
+
+      - name: Install Google benchmark
+        run: git clone https://github.com/google/benchmark; cmake -S benchmark -B benchmark/build -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_TESTING=NO ; cmake --build benchmark/build; cmake --install benchmark/build --prefix ~/.local
+
+      - name: Checkout BLAS repo
+        uses: actions/checkout@v3
+        with:
+          repository: exo-lang/BLAS
+          token: ${{ secrets.BLAS_GITHUB_TOKEN }}
+
+      - name: Configure CMake
+        run: cmake -B BLAS/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} --preset avx2
+
+      - name: Build
+        run: cmake --build BLAS/build --config ${{env.BUILD_TYPE}}
+
+      - name: Test
+        run: ctest --test-dir BLAS/build -C ${{env.BUILD_TYPE}} -R correctness
+
+
+
