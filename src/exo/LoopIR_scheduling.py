@@ -1457,13 +1457,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         s = c._node
         return {"idx": [indexing] + s.idx}
 
-    c = alloc_cursor
-    while True:
-        try:
-            c = c.next()
-        except ic.InvalidCursorError as e:
-            break
-
+    for c in alloc_cursor.as_block().expand(lo=0):
         ir, fwd = _replace_pats(
             ir, fwd, c, f"{alloc_s.name}[_]", mk_read, attrs=["idx"]
         )
@@ -1625,13 +1619,7 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         return {"idx": remap_idx(s.idx)}
 
     # TODO: add better iteration primitive
-    c = alloc_cursor
-    while True:
-        try:
-            c = c.next()
-        except ic.InvalidCursorError:
-            break
-
+    for c in alloc_cursor.as_block().expand(lo=0):
         ir, fwd = _replace_pats(
             ir, fwd, c, f"{alloc_s.name}[_]", mk_read, attrs=["idx"]
         )
@@ -1703,13 +1691,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
         s = c._node
         return {"idx": remap_idx(s.idx)}
 
-    c = alloc_cursor
-    while True:
-        try:
-            c = c.next()
-        except ic.InvalidCursorError:
-            break
-
+    for c in alloc_cursor.as_block().expand(lo=0):
         ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
         ir, fwd = _replace_pats_stmts(
             ir, fwd, c, f"{alloc_s.name} = _", mk_write, attrs=["idx"]
@@ -3223,23 +3205,17 @@ def DoDataReuse(buf_cursor, rep_cursor):
 
     ir, fwd = rep_cursor._delete()
 
-    c = rep_cursor
-    while True:
-        try:
-            c = c.next()
-        except ic.InvalidCursorError:
-            break
+    def mk_read(c):
+        return {"name": buf_name}
 
-        def mk_read(c):
-            return {"name": buf_name}
+    def mk_write(c):
+        nonlocal first_assn
+        if first_assn:
+            first_assn = False
+            Check_IsDeadAfter(buf_cursor.get_root(), [c._node], buf_name, buf_dims)
+        return {"name": buf_name}
 
-        def mk_write(c):
-            nonlocal first_assn
-            if first_assn:
-                first_assn = False
-                Check_IsDeadAfter(buf_cursor.get_root(), [c._node], buf_name, buf_dims)
-            return {"name": buf_name}
-
+    for c in rep_cursor.as_block().expand(lo=0):
         ir, fwd = _replace_pats(ir, fwd, c, f"{rep_name}[_]", mk_read, attrs=["name"])
         ir, fwd = _replace_pats_stmts(
             ir, fwd, c, f"{rep_name} = _", mk_write, attrs=["name"]

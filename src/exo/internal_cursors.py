@@ -340,11 +340,14 @@ class Block(Cursor):
         full_block = self.parent()._child_block(attr)
         _, full_range = full_block._path[-1]
         if lo is None:
-            return full_block
-
-        lo = _range.start - lo
-        lo = lo if lo >= 0 else 0
-        hi = _range.stop + hi
+            lo = 0
+        else:
+            lo = _range.start - lo
+            lo = lo if lo >= 0 else 0
+        if hi is None:
+            hi = len(full_range)
+        else:
+            hi = _range.stop + hi
         new_range = full_range[lo:hi]
 
         return Block(self._root, self._path[:-1] + [(attr, new_range)])
