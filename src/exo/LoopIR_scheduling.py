@@ -832,23 +832,14 @@ def DoCallSwap(call_cursor, new_subproc):
     return ir, fwd, mod_cfg
 
 
-class DoInlineWindow(Cursor_Rewrite):
-    def __init__(self, proc_cursor, window_cursor):
-        self.win_stmt = window_cursor._node
-        assert isinstance(self.win_stmt, LoopIR.WindowStmt)
+def DoInlineWindow(window_cursor):
+    window_s = window_cursor._node
+    assert isinstance(window_s, LoopIR.WindowStmt)
 
-        super().__init__(proc_cursor)
+    ir, fwd = window_cursor._delete()
 
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
-
-    def calc_idx(self, idxs):
-        assert len(
-            [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
-        ) == len(idxs)
-
-        new_idxs = []
-        win_idx = self.win_stmt.rhs.idx
+    def calc_idx(idxs):
+        win_idx = window_s.rhs.idx
         idxs = idxs.copy()  # make function non-destructive to input
         assert len(idxs) == sum([isinstance(w, LoopIR.Interval) for w in win_idx])
 
@@ -876,9 +867,9 @@ class DoInlineWindow(Cursor_Rewrite):
 
     # used to offset the stride in order to account for
     # dimensions hidden due to window-point accesses
-    def calc_dim(self, dim):
+    def calc_dim(dim):
         assert dim < len(
-            [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
+            [w for w in window_s.rhs.idx if isinstance(w, LoopIR.Interval)]
         )
 
         # Because our goal here is to offset `dim` in the original
@@ -886,61 +877,52 @@ class DoInlineWindow(Cursor_Rewrite):
         # new_dim should essencially be:
         # `dim` + "number of LoopIR.Points in the windowing expression before the `dim` number of LoopIR.Interval"
         new_dim = 0
-        for w in self.win_stmt.rhs.idx:
+        for w in window_s.rhs.idx:
             if isinstance(w, LoopIR.Interval):
                 dim -= 1
             if dim == -1:
                 return new_dim
             new_dim += 1
 
-    def map_s(self, sc):
-        s = sc._node
-        # remove the windowing statement
-        if s is self.win_stmt:
-            return []
+    def mk_read(c):
+        rd = c._node
+        buf_name = window_s.rhs.name
 
-        # substitute the indexing at assignment and reduction statements
-        if (
-            isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
-            and self.win_stmt.lhs == s.name
-        ):
-            idxs = self.calc_idx(s.idx)
-            return [
-                type(s)(
-                    self.win_stmt.rhs.name, s.type, s.cast, idxs, s.rhs, None, s.srcinfo
-                )
-            ]
+        if isinstance(rd, LoopIR.WindowExpr):
+            new_idxs = calc_idx(rd.idx)
+            old_typ = window_s.rhs.type
+            new_typ = old_typ.update(src_buf=buf_name, idx=new_idxs)
+            return rd.update(name=buf_name, idx=new_idxs, type=new_typ)
+        elif isinstance(rd, LoopIR.Read):
+            new_idxs = calc_idx(rd.idx)
+            return rd.update(name=buf_name, idx=new_idxs)
 
-        return super().map_s(sc)
+    def mk_stride_expr(c):
+        e = c._node
+        dim = calc_dim(e.dim)
+        buf_name = window_s.rhs.name
+        return e.update(name=buf_name, dim=dim)
 
-    def map_e(self, e):
-        # etyp    = type(e)
-        win_name = self.win_stmt.lhs
-        buf_name = self.win_stmt.rhs.name
-        win_idx = self.win_stmt.rhs.idx
+    def mk_write(c):
+        s = c._node
+        idxs = calc_idx(s.idx)
+        return s.update(name=window_s.rhs.name, idx=idxs)
 
-        if isinstance(e, LoopIR.WindowExpr) and win_name == e.name:
-            new_idxs = self.calc_idx(e.idx)
+    c = window_cursor
+    while True:
+        try:
+            c = c.next()
+        except ic.InvalidCursorError:
+            break
 
-            # repair window type..
-            old_typ = self.win_stmt.rhs.type
-            new_type = LoopIR.WindowType(
-                old_typ.src_type, old_typ.as_tensor, buf_name, new_idxs
-            )
+        ir, fwd = _replace_pats(ir, fwd, c, f"{window_s.lhs}[_]", mk_read)
+        ir, fwd = _replace_pats(
+            ir, fwd, c, f"stride({window_s.lhs}, _)", mk_stride_expr
+        )
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{window_s.lhs} = _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{window_s.lhs} += _", mk_write)
 
-            return LoopIR.WindowExpr(
-                self.win_stmt.rhs.name, new_idxs, new_type, e.srcinfo
-            )
-
-        elif isinstance(e, LoopIR.Read) and win_name == e.name:
-            new_idxs = self.calc_idx(e.idx)
-            return LoopIR.Read(buf_name, new_idxs, e.type, e.srcinfo)
-
-        elif isinstance(e, LoopIR.StrideExpr) and win_name == e.name:
-            dim = self.calc_dim(e.dim)
-            return LoopIR.StrideExpr(buf_name, dim, e.type, e.srcinfo)
-
-        return super().map_e(e)
+    return _fixup_effects(ir, fwd)
 
 
 def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
@@ -3635,8 +3617,8 @@ __all__ = [
     "DoFissionLoops",
     "DoExtractMethod",
     "DoReorderStmt",  # done
+    "DoInlineWindow",  # done
     "DoConfigWrite",  # done
-    "DoInlineWindow",
     "DoInsertPass",  # done
     "DoDeletePass",
     "DoSimplify",
