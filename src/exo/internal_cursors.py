@@ -215,7 +215,12 @@ class Cursor(ABC):
         attr = edit_path[depth - 1][0]
 
         def forward(cursor: Cursor) -> Cursor:
-            if cursor._root != orig_root:
+            def as_loopir(c):
+                if not isinstance(c, LoopIR.LoopIR.proc):
+                    return c._loopir_proc
+                return c
+
+            if as_loopir(cursor._root) != as_loopir(orig_root):
                 raise InvalidCursorError("cannot forward from unknown root")
 
             if not isinstance(cursor, Node):
