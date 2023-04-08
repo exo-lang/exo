@@ -2673,9 +2673,15 @@ class _DoNormalize(Cursor_Rewrite):
         # TODO: dispatch to Z3 to reason about preds ranges
         for arg in proc_cursor._node.args:
             self.env[arg.name] = None
+
+        self.fwd = lambda x: x
+
         super().__init__(proc_cursor)
 
         self.proc = InferEffects(self.proc).result()
+
+    def result(self):
+        return super().result(), self.fwd
 
     def concat_map(self, op, lhs, rhs):
         if op == "+":
@@ -2902,6 +2908,76 @@ class _DoNormalize(Cursor_Rewrite):
 
         return super().map_e(e)
 
+    def super_map_s(self, sc):
+        s = sc._node
+        if isinstance(s, LoopIR.If):
+            new_cond = self.map_e(s.cond)
+            new_body = self.map_stmts(sc.body())
+            new_orelse = self.map_stmts(sc.orelse())
+            if any((new_cond, new_body is not None, new_orelse is not None)):
+                if new_cond:
+                    _, fwd_repl = self.fwd(sc)._child_node("cond")._replace(new_cond)
+                    self.fwd = _compose(fwd_repl, self.fwd)
+                return [
+                    s.update(
+                        cond=new_cond or s.cond,
+                        body=new_body or s.body,
+                        orelse=new_orelse or s.orelse,
+                    )
+                ]
+        elif isinstance(s, LoopIR.Seq):
+            new_hi = self.map_e(s.hi)
+            new_body = self.map_stmts(sc.body())
+            if any((new_hi, new_body is not None)):
+                if new_hi:
+                    _, fwd_repl = self.fwd(sc)._child_node("hi")._replace(new_hi)
+                    self.fwd = _compose(fwd_repl, self.fwd)
+                return [s.update(hi=new_hi or s.hi, body=new_body or s.body)]
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            new_type = self.map_t(s.type)
+            new_idx = self.map_exprs(s.idx)
+            new_rhs = self.map_e(s.rhs)
+            if any((new_type, new_idx, new_rhs)):
+                if new_type:
+                    _, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
+                    self.fwd = _compose(fwd_repl, self.fwd)
+                if new_idx:
+                    _, fwd_repl = self.fwd(sc)._child_block("idx")._replace(new_idx)
+                    self.fwd = _compose(fwd_repl, self.fwd)
+                if new_rhs:
+                    _, fwd_repl = self.fwd(sc)._child_node("rhs")._replace(new_rhs)
+                    self.fwd = _compose(fwd_repl, self.fwd)
+                return [
+                    s.update(
+                        type=new_type or s.type,
+                        idx=new_idx or s.idx,
+                        rhs=new_rhs or s.rhs,
+                    )
+                ]
+        elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
+            new_rhs = self.map_e(s.rhs)
+            if new_rhs:
+                _, fwd_repl = sc._child_node("rhs")._replace(new_rhs)
+                self.fwd = _compose(fwd_repl, self.fwd)
+                return [s.update(rhs=new_rhs)]
+        elif isinstance(s, LoopIR.Call):
+            new_args = self.map_exprs(s.args)
+            if new_args:
+                _, fwd_repl = self.fwd(sc)._child_block("args")._replace(new_args)
+                self.fwd = _compose(fwd_repl, self.fwd)
+                return [s.update(args=new_args)]
+        elif isinstance(s, LoopIR.Alloc):
+            new_type = self.map_t(s.type)
+            if new_type:
+                _, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
+                self.fwd = _compose(fwd_repl, self.fwd)
+                return [s.update(type=new_type)]
+        elif isinstance(s, LoopIR.Pass):
+            return None
+        else:
+            raise NotImplementedError(f"bad case {type(s)}")
+        return None
+
     def map_s(self, sc):
         s = sc._node
         if isinstance(s, LoopIR.Seq):
@@ -2921,21 +2997,23 @@ class _DoNormalize(Cursor_Rewrite):
             else:
                 self.env[s.iter] = None
 
-            new_s = super().map_s(sc)
+            new_s = self.super_map_s(sc)
             self.env = self.env.parents
             return new_s
 
-        return super().map_s(sc)
+        return self.super_map_s(sc)
 
 
 class DoSimplify(Cursor_Rewrite):
     def __init__(self, proc_cursor):
         self.facts = ChainMap()
-        new_procedure = _DoNormalize(proc_cursor).result()
-        self.proc_cursor = ic.Cursor.create(new_procedure)
+        _, fwd = _DoNormalize(proc_cursor).result()
+        self.proc_cursor = fwd(proc_cursor)
+        self.fwd = lambda x: x
 
         super().__init__(self.proc_cursor)
 
+        self.fwd = _compose(self.fwd, fwd)
         self.proc = InferEffects(self.proc).result()
 
     def cfold(self, op, lhs, rhs):
@@ -3109,18 +3187,29 @@ class DoSimplify(Cursor_Rewrite):
             return self.facts.get(str(e))
         return None
 
+    def result(self, mod_config=None):
+        ir, fwd = _fixup_effects(self.proc, self.fwd)
+        return ir, fwd
+
     def map_s(self, sc):
         s = sc._node
         if isinstance(s, LoopIR.If):
             cond = self.map_e(s.cond)
-
             safe_cond = cond or s.cond
 
             # If constant true or false, then drop the branch
             if isinstance(safe_cond, LoopIR.Const):
                 if safe_cond.val:
+                    _, fwd_move = self.fwd(sc).body()._move(self.fwd(sc).before())
+                    self.fwd = _compose(fwd_move, self.fwd)
+                    _, fwd_del = self.fwd(sc)._delete()
+                    self.fwd = _compose(fwd_del, self.fwd)
                     return super().map_stmts(sc.body())
                 else:
+                    _, fwd_move = self.fwd(sc).orelse()._move(self.fwd(sc).before())
+                    self.fwd = _compose(fwd_move, self.fwd)
+                    _, fwd_del = self.fwd(sc)._delete()
+                    self.fwd = _compose(fwd_del, self.fwd)
                     return super().map_stmts(sc.orelse())
 
             # Try to use the condition while simplifying body
@@ -3135,14 +3224,15 @@ class DoSimplify(Cursor_Rewrite):
             orelse = self.map_stmts(sc.orelse())
             self.facts = self.facts.parents
 
-            eff = self.map_eff(s.eff)
-            if cond or body or orelse or eff:
+            if cond or body is not None or orelse is not None:
+                if cond:
+                    _, fwd_repl = self.fwd(sc)._child_node("cond")._replace(cond)
+                    self.fwd = _compose(fwd_repl, self.fwd)
                 return [
                     s.update(
                         cond=safe_cond,
                         body=body or s.body,
                         orelse=orelse or s.orelse,
-                        eff=eff or s.eff,
                     )
                 ]
             return None
@@ -3151,20 +3241,70 @@ class DoSimplify(Cursor_Rewrite):
 
             # Delete the loop if it would not run at all
             if isinstance(hi, LoopIR.Const) and hi.val == 0:
+                _, fwd_del = self.fwd(sc)._delete()
+                self.fwd = _compose(fwd_del, self.fwd)
                 return []
 
             # Delete the loop if it would have an empty body
             body = self.map_stmts(sc.body())
             if body == []:
+                _, fwd_del = self.fwd(sc)._delete()
+                self.fwd = _compose(fwd_del, self.fwd)
                 return []
 
-            eff = self.map_eff(s.eff)
-            if hi or body or eff:
-                return [s.update(hi=hi or s.hi, body=body or s.body, eff=eff or s.eff)]
+            if hi or body is not None:
+                if hi:
+                    _, fwd_repl = self.fwd(sc)._child_node("hi")._replace(hi)
+                    self.fwd = _compose(fwd_repl, self.fwd)
+                return [s.update(hi=hi or s.hi, body=body or s.body)]
 
             return None
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            new_type = self.map_t(s.type)
+            new_idx = self.map_exprs(s.idx)
+            new_rhs = self.map_e(s.rhs)
+            if any((new_type, new_idx, new_rhs)):
+                if new_type:
+                    _, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
+                    self.fwd = _compose(fwd_repl, self.fwd)
+                if new_idx:
+                    _, fwd_repl = self.fwd(sc)._child_block("idx")._replace(new_idx)
+                    self.fwd = _compose(fwd_repl, self.fwd)
+                if new_rhs:
+                    _, fwd_repl = self.fwd(sc)._child_node("rhs")._replace(new_rhs)
+                    self.fwd = _compose(fwd_repl, self.fwd)
+                return [
+                    s.update(
+                        type=new_type or s.type,
+                        idx=new_idx or s.idx,
+                        rhs=new_rhs or s.rhs,
+                    )
+                ]
+        elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
+            new_rhs = self.map_e(s.rhs)
+            if new_rhs:
+                _, fwd_repl = sc._child_node("rhs")._replace(new_rhs)
+                self.fwd = _compose(fwd_repl, self.fwd)
+                return [s.update(rhs=new_rhs)]
+        elif isinstance(s, LoopIR.Call):
+            new_args = self.map_exprs(s.args)
+            if new_args:
+                _, fwd_repl = self.fwd(sc)._child_block("args")._replace(new_args)
+                self.fwd = _compose(fwd_repl, self.fwd)
+                return [s.update(args=new_args)]
+        elif isinstance(s, LoopIR.Alloc):
+            new_type = self.map_t(s.type)
+            if new_type:
+                print("sc root", sc.get_root())
+                print("sc", sc._node)
+                _, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
+                self.fwd = _compose(fwd_repl, self.fwd)
+                return [s.update(type=new_type)]
+        elif isinstance(s, LoopIR.Pass):
+            return None
         else:
-            return super().map_s(sc)
+            raise NotImplementedError(f"bad case {type(s)}")
+        return None
 
 
 class DoAssertIf(Cursor_Rewrite):
