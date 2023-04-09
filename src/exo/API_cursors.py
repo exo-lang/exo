@@ -20,6 +20,7 @@ from .prelude import Sym
 
 # expose this particular exception as part of the API
 from .internal_cursors import InvalidCursorError
+from .LoopIR_pprint import _print_cursor
 
 
 # --------------------------------------------------------------------------- #
@@ -97,7 +98,7 @@ class Cursor:
         self._impl = impl
 
     def __str__(self):
-        return f"<{type(self).__name__}(...)>"
+        return f"{_print_cursor(self._impl)}"
 
     # -------------------------------------------------------------------- #
     # methods copied from the underlying implementation
