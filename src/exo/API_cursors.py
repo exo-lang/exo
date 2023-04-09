@@ -20,6 +20,7 @@ from .prelude import Sym
 
 # expose this particular exception as part of the API
 from .internal_cursors import InvalidCursorError
+from .LoopIR_pprint import _print_cursor
 
 
 # --------------------------------------------------------------------------- #
@@ -97,7 +98,7 @@ class Cursor:
         self._impl = impl
 
     def __str__(self):
-        return f"<{type(self).__name__}(...)>"
+        return f"{_print_cursor(self._impl)}"
 
     # -------------------------------------------------------------------- #
     # methods copied from the underlying implementation
@@ -592,7 +593,7 @@ class LiteralCursor(ExprCursor):
     def value(self) -> Any:
         n = self._impl._node
         assert (
-            (n.type == T.bool and type(n.val) == bool)
+            (n.type.is_bool() and type(n.val) == bool)
             or (n.type.is_indexable() and type(n.val) == int)
             or (n.type.is_real_scalar() and type(n.val) == float)
         )
