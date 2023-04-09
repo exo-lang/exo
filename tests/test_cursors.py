@@ -134,7 +134,24 @@ def test_expand_dim_forwarding(golden):
     # seems to fail for some other scheduling ops besides expand_dim...
     # scal3 = lift_alloc(scal2, scal2.find("alphaReg: _"))
     scal3 = expand_dim(scal2, "alphaReg", "8", "ii")
-    print(scal3.forward(stmt))
+
+
+def test_lift_alloc_forwarding():
+    @proc
+    def scal(n: size, alpha: R, x: [R][n]):
+        for i in seq(0, n):
+            x[i] = alpha * x[i]
+
+    stmt = scal.find("x[_] = _")
+    scal1 = divide_loop(scal, "for i in _:_", 8, ("io", "ii"), tail="cut")
+    scal2 = bind_expr(scal1, [stmt.rhs().lhs()], "alphaReg")
+    scal3 = expand_dim(scal2, "alphaReg", "8", "ii")
+    scal4 = lift_alloc(scal3, "alphaReg")
+
+    scal1.forward(stmt)
+    scal2.forward(stmt)
+    scal3.forward(stmt)
+    scal4.forward(stmt)
 
 
 def test_bind_expr_forwarding(golden):
