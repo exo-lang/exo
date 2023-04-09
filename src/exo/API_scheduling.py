@@ -712,7 +712,8 @@ def simplify(proc):
     conditions to simplify expressions inside the branches.
     """
     proc_c = ic.Cursor.create(proc)
-    return scheduling.DoSimplify(proc_c).result()
+    ir, fwd = scheduling.DoSimplify(proc_c).result()
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([NameA])
