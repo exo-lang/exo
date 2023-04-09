@@ -16,7 +16,7 @@ def _is_some_const_size(sz):
 # --------------------------------------------------------------------------- #
 
 
-class Neon4f(Memory):
+class Neon(Memory):
     @classmethod
     def global_(cls):
         return "#include <arm_neon.h>"
@@ -29,19 +29,28 @@ class Neon4f(Memory):
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         if not shape:
             raise MemGenError(f"{srcinfo}: Neon vectors are not scalar values")
-        if not prim_type == "float":
-            raise MemGenError(f"{srcinfo}: Neon4f vectors must be f32")
-        if not _is_const_size(shape[-1], 4):
-            raise MemGenError(f"{srcinfo}: Neon4f vectors must be 4-wide")
+
+        vec_types = {"float": (4, "float32x4_t"), "double": (4, "float64x2_t")}
+
+        if not prim_type in vec_types.keys():
+            raise MemGenError(f"{srcinfo}: Neon vectors must be f32/f64 (for now)")
+
+        reg_width, C_reg_type_name = vec_types[prim_type]
+
+        if not _is_const_size(shape[-1], reg_width):
+            raise MemGenError(
+                f"{srcinfo}: Neon vectors of type {prim_type} must be {reg_width}-wide, got {shape}"
+            )
         shape = shape[:-1]
         if shape:
             if not all(_is_some_const_size(s) for s in shape):
                 raise MemGenError(
-                    f"{srcinfo}: Cannot allocate variable numbers of Neon4f vectors"
+                    f"{srcinfo}: Cannot allocate variable numbers of Neon vectors"
                 )
-            result = f'float32x4_t {new_name}[{"][".join(map(str, shape))}];'
+            result = f'{C_reg_type_name} {new_name}[{"][".join(map(str, shape))}];'
         else:
-            result = f"float32x4_t {new_name};"
+            result = f"{C_reg_type_name} {new_name};"
+
         return result
 
     @classmethod
@@ -67,13 +76,13 @@ class Neon4f(Memory):
 
 
 @instr("*{result} += vaddvq_f32({x_data});")
-def neon_assoc_reduce_add_instr_4xf32(result: f32 @ DRAM, x: [f32][4] @ Neon4f):
+def neon_assoc_reduce_add_instr_4xf32(result: f32 @ DRAM, x: [f32][4] @ Neon):
     for i in seq(0, 4):
         result += x[i]
 
 
 @instr("{dst_data} = vld1q_f32(&{src_data});")
-def neon_vld_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ DRAM):
+def neon_vld_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ DRAM):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
@@ -82,7 +91,7 @@ def neon_vld_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ DRAM):
 
 
 @instr("vst1q_f32(&{dst_data}, {src_data});")
-def neon_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ Neon4f):
+def neon_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ Neon):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
@@ -91,7 +100,7 @@ def neon_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ Neon4f):
 
 
 @instr("{dst_data} = vld1q_dup_f32(&{src_data});")
-def neon_broadcast_4xf32(dst: [f32][4] @ Neon4f, src: [f32][1] @ DRAM):
+def neon_broadcast_4xf32(dst: [f32][4] @ Neon, src: [f32][1] @ DRAM):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 4):
@@ -99,7 +108,7 @@ def neon_broadcast_4xf32(dst: [f32][4] @ Neon4f, src: [f32][1] @ DRAM):
 
 
 @instr("{dst_data} = vld1q_dup_f32({src_data});")
-def neon_broadcast_4xf32_scalar(dst: [f32][4] @ Neon4f, src: f32 @ DRAM):
+def neon_broadcast_4xf32_scalar(dst: [f32][4] @ Neon, src: f32 @ DRAM):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 4):
@@ -107,7 +116,7 @@ def neon_broadcast_4xf32_scalar(dst: [f32][4] @ Neon4f, src: f32 @ DRAM):
 
 
 @instr("{dst_data} = vmovq_n_f32(0.0f);")
-def neon_zero_4xf32(dst: [f32][4] @ Neon4f):
+def neon_zero_4xf32(dst: [f32][4] @ Neon):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 4):
@@ -115,9 +124,7 @@ def neon_zero_4xf32(dst: [f32][4] @ Neon4f):
 
 
 @instr("{dst_data} = vaddq_f32({lhs_data}, {rhs_data});")
-def neon_vadd_4xf32(
-    dst: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f
-):
+def neon_vadd_4xf32(dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
     assert stride(rhs, 0) == 1
@@ -127,7 +134,7 @@ def neon_vadd_4xf32(
 
 
 @instr("{dst_data} = vaddq_f32({src_data}, {dst_data});")
-def neon_reduce_vadd_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f):
+def neon_reduce_vadd_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ Neon):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
@@ -136,9 +143,7 @@ def neon_reduce_vadd_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f):
 
 
 @instr("{dst_data} = vmulq_f32({lhs_data}, {rhs_data});")
-def neon_vmul_4xf32(
-    dst: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f
-):
+def neon_vmul_4xf32(dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
     assert stride(rhs, 0) == 1
@@ -149,7 +154,7 @@ def neon_vmul_4xf32(
 
 @instr("{dst_data} = vfmaq_laneq_f32({dst_data}, {lhs_data}, {rhs_data}, {lane});")
 def neon_vfmla_4xf32_4xf32(
-    dst: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f, lane: index
+    dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon, lane: index
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -162,7 +167,7 @@ def neon_vfmla_4xf32_4xf32(
 
 @instr("{dst_data} = vmlaq_f32({dst_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_4xf32_4xf32(
-    dst: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f
+    dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -174,7 +179,7 @@ def neon_vfmadd_4xf32_4xf32(
 
 @instr("{dst_data} = vmlaq_n_f32({dst_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_4xf32_1xf32(
-    dst: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][1] @ DRAM
+    dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][1] @ DRAM
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -185,7 +190,7 @@ def neon_vfmadd_4xf32_1xf32(
 
 @instr("{dst_data} = vmlaq_n_f32({dst_data}, {rhs_data}, {lhs_data});")
 def neon_vfmadd_1xf32_4xf32(
-    dst: [f32][4] @ Neon4f, lhs: [f32][1] @ DRAM, rhs: [f32][4] @ Neon4f
+    dst: [f32][4] @ Neon, lhs: [f32][1] @ DRAM, rhs: [f32][4] @ Neon
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -197,7 +202,7 @@ def neon_vfmadd_1xf32_4xf32(
 # TODO: Hack for procedure aliasing issue, can be deleted once we have
 #      better way of handling aliasing
 @instr("{dst_data} = {src_data};")
-def neon_reg_copy_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f):
+def neon_reg_copy_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ Neon):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
@@ -206,7 +211,7 @@ def neon_reg_copy_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f):
 
 
 @instr("{dst_data} = vnegq_f32({src_data});")
-def neon_vneg_4xf32(dst: [f32][4] @ Neon4f, src: [f32][4] @ Neon4f):
+def neon_vneg_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ Neon):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 

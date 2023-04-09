@@ -68,7 +68,7 @@ def check_call_mem_types(call_cursor):
 
     ###################################################################
     # build an env of symbols this call statement observes.
-    # e.g. {x: DRAM, y: Neon4f}
+    # e.g. {x: DRAM, y: Neon}
     ###################################################################
     env = {}
     caller = call_cursor.proc()

@@ -32,8 +32,8 @@ filter1D = autolift_alloc(filter1D, "xX4:_")
 filter1D = autofission(filter1D, filter1D.find("xX4[_] = _").after())
 
 # set memories & precision
-filter1D = set_memory(filter1D, "sum #1", Neon4f)
-filter1D = set_memory(filter1D, "xX4", Neon4f)
+filter1D = set_memory(filter1D, "sum #1", Neon)
+filter1D = set_memory(filter1D, "xX4", Neon)
 filter1D = set_precision(filter1D, "xX4", "f32")
 
 # replace
