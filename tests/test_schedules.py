@@ -2078,10 +2078,12 @@ def test_simplify_div_mod_staging(golden):
         for i in seq(0, 64):
             out[i] = x[i] * y[i]
 
-    bar = divide_loop(bar, "for i in _:_", 4, ("io", "ii"), tail="cut")
-    bar = stage_mem(bar, "for io in _:_", "x[0:64]", "xReg")
+    sc = bar.find("for i in _:_")
+    bar = divide_loop(bar, sc, 4, ("io", "ii"), tail="cut")
+    bar = stage_mem(bar, sc, "x[0:64]", "xReg")
     bar = simplify(bar)
-    bar = divide_loop(bar, "for i0 in _:_", 4, ("io", "ii"), tail="cut")
+    assign_loop_sc = bar.forward(sc).prev()
+    bar = divide_loop(bar, assign_loop_sc, 4, ("io", "ii"), tail="cut")
     bar = divide_dim(bar, "xReg", 0, 4)
     bar = simplify(bar)
     assert str(bar) == golden

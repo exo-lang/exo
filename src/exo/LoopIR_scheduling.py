@@ -1074,16 +1074,16 @@ def DoLiftScope(inner_c):
 
     if isinstance(outer_s, LoopIR.If):
 
-        def if_wrapper(block, insert_orelse=False):
+        def if_wrapper(body, insert_orelse=False):
             src = outer_s.srcinfo
             # this is needed because _replace expects a non-zero length block
             orelse = [LoopIR.Pass(None, src)] if insert_orelse else []
-            return LoopIR.If(outer_s.cond, block, orelse, None, src)
+            return LoopIR.If(outer_s.cond, body, orelse, None, src)
 
-        def orelse_wrapper(block):
+        def orelse_wrapper(orelse):
             src = outer_s.srcinfo
             body = [LoopIR.Pass(None, src)]
-            return LoopIR.If(outer_s.cond, body, block, None, src)
+            return LoopIR.If(outer_s.cond, body, orelse, None, src)
 
         if isinstance(inner_s, LoopIR.If):
             if inner_s in outer_s.body:
@@ -1099,15 +1099,15 @@ def DoLiftScope(inner_c):
                     )
 
                 blk_c = outer_s.orelse
-                wrapper = lambda block: if_wrapper(block, insert_orelse=bool(blk_c))
+                wrapper = lambda body: if_wrapper(body, insert_orelse=bool(blk_c))
 
-                ir, fwd = inner_c.body()._wrap(wrapper, "block")
+                ir, fwd = inner_c.body()._wrap(wrapper, "body")
                 if blk_c:
                     ir, fwd_repl = fwd(inner_c).body()[0].orelse()._replace(blk_c)
                     fwd = _compose(fwd_repl, fwd)
 
                 if inner_s.orelse:
-                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(wrapper, "block")
+                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(wrapper, "body")
                     fwd = _compose(fwd_wrap, fwd)
                     if blk_c:
                         ir, fwd_repl = fwd(inner_c).orelse()[0].orelse()._replace(blk_c)
@@ -1127,12 +1127,12 @@ def DoLiftScope(inner_c):
 
                 blk_a = outer_s.body
 
-                ir, fwd = inner_c.body()._wrap(orelse_wrapper, "block")
+                ir, fwd = inner_c.body()._wrap(orelse_wrapper, "orelse")
                 ir, fwd_repl = fwd(inner_c).body()[0].body()._replace(blk_a)
                 fwd = _compose(fwd_repl, fwd)
 
                 if inner_s.orelse:
-                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(orelse_wrapper, "block")
+                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(orelse_wrapper, "orelse")
                     fwd = _compose(fwd_wrap, fwd)
                     ir, fwd_repl = fwd(inner_c).orelse()[0].body()._replace(blk_a)
                     fwd = _compose(fwd_repl, fwd)
@@ -1149,15 +1149,15 @@ def DoLiftScope(inner_c):
                     "cannot lift for loop when if has an orelse clause"
                 )
 
-            ir, fwd = inner_c.body()._wrap(if_wrapper, "block")
+            ir, fwd = inner_c.body()._wrap(if_wrapper, "body")
     elif isinstance(outer_s, LoopIR.Seq):
         if len(outer_s.body) > 1:
             raise SchedulingError(
                 f"expected {target_type} to be directly nested in parent"
             )
 
-        def loop_wrapper(block):
-            return LoopIR.Seq(outer_s.iter, outer_s.hi, block, None, outer_s.srcinfo)
+        def loop_wrapper(body):
+            return LoopIR.Seq(outer_s.iter, outer_s.hi, body, None, outer_s.srcinfo)
 
         if isinstance(inner_s, LoopIR.If):
             # for OUTER in _:      if INNER:
@@ -1167,17 +1167,17 @@ def DoLiftScope(inner_c):
             if outer_s.iter in _FV(inner_s.cond):
                 raise SchedulingError("if statement depends on iteration variable")
 
-            ir, fwd = inner_c.body()._wrap(loop_wrapper, "block")
+            ir, fwd = inner_c.body()._wrap(loop_wrapper, "body")
 
             if inner_s.orelse:
-                ir, fwd_wrap = fwd(inner_c).orelse()._wrap(loop_wrapper, "block")
+                ir, fwd_wrap = fwd(inner_c).orelse()._wrap(loop_wrapper, "body")
                 fwd = _compose(fwd_wrap, fwd)
         elif isinstance(inner_s, LoopIR.Seq):
             # for OUTER in _:          for INNER in _:
             #   for INNER in _: A  ~>    for OUTER in _: A
             Check_ReorderLoops(inner_c.get_root(), outer_s)
 
-            ir, fwd = inner_c.body()._wrap(loop_wrapper, "block")
+            ir, fwd = inner_c.body()._wrap(loop_wrapper, "body")
 
     ir, fwd_repl = fwd(outer_c)._replace([fwd(inner_c)._node])
     fwd = _compose(fwd_repl, fwd)
@@ -2115,10 +2115,10 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
             # body doesn't depend on the loop
             # and the body is idempotent
 
-            def wrapper(block):
-                return par_s.update(body=block)
+            def wrapper(body):
+                return par_s.update(body=body)
 
-            ir, fwd_wrap = post_c._wrap(wrapper, "block")
+            ir, fwd_wrap = post_c._wrap(wrapper, "body")
             fwd = _compose(fwd_wrap, fwd)
 
             post_c = fwd_wrap(par_c).body()[-1]
@@ -2129,10 +2129,10 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
         elif isinstance(par_s, LoopIR.If):
             if cur_c._node in par_s.body:
 
-                def wrapper(block):
-                    return par_s.update(body=block)
+                def wrapper(body):
+                    return par_s.update(body=body)
 
-                ir, fwd_wrap = pre_c._wrap(wrapper, "block")
+                ir, fwd_wrap = pre_c._wrap(wrapper, "body")
                 fwd = _compose(fwd_wrap, fwd)
 
                 pre_c = fwd_wrap(par_c).body()[0]
@@ -2143,10 +2143,10 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
             else:
                 assert cur_c._node in par_s.orelse
 
-                def wrapper(block):
-                    return par_s.update(body=None, orelse=block)
+                def wrapper(orelse):
+                    return par_s.update(body=None, orelse=orelse)
 
-                ir, fwd_wrap = post_c._wrap(wrapper, "block")
+                ir, fwd_wrap = post_c._wrap(wrapper, "orelse")
                 fwd = _compose(fwd_wrap, fwd)
 
                 post_c = fwd_wrap(par_c).orelse()[-1]
@@ -2594,9 +2594,20 @@ class _DoNormalize(Cursor_Rewrite):
         # TODO: dispatch to Z3 to reason about preds ranges
         for arg in proc_cursor._node.args:
             self.env[arg.name] = None
+
+        self.ir = proc_cursor._node
+        self.fwd = lambda x: x
+
         super().__init__(proc_cursor)
 
-        self.proc = InferEffects(self.proc).result()
+        # need to update self.ir with pred changes
+        new_preds = self.map_exprs(self.ir.preds)
+        if new_preds:
+            self.ir = self.ir.update(preds=new_preds)
+
+    def result(self):
+        proc = api.Procedure(self.ir, _provenance_eq_Procedure=self.provenance)
+        return proc, self.fwd
 
     def concat_map(self, op, lhs, rhs):
         if op == "+":
@@ -2862,6 +2873,54 @@ class _DoNormalize(Cursor_Rewrite):
 
         return super().map_e(e)
 
+    def super_map_s(self, sc):
+        s = sc._node
+        if isinstance(s, LoopIR.If):
+            new_cond = self.map_e(s.cond)
+            self.map_stmts(sc.body())
+            self.map_stmts(sc.orelse())
+            if new_cond:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("cond")._replace(new_cond)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, LoopIR.Seq):
+            new_hi = self.map_e(s.hi)
+            self.map_stmts(sc.body())
+            if new_hi:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("hi")._replace(new_hi)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            new_type = self.map_t(s.type)
+            new_idx = self.map_exprs(s.idx)
+            new_rhs = self.map_e(s.rhs)
+            if new_type:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
+                self.fwd = _compose(fwd_repl, self.fwd)
+            if new_idx:
+                self.ir, fwd_repl = self.fwd(sc)._child_block("idx")._replace(new_idx)
+                self.fwd = _compose(fwd_repl, self.fwd)
+            if new_rhs:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("rhs")._replace(new_rhs)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
+            new_rhs = self.map_e(s.rhs)
+            if new_rhs:
+                self.ir, fwd_repl = sc._child_node("rhs")._replace(new_rhs)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, LoopIR.Call):
+            new_args = self.map_exprs(s.args)
+            if new_args:
+                self.ir, fwd_repl = self.fwd(sc)._child_block("args")._replace(new_args)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, LoopIR.Alloc):
+            new_type = self.map_t(s.type)
+            if new_type:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, LoopIR.Pass):
+            pass
+        else:
+            raise NotImplementedError(f"bad case {type(s)}")
+
     def map_s(self, sc):
         s = sc._node
         if isinstance(s, LoopIR.Seq):
@@ -2881,22 +2940,30 @@ class _DoNormalize(Cursor_Rewrite):
             else:
                 self.env[s.iter] = None
 
-            new_s = super().map_s(sc)
+            new_s = self.super_map_s(sc)
             self.env = self.env.parents
             return new_s
 
-        return super().map_s(sc)
+        return self.super_map_s(sc)
 
 
 class DoSimplify(Cursor_Rewrite):
     def __init__(self, proc_cursor):
         self.facts = ChainMap()
-        new_procedure = _DoNormalize(proc_cursor).result()
-        self.proc_cursor = ic.Cursor.create(new_procedure)
+
+        _, fwd = _DoNormalize(proc_cursor).result()
+        self.proc_cursor = fwd(proc_cursor)
+        self.ir = proc_cursor._node
+        self.fwd = lambda x: x
 
         super().__init__(self.proc_cursor)
 
-        self.proc = InferEffects(self.proc).result()
+        # need to update self.ir with pred changes
+        new_preds = self.map_exprs(self.ir.preds)
+        if new_preds:
+            self.ir = self.ir.update(preds=new_preds)
+
+        self.fwd = _compose(self.fwd, fwd)
 
     def cfold(self, op, lhs, rhs):
         if op == "+":
@@ -3069,62 +3136,100 @@ class DoSimplify(Cursor_Rewrite):
             return self.facts.get(str(e))
         return None
 
+    def result(self, mod_config=None):
+        return _fixup_effects(self.ir, self.fwd)
+
     def map_s(self, sc):
         s = sc._node
         if isinstance(s, LoopIR.If):
             cond = self.map_e(s.cond)
-
             safe_cond = cond or s.cond
 
             # If constant true or false, then drop the branch
             if isinstance(safe_cond, LoopIR.Const):
                 if safe_cond.val:
-                    return super().map_stmts(sc.body())
+                    self.ir, fwd_move = self.fwd(sc).body()._move(self.fwd(sc).before())
+                    self.fwd = _compose(fwd_move, self.fwd)
+                    self.ir, fwd_del = self.fwd(sc)._delete()
+                    self.fwd = _compose(fwd_del, self.fwd)
+                    self.map_stmts(sc.body())
+                    return
                 else:
-                    return super().map_stmts(sc.orelse())
+                    self.ir, fwd_move = (
+                        self.fwd(sc).orelse()._move(self.fwd(sc).before())
+                    )
+                    self.fwd = _compose(fwd_move, self.fwd)
+                    self.ir, fwd_del = self.fwd(sc)._delete()
+                    self.fwd = _compose(fwd_del, self.fwd)
+                    self.map_stmts(sc.orelse())
+                    return
 
             # Try to use the condition while simplifying body
             self.facts = self.facts.new_child()
             self.add_fact(safe_cond)
-            body = self.map_stmts(sc.body())
+            self.map_stmts(sc.body())
             self.facts = self.facts.parents
 
             # Try to use the negation while simplifying orelse
             self.facts = self.facts.new_child()
             # TODO: negate fact here
-            orelse = self.map_stmts(sc.orelse())
+            self.map_stmts(sc.orelse())
             self.facts = self.facts.parents
 
-            eff = self.map_eff(s.eff)
-            if cond or body or orelse or eff:
-                return [
-                    s.update(
-                        cond=safe_cond,
-                        body=body or s.body,
-                        orelse=orelse or s.orelse,
-                        eff=eff or s.eff,
-                    )
-                ]
-            return None
+            if cond:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("cond")._replace(cond)
+                self.fwd = _compose(fwd_repl, self.fwd)
         elif isinstance(s, LoopIR.Seq):
             hi = self.map_e(s.hi)
 
             # Delete the loop if it would not run at all
             if isinstance(hi, LoopIR.Const) and hi.val == 0:
-                return []
+                self.ir, fwd_del = self.fwd(sc)._delete()
+                self.fwd = _compose(fwd_del, self.fwd)
+                return
 
             # Delete the loop if it would have an empty body
-            body = self.map_stmts(sc.body())
-            if body == []:
-                return []
+            self.map_stmts(sc.body())
+            if self.fwd(sc).body() == []:
+                self.ir, fwd_del = self.fwd(sc)._delete()
+                self.fwd = _compose(fwd_del, self.fwd)
+                return
 
-            eff = self.map_eff(s.eff)
-            if hi or body or eff:
-                return [s.update(hi=hi or s.hi, body=body or s.body, eff=eff or s.eff)]
-
+            if hi:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("hi")._replace(hi)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            new_type = self.map_t(s.type)
+            new_idx = self.map_exprs(s.idx)
+            new_rhs = self.map_e(s.rhs)
+            if new_type:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
+                self.fwd = _compose(fwd_repl, self.fwd)
+            if new_idx:
+                self.ir, fwd_repl = self.fwd(sc)._child_block("idx")._replace(new_idx)
+                self.fwd = _compose(fwd_repl, self.fwd)
+            if new_rhs:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("rhs")._replace(new_rhs)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
+            new_rhs = self.map_e(s.rhs)
+            if new_rhs:
+                self.ir, fwd_repl = sc._child_node("rhs")._replace(new_rhs)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, LoopIR.Call):
+            new_args = self.map_exprs(s.args)
+            if new_args:
+                self.ir, fwd_repl = self.fwd(sc)._child_block("args")._replace(new_args)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, LoopIR.Alloc):
+            new_type = self.map_t(s.type)
+            if new_type:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
+                self.fwd = _compose(fwd_repl, self.fwd)
+        elif isinstance(s, LoopIR.Pass):
             return None
         else:
-            return super().map_s(sc)
+            raise NotImplementedError(f"bad case {type(s)}")
 
 
 class DoAssertIf(Cursor_Rewrite):
