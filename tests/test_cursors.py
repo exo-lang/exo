@@ -123,6 +123,19 @@ def test_basic_forwarding3(golden):
     assert str(filter1D.forward(sum_c)) == golden
 
 
+def test_simplify_forwarding(golden):
+    @proc
+    def foo(n: size, m: size):
+        x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
+        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
+            y: R[10]
+            y[n * 4 - n * 4 + 1] = 0.0
+
+    stmt = foo.find("y[_] = _")
+    foo1 = simplify(foo)
+    assert str(foo1.forward(stmt)._impl._node) == golden
+
+
 def test_expand_dim_forwarding(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n]):
