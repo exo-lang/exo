@@ -11,7 +11,7 @@ from typing import Optional, Iterable, Union, List, Any
 # from weakref import ReferenceType
 #
 from . import API
-from .LoopIR import LoopIR, T
+from .LoopIR import LoopIR
 from .configs import Config
 from .memory import Memory
 
@@ -592,7 +592,7 @@ class LiteralCursor(ExprCursor):
     def value(self) -> Any:
         n = self._impl._node
         assert (
-            (n.type == T.bool and type(n.val) == bool)
+            (n.type.is_bool() and type(n.val) == bool)
             or (n.type.is_indexable() and type(n.val) == int)
             or (n.type.is_real_scalar() and type(n.val) == float)
         )
