@@ -11,7 +11,7 @@ from typing import Optional, Iterable, Union, List, Any
 # from weakref import ReferenceType
 #
 from . import API
-from .LoopIR import LoopIR
+from .LoopIR import LoopIR, T
 from .configs import Config
 from .memory import Memory
 
