@@ -1074,16 +1074,16 @@ def DoLiftScope(inner_c):
 
     if isinstance(outer_s, LoopIR.If):
 
-        def if_wrapper(block, insert_orelse=False):
+        def if_wrapper(body, insert_orelse=False):
             src = outer_s.srcinfo
             # this is needed because _replace expects a non-zero length block
             orelse = [LoopIR.Pass(None, src)] if insert_orelse else []
-            return LoopIR.If(outer_s.cond, block, orelse, None, src)
+            return LoopIR.If(outer_s.cond, body, orelse, None, src)
 
-        def orelse_wrapper(block):
+        def orelse_wrapper(orelse):
             src = outer_s.srcinfo
             body = [LoopIR.Pass(None, src)]
-            return LoopIR.If(outer_s.cond, body, block, None, src)
+            return LoopIR.If(outer_s.cond, body, orelse, None, src)
 
         if isinstance(inner_s, LoopIR.If):
             if inner_s in outer_s.body:
@@ -1099,15 +1099,15 @@ def DoLiftScope(inner_c):
                     )
 
                 blk_c = outer_s.orelse
-                wrapper = lambda block: if_wrapper(block, insert_orelse=bool(blk_c))
+                wrapper = lambda body: if_wrapper(body, insert_orelse=bool(blk_c))
 
-                ir, fwd = inner_c.body()._wrap(wrapper, "block")
+                ir, fwd = inner_c.body()._wrap(wrapper, "body")
                 if blk_c:
                     ir, fwd_repl = fwd(inner_c).body()[0].orelse()._replace(blk_c)
                     fwd = _compose(fwd_repl, fwd)
 
                 if inner_s.orelse:
-                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(wrapper, "block")
+                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(wrapper, "body")
                     fwd = _compose(fwd_wrap, fwd)
                     if blk_c:
                         ir, fwd_repl = fwd(inner_c).orelse()[0].orelse()._replace(blk_c)
@@ -1127,12 +1127,12 @@ def DoLiftScope(inner_c):
 
                 blk_a = outer_s.body
 
-                ir, fwd = inner_c.body()._wrap(orelse_wrapper, "block")
+                ir, fwd = inner_c.body()._wrap(orelse_wrapper, "orelse")
                 ir, fwd_repl = fwd(inner_c).body()[0].body()._replace(blk_a)
                 fwd = _compose(fwd_repl, fwd)
 
                 if inner_s.orelse:
-                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(orelse_wrapper, "block")
+                    ir, fwd_wrap = fwd(inner_c).orelse()._wrap(orelse_wrapper, "orelse")
                     fwd = _compose(fwd_wrap, fwd)
                     ir, fwd_repl = fwd(inner_c).orelse()[0].body()._replace(blk_a)
                     fwd = _compose(fwd_repl, fwd)
@@ -1149,15 +1149,15 @@ def DoLiftScope(inner_c):
                     "cannot lift for loop when if has an orelse clause"
                 )
 
-            ir, fwd = inner_c.body()._wrap(if_wrapper, "block")
+            ir, fwd = inner_c.body()._wrap(if_wrapper, "body")
     elif isinstance(outer_s, LoopIR.Seq):
         if len(outer_s.body) > 1:
             raise SchedulingError(
                 f"expected {target_type} to be directly nested in parent"
             )
 
-        def loop_wrapper(block):
-            return LoopIR.Seq(outer_s.iter, outer_s.hi, block, None, outer_s.srcinfo)
+        def loop_wrapper(body):
+            return LoopIR.Seq(outer_s.iter, outer_s.hi, body, None, outer_s.srcinfo)
 
         if isinstance(inner_s, LoopIR.If):
             # for OUTER in _:      if INNER:
@@ -1167,17 +1167,17 @@ def DoLiftScope(inner_c):
             if outer_s.iter in _FV(inner_s.cond):
                 raise SchedulingError("if statement depends on iteration variable")
 
-            ir, fwd = inner_c.body()._wrap(loop_wrapper, "block")
+            ir, fwd = inner_c.body()._wrap(loop_wrapper, "body")
 
             if inner_s.orelse:
-                ir, fwd_wrap = fwd(inner_c).orelse()._wrap(loop_wrapper, "block")
+                ir, fwd_wrap = fwd(inner_c).orelse()._wrap(loop_wrapper, "body")
                 fwd = _compose(fwd_wrap, fwd)
         elif isinstance(inner_s, LoopIR.Seq):
             # for OUTER in _:          for INNER in _:
             #   for INNER in _: A  ~>    for OUTER in _: A
             Check_ReorderLoops(inner_c.get_root(), outer_s)
 
-            ir, fwd = inner_c.body()._wrap(loop_wrapper, "block")
+            ir, fwd = inner_c.body()._wrap(loop_wrapper, "body")
 
     ir, fwd_repl = fwd(outer_c)._replace([fwd(inner_c)._node])
     fwd = _compose(fwd_repl, fwd)
@@ -2115,10 +2115,10 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
             # body doesn't depend on the loop
             # and the body is idempotent
 
-            def wrapper(block):
-                return par_s.update(body=block)
+            def wrapper(body):
+                return par_s.update(body=body)
 
-            ir, fwd_wrap = post_c._wrap(wrapper, "block")
+            ir, fwd_wrap = post_c._wrap(wrapper, "body")
             fwd = _compose(fwd_wrap, fwd)
 
             post_c = fwd_wrap(par_c).body()[-1]
@@ -2129,10 +2129,10 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
         elif isinstance(par_s, LoopIR.If):
             if cur_c._node in par_s.body:
 
-                def wrapper(block):
-                    return par_s.update(body=block)
+                def wrapper(body):
+                    return par_s.update(body=body)
 
-                ir, fwd_wrap = pre_c._wrap(wrapper, "block")
+                ir, fwd_wrap = pre_c._wrap(wrapper, "body")
                 fwd = _compose(fwd_wrap, fwd)
 
                 pre_c = fwd_wrap(par_c).body()[0]
@@ -2143,10 +2143,10 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
             else:
                 assert cur_c._node in par_s.orelse
 
-                def wrapper(block):
-                    return par_s.update(body=None, orelse=block)
+                def wrapper(orelse):
+                    return par_s.update(body=None, orelse=orelse)
 
-                ir, fwd_wrap = post_c._wrap(wrapper, "block")
+                ir, fwd_wrap = post_c._wrap(wrapper, "orelse")
                 fwd = _compose(fwd_wrap, fwd)
 
                 post_c = fwd_wrap(par_c).orelse()[-1]

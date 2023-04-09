@@ -183,4 +183,26 @@ def test_bind_expr_forwarding(golden):
     assert str(scal2.forward(stmt2)._impl.get_root()) == golden
 
 
+def test_vectorize_forwarding(golden):
+    @proc
+    def scal(n: size, alpha: R, x: [R][n]):
+        for i in seq(0, n):
+            x[i] = alpha * x[i]
+
+    stmt = scal.find("x[_] = _")
+    scal1 = divide_loop(scal, "for i in _:_", 8, ("io", "ii"), tail="cut")
+    scal2 = bind_expr(scal1, [stmt.rhs().lhs()], "alphaReg")
+    scal3 = expand_dim(scal2, "alphaReg", "8", "ii")
+    scal4 = lift_alloc(scal3, "alphaReg")
+    scal5 = fission(scal4, scal4.find("alphaReg[_] = _").after())
+
+    scal1.forward(stmt)
+    scal2.forward(stmt)
+    scal3.forward(stmt)
+    scal4.forward(stmt)
+    scal5.forward(stmt)
+
+    assert str(scal5.forward(stmt)) == golden
+
+
 # Need some more tests here...
