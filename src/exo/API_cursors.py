@@ -593,7 +593,7 @@ class LiteralCursor(ExprCursor):
     def value(self) -> Any:
         n = self._impl._node
         assert (
-            (n.type == T.bool and type(n.val) == bool)
+            (n.type.is_bool() and type(n.val) == bool)
             or (n.type.is_indexable() and type(n.val) == int)
             or (n.type.is_real_scalar() and type(n.val) == float)
         )
