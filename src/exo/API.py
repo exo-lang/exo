@@ -238,7 +238,9 @@ class Procedure(ProcedureBase):
         return str(self._loopir_proc.eff)
 
     def show_effect(self, stmt_pattern):
-        if match := match_pattern(self, stmt_pattern, call_depth=1, default_match_no=0):
+        if match := match_pattern(
+            self._root(), stmt_pattern, call_depth=1, default_match_no=0
+        ):
             assert len(match[0]) == 1, "Must match single statements"
             return str(match[0][0]._node.eff)
         raise SchedulingError("failed to find statement", pattern=stmt_pattern)
@@ -311,7 +313,7 @@ class Procedure(ProcedureBase):
             return LoopIR_to_QAST(self._loopir_proc).result()
 
         # do pattern matching
-        match = match_pattern(self, pattern, call_depth=1)
+        match = match_pattern(self._root(), pattern, call_depth=1)
 
         # convert matched sub-trees to QAST
         assert isinstance(match, list)
