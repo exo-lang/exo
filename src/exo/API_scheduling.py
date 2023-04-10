@@ -706,8 +706,8 @@ def simplify(proc):
     to constants and eliminate dead branches and loops. Uses branch
     conditions to simplify expressions inside the branches.
     """
-    ir, fwd = scheduling.DoSimplify(proc).result()
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    # TODO: remove provenance handling from simplifier implementation
+    return scheduling.DoSimplify(proc).result()
 
 
 @sched_op([NameA])

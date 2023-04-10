@@ -2586,7 +2586,7 @@ class _DoNormalize(Cursor_Rewrite):
     # { temporary_constant_symbol : 1, n : 4 }
     # and the map for the expression `n*4 - n*4 + 1` is:
     # { temporary_constant_symbol : 1, n : 0 }
-    # This map concatnation is handled by concat_map function.
+    # This map concatenation is handled by concat_map function.
     def __init__(self, proc):
         self.C = Sym("temporary_constant_symbol")
         self.env = ChainMap()
@@ -2594,7 +2594,7 @@ class _DoNormalize(Cursor_Rewrite):
         for arg in proc._loopir_proc.args:
             self.env[arg.name] = None
 
-        self.ir = proc_cursor._node
+        self.ir = proc._loopir_proc
         self.fwd = lambda x: x
 
         super().__init__(proc)
@@ -2602,11 +2602,15 @@ class _DoNormalize(Cursor_Rewrite):
         # need to update self.ir with pred changes
         new_preds = self.map_exprs(self.ir.preds)
         if new_preds:
-            self.ir = self.ir.update(preds=new_preds)
+            self.ir, fwd = (
+                ic.Cursor.create(self.ir)._child_block("preds")._replace(new_preds)
+            )
+            self.fwd = _compose(fwd, self.fwd)
 
-    def result(self):
-        proc = api.Procedure(self.ir, _provenance_eq_Procedure=self.provenance)
-        return proc, self.fwd
+    def result(self, **kwargs):
+        return api.Procedure(
+            self.ir, _provenance_eq_Procedure=self.provenance, _forward=self.fwd
+        )
 
     def concat_map(self, op, lhs, rhs):
         if op == "+":
@@ -2685,7 +2689,7 @@ class _DoNormalize(Cursor_Rewrite):
                 (n_map[v], v) for v in n_map if v != self.C and n_map[v] != 0
             ]
 
-            return (new_e, delete_zero)
+            return new_e, delete_zero
 
         def division_simplification(e):
             constant, normalization_list = get_normalized_expr(e.lhs)
@@ -2948,22 +2952,19 @@ class _DoNormalize(Cursor_Rewrite):
 
 class DoSimplify(Cursor_Rewrite):
     def __init__(self, proc):
+        proc = _DoNormalize(proc).result()
+
         self.facts = ChainMap()
 
-        ir, fwd = _DoNormalize(proc).result()
-        self.ir = ir
+        self.ir = proc._loopir_proc
         self.fwd = lambda x: x
-
-        proc = API.Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
         super().__init__(proc)
 
-        # need to update self.ir with pred changes
-        new_preds = self.map_exprs(self.ir.preds)
-        if new_preds:
+        # might need to update IR with predicate changes
+        if new_preds := self.map_exprs(self.ir.preds):
+            # TODO: is this line covered? do we not need to forward here?
             self.ir = self.ir.update(preds=new_preds)
-
-        self.fwd = _compose(self.fwd, fwd)
 
     def cfold(self, op, lhs, rhs):
         if op == "+":
@@ -3137,7 +3138,8 @@ class DoSimplify(Cursor_Rewrite):
         return None
 
     def result(self, mod_config=None):
-        return _fixup_effects(self.ir, self.fwd)
+        ir, fwd = _fixup_effects(self.ir, self.fwd)
+        return api.Procedure(ir, _provenance_eq_Procedure=self.provenance, _forward=fwd)
 
     def map_s(self, sc):
         s = sc._node
