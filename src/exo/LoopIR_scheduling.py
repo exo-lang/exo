@@ -2510,19 +2510,19 @@ class DoDeletePass(Cursor_Rewrite):
 
 
 class DoExtractMethod(Cursor_Rewrite):
-    def __init__(self, proc_cursor, name, stmt_cursor):
+    def __init__(self, proc, name, stmt_cursor):
         self.match_stmt = stmt_cursor._node
         assert isinstance(self.match_stmt, LoopIR.stmt)
         self.sub_proc_name = name
         self.new_subproc = None
-        self.orig_proc = proc_cursor._node
+        self.orig_proc = proc._loopir_proc
 
         self.var_types = ChainMap()
 
         for a in self.orig_proc.args:
             self.var_types[a.name] = a.type
 
-        super().__init__(proc_cursor)
+        super().__init__(proc)
         Check_Aliasing(self.proc)
 
     def subproc(self):
