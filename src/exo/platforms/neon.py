@@ -94,15 +94,14 @@ def neon_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ Neon):
         dst[i] = src[i]
 
 
-broadcast_4xf32_str = "{dst_data} = vld1q_dup_f32(&{src_data});"
-@instr(broadcast_4xf32_str)
+@instr("{dst_data} = vld1q_dup_f32(&{src_data});")
 def neon_broadcast_4xf32(dst: [f32][4] @ Neon, src: [f32][1] @ DRAM):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 4):
         dst[i] = src[0]
 
-@instr(broadcast_4xf32_str)
+@instr("{dst_data} = vld1q_dup_f32({src_data});")
 def neon_broadcast_4xf32_scalar(dst: [f32][4] @ Neon, src: f32 @ DRAM):
     assert stride(dst, 0) == 1
 
@@ -235,15 +234,14 @@ def neon_vst_2xf64(dst: [f64][2] @ DRAM, src: [f64][2] @ Neon):
         dst[i] = src[i]
 
 
-broadcast_2xf64_str = "{dst_data} = vld1q_dup_f64(&{src_data});"
-@instr(broadcast_2xf64_str)
+@instr("{dst_data} = vld1q_dup_f64(&{src_data});")
 def neon_broadcast_2xf64(dst: [f64][2] @ Neon, src: [f64][1] @ DRAM):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 2):
         dst[i] = src[0]
 
-@instr(broadcast_2xf64_str)
+@instr("{dst_data} = vld1q_dup_f64({src_data});")
 def neon_broadcast_2xf64_scalar(dst: [f64][2] @ Neon, src: f64 @ DRAM):
     assert stride(dst, 0) == 1
 
@@ -315,4 +313,28 @@ def neon_vneg_2xf64(dst: [f64][2] @ Neon, src: [f64][2] @ Neon):
 
     for i in seq(0, 2):
         dst[i] = -src[i]
+
+
+# --------------------------------------------------------------------------- #
+#   f32 to f64 conversion
+# --------------------------------------------------------------------------- #
+
+
+@instr("{dst_data} = vcvt_f64_f32(vget_low_f32({src_data}));")
+def neon_convert_f32_lower_to_f64(dst: [f64][2] @ Neon, src: [f32][4] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = src[i]
+
+@instr("{dst_data} = vcvt_f64_f32(vget_high_f32({src_data}));")
+def neon_convert_f32_upper_to_f64(dst: [f64][2] @ Neon, src: [f32][4] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = src[2+i]
+
+
 
