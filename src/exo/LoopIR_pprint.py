@@ -9,7 +9,7 @@ from yapf.yapflib.yapf_api import FormatCode
 
 from .LoopIR import T
 from .LoopIR import UAST, LoopIR
-from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError
+from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
 
 # --------------------------------------------------------------------------- #
@@ -621,13 +621,23 @@ def _print_cursor_block(
         return _print_cursor_stmt(c, target, env, indent)
 
     if isinstance(target, Gap) and target in cur:
-        return [
-            *if_cursor(target, lambda g: g.before(2), more_stmts),
-            *if_cursor(target, lambda g: g.before(), local_stmt),
-            f"{indent}[GAP]",
-            *if_cursor(target, lambda g: g.after(), local_stmt),
-            *if_cursor(target, lambda g: g.after(2), more_stmts),
-        ]
+        if target._type == GapType.Before:
+            return [
+                *if_cursor(target, lambda g: g.anchor().prev(2), more_stmts),
+                *if_cursor(target, lambda g: g.anchor().prev(), local_stmt),
+                f"{indent}[GAP - Before]",
+                *if_cursor(target, lambda g: g.anchor(), local_stmt),
+                *if_cursor(target, lambda g: g.anchor().next(), more_stmts),
+            ]
+        else:
+            assert target._type == GapType.After
+            return [
+                *if_cursor(target, lambda g: g.anchor().prev(), more_stmts),
+                *if_cursor(target, lambda g: g.anchor(), local_stmt),
+                f"{indent}[GAP - After]",
+                *if_cursor(target, lambda g: g.anchor().next(), local_stmt),
+                *if_cursor(target, lambda g: g.anchor().next(2), more_stmts),
+            ]
 
     elif isinstance(target, Block) and target in cur:
         block = [f"{indent}# BLOCK START"]
@@ -635,9 +645,9 @@ def _print_cursor_block(
             block.extend(local_stmt(stmt))
         block.append(f"{indent}# BLOCK END")
         return [
-            *if_cursor(target, lambda g: g.before(2), more_stmts),
+            *if_cursor(target, lambda g: g[0].prev(), more_stmts),
             *block,
-            *if_cursor(target, lambda g: g.after(2), more_stmts),
+            *if_cursor(target, lambda g: g[-1].next(), more_stmts),
         ]
 
     else:
@@ -646,9 +656,9 @@ def _print_cursor_block(
             return [f'{indent}"..."']
 
         return [
-            *if_cursor(stmt, lambda g: g.before(2), more_stmts),
+            *if_cursor(stmt, lambda g: g.prev().before(), more_stmts),
             *local_stmt(stmt),
-            *if_cursor(stmt, lambda g: g.after(2), more_stmts),
+            *if_cursor(stmt, lambda g: g.next().after(), more_stmts),
         ]
 
 

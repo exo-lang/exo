@@ -50,11 +50,10 @@ from .pattern_match import match_pattern
 
 
 class Cursor_Rewrite(LoopIR_Rewrite):
-    def __init__(self, proc_cursor):
-        # TODO: naughty! we're trying to remove this
-        self.provenance = proc_cursor._root
-        self.orig_proc = proc_cursor
-        self.proc = self.apply_proc(proc_cursor)
+    def __init__(self, proc):
+        self.provenance = proc
+        self.orig_proc = proc._root()
+        self.proc = self.apply_proc(self.orig_proc)
 
     def result(self, mod_config=None):
         return api.Procedure(
@@ -1023,7 +1022,7 @@ def DoBindExpr(new_name, expr_cursors, cse=False):
 
     new_read = LoopIR.Read(new_name, [], expr.type, expr.srcinfo)
     first_write_c = None
-    for c in init_c.as_block().expand(lo=0):
+    for c in init_c.as_block().expand(delta_lo=0):
         for block in match_pattern(c, "_ = _"):
             assert len(block) == 1
             sc = block[0]
@@ -1396,7 +1395,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         s = c._node
         return {"idx": [indexing] + s.idx}
 
-    for c in alloc_cursor.as_block().expand(lo=0):
+    for c in alloc_cursor.as_block().expand(delta_lo=0):
         ir, fwd = _replace_pats(
             ir, fwd, c, f"{alloc_s.name}[_]", mk_read, attrs=["idx"]
         )
@@ -1558,7 +1557,7 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         return {"idx": remap_idx(s.idx)}
 
     # TODO: add better iteration primitive
-    for c in alloc_cursor.as_block().expand(lo=0):
+    for c in alloc_cursor.as_block().expand(delta_lo=0):
         ir, fwd = _replace_pats(
             ir, fwd, c, f"{alloc_s.name}[_]", mk_read, attrs=["idx"]
         )
@@ -1630,7 +1629,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
         s = c._node
         return {"idx": remap_idx(s.idx)}
 
-    for c in alloc_cursor.as_block().expand(lo=0):
+    for c in alloc_cursor.as_block().expand(delta_lo=0):
         ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
         ir, fwd = _replace_pats_stmts(
             ir, fwd, c, f"{alloc_s.name} = _", mk_write, attrs=["idx"]
@@ -1690,7 +1689,7 @@ def DoLiftAllocSimple(alloc_cursor, n_lifts):
 # TODO: Implement autolift_alloc's logic using high-level scheduling metaprogramming and
 #       delete this code
 class DoLiftAlloc(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, n_lifts, mode, size, keep_dims):
+    def __init__(self, proc, alloc_cursor, n_lifts, mode, size, keep_dims):
         self.alloc_stmt = alloc_cursor._node
 
         assert isinstance(self.alloc_stmt, LoopIR.Alloc)
@@ -1701,7 +1700,7 @@ class DoLiftAlloc(Cursor_Rewrite):
 
         self.alloc_sym = self.alloc_stmt.name
         self.alloc_deps = LoopIR_Dependencies(
-            self.alloc_sym, proc_cursor._node.body
+            self.alloc_sym, proc._loopir_proc.body
         ).result()
         self.lift_mode = mode
         self.lift_size = size
@@ -1717,7 +1716,7 @@ class DoLiftAlloc(Cursor_Rewrite):
         self.alloc_type = None
         self._in_call_arg = False
 
-        super().__init__(proc_cursor)
+        super().__init__(proc)
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()
@@ -2161,12 +2160,12 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
 # TODO: Deprecate this with the one above
 # structure is weird enough to skip using the Rewrite-pass super-class
 class DoFissionLoops:
-    def __init__(self, proc_cursor, stmt_cursor, n_lifts):
+    def __init__(self, proc, stmt_cursor, n_lifts):
         self.tgt_stmt = stmt_cursor._node
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
         assert is_pos_int(n_lifts)
-        self.provenance = proc_cursor._root
-        self.orig_proc = proc_cursor._node
+        self.provenance = proc
+        self.orig_proc = proc._loopir_proc
         self.n_lifts = n_lifts
 
         self.hit_fission = False  # signal to map_stmts
@@ -2511,19 +2510,19 @@ class DoDeletePass(Cursor_Rewrite):
 
 
 class DoExtractMethod(Cursor_Rewrite):
-    def __init__(self, proc_cursor, name, stmt_cursor):
+    def __init__(self, proc, name, stmt_cursor):
         self.match_stmt = stmt_cursor._node
         assert isinstance(self.match_stmt, LoopIR.stmt)
         self.sub_proc_name = name
         self.new_subproc = None
-        self.orig_proc = proc_cursor._node
+        self.orig_proc = proc._loopir_proc
 
         self.var_types = ChainMap()
 
         for a in self.orig_proc.args:
             self.var_types[a.name] = a.type
 
-        super().__init__(proc_cursor)
+        super().__init__(proc)
         Check_Aliasing(self.proc)
 
     def subproc(self):
@@ -2587,27 +2586,31 @@ class _DoNormalize(Cursor_Rewrite):
     # { temporary_constant_symbol : 1, n : 4 }
     # and the map for the expression `n*4 - n*4 + 1` is:
     # { temporary_constant_symbol : 1, n : 0 }
-    # This map concatnation is handled by concat_map function.
-    def __init__(self, proc_cursor):
+    # This map concatenation is handled by concat_map function.
+    def __init__(self, proc):
         self.C = Sym("temporary_constant_symbol")
         self.env = ChainMap()
         # TODO: dispatch to Z3 to reason about preds ranges
-        for arg in proc_cursor._node.args:
+        for arg in proc._loopir_proc.args:
             self.env[arg.name] = None
 
-        self.ir = proc_cursor._node
+        self.ir = proc._loopir_proc
         self.fwd = lambda x: x
 
-        super().__init__(proc_cursor)
+        super().__init__(proc)
 
         # need to update self.ir with pred changes
         new_preds = self.map_exprs(self.ir.preds)
         if new_preds:
-            self.ir = self.ir.update(preds=new_preds)
+            self.ir, fwd = (
+                ic.Cursor.create(self.ir)._child_block("preds")._replace(new_preds)
+            )
+            self.fwd = _compose(fwd, self.fwd)
 
-    def result(self):
-        proc = api.Procedure(self.ir, _provenance_eq_Procedure=self.provenance)
-        return proc, self.fwd
+    def result(self, **kwargs):
+        return api.Procedure(
+            self.ir, _provenance_eq_Procedure=self.provenance, _forward=self.fwd
+        )
 
     def concat_map(self, op, lhs, rhs):
         if op == "+":
@@ -2686,7 +2689,7 @@ class _DoNormalize(Cursor_Rewrite):
                 (n_map[v], v) for v in n_map if v != self.C and n_map[v] != 0
             ]
 
-            return (new_e, delete_zero)
+            return new_e, delete_zero
 
         def division_simplification(e):
             constant, normalization_list = get_normalized_expr(e.lhs)
@@ -2948,22 +2951,20 @@ class _DoNormalize(Cursor_Rewrite):
 
 
 class DoSimplify(Cursor_Rewrite):
-    def __init__(self, proc_cursor):
+    def __init__(self, proc):
+        proc = _DoNormalize(proc).result()
+
         self.facts = ChainMap()
 
-        _, fwd = _DoNormalize(proc_cursor).result()
-        self.proc_cursor = fwd(proc_cursor)
-        self.ir = proc_cursor._node
+        self.ir = proc._loopir_proc
         self.fwd = lambda x: x
 
-        super().__init__(self.proc_cursor)
+        super().__init__(proc)
 
-        # need to update self.ir with pred changes
-        new_preds = self.map_exprs(self.ir.preds)
-        if new_preds:
+        # might need to update IR with predicate changes
+        if new_preds := self.map_exprs(self.ir.preds):
+            # TODO: is this line covered? do we not need to forward here?
             self.ir = self.ir.update(preds=new_preds)
-
-        self.fwd = _compose(self.fwd, fwd)
 
     def cfold(self, op, lhs, rhs):
         if op == "+":
@@ -3137,7 +3138,8 @@ class DoSimplify(Cursor_Rewrite):
         return None
 
     def result(self, mod_config=None):
-        return _fixup_effects(self.ir, self.fwd)
+        ir, fwd = _fixup_effects(self.ir, self.fwd)
+        return api.Procedure(ir, _provenance_eq_Procedure=self.provenance, _forward=fwd)
 
     def map_s(self, sc):
         s = sc._node
@@ -3298,7 +3300,7 @@ def DoDataReuse(buf_cursor, rep_cursor):
             Check_IsDeadAfter(buf_cursor.get_root(), [c._node], buf_name, buf_dims)
         return {"name": buf_name}
 
-    for c in rep_cursor.as_block().expand(lo=0):
+    for c in rep_cursor.as_block().expand(delta_lo=0):
         ir, fwd = _replace_pats(ir, fwd, c, f"{rep_name}[_]", mk_read, attrs=["name"])
         ir, fwd = _replace_pats_stmts(
             ir, fwd, c, f"{rep_name} = _", mk_write, attrs=["name"]

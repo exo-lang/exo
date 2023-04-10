@@ -57,8 +57,7 @@ def get_match_no(pattern_str: str) -> Optional[int]:
 
 
 def match_pattern(context, pattern_str, call_depth=0, default_match_no=None):
-    if not isinstance(context, Cursor):
-        context = Cursor.create(context)
+    assert isinstance(context, Cursor), f"Expected Cursor, got {type(context)}"
 
     # break-down pattern_str for possible #<num> post-fix
     if match := re.search(r"^([^#]+)#(\d+)\s*$", pattern_str):

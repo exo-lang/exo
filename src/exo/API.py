@@ -26,8 +26,8 @@ from .pyparser import get_ast_from_python, Parser, get_src_locals
 from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
-from . import API_cursors
-from . import internal_cursors
+from . import API_cursors as C
+from . import internal_cursors as IC
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -195,31 +195,18 @@ class Procedure(ProcedureBase):
         self._provenance_eq_Procedure = _provenance_eq_Procedure
         self._forward = _forward
 
-    def forward(self, cur: API_cursors.Cursor):
-        # TODO: fix types
-        def as_loopir(c):
-            c = cur.proc()
-            if isinstance(c, Procedure):
-                return c._loopir_proc
-            assert isinstance(c, LoopIR.LoopIR.proc)
-            return c
-
+    def forward(self, cur: C.Cursor):
         p = self
         fwds = []
-        while p is not None and p._loopir_proc != as_loopir(cur):
+        while p is not None and p != cur.proc():
             fwds.append(p._forward)
             p = p._provenance_eq_Procedure
 
+        ir = cur._impl
         for fn in reversed(fwds):
-            # modulo lifting to API level
-            new_impl = fn(cur._impl)
-            if type(new_impl) != type(cur._impl):
-                raise NotImplementedError(
-                    "need a proper lifting mechanism from internal cursors to API cursors"
-                )
-            cur = type(cur)(new_impl)  # todo: ick
+            ir = fn(ir)
 
-        return cur
+        return C.lift_cursor(ir, self)
 
     def __str__(self):
         return str(self._loopir_proc)
@@ -251,7 +238,9 @@ class Procedure(ProcedureBase):
         return str(self._loopir_proc.eff)
 
     def show_effect(self, stmt_pattern):
-        if match := match_pattern(self, stmt_pattern, call_depth=1, default_match_no=0):
+        if match := match_pattern(
+            self._root(), stmt_pattern, call_depth=1, default_match_no=0
+        ):
             assert len(match[0]) == 1, "Must match single statements"
             return str(match[0][0]._node.eff)
         raise SchedulingError("failed to find statement", pattern=stmt_pattern)
@@ -266,8 +255,8 @@ class Procedure(ProcedureBase):
         """
         Return a BlockCursor selecting the entire body of the Procedure
         """
-        impl = internal_cursors.Cursor.create(self).body()
-        return API_cursors.new_Cursor(impl)
+        block = self._root()._child_block("body")
+        return C.lift_cursor(block, self)
 
     def find(self, pattern, many=False):
         """
@@ -284,16 +273,13 @@ class Procedure(ProcedureBase):
             raise TypeError("expected a pattern string")
         default_match_no = None if many else 0
         raw_cursors = match_pattern(
-            self, pattern, call_depth=1, default_match_no=default_match_no
+            self._root(), pattern, call_depth=1, default_match_no=default_match_no
         )
         assert isinstance(raw_cursors, list)
         cursors = []
         for c in raw_cursors:
-            c = API_cursors.new_Cursor(c)
-            if (
-                isinstance(c, (API_cursors.BlockCursor, API_cursors.ExprListCursor))
-                and len(c) == 1
-            ):
+            c = C.lift_cursor(c, self)
+            if isinstance(c, (C.BlockCursor, C.ExprListCursor)) and len(c) == 1:
                 c = c[0]
             cursors.append(c)
 
@@ -327,7 +313,7 @@ class Procedure(ProcedureBase):
             return LoopIR_to_QAST(self._loopir_proc).result()
 
         # do pattern matching
-        match = match_pattern(self, pattern, call_depth=1)
+        match = match_pattern(self._root(), pattern, call_depth=1)
 
         # convert matched sub-trees to QAST
         assert isinstance(match, list)
@@ -395,9 +381,11 @@ class Procedure(ProcedureBase):
         p = scheduling.DoPartialEval(kwargs).apply_proc(p)
         return Procedure(p)  # No provenance because signature changed
 
-    def add_assertion(self, assertion, configs=[]):
+    def add_assertion(self, assertion, configs=None):
         if not isinstance(assertion, str):
             raise TypeError("assertion must be an Exo string")
+
+        configs = configs or []
 
         p = self._loopir_proc
         assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
@@ -409,6 +397,9 @@ class Procedure(ProcedureBase):
     def is_eq(self, proc: "Procedure"):
         eqv_set = check_eqv_proc(self._loopir_proc, proc._loopir_proc)
         return eqv_set == frozenset()
+
+    def _root(self):
+        return IC.Cursor.create(self._loopir_proc)
 
 
 # --------------------------------------------------------------------------- #

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import enum
 import functools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -98,7 +99,7 @@ def forward_identity(p, fwd=None):
 
 @dataclass
 class Cursor(ABC):
-    _root: object
+    _root: object  # most of the time is LoopIR.proc
 
     # ------------------------------------------------------------------------ #
     # Static constructors
@@ -106,6 +107,8 @@ class Cursor(ABC):
 
     @staticmethod
     def create(obj: object):
+        # TODO: remove assert; it is a debugging aid.
+        assert isinstance(obj, LoopIR.LoopIR.proc)
         return Node(obj, [])
 
     # ------------------------------------------------------------------------ #
@@ -131,69 +134,9 @@ class Cursor(ABC):
     def parent(self) -> Node:
         """Get the node containing the current cursor"""
 
-    @abstractmethod
-    def before(self, dist=1) -> Cursor:
-        """For gaps, get the node before the gap. Otherwise, get the gap before
-        the node or block"""
-
-    @abstractmethod
-    def after(self, dist=1) -> Cursor:
-        """For gaps, get the node after the gap. Otherwise, get the gap after
-        the node or block"""
-
-    @abstractmethod
-    def prev(self, dist=1) -> Cursor:
-        """Get the previous node/gap in the block. Undefined for blocks."""
-
-    @abstractmethod
-    def next(self, dist=1) -> Cursor:
-        """Get the next node/gap in the block. Undefined for blocks."""
-
-    # ------------------------------------------------------------------------ #
-    # Block Navigation
-    # ------------------------------------------------------------------------ #
-
-    def _whole_block(self) -> Block:
-        attr, _range = self._path[-1]
-        parent = self.parent()
-        return parent._child_block(attr)
-
     # ------------------------------------------------------------------------ #
     # Protected path / mutation helpers
     # ------------------------------------------------------------------------ #
-
-    def _translate(self, ty, dist):
-        assert isinstance(self, (Node, Gap))
-        if not self._path:
-            raise InvalidCursorError("cannot move root cursor")
-        attr, i = self._path[-1]
-        if i is None:
-            raise InvalidCursorError("cursor is not inside block")
-        return ty(self.parent(), attr, i + dist)
-
-    def _rewrite_node(self, fn):
-        """
-        Applies `fn` to the AST node containing the cursor. The callback is
-        passed the raw parent of the pointed-to node/block/gap. The callback is
-        expected to return a single, updated node to be placed in the new tree.
-        """
-        assert isinstance(self, (Node, Block, Gap))
-
-        def impl(node, path):
-            if len(path) == 1:
-                return fn(node)
-
-            (attr, i), path = path[0], path[1:]
-            children = getattr(node, attr)
-
-            if i is None:
-                return node.update(**{attr: impl(children, path)})
-
-            return node.update(
-                **{attr: children[:i] + [impl(children[i], path)] + children[i + 1 :]}
-            )
-
-        return impl(self.get_root(), self._path)
 
     def _local_forward(self, new_root, fwd_node):
         """
@@ -210,17 +153,21 @@ class Cursor(ABC):
         certain paths).
         """
         orig_root = self._root
-        edit_path = self._path
+
+        edit_path = self.parent()._path
+
+        if isinstance(self, Node):
+            attr = self._path[-1][0]
+        elif isinstance(self, Gap):
+            attr = self.anchor()._path[-1][0]
+        else:
+            assert isinstance(self, Block)
+            attr = self._attr
+
         depth = len(edit_path)
-        attr = edit_path[depth - 1][0]
 
         def forward(cursor: Cursor) -> Cursor:
-            def as_loopir(c):
-                if not isinstance(c, LoopIR.LoopIR.proc):
-                    return c._loopir_proc
-                return c
-
-            if as_loopir(cursor._root) != as_loopir(orig_root):
+            if cursor._root is not orig_root:
                 raise InvalidCursorError("cannot forward from unknown root")
 
             if not isinstance(cursor, Node):
@@ -231,18 +178,18 @@ class Cursor(ABC):
 
             old_path = cursor._path
 
-            if len(old_path) < depth:
+            if len(old_path) < depth + 1:
                 # Too shallow
                 return evolve(old_path)
 
-            old_attr, old_idx = old_path[depth - 1]
+            old_attr, old_idx = old_path[depth]
 
-            if not (_starts_with(old_path, edit_path[:-1]) and old_attr == attr):
+            if not (_starts_with(old_path, edit_path) and old_attr == attr):
                 # Same path down tree
                 return evolve(old_path)
 
             return evolve(
-                old_path[: depth - 1] + fwd_node(attr, old_idx) + old_path[depth:]
+                old_path[:depth] + fwd_node(attr, old_idx) + old_path[depth + 1 :]
             )
 
         return forward
@@ -250,112 +197,84 @@ class Cursor(ABC):
 
 @dataclass
 class Block(Cursor):
-    _path: list[tuple[str, Union[int, range]]]  # is range iff last entry
+    _anchor: Node
+    _attr: str  # must be 'body' or 'orelse'
+    _range: range
 
     # ------------------------------------------------------------------------ #
     # Navigation (implementation)
     # ------------------------------------------------------------------------ #
 
     def parent(self) -> Node:
-        return Node(self._root, self._path[:-1])
+        return self._anchor
 
-    def before(self, dist=1) -> Gap:
-        attr, _range = self._path[-1]
-        assert len(_range) > 0
-        return self.parent()._child_node(attr, _range.start).before(dist)
+    def before(self) -> Gap:
+        return self[0].before()
 
-    def after(self, dist=1) -> Gap:
-        attr, _range = self._path[-1]
-        assert len(_range) > 0
-        return self.parent()._child_node(attr, _range.stop - 1).after(dist)
-
-    def prev(self, dist=1) -> Cursor:
-        # TODO: what should this mean?
-        #  1. The node after the block?
-        #  2. The block shifted over?
-        #  3. The block of nodes leading up to the start?
-        raise NotImplementedError("Block.prev")
-
-    def next(self, dist=1) -> Cursor:
-        # TODO: what should this mean?
-        #  1. The node after the block?
-        #  2. The block shifted over?
-        #  3. The block of nodes past the end?
-        raise NotImplementedError("Block.next")
+    def after(self) -> Gap:
+        return self[-1].after()
 
     # ------------------------------------------------------------------------ #
     # Container interface implementation
     # ------------------------------------------------------------------------ #
 
     def __contains__(self, cur):
-        n = len(self._path)
-        blk_path = self._path
-        cur_path = cur._path
-
-        if n != len(cur_path):
-            return False
-
-        if (
-            any(cur_path[i] != blk_path[i] for i in range(n - 1))
-            or cur_path[-1][0] != blk_path[-1][0]
-        ):
-            return False
-
-        if isinstance(cur, Node):
-            return cur_path[-1][1] in blk_path[-1][1]
-        elif isinstance(cur, Gap):
-            return blk_path[-1][1].start <= cur_path[-1][1] <= blk_path[-1][1].stop
-        else:
-            assert isinstance(cur, Block)
+        if isinstance(cur, Block):
             return (
-                _is_sub_range(cur_path[-1][1], blk_path[-1][1])
-                or cur_path[-1][1] == blk_path[-1][1]
+                cur._anchor == self._anchor
+                and cur._attr == self._attr
+                and (
+                    _is_sub_range(cur._range, self._range) or cur._range == self._range
+                )
             )
+        elif isinstance(cur, Gap):
+            # This shouldn't recurse forever...
+            return not cur.is_edge() and cur.anchor() in self
+        elif isinstance(cur, Node):
+            return (
+                cur.parent() == self._anchor
+                and cur._path[-1][0] == self._attr
+                and cur._path[-1][1] in self._range
+            )
+        else:
+            raise TypeError(f"cannot check containment of {type(cur)}")
 
     # ------------------------------------------------------------------------ #
     # Sequence interface implementation
     # ------------------------------------------------------------------------ #
 
     def __iter__(self):
-        attr, _range = self._path[-1]
         block = self.parent()
-        for i in _range:
-            yield block._child_node(attr, i)
+        for i in self._range:
+            yield block._child_node(self._attr, i)
 
     def __getitem__(self, i):
-        attr, r = self._path[-1]
-        r = r[i]
+        r = self._range[i]
         if isinstance(r, range):
             if r.step != 1:
                 raise IndexError("block cursors must be contiguous")
-            return Block(self._root, self._path[:-1] + [(attr, r)])
+            return Block(self._root, self._anchor, self._attr, r)
         else:
-            return self.parent()._child_node(attr, r)
+            return self._anchor._child_node(self._attr, r)
 
     def __len__(self):
-        _, _range = self._path[-1]
-        return len(_range)
+        return len(self._range)
 
     # ------------------------------------------------------------------------ #
     # Block-specific operations
     # ------------------------------------------------------------------------ #
 
-    def expand(self, lo=None, hi=None):
-        attr, _range = self._path[-1]
-        full_block = self.parent()._child_block(attr)
-        _, full_range = full_block._path[-1]
-        if lo is None:
-            lo = 0
-        else:
-            lo = _range.start - lo
-            lo = lo if lo >= 0 else 0
-        if hi is None:
-            hi = len(full_range)
-        else:
-            hi = _range.stop + hi
-        new_range = full_range[lo:hi]
+    def expand(self, delta_lo=None, delta_hi=None):
+        full_block = self.parent()._child_block(self._attr)
+        full_range = full_block._range
 
-        return Block(self._root, self._path[:-1] + [(attr, new_range)])
+        delta_lo = self._range.start if delta_lo is None else delta_lo
+        delta_hi = len(full_range) - self._range.stop if delta_hi is None else delta_hi
+
+        lo = max(0, self._range.start - delta_lo)
+        hi = min(len(full_range), self._range.stop + delta_hi)
+
+        return Block(self._root, self._anchor, self._attr, range(lo, hi))
 
     # ------------------------------------------------------------------------ #
     # AST mutation
@@ -369,23 +288,21 @@ class Block(Cursor):
         called from other internal classes and modules, but not from end-user
         code.
         """
-        assert self._path
-        # assert len(self) > 0
         assert isinstance(nodes, list)
 
-        def update(parent):
-            attr, i = self._path[-1]
-            children = getattr(parent, attr)
-            new_children = children[: i.start] + nodes + children[i.stop :]
+        def update(n):
+            r = self._range
+            children = getattr(n, self._attr)
+            new_children = children[: r.start] + nodes + children[r.stop :]
             new_children = new_children or empty_default or []
-            return parent.update(**{attr: new_children})
+            return n.update(**{self._attr: new_children})
 
-        p = self._rewrite_node(update)
+        p = self._anchor._rewrite(update)
         fwd = self._forward_replace(p, len(nodes))
         return p, fwd
 
     def _forward_replace(self, new_proc, n_ins):
-        _, del_range = self._path[-1]
+        del_range = self._range
         n_diff = n_ins - len(del_range)
 
         def fwd_node(attr, i):
@@ -409,8 +326,9 @@ class Block(Cursor):
         # Do this rather than [n._node for n in self] because that would
         # walk down the tree once per node in the block, whereas this walks
         # down once.
-        attr, rng = self._path[-1]
-        return getattr(self.parent()._node, attr)[rng.start : rng.stop]
+        return getattr(self._anchor._node, self._attr)[
+            self._range.start : self._range.stop
+        ]
 
     def _wrap(self, ctor, wrap_attr):
         """
@@ -424,17 +342,17 @@ class Block(Cursor):
         new_node = ctor(**{wrap_attr: nodes})
 
         def update(parent):
-            orig_attr, i = self._path[-1]
-            children = getattr(parent, orig_attr)
-            new_children = children[: i.start] + [new_node] + children[i.stop :]
-            return parent.update(**{orig_attr: new_children})
+            r = self._range
+            children = getattr(parent, self._attr)
+            new_children = children[: r.start] + [new_node] + children[r.stop :]
+            return parent.update(**{self._attr: new_children})
 
-        p = self._rewrite_node(update)
+        p = self._anchor._rewrite(update)
         fwd = self._forward_wrap(p, wrap_attr)
         return p, fwd
 
     def _forward_wrap(self, p, wrap_attr):
-        rng = self._path[-1][1]
+        rng = self._range
 
         def forward(attr, i):
             if i >= rng.stop:
@@ -460,9 +378,12 @@ class Block(Cursor):
         nodes = self._get_loopir()
 
         def _is_before(g: Gap, b: Block):
-            b_path = b._path[:-1] + [(b._path[-1][0], b._path[-1][1].start)]
+            b_path = b._anchor._path + [(b._attr, b._range.start)]
 
-            for (g_attr, g_idx), (b_attr, b_idx) in zip(g._path, b_path):
+            g_path = g._anchor._path[:]
+            g_path[-1] = (g_path[-1][0], g._insertion_index())
+
+            for (g_attr, g_idx), (b_attr, b_idx) in zip(g_path, b_path):
                 if g_attr != b_attr:
                     # arbitrary because they're in disjoint branches
                     return False
@@ -471,6 +392,9 @@ class Block(Cursor):
                     return g_idx < b_idx
 
             return True
+
+        def reroot(x):
+            return dataclasses.replace(x, _root=ir)
 
         # The following implementation "unsafely" coerces a cursor along the
         # intermediate procs by ordering the edits so that identity-forwarding
@@ -481,29 +405,33 @@ class Block(Cursor):
             # If the gap comes first in a pre-order traversal, then we want to
             # delete the original block of nodes first, to keep the path to the
             # gap stable, before inserting the nodes in the new position.
-            p, _ = self._delete()
-            p, _ = dataclasses.replace(target, _root=p)._insert(nodes)
+            ir, _ = self._delete()
+            ir, _ = Gap(ir, reroot(target._anchor), target._type)._insert(nodes)
         else:
             # Conversely, if the moved block comes first, then we want to jump
             # ahead and insert the block into the gap position before coming back
             # to delete the original nodes, so that the path to the deletion stays
             # stable.
-            p, _ = target._insert(nodes)
-            p, _ = dataclasses.replace(self, _root=p)._delete()
+            ir, _ = target._insert(nodes)
+            ir, _ = Block(ir, reroot(self._anchor), self._attr, self._range)._delete()
 
-        fwd = self._forward_move(p, target)
-        return p, fwd
+        fwd = self._forward_move(ir, target)
+        return ir, fwd
 
-    def _forward_move(self, p, target):
+    def _forward_move(self, p, target: Gap):
         orig_root = self._root
 
-        block_path = self._path
+        block_path = self._anchor._path
         block_n = len(block_path)
 
-        edit_n = len(block_path[-1][1])
+        block_attr = self._attr
 
-        gap_path = target._path
-        gap_n = len(gap_path)
+        block_rng = self._range
+        edit_n = len(block_rng)
+
+        gap_path = target._anchor._path[:]
+        gap_path[-1] = (gap_path[-1][0], target._insertion_index())
+        gap_n = len(gap_path) - 1
 
         def forward(cursor: Node):
             def as_loopir(c):
@@ -523,9 +451,9 @@ class Block(Cursor):
             # Compute the gap offset when moving within a block
             if (
                 block_n == gap_n
-                and block_path[: block_n - 1] == gap_path[: block_n - 1]
-                and block_path[block_n - 1][0] == gap_path[block_n - 1][0]
-                and block_path[block_n - 1][1].stop <= gap_path[block_n - 1][1]
+                and block_path == gap_path[:block_n]
+                and block_attr == gap_path[block_n][0]
+                and block_rng.stop <= gap_path[block_n][1]
             ):
                 gap_off = -edit_n
             else:
@@ -535,23 +463,23 @@ class Block(Cursor):
             offsets = []
 
             if (
-                cur_n >= block_n
-                and block_path[: block_n - 1] == cur_path[: block_n - 1]
-                and block_path[block_n - 1][0] == cur_path[block_n - 1][0]
+                cur_n > block_n
+                and block_path == cur_path[:block_n]
+                and block_attr == cur_path[block_n][0]
             ):
-                if block_path[block_n - 1][1].stop <= cur_path[block_n - 1][1]:
+                if block_rng.stop <= cur_path[block_n][1]:
                     # if after orig. block end, subtract edit_n
-                    offsets.append((block_n - 1, -edit_n))
-                elif block_path[block_n - 1][1].start <= cur_path[block_n - 1][1]:
+                    offsets.append((block_n, -edit_n))
+                elif block_rng.start <= cur_path[block_n][1]:
                     # if inside orig block, move to gap location
-                    off = cur_path[block_n - 1][1] - block_path[block_n - 1][1].start
+                    off = cur_path[block_n][1] - block_rng.start
                     return dataclasses.replace(
                         cursor,
                         _root=p,
                         _path=(
                             gap_path[:-1]
                             + [(gap_path[-1][0], gap_path[-1][1] + gap_off + off)]
-                            + cur_path[block_n:]
+                            + cur_path[block_n + 1 :]
                         ),
                     )
                 else:
@@ -560,12 +488,12 @@ class Block(Cursor):
 
             # if after orig. gap, add edit_n
             if (
-                cur_n >= gap_n
-                and gap_path[: gap_n - 1] == cur_path[: gap_n - 1]
-                and gap_path[gap_n - 1][0] == cur_path[gap_n - 1][0]
-                and gap_path[gap_n - 1][1] <= cur_path[gap_n - 1][1]
+                cur_n > gap_n
+                and gap_path[:gap_n] == cur_path[:gap_n]
+                and gap_path[gap_n][0] == cur_path[gap_n][0]
+                and gap_path[gap_n][1] <= cur_path[gap_n][1]
             ):
-                offsets.append((gap_n - 1, edit_n))
+                offsets.append((gap_n, edit_n))
 
             for off_i, off_d in offsets:
                 cur_path[off_i] = (cur_path[off_i][0], cur_path[off_i][1] + off_d)
@@ -614,17 +542,22 @@ class Node(Cursor):
             raise InvalidCursorError("cursor does not have a parent")
         return Node(self._root, self._path[:-1])
 
-    def before(self, dist=1) -> Gap:
-        return self._translate(Node._child_gap, 1 - dist)
+    def before(self) -> Gap:
+        return Gap(self._root, self, GapType.Before)
 
-    def after(self, dist=1) -> Gap:
-        return self._translate(Node._child_gap, dist)
+    def after(self) -> Gap:
+        return Gap(self._root, self, GapType.After)
 
     def prev(self, dist=1) -> Node:
-        return self._translate(Node._child_node, -dist)
+        return self.next(-dist)
 
     def next(self, dist=1) -> Node:
-        return self._translate(Node._child_node, dist)
+        if not self._path:
+            raise InvalidCursorError("cannot move root cursor")
+        attr, i = self._path[-1]
+        if i is None:
+            raise InvalidCursorError("cursor is not inside block")
+        return self.parent()._child_node(attr, i + dist)
 
     # ------------------------------------------------------------------------ #
     # Navigation (children)
@@ -645,19 +578,10 @@ class Node(Cursor):
         cur._node = _node
         return cur
 
-    def _child_gap(self, attr, i=None) -> Gap:
-        _node = getattr(self._node, attr)
-        if i is not None:
-            if not 0 <= i <= len(_node):
-                raise InvalidCursorError("cursor is out of range")
-        elif isinstance(_node, list):
-            raise ValueError("must index into block attribute")
-        return Gap(self._root, self._path + [(attr, i)])
-
     def _child_block(self, attr: str):
         stmts = getattr(self._node, attr)
         assert isinstance(stmts, list)
-        return Block(self._root, self._path + [(attr, range(len(stmts)))])
+        return Block(self._root, self, attr, range(len(stmts)))
 
     def children(self) -> Iterable[Node]:
         n = self._node
@@ -733,7 +657,7 @@ class Node(Cursor):
         attr, i = self._path[-1]
         if i is None:
             raise InvalidCursorError("node is not inside a block")
-        return Block(self._root, self._path[:-1] + [(attr, range(i, i + 1))])
+        return Block(self._root, self.parent(), attr, range(i, i + 1))
 
     # ------------------------------------------------------------------------ #
     # Location queries
@@ -745,11 +669,35 @@ class Node(Cursor):
 
     def is_ancestor_of(self, other: Cursor) -> bool:
         """Return true if this node is an ancestor of another"""
+        if not isinstance(other, Node):
+            other = other._anchor
         return _starts_with(other._path, self._path)
 
     # ------------------------------------------------------------------------ #
     # AST mutation
     # ------------------------------------------------------------------------ #
+
+    def _rewrite(self, fn):
+        """
+        Applies `fn` to the current node and rewrites the tree with the result.
+        """
+
+        def impl(node, path, j=0):
+            if j == len(path):
+                return fn(node)
+
+            attr, i = path[j]
+            children = getattr(node, attr)
+
+            if i is None:
+                return node.update(**{attr: impl(children, path, j + 1)})
+
+            new_nodes = impl(children[i], path, j + 1)
+            if not isinstance(new_nodes, list):
+                new_nodes = [new_nodes]
+            return node.update(**{attr: children[:i] + new_nodes + children[i + 1 :]})
+
+        return impl(self.get_root(), self._path)
 
     def _delete(self):
         return self.as_block()._delete()
@@ -774,16 +722,12 @@ class Node(Cursor):
         # replacing a single expression, or something not in a block
         assert not isinstance(ast, list), "replaced node is not in a block"
 
-        def update(parent):
-            return parent.update(**{attr: ast})
-
-        p = self._rewrite_node(update)
+        p = self._rewrite(lambda _: ast)
         fwd = self._forward_replace(p)
         return p, fwd
 
     def _forward_replace(self, new_root):
-        _, idx = self._path[-1]
-        assert idx is None
+        assert self._path[-1][1] is None
 
         def fwd_node(*_):
             raise InvalidCursorError("cannot forward replaced nodes")
@@ -791,29 +735,41 @@ class Node(Cursor):
         return self._local_forward(new_root, fwd_node)
 
 
+class GapType(enum.Enum):
+    Before = 0
+    After = 1
+    # BodyStart = enum.auto()
+    # BodyEnd = enum.auto()
+    # OrElseStart = enum.auto()
+    # OrElseEnd = enum.auto()
+
+
 @dataclass
 class Gap(Cursor):
-    _path: list[tuple[str, int]]
+    _anchor: Node
+    _type: GapType
 
     # ------------------------------------------------------------------------ #
     # Navigation (implementation)
     # ------------------------------------------------------------------------ #
 
     def parent(self) -> Node:
-        assert self._path
-        return Node(self._root, self._path[:-1])
+        if self.is_edge():
+            return self._anchor
+        return self._anchor.parent()
 
-    def before(self, dist=1) -> Node:
-        return self._translate(Node._child_node, -dist)
+    def anchor(self) -> Node:
+        return self._anchor
 
-    def after(self, dist=1) -> Node:
-        return self._translate(Node._child_node, dist - 1)
+    # ------------------------------------------------------------------------ #
+    # Gap type queries
+    # ------------------------------------------------------------------------ #
 
-    def prev(self, dist=1) -> Gap:
-        return self._translate(Node._child_gap, -dist)
+    def is_edge(self):
+        return self._type not in (GapType.Before, GapType.After)
 
-    def next(self, dist=1) -> Gap:
-        return self._translate(Node._child_gap, dist)
+    def type(self) -> GapType:
+        return self._type
 
     # ------------------------------------------------------------------------ #
     # AST mutation
@@ -827,21 +783,35 @@ class Gap(Cursor):
         may be called from other internal classes and modules, but not from
         end-user code.
         """
-        assert self._path
 
-        def update(parent):
-            attr, i = self._path[-1]
-            children = getattr(parent, attr)
-            return parent.update(**{attr: children[:i] + stmts + children[i:]})
+        def update(anchor):
+            if self._type == GapType.Before:
+                return stmts + [anchor]
+            elif self._type == GapType.After:
+                return [anchor] + stmts
+            else:
+                assert False, f"case {self._type} not implemented"
 
-        p = self._rewrite_node(update)
+        if self.is_edge():
+            raise NotImplementedError()
+
+        p = self.anchor()._rewrite(update)
         fwd = self._forward_insert(p, len(stmts))
         return p, fwd
 
     def _forward_insert(self, new_root, ins_len):
-        _, ins_idx = self._path[-1]
+        ins_idx = self._insertion_index()
 
         def fwd_node(attr, i):
             return [(attr, i + ins_len * (i >= ins_idx))]
 
         return self._local_forward(new_root, fwd_node)
+
+    def _insertion_index(self):
+        _, i = self._anchor._path[-1]
+        if self._type == GapType.Before:
+            return i
+        elif self._type == GapType.After:
+            return i + 1
+        else:
+            assert False, f"case {self.type} not implemented"

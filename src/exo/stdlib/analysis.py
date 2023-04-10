@@ -1,6 +1,6 @@
 from exo import DRAM
 
-from ..API_cursors import public_cursors as _PC
+import exo.API_cursors as _PC
 from ..API import Procedure, SchedulingError
 
 
