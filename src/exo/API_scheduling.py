@@ -1649,10 +1649,17 @@ def fission(proc, gap_cursor, n_lifts=1):
         `    s2`
     """
 
-    if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
-        raise ValueError("expected cursor to point to " "a gap between statements")
-    stmt = stmtc._impl
-    ir, fwd = scheduling.DoFissionAfterSimple(stmt, n_lifts)
+    if gap_cursor.type() == ic.GapType.Before:
+        stmt = gap_cursor.anchor().prev()
+    else:
+        stmt = gap_cursor.anchor()
+
+    if not stmt or not stmt.next():
+        raise ValueError(
+            "expected cursor to point to a gap between statements, not at an edge"
+        )
+
+    ir, fwd = scheduling.DoFissionAfterSimple(stmt._impl, n_lifts)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1682,11 +1689,17 @@ def autofission(proc, gap_cursor, n_lifts=1):
         `    s2`
     """
 
-    if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
-        raise ValueError("expected cursor to point to " "a gap between statements")
-    stmt = stmtc._impl
+    if gap_cursor.type() == ic.GapType.Before:
+        stmt = gap_cursor.anchor().prev()
+    else:
+        stmt = gap_cursor.anchor()
 
-    return scheduling.DoFissionLoops(proc, stmt, n_lifts).result()
+    if not stmt or not stmt.next():
+        raise ValueError(
+            "expected cursor to point to a gap between statements, not at an edge"
+        )
+
+    return scheduling.DoFissionLoops(proc, stmt._impl, n_lifts).result()
 
 
 @sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA])

@@ -1689,7 +1689,7 @@ def DoLiftAllocSimple(alloc_cursor, n_lifts):
 # TODO: Implement autolift_alloc's logic using high-level scheduling metaprogramming and
 #       delete this code
 class DoLiftAlloc(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, n_lifts, mode, size, keep_dims):
+    def __init__(self, proc, alloc_cursor, n_lifts, mode, size, keep_dims):
         self.alloc_stmt = alloc_cursor._node
 
         assert isinstance(self.alloc_stmt, LoopIR.Alloc)
@@ -1700,7 +1700,7 @@ class DoLiftAlloc(Cursor_Rewrite):
 
         self.alloc_sym = self.alloc_stmt.name
         self.alloc_deps = LoopIR_Dependencies(
-            self.alloc_sym, proc_cursor._node.body
+            self.alloc_sym, proc._loopir_proc.body
         ).result()
         self.lift_mode = mode
         self.lift_size = size
@@ -1716,7 +1716,7 @@ class DoLiftAlloc(Cursor_Rewrite):
         self.alloc_type = None
         self._in_call_arg = False
 
-        super().__init__(proc_cursor)
+        super().__init__(proc)
 
         # repair effects...
         self.proc = InferEffects(self.proc).result()

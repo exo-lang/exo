@@ -300,6 +300,13 @@ class GapCursor(StmtCursorPrototype):
         assert isinstance(self._impl, C.Gap)
         return lift_cursor(self._impl.anchor(), self._proc)
 
+    def type(self) -> C.GapType:
+        """
+        Get the type of this gap.
+        """
+        assert isinstance(self._impl, C.Gap)
+        return self._impl.type()
+
 
 class ExprCursorPrototype(Cursor):
     """

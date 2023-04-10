@@ -760,9 +760,6 @@ class Gap(Cursor):
     # Navigation (implementation)
     # ------------------------------------------------------------------------ #
 
-    def is_edge(self):
-        return self._type not in (GapType.Before, GapType.After)
-
     def parent(self) -> Node:
         if self.is_edge():
             return self._anchor
@@ -770,6 +767,16 @@ class Gap(Cursor):
 
     def anchor(self) -> Node:
         return self._anchor
+
+    # ------------------------------------------------------------------------ #
+    # Gap type queries
+    # ------------------------------------------------------------------------ #
+
+    def is_edge(self):
+        return self._type not in (GapType.Before, GapType.After)
+
+    def type(self) -> GapType:
+        return self._type
 
     # ------------------------------------------------------------------------ #
     # AST mutation
