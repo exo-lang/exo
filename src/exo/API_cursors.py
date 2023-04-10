@@ -85,9 +85,9 @@ class Cursor(ABC):
     def __init__(self, impl, proc):
         if not isinstance(impl, C.Cursor):
             raise TypeError(
-                "Do not try to directly construct a Cursor.  "
+                "Do not try to directly construct a Cursor. "
                 "Use the provided methods to obtain cursors "
-                "from Procedures, and from other Cursors"
+                "from Procedures and from other Cursors"
             )
         self._impl = impl
         self._proc = proc
@@ -133,9 +133,12 @@ class Cursor(ABC):
 
 
 class InvalidCursor(Cursor):
+    # noinspection PyMissingConstructor
+    # we can't call the Cursor constructor since it checks the type of _impl
     def __init__(self):
         """Invalid cursors have no data"""
-        super().__init__(None, None)
+        self._impl = None
+        self._proc = None
 
     def __bool__(self):
         """
@@ -557,7 +560,7 @@ class CallCursor(StmtCursor):
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Call)
 
-        return ExprListCursor(self._impl._child_block("args"))
+        return ExprListCursor(self._impl._child_block("args"), self._proc)
 
 
 class WindowStmtCursor(StmtCursor):
