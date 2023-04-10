@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, List, Tuple
 
 from .API import Procedure
-from .API_cursors import public_cursors as PC, ExprCursor
+import exo.API_cursors as PC
 from .LoopIR import LoopIR, T
 import exo.LoopIR_scheduling as scheduling
 
@@ -599,7 +599,7 @@ class FormattedExprStr:
             raise TypeError("expr_str must be a string")
         self._expr_str = expr_str
         for cursor in expr_holes:
-            if not isinstance(cursor, ExprCursor):
+            if not isinstance(cursor, PC.ExprCursor):
                 raise TypeError("Cursor provided to fill a hole must be a ExprCursor")
         self._expr_holes = tuple(cursor._impl._node for cursor in expr_holes)
 
