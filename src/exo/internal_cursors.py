@@ -683,6 +683,8 @@ class Node(Cursor):
 
     def is_ancestor_of(self, other: Cursor) -> bool:
         """Return true if this node is an ancestor of another"""
+        if not isinstance(other, Node):
+            other = other._anchor
         return _starts_with(other._path, self._path)
 
     # ------------------------------------------------------------------------ #
