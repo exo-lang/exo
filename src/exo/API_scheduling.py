@@ -616,13 +616,8 @@ class NewExprA(ArgumentProcessor):
         if not isinstance(cursor, PC.GapCursor):
             cursor = cursor.before() if self.before else cursor.after()
 
-        # resolve gaps down to statements in a somewhat silly way
         # TODO: improve parse_fragment to just take gaps
-        if not (stmtc := cursor.after()):
-            assert (stmtc := cursor.before())
-        ctxt_stmt = stmtc._impl._node
-
-        return ctxt_stmt
+        return cursor.anchor()._impl._node
 
     def __call__(self, expr_str, all_args):
         expr_holes = None

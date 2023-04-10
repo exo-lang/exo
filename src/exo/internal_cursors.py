@@ -107,6 +107,8 @@ class Cursor(ABC):
 
     @staticmethod
     def create(obj: object):
+        # TODO: remove assert; it is a debugging aid.
+        assert isinstance(obj, LoopIR.LoopIR.proc)
         return Node(obj, [])
 
     # ------------------------------------------------------------------------ #
@@ -582,15 +584,6 @@ class Node(Cursor):
         # cached_property is settable, bug in static analysis
         cur._node = _node
         return cur
-
-    def _child_gap(self, attr, i=None) -> Gap:
-        _node = getattr(self._node, attr)
-        if i is not None:
-            if not 0 <= i <= len(_node):
-                raise InvalidCursorError("cursor is out of range")
-        elif isinstance(_node, list):
-            raise ValueError("must index into block attribute")
-        return Gap(self._root, self._path + [(attr, i)])
 
     def _child_block(self, attr: str):
         stmts = getattr(self._node, attr)

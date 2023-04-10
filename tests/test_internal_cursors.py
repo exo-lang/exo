@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import gc
-import weakref
-
 import pytest
 
-from exo import proc, SchedulingError
+from exo import proc, SchedulingError, Procedure
 from exo.LoopIR import LoopIR, T
 from exo.LoopIR_pprint import _print_cursor
 from exo.internal_cursors import (
@@ -20,6 +17,12 @@ from exo.syntax import size, f32
 
 
 def _find_cursors(ctx, pattern):
+    if isinstance(ctx, Procedure):
+        ctx = ctx._root()
+
+    if isinstance(ctx, LoopIR.proc):
+        ctx = Cursor.create(ctx)
+
     cursors = match_pattern(ctx, pattern, call_depth=1)
     assert isinstance(cursors, list)
     if not cursors:
@@ -70,12 +73,12 @@ def proc_bar():
 
 
 def test_get_root(proc_foo):
-    cursor = Cursor.create(proc_foo)
+    cursor = proc_foo._root()
     assert cursor._node is proc_foo.INTERNAL_proc()
 
 
 def test_get_child(proc_foo):
-    cursor = Cursor.create(proc_foo).children()
+    cursor = proc_foo._root().children()
     cursor = next(iter(cursor))
     assert cursor._node is proc_foo.INTERNAL_proc().body[0]
 
@@ -104,13 +107,13 @@ def test_gap_insert_pass(proc_foo, golden):
 
 
 def test_insert_root_front(proc_foo, golden):
-    c = Cursor.create(proc_foo)
+    c = proc_foo._root()
     foo2, _ = c.body().before()._insert([LoopIR.Pass(None, c._node.srcinfo)])
     assert str(foo2) == golden
 
 
 def test_insert_root_end(proc_foo, golden):
-    c = Cursor.create(proc_foo)
+    c = proc_foo._root()
     foo2, _ = c.body().after()._insert([LoopIR.Pass(None, c._node.srcinfo)])
     assert str(foo2) == golden
 
@@ -202,7 +205,7 @@ def test_cursor_move(proc_foo):
 
 def test_cursor_move_invalid(proc_foo):
     # Edge cases near the root
-    c = Cursor.create(proc_foo)
+    c = proc_foo._root()
     with pytest.raises(InvalidCursorError, match="cannot move root cursor"):
         c.next()
 
@@ -308,13 +311,13 @@ def test_cursor_forward_expr_deep():
 
 
 def test_cursor_loop_bound(proc_foo):
-    c_for_i = Cursor.create(proc_foo).body()[0]
+    c_for_i = proc_foo._root().body()[0]
     c_bound = c_for_i._child_node("hi")
     assert isinstance(c_bound._node, LoopIR.Read)
 
 
 def test_cursor_invalid_child(proc_foo):
-    c = Cursor.create(proc_foo)
+    c = proc_foo._root()
 
     # Quick sanity check
     assert c._child_node("body", 0) == c.body()[0]
@@ -436,6 +439,7 @@ def test_block_replace_forward_node(proc_bar, old, new):
         with pytest.raises(InvalidCursorError, match="node no longer exists"):
             fwd(old_c)
     else:
+        bar_new = Cursor.create(bar_new)
         assert fwd(old_c) == match_pattern(bar_new, new)[0][0]
 
 

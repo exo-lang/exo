@@ -1023,7 +1023,7 @@ def DoBindExpr(new_name, expr_cursors, cse=False):
 
     new_read = LoopIR.Read(new_name, [], expr.type, expr.srcinfo)
     first_write_c = None
-    for c in init_c.as_block().expand(lo=0):
+    for c in init_c.as_block().expand(delta_lo=0):
         for block in match_pattern(c, "_ = _"):
             assert len(block) == 1
             sc = block[0]
@@ -1396,7 +1396,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         s = c._node
         return {"idx": [indexing] + s.idx}
 
-    for c in alloc_cursor.as_block().expand(lo=0):
+    for c in alloc_cursor.as_block().expand(delta_lo=0):
         ir, fwd = _replace_pats(
             ir, fwd, c, f"{alloc_s.name}[_]", mk_read, attrs=["idx"]
         )
@@ -1558,7 +1558,7 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         return {"idx": remap_idx(s.idx)}
 
     # TODO: add better iteration primitive
-    for c in alloc_cursor.as_block().expand(lo=0):
+    for c in alloc_cursor.as_block().expand(delta_lo=0):
         ir, fwd = _replace_pats(
             ir, fwd, c, f"{alloc_s.name}[_]", mk_read, attrs=["idx"]
         )
@@ -1630,7 +1630,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
         s = c._node
         return {"idx": remap_idx(s.idx)}
 
-    for c in alloc_cursor.as_block().expand(lo=0):
+    for c in alloc_cursor.as_block().expand(delta_lo=0):
         ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
         ir, fwd = _replace_pats_stmts(
             ir, fwd, c, f"{alloc_s.name} = _", mk_write, attrs=["idx"]
@@ -3193,7 +3193,7 @@ def DoDataReuse(buf_cursor, rep_cursor):
             Check_IsDeadAfter(buf_cursor.get_root(), [c._node], buf_name, buf_dims)
         return {"name": buf_name}
 
-    for c in rep_cursor.as_block().expand(lo=0):
+    for c in rep_cursor.as_block().expand(delta_lo=0):
         ir, fwd = _replace_pats(ir, fwd, c, f"{rep_name}[_]", mk_read, attrs=["name"])
         ir, fwd = _replace_pats_stmts(
             ir, fwd, c, f"{rep_name} = _", mk_write, attrs=["name"]
