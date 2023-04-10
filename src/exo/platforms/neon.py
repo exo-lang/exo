@@ -67,13 +67,8 @@ class Neon(Memory):
 
 
 # --------------------------------------------------------------------------- #
-#   Neon intrinsics
+#   f32 Neon intrinsics
 # --------------------------------------------------------------------------- #
-
-#
-# Load, Store, Broadcast, FMAdd, Mul, Add?
-#
-
 
 @instr("*{result} += vaddvq_f32({x_data});")
 def neon_assoc_reduce_add_instr_4xf32(result: f32 @ DRAM, x: [f32][4] @ Neon):
@@ -99,15 +94,15 @@ def neon_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ Neon):
         dst[i] = src[i]
 
 
-@instr("{dst_data} = vld1q_dup_f32(&{src_data});")
+broadcast_4xf32_str = "{dst_data} = vld1q_dup_f32(&{src_data});"
+@instr(broadcast_4xf32_str)
 def neon_broadcast_4xf32(dst: [f32][4] @ Neon, src: [f32][1] @ DRAM):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 4):
         dst[i] = src[0]
 
-
-@instr("{dst_data} = vld1q_dup_f32({src_data});")
+@instr(broadcast_4xf32_str)
 def neon_broadcast_4xf32_scalar(dst: [f32][4] @ Neon, src: f32 @ DRAM):
     assert stride(dst, 0) == 1
 
@@ -217,3 +212,107 @@ def neon_vneg_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ Neon):
 
     for i in seq(0, 4):
         dst[i] = -src[i]
+
+# --------------------------------------------------------------------------- #
+#   f64 Neon intrinsics
+# --------------------------------------------------------------------------- #
+
+@instr("{dst_data} = vld1q_f64(&{src_data});")
+def neon_vld_2xf64(dst: [f64][2] @ Neon, src: [f64][2] @ DRAM):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = src[i]
+
+
+@instr("vst1q_f64(&{dst_data}, {src_data});")
+def neon_vst_2xf64(dst: [f64][2] @ DRAM, src: [f64][2] @ Neon):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = src[i]
+
+
+broadcast_2xf64_str = "{dst_data} = vld1q_dup_f64(&{src_data});"
+@instr(broadcast_2xf64_str)
+def neon_broadcast_2xf64(dst: [f64][2] @ Neon, src: [f64][1] @ DRAM):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = src[0]
+
+@instr(broadcast_2xf64_str)
+def neon_broadcast_2xf64_scalar(dst: [f64][2] @ Neon, src: f64 @ DRAM):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = src
+
+@instr("{dst_data} = vmlaq_f64({dst_data}, {lhs_data}, {rhs_data});")
+def neon_vfmadd_2xf64_2xf64(
+    dst: [f64][2] @ Neon, lhs: [f64][2] @ Neon, rhs: [f64][2] @ Neon
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] += lhs[i] * rhs[i]
+
+@instr("{dst_data} = vmovq_n_f64(0.0f);")
+def neon_zero_2xf64(dst: [f64][2] @ Neon):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = 0.0
+
+@instr("*{result} += vaddvq_f64({x_data});")
+def neon_assoc_reduce_add_instr_2xf64(result: f64 @ DRAM, x: [f64][2] @ Neon):
+    for i in seq(0, 2):
+        result += x[i]
+
+@instr("{dst_data} = vmulq_f64({lhs_data}, {rhs_data});")
+def neon_vmul_2xf64(dst: [f64][2] @ Neon, lhs: [f64][2] @ Neon, rhs: [f64][2] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = lhs[i] * rhs[i]
+
+@instr("{dst_data} = vaddq_f64({lhs_data}, {rhs_data});")
+def neon_vadd_2xf64(dst: [f64][2] @ Neon, lhs: [f64][2] @ Neon, rhs: [f64][2] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = lhs[i] + rhs[i]
+
+@instr("{dst_data} = vaddq_f64({src_data}, {dst_data});")
+def neon_reduce_vadd_2xf64(dst: [f64][2] @ Neon, src: [f64][2] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] += src[i]
+
+# TODO: Also a hack
+@instr("{dst_data} = {src_data};")
+def neon_reg_copy_2xf64(dst: [f64][2] @ Neon, src: [f64][2] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = src[i]
+
+@instr("{dst_data} = vnegq_f64({src_data});")
+def neon_vneg_2xf64(dst: [f64][2] @ Neon, src: [f64][2] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 2):
+        dst[i] = -src[i]
+
