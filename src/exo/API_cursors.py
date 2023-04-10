@@ -61,23 +61,23 @@ class Cursor:
             - ExprListCursor    - contiguous (maybe empty) seq. of expressions
 
     The grammar for statements and expressions as exposed by cursors is:
-        Stmt ::= Assign( name : Sym, idx : ExprList, rhs : Expr )
-               | Reduce( name : Sym, idx : ExprList, rhs : Expr )
+        Stmt ::= Assign( name : str, idx : ExprList, rhs : Expr )
+               | Reduce( name : str, idx : ExprList, rhs : Expr )
                | AssignConfig( config : Config, field : str, rhs : Expr )
                | Pass()
                | If( cond : Expr, body : Block, orelse : Block? )
-               | ForSeq( name : Sym, hi : Expr, body : Block )
-               | Alloc( name : Sym, mem : Memory? )
+               | ForSeq( name : str, hi : Expr, body : Block )
+               | Alloc( name : str, mem : Memory? )
                | Call( subproc : Procedure, args : ExprList )
-               | WindowStmt( name : Sym, winexpr : WindowExpr )
+               | WindowStmt( name : str, winexpr : WindowExpr )
 
-        Expr ::= Read( name : Sym, idx : ExprList )
+        Expr ::= Read( name : str, idx : ExprList )
                | ReadConfig( config : Config, field : str )
                | Literal( value : bool, int, or float )
                | UnaryMinus( arg : Expr )
                | BinaryOp( op : str, lhs : Expr, rhs : Expr )
                | BuiltIn( name : str, args : ExprList )
-               | WindowExpr( name : Sym, idx : *(see below) )
+               | WindowExpr( name : str, idx : *(see below) )
                | BuiltIn( name : str, args : ExprList )
 
         The `idx` argument of `WindowExpr` is a list containing either
@@ -406,8 +406,8 @@ class AssignCursor(StmtCursor):
         `name [ idx ] = rhs`
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        return self._impl._node.name.name()
 
     def idx(self) -> ExprListCursor:
         return ExprListCursor(self._impl._child_block("idx"))
@@ -422,8 +422,8 @@ class ReduceCursor(StmtCursor):
         `name [ idx ] += rhs`
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        return self._impl._node.name.name()
 
     def idx(self) -> ExprListCursor:
         return ExprListCursor(self._impl._child_block("idx"))
@@ -492,8 +492,8 @@ class ForSeqCursor(StmtCursor):
         ```
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.iter
+    def name(self) -> str:
+        return self._impl._node.iter.name()
 
     def hi(self) -> ExprCursor:
         return new_Cursor(self._impl._child_node("hi"))
@@ -510,8 +510,8 @@ class AllocCursor(StmtCursor):
         ```
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        return self._impl._node.name.name()
 
     def mem(self) -> Optional[Memory]:
         return self._impl._node.mem
@@ -540,8 +540,8 @@ class WindowStmtCursor(StmtCursor):
         ```
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        return self._impl._node.name.name()
 
     def winexpr(self) -> ExprCursor:
         return WindowExprCursor(self._impl._child_node("rhs"))
@@ -560,8 +560,8 @@ class ReadCursor(ExprCursor):
         `name [ idx ]`
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        return self._impl._node.name.name()
 
     def idx(self) -> ExprListCursor:
         return ExprListCursor(self._impl._child_block("idx"))
@@ -652,8 +652,8 @@ class WindowExprCursor(ExprCursor):
     expression represents a point-access in that dimension.
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        return self._impl._node.name.name()
 
     def idx(self) -> List:
         def convert_w(w):
@@ -676,8 +676,8 @@ class StrideExprCursor(ExprCursor):
     `name` is the name of some buffer or window
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        return self._impl._node.name.name()
 
     def dim(self) -> int:
         return self._impl._node.dim
