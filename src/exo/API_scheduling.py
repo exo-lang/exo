@@ -1061,10 +1061,8 @@ def write_config(proc, gap_cursor, config, field, rhs):
     """
 
     # TODO: just have scheduling pass take a gap cursor directly
-    before = True
-    if not (stmtc := gap_cursor.after()):
-        assert (stmtc := gap_cursor.before())
-        before = False
+    stmtc = gap_cursor.anchor()
+    before = gap_cursor.type() == ic.GapType.Before
 
     stmt = stmtc._impl
     ir, fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
