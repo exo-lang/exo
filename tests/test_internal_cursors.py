@@ -221,22 +221,14 @@ def test_cursor_move_invalid(proc_foo):
 
     c.before()  # ok
     with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.before(2)  # would return gap
-
-    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.before().before()  # would return node
+        c.prev()
 
     # Edge cases near last statement in block
     c = _find_stmt(proc_foo, "y = 1.1")
-    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.next()
 
     c.after()  # ok
     with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.after(2)  # would return gap
-
-    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.after().after()  # would return node
+        c.next()
 
 
 def test_cursor_gap(proc_foo):
@@ -256,18 +248,14 @@ def test_cursor_gap(proc_foo):
     assert str(x_alloc._node) == "x: f32 @ DRAM"
 
     g1 = x_alloc.after()
-    assert g1 == x_assn.before()
-    assert g1.before() == x_alloc
-    assert g1.after() == x_assn
+    assert g1.anchor() == x_alloc
     assert g1.parent() == for_j
 
-    g2 = g1.next(2)
-    assert g2 == x_assn.after(2)
-    assert g2.before(2) == x_assn
-    assert g2.after() == y_assn
+    g2 = g1.anchor().next(2).after()
+    assert g2 == x_assn.next().after()
+    assert g2.anchor().prev() == x_assn
+    assert g2.anchor().next() == y_assn
     assert g2.parent() == for_j
-
-    assert g2.prev(2) == g1
 
 
 def test_cursor_replace_expr(proc_foo, golden):
@@ -523,12 +511,12 @@ def test_move_block(proc_bar, golden):
     c = _find_cursors(proc_bar, "x = 1.0 ; x = 2.0")[0]
 
     # Movement within block
-    p0, _ = c._move(c.before(2))
+    p0, _ = c._move(c[0].prev().before())
     p1, _ = c._move(c.before())
     p2, _ = c._move(c.after())
-    p3, _ = c._move(c.after(2))
-    p4, _ = c._move(c.after(3))
-    p5, _ = c._move(c.after(4))
+    p3, _ = c._move(c[-1].next().after())
+    p4, _ = c._move(c[-1].next(2).after())
+    p5, _ = c._move(c[-1].next(3).after())
 
     assert str(p1) == str(p2), "Both before and after should keep block in place."
 
@@ -536,14 +524,14 @@ def test_move_block(proc_bar, golden):
     pu0, _ = c._move(c.parent().before())
     pu1, _ = c._move(c.parent().after())
     pu2, _ = c._move(c.parent().parent().before())
-    pu3, _ = c._move(c.parent().parent().before(2))
+    pu3, _ = c._move(c.parent().parent().prev().before())
     pu4, _ = c._move(c.parent().parent().after())
 
     # Movement downward (abbreviated)
     c2 = _find_cursors(proc_bar, "x: _")[0]
-    pd0, _ = c2._move(c.before(2))
+    pd0, _ = c2._move(c[0].prev().before())
     pd1, _ = c2._move(c.before())
-    pd2, _ = c2._move(c2.after(2))
+    pd2, _ = c2._move(c2[-1].next().after())
 
     # Move out a whole loop (needs to insert pass)
     c3 = _find_cursors(proc_bar, "for j in _: _")[0]
@@ -580,17 +568,17 @@ def test_move_block_forwarding(proc_bar, golden):
             assert str(fwd(x)._node) == str(x._node)
 
     # Movement within block
-    _, fwd0 = c._move(c.before(2))
+    _, fwd0 = c._move(c[0].prev().before())
     _test_fwd(fwd0)
     _, fwd1 = c._move(c.before())
     _test_fwd(fwd1)
     _, fwd2 = c._move(c.after())
     _test_fwd(fwd2)
-    _, fwd3 = c._move(c.after(2))
+    _, fwd3 = c._move(c[-1].next().after())
     _test_fwd(fwd3)
-    _, fwd4 = c._move(c.after(3))
+    _, fwd4 = c._move(c[-1].next(2).after())
     _test_fwd(fwd4)
-    _, fwd5 = c._move(c.after(4))
+    _, fwd5 = c._move(c[-1].next(3).after())
     _test_fwd(fwd5)
 
     # Movement upward
@@ -600,18 +588,18 @@ def test_move_block_forwarding(proc_bar, golden):
     _test_fwd(fwd7)
     _, fwd8 = c._move(c.parent().parent().before())
     _test_fwd(fwd8)
-    _, fwd9 = c._move(c.parent().parent().before(2))
+    _, fwd9 = c._move(c.parent().parent().prev().before())
     _test_fwd(fwd9)
     _, fwd10 = c._move(c.parent().parent().after())
     _test_fwd(fwd10)
 
     # Movement downward (abbreviated)
     c2 = _find_cursors(proc_bar, "x: _")[0]
-    _, fwd11 = c2._move(c.before(2))
+    _, fwd11 = c2._move(c[0].prev().before())
     _test_fwd(fwd11)
     _, fwd12 = c2._move(c.before())
     _test_fwd(fwd12)
-    _, fwd13 = c2._move(c2.after(2))
+    _, fwd13 = c2._move(c2[-1].next().after())
     _test_fwd(fwd13)
 
     # Move out a whole loop
