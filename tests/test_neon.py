@@ -84,6 +84,7 @@ def test_neon_simple_math(compiler):
         assert np.allclose(x, expected)
 
 
+@pytest.fixture
 def test_neon_vfmla():
     """
     Compute C[i] = A[i] * B[l]
@@ -128,7 +129,7 @@ def test_neon_vfmla():
 
     simple_neon_vfmla = simple_vfmla()
 
-    return simple_neon_vfmla
+    return simplify(simple_neon_vfmla)
 
 
 @pytest.mark.isa("neon")
