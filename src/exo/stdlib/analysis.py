@@ -68,7 +68,7 @@ def check_call_mem_types(call_cursor):
 
     ###################################################################
     # build an env of symbols this call statement observes.
-    # e.g. {x: DRAM, y: Neon4f}
+    # e.g. {x: DRAM, y: Neon}
     ###################################################################
     env = {}
     caller = call_cursor.proc()
@@ -79,7 +79,7 @@ def check_call_mem_types(call_cursor):
         if arg.type.is_numeric():
             mem = arg.mem
             mem = mem if mem is not None else DRAM
-            env[arg.name] = mem
+            env[arg.name.name()] = mem
 
     # Search through observed statement to find allocations
     for stmt_cursor in get_observed_stmts(call_cursor):

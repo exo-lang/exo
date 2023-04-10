@@ -54,23 +54,23 @@ class Cursor(ABC):
             - ExprListCursor    - contiguous (maybe empty) seq. of expressions
 
     The grammar for statements and expressions as exposed by cursors is:
-        Stmt ::= Assign( name : Sym, idx : ExprList, rhs : Expr )
-               | Reduce( name : Sym, idx : ExprList, rhs : Expr )
+        Stmt ::= Assign( name : str, idx : ExprList, rhs : Expr )
+               | Reduce( name : str, idx : ExprList, rhs : Expr )
                | AssignConfig( config : Config, field : str, rhs : Expr )
                | Pass()
                | If( cond : Expr, body : Block, orelse : Block? )
-               | ForSeq( name : Sym, hi : Expr, body : Block )
-               | Alloc( name : Sym, mem : Memory? )
+               | ForSeq( name : str, hi : Expr, body : Block )
+               | Alloc( name : str, mem : Memory? )
                | Call( subproc : Procedure, args : ExprList )
-               | WindowStmt( name : Sym, winexpr : WindowExpr )
+               | WindowStmt( name : str, winexpr : WindowExpr )
 
-        Expr ::= Read( name : Sym, idx : ExprList )
+        Expr ::= Read( name : str, idx : ExprList )
                | ReadConfig( config : Config, field : str )
                | Literal( value : bool, int, or float )
                | UnaryMinus( arg : Expr )
                | BinaryOp( op : str, lhs : Expr, rhs : Expr )
                | BuiltIn( name : str, args : ExprList )
-               | WindowExpr( name : Sym, idx : *(see below) )
+               | WindowExpr( name : str, idx : *(see below) )
                | BuiltIn( name : str, args : ExprList )
 
         The `idx` argument of `WindowExpr` is a list containing either
@@ -389,10 +389,10 @@ class AssignCursor(StmtCursor):
         `name [ idx ] = rhs`
     """
 
-    def name(self) -> Sym:
+    def name(self) -> str:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Assign)
-        return self._impl._node.name
+        return self._impl._node.name.name()
 
     def idx(self) -> ExprListCursor:
         assert isinstance(self._impl, C.Node)
@@ -411,10 +411,10 @@ class ReduceCursor(StmtCursor):
         `name [ idx ] += rhs`
     """
 
-    def name(self) -> Sym:
+    def name(self) -> str:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Reduce)
-        return self._impl._node.name
+        return self._impl._node.name.name()
 
     def idx(self) -> ExprListCursor:
         assert isinstance(self._impl, C.Node)
@@ -502,11 +502,11 @@ class ForSeqCursor(StmtCursor):
         ```
     """
 
-    def name(self) -> Sym:
+    def name(self) -> str:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Seq)
 
-        return self._impl._node.iter
+        return self._impl._node.iter.name()
 
     def hi(self) -> ExprCursor:
         assert isinstance(self._impl, C.Node)
@@ -529,11 +529,11 @@ class AllocCursor(StmtCursor):
         ```
     """
 
-    def name(self) -> Sym:
+    def name(self) -> str:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Alloc)
 
-        return self._impl._node.name
+        return self._impl._node.name.name()
 
     def mem(self) -> Optional[Memory]:
         assert isinstance(self._impl, C.Node)
@@ -571,11 +571,11 @@ class WindowStmtCursor(StmtCursor):
         ```
     """
 
-    def name(self) -> Sym:
+    def name(self) -> str:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.WindowStmt)
 
-        return self._impl._node.name
+        return self._impl._node.name.name()
 
     def winexpr(self) -> ExprCursor:
         assert isinstance(self._impl, C.Node)
@@ -597,11 +597,11 @@ class ReadCursor(ExprCursor):
         `name [ idx ]`
     """
 
-    def name(self) -> Sym:
+    def name(self) -> str:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Read)
 
-        return self._impl._node.name
+        return self._impl._node.name.name()
 
     def idx(self) -> ExprListCursor:
         assert isinstance(self._impl, C.Node)
@@ -722,11 +722,11 @@ class WindowExprCursor(ExprCursor):
     expression represents a point-access in that dimension.
     """
 
-    def name(self) -> Sym:
+    def name(self) -> str:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.WindowExpr)
 
-        return self._impl._node.name
+        return self._impl._node.name.name()
 
     def idx(self) -> List:
         assert isinstance(self._impl, C.Node)
@@ -752,11 +752,11 @@ class StrideExprCursor(ExprCursor):
     `name` is the name of some buffer or window
     """
 
-    def name(self) -> Sym:
+    def name(self) -> str:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.StrideExpr)
 
-        return self._impl._node.name
+        return self._impl._node.name.name()
 
     def dim(self) -> int:
         assert isinstance(self._impl, C.Node)

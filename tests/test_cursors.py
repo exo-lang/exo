@@ -123,6 +123,19 @@ def test_basic_forwarding3(golden):
     assert str(filter1D.forward(sum_c)) == golden
 
 
+def test_simplify_forwarding(golden):
+    @proc
+    def foo(n: size, m: size):
+        x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
+        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
+            y: R[10]
+            y[n * 4 - n * 4 + 1] = 0.0
+
+    stmt = foo.find("y[_] = _")
+    foo1 = simplify(foo)
+    assert str(foo1.forward(stmt)._impl._node) == golden
+
+
 def test_expand_dim_forwarding(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n]):
@@ -168,6 +181,28 @@ def test_bind_expr_forwarding(golden):
     scal2 = bind_expr(scal1, [stmt.rhs().lhs()], "alphaReg")
     assert str(scal2.forward(stmt)._impl.get_root()) == golden
     assert str(scal2.forward(stmt2)._impl.get_root()) == golden
+
+
+def test_vectorize_forwarding(golden):
+    @proc
+    def scal(n: size, alpha: R, x: [R][n]):
+        for i in seq(0, n):
+            x[i] = alpha * x[i]
+
+    stmt = scal.find("x[_] = _")
+    scal1 = divide_loop(scal, "for i in _:_", 8, ("io", "ii"), tail="cut")
+    scal2 = bind_expr(scal1, [stmt.rhs().lhs()], "alphaReg")
+    scal3 = expand_dim(scal2, "alphaReg", "8", "ii")
+    scal4 = lift_alloc(scal3, "alphaReg")
+    scal5 = fission(scal4, scal4.find("alphaReg[_] = _").after())
+
+    scal1.forward(stmt)
+    scal2.forward(stmt)
+    scal3.forward(stmt)
+    scal4.forward(stmt)
+    scal5.forward(stmt)
+
+    assert str(scal5.forward(stmt)) == golden
 
 
 # Need some more tests here...

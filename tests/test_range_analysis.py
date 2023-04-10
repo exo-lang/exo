@@ -15,7 +15,7 @@ def test_affine_index_range():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == (2, 7)
 
@@ -28,7 +28,7 @@ def test_affine_index_range1():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == (10, 35)
 
@@ -43,7 +43,7 @@ def test_affine_index_range2():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     N_sym = bar._loopir_proc.args[0].name
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (11, 40)
@@ -59,7 +59,7 @@ def test_affine_index_range3():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     N_sym = bar._loopir_proc.args[0].name
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (5, 20)
@@ -75,7 +75,7 @@ def test_affine_index_range4():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     N_sym = bar._loopir_proc.args[0].name
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (7, 36)
@@ -91,7 +91,7 @@ def test_affine_index_range5():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     N_sym = bar._loopir_proc.args[0].name
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (5, 34)
@@ -107,7 +107,7 @@ def test_affine_index_range6():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     N_sym = bar._loopir_proc.args[0].name
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (5, 34)
@@ -123,7 +123,7 @@ def test_affine_index_range7():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     N_sym = bar._loopir_proc.args[0].name
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), N_sym: (1, 5)}).result()
     assert e_range == (2, 31)
@@ -137,7 +137,7 @@ def test_affine_index_range8():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == (0, 4)
 
@@ -150,7 +150,7 @@ def test_affine_index_range9():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == (1, 6)
 
@@ -164,8 +164,8 @@ def test_affine_index_range10():
                     pass
 
     e = bar.find("for k in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
-    j_sym = bar.find("for j in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
+    j_sym = bar.find("for j in _:_")._impl._node.iter
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5), j_sym: (0, 7)}).result()
     assert e_range == (0, 31)
 
@@ -178,7 +178,7 @@ def test_affine_index_range_fail():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == None
 
@@ -191,6 +191,6 @@ def test_affine_index_range_fail1():
                 pass
 
     e = bar.find("for j in _:_").hi()._impl._node
-    i_sym = bar.find("for i in _:_").name()
+    i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == None

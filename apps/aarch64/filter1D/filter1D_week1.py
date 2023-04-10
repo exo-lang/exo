@@ -36,8 +36,8 @@ filter1D = simplify(
 )
 
 # set memories & precision
-filter1D = set_memory(filter1D, "sum", Neon4f)
-filter1D = set_memory(filter1D, "xX4", Neon4f)
+filter1D = set_memory(filter1D, "sum", Neon)
+filter1D = set_memory(filter1D, "xX4", Neon)
 
 # replace
 filter1D = replace_all(filter1D, neon_instructions)
