@@ -50,11 +50,10 @@ from .pattern_match import match_pattern
 
 
 class Cursor_Rewrite(LoopIR_Rewrite):
-    def __init__(self, proc_cursor):
-        # TODO: naughty! we're trying to remove this
-        self.provenance = proc_cursor._root
-        self.orig_proc = proc_cursor
-        self.proc = self.apply_proc(proc_cursor)
+    def __init__(self, proc):
+        self.provenance = proc
+        self.orig_proc = proc._root()
+        self.proc = self.apply_proc(self.orig_proc)
 
     def result(self, mod_config=None):
         return api.Procedure(
@@ -2588,13 +2587,13 @@ class _DoNormalize(Cursor_Rewrite):
     # and the map for the expression `n*4 - n*4 + 1` is:
     # { temporary_constant_symbol : 1, n : 0 }
     # This map concatnation is handled by concat_map function.
-    def __init__(self, proc_cursor):
+    def __init__(self, proc):
         self.C = Sym("temporary_constant_symbol")
         self.env = ChainMap()
         # TODO: dispatch to Z3 to reason about preds ranges
-        for arg in proc_cursor._node.args:
+        for arg in proc._loopir_proc.args:
             self.env[arg.name] = None
-        super().__init__(proc_cursor)
+        super().__init__(proc)
 
         self.proc = InferEffects(self.proc).result()
 
@@ -2889,12 +2888,12 @@ class _DoNormalize(Cursor_Rewrite):
 
 
 class DoSimplify(Cursor_Rewrite):
-    def __init__(self, proc_cursor):
+    def __init__(self, proc):
         self.facts = ChainMap()
-        new_procedure = _DoNormalize(proc_cursor).result()
-        self.proc_cursor = ic.Cursor.create(new_procedure)
 
-        super().__init__(self.proc_cursor)
+        proc = _DoNormalize(proc).result()
+
+        super().__init__(proc)
 
         self.proc = InferEffects(self.proc).result()
 

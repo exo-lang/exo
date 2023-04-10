@@ -706,8 +706,7 @@ def simplify(proc):
     to constants and eliminate dead branches and loops. Uses branch
     conditions to simplify expressions inside the branches.
     """
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoSimplify(proc_c).result()
+    return scheduling.DoSimplify(proc).result()
 
 
 @sched_op([NameA])
@@ -769,8 +768,7 @@ def delete_pass(proc):
 
     Delete all `pass` statements in the procedure.
     """
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoDeletePass(proc_c).result()
+    return scheduling.DoDeletePass(proc).result()
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -871,11 +869,10 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
 @sched_op([NameA, StmtCursorA])
 def extract_subproc(proc, subproc_name, body_stmt):
     """
-    Documentation TODO
+    Documentation
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = body_stmt._impl
-    passobj = scheduling.DoExtractMethod(proc_c, subproc_name, stmt)
+    passobj = scheduling.DoExtractMethod(proc, subproc_name, stmt)
     return passobj.result(), passobj.subproc()
 
 
@@ -959,8 +956,7 @@ def set_precision(proc, name, typ):
         `name : _[...]    ->    name : typ[...]`
     """
     name, count = name
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoSetTypAndMem(proc_c, name, count, basetyp=typ).result()
+    return scheduling.DoSetTypAndMem(proc, name, count, basetyp=typ).result()
 
 
 @sched_op([NameCountA, BoolA])
@@ -977,8 +973,7 @@ def set_window(proc, name, is_window=True):
         `name : R[...]    ->    name : [R][...]`
     """
     name, count = name
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoSetTypAndMem(proc_c, name, count, win=is_window).result()
+    return scheduling.DoSetTypAndMem(proc, name, count, win=is_window).result()
 
 
 @sched_op([NameCountA, MemoryA])
@@ -994,8 +989,7 @@ def set_memory(proc, name, memory_type):
         `name : _ @ _    ->    name : _ @ mem`
     """
     name, count = name
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoSetTypAndMem(proc_c, name, count, mem=memory_type).result()
+    return scheduling.DoSetTypAndMem(proc, name, count, mem=memory_type).result()
 
 
 # --------------------------------------------------------------------------- #
@@ -1046,7 +1040,7 @@ def delete_config(proc, stmt_cursor):
     rewrite:
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
-    ir, fwd, cfg = scheduling.DoDeleteConfig(ic.Cursor.create(proc), stmt_cursor._impl)
+    ir, fwd, cfg = scheduling.DoDeleteConfig(proc._root(), stmt_cursor._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
@@ -1124,7 +1118,6 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
         (with permute_vector = [2,0,1])
         `x : T[N,M,K]` -> `x : T[K,N,M]`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = buf_cursor._impl
     # extra sanity check
     N = len(stmt._node.type.hi)
@@ -1133,7 +1126,7 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
             f"permute_vector argument ({permute_vector}) "
             f"was not a permutation of {set(range(0, N))}"
         )
-    return scheduling.DoRearrangeDim(proc_c, stmt, permute_vector).result()
+    return scheduling.DoRearrangeDim(proc, stmt, permute_vector).result()
 
 
 @sched_op([AllocCursorA, ListA(OptionalA(NewExprA("buf_cursor"))), BoolA])
@@ -1158,14 +1151,13 @@ def bound_alloc(proc, buf_cursor, new_bounds, unsafe_disable_checks=False):
         The new bounds are checked to make sure they don't cause any
         out-of-bounds memory accesses
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = buf_cursor._impl
     if len(stmt._node.type.hi) != len(new_bounds):
         raise ValueError(
             f"buffer has {len(stmt._node.type.hi)} dimensions, "
             f"but only {len(new_bounds)} bounds were supplied"
         )
-    new_proc_c = scheduling.DoBoundAlloc(proc_c, stmt, new_bounds).result()
+    new_proc_c = scheduling.DoBoundAlloc(proc, stmt, new_bounds).result()
 
     if not unsafe_disable_checks:
         CheckEffects(new_proc_c._node)
@@ -1289,10 +1281,9 @@ def autolift_alloc(
         `for i in _:`
         `    ...`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
 
-    return scheduling.DoLiftAlloc(proc_c, stmt, n_lifts, mode, size, keep_dims).result()
+    return scheduling.DoLiftAlloc(proc, stmt, n_lifts, mode, size, keep_dims).result()
 
 
 @sched_op([AllocCursorA, AllocCursorA])
@@ -1348,9 +1339,8 @@ def stage_window(proc, expr_cursor, win_name, memory=None):
     Should it resemble `stage_mem` instead?
     """
     e = expr_cursor._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoStageWindow(proc_c, win_name, memory, e).result()
+    return scheduling.DoStageWindow(proc, win_name, memory, e).result()
 
 
 @sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA])
@@ -1695,9 +1685,8 @@ def autofission(proc, gap_cursor, n_lifts=1):
     if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
         raise ValueError("expected cursor to point to " "a gap between statements")
     stmt = stmtc._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoFissionLoops(proc_c, stmt, n_lifts).result()
+    return scheduling.DoFissionLoops(proc, stmt, n_lifts).result()
 
 
 @sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA])
@@ -1844,7 +1833,6 @@ def lift_scope(proc, scope_cursor):
     """
     stmt_c = scope_cursor._impl
 
-    # return scheduling.DoLiftScope(proc_c, stmt_c).result()
     ir, fwd = scheduling.DoLiftScope(stmt_c)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
@@ -1872,9 +1860,8 @@ def assert_if(proc, if_cursor, cond):
         `s1`
     """
     stmt = if_cursor._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoAssertIf(proc_c, stmt, cond).result()
+    return scheduling.DoAssertIf(proc, stmt, cond).result()
 
 
 @sched_op([BlockCursorA, ListOrElemA(NewExprA("block_cursor"))])
@@ -1926,9 +1913,8 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     This operation is deprecated, and will be removed soon.
     """
     stmt = block_cursor._impl[0]
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoAddUnsafeGuard(proc_c, stmt, var_expr).result()
+    return scheduling.DoAddUnsafeGuard(proc, stmt, var_expr).result()
 
 
 @sched_op([ForSeqCursorA])
@@ -1947,6 +1933,5 @@ def bound_and_guard(proc, loop):
     This currently only works when e is of the form x % n
     """
     stmt = loop._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoBoundAndGuard(proc_c, stmt).result()
+    return scheduling.DoBoundAndGuard(proc, stmt).result()
