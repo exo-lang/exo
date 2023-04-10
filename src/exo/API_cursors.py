@@ -286,6 +286,30 @@ class BlockCursor(StmtCursorPrototype):
         assert isinstance(self._impl, C.Block)
         return lift_cursor(self._impl.parent(), self._proc)
 
+    def before(self) -> GapCursor:
+        """
+        Get a cursor pointing to the gap before the first statement in
+        this block.
+
+        Gaps are anchored to the statement they were created from. This
+        means that if you move the statement, the gap will move with it
+        when the cursor is forwarded.
+        """
+        assert isinstance(self._impl, C.Block)
+        return lift_cursor(self._impl.before(), self._proc)
+
+    def after(self) -> GapCursor:
+        """
+        Get a cursor pointing to the gap after the last statement in
+        this block.
+
+        Gaps are anchored to the statement they were created from. This
+        means that if you move the statement, the gap will move with it
+        when the cursor is forwarded.
+        """
+        assert isinstance(self._impl, C.Block)
+        return lift_cursor(self._impl.after(), self._proc)
+
 
 class GapCursor(StmtCursorPrototype):
     """
