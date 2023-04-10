@@ -2160,12 +2160,12 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
 # TODO: Deprecate this with the one above
 # structure is weird enough to skip using the Rewrite-pass super-class
 class DoFissionLoops:
-    def __init__(self, proc_cursor, stmt_cursor, n_lifts):
+    def __init__(self, proc, stmt_cursor, n_lifts):
         self.tgt_stmt = stmt_cursor._node
         assert isinstance(self.tgt_stmt, LoopIR.stmt)
         assert is_pos_int(n_lifts)
-        self.provenance = proc_cursor._root
-        self.orig_proc = proc_cursor._node
+        self.provenance = proc
+        self.orig_proc = proc._loopir_proc
         self.n_lifts = n_lifts
 
         self.hit_fission = False  # signal to map_stmts
