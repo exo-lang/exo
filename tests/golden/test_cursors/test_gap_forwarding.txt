@@ -1,0 +1,6 @@
+def p():
+    x: f32 @ DRAM
+    pass
+    if True:
+        x = 1.0
+        x = 2.0
