@@ -205,4 +205,12 @@ def test_vectorize_forwarding(golden):
     assert str(scal5.forward(stmt)) == golden
 
 
-# Need some more tests here...
+def test_arg_cursor():
+    @proc
+    def scal(n: size, alpha: R, x: [R][n]):
+        for i in seq(0, n):
+            x[i] = alpha * x[i]
+
+    args = scal.args()
+    print(args)
+    # Should be [n, x]

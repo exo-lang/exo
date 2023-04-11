@@ -156,6 +156,10 @@ class InvalidCursor(Cursor):
         return self
 
 
+class ArgCursor(Cursor):
+    pass
+
+
 class StmtCursorPrototype(Cursor):
     """
     A base class that is mostly useful for testing whether some
@@ -778,6 +782,9 @@ def lift_cursor(impl, proc):
     if isinstance(impl, C.Gap):
         return GapCursor(impl, proc)
 
+    elif isinstance(impl, C.Arg):
+        return ArgCursor(impl, proc)
+
     elif isinstance(impl, C.Block):
         # TODO: Rename internal Cursor type to Sequence?
         assert len(impl) > 0
@@ -846,6 +853,7 @@ def lift_cursor(impl, proc):
 __all__ = [
     "Cursor",
     "InvalidCursor",
+    "ArgCursor",
     "StmtCursorPrototype",
     "StmtCursor",
     "BlockCursor",
