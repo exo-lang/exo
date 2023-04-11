@@ -253,7 +253,7 @@ class Procedure(ProcedureBase):
         return self._loopir_proc.instr
 
     def args(self):
-        args = self._root()._args()
+        args = self._root()._child_block("args")
         return C.lift_cursor(args, self)
 
     def body(self):
