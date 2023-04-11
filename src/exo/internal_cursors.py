@@ -196,7 +196,7 @@ class Cursor(ABC):
 
 
 @dataclass
-class Arg(Cursor):
+class Args(Cursor):
     _anchor: Node
 
     def parent(self) -> Node:
@@ -572,7 +572,7 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
 
     def _args(self):
-        return Arg(self._root, self)
+        return Args(self._root, self)
 
     def _child_node(self, attr, i=None) -> Node:
         _node = getattr(self._node, attr)

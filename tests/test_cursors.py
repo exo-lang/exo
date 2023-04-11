@@ -128,11 +128,12 @@ def test_simplify_forwarding(golden):
     def foo(n: size, m: size):
         x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
         for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
-            y: R[10]
+            y: R[n + m]
             y[n * 4 - n * 4 + 1] = 0.0
 
     stmt = foo.find("y[_] = _")
     foo1 = simplify(foo)
+    assert str(foo.find("y:_").shape()[0]._impl._node) == "n + m"
     assert str(foo1.forward(stmt)._impl._node) == golden
 
 
@@ -205,12 +206,21 @@ def test_vectorize_forwarding(golden):
     assert str(scal5.forward(stmt)) == golden
 
 
-def test_arg_cursor():
+def test_arg_cursor(golden):
     @proc
-    def scal(n: size, alpha: R, x: [R][n]):
+    def scal(n: size, alpha: R, x: [R][n, n]):
         for i in seq(0, n):
-            x[i] = alpha * x[i]
+            x[i, i] = alpha * x[i, i]
 
     args = scal.args()
-    print(args)
-    # Should be [n, x]
+
+    output = ""
+    for arg in args:
+        output += f"{arg.name()}, {arg.is_tensor()}"
+        if arg.is_tensor():
+            for dim in arg.shape():
+                output += f", {dim._impl._node}"
+        output += "\n"
+
+    print(output)
+    assert output == golden
