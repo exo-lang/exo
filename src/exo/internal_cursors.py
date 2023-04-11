@@ -196,14 +196,6 @@ class Cursor(ABC):
 
 
 @dataclass
-class Args(Cursor):
-    _anchor: Node
-
-    def parent(self) -> Node:
-        return self._anchor
-
-
-@dataclass
 class Block(Cursor):
     _anchor: Node
     _attr: str  # must be 'body' or 'orelse'
@@ -570,9 +562,6 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
     # Navigation (children)
     # ------------------------------------------------------------------------ #
-
-    def _args(self):
-        return Args(self._root, self)
 
     def _child_node(self, attr, i=None) -> Node:
         _node = getattr(self._node, attr)
