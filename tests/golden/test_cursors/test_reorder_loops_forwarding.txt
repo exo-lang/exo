@@ -1,0 +1,5 @@
+def foo():
+    for j in seq(0, 4):
+        for k in seq(0, 4):
+            for i in seq(0, 4):
+                x: i8 @ DRAM

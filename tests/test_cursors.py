@@ -222,6 +222,24 @@ def test_bind_expr_forwarding(golden):
     assert str(scal2.forward(stmt2)._impl.get_root()) == golden
 
 
+def test_reorder_loops_forwarding(golden):
+    @proc
+    def foo():
+        for i in seq(0, 4):
+            for j in seq(0, 4):
+                for k in seq(0, 4):
+                    x: i8
+
+    i_loop = foo.find("for i in _:_")
+    j_loop = foo.find("for j in _:_")
+    k_loop = foo.find("for k in _:_")
+    foo = reorder_loops(foo, i_loop)
+    foo = reorder_loops(foo, i_loop)
+    foo = reorder_loops(foo, j_loop)
+    foo = reorder_loops(foo, k_loop)
+    assert str(foo) == golden
+
+
 def test_vectorize_forwarding(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n]):
