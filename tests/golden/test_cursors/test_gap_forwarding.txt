@@ -3,4 +3,6 @@ def p():
     pass
     if True:
         x = 1.0
+        pass
         x = 2.0
+        pass

@@ -90,7 +90,14 @@ def forward_identity(p, fwd=None):
     @functools.wraps(fwd)
     def forward(cursor):
         cursor = fwd(cursor)
-        return dataclasses.replace(cursor, _root=p)
+        if isinstance(cursor, Gap):
+            return dataclasses.replace(
+                cursor, _root=p, _anchor=dataclasses.replace(cursor._anchor, _root=p)
+            )
+        elif isinstance(cursor, Node):
+            return dataclasses.replace(cursor, _root=p)
+        else:
+            raise InvalidCursorError("cannot forward blocks")
 
     return forward
 

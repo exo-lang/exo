@@ -96,6 +96,8 @@ def test_gap_forwarding(golden):
     if2 = p.find("x = _ #1").parent()
     x_alloc = p.find("x: _")
     p = fuse(p, if1, if2)
+    p = insert_pass(p, if1.body()[0].after())
+    p = insert_pass(p, if2.body()[0].after())
     p = insert_pass(p, x_alloc.after())
     assert str(p) == golden
 
