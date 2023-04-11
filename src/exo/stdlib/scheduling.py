@@ -80,7 +80,6 @@ from ..API_scheduling import (
     bound_and_guard,
     #
     # to be replaced by stdlib compositions eventually
-    autofission,
     autolift_alloc,
 )
 
@@ -309,4 +308,35 @@ def lift_if(proc, cursor, n_lifts=1):
                 orig=orig_proc,
                 proc=proc,
             ) from e
+    return proc
+
+
+def autofission(proc, cursor, n_lifts=1):
+
+    proc = fission(proc, cursor, n_lifts)
+    c = proc.forward(cursor.anchor())
+
+    for i in range(n_lifts):
+        c = c.parent()
+        try:
+            new_p = remove_loop(proc, c)
+            proc = new_p
+        except:
+            continue
+
+    c = proc.forward(c.next())
+    for i in range(n_lifts + 1):
+        try:
+            c = c.body()[0]
+        except:
+            pass
+
+    for i in range(n_lifts):
+        c = c.parent()
+        try:
+            new_p = remove_loop(proc, c)
+            proc = new_p
+        except:
+            continue
+
     return proc
