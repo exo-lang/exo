@@ -650,3 +650,18 @@ def test_wrap_block_forward(proc_bar):
             c = _find_cursors(proc_bar, f"x = {i}.0 ; _ ; x = {j}.0")[0]
             _, fwd = c._wrap(wrapper, "orelse")
             _test_fwd(fwd)
+
+
+def test_move_forward_diff_scopes():
+    @proc
+    def foo():
+        x: i8
+        y: i8
+        z: i8
+        for i in seq(0, 4):
+            pass
+
+    alloc_x = foo.find("x: _")._impl.as_block().expand(0, 1)
+    pass_c = foo.find("pass")._impl
+    _, fwd = alloc_x._move(pass_c.before())
+    assert fwd(alloc_x[0])._path[0][1] == 1
