@@ -251,6 +251,10 @@ class Procedure(ProcedureBase):
     def get_instr(self):
         return self._loopir_proc.instr
 
+    def args(self):
+        args = self._root()._args()
+        return C.lift_cursor(args, self)
+
     def body(self):
         """
         Return a BlockCursor selecting the entire body of the Procedure

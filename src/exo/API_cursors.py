@@ -156,6 +156,43 @@ class InvalidCursor(Cursor):
         return self
 
 
+class ArgCursor(Cursor):
+    """
+    Cursor pointing to an argument of a procedure.
+        ```
+        name : type @ mem
+        ```
+    """
+
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return self._impl._node.name.name()
+
+    def mem(self) -> Optional[Memory]:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+        assert self.is_tensor()
+
+        return self._impl._node.mem
+
+    def is_tensor(self) -> bool:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return isinstance(self._impl._node.type, LoopIR.Tensor)
+
+    def shape(self) -> ExprListCursor:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+        assert self.is_tensor()
+
+        return ExprListCursor(
+            self._impl._child_node("type")._child_block("hi"), self._proc
+        )
+
+
 class StmtCursorPrototype(Cursor):
     """
     A base class that is mostly useful for testing whether some
@@ -541,6 +578,15 @@ class AllocCursor(StmtCursor):
 
         return self._impl._node.mem
 
+    def shape(self) -> ExprListCursor:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+        assert isinstance(self._impl._node.type, LoopIR.Tensor)
+
+        return ExprListCursor(
+            self._impl._child_node("type")._child_block("hi"), self._proc
+        )
+
 
 class CallCursor(StmtCursor):
     """
@@ -778,6 +824,10 @@ def lift_cursor(impl, proc):
     if isinstance(impl, C.Gap):
         return GapCursor(impl, proc)
 
+    elif isinstance(impl, C.Args):
+        args = impl.parent()._child_block("args")
+        return [ArgCursor(arg, proc) for arg in args]
+
     elif isinstance(impl, C.Block):
         # TODO: Rename internal Cursor type to Sequence?
         assert len(impl) > 0
@@ -846,6 +896,7 @@ def lift_cursor(impl, proc):
 __all__ = [
     "Cursor",
     "InvalidCursor",
+    "ArgCursor",
     "StmtCursorPrototype",
     "StmtCursor",
     "BlockCursor",
