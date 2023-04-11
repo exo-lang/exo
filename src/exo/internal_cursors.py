@@ -196,14 +196,6 @@ class Cursor(ABC):
 
 
 @dataclass
-class Args(Cursor):
-    _anchor: Node
-
-    def parent(self) -> Node:
-        return self._anchor
-
-
-@dataclass
 class Block(Cursor):
     _anchor: Node
     _attr: str  # must be 'body' or 'orelse'
@@ -442,12 +434,7 @@ class Block(Cursor):
         gap_n = len(gap_path) - 1
 
         def forward(cursor: Node):
-            def as_loopir(c):
-                if not isinstance(c, LoopIR.LoopIR.proc):
-                    return c._loopir_proc
-                return c
-
-            if as_loopir(cursor._root) != as_loopir(orig_root):
+            if cursor._root is not orig_root:
                 raise InvalidCursorError("cannot forward from unknown root")
 
             if not isinstance(cursor, Node):
@@ -537,12 +524,6 @@ class Node(Cursor):
         """
         n = self._root
 
-        # TODO: this is what we're trying to remove.
-        if isinstance(n, LoopIR.LoopIR.proc):
-            pass
-        else:
-            n = n.INTERNAL_proc()
-
         for attr, idx in self._path:
             n = getattr(n, attr)
             if idx is not None:
@@ -579,9 +560,6 @@ class Node(Cursor):
     # ------------------------------------------------------------------------ #
     # Navigation (children)
     # ------------------------------------------------------------------------ #
-
-    def _args(self):
-        return Args(self._root, self)
 
     def _child_node(self, attr, i=None) -> Node:
         _node = getattr(self._node, attr)
