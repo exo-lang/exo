@@ -652,7 +652,7 @@ def test_wrap_block_forward(proc_bar):
             _test_fwd(fwd)
 
 
-def test_move_forward_diff_scopes():
+def test_move_forward_diff_scopes_1(golden):
     @proc
     def foo():
         x: i8
@@ -661,7 +661,67 @@ def test_move_forward_diff_scopes():
         for i in seq(0, 4):
             pass
 
-    alloc_x = foo.find("x: _")._impl.as_block().expand(0, 1)
+    alloc_xy = foo.find("x: _")._impl.as_block().expand(0, 1)
     pass_c = foo.find("pass")._impl
-    _, fwd = alloc_x._move(pass_c.before())
-    assert fwd(alloc_x[0])._path[0][1] == 1
+    ir, fwd = alloc_xy._move(pass_c.before())
+    assert fwd(alloc_xy[0])._path == [("body", 1), ("body", 0)]
+    assert str(ir) == golden
+
+    @proc
+    def foo():
+        z: i8
+        for i in seq(0, 4):
+            pass
+        x: i8
+        y: i8
+
+    alloc_xy = foo.find("x: _")._impl.as_block().expand(0, 1)
+    pass_c = foo.find("pass")._impl
+    ir, fwd = alloc_xy._move(pass_c.before())
+    assert fwd(alloc_xy[0])._path == [("body", 1), ("body", 0)]
+    assert str(ir) == golden
+
+
+def test_move_forward_diff_scopes_2():
+    @proc
+    def foo():
+        pass
+        for i in seq(0, 4):
+            x: i8
+            y: i8
+            z: i8
+
+    alloc_xy = foo.find("x: _")._impl.as_block().expand(0, 1)
+    pass_c = foo.find("pass")._impl
+    ir, fwd = alloc_xy._move(pass_c.after())
+    assert fwd(alloc_xy[0])._path == [("body", 1)]
+    assert fwd(alloc_xy[1])._path == [("body", 2)]
+
+    @proc
+    def foo():
+        for i in seq(0, 4):
+            x: i8
+            y: i8
+            z: i8
+        pass
+
+    alloc_xy = foo.find("x: _")._impl.as_block().expand(0, 1)
+    pass_c = foo.find("pass")._impl
+    ir, fwd = alloc_xy._move(pass_c.after())
+    assert fwd(alloc_xy[0])._path == [("body", 2)]
+    assert fwd(alloc_xy[1])._path == [("body", 3)]
+
+
+def test_move_forward_if_orelse(golden):
+    @proc
+    def foo():
+        if True:
+            x: i8
+        else:
+            y: i8
+
+    alloc_x = foo.find("x: _")._impl
+    alloc_y = foo.find("y: _")._impl
+    ir, fwd = alloc_x._move(alloc_y.after())
+    assert fwd(alloc_x)._path == [("body", 0), ("orelse", 1)]
+    assert str(ir) == golden
