@@ -317,9 +317,7 @@ def test_scal():
         for ii in seq(0, n % 8):
             x[ii + n / 8 * 8] = alpha * x[ii + n / 8 * 8]
 
-    print()
-    print(sscal)
     stmt_c = sscal.find("mm256_mul_ps(_)")
-    print(stmt_c)
-    sscal = reorder_stmts(sscal, stmt_c.expand(1, 0))
-    print(sscal)
+
+    with pytest.raises(SchedulingError):
+        sscal = reorder_stmts(sscal, stmt_c.expand(1, 0))
