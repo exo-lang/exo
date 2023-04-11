@@ -319,7 +319,7 @@ def lift_config(conv, string, nth=0):
         if fission_loop:
             conv = old_fission_after(conv, string)
         elif reorder is not None:
-            conv = reorder_stmts(conv, conv.find(string).expand(-1))
+            conv = reorder_stmts(conv, conv.find(string).expand(1, 0))
             # conv = conv.reorder_before(string)
         else:
             break

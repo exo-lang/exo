@@ -186,7 +186,7 @@ def loop_hack(sched, find_func, verbose=False):
     return loop_hack_sched
 
 
-from ..API_cursors import public_cursors as _PC
+import exo.API_cursors as _PC
 from ..API import Procedure as _Procedure
 from ..LoopIR_unification import UnificationError as _UnificationError
 

@@ -1,4 +1,4 @@
-
+"""
 
 # Step 1: Show Exo SGEMM
 #   - don't worry about the assertions
@@ -205,7 +205,7 @@ def stage_C_microkernel(p=neon_microkernel):
     #
     p = replace(p, 'for ji in _: _ #0', neon_vld_4xf32)
     p = replace(p, 'for ji in _: _ #1', neon_vst_4xf32)
-    p = set_memory(p, 'C_reg', Neon4f)
+    p = set_memory(p, 'C_reg', Neon)
     return p
 neon_microkernel = stage_C_microkernel()
 
@@ -218,7 +218,7 @@ def stage_A_B_microkernel(p=neon_microkernel):
         p = expand_dim(p, f'{buf}_vec', 4, 'ji', unsafe_disable_checks=True)
         p = lift_alloc(p, f'{buf}_vec')
         p = fission(p, p.find(f'{buf}_vec[_] = _').after())
-        p = set_memory(p, f'{buf}_vec', Neon4f)
+        p = set_memory(p, f'{buf}_vec', Neon)
     #
     p = replace_all(p, neon_vld_4xf32)
     p = replace_all(p, neon_broadcast_4xf32)
@@ -294,3 +294,4 @@ sgemm_tiled = finish_sgemm_tiled()
     p = fission(p, p.find('for ko in _: _').after(), n_lifts=2)
     p = reorder_loops(p, 'ji ko')
     p = reorder_loops(p, 'ii ko')
+"""

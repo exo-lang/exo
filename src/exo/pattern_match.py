@@ -57,8 +57,7 @@ def get_match_no(pattern_str: str) -> Optional[int]:
 
 
 def match_pattern(context, pattern_str, call_depth=0, default_match_no=None):
-    if not isinstance(context, Cursor):
-        context = Cursor.create(context)
+    assert isinstance(context, Cursor), f"Expected Cursor, got {type(context)}"
 
     # break-down pattern_str for possible #<num> post-fix
     if match := re.search(r"^([^#]+)#(\d+)\s*$", pattern_str):
@@ -94,6 +93,7 @@ _PAST_to_LoopIR = {
     PAST.S_Hole: None,
     #
     PAST.Read: [LoopIR.Read],
+    PAST.StrideExpr: [LoopIR.StrideExpr],
     PAST.Const: [LoopIR.Const],
     PAST.USub: [LoopIR.USub],
     PAST.BinOp: [LoopIR.BinOp],
@@ -315,6 +315,10 @@ class PatternMatch:
             )
         elif isinstance(e, LoopIR.ReadConfig):
             return pat.config == e.config.name() and pat.field == e.field
+        elif isinstance(e, LoopIR.StrideExpr):
+            return self.match_name(pat.name, e.name) and (
+                pat.dim == e.dim or not bool(pat.dim)
+            )
         else:
             assert False, "bad case"
 

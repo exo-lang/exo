@@ -9,7 +9,7 @@ from exo.stdlib.scheduling import *
 
 def reorder_up(p, stmt_pattern, n=1):
     for _ in range(n):
-        c = p.find(stmt_pattern).expand(-1)
+        c = p.find(stmt_pattern).expand(1, 0)
         p = reorder_stmts(p, c)
     return p
 
