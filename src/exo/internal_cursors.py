@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Optional
 
-from exo import LoopIR
-
 
 class InvalidCursorError(Exception):
     pass
@@ -317,8 +315,10 @@ class Block(Cursor):
         package-private, not class-private, so it may be called from other
         internal classes and modules, but not from end-user code.
         """
-        # TODO: refactor this
-        pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node.srcinfo)]
+        # TODO: refactor this; LoopIR should not be imported here
+        from exo.LoopIR import LoopIR
+
+        pass_stmt = [LoopIR.Pass(None, self.parent()._node.srcinfo)]
         return self._replace([], empty_default=pass_stmt)
 
     def resolve_all(self):
