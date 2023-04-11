@@ -192,6 +192,12 @@ class ArgCursor(Cursor):
             self._impl._child_node("type")._child_block("hi"), self._proc
         )
 
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
+
 
 class StmtCursorPrototype(Cursor):
     """
@@ -558,6 +564,27 @@ class ForSeqCursor(StmtCursor):
         return BlockCursor(self._impl._child_block("body"), self._proc)
 
 
+def loopir_type_to_exotype(typ: LoopIR.Type) -> API.ExoType:
+    if isinstance(typ, LoopIR.Num):
+        return API.ExoType.R
+    elif isinstance(typ, LoopIR.F32):
+        return API.ExoType.F32
+    elif isinstance(typ, LoopIR.F64):
+        return API.ExoType.F64
+    elif isinstance(typ, LoopIR.INT8):
+        return API.ExoType.I8
+    elif isinstance(typ, LoopIR.INT32):
+        return API.ExoType.I32
+    elif isinstance(typ, LoopIR.Bool):
+        return API.ExoType.Bool
+    elif isinstance(typ, LoopIR.Size):
+        return API.ExoType.Size
+    elif isinstance(typ, LoopIR.Index):
+        return API.ExoType.Index
+    else:
+        raise NotImplementedError(f"Unsupported {typ}")
+
+
 class AllocCursor(StmtCursor):
     """
     Cursor pointing to a buffer definition statement:
@@ -586,6 +613,12 @@ class AllocCursor(StmtCursor):
         return ExprListCursor(
             self._impl._child_node("type")._child_block("hi"), self._proc
         )
+
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
 
 
 class CallCursor(StmtCursor):
