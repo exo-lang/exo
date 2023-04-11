@@ -590,7 +590,7 @@ def DoUnroll(c_loop):
         raise SchedulingError(f"expected loop '{s.iter}' to have constant bounds")
 
     hi = s.hi.val
-    orig_body = c_loop.body()._get_loopir()
+    orig_body = c_loop.body().resolve_all()
 
     unrolled = []
     for i in range(hi):
