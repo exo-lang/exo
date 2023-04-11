@@ -434,12 +434,7 @@ class Block(Cursor):
         gap_n = len(gap_path) - 1
 
         def forward(cursor: Node):
-            def as_loopir(c):
-                if not isinstance(c, LoopIR.LoopIR.proc):
-                    return c._loopir_proc
-                return c
-
-            if as_loopir(cursor._root) != as_loopir(orig_root):
+            if cursor._root is not orig_root:
                 raise InvalidCursorError("cannot forward from unknown root")
 
             if not isinstance(cursor, Node):
@@ -519,12 +514,6 @@ class Node(Cursor):
         may call this, while users should not.
         """
         n = self._root
-
-        # TODO: this is what we're trying to remove.
-        if isinstance(n, LoopIR.LoopIR.proc):
-            pass
-        else:
-            n = n.INTERNAL_proc()
 
         for attr, idx in self._path:
             n = getattr(n, attr)
