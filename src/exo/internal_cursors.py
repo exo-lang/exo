@@ -166,8 +166,13 @@ class Cursor(ABC):
             if cursor._root is not orig_root:
                 raise InvalidCursorError("cannot forward from unknown root")
 
-            if not isinstance(cursor, Node):
-                raise InvalidCursorError("can only forward nodes")
+            if isinstance(cursor, Gap):
+                return Gap(new_root, forward(cursor.anchor()), cursor.type())
+
+            if isinstance(cursor, Block):
+                raise InvalidCursorError("cannot forward blocks")
+
+            assert isinstance(cursor, Node)
 
             def evolve(p):
                 return dataclasses.replace(cursor, _root=new_root, _path=p)
@@ -435,11 +440,19 @@ class Block(Cursor):
         gap_n = len(gap_path) - 1
 
         def forward(cursor: Node):
+            # This is duplicated in _local_forward. If there ever is a third
+            # place where this is needed, it should be refactored into a
+            # helper function.
             if cursor._root is not orig_root:
                 raise InvalidCursorError("cannot forward from unknown root")
 
-            if not isinstance(cursor, Node):
-                raise InvalidCursorError("can only forward nodes")
+            if isinstance(cursor, Gap):
+                return Gap(p, forward(cursor.anchor()), cursor.type())
+
+            if isinstance(cursor, Block):
+                raise InvalidCursorError("cannot forward blocks")
+
+            assert isinstance(cursor, Node)
 
             cur_path = list(cursor._path)
             cur_n = len(cur_path)
