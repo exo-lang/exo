@@ -133,6 +133,7 @@ def test_simplify_forwarding(golden):
 
     stmt = foo.find("y[_] = _")
     foo1 = simplify(foo)
+    assert str(foo.find("y:_").shape()[0]._impl._node) == "n + m"
     assert str(foo1.forward(stmt)._impl._node) == golden
 
 
