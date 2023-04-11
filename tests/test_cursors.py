@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc
+from exo import proc, ExoType
 from exo.stdlib.scheduling import *
 
 
@@ -133,8 +133,28 @@ def test_simplify_forwarding(golden):
 
     stmt = foo.find("y[_] = _")
     foo1 = simplify(foo)
-    assert str(foo.find("y:_").shape()[0]._impl._node) == "n + m"
     assert str(foo1.forward(stmt)._impl._node) == golden
+
+
+def test_type_and_shape_introspection():
+    @proc
+    def foo(n: size, m: index, flag: bool):
+        assert m >= 0
+        a: R[n + m]
+        b: i32[n]
+        c: i8[n]
+        d: f32[n]
+        e: f64[n]
+
+    assert foo.find("a:_").type() == ExoType.R
+    assert foo.find("b:_").type() == ExoType.I32
+    assert foo.find("c:_").type() == ExoType.I8
+    assert foo.find("d:_").type() == ExoType.F32
+    assert foo.find("e:_").type() == ExoType.F64
+    assert foo.args()[0].type() == ExoType.Size
+    assert foo.args()[1].type() == ExoType.Index
+    assert foo.args()[2].type() == ExoType.Bool
+    assert str(foo.find("a:_").shape()[0]._impl._node) == "n + m"
 
 
 def test_expand_dim_forwarding(golden):
