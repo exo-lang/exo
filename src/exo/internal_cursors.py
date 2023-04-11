@@ -472,25 +472,21 @@ class Block(Cursor):
                     if block_n <= gap_n:
                         # compute new gap_path
                         block_start_path = block_path + [(block_attr, block_rng.start)]
-                        lca_n = 0
-                        while (
-                            lca_n <= block_n
-                            and block_start_path[lca_n] == gap_path[lca_n]
-                        ):
-                            lca_n += 1
 
-                        if (
-                            lca_n
-                            != block_n
-                            + 1  # only equals if gap and block are same position
-                            and block_start_path[lca_n][0] == gap_path[lca_n][0]
-                            and block_start_path[lca_n][1] < gap_path[lca_n][1]
+                        new_gap_path = []
+                        for lca_n, (bs, gs) in enumerate(
+                            zip(block_start_path, gap_path)
                         ):
-                            new_gap_path = (
-                                gap_path[:lca_n]
-                                + [(gap_path[lca_n][0], gap_path[lca_n][1] - edit_n)]
-                                + gap_path[lca_n + 1 :]
-                            )
+                            if bs != gs:
+                                if bs[0] == gs[0] and bs[1] < gs[1]:
+                                    new_gap_path.append((gs[0], gs[1] - edit_n))
+                                else:
+                                    new_gap_path.append(gs)
+                                break
+
+                            new_gap_path.append(gs)
+
+                        new_gap_path.extend(gap_path[lca_n + 1 :])
 
                     # if inside orig block, move to gap location
                     off = cur_path[block_n][1] - block_rng.start
