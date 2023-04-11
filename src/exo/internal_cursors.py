@@ -443,17 +443,6 @@ class Block(Cursor):
             cur_path = list(cursor._path)
             cur_n = len(cur_path)
 
-            # Compute the gap offset when moving within a block
-            if (
-                block_n == gap_n
-                and block_path == gap_path[:block_n]
-                and block_attr == gap_path[block_n][0]
-                and block_rng.stop <= gap_path[block_n][1]
-            ):
-                gap_off = -edit_n
-            else:
-                gap_off = 0
-
             # Handle nodes around the edit points
             offsets = []
 
@@ -466,14 +455,34 @@ class Block(Cursor):
                     # if after orig. block end, subtract edit_n
                     offsets.append((block_n, -edit_n))
                 elif block_rng.start <= cur_path[block_n][1]:
+                    new_gap_path = gap_path
+                    if block_n <= gap_n:
+                        # compute new gap_path
+                        block_start_path = block_path + [(block_attr, block_rng.start)]
+
+                        new_gap_path = []
+                        for lca_n, (bs, gs) in enumerate(
+                            zip(block_start_path, gap_path)
+                        ):
+                            if bs != gs:
+                                if bs[0] == gs[0] and bs[1] < gs[1]:
+                                    new_gap_path.append((gs[0], gs[1] - edit_n))
+                                else:
+                                    new_gap_path.append(gs)
+                                break
+
+                            new_gap_path.append(gs)
+
+                        new_gap_path.extend(gap_path[lca_n + 1 :])
+
                     # if inside orig block, move to gap location
                     off = cur_path[block_n][1] - block_rng.start
                     return dataclasses.replace(
                         cursor,
                         _root=p,
                         _path=(
-                            gap_path[:-1]
-                            + [(gap_path[-1][0], gap_path[-1][1] + gap_off + off)]
+                            new_gap_path[:-1]
+                            + [(new_gap_path[-1][0], new_gap_path[-1][1] + off)]
                             + cur_path[block_n + 1 :]
                         ),
                     )
