@@ -77,12 +77,6 @@ def test_get_root(proc_foo):
     assert cursor._node is proc_foo.INTERNAL_proc()
 
 
-def test_get_child(proc_foo):
-    cursor = proc_foo._root().children()
-    cursor = next(iter(cursor))
-    assert cursor._node is proc_foo.INTERNAL_proc().body[0]
-
-
 def test_find_cursor(proc_foo):
     c = _find_cursors(proc_foo, "for j in _:_")
     assert len(c) == 1

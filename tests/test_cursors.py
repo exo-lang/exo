@@ -83,6 +83,25 @@ def test_basic_forwarding(golden):
     assert str(p) == golden
 
 
+def test_gap_forwarding(golden):
+    @proc
+    def p():
+        x: f32
+        if True:
+            x = 1.0
+        if True:
+            x = 2.0
+
+    if1 = p.find("x = _ #0").parent()
+    if2 = p.find("x = _ #1").parent()
+    x_alloc = p.find("x: _")
+    p = fuse(p, if1, if2)
+    p = insert_pass(p, if1.body()[0].after())
+    p = insert_pass(p, if2.body()[0].after())
+    p = insert_pass(p, x_alloc.after())
+    assert str(p) == golden
+
+
 def test_basic_forwarding2(golden):
     @proc
     def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
@@ -203,6 +222,24 @@ def test_bind_expr_forwarding(golden):
     scal2 = bind_expr(scal1, [stmt.rhs().lhs()], "alphaReg")
     assert str(scal2.forward(stmt)._impl.get_root()) == golden
     assert str(scal2.forward(stmt2)._impl.get_root()) == golden
+
+
+def test_reorder_loops_forwarding(golden):
+    @proc
+    def foo():
+        for i in seq(0, 4):
+            for j in seq(0, 4):
+                for k in seq(0, 4):
+                    x: i8
+
+    i_loop = foo.find("for i in _:_")
+    j_loop = foo.find("for j in _:_")
+    k_loop = foo.find("for k in _:_")
+    foo = reorder_loops(foo, i_loop)
+    foo = reorder_loops(foo, i_loop)
+    foo = reorder_loops(foo, j_loop)
+    foo = reorder_loops(foo, k_loop)
+    assert str(foo) == golden
 
 
 def test_vectorize_forwarding(golden):
