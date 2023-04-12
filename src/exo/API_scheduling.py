@@ -1739,7 +1739,7 @@ def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     s1 = stmt1._impl
     s2 = stmt2._impl
     if isinstance(stmt1, PC.IfCursor):
-        ir, fwd = scheduling.DoFuseIf(s1, s2, unsafe_disable_check)
+        ir, fwd = scheduling.DoFuseIf(s1, s2)
     else:
         ir, fwd = scheduling.DoFuseLoop(s1, s2, unsafe_disable_check)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
