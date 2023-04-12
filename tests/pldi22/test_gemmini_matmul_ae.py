@@ -149,7 +149,9 @@ def test_matmul_ae(golden):
     gemmini = add_loop(gemmini, "for ji in _:_ #0", "ioo", 2)
     gemmini = fuse(gemmini, "for ioo in _:_ #0", "for ioo in _:_ #1")
     gemmini = fuse(gemmini, "for ioo in _:_ #0", "for ioo in _:_ #1")
-    gemmini = fuse(gemmini, "for ioo in _:_ #0", "for ioo in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for ioo in _:_ #0", "for ioo in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = add_loop(gemmini, "for ji in _:_ #0", "jo", 2)
     gemmini = old_reorder(gemmini, "ji jo")
     gemmini = old_reorder(gemmini, "ko jo")
@@ -157,7 +159,9 @@ def test_matmul_ae(golden):
     gemmini = old_reorder(gemmini, "io jo")
     gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
     gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
-    gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for jo in _:_ #0", "for jo in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "i io")
     gemmini = old_reorder(gemmini, "k io")
     gemmini = old_reorder(gemmini, "ko io")
@@ -165,14 +169,18 @@ def test_matmul_ae(golden):
     gemmini = add_loop(gemmini, "for ji in _:_ #0", "io", 2)
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
-    gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for io in _:_ #0", "for io in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "k i")
     gemmini = old_reorder(gemmini, "ko i")
     gemmini = old_reorder(gemmini, "ji i")
     gemmini = add_loop(gemmini, "for ji in _:_ #0", "i", 8)
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
-    gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for i in _:_ #0", "for i in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "ko ji")
     gemmini = fuse(gemmini, "for ji in _:_ #0", "for ji in _:_ #1")
     gemmini = fuse(gemmini, "for ji in _:_ #0", "for ji in _:_ #1")
