@@ -1555,7 +1555,6 @@ class _DoRearrangeDim(Cursor_Rewrite):
 
         # Adjust the use-site
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            print(s.name._id, self.should_permute(s.name))
             if self.should_permute(s.name):
                 # shuffle
                 new_idx = self.permute(s.name, s.idx)
