@@ -503,6 +503,9 @@ class ArgOrAllocCursorA(CursorArgumentProcessor):
                 for arg in proc.args():
                     if arg.name() == name:
                         return arg
+                self.err(
+                    f"could not find a cursor matching {alloc_pattern}, nor an arg cursor with name {name}"
+                )
 
         if not isinstance(cursor, (PC.AllocCursor, PC.ArgCursor)):
             self.err(

@@ -98,6 +98,9 @@ def test_conv_ae(golden):
     gemmini = set_memory(gemmini, "res", GEMM_ACCUM)
     gemmini = set_memory(gemmini, "i_s", GEMM_SCRATCH)
     gemmini = set_memory(gemmini, "w_s", GEMM_SCRATCH)
+    gemmini = set_memory(gemmini, "res #1", GEMM_ACCUM)
+    gemmini = set_memory(gemmini, "i_s #1", GEMM_SCRATCH)
+    gemmini = set_memory(gemmini, "w_s #1", GEMM_SCRATCH)
 
     # Inline and lift the configuration as high as possible for the "div" part
     gemmini = inline_vector(gemmini)
