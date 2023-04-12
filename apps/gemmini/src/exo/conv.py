@@ -477,7 +477,7 @@ def schedule_conv_30():
     conv = old_reorder(conv, "kcol b")
     conv = old_reorder(conv, "krow b")
     conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1")
-    conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1")
+    conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1", unsafe_disable_check=True)
     conv = add_loop(
         conv, "for orow_i in _:_ #0", "orow_o", 2, unsafe_disable_check=True
     )
