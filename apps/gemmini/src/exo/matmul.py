@@ -116,7 +116,9 @@ def schedule_matmul_512x512x512():
     gemmini = add_loop(gemmini, "for ji in _:_ #0", "ioo", 2)
     gemmini = fuse(gemmini, "for ioo in _:_ #0", "for ioo in _:_ #1")
     gemmini = fuse(gemmini, "for ioo in _:_ #0", "for ioo in _:_ #1")
-    gemmini = fuse(gemmini, "for ioo in _:_ #0", "for ioo in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for ioo in _:_ #0", "for ioo in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = add_loop(gemmini, "for ji in _:_ #0", "jo", 2)
     gemmini = old_reorder(gemmini, "ji jo")
     gemmini = old_reorder(gemmini, "ko jo")
@@ -124,7 +126,9 @@ def schedule_matmul_512x512x512():
     gemmini = old_reorder(gemmini, "io jo")
     gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
     gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
-    gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for jo in _:_ #0", "for jo in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "i io")
     gemmini = old_reorder(gemmini, "k io")
     gemmini = old_reorder(gemmini, "ko io")
@@ -132,14 +136,18 @@ def schedule_matmul_512x512x512():
     gemmini = add_loop(gemmini, "for ji in _:_ #0", "io", 2)
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
-    gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for io in _:_ #0", "for io in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "k i")
     gemmini = old_reorder(gemmini, "ko i")
     gemmini = old_reorder(gemmini, "ji i")
     gemmini = add_loop(gemmini, "for ji in _:_ #0", "i", 8)
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
-    gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for i in _:_ #0", "for i in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "ko ji")
     gemmini = fuse(gemmini, "for ji in _:_ #0", "for ji in _:_ #1")
     gemmini = fuse(gemmini, "for ji in _:_ #0", "for ji in _:_ #1")
@@ -196,13 +204,17 @@ def schedule_matmul_4():
     gemmini = add_loop(gemmini, "for j in _:_ #0", "io", 4)
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
-    gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for io in _:_ #0", "for io in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = add_loop(gemmini, "for j_in_o in _:_ #0", "i", 196)
     gemmini = old_reorder(gemmini, "k i")
     gemmini = old_reorder(gemmini, "j i")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
-    gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for i in _:_ #0", "for i in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = fuse(gemmini, "for j in _:_ #0", "for j in _:_ #1")
     gemmini = fuse(gemmini, "for j in _:_ #0", "for j in _:_ #1")
     gemmini = fuse(gemmini, "for j in _:_ #0", "for j in _:_ #1")
@@ -252,7 +264,9 @@ def schedule_matmul_6():
     gemmini = add_loop(gemmini, "for i in _:_ #0", "io", 98)
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
-    gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for io in _:_ #0", "for io in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "k i")
     gemmini = old_reorder(gemmini, "ko i")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
@@ -307,14 +321,18 @@ def schedule_matmul_14():
     gemmini = old_reorder(gemmini, "j io")
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
-    gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for io in _:_ #0", "for io in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = add_loop(gemmini, "for j in _:_ #0", "i", 49)
     gemmini = old_reorder(gemmini, "k i")
     gemmini = old_reorder(gemmini, "ko i")
     gemmini = old_reorder(gemmini, "j i")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
-    gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for i in _:_ #0", "for i in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "ko j")
     gemmini = fuse(gemmini, "for j in _:_ #0", "for j in _:_ #1")
     gemmini = fuse(gemmini, "for j in _:_ #0", "for j in _:_ #1")
@@ -368,14 +386,18 @@ def schedule_matmul_16():
     gemmini = old_reorder(gemmini, "j io")
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
-    gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for io in _:_ #0", "for io in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = add_loop(gemmini, "for j in _:_ #0", "i", 14)
     gemmini = old_reorder(gemmini, "k i")
     gemmini = old_reorder(gemmini, "ko i")
     gemmini = old_reorder(gemmini, "j i")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
-    gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for i in _:_ #0", "for i in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "ko j")
     gemmini = fuse(gemmini, "for j in _:_ #0", "for j in _:_ #1")
     gemmini = fuse(gemmini, "for j in _:_ #0", "for j in _:_ #1")
@@ -428,21 +450,27 @@ def schedule_matmul_27():
     gemmini = add_loop(gemmini, "for j in _:_ #0", "io", 7)
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
     gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
-    gemmini = fuse(gemmini, "for io in _:_ #0", "for io in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for io in _:_ #0", "for io in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = add_loop(gemmini, "for j in _:_ #0", "jo", 2)
     gemmini = old_reorder(gemmini, "j jo")
     gemmini = old_reorder(gemmini, "ko jo")
     gemmini = old_reorder(gemmini, "i jo")
     gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
     gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
-    gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for jo in _:_ #0", "for jo in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "k i")
     gemmini = old_reorder(gemmini, "ko i")
     gemmini = old_reorder(gemmini, "j i")
     gemmini = add_loop(gemmini, "for j in _:_ #0", "i", 7)
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
     gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
-    gemmini = fuse(gemmini, "for i in _:_ #0", "for i in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for i in _:_ #0", "for i in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = old_reorder(gemmini, "ko j")
     gemmini = fuse(gemmini, "for j in _:_ #0", "for j in _:_ #1")
     gemmini = fuse(gemmini, "for j in _:_ #0", "for j in _:_ #1")

@@ -6,6 +6,7 @@ from exo.new_eff import *
 
 from exo import proc, config, DRAM, SchedulingError
 from exo.stdlib.scheduling import *
+from exo.platforms.x86 import *
 
 
 print()
@@ -31,12 +32,9 @@ def test_debug_let_and_mod():
         i.srcinfo,
     )
 
-    print(F)
-
     slv = SMTSolver(verbose=True)
 
     slv.verify(F)
-    print(slv.debug_str(smt=True))
 
 
 def test_reorder_stmts_fail():
@@ -47,7 +45,6 @@ def test_reorder_stmts_fail():
 
     with pytest.raises(SchedulingError, match="do not commute"):
         foo = reorder_stmts(foo, "x[0] = 3.0 ; x[0] = 4.0")
-        print(foo)
 
 
 def test_reorder_alloc_fail():
@@ -59,7 +56,6 @@ def test_reorder_alloc_fail():
 
     with pytest.raises(SchedulingError, match="do not commute"):
         foo = reorder_stmts(foo, "y : R ; y = 4.0")
-        print(foo)
 
 
 def test_reorder_loops_success(golden):
@@ -82,7 +78,6 @@ def test_reorder_loops_fail():
 
     with pytest.raises(SchedulingError, match="cannot be reordered"):
         foo = reorder_loops(foo, "i j")
-        print(foo)
 
 
 def test_alloc_success(golden):
@@ -162,7 +157,6 @@ def test_reorder_loops_failing_seq():
 
     with pytest.raises(SchedulingError, match="cannot be reordered"):
         foo = reorder_loops(foo, "i j")
-        print(foo)
 
 
 # Should add a test that shows that READing something in an assertion
@@ -225,7 +219,6 @@ def test_delete_config_fail():
         SchedulingError, match="Cannot change configuration value of CFG_a"
     ):
         foo = delete_config(foo, "CFG.a = _")
-        print(foo)
 
 
 def test_delete_config_subproc_fail():
@@ -250,7 +243,6 @@ def test_delete_config_subproc_fail():
         SchedulingError, match="Cannot change configuration value of CFG_a"
     ):
         foo = delete_config(foo, "do_config()")
-        print(foo)
 
 
 def test_delete_config_bc_shadow(golden):
@@ -307,4 +299,25 @@ def test_delete_config_fail_bc_not_redundant():
         SchedulingError, match="Cannot change configuration value of CFG_a"
     ):
         foo = delete_config(foo, "CFG.a = _ #1")
-        print(foo)
+
+
+def test_scal():
+    @proc
+    def sscal(n: size, alpha: f32 @ DRAM, x: [f32][n] @ DRAM):
+        assert stride(x, 0) == 1
+        reg0: f32[8] @ AVX2
+        if n / 8 > 0:
+            mm256_broadcast_ss_scalar(reg0[0:8], alpha)
+        reg1: f32[8] @ AVX2
+        reg2: f32[8] @ AVX2
+        for io in seq(0, n / 8):
+            mm256_loadu_ps(reg1[0:8], x[8 * io + 0 : 8 * io + 8])
+            mm256_mul_ps(reg2[0:8], reg0[0:8], reg1[0:8])
+            mm256_storeu_ps(x[8 * io + 0 : 8 * io + 8], reg2[0:8])
+        for ii in seq(0, n % 8):
+            x[ii + n / 8 * 8] = alpha * x[ii + n / 8 * 8]
+
+    stmt_c = sscal.find("mm256_mul_ps(_)")
+
+    with pytest.raises(SchedulingError):
+        sscal = reorder_stmts(sscal, stmt_c.expand(1, 0))
