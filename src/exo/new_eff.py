@@ -846,7 +846,10 @@ def get_point_exprs(ls):
         elif isinstance(ls, (LS.Union, LS.Isct, LS.Diff)):
             _collect_buf(ls.lhs, win_map, alloc_masks)
             _collect_buf(ls.rhs, win_map, alloc_masks)
-        elif isinstance(ls, (LS.BigUnion, LS.Filter, LS.LetEnv)):
+        elif isinstance(ls, (LS.BigUnion, LS.Filter)):
+            _collect_buf(ls.arg, win_map, alloc_masks)
+        elif isinstance(ls, LS.LetEnv):
+            win_map = ls.env.translate_win(win_map)
             _collect_buf(ls.arg, win_map, alloc_masks)
         elif isinstance(ls, LS.HideAlloc):
             alloc_masks.append(ls.name)

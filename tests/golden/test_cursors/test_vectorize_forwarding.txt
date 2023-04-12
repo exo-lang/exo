@@ -1,0 +1,6 @@
+def scal(n: size, alpha: R @ DRAM, x: [R][n] @ DRAM):
+    for io in seq(0, n / 8):
+        ...
+        for ii in seq(0, 8):
+            x[8 * io + ii] = alphaReg[ii] * x[8 * io + ii]  # <-- NODE
+    ...

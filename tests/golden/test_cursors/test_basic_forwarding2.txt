@@ -1,0 +1,6 @@
+def filter1D(ow: size, kw: size, x: f32[ow + kw - 1] @ DRAM, y: f32[ow] @ DRAM,
+             w: f32[kw] @ DRAM):
+    for outXo in seq(0, ow / 4):
+        sum: f32[4] @ DRAM  # <-- NODE
+        ...
+    ...

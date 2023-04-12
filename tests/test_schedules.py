@@ -335,6 +335,19 @@ def test_fission_after_simple(golden):
     assert "\n".join(map(str, cases)) == golden
 
 
+def test_fission_after_simple_fail():
+    @proc
+    def foo():
+        for i in seq(0, 4):
+            x: i8
+            x = 0.0
+            y: i8
+            y = 1.0
+
+    with pytest.raises(SchedulingError, match="Can only lift past a for loop"):
+        fission(foo, foo.find("x = 0.0").after(), n_lifts=2)
+
+
 def test_rearrange_dim(golden):
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -841,7 +854,7 @@ def test_bind_lhs(golden):
         for ii in seq(0, 1):
             for jj in seq(0, 1):
                 for kk in seq(0, 16):
-                    out[ii, jj, kk] = out[ii, jj, kk] + inp[ii, jj, kk]
+                    out[ii, jj, kk] += out[ii, jj, kk] + inp[ii, jj, kk]
                     out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
 
     myfunc_cpu = bind_expr(myfunc_cpu, "inp[_]", "inp_ram", cse=True)
@@ -857,6 +870,22 @@ def test_simple_divide_loop(golden):
             tmp[i] = A[i]
 
     bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="guard")
+    assert str(bar) == golden
+
+
+def test_divide_loop_cut_and_guard(golden):
+    @proc
+    def foo(x: i8[1]):
+        pass
+
+    @proc
+    def bar(n: size, A: i8[n]):
+        tmp: i8[n]
+        for i in seq(0, n):
+            tmp[i] = A[i]
+            foo(tmp[i : i + 1])
+
+    bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="cut_and_guard")
     assert str(bar) == golden
 
 
@@ -1904,6 +1933,18 @@ def test_simplify_index_div5(golden):
     assert str(bar) == golden
 
 
+def test_simplify_index_div6(golden):
+    @proc
+    def bar(N: size):
+        for i in seq(0, N):
+            for j in seq(0, 4):
+                if (i * 4 + j) / 16 > 0:
+                    pass
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
 def test_simplify_index_div_fail(golden):
     @proc
     def bar(N: size, x: R[1 + N]):
@@ -2037,10 +2078,12 @@ def test_simplify_div_mod_staging(golden):
         for i in seq(0, 64):
             out[i] = x[i] * y[i]
 
-    bar = divide_loop(bar, "for i in _:_", 4, ("io", "ii"), tail="cut")
-    bar = stage_mem(bar, "for io in _:_", "x[0:64]", "xReg")
+    sc = bar.find("for i in _:_")
+    bar = divide_loop(bar, sc, 4, ("io", "ii"), tail="cut")
+    bar = stage_mem(bar, sc, "x[0:64]", "xReg")
     bar = simplify(bar)
-    bar = divide_loop(bar, "for i0 in _:_", 4, ("io", "ii"), tail="cut")
+    assign_loop_sc = bar.forward(sc).prev()
+    bar = divide_loop(bar, assign_loop_sc, 4, ("io", "ii"), tail="cut")
     bar = divide_dim(bar, "xReg", 0, 4)
     bar = simplify(bar)
     assert str(bar) == golden

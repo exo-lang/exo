@@ -5,11 +5,11 @@ import re
 
 # import types
 from dataclasses import dataclass
-from typing import Any, List, Union, Tuple
+from typing import Any, List, Tuple
 
 from .API import Procedure
-from .API_cursors import public_cursors as PC, ExprCursor
-from .LoopIR import LoopIR, T  # , UAST, LoopIR_Do
+import exo.API_cursors as PC
+from .LoopIR import LoopIR, T
 import exo.LoopIR_scheduling as scheduling
 
 from .LoopIR_unification import DoReplace, UnificationError
@@ -50,6 +50,20 @@ class ArgumentProcessor:
 
     def __call__(self, arg, all_args):
         raise NotImplementedError("Must Sub-class and redefine __call__")
+
+
+class CursorArgumentProcessor(ArgumentProcessor):
+    def __call__(self, cur, all_args):
+        p = all_args["proc"]
+        if isinstance(cur, PC.Cursor):
+            cur = p.forward(cur)
+        elif isinstance(cur, list):
+            for i in range(len(cur)):
+                cur[i] = p.forward(cur[i])
+        return self._cursor_call(cur, all_args)
+
+    def _cursor_call(self, cur, all_args):
+        raise NotImplementedError("abstract method")
 
 
 @dataclass
@@ -273,7 +287,7 @@ class NameCountA(ArgumentProcessor):
 
         name = results[1]
         count = int(results[3]) if results[3] else None
-        return (name, count)
+        return name, count
 
 
 class EnumA(ArgumentProcessor):
@@ -314,11 +328,11 @@ class TypeAbbrevA(ArgumentProcessor):
 # Cursor Argument Processing
 
 
-class ExprCursorA(ArgumentProcessor):
+class ExprCursorA(CursorArgumentProcessor):
     def __init__(self, many=False):
         self.match_many = many
 
-    def __call__(self, expr_pattern, all_args):
+    def _cursor_call(self, expr_pattern, all_args):
         if self.match_many:
             if isinstance(expr_pattern, list):
                 if all(isinstance(ec, PC.ExprCursor) for ec in expr_pattern):
@@ -358,11 +372,11 @@ class ExprCursorA(ArgumentProcessor):
             return match
 
 
-class StmtCursorA(ArgumentProcessor):
+class StmtCursorA(CursorArgumentProcessor):
     def __init__(self, many=False):
         self.match_many = many
 
-    def __call__(self, stmt_pattern, all_args):
+    def _cursor_call(self, stmt_pattern, all_args):
         if isinstance(stmt_pattern, PC.StmtCursor):
             return stmt_pattern
         elif isinstance(stmt_pattern, PC.Cursor):
@@ -381,12 +395,12 @@ class StmtCursorA(ArgumentProcessor):
         return match
 
 
-class BlockCursorA(ArgumentProcessor):
+class BlockCursorA(CursorArgumentProcessor):
     def __init__(self, many=False, block_size=None):
         self.match_many = many
         self.block_size = block_size
 
-    def __call__(self, block_pattern, all_args):
+    def _cursor_call(self, block_pattern, all_args):
         if isinstance(block_pattern, PC.BlockCursor):
             cursor = block_pattern
         elif isinstance(block_pattern, PC.StmtCursor):
@@ -423,15 +437,15 @@ class BlockCursorA(ArgumentProcessor):
         return cursor
 
 
-class GapCursorA(ArgumentProcessor):
-    def __call__(self, gap_cursor, all_args):
+class GapCursorA(CursorArgumentProcessor):
+    def _cursor_call(self, gap_cursor, all_args):
         if not isinstance(gap_cursor, PC.GapCursor):
             self.err("expected a GapCursor")
         return gap_cursor
 
 
 class AllocCursorA(StmtCursorA):
-    def __call__(self, alloc_pattern, all_args):
+    def _cursor_call(self, alloc_pattern, all_args):
         try:
             name, count = NameCountA()(alloc_pattern, all_args)
             count = f" #{count}" if count is not None else ""
@@ -439,22 +453,22 @@ class AllocCursorA(StmtCursorA):
         except:
             pass
 
-        cursor = super().__call__(alloc_pattern, all_args)
+        cursor = super()._cursor_call(alloc_pattern, all_args)
         if not isinstance(cursor, PC.AllocCursor):
             self.err(f"expected an AllocCursor, not {type(cursor)}")
         return cursor
 
 
 class WindowStmtCursorA(StmtCursorA):
-    def __call__(self, alloc_pattern, all_args):
-        cursor = super().__call__(alloc_pattern, all_args)
+    def _cursor_call(self, alloc_pattern, all_args):
+        cursor = super()._cursor_call(alloc_pattern, all_args)
         if not isinstance(cursor, PC.WindowStmtCursor):
             self.err(f"expected a WindowStmtCursor, not {type(cursor)}")
         return cursor
 
 
 class ForSeqOrIfCursorA(StmtCursorA):
-    def __call__(self, cursor_pat, all_args):
+    def _cursor_call(self, cursor_pat, all_args):
         # TODO: eliminate this redundancy with the ForSeqCursorA code
         # allow for a special pattern short-hand, but otherwise
         # handle as expected for a normal statement cursor
@@ -465,32 +479,32 @@ class ForSeqOrIfCursorA(StmtCursorA):
         except:
             pass
 
-        cursor = super().__call__(cursor_pat, all_args)
+        cursor = super()._cursor_call(cursor_pat, all_args)
         if not isinstance(cursor, (PC.ForSeqCursor, PC.IfCursor)):
             self.err(f"expected a ForSeqCursor or IfCursor, not {type(cursor)}")
         return cursor
 
 
 class ForSeqCursorA(StmtCursorA):
-    def __call__(self, loop_pattern, all_args):
+    def _cursor_call(self, loop_pattern, all_args):
         # allow for a special pattern short-hand, but otherwise
         # handle as expected for a normal statement cursor
         try:
             name, count = NameCountA()(loop_pattern, all_args)
-            count = f"#{count}" if count is not None else ""
+            count = f" #{count}" if count is not None else ""
             loop_pattern = f"for {name} in _: _{count}"
         except:
             pass
 
-        cursor = super().__call__(loop_pattern, all_args)
+        cursor = super()._cursor_call(loop_pattern, all_args)
         if not isinstance(cursor, PC.ForSeqCursor):
             self.err(f"expected a ForSeqCursor, not {type(cursor)}")
         return cursor
 
 
 class IfCursorA(StmtCursorA):
-    def __call__(self, if_pattern, all_args):
-        cursor = super().__call__(if_pattern, all_args)
+    def _cursor_call(self, if_pattern, all_args):
+        cursor = super()._cursor_call(if_pattern, all_args)
         if not isinstance(cursor, PC.IfCursor):
             self.err(f"expected an IfCursor, not {type(cursor)}")
         return cursor
@@ -500,7 +514,7 @@ _name_name_count_re = r"^([a-zA-Z_]\w*)\s*([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$"
 
 
 class NestedForSeqCursorA(StmtCursorA):
-    def __call__(self, loops_pattern, all_args):
+    def _cursor_call(self, loops_pattern, all_args):
 
         if isinstance(loops_pattern, PC.ForSeqCursor):
             if len(loops_pattern.body()) != 1 or not isinstance(
@@ -523,7 +537,7 @@ class NestedForSeqCursorA(StmtCursorA):
             in_name = match_result[2]
             count = f" #{match_result[3]}" if match_result[3] else ""
             pattern = f"for {out_name} in _:\n  for {in_name} in _: _{count}"
-            cursor = super().__call__(pattern, all_args)
+            cursor = super()._cursor_call(pattern, all_args)
         else:
             self.err(
                 "expected a ForSeqCursor, pattern match string, "
@@ -534,27 +548,27 @@ class NestedForSeqCursorA(StmtCursorA):
 
 
 class AssignOrReduceCursorA(StmtCursorA):
-    def __call__(self, stmt_pattern, all_args):
-        cursor = super().__call__(stmt_pattern, all_args)
+    def _cursor_call(self, stmt_pattern, all_args):
+        cursor = super()._cursor_call(stmt_pattern, all_args)
         if not isinstance(cursor, (PC.AssignCursor, PC.ReduceCursor)):
             self.err(f"expected an AssignCursor or ReduceCursor, not {type(cursor)}")
         return cursor
 
 
 class CallCursorA(StmtCursorA):
-    def __call__(self, call_pattern, all_args):
+    def _cursor_call(self, call_pattern, all_args):
         # allow for special pattern short-hands, but otherwise
         # handle as expected for a normal statement cursor
         if isinstance(call_pattern, Procedure):
             call_pattern = f"{call_pattern.name()}(_)"
         try:
             name, count = NameCountA()(call_pattern, all_args)
-            count = f"#{count}" if count is not None else ""
-            call_pattern = f"{name}(_)"
+            count = f" #{count}" if count is not None else ""
+            call_pattern = f"{name}(_){count}"
         except:
             pass
 
-        cursor = super().__call__(call_pattern, all_args)
+        cursor = super()._cursor_call(call_pattern, all_args)
         if not isinstance(cursor, PC.CallCursor):
             self.err(f"expected a CallCursor, not {type(cursor)}")
         return cursor
@@ -585,7 +599,7 @@ class FormattedExprStr:
             raise TypeError("expr_str must be a string")
         self._expr_str = expr_str
         for cursor in expr_holes:
-            if not isinstance(cursor, ExprCursor):
+            if not isinstance(cursor, PC.ExprCursor):
                 raise TypeError("Cursor provided to fill a hole must be a ExprCursor")
         self._expr_holes = tuple(cursor._impl._node for cursor in expr_holes)
 
@@ -596,20 +610,14 @@ class NewExprA(ArgumentProcessor):
         self.before = before
 
     def _get_ctxt_stmt(self, all_args):
-        proc = all_args["proc"]
         cursor = all_args[self.cursor_arg]
 
         # if we don't have a gap cursor, convert to a gap cursor
         if not isinstance(cursor, PC.GapCursor):
             cursor = cursor.before() if self.before else cursor.after()
 
-        # resolve gaps down to statements in a somewhat silly way
         # TODO: improve parse_fragment to just take gaps
-        if not (stmtc := cursor.after()):
-            assert (stmtc := cursor.before())
-        ctxt_stmt = stmtc._impl._node
-
-        return ctxt_stmt
+        return cursor.anchor()._impl._node
 
     def __call__(self, expr_str, all_args):
         expr_holes = None
@@ -698,8 +706,8 @@ def simplify(proc):
     to constants and eliminate dead branches and loops. Uses branch
     conditions to simplify expressions inside the branches.
     """
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoSimplify(proc_c).result()
+    # TODO: remove provenance handling from simplifier implementation
+    return scheduling.DoSimplify(proc).result()
 
 
 @sched_op([NameA])
@@ -710,9 +718,11 @@ def rename(proc, name):
     args:
         name    - string
     """
-    p = proc._loopir_proc
-    p = p.update(name=name)
-    return Procedure(p, _provenance_eq_Procedure=proc)
+    ir = proc._loopir_proc
+    ir = ir.update(name=name)
+    return Procedure(
+        ir, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(ir)
+    )
 
 
 @sched_op([InstrStrA])
@@ -723,9 +733,11 @@ def make_instr(proc, instr):
     args:
         name    - string representing an instruction macro
     """
-    p = proc._loopir_proc
-    p = p.update(instr=instr)
-    return Procedure(p, _provenance_eq_Procedure=proc)
+    ir = proc._loopir_proc
+    ir = ir.update(instr=instr)
+    return Procedure(
+        ir, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(ir)
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -746,8 +758,8 @@ def insert_pass(proc, gap_cursor):
         -->
         `s1 ; pass ; s2`
     """
-    ir, _fwd = scheduling.DoInsertPass(gap_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoInsertPass(gap_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([])
@@ -757,8 +769,7 @@ def delete_pass(proc):
 
     Delete all `pass` statements in the procedure.
     """
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoDeletePass(proc_c).result()
+    return scheduling.DoDeletePass(proc).result()
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -777,8 +788,8 @@ def reorder_stmts(proc, block_cursor):
     s1 = block_cursor[0]._impl
     s2 = block_cursor[1]._impl
 
-    ir, _fwd = scheduling.DoReorderStmt(s1, s2)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoReorderStmt(s1, s2)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ExprCursorA(many=True)])
@@ -813,8 +824,8 @@ def commute_expr(proc, expr_cursors):
             "can commute by commute_expr()"
         )
 
-    ir, _fwd = scheduling.DoCommuteExpr(exprs)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoCommuteExpr(exprs)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ExprCursorA(many=True), NameA, BoolA])
@@ -847,8 +858,8 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
             "can be bound by bind_expr()"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoBindExpr(proc_c, new_name, exprs, cse).result()
+    ir, fwd = scheduling.DoBindExpr(new_name, exprs, cse)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -859,12 +870,11 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
 @sched_op([NameA, StmtCursorA])
 def extract_subproc(proc, subproc_name, body_stmt):
     """
-    Documentation TODO
+    Documentation
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = body_stmt._impl
-    passobj = scheduling.DoExtractMethod(proc_c, subproc_name, stmt)
-    return (passobj.result(), passobj.subproc())
+    passobj = scheduling.DoExtractMethod(proc, subproc_name, stmt)
+    return passobj.result(), passobj.subproc()
 
 
 @sched_op([CallCursorA])
@@ -876,8 +886,8 @@ def inline(proc, call_cursor):
         call_cursor     - Cursor or pattern pointing to a Call statement
                           whose body we want to inline
     """
-    ir, _fwd = scheduling.DoInline(call_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoInline(call_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA, ProcA, BoolA])
@@ -894,15 +904,14 @@ def replace(proc, block_cursor, subproc, quiet=False):
         quiet           - (bool) control how much this operation prints
                           out debug info
     """
-    stmts = [sc._impl._node for sc in block_cursor]
     try:
-        p = DoReplace(subproc._loopir_proc, stmts).apply_proc(proc._loopir_proc)
-        return Procedure(p, _provenance_eq_Procedure=proc)
+        ir, fwd = DoReplace(subproc._loopir_proc, block_cursor._impl)
+        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     except UnificationError:
         if quiet:
             raise
         print(f"Failed to unify the following:\nSubproc:\n{subproc}Statements:\n")
-        [print(s) for s in stmts]
+        [print(sc._impl._node) for sc in block_cursor]
         raise
 
 
@@ -925,10 +934,8 @@ def call_eqv(proc, call_cursor, eqv_proc):
     call_stmt = call_cursor._impl
     new_loopir = eqv_proc._loopir_proc
 
-    proc_c = ic.Cursor.create(proc)
-    rewrite_pass = scheduling.DoCallSwap(proc_c, call_stmt, new_loopir)
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    ir, fwd, cfg = scheduling.DoCallSwap(call_stmt, new_loopir)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
 # --------------------------------------------------------------------------- #
@@ -950,8 +957,7 @@ def set_precision(proc, name, typ):
         `name : _[...]    ->    name : typ[...]`
     """
     name, count = name
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoSetTypAndMem(proc_c, name, count, basetyp=typ).result()
+    return scheduling.DoSetTypAndMem(proc, name, count, basetyp=typ).result()
 
 
 @sched_op([NameCountA, BoolA])
@@ -968,8 +974,7 @@ def set_window(proc, name, is_window=True):
         `name : R[...]    ->    name : [R][...]`
     """
     name, count = name
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoSetTypAndMem(proc_c, name, count, win=is_window).result()
+    return scheduling.DoSetTypAndMem(proc, name, count, win=is_window).result()
 
 
 @sched_op([NameCountA, MemoryA])
@@ -985,8 +990,7 @@ def set_memory(proc, name, memory_type):
         `name : _ @ _    ->    name : _ @ mem`
     """
     name, count = name
-    proc_c = ic.Cursor.create(proc)
-    return scheduling.DoSetTypAndMem(proc_c, name, count, mem=memory_type).result()
+    return scheduling.DoSetTypAndMem(proc, name, count, mem=memory_type).result()
 
 
 # --------------------------------------------------------------------------- #
@@ -1021,10 +1025,8 @@ def bind_config(proc, var_cursor, config, field):
             f"to match type of Config variable ({cfg_f_type})"
         )
 
-    proc_c = ic.Cursor.create(proc)
-    rewrite_pass = scheduling.DoBindConfig(proc_c, config, field, var_cursor._impl)
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    ir, fwd, cfg = scheduling.DoBindConfig(config, field, var_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
 @sched_op([StmtCursorA])
@@ -1039,10 +1041,8 @@ def delete_config(proc, stmt_cursor):
     rewrite:
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
-    (ir, cfg), _fwd = scheduling.DoDeleteConfig(
-        ic.Cursor.create(proc), stmt_cursor._impl
-    )
-    return Procedure(ir, _provenance_eq_Procedure=proc, _mod_config=cfg)
+    ir, fwd, cfg = scheduling.DoDeleteConfig(proc._root(), stmt_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
 @sched_op([GapCursorA, ConfigA, ConfigFieldA, NewExprA("gap_cursor")])
@@ -1062,18 +1062,12 @@ def write_config(proc, gap_cursor, config, field, rhs):
     """
 
     # TODO: just have scheduling pass take a gap cursor directly
-    before = True
-    if not (stmtc := gap_cursor.after()):
-        assert (stmtc := gap_cursor.before())
-        before = False
-    stmt = stmtc._impl
+    stmtc = gap_cursor.anchor()
+    before = gap_cursor.type() == ic.GapType.Before
 
-    proc_c = ic.Cursor.create(proc)
-    rewrite_pass = scheduling.DoConfigWrite(
-        proc_c, stmt, config, field, rhs, before=before
-    )
-    mod_config = rewrite_pass.mod_eq()
-    return rewrite_pass.result(mod_config=mod_config)
+    stmt = stmtc._impl
+    ir, fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
 # --------------------------------------------------------------------------- #
@@ -1104,8 +1098,8 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks
         provided indexing expression is checked to make sure it is in-bounds
     """
     stmt_c = buf_cursor._impl
-    ir, _fwd = scheduling.DoExpandDim(stmt_c, alloc_dim, indexing_expr)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoExpandDim(stmt_c, alloc_dim, indexing_expr)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, ListA(IntA)])
@@ -1123,7 +1117,6 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
         (with permute_vector = [2,0,1])
         `x : T[N,M,K]` -> `x : T[K,N,M]`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = buf_cursor._impl
     # extra sanity check
     N = len(stmt._node.type.hi)
@@ -1132,7 +1125,7 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
             f"permute_vector argument ({permute_vector}) "
             f"was not a permutation of {set(range(0, N))}"
         )
-    return scheduling.DoRearrangeDim(proc_c, stmt, permute_vector).result()
+    return scheduling.DoRearrangeDim(proc, stmt, permute_vector).result()
 
 
 @sched_op([AllocCursorA, ListA(OptionalA(NewExprA("buf_cursor"))), BoolA])
@@ -1157,14 +1150,13 @@ def bound_alloc(proc, buf_cursor, new_bounds, unsafe_disable_checks=False):
         The new bounds are checked to make sure they don't cause any
         out-of-bounds memory accesses
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = buf_cursor._impl
     if len(stmt._node.type.hi) != len(new_bounds):
         raise ValueError(
             f"buffer has {len(stmt._node.type.hi)} dimensions, "
             f"but only {len(new_bounds)} bounds were supplied"
         )
-    new_proc_c = scheduling.DoBoundAlloc(proc_c, stmt, new_bounds).result()
+    new_proc_c = scheduling.DoBoundAlloc(proc, stmt, new_bounds).result()
 
     if not unsafe_disable_checks:
         CheckEffects(new_proc_c._node)
@@ -1197,12 +1189,12 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     """
     if quotient == 1:
         raise ValueError("why are you trying to divide by 1?")
-    proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
     if not (0 <= dim_idx < len(stmt._node.type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds dimension index {dim_idx}")
 
-    return scheduling.DoDivideDim(proc_c, stmt, dim_idx, quotient).result()
+    ir, fwd = scheduling.DoDivideDim(stmt, dim_idx, quotient)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, IntA, IntA])
@@ -1226,7 +1218,6 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
         `x : R[4*n, m]`
         `x[4*i + k, j] = ...`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
     for dim_idx in [hi_dim_idx, lo_dim_idx]:
         if not (0 <= dim_idx < len(stmt._node.type.shape())):
@@ -1234,7 +1225,8 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
     if hi_dim_idx == lo_dim_idx:
         raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by itself")
 
-    return scheduling.DoMultiplyDim(proc_c, stmt, hi_dim_idx, lo_dim_idx).result()
+    ir, fwd = scheduling.DoMultiplyDim(stmt, hi_dim_idx, lo_dim_idx)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, PosIntA])
@@ -1255,11 +1247,10 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
         `for i in _:`
         `    ...`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
 
-    ir, _fwd = scheduling.DoLiftAllocSimple(stmt, n_lifts)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoLiftAllocSimple(stmt, n_lifts)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, PosIntA, EnumA(["row", "col"]), OptionalA(PosIntA), BoolA])
@@ -1289,10 +1280,9 @@ def autolift_alloc(
         `for i in _:`
         `    ...`
     """
-    proc_c = ic.Cursor.create(proc)
     stmt = alloc_cursor._impl
 
-    return scheduling.DoLiftAlloc(proc_c, stmt, n_lifts, mode, size, keep_dims).result()
+    return scheduling.DoLiftAlloc(proc, stmt, n_lifts, mode, size, keep_dims).result()
 
 
 @sched_op([AllocCursorA, AllocCursorA])
@@ -1317,8 +1307,8 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
-    ir, _fwd = scheduling.DoDataReuse(buf_s, rep_s)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoDataReuse(buf_s, rep_s)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([WindowStmtCursorA])
@@ -1334,9 +1324,8 @@ def inline_window(proc, winstmt_cursor):
         `y = x[...] ; s` -> `s[ y -> x[...] ]`
     """
     stmt = winstmt_cursor._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoInlineWindow(proc_c, stmt).result()
+    ir, fwd = scheduling.DoInlineWindow(stmt)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ExprCursorA, NameA, OptionalA(MemoryA)])
@@ -1349,9 +1338,8 @@ def stage_window(proc, expr_cursor, win_name, memory=None):
     Should it resemble `stage_mem` instead?
     """
     e = expr_cursor._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoStageWindow(proc_c, win_name, memory, e).result()
+    return scheduling.DoStageWindow(proc, win_name, memory, e).result()
 
 
 @sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA])
@@ -1397,19 +1385,10 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 
     """
     buf_name, w_exprs = win_expr
-    stmt_start = block_cursor[0]._impl
-    stmt_end = block_cursor[-1]._impl
-    proc_c = ic.Cursor.create(proc)
-
-    return scheduling.DoStageMem(
-        proc_c,
-        buf_name,
-        new_buf_name,
-        w_exprs,
-        stmt_start,
-        stmt_end,
-        use_accum_zero=accum,
-    ).result()
+    ir, fwd = scheduling.DoStageMem(
+        block_cursor._impl, buf_name, w_exprs, new_buf_name, use_accum_zero=accum
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -1465,17 +1444,16 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         raise ValueError("why are you trying to split by 1?")
 
     stmt = loop_cursor._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoSplit(
-        proc_c,
+    ir, fwd = scheduling.DoSplit(
         stmt,
         quot=div_const,
         hi=new_iters[0],
         lo=new_iters[1],
         tail=tail,
         perfect=perfect,
-    ).result()
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([NestedForSeqCursorA, NameA])
@@ -1498,8 +1476,8 @@ def mult_loops(proc, nested_loops, new_iter_name):
         `for k in seq(0,e*c):`      # k is new_iter_name
         `    s[ i -> k/c, j -> k%c ]`
     """
-    ir, _fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ForSeqCursorA, PosIntA])
@@ -1524,8 +1502,8 @@ def cut_loop(proc, loop, cut_point):
         `for i in seq(0,n-cut):`
         `    s[i -> i+cut]`
     """
-    ir, _fwd = scheduling.DoPartitionLoop(loop._impl, cut_point)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoPartitionLoop(loop._impl, cut_point)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([NestedForSeqCursorA])
@@ -1559,8 +1537,8 @@ def reorder_loops(proc, nested_loops):
     if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.Seq):
         raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
-    ir, _fwd = scheduling.DoLiftScope(stmt_c.body()[0])
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoLiftScope(stmt_c.body()[0])
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1616,8 +1594,8 @@ def merge_writes(proc, block_cursor):
             "expected the two statements' right hand sides to have numeric types."
         )
 
-    ir, _fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -1640,10 +1618,9 @@ def lift_reduce_constant(proc, block_cursor):
     """
     stmt_c = block_cursor[0]._impl
     loop_c = block_cursor[1]._impl
-    proc_c = ic.Cursor.create(proc)
 
-    ir, _fwd = scheduling.DoLiftConstant(stmt_c, loop_c)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoLiftConstant(stmt_c, loop_c)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([GapCursorA, PosIntA])
@@ -1671,12 +1648,18 @@ def fission(proc, gap_cursor, n_lifts=1):
         `    s2`
     """
 
-    if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
-        raise ValueError("expected cursor to point to " "a gap between statements")
-    stmt = stmtc._impl
-    proc_c = ic.Cursor.create(proc)
+    if gap_cursor.type() == ic.GapType.Before:
+        stmt = gap_cursor.anchor().prev()
+    else:
+        stmt = gap_cursor.anchor()
 
-    return scheduling.DoFissionAfterSimple(proc_c, stmt, n_lifts).result()
+    if not stmt or not stmt.next():
+        raise ValueError(
+            "expected cursor to point to a gap between statements, not at an edge"
+        )
+
+    ir, fwd = scheduling.DoFissionAfterSimple(stmt._impl, n_lifts)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([GapCursorA, PosIntA])
@@ -1705,16 +1688,22 @@ def autofission(proc, gap_cursor, n_lifts=1):
         `    s2`
     """
 
-    if not (stmtc := gap_cursor.before()) or not gap_cursor.after():
-        raise ValueError("expected cursor to point to " "a gap between statements")
-    stmt = stmtc._impl
-    proc_c = ic.Cursor.create(proc)
+    if gap_cursor.type() == ic.GapType.Before:
+        stmt = gap_cursor.anchor().prev()
+    else:
+        stmt = gap_cursor.anchor()
 
-    return scheduling.DoFissionLoops(proc_c, stmt, n_lifts).result()
+    if not stmt or not stmt.next():
+        raise ValueError(
+            "expected cursor to point to a gap between statements, not at an edge"
+        )
+
+    return scheduling.DoFissionLoops(proc, stmt._impl, n_lifts).result()
 
 
-@sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA])
-def fuse(proc, stmt1, stmt2):
+# TODO: Debug scheduling error in fuse
+@sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA, BoolA])
+def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     """
     fuse together two loops or if-guards, provided that the loop bounds
     or guard conditions are compatible.
@@ -1750,10 +1739,10 @@ def fuse(proc, stmt1, stmt2):
     s1 = stmt1._impl
     s2 = stmt2._impl
     if isinstance(stmt1, PC.IfCursor):
-        ir, _fwd = scheduling.DoFuseIf(s1, s2)
+        ir, fwd = scheduling.DoFuseIf(s1, s2)
     else:
-        ir, _fwd = scheduling.DoFuseLoop(s1, s2)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+        ir, fwd = scheduling.DoFuseLoop(s1, s2, unsafe_disable_check)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ForSeqCursorA])
@@ -1772,12 +1761,14 @@ def remove_loop(proc, loop_cursor):
             ->
         `s`
     """
-    ir, _fwd = scheduling.DoRemoveLoop(loop_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoRemoveLoop(loop_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA])
-def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
+@sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA, BoolA])
+def add_loop(
+    proc, block_cursor, iter_name, hi_expr, guard=False, unsafe_disable_check=False
+):
     """
     Add a loop around some block of statements.
     This operation is allowable when the block of statements in question
@@ -1804,8 +1795,10 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
         raise NotImplementedError("TODO: support blocks of size > 1")
 
     stmt_c = block_cursor[0]._impl
-    ir, _fwd = scheduling.DoAddLoop(stmt_c, iter_name, hi_expr, guard)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoAddLoop(
+        stmt_c, iter_name, hi_expr, guard, unsafe_disable_check
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([ForSeqCursorA])
@@ -1814,7 +1807,7 @@ def unroll_loop(proc, loop_cursor):
     Unroll a loop with a constant, literal loop bound
 
     args:
-        loop_curosr     - cursor pointing to the loop to unroll
+        loop_cursor     - cursor pointing to the loop to unroll
 
     rewrite:
         `for i in seq(0,3):`
@@ -1824,8 +1817,8 @@ def unroll_loop(proc, loop_cursor):
         `s[ i -> 1 ]`
         `s[ i -> 2 ]`
     """
-    ir, _fwd = scheduling.DoUnroll(loop_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoUnroll(loop_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -1857,9 +1850,8 @@ def lift_scope(proc, scope_cursor):
     """
     stmt_c = scope_cursor._impl
 
-    # return scheduling.DoLiftScope(proc_c, stmt_c).result()
-    ir, _fwd = scheduling.DoLiftScope(stmt_c)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoLiftScope(stmt_c)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([IfCursorA, BoolA])
@@ -1885,16 +1877,15 @@ def assert_if(proc, if_cursor, cond):
         `s1`
     """
     stmt = if_cursor._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoAssertIf(proc_c, stmt, cond).result()
+    return scheduling.DoAssertIf(proc, stmt, cond).result()
 
 
 @sched_op([BlockCursorA, ListOrElemA(NewExprA("block_cursor"))])
 def specialize(proc, block_cursor, conds):
     """
     Duplicate a statement block multiple times, with the provided
-    `cond`itions indictaing when each copy should be invoked.
+    `cond`itions indicating when each copy should be invoked.
     Doing this allows one to then schedule differently the "specialized"
     variants of the blocks in different ways.
 
@@ -1923,8 +1914,8 @@ def specialize(proc, block_cursor, conds):
 
     stmt = block_cursor[0]._impl
 
-    ir, _fwd = scheduling.DoSpecialize(stmt, conds)
-    return Procedure(ir, _provenance_eq_Procedure=proc)
+    ir, fwd = scheduling.DoSpecialize(stmt, conds)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -1939,9 +1930,8 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     This operation is deprecated, and will be removed soon.
     """
     stmt = block_cursor._impl[0]
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoAddUnsafeGuard(proc_c, stmt, var_expr).result()
+    return scheduling.DoAddUnsafeGuard(proc, stmt, var_expr).result()
 
 
 @sched_op([ForSeqCursorA])
@@ -1960,6 +1950,5 @@ def bound_and_guard(proc, loop):
     This currently only works when e is of the form x % n
     """
     stmt = loop._impl
-    proc_c = ic.Cursor.create(proc)
 
-    return scheduling.DoBoundAndGuard(proc_c, stmt).result()
+    return scheduling.DoBoundAndGuard(proc, stmt).result()

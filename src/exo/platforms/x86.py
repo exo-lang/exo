@@ -456,6 +456,8 @@ def avx2_reduce_add_wide_pd(dst: [f64][4] @ AVX2, src: [f64][4] @ AVX2):
         dst[i] += src[i]
 
 
+# TODO: Hack for procedure aliasing issue, can be deleted once we have
+#      better way of handling aliasing
 @instr("{dst_data} = {src_data};")
 def avx2_reg_copy_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ AVX2):
     assert stride(dst, 0) == 1
@@ -472,3 +474,26 @@ def avx2_reg_copy_pd(dst: [f64][4] @ AVX2, src: [f64][4] @ AVX2):
 
     for i in seq(0, 4):
         dst[i] = src[i]
+
+
+# --------------------------------------------------------------------------- #
+#   f32 to f64 conversion
+# --------------------------------------------------------------------------- #
+
+
+@instr("{dst_data} = _mm256_cvtps_pd(_mm256_extractf128_ps({src_data}, 0));")
+def avx2_convert_f32_lower_to_f64(dst: [f64][4] @ AVX2, src: [f32][8] @ AVX2):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src[i]
+
+
+@instr("{dst_data} = _mm256_cvtps_pd(_mm256_extractf128_ps({src_data}, 1));")
+def avx2_convert_f32_upper_to_f64(dst: [f64][4] @ AVX2, src: [f32][8] @ AVX2):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src[4 + i]

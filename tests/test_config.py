@@ -243,6 +243,20 @@ def test_stride_with_config(golden):
     assert f"{bar}\n{foo}" == golden
 
 
+def test_config_write(golden):
+    @config
+    class Config:
+        tmp: f32
+
+    @proc
+    def foo():
+        tmp: f32
+        tmp = 0.0
+
+    bar = write_config(foo, foo.find("tmp = _").after(), Config, "tmp", "tmp")
+    assert str(bar) == golden
+
+
 def test_config_bind(golden):
     ConfigLoad = new_config_ld()
 

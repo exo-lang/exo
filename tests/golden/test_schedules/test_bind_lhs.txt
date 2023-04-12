@@ -6,5 +6,5 @@ def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
                 inp_ram = inp[ii, jj, kk]
                 out_ram: R
                 out_ram = out[ii, jj, kk]
-                out[ii, jj, kk] = out_ram + inp_ram
+                out[ii, jj, kk] += out_ram + inp_ram
                 out[ii, jj, kk] = out[ii, jj, kk] * inp_ram

@@ -1,15 +1,10 @@
-# from __future__ import annotations
-#
-# import weakref
-# from abc import ABC, abstractmethod
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-# from enum import Enum, auto
-# from functools import cached_property
-from typing import Optional, Iterable, Union, List, Any
+from typing import Optional, List, Any
 
-# from weakref import ReferenceType
-#
 from . import API
 from .LoopIR import LoopIR
 from .configs import Config
@@ -20,6 +15,7 @@ from .prelude import Sym
 
 # expose this particular exception as part of the API
 from .internal_cursors import InvalidCursorError
+from .LoopIR_pprint import _print_cursor
 
 
 # --------------------------------------------------------------------------- #
@@ -28,7 +24,7 @@ from .internal_cursors import InvalidCursorError
 
 
 @dataclass
-class Cursor:
+class Cursor(ABC):
     """
     This is the base class for all cursors.  Cursors are objects that are
     used in scheduling to point to different parts of a Procedure's AST.
@@ -51,32 +47,30 @@ class Cursor:
             - StmtCursor        - individual statement
                 - ... (cases below)
             - BlockCursor       - contiguous, non-empty sequence of statements
-            - GapCursor         - the "gap" between two statements, before the
-                                  first statement, or after the last statement
-                                  (think of this as a blinking vertical line)
+            - GapCursor         - the space before or after a particular statement
         - ExprCursorPrototype
             - ExprCursor        - individual expression
                 - ... (cases below)
             - ExprListCursor    - contiguous (maybe empty) seq. of expressions
 
     The grammar for statements and expressions as exposed by cursors is:
-        Stmt ::= Assign( name : Sym, idx : ExprList, rhs : Expr )
-               | Reduce( name : Sym, idx : ExprList, rhs : Expr )
+        Stmt ::= Assign( name : str, idx : ExprList, rhs : Expr )
+               | Reduce( name : str, idx : ExprList, rhs : Expr )
                | AssignConfig( config : Config, field : str, rhs : Expr )
                | Pass()
                | If( cond : Expr, body : Block, orelse : Block? )
-               | ForSeq( name : Sym, hi : Expr, body : Block )
-               | Alloc( name : Sym, mem : Memory? )
+               | ForSeq( name : str, hi : Expr, body : Block )
+               | Alloc( name : str, mem : Memory? )
                | Call( subproc : Procedure, args : ExprList )
-               | WindowStmt( name : Sym, winexpr : WindowExpr )
+               | WindowStmt( name : str, winexpr : WindowExpr )
 
-        Expr ::= Read( name : Sym, idx : ExprList )
+        Expr ::= Read( name : str, idx : ExprList )
                | ReadConfig( config : Config, field : str )
                | Literal( value : bool, int, or float )
                | UnaryMinus( arg : Expr )
                | BinaryOp( op : str, lhs : Expr, rhs : Expr )
                | BuiltIn( name : str, args : ExprList )
-               | WindowExpr( name : Sym, idx : *(see below) )
+               | WindowExpr( name : str, idx : *(see below) )
                | BuiltIn( name : str, args : ExprList )
 
         The `idx` argument of `WindowExpr` is a list containing either
@@ -86,18 +80,20 @@ class Cursor:
     """
 
     _impl: C.Cursor
+    _proc: API.Procedure
 
-    def __init__(self, impl):
+    def __init__(self, impl, proc):
         if not isinstance(impl, C.Cursor):
             raise TypeError(
-                "Do not try to directly construct a Cursor.  "
+                "Do not try to directly construct a Cursor. "
                 "Use the provided methods to obtain cursors "
-                "from Procedures, and from other Cursors"
+                "from Procedures and from other Cursors"
             )
         self._impl = impl
+        self._proc = proc
 
     def __str__(self):
-        return f"<{type(self).__name__}(...)>"
+        return f"{_print_cursor(self._impl)}"
 
     # -------------------------------------------------------------------- #
     # methods copied from the underlying implementation
@@ -106,7 +102,7 @@ class Cursor:
         """
         Get the Procedure object that this Cursor points into
         """
-        return self._impl._root
+        return self._proc
 
     def __bool__(self):
         """
@@ -127,45 +123,22 @@ class Cursor:
             impl_parent = impl_parent.parent()
         elif isinstance(impl_parent._node, LoopIR.proc):
             return InvalidCursor()
-        return new_Cursor(impl_parent)
+        return lift_cursor(impl_parent, self._proc)
 
-    def prev(self, dist=1):
-        """
-        If this is a statement Cursor, return a statement cursor to
-            the previous statement in the block (or dist-many previous)
-        If this is a gap Cursor, return a gap cursor to
-            the previous gap in the block (or dist-many previous)
+    def _child_node(self, *args, **kwargs):
+        return lift_cursor(self._impl._child_node(*args, **kwargs), self._proc)
 
-        Returns InvalidCursor() if there is no such cursor to point to.
-        """
-        if dist < 1:
-            raise ValueError(f"dist must have positive value; was {dist}")
-        try:
-            return new_Cursor(self._impl.prev(dist))
-        except InvalidCursorError:
-            return InvalidCursor()
-
-    def next(self, dist=1):
-        """
-        If this is a statement Cursor, return a statement cursor to
-            the next statement in the block (or dist-many next)
-        If this is a gap Cursor, return a gap cursor to
-            the next gap in the block (or dist-many next)
-
-        Returns InvalidCursor() if there is no such cursor to point to.
-        """
-        if dist < 1:
-            raise ValueError(f"dist must have positive value; was {dist}")
-        try:
-            return new_Cursor(self._impl.next(dist))
-        except InvalidCursorError:
-            return InvalidCursor()
+    def _child_block(self, *args, **kwargs):
+        return lift_cursor(self._impl._child_block(*args, **kwargs), self._proc)
 
 
 class InvalidCursor(Cursor):
+    # noinspection PyMissingConstructor
+    # we can't call the Cursor constructor since it checks the type of _impl
     def __init__(self):
         """Invalid cursors have no data"""
         self._impl = None
+        self._proc = None
 
     def __bool__(self):
         """
@@ -176,98 +149,153 @@ class InvalidCursor(Cursor):
         return False
 
     def proc(self):
-        raise InvalidCursorError("Cannot get the Procedure " "of an invalid cursor")
+        raise InvalidCursorError("Cannot get the Procedure of an invalid cursor")
 
     def parent(self) -> Cursor:
         """The parent of an invalid cursor is an invalid cursor"""
         return self
 
-    def before(self, dist=1) -> Cursor:
-        """navigating to before an invalid cursor is still invalid"""
-        return self
 
-    def after(self, dist=1) -> Cursor:
-        """navigating to after an invalid cursor is still invalid"""
-        return self
+class ListCursorPrototype(Cursor):
+    def __iter__(self):
+        """
+        iterate over all cursors contained in the list
+        """
+        assert isinstance(self._impl, C.Block)
+        yield from (lift_cursor(stmt_impl, self._proc) for stmt_impl in self._impl)
 
-    def next(self, dist=1) -> Cursor:
-        """navigating to the next cursor is still invalid"""
-        return self
+    def __getitem__(self, i) -> Cursor:
+        """
+        get a cursor to the i-th item
+        """
+        assert isinstance(self._impl, C.Block)
+        return lift_cursor(self._impl[i], self._proc)
 
-    def prev(self, dist=1) -> Cursor:
-        """navigating to the previous cursor is still invalid"""
-        return self
+    def __len__(self) -> int:
+        """
+        get the number of items in the list
+        """
+        assert isinstance(self._impl, C.Block)
+        return len(self._impl)
+
+
+class ArgCursor(Cursor):
+    """
+    Cursor pointing to an argument of a procedure.
+        ```
+        name : type @ mem
+        ```
+    """
+
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return self._impl._node.name.name()
+
+    def mem(self) -> Optional[Memory]:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+        assert self.is_tensor()
+
+        return self._impl._node.mem
+
+    def is_tensor(self) -> bool:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return isinstance(self._impl._node.type, LoopIR.Tensor)
+
+    def shape(self) -> ExprListCursor:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+        assert self.is_tensor()
+
+        return ExprListCursor(
+            self._impl._child_node("type")._child_block("hi"), self._proc
+        )
+
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
 
 
 class StmtCursorPrototype(Cursor):
     """
-    Prototype for all cursors used to point to statements:
-        StmtCursor, BlockCursor, GapCursor
-    See `help(Cursor)` for more details.
+    A base class that is mostly useful for testing whether some
+    cursor is pointing to the statement fragment of the IR language
+    or the expression fragment.
     """
-
-    def before(self, dist=1) -> Cursor:
-        """
-        If this is a statement or block Cursor, return a gap Cursor
-            pointing to immediately before the first statement.
-        If this is a gap Cursor, return a statement Cursor, pointing to
-            the statement immediately before the gap.
-
-        If dist > 1, then return the gap/statement dist-many spots before
-            the cursor, rather than immediately (1-many) before the cursor
-
-        Returns InvalidCursor() if there is no such cursor to point to.
-        """
-        if dist < 1:
-            raise ValueError(f"dist must have positive value; was {dist}")
-        try:
-            return new_Cursor(self._impl.before(dist))
-        except InvalidCursorError:
-            return InvalidCursor()
-
-    def after(self, dist=1) -> Cursor:
-        """
-        If this is a statement or block Cursor, return a gap Cursor
-            pointing to immediately after the first statement.
-        If this is a gap Cursor, return a statement Cursor, pointing to
-            the statement immediately after the gap.
-
-        If dist > 1, then return the gap/statement dist-many spots after
-            the cursor, rather than immediately (1-many) after the cursor
-
-        Returns InvalidCursor() if there is no such cursor to point to.
-        """
-        if dist < 1:
-            raise ValueError(f"dist must have positive value; was {dist}")
-        try:
-            return new_Cursor(self._impl.after(dist))
-        except InvalidCursorError:
-            return InvalidCursor()
-
-    def block_all(self):
-        """
-        Return a BlockCursor for the entire statement block that this
-        Stmt, Block, or Gap is contained in
-        """
-        return BlockCursor(self._impl._whole_block())
 
 
 class StmtCursor(StmtCursorPrototype):
     """
-    Cursor pointing to an individual statement or expression.
-    See `help(Cursor)` for more details.
+    Cursor pointing to an individual statement. See `help(Cursor)` for more details.
     """
+
+    def before(self) -> GapCursor:
+        """
+        Get a cursor pointing to the gap immediately before this statement.
+
+        Gaps are anchored to the statement they were created from. This
+        means that if you move the statement, the gap will move with it
+        when the cursor is forwarded.
+        """
+        assert isinstance(self._impl, C.Node)
+        return lift_cursor(self._impl.before(), self._proc)
+
+    def after(self) -> GapCursor:
+        """
+        Get a cursor pointing to the gap immediately after this statement.
+
+        Gaps are anchored to the statement they were created from. This
+        means that if you move the statement, the gap will move with it
+        when the cursor is forwarded.
+        """
+        assert isinstance(self._impl, C.Node)
+        return lift_cursor(self._impl.after(), self._proc)
+
+    def prev(self, dist=1):
+        """
+        Return a statement cursor to the previous statement in the
+        block (or dist-many previous)
+
+        Returns InvalidCursor() if there is no such cursor to point to.
+        """
+        assert isinstance(self._impl, C.Node)
+
+        try:
+            return lift_cursor(self._impl.prev(dist), self._proc)
+        except InvalidCursorError:
+            return InvalidCursor()
+
+    def next(self, dist=1):
+        """
+        Return a statement cursor to the next statement in the
+        block (or dist-many next)
+
+        Returns InvalidCursor() if there is no such cursor to point to.
+        """
+        assert isinstance(self._impl, C.Node)
+
+        try:
+            return lift_cursor(self._impl.next(dist), self._proc)
+        except InvalidCursorError:
+            return InvalidCursor()
 
     def as_block(self):
         """Return a Block containing only this one statement"""
-        return BlockCursor(self._impl.as_block())
+        assert isinstance(self._impl, C.Node)
+        return BlockCursor(self._impl.as_block(), self._proc)
 
-    def expand(self, arg1=None, arg2=None):
+    def expand(self, delta_lo=None, delta_hi=None):
         """Shorthand for stmt_cursor.as_block().expand(...)"""
-        return self.as_block().expand(arg1, arg2)
+        return self.as_block().expand(delta_lo, delta_hi)
 
 
-class BlockCursor(StmtCursorPrototype):
+class BlockCursor(StmtCursorPrototype, ListCursorPrototype):
     """
     Cursor pointing to a contiguous sequence of statements.
     See `help(Cursor)` for more details.
@@ -277,62 +305,56 @@ class BlockCursor(StmtCursorPrototype):
         """Return this Block; included for symmetry with StmtCursor"""
         return self
 
-    def expand(self, arg1=None, arg2=None):
+    def expand(self, delta_lo=None, delta_hi=None):
         """
         Expand the block cursor.
 
-        Calling convention with zero arguments
-            curosr.expand()     - make the block as big as possible
-        Calling convention with one argument
-            cursor.expand(n)    - adds n statements to the end of the block
-            cursor.expand(-n)   - adds n statements to the start of the block
+        When delta_lo (delta_hi) is not None, it is interpreted as a
+        number of statements to add to the lower (upper) bound of the
+        block.  When delta_lo (delta_hi) is None, the corresponding
+        bound is expanded as far as possible.
 
-        Calling convention with two arguments
-            cursor.expand(n,m)  - adds n statements to the start of the block
-                                   and m statements to the end of the block
+        Both arguments must be non-negative if they are defined.
         """
-        if arg1 is None and arg2 is not None:
-            raise TypeError("Don't supply arg2 without arg1")
-        elif arg1 is None and arg2 is None:
-            return BlockCursor(self._impl.expand())
-        elif arg2 is None:
-            if not isinstance(arg1, int):
-                raise TypeError("expected an integer argument")
-            if arg1 < 0:
-                return BlockCursor(self._impl.expand(-arg1, 0))
-            else:
-                return BlockCursor(self._impl.expand(0, arg1))
-        else:  # arg2 is defined
-            if (
-                not isinstance(arg1, int)
-                or not isinstance(arg2, int)
-                or arg1 < 0
-                or arg2 < 0
-            ):
-                raise TypeError(
-                    "expected one integer argument "
-                    "or two non-negative integer arguments"
-                )
-            return BlockCursor(self._impl.expand(arg1, arg2))
+        if delta_lo is not None and delta_lo < 0:
+            raise ValueError("delta_lo must be non-negative")
 
-    def __iter__(self):
-        """
-        iterate over all statement cursors contained in the block
-        """
-        for stmt_impl in iter(self._impl):
-            yield new_Cursor(stmt_impl)
+        if delta_hi is not None and delta_hi < 0:
+            raise ValueError("delta_hi must be non-negative")
 
-    def __getitem__(self, i) -> StmtCursor:
-        """
-        get a cursor to the i-th statement
-        """
-        return new_Cursor(self._impl[i])
+        assert isinstance(self._impl, C.Block)
+        return BlockCursor(self._impl.expand(delta_lo, delta_hi), self._proc)
 
-    def __len__(self) -> int:
+    def anchor(self) -> StmtCursor:
         """
-        get the number of statements in the block
+        Get a cursor pointing to the node to which this gap is anchored.
         """
-        return len(self._impl)
+        assert isinstance(self._impl, C.Block)
+        return lift_cursor(self._impl.parent(), self._proc)
+
+    def before(self) -> GapCursor:
+        """
+        Get a cursor pointing to the gap before the first statement in
+        this block.
+
+        Gaps are anchored to the statement they were created from. This
+        means that if you move the statement, the gap will move with it
+        when the cursor is forwarded.
+        """
+        assert isinstance(self._impl, C.Block)
+        return lift_cursor(self._impl.before(), self._proc)
+
+    def after(self) -> GapCursor:
+        """
+        Get a cursor pointing to the gap after the last statement in
+        this block.
+
+        Gaps are anchored to the statement they were created from. This
+        means that if you move the statement, the gap will move with it
+        when the cursor is forwarded.
+        """
+        assert isinstance(self._impl, C.Block)
+        return lift_cursor(self._impl.after(), self._proc)
 
 
 class GapCursor(StmtCursorPrototype):
@@ -340,6 +362,20 @@ class GapCursor(StmtCursorPrototype):
     Cursor pointing to a gap before, after, or between statements.
     See `help(Cursor)` for more details.
     """
+
+    def anchor(self) -> StmtCursor:
+        """
+        Get a cursor pointing to the node to which this gap is anchored.
+        """
+        assert isinstance(self._impl, C.Gap)
+        return lift_cursor(self._impl.anchor(), self._proc)
+
+    def type(self) -> C.GapType:
+        """
+        Get the type of this gap.
+        """
+        assert isinstance(self._impl, C.Gap)
+        return self._impl.type()
 
 
 class ExprCursorPrototype(Cursor):
@@ -349,17 +385,6 @@ class ExprCursorPrototype(Cursor):
     See `help(Cursor)` for more details.
     """
 
-    def list_all(self):
-        """
-        Return an ExprListCursor for the list of expressions that this
-        expression is contained in, if this expression is contained in a
-        list.  Otherwise, return an InvalidCursor
-        """
-        try:
-            return ExprListCursor(self._impl._whole_block())
-        except InvalidCursorError:
-            return InvalidCursor()
-
 
 class ExprCursor(ExprCursorPrototype):
     """
@@ -368,30 +393,18 @@ class ExprCursor(ExprCursorPrototype):
     """
 
 
-class ExprListCursor(Cursor):
+class ExprListCursor(ListCursorPrototype):
     """
     Cursor pointing to a contiguous sequence of expressions.
     See `help(Cursor)` for more details.
     """
 
-    def __iter__(self):
-        """
-        iterate over all expression cursors contained in the argument list
-        """
-        for stmt_impl in iter(self._impl):
-            yield new_Cursor(stmt_impl)
 
-    def __getitem__(self, i) -> ExprCursor:
-        """
-        get a cursor to the i-th argument
-        """
-        return new_Cursor(self._impl[i])
-
-    def __len__(self) -> int:
-        """
-        get the number of arguments
-        """
-        return len(self._impl)
+class ArgListCursor(ListCursorPrototype):
+    """
+    Cursor pointing to a contiguous sequence of function arguments.
+    See `help(Cursor)` for more details.
+    """
 
 
 # --------------------------------------------------------------------------- #
@@ -405,14 +418,20 @@ class AssignCursor(StmtCursor):
         `name [ idx ] = rhs`
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Assign)
+        return self._impl._node.name.name()
 
     def idx(self) -> ExprListCursor:
-        return ExprListCursor(self._impl._child_block("idx"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Assign)
+        return ExprListCursor(self._impl._child_block("idx"), self._proc)
 
     def rhs(self) -> ExprCursor:
-        return new_Cursor(self._impl._child_node("rhs"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Assign)
+        return self._child_node("rhs")
 
 
 class ReduceCursor(StmtCursor):
@@ -421,14 +440,20 @@ class ReduceCursor(StmtCursor):
         `name [ idx ] += rhs`
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Reduce)
+        return self._impl._node.name.name()
 
     def idx(self) -> ExprListCursor:
-        return ExprListCursor(self._impl._child_block("idx"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Reduce)
+        return ExprListCursor(self._impl._child_block("idx"), self._proc)
 
     def rhs(self) -> ExprCursor:
-        return new_Cursor(self._impl._child_node("rhs"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Reduce)
+        return self._child_node("rhs")
 
 
 class AssignConfigCursor(StmtCursor):
@@ -438,13 +463,19 @@ class AssignConfigCursor(StmtCursor):
     """
 
     def config(self) -> Config:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.WriteConfig)
         return self._impl._node.config
 
     def field(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.WriteConfig)
         return self._impl._node.field
 
     def rhs(self) -> ExprCursor:
-        return new_Cursor(self._impl._child_node("rhs"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.WriteConfig)
+        return self._child_node("rhs")
 
 
 class PassCursor(StmtCursor):
@@ -472,14 +503,23 @@ class IfCursor(StmtCursor):
     """
 
     def cond(self) -> ExprCursor:
-        return new_Cursor(self._impl._child_node("cond"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.If)
+
+        return self._child_node("cond")
 
     def body(self) -> BlockCursor:
-        return BlockCursor(self._impl.body())
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.If)
+
+        return BlockCursor(self._impl._child_block("body"), self._proc)
 
     def orelse(self) -> Cursor:
-        orelse = self._impl.orelse()
-        return BlockCursor(orelse) if len(orelse) > 0 else InvalidCursor()
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.If)
+
+        orelse = self._impl._child_block("orelse")
+        return BlockCursor(orelse, self._proc) if len(orelse) > 0 else InvalidCursor()
 
 
 class ForSeqCursor(StmtCursor):
@@ -491,14 +531,44 @@ class ForSeqCursor(StmtCursor):
         ```
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.iter
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Seq)
+
+        return self._impl._node.iter.name()
 
     def hi(self) -> ExprCursor:
-        return new_Cursor(self._impl._child_node("hi"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Seq)
+
+        return self._child_node("hi")
 
     def body(self) -> BlockCursor:
-        return BlockCursor(self._impl.body())
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Seq)
+
+        return BlockCursor(self._impl._child_block("body"), self._proc)
+
+
+def loopir_type_to_exotype(typ: LoopIR.Type) -> API.ExoType:
+    if isinstance(typ, LoopIR.Num):
+        return API.ExoType.R
+    elif isinstance(typ, LoopIR.F32):
+        return API.ExoType.F32
+    elif isinstance(typ, LoopIR.F64):
+        return API.ExoType.F64
+    elif isinstance(typ, LoopIR.INT8):
+        return API.ExoType.I8
+    elif isinstance(typ, LoopIR.INT32):
+        return API.ExoType.I32
+    elif isinstance(typ, LoopIR.Bool):
+        return API.ExoType.Bool
+    elif isinstance(typ, LoopIR.Size):
+        return API.ExoType.Size
+    elif isinstance(typ, LoopIR.Index):
+        return API.ExoType.Index
+    else:
+        raise NotImplementedError(f"Unsupported {typ}")
 
 
 class AllocCursor(StmtCursor):
@@ -509,11 +579,32 @@ class AllocCursor(StmtCursor):
         ```
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+
+        return self._impl._node.name.name()
 
     def mem(self) -> Optional[Memory]:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+
         return self._impl._node.mem
+
+    def shape(self) -> ExprListCursor:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+        assert isinstance(self._impl._node.type, LoopIR.Tensor)
+
+        return ExprListCursor(
+            self._impl._child_node("type")._child_block("hi"), self._proc
+        )
+
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
 
 
 class CallCursor(StmtCursor):
@@ -525,10 +616,16 @@ class CallCursor(StmtCursor):
     """
 
     def subproc(self):
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Call)
+
         return API.Procedure(self._impl._node.f)
 
     def args(self) -> ExprListCursor:
-        return ExprListCursor(self._impl._child_block("args"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Call)
+
+        return ExprListCursor(self._impl._child_block("args"), self._proc)
 
 
 class WindowStmtCursor(StmtCursor):
@@ -539,11 +636,17 @@ class WindowStmtCursor(StmtCursor):
         ```
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.WindowStmt)
+
+        return self._impl._node.name.name()
 
     def winexpr(self) -> ExprCursor:
-        return WindowExprCursor(self._impl._child_node("rhs"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.WindowStmt)
+
+        return WindowExprCursor(self._impl._child_node("rhs"), self._proc)
 
 
 # --------------------------------------------------------------------------- #
@@ -559,11 +662,17 @@ class ReadCursor(ExprCursor):
         `name [ idx ]`
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Read)
+
+        return self._impl._node.name.name()
 
     def idx(self) -> ExprListCursor:
-        return ExprListCursor(self._impl._child_block("idx"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Read)
+
+        return ExprListCursor(self._impl._child_block("idx"), self._proc)
 
 
 class ReadConfigCursor(ExprCursor):
@@ -573,9 +682,15 @@ class ReadConfigCursor(ExprCursor):
     """
 
     def config(self) -> Config:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.ReadConfig)
+
         return self._impl._node.config
 
     def field(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.ReadConfig)
+
         return self._impl._node.field
 
 
@@ -590,9 +705,12 @@ class LiteralCursor(ExprCursor):
     """
 
     def value(self) -> Any:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Const)
+
         n = self._impl._node
         assert (
-            (n.type == T.bool and type(n.val) == bool)
+            (n.type.is_bool() and type(n.val) == bool)
             or (n.type.is_indexable() and type(n.val) == int)
             or (n.type.is_real_scalar() and type(n.val) == float)
         )
@@ -606,7 +724,10 @@ class UnaryMinusCursor(ExprCursor):
     """
 
     def arg(self) -> ExprCursor:
-        return new_Cursor(self._impl._child_node("arg"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.USub)
+
+        return self._child_node("arg")
 
 
 class BinaryOpCursor(ExprCursor):
@@ -618,13 +739,22 @@ class BinaryOpCursor(ExprCursor):
     """
 
     def op(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.BinOp)
+
         return self._impl._node.op
 
     def lhs(self) -> ExprCursor:
-        return new_Cursor(self._impl._child_node("lhs"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.BinOp)
+
+        return self._child_node("lhs")
 
     def rhs(self) -> ExprCursor:
-        return new_Cursor(self._impl._child_node("rhs"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.BinOp)
+
+        return self._child_node("rhs")
 
 
 class BuiltInFunctionCursor(ExprCursor):
@@ -634,10 +764,16 @@ class BuiltInFunctionCursor(ExprCursor):
     """
 
     def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.BuiltIn)
+
         return self._impl._node.f.name()
 
     def args(self) -> ExprListCursor:
-        return ExprListCursor(self._impl._child_block("args"))
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.BuiltIn)
+
+        return ExprListCursor(self._impl._child_block("args"), self._proc)
 
 
 class WindowExprCursor(ExprCursor):
@@ -651,18 +787,24 @@ class WindowExprCursor(ExprCursor):
     expression represents a point-access in that dimension.
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.WindowExpr)
+
+        return self._impl._node.name.name()
 
     def idx(self) -> List:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.WindowExpr)
+
         def convert_w(w):
             if isinstance(w._node, LoopIR.Interval):
                 return (
-                    new_Cursor(w._child_node("lo")),
-                    new_Cursor(w._child_node("hi")),
+                    lift_cursor(w._child_node("lo"), self._proc),
+                    lift_cursor(w._child_node("hi"), self._proc),
                 )
             else:
-                return new_Cursor(w._child_node("pt"))
+                return lift_cursor(w._child_node("pt"), self._proc)
 
         return [convert_w(w) for w in self._impl._child_block("idx")]
 
@@ -675,67 +817,31 @@ class StrideExprCursor(ExprCursor):
     `name` is the name of some buffer or window
     """
 
-    def name(self) -> Sym:
-        return self._impl._node.name
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.StrideExpr)
+
+        return self._impl._node.name.name()
 
     def dim(self) -> int:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.StrideExpr)
+
         return self._impl._node.dim
 
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# List of objects to expose
-
-
-class public_cursors:
-    pass
-
-
-for c in [
-    Cursor,
-    InvalidCursor,
-    StmtCursorPrototype,
-    StmtCursor,
-    BlockCursor,
-    GapCursor,
-    ExprCursorPrototype,
-    ExprCursor,
-    ExprListCursor,
-    #
-    AssignCursor,
-    ReduceCursor,
-    AssignConfigCursor,
-    PassCursor,
-    IfCursor,
-    ForSeqCursor,
-    AllocCursor,
-    CallCursor,
-    WindowStmtCursor,
-    #
-    ReadCursor,
-    ReadConfigCursor,
-    LiteralCursor,
-    UnaryMinusCursor,
-    BinaryOpCursor,
-    BuiltInFunctionCursor,
-    WindowExprCursor,
-    StrideExprCursor,
-    #
-    InvalidCursorError,
-]:
-    setattr(public_cursors, c.__name__, c)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Internal Functions; Not for Exposure to Users
 
 # helper function to dispatch to constructors
-def new_Cursor(impl):
+def lift_cursor(impl, proc):
     assert isinstance(impl, C.Cursor)
+    assert isinstance(proc, API.Procedure)
 
     # dispatch to the correct constructor...
     if isinstance(impl, C.Gap):
-        return GapCursor(impl)
+        return GapCursor(impl, proc)
 
     elif isinstance(impl, C.Block):
         # TODO: Rename internal Cursor type to Sequence?
@@ -743,56 +849,102 @@ def new_Cursor(impl):
         n0 = impl[0]._node
         if isinstance(n0, LoopIR.stmt):
             assert all(isinstance(c._node, LoopIR.stmt) for c in impl)
-            return BlockCursor(impl)
+            return BlockCursor(impl, proc)
         elif isinstance(n0, LoopIR.expr):
             assert all(isinstance(c._node, LoopIR.expr) for c in impl)
-            return ExprListCursor(impl)
+            return ExprListCursor(impl, proc)
+        elif isinstance(n0, LoopIR.fnarg):
+            assert all(isinstance(c._node, LoopIR.fnarg) for c in impl)
+            return ArgListCursor(impl, proc)
         else:
             assert False, "bad case"
 
     elif isinstance(impl, C.Node):
         n = impl._node
 
+        # procedure arguments
+        if isinstance(n, LoopIR.fnarg):
+            return ArgCursor(impl, proc)
+
         # statements
-        if isinstance(n, LoopIR.Assign):
-            return AssignCursor(impl)
+        elif isinstance(n, LoopIR.Assign):
+            return AssignCursor(impl, proc)
         elif isinstance(n, LoopIR.Reduce):
-            return ReduceCursor(impl)
+            return ReduceCursor(impl, proc)
         elif isinstance(n, LoopIR.WriteConfig):
-            return AssignConfigCursor(impl)
+            return AssignConfigCursor(impl, proc)
         elif isinstance(n, LoopIR.Pass):
-            return PassCursor(impl)
+            return PassCursor(impl, proc)
         elif isinstance(n, LoopIR.If):
-            return IfCursor(impl)
+            return IfCursor(impl, proc)
         elif isinstance(n, LoopIR.Seq):
-            return ForSeqCursor(impl)
+            return ForSeqCursor(impl, proc)
         elif isinstance(n, LoopIR.Alloc):
-            return AllocCursor(impl)
+            return AllocCursor(impl, proc)
         elif isinstance(n, LoopIR.Call):
-            return CallCursor(impl)
+            return CallCursor(impl, proc)
         elif isinstance(n, LoopIR.WindowStmt):
-            return WindowStmtCursor(impl)
+            return WindowStmtCursor(impl, proc)
 
         # expressions
         elif isinstance(n, LoopIR.Read):
-            return ReadCursor(impl)
+            return ReadCursor(impl, proc)
         elif isinstance(n, LoopIR.ReadConfig):
-            return ReadConfigCursor(impl)
+            return ReadConfigCursor(impl, proc)
         elif isinstance(n, LoopIR.Const):
-            return LiteralCursor(impl)
+            return LiteralCursor(impl, proc)
         elif isinstance(n, LoopIR.USub):
-            return UnaryMinusCursor(impl)
+            return UnaryMinusCursor(impl, proc)
         elif isinstance(n, LoopIR.BinOp):
-            return BinaryOpCursor(impl)
+            return BinaryOpCursor(impl, proc)
         elif isinstance(n, LoopIR.BuiltIn):
-            return BuiltInFunctionCursor(impl)
+            return BuiltInFunctionCursor(impl, proc)
         elif isinstance(n, LoopIR.WindowExpr):
-            return WindowExprCursor(impl)
+            return WindowExprCursor(impl, proc)
         elif isinstance(n, LoopIR.StrideExpr):
-            return StrideExprCursor(impl)
+            return StrideExprCursor(impl, proc)
 
         else:
             assert False, f"bad case: {type(n)}"
 
     else:
         assert False, f"bad case: {type(impl)}"
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# List of objects to expose
+
+__all__ = [
+    "Cursor",
+    "InvalidCursor",
+    "ArgCursor",
+    "StmtCursorPrototype",
+    "StmtCursor",
+    "BlockCursor",
+    "GapCursor",
+    "ExprCursorPrototype",
+    "ExprCursor",
+    "ExprListCursor",
+    #
+    "AssignCursor",
+    "ReduceCursor",
+    "AssignConfigCursor",
+    "PassCursor",
+    "IfCursor",
+    "ForSeqCursor",
+    "AllocCursor",
+    "CallCursor",
+    "WindowStmtCursor",
+    #
+    "ReadCursor",
+    "ReadConfigCursor",
+    "LiteralCursor",
+    "UnaryMinusCursor",
+    "BinaryOpCursor",
+    "BuiltInFunctionCursor",
+    "WindowExprCursor",
+    "StrideExprCursor",
+    #
+    "InvalidCursorError",
+]
