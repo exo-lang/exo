@@ -485,6 +485,32 @@ class ForSeqOrIfCursorA(StmtCursorA):
         return cursor
 
 
+class ArgOrAllocCursorA(CursorArgumentProcessor):
+    def _cursor_call(self, alloc_pattern, all_args):
+        try:
+            name, count = NameCountA()(alloc_pattern, all_args)
+            count = f" #{count}" if count is not None else ""
+            alloc_pattern = f"{name} : _{count}"
+        except:
+            pass
+
+        cursor = alloc_pattern
+        if not isinstance(cursor, (PC.AllocCursor, PC.ArgCursor)):
+            proc = all_args["proc"]
+            try:
+                cursor = proc.find(alloc_pattern)
+            except:
+                for arg in proc.args():
+                    if arg.name() == name:
+                        return arg
+
+        if not isinstance(cursor, (PC.AllocCursor, PC.ArgCursor)):
+            self.err(
+                f"expected either an AllocCursor or an ArgCursor, not {type(cursor)}"
+            )
+        return cursor
+
+
 class ForSeqCursorA(StmtCursorA):
     def _cursor_call(self, loop_pattern, all_args):
         # allow for a special pattern short-hand, but otherwise
@@ -943,8 +969,8 @@ def call_eqv(proc, call_cursor, eqv_proc):
 # Precision, Memory and Window Setting Operations
 
 
-@sched_op([NameCountA, TypeAbbrevA])
-def set_precision(proc, name, typ):
+@sched_op([ArgOrAllocCursorA, TypeAbbrevA])
+def set_precision(proc, cursor, typ):
     """
     Set the precision annotation on a given buffer to the provided
     base-type precision.
@@ -956,12 +982,12 @@ def set_precision(proc, name, typ):
     rewrite:
         `name : _[...]    ->    name : typ[...]`
     """
-    name, count = name
-    return scheduling.DoSetTypAndMem(proc, name, count, basetyp=typ).result()
+    ir, fwd = scheduling.DoSetTypAndMem(cursor._impl, basetyp=typ)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([NameCountA, BoolA])
-def set_window(proc, name, is_window=True):
+@sched_op([ArgOrAllocCursorA, BoolA])
+def set_window(proc, cursor, is_window=True):
     """
     Set the annotation on a given buffer to indicate that it should be
     a window (True) or should not be a window (False)
@@ -973,12 +999,12 @@ def set_window(proc, name, is_window=True):
     rewrite when is_window = True:
         `name : R[...]    ->    name : [R][...]`
     """
-    name, count = name
-    return scheduling.DoSetTypAndMem(proc, name, count, win=is_window).result()
+    ir, fwd = scheduling.DoSetTypAndMem(cursor._impl, win=is_window)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([NameCountA, MemoryA])
-def set_memory(proc, name, memory_type):
+@sched_op([ArgOrAllocCursorA, MemoryA])
+def set_memory(proc, cursor, memory_type):
     """
     Set the memory annotation on a given buffer to the provided memory.
 
@@ -989,8 +1015,8 @@ def set_memory(proc, name, memory_type):
     rewrite:
         `name : _ @ _    ->    name : _ @ mem`
     """
-    name, count = name
-    return scheduling.DoSetTypAndMem(proc, name, count, mem=memory_type).result()
+    ir, fwd = scheduling.DoSetTypAndMem(cursor._impl, mem=memory_type)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
