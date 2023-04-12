@@ -265,7 +265,9 @@ def _replace_pats(ir, fwd, c, pat, repl, c_is_fwded=False, attrs=None):
             rd = cur_fwd(rd)
         else:
             rd = cur_fwd(fwd(rd))
-        ir, fwd_rd = _replace_helper(rd, repl(rd), attrs)
+        if not (c_repl := repl(rd)):
+            continue
+        ir, fwd_rd = _replace_helper(rd, c_repl, attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
     return ir, _compose(cur_fwd, fwd)
 
@@ -279,7 +281,9 @@ def _replace_pats_stmts(ir, fwd, c, pat, repl, c_is_fwded=False, attrs=None):
             s = cur_fwd(block[0])
         else:
             s = cur_fwd(fwd(block[0]))
-        ir, fwd_s = _replace_helper(s, repl(s), attrs)
+        if not (c_repl := repl(s)):
+            continue
+        ir, fwd_s = _replace_helper(s, c_repl, attrs)
         cur_fwd = _compose(fwd_s, cur_fwd)
     return ir, _compose(cur_fwd, fwd)
 
@@ -1451,6 +1455,9 @@ def DoRearrangeDim(alloc_cursor, permute_vector):
                 f"passed as a sub-procedure argument at {rd.srcinfo}"
             )
 
+        if not rd.name in all_permute:
+            return None
+
         if isinstance(rd, LoopIR.WindowExpr) and not check_permute_window(
             rd.name, rd.idx
         ):
@@ -1460,17 +1467,19 @@ def DoRearrangeDim(alloc_cursor, permute_vector):
                 f"propogating dimension rearrangement through "
                 f"windows is not currently supported"
             )
-        return rd.update(idx=permute(rd.name, rd.idx))
+        return {"idx": permute(rd.name, rd.idx)}
 
     def mk_write(c):
         s = c._node
-        new_idx = permute(s.name, s.idx)
-        return s.update(idx=new_idx)
+        if s.name in all_permute:
+            new_idx = permute(s.name, s.idx)
+            return {"idx": new_idx}
 
     def mk_stride_expr(c):
         e = c._node
-        new_dim = permute(e.name, e.dim)
-        return e.update(dim=new_dim)
+        if e.name in all_permute:
+            new_dim = all_permute[e.name].index(e.dim)
+            return {"dim": new_dim}
 
     c = alloc_cursor
     while True:
@@ -1480,13 +1489,17 @@ def DoRearrangeDim(alloc_cursor, permute_vector):
             break
 
         for name in all_permute.keys():
-            ir, fwd = _replace_pats(ir, fwd, c, f"{name}[_]", mk_read)
-            # TODO: strideexprs after I merge the inline_window branch
-            # ir, fwd = _replace_pats(ir, fwd, c, f"stride({name}, _)", mk_stride_expr)
-            new_c = fwd(c)
+            ir, fwd = _replace_pats(ir, fwd, c, f"{name}[_]", mk_read, attrs=["idx"])
+            ir, fwd = _replace_pats(
+                ir, fwd, c, f"stride({name}, _)", mk_stride_expr, attrs=["dim"]
+            )
 
-            ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{name} = _", mk_write)
-            ir, fwd = _replace_pats_stmts(ir, fwd, new_c, f"{name} += _", mk_write)
+            ir, fwd = _replace_pats_stmts(
+                ir, fwd, c, f"{name} = _", mk_write, attrs=["idx"]
+            )
+            ir, fwd = _replace_pats_stmts(
+                ir, fwd, c, f"{name} += _", mk_write, attrs=["idx"]
+            )
 
     return _fixup_effects(ir, fwd)
 
