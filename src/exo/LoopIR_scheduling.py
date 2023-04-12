@@ -695,118 +695,44 @@ class DoPartialEval(LoopIR_Rewrite):
 # Set Type and/or Memory Annotations scheduling directive
 
 
-# This pass uses a raw name string instead of a pattern
-# TODO: This op shouldn't take name, it should just take Alloc cursor...
-class DoSetTypAndMem(Cursor_Rewrite):
-    def __init__(self, proc_cursor, name, inst_no, basetyp=None, win=None, mem=None):
-        ind = lambda x: 1 if x else 0
-        assert ind(basetyp) + ind(win) + ind(mem) == 1
-        self.name = name
-        self.n_match = inst_no
-        self.basetyp = basetyp
-        self.win = win
-        self.mem = mem
+def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
+    s = cursor._node
+    oldtyp = s.type
+    assert oldtyp.is_numeric()
 
-        super().__init__(proc_cursor)
-
-    def check_inst(self):
-        # otherwise, handle instance counting...
-        if self.n_match is None:
-            return True
-        else:
-            self.n_match = self.n_match - 1
-            return self.n_match == 0
-
-    def early_exit(self):
-        return self.n_match is not None and self.n_match <= 0
-
-    def change_precision(self, t):
-        assert self.basetyp.is_real_scalar()
-        if t.is_real_scalar():
-            return self.basetyp
-        elif isinstance(t, T.Tensor):
-            assert t.type.is_real_scalar()
-            return T.Tensor(t.hi, t.is_window, self.basetyp)
+    ir, fwd = cursor._root, lambda x: x
+    if basetyp:
+        assert basetyp.is_real_scalar()
+        if oldtyp.is_real_scalar():
+            ir, fwd_repl = cursor._child_node("type")._replace(basetyp)
+            fwd = _compose(fwd_repl, fwd)
+        elif isinstance(oldtyp, T.Tensor):
+            assert oldtyp.type.is_real_scalar()
+            ir, fwd_repl = (
+                cursor._child_node("type")._child_node("type")._replace(basetyp)
+            )
+            fwd = _compose(fwd_repl, fwd)
         else:
             assert False, "bad case"
+    elif win:
+        if isinstance(s, LoopIR.Alloc):
+            raise SchedulingError(
+                "cannot change an allocation to " "be or not be a window"
+            )
+        if not oldtyp.is_tensor_or_window():
+            raise SchedulingError(
+                "cannot change windowing of a " "non-tensor/window argument"
+            )
 
-    def change_window(self, t):
-        assert isinstance(t, T.Tensor)
-        assert isinstance(self.win, bool)
-        return T.Tensor(t.hi, self.win, t.type)
+        assert isinstance(oldtyp, T.Tensor)
+        assert isinstance(win, bool)
+        ir, fwd_repl = cursor._child_node("type")._replace(oldtyp.update(is_window=win))
+        fwd = _compose(fwd_repl, fwd)
+    elif mem:
+        ir, fwd_repl = cursor._child_node("mem")._replace(mem)
+        fwd = _compose(fwd_repl, fwd)
 
-    def map_fnarg(self, a):
-        if str(a.name) != self.name:
-            return a
-
-        # otherwise, handle instance counting...
-        if not self.check_inst():
-            return a
-
-        # if that passed, we definitely found the symbol being pointed at
-        # So attempt the substitution
-        typ = a.type
-        mem = a.mem
-        if self.basetyp is not None:
-            if not a.type.is_numeric():
-                raise SchedulingError(
-                    "cannot change the precision of a " "non-numeric argument"
-                )
-            typ = self.change_precision(typ)
-        elif self.win is not None:
-            if not a.type.is_tensor_or_window():
-                raise SchedulingError(
-                    "cannot change windowing of a " "non-tensor/window argument"
-                )
-            typ = self.change_window(typ)
-        else:
-            assert self.mem is not None
-            if not a.type.is_numeric():
-                raise SchedulingError(
-                    "cannot change the memory of a " "non-numeric argument"
-                )
-            mem = self.mem
-
-        return LoopIR.fnarg(a.name, typ, mem, a.srcinfo)
-
-    def map_s(self, sc):
-        s = sc._node
-        if self.early_exit():
-            return [s]
-
-        if isinstance(s, LoopIR.Alloc) and str(s.name) == self.name:
-            if self.check_inst():
-
-                # if that passed, we definitely found the symbol being pointed at
-                # So attempt the substitution
-                typ = s.type
-                assert typ.is_numeric()
-                mem = s.mem
-                if self.basetyp is not None:
-                    typ = self.change_precision(typ)
-                elif self.win is not None:
-                    raise SchedulingError(
-                        "cannot change an allocation to " "be or not be a window"
-                    )
-                else:
-                    assert self.mem is not None
-                    mem = self.mem
-
-                return [LoopIR.Alloc(s.name, typ, mem, s.eff, s.srcinfo)]
-
-        # fall-through
-        return super().map_s(sc)
-
-    # make this more efficient by not rewriting
-    # most of the sub-trees
-    def map_e(self, e):
-        return e
-
-    def map_t(self, t):
-        return t
-
-    def map_eff(self, eff):
-        return eff
+    return ir, fwd
 
 
 # --------------------------------------------------------------------------- #

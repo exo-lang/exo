@@ -1145,8 +1145,9 @@ def test_simple_typ_and_mem(golden):
     def bar(n: size, A: R[n]):
         pass
 
-    bar = set_precision(bar, "A", "i32")
-    bar = set_memory(bar, "A", GEMM_SCRATCH)
+    A = bar.args()[1]
+    bar = set_precision(bar, A, "i32")
+    bar = set_memory(bar, A, GEMM_SCRATCH)
     assert str(bar) == golden
 
 
