@@ -387,6 +387,23 @@ def test_rearrange_dim(golden):
     assert "\n".join(map(str, cases)) == golden
 
 
+def test_rearrange_dim_2(golden):
+    @proc
+    def bar(s: stride):
+        pass
+
+    @proc
+    def foo():
+        a: i8[10, 10]
+        for i in seq(0, 10):
+            for j in seq(0, 10):
+                a[i, j] = a[j, i]
+                bar(stride(a, 1))
+
+    foo = rearrange_dim(foo, "a : _", [1, 0])
+    assert str(foo) == golden
+
+
 def test_rearrange_dim_fail():
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -398,6 +415,28 @@ def test_rearrange_dim_fail():
 
     with pytest.raises(ValueError, match="was not a permutation of"):
         rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
+
+
+def test_rearrange_dim_fail2():
+    @proc
+    def bar(m: size, a: [i8][m, m]):
+        a[0, 0] += 1.0
+
+    @proc
+    def foo1():
+        a: i8[10, 10]
+        bar(10, a[0:10, 0:10])
+
+    with pytest.raises(SchedulingError, match="Cannot permute buffer "):
+        rearrange_dim(foo1, "a : i8[_]", [1, 0])
+
+    @proc
+    def foo2():
+        a: i8[10, 10]
+        x = a[0:10, 0:10]
+
+    with pytest.raises(SchedulingError, match="windows is not currently supported"):
+        rearrange_dim(foo2, "a : i8[_]", [1, 0])
 
 
 def test_remove_loop(golden):
