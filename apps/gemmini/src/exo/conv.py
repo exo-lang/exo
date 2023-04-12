@@ -140,9 +140,12 @@ def set_gemm_memories(conv):
     conv = set_memory(conv, "res", GEMM_ACCUM)
     conv = set_memory(conv, "i_s", GEMM_SCRATCH)
     conv = set_memory(conv, "w_s", GEMM_SCRATCH)
-    conv = set_memory(conv, "res #1", GEMM_ACCUM)
-    conv = set_memory(conv, "i_s #1", GEMM_SCRATCH)
-    conv = set_memory(conv, "w_s #1", GEMM_SCRATCH)
+    try:
+        conv = set_memory(conv, "res #1", GEMM_ACCUM)
+        conv = set_memory(conv, "i_s #1", GEMM_SCRATCH)
+        conv = set_memory(conv, "w_s #1", GEMM_SCRATCH)
+    except:
+        pass
 
     return conv
 
