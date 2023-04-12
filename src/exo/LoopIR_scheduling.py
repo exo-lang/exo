@@ -1396,7 +1396,7 @@ def DoRearrangeDim(alloc_cursor, permute_vector):
             raise SchedulingError(
                 f"Permuting the window expression at {rd.srcinfo} "
                 f"would change the meaning of the window; "
-                f"propogating dimension rearrangement through "
+                f"propagating dimension rearrangement through "
                 f"windows is not currently supported"
             )
         return {"idx": permute(rd.name, rd.idx)}
