@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc
+from exo import proc, ExoType
 from exo.stdlib.scheduling import *
 
 
@@ -83,6 +83,25 @@ def test_basic_forwarding(golden):
     assert str(p) == golden
 
 
+def test_gap_forwarding(golden):
+    @proc
+    def p():
+        x: f32
+        if True:
+            x = 1.0
+        if True:
+            x = 2.0
+
+    if1 = p.find("x = _ #0").parent()
+    if2 = p.find("x = _ #1").parent()
+    x_alloc = p.find("x: _")
+    p = fuse(p, if1, if2)
+    p = insert_pass(p, if1.body()[0].after())
+    p = insert_pass(p, if2.body()[0].after())
+    p = insert_pass(p, x_alloc.after())
+    assert str(p) == golden
+
+
 def test_basic_forwarding2(golden):
     @proc
     def filter1D(ow: size, kw: size, x: f32[ow + kw - 1], y: f32[ow], w: f32[kw]):
@@ -137,6 +156,27 @@ def test_simplify_forwarding(golden):
     assert str(foo1.forward(stmt)._impl._node) == golden
 
 
+def test_type_and_shape_introspection():
+    @proc
+    def foo(n: size, m: index, flag: bool):
+        assert m >= 0
+        a: R[n + m]
+        b: i32[n]
+        c: i8[n]
+        d: f32[n]
+        e: f64[n]
+
+    assert foo.find("a:_").type() == ExoType.R
+    assert foo.find("b:_").type() == ExoType.I32
+    assert foo.find("c:_").type() == ExoType.I8
+    assert foo.find("d:_").type() == ExoType.F32
+    assert foo.find("e:_").type() == ExoType.F64
+    assert foo.args()[0].type() == ExoType.Size
+    assert foo.args()[1].type() == ExoType.Index
+    assert foo.args()[2].type() == ExoType.Bool
+    assert str(foo.find("a:_").shape()[0]._impl._node) == "n + m"
+
+
 def test_expand_dim_forwarding(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n]):
@@ -182,6 +222,24 @@ def test_bind_expr_forwarding(golden):
     scal2 = bind_expr(scal1, [stmt.rhs().lhs()], "alphaReg")
     assert str(scal2.forward(stmt)._impl.get_root()) == golden
     assert str(scal2.forward(stmt2)._impl.get_root()) == golden
+
+
+def test_reorder_loops_forwarding(golden):
+    @proc
+    def foo():
+        for i in seq(0, 4):
+            for j in seq(0, 4):
+                for k in seq(0, 4):
+                    x: i8
+
+    i_loop = foo.find("for i in _:_")
+    j_loop = foo.find("for j in _:_")
+    k_loop = foo.find("for k in _:_")
+    foo = reorder_loops(foo, i_loop)
+    foo = reorder_loops(foo, i_loop)
+    foo = reorder_loops(foo, j_loop)
+    foo = reorder_loops(foo, k_loop)
+    assert str(foo) == golden
 
 
 def test_vectorize_forwarding(golden):

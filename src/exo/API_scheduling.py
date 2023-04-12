@@ -1703,8 +1703,9 @@ def autofission(proc, gap_cursor, n_lifts=1):
     return scheduling.DoFissionLoops(proc, stmt._impl, n_lifts).result()
 
 
-@sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA])
-def fuse(proc, stmt1, stmt2):
+# TODO: Debug scheduling error in fuse
+@sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA, BoolA])
+def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     """
     fuse together two loops or if-guards, provided that the loop bounds
     or guard conditions are compatible.
@@ -1742,7 +1743,7 @@ def fuse(proc, stmt1, stmt2):
     if isinstance(stmt1, PC.IfCursor):
         ir, fwd = scheduling.DoFuseIf(s1, s2)
     else:
-        ir, fwd = scheduling.DoFuseLoop(s1, s2)
+        ir, fwd = scheduling.DoFuseLoop(s1, s2, unsafe_disable_check)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1766,8 +1767,10 @@ def remove_loop(proc, loop_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA])
-def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
+@sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA, BoolA])
+def add_loop(
+    proc, block_cursor, iter_name, hi_expr, guard=False, unsafe_disable_check=False
+):
     """
     Add a loop around some block of statements.
     This operation is allowable when the block of statements in question
@@ -1794,7 +1797,9 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
         raise NotImplementedError("TODO: support blocks of size > 1")
 
     stmt_c = block_cursor[0]._impl
-    ir, fwd = scheduling.DoAddLoop(stmt_c, iter_name, hi_expr, guard)
+    ir, fwd = scheduling.DoAddLoop(
+        stmt_c, iter_name, hi_expr, guard, unsafe_disable_check
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

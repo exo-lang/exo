@@ -4,6 +4,7 @@ import re
 import types
 from pathlib import Path
 from typing import Optional, Union, List
+from enum import Enum, auto
 
 import exo.LoopIR_scheduling as scheduling
 from exo.LoopIR_scheduling import SchedulingError
@@ -252,7 +253,7 @@ class Procedure(ProcedureBase):
         return self._loopir_proc.instr
 
     def args(self):
-        args = self._root()._args()
+        args = self._root()._child_block("args")
         return C.lift_cursor(args, self)
 
     def body(self):
@@ -408,3 +409,23 @@ class Procedure(ProcedureBase):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+
+
+class ExoType(Enum):
+    F32 = auto()
+    F64 = auto()
+    I8 = auto()
+    I32 = auto()
+    R = auto()
+    Index = auto()
+    Bool = auto()
+    Size = auto()
+
+    def is_indexable(self):
+        return self in [ExoType.Index, ExoType.Size]
+
+    def is_numeric(self):
+        return self in [ExoType.F32, ExoType.F64, ExoType.I8, ExoType.I32, ExoType.R]
+
+    def is_bool(self):
+        return self == ExoType.Bool

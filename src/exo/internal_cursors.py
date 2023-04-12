@@ -6,9 +6,7 @@ import functools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Optional, Iterable, Union
-
-from exo import LoopIR
+from typing import Optional
 
 
 class InvalidCursorError(Exception):
@@ -92,14 +90,21 @@ def forward_identity(p, fwd=None):
     @functools.wraps(fwd)
     def forward(cursor):
         cursor = fwd(cursor)
-        return dataclasses.replace(cursor, _root=p)
+        if isinstance(cursor, Gap):
+            return dataclasses.replace(
+                cursor, _root=p, _anchor=dataclasses.replace(cursor._anchor, _root=p)
+            )
+        elif isinstance(cursor, Node):
+            return dataclasses.replace(cursor, _root=p)
+        else:
+            raise InvalidCursorError("cannot forward blocks")
 
     return forward
 
 
 @dataclass
 class Cursor(ABC):
-    _root: object  # most of the time is LoopIR.proc
+    _root: object
 
     # ------------------------------------------------------------------------ #
     # Static constructors
@@ -107,8 +112,6 @@ class Cursor(ABC):
 
     @staticmethod
     def create(obj: object):
-        # TODO: remove assert; it is a debugging aid.
-        assert isinstance(obj, LoopIR.LoopIR.proc)
         return Node(obj, [])
 
     # ------------------------------------------------------------------------ #
@@ -170,8 +173,13 @@ class Cursor(ABC):
             if cursor._root is not orig_root:
                 raise InvalidCursorError("cannot forward from unknown root")
 
-            if not isinstance(cursor, Node):
-                raise InvalidCursorError("can only forward nodes")
+            if isinstance(cursor, Gap):
+                return Gap(new_root, forward(cursor.anchor()), cursor.type())
+
+            if isinstance(cursor, Block):
+                raise InvalidCursorError("cannot forward blocks")
+
+            assert isinstance(cursor, Node)
 
             def evolve(p):
                 return dataclasses.replace(cursor, _root=new_root, _path=p)
@@ -193,14 +201,6 @@ class Cursor(ABC):
             )
 
         return forward
-
-
-@dataclass
-class Args(Cursor):
-    _anchor: Node
-
-    def parent(self) -> Node:
-        return self._anchor
 
 
 @dataclass
@@ -327,13 +327,18 @@ class Block(Cursor):
         package-private, not class-private, so it may be called from other
         internal classes and modules, but not from end-user code.
         """
-        pass_stmt = [LoopIR.LoopIR.Pass(None, self.parent()._node.srcinfo)]
+        # TODO: refactor this; LoopIR should not be imported here
+        from exo.LoopIR import LoopIR
+
+        pass_stmt = [LoopIR.Pass(None, self.parent()._node.srcinfo)]
         return self._replace([], empty_default=pass_stmt)
 
-    def _get_loopir(self):
-        # Do this rather than [n._node for n in self] because that would
-        # walk down the tree once per node in the block, whereas this walks
-        # down once.
+    def resolve_all(self):
+        """
+        Do this rather than `[n._node for n in self]` because that would
+        walk down the tree once per node in the block, whereas this walks
+        down once.
+        """
         return getattr(self._anchor._node, self._attr)[
             self._range.start : self._range.stop
         ]
@@ -346,7 +351,7 @@ class Block(Cursor):
         so it may be called from other internal classes and modules, but not
         from end-user code.
         """
-        nodes = self._get_loopir()
+        nodes = self.resolve_all()
         new_node = ctor(**{wrap_attr: nodes})
 
         def update(parent):
@@ -383,7 +388,7 @@ class Block(Cursor):
         if target in self:
             target = self.before()
 
-        nodes = self._get_loopir()
+        nodes = self.resolve_all()
 
         def _is_before(g: Gap, b: Block):
             b_path = b._anchor._path + [(b._attr, b._range.start)]
@@ -442,30 +447,22 @@ class Block(Cursor):
         gap_n = len(gap_path) - 1
 
         def forward(cursor: Node):
-            def as_loopir(c):
-                if not isinstance(c, LoopIR.LoopIR.proc):
-                    return c._loopir_proc
-                return c
-
-            if as_loopir(cursor._root) != as_loopir(orig_root):
+            # This is duplicated in _local_forward. If there ever is a third
+            # place where this is needed, it should be refactored into a
+            # helper function.
+            if cursor._root is not orig_root:
                 raise InvalidCursorError("cannot forward from unknown root")
 
-            if not isinstance(cursor, Node):
-                raise InvalidCursorError("can only forward nodes")
+            if isinstance(cursor, Gap):
+                return Gap(p, forward(cursor.anchor()), cursor.type())
+
+            if isinstance(cursor, Block):
+                raise InvalidCursorError("cannot forward blocks")
+
+            assert isinstance(cursor, Node)
 
             cur_path = list(cursor._path)
             cur_n = len(cur_path)
-
-            # Compute the gap offset when moving within a block
-            if (
-                block_n == gap_n
-                and block_path == gap_path[:block_n]
-                and block_attr == gap_path[block_n][0]
-                and block_rng.stop <= gap_path[block_n][1]
-            ):
-                gap_off = -edit_n
-            else:
-                gap_off = 0
 
             # Handle nodes around the edit points
             offsets = []
@@ -479,14 +476,34 @@ class Block(Cursor):
                     # if after orig. block end, subtract edit_n
                     offsets.append((block_n, -edit_n))
                 elif block_rng.start <= cur_path[block_n][1]:
+                    new_gap_path = gap_path
+                    if block_n <= gap_n:
+                        # compute new gap_path
+                        block_start_path = block_path + [(block_attr, block_rng.start)]
+
+                        new_gap_path = []
+                        for lca_n, (bs, gs) in enumerate(
+                            zip(block_start_path, gap_path)
+                        ):
+                            if bs != gs:
+                                if bs[0] == gs[0] and bs[1] < gs[1]:
+                                    new_gap_path.append((gs[0], gs[1] - edit_n))
+                                else:
+                                    new_gap_path.append(gs)
+                                break
+
+                            new_gap_path.append(gs)
+
+                        new_gap_path.extend(gap_path[lca_n + 1 :])
+
                     # if inside orig block, move to gap location
                     off = cur_path[block_n][1] - block_rng.start
                     return dataclasses.replace(
                         cursor,
                         _root=p,
                         _path=(
-                            gap_path[:-1]
-                            + [(gap_path[-1][0], gap_path[-1][1] + gap_off + off)]
+                            new_gap_path[:-1]
+                            + [(new_gap_path[-1][0], new_gap_path[-1][1] + off)]
                             + cur_path[block_n + 1 :]
                         ),
                     )
@@ -528,12 +545,6 @@ class Node(Cursor):
         """
         n = self._root
 
-        # TODO: this is what we're trying to remove.
-        if isinstance(n, LoopIR.LoopIR.proc):
-            pass
-        else:
-            n = n.INTERNAL_proc()
-
         for attr, idx in self._path:
             n = getattr(n, attr)
             if idx is not None:
@@ -571,9 +582,6 @@ class Node(Cursor):
     # Navigation (children)
     # ------------------------------------------------------------------------ #
 
-    def _args(self):
-        return Args(self._root, self)
-
     def _child_node(self, attr, i=None) -> Node:
         _node = getattr(self._node, attr)
         if i is not None:
@@ -593,62 +601,6 @@ class Node(Cursor):
         stmts = getattr(self._node, attr)
         assert isinstance(stmts, list)
         return Block(self._root, self, attr, range(len(stmts)))
-
-    def children(self) -> Iterable[Node]:
-        n = self._node
-        # Top-level proc
-        if isinstance(n, LoopIR.LoopIR.proc):
-            yield from self._children_from_attrs(n, "body")
-        # Statements
-        elif isinstance(n, (LoopIR.LoopIR.Assign, LoopIR.LoopIR.Reduce)):
-            yield from self._children_from_attrs(n, "idx", "rhs")
-        elif isinstance(n, (LoopIR.LoopIR.WriteConfig, LoopIR.LoopIR.WindowStmt)):
-            yield from self._children_from_attrs(n, "rhs")
-        elif isinstance(
-            n, (LoopIR.LoopIR.Pass, LoopIR.LoopIR.Alloc, LoopIR.LoopIR.Free)
-        ):
-            yield from []
-        elif isinstance(n, LoopIR.LoopIR.If):
-            yield from self._children_from_attrs(n, "cond", "body", "orelse")
-        elif isinstance(n, LoopIR.LoopIR.Seq):
-            yield from self._children_from_attrs(n, "hi", "body")
-        elif isinstance(n, LoopIR.LoopIR.Call):
-            yield from self._children_from_attrs(n, "args")
-        # Expressions
-        elif isinstance(n, LoopIR.LoopIR.Read):
-            yield from self._children_from_attrs(n, "idx")
-        elif isinstance(n, LoopIR.LoopIR.WindowExpr):
-            yield from self._children_from_attrs(n, "idx")
-        elif isinstance(n, LoopIR.LoopIR.Interval):
-            yield from self._children_from_attrs(n, "lo", "hi")
-        elif isinstance(n, LoopIR.LoopIR.Point):
-            yield from self._children_from_attrs(n, "pt")
-        elif isinstance(
-            n,
-            (
-                LoopIR.LoopIR.Const,
-                LoopIR.LoopIR.StrideExpr,
-                LoopIR.LoopIR.ReadConfig,
-            ),
-        ):
-            yield from []
-        elif isinstance(n, LoopIR.LoopIR.USub):
-            yield from self._children_from_attrs(n, "arg")
-        elif isinstance(n, LoopIR.LoopIR.BinOp):
-            yield from self._children_from_attrs(n, "lhs", "rhs")
-        elif isinstance(n, LoopIR.LoopIR.BuiltIn):
-            yield from self._children_from_attrs(n, "args")
-        else:
-            assert False, f"case {type(n)} unsupported"
-
-    def _children_from_attrs(self, n, *args) -> Iterable[Node]:
-        for attr in args:
-            children = getattr(n, attr)
-            if isinstance(children, list):
-                for i in range(len(children)):
-                    yield self._child_node(attr, i)
-            else:
-                yield self._child_node(attr, None)
 
     # ------------------------------------------------------------------------ #
     # Navigation (block selectors)

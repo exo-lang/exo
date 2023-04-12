@@ -153,34 +153,63 @@ def test_conv_ae(golden):
     gemmini = old_reorder(gemmini, "kcol b")
     gemmini = old_reorder(gemmini, "krow b")
     gemmini = fuse(gemmini, "for b in _:_ #0", "for b in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for b in _:_ #0", "for b in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = fuse(gemmini, "for b in _:_ #0", "for b in _:_ #1")
-    gemmini = fuse(gemmini, "for b in _:_ #0", "for b in _:_ #1")
-    gemmini = fuse(gemmini, "for b in _:_ #0", "for b in _:_ #1")
+    gemmini = fuse(
+        gemmini, "for b in _:_ #0", "for b in _:_ #1", unsafe_disable_check=True
+    )
     gemmini = add_loop(gemmini, "for och_o in _:_ #0", "ocol_o", 3)
     gemmini = old_reorder(gemmini, "orow_o ocol_o")
     gemmini = old_reorder(gemmini, "orow_i ocol_o")
     gemmini = old_reorder(gemmini, "kcol ocol_o")
     gemmini = old_reorder(gemmini, "krow ocol_o")
     gemmini = fuse(gemmini, "for ocol_o in _:_ #0", "for ocol_o in _:_ #1")
-    gemmini = fuse(gemmini, "for ocol_o in _:_ #0", "for ocol_o in _:_ #1")
+    gemmini = fuse(
+        gemmini,
+        "for ocol_o in _:_ #0",
+        "for ocol_o in _:_ #1",
+        unsafe_disable_check=True,
+    )
     gemmini = add_loop(gemmini, "for och_o in _:_ #0", "orow_o", 2)
     gemmini = old_reorder(gemmini, "orow_i orow_o")
     gemmini = old_reorder(gemmini, "kcol orow_o")
     gemmini = old_reorder(gemmini, "krow orow_o")
     gemmini = fuse(gemmini, "for orow_o in _:_ #0", "for orow_o in _:_ #1")
-    gemmini = fuse(gemmini, "for orow_o in _:_ #0", "for orow_o in _:_ #1")
+    gemmini = fuse(
+        gemmini,
+        "for orow_o in _:_ #0",
+        "for orow_o in _:_ #1",
+        unsafe_disable_check=True,
+    )
     gemmini = add_loop(gemmini, "for och_o in _:_ #0", "orow_i", 28)
     gemmini = old_reorder(gemmini, "kcol orow_i")
     gemmini = old_reorder(gemmini, "krow orow_i")
     gemmini = fuse(gemmini, "for orow_i in _:_ #0", "for orow_i in _:_ #1")
-    gemmini = fuse(gemmini, "for orow_i in _:_ #0", "for orow_i in _:_ #1")
+    gemmini = fuse(
+        gemmini,
+        "for orow_i in _:_ #0",
+        "for orow_i in _:_ #1",
+        unsafe_disable_check=True,
+    )
 
     gemmini = add_loop(gemmini, "for och_o in _:_ #3", "orow_o", 2)
     gemmini = fuse(gemmini, "for orow_o in _:_ #1", "for orow_o in _:_ #2")
-    gemmini = fuse(gemmini, "for orow_o in _:_ #1", "for orow_o in _:_ #2")
+    gemmini = fuse(
+        gemmini,
+        "for orow_o in _:_ #1",
+        "for orow_o in _:_ #2",
+        unsafe_disable_check=True,
+    )
     gemmini = add_loop(gemmini, "for och_o in _:_ #3", "orow_i", 28)
     gemmini = fuse(gemmini, "for orow_i in _:_ #1", "for orow_i in _:_ #2")
-    gemmini = fuse(gemmini, "for orow_i in _:_ #1", "for orow_i in _:_ #2")
+    gemmini = fuse(
+        gemmini,
+        "for orow_i in _:_ #1",
+        "for orow_i in _:_ #2",
+        unsafe_disable_check=True,
+    )
 
     gemmini = fuse(gemmini, "for krow in _:_ #0", "for krow in _:_ #1")
     gemmini = fuse(gemmini, "for kcol in _:_ #0", "for kcol in _:_ #1")

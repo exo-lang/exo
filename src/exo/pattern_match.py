@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import re
-from typing import Optional
+from typing import Optional, Iterable
 
 import exo.pyparser as pyparser
 from exo.LoopIR import LoopIR, PAST
@@ -155,7 +155,7 @@ class PatternMatch:
         if self.match_e(pat, cur._node):
             self._add_result(cur)
 
-        for child in cur.children():
+        for child in _children(cur):
             self.find_expr(pat, child)
 
     def find_stmts(self, pats, cur: Node):
@@ -325,3 +325,59 @@ class PatternMatch:
     @staticmethod
     def match_name(pat_nm, ir_sym):
         return pat_nm == "_" or pat_nm == str(ir_sym)
+
+
+def _children(cur) -> Iterable[Node]:
+    n = cur._node
+    # Top-level proc
+    if isinstance(n, LoopIR.proc):
+        yield from _children_from_attrs(cur, n, "body")
+    # Statements
+    elif isinstance(n, (LoopIR.Assign, LoopIR.Reduce)):
+        yield from _children_from_attrs(cur, n, "idx", "rhs")
+    elif isinstance(n, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
+        yield from _children_from_attrs(cur, n, "rhs")
+    elif isinstance(n, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+        yield from []
+    elif isinstance(n, LoopIR.If):
+        yield from _children_from_attrs(cur, n, "cond", "body", "orelse")
+    elif isinstance(n, LoopIR.Seq):
+        yield from _children_from_attrs(cur, n, "hi", "body")
+    elif isinstance(n, LoopIR.Call):
+        yield from _children_from_attrs(cur, n, "args")
+    # Expressions
+    elif isinstance(n, LoopIR.Read):
+        yield from _children_from_attrs(cur, n, "idx")
+    elif isinstance(n, LoopIR.WindowExpr):
+        yield from _children_from_attrs(cur, n, "idx")
+    elif isinstance(n, LoopIR.Interval):
+        yield from _children_from_attrs(cur, n, "lo", "hi")
+    elif isinstance(n, LoopIR.Point):
+        yield from _children_from_attrs(cur, n, "pt")
+    elif isinstance(
+        n,
+        (
+            LoopIR.Const,
+            LoopIR.StrideExpr,
+            LoopIR.ReadConfig,
+        ),
+    ):
+        yield from []
+    elif isinstance(n, LoopIR.USub):
+        yield from _children_from_attrs(cur, n, "arg")
+    elif isinstance(n, LoopIR.BinOp):
+        yield from _children_from_attrs(cur, n, "lhs", "rhs")
+    elif isinstance(n, LoopIR.BuiltIn):
+        yield from _children_from_attrs(cur, n, "args")
+    else:
+        assert False, f"case {type(n)} unsupported"
+
+
+def _children_from_attrs(cur, n, *args) -> Iterable[Node]:
+    for attr in args:
+        children = getattr(n, attr)
+        if isinstance(children, list):
+            for i in range(len(children)):
+                yield cur._child_node(attr, i)
+        else:
+            yield cur._child_node(attr, None)

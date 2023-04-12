@@ -594,7 +594,7 @@ def DoUnroll(c_loop):
         raise SchedulingError(f"expected loop '{s.iter}' to have constant bounds")
 
     hi = s.hi.val
-    orig_body = c_loop.body()._get_loopir()
+    orig_body = c_loop.body().resolve_all()
 
     unrolled = []
     for i in range(hi):
@@ -1179,8 +1179,14 @@ def DoLiftScope(inner_c):
             # for OUTER in _:          for INNER in _:
             #   for INNER in _: A  ~>    for OUTER in _: A
             Check_ReorderLoops(inner_c.get_root(), outer_s)
-
-            ir, fwd = inner_c.body()._wrap(loop_wrapper, "body")
+            ir, fwd = inner_c._move(outer_c.after())
+            ir, fwd_move = fwd(outer_c)._move(fwd(inner_c).body()[0].before())
+            fwd = _compose(fwd_move, fwd)
+            ir, fwd_move = fwd(inner_c).body()[1:]._move(fwd(outer_c).body()[0].after())
+            fwd = _compose(fwd_move, fwd)
+            ir, fwd_del = fwd(outer_c).body()[0]._delete()
+            fwd = _compose(fwd_del, fwd)
+            return _fixup_effects(ir, fwd)
 
     ir, fwd_repl = fwd(outer_c)._replace([fwd(inner_c)._node])
     fwd = _compose(fwd_repl, fwd)
@@ -2441,7 +2447,7 @@ class DoBoundAndGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-def DoFuseLoop(f_cursor, s_cursor):
+def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
     proc = f_cursor.get_root()
     loop1 = f_cursor._node
     loop2 = s_cursor._node
@@ -2466,7 +2472,8 @@ def DoFuseLoop(f_cursor, s_cursor):
 
     loop = fwd(f_cursor)._node
 
-    Check_FissionLoop(ir, loop, body1, body2)
+    if not unsafe_disable_check:
+        Check_FissionLoop(ir, loop, body1, body2)
     return _fixup_effects(ir, fwd)
 
 
@@ -2500,12 +2507,13 @@ def DoFuseIf(f_cursor, s_cursor):
     return _fixup_effects(ir, fwd)
 
 
-def DoAddLoop(stmt_cursor, var, hi, guard):
+def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
     proc = stmt_cursor.get_root()
     s = stmt_cursor._node
 
-    Check_IsIdempotent(proc, [s])
-    Check_IsPositiveExpr(proc, [s], hi)
+    if not unsafe_disable_check:
+        Check_IsIdempotent(proc, [s])
+        Check_IsPositiveExpr(proc, [s], hi)
 
     sym = Sym(var)
 
