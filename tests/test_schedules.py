@@ -940,6 +940,20 @@ def test_simple_reorder(golden):
     assert str(bar) == golden
 
 
+def test_reorder_loops(golden):
+    @proc
+    def bar(n: size, A: i8[n, n]):
+        for i in seq(0, n):
+            for j in seq(0, (-1 - i + n)):
+                A[i, j] = 0.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="inner loop's hi depends on outer loop's iteration variable",
+    ):
+        bar = reorder_loops(bar, bar.find("for i in _:_"))
+
+
 def test_reorder_stmts(golden):
     @proc
     def bar(g: R[100] @ DRAM):
