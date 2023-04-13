@@ -1104,6 +1104,11 @@ def DoLiftScope(inner_c):
         elif isinstance(inner_s, LoopIR.Seq):
             # for OUTER in _:          for INNER in _:
             #   for INNER in _: A  ~>    for OUTER in _: A
+            if outer_s.iter in [name for name, _ in get_reads_of_expr(inner_s.hi)]:
+                raise SchedulingError(
+                    "inner loop's hi depends on outer loop's iteration variable"
+                )
+
             Check_ReorderLoops(inner_c.get_root(), outer_s)
             ir, fwd = inner_c._move(outer_c.after())
             ir, fwd_move = fwd(outer_c)._move(fwd(inner_c).body()[0].before())
