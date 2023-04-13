@@ -2239,7 +2239,6 @@ def test_replace_all_arch(golden):
 
     arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
     bar = replace_all(bar, arch)
-    print(bar)
     assert str(bar) == golden
 
 
@@ -2463,3 +2462,19 @@ def test_specialize(golden):
 
     foo = specialize(foo, "x[i] += 1.0", [f"i == {i}" for i in range(4)])
     assert str(foo) == golden
+
+
+def test_extract_subproc(golden):
+    @proc
+    def foo():
+        x: R @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 8):
+            x = 0.0
+            for i in seq(0, 8):
+                x += y[j] * 2.0
+
+    foo, new = extract_subproc(
+        foo, "fooooo", "for i in _:_", order={"x": 1, "y": 0, "j": 2}
+    )
+    assert (str(foo) + str(new)) == golden

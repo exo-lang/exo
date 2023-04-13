@@ -224,6 +224,13 @@ class OptionalA(ArgumentProcessor):
             return self.arg_proc(opt_arg, all_args)
 
 
+class DictA(ArgumentProcessor):
+    def __call__(self, d, all_args):
+        if not isinstance(d, dict):
+            self.err("expected a dict")
+        return d
+
+
 class ListA(ArgumentProcessor):
     def __init__(self, elem_arg_proc, list_only=False, length=None):
         if is_subclass_obj(elem_arg_proc, ArgumentProcessor):
@@ -896,13 +903,13 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
 # Sub-procedure Operations
 
 
-@sched_op([NameA, StmtCursorA])
-def extract_subproc(proc, subproc_name, body_stmt):
+@sched_op([NameA, StmtCursorA, DictA])
+def extract_subproc(proc, subproc_name, body_stmt, order=dict()):
     """
     Documentation
     """
     stmt = body_stmt._impl
-    passobj = scheduling.DoExtractMethod(proc, subproc_name, stmt)
+    passobj = scheduling.DoExtractMethod(proc, subproc_name, stmt, order)
     return passobj.result(), passobj.subproc()
 
 
