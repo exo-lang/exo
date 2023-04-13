@@ -2477,4 +2477,4 @@ def test_extract_subproc(golden):
     foo, new = extract_subproc(
         foo, "fooooo", "for i in _:_", order={"x": 1, "y": 0, "j": 2}
     )
-    assert (str(foo) + str(new)) == golden
+    assert (str(foo) + "\n" + str(new)) == golden
