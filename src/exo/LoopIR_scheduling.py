@@ -2460,7 +2460,7 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
 #   Factor out a sub-statement as a Procedure scheduling directive
 
 
-def _make_closure(name, stmts, var_types):
+def _make_closure(name, stmts, var_types, order):
     FVs = list(sorted(_FV(stmts)))
     info = stmts[0].srcinfo
 
@@ -2490,6 +2490,22 @@ def _make_closure(name, stmts, var_types):
     sizes = list(sorted(sizes))
     args = [LoopIR.Read(sz, [], T.size, info) for sz in sizes] + args
     fnargs = [LoopIR.fnarg(sz, T.size, None, info) for sz in sizes] + fnargs
+
+    def shuffle(arg_list):
+        if sorted(order.values()) != [i for i in range(0, len(arg_list))]:
+            raise SchedulingError(f"expected to provide full ordering of arguments")
+
+        new_args = [0 for a in arg_list]
+        for key in order:
+            for i in range(len(arg_list)):
+                if arg_list[i].name.name() == key:
+                    new_args[order[key]] = arg_list[i]
+
+        return new_args
+
+    if order:
+        args = shuffle(args)
+        fnargs = shuffle(fnargs)
 
     eff = None
     # TODO: raise NotImplementedError("need to figure out effect of new closure")
@@ -2532,12 +2548,13 @@ class DoDeletePass(Cursor_Rewrite):
 
 
 class DoExtractMethod(Cursor_Rewrite):
-    def __init__(self, proc, name, stmt_cursor):
+    def __init__(self, proc, name, stmt_cursor, order):
         self.match_stmt = stmt_cursor._node
         assert isinstance(self.match_stmt, LoopIR.stmt)
         self.sub_proc_name = name
         self.new_subproc = None
         self.orig_proc = proc._loopir_proc
+        self.order = order
 
         self.var_types = ChainMap()
 
@@ -2559,7 +2576,9 @@ class DoExtractMethod(Cursor_Rewrite):
     def map_s(self, sc):
         s = sc._node
         if s is self.match_stmt:
-            subproc, args = _make_closure(self.sub_proc_name, [s], self.var_types)
+            subproc, args = _make_closure(
+                self.sub_proc_name, [s], self.var_types, self.order
+            )
             self.new_subproc = subproc
             return [LoopIR.Call(subproc, args, None, s.srcinfo)]
         elif isinstance(s, LoopIR.Alloc):
