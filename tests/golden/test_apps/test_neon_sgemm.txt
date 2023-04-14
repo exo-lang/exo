@@ -93,23 +93,23 @@ neon_broadcast_4xf32(dst,src)
 // )
 static void neon_microkernel( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
-EXO_ASSUME(A.strides[1] == 1);
-EXO_ASSUME(B.strides[1] == 1);
-EXO_ASSUME(C.strides[1] == 1);
+// assert stride(A, 1) == 1
+// assert stride(B, 1) == 1
+// assert stride(C, 1) == 1
 float32x4_t C_reg[4][4];
 for (int i = 0; i < 4; i++) {
   for (int jo = 0; jo < 4; jo++) {
-    C_reg[i][jo] = vld1q_f32(&C.data[(i) * (C.strides[0]) + (4 * jo) * (C.strides[1])]);
+    C_reg[i][jo] = vld1q_f32(&C.data[(i) * (C.strides[0]) + (4 * jo) * (1)]);
   }
 }
 for (int k = 0; k < K; k++) {
   float32x4_t A_vec;
   for (int i = 0; i < 4; i++) {
-    A_vec = vld1q_dup_f32(&A.data[(i) * (A.strides[0]) + (k) * (A.strides[1])]);
+    A_vec = vld1q_dup_f32(&A.data[(i) * (A.strides[0]) + (k) * (1)]);
   }
   float32x4_t B_vec;
   for (int jo = 0; jo < 4; jo++) {
-    B_vec = vld1q_f32(&B.data[(k) * (B.strides[0]) + (4 * jo) * (B.strides[1])]);
+    B_vec = vld1q_f32(&B.data[(k) * (B.strides[0]) + (4 * jo) * (1)]);
   }
   for (int i = 0; i < 4; i++) {
     for (int jo = 0; jo < 4; jo++) {
@@ -119,7 +119,7 @@ for (int k = 0; k < K; k++) {
 }
 for (int i = 0; i < 4; i++) {
   for (int jo = 0; jo < 4; jo++) {
-    vst1q_f32(&C.data[(i) * (C.strides[0]) + (4 * jo) * (C.strides[1])], C_reg[i][jo]);
+    vst1q_f32(&C.data[(i) * (C.strides[0]) + (4 * jo) * (1)], C_reg[i][jo]);
   }
 }
 }
@@ -151,9 +151,9 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
 EXO_ASSUME(M >= 1);
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);
-EXO_ASSUME(1 == 1);
-EXO_ASSUME(1 == 1);
-EXO_ASSUME(1 == 1);
+// assert stride(A, 1) == 1
+// assert stride(B, 1) == 1
+// assert stride(C, 1) == 1
 float *Atile = malloc(64 * 64 * sizeof(*Atile));
 float *Btile = malloc(64 * 64 * sizeof(*Btile));
 for (int ko = 0; ko < ((K) / (64)); ko++) {

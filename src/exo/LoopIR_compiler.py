@@ -499,7 +499,9 @@ class Compiler:
                 and isinstance(pred.lhs, LoopIR.StrideExpr)
                 and isinstance(pred.rhs, LoopIR.Const)
             ):
-                self._known_strides[(pred.lhs.name, pred.lhs.dim)] = str(pred.rhs.val)
+                nm = self.env[pred.lhs.name]
+                self._known_strides[(nm, pred.lhs.dim)] = str(pred.rhs.val)
+                self.add_line(f"// assert {pred}")
             else:
                 # Default to just informing the compiler about the constraint
                 # on a best-effort basis
