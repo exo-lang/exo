@@ -476,6 +476,20 @@ def avx2_reg_copy_pd(dst: [f64][4] @ AVX2, src: [f64][4] @ AVX2):
         dst[i] = src[i]
 
 
+@instr(
+    "__m256i opaque = _mm256_set1_epi8((1<<{N}) - 1);\n"
+    + "_mm256_maskstore_ps(&{dst_data}, opaque, {src_data});"
+)
+def avx2_mask_storeu_ps(N: size, dst: [f32][N] @ DRAM, src: [f32][8] @ AVX2):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+    assert N <= 8
+
+    for i in seq(0, 8):
+        if i < N:
+            dst[i] = src[i]
+
+
 # --------------------------------------------------------------------------- #
 #   f32 to f64 conversion
 # --------------------------------------------------------------------------- #
