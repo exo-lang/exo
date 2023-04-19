@@ -2836,6 +2836,19 @@ class _DoNormalize(Cursor_Rewrite):
                         )
                 divisor += 1
 
+            # Hacky simplify for SYRK
+            if d == 16:
+                if lhs.lhs.op == "+" and isinstance(lhs.lhs.lhs, LoopIR.Const):
+                    if (
+                        isinstance(lhs.lhs.rhs.lhs, LoopIR.Const)
+                        and lhs.lhs.rhs.lhs.val == 1
+                    ):
+                        if lhs.rhs.op == "*" and isinstance(lhs.rhs.lhs, LoopIR.Const):
+                            if lhs.rhs.lhs.val == 6:
+                                return LoopIR.BinOp(
+                                    "/", lhs.rhs, e.rhs, e.type, e.srcinfo
+                                )
+
             return e
 
         def modulo_simplification(e):
