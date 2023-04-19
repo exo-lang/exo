@@ -2492,27 +2492,3 @@ def test_extract_subproc(golden):
         foo, "fooooo", "for i in _:_", order={"x": 1, "y": 0, "j": 2}
     )
     assert (str(foo) + "\n" + str(new)) == golden
-
-
-def test_simplify_syrk():
-    @proc
-    def foo(
-        A1: [f32][240, 528] @ DRAM,
-        A2: [f32][528, 240] @ DRAM,
-        C: [f32][240, 240] @ DRAM,
-    ):
-        for io in seq(0, 5):
-            for iio in seq(0, 8):
-                for iii in seq(0, 6):
-                    for jio in seq(0, (iii + 6 * iio) / 16):
-                        for jii in seq(0, 16):
-                            for k in seq(0, 528):
-                                C[
-                                    iii + 6 * iio + 48 * io, jii + 16 * jio + 48 * io
-                                ] += (
-                                    A1[iii + 6 * iio + 48 * io, k]
-                                    * A2[k, jii + 16 * jio + 48 * io]
-                                )
-
-    print(foo)
-    print(simplify(foo))
