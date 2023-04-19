@@ -888,10 +888,7 @@ class Compiler:
             rhs = self.comp_e(e.rhs, local_prec + 1)
 
             if int_div:
-                if isinstance(e.lhs.type, LoopIR.Size):
-                    # TODO: too many parens?
-                    return f"(({lhs}) / ({rhs}))"
-                return self._call_static_helper("exo_floor_div", lhs, rhs)
+                return f"(({lhs}) / ({rhs}))"
 
             s = f"{lhs} {op} {rhs}"
             if local_prec < prec:

@@ -39,6 +39,10 @@ class MDRAM(DRAM):
 
 class DRAM_STATIC(DRAM):
     @classmethod
+    def global_(cls):
+        return "#include <stdalign.h>\n"
+
+    @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         # Error checking only
         for extent in shape:
@@ -49,7 +53,7 @@ class DRAM_STATIC(DRAM):
                     f"DRAM_STATIC requires constant shapes. Saw: {extent}"
                 ) from e
 
-        return f'static {prim_type} {new_name}[{" * ".join(shape)}];'
+        return f'alignas(128) {prim_type} {new_name}[{" * ".join(shape)}];'
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):

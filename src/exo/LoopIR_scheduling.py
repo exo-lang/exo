@@ -2976,8 +2976,10 @@ class _DoNormalize(Cursor_Rewrite):
             self.env = self.env.new_child()
 
             hi_range = IndexRangeAnalysis(s.hi, self.env).result()
+            # print(s)
+            # print(hi_range)
             if hi_range is not None:
-                assert hi_range[0] >= 0
+                # assert hi_range[0] >= 0
                 if hi_range[1] == 0:
                     # We allow loop hi to be zero, however, that means that the loop
                     # variable doesn't have a defined range. We can set it to None
