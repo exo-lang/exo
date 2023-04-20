@@ -1,0 +1,5 @@
+def bar(N: size):
+    for i in seq(0, N):
+        for j in seq(0, 4):
+            if i / 4 > 0:
+                pass

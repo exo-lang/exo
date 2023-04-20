@@ -9,7 +9,7 @@ from exo.stdlib.scheduling import *
 
 def reorder_up(p, stmt_pattern, n=1):
     for _ in range(n):
-        c = p.find(stmt_pattern).expand(-1)
+        c = p.find(stmt_pattern).expand(1, 0)
         p = reorder_stmts(p, c)
     return p
 
@@ -179,6 +179,7 @@ def make_right_panel_kernel_opt(p=right_panel_kernel):
     p = reorder_up(p, "for k in _: _ #1")
     #
     p = set_memory(p, "C_reg", AVX512)
+    p = set_memory(p, "C_reg #1", AVX512)
     #
     def stage_input(p, expr, new_buf, n_lifts=1):
         p = bind_expr(p, expr, new_buf)

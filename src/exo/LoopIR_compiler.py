@@ -454,6 +454,7 @@ class Compiler:
         self._scalar_refs = set()
         self._needed_helpers = set()
         self.window_defns = set()
+        self._known_strides = {}
 
         assert self.proc.name is not None, "expected names for compilation"
         name = self.proc.name
@@ -490,7 +491,22 @@ class Compiler:
                 typ_comments.append(comment_str)
 
         for pred in proc.preds:
-            if not isinstance(pred, LoopIR.Const):
+            if isinstance(pred, LoopIR.Const):
+                # TODO: filter these out earlier?
+                continue
+
+            if (
+                isinstance(pred, LoopIR.BinOp)
+                and pred.op == "=="
+                and isinstance(pred.lhs, LoopIR.StrideExpr)
+                and isinstance(pred.rhs, LoopIR.Const)
+            ):
+                nm = self.env[pred.lhs.name]
+                self._known_strides[(nm, pred.lhs.dim)] = str(pred.rhs.val)
+                self.add_line(f"// assert {pred}")
+            else:
+                # Default to just informing the compiler about the constraint
+                # on a best-effort basis
                 self.add_line(f"EXO_ASSUME({self.comp_e(pred)});")
 
         if not self.static_memory_check(self.proc):
@@ -631,10 +647,16 @@ class Compiler:
         strides = list(reversed(strides))
         return strides
 
+    def get_stride(self, name, i):
+        if stride := self._known_strides.get((name, i)):
+            return stride
+        else:
+            return f"{name}.strides[{i}]"
+
     # works for any tensor or window type
     def get_strides(self, name, typ, prec=100):
         if typ.is_win():
-            return [f"{name}.strides[{i}]" for i in range(len(typ.shape()))]
+            return [self.get_stride(name, i) for i in range(len(typ.shape()))]
         else:
             return self.tensor_strides(typ.shape(), prec)
 

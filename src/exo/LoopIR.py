@@ -245,7 +245,7 @@ module PAST {
             attributes( srcinfo srcinfo )
 
     expr    = Read    ( name name, expr* idx )
-            | StrideExpr( name name, int dim )
+            | StrideExpr( name name, int? dim )
             | E_Hole  ()
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)

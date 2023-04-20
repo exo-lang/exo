@@ -387,6 +387,23 @@ def test_rearrange_dim(golden):
     assert "\n".join(map(str, cases)) == golden
 
 
+def test_rearrange_dim_2(golden):
+    @proc
+    def bar(s: stride):
+        pass
+
+    @proc
+    def foo():
+        a: i8[10, 10]
+        for i in seq(0, 10):
+            for j in seq(0, 10):
+                a[i, j] = a[j, i]
+                bar(stride(a, 1))
+
+    foo = rearrange_dim(foo, "a : _", [1, 0])
+    assert str(foo) == golden
+
+
 def test_rearrange_dim_fail():
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -398,6 +415,28 @@ def test_rearrange_dim_fail():
 
     with pytest.raises(ValueError, match="was not a permutation of"):
         rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
+
+
+def test_rearrange_dim_fail2():
+    @proc
+    def bar(m: size, a: [i8][m, m]):
+        a[0, 0] += 1.0
+
+    @proc
+    def foo1():
+        a: i8[10, 10]
+        bar(10, a[0:10, 0:10])
+
+    with pytest.raises(SchedulingError, match="Cannot permute buffer "):
+        rearrange_dim(foo1, "a : i8[_]", [1, 0])
+
+    @proc
+    def foo2():
+        a: i8[10, 10]
+        x = a[0:10, 0:10]
+
+    with pytest.raises(SchedulingError, match="windows is not currently supported"):
+        rearrange_dim(foo2, "a : i8[_]", [1, 0])
 
 
 def test_remove_loop(golden):
@@ -854,7 +893,7 @@ def test_bind_lhs(golden):
         for ii in seq(0, 1):
             for jj in seq(0, 1):
                 for kk in seq(0, 16):
-                    out[ii, jj, kk] = out[ii, jj, kk] + inp[ii, jj, kk]
+                    out[ii, jj, kk] += out[ii, jj, kk] + inp[ii, jj, kk]
                     out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
 
     myfunc_cpu = bind_expr(myfunc_cpu, "inp[_]", "inp_ram", cse=True)
@@ -873,6 +912,22 @@ def test_simple_divide_loop(golden):
     assert str(bar) == golden
 
 
+def test_divide_loop_cut_and_guard(golden):
+    @proc
+    def foo(x: i8[1]):
+        pass
+
+    @proc
+    def bar(n: size, A: i8[n]):
+        tmp: i8[n]
+        for i in seq(0, n):
+            tmp[i] = A[i]
+            foo(tmp[i : i + 1])
+
+    bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="cut_and_guard")
+    assert str(bar) == golden
+
+
 def test_simple_reorder(golden):
     @proc
     def bar(n: size, m: size, A: i8[n, m]):
@@ -883,6 +938,20 @@ def test_simple_reorder(golden):
 
     bar = reorder_loops(bar, "i j")
     assert str(bar) == golden
+
+
+def test_reorder_loops(golden):
+    @proc
+    def bar(n: size, A: i8[n, n]):
+        for i in seq(0, n):
+            for j in seq(0, (-1 - i + n)):
+                A[i, j] = 0.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="inner loop's hi depends on outer loop's iteration variable",
+    ):
+        bar = reorder_loops(bar, bar.find("for i in _:_"))
 
 
 def test_reorder_stmts(golden):
@@ -1090,8 +1159,9 @@ def test_simple_typ_and_mem(golden):
     def bar(n: size, A: R[n]):
         pass
 
-    bar = set_precision(bar, "A", "i32")
-    bar = set_memory(bar, "A", GEMM_SCRATCH)
+    A = bar.args()[1]
+    bar = set_precision(bar, A, "i32")
+    bar = set_memory(bar, A, GEMM_SCRATCH)
     assert str(bar) == golden
 
 
@@ -1917,6 +1987,18 @@ def test_simplify_index_div5(golden):
     assert str(bar) == golden
 
 
+def test_simplify_index_div6(golden):
+    @proc
+    def bar(N: size):
+        for i in seq(0, N):
+            for j in seq(0, 4):
+                if (i * 4 + j) / 16 > 0:
+                    pass
+
+    bar = simplify(bar)
+    assert str(bar) == golden
+
+
 def test_simplify_index_div_fail(golden):
     @proc
     def bar(N: size, x: R[1 + N]):
@@ -2050,10 +2132,12 @@ def test_simplify_div_mod_staging(golden):
         for i in seq(0, 64):
             out[i] = x[i] * y[i]
 
-    bar = divide_loop(bar, "for i in _:_", 4, ("io", "ii"), tail="cut")
-    bar = stage_mem(bar, "for io in _:_", "x[0:64]", "xReg")
+    sc = bar.find("for i in _:_")
+    bar = divide_loop(bar, sc, 4, ("io", "ii"), tail="cut")
+    bar = stage_mem(bar, sc, "x[0:64]", "xReg")
     bar = simplify(bar)
-    bar = divide_loop(bar, "for i0 in _:_", 4, ("io", "ii"), tail="cut")
+    assign_loop_sc = bar.forward(sc).prev()
+    bar = divide_loop(bar, assign_loop_sc, 4, ("io", "ii"), tail="cut")
     bar = divide_dim(bar, "xReg", 0, 4)
     bar = simplify(bar)
     assert str(bar) == golden
@@ -2169,7 +2253,6 @@ def test_replace_all_arch(golden):
 
     arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
     bar = replace_all(bar, arch)
-    print(bar)
     assert str(bar) == golden
 
 
@@ -2393,3 +2476,19 @@ def test_specialize(golden):
 
     foo = specialize(foo, "x[i] += 1.0", [f"i == {i}" for i in range(4)])
     assert str(foo) == golden
+
+
+def test_extract_subproc(golden):
+    @proc
+    def foo():
+        x: R @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 8):
+            x = 0.0
+            for i in seq(0, 8):
+                x += y[j] * 2.0
+
+    foo, new = extract_subproc(
+        foo, "fooooo", "for i in _:_", order={"x": 1, "y": 0, "j": 2}
+    )
+    assert (str(foo) + "\n" + str(new)) == golden

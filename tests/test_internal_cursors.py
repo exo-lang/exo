@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import gc
-import weakref
-
 import pytest
 
-from exo import proc, SchedulingError
+from exo import proc, SchedulingError, Procedure
 from exo.LoopIR import LoopIR, T
 from exo.LoopIR_pprint import _print_cursor
 from exo.internal_cursors import (
@@ -20,6 +17,12 @@ from exo.syntax import size, f32
 
 
 def _find_cursors(ctx, pattern):
+    if isinstance(ctx, Procedure):
+        ctx = ctx._root()
+
+    if isinstance(ctx, LoopIR.proc):
+        ctx = Cursor.create(ctx)
+
     cursors = match_pattern(ctx, pattern, call_depth=1)
     assert isinstance(cursors, list)
     if not cursors:
@@ -70,14 +73,8 @@ def proc_bar():
 
 
 def test_get_root(proc_foo):
-    cursor = Cursor.create(proc_foo)
+    cursor = proc_foo._root()
     assert cursor._node is proc_foo.INTERNAL_proc()
-
-
-def test_get_child(proc_foo):
-    cursor = Cursor.create(proc_foo).children()
-    cursor = next(iter(cursor))
-    assert cursor._node is proc_foo.INTERNAL_proc().body[0]
 
 
 def test_find_cursor(proc_foo):
@@ -104,13 +101,13 @@ def test_gap_insert_pass(proc_foo, golden):
 
 
 def test_insert_root_front(proc_foo, golden):
-    c = Cursor.create(proc_foo)
+    c = proc_foo._root()
     foo2, _ = c.body().before()._insert([LoopIR.Pass(None, c._node.srcinfo)])
     assert str(foo2) == golden
 
 
 def test_insert_root_end(proc_foo, golden):
-    c = Cursor.create(proc_foo)
+    c = proc_foo._root()
     foo2, _ = c.body().after()._insert([LoopIR.Pass(None, c._node.srcinfo)])
     assert str(foo2) == golden
 
@@ -202,7 +199,7 @@ def test_cursor_move(proc_foo):
 
 def test_cursor_move_invalid(proc_foo):
     # Edge cases near the root
-    c = Cursor.create(proc_foo)
+    c = proc_foo._root()
     with pytest.raises(InvalidCursorError, match="cannot move root cursor"):
         c.next()
 
@@ -221,22 +218,14 @@ def test_cursor_move_invalid(proc_foo):
 
     c.before()  # ok
     with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.before(2)  # would return gap
-
-    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.before().before()  # would return node
+        c.prev()
 
     # Edge cases near last statement in block
     c = _find_stmt(proc_foo, "y = 1.1")
-    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.next()
 
     c.after()  # ok
     with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.after(2)  # would return gap
-
-    with pytest.raises(InvalidCursorError, match="cursor is out of range"):
-        c.after().after()  # would return node
+        c.next()
 
 
 def test_cursor_gap(proc_foo):
@@ -256,18 +245,14 @@ def test_cursor_gap(proc_foo):
     assert str(x_alloc._node) == "x: f32 @ DRAM"
 
     g1 = x_alloc.after()
-    assert g1 == x_assn.before()
-    assert g1.before() == x_alloc
-    assert g1.after() == x_assn
+    assert g1.anchor() == x_alloc
     assert g1.parent() == for_j
 
-    g2 = g1.next(2)
-    assert g2 == x_assn.after(2)
-    assert g2.before(2) == x_assn
-    assert g2.after() == y_assn
+    g2 = g1.anchor().next(2).after()
+    assert g2 == x_assn.next().after()
+    assert g2.anchor().prev() == x_assn
+    assert g2.anchor().next() == y_assn
     assert g2.parent() == for_j
-
-    assert g2.prev(2) == g1
 
 
 def test_cursor_replace_expr(proc_foo, golden):
@@ -320,13 +305,13 @@ def test_cursor_forward_expr_deep():
 
 
 def test_cursor_loop_bound(proc_foo):
-    c_for_i = Cursor.create(proc_foo).body()[0]
+    c_for_i = proc_foo._root().body()[0]
     c_bound = c_for_i._child_node("hi")
     assert isinstance(c_bound._node, LoopIR.Read)
 
 
 def test_cursor_invalid_child(proc_foo):
-    c = Cursor.create(proc_foo)
+    c = proc_foo._root()
 
     # Quick sanity check
     assert c._child_node("body", 0) == c.body()[0]
@@ -448,6 +433,7 @@ def test_block_replace_forward_node(proc_bar, old, new):
         with pytest.raises(InvalidCursorError, match="node no longer exists"):
             fwd(old_c)
     else:
+        bar_new = Cursor.create(bar_new)
         assert fwd(old_c) == match_pattern(bar_new, new)[0][0]
 
 
@@ -523,12 +509,12 @@ def test_move_block(proc_bar, golden):
     c = _find_cursors(proc_bar, "x = 1.0 ; x = 2.0")[0]
 
     # Movement within block
-    p0, _ = c._move(c.before(2))
+    p0, _ = c._move(c[0].prev().before())
     p1, _ = c._move(c.before())
     p2, _ = c._move(c.after())
-    p3, _ = c._move(c.after(2))
-    p4, _ = c._move(c.after(3))
-    p5, _ = c._move(c.after(4))
+    p3, _ = c._move(c[-1].next().after())
+    p4, _ = c._move(c[-1].next(2).after())
+    p5, _ = c._move(c[-1].next(3).after())
 
     assert str(p1) == str(p2), "Both before and after should keep block in place."
 
@@ -536,14 +522,14 @@ def test_move_block(proc_bar, golden):
     pu0, _ = c._move(c.parent().before())
     pu1, _ = c._move(c.parent().after())
     pu2, _ = c._move(c.parent().parent().before())
-    pu3, _ = c._move(c.parent().parent().before(2))
+    pu3, _ = c._move(c.parent().parent().prev().before())
     pu4, _ = c._move(c.parent().parent().after())
 
     # Movement downward (abbreviated)
     c2 = _find_cursors(proc_bar, "x: _")[0]
-    pd0, _ = c2._move(c.before(2))
+    pd0, _ = c2._move(c[0].prev().before())
     pd1, _ = c2._move(c.before())
-    pd2, _ = c2._move(c2.after(2))
+    pd2, _ = c2._move(c2[-1].next().after())
 
     # Move out a whole loop (needs to insert pass)
     c3 = _find_cursors(proc_bar, "for j in _: _")[0]
@@ -580,17 +566,17 @@ def test_move_block_forwarding(proc_bar, golden):
             assert str(fwd(x)._node) == str(x._node)
 
     # Movement within block
-    _, fwd0 = c._move(c.before(2))
+    _, fwd0 = c._move(c[0].prev().before())
     _test_fwd(fwd0)
     _, fwd1 = c._move(c.before())
     _test_fwd(fwd1)
     _, fwd2 = c._move(c.after())
     _test_fwd(fwd2)
-    _, fwd3 = c._move(c.after(2))
+    _, fwd3 = c._move(c[-1].next().after())
     _test_fwd(fwd3)
-    _, fwd4 = c._move(c.after(3))
+    _, fwd4 = c._move(c[-1].next(2).after())
     _test_fwd(fwd4)
-    _, fwd5 = c._move(c.after(4))
+    _, fwd5 = c._move(c[-1].next(3).after())
     _test_fwd(fwd5)
 
     # Movement upward
@@ -600,18 +586,18 @@ def test_move_block_forwarding(proc_bar, golden):
     _test_fwd(fwd7)
     _, fwd8 = c._move(c.parent().parent().before())
     _test_fwd(fwd8)
-    _, fwd9 = c._move(c.parent().parent().before(2))
+    _, fwd9 = c._move(c.parent().parent().prev().before())
     _test_fwd(fwd9)
     _, fwd10 = c._move(c.parent().parent().after())
     _test_fwd(fwd10)
 
     # Movement downward (abbreviated)
     c2 = _find_cursors(proc_bar, "x: _")[0]
-    _, fwd11 = c2._move(c.before(2))
+    _, fwd11 = c2._move(c[0].prev().before())
     _test_fwd(fwd11)
     _, fwd12 = c2._move(c.before())
     _test_fwd(fwd12)
-    _, fwd13 = c2._move(c2.after(2))
+    _, fwd13 = c2._move(c2[-1].next().after())
     _test_fwd(fwd13)
 
     # Move out a whole loop
@@ -658,3 +644,78 @@ def test_wrap_block_forward(proc_bar):
             c = _find_cursors(proc_bar, f"x = {i}.0 ; _ ; x = {j}.0")[0]
             _, fwd = c._wrap(wrapper, "orelse")
             _test_fwd(fwd)
+
+
+def test_move_forward_diff_scopes_1(golden):
+    @proc
+    def foo():
+        x: i8
+        y: i8
+        z: i8
+        for i in seq(0, 4):
+            pass
+
+    alloc_xy = foo.find("x: _")._impl.as_block().expand(0, 1)
+    pass_c = foo.find("pass")._impl
+    ir, fwd = alloc_xy._move(pass_c.before())
+    assert fwd(alloc_xy[0])._path == [("body", 1), ("body", 0)]
+    assert str(ir) == golden
+
+    @proc
+    def foo():
+        z: i8
+        for i in seq(0, 4):
+            pass
+        x: i8
+        y: i8
+
+    alloc_xy = foo.find("x: _")._impl.as_block().expand(0, 1)
+    pass_c = foo.find("pass")._impl
+    ir, fwd = alloc_xy._move(pass_c.before())
+    assert fwd(alloc_xy[0])._path == [("body", 1), ("body", 0)]
+    assert str(ir) == golden
+
+
+def test_move_forward_diff_scopes_2():
+    @proc
+    def foo():
+        pass
+        for i in seq(0, 4):
+            x: i8
+            y: i8
+            z: i8
+
+    alloc_xy = foo.find("x: _")._impl.as_block().expand(0, 1)
+    pass_c = foo.find("pass")._impl
+    ir, fwd = alloc_xy._move(pass_c.after())
+    assert fwd(alloc_xy[0])._path == [("body", 1)]
+    assert fwd(alloc_xy[1])._path == [("body", 2)]
+
+    @proc
+    def foo():
+        for i in seq(0, 4):
+            x: i8
+            y: i8
+            z: i8
+        pass
+
+    alloc_xy = foo.find("x: _")._impl.as_block().expand(0, 1)
+    pass_c = foo.find("pass")._impl
+    ir, fwd = alloc_xy._move(pass_c.after())
+    assert fwd(alloc_xy[0])._path == [("body", 2)]
+    assert fwd(alloc_xy[1])._path == [("body", 3)]
+
+
+def test_move_forward_if_orelse(golden):
+    @proc
+    def foo():
+        if True:
+            x: i8
+        else:
+            y: i8
+
+    alloc_x = foo.find("x: _")._impl
+    alloc_y = foo.find("y: _")._impl
+    ir, fwd = alloc_x._move(alloc_y.after())
+    assert fwd(alloc_x)._path == [("body", 0), ("orelse", 1)]
+    assert str(ir) == golden

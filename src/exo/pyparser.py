@@ -167,8 +167,10 @@ class Parser:
             is_expr = False
             if len(module_ast) == 1:
                 s = module_ast[0]
+                special_cases = list(builtins.keys()) + ["stride"]
                 if isinstance(s, pyast.Expr) and (
-                    not isinstance(s.value, pyast.Call) or s.value.func.id in builtins
+                    not isinstance(s.value, pyast.Call)
+                    or s.value.func.id in special_cases
                 ):
                     is_expr = True
 
@@ -1017,8 +1019,12 @@ class Parser:
                     len(e.keywords) > 0
                     or len(e.args) != 2
                     or not isinstance(e.args[0], pyast.Name)
-                    or not isinstance(e.args[1], pyast.Constant)
-                    or not isinstance(e.args[1].value, int)
+                    or not (
+                        isinstance(e.args[1], pyast.Constant)
+                        and isinstance(e.args[1].value, int)
+                        or isinstance(e.args[1], pyast.Name)
+                        and e.args[1].id == "_"
+                    )
                 ):
                     self.err(
                         e,
@@ -1029,6 +1035,10 @@ class Parser:
                     )
 
                 name = e.args[0].id
+
+                if isinstance(e.args[1], pyast.Name):
+                    return PAST.StrideExpr(name, None, self.getsrcinfo(e))
+
                 dim = int(e.args[1].value)
                 if not self.is_fragment:
                     if name not in self.locals:
