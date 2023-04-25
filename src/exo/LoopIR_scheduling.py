@@ -384,22 +384,19 @@ def DoProductLoop(outer_loop, new_name):
         ir, fwd = _replace_pats(ir, fwd, c, f"{outer_loop_ir.iter}", mk_outer_expr)
         ir, fwd = _replace_pats(ir, fwd, c, f"{inner_loop_ir.iter}", mk_inner_expr)
 
-    def mk_product_loop(body):
-        return outer_loop_ir.update(
-            iter=new_var,
-            hi=LoopIR.BinOp(
-                "*", outer_loop_ir.hi, inner_hi, T.index, outer_loop_ir.srcinfo
-            ),
-            body=body,
-        )
+    ir, fwdRepl = fwd(outer_loop)._child_node("iter")._replace(new_var)
+    fwd = _compose(fwdRepl, fwd)
 
-    ir, fwdIn = fwd(inner_loop).body()._wrap(mk_product_loop, "body")
-    fwd = _compose(fwdIn, fwd)
+    new_hi = LoopIR.BinOp(
+        "*", outer_loop_ir.hi, inner_hi, T.index, outer_loop_ir.srcinfo
+    )
+    ir, fwdRepl = fwd(outer_loop)._child_node("hi")._replace(new_hi)
+    fwd = _compose(fwdRepl, fwd)
 
-    ir, fwdMv = fwd(inner_loop).body()._move(fwd(outer_loop).after())
+    ir, fwdMv = fwd(inner_loop).body()._move(fwd(inner_loop).after())
     fwd = _compose(fwdMv, fwd)
 
-    ir, fwdDel = fwd(outer_loop)._delete()
+    ir, fwdDel = fwd(inner_loop)._delete()
     fwd = _compose(fwdDel, fwd)
 
     return _fixup_effects(ir, fwd)
@@ -2377,6 +2374,7 @@ class DoBoundAndGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
+# TODO: don't invalidate second loop's body. Will need to rewrite SubstArgs
 def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
     proc = f_cursor.get_root()
     loop1 = f_cursor._node
