@@ -8,15 +8,10 @@ from .LoopIR import (
     LoopIR_Do,
     SubstArgs,
     T,
-    lift_to_eff_expr,
 )
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_effects import (
     Effects as E,
-    eff_filter,
-    eff_bind,
-    eff_null,
-    get_effect_of_stmts,
 )
 from .effectcheck import InferEffects
 from .new_eff import (
@@ -405,19 +400,47 @@ def DoProductLoop(outer_loop, new_name):
     return _fixup_effects(ir, fwd)
 
 
+class GetReads(LoopIR_Do):
+    def __init__(self):
+        self.reads = []
+
+    def do_e(self, e):
+        if isinstance(e, LoopIR.Read):
+            self.reads.append((e.name, e.type))
+        super().do_e(e)
+
+
 def get_reads_of_expr(e):
-    if isinstance(e, LoopIR.Read):
-        return sum([get_reads_of_expr(e) for e in e.idx], [(e.name, e.type)])
-    elif isinstance(e, LoopIR.USub):
-        return get_reads_of_expr(e.arg)
-    elif isinstance(e, LoopIR.BinOp):
-        return get_reads_of_expr(e.lhs) + get_reads_of_expr(e.rhs)
-    elif isinstance(e, LoopIR.BuiltIn):
-        return sum([get_reads_of_expr(a) for a in e.args], [])
-    elif isinstance(e, LoopIR.Const):
-        return []
-    else:
-        raise NotImplementedError(f"get_reads_of_expr: {e}")
+    gr = GetReads()
+    gr.do_e(e)
+    return gr.reads
+
+
+def get_reads_of_stmts(stmts):
+    gr = GetReads()
+    for stmt in stmts:
+        gr.do_s(stmt)
+    return gr.reads
+
+
+class GetWrites(LoopIR_Do):
+    def __init__(self):
+        self.writes = []
+
+    def do_s(self, s):
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            self.writes.append((s.name, s.type))
+        super().do_s(s)
+
+    # early exit
+    def do_e(self, e):
+        return
+
+
+def get_writes_of_stmts(stmts):
+    gw = GetWrites()
+    gw.do_stmts(stmts)
+    return gw.writes
 
 
 def same_index_exprs(proc_cursor, idx1, s1, idx2, s2):
@@ -617,7 +640,7 @@ def DoInline(call):
 
     def map_bind(nm, a):
         if isinstance(a, LoopIR.WindowExpr):
-            stmt = LoopIR.WindowStmt(nm, a, eff_null(a.srcinfo), a.srcinfo)
+            stmt = LoopIR.WindowStmt(nm, a, None, a.srcinfo)
             win_binds.append(stmt)
             return LoopIR.Read(nm, [], a.type, a.srcinfo)
         return a
@@ -1123,54 +1146,6 @@ def DoLiftScope(inner_c):
     fwd = _compose(fwd_repl, fwd)
 
     return _fixup_effects(ir, fwd)
-
-
-def get_reads_of_stmts(stmts):
-    reads = []
-    for s in stmts:
-        if isinstance(s, LoopIR.Assign):
-            reads += get_reads_of_expr(s.rhs)
-            reads += sum([get_reads_of_expr(idx) for idx in s.idx], [])
-        elif isinstance(s, LoopIR.Reduce):
-            reads += get_reads_of_expr(s.rhs)
-            reads += sum([get_reads_of_expr(idx) for idx in s.idx], [])
-        elif isinstance(s, LoopIR.If):
-            reads += get_reads_of_stmts(s.body)
-            if s.orelse:
-                reads += get_reads_of_stmts(s.orelse)
-        elif isinstance(s, LoopIR.Seq):
-            reads += get_reads_of_stmts(s.body)
-        elif isinstance(s, LoopIR.Call):
-            reads += sum([get_reads_of_expr(arg) for arg in s.args], [])
-        elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig)):
-            raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
-        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
-            pass
-        else:
-            raise NotImplementedError(f"unknown stmt type {type(s)}")
-    return reads
-
-
-def get_writes_of_stmts(stmts):
-    writes = []
-    for s in stmts:
-        if isinstance(s, LoopIR.Assign):
-            writes += [(s.name, s.type)]
-        elif isinstance(s, LoopIR.Reduce):
-            writes += [(s.name, s.type)]
-        elif isinstance(s, LoopIR.If):
-            writes += get_writes_of_stmts(s.body)
-            if s.orelse:
-                writes += get_writes_of_stmts(s.orelse)
-        elif isinstance(s, LoopIR.Seq):
-            writes += get_writes_of_stmts(s.body)
-        elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig)):
-            raise NotImplementedError("WindowStmt and WriteConfig not supported yet")
-        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.Call)):
-            pass
-        else:
-            raise NotImplementedError(f"unknown stmt type {type(s)}")
-    return writes
 
 
 def DoLiftConstant(assign_c, loop_c):
@@ -2521,7 +2496,7 @@ def _make_closure(name, stmts, var_types, order):
 
 def DoInsertPass(gap):
     srcinfo = gap.parent()._node.srcinfo
-    ir, fwd = gap._insert([LoopIR.Pass(eff_null(srcinfo), srcinfo=srcinfo)])
+    ir, fwd = gap._insert([LoopIR.Pass(None, srcinfo=srcinfo)])
     return ir, fwd
 
 
