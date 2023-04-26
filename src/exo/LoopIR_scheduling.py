@@ -256,13 +256,12 @@ def _replace_helper(c, c_repl, only_replace_attrs):
         return c._replace(c_repl)
 
 
-def _replace_pats(ir, fwd, c, pat, repl, c_is_fwded=False, only_replace_attrs=True):
+def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
-    if not c_is_fwded:
-        c = fwd(c)
     cur_fwd = lambda x: x
+    c = fwd(c)
     for rd in match_pattern(c, pat):
         rd = cur_fwd(rd)
         if not (c_repl := repl(rd)):
@@ -272,12 +271,9 @@ def _replace_pats(ir, fwd, c, pat, repl, c_is_fwded=False, only_replace_attrs=Tr
     return ir, _compose(cur_fwd, fwd)
 
 
-def _replace_pats_stmts(
-    ir, fwd, c, pat, repl, c_is_fwded=False, only_replace_attrs=True
-):
+def _replace_pats_stmts(ir, fwd, c, pat, repl, only_replace_attrs=True):
     cur_fwd = lambda x: x
-    if not c_is_fwded:
-        c = fwd(c)
+    c = fwd(c)
     for block in match_pattern(c, pat):
         # needed because match_pattern on stmts return blocks
         assert len(block) == 1
@@ -579,6 +575,9 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         cut_tail_sub = szop("+", rd(cut_i), szop("*", hi_rng, lo_rng))
 
         cut_body = Alpha_Rename(split_loop.body).result()
+        env = {split_loop.iter: cut_tail_sub}
+        cut_body = SubstArgs(cut_body, env).result()
+
         cut_s = LoopIR.Seq(cut_i, Ntail, cut_body, None, srcinfo)
         if tail_strategy == "cut_and_guard":
             cond = boolop(">", Ntail, LoopIR.Const(0, T.int, srcinfo))
@@ -586,20 +585,6 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
 
         ir, fwd_ins = fwd(loop_cursor).after()._insert([cut_s])
         fwd = _compose(fwd_ins, fwd)
-
-        def mk_cut_iter(c):
-            return cut_tail_sub
-
-        c = fwd(loop_cursor).next()
-        ir, fwd = _replace_pats(
-            ir,
-            fwd,
-            c,
-            f"{split_loop.iter}",
-            mk_cut_iter,
-            c_is_fwded=True,
-            only_replace_attrs=False,
-        )
 
     return _fixup_effects(ir, fwd)
 
