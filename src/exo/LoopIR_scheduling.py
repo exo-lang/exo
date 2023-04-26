@@ -1075,7 +1075,15 @@ def DoLiftScope(inner_c):
                     "cannot lift for loop when if has an orelse clause"
                 )
 
-            ir, fwd = inner_c.body()._wrap(if_wrapper, "body")
+            # ir, fwd = inner_c.body()._wrap(if_wrapper, "body")
+            ir, fwd = inner_c.body()._move(inner_c.after())
+            ir, fwd_move = fwd(inner_c)._move(fwd(outer_c).after())
+            fwd = _compose(fwd_move, fwd)
+            ir, fwd_move = fwd(outer_c)._move(fwd(inner_c).body()[0].after())
+            fwd = _compose(fwd_move, fwd)
+            ir, fwd_del = fwd(inner_c).body()[0]._delete()
+            fwd = _compose(fwd_del, fwd)
+            return _fixup_effects(ir, fwd)
     elif isinstance(outer_s, LoopIR.Seq):
         if len(outer_s.body) > 1:
             raise SchedulingError(
@@ -1116,8 +1124,10 @@ def DoLiftScope(inner_c):
             fwd = _compose(fwd_del, fwd)
             return _fixup_effects(ir, fwd)
 
-    ir, fwd_repl = fwd(outer_c)._replace([fwd(inner_c)._node])
-    fwd = _compose(fwd_repl, fwd)
+    ir, fwd_move = fwd(inner_c)._move(fwd(outer_c).after())
+    fwd = _compose(fwd_move, fwd)
+    ir, fwd_del = fwd(outer_c)._delete()
+    fwd = _compose(fwd_del, fwd)
 
     return _fixup_effects(ir, fwd)
 
