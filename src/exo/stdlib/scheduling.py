@@ -270,7 +270,7 @@ def replace_all(proc, subprocs, mem_aware=True):
                 if "failed to find matches" in str(e):
                     break
                 raise
-            except (_UnificationError, MemoryError):
+            except (_UnificationError, MemoryError, NotImplementedError):
                 i += 1
 
     return proc
