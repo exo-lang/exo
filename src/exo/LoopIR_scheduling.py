@@ -251,6 +251,7 @@ def _replace_helper(c, c_repl, only_replace_attrs):
         return c._replace(c_repl)
 
 
+# TODO KQ: make ones for read and write that consider ID
 def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
@@ -367,7 +368,7 @@ def DoProductLoop(outer_loop, new_name):
     outer_expr = LoopIR.BinOp("/", var, inner_hi, T.index, srcinfo)
     inner_expr = LoopIR.BinOp("%", var, inner_hi, T.index, srcinfo)
 
-    # TODO: indexes are inside expression blocks... need a more
+    # TODO KQ: indexes are inside expression blocks... need a more
     #   uniform way to treat this.
     mk_outer_expr = lambda _: outer_expr
     mk_inner_expr = lambda _: inner_expr
@@ -1026,6 +1027,7 @@ def DoLiftScope(inner_c):
 
     ir, fwd = inner_c.get_root(), lambda x: x
 
+    # TODO KQ: rewrite this to case based on inner_s type
     if isinstance(outer_s, LoopIR.If):
 
         def if_wrapper(body, insert_orelse=False):
@@ -1103,7 +1105,6 @@ def DoLiftScope(inner_c):
                     "cannot lift for loop when if has an orelse clause"
                 )
 
-            # ir, fwd = inner_c.body()._wrap(if_wrapper, "body")
             ir, fwd = inner_c.body()._move(inner_c.after())
             ir, fwd_move = fwd(inner_c)._move(fwd(outer_c).after())
             fwd = _compose(fwd_move, fwd)
@@ -1336,7 +1337,6 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
 
 
 def DoRearrangeDim(alloc_cursor, permute_vector):
-    # TODO: deal with issue of same name, diff id = diff variable
     alloc_s = alloc_cursor._node
     assert isinstance(alloc_s, LoopIR.Alloc)
 
@@ -2024,16 +2024,23 @@ def DoRemoveLoop(loop):
 
     # 3. The loop runs at least once;
     #    If not, then place a guard around the statement
-    body = Alpha_Rename(s.body).result()
+    ir, fwd = loop.get_root(), lambda x: x
     try:
         Check_IsPositiveExpr(loop.get_root(), [s], s.hi)
     except SchedulingError:
         zero = LoopIR.Const(0, T.int, s.srcinfo)
         cond = LoopIR.BinOp(">", s.hi, zero, T.bool, s.srcinfo)
-        body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
 
-    # TODO: use move and/or wrap
-    ir, fwd = loop._replace(body)
+        def wrapper(body):
+            return LoopIR.If(cond, body, [], None, s.srcinfo)
+
+        ir, fwd = loop.body()._wrap(wrapper, "body")
+
+    ir, fwd_move = loop.body()._move(loop.after())
+    fwd = _compose(fwd_move, fwd)
+    ir, fwd_del = fwd(loop)._delete()
+    fwd = _compose(fwd_del, fwd)
+
     return _fixup_effects(ir, fwd)
 
 
@@ -2336,7 +2343,7 @@ class DoBoundAndGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-# TODO: don't invalidate second loop's body. Will need to rewrite SubstArgs
+# TODO KQ: don't invalidate second loop's body. Will need to rewrite SubstArgs
 def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
     proc = f_cursor.get_root()
     loop1 = f_cursor._node
@@ -2969,7 +2976,7 @@ class DoSimplify(Cursor_Rewrite):
 
         # might need to update IR with predicate changes
         if new_preds := self.map_exprs(self.ir.preds):
-            # TODO: is this line covered? do we not need to forward here?
+            # TODO KQ: is this line covered? do we not need to forward here?
             self.ir = self.ir.update(preds=new_preds)
 
     def cfold(self, op, lhs, rhs):
@@ -3382,7 +3389,6 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     proc = block_cursor.get_root()
     new_name = Sym(new_name)
 
-    # TODO: rewrite with internal cursors?
     buf_name, buf_typ, mem = _DoStageMem_FindBufData(
         proc, buf_name, block_cursor[0]._node
     ).result()
