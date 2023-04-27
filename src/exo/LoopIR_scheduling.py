@@ -2343,11 +2343,8 @@ class DoBoundAndGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-# TODO KQ: don't invalidate second loop's body. Will need to rewrite SubstArgs
 def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
     proc = f_cursor.get_root()
-    loop1 = f_cursor._node
-    loop2 = s_cursor._node
 
     if f_cursor.next() != s_cursor:
         raise SchedulingError(
@@ -2355,22 +2352,30 @@ def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
         )
 
     # check if the loop bounds are equivalent
+    loop1 = f_cursor._node
+    loop2 = s_cursor._node
     Check_ExprEqvInContext(proc, loop1.hi, [loop1], loop2.hi, [loop2])
 
-    x = LoopIR.Read(loop1.iter, [], T.index, loop1.srcinfo)
-    y = loop2.iter
-    body1 = loop1.body
-    body2 = SubstArgs(loop2.body, {y: x}).result()
+    def mk_read(e):
+        return LoopIR.Read(loop1.iter, [], T.index, loop1.srcinfo)
 
-    ir, fwd = f_cursor.body()[-1].after()._insert(body2)
-
+    ir, fwd = proc, lambda x: x
+    ir, fwd = _replace_pats(
+        ir, fwd, s_cursor, f"{loop2.iter}", mk_read, only_replace_attrs=False
+    )
+    ir, fwd_move = fwd(s_cursor).body()._move(fwd(f_cursor).body()[-1].after())
+    fwd = _compose(fwd_move, fwd)
     ir, fwdDel = fwd(s_cursor)._delete()
     fwd = _compose(fwdDel, fwd)
 
-    loop = fwd(f_cursor)._node
-
     if not unsafe_disable_check:
+        x = LoopIR.Read(loop1.iter, [], T.index, loop1.srcinfo)
+        y = loop2.iter
+        body1 = loop1.body
+        body2 = SubstArgs(loop2.body, {y: x}).result()
+        loop = fwd(f_cursor)._node
         Check_FissionLoop(ir, loop, body1, body2)
+
     return _fixup_effects(ir, fwd)
 
 
