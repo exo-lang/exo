@@ -230,12 +230,14 @@ def test_proc_equal():
     assert foo != make_foo()
 
 
-def test_simplify3(golden):
+def test_simplify(golden):
     @proc
     def foo(n: size, m: size):
-        assert m == 1 and n == 1
+        x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
+        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
+            pass
         y: R[10]
-        y[10 * m - 10 * n + 2 * n] = 2.0
+        y[n * 4 - n * 4 + 1] = 0.0
 
     assert str(simplify(foo)) == golden
 
@@ -276,16 +278,25 @@ def test_simplify2(golden):
     assert str(simplify(foo)) == golden
 
 
-def test_simplify(golden):
+def test_simplify3(golden):
     @proc
     def foo(n: size, m: size):
-        x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
-        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
-            pass
+        assert m == 1 and n == 1
         y: R[10]
-        y[n * 4 - n * 4 + 1] = 0.0
+        y[10 * m - 10 * n + 2 * n] = 2.0
 
     assert str(simplify(foo)) == golden
+
+
+def test_simplify4(golden):
+    @proc
+    def bar():
+        for i in seq(0, 3):
+            for j in seq(0, i * 16 + 16 - i * 16):
+                pass
+
+    bar = simplify(bar)
+    assert str(bar) == golden
 
 
 def test_pattern_match():
