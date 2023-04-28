@@ -1,0 +1,4 @@
+def bar():
+    for i in seq(0, 3):
+        for j in seq(0, 16):
+            pass
