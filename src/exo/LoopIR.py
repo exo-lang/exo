@@ -846,6 +846,63 @@ class LoopIR_Do:
             pass
 
 
+class GetReads(LoopIR_Do):
+    def __init__(self):
+        self.reads = []
+
+    def do_e(self, e):
+        if isinstance(e, LoopIR.Read):
+            self.reads.append((e.name, e.type))
+        super().do_e(e)
+
+    def do_s(self, s):
+        if isinstance(s, LoopIR.Call):
+            reads_in_subproc = [a for a, _ in get_reads_of_stmts(s.f.body)]
+            for arg, call_arg in zip(s.args, s.f.args):
+                if call_arg.name in reads_in_subproc:
+                    self.reads.append((arg.name, arg.type))
+        super().do_s(s)
+
+
+def get_reads_of_expr(e):
+    gr = GetReads()
+    gr.do_e(e)
+    return gr.reads
+
+
+def get_reads_of_stmts(stmts):
+    gr = GetReads()
+    for stmt in stmts:
+        gr.do_s(stmt)
+    return gr.reads
+
+
+class GetWrites(LoopIR_Do):
+    def __init__(self):
+        self.writes = []
+
+    def do_s(self, s):
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            self.writes.append((s.name, s.type))
+        elif isinstance(s, LoopIR.Call):
+            writes_in_subproc = [a for a, _ in get_writes_of_stmts(s.f.body)]
+            for arg, call_arg in zip(s.args, s.f.args):
+                if call_arg.name in writes_in_subproc:
+                    self.writes.append((arg.name, arg.type))
+
+        super().do_s(s)
+
+    # early exit
+    def do_e(self, e):
+        return
+
+
+def get_writes_of_stmts(stmts):
+    gw = GetWrites()
+    gw.do_stmts(stmts)
+    return gw.writes
+
+
 class FreeVars(LoopIR_Do):
     def __init__(self, node):
         assert isinstance(node, list)

@@ -8,6 +8,9 @@ from .LoopIR import (
     LoopIR_Do,
     SubstArgs,
     T,
+    get_reads_of_expr,
+    get_reads_of_stmts,
+    get_writes_of_stmts,
 )
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .new_eff import (
@@ -373,49 +376,6 @@ def DoProductLoop(outer_loop, new_name):
     fwd = _compose(fwdDel, fwd)
 
     return ir, fwd
-
-
-class GetReads(LoopIR_Do):
-    def __init__(self):
-        self.reads = []
-
-    def do_e(self, e):
-        if isinstance(e, LoopIR.Read):
-            self.reads.append((e.name, e.type))
-        super().do_e(e)
-
-
-def get_reads_of_expr(e):
-    gr = GetReads()
-    gr.do_e(e)
-    return gr.reads
-
-
-def get_reads_of_stmts(stmts):
-    gr = GetReads()
-    for stmt in stmts:
-        gr.do_s(stmt)
-    return gr.reads
-
-
-class GetWrites(LoopIR_Do):
-    def __init__(self):
-        self.writes = []
-
-    def do_s(self, s):
-        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            self.writes.append((s.name, s.type))
-        super().do_s(s)
-
-    # early exit
-    def do_e(self, e):
-        return
-
-
-def get_writes_of_stmts(stmts):
-    gw = GetWrites()
-    gw.do_stmts(stmts)
-    return gw.writes
 
 
 def same_index_exprs(proc_cursor, idx1, s1, idx2, s2):
