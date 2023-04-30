@@ -2894,21 +2894,47 @@ class _DoNormalize(Cursor_Rewrite):
 
         return super().map_e(e)
 
-    def super_map_s(self, sc):
+    def map_s(self, sc):
         s = sc._node
         if isinstance(s, LoopIR.If):
             new_cond = self.map_e(s.cond)
+
+            self.env = self.env.new_child()
             self.map_stmts(sc.body())
+            self.env = self.env.parents
+
+            self.env = self.env.new_child()
             self.map_stmts(sc.orelse())
+            self.env = self.env.parents
+
             if new_cond:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("cond")._replace(new_cond)
                 self.fwd = _compose(fwd_repl, self.fwd)
         elif isinstance(s, LoopIR.Seq):
             new_hi = self.map_e(s.hi)
+
+            self.env = self.env.new_child()
+            hi_range = IndexRangeAnalysis(new_hi, self.env).result()
+            if hi_range is not None:
+                assert hi_range[0] >= 0
+                if hi_range[1] == 0:
+                    # We allow loop hi to be zero, however, that means that the loop
+                    # variable doesn't have a defined range. We can set it to None
+                    # since any simplification is not necessary since loop won't run
+                    hi_range = None
+                else:
+                    hi_range = (0, hi_range[1] - 1)
+                self.env[s.iter] = hi_range
+            else:
+                self.env[s.iter] = None
+
             self.map_stmts(sc.body())
             if new_hi:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("hi")._replace(new_hi)
                 self.fwd = _compose(fwd_repl, self.fwd)
+
+            self.env = self.env.parents
+
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             new_type = self.map_t(s.type)
             new_idx = self.map_exprs(s.idx)
@@ -2942,30 +2968,7 @@ class _DoNormalize(Cursor_Rewrite):
         else:
             raise NotImplementedError(f"bad case {type(s)}")
 
-    def map_s(self, sc):
-        s = sc._node
-        if isinstance(s, LoopIR.Seq):
-            self.env = self.env.new_child()
-
-            hi_range = IndexRangeAnalysis(s.hi, self.env).result()
-            if hi_range is not None:
-                assert hi_range[0] >= 0
-                if hi_range[1] == 0:
-                    # We allow loop hi to be zero, however, that means that the loop
-                    # variable doesn't have a defined range. We can set it to None
-                    # since any simplification is not necessary since loop won't run
-                    hi_range = None
-                else:
-                    hi_range = (0, hi_range[1] - 1)
-                self.env[s.iter] = hi_range
-            else:
-                self.env[s.iter] = None
-
-            new_s = self.super_map_s(sc)
-            self.env = self.env.parents
-            return new_s
-
-        return self.super_map_s(sc)
+        return None
 
 
 class DoSimplify(Cursor_Rewrite):

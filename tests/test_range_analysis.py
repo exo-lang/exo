@@ -194,3 +194,16 @@ def test_affine_index_range_fail1():
     i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = IndexRangeAnalysis(e, {i_sym: (0, 5)}).result()
     assert e_range == None
+
+
+def test_affine_index_range_fail2():
+    @proc
+    def bar():
+        for i in seq(0, 3):
+            for j in seq(0, i * 16 + 16 - i * 16):
+                pass
+
+    e = bar.find("for j in _:_").hi()._impl._node
+    i_sym = bar.find("for i in _:_")._impl._node.iter
+    e_range = IndexRangeAnalysis(e, {i_sym: (0, 2)}).result()
+    assert e_range == None
