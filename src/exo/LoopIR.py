@@ -1033,23 +1033,6 @@ class FreeVars(LoopIR_Do):
 
         super().do_t(t)
 
-    def do_eff_es(self, es):
-        if es.buffer not in self.env:
-            self.fv.add(es.buffer)
-
-        self.push()
-        for x in es.names:
-            self.env[x] = True
-
-        super().do_eff_es(es)
-        self.pop()
-
-    def do_eff_e(self, e):
-        if isinstance(e, Effects.Var) and e.name not in self.env:
-            self.fv.add(e.name)
-
-        super().do_eff_e(e)
-
 
 class Alpha_Rename(LoopIR_Rewrite):
     def __init__(self, node):

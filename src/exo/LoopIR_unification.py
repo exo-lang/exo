@@ -12,7 +12,6 @@ from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
 from .new_eff import Check_Aliasing
-from .effectcheck import InferEffects
 import exo.internal_cursors as ic
 
 

@@ -13,7 +13,6 @@ from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_effects import (
     Effects as E,
 )
-from .effectcheck import InferEffects
 from .new_eff import (
     SchedulingError,
     Check_ReorderStmts,
@@ -219,12 +218,6 @@ def nested_iter_names_to_pattern(namestr, inner):
 # Cursor form scheduling directive helpers
 
 
-def _fixup_effects(ir, fwd):
-    ir = InferEffects(ir).result()
-    fwd = ic.forward_identity(ir, fwd)
-    return ir, fwd
-
-
 def _compose(f, g):
     return lambda x: f(g(x))
 
@@ -299,7 +292,7 @@ def DoReorderStmt(f_cursor, s_cursor):
         )
     Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node)
     ir, fwd = s_cursor._move(f_cursor.before())
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def DoPartitionLoop(stmt, partition_by):
@@ -337,7 +330,7 @@ def DoPartitionLoop(stmt, partition_by):
     ).result()[0]
 
     ir, fwd = stmt._replace([loop1, loop2])
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def DoProductLoop(outer_loop, new_name):
@@ -402,7 +395,7 @@ def DoProductLoop(outer_loop, new_name):
     ir, fwdDel = fwd(outer_loop)._delete()
     fwd = _compose(fwdDel, fwd)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 class GetReads(LoopIR_Do):
@@ -487,7 +480,7 @@ def DoMergeWrites(c1, c2):
         )
         fwd = _compose(fwd_repl, fwd)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 # --------------------------------------------------------------------------- #
@@ -609,7 +602,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         ir, fwd_ins = fwd(loop_cursor).after()._insert([cut_s])
         fwd = _compose(fwd_ins, fwd)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 # --------------------------------------------------------------------------- #
@@ -668,7 +661,7 @@ def DoInline(call):
     new_body = Alpha_Rename(win_binds + body).result()
 
     ir, fwd = call._replace(new_body)
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 # --------------------------------------------------------------------------- #
@@ -875,7 +868,7 @@ def DoInlineWindow(window_cursor):
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{window_s.lhs} = _", mk_write)
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{window_s.lhs} += _", mk_write)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
@@ -891,7 +884,6 @@ def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
 
     cfg = Check_DeleteConfigWrite(ir, [cw_s])
 
-    ir, fwd = _fixup_effects(ir, fwd)
     return ir, fwd, cfg
 
 
@@ -919,7 +911,6 @@ def DoBindConfig(config, field, expr_cursor):
     ir, fwd_repl = fwd(expr_cursor)._replace(cfg_read_e)
     fwd = _compose(fwd_repl, fwd)
 
-    ir, fwd = _fixup_effects(ir, fwd)
     Check_Aliasing(ir)
     return ir, fwd, mod_cfg
 
@@ -933,7 +924,7 @@ def DoCommuteExpr(expr_cursors):
         fwd = _compose(fwd_repl, fwd)
         ir, fwd_repl = fwd(expr_c._child_node("rhs"))._replace(e.lhs)
         fwd = _compose(fwd_repl, fwd)
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def get_enclosing_stmt_cursor(c):
@@ -1012,7 +1003,6 @@ def DoBindExpr(new_name, expr_cursors, cse=False):
                 fwd = _compose(fwd_repl, fwd)
                 expr_cursors.pop(0)
 
-    ir, fwd = _fixup_effects(ir, fwd)
     Check_Aliasing(ir)
     return ir, fwd
 
@@ -1145,12 +1135,12 @@ def DoLiftScope(inner_c):
             fwd = _compose(fwd_move, fwd)
             ir, fwd_del = fwd(outer_c).body()[0]._delete()
             fwd = _compose(fwd_del, fwd)
-            return _fixup_effects(ir, fwd)
+            return ir, fwd
 
     ir, fwd_repl = fwd(outer_c)._replace([fwd(inner_c)._node])
     fwd = _compose(fwd_repl, fwd)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def DoLiftConstant(assign_c, loop_c):
@@ -1272,7 +1262,7 @@ def DoLiftConstant(assign_c, loop_c):
     ir, fwd_ins = fwd(loop_c).after()._insert([new_assign])
     fwd = _compose(fwd_ins, fwd)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def DoExpandDim(alloc_cursor, alloc_dim, indexing):
@@ -1325,7 +1315,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
     after_alloc = [c._node for c in fwd(alloc_cursor.parent()).body()[idx + 1 :]]
     Check_Bounds(ir, new_alloc, after_alloc)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def DoRearrangeDim(alloc_cursor, permute_vector):
@@ -1400,7 +1390,7 @@ def DoRearrangeDim(alloc_cursor, permute_vector):
             ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{name} = _", mk_write)
             ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{name} += _", mk_write)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 class _DoRearrangeDim(Cursor_Rewrite):
@@ -1412,8 +1402,6 @@ class _DoRearrangeDim(Cursor_Rewrite):
         self.all_permute = {self.alloc_stmt.name: permute_vector}
 
         super().__init__(proc_cursor)
-
-        self.proc = InferEffects(self.proc).result()
 
     def should_permute(self, buf):
         return buf in self.all_permute
@@ -1549,7 +1537,7 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
@@ -1615,7 +1603,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 # --------------------------------------------------------------------------- #
@@ -1656,7 +1644,7 @@ def DoLiftAllocSimple(alloc_cursor, n_lifts):
 
     gap_c = stmt_c.before()
     ir, fwd = alloc_cursor._move(gap_c)
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 # --------------------------------------------------------------------------- #
@@ -1694,9 +1682,6 @@ class DoLiftAlloc(Cursor_Rewrite):
         self._in_call_arg = False
 
         super().__init__(proc)
-
-        # repair effects...
-        self.proc = InferEffects(self.proc).result()
 
     def idx_mode(self, access, orig):
         if self.lift_mode == "row":
@@ -2027,7 +2012,7 @@ def DoRemoveLoop(loop):
 
     # TODO: use move and/or wrap
     ir, fwd = loop._replace(body)
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 # This is same as original FissionAfter, except that
@@ -2131,7 +2116,7 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
 
                 cur_c = fwd_move(fwd_wrap(par_c))
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 # TODO: Deprecate this with the one above
@@ -2157,7 +2142,6 @@ class DoFissionLoops:
             eff=self.orig_proc.eff,
             srcinfo=self.orig_proc.srcinfo,
         )
-        self.proc = InferEffects(self.proc).result()
 
     def result(self):
         return api.Procedure(self.proc, _provenance_eq_Procedure=self.provenance)
@@ -2268,8 +2252,6 @@ class DoAddUnsafeGuard(Cursor_Rewrite):
 
         super().__init__(proc_cursor)
 
-        self.proc = InferEffects(self.proc).result()
-
     def map_s(self, sc):
         s = sc._node
         if s is self.stmt:
@@ -2292,7 +2274,7 @@ def DoSpecialize(stmt_cursor, conds):
         else_br = [LoopIR.If(cond, then_br, else_br, None, s.srcinfo)]
 
     ir, fwd = stmt_cursor._replace(else_br)
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def _get_constant_bound(e):
@@ -2356,7 +2338,7 @@ def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
 
     if not unsafe_disable_check:
         Check_FissionLoop(ir, loop, body1, body2)
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def DoFuseIf(f_cursor, s_cursor):
@@ -2386,7 +2368,7 @@ def DoFuseIf(f_cursor, s_cursor):
         fwd = _compose(fwd_repl, fwd)
     ir, fwd_del = fwd(s_cursor)._delete()
     fwd = _compose(fwd_del, fwd)
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
@@ -2409,7 +2391,7 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
         return LoopIR.Seq(sym, hi, body, None, s.srcinfo)
 
     ir, fwd = stmt_cursor.as_block()._wrap(wrapper, "body")
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 # --------------------------------------------------------------------------- #
@@ -3139,8 +3121,9 @@ class DoSimplify(Cursor_Rewrite):
         return None
 
     def result(self, mod_config=None):
-        ir, fwd = _fixup_effects(self.ir, self.fwd)
-        return api.Procedure(ir, _provenance_eq_Procedure=self.provenance, _forward=fwd)
+        return api.Procedure(
+            self.ir, _provenance_eq_Procedure=self.provenance, _forward=self.fwd
+        )
 
     def map_s(self, sc):
         s = sc._node
@@ -3246,8 +3229,6 @@ class DoAssertIf(Cursor_Rewrite):
 
         super().__init__(proc_cursor)
 
-        self.proc = InferEffects(self.proc).result()
-
     def map_s(self, sc):
         s = sc._node
         if s is self.if_stmt:
@@ -3306,7 +3287,7 @@ def DoDataReuse(buf_cursor, rep_cursor):
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{rep_name} = _", mk_write)
         ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{rep_name} += _", mk_write)
 
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 # TODO: This can probably be re-factored into a generic
@@ -3528,7 +3509,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         new_block_c = new_block_c.expand(0, 1)
     alloc_c = new_block_c[0].prev()
     Check_Bounds(ir, alloc_c._node, [c._node for c in new_block_c])
-    return _fixup_effects(ir, fwd)
+    return ir, fwd
 
 
 class DoStageWindow(Cursor_Rewrite):
@@ -3545,14 +3526,6 @@ class DoStageWindow(Cursor_Rewrite):
 
         super().__init__(proc_cursor)
         Check_Aliasing(self.proc)
-
-        self.proc = InferEffects(self.proc).result()
-
-    def _stmt_writes_to_window(self, s):
-        for eff in s.eff.reduces + s.eff.writes:
-            if self.target_expr.name == eff.buffer:
-                return True
-        return False
 
     def _make_staged_alloc(self):
         """
@@ -3633,6 +3606,11 @@ class DoStageWindow(Cursor_Rewrite):
     def map_stmts(self, stmts):
         result = []
 
+        if self.target_expr.name in [
+            name for name, _ in get_writes_of_stmts([s._node for s in stmts])
+        ]:
+            raise NotImplementedError("StageWindow does not handle writes yet.")
+
         for s in stmts:
             # TODO: be smarter about None here
             s = self.apply_s(s)
@@ -3642,10 +3620,6 @@ class DoStageWindow(Cursor_Rewrite):
                 assert self._copy_code
                 s = s[0]
 
-                if self._stmt_writes_to_window(s):
-                    raise NotImplementedError(
-                        "StageWindow does not handle " "writes yet."
-                    )
                 s = self._copy_code + [s]
                 self._complete = True
 
