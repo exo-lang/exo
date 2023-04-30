@@ -855,14 +855,6 @@ class GetReads(LoopIR_Do):
             self.reads.append((e.name, e.type))
         super().do_e(e)
 
-    def do_s(self, s):
-        if isinstance(s, LoopIR.Call):
-            reads_in_subproc = [a for a, _ in get_reads_of_stmts(s.f.body)]
-            for arg, call_arg in zip(s.args, s.f.args):
-                if call_arg.name in reads_in_subproc:
-                    self.reads.append((arg.name, arg.type))
-        super().do_s(s)
-
 
 def get_reads_of_expr(e):
     gr = GetReads()
@@ -888,7 +880,10 @@ class GetWrites(LoopIR_Do):
             writes_in_subproc = [a for a, _ in get_writes_of_stmts(s.f.body)]
             for arg, call_arg in zip(s.args, s.f.args):
                 if call_arg.name in writes_in_subproc:
-                    self.writes.append((arg.name, arg.type))
+                    if isinstance(
+                        arg, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)
+                    ):
+                        self.writes.append((arg.name, arg.type))
 
         super().do_s(s)
 
