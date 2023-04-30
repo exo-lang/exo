@@ -10,9 +10,6 @@ from .LoopIR import (
     T,
 )
 from .LoopIR_dataflow import LoopIR_Dependencies
-from .LoopIR_effects import (
-    Effects as E,
-)
 from .new_eff import (
     SchedulingError,
     Check_ReorderStmts,
@@ -59,20 +56,14 @@ class Cursor_Rewrite(LoopIR_Rewrite):
         new_args = self._map_list(self.map_fnarg, p.args)
         new_preds = self.map_exprs(p.preds)
         new_body = self.map_stmts(pc.body())
-        new_eff = self.map_eff(p.eff)
 
-        if any(
-            (new_args is not None, new_preds is not None, new_body is not None, new_eff)
-        ):
+        if any((new_args is not None, new_preds is not None, new_body is not None)):
             new_preds = new_preds or p.preds
             new_preds = [
                 p for p in new_preds if not (isinstance(p, LoopIR.Const) and p.val)
             ]
             return p.update(
-                args=new_args or p.args,
-                preds=new_preds,
-                body=new_body or p.body,
-                eff=new_eff or p.eff,
+                args=new_args or p.args, preds=new_preds, body=new_body or p.body
             )
 
         return None
@@ -113,55 +104,43 @@ class Cursor_Rewrite(LoopIR_Rewrite):
             new_type = self.map_t(s.type)
             new_idx = self.map_exprs(s.idx)
             new_rhs = self.map_e(s.rhs)
-            new_eff = self.map_eff(s.eff)
-            if any((new_type, new_idx is not None, new_rhs, new_eff)):
+            if any((new_type, new_idx is not None, new_rhs)):
                 return [
                     s.update(
                         type=new_type or s.type,
                         idx=new_idx or s.idx,
                         rhs=new_rhs or s.rhs,
-                        eff=new_eff or s.eff,
                     )
                 ]
         elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
             new_rhs = self.map_e(s.rhs)
-            new_eff = self.map_eff(s.eff)
-            if any((new_rhs, new_eff)):
-                return [s.update(rhs=new_rhs or s.rhs, eff=new_eff or s.eff)]
+            if new_rhs:
+                return [s.update(rhs=new_rhs or s.rhs)]
         elif isinstance(s, LoopIR.If):
             new_cond = self.map_e(s.cond)
             new_body = self.map_stmts(sc.body())
             new_orelse = self.map_stmts(sc.orelse())
-            new_eff = self.map_eff(s.eff)
-            if any((new_cond, new_body is not None, new_orelse is not None, new_eff)):
+            if any((new_cond, new_body is not None, new_orelse is not None)):
                 return [
                     s.update(
                         cond=new_cond or s.cond,
                         body=new_body or s.body,
                         orelse=new_orelse or s.orelse,
-                        eff=new_eff or s.eff,
                     )
                 ]
         elif isinstance(s, LoopIR.Seq):
             new_hi = self.map_e(s.hi)
             new_body = self.map_stmts(sc.body())
-            new_eff = self.map_eff(s.eff)
-            if any((new_hi, new_body is not None, new_eff)):
-                return [
-                    s.update(
-                        hi=new_hi or s.hi, body=new_body or s.body, eff=new_eff or s.eff
-                    )
-                ]
+            if any((new_hi, new_body is not None)):
+                return [s.update(hi=new_hi or s.hi, body=new_body or s.body)]
         elif isinstance(s, LoopIR.Call):
             new_args = self.map_exprs(s.args)
-            new_eff = self.map_eff(s.eff)
-            if any((new_args is not None, new_eff)):
-                return [s.update(args=new_args or s.args, eff=new_eff or s.eff)]
+            if new_args is not None:
+                return [s.update(args=new_args or s.args)]
         elif isinstance(s, LoopIR.Alloc):
             new_type = self.map_t(s.type)
-            new_eff = self.map_eff(s.eff)
-            if any((new_type, new_eff)):
-                return [s.update(type=new_type or s.type, eff=new_eff or s.eff)]
+            if new_type:
+                return [s.update(type=new_type or s.type)]
         elif isinstance(s, LoopIR.Pass):
             return None
         else:
@@ -315,7 +294,7 @@ def DoPartitionLoop(stmt, partition_by):
             f"expected the new loop bound {new_hi} to be always non-negative"
         )
 
-    loop1 = Alpha_Rename([s.update(hi=part_by, eff=None)]).result()[0]
+    loop1 = Alpha_Rename([s.update(hi=part_by)]).result()[0]
 
     # all uses of the loop iteration in the second body need
     # to be offset by the partition value
@@ -325,9 +304,7 @@ def DoPartitionLoop(stmt, partition_by):
     env = {s.iter: iter_off}
 
     body2 = SubstArgs(s.body, env).result()
-    loop2 = Alpha_Rename(
-        [s.update(iter=iter2, hi=new_hi, body=body2, eff=None)]
-    ).result()[0]
+    loop2 = Alpha_Rename([s.update(iter=iter2, hi=new_hi, body=body2)]).result()[0]
 
     ir, fwd = stmt._replace([loop1, loop2])
     return ir, fwd
@@ -702,15 +679,6 @@ class DoPartialEval(LoopIR_Rewrite):
                     return LoopIR.Const(self.env[e.name], T.bool, e.srcinfo)
 
         return super().map_e(e)
-
-    def map_eff_e(self, e):
-        if isinstance(e, E.Var):
-            if e.type.is_indexable() and e.name in self.env:
-                return E.Const(self.env[e.name], T.int, e.srcinfo)
-            elif e.type.is_bool() and e.name in self.env:
-                return E.Const(self.env[e.name], T.bool, e.srcinfo)
-
-        return super().map_eff_e(e)
 
 
 # --------------------------------------------------------------------------- #
@@ -1767,7 +1735,7 @@ class DoLiftAlloc(Cursor_Rewrite):
                 )
                 rhs = self.apply_e(s.rhs)
                 # return allocation or reduction...
-                return s.update(idx=idx, rhs=rhs, eff=None)
+                return s.update(idx=idx, rhs=rhs)
 
         elif isinstance(s, LoopIR.Call):
             # substitution in call arguments currently unsupported;
@@ -1890,7 +1858,7 @@ class DoLiftAlloc(Cursor_Rewrite):
 
 def check_used(variables, eff):
     for e in eff:
-        if e.buffer in variables:
+        if e in variables:
             return True
     return False
 
@@ -1907,15 +1875,14 @@ class _Is_Alloc_Free(LoopIR_Do):
         for s in post:
             if isinstance(s, LoopIR.Reduce):  # Allow reduce
                 continue
-            if s.eff is None:
-                continue
-            if check_used(self._alloc_var, s.eff.reads):
+
+            reads = [a for a, _ in get_reads_of_stmts([s])]
+            writes = [a for a, _ in get_writes_of_stmts([s])]
+
+            if check_used(self._alloc_var, reads):
                 self._is_alloc_free = False
                 break
-            if check_used(self._alloc_var, s.eff.writes):
-                self._is_alloc_free = False
-                break
-            if check_used(self._alloc_var, s.eff.reduces):
+            if check_used(self._alloc_var, writes):
                 self._is_alloc_free = False
                 break
 
@@ -2221,17 +2188,17 @@ class DoFissionLoops:
                 # body doesn't depend on the loop
                 # and the body is idempotent
                 if s.iter in _FV(pre) or not _is_idempotent(pre):
-                    pre = [s.update(body=pre, eff=None)]
+                    pre = [s.update(body=pre)]
                     # since we are copying the binding of s.iter,
                     # we should perform an Alpha_Rename for safety
                     pre = Alpha_Rename(pre).result()
                 if s.iter in _FV(post) or not _is_idempotent(post):
-                    post = [s.update(body=post, eff=None)]
+                    post = [s.update(body=post)]
 
                 return pre, post
 
             # if we didn't split, then compose pre and post of the body
-            single_stmt = s.update(body=pre + post, eff=None)
+            single_stmt = s.update(body=pre + post)
 
         else:
             # all other statements cannot recursively
@@ -2306,7 +2273,7 @@ class DoBoundAndGuard(Cursor_Rewrite):
                 None,
                 s.srcinfo,
             )
-            return [s.update(hi=bound, body=[guard], eff=None)]
+            return [s.update(hi=bound, body=[guard])]
 
         return super().map_s(sc)
 
@@ -2530,7 +2497,7 @@ class DoExtractMethod(Cursor_Rewrite):
             self.pop()
 
             if body:
-                return [s.update(body=body, eff=None)]
+                return [s.update(body=body)]
 
             return None
         elif isinstance(s, LoopIR.If):
@@ -2542,9 +2509,7 @@ class DoExtractMethod(Cursor_Rewrite):
             self.pop()
 
             if body or orelse:
-                return [
-                    s.update(body=body or s.body, orelse=orelse or s.orlse, eff=None)
-                ]
+                return [s.update(body=body or s.body, orelse=orelse or s.orlse)]
 
             return None
 
