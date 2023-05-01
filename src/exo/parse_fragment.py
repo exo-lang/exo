@@ -223,7 +223,7 @@ class ParseFragment:
             )
         elif isinstance(pat, PAST.USub):
             arg = self.parse_e(pat.arg)
-            return LoopIR.UnaryOp(arg, arg.type, self.srcinfo)
+            return LoopIR.USub(arg, arg.type, self.srcinfo)
         elif isinstance(pat, PAST.StrideExpr):
             nm = self.find_sym(pat.name)
             return LoopIR.StrideExpr(nm, pat.dim, T.stride, self.srcinfo)
