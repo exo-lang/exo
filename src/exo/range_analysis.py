@@ -61,6 +61,7 @@ class IndexRangeAnalysis:
 
     def __init__(self, e, env) -> None:
         self._env = env
+        self._e_symbols = set()
         self._result = self._analyze_range(e)
 
     def result(self):
@@ -73,7 +74,15 @@ class IndexRangeAnalysis:
             return None
 
         if isinstance(e, LoopIR.Read):
-            return self._env.get(e.name)
+            sym = e.name
+            if sym in self._e_symbols:
+                # It is unclear how to do range analysis when a symbol
+                # is read twice within an expression. In most cases,
+                # this won't matter since the expression are normalized
+                # before we try to do range analysis on them
+                return None
+            self._e_symbols.add(sym)
+            return self._env.get(sym)
         elif isinstance(e, LoopIR.Const):
             return (e.val, e.val)
         elif isinstance(e, LoopIR.USub):
