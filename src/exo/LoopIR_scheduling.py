@@ -1029,7 +1029,9 @@ def DoLiftScope(inner_c):
             fwd = _compose(fwd_move, fwd)
             ir, fwd_del = fwd(inner_c).body()[0]._delete()
             fwd = _compose(fwd_del, fwd)
-            return _fixup_effects(ir, fwd)
+
+            return ir, fwd
+
     elif isinstance(outer_s, LoopIR.Seq):
         if len(outer_s.body) > 1:
             raise SchedulingError(
