@@ -1027,7 +1027,6 @@ def DoLiftScope(inner_c):
 
     ir, fwd = inner_c.get_root(), lambda x: x
 
-    # TODO KQ: rewrite this to case based on inner_s type
     if isinstance(outer_s, LoopIR.If):
 
         def if_wrapper(body, insert_orelse=False):
@@ -2036,7 +2035,7 @@ def DoRemoveLoop(loop):
 
         ir, fwd = loop.body()._wrap(wrapper, "body")
 
-    ir, fwd_move = loop.body()._move(loop.after())
+    ir, fwd_move = fwd(loop).body()._move(fwd(loop).after())
     fwd = _compose(fwd_move, fwd)
     ir, fwd_del = fwd(loop)._delete()
     fwd = _compose(fwd_del, fwd)
