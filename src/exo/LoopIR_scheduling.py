@@ -2210,8 +2210,20 @@ def DoSpecialize(stmt_cursor, conds):
     assert conds, "Must add at least one condition"
     s = stmt_cursor._node
 
+    def is_valid_condition(e):
+        assert isinstance(e, LoopIR.BinOp)
+        if e.op in ["and", "or"]:
+            return is_valid_condition(e.lhs) and is_valid_condition(e.rhs)
+        elif e.op in ["==", "!=", "<", "<=", ">", ">="]:
+            return e.lhs.type.is_indexable() and e.rhs.type.is_indexable()
+        else:
+            return False
+
     else_br = Alpha_Rename([s]).result()
     for cond in reversed(conds):
+        if not is_valid_condition(cond):
+            raise SchedulingError("Invalid specialization condition. ")
+
         then_br = Alpha_Rename([s]).result()
         else_br = [LoopIR.If(cond, then_br, else_br, None, s.srcinfo)]
 
