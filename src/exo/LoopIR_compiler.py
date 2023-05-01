@@ -6,8 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .LoopIR import LoopIR, LoopIR_Do
-from .LoopIR import T
+from .LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from .memory import MemGenError, Memory, DRAM, StaticMemory
@@ -113,9 +112,6 @@ class LoopIR_FindMems(LoopIR_Do):
         else:
             super().do_s(s)
 
-    def do_eff(self, eff):
-        pass
-
     def do_t(self, t):
         pass
 
@@ -134,9 +130,6 @@ class LoopIR_FindBuiltIns(LoopIR_Do):
             self._builtins.add(e.f)
         else:
             super().do_e(e)
-
-    def do_eff(self, eff):
-        pass
 
     def do_t(self, t):
         pass
@@ -161,9 +154,6 @@ class LoopIR_FindConfigs(LoopIR_Do):
         if isinstance(s, LoopIR.WriteConfig):
             self._configs.add(s.config)
         super().do_s(s)
-
-    def do_eff(self, eff):
-        pass
 
     def do_t(self, t):
         pass
@@ -463,7 +453,7 @@ class Compiler:
         self.new_varname(Sym("ctxt"), None)
         arg_strs.append(f"{ctxt_name} *ctxt")
 
-        self.non_const = set(e.buffer for e in proc.eff.writes + proc.eff.reduces)
+        self.non_const = set(e for e, _ in get_writes_of_stmts(self.proc.body))
 
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
@@ -832,7 +822,7 @@ class Compiler:
             if isinstance(fn, LoopIR.proc):
                 callee_buf = fn.args[i].name
                 is_const = callee_buf not in set(
-                    x.buffer for x in fn.eff.writes + fn.eff.reduces
+                    x for x, _ in get_writes_of_stmts(fn.body)
                 )
             else:
                 raise NotImplementedError("Passing windows to built-ins")

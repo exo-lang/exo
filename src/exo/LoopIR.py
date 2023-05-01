@@ -580,36 +580,18 @@ class LoopIR_Rewrite:
     def apply_t(self, old):
         return self.map_t(old) or old
 
-    def apply_eff(self, old):
-        return self.map_eff(old) or old
-
-    def apply_eff_es(self, old):
-        return self.map_eff_es(old) or old
-
-    def apply_eff_ce(self, old):
-        return self.map_eff_ce(old) or old
-
-    def apply_eff_e(self, old):
-        return self.map_eff_e(old) or old
-
     def map_proc(self, p):
         new_args = self._map_list(self.map_fnarg, p.args)
         new_preds = self.map_exprs(p.preds)
         new_body = self.map_stmts(p.body)
-        new_eff = self.map_eff(p.eff)
 
-        if any(
-            (new_args is not None, new_preds is not None, new_body is not None, new_eff)
-        ):
+        if any((new_args is not None, new_preds is not None, new_body is not None)):
             new_preds = new_preds or p.preds
             new_preds = [
                 p for p in new_preds if not (isinstance(p, LoopIR.Const) and p.val)
             ]
             return p.update(
-                args=new_args or p.args,
-                preds=new_preds,
-                body=new_body or p.body,
-                eff=new_eff or p.eff,
+                args=new_args or p.args, preds=new_preds, body=new_body or p.body
             )
 
         return None
@@ -631,55 +613,43 @@ class LoopIR_Rewrite:
             new_type = self.map_t(s.type)
             new_idx = self.map_exprs(s.idx)
             new_rhs = self.map_e(s.rhs)
-            new_eff = self.map_eff(s.eff)
-            if any((new_type, new_idx is not None, new_rhs, new_eff)):
+            if any((new_type, new_idx is not None, new_rhs)):
                 return [
                     s.update(
                         type=new_type or s.type,
                         idx=new_idx or s.idx,
                         rhs=new_rhs or s.rhs,
-                        eff=new_eff or s.eff,
                     )
                 ]
         elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
             new_rhs = self.map_e(s.rhs)
-            new_eff = self.map_eff(s.eff)
-            if any((new_rhs, new_eff)):
-                return [s.update(rhs=new_rhs or s.rhs, eff=new_eff or s.eff)]
+            if new_rhs:
+                return [s.update(rhs=new_rhs or s.rhs)]
         elif isinstance(s, LoopIR.If):
             new_cond = self.map_e(s.cond)
             new_body = self.map_stmts(s.body)
             new_orelse = self.map_stmts(s.orelse)
-            new_eff = self.map_eff(s.eff)
-            if any((new_cond, new_body is not None, new_orelse is not None, new_eff)):
+            if any((new_cond, new_body is not None, new_orelse is not None)):
                 return [
                     s.update(
                         cond=new_cond or s.cond,
                         body=new_body or s.body,
                         orelse=new_orelse or s.orelse,
-                        eff=new_eff or s.eff,
                     )
                 ]
         elif isinstance(s, LoopIR.Seq):
             new_hi = self.map_e(s.hi)
             new_body = self.map_stmts(s.body)
-            new_eff = self.map_eff(s.eff)
-            if any((new_hi, new_body is not None, new_eff)):
-                return [
-                    s.update(
-                        hi=new_hi or s.hi, body=new_body or s.body, eff=new_eff or s.eff
-                    )
-                ]
+            if any((new_hi, new_body is not None)):
+                return [s.update(hi=new_hi or s.hi, body=new_body or s.body)]
         elif isinstance(s, LoopIR.Call):
             new_args = self.map_exprs(s.args)
-            new_eff = self.map_eff(s.eff)
-            if any((new_args is not None, new_eff)):
-                return [s.update(args=new_args or s.args, eff=new_eff or s.eff)]
+            if new_args is not None:
+                return [s.update(args=new_args or s.args)]
         elif isinstance(s, LoopIR.Alloc):
             new_type = self.map_t(s.type)
-            new_eff = self.map_eff(s.eff)
-            if any((new_type, new_eff)):
-                return [s.update(type=new_type or s.type, eff=new_eff or s.eff)]
+            if new_type:
+                return [s.update(type=new_type or s.type)]
         elif isinstance(s, LoopIR.Pass):
             return None
         else:
@@ -770,68 +740,6 @@ class LoopIR_Rewrite:
                 )
         return None
 
-    def map_eff(self, eff):
-        if eff is not None:
-            new_reads = self._map_list(self.map_eff_es, eff.reads)
-            new_writes = self._map_list(self.map_eff_es, eff.writes)
-            new_reduces = self._map_list(self.map_eff_es, eff.reduces)
-            new_config_reads = self._map_list(self.map_eff_ce, eff.config_reads)
-            new_config_writes = self._map_list(self.map_eff_ce, eff.config_writes)
-
-            if any(
-                (
-                    new_reads is not None,
-                    new_writes is not None,
-                    new_reduces is not None,
-                    new_config_reads is not None,
-                    new_config_writes is not None,
-                )
-            ):
-                return eff.update(
-                    reads=new_reads or eff.reads,
-                    writes=new_writes or eff.writes,
-                    reduces=new_reduces or eff.reduces,
-                    config_reads=new_config_reads or eff.config_reads,
-                    config_writes=new_config_writes or eff.config_writes,
-                )
-
-        return None
-
-    def map_eff_es(self, es):
-        new_loc = self._map_list(self.map_eff_e, es.loc)
-        new_pred = self.map_eff_e(es.pred)
-
-        if (new_loc is not None) or new_pred:
-            return es.update(
-                loc=new_loc or es.loc,
-                pred=new_pred or es.pred,
-            )
-
-        return None
-
-    def map_eff_ce(self, ce):
-        new_value = self.map_eff_e(ce.value)
-        new_pred = self.map_eff_e(ce.pred)
-        if new_value or new_pred:
-            return ce.update(
-                value=new_value or ce.value,
-                pred=new_pred or ce.pred,
-            )
-
-        return None
-
-    def map_eff_e(self, e):
-        if isinstance(e, Effects.BinOp):
-            new_lhs = self.map_eff_e(e.lhs)
-            new_rhs = self.map_eff_e(e.rhs)
-            if new_lhs or new_rhs:
-                return e.update(
-                    lhs=new_lhs or e.lhs,
-                    rhs=new_rhs or e.rhs,
-                )
-
-        return None
-
     @staticmethod
     def _map_list(fn, nodes):
         new_stmts = []
@@ -895,8 +803,6 @@ class LoopIR_Do:
         else:
             pass
 
-        self.do_eff(s.eff)
-
     def do_e(self, e):
         etyp = type(e)
         if etyp is LoopIR.Read:
@@ -939,26 +845,57 @@ class LoopIR_Do:
         else:
             pass
 
-    def do_eff(self, eff):
-        if eff is None:
-            return
-        for es in eff.reads:
-            self.do_eff_es(es)
-        for es in eff.writes:
-            self.do_eff_es(es)
-        for es in eff.reduces:
-            self.do_eff_es(es)
 
-    def do_eff_es(self, es):
-        for i in es.loc:
-            self.do_eff_e(i)
-        if es.pred:
-            self.do_eff_e(es.pred)
+class GetReads(LoopIR_Do):
+    def __init__(self):
+        self.reads = []
 
-    def do_eff_e(self, e):
-        if isinstance(e, Effects.BinOp):
-            self.do_eff_e(e.lhs)
-            self.do_eff_e(e.rhs)
+    def do_e(self, e):
+        if isinstance(e, LoopIR.Read):
+            self.reads.append((e.name, e.type))
+        super().do_e(e)
+
+
+def get_reads_of_expr(e):
+    gr = GetReads()
+    gr.do_e(e)
+    return gr.reads
+
+
+def get_reads_of_stmts(stmts):
+    gr = GetReads()
+    for stmt in stmts:
+        gr.do_s(stmt)
+    return gr.reads
+
+
+class GetWrites(LoopIR_Do):
+    def __init__(self):
+        self.writes = []
+
+    def do_s(self, s):
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            self.writes.append((s.name, s.type))
+        elif isinstance(s, LoopIR.Call):
+            writes_in_subproc = [a for a, _ in get_writes_of_stmts(s.f.body)]
+            for arg, call_arg in zip(s.args, s.f.args):
+                if call_arg.name in writes_in_subproc:
+                    if isinstance(
+                        arg, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)
+                    ):
+                        self.writes.append((arg.name, arg.type))
+
+        super().do_s(s)
+
+    # early exit
+    def do_e(self, e):
+        return
+
+
+def get_writes_of_stmts(stmts):
+    gw = GetWrites()
+    gw.do_stmts(stmts)
+    return gw.writes
 
 
 class FreeVars(LoopIR_Do):
@@ -972,10 +909,8 @@ class FreeVars(LoopIR_Do):
                 self.do_s(n)
             elif isinstance(n, LoopIR.expr):
                 self.do_e(n)
-            elif isinstance(n, Effects.effect):
-                self.do_eff(n)
             else:
-                assert False, "expected stmt, expr, or effect"
+                assert False, "expected stmt or expr"
 
     def result(self):
         return self.fv
@@ -999,7 +934,6 @@ class FreeVars(LoopIR_Do):
             self.do_stmts(s.body)
             self.do_stmts(s.orelse)
             self.pop()
-            self.do_eff(s.eff)
             return
         elif styp is LoopIR.Seq:
             self.do_e(s.hi)
@@ -1007,7 +941,6 @@ class FreeVars(LoopIR_Do):
             self.env[s.iter] = True
             self.do_stmts(s.body)
             self.pop()
-            self.do_eff(s.eff)
             return
         elif styp is LoopIR.Alloc:
             self.env[s.name] = True
@@ -1033,23 +966,6 @@ class FreeVars(LoopIR_Do):
 
         super().do_t(t)
 
-    def do_eff_es(self, es):
-        if es.buffer not in self.env:
-            self.fv.add(es.buffer)
-
-        self.push()
-        for x in es.names:
-            self.env[x] = True
-
-        super().do_eff_es(es)
-        self.pop()
-
-    def do_eff_e(self, e):
-        if isinstance(e, Effects.Var) and e.name not in self.env:
-            self.fv.add(e.name)
-
-        super().do_eff_e(e)
-
 
 class Alpha_Rename(LoopIR_Rewrite):
     def __init__(self, node):
@@ -1065,10 +981,8 @@ class Alpha_Rename(LoopIR_Rewrite):
                     self.node += self.apply_s(n)
                 elif isinstance(n, LoopIR.expr):
                     self.node += [self.apply_e(n)]
-                elif isinstance(n, Effects.effect):
-                    self.node += [self.apply_eff(n)]
                 else:
-                    assert False, "expected stmt or expr or effect"
+                    assert False, "expected stmt or expr"
 
     def result(self):
         return self.node
@@ -1101,7 +1015,7 @@ class Alpha_Rename(LoopIR_Rewrite):
             rhs = self.map_e(s.rhs) or s.rhs
             lhs = s.lhs.copy()
             self.env[s.lhs] = lhs
-            return [s.update(lhs=lhs, rhs=rhs, eff=self.map_eff(s.eff) or s.eff)]
+            return [s.update(lhs=lhs, rhs=rhs)]
         elif isinstance(s, LoopIR.If):
             self.push()
             stmts = super().map_s(s)
@@ -1109,7 +1023,6 @@ class Alpha_Rename(LoopIR_Rewrite):
             return stmts
         elif isinstance(s, LoopIR.Seq):
             hi = self.map_e(s.hi) or s.hi
-            eff = self.map_eff(s.eff) or s.eff
 
             self.push()
             itr = s.iter.copy()
@@ -1117,7 +1030,7 @@ class Alpha_Rename(LoopIR_Rewrite):
             body = self.map_stmts(s.body) or s.body
             self.pop()
 
-            return [s.update(iter=itr, hi=hi, body=body, eff=eff)]
+            return [s.update(iter=itr, hi=hi, body=body)]
 
         return super().map_s(s)
 
@@ -1130,28 +1043,6 @@ class Alpha_Rename(LoopIR_Rewrite):
                 return e2
 
         return super().map_e(e)
-
-    def map_eff_es(self, es):
-        self.push()
-
-        names = [nm.copy() for nm in es.names]
-        for orig, new in zip(es.names, names):
-            self.env[orig] = new
-
-        eset = super().map_eff_es(es)
-        eset = (eset or es).update(
-            buffer=self.env.get(es.buffer, es.buffer),
-            names=names,
-        )
-
-        self.pop()
-        return eset
-
-    def map_eff_e(self, e):
-        if isinstance(e, Effects.Var):
-            return e.update(name=self.env.get(e.name, e.name))
-
-        return super().map_eff_e(e)
 
     def map_t(self, t):
         t2 = super().map_t(t)
@@ -1222,25 +1113,6 @@ class SubstArgs(LoopIR_Rewrite):
                 return e.update(name=self.env[e.name].name)
 
         return super().map_e(e)
-
-    def map_eff_es(self, es):
-        # this substitution could refer to a read or a window expression
-        if es.buffer in self.env:
-            sub_e = self.env[es.buffer]
-            assert isinstance(sub_e, LoopIR.Read) and len(sub_e.idx) == 0
-            return (super().map_eff_es(es) or es).update(buffer=sub_e.name)
-
-        return super().map_eff_es(es)
-
-    def map_eff_e(self, e):
-        if isinstance(e, Effects.Var):
-            if e.name in self.env:
-                sub_e = self.env[e.name]
-                # Recall a => b  iff  not a or b
-                assert not e.type.is_indexable() or sub_e.type.is_indexable()
-                return lift_to_eff_expr(sub_e)
-
-        return super().map_eff_e(e)
 
     def map_t(self, t):
         t2 = super().map_t(t)
