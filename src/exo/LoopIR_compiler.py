@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T
+from .LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from .memory import MemGenError, Memory, DRAM, StaticMemory
@@ -45,6 +45,44 @@ op_prec = {
     # unary minus
     "~": 70,
 }
+
+
+def lift_to_cir(e):
+    if isinstance(e, LoopIR.Read):
+        return CIR.Read(e.name)
+    elif isinstance(e, LoopIR.Const):
+        return CIR.Const(e.val)
+    elif isinstance(e, LoopIR.BinOp):
+        lhs = lift_to_cir(e.lhs)
+        rhs = lift_to_cir(e.rhs)
+        return CIR.BinOp(e.op, lhs, rhs)
+    else:
+        assert False, "bad case!"
+
+
+def comp_cir(e, env, prec):
+    if isinstance(e, CIR.Read):
+        return env[e.name]
+
+    elif isinstance(e, CIR.Const):
+        return str(e.val)
+
+    elif isinstance(e, CIR.BinOp):
+        lhs = comp_cir(e.lhs, env, prec)
+        rhs = comp_cir(e.rhs, env, prec)
+
+        if e.op == "/":
+            return f"(({lhs}) / ({rhs}))"
+
+        local_prec = op_prec[e.op]
+
+        s = f"{lhs} {e.op} {rhs}"
+        if local_prec < prec:
+            s = f"({s})"
+
+        return s
+    else:
+        assert False, "bad case!"
 
 
 class LoopIR_SubProcs(LoopIR_Do):
@@ -614,6 +652,7 @@ class Compiler:
     def access_str(self, nm, idx_list):
         buf = self.env[nm]
         type = self.envtyp[nm]
+        cirs = [lift_to_cir(i) for i in idx_list]
         idxs = [self.comp_e(i) for i in idx_list]
         idx_expr = self.get_idx_offset(buf, type, idxs)
         if not type.is_win():
@@ -622,7 +661,8 @@ class Compiler:
             return f"{buf}.data[{idx_expr}]"
 
     def shape_strs(self, shape, prec=100):
-        return [self.comp_e(s, prec=prec) for s in shape]
+        comp_res = [comp_cir(lift_to_cir(i), self.env, prec) for i in shape]
+        return comp_res
 
     def tensor_strides(self, shape, prec=100):
         szs = self.shape_strs(shape, max(prec, 61))
