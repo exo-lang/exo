@@ -2287,7 +2287,6 @@ def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
     return ir, fwd
 
 
-
 def DoFuseIf(f_cursor, s_cursor):
     proc = f_cursor.get_root()
     if f_cursor.next() != s_cursor:
