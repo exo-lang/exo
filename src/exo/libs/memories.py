@@ -1,4 +1,4 @@
-from ..memory import Memory, DRAM, StaticMemory, MemGenError
+from ..memory import Memory, DRAM, StaticMemory, MemGenError, generate_offset
 
 
 def _is_const_size(sz, c):
@@ -101,7 +101,7 @@ class GEMM_SCRATCH(Memory):
         #    and that strides[-2] == 16 (if there is a strides[-2])
         assert len(indices) == len(strides) and len(strides) >= 2
         prim_type = basetyp.basetype().ctype()
-        offset = " + ".join([f"({i}) * ({s})" for i, s in zip(indices, strides)])
+        offset = generate_offset(indices, strides)
         return (
             f"*({prim_type}*)((uint64_t)( "
             f"((uint32_t)((uint64_t){baseptr})) + "
@@ -153,7 +153,7 @@ class GEMM_ACCUM(Memory):
         #    and that strides[-2] == 16 (if there is a strides[-2])
         assert len(indices) == len(strides) and len(strides) >= 2
         prim_type = basetyp.basetype().ctype()
-        offset = " + ".join([f"({i}) * ({s})" for i, s in zip(indices, strides)])
+        offset = generate_offset(indices, strides)
         return (
             f"*({prim_type}*)((uint64_t)( "
             f"((uint32_t)((uint64_t){baseptr})) + "

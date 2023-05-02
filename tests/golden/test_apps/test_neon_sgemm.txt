@@ -99,17 +99,17 @@ EXO_ASSUME(K >= 1);
 float32x4_t C_reg[4][4];
 for (int i = 0; i < 4; i++) {
   for (int jo = 0; jo < 4; jo++) {
-    C_reg[i][jo] = vld1q_f32(&C.data[(i) * (C.strides[0]) + (4 * jo) * (1)]);
+    C_reg[i][jo] = vld1q_f32(&C.data[(i) * (C.strides[0]) + 4 * jo]);
   }
 }
 for (int k = 0; k < K; k++) {
   float32x4_t A_vec;
   for (int i = 0; i < 4; i++) {
-    A_vec = vld1q_dup_f32(&A.data[(i) * (A.strides[0]) + (k) * (1)]);
+    A_vec = vld1q_dup_f32(&A.data[(i) * (A.strides[0]) + k]);
   }
   float32x4_t B_vec;
   for (int jo = 0; jo < 4; jo++) {
-    B_vec = vld1q_f32(&B.data[(k) * (B.strides[0]) + (4 * jo) * (1)]);
+    B_vec = vld1q_f32(&B.data[(k) * (B.strides[0]) + 4 * jo]);
   }
   for (int i = 0; i < 4; i++) {
     for (int jo = 0; jo < 4; jo++) {
@@ -119,7 +119,7 @@ for (int k = 0; k < K; k++) {
 }
 for (int i = 0; i < 4; i++) {
   for (int jo = 0; jo < 4; jo++) {
-    vst1q_f32(&C.data[(i) * (C.strides[0]) + (4 * jo) * (1)], C_reg[i][jo]);
+    vst1q_f32(&C.data[(i) * (C.strides[0]) + 4 * jo], C_reg[i][jo]);
   }
 }
 }
@@ -171,7 +171,7 @@ for (int ko = 0; ko < ((K) / (64)); ko++) {
       }
       for (int im = 0; im < 16; im++) {
         for (int jm = 0; jm < 4; jm++) {
-          neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &Atile[(4 * im) * (64) + (0) * (1)], { 64, 1 } },(struct exo_win_2f32c){ &Btile[(0) * (64) + (16 * jm) * (1)], { 64, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * (N) + (16 * jm + 64 * jo) * (1)], { N, 1 } });
+          neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &Atile[(4 * im) * (64)], { 64, 1 } },(struct exo_win_2f32c){ &Btile[16 * jm], { 64, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * N + 16 * jm + 64 * jo], { N, 1 } });
         }
       }
     }
@@ -183,13 +183,13 @@ for (int ko = 0; ko < ((K) / (64)); ko++) {
   for (int io = 0; io < ((((M) / (4))) / (16)); io++) {
     for (int jm = 0; jm < ((N) / (16)) % 4; jm++) {
       for (int im = 0; im < 16; im++) {
-        neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * im + 64 * io) * (K) + (64 * ko) * (1)], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * (N) + (16 * (jm + ((((N) / (16))) / (4)) * 4)) * (1)], { N, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * (N) + (16 * (jm + ((((N) / (16))) / (4)) * 4)) * (1)], { N, 1 } });
+        neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * im + 64 * io) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * (jm + ((N / 16) / 4) * 4)], { N, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * N + 16 * (jm + ((N / 16) / 4) * 4)], { N, 1 } });
       }
     }
   }
   for (int jo = 0; jo < ((N) / (16)); jo++) {
     for (int im = 0; im < ((M) / (4)) % 16; im++) {
-      neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * (im + ((((M) / (4))) / (16)) * 16)) * (K) + (64 * ko) * (1)], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * (N) + (16 * jo) * (1)], { N, 1 } },(struct exo_win_2f32){ &C[(4 * (im + ((((M) / (4))) / (16)) * 16)) * (N) + (16 * jo) * (1)], { N, 1 } });
+      neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * (im + ((M / 4) / 16) * 16)) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * jo], { N, 1 } },(struct exo_win_2f32){ &C[(4 * (im + ((M / 4) / 16) * 16)) * N + 16 * jo], { N, 1 } });
     }
   }
 }

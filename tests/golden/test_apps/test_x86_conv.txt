@@ -81,7 +81,7 @@ for (int oc_o = 0; oc_o < 2; oc_o++) {
         __m512 res[5][4];
         for (int ox_i = 0; ox_i < 5; ox_i++) {
           for (int oc_u = 0; oc_u < 4; oc_u++) {
-            res[ox_i][oc_u] = _mm512_loadu_ps(&bias[(16 * oc_u + 64 * oc_o) * (1)]);
+            res[ox_i][oc_u] = _mm512_loadu_ps(&bias[16 * oc_u + 64 * oc_o]);
           }
         }
         for (int ky = 0; ky < 3; ky++) {
@@ -91,9 +91,9 @@ for (int oc_o = 0; oc_o < 2; oc_o++) {
                 for (int ox_i = 0; ox_i < 5; ox_i++) {
                   for (int oc_u = 0; oc_u < 4; oc_u++) {
                     __m512 wt_vec;
-                    wt_vec = _mm512_loadu_ps(&weights[(kc_i + 2 * kc_o) * (1152) + (ky) * (384) + (kx) * (128) + (16 * oc_u + 64 * oc_o) * (1)]);
+                    wt_vec = _mm512_loadu_ps(&weights[(kc_i + 2 * kc_o) * (1152) + (ky) * (384) + (kx) * (128) + 16 * oc_u + 64 * oc_o]);
                     __m512 in_vec;
-                    in_vec = _mm512_set1_ps(inp[(n) * (1070592) + (ky + oy) * (13056) + (kx + ox_i + 5 * ox_o) * (128) + (kc_i + 2 * kc_o) * (1)]);
+                    in_vec = _mm512_set1_ps(inp[(n) * (1070592) + (ky + oy) * (13056) + (kx + ox_i + 5 * ox_o) * (128) + kc_i + 2 * kc_o]);
                     res[ox_i][oc_u] = _mm512_fmadd_ps(wt_vec, in_vec, res[ox_i][oc_u]);
                   }
                 }
@@ -105,7 +105,7 @@ for (int oc_o = 0; oc_o < 2; oc_o++) {
           for (int oc_u = 0; oc_u < 4; oc_u++) {
             __m512 relu_v;
             relu_v = _mm512_max_ps(res[ox_i][oc_u], (__m512){0});
-            _mm512_storeu_ps(&output[(n) * (1024000) + (oy) * (12800) + (ox_i + 5 * ox_o) * (128) + (16 * oc_u + 64 * oc_o) * (1)], relu_v);
+            _mm512_storeu_ps(&output[(n) * (1024000) + (oy) * (12800) + (ox_i + 5 * ox_o) * (128) + 16 * oc_u + 64 * oc_o], relu_v);
           }
         }
       }

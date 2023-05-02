@@ -719,12 +719,12 @@ class Compiler:
         type = self.envtyp[nm]
         cirs = [lift_to_cir(i) for i in idx_list]
         idx_expr = self.get_idx_offset(nm, type, cirs)
-        idx_expr = self.comp_cir(simplify_cir(idx_expr), self.env, prec=0)
+        idx_expr_s = self.comp_cir(simplify_cir(idx_expr), self.env, prec=0)
         buf = self.env[nm]
         if not type.is_win():
-            return f"{buf}[{idx_expr}]"
+            return f"{buf}[{idx_expr_s}]"
         else:
-            return f"{buf}.data[{idx_expr}]"
+            return f"{buf}.data[{idx_expr_s}]"
 
     def shape_strs(self, shape, prec=100) -> str:
         comp_res = [
@@ -1011,12 +1011,9 @@ class Compiler:
 
         elif isinstance(e, LoopIR.StrideExpr):
             basetyp = self.envtyp[e.name]
-            strides = self.get_strides(e.name, basetyp)
-            strides_s = [
-                self.comp_cir(simplify_cir(i), self.env, prec=0) for i in strides
-            ]
+            stride = self.get_strides(e.name, basetyp)[e.dim]
+            return self.comp_cir(simplify_cir(stride), self.env, prec=0)
 
-            return strides_s[e.dim]
         elif isinstance(e, LoopIR.ReadConfig):
             if not e.config.is_allow_rw():
                 raise ConfigError(
@@ -1040,7 +1037,9 @@ class Compiler:
         def w_lo(w):
             return w.lo if isinstance(w, LoopIR.Interval) else w.pt
 
-        idxs = [self.comp_e(w_lo(w)) for w in e.idx]
+        cirs = [lift_to_cir(w_lo(w)) for w in e.idx]
+        idxs = [self.comp_cir(simplify_cir(i), self.env, prec=0) for i in cirs]
+
         # compute new window strides
         all_strides = self.get_strides(e.name, basetyp)
         all_strides_s = [
