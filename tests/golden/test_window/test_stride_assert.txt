@@ -59,7 +59,7 @@ EXO_ASSUME(m <= 16);
 // assert stride(dst, 1) == 1
 for (int i = 0; i < n; i++) {
   for (int j = 0; j < m; j++) {
-    dst.data[(i) * (16) + (j) * (1)] = src.data[(i) * (src.strides[0]) + (j) * (1)];
+    dst.data[i * 16 + j] = src.data[i * src.strides[0] + j];
   }
 }
 }

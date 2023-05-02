@@ -269,6 +269,7 @@ CIR = ADT(
 module CIR {
 
     expr    = Read    ( sym name )
+            | Stride  ( sym name, int dim )
             | Str     ( str str )
             | Const   ( object val )
             | BinOp   ( op op, expr lhs, expr rhs )
@@ -276,6 +277,7 @@ module CIR {
 } """,
     ext_types={
         "str": str,
+        "int": int,
         "sym": Sym,
         "op": validators.instance_of(Operator, convert=True),
     },

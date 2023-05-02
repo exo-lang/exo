@@ -49,7 +49,7 @@ void window_stmt( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x ) {
 struct exo_win_1f32c y = (struct exo_win_1f32c){ &x[(0) * (m) + (0) * (1)], { m } };
 float *z = malloc(n * sizeof(*z));
 for (int i = 0; i < n; i++) {
-  z[(i) * (1)] = y.data[(i) * (y.strides[0])];
+  z[i] = y.data[i * y.strides[0]];
 }
 free(z);
 }

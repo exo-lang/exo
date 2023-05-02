@@ -160,13 +160,13 @@ for (int ko = 0; ko < ((K) / (64)); ko++) {
   for (int io = 0; io < ((((M) / (4))) / (16)); io++) {
     for (int i0 = 0; i0 < 64; i0++) {
       for (int i1 = 0; i1 < 64; i1++) {
-        Atile[(i0) * (64) + (i1) * (1)] = A[(i0 + 64 * io) * (K) + (i1 + 64 * ko) * (1)];
+        Atile[i0 * 64 + i1] = A[(i0 + 64 * io) * K + i1 + 64 * ko];
       }
     }
     for (int jo = 0; jo < ((((N) / (16))) / (4)); jo++) {
       for (int i0 = 0; i0 < 64; i0++) {
         for (int i1 = 0; i1 < 64; i1++) {
-          Btile[(i0) * (64) + (i1) * (1)] = B[(i0 + 64 * ko) * (N) + (i1 + 64 * jo) * (1)];
+          Btile[i0 * 64 + i1] = B[(i0 + 64 * ko) * N + i1 + 64 * jo];
         }
       }
       for (int im = 0; im < 16; im++) {
@@ -199,7 +199,7 @@ for (int io = 0; io < ((M) / (4)); io++) {
       for (int ji = 0; ji < 16; ji++) {
         if (K % 64 > 0) {
           for (int ki = 0; ki < K % 64; ki++) {
-            C[(ii + 4 * io) * (N) + (ji + 16 * jo) * (1)] += A[(ii + 4 * io) * (K) + (ki + ((K) / (64)) * 64) * (1)] * B[(ki + ((K) / (64)) * 64) * (N) + (ji + 16 * jo) * (1)];
+            C[(ii + 4 * io) * N + ji + 16 * jo] += A[(ii + 4 * io) * K + ki + (K / 64) * 64] * B[(ki + (K / 64) * 64) * N + ji + 16 * jo];
           }
         }
       }
@@ -211,7 +211,7 @@ for (int io = 0; io < ((M) / (4)); io++) {
     if (N % 16 > 0) {
       for (int ji = 0; ji < N % 16; ji++) {
         for (int k = 0; k < K; k++) {
-          C[(ii + 4 * io) * (N) + (ji + ((N) / (16)) * 16) * (1)] += A[(ii + 4 * io) * (K) + (k) * (1)] * B[(k) * (N) + (ji + ((N) / (16)) * 16) * (1)];
+          C[(ii + 4 * io) * N + ji + (N / 16) * 16] += A[(ii + 4 * io) * K + k] * B[k * N + ji + (N / 16) * 16];
         }
       }
     }
@@ -221,7 +221,7 @@ if (M % 4 > 0) {
   for (int ii = 0; ii < M % 4; ii++) {
     for (int j = 0; j < N; j++) {
       for (int k = 0; k < K; k++) {
-        C[(ii + ((M) / (4)) * 4) * (N) + (j) * (1)] += A[(ii + ((M) / (4)) * 4) * (K) + (k) * (1)] * B[(k) * (N) + (j) * (1)];
+        C[(ii + (M / 4) * 4) * N + j] += A[(ii + (M / 4) * 4) * K + k] * B[k * N + j];
       }
     }
   }
