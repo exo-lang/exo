@@ -48,7 +48,7 @@ op_prec = {
 
 
 def lift_to_cir(e):
-    assert e.is_indexable(), "why are you here?"
+    assert e.type.is_indexable(), "why are you here?"
 
     if isinstance(e, LoopIR.Read):
         return CIR.Read(e.name, e.type == T.size)
