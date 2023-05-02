@@ -48,6 +48,8 @@ op_prec = {
 
 
 def lift_to_cir(e):
+    assert e.is_indexable(), "why are you here?"
+
     if isinstance(e, LoopIR.Read):
         return CIR.Read(e.name, e.type == T.size)
     elif isinstance(e, LoopIR.Const):
@@ -70,10 +72,9 @@ operations = {
 
 
 def simplify_cir(e):
-    if isinstance(e, CIR.Read):
+    if isinstance(e, (CIR.Read, CIR.Const, CIR.Stride)):
         return e
-    elif isinstance(e, CIR.Const):
-        return CIR.Const(e.val)
+
     elif isinstance(e, CIR.BinOp):
         lhs = simplify_cir(e.lhs)
         rhs = simplify_cir(e.rhs)
@@ -108,9 +109,6 @@ def simplify_cir(e):
             return lhs
 
         return CIR.BinOp(e.op, lhs, rhs, e.ispos)
-
-    elif isinstance(e, CIR.Stride):
-        return e
 
     else:
         assert False, "bad case!"
@@ -681,7 +679,7 @@ class Compiler:
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
-    def comp_cir(self, e, env, prec):
+    def comp_cir(self, e, env, prec) -> str:
         if isinstance(e, CIR.Read):
             return env[e.name]
 
@@ -710,8 +708,10 @@ class Compiler:
                 s = f"({s})"
 
             return s
+
         elif isinstance(e, CIR.Stride):
             return f"{e.name}.strides[{e.dim}]"
+
         else:
             assert False, "bad case!"
 
@@ -732,7 +732,7 @@ class Compiler:
         ]
         return comp_res
 
-    def tensor_strides(self, shape, prec=100) -> CIR:
+    def tensor_strides(self, shape) -> CIR:
         szs = [lift_to_cir(i) for i in shape]
         assert len(szs) >= 1
         strides = [CIR.Const(1)]
@@ -745,7 +745,7 @@ class Compiler:
         return strides
 
     # works for any tensor or window type
-    def get_strides(self, name: Sym, typ, prec=100) -> CIR:
+    def get_strides(self, name: Sym, typ) -> CIR:
         if typ.is_win():
             res = []
             for i in range(len(typ.shape())):
@@ -756,15 +756,16 @@ class Compiler:
 
             return res
         else:
-            return self.tensor_strides(typ.shape(), prec)
+            return self.tensor_strides(typ.shape())
 
     def get_idx_offset(self, name: Sym, typ, idx) -> CIR:
-        strides = self.get_strides(name, typ, prec=61)
+        strides = self.get_strides(name, typ)
         assert len(strides) == len(idx)
         acc = CIR.BinOp("*", idx[0], strides[0], True)
         for i, s in zip(idx[1:], strides[1:]):
             new = CIR.BinOp("*", i, s, True)
             acc = CIR.BinOp("+", acc, new, True)
+
         return acc
 
     def get_window_type(self, typ, is_const=None):
@@ -1011,11 +1012,11 @@ class Compiler:
         elif isinstance(e, LoopIR.StrideExpr):
             basetyp = self.envtyp[e.name]
             strides = self.get_strides(e.name, basetyp)
-            strides = [
+            strides_s = [
                 self.comp_cir(simplify_cir(i), self.env, prec=0) for i in strides
             ]
 
-            return strides[e.dim]
+            return strides_s[e.dim]
         elif isinstance(e, LoopIR.ReadConfig):
             if not e.config.is_allow_rw():
                 raise ConfigError(
@@ -1041,13 +1042,13 @@ class Compiler:
 
         idxs = [self.comp_e(w_lo(w)) for w in e.idx]
         # compute new window strides
-        all_strides = self.get_strides(e.name, basetyp, prec=0)
-        all_strides = [
+        all_strides = self.get_strides(e.name, basetyp)
+        all_strides_s = [
             self.comp_cir(simplify_cir(i), self.env, prec=0) for i in all_strides
         ]
-        assert 0 < len(all_strides) == len(e.idx)
-        dataptr = mem.window(basetyp, base, idxs, all_strides, e.srcinfo)
+        assert 0 < len(all_strides_s) == len(e.idx)
+        dataptr = mem.window(basetyp, base, idxs, all_strides_s, e.srcinfo)
         strides = ", ".join(
-            s for s, w in zip(all_strides, e.idx) if isinstance(w, LoopIR.Interval)
+            s for s, w in zip(all_strides_s, e.idx) if isinstance(w, LoopIR.Interval)
         )
         return dataptr, strides
