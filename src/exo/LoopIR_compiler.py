@@ -708,7 +708,7 @@ class Compiler:
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
-    def access_str(self, nm, idx_list):
+    def access_str(self, nm, idx_list) -> str:
         type = self.envtyp[nm]
         cirs = [lift_to_cir(i) for i in idx_list]
         idx_expr = self.get_idx_offset(nm, type, cirs)
@@ -719,7 +719,7 @@ class Compiler:
         else:
             return f"{buf}.data[{idx_expr}]"
 
-    def shape_strs(self, shape, prec=100):
+    def shape_strs(self, shape, prec=100) -> str:
         comp_res = [
             comp_cir(simplify_cir(lift_to_cir(i)), self.env, prec) for i in shape
         ]
@@ -1004,6 +1004,7 @@ class Compiler:
         elif isinstance(e, LoopIR.StrideExpr):
             basetyp = self.envtyp[e.name]
             strides = self.get_strides(e.name, basetyp)
+            strides = [comp_cir(simplify_cir(i), self.env, prec=0) for i in strides]
 
             return strides[e.dim]
         elif isinstance(e, LoopIR.ReadConfig):

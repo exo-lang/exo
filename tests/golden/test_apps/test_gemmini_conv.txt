@@ -215,11 +215,11 @@ gemmini_extended_config_st({dst_stride}, {act}, {scale}[0]);
 //     scale : f32 @DRAM
 // )
 void conv_17( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
-gemmini_extended_config_st((CIR.Const(val=128)), (act), (scale)[0]);
+gemmini_extended_config_st((128), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
-gemmini_extended3_config_ld((CIR.Const(val=128)), 1.0f, 0, 1);
+gemmini_extended3_config_ld((128), 1.0f, 0, 1);
 
 gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 
@@ -1341,11 +1341,11 @@ for (int b = 0; b < 4; b++) {
 //     scale : f32 @DRAM
 // )
 void conv_3( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
-gemmini_extended_config_st((CIR.Const(val=64)), (act), (scale)[0]);
+gemmini_extended_config_st((64), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
-gemmini_extended3_config_ld((CIR.Const(val=64)), 1.0f, 0, 1);
+gemmini_extended3_config_ld((64), 1.0f, 0, 1);
 
 gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 
@@ -1460,11 +1460,11 @@ gemm_free((uint64_t)(i_s));
 //     scale : f32 @DRAM
 // )
 void conv_30( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
-gemmini_extended_config_st((CIR.Const(val=256)), (act), (scale)[0]);
+gemmini_extended_config_st((256), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
-gemmini_extended3_config_ld((CIR.Const(val=256)), 1.0f, 0, 1);
+gemmini_extended3_config_ld((256), 1.0f, 0, 1);
 
 gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 

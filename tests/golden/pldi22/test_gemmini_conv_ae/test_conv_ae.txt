@@ -120,11 +120,11 @@ gemmini_extended_config_st({dst_stride}, {act}, {scale}[0]);
 //     scale : f32 @DRAM
 // )
 void conv_on_gemmini( c_code_str_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
-gemmini_extended_config_st((CIR.Const(val=64)), (act), (scale)[0]);
+gemmini_extended_config_st((64), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
-gemmini_extended3_config_ld((CIR.Const(val=64)), 1.0f, 0, 1);
+gemmini_extended3_config_ld((64), 1.0f, 0, 1);
 
 gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 
