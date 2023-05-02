@@ -49,40 +49,13 @@ op_prec = {
 
 def lift_to_cir(e):
     if isinstance(e, LoopIR.Read):
-        return CIR.Read(e.name)
+        return CIR.Read(e.name, e.type == T.size)
     elif isinstance(e, LoopIR.Const):
         return CIR.Const(e.val)
     elif isinstance(e, LoopIR.BinOp):
         lhs = lift_to_cir(e.lhs)
         rhs = lift_to_cir(e.rhs)
-        return CIR.BinOp(e.op, lhs, rhs)
-    else:
-        assert False, "bad case!"
-
-
-def comp_cir(e, env, prec):
-    if isinstance(e, CIR.Read):
-        return env[e.name]
-
-    elif isinstance(e, CIR.Const):
-        return str(e.val)
-
-    elif isinstance(e, CIR.BinOp):
-        local_prec = op_prec[e.op]
-
-        lhs = comp_cir(e.lhs, env, local_prec)
-        rhs = comp_cir(e.rhs, env, local_prec)
-
-        if e.op == "/":
-            return f"({lhs} / {rhs})"
-
-        s = f"{lhs} {e.op} {rhs}"
-        if local_prec < prec:
-            s = f"({s})"
-
-        return s
-    elif isinstance(e, CIR.Stride):
-        return f"{e.name}.strides[{e.dim}]"
+        return CIR.BinOp(e.op, lhs, rhs, e.type == T.size)
     else:
         assert False, "bad case!"
 
@@ -98,7 +71,7 @@ operations = {
 
 def simplify_cir(e):
     if isinstance(e, CIR.Read):
-        return CIR.Read(e.name)
+        return e
     elif isinstance(e, CIR.Const):
         return CIR.Const(e.val)
     elif isinstance(e, CIR.BinOp):
@@ -134,7 +107,7 @@ def simplify_cir(e):
         if isinstance(rhs, CIR.Const) and rhs.val == 1 and (e.op == "*" or e.op == "/"):
             return lhs
 
-        return CIR.BinOp(e.op, lhs, rhs)
+        return CIR.BinOp(e.op, lhs, rhs, e.ispos)
 
     elif isinstance(e, CIR.Stride):
         return e
@@ -708,11 +681,45 @@ class Compiler:
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
+    def comp_cir(self, e, env, prec):
+        if isinstance(e, CIR.Read):
+            return env[e.name]
+
+        elif isinstance(e, CIR.Const):
+            return str(e.val)
+
+        elif isinstance(e, CIR.BinOp):
+            local_prec = op_prec[e.op]
+
+            lhs = self.comp_cir(e.lhs, env, local_prec)
+            rhs = self.comp_cir(e.rhs, env, local_prec)
+
+            if isinstance(e.rhs, CIR.BinOp) and (e.op == "-" or e.op == "/"):
+                rhs = f"({rhs})"
+
+            if e.op == "/":
+                if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.ispos) or (
+                    isinstance(e.lhs, CIR.Const) and e.lhs.val > 0
+                ):
+                    return f"({lhs} / {rhs})"
+                else:
+                    return self._call_static_helper("exo_floor_div", lhs, rhs)
+
+            s = f"{lhs} {e.op} {rhs}"
+            if local_prec < prec:
+                s = f"({s})"
+
+            return s
+        elif isinstance(e, CIR.Stride):
+            return f"{e.name}.strides[{e.dim}]"
+        else:
+            assert False, "bad case!"
+
     def access_str(self, nm, idx_list) -> str:
         type = self.envtyp[nm]
         cirs = [lift_to_cir(i) for i in idx_list]
         idx_expr = self.get_idx_offset(nm, type, cirs)
-        idx_expr = comp_cir(simplify_cir(idx_expr), self.env, prec=0)
+        idx_expr = self.comp_cir(simplify_cir(idx_expr), self.env, prec=0)
         buf = self.env[nm]
         if not type.is_win():
             return f"{buf}[{idx_expr}]"
@@ -721,7 +728,7 @@ class Compiler:
 
     def shape_strs(self, shape, prec=100) -> str:
         comp_res = [
-            comp_cir(simplify_cir(lift_to_cir(i)), self.env, prec) for i in shape
+            self.comp_cir(simplify_cir(lift_to_cir(i)), self.env, prec) for i in shape
         ]
         return comp_res
 
@@ -732,7 +739,7 @@ class Compiler:
         s = szs[-1]
         for sz in reversed(szs[:-1]):
             strides.append(s)
-            s = CIR.BinOp("*", sz, s)
+            s = CIR.BinOp("*", sz, s, True)
         strides = list(reversed(strides))
 
         return strides
@@ -754,10 +761,10 @@ class Compiler:
     def get_idx_offset(self, name: Sym, typ, idx) -> CIR:
         strides = self.get_strides(name, typ, prec=61)
         assert len(strides) == len(idx)
-        acc = CIR.BinOp("*", idx[0], strides[0])
+        acc = CIR.BinOp("*", idx[0], strides[0], True)
         for i, s in zip(idx[1:], strides[1:]):
-            new = CIR.BinOp("*", i, s)
-            acc = CIR.BinOp("+", acc, new)
+            new = CIR.BinOp("*", i, s, True)
+            acc = CIR.BinOp("+", acc, new, True)
         return acc
 
     def get_window_type(self, typ, is_const=None):
@@ -1004,7 +1011,9 @@ class Compiler:
         elif isinstance(e, LoopIR.StrideExpr):
             basetyp = self.envtyp[e.name]
             strides = self.get_strides(e.name, basetyp)
-            strides = [comp_cir(simplify_cir(i), self.env, prec=0) for i in strides]
+            strides = [
+                self.comp_cir(simplify_cir(i), self.env, prec=0) for i in strides
+            ]
 
             return strides[e.dim]
         elif isinstance(e, LoopIR.ReadConfig):
@@ -1033,7 +1042,9 @@ class Compiler:
         idxs = [self.comp_e(w_lo(w)) for w in e.idx]
         # compute new window strides
         all_strides = self.get_strides(e.name, basetyp, prec=0)
-        all_strides = [comp_cir(simplify_cir(i), self.env, prec=0) for i in all_strides]
+        all_strides = [
+            self.comp_cir(simplify_cir(i), self.env, prec=0) for i in all_strides
+        ]
         assert 0 < len(all_strides) == len(e.idx)
         dataptr = mem.window(basetyp, base, idxs, all_strides, e.srcinfo)
         strides = ", ".join(
