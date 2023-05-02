@@ -2489,6 +2489,50 @@ def test_specialize(golden):
     assert str(foo) == golden
 
 
+def test_specialize_sizes(golden):
+    @proc
+    def gemm(
+        M: size,
+        N: size,
+        K: size,
+        C: f32[M, N] @ DRAM,
+        A: f32[M, K] @ DRAM,
+        B: f32[K, N] @ DRAM,
+        alpha: f32,
+    ):
+        for i in seq(0, M):
+            for j in seq(0, N):
+                for k in seq(0, K):
+                    C[i, j] += alpha * A[i, k] * B[k, j]
+
+    foo = specialize(gemm, "for i in _:_", [f"N <= {x}" for x in [64, 128, 512]])
+    foo = simplify(foo)
+    assert str(foo) == golden
+
+
+def test_specialize_data():
+    @proc
+    def gemm(
+        M: size,
+        N: size,
+        K: size,
+        C: f32[M, N] @ DRAM,
+        A: f32[M, K] @ DRAM,
+        B: f32[K, N] @ DRAM,
+        alpha: f32,
+    ):
+        for i in seq(0, M):
+            for j in seq(0, N):
+                for k in seq(0, K):
+                    C[i, j] += alpha * A[i, k] * B[k, j]
+
+    with pytest.raises(
+        SchedulingError,
+        match="Invalid specialization condition",
+    ):
+        specialize(gemm, "for i in _:_", [f"alpha == {x}" for x in [0.0, 1.0, -1.0]])
+
+
 def test_extract_subproc(golden):
     @proc
     def foo():
