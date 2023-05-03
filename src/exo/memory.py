@@ -63,9 +63,12 @@ def generate_offset(indices, strides):
         if s == "0" or i == "0":
             return ""
 
+        if s == "1":
+            return i
+        if i == "1":
+            return s
+
         if len(s) == 1:
-            if s == "1":
-                return i
             return f"({i}) * {s}"
         else:
             return f"({i}) * ({s})"

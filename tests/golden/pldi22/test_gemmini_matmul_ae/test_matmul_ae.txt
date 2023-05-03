@@ -173,7 +173,7 @@ for (int ioo = 0; ioo < 2; ioo++) {
       for (int i = 0; i < 8; i++) {
         for (int ji = 0; ji < 4; ji++) {
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024))/16))),(16), (16) );
-          gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (1) * (256))/16))),(16), (16) );
+          gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + 256)/16))),(16), (16) );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (2) * (256))/16))),(16), (16) );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (3) * (256))/16))),(16), (16) );
           for (int ko = 0; ko < 8; ko++) {
@@ -190,7 +190,7 @@ for (int ioo = 0; ioo < 2; ioo++) {
               }
               gemmini_extended_preload((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((ji) * (32768) + (ko) * (4096) + (k) * (1024))/16))), (uint32_t)(&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024))/16))) | 0x40000000, (16), (16), (16), (16));
 gemmini_extended_compute_preloaded((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((io) * (65536) + (i) * (8192) + (ko) * (1024) + (k) * (256))/16))), ~((uint32_t)0), (16), (16), 16, 16);
-              gemmini_extended_preload((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((ji) * (32768) + (ko) * (4096) + (k) * (1024) + (1) * (256))/16))), (uint32_t)(&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (1) * (256))/16))) | 0x40000000, (16), (16), (16), (16));
+              gemmini_extended_preload((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((ji) * (32768) + (ko) * (4096) + (k) * (1024) + 256)/16))), (uint32_t)(&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + 256)/16))) | 0x40000000, (16), (16), (16), (16));
 gemmini_extended_compute_preloaded((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((io) * (65536) + (i) * (8192) + (ko) * (1024) + (k) * (256))/16))), ~((uint32_t)0), (16), (16), 16, 16);
               gemmini_extended_preload((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((ji) * (32768) + (ko) * (4096) + (k) * (1024) + (2) * (256))/16))), (uint32_t)(&*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (2) * (256))/16))) | 0x40000000, (16), (16), (16), (16));
 gemmini_extended_compute_preloaded((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((io) * (65536) + (i) * (8192) + (ko) * (1024) + (k) * (256))/16))), ~((uint32_t)0), (16), (16), 16, 16);
@@ -199,7 +199,7 @@ gemmini_extended_compute_preloaded((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t
             }
           }
           gemmini_extended_mvout( ((uint64_t) &C[(16 * i + 128 * io + 256 * ioo) * (512) + 64 * ji + 256 * jo]), (uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024))/16)), (16), (16) );
-          gemmini_extended_mvout( ((uint64_t) &C[(16 * i + 128 * io + 256 * ioo) * (512) + 16 + 64 * ji + 256 * jo]), (uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (1) * (256))/16)), (16), (16) );
+          gemmini_extended_mvout( ((uint64_t) &C[(16 * i + 128 * io + 256 * ioo) * (512) + 16 + 64 * ji + 256 * jo]), (uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + 256)/16)), (16), (16) );
           gemmini_extended_mvout( ((uint64_t) &C[(16 * i + 128 * io + 256 * ioo) * (512) + 32 + 64 * ji + 256 * jo]), (uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (2) * (256))/16)), (16), (16) );
           gemmini_extended_mvout( ((uint64_t) &C[(16 * i + 128 * io + 256 * ioo) * (512) + 48 + 64 * ji + 256 * jo]), (uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (3) * (256))/16)), (16), (16) );
         }
