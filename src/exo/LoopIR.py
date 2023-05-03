@@ -270,14 +270,12 @@ module CIR {
 
     expr    = Read    ( sym name, bool ispos )
             | Stride  ( sym name, int dim )
-            | Str     ( str str )
             | Const   ( object val )
             | BinOp   ( op op, expr lhs, expr rhs, bool ispos )
 
 } """,
     ext_types={
         "bool": bool,
-        "str": str,
         "int": int,
         "sym": Sym,
         "op": validators.instance_of(Operator, convert=True),
