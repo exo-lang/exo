@@ -259,6 +259,30 @@ module PAST {
     },
 )
 
+
+# --------------------------------------------------------------------------- #
+# C Codegen AST
+# --------------------------------------------------------------------------- #
+
+CIR = ADT(
+    """
+module CIR {
+
+    expr    = Read    ( sym name, bool ispos )
+            | Stride  ( sym name, int dim )
+            | Const   ( object val )
+            | BinOp   ( op op, expr lhs, expr rhs, bool ispos )
+
+} """,
+    ext_types={
+        "bool": bool,
+        "int": int,
+        "sym": Sym,
+        "op": validators.instance_of(Operator, convert=True),
+    },
+)
+
+
 # --------------------------------------------------------------------------- #
 # Effects
 # --------------------------------------------------------------------------- #
