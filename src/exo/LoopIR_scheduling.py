@@ -430,6 +430,11 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
     lo_i = Sym(lo)
     srcinfo = split_loop.srcinfo
 
+    if not (isinstance(split_loop.lo, LoopIR.Const) and split_loop.lo.val == 0):
+        raise SchedulingError(
+            f"expected the lower bound of the loop to be zero, got {split_loop.lo}."
+        )
+
     assert quot > 1
 
     def substitute(srcinfo):
@@ -495,7 +500,9 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         assert False, f"bad tail strategy: {tail_strategy}"
 
     def inner_wrapper(body):
-        return LoopIR.Seq(lo_i, lo_rng, body, None, srcinfo)
+        return LoopIR.Seq(
+            lo_i, LoopIR.Const(0, T.index, srcinfo), lo_rng, body, None, srcinfo
+        )
 
     ir, fwd_repl = fwd(loop_cursor)._child_node("hi")._replace(hi_rng)
     fwd = _compose(fwd_repl, fwd)
@@ -529,7 +536,9 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         env = {split_loop.iter: cut_tail_sub}
         cut_body = SubstArgs(cut_body, env).result()
 
-        cut_s = LoopIR.Seq(cut_i, Ntail, cut_body, None, srcinfo)
+        cut_s = LoopIR.Seq(
+            cut_i, LoopIR.Const(0, T.index, srcinfo), Ntail, cut_body, None, srcinfo
+        )
         if tail_strategy == "cut_and_guard":
             cond = boolop(">", Ntail, LoopIR.Const(0, T.int, srcinfo))
             cut_s = LoopIR.If(cond, [cut_s], [], None, srcinfo)
@@ -548,14 +557,14 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
 def DoUnroll(c_loop):
     s = c_loop._node
 
-    if not isinstance(s.hi, LoopIR.Const):
+    if not isinstance(s.hi, LoopIR.Const) or not isinstance(s.lo, LoopIR.Const):
         raise SchedulingError(f"expected loop '{s.iter}' to have constant bounds")
 
-    hi = s.hi.val
+    iters = s.hi.val - s.lo.val
     orig_body = c_loop.body().resolve_all()
 
     unrolled = []
-    for i in range(hi):
+    for i in range(iters):
         env = {s.iter: LoopIR.Const(i, T.index, s.srcinfo)}
         unrolled += Alpha_Rename(SubstArgs(orig_body, env).result()).result()
 
@@ -1039,7 +1048,7 @@ def DoLiftScope(inner_c):
             )
 
         def loop_wrapper(body):
-            return LoopIR.Seq(outer_s.iter, outer_s.hi, body, None, outer_s.srcinfo)
+            return outer_s.update(body=body)
 
         if isinstance(inner_s, LoopIR.If):
             # for OUTER in _:      if INNER:
@@ -1057,9 +1066,10 @@ def DoLiftScope(inner_c):
         elif isinstance(inner_s, LoopIR.Seq):
             # for OUTER in _:          for INNER in _:
             #   for INNER in _: A  ~>    for OUTER in _: A
-            if outer_s.iter in [name for name, _ in get_reads_of_expr(inner_s.hi)]:
+            reads = get_reads_of_expr(inner_s.lo) + get_reads_of_expr(inner_s.hi)
+            if outer_s.iter in [name for name, _ in reads]:
                 raise SchedulingError(
-                    "inner loop's hi depends on outer loop's iteration variable"
+                    "inner loop's lo or hi depends on outer loop's iteration variable"
                 )
 
             Check_ReorderLoops(inner_c.get_root(), outer_s)
@@ -1941,8 +1951,7 @@ def DoRemoveLoop(loop):
     try:
         Check_IsPositiveExpr(loop.get_root(), [s], s.hi)
     except SchedulingError:
-        zero = LoopIR.Const(0, T.int, s.srcinfo)
-        cond = LoopIR.BinOp(">", s.hi, zero, T.bool, s.srcinfo)
+        cond = LoopIR.BinOp(">", s.hi, s.lo, T.bool, s.srcinfo)
 
         def wrapper(body):
             return LoopIR.If(cond, body, [], None, s.srcinfo)
@@ -2348,7 +2357,9 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
             cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
             body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
 
-        return LoopIR.Seq(sym, hi, body, None, s.srcinfo)
+        return LoopIR.Seq(
+            sym, LoopIR.Const(0, T.index, s.srcinfo), hi, body, None, s.srcinfo
+        )
 
     ir, fwd = stmt_cursor.as_block()._wrap(wrapper, "body")
     return ir, fwd
@@ -3402,7 +3413,9 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         ]
 
         for i, n in reversed(list(zip(load_iter, shape))):
-            loop = LoopIR.Seq(i, n, load_nest, None, srcinfo)
+            loop = LoopIR.Seq(
+                i, LoopIR.Const(0, T.index, srcinfo), n, load_nest, None, srcinfo
+            )
             load_nest = [loop]
 
         ir, fwd_ins = fwd(block_cursor[0]).before()._insert(load_nest)
@@ -3427,7 +3440,9 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         ]
 
         for i, n in reversed(list(zip(store_iter, shape))):
-            loop = LoopIR.Seq(i, n, store_nest, None, srcinfo)
+            loop = LoopIR.Seq(
+                i, LoopIR.Const(0, T.index, srcinfo), n, store_nest, None, srcinfo
+            )
             store_nest = [loop]
 
         ir, fwd_ins = fwd(block_cursor[-1]).after()._insert(store_nest)
@@ -3544,7 +3559,14 @@ class DoStageWindow(Cursor_Rewrite):
         # for i0 in par(0, 10):
         #     for i1 in par(0, hi - lo):
         for sym_i, extent_i in reversed(list(zip(staged_vars, staged_extents))):
-            copy_stmt = LoopIR.Seq(sym_i, extent_i, [copy_stmt], None, srcinfo)
+            copy_stmt = LoopIR.Seq(
+                sym_i,
+                LoopIR.Const(0, T.index, srcinfo),
+                extent_i,
+                [copy_stmt],
+                None,
+                srcinfo,
+            )
 
         # Staged[0:10, 0:(hi - lo)]
         w_extents = [

@@ -960,7 +960,7 @@ def test_reorder_loops(golden):
 
     with pytest.raises(
         SchedulingError,
-        match="inner loop's hi depends on outer loop's iteration variable",
+        match="inner loop's lo or hi depends on outer loop's iteration variable",
     ):
         bar = reorder_loops(bar, bar.find("for i in _:_"))
 

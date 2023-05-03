@@ -205,7 +205,7 @@ class InferEffects:
                 stmt.iter, body_effect, pred=pred, config_pred=config_pred
             )
 
-            return styp(stmt.iter, stmt.hi, body, effects, stmt.srcinfo)
+            return stmt.update(body=body, eff=effects)
 
         elif isinstance(stmt, LoopIR.Call):
             assert stmt.f.eff is not None

@@ -447,9 +447,10 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         return lines
 
     elif isinstance(stmt, LoopIR.Seq):
+        lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
         body_env = env.push()
-        lines = [f"{indent}for {body_env.get_name(stmt.iter)} in seq(0, {hi}):"]
+        lines = [f"{indent}for {body_env.get_name(stmt.iter)} in seq({lo}, {hi}):"]
         lines.extend(_print_block(stmt.body, body_env, indent + "  "))
         return lines
 

@@ -72,7 +72,7 @@ module LoopIR {
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
          | If( expr cond, stmt* body, stmt* orelse )
-         | Seq( sym iter, expr hi, stmt* body )
+         | Seq( sym iter, expr lo, expr hi, stmt* body )
          | Alloc( sym name, type type, mem? mem )
          | Free( sym name, type type, mem? mem )
          | Call( proc f, expr* args )
@@ -225,6 +225,7 @@ module UAST {
 #   - used to specify pattern-matches
 # --------------------------------------------------------------------------- #
 
+# TODO: add lo to Seq
 PAST = ADT(
     """
 module PAST {

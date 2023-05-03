@@ -1409,7 +1409,7 @@ class ContextExtraction:
         old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
         new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
         pre_body = SubstArgs(s.body, {s.iter: new_i}).result()
-        pre_loop = LoopIR.Seq(new_i.name, old_i, pre_body, None, s.srcinfo)
+        pre_loop = LoopIR.Seq(new_i.name, s.lo, old_i, pre_body, None, s.srcinfo)
         return globenv([pre_loop])
 
     def loop_posteff(self, s, hi):
@@ -1423,10 +1423,8 @@ class ContextExtraction:
         old_plus1 = LoopIR.BinOp(
             "+", old_i, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
         )
-        upper = LoopIR.BinOp("-", hi, old_plus1, T.index, s.srcinfo)
-        shift_new = LoopIR.BinOp("+", new_i, old_plus1, T.index, s.srcinfo)
-        post_body = SubstArgs(s.body, {s.iter: shift_new}).result()
-        post_loop = LoopIR.Seq(new_i.name, upper, post_body, None, s.srcinfo)
+        post_body = SubstArgs(s.body, {s.iter: new_i}).result()
+        post_loop = LoopIR.Seq(new_i.name, old_plus1, hi, post_body, None, s.srcinfo)
         return stmts_effs([post_loop])
 
 
@@ -1567,10 +1565,11 @@ class SchedulingError(Exception):
         return ops
 
 
-def loop_globenv(i, hi_expr, body):
+def loop_globenv(i, lo_expr, hi_expr, body):
+    assert isinstance(lo_expr, LoopIR.expr)
     assert isinstance(hi_expr, LoopIR.expr)
 
-    loop = [LoopIR.Seq(i, hi_expr, body, None, null_srcinfo())]
+    loop = [LoopIR.Seq(i, lo_expr, hi_expr, body, None, null_srcinfo())]
     return globenv(loop)
 
 
@@ -1686,7 +1685,12 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     subenv = {i: LoopIR.Read(j, [], T.index, null_srcinfo())}
     stmts1_j = SubstArgs(stmts1, subenv).result()
 
-    Gloop = loop_globenv(i, LoopIR.Read(j, [], T.index, null_srcinfo()), stmts1)
+    Gloop = loop_globenv(
+        i,
+        LoopIR.Const(0, T.index, null_srcinfo()),
+        LoopIR.Read(j, [], T.index, null_srcinfo()),
+        stmts1,
+    )
     # print("GLOOP")
     # print(Gloop)
 
