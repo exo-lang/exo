@@ -73,17 +73,9 @@ def generate_offset(indices, strides):
         else:
             return f"({i}) * ({s})"
 
-    offset = index_expr(indices[0], strides[0])
-    for i, s in zip(indices[1:], strides[1:]):
-        expr = index_expr(i, s)
-        plus = " + " if offset != "" else ""
-        if expr != "":
-            offset = offset + plus + expr
+    exprs = [e for i, s in zip(indices, strides) if (e := index_expr(i, s)) != ""]
 
-    if offset == "":
-        offset = "0"
-
-    return offset
+    return " + ".join(exprs) if len(exprs) > 0 else "0"
 
 
 class Memory(ABC):
