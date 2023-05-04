@@ -4,6 +4,8 @@ import pytest
 
 from exo import proc, ExoType
 from exo.stdlib.scheduling import *
+from exo.libs.memories import *
+from exo.API_cursors import *
 
 
 @pytest.fixture(scope="session")
@@ -282,3 +284,54 @@ def test_arg_cursor(golden):
 
     print(output)
     assert output == golden
+
+
+def test_argcursor_introspection():
+    @proc
+    def bar(n: size, x: f32[n], y: [f64][8], result: R):
+        pass
+
+    n_arg = bar.args()[0]
+    assert isinstance(n_arg, ArgCursor)
+    assert n_arg.name() == "n"
+    with pytest.raises(AssertionError, match=""):
+        mem = n_arg.mem()
+    assert n_arg.is_tensor() == False
+    with pytest.raises(AssertionError, match=""):
+        shape = n_arg.shape()
+    assert n_arg.type() == ExoType.Size
+
+    x_arg = bar.args()[1]
+    assert isinstance(x_arg, ArgCursor)
+    assert x_arg.name() == "x"
+    assert x_arg.mem() == DRAM
+    assert x_arg.is_tensor() == True
+    x_arg_shape = x_arg.shape()
+    assert isinstance(x_arg_shape, ExprListCursor)
+    assert len(x_arg_shape) == 1
+    assert isinstance(x_arg_shape[0], ReadCursor)
+    assert x_arg_shape[0].name() == "n"
+    assert isinstance(x_arg_shape[0].idx(), ExprListCursor)
+    assert len(x_arg_shape[0].idx()) == 0
+    assert x_arg.type() == ExoType.F32
+
+    y_arg = bar.args()[2]
+    assert isinstance(y_arg, ArgCursor)
+    assert y_arg.name() == "y"
+    assert y_arg.mem() == DRAM
+    assert y_arg.is_tensor() == True
+    y_arg_shape = y_arg.shape()
+    assert isinstance(y_arg_shape, ExprListCursor)
+    assert len(y_arg_shape) == 1
+    assert isinstance(y_arg_shape[0], LiteralCursor)
+    assert y_arg_shape[0].value() == 8
+    assert y_arg.type() == ExoType.F64
+
+    result_arg = bar.args()[3]
+    assert isinstance(result_arg, ArgCursor)
+    assert result_arg.name() == "result"
+    assert result_arg.mem() == DRAM
+    assert result_arg.is_tensor() == False
+    with pytest.raises(AssertionError, match=""):
+        shape = result_arg.shape()
+    assert result_arg.type() == ExoType.R

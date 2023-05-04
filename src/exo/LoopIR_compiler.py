@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T
+from .LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from .memory import MemGenError, Memory, DRAM, StaticMemory
@@ -45,6 +45,73 @@ op_prec = {
     # unary minus
     "~": 70,
 }
+
+
+def lift_to_cir(e):
+    assert e.type.is_indexable(), "why are you here?"
+
+    if isinstance(e, LoopIR.Read):
+        return CIR.Read(e.name, e.type == T.size)
+    elif isinstance(e, LoopIR.Const):
+        return CIR.Const(e.val)
+    elif isinstance(e, LoopIR.BinOp):
+        lhs = lift_to_cir(e.lhs)
+        rhs = lift_to_cir(e.rhs)
+        return CIR.BinOp(e.op, lhs, rhs, e.type == T.size)
+    else:
+        assert False, "bad case!"
+
+
+operations = {
+    "+": lambda x, y: x + y,
+    "-": lambda x, y: x - y,
+    "*": lambda x, y: x * y,
+    "/": lambda x, y: x / y,
+    "%": lambda x, y: x % y,
+}
+
+
+def simplify_cir(e):
+    if isinstance(e, (CIR.Read, CIR.Const, CIR.Stride)):
+        return e
+
+    elif isinstance(e, CIR.BinOp):
+        lhs = simplify_cir(e.lhs)
+        rhs = simplify_cir(e.rhs)
+
+        if isinstance(lhs, CIR.Const) and isinstance(rhs, CIR.Const):
+            return CIR.Const(operations[e.op](lhs.val, rhs.val))
+
+        if isinstance(lhs, CIR.Const) and lhs.val == 0:
+            if e.op == "+":
+                return rhs
+            elif e.op == "*" or e.op == "/":
+                return CIR.Const(0)
+            elif e.op == "-":
+                pass  # cannot simplify
+            else:
+                assert False
+
+        if isinstance(rhs, CIR.Const) and rhs.val == 0:
+            if e.op == "+" or e.op == "-":
+                return lhs
+            elif e.op == "*":
+                return CIR.Const(0)
+            elif e.op == "/":
+                assert False, "division by zero??"
+            else:
+                assert False, "bad case"
+
+        if isinstance(lhs, CIR.Const) and lhs.val == 1 and e.op == "*":
+            return rhs
+
+        if isinstance(rhs, CIR.Const) and rhs.val == 1 and (e.op == "*" or e.op == "/"):
+            return lhs
+
+        return CIR.BinOp(e.op, lhs, rhs, e.ispos)
+
+    else:
+        assert False, "bad case!"
 
 
 class LoopIR_SubProcs(LoopIR_Do):
@@ -489,8 +556,9 @@ class Compiler:
                 and isinstance(pred.lhs, LoopIR.StrideExpr)
                 and isinstance(pred.rhs, LoopIR.Const)
             ):
-                nm = self.env[pred.lhs.name]
-                self._known_strides[(nm, pred.lhs.dim)] = str(pred.rhs.val)
+                self._known_strides[(pred.lhs.name, pred.lhs.dim)] = CIR.Const(
+                    pred.rhs.val
+                )
                 self.add_line(f"// assert {pred}")
             else:
                 # Default to just informing the compiler about the constraint
@@ -611,47 +679,93 @@ class Compiler:
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
-    def access_str(self, nm, idx_list):
-        buf = self.env[nm]
-        type = self.envtyp[nm]
-        idxs = [self.comp_e(i) for i in idx_list]
-        idx_expr = self.get_idx_offset(buf, type, idxs)
-        if not type.is_win():
-            return f"{buf}[{idx_expr}]"
+    def comp_cir(self, e, env, prec) -> str:
+        if isinstance(e, CIR.Read):
+            return env[e.name]
+
+        elif isinstance(e, CIR.Const):
+            return str(e.val)
+
+        elif isinstance(e, CIR.BinOp):
+            local_prec = op_prec[e.op]
+
+            lhs = self.comp_cir(e.lhs, env, local_prec)
+            rhs = self.comp_cir(e.rhs, env, local_prec)
+
+            if isinstance(e.rhs, CIR.BinOp) and (e.op == "-" or e.op == "/"):
+                rhs = f"({rhs})"
+
+            if e.op == "/":
+                if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.ispos) or (
+                    isinstance(e.lhs, CIR.Const) and e.lhs.val > 0
+                ):
+                    return f"({lhs} / {rhs})"
+                else:
+                    return self._call_static_helper("exo_floor_div", lhs, rhs)
+
+            s = f"{lhs} {e.op} {rhs}"
+            if local_prec < prec:
+                s = f"({s})"
+
+            return s
+
+        elif isinstance(e, CIR.Stride):
+            return f"{e.name}.strides[{e.dim}]"
+
         else:
-            return f"{buf}.data[{idx_expr}]"
+            assert False, "bad case!"
 
-    def shape_strs(self, shape, prec=100):
-        return [self.comp_e(s, prec=prec) for s in shape]
+    def access_str(self, nm, idx_list) -> str:
+        type = self.envtyp[nm]
+        cirs = [lift_to_cir(i) for i in idx_list]
+        idx_expr = self.get_idx_offset(nm, type, cirs)
+        idx_expr_s = self.comp_cir(simplify_cir(idx_expr), self.env, prec=0)
+        buf = self.env[nm]
+        if not type.is_win():
+            return f"{buf}[{idx_expr_s}]"
+        else:
+            return f"{buf}.data[{idx_expr_s}]"
 
-    def tensor_strides(self, shape, prec=100):
-        szs = self.shape_strs(shape, max(prec, 61))
+    def shape_strs(self, shape, prec=100) -> str:
+        comp_res = [
+            self.comp_cir(simplify_cir(lift_to_cir(i)), self.env, prec) for i in shape
+        ]
+        return comp_res
+
+    def tensor_strides(self, shape) -> CIR:
+        szs = [lift_to_cir(i) for i in shape]
         assert len(szs) >= 1
-        strides = ["1"]
+        strides = [CIR.Const(1)]
         s = szs[-1]
         for sz in reversed(szs[:-1]):
             strides.append(s)
-            s = f"{sz} * {s}"
+            s = CIR.BinOp("*", sz, s, True)
         strides = list(reversed(strides))
+
         return strides
 
-    def get_stride(self, name, i):
-        if stride := self._known_strides.get((name, i)):
-            return stride
-        else:
-            return f"{name}.strides[{i}]"
-
     # works for any tensor or window type
-    def get_strides(self, name, typ, prec=100):
+    def get_strides(self, name: Sym, typ) -> CIR:
         if typ.is_win():
-            return [self.get_stride(name, i) for i in range(len(typ.shape()))]
-        else:
-            return self.tensor_strides(typ.shape(), prec)
+            res = []
+            for i in range(len(typ.shape())):
+                if stride := self._known_strides.get((name, i)):
+                    res.append(stride)
+                else:
+                    res.append(CIR.Stride(name, i))
 
-    def get_idx_offset(self, name, typ, idx):
-        strides = self.get_strides(name, typ, prec=61)
+            return res
+        else:
+            return self.tensor_strides(typ.shape())
+
+    def get_idx_offset(self, name: Sym, typ, idx) -> CIR:
+        strides = self.get_strides(name, typ)
         assert len(strides) == len(idx)
-        acc = " + ".join([f"({i}) * ({s})" for i, s in zip(idx, strides)])
+        acc = CIR.BinOp("*", idx[0], strides[0], True)
+        for i, s in zip(idx[1:], strides[1:]):
+            new = CIR.BinOp("*", i, s, True)
+            acc = CIR.BinOp("+", acc, new, True)
+
         return acc
 
     def get_window_type(self, typ, is_const=None):
@@ -898,9 +1012,9 @@ class Compiler:
 
         elif isinstance(e, LoopIR.StrideExpr):
             basetyp = self.envtyp[e.name]
-            strides = self.get_strides(e.name, basetyp)
+            stride = self.get_strides(e.name, basetyp)[e.dim]
+            return self.comp_cir(simplify_cir(stride), self.env, prec=0)
 
-            return strides[e.dim]
         elif isinstance(e, LoopIR.ReadConfig):
             if not e.config.is_allow_rw():
                 raise ConfigError(
@@ -924,12 +1038,17 @@ class Compiler:
         def w_lo(w):
             return w.lo if isinstance(w, LoopIR.Interval) else w.pt
 
-        idxs = [self.comp_e(w_lo(w)) for w in e.idx]
+        cirs = [lift_to_cir(w_lo(w)) for w in e.idx]
+        idxs = [self.comp_cir(simplify_cir(i), self.env, prec=0) for i in cirs]
+
         # compute new window strides
-        all_strides = self.get_strides(base, basetyp, prec=0)
-        assert 0 < len(all_strides) == len(e.idx)
-        dataptr = mem.window(basetyp, base, idxs, all_strides, e.srcinfo)
+        all_strides = self.get_strides(e.name, basetyp)
+        all_strides_s = [
+            self.comp_cir(simplify_cir(i), self.env, prec=0) for i in all_strides
+        ]
+        assert 0 < len(all_strides_s) == len(e.idx)
+        dataptr = mem.window(basetyp, base, idxs, all_strides_s, e.srcinfo)
         strides = ", ".join(
-            s for s, w in zip(all_strides, e.idx) if isinstance(w, LoopIR.Interval)
+            s for s, w in zip(all_strides_s, e.idx) if isinstance(w, LoopIR.Interval)
         )
         return dataptr, strides

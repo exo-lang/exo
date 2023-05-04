@@ -58,6 +58,26 @@ class MemGenError(Exception):
     pass
 
 
+def generate_offset(indices, strides):
+    def index_expr(i, s):
+        if s == "0" or i == "0":
+            return ""
+
+        if s == "1":
+            return i
+        if i == "1":
+            return s
+
+        if len(s) == 1:
+            return f"({i}) * {s}"
+        else:
+            return f"({i}) * ({s})"
+
+    exprs = [e for i, s in zip(indices, strides) if (e := index_expr(i, s)) != ""]
+
+    return " + ".join(exprs) if len(exprs) > 0 else "0"
+
+
 class Memory(ABC):
     @classmethod
     def name(cls):
@@ -85,9 +105,11 @@ class Memory(ABC):
 
     @classmethod
     def window(cls, basetyp, baseptr, indices, strides, srcinfo):
-        offset = " + ".join(f"({i}) * ({s})" for i, s in zip(indices, strides))
+        offset = generate_offset(indices, strides)
+
         if basetyp.is_win():
             baseptr = f"{baseptr}.data"
+
         return f"{baseptr}[{offset}]"
 
     @classmethod

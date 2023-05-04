@@ -53,7 +53,7 @@ static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, flo
 static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, float* r ) {
 *r = 0.0;
 for (int i = 0; i < m; i++) {
-  *r += x[(i) * (1)] * y[(i) * (1)];
+  *r += x[i] * y[i];
 }
 }
 
