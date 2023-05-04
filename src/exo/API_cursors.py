@@ -196,7 +196,7 @@ class ArgCursor(Cursor):
     def mem(self) -> Optional[Memory]:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.fnarg)
-        assert not self.type.is_indexable()
+        assert not self._impl._node.type.is_indexable()
 
         return self._impl._node.mem
 
