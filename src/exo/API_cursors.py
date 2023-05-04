@@ -156,14 +156,78 @@ class InvalidCursor(Cursor):
         return self
 
 
+class ListCursorPrototype(Cursor):
+    def __iter__(self):
+        """
+        iterate over all cursors contained in the list
+        """
+        assert isinstance(self._impl, C.Block)
+        yield from (lift_cursor(stmt_impl, self._proc) for stmt_impl in self._impl)
+
+    def __getitem__(self, i) -> Cursor:
+        """
+        get a cursor to the i-th item
+        """
+        assert isinstance(self._impl, C.Block)
+        return lift_cursor(self._impl[i], self._proc)
+
+    def __len__(self) -> int:
+        """
+        get the number of items in the list
+        """
+        assert isinstance(self._impl, C.Block)
+        return len(self._impl)
+
+
+class ArgCursor(Cursor):
+    """
+    Cursor pointing to an argument of a procedure.
+        ```
+        name : type @ mem
+        ```
+    """
+
+    def name(self) -> str:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return self._impl._node.name.name()
+
+    def mem(self) -> Optional[Memory]:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+        assert not self._impl._node.type.is_indexable()
+
+        return self._impl._node.mem
+
+    def is_tensor(self) -> bool:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return isinstance(self._impl._node.type, LoopIR.Tensor)
+
+    def shape(self) -> ExprListCursor:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+        assert self.is_tensor()
+
+        return ExprListCursor(
+            self._impl._child_node("type")._child_block("hi"), self._proc
+        )
+
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
+
+
 class StmtCursorPrototype(Cursor):
     """
     A base class that is mostly useful for testing whether some
     cursor is pointing to the statement fragment of the IR language
     or the expression fragment.
     """
-
-    pass
 
 
 class StmtCursor(StmtCursorPrototype):
@@ -231,7 +295,7 @@ class StmtCursor(StmtCursorPrototype):
         return self.as_block().expand(delta_lo, delta_hi)
 
 
-class BlockCursor(StmtCursorPrototype):
+class BlockCursor(StmtCursorPrototype, ListCursorPrototype):
     """
     Cursor pointing to a contiguous sequence of statements.
     See `help(Cursor)` for more details.
@@ -260,27 +324,6 @@ class BlockCursor(StmtCursorPrototype):
 
         assert isinstance(self._impl, C.Block)
         return BlockCursor(self._impl.expand(delta_lo, delta_hi), self._proc)
-
-    def __iter__(self):
-        """
-        iterate over all statement cursors contained in the block
-        """
-        assert isinstance(self._impl, C.Block)
-        yield from (lift_cursor(stmt_impl, self._proc) for stmt_impl in self._impl)
-
-    def __getitem__(self, i) -> StmtCursor:
-        """
-        get a cursor to the i-th statement
-        """
-        assert isinstance(self._impl, C.Block)
-        return lift_cursor(self._impl[i], self._proc)
-
-    def __len__(self) -> int:
-        """
-        get the number of statements in the block
-        """
-        assert isinstance(self._impl, C.Block)
-        return len(self._impl)
 
     def anchor(self) -> StmtCursor:
         """
@@ -350,32 +393,18 @@ class ExprCursor(ExprCursorPrototype):
     """
 
 
-class ExprListCursor(Cursor):
+class ExprListCursor(ListCursorPrototype):
     """
     Cursor pointing to a contiguous sequence of expressions.
     See `help(Cursor)` for more details.
     """
 
-    def __iter__(self):
-        """
-        iterate over all expression cursors contained in the argument list
-        """
-        assert isinstance(self._impl, C.Block)
-        yield from (lift_cursor(stmt_impl, self._proc) for stmt_impl in self._impl)
 
-    def __getitem__(self, i) -> ExprCursor:
-        """
-        get a cursor to the i-th argument
-        """
-        assert isinstance(self._impl, C.Block)
-        return lift_cursor(self._impl[i], self._proc)
-
-    def __len__(self) -> int:
-        """
-        get the number of arguments
-        """
-        assert isinstance(self._impl, C.Block)
-        return len(self._impl)
+class ArgListCursor(ListCursorPrototype):
+    """
+    Cursor pointing to a contiguous sequence of function arguments.
+    See `help(Cursor)` for more details.
+    """
 
 
 # --------------------------------------------------------------------------- #
@@ -521,6 +550,27 @@ class ForSeqCursor(StmtCursor):
         return BlockCursor(self._impl._child_block("body"), self._proc)
 
 
+def loopir_type_to_exotype(typ: LoopIR.Type) -> API.ExoType:
+    if isinstance(typ, LoopIR.Num):
+        return API.ExoType.R
+    elif isinstance(typ, LoopIR.F32):
+        return API.ExoType.F32
+    elif isinstance(typ, LoopIR.F64):
+        return API.ExoType.F64
+    elif isinstance(typ, LoopIR.INT8):
+        return API.ExoType.I8
+    elif isinstance(typ, LoopIR.INT32):
+        return API.ExoType.I32
+    elif isinstance(typ, LoopIR.Bool):
+        return API.ExoType.Bool
+    elif isinstance(typ, LoopIR.Size):
+        return API.ExoType.Size
+    elif isinstance(typ, LoopIR.Index):
+        return API.ExoType.Index
+    else:
+        raise NotImplementedError(f"Unsupported {typ}")
+
+
 class AllocCursor(StmtCursor):
     """
     Cursor pointing to a buffer definition statement:
@@ -540,6 +590,21 @@ class AllocCursor(StmtCursor):
         assert isinstance(self._impl._node, LoopIR.Alloc)
 
         return self._impl._node.mem
+
+    def shape(self) -> ExprListCursor:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+        assert isinstance(self._impl._node.type, LoopIR.Tensor)
+
+        return ExprListCursor(
+            self._impl._child_node("type")._child_block("hi"), self._proc
+        )
+
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
 
 
 class CallCursor(StmtCursor):
@@ -788,14 +853,21 @@ def lift_cursor(impl, proc):
         elif isinstance(n0, LoopIR.expr):
             assert all(isinstance(c._node, LoopIR.expr) for c in impl)
             return ExprListCursor(impl, proc)
+        elif isinstance(n0, LoopIR.fnarg):
+            assert all(isinstance(c._node, LoopIR.fnarg) for c in impl)
+            return ArgListCursor(impl, proc)
         else:
             assert False, "bad case"
 
     elif isinstance(impl, C.Node):
         n = impl._node
 
+        # procedure arguments
+        if isinstance(n, LoopIR.fnarg):
+            return ArgCursor(impl, proc)
+
         # statements
-        if isinstance(n, LoopIR.Assign):
+        elif isinstance(n, LoopIR.Assign):
             return AssignCursor(impl, proc)
         elif isinstance(n, LoopIR.Reduce):
             return ReduceCursor(impl, proc)
@@ -846,6 +918,7 @@ def lift_cursor(impl, proc):
 __all__ = [
     "Cursor",
     "InvalidCursor",
+    "ArgCursor",
     "StmtCursorPrototype",
     "StmtCursor",
     "BlockCursor",

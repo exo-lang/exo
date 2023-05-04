@@ -224,6 +224,13 @@ class OptionalA(ArgumentProcessor):
             return self.arg_proc(opt_arg, all_args)
 
 
+class DictA(ArgumentProcessor):
+    def __call__(self, d, all_args):
+        if not isinstance(d, dict):
+            self.err("expected a dict")
+        return d
+
+
 class ListA(ArgumentProcessor):
     def __init__(self, elem_arg_proc, list_only=False, length=None):
         if is_subclass_obj(elem_arg_proc, ArgumentProcessor):
@@ -482,6 +489,35 @@ class ForSeqOrIfCursorA(StmtCursorA):
         cursor = super()._cursor_call(cursor_pat, all_args)
         if not isinstance(cursor, (PC.ForSeqCursor, PC.IfCursor)):
             self.err(f"expected a ForSeqCursor or IfCursor, not {type(cursor)}")
+        return cursor
+
+
+class ArgOrAllocCursorA(CursorArgumentProcessor):
+    def _cursor_call(self, alloc_pattern, all_args):
+        try:
+            name, count = NameCountA()(alloc_pattern, all_args)
+            count = f" #{count}" if count is not None else ""
+            alloc_pattern = f"{name} : _{count}"
+        except:
+            pass
+
+        cursor = alloc_pattern
+        if not isinstance(cursor, (PC.AllocCursor, PC.ArgCursor)):
+            proc = all_args["proc"]
+            try:
+                cursor = proc.find(alloc_pattern)
+            except:
+                for arg in proc.args():
+                    if arg.name() == name:
+                        return arg
+                self.err(
+                    f"could not find a cursor matching {alloc_pattern}, nor an arg cursor with name {name}"
+                )
+
+        if not isinstance(cursor, (PC.AllocCursor, PC.ArgCursor)):
+            self.err(
+                f"expected either an AllocCursor or an ArgCursor, not {type(cursor)}"
+            )
         return cursor
 
 
@@ -867,13 +903,13 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
 # Sub-procedure Operations
 
 
-@sched_op([NameA, StmtCursorA])
-def extract_subproc(proc, subproc_name, body_stmt):
+@sched_op([NameA, StmtCursorA, DictA])
+def extract_subproc(proc, subproc_name, body_stmt, order=dict()):
     """
     Documentation
     """
     stmt = body_stmt._impl
-    passobj = scheduling.DoExtractMethod(proc, subproc_name, stmt)
+    passobj = scheduling.DoExtractMethod(proc, subproc_name, stmt, order)
     return passobj.result(), passobj.subproc()
 
 
@@ -943,8 +979,8 @@ def call_eqv(proc, call_cursor, eqv_proc):
 # Precision, Memory and Window Setting Operations
 
 
-@sched_op([NameCountA, TypeAbbrevA])
-def set_precision(proc, name, typ):
+@sched_op([ArgOrAllocCursorA, TypeAbbrevA])
+def set_precision(proc, cursor, typ):
     """
     Set the precision annotation on a given buffer to the provided
     base-type precision.
@@ -956,12 +992,12 @@ def set_precision(proc, name, typ):
     rewrite:
         `name : _[...]    ->    name : typ[...]`
     """
-    name, count = name
-    return scheduling.DoSetTypAndMem(proc, name, count, basetyp=typ).result()
+    ir, fwd = scheduling.DoSetTypAndMem(cursor._impl, basetyp=typ)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([NameCountA, BoolA])
-def set_window(proc, name, is_window=True):
+@sched_op([ArgOrAllocCursorA, BoolA])
+def set_window(proc, cursor, is_window=True):
     """
     Set the annotation on a given buffer to indicate that it should be
     a window (True) or should not be a window (False)
@@ -973,12 +1009,12 @@ def set_window(proc, name, is_window=True):
     rewrite when is_window = True:
         `name : R[...]    ->    name : [R][...]`
     """
-    name, count = name
-    return scheduling.DoSetTypAndMem(proc, name, count, win=is_window).result()
+    ir, fwd = scheduling.DoSetTypAndMem(cursor._impl, win=is_window)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([NameCountA, MemoryA])
-def set_memory(proc, name, memory_type):
+@sched_op([ArgOrAllocCursorA, MemoryA])
+def set_memory(proc, cursor, memory_type):
     """
     Set the memory annotation on a given buffer to the provided memory.
 
@@ -989,8 +1025,8 @@ def set_memory(proc, name, memory_type):
     rewrite:
         `name : _ @ _    ->    name : _ @ mem`
     """
-    name, count = name
-    return scheduling.DoSetTypAndMem(proc, name, count, mem=memory_type).result()
+    ir, fwd = scheduling.DoSetTypAndMem(cursor._impl, mem=memory_type)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 # --------------------------------------------------------------------------- #
@@ -1125,7 +1161,9 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
             f"permute_vector argument ({permute_vector}) "
             f"was not a permutation of {set(range(0, N))}"
         )
-    return scheduling.DoRearrangeDim(proc, stmt, permute_vector).result()
+
+    ir, fwd = scheduling.DoRearrangeDim(stmt, permute_vector)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, ListA(OptionalA(NewExprA("buf_cursor"))), BoolA])
@@ -1662,8 +1700,9 @@ def fission(proc, gap_cursor, n_lifts=1):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA])
-def fuse(proc, stmt1, stmt2):
+# TODO: Debug scheduling error in fuse
+@sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA, BoolA])
+def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     """
     fuse together two loops or if-guards, provided that the loop bounds
     or guard conditions are compatible.
@@ -1701,7 +1740,7 @@ def fuse(proc, stmt1, stmt2):
     if isinstance(stmt1, PC.IfCursor):
         ir, fwd = scheduling.DoFuseIf(s1, s2)
     else:
-        ir, fwd = scheduling.DoFuseLoop(s1, s2)
+        ir, fwd = scheduling.DoFuseLoop(s1, s2, unsafe_disable_check)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1725,8 +1764,10 @@ def remove_loop(proc, loop_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA])
-def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
+@sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA, BoolA])
+def add_loop(
+    proc, block_cursor, iter_name, hi_expr, guard=False, unsafe_disable_check=False
+):
     """
     Add a loop around some block of statements.
     This operation is allowable when the block of statements in question
@@ -1753,7 +1794,9 @@ def add_loop(proc, block_cursor, iter_name, hi_expr, guard=False):
         raise NotImplementedError("TODO: support blocks of size > 1")
 
     stmt_c = block_cursor[0]._impl
-    ir, fwd = scheduling.DoAddLoop(stmt_c, iter_name, hi_expr, guard)
+    ir, fwd = scheduling.DoAddLoop(
+        stmt_c, iter_name, hi_expr, guard, unsafe_disable_check
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

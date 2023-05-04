@@ -1,4 +1,12 @@
-from .API import Procedure, compile_procs, compile_procs_to_strings, proc, instr, config
+from .API import (
+    Procedure,
+    compile_procs,
+    compile_procs_to_strings,
+    proc,
+    instr,
+    config,
+    ExoType,
+)
 from .LoopIR_scheduling import SchedulingError
 from .parse_fragment import ParseFragmentError
 from .configs import Config
@@ -24,4 +32,5 @@ __all__ = [
     "ParseFragmentError",
     #
     "stdlib",
+    "ExoType",
 ]

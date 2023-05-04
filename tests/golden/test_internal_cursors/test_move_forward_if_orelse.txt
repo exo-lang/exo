@@ -1,0 +1,6 @@
+def foo():
+    if True:
+        pass
+    else:
+        y: i8 @ DRAM
+        x: i8 @ DRAM

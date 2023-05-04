@@ -230,12 +230,14 @@ def test_proc_equal():
     assert foo != make_foo()
 
 
-def test_simplify3(golden):
+def test_simplify(golden):
     @proc
     def foo(n: size, m: size):
-        assert m == 1 and n == 1
+        x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
+        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
+            pass
         y: R[10]
-        y[10 * m - 10 * n + 2 * n] = 2.0
+        y[n * 4 - n * 4 + 1] = 0.0
 
     assert str(simplify(foo)) == golden
 
@@ -276,16 +278,25 @@ def test_simplify2(golden):
     assert str(simplify(foo)) == golden
 
 
-def test_simplify(golden):
+def test_simplify3(golden):
     @proc
     def foo(n: size, m: size):
-        x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
-        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
-            pass
+        assert m == 1 and n == 1
         y: R[10]
-        y[n * 4 - n * 4 + 1] = 0.0
+        y[10 * m - 10 * n + 2 * n] = 2.0
 
     assert str(simplify(foo)) == golden
+
+
+def test_simplify4(golden):
+    @proc
+    def bar():
+        for i in seq(0, 3):
+            for j in seq(0, i * 16 + 16 - i * 16):
+                pass
+
+    bar = simplify(bar)
+    assert str(bar) == golden
 
 
 def test_pattern_match():
@@ -387,6 +398,23 @@ def test_rearrange_dim(golden):
     assert "\n".join(map(str, cases)) == golden
 
 
+def test_rearrange_dim_2(golden):
+    @proc
+    def bar(s: stride):
+        pass
+
+    @proc
+    def foo():
+        a: i8[10, 10]
+        for i in seq(0, 10):
+            for j in seq(0, 10):
+                a[i, j] = a[j, i]
+                bar(stride(a, 1))
+
+    foo = rearrange_dim(foo, "a : _", [1, 0])
+    assert str(foo) == golden
+
+
 def test_rearrange_dim_fail():
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -398,6 +426,28 @@ def test_rearrange_dim_fail():
 
     with pytest.raises(ValueError, match="was not a permutation of"):
         rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
+
+
+def test_rearrange_dim_fail2():
+    @proc
+    def bar(m: size, a: [i8][m, m]):
+        a[0, 0] += 1.0
+
+    @proc
+    def foo1():
+        a: i8[10, 10]
+        bar(10, a[0:10, 0:10])
+
+    with pytest.raises(SchedulingError, match="Cannot permute buffer "):
+        rearrange_dim(foo1, "a : i8[_]", [1, 0])
+
+    @proc
+    def foo2():
+        a: i8[10, 10]
+        x = a[0:10, 0:10]
+
+    with pytest.raises(SchedulingError, match="windows is not currently supported"):
+        rearrange_dim(foo2, "a : i8[_]", [1, 0])
 
 
 def test_remove_loop(golden):
@@ -901,6 +951,20 @@ def test_simple_reorder(golden):
     assert str(bar) == golden
 
 
+def test_reorder_loops(golden):
+    @proc
+    def bar(n: size, A: i8[n, n]):
+        for i in seq(0, n):
+            for j in seq(0, (-1 - i + n)):
+                A[i, j] = 0.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="inner loop's hi depends on outer loop's iteration variable",
+    ):
+        bar = reorder_loops(bar, bar.find("for i in _:_"))
+
+
 def test_reorder_stmts(golden):
     @proc
     def bar(g: R[100] @ DRAM):
@@ -1106,8 +1170,9 @@ def test_simple_typ_and_mem(golden):
     def bar(n: size, A: R[n]):
         pass
 
-    bar = set_precision(bar, "A", "i32")
-    bar = set_memory(bar, "A", GEMM_SCRATCH)
+    A = bar.args()[1]
+    bar = set_precision(bar, A, "i32")
+    bar = set_memory(bar, A, GEMM_SCRATCH)
     assert str(bar) == golden
 
 
@@ -2199,7 +2264,6 @@ def test_replace_all_arch(golden):
 
     arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
     bar = replace_all(bar, arch)
-    print(bar)
     assert str(bar) == golden
 
 
@@ -2423,3 +2487,63 @@ def test_specialize(golden):
 
     foo = specialize(foo, "x[i] += 1.0", [f"i == {i}" for i in range(4)])
     assert str(foo) == golden
+
+
+def test_specialize_sizes(golden):
+    @proc
+    def gemm(
+        M: size,
+        N: size,
+        K: size,
+        C: f32[M, N] @ DRAM,
+        A: f32[M, K] @ DRAM,
+        B: f32[K, N] @ DRAM,
+        alpha: f32,
+    ):
+        for i in seq(0, M):
+            for j in seq(0, N):
+                for k in seq(0, K):
+                    C[i, j] += alpha * A[i, k] * B[k, j]
+
+    foo = specialize(gemm, "for i in _:_", [f"N <= {x}" for x in [64, 128, 512]])
+    foo = simplify(foo)
+    assert str(foo) == golden
+
+
+def test_specialize_data():
+    @proc
+    def gemm(
+        M: size,
+        N: size,
+        K: size,
+        C: f32[M, N] @ DRAM,
+        A: f32[M, K] @ DRAM,
+        B: f32[K, N] @ DRAM,
+        alpha: f32,
+    ):
+        for i in seq(0, M):
+            for j in seq(0, N):
+                for k in seq(0, K):
+                    C[i, j] += alpha * A[i, k] * B[k, j]
+
+    with pytest.raises(
+        SchedulingError,
+        match="Invalid specialization condition",
+    ):
+        specialize(gemm, "for i in _:_", [f"alpha == {x}" for x in [0.0, 1.0, -1.0]])
+
+
+def test_extract_subproc(golden):
+    @proc
+    def foo():
+        x: R @ DRAM
+        y: R[8] @ DRAM
+        for j in seq(0, 8):
+            x = 0.0
+            for i in seq(0, 8):
+                x += y[j] * 2.0
+
+    foo, new = extract_subproc(
+        foo, "fooooo", "for i in _:_", order={"x": 1, "y": 0, "j": 2}
+    )
+    assert (str(foo) + "\n" + str(new)) == golden

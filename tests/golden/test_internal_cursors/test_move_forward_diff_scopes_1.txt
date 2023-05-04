@@ -1,0 +1,6 @@
+def foo():
+    z: i8 @ DRAM
+    for i in seq(0, 4):
+        x: i8 @ DRAM
+        y: i8 @ DRAM
+        pass

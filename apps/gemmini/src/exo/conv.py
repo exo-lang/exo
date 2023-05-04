@@ -140,6 +140,12 @@ def set_gemm_memories(conv):
     conv = set_memory(conv, "res", GEMM_ACCUM)
     conv = set_memory(conv, "i_s", GEMM_SCRATCH)
     conv = set_memory(conv, "w_s", GEMM_SCRATCH)
+    try:
+        conv = set_memory(conv, "res #1", GEMM_ACCUM)
+        conv = set_memory(conv, "i_s #1", GEMM_SCRATCH)
+        conv = set_memory(conv, "w_s #1", GEMM_SCRATCH)
+    except:
+        pass
 
     return conv
 
@@ -207,34 +213,44 @@ def schedule_conv_3():
     conv = old_reorder(conv, "kcol b")
     conv = old_reorder(conv, "krow b")
     conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1")
+    conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1", unsafe_disable_check=True)
     conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1")
-    conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1")
-    conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1")
+    conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1", unsafe_disable_check=True)
     conv = add_loop(conv, "for och_o in _:_ #0", "ocol_o", 3)
     conv = old_reorder(conv, "orow_o ocol_o")
     conv = old_reorder(conv, "orow_i ocol_o")
     conv = old_reorder(conv, "kcol ocol_o")
     conv = old_reorder(conv, "krow ocol_o")
     conv = fuse(conv, "for ocol_o in _:_ #0", "for ocol_o in _:_ #1")
-    conv = fuse(conv, "for ocol_o in _:_ #0", "for ocol_o in _:_ #1")
+    conv = fuse(
+        conv, "for ocol_o in _:_ #0", "for ocol_o in _:_ #1", unsafe_disable_check=True
+    )
     conv = add_loop(conv, "for och_o in _:_ #0", "orow_o", 2)
     conv = old_reorder(conv, "orow_i orow_o")
     conv = old_reorder(conv, "kcol orow_o")
     conv = old_reorder(conv, "krow orow_o")
     conv = fuse(conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1")
-    conv = fuse(conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1")
+    conv = fuse(
+        conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1", unsafe_disable_check=True
+    )
     conv = add_loop(conv, "for och_o in _:_ #0", "orow_i", 28)
     conv = old_reorder(conv, "kcol orow_i")
     conv = old_reorder(conv, "krow orow_i")
     conv = fuse(conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1")
-    conv = fuse(conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1")
+    conv = fuse(
+        conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1", unsafe_disable_check=True
+    )
 
     conv = add_loop(conv, "for och_o in _:_ #3", "orow_o", 2)
     conv = fuse(conv, "for orow_o in _:_ #1", "for orow_o in _:_ #2")
-    conv = fuse(conv, "for orow_o in _:_ #1", "for orow_o in _:_ #2")
+    conv = fuse(
+        conv, "for orow_o in _:_ #1", "for orow_o in _:_ #2", unsafe_disable_check=True
+    )
     conv = add_loop(conv, "for och_o in _:_ #3", "orow_i", 28)
     conv = fuse(conv, "for orow_i in _:_ #1", "for orow_i in _:_ #2")
-    conv = fuse(conv, "for orow_i in _:_ #1", "for orow_i in _:_ #2")
+    conv = fuse(
+        conv, "for orow_i in _:_ #1", "for orow_i in _:_ #2", unsafe_disable_check=True
+    )
 
     conv = fuse(conv, "for krow in _:_ #0", "for krow in _:_ #1")
     conv = fuse(conv, "for kcol in _:_ #0", "for kcol in _:_ #1")
@@ -325,44 +341,78 @@ def schedule_conv_17():
     conv = old_fission_after(conv, "for kch_o in _:_ #0", n_lifts=5)
     conv = old_fission_after(conv, "for kch_o in _:_ #2", n_lifts=5)
     conv = add_loop(conv, "for kch_o in _:_ #0", "orow_i", 14, guard=True)
-    conv = add_loop(conv, "if orow_i == 0:_", "orow_o", 2, guard=True)
-    conv = add_loop(conv, "if orow_o == 0:_", "bi", 4, guard=True)
-    conv = add_loop(conv, "for kch_o in _:_ #2", "orow_i", 14, guard=True)
-    conv = add_loop(conv, "if orow_i == 0:_ #1", "orow_o", 2, guard=True)
-    conv = add_loop(conv, "if orow_o == 0:_ #1", "bi", 4, guard=True)
+    conv = add_loop(
+        conv, "if orow_i == 0:_", "orow_o", 2, guard=True, unsafe_disable_check=True
+    )
+    conv = add_loop(
+        conv, "if orow_o == 0:_", "bi", 4, guard=True, unsafe_disable_check=True
+    )
+    conv = add_loop(
+        conv, "for kch_o in _:_ #2", "orow_i", 14, guard=True, unsafe_disable_check=True
+    )
+    conv = add_loop(
+        conv, "if orow_i == 0:_ #1", "orow_o", 2, guard=True, unsafe_disable_check=True
+    )
+    conv = add_loop(
+        conv, "if orow_o == 0:_ #1", "bi", 4, guard=True, unsafe_disable_check=True
+    )
     # Start fissioning loops
-    conv = add_loop(conv, "for och_o in _:_ #0", "bi", 4)
+    conv = add_loop(conv, "for och_o in _:_ #0", "bi", 4, unsafe_disable_check=True)
     conv = old_reorder(conv, "orow_o bi")
     conv = old_reorder(conv, "orow_i bi")
     conv = old_reorder(conv, "kcol bi")
     conv = old_reorder(conv, "krow bi")
     conv = fuse(conv, "for bi in _:_ #0", "for bi in _:_ #1")
-    conv = fuse(conv, "for bi in _:_ #0", "for bi in _:_ #1")
+    conv = fuse(conv, "for bi in _:_ #0", "for bi in _:_ #1", unsafe_disable_check=True)
     conv = add_loop(conv, "for och_o in _:_ #0", "orow_o", 2)
     conv = old_reorder(conv, "orow_i orow_o")
     conv = old_reorder(conv, "kcol orow_o")
     conv = old_reorder(conv, "krow orow_o")
     conv = fuse(conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1")
-    conv = fuse(conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1")
+    conv = fuse(
+        conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1", unsafe_disable_check=True
+    )
     conv = add_loop(conv, "for och_o in _:_ #0", "orow_i", 14)
     conv = old_reorder(conv, "kcol orow_i")
     conv = old_reorder(conv, "krow orow_i")
-    conv = fuse(conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1")
-    conv = fuse(conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1")
-    conv = fuse(conv, "for krow in _:_ #0", "for krow in _:_ #1")
-    conv = fuse(conv, "for kcol in _:_ #0", "for kcol in _:_ #1")
+    conv = fuse(
+        conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for krow in _:_ #0", "for krow in _:_ #1", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for kcol in _:_ #0", "for kcol in _:_ #1", unsafe_disable_check=True
+    )
 
-    conv = add_loop(conv, "for och_o in _:_ #3", "bi", 4)
-    conv = fuse(conv, "for bi in _:_ #1", "for bi in _:_ #2")
-    conv = fuse(conv, "for bi in _:_ #1", "for bi in _:_ #2")
-    conv = add_loop(conv, "for och_o in _:_ #3", "orow_o", 2)
-    conv = fuse(conv, "for orow_o in _:_ #1", "for orow_o in _:_ #2")
-    conv = fuse(conv, "for orow_o in _:_ #1", "for orow_o in _:_ #2")
-    conv = add_loop(conv, "for och_o in _:_ #3", "orow_i", 14)
-    conv = fuse(conv, "for orow_i in _:_ #1", "for orow_i in _:_ #2")
-    conv = fuse(conv, "for orow_i in _:_ #1", "for orow_i in _:_ #2")
-    conv = fuse(conv, "for krow in _:_ #1", "for krow in _:_ #2")
-    conv = fuse(conv, "for kcol in _:_ #1", "for kcol in _:_ #2")
+    conv = add_loop(conv, "for och_o in _:_ #3", "bi", 4, unsafe_disable_check=True)
+    conv = fuse(conv, "for bi in _:_ #1", "for bi in _:_ #2", unsafe_disable_check=True)
+    conv = fuse(conv, "for bi in _:_ #1", "for bi in _:_ #2", unsafe_disable_check=True)
+    conv = add_loop(conv, "for och_o in _:_ #3", "orow_o", 2, unsafe_disable_check=True)
+    conv = fuse(
+        conv, "for orow_o in _:_ #1", "for orow_o in _:_ #2", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for orow_o in _:_ #1", "for orow_o in _:_ #2", unsafe_disable_check=True
+    )
+    conv = add_loop(
+        conv, "for och_o in _:_ #3", "orow_i", 14, unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for orow_i in _:_ #1", "for orow_i in _:_ #2", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for orow_i in _:_ #1", "for orow_i in _:_ #2", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for krow in _:_ #1", "for krow in _:_ #2", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for kcol in _:_ #1", "for kcol in _:_ #2", unsafe_disable_check=True
+    )
 
     conv = add_unsafe_guard(conv, "ld_i8_block_id2(_) #0", "orow_i == 0 or krow == 2")
     conv = add_unsafe_guard(conv, "ld_i8_block_id2(_) #1", "orow_i == 0 or krow == 2")
@@ -417,29 +467,49 @@ def schedule_conv_30():
     # conv = conv.add_guard('for kch_o in _:_', 'orow_i', 0)
     conv = old_fission_after(conv, "for kch_o in _:_ #0", n_lifts=5)
     conv = old_fission_after(conv, "for och_o in _:_ #0", n_lifts=1)
-    conv = add_loop(conv, "for kch_o in _:_ #0", "orow_i", 7, guard=True)
-    conv = add_loop(conv, "if orow_i == 0:_", "orow_o", 2, guard=True)
-    conv = add_loop(conv, "if orow_o == 0:_", "b", 4, guard=True)
+    conv = add_loop(
+        conv, "for kch_o in _:_ #0", "orow_i", 7, guard=True, unsafe_disable_check=True
+    )
+    conv = add_loop(
+        conv, "if orow_i == 0:_", "orow_o", 2, guard=True, unsafe_disable_check=True
+    )
+    conv = add_loop(
+        conv, "if orow_o == 0:_", "b", 4, guard=True, unsafe_disable_check=True
+    )
     # Start fissioning loops
-    conv = add_loop(conv, "for orow_i in _:_ #0", "b", 4)
+    conv = add_loop(conv, "for orow_i in _:_ #0", "b", 4, unsafe_disable_check=True)
     conv = old_reorder(conv, "orow_o b")
     conv = old_reorder(conv, "orow_i b")
     conv = old_reorder(conv, "kcol b")
     conv = old_reorder(conv, "krow b")
     conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1")
-    conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1")
-    conv = add_loop(conv, "for orow_i in _:_ #0", "orow_o", 2)
+    conv = fuse(conv, "for b in _:_ #0", "for b in _:_ #1", unsafe_disable_check=True)
+    conv = add_loop(
+        conv, "for orow_i in _:_ #0", "orow_o", 2, unsafe_disable_check=True
+    )
     conv = old_reorder(conv, "orow_i orow_o")
     conv = old_reorder(conv, "kcol orow_o")
     conv = old_reorder(conv, "krow orow_o")
-    conv = fuse(conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1")
-    conv = fuse(conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1")
+    conv = fuse(
+        conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for orow_o in _:_ #0", "for orow_o in _:_ #1", unsafe_disable_check=True
+    )
     conv = old_reorder(conv, "kcol orow_i")
     conv = old_reorder(conv, "krow orow_i")
-    conv = fuse(conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1")
-    conv = fuse(conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1")
-    conv = fuse(conv, "for krow in _:_ #0", "for krow in _:_ #1")
-    conv = fuse(conv, "for kcol in _:_ #0", "for kcol in _:_ #1")
+    conv = fuse(
+        conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for orow_i in _:_ #0", "for orow_i in _:_ #1", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for krow in _:_ #0", "for krow in _:_ #1", unsafe_disable_check=True
+    )
+    conv = fuse(
+        conv, "for kcol in _:_ #0", "for kcol in _:_ #1", unsafe_disable_check=True
+    )
 
     conv = add_unsafe_guard(conv, "ld_i8_block_id2(_) #0", "orow_i == 0 or krow == 2")
 
