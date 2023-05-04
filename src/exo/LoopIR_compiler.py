@@ -533,7 +533,11 @@ class Compiler:
                 else:
                     const_kwd = "const " if a.name not in self.non_const else ""
                     ctyp = a.type.basetype().ctype()
-                    arg_strs.append(f"{const_kwd}{ctyp}* {name_arg}")
+                    if a.type.is_real_scalar() and (a.name not in self.non_const):
+                        arg = f"{const_kwd}{ctyp} {name_arg}"
+                    else:
+                        arg = f"{const_kwd}{ctyp}* {name_arg}"
+                    arg_strs.append(arg)
                 mem = f" @{a.mem.name()}" if a.mem else ""
                 comment_str = f"{name_arg} : {a.type}{mem}"
                 typ_comments.append(comment_str)
@@ -948,7 +952,10 @@ class Compiler:
                 )
 
             if e.name in self._scalar_refs:
-                return f"*{self.env[e.name]}"
+                if e.name in self.non_const:
+                    return f"*{self.env[e.name]}"
+                else:
+                    return self.env[e.name]
             elif not rtyp.is_tensor_or_window():
                 return self.env[e.name]
             else:
