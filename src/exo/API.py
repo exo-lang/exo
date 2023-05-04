@@ -20,6 +20,7 @@ from .memory import Memory
 from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern, get_match_no
 from .prelude import *
+from .new_eff import Check_Aliasing
 
 # Moved to new file
 from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
@@ -174,6 +175,7 @@ class Procedure(ProcedureBase):
             proc = TypeChecker(proc).get_loopir()
             proc = InferEffects(proc).result()
             CheckEffects(proc)
+            Check_Aliasing(proc)
 
         assert isinstance(proc, LoopIR.LoopIR.proc)
 
