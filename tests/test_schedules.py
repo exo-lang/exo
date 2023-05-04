@@ -1165,6 +1165,17 @@ def test_bool_partial_eval(golden):
     assert str(bar) == golden
 
 
+def test_transpose(golden):
+    @proc
+    def bar(m: size, n: size, A: i8[m, n]):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                A[i, j] += 1.0
+
+    bar = bar.transpose(bar.args()[2])
+    assert str(bar) == golden
+
+
 def test_simple_typ_and_mem(golden):
     @proc
     def bar(n: size, A: R[n]):
