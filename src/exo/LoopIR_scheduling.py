@@ -1977,6 +1977,7 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
 
     return ir, fwd
 
+
 class DoAddUnsafeGuard(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, cond):
         self.stmt = stmt_cursor._node
