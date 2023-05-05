@@ -248,6 +248,7 @@ class PatternMatch:
         elif isinstance(stmt, LoopIR.Seq):
             return (
                 self.match_name(pat.iter, stmt.iter)
+                and self.match_e(pat.lo, stmt.lo)
                 and self.match_e(pat.hi, stmt.hi)
                 and self.match_stmts(pat.body, cur.body()) is not None
             )

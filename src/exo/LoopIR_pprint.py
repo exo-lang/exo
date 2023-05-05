@@ -679,10 +679,11 @@ def _print_cursor_stmt(
             )
 
     elif isinstance(stmt, LoopIR.Seq):
+        lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
         body_env = env.push()
         lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in seq(0, {hi}):",
+            f"{indent}for {body_env.get_name(stmt.iter)} in seq({lo}, {hi}):",
             *_print_cursor_block(cur.body(), target, body_env, indent + "  "),
         ]
 

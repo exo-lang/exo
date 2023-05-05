@@ -502,6 +502,7 @@ def globenv(stmts):
             aenvs.append(AEnvPar(newbinds, addnames=True))
 
         elif isinstance(s, LoopIR.Seq):
+            # TODO KQ: understand and fix this
             # extract environment for the body and bind its
             # results via copies of the variables
             i, j = s.iter, s.iter.copy()
@@ -1161,8 +1162,9 @@ def stmts_effs(stmts):
                 E.Guard(ANot(lift_e(s.cond)), stmts_effs(s.orelse)),
             ]
         elif isinstance(s, LoopIR.Seq):
+            effs += expr_effs(s.lo)
             effs += expr_effs(s.hi)
-            bds = AAnd(AInt(0) <= AInt(s.iter), AInt(s.iter) < lift_e(s.hi))
+            bds = AAnd(lift_e(s.lo) <= AInt(s.iter), AInt(s.iter) < lift_e(s.hi))
             # we must prefix the body with the loop-invariant dataflow
             # analysis of the loop, since that is the only precondition
             # we are sound in assuming for global values in the loop body
@@ -1313,7 +1315,7 @@ class ContextExtraction:
             p = self.ctrlp_stmts(s.body)
             if p is not None:
                 G = self.loop_preenv(s)
-                bds = AAnd(AInt(0) <= AInt(s.iter), AInt(s.iter) < lift_e(s.hi))
+                bds = AAnd(lift_e(s.lo) <= AInt(s.iter), AInt(s.iter) < lift_e(s.hi))
                 return AAnd(bds, G(p))
             return None
         else:
@@ -1377,13 +1379,17 @@ class ContextExtraction:
             if body is None:
                 return None
             else:
+                orig_lo = lift_e(s.lo)
+                lo_sym = Sym("lo_tmp")
+                lo_env = AEnv(lo_sym, orig_lo)
+
                 orig_hi = lift_e(s.hi)
                 hi_sym = Sym("hi_tmp")
                 hi_env = AEnv(hi_sym, orig_hi)
 
-                bds = AAnd(AInt(0) <= AInt(s.iter), AInt(s.iter) < AInt(hi_sym))
+                bds = AAnd(AInt(lo_sym) <= AInt(s.iter), AInt(s.iter) < AInt(hi_sym))
                 bds_sym = Sym("bds_tmp")
-                hi_env = hi_env + AEnv(bds_sym, bds)
+                hi_env = lo_env + hi_env + AEnv(bds_sym, bds)
 
                 G = self.loop_preenv(s)
 

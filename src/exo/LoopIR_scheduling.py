@@ -132,10 +132,15 @@ class Cursor_Rewrite(LoopIR_Rewrite):
                     )
                 ]
         elif isinstance(s, LoopIR.Seq):
+            new_lo = self.map_e(s.lo)
             new_hi = self.map_e(s.hi)
             new_body = self.map_stmts(sc.body())
-            if any((new_hi, new_body is not None)):
-                return [s.update(hi=new_hi or s.hi, body=new_body or s.body)]
+            if any((new_lo, new_hi, new_body is not None)):
+                return [
+                    s.update(
+                        lo=new_lo or s.lo, hi=new_hi or s.hi, body=new_body or s.body
+                    )
+                ]
         elif isinstance(s, LoopIR.Call):
             new_args = self.map_exprs(s.args)
             if new_args is not None:
@@ -278,6 +283,7 @@ def DoReorderStmt(f_cursor, s_cursor):
     return ir, fwd
 
 
+# TODO KQ: how to handle this
 def DoPartitionLoop(stmt, partition_by):
     s = stmt._node
 
@@ -314,6 +320,7 @@ def DoPartitionLoop(stmt, partition_by):
     return ir, fwd
 
 
+# TODO KQ: how to handle this
 def DoProductLoop(outer_loop, new_name):
     body = outer_loop.body()
     outer_loop_ir = outer_loop._node
@@ -1706,6 +1713,7 @@ class DoLiftAlloc(Cursor_Rewrite):
                 # guards; oh well.
                 continue
             elif isinstance(s, LoopIR.Seq):
+                # TODO KQ: fix this
                 if s.iter in self.alloc_deps and self.keep_dims:
                     idxs.append(s.iter)
                     if isinstance(s.hi, LoopIR.Read):
@@ -2172,6 +2180,7 @@ class DoBoundAndGuard(Cursor_Rewrite):
         s = sc._node
         if s == self.loop:
             assert isinstance(s, LoopIR.Seq)
+            # TODO KQ: do I need to do this?
             bound = _get_constant_bound(s.hi)
             guard = LoopIR.If(
                 LoopIR.BinOp(
@@ -2759,6 +2768,8 @@ class _DoNormalize(Cursor_Rewrite):
                 self.ir, fwd_repl = self.fwd(sc)._child_node("cond")._replace(new_cond)
                 self.fwd = _compose(fwd_repl, self.fwd)
         elif isinstance(s, LoopIR.Seq):
+            new_lo = self.map_e(s.lo)
+            # TODO KQ: fix IndexRangeAnalysis here...
             new_hi = self.map_e(s.hi)
 
             self.env = self.env.new_child()
@@ -3052,10 +3063,15 @@ class DoSimplify(Cursor_Rewrite):
                 self.ir, fwd_repl = self.fwd(sc)._child_node("cond")._replace(cond)
                 self.fwd = _compose(fwd_repl, self.fwd)
         elif isinstance(s, LoopIR.Seq):
+            lo = self.map_e(s.lo)
             hi = self.map_e(s.hi)
 
             # Delete the loop if it would not run at all
-            if isinstance(hi, LoopIR.Const) and hi.val == 0:
+            if (
+                isinstance(hi, LoopIR.Const)
+                and isinstance(lo, LoopIR.Const)
+                and hi.val == lo.val
+            ):
                 self.ir, fwd_del = self.fwd(sc)._delete()
                 self.fwd = _compose(fwd_del, self.fwd)
                 return
@@ -3067,6 +3083,9 @@ class DoSimplify(Cursor_Rewrite):
                 self.fwd = _compose(fwd_del, self.fwd)
                 return
 
+            if lo:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("lo")._replace(lo)
+                self.fwd = _compose(fwd_repl, self.fwd)
             if hi:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("hi")._replace(hi)
                 self.fwd = _compose(fwd_repl, self.fwd)

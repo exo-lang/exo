@@ -233,8 +233,8 @@ module PAST {
     stmt    = Assign  ( name name, expr* idx, expr rhs )
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
-            | If      ( expr cond, stmt* body,  stmt* orelse )
-            | Seq     ( name iter, expr hi,     stmt* body )
+            | If      ( expr cond, stmt* body, stmt* orelse )
+            | Seq     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
             | Call    ( name f, expr* args )
             | WriteConfig ( name config, name field )
@@ -663,10 +663,15 @@ class LoopIR_Rewrite:
                     )
                 ]
         elif isinstance(s, LoopIR.Seq):
+            new_lo = self.map_e(s.lo)
             new_hi = self.map_e(s.hi)
             new_body = self.map_stmts(s.body)
-            if any((new_hi, new_body is not None)):
-                return [s.update(hi=new_hi or s.hi, body=new_body or s.body)]
+            if any((new_lo, new_hi, new_body is not None)):
+                return [
+                    s.update(
+                        lo=new_lo or s.lo, hi=new_hi or s.hi, body=new_body or s.body
+                    )
+                ]
         elif isinstance(s, LoopIR.Call):
             new_args = self.map_exprs(s.args)
             if new_args is not None:
@@ -818,6 +823,7 @@ class LoopIR_Do:
             self.do_stmts(s.body)
             self.do_stmts(s.orelse)
         elif styp is LoopIR.Seq:
+            self.do_e(s.lo)
             self.do_e(s.hi)
             self.do_stmts(s.body)
         elif styp is LoopIR.Call:
@@ -961,6 +967,7 @@ class FreeVars(LoopIR_Do):
             self.pop()
             return
         elif styp is LoopIR.Seq:
+            self.do_e(s.lo)
             self.do_e(s.hi)
             self.push()
             self.env[s.iter] = True
@@ -1047,6 +1054,7 @@ class Alpha_Rename(LoopIR_Rewrite):
             self.pop()
             return stmts
         elif isinstance(s, LoopIR.Seq):
+            lo = self.map_e(s.lo) or s.lo
             hi = self.map_e(s.hi) or s.hi
 
             self.push()
@@ -1055,7 +1063,7 @@ class Alpha_Rename(LoopIR_Rewrite):
             body = self.map_stmts(s.body) or s.body
             self.pop()
 
-            return [s.update(iter=itr, hi=hi, body=body)]
+            return [s.update(iter=itr, lo=lo, hi=hi, body=body)]
 
         return super().map_s(s)
 

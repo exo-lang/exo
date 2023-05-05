@@ -190,15 +190,14 @@ class InferEffects:
             return LoopIR.If(stmt.cond, body, orelse, effects, stmt.srcinfo)
 
         elif isinstance(stmt, LoopIR.Seq):
-            styp = type(stmt)
-            # pred is: 0 <= bound < stmt.hi
+            # pred is: stmt.lo <= bound < stmt.hi
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
+            lo = lift_expr(stmt.lo)
             hi = lift_expr(stmt.hi)
-            zero = E.Const(0, T.int, stmt.srcinfo)
-            lhs = E.BinOp("<=", zero, bound, T.bool, stmt.srcinfo)
+            lhs = E.BinOp("<=", lo, bound, T.bool, stmt.srcinfo)
             rhs = E.BinOp("<", bound, hi, T.bool, stmt.srcinfo)
             pred = E.BinOp("and", lhs, rhs, T.bool, stmt.srcinfo)
-            config_pred = E.BinOp("<", zero, hi, T.bool, stmt.srcinfo)
+            config_pred = E.BinOp("<", lo, hi, T.bool, stmt.srcinfo)
 
             body, body_effect = self.map_stmts(stmt.body)
             effects = eff_bind(
@@ -993,13 +992,13 @@ class CheckEffects:
             if isinstance(stmt, LoopIR.Seq):
                 self.push()
 
-                def bd_pred(x, hi, srcinfo):
-                    zero = E.Const(0, T.int, srcinfo)
+                def bd_pred(x, lo, hi, srcinfo):
                     x = E.Var(x, T.int, srcinfo)
+                    lo = lift_expr(lo)
                     hi = lift_expr(hi)
                     return E.BinOp(
                         "and",
-                        E.BinOp("<=", zero, x, T.bool, srcinfo),
+                        E.BinOp("<=", lo, x, T.bool, srcinfo),
                         E.BinOp("<", x, hi, T.bool, srcinfo),
                         T.bool,
                         srcinfo,
@@ -1007,13 +1006,14 @@ class CheckEffects:
 
                 # Check if for-loop bound is non-negative
                 # with the context, before adding assertion
-                self.check_non_negative(lift_expr(stmt.hi))
+                iters = LoopIR.BinOp("-", stmt.hi, stmt.lo, T.index, stmt.srcinfo)
+                self.check_non_negative(lift_expr(iters))
 
                 self.solver.add_assertion(
-                    self.expr_to_smt(bd_pred(stmt.iter, stmt.hi, stmt.srcinfo))
+                    self.expr_to_smt(bd_pred(stmt.iter, stmt.lo, stmt.hi, stmt.srcinfo))
                 )
 
-                sub_body_eff = self.map_stmts(stmt.body)
+                self.map_stmts(stmt.body)
                 self.pop()
 
                 body_eff = eff_concat(stmt.eff, body_eff)
