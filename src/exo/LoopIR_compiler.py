@@ -952,7 +952,15 @@ class Compiler:
             elif not rtyp.is_tensor_or_window():
                 return self.env[e.name]
             else:
-                return self.access_str(e.name, e.idx)
+                if hasattr(mem, "custom_read"):
+                    base = self.env[e.name]
+                    cirs = [lift_to_cir(i) for i in e.idx]
+                    idxs = [
+                        self.comp_cir(simplify_cir(i), self.env, prec=0) for i in cirs
+                    ]
+                    return mem.custom_read(base, idxs, e.srcinfo)
+                else:
+                    return self.access_str(e.name, e.idx)
 
         elif isinstance(e, LoopIR.WindowExpr):
             win_struct = self.get_window_type(e.type)
