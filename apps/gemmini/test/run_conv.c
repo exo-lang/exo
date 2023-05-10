@@ -25,7 +25,7 @@
 
 #define CPU_KERNEL_FN CAT(KERNEL_FN, _cpu)
 
-static float scale[1] = {1.0};
+const float scale = 1.0;
 static int32_t bias[1 * OUT_CHANNEL];
 static int8_t output_cpu[BATCH_SIZE * OUT_DIM * OUT_DIM * OUT_CHANNEL] = {0};
 static int8_t output_gemmini[BATCH_SIZE * OUT_DIM * OUT_DIM * OUT_CHANNEL] = {

@@ -23,7 +23,7 @@
 
 #define CPU_KERNEL_FN CAT(cpu_, KERNEL_FN)
 
-static float c_scale[1] = {2.0f};
+const float c_scale = 2.0f;
 static int8_t x[NN * KK];
 static int8_t y[KK * MM];
 static int8_t z_cpu[NN * MM] = {0};
