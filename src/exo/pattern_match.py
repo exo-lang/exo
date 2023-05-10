@@ -343,7 +343,7 @@ def _children(cur) -> Iterable[Node]:
     elif isinstance(n, LoopIR.If):
         yield from _children_from_attrs(cur, n, "cond", "body", "orelse")
     elif isinstance(n, LoopIR.Seq):
-        yield from _children_from_attrs(cur, n, "hi", "body")
+        yield from _children_from_attrs(cur, n, "lo", "hi", "body")
     elif isinstance(n, LoopIR.Call):
         yield from _children_from_attrs(cur, n, "args")
     # Expressions

@@ -103,6 +103,17 @@ def test_product_loop5(golden):
     assert str(mult_loops(foo, "i j", "ij")) == golden
 
 
+def test_product_loop_nonzero_lo():
+    @proc
+    def foo(n: size, x: R[n, 30]):
+        for i in seq(1, n):
+            for j in seq(0, 30):
+                x[i, j] = 0.0
+
+    with pytest.raises(SchedulingError, match="expected the inner and outer loops"):
+        mult_loops(foo, "i j", "ij")
+
+
 def test_delete_pass(golden):
     @proc
     def foo(x: R):
@@ -297,6 +308,15 @@ def test_simplify4(golden):
 
     bar = simplify(bar)
     assert str(bar) == golden
+
+
+def test_simplify_loop_bounds(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(2 + 5 + n, 9 + 8 + n):
+            pass
+
+    assert str(simplify(foo)) == golden
 
 
 def test_pattern_match():
@@ -937,6 +957,18 @@ def test_divide_loop_cut_and_guard(golden):
 
     bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="cut_and_guard")
     assert str(bar) == golden
+
+
+def test_divide_loop_fail_nonzero_lo():
+    @proc
+    def bar():
+        for i in seq(1, 8):
+            pass
+
+    with pytest.raises(
+        SchedulingError, match="expected the lower bound of the loop to be zero"
+    ):
+        bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="guard")
 
 
 def test_simple_reorder(golden):
@@ -2210,6 +2242,18 @@ def test_cut_loop3():
 
     with pytest.raises(TypeError, match="cut_loop: expected a positive integer"):
         foo = cut_loop(foo, "for i in _:_", -3)
+
+
+def test_cut_loop_nonzero_lo(golden):
+    @proc
+    def foo(n: size):
+        assert n > 5
+        x: R[n]
+        for i in seq(3, n):
+            x[i] = 0.0
+
+    foo = cut_loop(foo, "for i in seq(3, n):_", 5)
+    assert str(simplify(foo)) == golden
 
 
 def test_mem_aware_replace(golden):

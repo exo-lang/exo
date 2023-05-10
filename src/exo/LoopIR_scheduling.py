@@ -11,6 +11,7 @@ from .LoopIR import (
     get_reads_of_expr,
     get_reads_of_stmts,
     get_writes_of_stmts,
+    is_const_zero,
 )
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .new_eff import (
@@ -283,7 +284,6 @@ def DoReorderStmt(f_cursor, s_cursor):
     return ir, fwd
 
 
-# TODO KQ: how to handle this
 def DoPartitionLoop(stmt, partition_by):
     s = stmt._node
 
@@ -314,29 +314,37 @@ def DoPartitionLoop(stmt, partition_by):
     env = {s.iter: iter_off}
 
     body2 = SubstArgs(s.body, env).result()
-    loop2 = Alpha_Rename([s.update(iter=iter2, hi=new_hi, body=body2)]).result()[0]
+    zero = LoopIR.Const(0, T.index, s.srcinfo)
+    loop2 = Alpha_Rename(
+        [s.update(iter=iter2, lo=zero, hi=new_hi, body=body2)]
+    ).result()[0]
 
     ir, fwd = stmt._replace([loop1, loop2])
     return ir, fwd
 
 
-# TODO KQ: how to handle this
-def DoProductLoop(outer_loop, new_name):
-    body = outer_loop.body()
-    outer_loop_ir = outer_loop._node
+def DoProductLoop(outer_loop_c, new_name):
+    body = outer_loop_c.body()
+    outer_loop = outer_loop_c._node
 
     if len(body) != 1 or not isinstance(body[0]._node, LoopIR.Seq):
         raise SchedulingError(
             f"expected loop directly inside of {body[0]._node.iter} loop"
         )
 
-    inner_loop = body[0]
-    inner_loop_ir = inner_loop._node
-    inner_hi = inner_loop_ir.hi
+    inner_loop_c = body[0]
+    inner_loop = inner_loop_c._node
+    inner_hi = inner_loop.hi
 
     if not isinstance(inner_hi, LoopIR.Const):
         raise SchedulingError(
             f"expected the inner loop to have a constant bound, " f"got {inner_hi}."
+        )
+
+    if not (is_const_zero(inner_loop.lo) and is_const_zero(outer_loop.lo)):
+        raise SchedulingError(
+            f"expected the inner and outer loops to have a constant lower bound of 0, "
+            f"got {inner_loop.lo} and {outer_loop.lo}."
         )
 
     # Only spend a name once the other parameters are validated
@@ -354,30 +362,28 @@ def DoProductLoop(outer_loop, new_name):
     mk_inner_expr = lambda _: inner_expr
 
     # Initial state of editing transaction
-    ir, fwd = outer_loop.get_root(), lambda x: x
+    ir, fwd = outer_loop_c.get_root(), lambda x: x
 
     # Replace inner reads to loop variables
-    for c in inner_loop.body():
+    for c in inner_loop_c.body():
         ir, fwd = _replace_pats(
-            ir, fwd, c, f"{outer_loop_ir.iter}", mk_outer_expr, only_replace_attrs=False
+            ir, fwd, c, f"{outer_loop.iter}", mk_outer_expr, only_replace_attrs=False
         )
         ir, fwd = _replace_pats(
-            ir, fwd, c, f"{inner_loop_ir.iter}", mk_inner_expr, only_replace_attrs=False
+            ir, fwd, c, f"{inner_loop.iter}", mk_inner_expr, only_replace_attrs=False
         )
 
-    ir, fwdRepl = fwd(outer_loop)._child_node("iter")._replace(new_var)
+    ir, fwdRepl = fwd(outer_loop_c)._child_node("iter")._replace(new_var)
     fwd = _compose(fwdRepl, fwd)
 
-    new_hi = LoopIR.BinOp(
-        "*", outer_loop_ir.hi, inner_hi, T.index, outer_loop_ir.srcinfo
-    )
-    ir, fwdRepl = fwd(outer_loop)._child_node("hi")._replace(new_hi)
+    new_hi = LoopIR.BinOp("*", outer_loop.hi, inner_hi, T.index, outer_loop.srcinfo)
+    ir, fwdRepl = fwd(outer_loop_c)._child_node("hi")._replace(new_hi)
     fwd = _compose(fwdRepl, fwd)
 
-    ir, fwdMv = fwd(inner_loop).body()._move(fwd(inner_loop).after())
+    ir, fwdMv = fwd(inner_loop_c).body()._move(fwd(inner_loop_c).after())
     fwd = _compose(fwdMv, fwd)
 
-    ir, fwdDel = fwd(inner_loop)._delete()
+    ir, fwdDel = fwd(inner_loop_c)._delete()
     fwd = _compose(fwdDel, fwd)
 
     return ir, fwd
@@ -437,7 +443,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
     lo_i = Sym(lo)
     srcinfo = split_loop.srcinfo
 
-    if not (isinstance(split_loop.lo, LoopIR.Const) and split_loop.lo.val == 0):
+    if not is_const_zero(split_loop.lo):
         raise SchedulingError(
             f"expected the lower bound of the loop to be zero, got {split_loop.lo}."
         )
@@ -1713,7 +1719,7 @@ class DoLiftAlloc(Cursor_Rewrite):
                 # guards; oh well.
                 continue
             elif isinstance(s, LoopIR.Seq):
-                # TODO KQ: fix this
+                # TODO: may need to fix to support lo for backwards compatability
                 if s.iter in self.alloc_deps and self.keep_dims:
                     idxs.append(s.iter)
                     if isinstance(s.hi, LoopIR.Read):
@@ -2180,7 +2186,6 @@ class DoBoundAndGuard(Cursor_Rewrite):
         s = sc._node
         if s == self.loop:
             assert isinstance(s, LoopIR.Seq)
-            # TODO KQ: do I need to do this?
             bound = _get_constant_bound(s.hi)
             guard = LoopIR.If(
                 LoopIR.BinOp(
@@ -2769,25 +2774,25 @@ class _DoNormalize(Cursor_Rewrite):
                 self.fwd = _compose(fwd_repl, self.fwd)
         elif isinstance(s, LoopIR.Seq):
             new_lo = self.map_e(s.lo)
-            # TODO KQ: fix IndexRangeAnalysis here...
             new_hi = self.map_e(s.hi)
 
             self.env = self.env.new_child()
+            lo_range = IndexRangeAnalysis(new_lo, self.env).result()
             hi_range = IndexRangeAnalysis(new_hi, self.env).result()
-            if hi_range is not None:
-                assert hi_range[0] >= 0
-                if hi_range[1] == 0:
-                    # We allow loop hi to be zero, however, that means that the loop
-                    # variable doesn't have a defined range. We can set it to None
-                    # since any simplification is not necessary since loop won't run
-                    hi_range = None
+
+            if lo_range is not None and hi_range is not None:
+                assert lo_range[0] <= hi_range[1]
+                if lo_range[0] == hi_range[1]:
+                    self.env[s.iter] = None
                 else:
-                    hi_range = (0, hi_range[1] - 1)
-                self.env[s.iter] = hi_range
+                    self.env[s.iter] = (lo_range[0], hi_range[1] - 1)
             else:
                 self.env[s.iter] = None
 
             self.map_stmts(sc.body())
+            if new_lo:
+                self.ir, fwd_repl = self.fwd(sc)._child_node("lo")._replace(new_lo)
+                self.fwd = _compose(fwd_repl, self.fwd)
             if new_hi:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("hi")._replace(new_hi)
                 self.fwd = _compose(fwd_repl, self.fwd)
@@ -2936,16 +2941,16 @@ class DoSimplify(Cursor_Rewrite):
             return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type, lhs.srcinfo)
 
         if e.op == "+":
-            if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
+            if is_const_zero(lhs):
                 return rhs
-            if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+            if is_const_zero(rhs):
                 return lhs
             if val := self.is_quotient_remainder(
                 LoopIR.BinOp(e.op, lhs, rhs, lhs.type, lhs.srcinfo)
             ):
                 return val
         elif e.op == "-":
-            if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+            if is_const_zero(rhs):
                 return lhs
             if isinstance(lhs, LoopIR.BinOp) and lhs.op == "+":
                 if lhs.lhs == rhs:
@@ -2953,9 +2958,7 @@ class DoSimplify(Cursor_Rewrite):
                 if lhs.rhs == rhs:
                     return lhs.lhs
         elif e.op == "*":
-            if isinstance(lhs, LoopIR.Const) and lhs.val == 0:
-                return LoopIR.Const(0, lhs.type, lhs.srcinfo)
-            if isinstance(rhs, LoopIR.Const) and rhs.val == 0:
+            if is_const_zero(lhs) or is_const_zero(rhs):
                 return LoopIR.Const(0, lhs.type, lhs.srcinfo)
             if isinstance(lhs, LoopIR.Const) and lhs.val == 1:
                 return rhs

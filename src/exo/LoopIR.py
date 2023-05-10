@@ -225,7 +225,6 @@ module UAST {
 #   - used to specify pattern-matches
 # --------------------------------------------------------------------------- #
 
-# TODO: add lo to Seq
 PAST = ADT(
     """
 module PAST {
@@ -927,6 +926,10 @@ def get_writes_of_stmts(stmts):
     gw = GetWrites()
     gw.do_stmts(stmts)
     return gw.writes
+
+
+def is_const_zero(e):
+    return isinstance(e, LoopIR.Const) and e.val == 0
 
 
 class FreeVars(LoopIR_Do):

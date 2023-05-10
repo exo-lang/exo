@@ -502,7 +502,6 @@ def globenv(stmts):
             aenvs.append(AEnvPar(newbinds, addnames=True))
 
         elif isinstance(s, LoopIR.Seq):
-            # TODO KQ: understand and fix this
             # extract environment for the body and bind its
             # results via copies of the variables
             i, j = s.iter, s.iter.copy()
@@ -512,8 +511,8 @@ def globenv(stmts):
 
             # bind the bounds condition so it isn't duplicated
             # non_empty   = AInt(0) < lift_e(s.hi)
-            def fix(x, body_x, lower=0):
-                bds = AAnd(AInt(lower) <= AInt(i), AInt(i) < lift_e(s.hi))
+            def fix(x, body_x):
+                bds = AAnd(lift_e(s.lo) <= AInt(i), AInt(i) < lift_e(s.hi))
                 no_change = AImplies(bds, AEq(body_x, x))
                 return A.ForAll(i, no_change, T.bool, s.srcinfo)
 
@@ -522,19 +521,19 @@ def globenv(stmts):
             # for cfgfld in cfg_writes:
             #     pass
 
-            def fix_cfg(x, rhs, body_x, lower=0):
-                bds = AAnd(AInt(lower) <= AInt(i), AInt(i) < lift_e(s.hi))
-                is_assigned = A.Exists(
-                    i, AAnd(bds, AEq(body_x, rhs)), T.bool, s.srcinfo
-                )
-                no_change_or_assign = AOr(AEq(body_x, rhs), AEq(body_x, x))
-                AImplies
+            # def fix_cfg(x, rhs, body_x, lower=0):
+            #     bds = AAnd(AInt(lower) <= AInt(i), AInt(i) < lift_e(s.hi))
+            #     is_assigned = A.Exists(
+            #         i, AAnd(bds, AEq(body_x, rhs)), T.bool, s.srcinfo
+            #     )
+            #     no_change_or_assign = AOr(AEq(body_x, rhs), AEq(body_x, x))
+            #     AImplies
 
-                no_change = 23
-                # A.Exists(i, is_assigned, T.bool, s.srcinfo)
-                no_change = A
-                no_change = AImplies(bds, AEq(body_x, x))
-                return A.ForAll(i, no_change, T.bool, s.srcinfo)
+            #     no_change = 23
+            #     # A.Exists(i, is_assigned, T.bool, s.srcinfo)
+            #     no_change = A
+            #     no_change = AImplies(bds, AEq(body_x, x))
+            #     return A.ForAll(i, no_change, T.bool, s.srcinfo)
 
             # define the value of variables due to the first iteration alone
             # def iter0(x,body_x):
@@ -1625,18 +1624,24 @@ def Check_ReorderLoops(proc, s):
         y: LoopIR.Read(y2, [], T.index, null_srcinfo()),
     }
     body2 = SubstArgs(body, subenv).result()
-    a_bd = expr_effs(x_loop.hi) + expr_effs(y_loop.hi)
+    a_bd = (
+        expr_effs(x_loop.lo)
+        + expr_effs(x_loop.hi)
+        + expr_effs(y_loop.lo)
+        + expr_effs(y_loop.hi)
+    )
     a = stmts_effs(body)
     a2 = stmts_effs(body2)
 
-    def bds(x, hi):
-        return AAnd(AInt(0) <= AInt(x), AInt(x) < lift_e(hi))
+    def bds(x, lo, hi):
+        return AAnd(lift_e(lo) <= AInt(x), AInt(x) < lift_e(hi))
 
     reorder_is_safe = AAnd(
         AForAll(
             [x, y],
             AImplies(
-                AMay(AAnd(bds(x, x_loop.hi), bds(y, y_loop.hi))), Commutes(a_bd, a)
+                AMay(AAnd(bds(x, x_loop.lo, x_loop.hi), bds(y, y_loop.lo, y_loop.hi))),
+                Commutes(a_bd, a),
             ),
         ),
         AForAll(
@@ -1644,10 +1649,10 @@ def Check_ReorderLoops(proc, s):
             AImplies(
                 AMay(
                     AAnd(
-                        bds(x, x_loop.hi),
-                        bds(y, y_loop.hi),
-                        bds(x2, x_loop.hi),
-                        bds(y2, y_loop.hi),
+                        bds(x, x_loop.lo, x_loop.hi),
+                        bds(y, y_loop.lo, y_loop.hi),
+                        bds(x2, x_loop.lo, x_loop.hi),
+                        bds(y2, y_loop.lo, y_loop.hi),
                         AInt(x) < AInt(x2),
                         AInt(y2) < AInt(y),
                     )
@@ -1687,6 +1692,7 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     assert isinstance(loop, LoopIR.Seq)
     i = loop.iter
     j = i.copy()
+    lo = loop.lo
     hi = loop.hi
     subenv = {i: LoopIR.Read(j, [], T.index, null_srcinfo())}
     stmts1_j = SubstArgs(stmts1, subenv).result()
@@ -1700,13 +1706,13 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     # print("GLOOP")
     # print(Gloop)
 
-    a_bd = expr_effs(hi)
+    a_bd = expr_effs(lo) + expr_effs(hi)
     a1 = stmts_effs(stmts1)
     a1_j = stmts_effs(stmts1_j)
     a2 = stmts_effs(stmts2)
 
-    def bds(x, hi):
-        return AAnd(AInt(0) <= AInt(x), AInt(x) < lift_e(hi))
+    def bds(x, lo, hi):
+        return AAnd(lift_e(lo) <= AInt(x), AInt(x) < lift_e(hi))
 
     commute12 = Gloop(
         Commutes_Fissioning(
@@ -1715,12 +1721,13 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     )
 
     no_bound_change = AForAll(
-        [i], AImplies(AMay(bds(i, hi)), AAnd(Commutes(a_bd, a1), Commutes(a_bd, a2)))
+        [i],
+        AImplies(AMay(bds(i, lo, hi)), AAnd(Commutes(a_bd, a1), Commutes(a_bd, a2))),
     )
     stmts_commute = AForAll(
         [i, j],
         AImplies(
-            AMay(AAnd(bds(i, hi), bds(j, hi), AInt(i) < AInt(j))),
+            AMay(AAnd(bds(i, lo, hi), bds(j, lo, hi), AInt(i) < AInt(j))),
             AAnd(commute12, AllocCommutes(a1, a2)),
         ),
     )
