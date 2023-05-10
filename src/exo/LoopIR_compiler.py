@@ -917,7 +917,10 @@ class Compiler:
             elif rtyp is T.stride:
                 return self.env[e.name]
             elif e.name in self._scalar_refs:
-                return self.env[e.name]
+                if e.name in self.non_const:
+                    return self.env[e.name]
+                else:
+                    return f"&{self.env[e.name]}"
             elif rtyp.is_tensor_or_window():
                 return self.env[e.name]
             else:

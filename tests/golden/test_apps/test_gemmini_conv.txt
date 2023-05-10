@@ -78,7 +78,7 @@ struct exo_win_3i8{
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_17( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale );
+void conv_17( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale );
 
 // conv_17_cpu(
 //     output : i8[4, 28, 28, 128] @DRAM,
@@ -88,7 +88,7 @@ void conv_17( test_case_Context *ctxt, int8_t* output, const int32_t* bias, cons
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_17_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale );
+void conv_17_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale );
 
 // conv_3(
 //     output : i8[4, 56, 56, 64] @DRAM,
@@ -98,7 +98,7 @@ void conv_17_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, 
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_3( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale );
+void conv_3( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale );
 
 // conv_30(
 //     output : i8[4, 14, 14, 256] @DRAM,
@@ -108,7 +108,7 @@ void conv_3( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_30( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale );
+void conv_30( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale );
 
 // conv_30_cpu(
 //     output : i8[4, 14, 14, 256] @DRAM,
@@ -118,7 +118,7 @@ void conv_30( test_case_Context *ctxt, int8_t* output, const int32_t* bias, cons
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_30_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale );
+void conv_30_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale );
 
 // conv_3_cpu(
 //     output : i8[4, 56, 56, 64] @DRAM,
@@ -128,7 +128,7 @@ void conv_30_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, 
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_3_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale );
+void conv_3_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale );
 
 
 
@@ -162,7 +162,7 @@ double _select_(double x, double v, double y, double z) {
 //     src : f32 @DRAM,
 //     dst : i8 @DRAM
 // )
-static void clamp( test_case_Context *ctxt, const float* src, int8_t* dst );
+static void clamp( test_case_Context *ctxt, const float src, int8_t* dst );
 
 
 /* relying on the following instruction..."
@@ -173,13 +173,13 @@ acc_scale(src,dst,scale)
 //     src : f32 @DRAM,
 //     dst : i8 @DRAM
 // )
-static void clamp( test_case_Context *ctxt, const float* src, int8_t* dst ) {
+static void clamp( test_case_Context *ctxt, const float src, int8_t* dst ) {
 float l;
 float h;
 l = -128.0;
 h = 127.0;
-*dst = (int8_t)(_select_((double)*&h, (double)*src, (double)*&h, (double)*src));
-*dst = _select_((double)*src, (double)*&l, (double)*&l, (double)*dst);
+*dst = (int8_t)(_select_((double)*&h, (double)*&src, (double)*&h, (double)*&src));
+*dst = _select_((double)*&src, (double)*&l, (double)*&l, (double)*dst);
 }
 
 
@@ -214,8 +214,8 @@ gemmini_extended_config_st({dst_stride}, {act}, {scale}[0]);
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_17( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
-gemmini_extended_config_st((128), (act), (scale)[0]);
+void conv_17( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale ) {
+gemmini_extended_config_st((128), (act), (&scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -1293,7 +1293,7 @@ gemmini_extended_compute_preloaded((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_17_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
+void conv_17_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale ) {
 EXO_ASSUME(28 == 30 - 3 + 1);
 for (int b = 0; b < 4; b++) {
   for (int orow = 0; orow < 28; orow++) {
@@ -1319,7 +1319,7 @@ for (int b = 0; b < 4; b++) {
         int32_t src_tmp;
         src_tmp = res;
         float tmp_res1;
-        (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (scale)[0]);
+        (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
         int8_t tmp_res2;
         clamp(ctxt,&tmp_res1,&tmp_res2);
         if (act == true) {
@@ -1340,8 +1340,8 @@ for (int b = 0; b < 4; b++) {
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_3( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
-gemmini_extended_config_st((64), (act), (scale)[0]);
+void conv_3( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale ) {
+gemmini_extended_config_st((64), (act), (&scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -1459,8 +1459,8 @@ gemm_free((uint64_t)(i_s));
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_30( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
-gemmini_extended_config_st((256), (act), (scale)[0]);
+void conv_30( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale ) {
+gemmini_extended_config_st((256), (act), (&scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -1527,7 +1527,7 @@ gemm_free((uint64_t)(i_s));
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_30_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
+void conv_30_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale ) {
 EXO_ASSUME(14 == 16 - 3 + 1);
 for (int b = 0; b < 4; b++) {
   for (int orow = 0; orow < 14; orow++) {
@@ -1553,7 +1553,7 @@ for (int b = 0; b < 4; b++) {
         int32_t src_tmp;
         src_tmp = res;
         float tmp_res1;
-        (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (scale)[0]);
+        (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
         int8_t tmp_res2;
         clamp(ctxt,&tmp_res1,&tmp_res2);
         if (act == true) {
@@ -1574,7 +1574,7 @@ for (int b = 0; b < 4; b++) {
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_3_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
+void conv_3_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float scale ) {
 EXO_ASSUME(56 == 58 - 3 + 1);
 for (int b = 0; b < 4; b++) {
   for (int orow = 0; orow < 56; orow++) {
@@ -1600,7 +1600,7 @@ for (int b = 0; b < 4; b++) {
         int32_t src_tmp;
         src_tmp = res;
         float tmp_res1;
-        (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (scale)[0]);
+        (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
         int8_t tmp_res2;
         clamp(ctxt,&tmp_res1,&tmp_res2);
         if (act == true) {

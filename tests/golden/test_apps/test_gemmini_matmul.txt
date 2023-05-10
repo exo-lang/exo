@@ -81,7 +81,7 @@ struct exo_win_3i8{
 //     B : i8[128, 512] @DRAM,
 //     C : i8[3136, 512] @DRAM
 // )
-void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_14( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // cpu_matmul_16(
 //     scale : f32 @DRAM,
@@ -90,7 +90,7 @@ void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const
 //     B : i8[512, 128] @DRAM,
 //     C : i8[3136, 128] @DRAM
 // )
-void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_16( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // cpu_matmul_27(
 //     scale : f32 @DRAM,
@@ -99,7 +99,7 @@ void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const
 //     B : i8[256, 1024] @DRAM,
 //     C : i8[784, 1024] @DRAM
 // )
-void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_27( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // cpu_matmul_4(
 //     scale : f32 @DRAM,
@@ -108,7 +108,7 @@ void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const
 //     B : i8[64, 256] @DRAM,
 //     C : i8[12544, 256] @DRAM
 // )
-void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_4( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // cpu_matmul_512x512x512(
 //     scale : f32 @DRAM,
@@ -117,7 +117,7 @@ void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const 
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_512x512x512( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // cpu_matmul_6(
 //     scale : f32 @DRAM,
@@ -126,7 +126,7 @@ void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool a
 //     B : i8[256, 64] @DRAM,
 //     C : i8[12544, 64] @DRAM
 // )
-void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_6( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // matmul_14(
 //     scale : f32 @DRAM,
@@ -135,7 +135,7 @@ void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const 
 //     B : i8[128, 512] @DRAM,
 //     C : i8[3136, 512] @DRAM
 // )
-void matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_14( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // matmul_16(
 //     scale : f32 @DRAM,
@@ -144,7 +144,7 @@ void matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int
 //     B : i8[512, 128] @DRAM,
 //     C : i8[3136, 128] @DRAM
 // )
-void matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_16( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // matmul_27(
 //     scale : f32 @DRAM,
@@ -153,7 +153,7 @@ void matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int
 //     B : i8[256, 1024] @DRAM,
 //     C : i8[784, 1024] @DRAM
 // )
-void matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_27( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // matmul_4(
 //     scale : f32 @DRAM,
@@ -162,7 +162,7 @@ void matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int
 //     B : i8[64, 256] @DRAM,
 //     C : i8[12544, 256] @DRAM
 // )
-void matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_4( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // matmul_512x512x512(
 //     scale : f32 @DRAM,
@@ -171,7 +171,7 @@ void matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_512x512x512( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 // matmul_6(
 //     scale : f32 @DRAM,
@@ -180,7 +180,7 @@ void matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, 
 //     B : i8[256, 64] @DRAM,
 //     C : i8[12544, 64] @DRAM
 // )
-void matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_6( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 
 
@@ -214,7 +214,7 @@ double _select_(double x, double v, double y, double z) {
 //     src : f32 @DRAM,
 //     dst : i8 @DRAM
 // )
-static void clamp( test_case_Context *ctxt, const float* src, int8_t* dst );
+static void clamp( test_case_Context *ctxt, const float src, int8_t* dst );
 
 
 /* relying on the following instruction..."
@@ -225,13 +225,13 @@ acc_scale(src,dst,scale)
 //     src : f32 @DRAM,
 //     dst : i8 @DRAM
 // )
-static void clamp( test_case_Context *ctxt, const float* src, int8_t* dst ) {
+static void clamp( test_case_Context *ctxt, const float src, int8_t* dst ) {
 float l;
 float h;
 l = -128.0;
 h = 127.0;
-*dst = (int8_t)(_select_((double)*&h, (double)*src, (double)*&h, (double)*src));
-*dst = _select_((double)*src, (double)*&l, (double)*&l, (double)*dst);
+*dst = (int8_t)(_select_((double)*&h, (double)*&src, (double)*&h, (double)*&src));
+*dst = _select_((double)*&src, (double)*&l, (double)*&l, (double)*dst);
 }
 
 
@@ -271,7 +271,7 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 //     B : i8[128, 512] @DRAM,
 //     C : i8[3136, 512] @DRAM
 // )
-void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_14( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
 for (int i = 0; i < 3136; i++) {
   for (int j = 0; j < 512; j++) {
     int32_t res;
@@ -290,7 +290,7 @@ for (int i = 0; i < 3136; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (scale)[0]);
+    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
@@ -308,7 +308,7 @@ for (int i = 0; i < 3136; i++) {
 //     B : i8[512, 128] @DRAM,
 //     C : i8[3136, 128] @DRAM
 // )
-void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_16( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
 for (int i = 0; i < 3136; i++) {
   for (int j = 0; j < 128; j++) {
     int32_t res;
@@ -327,7 +327,7 @@ for (int i = 0; i < 3136; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (scale)[0]);
+    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
@@ -345,7 +345,7 @@ for (int i = 0; i < 3136; i++) {
 //     B : i8[256, 1024] @DRAM,
 //     C : i8[784, 1024] @DRAM
 // )
-void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_27( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
 for (int i = 0; i < 784; i++) {
   for (int j = 0; j < 1024; j++) {
     int32_t res;
@@ -364,7 +364,7 @@ for (int i = 0; i < 784; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (scale)[0]);
+    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
@@ -382,7 +382,7 @@ for (int i = 0; i < 784; i++) {
 //     B : i8[64, 256] @DRAM,
 //     C : i8[12544, 256] @DRAM
 // )
-void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_4( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
 for (int i = 0; i < 12544; i++) {
   for (int j = 0; j < 256; j++) {
     int32_t res;
@@ -401,7 +401,7 @@ for (int i = 0; i < 12544; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (scale)[0]);
+    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
@@ -419,7 +419,7 @@ for (int i = 0; i < 12544; i++) {
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_512x512x512( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
 for (int i = 0; i < 512; i++) {
   for (int j = 0; j < 512; j++) {
     int32_t res;
@@ -438,7 +438,7 @@ for (int i = 0; i < 512; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (scale)[0]);
+    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
@@ -456,7 +456,7 @@ for (int i = 0; i < 512; i++) {
 //     B : i8[256, 64] @DRAM,
 //     C : i8[12544, 64] @DRAM
 // )
-void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_6( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
 for (int i = 0; i < 12544; i++) {
   for (int j = 0; j < 64; j++) {
     int32_t res;
@@ -475,7 +475,7 @@ for (int i = 0; i < 12544; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (scale)[0]);
+    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
@@ -519,8 +519,8 @@ gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),{m}, {n} );
 //     B : i8[128, 512] @DRAM,
 //     C : i8[3136, 512] @DRAM
 // )
-void matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((512), (act), (scale)[0]);
+void matmul_14( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+gemmini_extended_config_st((512), (act), (&scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -616,8 +616,8 @@ gemm_acc_free((uint32_t)(res));
 //     B : i8[512, 128] @DRAM,
 //     C : i8[3136, 128] @DRAM
 // )
-void matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((128), (act), (scale)[0]);
+void matmul_16( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+gemmini_extended_config_st((128), (act), (&scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -713,8 +713,8 @@ gemm_acc_free((uint32_t)(res));
 //     B : i8[256, 1024] @DRAM,
 //     C : i8[784, 1024] @DRAM
 // )
-void matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((1024), (act), (scale)[0]);
+void matmul_27( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+gemmini_extended_config_st((1024), (act), (&scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -806,8 +806,8 @@ gemm_acc_free((uint32_t)(res));
 //     B : i8[64, 256] @DRAM,
 //     C : i8[12544, 256] @DRAM
 // )
-void matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((256), (act), (scale)[0]);
+void matmul_4( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+gemmini_extended_config_st((256), (act), (&scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -901,8 +901,8 @@ gemm_free((uint64_t)(a));
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((512), (act), (scale)[0]);
+void matmul_512x512x512( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+gemmini_extended_config_st((512), (act), (&scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -1004,8 +1004,8 @@ gemm_free((uint64_t)(a));
 //     B : i8[256, 64] @DRAM,
 //     C : i8[12544, 64] @DRAM
 // )
-void matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((64), (act), (scale)[0]);
+void matmul_6( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+gemmini_extended_config_st((64), (act), (&scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 

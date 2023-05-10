@@ -51,6 +51,9 @@ jobs:
           repository: exo-lang/BLAS
           token: ${{ secrets.BLAS_GITHUB_TOKEN }}
 
+      - name: Temporary branch checkout for CI testing
+        run: git checkout const_float
+
       - name: Configure CMake
         run: cmake -B BLAS/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} --preset avx2
 
