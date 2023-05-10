@@ -480,17 +480,37 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         hi_rng = szop("/", N, lo_rng)  # floor div
     elif tail_strategy == "perfect":
         if not isinstance(N, LoopIR.Const):
-            raise SchedulingError(
-                f"cannot perfectly split the '{split_loop.iter}' loop "
-                f"unless it has a constant bound"
-            )
-        elif N.val % quot != 0:
-            raise SchedulingError(
-                f"cannot perfectly split the '{split_loop.iter}' loop "
-                f"because {quot} does not evenly divide "
-                f"{N.val}"
-            )
-        hi_rng = cnst(N.val // quot)
+            is_N_divisible = False
+            for pred in loop_cursor.get_root().preds:
+                if (
+                    isinstance(pred, LoopIR.BinOp)
+                    and pred.op == "=="
+                    and isinstance(pred.rhs, LoopIR.Const)
+                    and pred.rhs.val == 0
+                    and isinstance(pred.lhs, LoopIR.BinOp)
+                    and pred.lhs.op == "%"
+                    and isinstance(pred.lhs.rhs, LoopIR.Const)
+                    and pred.lhs.rhs.val == quot
+                    and isinstance(pred.lhs.lhs, LoopIR.Read)
+                    and pred.lhs.lhs.name == split_loop.hi.name
+                ):
+                    is_N_divisible = True
+
+            if not is_N_divisible:
+                raise SchedulingError(
+                    f"cannot perfectly split the '{split_loop.iter}' loop "
+                    f"unless it has a constant bound"
+                )
+
+            hi_rng = boolop("/", N, cnst(quot))
+        else:
+            if N.val % quot != 0:
+                raise SchedulingError(
+                    f"cannot perfectly split the '{split_loop.iter}' loop "
+                    f"because {quot} does not evenly divide "
+                    f"{N.val}"
+                )
+            hi_rng = cnst(N.val // quot)
     else:
         assert False, f"bad tail strategy: {tail_strategy}"
 
