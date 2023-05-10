@@ -490,7 +490,8 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
                     and isinstance(pred.lhs, LoopIR.BinOp)
                     and pred.lhs.op == "%"
                     and isinstance(pred.lhs.rhs, LoopIR.Const)
-                    and pred.lhs.rhs.val == quot
+                    and pred.lhs.rhs.val > 0
+                    and pred.lhs.rhs.val % quot == 0
                     and isinstance(pred.lhs.lhs, LoopIR.Read)
                     and pred.lhs.lhs.name == split_loop.hi.name
                 ):
@@ -498,8 +499,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
 
             if not is_N_divisible:
                 raise SchedulingError(
-                    f"cannot perfectly split the '{split_loop.iter}' loop "
-                    f"unless it has a constant bound"
+                    f"cannot perfectly split the '{split_loop.iter}' loop."
                 )
 
             hi_rng = boolop("/", N, cnst(quot))

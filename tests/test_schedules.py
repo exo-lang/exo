@@ -934,6 +934,17 @@ def test_divide_loop_perfect(golden):
     assert str(foo) == golden
 
 
+def test_divide_loop_perfect_fail():
+    @proc
+    def foo(n: size, A: i8[n]):
+        assert n % 6 == 0
+        for i in seq(0, n):
+            A[i] = 1.0
+
+    with pytest.raises(SchedulingError, match="cannot perfectly split"):
+        foo = divide_loop(foo, "i", 4, ["io", "ii"], perfect=True)
+
+
 def test_divide_loop_cut_and_guard(golden):
     @proc
     def foo(x: i8[1]):
