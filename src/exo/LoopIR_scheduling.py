@@ -498,17 +498,37 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         hi_rng = szop("/", N, lo_rng)  # floor div
     elif tail_strategy == "perfect":
         if not isinstance(N, LoopIR.Const):
-            raise SchedulingError(
-                f"cannot perfectly split the '{split_loop.iter}' loop "
-                f"unless it has a constant bound"
-            )
-        elif N.val % quot != 0:
-            raise SchedulingError(
-                f"cannot perfectly split the '{split_loop.iter}' loop "
-                f"because {quot} does not evenly divide "
-                f"{N.val}"
-            )
-        hi_rng = cnst(N.val // quot)
+            is_N_divisible = False
+            for pred in loop_cursor.get_root().preds:
+                if (
+                    isinstance(pred, LoopIR.BinOp)
+                    and pred.op == "=="
+                    and isinstance(pred.rhs, LoopIR.Const)
+                    and pred.rhs.val == 0
+                    and isinstance(pred.lhs, LoopIR.BinOp)
+                    and pred.lhs.op == "%"
+                    and isinstance(pred.lhs.rhs, LoopIR.Const)
+                    and pred.lhs.rhs.val > 0
+                    and pred.lhs.rhs.val % quot == 0
+                    and isinstance(pred.lhs.lhs, LoopIR.Read)
+                    and pred.lhs.lhs.name == split_loop.hi.name
+                ):
+                    is_N_divisible = True
+
+            if not is_N_divisible:
+                raise SchedulingError(
+                    f"cannot perfectly split the '{split_loop.iter}' loop."
+                )
+
+            hi_rng = boolop("/", N, cnst(quot))
+        else:
+            if N.val % quot != 0:
+                raise SchedulingError(
+                    f"cannot perfectly split the '{split_loop.iter}' loop "
+                    f"because {quot} does not evenly divide "
+                    f"{N.val}"
+                )
+            hi_rng = cnst(N.val // quot)
     else:
         assert False, f"bad tail strategy: {tail_strategy}"
 
@@ -1278,11 +1298,11 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
     return ir, fwd
 
 
-def DoRearrangeDim(alloc_cursor, permute_vector):
-    alloc_s = alloc_cursor._node
-    assert isinstance(alloc_s, LoopIR.Alloc)
+def DoRearrangeDim(decl_cursor, permute_vector):
+    decl_s = decl_cursor._node
+    assert isinstance(decl_s, (LoopIR.Alloc, LoopIR.fnarg))
 
-    all_permute = {alloc_s.name: permute_vector}
+    all_permute = {decl_s.name: permute_vector}
 
     def permute(buf, es):
         permutation = all_permute[buf]
@@ -1302,10 +1322,10 @@ def DoRearrangeDim(alloc_cursor, permute_vector):
         return True
 
     # construct new_hi
-    new_hi = permute(alloc_s.name, alloc_s.type.hi)
+    new_hi = permute(decl_s.name, decl_s.type.hi)
     # construct new_type
-    new_type = LoopIR.Tensor(new_hi, alloc_s.type.is_window, alloc_s.type.type)
-    ir, fwd = alloc_cursor._child_node("type")._replace(new_type)
+    new_type = LoopIR.Tensor(new_hi, decl_s.type.is_window, decl_s.type.type)
+    ir, fwd = decl_cursor._child_node("type")._replace(new_type)
 
     def mk_read(c):
         rd = c._node
@@ -1341,7 +1361,11 @@ def DoRearrangeDim(alloc_cursor, permute_vector):
             new_dim = all_permute[e.name].index(e.dim)
             return {"dim": new_dim}
 
-    for c in get_rest_of_block(alloc_cursor):
+    if isinstance(decl_s, LoopIR.Alloc):
+        rest_of_block = get_rest_of_block(decl_cursor)
+    else:
+        rest_of_block = decl_cursor.root().body()
+    for c in rest_of_block:
         for name in all_permute.keys():
             ir, fwd = _replace_pats(ir, fwd, c, f"{name}[_]", mk_read)
             ir, fwd = _replace_pats(ir, fwd, c, f"stride({name}, _)", mk_stride_expr)

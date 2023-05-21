@@ -2181,14 +2181,14 @@ class _OverApproxEffects(LoopIR_Do):
         super().do_s(s)
 
     def do_e(self, e):
-        if isinstance(s, LoopIR.Read):
+        if isinstance(e, LoopIR.Read):
             self.add_name(e.name)
-        elif isinstance(s, LoopIR.ReadConfig):
+        elif isinstance(e, LoopIR.ReadConfig):
             globname = e.config._INTERNAL_sym(e.field)
             self.add_name(globname)
             self._globals.add(globname)
 
-        super().do_s(s)
+        super().do_e(e)
 
 
 _overapprox_proc_cache = dict()

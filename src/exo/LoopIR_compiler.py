@@ -335,13 +335,6 @@ _static_helpers = {
         }
         """
     ),
-    "exo_clamp_32to8": textwrap.dedent(
-        """
-        static int8_t exo_clamp_32to8(int32_t x) {{
-          return (x < -128)? -128 : ((x > 127)? 127 : x);
-        }
-        """
-    ),
 }
 
 
@@ -807,10 +800,7 @@ class Compiler:
                 assert s.type.is_real_scalar()
                 assert s.rhs.type.is_real_scalar()
 
-                if lbtyp == T.i8 and rbtyp == T.i32:
-                    rhs = self._call_static_helper("exo_clamp_32to8", rhs)
-                else:
-                    rhs = f"({lbtyp.ctype()})({rhs})"
+                rhs = f"({lbtyp.ctype()})({rhs})"
 
             mem: Memory = self.mems[s.name]
             if isinstance(s, LoopIR.Assign):
@@ -834,10 +824,7 @@ class Compiler:
                 assert ltyp.is_real_scalar()
                 assert rtyp.is_real_scalar()
 
-                if ltyp == T.i8 and rtyp == T.i32:
-                    rhs = self._call_static_helper("exo_clamp_32to8", rhs)
-                else:
-                    rhs = f"({ltyp.ctype()})({rhs})"
+                rhs = f"({ltyp.ctype()})({rhs})"
 
             self.add_line(f"ctxt->{nm}.{s.field} = {rhs};")
 
