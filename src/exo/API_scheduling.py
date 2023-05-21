@@ -1525,7 +1525,7 @@ def cut_loop(proc, loop, cut_point):
     the second iterating from `cut_point` to the original loop upper bound.
 
     Right now, cut_point has to be an integer.
-    TODO KQ: support expressions for the cut_point.
+    TODO: support expressions for the cut_point.
 
     args:
         loop            - cursor pointing to the loop to split

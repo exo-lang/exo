@@ -240,6 +240,8 @@ class TypeChecker:
                 self.err(stmt.cond, parerr)
 
             lo = self.check_e(stmt.cond.lo)
+            if lo.type != T.err and not lo.type.is_indexable():
+                self.err(lo, "expected loop bound to be indexable.")
             hi = self.check_e(stmt.cond.hi)
             if hi.type != T.err and not hi.type.is_indexable():
                 self.err(hi, "expected loop bound to be indexable.")

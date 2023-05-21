@@ -356,7 +356,7 @@ def DoProductLoop(outer_loop_c, new_name):
     outer_expr = LoopIR.BinOp("/", var, inner_hi, T.index, srcinfo)
     inner_expr = LoopIR.BinOp("%", var, inner_hi, T.index, srcinfo)
 
-    # TODO KQ: indexes are inside expression blocks... need a more
+    # TODO: indexes are inside expression blocks... need a more
     #   uniform way to treat this.
     mk_outer_expr = lambda _: outer_expr
     mk_inner_expr = lambda _: inner_expr
@@ -2090,8 +2090,8 @@ class DoFissionLoops:
             # then we need to gather together the pre and post.
             single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
 
+        # TODO: may need to fix to support lo for backwards compatability
         elif isinstance(s, LoopIR.Seq):
-
             # check if we need to split the loop
             pre, post = self.map_stmts(s.body)
             do_fission = len(pre) > 0 and len(post) > 0 and self.n_lifts > 0

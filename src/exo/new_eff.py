@@ -1388,7 +1388,7 @@ class ContextExtraction:
 
                 bds = AAnd(AInt(lo_sym) <= AInt(s.iter), AInt(s.iter) < AInt(hi_sym))
                 bds_sym = Sym("bds_tmp")
-                hi_env = lo_env + hi_env + AEnv(bds_sym, bds)
+                bds_env = lo_env + hi_env + AEnv(bds_sym, bds)
 
                 G = self.loop_preenv(s)
 
@@ -1401,7 +1401,7 @@ class ContextExtraction:
                 )
                 G_body = globenv([guard_body])
                 return [
-                    E.BindEnv(hi_env),
+                    E.BindEnv(bds_env),
                     E.BindEnv(G),
                     E.Guard(ABool(bds_sym), body),
                     E.BindEnv(G_body),
