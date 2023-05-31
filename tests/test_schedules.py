@@ -861,6 +861,20 @@ def test_fuse_loop(golden):
     assert str(foo) == golden
 
 
+def test_fuse_loop2(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        assert n > 3
+        y: R[n]
+        for i in seq(3, n):
+            y[i] = x[i]
+        for j in seq(3, n):
+            x[j] = y[j] + 1.0
+
+    foo = fuse(foo, "for i in _:_", "for j in _:_")
+    assert str(foo) == golden
+
+
 def test_fuse_loop_fail():
     @proc
     def foo(n: size, x: R[n + 1]):
@@ -999,6 +1013,20 @@ def test_simple_reorder(golden):
         tmp: i8[n, m]
         for i in seq(0, n):
             for j in seq(0, m):
+                tmp[i, j] = A[i, j]
+
+    bar = reorder_loops(bar, "i j")
+    assert str(bar) == golden
+
+
+def test_simple_reorder2(golden):
+    @proc
+    def bar(n: size, m: size, A: i8[n, m]):
+        assert n > 5
+        assert m > 7
+        tmp: i8[n, m]
+        for i in seq(4, n):
+            for j in seq(2, m):
                 tmp[i, j] = A[i, j]
 
     bar = reorder_loops(bar, "i j")
@@ -1165,6 +1193,17 @@ def test_simple_unroll(golden):
     def bar(A: i8[10]):
         tmp: i8[10]
         for i in seq(0, 10):
+            tmp[i] = A[i]
+
+    bar = unroll_loop(bar, "i")
+    assert str(bar) == golden
+
+
+def test_simple_unroll2(golden):
+    @proc
+    def bar(A: i8[10]):
+        tmp: i8[10]
+        for i in seq(3, 10):
             tmp[i] = A[i]
 
     bar = unroll_loop(bar, "i")
