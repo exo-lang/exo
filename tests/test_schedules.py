@@ -1210,6 +1210,20 @@ def test_simple_unroll2(golden):
     assert str(bar) == golden
 
 
+def test_simple_unroll3():
+    @proc
+    def bar(m: size, A: i8[10]):
+        assert m < 10
+        tmp: i8[10]
+        for i in seq(m, 10):
+            tmp[i] = A[i]
+
+    with pytest.raises(
+        SchedulingError, match="expected loop 'i' to have constant bounds"
+    ):
+        bar = unroll_loop(bar, "i")
+
+
 def test_simple_inline(golden):
     @proc
     def foo(x: i8, y: i8, z: i8):
@@ -1515,6 +1529,24 @@ def test_unify7(golden):
     def foo(x: R[5, 5], y: R[5, 5]):
         for i in seq(0, 5):
             for j in seq(0, 5):
+                x[i, j] = y[i, j]
+
+    foo = replace(foo, "for i in _ : _", bar)
+    assert str(foo) == golden
+
+
+def test_unify8(golden):
+    @proc
+    def bar(n: size, m: size, src: R[n, n], dst: R[n, n]):
+        assert m < n
+        for i in seq(m, n):
+            for j in seq(m, n):
+                dst[i, j] = src[i, j]
+
+    @proc
+    def foo(x: R[5, 5], y: R[5, 5]):
+        for i in seq(3, 5):
+            for j in seq(3, 5):
                 x[i, j] = y[i, j]
 
     foo = replace(foo, "for i in _ : _", bar)
@@ -2325,6 +2357,19 @@ def test_cut_loop_nonzero_lo(golden):
             x[i] = 0.0
 
     foo = cut_loop(foo, "for i in seq(3, n):_", 5)
+    assert str(simplify(foo)) == golden
+
+
+def test_cut_loop_nonzero_lo2(golden):
+    @proc
+    def foo(n: size, m: size):
+        assert m > 5
+        assert n > m
+        x: R[n]
+        for i in seq(m, n):
+            x[i] = 0.0
+
+    foo = cut_loop(foo, "for i in seq(m, n):_", 5)
     assert str(simplify(foo)) == golden
 
 
