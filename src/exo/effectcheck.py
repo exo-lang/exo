@@ -241,7 +241,7 @@ class InferEffects:
                     if isinstance(arg.type, T.Window):
                         eff = self.translate_eff(eff, sig.name, arg.type)
 
-            return LoopIR.Call(subproc, stmt.args, eff, stmt.srcinfo)
+            return LoopIR.Call(stmt.f, stmt.args, eff, stmt.srcinfo)
 
         elif isinstance(stmt, LoopIR.Pass):
             return LoopIR.Pass(eff_null(stmt.srcinfo), stmt.srcinfo)
