@@ -367,7 +367,7 @@ def inline_st(conv):
 
 @instr("{dst}[0] = ACC_SCALE({src}[0], {scale}[0]);")
 def acc_scale(src: i32, dst: f32, scale: f32):
-    pass
+    dst = scale * src
 
 
 @config
