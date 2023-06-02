@@ -38,6 +38,7 @@ QueryAST
     Point( pt : Expr )
   Type
     R()
+    f16()
     f32()
     f64()
     i8()
@@ -96,6 +97,9 @@ class Stmt(QueryAST):
 class R(Type):
     pass
 
+@_dataclass
+class f16(Type):
+    pass
 
 @_dataclass
 class f32(Type):

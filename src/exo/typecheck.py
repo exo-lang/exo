@@ -477,6 +477,8 @@ class TypeChecker:
                     else:
                         if lhs.type == T.R:
                             typ = T.R
+                        elif lhs.type == T.f16:
+                            typ = T.f16
                         elif lhs.type == T.f32:
                             typ = T.f32
                         elif lhs.type == T.f64:
@@ -592,6 +594,7 @@ class TypeChecker:
 
     _typ_table = {
         UAST.Num: T.R,
+        UAST.F16: T.f16,
         UAST.F32: T.f32,
         UAST.F64: T.f64,
         UAST.INT8: T.int8,
