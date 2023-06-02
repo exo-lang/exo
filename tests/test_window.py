@@ -54,9 +54,10 @@ def test_input4():
             dst2[i] = src2[i]
 
     @proc
-    def bar(x: [f32][8]):
+    def bar(x: [f32][8], y: [f32][8]):
         assert stride(x, 0) == 1
-        foo(x, x)
+        assert stride(y, 0) == 1
+        foo(x, y)
 
 
 def test_window(golden):
@@ -123,6 +124,6 @@ def test_normalize(golden):
         xy: f32
         y2: f32
         dot(m, x[1, :], y[:, 2], xy)
-        dot(m, y[:, 3], y[:, 3], y2)
+        dot(m, y[:, 3], x[2, :], y2)
 
     assert proj.c_code_str() == golden
