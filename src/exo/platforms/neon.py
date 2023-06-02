@@ -77,9 +77,9 @@ class Neon8f(Memory):
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         if not shape:
-            raise MemGenError(f"{srcinfo}: Neon vectors are not scalar values")
+            raise MemGenError(f"{srcinfo}: Neon8f vectors are not scalar values")
         #if not prim_type == "float16_t" or not prim_type == "__fp16":
-        if not prim_type == "__fp16":
+        if not prim_type == "_Float16":
             raise MemGenError(f"{srcinfo}: Neon8f vectors must be f16")
         if not _is_const_size(shape[-1], 8):
             raise MemGenError(f"{srcinfo}: Neon8f vectors must be 8-wide")
@@ -192,6 +192,15 @@ def neon_vmul_4xf32(dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ 
     for i in seq(0, 4):
         dst[i] = lhs[i] * rhs[i]
 
+@instr("{dst_data} = vmulq_f32({dst_data}, {rhs_data});")
+def neon_vmul2_4xf32(dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = lhs[i] * rhs[i]
+
 
 @instr("{dst_data} = vfmaq_laneq_f32({dst_data}, {lhs_data}, {rhs_data}, {lane});")
 def neon_vfmla_4xf32_4xf32(
@@ -205,6 +214,19 @@ def neon_vfmla_4xf32_4xf32(
     for i in seq(0, 4):
         dst[i] += lhs[i] * rhs[lane]
 
+#This function uses an extra buffer for a beta=0 approach
+@instr("{dst_data} = vfmaq_laneq_f32({b_data}, {lhs_data}, {rhs_data}, {lane});")
+def neon_vfmla2_4xf32_4xf32(
+        dst: [f32][4] @ Neon, b: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon, lane: index
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert stride(b, 0) == 1
+    assert lane >= 0
+    assert lane < 4
+    for i in seq(0, 4):
+        dst[i] = b[i] + lhs[i] * rhs[lane]
 
 @instr("{dst_data} = vmlaq_f32({dst_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_4xf32_4xf32(
@@ -219,7 +241,7 @@ def neon_vfmadd_4xf32_4xf32(
 
 @instr("{dst_data} = vmlaq_f32({res_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_ex_4xf32_4xf32(
-        dst: [f32][4] @ Neon4f, res: [f32][4] @ Neon4f, lhs: [f32][4] @ Neon4f, rhs: [f32][4] @ Neon4f
+        dst: [f32][4] @ Neon, res: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon
 ):
     assert stride(dst, 0) == 1
     assert stride(res, 0) == 1
@@ -257,7 +279,7 @@ def neon_vfmadd_1xf32_4xf32(
 #
 # float16
 
-@instr("{dst_data} = vld1q_f16(&{src_data});")
+@instr("{dst_data} = vld1q_f16((float16_t *)&{src_data});")
 def neon_vld_8xf16(dst: [f16][8] @ Neon8f, src: [f16][8] @ DRAM):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
@@ -266,7 +288,7 @@ def neon_vld_8xf16(dst: [f16][8] @ Neon8f, src: [f16][8] @ DRAM):
         dst[i] = src[i]
 
 
-@instr("vst1q_f16(&{dst_data}, {src_data});")
+@instr("vst1q_f16((float16_t *)&{dst_data}, {src_data});")
 def neon_vst_8xf16(dst: [f16][8] @ DRAM, src: [f16][8] @ Neon8f):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
@@ -275,7 +297,7 @@ def neon_vst_8xf16(dst: [f16][8] @ DRAM, src: [f16][8] @ Neon8f):
         dst[i] = src[i]
 
 
-@instr("{dst_data} = vld1q_dup_f16(&{src_data});")
+@instr("{dst_data} = vld1q_dup_f16((float16_t *)&{src_data});")
 def neon_broadcast_8xf16(dst: [f16][8] @ Neon8f, src: [f16][1] @ DRAM):
     assert stride(dst, 0) == 1
 
