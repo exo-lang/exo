@@ -386,6 +386,13 @@ class Procedure(ProcedureBase):
         p = scheduling.DoPartialEval(kwargs).apply_proc(p)
         return Procedure(p)  # No provenance because signature changed
 
+    def transpose(self, arg_cursor):
+        if not (isinstance(arg_cursor, C.ArgCursor) and len(arg_cursor.shape()) == 2):
+            raise TypeError("expected a 2D argument cursor")
+
+        ir, _ = scheduling.DoRearrangeDim(arg_cursor._impl, [1, 0])
+        return Procedure(ir)  # No provenance because signature changed
+
     def add_assertion(self, assertion, configs=None):
         if not isinstance(assertion, str):
             raise TypeError("assertion must be an Exo string")

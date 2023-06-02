@@ -56,7 +56,7 @@ EXO_ASSUME(n <= 16);
 EXO_ASSUME(m <= 16);
 for (int i = 0; i < n; i++) {
   for (int j = 0; j < m; j++) {
-    dst.data[(i) * (dst.strides[0]) + (j) * (dst.strides[1])] = src.data[(i) * (src.strides[0]) + (j) * (src.strides[1])];
+    dst.data[i * dst.strides[0] + j * dst.strides[1]] = src.data[i * src.strides[0] + j * src.strides[1]];
   }
 }
 }

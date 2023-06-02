@@ -1,0 +1,24 @@
+def gemm(M: size, N: size, K: size, C: f32[M, N] @ DRAM, A: f32[M, K] @ DRAM,
+         B: f32[K, N] @ DRAM, alpha: f32 @ DRAM):
+    if N <= 64:
+        for i in seq(0, M):
+            for j in seq(0, N):
+                for k in seq(0, K):
+                    C[i, j] += alpha * A[i, k] * B[k, j]
+    else:
+        if N <= 128:
+            for i in seq(0, M):
+                for j in seq(0, N):
+                    for k in seq(0, K):
+                        C[i, j] += alpha * A[i, k] * B[k, j]
+        else:
+            if N <= 512:
+                for i in seq(0, M):
+                    for j in seq(0, N):
+                        for k in seq(0, K):
+                            C[i, j] += alpha * A[i, k] * B[k, j]
+            else:
+                for i in seq(0, M):
+                    for j in seq(0, N):
+                        for k in seq(0, K):
+                            C[i, j] += alpha * A[i, k] * B[k, j]
