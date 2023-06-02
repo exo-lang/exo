@@ -230,12 +230,14 @@ def test_proc_equal():
     assert foo != make_foo()
 
 
-def test_simplify3(golden):
+def test_simplify(golden):
     @proc
     def foo(n: size, m: size):
-        assert m == 1 and n == 1
+        x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
+        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
+            pass
         y: R[10]
-        y[10 * m - 10 * n + 2 * n] = 2.0
+        y[n * 4 - n * 4 + 1] = 0.0
 
     assert str(simplify(foo)) == golden
 
@@ -276,16 +278,25 @@ def test_simplify2(golden):
     assert str(simplify(foo)) == golden
 
 
-def test_simplify(golden):
+def test_simplify3(golden):
     @proc
     def foo(n: size, m: size):
-        x: R[n, 16 * (n + 1) - n * 16, (10 + 2) * m - m * 12 + 10]
-        for i in seq(0, 4 * (n + 2) - n * 4 + n * 5):
-            pass
+        assert m == 1 and n == 1
         y: R[10]
-        y[n * 4 - n * 4 + 1] = 0.0
+        y[10 * m - 10 * n + 2 * n] = 2.0
 
     assert str(simplify(foo)) == golden
+
+
+def test_simplify4(golden):
+    @proc
+    def bar():
+        for i in seq(0, 3):
+            for j in seq(0, i * 16 + 16 - i * 16):
+                pass
+
+    bar = simplify(bar)
+    assert str(bar) == golden
 
 
 def test_pattern_match():
@@ -912,6 +923,28 @@ def test_simple_divide_loop(golden):
     assert str(bar) == golden
 
 
+def test_divide_loop_perfect(golden):
+    @proc
+    def foo(n: size, A: i8[n]):
+        assert n % 4 == 0
+        for i in seq(0, n):
+            A[i] = 1.0
+
+    foo = divide_loop(foo, "i", 4, ["io", "ii"], perfect=True)
+    assert str(foo) == golden
+
+
+def test_divide_loop_perfect_fail():
+    @proc
+    def foo(n: size, A: i8[n]):
+        assert n % 6 == 0
+        for i in seq(0, n):
+            A[i] = 1.0
+
+    with pytest.raises(SchedulingError, match="cannot perfectly split"):
+        foo = divide_loop(foo, "i", 4, ["io", "ii"], perfect=True)
+
+
 def test_divide_loop_cut_and_guard(golden):
     @proc
     def foo(x: i8[1]):
@@ -1151,6 +1184,17 @@ def test_bool_partial_eval(golden):
                 tmp[i] = A[i]
 
     bar = bar.partial_eval(False)
+    assert str(bar) == golden
+
+
+def test_transpose(golden):
+    @proc
+    def bar(m: size, n: size, A: i8[m, n]):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                A[i, j] += 1.0
+
+    bar = bar.transpose(bar.args()[2])
     assert str(bar) == golden
 
 
@@ -2476,6 +2520,50 @@ def test_specialize(golden):
 
     foo = specialize(foo, "x[i] += 1.0", [f"i == {i}" for i in range(4)])
     assert str(foo) == golden
+
+
+def test_specialize_sizes(golden):
+    @proc
+    def gemm(
+        M: size,
+        N: size,
+        K: size,
+        C: f32[M, N] @ DRAM,
+        A: f32[M, K] @ DRAM,
+        B: f32[K, N] @ DRAM,
+        alpha: f32,
+    ):
+        for i in seq(0, M):
+            for j in seq(0, N):
+                for k in seq(0, K):
+                    C[i, j] += alpha * A[i, k] * B[k, j]
+
+    foo = specialize(gemm, "for i in _:_", [f"N <= {x}" for x in [64, 128, 512]])
+    foo = simplify(foo)
+    assert str(foo) == golden
+
+
+def test_specialize_data():
+    @proc
+    def gemm(
+        M: size,
+        N: size,
+        K: size,
+        C: f32[M, N] @ DRAM,
+        A: f32[M, K] @ DRAM,
+        B: f32[K, N] @ DRAM,
+        alpha: f32,
+    ):
+        for i in seq(0, M):
+            for j in seq(0, N):
+                for k in seq(0, K):
+                    C[i, j] += alpha * A[i, k] * B[k, j]
+
+    with pytest.raises(
+        SchedulingError,
+        match="Invalid specialization condition",
+    ):
+        specialize(gemm, "for i in _:_", [f"alpha == {x}" for x in [0.0, 1.0, -1.0]])
 
 
 def test_extract_subproc(golden):
