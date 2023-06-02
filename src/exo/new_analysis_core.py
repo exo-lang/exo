@@ -740,7 +740,7 @@ class SMTSolver:
             elif result == Z3.unsat:
                 is_sat = False
             else:
-                raise Error("unknown result from z3")
+                raise TypeError("unknown result from z3")
         else:
             self.z3.add_assertion(smt_e)
             is_sat = self.z3.run_check_sat()
@@ -777,7 +777,7 @@ class SMTSolver:
             elif result == Z3.unsat:
                 is_valid = True
             else:
-                raise Error("unknown result from z3")
+                raise TypeError("unknown result from z3")
         else:
             self.z3.add_assertion(SMT.Not(smt_e))
             is_valid = not self.z3.run_check_sat()
