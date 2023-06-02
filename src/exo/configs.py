@@ -54,7 +54,7 @@ def new_config(name, fields, disable_rw=False):
 # Because of the recursive inclusion, we cannot use ctype in LoopIR here..
 def ctyp(typ):
     if isinstance(typ, LoopIR.T.F16):
-        return "__fp16"
+        return "_Float16"
     elif isinstance(typ, LoopIR.T.F32):
         return "float"
     elif isinstance(typ, LoopIR.T.F64):
