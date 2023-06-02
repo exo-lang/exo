@@ -428,7 +428,7 @@ def ctype(t):
     if isinstance(t, T.Num):
         assert False, "Don't ask for ctype of Num"
     elif isinstance(t, T.F16):
-        return "__fp16"
+        return "_Float16"
     elif isinstance(t, T.F32):
         return "float"
     elif isinstance(t, T.F64):
