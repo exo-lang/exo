@@ -1,0 +1,17 @@
+def vfmla_f16(n: size, C: R[n] @ DRAM, A: R[n] @ DRAM, B: R[n] @ DRAM):
+    assert n == 8
+    C_reg: R[8] @ Neon
+    neon_vld_8xf16(C_reg[0:8], C[0:8])
+    A_vec: R[8] @ Neon
+    neon_vld_8xf16(A_vec[0:8], A[0:8])
+    B_vec: R[8] @ Neon
+    neon_vld_8xf16(B_vec[0:8], B[0:8])
+    neon_vfmla_8xf16_8xf16(C_reg[0:8], A_vec[0:8], B_vec[0:8], 0)
+    neon_vfmla_8xf16_8xf16(C_reg[0:8], A_vec[0:8], B_vec[0:8], 1)
+    neon_vfmla_8xf16_8xf16(C_reg[0:8], A_vec[0:8], B_vec[0:8], 2)
+    neon_vfmla_8xf16_8xf16(C_reg[0:8], A_vec[0:8], B_vec[0:8], 3)
+    neon_vfmla_8xf16_8xf16(C_reg[0:8], A_vec[0:8], B_vec[0:8], 4)
+    neon_vfmla_8xf16_8xf16(C_reg[0:8], A_vec[0:8], B_vec[0:8], 5)
+    neon_vfmla_8xf16_8xf16(C_reg[0:8], A_vec[0:8], B_vec[0:8], 6)
+    neon_vfmla_8xf16_8xf16(C_reg[0:8], A_vec[0:8], B_vec[0:8], 7)
+    neon_vst_8xf16(C[0:8], C_reg[0:8])
