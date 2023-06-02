@@ -30,7 +30,7 @@ class Neon(Memory):
         if not shape:
             raise MemGenError(f"{srcinfo}: Neon vectors are not scalar values")
 
-        vec_types = {"float": (4, "float32x4_t"), "double": (2, "float64x2_t")}
+        vec_types = {"float": (4, "float32x4_t"), "double": (2, "float64x2_t"), "_Float16" : (8, "float16x8_t")}
 
         if not prim_type in vec_types.keys():
             raise MemGenError(f"{srcinfo}: Neon vectors must be f32/f64 (for now)")
@@ -64,48 +64,6 @@ class Neon(Memory):
         if idxs:
             idxs = "[" + "][".join(idxs) + "]"
         return f"{baseptr}{idxs}"
-
-class Neon8f(Memory):
-    @classmethod
-    def global_(cls):
-        return "#include <arm_neon.h>"
-
-    @classmethod
-    def can_read(cls):
-        return False
-
-    @classmethod
-    def alloc(cls, new_name, prim_type, shape, srcinfo):
-        if not shape:
-            raise MemGenError(f"{srcinfo}: Neon8f vectors are not scalar values")
-        #if not prim_type == "float16_t" or not prim_type == "__fp16":
-        if not prim_type == "_Float16":
-            raise MemGenError(f"{srcinfo}: Neon8f vectors must be f16")
-        if not _is_const_size(shape[-1], 8):
-            raise MemGenError(f"{srcinfo}: Neon8f vectors must be 8-wide")
-        shape = shape[:-1]
-        if shape:
-            if not all(_is_some_const_size(s) for s in shape):
-                raise MemGenError(
-                    f"{srcinfo}: Cannot allocate variable " f"numbers of Neon8f vectors"
-                )
-            result = f'float16x8_t {new_name}[{"][".join(map(str, shape))}];'
-        else:
-            result = f"float16x8_t {new_name};"
-        return result
-
-    @classmethod
-    def free(cls, new_name, prim_type, shape, srcinfo):
-        return ""
-
-    @classmethod
-    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
-        assert strides[-1] == "1"
-        idxs = indices[:-1] or ""
-        if idxs:
-            idxs = "[" + "][".join(idxs) + "]"
-        return f"{baseptr}{idxs}"
-
 # --------------------------------------------------------------------------- #
 #   f32 Neon intrinsics
 # --------------------------------------------------------------------------- #
@@ -280,7 +238,7 @@ def neon_vfmadd_1xf32_4xf32(
 # float16
 
 @instr("{dst_data} = vld1q_f16((float16_t *)&{src_data});")
-def neon_vld_8xf16(dst: [f16][8] @ Neon8f, src: [f16][8] @ DRAM):
+def neon_vld_8xf16(dst: [f16][8] @ Neon, src: [f16][8] @ DRAM):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
@@ -289,7 +247,7 @@ def neon_vld_8xf16(dst: [f16][8] @ Neon8f, src: [f16][8] @ DRAM):
 
 
 @instr("vst1q_f16((float16_t *)&{dst_data}, {src_data});")
-def neon_vst_8xf16(dst: [f16][8] @ DRAM, src: [f16][8] @ Neon8f):
+def neon_vst_8xf16(dst: [f16][8] @ DRAM, src: [f16][8] @ Neon):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
@@ -298,7 +256,7 @@ def neon_vst_8xf16(dst: [f16][8] @ DRAM, src: [f16][8] @ Neon8f):
 
 
 @instr("{dst_data} = vld1q_dup_f16((float16_t *)&{src_data});")
-def neon_broadcast_8xf16(dst: [f16][8] @ Neon8f, src: [f16][1] @ DRAM):
+def neon_broadcast_8xf16(dst: [f16][8] @ Neon, src: [f16][1] @ DRAM):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 8):
@@ -306,7 +264,7 @@ def neon_broadcast_8xf16(dst: [f16][8] @ Neon8f, src: [f16][1] @ DRAM):
 
 
 @instr("{dst_data} = vmovq_n_f16(0.0f);")
-def neon_zero_8xf16(dst: [f16][8] @ Neon8f):
+def neon_zero_8xf16(dst: [f16][8] @ Neon):
     assert stride(dst, 0) == 1
 
     for i in seq(0, 8):
@@ -315,7 +273,7 @@ def neon_zero_8xf16(dst: [f16][8] @ Neon8f):
 
 @instr("{dst_data} = vaddq_f16({lhs_data}, {rhs_data});")
 def neon_vadd_8xf16(
-    dst: [f16][8] @ Neon8f, lhs: [f16][8] @ Neon8f, rhs: [f16][8] @ Neon8f
+    dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -327,7 +285,7 @@ def neon_vadd_8xf16(
 
 @instr("{dst_data} = vmulq_f16({lhs_data}, {rhs_data});")
 def neon_vmul_8xf16(
-    dst: [f16][8] @ Neon8f, lhs: [f16][8] @ Neon8f, rhs: [f16][8] @ Neon8f
+    dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -338,7 +296,7 @@ def neon_vmul_8xf16(
 
 @instr("{dst_data} = vfmaq_laneq_f16({dst_data}, {lhs_data}, {rhs_data}, {lane});")
 def neon_vfmla_8xf16_8xf16(
-        dst: [f16][8] @ Neon8f, lhs: [f16][8] @ Neon8f, rhs: [f16][8] @ Neon8f, lane: index
+        dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon, lane: index
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -351,7 +309,7 @@ def neon_vfmla_8xf16_8xf16(
 
 @instr("{dst_data} = vfmaq_f16({dst_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_8xf16_8xf16(
-    dst: [f16][8] @ Neon8f, lhs: [f16][8] @ Neon8f, rhs: [f16][8] @ Neon8f
+    dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -362,7 +320,7 @@ def neon_vfmadd_8xf16_8xf16(
 
 @instr("{dst_data} = vfmaq_f16({res_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_ex_8xf16_8xf16(
-        dst: [f16][8] @ Neon8f, res: [f16][8] @ Neon8f, lhs: [f16][8] @ Neon8f, rhs: [f16][8] @ Neon8f
+        dst: [f16][8] @ Neon, res: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon
 ):
     assert stride(dst, 0) == 1
     assert stride(res, 0) == 1
@@ -375,7 +333,7 @@ def neon_vfmadd_ex_8xf16_8xf16(
 
 @instr("{dst_data} = vfmaq_n_f16({dst_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_8xf16_1xf16(
-    dst: [f16][8] @ Neon8f, lhs: [f16][8] @ Neon8f, rhs: [f16][1] @ DRAM
+    dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][1] @ DRAM
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
@@ -386,7 +344,7 @@ def neon_vfmadd_8xf16_1xf16(
 
 @instr("{dst_data} = vfmaq_n_f16({dst_data}, {rhs_data}, {lhs_data});")
 def neon_vfmadd_1xf16_8xf16(
-    dst: [f16][8] @ Neon8f, lhs: [f16][1] @ DRAM, rhs: [f16][8] @ Neon8f
+    dst: [f16][8] @ Neon, lhs: [f16][1] @ DRAM, rhs: [f16][8] @ Neon
 ):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
