@@ -1,0 +1,7 @@
+def foo(n: size):
+    assert n > 5
+    x: R[n] @ DRAM
+    for i in seq(3, 5):
+        x[i] = 0.0
+    for i in seq(0, -5 + n):
+        x[5 + i] = 0.0

@@ -1,0 +1,7 @@
+def bar(n: size, m: size, A: i8[n, m] @ DRAM):
+    assert n > 5
+    assert m > 7
+    tmp: i8[n, m] @ DRAM
+    for j in seq(2, m):
+        for i in seq(4, n):
+            tmp[i, j] = A[i, j]

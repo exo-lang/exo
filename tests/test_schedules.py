@@ -103,6 +103,17 @@ def test_product_loop5(golden):
     assert str(mult_loops(foo, "i j", "ij")) == golden
 
 
+def test_product_loop_nonzero_lo():
+    @proc
+    def foo(n: size, x: R[n, 30]):
+        for i in seq(1, n):
+            for j in seq(0, 30):
+                x[i, j] = 0.0
+
+    with pytest.raises(SchedulingError, match="expected the inner and outer loops"):
+        mult_loops(foo, "i j", "ij")
+
+
 def test_delete_pass(golden):
     @proc
     def foo(x: R):
@@ -297,6 +308,15 @@ def test_simplify4(golden):
 
     bar = simplify(bar)
     assert str(bar) == golden
+
+
+def test_simplify_loop_bounds(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(2 + 5 + n, 9 + 8 + n):
+            pass
+
+    assert str(simplify(foo)) == golden
 
 
 def test_pattern_match():
@@ -841,6 +861,20 @@ def test_fuse_loop(golden):
     assert str(foo) == golden
 
 
+def test_fuse_loop2(golden):
+    @proc
+    def foo(n: size, x: R[n]):
+        assert n > 3
+        y: R[n]
+        for i in seq(3, n):
+            y[i] = x[i]
+        for j in seq(3, n):
+            x[j] = y[j] + 1.0
+
+    foo = fuse(foo, "for i in _:_", "for j in _:_")
+    assert str(foo) == golden
+
+
 def test_fuse_loop_fail():
     @proc
     def foo(n: size, x: R[n + 1]):
@@ -961,12 +995,38 @@ def test_divide_loop_cut_and_guard(golden):
     assert str(bar) == golden
 
 
+def test_divide_loop_fail_nonzero_lo():
+    @proc
+    def bar():
+        for i in seq(1, 8):
+            pass
+
+    with pytest.raises(
+        SchedulingError, match="expected the lower bound of the loop to be zero"
+    ):
+        bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="guard")
+
+
 def test_simple_reorder(golden):
     @proc
     def bar(n: size, m: size, A: i8[n, m]):
         tmp: i8[n, m]
         for i in seq(0, n):
             for j in seq(0, m):
+                tmp[i, j] = A[i, j]
+
+    bar = reorder_loops(bar, "i j")
+    assert str(bar) == golden
+
+
+def test_simple_reorder2(golden):
+    @proc
+    def bar(n: size, m: size, A: i8[n, m]):
+        assert n > 5
+        assert m > 7
+        tmp: i8[n, m]
+        for i in seq(4, n):
+            for j in seq(2, m):
                 tmp[i, j] = A[i, j]
 
     bar = reorder_loops(bar, "i j")
@@ -982,7 +1042,7 @@ def test_reorder_loops(golden):
 
     with pytest.raises(
         SchedulingError,
-        match="inner loop's hi depends on outer loop's iteration variable",
+        match="inner loop's lo or hi depends on outer loop's iteration variable",
     ):
         bar = reorder_loops(bar, bar.find("for i in _:_"))
 
@@ -1137,6 +1197,31 @@ def test_simple_unroll(golden):
 
     bar = unroll_loop(bar, "i")
     assert str(bar) == golden
+
+
+def test_simple_unroll2(golden):
+    @proc
+    def bar(A: i8[10]):
+        tmp: i8[10]
+        for i in seq(3, 10):
+            tmp[i] = A[i]
+
+    bar = unroll_loop(bar, "i")
+    assert str(bar) == golden
+
+
+def test_simple_unroll3():
+    @proc
+    def bar(m: size, A: i8[10]):
+        assert m < 10
+        tmp: i8[10]
+        for i in seq(m, 10):
+            tmp[i] = A[i]
+
+    with pytest.raises(
+        SchedulingError, match="expected loop 'i' to have constant bounds"
+    ):
+        bar = unroll_loop(bar, "i")
 
 
 def test_simple_inline(golden):
@@ -1439,6 +1524,24 @@ def test_unify7(golden):
     def foo(x: R[5, 5], y: R[5, 5]):
         for i in seq(0, 5):
             for j in seq(0, 5):
+                x[i, j] = y[i, j]
+
+    foo = replace(foo, "for i in _ : _", bar)
+    assert str(foo) == golden
+
+
+def test_unify8(golden):
+    @proc
+    def bar(n: size, m: size, src: R[n, n], dst: R[n, n]):
+        assert m < n
+        for i in seq(m, n):
+            for j in seq(m, n):
+                dst[i, j] = src[i, j]
+
+    @proc
+    def foo(x: R[5, 5], y: R[5, 5]):
+        for i in seq(3, 5):
+            for j in seq(3, 5):
                 x[i, j] = y[i, j]
 
     foo = replace(foo, "for i in _ : _", bar)
@@ -2238,6 +2341,31 @@ def test_cut_loop3():
 
     with pytest.raises(TypeError, match="cut_loop: expected a positive integer"):
         foo = cut_loop(foo, "for i in _:_", -3)
+
+
+def test_cut_loop_nonzero_lo(golden):
+    @proc
+    def foo(n: size):
+        assert n > 5
+        x: R[n]
+        for i in seq(3, n):
+            x[i] = 0.0
+
+    foo = cut_loop(foo, "for i in seq(3, n):_", 5)
+    assert str(simplify(foo)) == golden
+
+
+def test_cut_loop_nonzero_lo2(golden):
+    @proc
+    def foo(n: size, m: size):
+        assert m > 5
+        assert n > m
+        x: R[n]
+        for i in seq(m, n):
+            x[i] = 0.0
+
+    foo = cut_loop(foo, "for i in seq(m, n):_", 5)
+    assert str(simplify(foo)) == golden
 
 
 def test_mem_aware_replace(golden):

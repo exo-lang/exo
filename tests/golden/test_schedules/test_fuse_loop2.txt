@@ -1,0 +1,6 @@
+def foo(n: size, x: R[n] @ DRAM):
+    assert n > 3
+    y: R[n] @ DRAM
+    for i in seq(3, n):
+        y[i] = x[i]
+        x[i] = y[i] + 1.0

@@ -899,6 +899,7 @@ class Unification:
         elif isinstance(ps, LoopIR.Seq):
             # BINDING
             self.idx_subst[ps.iter] = bs.iter
+            self.unify_e(ps.lo, bs.lo)
             self.unify_e(ps.hi, bs.hi)
             self.unify_stmts(ps.body, bs.body)
         elif isinstance(ps, LoopIR.Alloc):
