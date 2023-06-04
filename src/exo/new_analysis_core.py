@@ -827,8 +827,8 @@ class SMTSolver:
         # return self._getvar(self.const_sym[name])
         # return SMT.Int(self.const_sym[name])
 
-    def _get_real_const(self, val):
-        if val not in self.const_sym:
+    def _get_real_const(self, name):
+        if name not in self.const_sym:
             self.const_sym[name] = self.const_sym_count
             self.const_sym_count += 1
         if self.Z3_MODE:
