@@ -597,7 +597,7 @@ def DoUnroll(c_loop):
     orig_body = c_loop.body().resolve_all()
 
     unrolled = []
-    for i in range(iters):
+    for i in range(s.lo.val, s.hi.val):
         env = {s.iter: LoopIR.Const(i, T.index, s.srcinfo)}
         unrolled += Alpha_Rename(SubstArgs(orig_body, env).result()).result()
 
