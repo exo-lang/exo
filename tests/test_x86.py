@@ -65,11 +65,12 @@ def test_avx2_simple_math(compiler):
         assert n % 8 == 0
         for i in seq(0, n / 8):
             xVec: f32[8] @ AVX2
+            tmp: f32[8] @ AVX2
             yVec: f32[8] @ AVX2
             mm256_loadu_ps(xVec, x[8 * i : 8 * i + 8])
             mm256_loadu_ps(yVec, y[8 * i : 8 * i + 8])
-            mm256_mul_ps(xVec, xVec, yVec)
-            mm256_mul_ps(xVec, xVec, yVec)
+            mm256_mul_ps(tmp, xVec, yVec)
+            mm256_mul_ps(xVec, tmp, yVec)
             mm256_storeu_ps(x[8 * i : 8 * i + 8], xVec)
 
     fn = compiler.compile(

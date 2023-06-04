@@ -171,7 +171,7 @@ class LoopIR_to_QAST:
             name = self.bindname(s.iter)
             return QAST.For(
                 name,
-                QAST.Const(0, QAST.int()),
+                self.map_expr(s.lo),
                 self.map_expr(s.hi),
                 self.map_stmts(s.body),
                 False,
@@ -230,6 +230,8 @@ class LoopIR_to_QAST:
     def map_type(self, typ):
         if typ == T.R:
             return QAST.R()
+        elif typ == T.f16:
+            return QAST.f16()
         elif typ == T.f32:
             return QAST.f32()
         elif typ == T.f64:

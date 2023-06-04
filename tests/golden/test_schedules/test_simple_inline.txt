@@ -1,7 +1,9 @@
 def bar(n: size, src: i8[n] @ DRAM, dst: i8[n] @ DRAM):
     for i in seq(0, n):
-        tmp_src: i8 @ DRAM
+        tmp_src1: i8 @ DRAM
+        tmp_src2: i8 @ DRAM
+        tmp_src1 = src[i]
+        tmp_src2 = src[i]
         tmp_dst: i8 @ DRAM
-        tmp_src = src[i]
         tmp_dst = dst[i]
-        tmp_dst = tmp_src + tmp_src
+        tmp_dst = tmp_src1 + tmp_src2
