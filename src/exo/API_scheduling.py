@@ -1701,45 +1701,6 @@ def fission(proc, gap_cursor, n_lifts=1):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([GapCursorA, PosIntA])
-def autofission(proc, gap_cursor, n_lifts=1):
-    """
-    Split the enclosing ForSeq and If statements wrapped around
-    this block of statements at the indicated point.
-
-    If doing so splits a loop, this version of fission attempts
-    to remove those loops as well.
-
-    args:
-        gap_cursor          - a cursor pointing to the point in the
-                              statement block that we want to fission at.
-        n_lifts (optional)  - number of levels to fission upwards (default=1)
-
-    rewrite:
-        `for i in _:`
-        `    s1`
-        `      ` <- gap
-        `    s2`
-            ->
-        `for i in _:`
-        `    s1`
-        `for i in _:`
-        `    s2`
-    """
-
-    if gap_cursor.type() == ic.GapType.Before:
-        stmt = gap_cursor.anchor().prev()
-    else:
-        stmt = gap_cursor.anchor()
-
-    if not stmt or not stmt.next():
-        raise ValueError(
-            "expected cursor to point to a gap between statements, not at an edge"
-        )
-
-    return scheduling.DoFissionLoops(proc, stmt._impl, n_lifts).result()
-
-
 # TODO: Debug scheduling error in fuse
 @sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA, BoolA])
 def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):

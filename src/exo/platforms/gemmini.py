@@ -1000,6 +1000,9 @@ def make_st_acc_i8_v2(p=st_acc_i8):
     p = reorder_stmts(p, "tmp : _ ; ConfigStore.act = _")
     p = reorder_stmts(p, "src_tmp = _ ; ConfigStore.act = _")
     p = reorder_stmts(p, "src_tmp : _ ; ConfigStore.act = _")
+    print(p)
+    p = fission(p, p.find("ConfigStore.act = _").after())
+    print(p)
     p = old_fission_after(p, "ConfigStore.act = _", n_lifts=2)
     p = replace(p, "for i in _:_", do_st_acc_i8)
     p = replace(
