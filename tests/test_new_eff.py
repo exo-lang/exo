@@ -321,3 +321,18 @@ def test_scal():
 
     with pytest.raises(SchedulingError):
         sscal = reorder_stmts(sscal, stmt_c.expand(1, 0))
+
+
+def test_alias_check():
+    """This fails when we have an aliasing in a proc"""
+
+    @proc
+    def foo(N: size, x: [f32][N], y: [f32][N]):
+        for i in seq(0, N):
+            x[i] = y[i]
+
+    with pytest.raises(SchedulingError, match="Cannot Pass the same buffer"):
+
+        @proc
+        def bar(N: size, x: [f32][N]):
+            foo(N, x, x)

@@ -1232,20 +1232,15 @@ def test_simple_inline(golden):
     @proc
     def bar(n: size, src: i8[n], dst: i8[n]):
         for i in seq(0, n):
-            tmp_src: i8
+            tmp_src1: i8
+            tmp_src2: i8
+            tmp_src1 = src[i]
+            tmp_src2 = src[i]
             tmp_dst: i8
-            tmp_src = src[i]
             tmp_dst = dst[i]
-            foo(tmp_src, tmp_src, tmp_dst)
+            foo(tmp_src1, tmp_src2, tmp_dst)
 
-    # TODO: these should fail
-    # with pytest.raises(SchedulingError, match='blah'):
-    #     inline(bar, 'foo(_)')
-    #
-    # with pytest.raises(SchedulingError, match='blah'):
-    #     inline(bar, 'foo(io, i1, i2)')
-
-    bar = inline(bar, "foo(_, _, _)")
+    bar = inline(bar, "foo(_)")
     assert str(bar) == golden
 
 

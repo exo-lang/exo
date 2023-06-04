@@ -138,6 +138,59 @@ def test_gen_neon_vfmla(golden, test_neon_vfmla):
 
 
 @pytest.fixture
+def test_neon_vfmla_f16():
+    """
+    Compute C[i] = A[i] * B[l]
+    """
+
+    @proc
+    def vfmla_f16(
+        n: size, C: R[n] @ DRAM, A: R[n] @ DRAM, B: R[n] @ DRAM
+    ):  # pragma: no cover
+        assert n == 8
+        for l in seq(0, 8):
+            for i in seq(0, 8):
+                C[i] += A[i] * B[l]
+
+    def simple_vfmla_f16(p=vfmla_f16):
+        p = stage_mem(p, "C[_] += _", "C[i]", "C_reg")
+        p = expand_dim(p, "C_reg", 8, "i", unsafe_disable_checks=True)
+        p = lift_alloc(p, "C_reg", n_lifts=2)
+        p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=2)
+        p = autofission(p, p.find("C[_] = _").before(), n_lifts=2)
+        p = replace(p, "for i in _: _ #0", neon_vld_8xf16)
+        p = replace(p, "for i in _: _ #1", neon_vst_8xf16)
+        p = set_memory(p, "C_reg", Neon)
+
+        p = bind_expr(p, "A[_]", "A_vec")
+        p = expand_dim(p, "A_vec", 8, "i", unsafe_disable_checks=True)
+        p = lift_alloc(p, "A_vec", n_lifts=2)
+        p = autofission(p, p.find("A_vec[_] = _").after(), n_lifts=2)
+        p = replace(p, "for i in _: _ #0", neon_vld_8xf16)
+        p = set_memory(p, "A_vec", Neon)
+
+        p = bind_expr(p, "B[_]", "B_vec")
+        p = expand_dim(p, "B_vec", 8, "l", unsafe_disable_checks=True)
+        p = lift_alloc(p, "B_vec", n_lifts=2)
+        p = autofission(p, p.find("B_vec[_] = _").after(), n_lifts=2)
+        p = replace(p, "for l in _: _ #0", neon_vld_8xf16)
+        p = set_memory(p, "B_vec", Neon)
+
+        p = replace(p, "for i in _: _ #0", neon_vfmla_8xf16_8xf16)
+        p = unroll_loop(p, "l #0")
+        return p
+
+    simple_neon_vfmla_f16 = simple_vfmla_f16()
+
+    return simplify(simple_neon_vfmla_f16)
+
+
+@pytest.mark.isa("neon")
+def test_gen_neon_vfmla_f16(golden, test_neon_vfmla_f16):
+    assert str(test_neon_vfmla_16) == golden
+
+
+@pytest.fixture
 def simple_math_neon_sched():
     @proc
     def simple_math_neon_sched(
