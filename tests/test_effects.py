@@ -560,6 +560,17 @@ def test_infereffects(golden):
     assert bar.show_effects() == golden
 
 
+def test_infereffects2(golden):
+    @proc
+    def foo(n: size, m: size, A: f32[n, m]):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                A[i, j] = 0.0
+
+    foo = foo.partial_eval(10, 20)
+    assert foo.show_effects() == golden
+
+
 # are we testing a case of an else branch?
 
 # what if effset.pred is None?
