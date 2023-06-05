@@ -404,6 +404,7 @@ class Parser:
 
     _prim_types = {
         "R": UAST.Num(),
+        "f16": UAST.F16(),
         "f32": UAST.F32(),
         "f64": UAST.F64(),
         "i8": UAST.INT8(),
@@ -652,7 +653,11 @@ class Parser:
                 cond = self.parse_loop_cond(s.iter)
                 body = self.parse_stmt_block(s.body)
 
-                rstmts.append(self.AST.Seq(itr, cond, body, self.getsrcinfo(s)))
+                if self.is_fragment:
+                    lo, hi = cond
+                    rstmts.append(PAST.Seq(itr, lo, hi, body, self.getsrcinfo(s)))
+                else:
+                    rstmts.append(UAST.Seq(itr, cond, body, self.getsrcinfo(s)))
 
                 self.pop()
 
@@ -762,10 +767,14 @@ class Parser:
                     self.err(cond, "par() and seq() expects exactly" " 2 arguments")
                 lo = self.parse_expr(cond.args[0])
                 hi = self.parse_expr(cond.args[1])
-                if cond.func.id == "par":
-                    return UAST.ParRange(lo, hi, self.getsrcinfo(cond))
+
+                if self.is_fragment:
+                    return lo, hi
                 else:
-                    return UAST.SeqRange(lo, hi, self.getsrcinfo(cond))
+                    if cond.func.id == "par":
+                        return UAST.ParRange(lo, hi, self.getsrcinfo(cond))
+                    else:
+                        return UAST.SeqRange(lo, hi, self.getsrcinfo(cond))
             else:
                 self.err(
                     cond,
@@ -773,7 +782,10 @@ class Parser:
                     "'par(...,...)' or 'seq(...,...)'",
                 )
         else:
-            return self.parse_expr(cond)
+            e_hole = PAST.E_Hole(self.getsrcinfo(cond))
+            if self.is_fragment:
+                return e_hole, e_hole
+            return e_hole
 
     # parse the left-hand-side of an assignment
     def parse_lvalue(self, node):

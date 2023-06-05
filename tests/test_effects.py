@@ -4,6 +4,7 @@ import pytest
 
 from exo import proc, DRAM
 from exo.libs.memories import GEMM_SCRATCH
+from exo.stdlib.scheduling import SchedulingError
 
 
 # ------- Effect check tests ---------
@@ -288,19 +289,18 @@ def test_race3(golden):
 
 
 # one big issue is aliasing in sub-procedure arguments
-# TODO: Think about this behaviour
-def test_race4(golden):
+def test_race4():
     @proc
     def foo(n: size, x: [R][n, n], y: [R][n, n]):
         for i in seq(0, n):
             if i + 1 < n:
                 x[i, i] = y[i, i]
 
-    @proc
-    def bar(n: size, z: R[n, n]):
-        foo(n, z, z)
+    with pytest.raises(SchedulingError, match="Cannot Pass the same buffer"):
 
-    assert bar.show_effects() == golden
+        @proc
+        def bar(n: size, z: R[n, n]):
+            foo(n, z, z)
 
 
 def test_div1(golden):

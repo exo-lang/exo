@@ -537,6 +537,12 @@ class ForSeqCursor(StmtCursor):
 
         return self._impl._node.iter.name()
 
+    def lo(self) -> ExprCursor:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Seq)
+
+        return self._child_node("lo")
+
     def hi(self) -> ExprCursor:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Seq)

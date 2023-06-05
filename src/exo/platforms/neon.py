@@ -30,7 +30,11 @@ class Neon(Memory):
         if not shape:
             raise MemGenError(f"{srcinfo}: Neon vectors are not scalar values")
 
-        vec_types = {"float": (4, "float32x4_t"), "double": (2, "float64x2_t")}
+        vec_types = {
+            "float": (4, "float32x4_t"),
+            "double": (2, "float64x2_t"),
+            "_Float16": (8, "float16x8_t"),
+        }
 
         if not prim_type in vec_types.keys():
             raise MemGenError(f"{srcinfo}: Neon vectors must be f32/f64 (for now)")
@@ -69,6 +73,11 @@ class Neon(Memory):
 # --------------------------------------------------------------------------- #
 #   f32 Neon intrinsics
 # --------------------------------------------------------------------------- #
+
+#
+# Load, Store, Broadcast, FMAdd, Mul, Add?
+#
+# float32
 
 
 @instr("*{result} += vaddvq_f32({x_data});")
@@ -148,6 +157,16 @@ def neon_vmul_4xf32(dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ 
         dst[i] = lhs[i] * rhs[i]
 
 
+@instr("{dst_data} = vmulq_f32({dst_data}, {rhs_data});")
+def neon_vmul2_4xf32(dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = lhs[i] * rhs[i]
+
+
 @instr("{dst_data} = vfmaq_laneq_f32({dst_data}, {lhs_data}, {rhs_data}, {lane});")
 def neon_vfmla_4xf32_4xf32(
     dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon, lane: index
@@ -161,6 +180,25 @@ def neon_vfmla_4xf32_4xf32(
         dst[i] += lhs[i] * rhs[lane]
 
 
+# This function uses an extra buffer for a beta=0 approach
+@instr("{dst_data} = vfmaq_laneq_f32({b_data}, {lhs_data}, {rhs_data}, {lane});")
+def neon_vfmla2_4xf32_4xf32(
+    dst: [f32][4] @ Neon,
+    b: [f32][4] @ Neon,
+    lhs: [f32][4] @ Neon,
+    rhs: [f32][4] @ Neon,
+    lane: index,
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert stride(b, 0) == 1
+    assert lane >= 0
+    assert lane < 4
+    for i in seq(0, 4):
+        dst[i] = b[i] + lhs[i] * rhs[lane]
+
+
 @instr("{dst_data} = vmlaq_f32({dst_data}, {lhs_data}, {rhs_data});")
 def neon_vfmadd_4xf32_4xf32(
     dst: [f32][4] @ Neon, lhs: [f32][4] @ Neon, rhs: [f32][4] @ Neon
@@ -171,6 +209,22 @@ def neon_vfmadd_4xf32_4xf32(
 
     for i in seq(0, 4):
         dst[i] += lhs[i] * rhs[i]
+
+
+@instr("{dst_data} = vmlaq_f32({res_data}, {lhs_data}, {rhs_data});")
+def neon_vfmadd_ex_4xf32_4xf32(
+    dst: [f32][4] @ Neon,
+    res: [f32][4] @ Neon,
+    lhs: [f32][4] @ Neon,
+    rhs: [f32][4] @ Neon,
+):
+    assert stride(dst, 0) == 1
+    assert stride(res, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = res[i] + lhs[i] * rhs[i]
 
 
 @instr("{dst_data} = vmlaq_n_f32({dst_data}, {lhs_data}, {rhs_data});")
@@ -192,6 +246,129 @@ def neon_vfmadd_1xf32_4xf32(
     assert stride(lhs, 0) == 1
 
     for i in seq(0, 4):
+        dst[i] += lhs[0] * rhs[i]
+
+
+# -----------------------------------------------
+# Load, Store, Broadcast, FMAdd, Mul, Add?
+#
+# float16
+
+
+@instr("{dst_data} = vld1q_f16((float16_t *)&{src_data});")
+def neon_vld_8xf16(dst: [f16][8] @ Neon, src: [f16][8] @ DRAM):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = src[i]
+
+
+@instr("vst1q_f16((float16_t *)&{dst_data}, {src_data});")
+def neon_vst_8xf16(dst: [f16][8] @ DRAM, src: [f16][8] @ Neon):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = src[i]
+
+
+@instr("{dst_data} = vld1q_dup_f16((float16_t *)&{src_data});")
+def neon_broadcast_8xf16(dst: [f16][8] @ Neon, src: [f16][1] @ DRAM):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = src[0]
+
+
+@instr("{dst_data} = vmovq_n_f16(0.0f);")
+def neon_zero_8xf16(dst: [f16][8] @ Neon):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = 0.0
+
+
+@instr("{dst_data} = vaddq_f16({lhs_data}, {rhs_data});")
+def neon_vadd_8xf16(dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = lhs[i] + rhs[i]
+
+
+@instr("{dst_data} = vmulq_f16({lhs_data}, {rhs_data});")
+def neon_vmul_8xf16(dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = lhs[i] * rhs[i]
+
+
+@instr("{dst_data} = vfmaq_laneq_f16({dst_data}, {lhs_data}, {rhs_data}, {lane});")
+def neon_vfmla_8xf16_8xf16(
+    dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon, lane: index
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert lane >= 0
+    assert lane < 8
+    for i in seq(0, 8):
+        dst[i] += lhs[i] * rhs[lane]
+
+
+@instr("{dst_data} = vfmaq_f16({dst_data}, {lhs_data}, {rhs_data});")
+def neon_vfmadd_8xf16_8xf16(
+    dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] += lhs[i] * rhs[i]
+
+
+@instr("{dst_data} = vfmaq_f16({res_data}, {lhs_data}, {rhs_data});")
+def neon_vfmadd_ex_8xf16_8xf16(
+    dst: [f16][8] @ Neon,
+    res: [f16][8] @ Neon,
+    lhs: [f16][8] @ Neon,
+    rhs: [f16][8] @ Neon,
+):
+    assert stride(dst, 0) == 1
+    assert stride(res, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = res[i] + lhs[i] * rhs[i]
+
+
+@instr("{dst_data} = vfmaq_n_f16({dst_data}, {lhs_data}, {rhs_data});")
+def neon_vfmadd_8xf16_1xf16(
+    dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][1] @ DRAM
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] += lhs[i] * rhs[0]
+
+
+@instr("{dst_data} = vfmaq_n_f16({dst_data}, {rhs_data}, {lhs_data});")
+def neon_vfmadd_1xf16_8xf16(
+    dst: [f16][8] @ Neon, lhs: [f16][1] @ DRAM, rhs: [f16][8] @ Neon
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+
+    for i in seq(0, 8):
         dst[i] += lhs[0] * rhs[i]
 
 
