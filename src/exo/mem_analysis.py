@@ -164,7 +164,7 @@ class MemoryAnalysis:
             self.push()
             body = self.mem_stmts(s.body)
             self.pop()
-            return styp(s.iter, s.hi, body, None, s.srcinfo)
+            return s.update(body=body)
         elif styp is LoopIR.Alloc:
             mem = s.mem if s.mem else DRAM
             self.mem_env[s.name] = mem

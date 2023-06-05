@@ -24,6 +24,7 @@ def new_config(name, fields, disable_rw=False):
         'bool'      : LoopIR.T.bool,
         'index'     : LoopIR.T.index,
         'stride'    : LoopIR.T.stride,
+        'f16'       : LoopIR.T.f16,
         'f32'       : LoopIR.T.f32,
         'f64'       : LoopIR.T.f64,
         'i8'        : LoopIR.T.i8,
@@ -52,7 +53,9 @@ def new_config(name, fields, disable_rw=False):
 
 # Because of the recursive inclusion, we cannot use ctype in LoopIR here..
 def ctyp(typ):
-    if isinstance(typ, LoopIR.T.F32):
+    if isinstance(typ, LoopIR.T.F16):
+        return "_Float16"
+    elif isinstance(typ, LoopIR.T.F32):
         return "float"
     elif isinstance(typ, LoopIR.T.F64):
         return "double"
@@ -90,6 +93,7 @@ class Config:
             LoopIR.UAST.Bool(): LoopIR.T.bool,
             LoopIR.UAST.Index(): LoopIR.T.index,
             LoopIR.UAST.Stride(): LoopIR.T.stride,
+            LoopIR.UAST.F16(): LoopIR.T.f16,
             LoopIR.UAST.F32(): LoopIR.T.f32,
             LoopIR.UAST.F64(): LoopIR.T.f64,
             LoopIR.UAST.INT8(): LoopIR.T.i8,

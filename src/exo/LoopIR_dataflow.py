@@ -159,6 +159,7 @@ class LoopIR_Dependencies(LoopIR_Do):
             self._control = True
             self._lhs = s.iter
             self._depends[s.iter].add(s.iter)
+            self.do_e(s.lo)
             self.do_e(s.hi)
             self._lhs = None
             self._control = False

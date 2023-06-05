@@ -280,6 +280,7 @@ def window_struct(base_type, n_dims, is_const) -> WindowStruct:
     assert n_dims >= 1
 
     _window_struct_shorthand = {
+        T.f16: "f16",
         T.f32: "f32",
         T.f64: "f64",
         T.i8: "i8",
@@ -385,6 +386,7 @@ def compile_to_strings(lib_name, proc_list):
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
+
             comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
             d, b = comp.comp_top()
             struct_defns |= comp.struct_defns()
@@ -853,10 +855,11 @@ class Compiler:
             self.add_line("}")
 
         elif isinstance(s, LoopIR.Seq):
+            lo = self.comp_e(s.lo)
             hi = self.comp_e(s.hi)
             self.push(only="env")
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.add_line(f"for (int {itr} = 0; {itr} < {hi}; {itr}++) {{")
+            self.add_line(f"for (int {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
             self.push(only="tab")
             self.comp_stmts(s.body)
             self.pop()

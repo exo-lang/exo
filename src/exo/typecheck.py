@@ -232,24 +232,23 @@ class TypeChecker:
             # handle standard ParRanges
             parerr = (
                 "currently supporting for-loops of the form:\n"
-                "  'for _ in par(0, affine_expression):' and "
-                "'for _ in seq(0, affine_expression):'"
+                "  'for _ in par(affine_expression, affine_expression):' and "
+                "'for _ in seq(affine_expression, affine_expression):'"
             )
 
-            if not (
-                isinstance(stmt.cond, (UAST.ParRange, UAST.SeqRange))
-                and isinstance(stmt.cond.lo, UAST.Const)
-                and stmt.cond.lo.val == 0
-            ):
+            if not isinstance(stmt.cond, (UAST.ParRange, UAST.SeqRange)):
                 self.err(stmt.cond, parerr)
 
+            lo = self.check_e(stmt.cond.lo)
+            if lo.type != T.err and not lo.type.is_indexable():
+                self.err(lo, "expected loop bound to be indexable.")
             hi = self.check_e(stmt.cond.hi)
             if hi.type != T.err and not hi.type.is_indexable():
                 self.err(hi, "expected loop bound to be indexable.")
 
             body = self.check_stmts(stmt.body)
             if isinstance(stmt.cond, UAST.SeqRange):
-                return [LoopIR.Seq(stmt.iter, hi, body, None, stmt.srcinfo)]
+                return [LoopIR.Seq(stmt.iter, lo, hi, body, None, stmt.srcinfo)]
             else:
                 assert False, "bad case"
 
@@ -477,6 +476,8 @@ class TypeChecker:
                     else:
                         if lhs.type == T.R:
                             typ = T.R
+                        elif lhs.type == T.f16:
+                            typ = T.f16
                         elif lhs.type == T.f32:
                             typ = T.f32
                         elif lhs.type == T.f64:
@@ -592,6 +593,7 @@ class TypeChecker:
 
     _typ_table = {
         UAST.Num: T.R,
+        UAST.F16: T.f16,
         UAST.F32: T.f32,
         UAST.F64: T.f64,
         UAST.INT8: T.int8,
