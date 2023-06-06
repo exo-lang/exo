@@ -210,8 +210,9 @@ class InferEffects:
             assert stmt.f.eff is not None
             # build up a substitution dictionary....
             # sig is a LoopIR.fnarg, arg is a LoopIR.expr
+            subproc = InferEffects(stmt.f).result()
             subst = {}
-            for sig, arg in zip(stmt.f.args, stmt.args):
+            for sig, arg in zip(subproc.args, stmt.args):
                 if sig.type.is_numeric():
                     if isinstance(arg.type, T.Window):
                         pass  # handle below
@@ -230,11 +231,11 @@ class InferEffects:
                 else:
                     assert False, "bad case"
 
-            eff = stmt.f.eff
+            eff = subproc.eff
             eff = eff.subst(subst)
 
             # translate effects occuring on windowed arguments
-            for sig, arg in zip(stmt.f.args, stmt.args):
+            for sig, arg in zip(subproc.args, stmt.args):
                 if sig.type.is_numeric():
                     if isinstance(arg.type, T.Window):
                         eff = self.translate_eff(eff, sig.name, arg.type)

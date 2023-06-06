@@ -238,9 +238,11 @@ class Procedure(ProcedureBase):
         return self._loopir_proc.name
 
     def show_effects(self):
+        self._loopir_proc = InferEffects(self._loopir_proc).result()
         return str(self._loopir_proc.eff)
 
     def show_effect(self, stmt_pattern):
+        self._loopir_proc = InferEffects(self._loopir_proc).result()
         if match := match_pattern(
             self._root(), stmt_pattern, call_depth=1, default_match_no=0
         ):
