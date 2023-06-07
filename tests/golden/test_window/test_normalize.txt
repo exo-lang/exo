@@ -72,7 +72,7 @@ EXO_ASSUME(n > 4);
 EXO_ASSUME(m > 4);
 float xy;
 float y2;
-dot(ctxt,m,(struct exo_win_1f32c){ &x[m], { 1 } },(struct exo_win_1f32c){ &y[2], { n } },&xy);
-dot(ctxt,m,(struct exo_win_1f32c){ &y[3], { n } },(struct exo_win_1f32c){ &x[(2) * m], { 1 } },&y2);
+dot(ctxt,m,(struct exo_win_1f32c){ &x[m], { 1 } },(struct exo_win_1f32c){ &y[2], { n } },xy);
+dot(ctxt,m,(struct exo_win_1f32c){ &y[3], { n } },(struct exo_win_1f32c){ &x[(2) * m], { 1 } },y2);
 }
 

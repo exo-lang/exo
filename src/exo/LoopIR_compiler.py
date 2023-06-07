@@ -919,16 +919,29 @@ class Compiler:
                 return self.env[e.name]
             elif rtyp is T.stride:
                 return self.env[e.name]
-            elif e.name in self._scalar_refs:
-                if e.name in self.non_const:
-                    return self.env[e.name]
-                else:
-                    return f"&{self.env[e.name]}"
             elif rtyp.is_tensor_or_window():
                 return self.env[e.name]
             else:
                 assert rtyp.is_real_scalar()
-                return f"&{self.env[e.name]}"
+                # analyze subprocedure effects to see if "pointer to const casting" is necessary
+                if isinstance(fn, LoopIR.proc):
+                    subproc_non_const = set(a for a, _ in get_writes_of_stmts(fn.body))
+                    if (
+                        e.name in self.non_const
+                        and fn.args[i].name not in subproc_non_const
+                    ):
+                        ctyp = e.type.basetype().ctype()
+                        return f"(const {ctyp}) *{self.env[e.name]}"
+                    else:
+                        return self.env[e.name]
+                else:
+                    assert isinstance(fn, LoopIR.BuiltIn)
+                    # Because we cannot analyze the semantics of builtins, convert everything into a pointer
+                    if e.name not in self.non_const or e.name not in self._scalar_refs:
+                        return f"&{self.env[e.name]}"
+                    else:
+                        return self.env[e.name]
+
         elif isinstance(e, LoopIR.WindowExpr):
             if isinstance(fn, LoopIR.proc):
                 callee_buf = fn.args[i].name

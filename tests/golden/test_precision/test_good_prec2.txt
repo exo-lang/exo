@@ -64,6 +64,6 @@ for (int i = 0; i < m; i++) {
 // )
 void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y ) {
 float xy;
-dot(ctxt,n,x,y,&xy);
+dot(ctxt,n,x,y,xy);
 }
 

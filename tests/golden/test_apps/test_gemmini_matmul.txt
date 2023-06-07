@@ -290,9 +290,9 @@ for (int i = 0; i < 3136; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
+    (tmp_res1)[0] = ACC_SCALE(((const int32_t) *src_tmp)[0], (scale)[0]);
     int8_t tmp_res2;
-    clamp(ctxt,&tmp_res1,&tmp_res2);
+    clamp(ctxt,(const float) *tmp_res1,tmp_res2);
     if (act == true) {
       tmp_res2 = _relu_((double)*&tmp_res2);
     }
@@ -327,9 +327,9 @@ for (int i = 0; i < 3136; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
+    (tmp_res1)[0] = ACC_SCALE(((const int32_t) *src_tmp)[0], (scale)[0]);
     int8_t tmp_res2;
-    clamp(ctxt,&tmp_res1,&tmp_res2);
+    clamp(ctxt,(const float) *tmp_res1,tmp_res2);
     if (act == true) {
       tmp_res2 = _relu_((double)*&tmp_res2);
     }
@@ -364,9 +364,9 @@ for (int i = 0; i < 784; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
+    (tmp_res1)[0] = ACC_SCALE(((const int32_t) *src_tmp)[0], (scale)[0]);
     int8_t tmp_res2;
-    clamp(ctxt,&tmp_res1,&tmp_res2);
+    clamp(ctxt,(const float) *tmp_res1,tmp_res2);
     if (act == true) {
       tmp_res2 = _relu_((double)*&tmp_res2);
     }
@@ -401,9 +401,9 @@ for (int i = 0; i < 12544; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
+    (tmp_res1)[0] = ACC_SCALE(((const int32_t) *src_tmp)[0], (scale)[0]);
     int8_t tmp_res2;
-    clamp(ctxt,&tmp_res1,&tmp_res2);
+    clamp(ctxt,(const float) *tmp_res1,tmp_res2);
     if (act == true) {
       tmp_res2 = _relu_((double)*&tmp_res2);
     }
@@ -438,9 +438,9 @@ for (int i = 0; i < 512; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
+    (tmp_res1)[0] = ACC_SCALE(((const int32_t) *src_tmp)[0], (scale)[0]);
     int8_t tmp_res2;
-    clamp(ctxt,&tmp_res1,&tmp_res2);
+    clamp(ctxt,(const float) *tmp_res1,tmp_res2);
     if (act == true) {
       tmp_res2 = _relu_((double)*&tmp_res2);
     }
@@ -475,9 +475,9 @@ for (int i = 0; i < 12544; i++) {
     int32_t src_tmp;
     src_tmp = res;
     float tmp_res1;
-    (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], (&scale)[0]);
+    (tmp_res1)[0] = ACC_SCALE(((const int32_t) *src_tmp)[0], (scale)[0]);
     int8_t tmp_res2;
-    clamp(ctxt,&tmp_res1,&tmp_res2);
+    clamp(ctxt,(const float) *tmp_res1,tmp_res2);
     if (act == true) {
       tmp_res2 = _relu_((double)*&tmp_res2);
     }
@@ -520,7 +520,7 @@ gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),{m}, {n} );
 //     C : i8[3136, 512] @DRAM
 // )
 void matmul_14( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((512), (act), (&scale)[0]);
+gemmini_extended_config_st((512), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -617,7 +617,7 @@ gemm_acc_free((uint32_t)(res));
 //     C : i8[3136, 128] @DRAM
 // )
 void matmul_16( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((128), (act), (&scale)[0]);
+gemmini_extended_config_st((128), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -714,7 +714,7 @@ gemm_acc_free((uint32_t)(res));
 //     C : i8[784, 1024] @DRAM
 // )
 void matmul_27( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((1024), (act), (&scale)[0]);
+gemmini_extended_config_st((1024), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -807,7 +807,7 @@ gemm_acc_free((uint32_t)(res));
 //     C : i8[12544, 256] @DRAM
 // )
 void matmul_4( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((256), (act), (&scale)[0]);
+gemmini_extended_config_st((256), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -902,7 +902,7 @@ gemm_free((uint64_t)(a));
 //     C : i8[512, 512] @DRAM
 // )
 void matmul_512x512x512( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((512), (act), (&scale)[0]);
+gemmini_extended_config_st((512), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
@@ -1005,7 +1005,7 @@ gemm_free((uint64_t)(a));
 //     C : i8[12544, 64] @DRAM
 // )
 void matmul_6( test_case_Context *ctxt, const float scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-gemmini_extended_config_st((64), (act), (&scale)[0]);
+gemmini_extended_config_st((64), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
 
