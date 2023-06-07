@@ -134,11 +134,11 @@ int8_t *w_s = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 3 * 3 * sizeof
 int8_t *w_s_1 = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 3 * 3 * sizeof(int8_t)));
 int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * sizeof(int32_t)));
 int32_t *res_1 = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 9 * 4 * sizeof(int32_t)));
-for (int b = 0; b < 4; b++) {
-  for (int ocol_o = 0; ocol_o < 3; ocol_o++) {
-    for (int orow_o = 0; orow_o < 2; orow_o++) {
-      for (int orow_io = 0; orow_io < 4; orow_io++) {
-        for (int orow_ii = 0; orow_ii < 7; orow_ii++) {
+for (size_t b = 0; b < 4; b++) {
+  for (size_t ocol_o = 0; ocol_o < 3; ocol_o++) {
+    for (size_t orow_o = 0; orow_o < 2; orow_o++) {
+      for (size_t orow_io = 0; orow_io < 4; orow_io++) {
+        for (size_t orow_ii = 0; orow_ii < 7; orow_ii++) {
           gemmini_extended_mvin( ((uint64_t) &bias[0]), ((uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (0)/16))), 16, (16) );
           gemmini_extended_mvin( ((uint64_t) &bias[16]), ((uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (256)/16))), 16, (16) );
           gemmini_extended_mvin( ((uint64_t) &bias[32]), ((uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((2) * (256))/16))), 16, (16) );
@@ -583,9 +583,9 @@ gemmini_extended_compute_preloaded((uint32_t)(&*(int8_t*)((uint64_t)( ((uint32_t
       }
     }
   }
-  for (int orow_o = 0; orow_o < 2; orow_o++) {
-    for (int orow_io = 0; orow_io < 4; orow_io++) {
-      for (int orow_ii = 0; orow_ii < 7; orow_ii++) {
+  for (size_t orow_o = 0; orow_o < 2; orow_o++) {
+    for (size_t orow_io = 0; orow_io < 4; orow_io++) {
+      for (size_t orow_ii = 0; orow_ii < 7; orow_ii++) {
         gemmini_extended_mvin( ((uint64_t) &bias[0]), ((uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + (0)/16))), 16, (8) );
         gemmini_extended_mvin( ((uint64_t) &bias[16]), ((uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + (144)/16))), 16, (8) );
         gemmini_extended_mvin( ((uint64_t) &bias[32]), ((uint32_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res_1)) + ((2) * (144))/16))), 16, (8) );

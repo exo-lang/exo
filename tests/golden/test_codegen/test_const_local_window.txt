@@ -64,7 +64,7 @@ static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A );
 //     A : [f32][N] @DRAM
 // )
 static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A ) {
-for (int i = 0; i < N; i++) {
+for (size_t i = 0; i < N; i++) {
   A.data[i * A.strides[0]] = 0.0;
 }
 }
