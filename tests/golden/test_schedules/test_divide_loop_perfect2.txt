@@ -1,0 +1,8 @@
+def foo(n: size, A: i8[n] @ DRAM):
+    assert n % 4 == 0
+    for io in seq(0, n / 4):
+        tile: i8[io * 4 + 4 - io * 4] @ DRAM
+        for ii in seq(0, 4):
+            tile[4 * io + ii - io * 4] = 0.2
+        for i0 in seq(0, io * 4 + 4 - io * 4):
+            A[i0 + io * 4] = tile[i0]

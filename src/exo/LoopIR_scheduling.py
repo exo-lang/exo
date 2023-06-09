@@ -459,7 +459,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
 
     # short-hands for sanity
     def boolop(op, lhs, rhs):
-        return LoopIR.BinOp(op, lhs, rhs, T.bool, srcinfo)
+        return LoopIR.BinOp(op, lhs, rhs, T.index, srcinfo)
 
     def szop(op, lhs, rhs):
         return LoopIR.BinOp(op, lhs, rhs, lhs.type, srcinfo)
