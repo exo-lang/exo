@@ -1599,6 +1599,7 @@ def loop_globenv(i, lo_expr, hi_expr, body):
 def Check_ReorderStmts(proc, s1, s2):
     ctxt = ContextExtraction(proc, [s1, s2])
 
+    dataflow_results = dataflow_analysis(proc)
     p = ctxt.get_control_predicate()
     G = ctxt.get_pre_globenv()
 
