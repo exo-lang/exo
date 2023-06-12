@@ -2,15 +2,7 @@ name: CI
 on:
   push:
     branches: [ 'master' ]
-    paths-ignore:
-      - '*.nix'
-      - 'flake.lock'
-      - 'README.md'
   pull_request:
-    paths-ignore:
-      - '*.nix'
-      - 'flake.lock'
-      - 'README.md'
 jobs:
   build:
     strategy:
