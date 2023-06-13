@@ -77,7 +77,7 @@ class RVV(Memory):
 
 
 @instr("{dst_data} = __riscv_vle32_v_f32m1(&{src_data},{vl});")
-def rvv_vld_4xf32(dst: [f32][4] @ RVV, src: [f32][4] @ DRAM, vl: index):
+def rvv_vld_4xf32(dst: [f32][4] @ RVV, src: [f32][4] @ DRAM, vl: size):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
     assert vl >= 0
@@ -88,7 +88,7 @@ def rvv_vld_4xf32(dst: [f32][4] @ RVV, src: [f32][4] @ DRAM, vl: index):
 
 
 @instr("__riscv_vse32_v_f32m1(&{dst_data}, {src_data},{vl});")
-def rvv_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ RVV, vl: index):
+def rvv_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ RVV, vl: size):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
     assert vl >= 0
@@ -97,11 +97,30 @@ def rvv_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ RVV, vl: index):
     for i in seq(0, vl):
         dst[i] = src[i]
 
-#vfloat32m1_t __riscv_vfmacc_vv_f32m1 (vfloat32m1_t vd, vfloat32m1_t vs1, vfloat32m1_t vs2, size_t vl);
+@instr("{dst_data} = __riscv_vfmv_v_f_f32m1(&{src_data},{vl});")
+def rvv_broadcast_4xf32(dst: [f32][4] @ RVV, src: [f32][1] @ DRAM, vl: size):
+    assert stride(dst, 0) == 1
+    assert vl >= 0
+    assert vl <= 4
+
+    for i in seq(0, vl):
+        dst[i] = src[0]
+
+
+@instr("{dst_data} = __riscv_vfmv_v_f_f32m1({src_data},{vl});")
+def rvv_broadcast_4xf32_scalar(dst: [f32][4] @ RVV, src: f32 @ DRAM, vl: size):
+    assert stride(dst, 0) == 1
+    assert vl >= 0
+    assert vl <= 4
+
+    for i in seq(0, vl):
+        dst[i] = src
+
+
 
 @instr("{dst_data} = __riscv_vfmacc_vv_f32m1({dst_data}, {lhs_data}, {rhs_data},{vl});")
-def rvv_vfmadd_4xf32_4xf32(
-    dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][4] @ RVV, vl: index):
+def rvv_vfmacc_4xf32_4xf32(
+    dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][4] @ RVV, vl: size):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
     assert stride(rhs, 0) == 1
@@ -111,23 +130,31 @@ def rvv_vfmadd_4xf32_4xf32(
     for i in seq(0, vl):
         dst[i] += lhs[i] * rhs[i]
 
+@instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {rhs_data}, {lhs_data},{vl});")
+def rvv_vfmacc_4xf32_1xf32(
+    dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][1] @ DRAM, vl: size):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert vl >= 0
+    assert vl <= 4
+
+    for i in seq(0, vl):
+        dst[i] += lhs[i] * rhs[0]
+
+@instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {lhs_data}, {rhs_data},{vl});")
+def rvv_vfmacc_1xf32_4xf32(
+    dst: [f32][4] @ RVV, lhs: [f32][1] @ DRAM, rhs: [f32][4] @ RVV, vl: size):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert vl >= 0
+    assert vl <= 4
+
+    for i in seq(0, vl):
+        dst[i] += lhs[0] * rhs[i]
 
 """
-@instr("{dst_data} = vld1q_dup_f32(&{src_data});")
-def neon_broadcast_4xf32(dst: [f32][4] @ Neon, src: [f32][1] @ DRAM):
-    assert stride(dst, 0) == 1
-
-    for i in seq(0, 4):
-        dst[i] = src[0]
-
-
-@instr("{dst_data} = vld1q_dup_f32({src_data});")
-def neon_broadcast_4xf32_scalar(dst: [f32][4] @ Neon, src: f32 @ DRAM):
-    assert stride(dst, 0) == 1
-
-    for i in seq(0, 4):
-        dst[i] = src
-
 
 @instr("{dst_data} = vmovq_n_f32(0.0f);")
 def neon_zero_4xf32(dst: [f32][4] @ Neon):
