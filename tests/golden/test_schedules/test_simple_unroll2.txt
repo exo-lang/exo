@@ -1,0 +1,9 @@
+def bar(A: i8[10] @ DRAM):
+    tmp: i8[10] @ DRAM
+    tmp[3] = A[3]
+    tmp[4] = A[4]
+    tmp[5] = A[5]
+    tmp[6] = A[6]
+    tmp[7] = A[7]
+    tmp[8] = A[8]
+    tmp[9] = A[9]
