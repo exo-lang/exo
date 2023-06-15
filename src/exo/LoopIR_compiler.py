@@ -535,7 +535,11 @@ class Compiler:
                 else:
                     const_kwd = "const " if a.name not in self.non_const else ""
                     ctyp = a.type.basetype().ctype()
-                    arg_strs.append(f"{const_kwd}{ctyp}* {name_arg}")
+                    if a.type.is_real_scalar() and (a.name not in self.non_const):
+                        arg = f"{const_kwd}{ctyp} {name_arg}"
+                    else:
+                        arg = f"{const_kwd}{ctyp}* {name_arg}"
+                    arg_strs.append(arg)
                 mem = f" @{a.mem.name()}" if a.mem else ""
                 comment_str = f"{name_arg} : {a.type}{mem}"
                 typ_comments.append(comment_str)
@@ -915,13 +919,29 @@ class Compiler:
                 return self.env[e.name]
             elif rtyp is T.stride:
                 return self.env[e.name]
-            elif e.name in self._scalar_refs:
-                return self.env[e.name]
             elif rtyp.is_tensor_or_window():
                 return self.env[e.name]
             else:
                 assert rtyp.is_real_scalar()
-                return f"&{self.env[e.name]}"
+                # analyze subprocedure effects to see if "pointer to const casting" is necessary
+                if isinstance(fn, LoopIR.proc):
+                    subproc_non_const = set(a for a, _ in get_writes_of_stmts(fn.body))
+                    if (
+                        e.name in self.non_const
+                        and fn.args[i].name not in subproc_non_const
+                    ):
+                        ctyp = e.type.basetype().ctype()
+                        return f"(const {ctyp}) *{self.env[e.name]}"
+                    else:
+                        return self.env[e.name]
+                else:
+                    assert isinstance(fn, LoopIR.BuiltIn)
+                    # Because we cannot analyze the semantics of builtins, convert everything into a pointer
+                    if e.name not in self.non_const or e.name not in self._scalar_refs:
+                        return f"&{self.env[e.name]}"
+                    else:
+                        return self.env[e.name]
+
         elif isinstance(e, LoopIR.WindowExpr):
             if isinstance(fn, LoopIR.proc):
                 callee_buf = fn.args[i].name
@@ -951,7 +971,10 @@ class Compiler:
                 )
 
             if e.name in self._scalar_refs:
-                return f"*{self.env[e.name]}"
+                if e.name in self.non_const:
+                    return f"*{self.env[e.name]}"
+                else:
+                    return self.env[e.name]
             elif not rtyp.is_tensor_or_window():
                 return self.env[e.name]
             else:
