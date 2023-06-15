@@ -2,15 +2,7 @@ name: BLAS
 on:
   push:
     branches: [ 'master' ]
-    paths-ignore:
-      - '*.nix'
-      - 'flake.lock'
-      - 'README.md'
   pull_request:
-    paths-ignore:
-      - '*.nix'
-      - 'flake.lock'
-      - 'README.md'
 jobs:
   testing:
     strategy:
@@ -29,9 +21,15 @@ jobs:
     runs-on: ${{matrix.runner}}
     steps:
       - name: Checkout sources (including submodules)
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: recursive
+
+      - name: Checkout BLAS repo
+        uses: actions/checkout@v3
+        with:
+          repository: exo-lang/BLAS
+          token: ${{ secrets.BLAS_GITHUB_TOKEN }}
 
       - name: Setup Python environment
         uses: actions/setup-python@v2
@@ -52,12 +50,6 @@ jobs:
 
       - name: Install Google benchmark
         run: git clone https://github.com/google/benchmark; cmake -S benchmark -B benchmark/build -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_TESTING=NO ; cmake --build benchmark/build; cmake --install benchmark/build --prefix ~/.local
-
-      - name: Checkout BLAS repo
-        uses: actions/checkout@v3
-        with:
-          repository: exo-lang/BLAS
-          token: ${{ secrets.BLAS_GITHUB_TOKEN }}
 
       - name: Configure CMake
         run: cmake -B BLAS/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} --preset avx2

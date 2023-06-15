@@ -1,10 +1,6 @@
 name: Lint
 on:
   pull_request:
-    paths-ignore:
-      - '*.nix'
-      - 'flake.lock'
-      - 'README.md'
 jobs:
   lint:
     runs-on: ubuntu-latest
