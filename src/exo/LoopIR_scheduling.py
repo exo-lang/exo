@@ -458,8 +458,8 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         return op("+", op("*", cnst(quot), rd(hi_i)), rd(lo_i))
 
     # short-hands for sanity
-    def boolop(op, lhs, rhs):
-        return LoopIR.BinOp(op, lhs, rhs, T.bool, srcinfo)
+    def boolop(op, lhs, rhs, typ):
+        return LoopIR.BinOp(op, lhs, rhs, typ, srcinfo)
 
     def szop(op, lhs, rhs):
         return LoopIR.BinOp(op, lhs, rhs, lhs.type, srcinfo)
@@ -484,7 +484,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         idx_sub = substitute(srcinfo)
 
         def guard_wrapper(body):
-            cond = boolop("<", idx_sub, N)
+            cond = boolop("<", idx_sub, N, T.bool)
             return LoopIR.If(cond, body, [], None, srcinfo)
 
         ir, fwd_wrap = fwd(loop_cursor).body()._wrap(guard_wrapper, "body")
@@ -520,7 +520,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
                     f"cannot perfectly split the '{split_loop.iter}' loop."
                 )
 
-            hi_rng = boolop("/", N, cnst(quot))
+            hi_rng = boolop("/", N, cnst(quot), T.index)
         else:
             if N.val % quot != 0:
                 raise SchedulingError(
@@ -573,7 +573,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
             cut_i, LoopIR.Const(0, T.index, srcinfo), Ntail, cut_body, None, srcinfo
         )
         if tail_strategy == "cut_and_guard":
-            cond = boolop(">", Ntail, LoopIR.Const(0, T.int, srcinfo))
+            cond = boolop(">", Ntail, LoopIR.Const(0, T.int, srcinfo), T.bool)
             cut_s = LoopIR.If(cond, [cut_s], [], None, srcinfo)
 
         ir, fwd_ins = fwd(loop_cursor).after()._insert([cut_s])
