@@ -167,22 +167,22 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 8 * 8 * 2 * sizeof(int8_t)));
 int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 8 * 4 * sizeof(int8_t)));
 int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 4 * sizeof(int32_t)));
-for (size_t ioo = 0; ioo < 2; ioo++) {
-  for (size_t jo = 0; jo < 2; jo++) {
-    for (size_t io = 0; io < 2; io++) {
-      for (size_t i = 0; i < 8; i++) {
-        for (size_t ji = 0; ji < 4; ji++) {
+for (int_fast32_t ioo = 0; ioo < 2; ioo++) {
+  for (int_fast32_t jo = 0; jo < 2; jo++) {
+    for (int_fast32_t io = 0; io < 2; io++) {
+      for (int_fast32_t i = 0; i < 8; i++) {
+        for (int_fast32_t ji = 0; ji < 4; ji++) {
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024))/16))),(16), (16) );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + 256)/16))),(16), (16) );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (2) * (256))/16))),(16), (16) );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (3) * (256))/16))),(16), (16) );
-          for (size_t ko = 0; ko < 8; ko++) {
+          for (int_fast32_t ko = 0; ko < 8; ko++) {
             if (jo == 0) {
               if (ji == 0) {
                 gemmini_extended_mvin2( &A[(16 * i + 128 * io + 256 * ioo) * (512) + 64 * ko], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((io) * (65536) + (i) * (8192) + (ko) * (1024))/16))), 16*(4), (16) );
               }
             }
-            for (size_t k = 0; k < 4; k++) {
+            for (int_fast32_t k = 0; k < 4; k++) {
               if (io == 0) {
                 if (i == 0) {
                   gemmini_extended_mvin3( &B[(16 * k + 64 * ko) * (512) + 64 * ji + 256 * jo], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)b)) + ((ji) * (32768) + (ko) * (4096) + (k) * (1024))/16))), 16*(4), (16) );
