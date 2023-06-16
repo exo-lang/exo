@@ -25,12 +25,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Checkout BLAS repo
-        uses: actions/checkout@v3
-        with:
-          repository: exo-lang/BLAS
-          token: ${{ secrets.BLAS_GITHUB_TOKEN }}
-
       - name: Setup Python environment
         uses: actions/setup-python@v2
         with:
@@ -43,6 +37,12 @@ jobs:
 
       - name: Install Exo
         run: python -m build ${{github.workspace}} ; python -m pip install ${{github.workspace}}/dist/*.whl
+
+      - name: Checkout BLAS repo
+        uses: actions/checkout@v3
+        with:
+          repository: exo-lang/BLAS
+          token: ${{ secrets.BLAS_GITHUB_TOKEN }}
 
       - name: Install Ninja and git
         run: sudo apt install ninja-build git
