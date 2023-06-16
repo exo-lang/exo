@@ -43,20 +43,20 @@ void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x );
 //     x : i8 @DRAM
 // )
 void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x ) {
-for (int i = 0; i < n; i++) {
-  for (int j = 0; j < m; j++) {
+for (int_fast32_t i = 0; i < n; i++) {
+  for (int_fast32_t j = 0; j < m; j++) {
     ; // NO-OP
   }
 }
-for (int i = 0; i < n; i++) {
+for (int_fast32_t i = 0; i < n; i++) {
   int8_t *a = malloc(n * sizeof(*a));
-  for (int j = 0; j < m; j++) {
+  for (int_fast32_t j = 0; j < m; j++) {
     *x = a[i];
   }
   free(a);
 }
-for (int i = 0; i < n; i++) {
-  for (int j = 0; j < m; j++) {
+for (int_fast32_t i = 0; i < n; i++) {
+  for (int_fast32_t j = 0; j < m; j++) {
     ; // NO-OP
   }
 }
