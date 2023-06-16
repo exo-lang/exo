@@ -1,0 +1,16 @@
+def rvv_test(M: size, C: f32[M] @ DRAM, A: f32[M] @ DRAM, B: f32[M] @ DRAM):
+    assert M == 8
+    C_reg: f32[2, 4] @ RVV
+    for io in seq(0, 2):
+        rvv_vld_4xf32(C_reg[io + 0, 0:4], C[4 * io + 0:4 * io + 4], 4)
+    A_vec: R[2, 4] @ RVV
+    for io in seq(0, 2):
+        rvv_vld_4xf32(A_vec[io + 0, 0:4], A[4 * io + 0:4 * io + 4], 4)
+    B_vec: R[2, 4] @ RVV
+    for io in seq(0, 2):
+        rvv_vld_4xf32(B_vec[io + 0, 0:4], B[4 * io + 0:4 * io + 4], 4)
+    for io in seq(0, 2):
+        rvv_vfmacc_4xf32_4xf32(C_reg[io + 0, 0:4], A_vec[io + 0, 0:4],
+                               B_vec[io + 0, 0:4], 4)
+    for io in seq(0, 2):
+        rvv_vst_4xf32(C[4 * io + 0:4 * io + 4], C_reg[io + 0, 0:4], 4)
