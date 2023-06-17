@@ -1267,6 +1267,25 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
     ir, fwd = scheduling.DoMultiplyDim(stmt, hi_dim_idx, lo_dim_idx)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
+@sched_op([AllocCursorA])
+def unroll_buffer(proc, alloc_cursor):
+    """
+    Unroll the buffer allocation with constant dimension.
+
+    args:
+        alloc_cursor    - cursor to the buffer with constant dimension
+
+    rewrite:
+        `buf : T[2]` <- alloc_cursor
+        `...`
+        ->
+        `buf_0 : T`
+        `buf_1 : T`
+        `...`
+    """
+
+    ir, fwd = scheduling.DoUnrollBuffer(alloc_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 @sched_op([AllocCursorA, PosIntA])
 def lift_alloc(proc, alloc_cursor, n_lifts=1):
