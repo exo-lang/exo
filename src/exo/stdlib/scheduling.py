@@ -56,6 +56,7 @@ from ..API_scheduling import (
     inline_window,
     stage_window,
     stage_mem,
+    unroll_buffer,
     #
     # loop rewriting
     divide_loop,
