@@ -3614,7 +3614,6 @@ class DoBoundAlloc(Cursor_Rewrite):
         return new_stmts
 
 
-
 class SubstReadForUnrollBuf(LoopIR_Rewrite):
     def __init__(self, nodes, orig_sym, iters):
         assert isinstance(nodes, list)
@@ -3639,7 +3638,9 @@ class SubstReadForUnrollBuf(LoopIR_Rewrite):
         lis = []
         for i, s in enumerate(idxs):
             if not isinstance(s, LoopIR.Const):
-                raise SchedulingError(f"Expected a constant buffer access, got {s} at {i}'th dimension. Try unrolling the loop.")
+                raise SchedulingError(
+                    f"Expected a constant buffer access, got {s} at {i}'th dimension. Try unrolling the loop."
+                )
             lis.append(s.val)
         return tuple(lis)
 
@@ -3682,21 +3683,23 @@ def DoUnrollBuffer(alloc_cursor):
 
     for i, s in enumerate(alloc_stmt.type.shape()):
         if not isinstance(s, LoopIR.Const):
-            raise SchedulingError(f"Expected a constant buffer dimension, got {s} at {i}'th dimension.")
+            raise SchedulingError(
+                f"Expected a constant buffer dimension, got {s} at {i}'th dimension."
+            )
 
     tmp_list = []
     for hi in alloc_stmt.type.shape():
         tmp_list.append([i for i in range(0, hi.val)])
-        
-    import itertools
-    unroll_iters = list(itertools.product(*tmp_list))
 
+    import itertools
+
+    unroll_iters = list(itertools.product(*tmp_list))
 
     buf_idxs = dict()
     for itr in unroll_iters:
-        new_name = str(alloc_stmt.name) + '_' + '_'.join([str(s) for s in itr])
+        new_name = str(alloc_stmt.name) + "_" + "_".join([str(s) for s in itr])
         buf_idxs[itr] = Sym(new_name)
-        
+
     unrolled_bufs = []
     c = alloc_cursor
     cur_fwd = lambda x: x
@@ -3704,7 +3707,9 @@ def DoUnrollBuffer(alloc_cursor):
         try:
             c = c.next()
             # raise error if this buffer is accessed as a window
-            replaced, used_allocs = SubstReadForUnrollBuf([c._node], alloc_stmt.name, buf_idxs).result()
+            replaced, used_allocs = SubstReadForUnrollBuf(
+                [c._node], alloc_stmt.name, buf_idxs
+            ).result()
             if used_allocs != []:
                 ir, fwd = c._replace(replaced)
                 unrolled_bufs += used_allocs
@@ -3715,7 +3720,13 @@ def DoUnrollBuffer(alloc_cursor):
 
     new_allocs = []
     for itr in unrolled_bufs:
-        alloc = LoopIR.Alloc(buf_idxs[itr], alloc_stmt.type.basetype(), alloc_stmt.mem, None, alloc_stmt.srcinfo)
+        alloc = LoopIR.Alloc(
+            buf_idxs[itr],
+            alloc_stmt.type.basetype(),
+            alloc_stmt.mem,
+            None,
+            alloc_stmt.srcinfo,
+        )
         new_allocs.append(alloc)
 
     ir, fwd = alloc_cursor._replace(new_allocs)

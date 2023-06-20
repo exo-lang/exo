@@ -2761,6 +2761,7 @@ def test_unroll_buffer3():
     ):
         bar = unroll_buffer(bar, "tmp_a : _")
 
+
 def test_unroll_buffer4():
     @proc
     def bar(n: size, A: i8[n]):
@@ -2774,10 +2775,12 @@ def test_unroll_buffer4():
     ):
         bar = unroll_buffer(bar, "tmp_a : _")
 
+
 def test_unroll_buffer5():
     @proc
     def foo(B: i8[2]):
         B[0] = 0.0
+
     @proc
     def bar(n: size, A: i8[n]):
         tmp_a: i8[10]
@@ -2788,5 +2791,3 @@ def test_unroll_buffer5():
         match="Cannot unroll a buffer used as a window",
     ):
         bar = unroll_buffer(bar, "tmp_a : _")
-
-
