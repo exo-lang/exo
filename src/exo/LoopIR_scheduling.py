@@ -3615,12 +3615,13 @@ class DoBoundAlloc(Cursor_Rewrite):
 
 
 class SubstReadForUnrollBuf(LoopIR_Rewrite):
-    def __init__(self, nodes, orig_sym, iters):
+    def __init__(self, nodes, orig_sym, dim, iters):
         assert isinstance(nodes, list)
-        assert isinstance(iters, dict)
-        assert all(isinstance(v, Sym) for v in iters.values())
+        assert isinstance(iters, list)
+        assert all(isinstance(v, Sym) for v in iters)
         self.orig_sym = orig_sym
         self.iters = iters
+        self.dim = dim
         self.nodes = []
         self.used = []
         for n in nodes:
@@ -3634,16 +3635,6 @@ class SubstReadForUnrollBuf(LoopIR_Rewrite):
     def result(self):
         return self.nodes, self.used
 
-    def e_to_tup(self, idxs):
-        lis = []
-        for i, s in enumerate(idxs):
-            if not isinstance(s, LoopIR.Const):
-                raise SchedulingError(
-                    f"Expected a constant buffer access, got {s} at {i}'th dimension. Try unrolling the loop."
-                )
-            lis.append(s.val)
-        return tuple(lis)
-
     def map_s(self, s):
         s2 = super().map_s(s)
         s_new = s2[0] if s2 is not None else s
@@ -3651,10 +3642,16 @@ class SubstReadForUnrollBuf(LoopIR_Rewrite):
         # this substitution could refer to a read
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name is self.orig_sym:
-                idx = self.e_to_tup(s.idx)
-                sym = self.iters[idx]
-                self.used.append(idx)
-                return [s_new.update(name=sym, idx=[])]
+                new_idx = s.idx.copy()
+                if not isinstance(new_idx[self.dim], LoopIR.Const):
+                    raise SchedulingError(
+                        f"Expected a constant buffer access, got {new_idx[self.dim]} at {self.dim}'th dimension. Try unrolling the loop. "
+                    )
+                self.used.append(new_idx[self.dim].val)
+                sym = self.iters[new_idx[self.dim].val]
+                del new_idx[self.dim]
+
+                return [s.update(name=sym, idx=new_idx)]
 
         return s2
 
@@ -3662,18 +3659,41 @@ class SubstReadForUnrollBuf(LoopIR_Rewrite):
         # this substitution could refer to a read, not a window expression
         if isinstance(e, LoopIR.Read):
             if e.name is self.orig_sym:
-                idx = self.e_to_tup(s.idx)
-                sym = self.iters[idx]
-                self.used.append(idx)
-                return e.update(name=sym, idx=[])
+                new_idx = e.idx.copy()
+                if not isinstance(new_idx[self.dim], LoopIR.Const):
+                    raise SchedulingError(
+                        f"Expected a constant buffer access, got {new_idx[self.dim]} at {self.dim}'th dimension. Try unrolling the loop. "
+                    )
+                self.used.append(new_idx[self.dim].val)
+                sym = self.iters[new_idx[self.dim].val]
+                del new_idx[self.dim]
+
+                return e.update(name=sym, idx=new_idx)
 
         elif isinstance(e, LoopIR.WindowExpr):
-            raise SchedulingError("Cannot unroll a buffer used as a window.")
+            if e.name is self.orig_sym:
+                if not isinstance(e.idx[self.dim], LoopIR.Point):
+                    raise SchedulingError(
+                        f"Cannot unroll a buffer at a dimension used as a window."
+                    )
+
+                pt = e.idx[self.dim].pt
+                if not isinstance(pt, LoopIR.Const):
+                    raise SchedulingError(
+                        f"Expected a constant buffer access, got {pt} at {self.dim}'th dimension. Try unrolling the loop. "
+                    )
+
+                self.used.append(pt.val)
+                sym = self.iters[pt.val]
+                new_access = e.idx.copy()
+                del new_access[self.dim]
+
+                return e.update(name=sym, idx=new_access)
 
         return super().map_e(e)
 
 
-def DoUnrollBuffer(alloc_cursor):
+def DoUnrollBuffer(alloc_cursor, dim):
     alloc_stmt = alloc_cursor._node
 
     assert isinstance(alloc_stmt, LoopIR.Alloc)
@@ -3681,34 +3701,26 @@ def DoUnrollBuffer(alloc_cursor):
     if not alloc_stmt.type.shape():
         raise SchedulingError("Cannot unroll a scalar buffer")
 
-    for i, s in enumerate(alloc_stmt.type.shape()):
-        if not isinstance(s, LoopIR.Const):
-            raise SchedulingError(
-                f"Expected a constant buffer dimension, got {s} at {i}'th dimension."
-            )
+    buf_size = alloc_stmt.type.shape()[dim]
+    if not isinstance(buf_size, LoopIR.Const):
+        raise SchedulingError(
+            f"Expected a constant buffer dimension, got {buf_size} at {dim}'th dimension."
+        )
 
-    tmp_list = []
-    for hi in alloc_stmt.type.shape():
-        tmp_list.append([i for i in range(0, hi.val)])
-
-    import itertools
-
-    unroll_iters = list(itertools.product(*tmp_list))
-
-    buf_idxs = dict()
-    for itr in unroll_iters:
-        new_name = str(alloc_stmt.name) + "_" + "_".join([str(s) for s in itr])
-        buf_idxs[itr] = Sym(new_name)
+    buf_idxs = []
+    for i in range(0, buf_size.val):
+        new_name = str(alloc_stmt.name) + "_" + str(i)
+        buf_idxs.append(Sym(new_name))
 
     unrolled_bufs = []
     c = alloc_cursor
     cur_fwd = lambda x: x
     while True:
         try:
-            c = c.next()
+            c = cur_fwd(c.next())
             # raise error if this buffer is accessed as a window
             replaced, used_allocs = SubstReadForUnrollBuf(
-                [c._node], alloc_stmt.name, buf_idxs
+                [c._node], alloc_stmt.name, dim, buf_idxs
             ).result()
             if used_allocs != []:
                 ir, fwd = c._replace(replaced)
@@ -3718,18 +3730,22 @@ def DoUnrollBuffer(alloc_cursor):
         except ic.InvalidCursorError:
             break
 
+    new_shape = alloc_stmt.type.shape().copy()
+    del new_shape[dim]
+    new_type = LoopIR.Tensor(new_shape, False, alloc_stmt.type.basetype())
+
     new_allocs = []
     for itr in unrolled_bufs:
         alloc = LoopIR.Alloc(
             buf_idxs[itr],
-            alloc_stmt.type.basetype(),
+            new_type,
             alloc_stmt.mem,
             None,
             alloc_stmt.srcinfo,
         )
         new_allocs.append(alloc)
 
-    ir, fwd = alloc_cursor._replace(new_allocs)
+    ir, fwd = cur_fwd(alloc_cursor)._replace(new_allocs)
 
     return ir, _compose(fwd, cur_fwd)
 

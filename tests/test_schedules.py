@@ -2722,11 +2722,31 @@ def test_unroll_buffer(golden):
     def bar(n: size, A: i8[n]):
         for i in seq(0, n):
             for j in seq(0, n):
-                tmp_a: i8[2, 2]
-                tmp_a[0, 0] = A[i]
-                tmp_a[1, 1] = A[i]
+                tmp_a: i8[5, 2]
+                tmp_a[0, 1] = A[i]
+                tmp_a[1, 0] = A[i]
 
-    bar = unroll_buffer(bar, "tmp_a : _")
+    bar0 = unroll_buffer(bar, "tmp_a : _", 0)
+    bar1 = unroll_buffer(bar, "tmp_a : _", 1)
+    assert str(bar0) + str(bar1) == golden
+
+
+def test_unroll_buffer1(golden):
+    @proc
+    def foo(src: i8[2], dst: i8[2]):
+        src[0] = dst[0]
+        src[1] = dst[1]
+
+    @proc
+    def bar(n: size, A: i8[n]):
+        assert n > 10
+        for i in seq(0, n - 4):
+            for j in seq(0, n):
+                tmp_a: i8[4, 2, 2]
+                foo(tmp_a[0, 0, :], A[i : i + 2])
+                foo(tmp_a[0, 1, :], A[i + 2 : i + 4])
+
+    bar = unroll_buffer(bar, "tmp_a : _", 1)
     assert str(bar) == golden
 
 
@@ -2745,7 +2765,7 @@ def test_unroll_buffer2():
         SchedulingError,
         match="Expected a constant buffer access",
     ):
-        bar = unroll_buffer(bar, "tmp_a : _")
+        bar = unroll_buffer(bar, "tmp_a : _", 0)
 
 
 def test_unroll_buffer3():
@@ -2759,7 +2779,7 @@ def test_unroll_buffer3():
         SchedulingError,
         match="Expected a constant buffer dimension",
     ):
-        bar = unroll_buffer(bar, "tmp_a : _")
+        bar = unroll_buffer(bar, "tmp_a : _", 0)
 
 
 def test_unroll_buffer4():
@@ -2773,7 +2793,7 @@ def test_unroll_buffer4():
         SchedulingError,
         match="Cannot unroll a scalar buffer",
     ):
-        bar = unroll_buffer(bar, "tmp_a : _")
+        bar = unroll_buffer(bar, "tmp_a : _", 0)
 
 
 def test_unroll_buffer5():
@@ -2788,6 +2808,6 @@ def test_unroll_buffer5():
 
     with pytest.raises(
         SchedulingError,
-        match="Cannot unroll a buffer used as a window",
+        match="Cannot unroll a buffer at a dimension used as a window",
     ):
-        bar = unroll_buffer(bar, "tmp_a : _")
+        bar = unroll_buffer(bar, "tmp_a : _", 0)

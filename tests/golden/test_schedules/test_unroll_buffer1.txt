@@ -1,0 +1,8 @@
+def bar(n: size, A: i8[n] @ DRAM):
+    assert n > 10
+    for i in seq(0, n - 4):
+        for j in seq(0, n):
+            tmp_a_0: i8[4, 2] @ DRAM
+            tmp_a_1: i8[4, 2] @ DRAM
+            foo(tmp_a_0[0, 0:2], A[i:i + 2])
+            foo(tmp_a_1[0, 0:2], A[i + 2:i + 4])
