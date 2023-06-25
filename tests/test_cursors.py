@@ -257,13 +257,24 @@ def test_vectorize_forwarding(golden):
     scal4 = lift_alloc(scal3, "alphaReg")
     scal5 = fission(scal4, scal4.find("alphaReg[_] = _").after())
 
-    scal1.forward(stmt)
-    scal2.forward(stmt)
-    scal3.forward(stmt)
-    scal4.forward(stmt)
-    scal5.forward(stmt)
-
     assert str(scal5.forward(stmt)) == golden
+
+
+def test_unroll_buffer_forwarding(golden):
+    @proc
+    def foo():
+        src: i32[2, 2]
+        src[1, 0] = 1.0
+        src[0, 1] = 1.0
+
+    assn1 = foo.find("src[_] = _")
+    const1 = assn1.rhs()
+    assn2 = foo.find("src[_] = _ #1")
+    foo1 = unroll_buffer(foo, "src: _", 0)
+
+    tests = [foo1.forward(assn1), foo1.forward(assn2), foo1.forward(const1).parent()]
+
+    assert "\n".join([str(test) for test in tests]) == golden
 
 
 def test_arg_cursor(golden):

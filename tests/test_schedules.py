@@ -2724,11 +2724,12 @@ def test_unroll_buffer(golden):
             for j in seq(0, n):
                 tmp_a: i8[5, 2]
                 tmp_a[0, 1] = A[i]
+                tmp_a[0, 1] = A[i]
                 tmp_a[1, 0] = A[i]
 
     bar0 = unroll_buffer(bar, "tmp_a : _", 0)
     bar1 = unroll_buffer(bar, "tmp_a : _", 1)
-    assert str(bar0) + str(bar1) == golden
+    assert str(bar0) + "\n" + str(bar1) == golden
 
 
 def test_unroll_buffer1(golden):
