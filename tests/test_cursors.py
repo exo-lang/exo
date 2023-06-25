@@ -263,9 +263,9 @@ def test_vectorize_forwarding(golden):
 def test_unroll_buffer_forwarding(golden):
     @proc
     def foo():
-        src: i32[2, 2]
-        src[1, 0] = 1.0
-        src[0, 1] = 1.0
+        src: i32[2]
+        src[0] = 1.0
+        src[1] = 1.0
 
     assn1 = foo.find("src[_] = _")
     const1 = assn1.rhs()
