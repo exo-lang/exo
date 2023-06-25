@@ -44,7 +44,7 @@ jobs:
 
       - name: Setup SDE binaries
         if: runner.os != 'macOS'
-        uses: petarpetrovt/setup-sde@v2
+        uses: petarpetrovt/setup-sde@v2.1
 
       - name: Install Clang 13 (Linux)
         if: runner.os == 'Linux'
