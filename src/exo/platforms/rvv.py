@@ -97,7 +97,7 @@ def rvv_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ RVV, vl: size):
     for i in seq(0, vl):
         dst[i] = src[i]
 
-@instr("{dst_data} = __riscv_vfmv_v_f_f32m1(&{src_data},{vl});")
+@instr("{dst_data} = __riscv_vfmv_v_f_f32m1({src_data},{vl});")
 def rvv_broadcast_4xf32(dst: [f32][4] @ RVV, src: [f32][1] @ DRAM, vl: size):
     assert stride(dst, 0) == 1
     assert vl >= 0
