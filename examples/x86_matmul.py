@@ -82,16 +82,13 @@ print(avx)
 
 # Sixth block
 """
-avx = replace_all(avx, avx2_set0_ps)
-avx = replace_all(avx, mm256_broadcast_ss)
-avx = replace_all(avx, mm256_fmadd_ps)
-avx = replace_all(avx, avx2_fmadd_memu_ps)
-avx = replace(avx, 'for ji in _:_ #0', mm256_loadu_ps)
-avx = replace(avx, 'for ji in _:_ #0', mm256_loadu_ps)
-avx = replace(avx, 'for ji in _:_ #0', mm256_storeu_ps)
 avx = set_memory(avx, 'C_reg', AVX2)
 avx = set_memory(avx, 'a_vec', AVX2)
 avx = set_memory(avx, 'b_vec', AVX2)
+avx = replace_all(avx, mm256_loadu_ps)
+avx = replace_all(avx, mm256_broadcast_ss)
+avx = replace_all(avx, mm256_fmadd_ps)
+avx = replace_all(avx, mm256_storeu_ps)
 print("Sixth block:")
 print(avx)
 """

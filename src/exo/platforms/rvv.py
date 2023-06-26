@@ -30,7 +30,10 @@ class RVV(Memory):
         if not shape:
             raise MemGenError(f"{srcinfo}: RVV vectors are not scalar values")
 
-        vec_types = {"float": (4, "vfloat32m1_t")} #, "double": (2, "float64x2_t"), "_Float16" : (8, "float16x8_t")}
+
+        vec_types = {
+            "float": (4, "vfloat32m1_t")
+        }  # , "double": (2, "float64x2_t"), "_Float16" : (8, "float16x8_t")}
 
         if not prim_type in vec_types.keys():
             raise MemGenError(f"{srcinfo}: RVV vectors must be f32 (for now)")
@@ -38,7 +41,8 @@ class RVV(Memory):
         reg_width, C_reg_type_name = vec_types[prim_type]
 
         if not _is_const_size(shape[-1], reg_width):
-            #This will help with dynamic lengths (I hope)
+
+            # This will help with dynamic lengths (I hope)
             if int(shape[-1]) > reg_width:
                 raise MemGenError(
                     f"{srcinfo}: RVV vectors of type {prim_type} must be {reg_width}-wide, got {shape}"
@@ -66,6 +70,9 @@ class RVV(Memory):
         if idxs:
             idxs = "[" + "][".join(idxs) + "]"
         return f"{baseptr}{idxs}"
+
+
+
 # --------------------------------------------------------------------------- #
 #   f32 RVV intrinsics
 # --------------------------------------------------------------------------- #
@@ -120,7 +127,8 @@ def rvv_broadcast_4xf32_scalar(dst: [f32][4] @ RVV, src: f32 @ DRAM, vl: size):
 
 @instr("{dst_data} = __riscv_vfmacc_vv_f32m1({dst_data}, {lhs_data}, {rhs_data},{vl});")
 def rvv_vfmacc_4xf32_4xf32(
-    dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][4] @ RVV, vl: size):
+    dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][4] @ RVV, vl: size
+):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
     assert stride(rhs, 0) == 1
@@ -132,7 +140,8 @@ def rvv_vfmacc_4xf32_4xf32(
 
 @instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {rhs_data}, {lhs_data},{vl});")
 def rvv_vfmacc_4xf32_1xf32(
-    dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][1] @ DRAM, vl: size):
+    dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][1] @ DRAM, vl: size
+):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
     assert stride(rhs, 0) == 1
@@ -142,9 +151,11 @@ def rvv_vfmacc_4xf32_1xf32(
     for i in seq(0, vl):
         dst[i] += lhs[i] * rhs[0]
 
+
 @instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {lhs_data}, {rhs_data},{vl});")
 def rvv_vfmacc_1xf32_4xf32(
-    dst: [f32][4] @ RVV, lhs: [f32][1] @ DRAM, rhs: [f32][4] @ RVV, vl: size):
+    dst: [f32][4] @ RVV, lhs: [f32][1] @ DRAM, rhs: [f32][4] @ RVV, vl: size
+):
     assert stride(dst, 0) == 1
     assert stride(lhs, 0) == 1
     assert stride(rhs, 0) == 1

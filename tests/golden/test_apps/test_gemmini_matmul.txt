@@ -272,11 +272,11 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 //     C : i8[3136, 512] @DRAM
 // )
 void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-for (int i = 0; i < 3136; i++) {
-  for (int j = 0; j < 512; j++) {
+for (int_fast32_t i = 0; i < 3136; i++) {
+  for (int_fast32_t j = 0; j < 512; j++) {
     int32_t res;
     res = 0.0;
-    for (int k = 0; k < 128; k++) {
+    for (int_fast32_t k = 0; k < 128; k++) {
       int8_t a;
       a = A[i * 128 + k];
       int8_t b;
@@ -309,11 +309,11 @@ for (int i = 0; i < 3136; i++) {
 //     C : i8[3136, 128] @DRAM
 // )
 void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-for (int i = 0; i < 3136; i++) {
-  for (int j = 0; j < 128; j++) {
+for (int_fast32_t i = 0; i < 3136; i++) {
+  for (int_fast32_t j = 0; j < 128; j++) {
     int32_t res;
     res = 0.0;
-    for (int k = 0; k < 512; k++) {
+    for (int_fast32_t k = 0; k < 512; k++) {
       int8_t a;
       a = A[i * 512 + k];
       int8_t b;
@@ -346,11 +346,11 @@ for (int i = 0; i < 3136; i++) {
 //     C : i8[784, 1024] @DRAM
 // )
 void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-for (int i = 0; i < 784; i++) {
-  for (int j = 0; j < 1024; j++) {
+for (int_fast32_t i = 0; i < 784; i++) {
+  for (int_fast32_t j = 0; j < 1024; j++) {
     int32_t res;
     res = 0.0;
-    for (int k = 0; k < 256; k++) {
+    for (int_fast32_t k = 0; k < 256; k++) {
       int8_t a;
       a = A[i * 256 + k];
       int8_t b;
@@ -383,11 +383,11 @@ for (int i = 0; i < 784; i++) {
 //     C : i8[12544, 256] @DRAM
 // )
 void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-for (int i = 0; i < 12544; i++) {
-  for (int j = 0; j < 256; j++) {
+for (int_fast32_t i = 0; i < 12544; i++) {
+  for (int_fast32_t j = 0; j < 256; j++) {
     int32_t res;
     res = 0.0;
-    for (int k = 0; k < 64; k++) {
+    for (int_fast32_t k = 0; k < 64; k++) {
       int8_t a;
       a = A[i * 64 + k];
       int8_t b;
@@ -420,11 +420,11 @@ for (int i = 0; i < 12544; i++) {
 //     C : i8[512, 512] @DRAM
 // )
 void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-for (int i = 0; i < 512; i++) {
-  for (int j = 0; j < 512; j++) {
+for (int_fast32_t i = 0; i < 512; i++) {
+  for (int_fast32_t j = 0; j < 512; j++) {
     int32_t res;
     res = 0.0;
-    for (int k = 0; k < 512; k++) {
+    for (int_fast32_t k = 0; k < 512; k++) {
       int8_t a;
       a = A[i * 512 + k];
       int8_t b;
@@ -457,11 +457,11 @@ for (int i = 0; i < 512; i++) {
 //     C : i8[12544, 64] @DRAM
 // )
 void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-for (int i = 0; i < 12544; i++) {
-  for (int j = 0; j < 64; j++) {
+for (int_fast32_t i = 0; i < 12544; i++) {
+  for (int_fast32_t j = 0; j < 64; j++) {
     int32_t res;
     res = 0.0;
-    for (int k = 0; k < 256; k++) {
+    for (int_fast32_t k = 0; k < 256; k++) {
       int8_t a;
       a = A[i * 256 + k];
       int8_t b;
@@ -533,14 +533,14 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 8 * sizeof(int32_t)));
 int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 2 * 49 * sizeof(int8_t)));
 int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 2 * 8 * sizeof(int8_t)));
-for (int io = 0; io < 4; io++) {
-  for (int i = 0; i < 49; i++) {
-    for (int j = 0; j < 8; j++) {
+for (int_fast32_t io = 0; io < 4; io++) {
+  for (int_fast32_t i = 0; i < 49; i++) {
+    for (int_fast32_t j = 0; j < 8; j++) {
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024))/16))),(16), (16) );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + 256)/16))),(16), (16) );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + (2) * (256))/16))),(16), (16) );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + (3) * (256))/16))),(16), (16) );
-      for (int ko = 0; ko < 2; ko++) {
+      for (int_fast32_t ko = 0; ko < 2; ko++) {
         if (j == 0) {
           gemmini_extended_mvin2( &A[(16 * i + 784 * io) * (128) + 64 * ko], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (2048) + (ko) * (1024))/16))), 16*(4), (16) );
         }
@@ -630,14 +630,14 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 2 * sizeof(int32_t)));
 int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 8 * 14 * sizeof(int8_t)));
 int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 8 * 2 * sizeof(int8_t)));
-for (int io = 0; io < 14; io++) {
-  for (int i = 0; i < 14; i++) {
-    for (int j = 0; j < 2; j++) {
+for (int_fast32_t io = 0; io < 14; io++) {
+  for (int_fast32_t i = 0; i < 14; i++) {
+    for (int_fast32_t j = 0; j < 2; j++) {
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024))/16))),(16), (16) );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + 256)/16))),(16), (16) );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + (2) * (256))/16))),(16), (16) );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + (3) * (256))/16))),(16), (16) );
-      for (int ko = 0; ko < 8; ko++) {
+      for (int_fast32_t ko = 0; ko < 8; ko++) {
         if (j == 0) {
           gemmini_extended_mvin2( &A[(16 * i + 224 * io) * (512) + 64 * ko], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (8192) + (ko) * (1024))/16))), 16*(4), (16) );
         }
@@ -727,15 +727,15 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 8 * sizeof(int32_t)));
 int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 7 * sizeof(int8_t)));
 int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 4 * 8 * sizeof(int8_t)));
-for (int io = 0; io < 7; io++) {
-  for (int jo = 0; jo < 2; jo++) {
-    for (int i = 0; i < 7; i++) {
-      for (int j = 0; j < 8; j++) {
+for (int_fast32_t io = 0; io < 7; io++) {
+  for (int_fast32_t jo = 0; jo < 2; jo++) {
+    for (int_fast32_t i = 0; i < 7; i++) {
+      for (int_fast32_t j = 0; j < 8; j++) {
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024))/16))),(16), (16) );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + 256)/16))),(16), (16) );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + (2) * (256))/16))),(16), (16) );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + (3) * (256))/16))),(16), (16) );
-        for (int ko = 0; ko < 4; ko++) {
+        for (int_fast32_t ko = 0; ko < 4; ko++) {
           if (jo == 0) {
             if (j == 0) {
               gemmini_extended_mvin2( &A[(16 * i + 112 * io) * (256) + 64 * ko], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (4096) + (ko) * (1024))/16))), 16*(4), (16) );
@@ -820,9 +820,9 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 1 * 196 * sizeof(int8_t)));
 int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 1 * 4 * sizeof(int8_t)));
 int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 4 * sizeof(int32_t)));
-for (int io = 0; io < 4; io++) {
-  for (int i = 0; i < 196; i++) {
-    for (int j = 0; j < 4; j++) {
+for (int_fast32_t io = 0; io < 4; io++) {
+  for (int_fast32_t i = 0; i < 196; i++) {
+    for (int_fast32_t j = 0; j < 4; j++) {
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024))/16))),(16), (16) );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + 256)/16))),(16), (16) );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((j) * (1024) + (2) * (256))/16))),(16), (16) );
@@ -915,16 +915,16 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 8 * 8 * 2 * sizeof(int8_t)));
 int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 8 * 4 * sizeof(int8_t)));
 int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 4 * sizeof(int32_t)));
-for (int ioo = 0; ioo < 2; ioo++) {
-  for (int jo = 0; jo < 2; jo++) {
-    for (int io = 0; io < 2; io++) {
-      for (int i = 0; i < 8; i++) {
-        for (int ji = 0; ji < 4; ji++) {
+for (int_fast32_t ioo = 0; ioo < 2; ioo++) {
+  for (int_fast32_t jo = 0; jo < 2; jo++) {
+    for (int_fast32_t io = 0; io < 2; io++) {
+      for (int_fast32_t i = 0; i < 8; i++) {
+        for (int_fast32_t ji = 0; ji < 4; ji++) {
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024))/16))),(16), (16) );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + 256)/16))),(16), (16) );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (2) * (256))/16))),(16), (16) );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((ji) * (1024) + (3) * (256))/16))),(16), (16) );
-          for (int ko = 0; ko < 8; ko++) {
+          for (int_fast32_t ko = 0; ko < 8; ko++) {
             if (jo == 0) {
               if (ji == 0) {
                 gemmini_extended_mvin2( &A[(16 * i + 128 * io + 256 * ioo) * (512) + 64 * ko], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((io) * (65536) + (i) * (8192) + (ko) * (1024))/16))), 16*(4), (16) );
@@ -1018,13 +1018,13 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 8 * sizeof(int32_t)));
 int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 8 * sizeof(int8_t)));
 int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 4 * sizeof(int8_t)));
-for (int io = 0; io < 98; io++) {
-  for (int i = 0; i < 8; i++) {
+for (int_fast32_t io = 0; io < 98; io++) {
+  for (int_fast32_t i = 0; i < 8; i++) {
     gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (1024))/16))),(16), (16) );
     gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (1024) + 256)/16))),(16), (16) );
     gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (1024) + (2) * (256))/16))),(16), (16) );
     gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + ((i) * (1024) + (3) * (256))/16))),(16), (16) );
-    for (int ko = 0; ko < 4; ko++) {
+    for (int_fast32_t ko = 0; ko < 4; ko++) {
       gemmini_extended_mvin2( &A[(16 * i + 128 * io) * (256) + 64 * ko], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + ((i) * (4096) + (ko) * (1024))/16))), 16*(4), (16) );
       if (io == 0) {
         if (i == 0) {
