@@ -30,6 +30,7 @@ class RVV(Memory):
         if not shape:
             raise MemGenError(f"{srcinfo}: RVV vectors are not scalar values")
 
+
         vec_types = {
             "float": (4, "vfloat32m1_t")
         }  # , "double": (2, "float64x2_t"), "_Float16" : (8, "float16x8_t")}
@@ -40,6 +41,7 @@ class RVV(Memory):
         reg_width, C_reg_type_name = vec_types[prim_type]
 
         if not _is_const_size(shape[-1], reg_width):
+
             # This will help with dynamic lengths (I hope)
             if int(shape[-1]) > reg_width:
                 raise MemGenError(
@@ -68,6 +70,7 @@ class RVV(Memory):
         if idxs:
             idxs = "[" + "][".join(idxs) + "]"
         return f"{baseptr}{idxs}"
+
 
 
 # --------------------------------------------------------------------------- #
@@ -101,8 +104,7 @@ def rvv_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ RVV, vl: size):
     for i in seq(0, vl):
         dst[i] = src[i]
 
-
-@instr("{dst_data} = __riscv_vfmv_v_f_f32m1(&{src_data},{vl});")
+@instr("{dst_data} = __riscv_vfmv_v_f_f32m1({src_data},{vl});")
 def rvv_broadcast_4xf32(dst: [f32][4] @ RVV, src: [f32][1] @ DRAM, vl: size):
     assert stride(dst, 0) == 1
     assert vl >= 0
@@ -122,6 +124,7 @@ def rvv_broadcast_4xf32_scalar(dst: [f32][4] @ RVV, src: f32 @ DRAM, vl: size):
         dst[i] = src
 
 
+
 @instr("{dst_data} = __riscv_vfmacc_vv_f32m1({dst_data}, {lhs_data}, {rhs_data},{vl});")
 def rvv_vfmacc_4xf32_4xf32(
     dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][4] @ RVV, vl: size
@@ -134,7 +137,6 @@ def rvv_vfmacc_4xf32_4xf32(
 
     for i in seq(0, vl):
         dst[i] += lhs[i] * rhs[i]
-
 
 @instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {rhs_data}, {lhs_data},{vl});")
 def rvv_vfmacc_4xf32_1xf32(
@@ -162,3 +164,4 @@ def rvv_vfmacc_1xf32_4xf32(
 
     for i in seq(0, vl):
         dst[i] += lhs[0] * rhs[i]
+
