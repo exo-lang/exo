@@ -63,7 +63,6 @@ def test_rvv_vfmul():
 
     return simplify(simple_rvv_vfmul)
 
-
 @pytest.mark.isa("rvv")
 def test_gen_rvv_vfmul(golden, test_rvv_vfmul):
     assert str(test_rvv_vfmul) == golden
