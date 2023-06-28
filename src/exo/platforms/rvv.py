@@ -123,6 +123,16 @@ def rvv_broadcast_4xf32_scalar(dst: [f32][4] @ RVV, src: f32 @ DRAM, vl: size):
         dst[i] = src
 
 
+@instr("{dst_data} = __riscv_vfmv_v_f_f32m1(0.0f,{vl});")
+def rvv_broadcast_4xf32_0(dst: [f32][4] @ RVV, vl: size):
+    assert stride(dst, 0) == 1
+    assert vl >= 0
+    assert vl <= 4
+
+    for i in seq(0, vl):
+        dst[i] = 0.0
+
+
 @instr("{dst_data} = __riscv_vfmacc_vv_f32m1({dst_data}, {lhs_data}, {rhs_data},{vl});")
 def rvv_vfmacc_4xf32_4xf32(
     dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][4] @ RVV, vl: size
