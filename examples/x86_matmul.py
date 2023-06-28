@@ -35,7 +35,6 @@ print(rank_k_reduce_6x16)
 """
 avx = rename(rank_k_reduce_6x16, "rank_k_reduce_6x16_scheduled")
 avx = stage_mem(avx, 'C[_] += _', 'C[i, j]', 'C_reg')
-avx = set_memory(avx, 'C_reg', AVX2)
 print("First block:")
 print(avx)
 """
@@ -65,7 +64,6 @@ print(avx)
 # Fourth block
 """
 avx = bind_expr(avx, 'A[i, k]', 'a_vec')
-avx = set_memory(avx, 'a_vec', AVX2)
 avx = expand_dim(avx, 'a_vec:_', '8', 'ji')
 avx = autolift_alloc(avx, 'a_vec:_')
 avx = autofission(avx, avx.find('a_vec[_] = _').after())
@@ -76,7 +74,6 @@ print(avx)
 # Fifth block
 """
 avx = bind_expr(avx, 'B[k, _]', 'b_vec')
-avx = set_memory(avx, 'b_vec', AVX2)
 avx = autolift_alloc(avx, 'b_vec:_', keep_dims=True)
 avx = autofission(avx, avx.find('b_vec[_] = _').after())
 print("Fifth block:")
@@ -85,13 +82,13 @@ print(avx)
 
 # Sixth block
 """
-avx = replace_all(avx, avx2_set0_ps)
+avx = set_memory(avx, 'C_reg', AVX2)
+avx = set_memory(avx, 'a_vec', AVX2)
+avx = set_memory(avx, 'b_vec', AVX2)
+avx = replace_all(avx, mm256_loadu_ps)
 avx = replace_all(avx, mm256_broadcast_ss)
 avx = replace_all(avx, mm256_fmadd_ps)
-avx = replace_all(avx, avx2_fmadd_memu_ps)
-avx = replace(avx, 'for ji in _:_ #0', mm256_loadu_ps)
-avx = replace(avx, 'for ji in _:_ #0', mm256_loadu_ps)
-avx = replace(avx, 'for ji in _:_ #0', mm256_storeu_ps)
+avx = replace_all(avx, mm256_storeu_ps)
 print("Sixth block:")
 print(avx)
 """

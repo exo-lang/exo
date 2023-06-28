@@ -31,8 +31,7 @@ def rank_k_reduce_6x16(K: size, C: f32[6, 16] @ DRAM, A: f32[6, K] @ DRAM,
 
 Next, please uncomment the code in the first block by deleting the multi-line string
 markers (`"""`). Now, you will see that `stage_mem()` stages `C` to a buffer
-called `C_reg`. `set_memory()` sets `C_reg`'s memory to AVX2 to use it as an AVX vector,
-which is denoted by `@ AVX2`.
+called `C_reg`.
 
 ```python
 # First block:
@@ -94,7 +93,7 @@ def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
 ```
 
 Please uncomment the code in the fourth block. `A` is bound to 8 wide AVX2 vector
-register `a_vec` by `bind_expr()` and `set_memory()`.
+register `a_vec` by `bind_expr()`.
 
 ```python
 # Fourth block:
@@ -153,7 +152,9 @@ def rank_k_reduce_6x16_scheduled(K: size, C: f32[6, 16] @ DRAM,
 ```
 
 Finally, please uncomment the sixth block. The sixth block replaces the statements with
-equivalent calls to AVX2 instructions. These AVX2 hardware instructions could be defined
+equivalent calls to AVX2 instructions. `set_memory()` sets `C_reg`, `a_vec`, and `b_vec`'s
+memory to AVX2 to use it as an AVX vector, which is denoted by `@ AVX2`.
+These AVX2 hardware instructions could be defined
 by users, but are part of Exo's standard library; the sources may be
 found [here](https://github.com/ChezJrk/exo/blob/master/src/exo/platforms/x86.py#L8).
 Please look at the definition of `mm256_loadu_ps` (for example), and notice that it has

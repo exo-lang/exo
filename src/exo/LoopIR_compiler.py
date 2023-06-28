@@ -382,11 +382,11 @@ def compile_to_strings(lib_name, proc_list):
             )
         else:
             is_public_decl = id(p) in orig_procs
-            
+
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
-            
+
             comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
             d, b = comp.comp_top()
             struct_defns |= comp.struct_defns()
@@ -851,10 +851,11 @@ class Compiler:
             self.add_line("}")
 
         elif isinstance(s, LoopIR.Seq):
+            lo = self.comp_e(s.lo)
             hi = self.comp_e(s.hi)
             self.push(only="env")
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.add_line(f"for (int {itr} = 0; {itr} < {hi}; {itr}++) {{")
+            self.add_line(f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
             self.push(only="tab")
             self.comp_stmts(s.body)
             self.pop()

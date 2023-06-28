@@ -101,6 +101,7 @@ class R(Type):
 class f16(Type):
     pass
 
+
 @_dataclass
 class f32(Type):
     pass

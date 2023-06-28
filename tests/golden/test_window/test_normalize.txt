@@ -56,7 +56,7 @@ static void dot( void *ctxt, int_fast32_t m, struct exo_win_1f32c x, struct exo_
 // )
 static void dot( void *ctxt, int_fast32_t m, struct exo_win_1f32c x, struct exo_win_1f32c y, float* r ) {
 *r = 0.0;
-for (int i = 0; i < m; i++) {
+for (int_fast32_t i = 0; i < m; i++) {
   *r += x.data[i * x.strides[0]] * y.data[i * y.strides[0]];
 }
 }
@@ -73,6 +73,6 @@ EXO_ASSUME(m > 4);
 float xy;
 float y2;
 dot(ctxt,m,(struct exo_win_1f32c){ &x[m], { 1 } },(struct exo_win_1f32c){ &y[2], { n } },&xy);
-dot(ctxt,m,(struct exo_win_1f32c){ &y[3], { n } },(struct exo_win_1f32c){ &y[3], { n } },&y2);
+dot(ctxt,m,(struct exo_win_1f32c){ &y[3], { n } },(struct exo_win_1f32c){ &x[(2) * m], { 1 } },&y2);
 }
 
