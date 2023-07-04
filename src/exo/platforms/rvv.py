@@ -30,7 +30,6 @@ class RVV(Memory):
         if not shape:
             raise MemGenError(f"{srcinfo}: RVV vectors are not scalar values")
 
-
         vec_types = {
             "float": (4, "vfloat32m1_t")
         }  # , "double": (2, "float64x2_t"), "_Float16" : (8, "float16x8_t")}
@@ -72,7 +71,6 @@ class RVV(Memory):
         return f"{baseptr}{idxs}"
 
 
-
 # --------------------------------------------------------------------------- #
 #   f32 RVV intrinsics
 # --------------------------------------------------------------------------- #
@@ -103,6 +101,7 @@ def rvv_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ RVV, vl: size):
 
     for i in seq(0, vl):
         dst[i] = src[i]
+
 
 @instr("{dst_data} = __riscv_vfmv_v_f_f32m1({src_data},{vl});")
 def rvv_broadcast_4xf32(dst: [f32][4] @ RVV, src: [f32][1] @ DRAM, vl: size):
@@ -147,6 +146,7 @@ def rvv_vfmacc_4xf32_4xf32(
     for i in seq(0, vl):
         dst[i] += lhs[i] * rhs[i]
 
+
 @instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {rhs_data}, {lhs_data},{vl});")
 def rvv_vfmacc_4xf32_1xf32(
     dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][1] @ DRAM, vl: size
@@ -173,4 +173,3 @@ def rvv_vfmacc_1xf32_4xf32(
 
     for i in seq(0, vl):
         dst[i] += lhs[0] * rhs[i]
-

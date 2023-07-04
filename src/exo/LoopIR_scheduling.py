@@ -3614,6 +3614,104 @@ class DoBoundAlloc(Cursor_Rewrite):
         return new_stmts
 
 
+def DoUnrollBuffer(alloc_cursor, dim):
+    alloc_stmt = alloc_cursor._node
+
+    assert isinstance(alloc_stmt, LoopIR.Alloc)
+
+    if not alloc_stmt.type.shape():
+        raise SchedulingError("Cannot unroll a scalar buffer")
+
+    buf_size = alloc_stmt.type.shape()[dim]
+    if not isinstance(buf_size, LoopIR.Const):
+        raise SchedulingError(
+            f"Expected a constant buffer dimension, got {buf_size} at {dim}'th dimension."
+        )
+
+    used_allocs = set()
+    buf_syms = []
+    for i in range(0, buf_size.val):
+        new_name = str(alloc_stmt.name) + "_" + str(i)
+        buf_syms.append(Sym(new_name))
+
+    def mk_read(c):
+        nonlocal used_allocs
+        e = c._node
+        if isinstance(e, LoopIR.Read):
+            if not isinstance(e.idx[dim], LoopIR.Const):
+                raise SchedulingError(
+                    f"Expected a constant buffer access, got {e.idx[dim]} at {dim}'th dimension. Try unrolling the loop. "
+                )
+
+            used_allocs.add(e.idx[dim].val)
+
+            sym = [e.idx[dim].val]
+            new_idx = e.idx.copy()
+            del new_idx[dim]
+
+            return {"name": sym, "idx": new_idx}
+        elif isinstance(e, LoopIR.WindowExpr):
+            if not isinstance(e.idx[dim], LoopIR.Point):
+                raise SchedulingError(
+                    f"Cannot unroll a buffer at a dimension used as a window."
+                )
+
+            pt = e.idx[dim].pt
+            if not isinstance(pt, LoopIR.Const):
+                raise SchedulingError(
+                    f"Expected a constant buffer access, got {pt} at {dim}'th dimension. Try unrolling the loop. "
+                )
+
+            used_allocs.add(pt.val)
+            sym = buf_syms[pt.val]
+            new_access = e.idx.copy()
+            del new_access[dim]
+
+            return {"name": sym, "idx": new_access}
+
+    def mk_write(c):
+        s = c._node
+        if not isinstance(s.idx[dim], LoopIR.Const):
+            raise SchedulingError(
+                f"Expected a constant buffer access, got {s.idx[dim]} at {dim}'th dimension. Try unrolling the loop. "
+            )
+
+        nonlocal used_allocs
+        used_allocs.add(s.idx[dim].val)
+
+        sym = buf_syms[s.idx[dim].val]
+        new_idx = s.idx.copy()
+        del new_idx[dim]
+
+        return {"name": sym, "idx": new_idx}
+
+    ir, fwd = alloc_cursor.get_root(), lambda x: x
+    for c in get_rest_of_block(alloc_cursor):
+        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_stmt.name}[_]", mk_read)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_stmt.name} += _", mk_write)
+        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_stmt.name} = _", mk_write)
+
+    new_shape = alloc_stmt.type.shape().copy()
+    del new_shape[dim]
+    new_type = LoopIR.Tensor(new_shape, False, alloc_stmt.type.basetype())
+
+    new_allocs = []
+    for itr in used_allocs:
+        alloc = LoopIR.Alloc(
+            buf_syms[itr],
+            new_type,
+            alloc_stmt.mem,
+            None,
+            alloc_stmt.srcinfo,
+        )
+        new_allocs.append(alloc)
+
+    ir, fwd_repl = fwd(alloc_cursor)._replace(new_allocs)
+    fwd = _compose(fwd_repl, fwd)
+
+    return ir, fwd
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # The Passes to export
@@ -3652,6 +3750,7 @@ __all__ = [
     "DoBindConfig",
     "DoConfigWrite",
     "DoDeleteConfig",
+    "DoUnrollBuffer",
     ### END Scheduling Ops with Cursor Forwarding ###
     "DoPartialEval",
     "DoExtractMethod",

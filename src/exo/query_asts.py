@@ -97,6 +97,7 @@ class Stmt(QueryAST):
 class R(Type):
     pass
 
+
 @_dataclass
 class f16(Type):
     pass

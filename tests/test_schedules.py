@@ -2715,3 +2715,100 @@ def test_extract_subproc(golden):
         foo, "fooooo", "for i in _:_", order={"x": 1, "y": 0, "j": 2}
     )
     assert (str(foo) + "\n" + str(new)) == golden
+
+
+def test_unroll_buffer(golden):
+    @proc
+    def bar(n: size, A: i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                tmp_a: i8[5, 2]
+                tmp_a[0, 1] = A[i]
+                tmp_a[0, 1] = A[i]
+                tmp_a[1, 0] = A[i]
+
+    bar0 = unroll_buffer(bar, "tmp_a : _", 0)
+    bar1 = unroll_buffer(bar, "tmp_a : _", 1)
+    assert str(bar0) + "\n" + str(bar1) == golden
+
+
+def test_unroll_buffer1(golden):
+    @proc
+    def foo(src: i8[2], dst: i8[2]):
+        src[0] = dst[0]
+        src[1] = dst[1]
+
+    @proc
+    def bar(n: size, A: i8[n]):
+        assert n > 10
+        for i in seq(0, n - 4):
+            for j in seq(0, n):
+                tmp_a: i8[4, 2, 2]
+                foo(tmp_a[0, 0, :], A[i : i + 2])
+                foo(tmp_a[0, 1, :], A[i + 2 : i + 4])
+
+    bar = unroll_buffer(bar, "tmp_a : _", 1)
+    assert str(bar) == golden
+
+
+def test_unroll_buffer2():
+    @proc
+    def bar(n: size, A: i8[n]):
+        tmp_a: i8[10]
+        for i in seq(0, n):
+            for j in seq(0, 10):
+                tmp_a[j] = A[i]
+        tmp_b: i8[10]
+        for j in seq(0, 10):
+            tmp_b[j] = tmp_a[j]
+
+    with pytest.raises(
+        SchedulingError,
+        match="Expected a constant buffer access",
+    ):
+        bar = unroll_buffer(bar, "tmp_a : _", 0)
+
+
+def test_unroll_buffer3():
+    @proc
+    def bar(n: size, A: i8[n]):
+        tmp_a: i8[n]
+        for i in seq(0, n):
+            tmp_a[i] = A[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="Expected a constant buffer dimension",
+    ):
+        bar = unroll_buffer(bar, "tmp_a : _", 0)
+
+
+def test_unroll_buffer4():
+    @proc
+    def bar(n: size, A: i8[n]):
+        tmp_a: i8
+        for i in seq(0, n):
+            tmp_a = A[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="Cannot unroll a scalar buffer",
+    ):
+        bar = unroll_buffer(bar, "tmp_a : _", 0)
+
+
+def test_unroll_buffer5():
+    @proc
+    def foo(B: i8[2]):
+        B[0] = 0.0
+
+    @proc
+    def bar(n: size, A: i8[n]):
+        tmp_a: i8[10]
+        foo(tmp_a[0:2])
+
+    with pytest.raises(
+        SchedulingError,
+        match="Cannot unroll a buffer at a dimension used as a window",
+    ):
+        bar = unroll_buffer(bar, "tmp_a : _", 0)

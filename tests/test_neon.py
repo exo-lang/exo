@@ -131,9 +131,11 @@ def test_neon_vfmla():
 
     return simplify(simple_neon_vfmla)
 
+
 @pytest.mark.isa("neon")
 def test_gen_neon_vfmla(golden, test_neon_vfmla):
     assert str(test_neon_vfmla) == golden
+
 
 @pytest.fixture
 def test_neon_vfmla_f16():
