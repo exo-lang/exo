@@ -2,6 +2,7 @@
 from collections import OrderedDict, ChainMap
 from enum import Enum
 from itertools import chain
+from typing import Mapping, Any
 
 # from typing import Type
 
@@ -131,18 +132,35 @@ The Abstract Interpretation Algorithm:
     height.
 """
 
-AbstractDomains = ADT(
-    """
-module AbstractDomains {
-    val = Top() | Bot()
-        | Const( object val, type type )
-}
-""",
-    ext_types={
-        "type": LoopIR.type,
-    },
-    memoize={},
-)
+"""
+Abs     = V U {top, bot}   -- only decision we've made
+Conc    = P(V)
+abs  : Conc -> Abs
+conc : Abs -> Conc
+s.t.
+abs(conc(x)) = x
+conc(abs(X)) >= X
+
+What is the specific definition of `conc`?
+conc(v) = {v} for v in V
+conc(bot) = {}
+conc(top) = V
+
+
+"""
+
+
+AbsEnv: TypeAlias = Mapping[Sym, Any]
+
+
+def validateAbsEnv(obj):
+    if not isinstance(obj, dict):
+        raise ValidationError(AbsEnv, type(obj))
+    for key in obj:
+        if not isinstance(key, Sym):
+            raise ValidationError(Sym, key)
+    return obj
+
 
 DataflowIR = ADT(
     """
@@ -157,23 +175,117 @@ module DataflowIR {
 
     block = ( stmt* stmts, absenv* ctxts ) -- len(stmts) + 1 == len(ctxts)
 
-    -- not real ASDL
-    absenv = dict[Sym, AbstractDomains.val]
-
-    -- annotation
-    for i in seq(0,n):
-        -- { var1 : abs_val, var2 : abs_val, ... }
-        s1
-        -- annotate 1
-        s2
-        -- annotate 2
-        s3
-        -- annotate 3
-    -- annotation
-
     stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
          | Reduce( sym name, type type, string? cast, expr* idx, expr rhs )
-         | WriteConfig( config config, string field, expr rhs )
+         | WriteConfig( sym config_field, expr rhs )
+         | Pass()
+         | If( expr cond, block body, block orelse )
+         | Seq( sym iter, expr lo, expr hi, block body )
+         | Alloc( sym name, type type )
+         | InlinedCall( proc f, block body ) -- f is only there for comments
+
+    expr = Read( sym name, expr* idx )
+         | Const( object val )
+         | USub( expr arg )  -- i.e.  -(...)
+         | BinOp( binop op, expr lhs, expr rhs )
+         | BuiltIn( builtin f, expr* args )
+         | StrideExpr( sym name, int dim )
+         | ReadConfig( sym config_field )
+         attributes( type type )
+
+}""",
+    ext_types={
+        "name": validators.instance_of(Identifier, convert=True),
+        "sym": Sym,
+        "builtin": BuiltIn,
+        "config": Config,
+        "binop": validators.instance_of(Operator, convert=True),
+        "type": LoopIR.type,
+        "absenv": validateAbsEnv,
+    },
+    memoize={},
+)
+
+# Option 2: Leave the input LoopIR as is, and create auxiliary datastructures
+#           which allow us to "lookup" dataflow results for different variables
+#           at different points in the code.
+#
+#           For instance, use Python dictionaries to hold the annotations
+
+
+class AbstractInterpretation(collections.ABC):
+    def __init__(self, proc: DataflowIR.proc):
+        self.proc = proc
+
+        # setup initial values
+        self.init_env = dict()
+        for a in proc.args:
+            self.init_env[a.name] = self.abs_init_val(a.name, a.type)
+
+        # We probably ought to somehow use precondition assertions
+        # TODO
+
+        self.proc.body.ctxts[0] = self.init_env
+
+        self.fix_block(self.proc.body)
+
+    def join_env(self, cur_env, updates) -> bool:
+        """Mutate cur_env to incorporate updates
+        Return True if something changed, False if all the same"""
+        found_change = False
+        for k, v in updates.items():
+            if k in cur_env:
+                old_v = cur_env[k]
+                new_v = self.abs_join(old_v, v)
+                found_change = found_change or (old_v == new_v)
+                cur_env[k] = new_v
+            else:
+                found_change = True
+                cur_env[k] = v
+
+        return found_change
+
+    def fix_block(self, body):
+        """Assumes any inputs have already been set in body.ctxts[0]"""
+        assert len(body.stmts) + 1 == len(body.ctxts)
+
+        found_change = False
+        for s, pre, post in zip(body.stmts, body.ctxts[:-1], body.ctxts[1:]):
+            found_change = found_change or self.fix_stmt(pre, s, post)
+
+        return found_change
+
+    def fix_stmt(pre_env, stmt, post_env):
+        found_change = False
+        if isinstance(stmt, (DataflowIR.Assign, DataflowIR.Reduce)):
+            pass
+        elif isinstance(stmt, DataflowIR.WriteConfig):
+            rval = self.fix_expr(pre_env, stmt.rhs)
+            found_change = found_change or self.join_env(
+                post_env, {stmt.config_field: rval}
+            )
+        elif isinstance(stmt, DataflowIR.Seq):
+            env = pre_env.copy()
+            env[stmt.iter] = self.abs_top(T.index)
+
+            self.join_env(stmt.body.ctxts[0], env)
+
+            loop_change = True
+            while loop_change:
+                loop_change = False
+                loop_change = self.fix_block(stmt.body)
+                loop_change = loop_change or self.join_env(
+                    stmt.body.ctxts[0], self.body.ctxts[-1]
+                )
+
+            found_change = self.join_env(post_env, stmts.body.ctxts[-1])
+        else:
+            pass
+
+    """
+    stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
+         | Reduce( sym name, type type, string? cast, expr* idx, expr rhs )
+         | WriteConfig( sym config_field, expr rhs )
          | Pass()
          | If( expr cond, block body, block orelse )
          | Seq( sym iter, expr lo, expr hi, block body )
@@ -188,36 +300,64 @@ module DataflowIR {
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
          attributes( type type )
+    """
 
-    
+    @abstractmethod
+    def abs_init_val(self, name, typ):
+        """Define initial argument values"""
 
-}""",
+    @abstractmethod
+    def abs_top(self, typ):
+        """Return encoding of Lattice top value"""
+
+    @abstractmethod
+    def abs_join(self, lval, rval):
+        """Define join in the abstract value lattice"""
+
+    @abstractmethod
+    def abs_binop(self, op, lval, rval):
+        """Implement transfer function abstraction for binary operations"""
+
+    @abstractmethod
+    def abs_unsub(self, arg):
+        """Implement transfer function abstraction for unary subtraction"""
+
+
+AbstractDomains = ADT(
+    """
+module AbstractDomains {
+    cprop = CTop() | CBot()
+          | Const( object val, type type )
+}
+""",
     ext_types={
-        "name": validators.instance_of(Identifier, convert=True),
-        "sym": Sym,
-        "builtin": BuiltIn,
-        "config": Config,
-        "binop": validators.instance_of(Operator, convert=True),
         "type": LoopIR.type,
     },
-    memoize={
-        "Num",
-        "F16",
-        "F32",
-        "F64",
-        "INT8",
-        "INT32",
-        "Bool",
-        "Int",
-        "Index",
-        "Size",
-        "Stride",
-        "Error",
-    },
+    memoize={"CTop", "CBot", "Const"},
 )
 
-# Option 2: Leave the input LoopIR as is, and create auxiliary datastructures
-#           which allow us to "lookup" dataflow results for different variables
-#           at different points in the code.
-#
-#           For instance, use Python dictionaries to hold the annotations
+
+class ConstantPropagation(AbstractInterpretation):
+    def abs_join(self, lval: Abs, rval: Abs):
+        if lval == Bot():
+            return rval
+        elif rval == Bot():
+            return lval
+        elif lval == Top() or rval == Top():
+            return top
+        else:
+            assert isinstance(lval, Const) and isinstance(rval, Const)
+            if lval.val == rval.val:
+                return lval
+            else:
+                return top
+
+    def abs_binop(self, op, lval, rval):
+        if isinstance(lval, Const) and isinstance(rval, Const):
+            return Const(binop_meaning(op)(lval.val, rval.val))
+        elif lval == Bot() or rval == Bot():
+            return Bot()
+        else:
+            return Top()
+
+        pass
