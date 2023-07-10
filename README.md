@@ -3,11 +3,34 @@
 
 # Install Exo
 
-Exo is published on PyPI and can be installed locally via pip by the following command.
+## Using Exo
 
-```
+If you're just using Exo, install it using `pip`:
+```sh
 $ pip install exo-lang
 ```
+
+## Developing Exo
+
+If you plan to work on the compiler directly, clone this repository and run the following commands:
+
+```sh
+$ git submodule update --init --recursive
+$ python3.9 -m venv ~/.venv/exo
+$ source ~/.venv/exo/bin/activate
+```
+
+This will checkout all the required submodules and enable the Exo virtual environment. Next, install the compiler:
+```sh
+$ python -m pip install -U pip setuptools wheel
+$ python -m pip install -r requirements.txt
+$ pre-commit install
+```
+
+This will make sure you have the submodules checked out and that the pre-commit
+scripts (that run an autoformatter, maybe other tools in the future) run.
+
+If you're feeling ambitious, you can also [install Exo from source](#build-exo-from-source).
 
 # Examples
 
@@ -90,7 +113,7 @@ Take a look at `exo/examples` for scheduling examples.
 | `.replace(subproc, stmt)`        | Replace the statement with a call to `subproc`. This operation is one of our contributions and is explained in detail in the paper.                                                          |
 | `.replace_all(subproc)`          | Eagerly replace every matching statement with a call to `subproc`.                                                                                                                           |
 | `.inline(call_site)`             | Inline the function call.                                                                                                                                                                    |
-| `.is_eq(another_proc)`           | Returns True if `another_proc` is equivalent to the procedure.                                                                                                                               | 
+| `.is_eq(another_proc)`           | Returns True if `another_proc` is equivalent to the procedure.                                                                                                                               |
 | `.call_eqv(eqv_proc, call_site)` | Replace the function call statement of `call_site` with a call to an equivalent procedure `eqv_proc`.                                                                                        |
 | `.repeat(directive, *args)`      | Continue to run the directive until it fails. The directive and its arguments are given separately, e.g. `proc.repeat(Procedure.inline, "proc_to_inline(_)")`                                |
 | `.simplify()`                    | Simplify the code in the procedure body. Tries to reduce expressions to constants and eliminate dead branches and loops. Uses branch conditions to simplify expressions inside the branches. |
@@ -100,23 +123,6 @@ Take a look at `exo/examples` for scheduling examples.
 | `.set_precision(name, type)`     | Sets the precision type of `name` to `type`.                                                                                                                                                 |
 | `.set_window(name, is_window)`   | If `is_window` is True, it sets the buffer `name` to window type, instead of a tensor type.                                                                                                  |
 | `.set_memory(name, mem_type)`    | Sets a buffer `name`'s memory type to `mem_type`.                                                                                                                                            |
-
-# Developing Exo
-
-If you plan to work on the compiler directly, you should run the following
-commands:
-
-```console
-$ git submodule update --init --recursive
-$ python3.9 -m venv ~/.venv/exo
-$ source ~/.venv/exo/bin/activate
-(venv) $ python -m pip install -U pip setuptools wheel
-(venv) $ python -m pip install -r requirements.txt
-(venv) $ pre-commit install
-```
-
-This will make sure you have the submodules checked out and that the pre-commit
-scripts (that run an autoformatter, maybe other tools in the future) run.
 
 # Exo's repository structure
 
