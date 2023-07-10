@@ -1,33 +1,46 @@
-# Scheduling example
+# Scheduling Example
 
-Please install exo by `pip install exo-lang` before running this example.
+Please [install Exo](https://github.com/exo-lang/exo#install-exo) before proceeding with this example.
 
-We provided a sample user code in `exo/examples/x86_matmul.py`.
-`rank_k_reduce_6x16` is a microkernel for AVX2 SGEMM application. We chose to use AVX2
-so that users who do not have AVX512 machines can run this example. We chose the
-SGEMM microkernel application because it is relatively simple but contains all the
-important scheduling operators. Please run the code as follows.
+Exo provides *scheduling operators* to transform program and rewrite them to make use of complex hardware instructions.
+We'll show you how to take a matrix multiplication kernel and transform it into an implementation that can make use of [AVX2](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions) vector instructions.
 
-```
-$ cd examples
-$ python x86_matmul.py
-```
+> The complete code, with the scheduling operations commented out, can be found in `exo/examples/x86_matmul.py`.
 
-## Scheduling walk-through
+## Basic Implementation
 
-Let's walk through the scheduling transforms step by step. Without any
-modification, `python x86_matmul.py` will print the original, simple algorithm that we
-will start with.
+To start off, let's implement a basic matrix multiplication kernel in Exo:
+```py
+from __future__ import annotation
+from exo import *
 
-```python
-# Original algorithm:
+@proc
 def rank_k_reduce_6x16(K: size, C: f32[6, 16] @ DRAM, A: f32[6, K] @ DRAM,
                        B: f32[K, 16] @ DRAM):
     for i in seq(0, 6):
         for j in seq(0, 16):
             for k in seq(0, K):
                 C[i, j] += A[i, k] * B[k, j]
+
+print(rank_k_reduce_6x16)
 ```
+
+This implements matrix multiplication between a $$ 6\times K $$ and a $$ K \times 16 $$.
+However, the program does not take advantage of AVX2 instructions yet, and it is not obvious whether a vectorizing compiler can automatically discover the right way to parallelize this program.
+
+## Scheduling Walkthrough
+
+Scheduling plays a central role in Exo's machinery to generate high-performance kernels.
+Instead of relying on automated compiler passes, we can specify *program rewrites* that allow Exo to generate high-performance code.
+
+In order to use the AVX2 instructions, we need to do a couple of things:
+1. ???
+
+First, let's import the scheduling primitives:
+```py
+from exo.stdlib.scheduling import *
+```
+
 
 Next, please uncomment the code in the first block by deleting the multi-line string
 markers (`"""`). Now, you will see that `stage_mem()` stages `C` to a buffer
