@@ -2657,6 +2657,36 @@ class _DoNormalize(Cursor_Rewrite):
             new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
             return LoopIR.BinOp("/", new_lhs, e.rhs, e.type, e.srcinfo)
 
+        def division_denominator_simplification(e):
+            assert e.op == "/"
+
+            def has_nested_const_denominator(expr):
+                # (n / c1) / c2
+                if expr.op == "/" and isinstance(
+                    expr.rhs, LoopIR.Const
+                ):  # (something / c2)
+                    if (
+                        isinstance(expr.lhs, LoopIR.BinOp) and expr.lhs.op == "/"
+                    ):  # (n / c1)
+                        if isinstance(expr.lhs.rhs, LoopIR.Const):
+                            return True
+
+                return False
+
+            new_e = e
+            # call division_denominator_simplification recursively
+            while has_nested_const_denominator(new_e):
+                new_e = new_e.update(
+                    lhs=new_e.lhs.lhs,
+                    rhs=LoopIR.Const(
+                        new_e.lhs.rhs.val * new_e.rhs.val,
+                        new_e.lhs.type,
+                        new_e.lhs.srcinfo,
+                    ),
+                )
+
+            return new_e
+
         def division_simplification_and_try_spliting_denominator(e):
             def still_division(e):
                 return isinstance(e, LoopIR.BinOp) and e.op == "/"
@@ -2759,7 +2789,10 @@ class _DoNormalize(Cursor_Rewrite):
         if isinstance(e, LoopIR.BinOp) and e.op in ("/", "%"):
             assert isinstance(e.rhs, LoopIR.Const)
             if self.has_div_mod_config(e.lhs):
-                return e
+                if e.op == "/":
+                    return division_denominator_simplification(e)
+                else:
+                    return e
 
             if e.op == "/":
                 return division_simplification_and_try_spliting_denominator(e)
