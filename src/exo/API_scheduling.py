@@ -552,33 +552,34 @@ _name_name_count_re = r"^([a-zA-Z_]\w*)\s*([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$"
 
 class NestedForSeqCursorA(StmtCursorA):
     def _cursor_call(self, loops_pattern, all_args):
-
         if isinstance(loops_pattern, PC.ForSeqCursor):
-            if len(loops_pattern.body()) != 1 or not isinstance(
-                loops_pattern.body()[0], PC.ForSeqCursor
-            ):
-                self.err(
-                    f"expected the body of the outer loop "
-                    f"to be a single loop, but it was a "
-                    f"{loops_pattern.body()[0]}",
-                    ValueError,
-                )
             cursor = loops_pattern
         elif isinstance(loops_pattern, PC.Cursor):
             self.err(f"expected a ForSeqCursor, not {type(loops_pattern)}")
         elif isinstance(loops_pattern, str) and (
             match_result := re.search(_name_name_count_re, loops_pattern)
         ):
-            pass
             out_name = match_result[1]
             in_name = match_result[2]
             count = f" #{match_result[3]}" if match_result[3] else ""
             pattern = f"for {out_name} in _:\n  for {in_name} in _: _{count}"
             cursor = super()._cursor_call(pattern, all_args)
+        elif isinstance(loops_pattern, str):
+            cursor = super()._cursor_call(loops_pattern, all_args)
+            if not isinstance(cursor, PC.ForSeqCursor):
+                self.err(f"expected a ForSeqCursor, not {type(cursor)}")
         else:
             self.err(
                 "expected a ForSeqCursor, pattern match string, "
                 "or 'outer_loop inner_loop' shorthand"
+            )
+
+        if len(cursor.body()) != 1 or not isinstance(cursor.body()[0], PC.ForSeqCursor):
+            self.err(
+                f"expected the body of the outer loop "
+                f"to be a single loop, but it was a "
+                f"{cursor.body()[0]}",
+                ValueError,
             )
 
         return cursor
