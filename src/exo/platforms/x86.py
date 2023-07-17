@@ -364,7 +364,7 @@ def avx2_select_ps(
 
 @instr(
     """
-{out_data} = _mm256_blendv_pd ({z_data}, {y_data}, 
+{out_data} = _mm256_blendv_pd ({z_data}, {y_data},
 _mm256_cmp_pd ({x_data}, {v_data}, _CMP_LT_OQ));
 """
 )
