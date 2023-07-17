@@ -49,44 +49,36 @@ avx = simplify(avx)
 # Map C_reg operations to vector instructions
 avx = set_memory(avx, "C_reg:_", AVX2)
 avx = replace_all(avx, mm256_loadu_ps)
+avx = replace_all(avx, mm256_storeu_ps)
 avx = simplify(avx)
-
-"""
-
 
 # Now, the rest of the compute needs to work with the constraint that the
 # we only have 4 more registers to work with here.
 
 # B is easy, it is just two vector loads
-avx = stage_mem(avx, 'for i in _:_', 'B[k, 0:16]', 'B_reg')
+avx = stage_mem(avx, "for i in _:_", "B[k, 0:16]", "B_reg")
 avx = simplify(avx)
-avx = divide_loop(avx, 'for i0 in _: _ #1', 8, ['io', 'ii'], perfect=True)
-avx = divide_dim(avx, 'B_reg:_', 0, 8)
-avx = set_memory(avx, 'B_reg:_', AVX2)
+avx = divide_loop(avx, "for i0 in _: _ #1", 8, ["io", "ii"], perfect=True)
+avx = divide_dim(avx, "B_reg:_", 0, 8)
+avx = set_memory(avx, "B_reg:_", AVX2)
 avx = simplify(avx)
 avx = replace_all(avx, mm256_loadu_ps)
-# avx = unroll_loop(avx, 'for io in _:_')
 avx = simplify(avx)
 
 # Now we've used up two more vector registers.
 # The final part is staging A
 # avx = stage_mem(avx, 'for jo in _:_', 'A[i, k]', 'A_reg')
-avx = bind_expr(avx, 'A[i, k]', 'A_reg')
-avx = expand_dim(avx, 'A_reg', 8, 'ji')
-avx = lift_alloc(avx, 'A_reg', n_lifts=2)
-avx = fission(avx, avx.find('A_reg[ji] = _').after(), n_lifts=2)
-avx = remove_loop(avx, 'for jo in _: _')
-avx = set_memory(avx, 'A_reg:_', AVX2)
+avx = bind_expr(avx, "A[i, k]", "A_reg")
+avx = expand_dim(avx, "A_reg", 8, "ji")
+avx = lift_alloc(avx, "A_reg", n_lifts=2)
+avx = fission(avx, avx.find("A_reg[ji] = _").after(), n_lifts=2)
+avx = remove_loop(avx, "for jo in _: _")
+avx = set_memory(avx, "A_reg:_", AVX2)
 avx = replace_all(avx, mm256_broadcast_ss)
 
 # DO THE COMPUTE!!!
 avx = replace_all(avx, mm256_fmadd_ps)
-# avx = unroll_loop(avx, 'for jo in _:_')
-
-# Vectorize the output
-avx = replace_all(avx, mm256_storeu_ps)
 avx = simplify(avx)
-"""
 
 print("============= Rewritten ==============")
 print(avx)

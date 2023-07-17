@@ -67,7 +67,7 @@ print(avx)
 The `rename` command is straightforward: it renamed our proc.
 The `reorder_loops` command is more interesting, it takes a pattern or a *cursor* to the loops that should be reordered.
 For example, the pattern `j k` is the same as:
-```
+```py
 for j in _: _
   for k in _: _
 ```
@@ -75,7 +75,7 @@ This tells Exo to find a program fragment that matches those two, immediately ne
 The `j k` is a shorthand syntax for exactly that pattern.
 
 Finally, the `print(avx)` shows us the resulting program's loop nests. Note that they have been reordered!
-```
+```py
 ...
     for k in seq(0, K):
         for i in seq(0, 6):
@@ -155,7 +155,7 @@ print(avx)
 ```
 
 This transforms the above loop nest into:
-```
+```py
 mm256_loadu_ps(C_reg[i0, i2, 0:8], C[i0, 8 * i2:8 + 8 * i2])
 ```
 
@@ -181,9 +181,62 @@ Congratulations on getting through a whirlwind tour of Exo's capabilities. To re
 - *Scheduling operators* allow you to rewrite programs.
 - *Instruction mapping* uses user-level instruction definitions to rewrite program fragments to backend instructions.
 
-Next, please uncomment the code in the first block by deleting the multi-line string
-markers (`"""`). Now, you will see that `stage_mem()` stages `C` to a buffer
-called `C_reg`.
+### Vectorizing the Computation
+
+Next, we're going to vectorize the innermost computation. However, we have to work with our original constraint: AVX2 exposes 16 vector registers, and we've consumed 12 of those for our output memory. The rest of computation needs to be staged carefully so that we don't end up taking more than 4 registers.
+
+The scheduling will follow a similar pattern to the previous sections: we want to stage memories `A` and `B` using vector registers and replace their uses from the computational kernel.
+
+Let's start off with `B` which is the larger of the two:
+```py
+# B is easy, it is just two vector loads
+avx = stage_mem(avx, 'for i in _:_', 'B[k, 0:16]', 'B_reg')
+avx = simplify(avx)
+avx = divide_loop(avx, 'for i0 in _: _ #1', 8, ['io', 'ii'], perfect=True)
+avx = divide_dim(avx, 'B_reg:_', 0, 8)
+avx = set_memory(avx, 'B_reg:_', AVX2)
+avx = simplify(avx)
+avx = replace_all(avx, mm256_loadu_ps)
+avx = simplify(avx)
+```
+
+We'll not be going into the details of each scheduling operate since you've already seen all of them before, but we encourage you to step through them and printing out `avx` after each operation.
+
+The rewritten program exposes the reuse pattern available for the data in `B`:
+```py
+...
+    for k in seq(0, K):
+        B_reg: f32[2, 8] @ AVX2
+        for io in seq(0, 2):
+            mm256_loadu_ps(B_reg[io, 0:8], B[k, 8 * io:8 + 8 * io])
+        for i in seq(0, 6):
+            for jo in seq(0, 2):
+                for ji in seq(0, 8):
+                    C_reg[i, jo, ji] += A[i, k] * B_reg[jo, ji]
+```
+For each `k` value, we get to load 16 values from `B` (two vector register's worth) and perform the computation using those.
+
+Next, we need to stage `A`:
+```py
+avx = bind_expr(avx, 'A[i, k]', 'A_reg')
+avx = expand_dim(avx, 'A_reg', 8, 'ji')
+avx = lift_alloc(avx, 'A_reg', n_lifts=2)
+avx = fission(avx, avx.find('A_reg[ji] = _').after(), n_lifts=2)
+avx = remove_loop(avx, 'for jo in _: _')
+avx = set_memory(avx, 'A_reg:_', AVX2)
+avx = replace_all(avx, mm256_broadcast_ss)
+```
+
+Staging `A` is a little more complex because unlike `C` and `B`, its reuse pattern is different: each value of `A` is broadcast into `A_reg` which is then used to perform the innermost computation. There are a couple of new scheduling operators:
+- `lift_alloc`: Move an variable definition through the specified number of loops.
+- `fission`: Splits apart the loop using the given cursor.
+- `remove_loop`: Eliminates an unused loop.
+
+Finally, we can vectorize the computation:
+```py
+avx = replace_all(avx, mm256_fmadd_ps)
+```
+This is perhaps a bit underwhelming however, under the hood, Exo has been performing analyses, automatic rewriting of loop bounds and indexing expressions to make the process easier. The analysis serve as guard rails for the powerful rewrite rules and are topic of another tutorial.
 
 ## Compiling
 
@@ -191,14 +244,14 @@ Finally, the code can be compiled and run on your machine if you have AVX2 instr
 We provided a main function in `main.c` to call these procedures and to time them.
 Please run `make` or compile manually:
 
-```
+```sh
 $ exocc -o . --stem avx2_matmul x86_matmul.py
 $ gcc -o avx2_matmul -march=native main.c avx2_matmul.c
 ```
 
 It should generate something like:
 
-```
+```sh
 $ ./avx2_matmul
 Time taken for original matmul: 0 seconds 649 milliseconds
 Time taken for scheduled matmul: 0 seconds 291 milliseconds
