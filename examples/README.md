@@ -26,9 +26,9 @@ def rank_k_reduce_6x16(K: size, C: f32[6, 16] @ DRAM, A: f32[6, K] @ DRAM,
 print(rank_k_reduce_6x16)
 ```
 
-This implements matrix multiplication between a $6\times K$ and a $K \times 16$.
+This implements matrix multiplication between a $6\times K$ and a $K \times 16$. This might initially seem like a contrived example: the input sizes of the matrices are non-standard and only one of the dimensions is kept as an argument. However, it is precisely such *microkernels* that lie at the heart of the most computationally intensive tasks. For example, the [BLAS][] defines several useful linear algebra kernels which are often specialized for target architectures and even matrix sizes for specific workloads. The goal of Exo is to make this specialization process dramatically easier.
 
-However, the program does not take advantage of AVX2 instructions yet, and it is not obvious whether a vectorizing compiler can automatically discover the right way to parallelize this program.
+For our example, we want to specialize the kernel to use the AVX2 instructions and, it is likely the case that a vectorizing compiler cannot automatically transform this kernel.
 
 ## Scheduling Walkthrough
 
@@ -64,11 +64,11 @@ avx = reorder_loops(avx, 'i k')
 print(avx)
 ```
 
-The `rename` command is straightforward: it renamed our proc.
+The `rename` command is straightforward: it renamed our proc. Most of the time, we want access to both our original kernel and the optimized kernel so we recommend rename them.
 The `reorder_loops` command is more interesting, it takes a pattern or a *cursor* to the loops that should be reordered.
 For example, the pattern `j k` is the same as:
 ```py
-for j in _: _
+for j in _:
   for k in _: _
 ```
 This tells Exo to find a program fragment that matches those two, immediately nested loop nests, and reorder them.
@@ -84,11 +84,13 @@ Finally, the `print(avx)` shows us the resulting program's loop nests. Note that
 
 ```
 
+> When scheduling a new program, we often leave the `print(...)` command at the bottom and keep running the program to the see the output of the last scheduling step.
+
 ### Vectorizing the Output
 
 The reordered loops let us better see the opportunity to expose vectorizing in our program.
-At a high-level, we produce our outputs as a $6\times 16$ matrix which can be represented by 12, 8-wide vectors.
-Even though we're streaming in the `k` dimension, we know that the output will always be this size, so it is useful to allocate these registers and directly perform the computation on them.
+At a high-level, we produce our outputs as a $6\times 16$ matrix which can be stored in 12, 8-wide vectors.
+Since the size of the `k` dimension is unknown, we have to keep iterating on it, but we can make use of a register blocking strategy to vectorize our computation.
 
 To do this, we will use some more complicated scheduling operations in Exo. We encourage you to step through the transformation done by each operation by printing out `avx`:
 
@@ -114,7 +116,7 @@ avx = simplify(avx)
 ```
 
 The `divide_dim` operation splits the last dimension of `C_reg` into two dimensions the latter of which has 8 elements.
-Next, we use the `divide_loop` operator to split apart the loops that operate on the memory `C_reg` and see our first *higher-order scheduling operator* `repeat` which applies a scheduling operator till no new matches are found.
+Next, we use the `divide_loop` operator to split apart the loops that operate on the memory `C_reg` and see our first *higher-order scheduling operator* `repeat` which applies a scheduling operator till the scheduling operation fails.
 The final `simplify` simplifies the index expressions.
 
 These changes give us a couple of loop nests amenable for mapping onto vector instructions:
@@ -198,6 +200,7 @@ avx = set_memory(avx, 'B_reg:_', AVX2)
 avx = simplify(avx)
 avx = replace_all(avx, mm256_loadu_ps)
 avx = simplify(avx)
+print(avx)
 ```
 
 We'll not be going into the details of each scheduling operate since you've already seen all of them before, but we encourage you to step through them and printing out `avx` after each operation.
@@ -225,6 +228,7 @@ avx = fission(avx, avx.find('A_reg[ji] = _').after(), n_lifts=2)
 avx = remove_loop(avx, 'for jo in _: _')
 avx = set_memory(avx, 'A_reg:_', AVX2)
 avx = replace_all(avx, mm256_broadcast_ss)
+print(avx)
 ```
 
 Staging `A` is a little more complex because unlike `C` and `B`, its reuse pattern is different: each value of `A` is broadcast into `A_reg` which is then used to perform the innermost computation. There are a couple of new scheduling operators:
@@ -235,6 +239,7 @@ Staging `A` is a little more complex because unlike `C` and `B`, its reuse patte
 Finally, we can vectorize the computation:
 ```py
 avx = replace_all(avx, mm256_fmadd_ps)
+print(avx)
 ```
 This is perhaps a bit underwhelming however, under the hood, Exo has been performing analyses, automatic rewriting of loop bounds and indexing expressions to make the process easier. The analysis serve as guard rails for the powerful rewrite rules and are topic of another tutorial.
 
@@ -258,3 +263,5 @@ Time taken for scheduled matmul: 0 seconds 291 milliseconds
 ```
 
 Even on this small example, we can see the benefit of AVX2 instructions.
+
+[blas]: https://www.netlib.org/blas/
