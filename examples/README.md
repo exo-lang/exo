@@ -26,7 +26,7 @@ def rank_k_reduce_6x16(K: size, C: f32[6, 16] @ DRAM, A: f32[6, K] @ DRAM,
 print(rank_k_reduce_6x16)
 ```
 
-This implements matrix multiplication between a $$ 6\times K $$ and a $$ K \times 16 $$.
+This implements matrix multiplication between a $6\times K$ and a $K \times 16$.
 
 However, the program does not take advantage of AVX2 instructions yet, and it is not obvious whether a vectorizing compiler can automatically discover the right way to parallelize this program.
 
@@ -87,7 +87,7 @@ Finally, the `print(avx)` shows us the resulting program's loop nests. Note that
 ### Vectorizing the Output
 
 The reordered loops let us better see the opportunity to expose vectorizing in our program.
-At a high-level, we produce our outputs as a $$ 6\times 16 $$ matrix which can be represented by 12, 8-wide vectors.
+At a high-level, we produce our outputs as a $6\times 16$ matrix which can be represented by 12, 8-wide vectors.
 Even though we're streaming in the `k` dimension, we know that the output will always be this size, so it is useful to allocate these registers and directly perform the computation on them.
 
 To do this, we will use some more complicated scheduling operations in Exo. We encourage you to step through the transformation done by each operation by printing out `avx`:
