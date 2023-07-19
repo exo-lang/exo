@@ -26,9 +26,9 @@ def rank_k_reduce_6x16(K: size, C: f32[6, 16] @ DRAM, A: f32[6, K] @ DRAM,
 print(rank_k_reduce_6x16)
 ```
 
-This implements matrix multiplication between a $6\times K$ and a $K \times 16$. This might initially seem like a contrived example: the input sizes of the matrices are non-standard and only one of the dimensions is kept as an argument. However, it is precisely such *microkernels* that lie at the heart of the most computationally intensive tasks. For example, the [BLAS][] defines several useful linear algebra kernels which are often specialized for target architectures and even matrix sizes for specific workloads. The goal of Exo is to make this specialization process dramatically easier.
+However, these microkernels function as the inner loops of highly optimized linear algebra computations. For example, [BLIS][] (an open-source [BLAS][] library) is architected around re-implementing such microkernels for each new target architecture that they support. The goal of Exo is to make this specialization process dramatically easier.
 
-For our example, we want to specialize the kernel to use the AVX2 instructions and, it is likely the case that a vectorizing compiler cannot automatically transform this kernel.
+For our example, we want to specialize the kernel to use the AVX2 instructions; it is likely the case that a vectorizing compiler cannot automatically transform this kernel.
 
 ## Scheduling Walkthrough
 
@@ -254,14 +254,7 @@ $ exocc -o . --stem avx2_matmul x86_matmul.py
 $ gcc -o avx2_matmul -march=native main.c avx2_matmul.c
 ```
 
-It should generate something like:
-
-```sh
-$ ./avx2_matmul
-Time taken for original matmul: 0 seconds 649 milliseconds
-Time taken for scheduled matmul: 0 seconds 291 milliseconds
-```
-
-Even on this small example, we can see the benefit of AVX2 instructions.
+This will print out the results of running kernel with and without the AVX instructions.
 
 [blas]: https://www.netlib.org/blas/
+[blis]: https://github.com/flame/blis
