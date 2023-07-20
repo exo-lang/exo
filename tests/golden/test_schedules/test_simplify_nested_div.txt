@@ -1,0 +1,4 @@
+def foo(n: size):
+    x: f32 @ DRAM
+    for i in seq(0, n / 24):
+        x = 0.0
