@@ -16,8 +16,8 @@ if __name__ != "__main__" and hasattr(os, "devnull"):
 @proc
 def rank_k_reduce_6x16(
     K: size,
-    C: f32[6, 16] @ DRAM,
     A: f32[6, K] @ DRAM,
+    C: f32[6, 16] @ DRAM,
     B: f32[K, 16] @ DRAM,
 ):
     for i in seq(0, 6):
@@ -26,69 +26,59 @@ def rank_k_reduce_6x16(
                 C[i, j] += A[i, k] * B[k, j]
 
 
-print("Original algorithm:")
-print(rank_k_reduce_6x16)
+# print("=============Original algorithm==============")
+# print(rank_k_reduce_6x16)
 
-# Schedule start here
-
-# First block
-"""
+# The first step is thinking about the output memory.
+# In this ex, we want the computation to be "output stationary", which means,
+# we want to preallocate all the output registers at the start.
 avx = rename(rank_k_reduce_6x16, "rank_k_reduce_6x16_scheduled")
-avx = stage_mem(avx, 'C[_] += _', 'C[i, j]', 'C_reg')
-print("First block:")
-print(avx)
-"""
+avx = reorder_loops(avx, "j k")
+avx = reorder_loops(avx, "i k")
 
-# Second block
-"""
-avx = divide_loop(avx, 'j', 8, ['jo', 'ji'], perfect=True)
-avx = reorder_loops(avx, 'ji k')
-avx = reorder_loops(avx, 'jo k')
-avx = reorder_loops(avx, 'i k')
-print("Second block:")
-print(avx)
-"""
-
-# Third block
-"""
-avx = autolift_alloc(avx, 'C_reg:_', n_lifts=4, keep_dims=True)
-avx = autofission(avx, avx.find('C_reg = _ #0').after(), n_lifts=3)
-avx = autofission(avx, avx.find('C_reg[_] += _ #0').after(), n_lifts=3)
-avx = autofission(avx, avx.find('for i in _:_#0').after(), n_lifts=1)
-avx = autofission(avx, avx.find('for i in _:_#1').after(), n_lifts=1)
+# The staging of C will cause us to consume 12 out of the 16 vector registers
+avx = divide_loop(avx, "for j in _: _", 8, ["jo", "ji"], perfect=True)
+avx = stage_mem(avx, "for k in _:_", "C[0:6, 0:16]", "C_reg")
 avx = simplify(avx)
-print("Third block:")
-print(avx)
-"""
 
-# Fourth block
-"""
-avx = bind_expr(avx, 'A[i, k]', 'a_vec')
-avx = expand_dim(avx, 'a_vec:_', '8', 'ji')
-avx = autolift_alloc(avx, 'a_vec:_')
-avx = autofission(avx, avx.find('a_vec[_] = _').after())
-print("Fourth block:")
-print(avx)
-"""
+# Reshape C_reg so we can map it into vector registers
+avx = divide_dim(avx, "C_reg:_", 1, 8)
+avx = repeat(divide_loop)(avx, "for i1 in _: _", 8, ["i2", "i3"], perfect=True)
+avx = simplify(avx)
 
-# Fifth block
-"""
-avx = bind_expr(avx, 'B[k, _]', 'b_vec')
-avx = autolift_alloc(avx, 'b_vec:_', keep_dims=True)
-avx = autofission(avx, avx.find('b_vec[_] = _').after())
-print("Fifth block:")
-print(avx)
-"""
-
-# Sixth block
-"""
-avx = set_memory(avx, 'C_reg', AVX2)
-avx = set_memory(avx, 'a_vec', AVX2)
-avx = set_memory(avx, 'b_vec', AVX2)
+# Map C_reg operations to vector instructions
+avx = set_memory(avx, "C_reg:_", AVX2)
 avx = replace_all(avx, mm256_loadu_ps)
-avx = replace_all(avx, mm256_broadcast_ss)
-avx = replace_all(avx, mm256_fmadd_ps)
 avx = replace_all(avx, mm256_storeu_ps)
-print("Sixth block:")
+avx = simplify(avx)
+
+# Now, the rest of the compute needs to work with the constraint that the
+# we only have 4 more registers to work with here.
+
+# B is easy, it is just two vector loads
+avx = stage_mem(avx, "for i in _:_", "B[k, 0:16]", "B_reg")
+avx = simplify(avx)
+avx = divide_loop(avx, "for i0 in _: _ #1", 8, ["io", "ii"], perfect=True)
+avx = divide_dim(avx, "B_reg:_", 0, 8)
+avx = set_memory(avx, "B_reg:_", AVX2)
+avx = simplify(avx)
+avx = replace_all(avx, mm256_loadu_ps)
+avx = simplify(avx)
+
+# Now we've used up two more vector registers.
+# The final part is staging A
+# avx = stage_mem(avx, 'for jo in _:_', 'A[i, k]', 'A_reg')
+avx = bind_expr(avx, "A[i, k]", "A_reg")
+avx = expand_dim(avx, "A_reg", 8, "ji")
+avx = lift_alloc(avx, "A_reg", n_lifts=2)
+avx = fission(avx, avx.find("A_reg[ji] = _").after(), n_lifts=2)
+avx = remove_loop(avx, "for jo in _: _")
+avx = set_memory(avx, "A_reg:_", AVX2)
+avx = replace_all(avx, mm256_broadcast_ss)
+
+# DO THE COMPUTE!!!
+avx = replace_all(avx, mm256_fmadd_ps)
+avx = simplify(avx)
+
+print("============= Rewritten ==============")
 print(avx)
-"""
