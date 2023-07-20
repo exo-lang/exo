@@ -2790,9 +2790,7 @@ class _DoNormalize(Cursor_Rewrite):
             assert isinstance(e.rhs, LoopIR.Const)
             if self.has_div_mod_config(e.lhs):
                 if e.op == "/":
-                    return division_denominator_simplification(e)
-                else:
-                    return e
+                    e = division_denominator_simplification(e)
 
             if e.op == "/":
                 return division_simplification_and_try_spliting_denominator(e)
