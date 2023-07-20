@@ -157,13 +157,13 @@ EXO_ASSUME(K >= 1);
 float *Atile = malloc(64 * 64 * sizeof(*Atile));
 float *Btile = malloc(64 * 64 * sizeof(*Btile));
 for (int_fast32_t ko = 0; ko < ((K) / (64)); ko++) {
-  for (int_fast32_t io = 0; io < ((((M) / (4))) / (16)); io++) {
+  for (int_fast32_t io = 0; io < ((M) / (64)); io++) {
     for (int_fast32_t i0 = 0; i0 < 64; i0++) {
       for (int_fast32_t i1 = 0; i1 < 64; i1++) {
         Atile[i0 * 64 + i1] = A[(i0 + 64 * io) * K + i1 + 64 * ko];
       }
     }
-    for (int_fast32_t jo = 0; jo < ((((N) / (16))) / (4)); jo++) {
+    for (int_fast32_t jo = 0; jo < ((N) / (64)); jo++) {
       for (int_fast32_t i0 = 0; i0 < 64; i0++) {
         for (int_fast32_t i1 = 0; i1 < 64; i1++) {
           Btile[i0 * 64 + i1] = B[(i0 + 64 * ko) * N + i1 + 64 * jo];
@@ -180,16 +180,16 @@ for (int_fast32_t ko = 0; ko < ((K) / (64)); ko++) {
 free(Btile);
 free(Atile);
 for (int_fast32_t ko = 0; ko < ((K) / (64)); ko++) {
-  for (int_fast32_t io = 0; io < ((((M) / (4))) / (16)); io++) {
+  for (int_fast32_t io = 0; io < ((M) / (64)); io++) {
     for (int_fast32_t jm = 0; jm < ((N) / (16)) % 4; jm++) {
       for (int_fast32_t im = 0; im < 16; im++) {
-        neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * im + 64 * io) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * (jm + ((N / 16) / 4) * 4)], { N, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * N + 16 * (jm + ((N / 16) / 4) * 4)], { N, 1 } });
+        neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * im + 64 * io) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * (jm + (N / 64) * 4)], { N, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * N + 16 * (jm + (N / 64) * 4)], { N, 1 } });
       }
     }
   }
   for (int_fast32_t jo = 0; jo < ((N) / (16)); jo++) {
     for (int_fast32_t im = 0; im < ((M) / (4)) % 16; im++) {
-      neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * (im + ((M / 4) / 16) * 16)) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * jo], { N, 1 } },(struct exo_win_2f32){ &C[(4 * (im + ((M / 4) / 16) * 16)) * N + 16 * jo], { N, 1 } });
+      neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * (im + (M / 64) * 16)) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * jo], { N, 1 } },(struct exo_win_2f32){ &C[(4 * (im + (M / 64) * 16)) * N + 16 * jo], { N, 1 } });
     }
   }
 }

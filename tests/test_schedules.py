@@ -319,6 +319,26 @@ def test_simplify_loop_bounds(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_simplify_nested_div(golden):
+    @proc
+    def foo(n: size):
+        x: f32
+        for i in seq(0, (n / 4) / 3 / 2):
+            x = 0.0
+
+    assert str(simplify(foo)) == golden
+
+
+def test_simplify_nested_div_2(golden):
+    @proc
+    def foo(n: size):
+        x: f32
+        for i in seq(0, ((3 * n) / 4) / 3):
+            x = 0.0
+
+    assert str(simplify(foo)) == golden
+
+
 def test_pattern_match():
     @proc
     def foo(N1: size, M1: size, K1: size, N2: size, M2: size, K2: size):
