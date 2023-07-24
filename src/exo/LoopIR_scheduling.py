@@ -2786,16 +2786,16 @@ class _DoNormalize(Cursor_Rewrite):
             new_rhs = self.index_start(e.rhs)
             e = e.update(lhs=new_lhs, rhs=new_rhs)
 
-        if isinstance(e, LoopIR.BinOp) and e.op == "/":
+        if isinstance(e, LoopIR.BinOp) and e.op in ("/", "%"):
             assert isinstance(e.rhs, LoopIR.Const)
             if self.has_div_mod_config(e.lhs):
-                e = division_denominator_simplification(e)
-            return division_simplification_and_try_spliting_denominator(e)
+                if e.op == "/":
+                    return division_denominator_simplification(e)
+                else:
+                    return e
 
-        if isinstance(e, LoopIR.BinOp) and e.op == "%":
-            assert isinstance(e.rhs, LoopIR.Const)
-            if self.has_div_mod_config(e.lhs):
-                return e
+            if e.op == "/":
+                return division_simplification_and_try_spliting_denominator(e)
 
             return modulo_simplification(e)
 
