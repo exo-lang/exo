@@ -333,8 +333,9 @@ def test_simplify_nested_div_2(golden):
     @proc
     def foo(n: size):
         x: f32
-        for i in seq(0, ((3 * n) / 4) / 3):
-            x = 0.0
+        for ii in seq(0, n):
+            for i in seq(0, (ii + n / 4 * 4) / 8):
+                x = 0.0
 
     assert str(simplify(foo)) == golden
 

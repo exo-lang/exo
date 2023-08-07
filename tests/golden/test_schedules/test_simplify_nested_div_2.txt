@@ -1,4 +1,5 @@
 def foo(n: size):
     x: f32 @ DRAM
-    for i in seq(0, n / 4):
-        x = 0.0
+    for ii in seq(0, n):
+        for i in seq(0, (ii + n / 4 * 4) / 8):
+            x = 0.0
