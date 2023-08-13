@@ -20,7 +20,11 @@ from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
 # --------------------------------------------------------------------------- #
 
 # Probably actually make this a class (pass) so it can inherit from LoopIR_Do
-def dataflow_analysis(proc):  # returns a (see below)
+def dataflow_analysis(proc: LoopIR.proc) -> DataflowIR.proc:
+    # step 1 - convert LoopIR to DataflowIR
+    #           with empty contexts (i.e. AbsEnvs)
+    # step 2 - run abstract interpretation algorithm
+    #           to populate contexts with sound values
     pass
 
 
@@ -89,6 +93,53 @@ two lattice homomorphisms:
 satisfying a property: namely that they are "adjoint" in the following sense
         abs(conc(x)) = x
         conc(abs(x)) <= x
+"""
+
+"""
+This is an attempt to think something through, not an implementation plan:
+
+A product lattice of lattices A and B is given as
+    - set of values A x B
+    - top = (top,top)
+    - bot = (bot,bot)
+    - (a0,b0) <= (a1,b1) iff. a0 <= a1 and b0 <= b1
+    - (a0,b0) ^ (a1,b1) = (a0^a1, b0^b1)
+    - (a0,b0) v (a1,b1) = (a0 v a1, b0 v b1)
+
+Can we form a product abstraction?
+Well, we have some V which A abstracts and some W which B abstracts?
+No, we're actually interested in the case where A and B both abstract V.
+So, what we are actually interested in isn't a totally arbitrary product...
+
+Product Abstraction (on a common concrete domain V)
+Given abstractions (A,absA,concA) and (B,absB,concB) both of V,
+Construct a product abstraction:
+    - product lattice A x B
+    - absAB(X)    = ???
+    - concAB(a,b) = concA(a) ^ concB(b)
+
+conclusion 1: any (bot,_) or (_,bot) must be bot in A x B!
+              i.e. we cannot simply use a product lattice
+conjecture: this occurs for any (singleton) set, not just bottom
+
+Major Conclusion:
+    - Trying to form product abstractions is a bad idea!
+"""
+
+"""
+Btw, suppose I have P(X) the power set of X.
+Using "type theory" notation, I can also talk about the set of
+all functions X -> Bool, or all predicates on X
+(e.g. in Coq one would write X -> Prop)
+All of these are (ignoring stupid logical foundation issues)
+essentially the same.  Why?  Well, consider some S in P(X)
+S is a subset of X; define f_S(x) = "x in S".
+Similarly, using set comprehension and given f : X -> Bool,
+define S_f = { x | f(x) }
+
+(one more thing for fun)
+X -> P(Y)  ~==  X -> Y -> Bool  ~==  X x Y -> Bool  ~==  P(X x Y)
+                                                    ~==  Rel X Y
 """
 
 """
@@ -212,20 +263,20 @@ module DataflowIR {
 #
 #           For instance, use Python dictionaries to hold the annotations
 
+Changed: TypeAlias = bool
+
 
 class AbstractInterpretation(collections.ABC):
     def __init__(self, proc: DataflowIR.proc):
         self.proc = proc
 
         # setup initial values
-        self.init_env = dict()
+        init_env = self.proc.body.ctxts[0]
         for a in proc.args:
-            self.init_env[a.name] = self.abs_init_val(a.name, a.type)
+            init_env[a.name] = self.abs_init_val(a.name, a.type)
 
         # We probably ought to somehow use precondition assertions
         # TODO
-
-        self.proc.body.ctxts[0] = self.init_env
 
         self.fix_block(self.proc.body)
 
@@ -245,7 +296,7 @@ class AbstractInterpretation(collections.ABC):
 
         return found_change
 
-    def fix_block(self, body):
+    def fix_block(self, body: DataflowIR.block) -> Changed:
         """Assumes any inputs have already been set in body.ctxts[0]"""
         assert len(body.stmts) + 1 == len(body.ctxts)
 
@@ -255,16 +306,75 @@ class AbstractInterpretation(collections.ABC):
 
         return found_change
 
-    def fix_stmt(pre_env, stmt, post_env):
+    def fix_stmt(self, pre_env, stmt: DataflowIR.stmt, post_env) -> Changed:
         found_change = False
         if isinstance(stmt, (DataflowIR.Assign, DataflowIR.Reduce)):
-            pass
+            # TODO: Design approach for parameterization over idx
+
+            # if reducing, then expand to x = x + rhs
+            rhs_e = stmt.rhs
+            if isinstance(stmt, DataflowIR.Reduce):
+                read_buf = DataflowIR.Read(stmt.name, stmt.idx)
+                rhs_e = DataflowIR.BinOp("+", read_buf, rhs_e)
+            # now we can handle both cases uniformly
+            rval = self.fix_expr(pre_env, rhs_e)
+            # need to be careful for buffers (no overwrite guarantee)
+            if len(stmt.idx) > 0:
+                rval = self.abs_join(pre_env[stmt.name], rval)
+            found_change = post_env.get(stmt.name, None) != rval
+            post_env[stmt.name] = rval
+
+            # propagate un-touched variables
+            for nm in pre_env:
+                if nm != stmt.name:
+                    post_env[nm] = pre_env[nm]
+
         elif isinstance(stmt, DataflowIR.WriteConfig):
             rval = self.fix_expr(pre_env, stmt.rhs)
-            found_change = found_change or self.join_env(
-                post_env, {stmt.config_field: rval}
-            )
+            found_change = post_env.get(stmt.config_field, None) != rval
+            post_env[stmt.config_field] = rval
+
+            # propagate un-touched variables
+            for nm in pre_env:
+                if nm != stmt.config_field:
+                    post_env[nm] = pre_env[nm]
+
+        elif isinstance(stmt, DataflowIR.Pass):
+            # propagate un-touched variables
+            for nm in pre_env:
+                post_env[nm] = pre_env[nm]
+
+        elif isinstance(stmt, DataflowIR.Alloc):
+            # TODO: Add support for parameterization over idx?
+
+            post_env[stmt.name] = self.abs_alloc_val(stmt.name, stmt.type)
+
+            # propagate un-touched variables
+            for nm in pre_env:
+                post_env[nm] = pre_env[nm]
+
+        elif isinstance(stmt, DataflowIR.If):
+            # TODO: Add support for path-dependency in analysis
+            # TODO: Add support for "I know cond is true!"
+            pre_body, post_body = stmt.body.ctxts[0], stmt.body.ctxts[-1]
+            pre_else, post_else = stmt.orelse.ctxts[0], stmt.orelse.ctxts[-1]
+
+            for nm, val in pre_env.items():
+                pre_body[nm] = val
+                pre_else[nm] = val
+
+            found_change = found_change or self.fix_block(stmt.body)
+            found_change = found_change or self.fix_block(stmt.orelse)
+
+            for nm in pre_env:
+                bodyval = post_body[nm]
+                elseval = post_else[nm]
+                val = self.abs_join(bodyval, elseval)
+                found_change = found_change or (post_env.get(nm, None) != val)
+                post_env[nm] = val
+
         elif isinstance(stmt, DataflowIR.Seq):
+            # Left Off: We didn't fix this part up
             env = pre_env.copy()
             env[stmt.iter] = self.abs_top(T.index)
 
@@ -279,8 +389,18 @@ class AbstractInterpretation(collections.ABC):
                 )
 
             found_change = self.join_env(post_env, stmts.body.ctxts[-1])
+        elif isinstance(stmt, DataflowIR.InlinedCall):
+            pre_body, post_body = stmt.body.ctxts[0], stmt.body.ctxts[-1]
+            pre_else, post_else = stmt.orelse.ctxts[0], stmt.orelse.ctxts[-1]
+
+            for nm, val in pre_env.items():
+                stmt.body.ctxts[0][nm] = val
+
+            found_change = self.fix_block(stmt.body)
+
+            # Left Off: Oh No, do we preserve variable names when inlining?
         else:
-            pass
+            assert False, f"bad case: {type(stmt)}"
 
     """
     stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
@@ -305,6 +425,10 @@ class AbstractInterpretation(collections.ABC):
     @abstractmethod
     def abs_init_val(self, name, typ):
         """Define initial argument values"""
+
+    @abstractmethod
+    def abs_alloc_val(self, name, typ):
+        """Define initial value of an allocation"""
 
     @abstractmethod
     def abs_top(self, typ):
@@ -338,6 +462,9 @@ module AbstractDomains {
 
 
 class ConstantPropagation(AbstractInterpretation):
+    def abs_init_val(self, name, typ):
+        return Top()
+
     def abs_join(self, lval: Abs, rval: Abs):
         if lval == Bot():
             return rval
