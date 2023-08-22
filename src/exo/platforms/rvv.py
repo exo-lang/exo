@@ -214,6 +214,19 @@ def rvv_vfmacc_1xf32_16xf32(
     for i in seq(0, vl):
         dst[i] += lhs[0] * rhs[i]
 
+@instr("{dst_data} = __riscv_vfmul_vf_f32m1({lhs_data}, {rhs_data},{vl});")
+def rvv_vfmul_16xf32_1xf32(
+    dst: [f32][16] @ RVV, lhs: [f32][16] @ RVV, rhs: [f32][1] @ DRAM, vl: size
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert vl >= 0
+    assert vl <= 16
+
+    for i in seq(0, vl):
+        dst[i] = lhs[i] * rhs[0]
+
 # --------------------------------------------------------------------------- #
 #   f64 RVV intrinsics LMUL=4 -> vl=32
 # --------------------------------------------------------------------------- #
