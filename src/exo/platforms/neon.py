@@ -74,11 +74,6 @@ class Neon(Memory):
 #   f32 Neon intrinsics
 # --------------------------------------------------------------------------- #
 
-#
-# Load, Store, Broadcast, FMAdd, Mul, Add?
-#
-# float32
-
 
 @instr("*{result} += vaddvq_f32({x_data});")
 def neon_assoc_reduce_add_instr_4xf32(result: f32 @ DRAM, x: [f32][4] @ Neon):
@@ -249,10 +244,64 @@ def neon_vfmadd_1xf32_4xf32(
         dst[i] += lhs[0] * rhs[i]
 
 
-# -----------------------------------------------
-# Load, Store, Broadcast, FMAdd, Mul, Add?
-#
-# float16
+# TODO: Hack for procedure aliasing issue, can be deleted once we have
+#      better way of handling aliasing
+@instr("{dst_data} = {src_data};")
+def neon_reg_copy_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src[i]
+
+
+@instr("{dst_data} = vnegq_f32({src_data});")
+def neon_vneg_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = -src[i]
+
+
+@instr("{dst_data} = vfmaq_n_f32({add_data}, {dst_data}, *{rhs_data});")
+def neon_vfmaq_n_f32(dst: [f32][4] @ Neon, add: [f32][4] @ Neon, rhs: f32 @ DRAM):
+    assert stride(dst, 0) == 1
+    assert stride(add, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = dst[i] * rhs + add[i]
+
+
+@instr("{dst_data} = vmlaq_f32({dst_data}, {rhs_data}, {rhs_data});")
+def neon_vfmadd_4xf32_4xf32_square(dst: [f32][4] @ Neon, rhs: [f32][4] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] += rhs[i] * rhs[i]
+
+
+@instr("{dst_data} = vfmsq_f32({dst_data}, {rhs_data}, {rhs_data});")
+def neon_vfmsq_4xf32_4xf32(dst: [f32][4] @ Neon, rhs: [f32][4] @ Neon):
+    assert stride(dst, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = dst[i] - rhs[i] * rhs[i]
+
+
+@instr("{dst_data} = vmulq_n_f32({dst_data}, {rhs_data});")
+def neon_vmulq_n_4xf32_1xf32(dst: [f32][4] @ Neon, rhs: f32 @ DRAM):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = dst[i] * rhs
+
+
+# --------------------------------------------------------------------------- #
+#   f16 Neon intrinsics
+# --------------------------------------------------------------------------- #
 
 
 @instr("{dst_data} = vld1q_f16((float16_t *)&{src_data});")
@@ -372,24 +421,61 @@ def neon_vfmadd_1xf16_8xf16(
         dst[i] += lhs[0] * rhs[i]
 
 
-# TODO: Hack for procedure aliasing issue, can be deleted once we have
-#      better way of handling aliasing
-@instr("{dst_data} = {src_data};")
-def neon_reg_copy_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ Neon):
+@instr("{dst_data} = vld1q_dup_f16((float16_t *){src_data});")
+def neon_broadcast_8xf16_scalar(dst: [f16][8] @ Neon, src: f16 @ DRAM):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = src
+
+
+@instr("{dst_data} = vaddq_f16({dst_data}, {src_data});")
+def neon_vred_8xf16(dst: [f16][8] @ Neon, src: [f16][8] @ Neon):
     assert stride(dst, 0) == 1
     assert stride(src, 0) == 1
 
-    for i in seq(0, 4):
-        dst[i] = src[i]
+    for i in seq(0, 8):
+        dst[i] += src[i]
 
 
-@instr("{dst_data} = vnegq_f32({src_data});")
-def neon_vneg_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ Neon):
+@instr("{dst_data} = vsubq_f16({lhs_data}, {rhs_data});")
+def neon_vsub_8xf16(dst: [f16][8] @ Neon, lhs: [f16][8] @ Neon, rhs: [f16][8] @ Neon):
     assert stride(dst, 0) == 1
-    assert stride(src, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = lhs[i] - rhs[i]
+
+
+@instr("{dst_data} = vmulq_n_f32({dst_data}, *{rhs_data});")
+def neon_vmulq_n_4xf32_1xf32(dst: [f32][4] @ Neon, rhs: f32 @ DRAM):
+    assert stride(dst, 0) == 1
 
     for i in seq(0, 4):
-        dst[i] = -src[i]
+        dst[i] = dst[i] * rhs
+
+
+# --------------------------------------------------------------------------- #
+#   f16 <-> f32 conversion Neon intrinsics
+# --------------------------------------------------------------------------- #
+
+
+@instr(
+    "{dst_data} = vcvt_f32_f16(vget_low_f16({src_data}));\n"
+    + "{dst_data} = vcvt_high_f32_f16({src_data}); \\FIXME!"
+)
+def neon_cvt_f32_f16(dst: [f32][2, 4] @ Neon, src: [f16][8] @ Neon):
+    for i in seq(0, 2):
+        for j in seq(0, 4):
+            dst[i, j] = src[i * 4 + j]
+
+
+@instr("{dst_data} = vcvt_high_f16_f32(vcvt_f16_f32({src_data}),{src_data} // FIXME!);")
+def neon_cvt_f16_f32(dst: [f16][8] @ Neon, src: [f32][2, 4] @ Neon):
+    for i in seq(0, 2):
+        for j in seq(0, 4):
+            dst[i * 4 + j] = src[i, j]
 
 
 # --------------------------------------------------------------------------- #
