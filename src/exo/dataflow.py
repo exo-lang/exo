@@ -13,19 +13,31 @@ from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
 
-from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do, Operator
+from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do, Operator, T
 
 # --------------------------------------------------------------------------- #
 # Top Level Call
 # --------------------------------------------------------------------------- #
 
+
+def loopir_to_dataflow(proc):
+    # another LoopIR traversal
+    # TODO: inline functioncall -> inline windowstmt -> lowering
+    pass
+
+
 # Probably actually make this a class (pass) so it can inherit from LoopIR_Do
 def dataflow_analysis(proc: LoopIR.proc) -> DataflowIR.proc:
     # step 1 - convert LoopIR to DataflowIR
     #           with empty contexts (i.e. AbsEnvs)
+    datair = loopir_to_dataflow(proc)
     # step 2 - run abstract interpretation algorithm
     #           to populate contexts with sound values
-    pass
+    # TODO: call constant propagation
+    datair = ConstantPropagation()
+    # TODO: display dataflow ir with the annotation pretty printing
+    print(datair)
+    return datair
 
 
 # Big Question: How do we represent the result of dataflow analysis?
@@ -213,6 +225,7 @@ def validateAbsEnv(obj):
     return obj
 
 
+# TODO: Add srcinfo
 DataflowIR = ADT(
     """
 module DataflowIR {
@@ -274,7 +287,10 @@ class AbstractInterpretation(collections.ABC):
             init_env[a.name] = self.abs_init_val(a.name, a.type)
 
         # We probably ought to somehow use precondition assertions
-        # TODO
+        # TODO: leave it for now
+        # { n == 16; }
+        for p in proc.preds:
+            self.assume_pred(p, init_env)
 
         self.fix_block(self.proc.body)
 
@@ -526,7 +542,10 @@ class ConstantPropagation(AbstractInterpretation):
         if isinstance(lval, A.CBot) or isinstance(rval, A.CBot):
             return A.CBot()
 
+        # front_ops = {"+", "-", "*", "/", "%",
+        #              "<", ">", "<=", ">=", "==", "and", "or"}
         if isinstance(lval, A.Const) and isinstance(rval, A.Const):
+            typ = lval.type
             if op == "+":
                 val = lval + rval
             elif op == "-":
@@ -538,12 +557,27 @@ class ConstantPropagation(AbstractInterpretation):
             elif op == "%":
                 val = lval % rval
             else:
-                assert False, f"Bad Case Operator: {op}"
-            return A.Const(val, lval.type)
+                typ = T.bool  # What would be bool here?
+                if op == "<":
+                    val = lval < rval
+                elif op == ">":
+                    val = lval > rval
+                elif op == "<=":
+                    val = lval <= rval
+                elif op == ">=":
+                    val = lval >= rval
+                elif op == "==":
+                    val = lval == rval
+                elif op == "and":
+                    val = lval and rval
+                elif op == "or":
+                    val = lval or rval
+                else:
+                    assert False, f"Bad Case Operator: {op}"
 
-        #        if op == "*":
-        #            if (one val is 0):
-        #                return zero_val
+            return A.Const(val, typ)
+
+        # TODO: and, or short circuiting here
 
         if op == "/":
             # NOTE: THIS doesn't work right for integer division...
@@ -552,29 +586,24 @@ class ConstantPropagation(AbstractInterpretation):
             if isinstance(lval, A.Const) and lval.val == 0:
                 return lval
 
-        return A.CTop()
+        if op == "%":
+            if isinstance(rval, A.Const) and rval.val == 1:
+                return A.Const(0, lval.type)
 
-        if op == "+" or op == "-":
-            return A.CTop()
-            # 0 + x == x
-            # TOP + C(0) = abs({ x + y | x in conc(TOP), y in conc(C(0)) })
-            #            = abs({ x + 0 | x in anything })
-            #            = abs({ x | x in anything })
-            #            = TOP
-        elif op == "*":
+        if op == "*":
             # x * 0 == 0
             if isinstance(lval, A.Const) and lval.val == 0:
                 return lval
             elif isinstance(rval, A.Const) and rval.val == 0:
                 return rval
-            else:
-                return A.CTop()
 
-        else:
-            return A.CTop()
-
-    # front_ops = {"+", "-", "*", "/", "%",
-    #              "<", ">", "<=", ">=", "==", "and", "or"}
+        # memo
+        # 0 + x == x
+        # TOP + C(0) = abs({ x + y | x in conc(TOP), y in conc(C(0)) })
+        #            = abs({ x + 0 | x in anything })
+        #            = abs({ x | x in anything })
+        #            = TOP
+        return A.CTop()
 
     def abs_usub(self, arg):
         if isinstance(arg, A.Const):
@@ -582,7 +611,12 @@ class ConstantPropagation(AbstractInterpretation):
         return arg
 
     def abs_builtin(self, builtin, args):
-        return CTop()
+        if any([not isinstance(a, A.Const) for a in args]):
+            return CTop()
+        vargs = [a.val for a in args]
+
+        # TODO: write a short circuit for select builtin
+        return A.Const(builtin.interpret(vargs), args[0].typ)
 
 
 class IntervalAnalysis(AbstractInterpretation):
