@@ -758,6 +758,24 @@ def test_expand_dim7():
         foo = expand_dim(foo, "a : _", "n", "i")
 
 
+def test_expand_dim8():
+    @proc
+    def bar(A: f32[8], B: f32[8]):
+        res: f32
+        res = 0.0
+        for i in seq(0, 8):
+            res += A[i] + B[i]
+
+    reduce_stmt = bar.find("res += _")
+    for expr_cursor in [reduce_stmt.rhs().lhs(), reduce_stmt.rhs().rhs()]:
+        bar = bind_expr(bar, [expr_cursor], "reg")
+        reduce_stmt = bar.forward(reduce_stmt)
+        reg_alloc = reduce_stmt.prev().prev()
+        print(bar)
+        bar = expand_dim(bar, reg_alloc, 8, "i")
+        bar = lift_alloc(bar, reg_alloc)
+
+
 def test_divide_dim_1(golden):
     @proc
     def foo(n: size, m: size, A: R[n + m + 12]):
