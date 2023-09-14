@@ -1,0 +1,6 @@
+def bar(n: size, ret: i8 @ DRAM):
+    reg: i8[n] @ DRAM
+    for i in seq(0, n):
+        reg_1: R[n]
+        reg_1[i] = 1.0
+        ret += reg[i] + reg_1[i]

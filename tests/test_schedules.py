@@ -758,22 +758,17 @@ def test_expand_dim7():
         foo = expand_dim(foo, "a : _", "n", "i")
 
 
-def test_expand_dim8():
+def test_pattern_matching_id_in_scheduling_ops(golden):
     @proc
-    def bar(A: f32[8], B: f32[8]):
-        res: f32
-        res = 0.0
-        for i in seq(0, 8):
-            res += A[i] + B[i]
+    def bar(n: size, ret: i8):
+        reg: i8[n]
+        for i in seq(0, n):
+            ret += reg[i] + 1.0
 
-    reduce_stmt = bar.find("res += _")
-    for expr_cursor in [reduce_stmt.rhs().lhs(), reduce_stmt.rhs().rhs()]:
-        bar = bind_expr(bar, [expr_cursor], "reg")
-        reduce_stmt = bar.forward(reduce_stmt)
-        reg_alloc = reduce_stmt.prev().prev()
-        print(bar)
-        bar = expand_dim(bar, reg_alloc, 8, "i")
-        bar = lift_alloc(bar, reg_alloc)
+    bar = bind_expr(bar, "1.0", "reg")
+    scalar_reg = bar.find("reg : _ #1")
+    bar = expand_dim(bar, scalar_reg, "n", "i")
+    print(bar)
 
 
 def test_divide_dim_1(golden):
