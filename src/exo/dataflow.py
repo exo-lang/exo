@@ -13,7 +13,7 @@ from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
 
-from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
+from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do, Operator
 
 # --------------------------------------------------------------------------- #
 # Top Level Call
@@ -263,8 +263,6 @@ module DataflowIR {
 #
 #           For instance, use Python dictionaries to hold the annotations
 
-Changed: TypeAlias = bool
-
 
 class AbstractInterpretation(collections.ABC):
     def __init__(self, proc: DataflowIR.proc):
@@ -280,34 +278,14 @@ class AbstractInterpretation(collections.ABC):
 
         self.fix_block(self.proc.body)
 
-    def join_env(self, cur_env, updates) -> bool:
-        """Mutate cur_env to incorporate updates
-        Return True if something changed, False if all the same"""
-        found_change = False
-        for k, v in updates.items():
-            if k in cur_env:
-                old_v = cur_env[k]
-                new_v = self.abs_join(old_v, v)
-                found_change = found_change or (old_v == new_v)
-                cur_env[k] = new_v
-            else:
-                found_change = True
-                cur_env[k] = v
-
-        return found_change
-
-    def fix_block(self, body: DataflowIR.block) -> Changed:
+    def fix_block(self, body: DataflowIR.block):
         """Assumes any inputs have already been set in body.ctxts[0]"""
         assert len(body.stmts) + 1 == len(body.ctxts)
 
-        found_change = False
         for s, pre, post in zip(body.stmts, body.ctxts[:-1], body.ctxts[1:]):
-            found_change = found_change or self.fix_stmt(pre, s, post)
+            self.fix_stmt(pre, s, post)
 
-        return found_change
-
-    def fix_stmt(self, pre_env, stmt: DataflowIR.stmt, post_env) -> Changed:
-        found_change = False
+    def fix_stmt(self, pre_env, stmt: DataflowIR.stmt, post_env):
         if isinstance(stmt, (DataflowIR.Assign, DataflowIR.Reduce)):
             # TODO: Design approach for parameterization over idx
 
@@ -321,7 +299,6 @@ class AbstractInterpretation(collections.ABC):
             # need to be careful for buffers (no overwrite guarantee)
             if len(stmt.idx) > 0:
                 rval = self.abs_join(pre_env[stmt.name], rval)
-            found_change = post_env.get(stmt.name, None) != rval
             post_env[stmt.name] = rval
 
             # propagate un-touched variables
@@ -331,7 +308,6 @@ class AbstractInterpretation(collections.ABC):
 
         elif isinstance(stmt, DataflowIR.WriteConfig):
             rval = self.fix_expr(pre_env, stmt.rhs)
-            found_change = post_env.get(stmt.config_field, None) != rval
             post_env[stmt.config_field] = rval
 
             # propagate un-touched variables
@@ -363,44 +339,81 @@ class AbstractInterpretation(collections.ABC):
                 pre_body[nm] = val
                 pre_else[nm] = val
 
-            found_change = found_change or self.fix_block(stmt.body)
-            found_change = found_change or self.fix_block(stmt.orelse)
+            self.fix_block(stmt.body)
+            self.fix_block(stmt.orelse)
 
             for nm in pre_env:
                 bodyval = post_body[nm]
                 elseval = post_else[nm]
                 val = self.abs_join(bodyval, elseval)
-                found_change = found_change or (post_env.get(nm, None) != val)
                 post_env[nm] = val
 
         elif isinstance(stmt, DataflowIR.Seq):
-            # Left Off: We didn't fix this part up
-            env = pre_env.copy()
-            env[stmt.iter] = self.abs_top(T.index)
+            # TODO: Add support for loop-condition analysis in some way?
 
-            self.join_env(stmt.body.ctxts[0], env)
+            # set up the loop body for fixed-point iteration
+            pre_body = stmt.body.ctxts[0]
+            for nm, val in pre_env.items():
+                pre_body[nm] = val
+            # initialize the loop iteration variable
+            lo = self.fix_expr(pre_env, stmt.lo)
+            hi = self.fix_expr(pre_env, stmt.hi)
+            pre_body[stmt.iter] = self.abs_iter_val(lo, hi)
 
-            loop_change = True
-            while loop_change:
-                loop_change = False
-                loop_change = self.fix_block(stmt.body)
-                loop_change = loop_change or self.join_env(
-                    stmt.body.ctxts[0], self.body.ctxts[-1]
-                )
+            # run this loop until we reach a fixed-point
+            at_fixed_point = False
+            while not at_fixed_point:
+                # propagate in the loop
+                self.fix_block(stmt.body)
+                at_fixed_point = True
+                # copy the post-values for the loop back around to
+                # the pre-values, by joining them together
+                for nm, prev_val in pre_body.items():
+                    next_val = stmt.body.ctxts[-1][nm]
+                    val = self.abs_join(prev_val, next_val)
+                    at_fixed_point = at_fixed_point and prev_val == val
+                    pre_body[nm] = val
 
-            found_change = self.join_env(post_env, stmts.body.ctxts[-1])
+            # determine the post-env as join of pre-env and loop results
+            for nm, pre_val in pre_env.items():
+                loop_val = stmt.body.ctxts[-1][nm]
+                post_env[nm] = self.abs_join(pre_val, loop_val)
+
         elif isinstance(stmt, DataflowIR.InlinedCall):
+            # TODO: Decide how Inlined Calls work
             pre_body, post_body = stmt.body.ctxts[0], stmt.body.ctxts[-1]
             pre_else, post_else = stmt.orelse.ctxts[0], stmt.orelse.ctxts[-1]
 
             for nm, val in pre_env.items():
                 stmt.body.ctxts[0][nm] = val
 
-            found_change = self.fix_block(stmt.body)
+            self.fix_block(stmt.body)
 
             # Left Off: Oh No, do we preserve variable names when inlining?
         else:
             assert False, f"bad case: {type(stmt)}"
+
+    def fix_expr(self, pre_env, expr: DataflowIR.expr):
+        if isinstance(expr, DataflowIR.Read):
+            return pre_env[expr.name]
+        elif isinstance(expr, DataflowIR.Const):
+            return self.abs_const(expr.val, expr.type)
+        elif isinstance(expr, DataflowIR.USub):
+            arg = self.fix_expr(pre_env, expr.arg)
+            return self.abs_usub(arg)
+        elif isinstance(expr, DataflowIR.BinOp):
+            lhs = self.fix_expr(pre_env, expr.lhs)
+            rhs = self.fix_expr(pre_env, expr.rhs)
+            return self.abs_binop(expr.op, lhs, rhs)
+        elif isinstance(expr, DataflowIR.BuiltIn):
+            args = [self.fix_expr(pre_env, a) for a in expr.args]
+            return self.abs_builtin(expr.f, args)
+        elif isinstance(expr, DataflowIR.StrideExpr):
+            return self.abs_stride_expr(expr.name, expr.dim)
+        elif isinstance(expr, DataflowIR.ReadConfig):
+            return pre_env[expr.config_field]
+        else:
+            assert False, f"bad case {type(expr)}"
 
     """
     stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
@@ -418,7 +431,7 @@ class AbstractInterpretation(collections.ABC):
          | BinOp( binop op, expr lhs, expr rhs )
          | BuiltIn( builtin f, expr* args )
          | StrideExpr( sym name, int dim )
-         | ReadConfig( config config, string field )
+         | ReadConfig( sym config_field )
          attributes( type type )
     """
 
@@ -431,8 +444,16 @@ class AbstractInterpretation(collections.ABC):
         """Define initial value of an allocation"""
 
     @abstractmethod
-    def abs_top(self, typ):
-        """Return encoding of Lattice top value"""
+    def abs_iter_val(self, lo, hi):
+        """Define value of an iteration variable"""
+
+    @abstractmethod
+    def abs_stride_expr(self, name, dim):
+        """Define abstraction of a specific stride expression"""
+
+    @abstractmethod
+    def abs_const(self, val, typ):
+        """Define abstraction of a specific constant value"""
 
     @abstractmethod
     def abs_join(self, lval, rval):
@@ -443,8 +464,12 @@ class AbstractInterpretation(collections.ABC):
         """Implement transfer function abstraction for binary operations"""
 
     @abstractmethod
-    def abs_unsub(self, arg):
+    def abs_usub(self, arg):
         """Implement transfer function abstraction for unary subtraction"""
+
+    @abstractmethod
+    def abs_builtin(self, builtin, args):
+        """Implement transfer function abstraction for built-ins"""
 
 
 AbstractDomains = ADT(
@@ -452,39 +477,134 @@ AbstractDomains = ADT(
 module AbstractDomains {
     cprop = CTop() | CBot()
           | Const( object val, type type )
+          | CStrideExpr( sym name, int dim )
+    
+    iprop = ITop() | IBot()
+          | Interval( int lo, int hi ) -- use for integers
 }
 """,
     ext_types={
         "type": LoopIR.type,
+        "sym": Sym,
     },
-    memoize={"CTop", "CBot", "Const"},
+    memoize={"CTop", "CBot", "Const", "ITop", "IBot", "Interval", "IConst"},
 )
+A = AbstractDomains
 
 
 class ConstantPropagation(AbstractInterpretation):
     def abs_init_val(self, name, typ):
-        return Top()
+        return A.CTop()
 
-    def abs_join(self, lval: Abs, rval: Abs):
-        if lval == Bot():
+    def abs_alloc_val(self, name, typ):
+        return A.CTop()
+
+    def abs_iter_val(self, lo, hi):
+        return A.CTop()
+
+    def abs_stride_expr(self, name, dim):
+        return A.CStrideExpr(name, dim)
+
+    def abs_const(self, val, typ):
+        return A.Const(val, typ)
+
+    def abs_join(self, lval: A.cprop, rval: A.cprop):
+        if lval == A.CBot():
             return rval
-        elif rval == Bot():
+        elif rval == A.CBot():
             return lval
-        elif lval == Top() or rval == Top():
-            return top
+        elif lval == A.CTop() or rval == A.CTop():
+            return A.CTop()
         else:
-            assert isinstance(lval, Const) and isinstance(rval, Const)
+            assert isinstance(lval, A.Const) and isinstance(rval, A.Const)
             if lval.val == rval.val:
                 return lval
             else:
-                return top
+                return A.CTop()
 
     def abs_binop(self, op, lval, rval):
-        if isinstance(lval, Const) and isinstance(rval, Const):
-            return Const(binop_meaning(op)(lval.val, rval.val))
-        elif lval == Bot() or rval == Bot():
-            return Bot()
-        else:
-            return Top()
+        if isinstance(lval, A.CBot) or isinstance(rval, A.CBot):
+            return A.CBot()
 
-        pass
+        if isinstance(lval, A.Const) and isinstance(rval, A.Const):
+            if op == "+":
+                val = lval + rval
+            elif op == "-":
+                val = lval - rval
+            elif op == "*":
+                val = lval * rval
+            elif op == "/":
+                val = lval / rval  # THIS IS WRONG
+            elif op == "%":
+                val = lval % rval
+            else:
+                assert False, f"Bad Case Operator: {op}"
+            return A.Const(val, lval.type)
+
+        #        if op == "*":
+        #            if (one val is 0):
+        #                return zero_val
+
+        if op == "/":
+            # NOTE: THIS doesn't work right for integer division...
+            # c1 / c2
+            # 0 / x == 0
+            if isinstance(lval, A.Const) and lval.val == 0:
+                return lval
+
+        return A.CTop()
+
+        if op == "+" or op == "-":
+            return A.CTop()
+            # 0 + x == x
+            # TOP + C(0) = abs({ x + y | x in conc(TOP), y in conc(C(0)) })
+            #            = abs({ x + 0 | x in anything })
+            #            = abs({ x | x in anything })
+            #            = TOP
+        elif op == "*":
+            # x * 0 == 0
+            if isinstance(lval, A.Const) and lval.val == 0:
+                return lval
+            elif isinstance(rval, A.Const) and rval.val == 0:
+                return rval
+            else:
+                return A.CTop()
+
+        else:
+            return A.CTop()
+
+    # front_ops = {"+", "-", "*", "/", "%",
+    #              "<", ">", "<=", ">=", "==", "and", "or"}
+
+    def abs_usub(self, arg):
+        if isinstance(arg, A.Const):
+            return A.Const(-arg.val, arg.typ)
+        return arg
+
+    def abs_builtin(self, builtin, args):
+        return CTop()
+
+
+class IntervalAnalysis(AbstractInterpretation):
+    def abs_init_val(self, name, typ):
+        return A.ITop()
+
+    def abs_alloc_val(self, name, typ):
+        return A.ITop()
+
+    def abs_iter_val(self, lo, hi):
+        if isinstance(lo, A.IBot) or isinstance(hi, A.IBot):
+            return A.IBot()
+        else:
+            return self.abs_join(lo, hi)
+
+    def abs_join(self, lval: A.iprop, rval: A.iprop):
+        if isinstance(lval, A.ITop) or isinstance(rval, A.ITop):
+            return A.ITop()
+        elif isinstance(lval, A.IBot):
+            return rval
+        elif isinstance(rval, A.IBot):
+            return lval
+        else:
+            assert isinstance(lval, A.Interval) and isinstance(rval, A.Interval)
+            return A.Interval(min(lval.lo, rval.lo), max(lval.hi, rval.hi))
