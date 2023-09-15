@@ -59,6 +59,12 @@ def get_match_no(pattern_str: str) -> Optional[int]:
 def match_pattern(
     context, pattern_str, call_depth=0, default_match_no=None, use_sym_id=False
 ):
+    """
+    If [default_match_no] is None, then all matches are returned
+
+    If [use_sym_id] is True, all symbols matchesrare additionally checked
+    against their unique id, rather than just matching against the name.
+    """
     assert isinstance(context, Cursor), f"Expected Cursor, got {type(context)}"
 
     # break-down pattern_str for possible #<num> post-fix
@@ -328,6 +334,7 @@ class PatternMatch:
             assert False, "bad case"
 
     def match_name(self, pat_nm, ir_sym):
+        # We use repr(sym) as a way of checking both the Sym name and id
         ir_sym = repr(ir_sym) if self._use_sym_id else str(ir_sym)
         return pat_nm == "_" or pat_nm == ir_sym
 
