@@ -758,6 +758,19 @@ def test_expand_dim7():
         foo = expand_dim(foo, "a : _", "n", "i")
 
 
+def test_pattern_matching_id_in_scheduling_ops(golden):
+    @proc
+    def bar(n: size, ret: i8):
+        reg: i8[n]
+        for i in seq(0, n):
+            ret += reg[i] + 1.0
+
+    bar = bind_expr(bar, "1.0", "reg")
+    scalar_reg = bar.find("reg : _ #1")
+    bar = expand_dim(bar, scalar_reg, "n", "i")
+    print(bar)
+
+
 def test_divide_dim_1(golden):
     @proc
     def foo(n: size, m: size, A: R[n + m + 12]):

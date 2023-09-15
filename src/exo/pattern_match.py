@@ -56,7 +56,15 @@ def get_match_no(pattern_str: str) -> Optional[int]:
     return int(pattern_str[pos + 1 :])
 
 
-def match_pattern(context, pattern_str, call_depth=0, default_match_no=None):
+def match_pattern(
+    context, pattern_str, call_depth=0, default_match_no=None, use_sym_id=False
+):
+    """
+    If [default_match_no] is None, then all matches are returned
+
+    If [use_sym_id] is True, all symbols matchesrare additionally checked
+    against their unique id, rather than just matching against the name.
+    """
     assert isinstance(context, Cursor), f"Expected Cursor, got {type(context)}"
 
     # break-down pattern_str for possible #<num> post-fix
@@ -75,7 +83,7 @@ def match_pattern(context, pattern_str, call_depth=0, default_match_no=None):
     )
 
     # do the pattern match, to find the nodes in ast
-    return PatternMatch().find(context, p_ast, match_no=match_no)
+    return PatternMatch().find(context, p_ast, match_no=match_no, use_sym_id=use_sym_id)
 
 
 _PAST_to_LoopIR = {
@@ -111,10 +119,12 @@ class PatternMatch:
     def __init__(self):
         self._match_no = None
         self._results = []
+        self._use_sym_id = False
 
-    def find(self, cur, pat, match_no=None):
+    def find(self, cur, pat, match_no=None, use_sym_id=False):
         self._match_no = match_no
         self._results = []
+        self._use_sym_id = use_sym_id
 
         # prevent the top level of a pattern being just a hole
         if isinstance(pat, PAST.E_Hole):
@@ -323,9 +333,10 @@ class PatternMatch:
         else:
             assert False, "bad case"
 
-    @staticmethod
-    def match_name(pat_nm, ir_sym):
-        return pat_nm == "_" or pat_nm == str(ir_sym)
+    def match_name(self, pat_nm, ir_sym):
+        # We use repr(sym) as a way of checking both the Sym name and id
+        ir_sym = repr(ir_sym) if self._use_sym_id else str(ir_sym)
+        return pat_nm == "_" or pat_nm == ir_sym
 
 
 def _children(cur) -> Iterable[Node]:

@@ -232,14 +232,13 @@ def _replace_helper(c, c_repl, only_replace_attrs):
         return c._replace(c_repl)
 
 
-# TODO KQ: make ones for read and write that consider ID
 def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
     cur_fwd = lambda x: x
     c = fwd(c)
-    for rd in match_pattern(c, pat):
+    for rd in match_pattern(c, pat, use_sym_id=True):
         rd = cur_fwd(rd)
         if not (c_repl := repl(rd)):
             continue
@@ -248,11 +247,29 @@ def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True):
     return ir, _compose(cur_fwd, fwd)
 
 
-def _replace_pats_stmts(ir, fwd, c, pat, repl, only_replace_attrs=True):
+def _replace_reads(ir, fwd, c, sym, repl, only_replace_attrs=True):
     cur_fwd = lambda x: x
     c = fwd(c)
-    for block in match_pattern(c, pat):
-        # needed because match_pattern on stmts return blocks
+    for rd in match_pattern(c, f"{repr(sym)}[_]", use_sym_id=True):
+        # Need [_] to pttern match against window expressions
+        rd = cur_fwd(rd)
+        if not (c_repl := repl(rd)):
+            continue
+        ir, fwd_rd = _replace_helper(rd, c_repl, only_replace_attrs)
+        cur_fwd = _compose(fwd_rd, cur_fwd)
+    return ir, _compose(cur_fwd, fwd)
+
+
+def _replace_writes(ir, fwd, c, sym, repl, only_replace_attrs=True):
+    cur_fwd = lambda x: x
+    c = fwd(c)
+
+    # TODO: Consider optimizing to just one call of [match_pattern]
+    matches = match_pattern(c, f"{repr(sym)} = _", use_sym_id=True) + match_pattern(
+        c, f"{repr(sym)} += _", use_sym_id=True
+    )
+    for block in matches:
+        # match_pattern on stmts return blocks
         assert len(block) == 1
         s = cur_fwd(block[0])
         if not (c_repl := repl(s)):
@@ -366,11 +383,21 @@ def DoProductLoop(outer_loop_c, new_name):
 
     # Replace inner reads to loop variables
     for c in inner_loop_c.body():
-        ir, fwd = _replace_pats(
-            ir, fwd, c, f"{outer_loop.iter}", mk_outer_expr, only_replace_attrs=False
+        ir, fwd = _replace_reads(
+            ir,
+            fwd,
+            c,
+            outer_loop.iter,
+            mk_outer_expr,
+            only_replace_attrs=False,
         )
-        ir, fwd = _replace_pats(
-            ir, fwd, c, f"{inner_loop.iter}", mk_inner_expr, only_replace_attrs=False
+        ir, fwd = _replace_reads(
+            ir,
+            fwd,
+            c,
+            inner_loop.iter,
+            mk_inner_expr,
+            only_replace_attrs=False,
         )
 
     ir, fwdRepl = fwd(outer_loop_c)._child_node("iter")._replace(new_var)
@@ -547,11 +574,11 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
     def mk_main_iter(c):
         return substitute(c._node.srcinfo)
 
-    ir, fwd = _replace_pats(
+    ir, fwd = _replace_reads(
         ir,
         fwd,
         loop_cursor,
-        f"{split_loop.iter}",
+        split_loop.iter,
         mk_main_iter,
         only_replace_attrs=False,
     )
@@ -829,12 +856,11 @@ def DoInlineWindow(window_cursor):
         return {"name": window_s.rhs.name, "idx": idxs}
 
     for c in get_rest_of_block(window_cursor)[1:]:
-        ir, fwd = _replace_pats(ir, fwd, c, f"{window_s.lhs}[_]", mk_read)
+        ir, fwd = _replace_reads(ir, fwd, c, window_s.lhs, mk_read)
         ir, fwd = _replace_pats(
-            ir, fwd, c, f"stride({window_s.lhs}, _)", mk_stride_expr
+            ir, fwd, c, f"stride({repr(window_s.lhs)}, _)", mk_stride_expr
         )
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{window_s.lhs} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{window_s.lhs} += _", mk_write)
+        ir, fwd = _replace_writes(ir, fwd, c, window_s.lhs, mk_write)
 
     return ir, fwd
 
@@ -1287,9 +1313,8 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         return {"idx": [indexing] + s.idx}
 
     for c in get_rest_of_block(alloc_cursor):
-        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_s.name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_s.name, mk_write)
 
     idx = alloc_cursor.get_index()
     after_alloc = [c._node for c in fwd(alloc_cursor.parent()).body()[idx + 1 :]]
@@ -1367,11 +1392,12 @@ def DoRearrangeDim(decl_cursor, permute_vector):
         rest_of_block = decl_cursor.root().body()
     for c in rest_of_block:
         for name in all_permute.keys():
-            ir, fwd = _replace_pats(ir, fwd, c, f"{name}[_]", mk_read)
-            ir, fwd = _replace_pats(ir, fwd, c, f"stride({name}, _)", mk_stride_expr)
-
-            ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{name} = _", mk_write)
-            ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{name} += _", mk_write)
+            assert isinstance(name, Sym)
+            ir, fwd = _replace_reads(ir, fwd, c, name, mk_read)
+            ir, fwd = _replace_pats(
+                ir, fwd, c, f"stride({repr(name)}, _)", mk_stride_expr
+            )
+            ir, fwd = _replace_writes(ir, fwd, c, name, mk_write)
 
     return ir, fwd
 
@@ -1433,9 +1459,8 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
 
     # TODO: add better iteration primitive
     for c in get_rest_of_block(alloc_cursor):
-        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_s.name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_s.name, mk_write)
 
     return ir, fwd
 
@@ -1499,9 +1524,8 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
         return {"idx": remap_idx(s.idx)}
 
     for c in get_rest_of_block(alloc_cursor):
-        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_s.name}[_]", mk_read)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_s.name} += _", mk_write)
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_s.name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_s.name, mk_write)
 
     return ir, fwd
 
@@ -2246,8 +2270,8 @@ def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
         return LoopIR.Read(loop1.iter, [], T.index, loop1.srcinfo)
 
     ir, fwd = proc, lambda x: x
-    ir, fwd = _replace_pats(
-        ir, fwd, s_cursor, f"{loop2.iter}", mk_read, only_replace_attrs=False
+    ir, fwd = _replace_reads(
+        ir, fwd, s_cursor, loop2.iter, mk_read, only_replace_attrs=False
     )
     ir, fwd_move = fwd(s_cursor).body()._move(fwd(f_cursor).body()[-1].after())
     fwd = _compose(fwd_move, fwd)
@@ -3248,9 +3272,8 @@ def DoDataReuse(buf_cursor, rep_cursor):
         return {"name": buf_name}
 
     for c in get_rest_of_block(rep_cursor)[1:]:
-        ir, fwd = _replace_pats(ir, fwd, c, f"{rep_name}[_]", mk_read)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{rep_name} = _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{rep_name} += _", mk_write)
+        ir, fwd = _replace_reads(ir, fwd, c, rep_name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, rep_name, mk_write)
 
     return ir, fwd
 
@@ -3465,9 +3488,8 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         return {"name": new_name, "idx": rewrite_idx(s.idx)}
 
     for c in block_cursor:
-        ir, fwd = _replace_pats(ir, fwd, c, f"{buf_name}[_]", mk_read)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{buf_name} += _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{buf_name} = _", mk_write)
+        ir, fwd = _replace_reads(ir, fwd, c, buf_name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, buf_name, mk_write)
 
     # new alloc, load_nest + new_body + store_nest
     new_block_c = fwd(block_cursor[0]).as_block().expand(0, len(block_cursor) - 1)
@@ -3720,9 +3742,8 @@ def DoUnrollBuffer(alloc_cursor, dim):
 
     ir, fwd = alloc_cursor.get_root(), lambda x: x
     for c in get_rest_of_block(alloc_cursor):
-        ir, fwd = _replace_pats(ir, fwd, c, f"{alloc_stmt.name}[_]", mk_read)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_stmt.name} += _", mk_write)
-        ir, fwd = _replace_pats_stmts(ir, fwd, c, f"{alloc_stmt.name} = _", mk_write)
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_stmt.name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_stmt.name, mk_write)
 
     new_shape = alloc_stmt.type.shape().copy()
     del new_shape[dim]
