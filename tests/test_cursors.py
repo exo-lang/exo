@@ -284,10 +284,9 @@ def test_forwarding_for_procs_with_identical_code():
         for i in seq(0, 8):
             x[i] += 1.0
 
-    loop_cursor = foo.find_loop("i")
-    foo = stage_mem(foo, loop_cursor, "x[0:8]", "x_tmp")
     alloc_cursor = foo.find("x : _")
     foo = set_memory(foo, alloc_cursor, AVX2)
+    loop_cursor = foo.find_loop("i")
     foo = expand_dim(foo, alloc_cursor, "1", "0")
     foo.forward(loop_cursor)
 
