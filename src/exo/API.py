@@ -201,7 +201,7 @@ class Procedure(ProcedureBase):
     def forward(self, cur: C.Cursor):
         p = self
         fwds = []
-        while p is not None and p != cur.proc():
+        while p is not None and p is not cur.proc():
             fwds.append(p._forward)
             p = p._provenance_eq_Procedure
 

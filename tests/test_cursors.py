@@ -277,6 +277,20 @@ def test_unroll_buffer_forwarding(golden):
     assert "\n".join([str(test) for test in tests]) == golden
 
 
+def test_forwarding_for_procs_with_identical_code():
+    @proc
+    def foo():
+        x: f32[8] @ AVX2
+        for i in seq(0, 8):
+            x[i] += 1.0
+
+    alloc_cursor = foo.find("x : _")
+    foo = set_memory(foo, alloc_cursor, AVX2)
+    loop_cursor = foo.find_loop("i")
+    foo = expand_dim(foo, alloc_cursor, "1", "0")
+    foo.forward(loop_cursor)
+
+
 def test_arg_cursor(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n, n]):
