@@ -2896,7 +2896,7 @@ class _DoNormalize(Cursor_Rewrite):
         elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
             new_rhs = self.map_e(s.rhs)
             if new_rhs:
-                self.ir, fwd_repl = sc._child_node("rhs")._replace(new_rhs)
+                self.ir, fwd_repl = self.fwd(sc)._child_node("rhs")._replace(new_rhs)
                 self.fwd = _compose(fwd_repl, self.fwd)
         elif isinstance(s, LoopIR.Call):
             new_args = self.map_exprs(s.args)
@@ -3189,7 +3189,7 @@ class DoSimplify(Cursor_Rewrite):
         elif isinstance(s, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
             new_rhs = self.map_e(s.rhs)
             if new_rhs:
-                self.ir, fwd_repl = sc._child_node("rhs")._replace(new_rhs)
+                self.ir, fwd_repl = self.fwd(sc)._child_node("rhs")._replace(new_rhs)
                 self.fwd = _compose(fwd_repl, self.fwd)
         elif isinstance(s, LoopIR.Call):
             new_args = self.map_exprs(s.args)
