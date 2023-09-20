@@ -2331,6 +2331,16 @@ def test_simplify_div_mod_staging(golden):
     assert str(bar) == golden
 
 
+def test_simplify_with_window_stmts():
+    @proc
+    def foo(n: size):
+        x: i8[1]
+        x_window = x[0 + 0 : 1 + 0]
+        x_window[0] = 0.0
+
+    return simplify(foo)
+
+
 def test_syrk_cut_loop(golden):
     @proc
     def SYRK(
