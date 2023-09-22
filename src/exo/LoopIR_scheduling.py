@@ -325,10 +325,11 @@ def DoCutLoop(loop_c, cut_point):
     except SchedulingError:
         raise SchedulingError(f"Expected `cut_point` <= `hi`")
 
-    loop1 = Alpha_Rename([s.update(hi=cut_point)]).result()[0]
+    ir, fwd1 = loop_c._child_node("hi")._replace(cut_point)
     loop2 = Alpha_Rename([s.update(lo=cut_point)]).result()[0]
+    ir, fwd2 = fwd1(loop_c).after()._insert([loop2])
+    fwd = _compose(fwd2, fwd1)
 
-    ir, fwd = loop_c._replace([loop1, loop2])
     return ir, fwd
 
 
@@ -348,20 +349,27 @@ def DoShiftLoop(loop_c, new_lo):
 
     loop_length = LoopIR.BinOp("-", s.hi, s.lo, T.index, s.srcinfo)
     new_hi = LoopIR.BinOp("+", new_lo, loop_length, T.index, s.srcinfo)
-    loop = Alpha_Rename([s.update(lo=new_lo, hi=new_hi)]).result()[0]
+
+    ir, fwd1 = loop_c._child_node("lo")._replace(new_lo)
+    ir, fwd2 = fwd1(loop_c)._child_node("hi")._replace(new_hi)
+    fwd12 = _compose(fwd2, fwd1)
 
     # all uses of the loop iteration in the second body need
     # to be offset by (`lo` - `new_lo``)
-    iter_name = s.iter
-    iter_node = LoopIR.Read(iter_name, [], T.index, s.srcinfo)
+    loop_iter = s.iter
+    iter_node = LoopIR.Read(loop_iter, [], T.index, s.srcinfo)
     iter_offset = LoopIR.BinOp("-", s.lo, new_lo, T.index, s.srcinfo)
     new_iter = LoopIR.BinOp("+", iter_node, iter_offset, T.index, s.srcinfo)
-    env = {s.iter: new_iter}
 
-    new_body = SubstArgs(s.body, env).result()
-    loop = Alpha_Rename([s.update(lo=new_lo, hi=new_hi, body=new_body)]).result()[0]
+    ir, fwd = _replace_reads(
+        ir,
+        fwd12,
+        loop_c,
+        loop_iter,
+        lambda _: new_iter,
+        only_replace_attrs=False,
+    )
 
-    ir, fwd = loop_c._replace([loop])
     return ir, fwd
 
 
