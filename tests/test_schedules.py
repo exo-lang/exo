@@ -2044,6 +2044,18 @@ def test_formatted_expr_2(golden):
     assert str(bar) == golden
 
 
+def test_formatted_expr_3(golden):
+    @proc
+    def foo(n: size, x: f32[n]):
+        assert n >= 10
+        for i in seq(0, n - 2):
+            x[i] = 0.0
+
+    loop_cursor = foo.find_loop("i")
+    foo = cut_loop(foo, loop_cursor, FormattedExprStr("_ - 1", loop_cursor.hi()))
+    assert str(simplify(foo)) == golden
+
+
 def test_formatted_expr_errors_1():
     @proc
     def bar(n: size, arr: R[n] @ DRAM):
