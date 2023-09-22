@@ -1570,6 +1570,29 @@ def cut_loop(proc, loop_cursor, cut_point):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([ForSeqCursorA, NewExprA("loop_cursor")])
+def shift_loop(proc, loop_cursor, new_lo):
+    """
+    Shift a loop iterations so that now it starts at `new_lo`
+
+    We must have:
+        0 <= `new_lo`
+
+    args:
+        loop_cursor     - cursor pointing to the loop to shift
+        new_lo          - expression representing new loop lo
+
+    rewrite:
+        `for i in seq(m,n):`
+        `    s(i)`
+        ->
+        `for i in seq(new_lo, new_lo + n - m):`
+        `    s(i + (m - new_lo))`
+    """
+    ir, fwd = scheduling.DoShiftLoop(loop_cursor._impl, new_lo)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([NestedForSeqCursorA])
 def reorder_loops(proc, nested_loops):
     """

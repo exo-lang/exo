@@ -2502,6 +2502,50 @@ def test_cut_loop_by_expr2(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_shift_loop(golden):
+    @proc
+    def foo(n: size, x: f32[n] @ DRAM):
+        for i in seq(0, n):
+            x[i] = 0.0
+
+    foo = shift_loop(foo, foo.find_loop("i"), 1)
+    assert str(simplify(foo)) == golden
+
+
+def test_shift_loop_to_negative_lo():
+    @proc
+    def foo(n: size, x: f32[n] @ DRAM):
+        for i in seq(0, n):
+            x[i] = 0.0
+
+    with pytest.raises(SchedulingError, match="Expected 0 <= `new_lo`"):
+        foo = shift_loop(foo, foo.find_loop("i"), -3)
+
+    with pytest.raises(SchedulingError, match="Expected 0 <= `new_lo`"):
+        foo = shift_loop(foo, foo.find_loop("i"), "n-3")
+
+
+def test_shift_loop_by_expr(golden):
+    @proc
+    def foo(n: size, x: f32[n + 1] @ DRAM):
+        for i in seq(0, n):
+            x[i + 1] = 0.0
+
+    foo = shift_loop(foo, foo.find_loop("i"), "n + 2")
+    assert str(simplify(foo)) == golden
+
+
+def test_shift_loop_nonzero_lo(golden):
+    @proc
+    def foo(n: size, m: size, x: f32[n + 1] @ DRAM):
+        assert n >= m
+        for i in seq(m, n):
+            x[i] = 0.0
+
+    foo = shift_loop(foo, foo.find_loop("i"), 4)
+    assert str(simplify(foo)) == golden
+
+
 def test_mem_aware_replace(golden):
     @proc
     def bar(src: f32[8] @ DRAM):

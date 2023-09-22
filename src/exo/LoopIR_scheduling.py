@@ -332,6 +332,39 @@ def DoCutLoop(loop_c, cut_point):
     return ir, fwd
 
 
+def DoShiftLoop(loop_c, new_lo):
+    s = loop_c._node
+
+    assert isinstance(s, LoopIR.Seq)
+
+    try:
+        Check_IsNonNegativeExpr(
+            loop_c.get_root(),
+            [s],
+            new_lo,
+        )
+    except SchedulingError:
+        raise SchedulingError(f"Expected 0 <= `new_lo`")
+
+    loop_length = LoopIR.BinOp("-", s.hi, s.lo, T.index, s.srcinfo)
+    new_hi = LoopIR.BinOp("+", new_lo, loop_length, T.index, s.srcinfo)
+    loop = Alpha_Rename([s.update(lo=new_lo, hi=new_hi)]).result()[0]
+
+    # all uses of the loop iteration in the second body need
+    # to be offset by (`lo` - `new_lo``)
+    iter_name = s.iter
+    iter_node = LoopIR.Read(iter_name, [], T.index, s.srcinfo)
+    iter_offset = LoopIR.BinOp("-", s.lo, new_lo, T.index, s.srcinfo)
+    new_iter = LoopIR.BinOp("+", iter_node, iter_offset, T.index, s.srcinfo)
+    env = {s.iter: new_iter}
+
+    new_body = SubstArgs(s.body, env).result()
+    loop = Alpha_Rename([s.update(lo=new_lo, hi=new_hi, body=new_body)]).result()[0]
+
+    ir, fwd = loop_c._replace([loop])
+    return ir, fwd
+
+
 def DoProductLoop(outer_loop_c, new_name):
     body = outer_loop_c.body()
     outer_loop = outer_loop_c._node
@@ -3774,6 +3807,7 @@ __all__ = [
     "DoUnroll",
     "DoAddLoop",
     "DoCutLoop",
+    "DoShiftLoop",
     "DoProductLoop",
     "DoRemoveLoop",
     "DoLiftAllocSimple",
