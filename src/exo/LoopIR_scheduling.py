@@ -28,6 +28,7 @@ from .new_eff import (
     Check_IsDeadAfter,
     Check_IsIdempotent,
     Check_IsPositiveExpr,
+    Check_IsNonNegativeExpr,
     Check_Aliasing,
 )
 from .range_analysis import IndexRangeAnalysis
@@ -301,42 +302,33 @@ def DoReorderStmt(f_cursor, s_cursor):
     return ir, fwd
 
 
-def DoPartitionLoop(stmt, partition_by):
-    s = stmt._node
+def DoCutLoop(loop_c, cut_point):
+    s = loop_c._node
 
     assert isinstance(s, LoopIR.Seq)
 
-    part_by = LoopIR.Const(partition_by, T.int, s.srcinfo)
-    new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
     try:
-        Check_IsPositiveExpr(
-            stmt.get_root(),
+        Check_IsNonNegativeExpr(
+            loop_c.get_root(),
             [s],
-            LoopIR.BinOp(
-                "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
-            ),
+            LoopIR.BinOp("-", cut_point, s.lo, T.index, s.srcinfo),
         )
     except SchedulingError:
-        raise SchedulingError(
-            f"expected the new loop bound {new_hi} to be always non-negative"
+        raise SchedulingError(f"Expected `lo` <= `cut_point`")
+
+    try:
+        Check_IsNonNegativeExpr(
+            loop_c.get_root(),
+            [s],
+            LoopIR.BinOp("-", s.hi, cut_point, T.index, s.srcinfo),
         )
+    except SchedulingError:
+        raise SchedulingError(f"Expected `cut_point` <= `hi`")
 
-    loop1 = Alpha_Rename([s.update(hi=part_by)]).result()[0]
+    loop1 = Alpha_Rename([s.update(hi=cut_point)]).result()[0]
+    loop2 = Alpha_Rename([s.update(lo=cut_point)]).result()[0]
 
-    # all uses of the loop iteration in the second body need
-    # to be offset by the partition value
-    iter2 = s.iter.copy()
-    iter2_node = LoopIR.Read(iter2, [], T.index, s.srcinfo)
-    iter_off = LoopIR.BinOp("+", iter2_node, part_by, T.index, s.srcinfo)
-    env = {s.iter: iter_off}
-
-    body2 = SubstArgs(s.body, env).result()
-    zero = LoopIR.Const(0, T.index, s.srcinfo)
-    loop2 = Alpha_Rename(
-        [s.update(iter=iter2, lo=zero, hi=new_hi, body=body2)]
-    ).result()[0]
-
-    ir, fwd = stmt._replace([loop1, loop2])
+    ir, fwd = loop_c._replace([loop1, loop2])
     return ir, fwd
 
 
@@ -3781,7 +3773,7 @@ __all__ = [
     "DoSplit",
     "DoUnroll",
     "DoAddLoop",
-    "DoPartitionLoop",
+    "DoCutLoop",
     "DoProductLoop",
     "DoRemoveLoop",
     "DoLiftAllocSimple",

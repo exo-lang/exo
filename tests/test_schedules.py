@@ -2341,7 +2341,7 @@ def test_simplify_with_window_stmts():
     return simplify(foo)
 
 
-def test_syrk_cut_loop(golden):
+def test_cut_loop_syrk(golden):
     @proc
     def SYRK(
         M: size,
@@ -2372,8 +2372,8 @@ def test_cut_loop1():
             x: R
             x = 0.0
 
-    with pytest.raises(SchedulingError, match="expected the new loop bound"):
-        foo = cut_loop(foo, "for i in _:_", 3)
+    with pytest.raises(SchedulingError, match="Expected `cut_point` <= `hi`"):
+        foo = cut_loop(foo, foo.find_loop("i"), 3)
 
 
 def test_cut_loop2(golden):
@@ -2384,7 +2384,7 @@ def test_cut_loop2(golden):
             x: R
             x = 0.0
 
-    foo = cut_loop(foo, "for i in _:_", 3)
+    foo = cut_loop(foo, foo.find_loop("i"), 3)
     assert str(simplify(foo)) == golden
 
 
@@ -2395,32 +2395,110 @@ def test_cut_loop3():
             x: R
             x = 0.0
 
-    with pytest.raises(TypeError, match="cut_loop: expected a positive integer"):
-        foo = cut_loop(foo, "for i in _:_", -3)
+    with pytest.raises(SchedulingError, match="Expected `lo` <= `cut_point`"):
+        foo = cut_loop(foo, foo.find_loop("i"), -3)
 
 
 def test_cut_loop_nonzero_lo(golden):
     @proc
     def foo(n: size):
-        assert n > 5
+        assert n >= 5
         x: R[n]
         for i in seq(3, n):
             x[i] = 0.0
 
-    foo = cut_loop(foo, "for i in seq(3, n):_", 5)
+    with pytest.raises(SchedulingError, match="Expected `lo` <= `cut_point`"):
+        foo = cut_loop(foo, foo.find_loop("i"), 2)
+
+    foo = cut_loop(foo, foo.find_loop("i"), 5)
     assert str(simplify(foo)) == golden
 
 
 def test_cut_loop_nonzero_lo2(golden):
     @proc
     def foo(n: size, m: size):
-        assert m > 5
+        assert m >= 5
+        assert m <= 8
+        assert n >= 9
+        assert n > m + 1
+        x: R[n]
+        for i in seq(m, n):
+            x[i] = 0.0
+
+    with pytest.raises(SchedulingError, match="Expected `lo` <= `cut_point`"):
+        foo = cut_loop(foo, foo.find_loop("i"), 6)
+
+    foo = cut_loop(foo, foo.find_loop("i"), 9)
+    assert str(simplify(foo)) == golden
+
+
+def test_cut_loop_at_lo(golden):
+    @proc
+    def foo():
+        for i in seq(3, 5):
+            x: f32
+
+    foo = cut_loop(foo, foo.find_loop("i"), 3)
+    assert str(foo) == golden
+
+
+def test_cut_loop_at_hi(golden):
+    @proc
+    def foo():
+        for i in seq(3, 5):
+            x: f32
+
+    foo = cut_loop(foo, foo.find_loop("i"), 5)
+    assert str(foo) == golden
+
+
+def test_cut_loop_by_expr(golden):
+    @proc
+    def foo(n: size, x: f32[n]):
+        assert n >= 1
+        for i in seq(0, n):
+            x[i] = 0.0
+
+    loop_cursor = foo.find_loop("i")
+    foo = cut_loop(foo, loop_cursor, "n / 2")
+    assert str(foo) == golden
+
+
+def test_cut_loop_by_expr1(golden):
+    @proc
+    def foo(n: size, x: f32[n]):
+        assert n >= 1
+        for i in seq(0, n):
+            x[i] = 0.0
+
+    loop_cursor = foo.find_loop("i")
+    foo = cut_loop(foo, loop_cursor, FormattedExprStr("_ - 1", loop_cursor.hi()))
+    assert str(foo) == golden
+
+
+def test_cut_loop_by_expr1(golden):
+    @proc
+    def foo(n: size, x: f32[n]):
+        assert n >= 1
+        for i in seq(0, n):
+            x[i] = 0.0
+
+    loop_cursor = foo.find_loop("i")
+    foo = cut_loop(foo, loop_cursor, FormattedExprStr("_ - 1", loop_cursor.hi()))
+    assert str(foo) == golden
+
+
+def test_cut_loop_by_expr2(golden):
+    @proc
+    def foo(n: size, m: size):
+        assert m >= 5
         assert n > m
         x: R[n]
         for i in seq(m, n):
             x[i] = 0.0
 
-    foo = cut_loop(foo, "for i in seq(m, n):_", 5)
+    loop_cursor = foo.find_loop("i")
+    foo = cut_loop(foo, loop_cursor, FormattedExprStr("_ + 1", loop_cursor.lo()))
     assert str(simplify(foo)) == golden
 
 

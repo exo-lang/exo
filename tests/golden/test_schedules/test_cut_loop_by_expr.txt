@@ -1,0 +1,6 @@
+def foo(n: size, x: f32[n] @ DRAM):
+    assert n >= 1
+    for i in seq(0, n / 2):
+        x[i] = 0.0
+    for i in seq(n / 2, n):
+        x[i] = 0.0

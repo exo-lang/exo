@@ -10,6 +10,6 @@ def SYRK(M: size, K: size, A: [f32][M, K] @ DRAM, A_t: [f32][M, K] @ DRAM,
             for j in seq(0, 1):
                 for k in seq(0, K):
                     C[ii + 4 * io, j] += A[ii + 4 * io, k] * A_t[j, k]
-            for j in seq(0, ii + 4 * io):
+            for j in seq(1, 1 + ii + 4 * io):
                 for k in seq(0, K):
-                    C[ii + 4 * io, 1 + j] += A[ii + 4 * io, k] * A_t[1 + j, k]
+                    C[ii + 4 * io, j] += A[ii + 4 * io, k] * A_t[j, k]
