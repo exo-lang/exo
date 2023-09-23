@@ -2046,13 +2046,6 @@ def Check_IsPositiveExpr(proc, stmts, expr):
         )
 
 
-def Check_IsNonNegativeExpr(proc, stmts, expr):
-    expr = LoopIR.BinOp(
-        "+", expr, LoopIR.Const(1, T.int, expr.srcinfo), expr.type, expr.srcinfo
-    )
-    Check_IsPositiveExpr(proc, stmts, expr)
-
-
 def Check_CodeIsDead(proc, stmts):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
