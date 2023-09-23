@@ -74,7 +74,7 @@ from ..API_scheduling import (
     #
     # guard rewriting
     lift_scope,
-    assert_if,
+    remove_if,
     specialize,
     #
     # deprecated scheduling operations

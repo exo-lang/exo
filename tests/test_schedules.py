@@ -2615,7 +2615,7 @@ def test_replace_all_arch(golden):
     assert str(bar) == golden
 
 
-def test_assert_if(golden):
+def test_remove_if(golden):
     @proc
     def foo():
         x: f32 @ DRAM
@@ -2628,10 +2628,10 @@ def test_assert_if(golden):
                 b: R
                 b = x
 
-    assert str(assert_if(foo, "if _:_ #0", True)) == golden
+    assert str(remove_if(foo, "if _:_ #0", True)) == golden
 
 
-def test_assert_if2(golden):
+def test_remove_if2(golden):
     @proc
     def foo():
         x: f32 @ DRAM
@@ -2644,10 +2644,10 @@ def test_assert_if2(golden):
                 b: R
                 b = x
 
-    assert str(assert_if(foo, "if _:_ #0", False)) == golden
+    assert str(remove_if(foo, "if _:_ #0", False)) == golden
 
 
-def test_assert_if3(golden):
+def test_remove_if3(golden):
     @proc
     def foo():
         x: f32 @ DRAM
@@ -2657,10 +2657,10 @@ def test_assert_if3(golden):
                 a: R
                 a = x
 
-    assert str(assert_if(foo, "if _:_ #0", True)) == golden
+    assert str(remove_if(foo, "if _:_ #0", True)) == golden
 
 
-def test_assert_if4(golden):
+def test_remove_if4(golden):
     @proc
     def foo():
         x: f32 @ DRAM
@@ -2670,7 +2670,22 @@ def test_assert_if4(golden):
                 a: R
                 a = x
 
-    assert str(assert_if(foo, "if _:_ #0", False)) == golden
+    assert str(remove_if(foo, "if _:_ #0", False)) == golden
+
+
+def test_remove_if5():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i < 4:
+                x = 0.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="If condition isn't always True or always False",
+    ):
+        remove_if(foo, "if _:_ #0", False)
 
 
 def test_lift_reduce_constant_1(golden):

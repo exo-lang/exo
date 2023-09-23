@@ -3251,19 +3251,26 @@ class DoSimplify(Cursor_Rewrite):
             raise NotImplementedError(f"bad case {type(s)}")
 
 
-def DoAssertIf(if_cursor, cond):
+def DoRemoveIf(if_cursor):
     if_stmt = if_cursor._node
 
     assert isinstance(if_stmt, LoopIR.If)
-    assert isinstance(cond, bool)
 
     ir, fwd = if_cursor.get_root(), lambda x: x
 
-    cond_node = LoopIR.Const(cond, T.bool, if_stmt.srcinfo)
-    Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
+    try:
+        cond_node = LoopIR.Const(True, T.bool, if_stmt.srcinfo)
+        Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
+        cond = True
+    except SchedulingError:
+        try:
+            cond_node = LoopIR.Const(False, T.bool, if_stmt.srcinfo)
+            Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
+            cond = False
+        except SchedulingError:
+            raise SchedulingError("If condition isn't always True or always False")
 
     body = if_cursor.body() if cond else if_cursor.orelse()
-
     ir, fwd = body._move(if_cursor.after())
     ir, fwd_del = fwd(if_cursor)._delete()
     fwd = _compose(fwd_del, fwd)
@@ -3835,7 +3842,7 @@ __all__ = [
     "DoFissionLoops",
     "DoBoundAndGuard",
     "DoDeletePass",
-    "DoAssertIf",
+    "DoRemoveIf",
     "DoAddUnsafeGuard",
     "DoStageWindow",
     "DoBoundAlloc",
