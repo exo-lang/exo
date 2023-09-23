@@ -397,3 +397,113 @@ def test_shift_loop_forwarding():
     assert isinstance(loop_cursor, ForSeqCursor)
     assert isinstance(assign_cursor, AssignCursor)
     assert isinstance(assign_cursor.parent(), ForSeqCursor)
+
+
+def test_assert_if_forwarding():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 > -1:
+                x = 0.0
+                pass
+            else:
+                x += 1.0
+                pass
+                pass
+
+    loop_cursor = foo.find_loop("i")
+    if_cursor = loop_cursor.body()[0]
+    if_true_stmt = if_cursor.body()[0]
+    if_false_stmt = if_cursor.orelse()[0]
+    foo = assert_if(foo, "if _:_ #0", True)
+    loop_cursor = foo.forward(loop_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_cursor = foo.forward(if_cursor)
+    if_true_stmt = foo.forward(if_true_stmt)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_false_stmt = foo.forward(if_false_stmt)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert len(loop_cursor.body()) == 2
+    assert isinstance(if_true_stmt, AssignCursor)
+    assert isinstance(if_true_stmt.parent(), ForSeqCursor)
+
+
+def test_assert_if_forwarding2():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 < -1:
+                x = 0.0
+                pass
+            else:
+                x += 1.0
+                pass
+                pass
+
+    loop_cursor = foo.find_loop("i")
+    if_cursor = loop_cursor.body()[0]
+    if_true_stmt = if_cursor.body()[0]
+    if_false_stmt = if_cursor.orelse()[0]
+    foo = assert_if(foo, "if _:_ #0", False)
+    loop_cursor = foo.forward(loop_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_cursor = foo.forward(if_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_true_stmt = foo.forward(if_true_stmt)
+    if_false_stmt = foo.forward(if_false_stmt)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert len(loop_cursor.body()) == 3
+    assert isinstance(if_false_stmt, ReduceCursor)
+    assert isinstance(if_false_stmt.parent(), ForSeqCursor)
+
+
+def test_assert_if_forwarding3():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 > -1:
+                x = 0.0
+                pass
+
+    loop_cursor = foo.find_loop("i")
+    if_cursor = loop_cursor.body()[0]
+    if_true_stmt = if_cursor.body()[0]
+    foo = assert_if(foo, "if _:_ #0", True)
+    loop_cursor = foo.forward(loop_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_cursor = foo.forward(if_cursor)
+    if_true_stmt = foo.forward(if_true_stmt)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert len(loop_cursor.body()) == 2
+    assert isinstance(if_true_stmt, AssignCursor)
+    assert isinstance(if_true_stmt.parent(), ForSeqCursor)
+
+
+def test_assert_if_forwarding4():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 < -1:
+                x = 0.0
+                pass
+
+    loop_cursor = foo.find_loop("i")
+    if_cursor = loop_cursor.body()[0]
+    if_true_stmt = if_cursor.body()[0]
+    foo = assert_if(foo, "if _:_ #0", False)
+    loop_cursor = foo.forward(loop_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_cursor = foo.forward(if_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_true_stmt = foo.forward(if_true_stmt)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert len(loop_cursor.body()) == 1
+    assert isinstance(loop_cursor.body()[0], PassCursor)

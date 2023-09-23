@@ -1947,7 +1947,6 @@ def assert_if(proc, if_cursor, cond):
     Eliminate the if-statement by determining either that it is always
     True or always False
 
-    DEPRECATED
     TODO: This directive should drop the extra conditional argument
           and be renamed something like "remove_if"
 
@@ -1963,9 +1962,9 @@ def assert_if(proc, if_cursor, cond):
         -> (assuming cond=True)
         `s1`
     """
-    stmt = if_cursor._impl
 
-    return scheduling.DoAssertIf(proc, stmt, cond).result()
+    ir, fwd = scheduling.DoAssertIf(if_cursor._impl, cond)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA, ListOrElemA(NewExprA("block_cursor"))])

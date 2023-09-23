@@ -2647,6 +2647,32 @@ def test_assert_if2(golden):
     assert str(assert_if(foo, "if _:_ #0", False)) == golden
 
 
+def test_assert_if3(golden):
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 > -1:
+                x = 0.0
+                a: R
+                a = x
+
+    assert str(assert_if(foo, "if _:_ #0", True)) == golden
+
+
+def test_assert_if4(golden):
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 < -1:
+                x = 0.0
+                a: R
+                a = x
+
+    assert str(assert_if(foo, "if _:_ #0", False)) == golden
+
+
 def test_lift_reduce_constant_1(golden):
     @proc
     def foo():

@@ -1,0 +1,6 @@
+def foo():
+    x: f32 @ DRAM
+    for i in seq(0, 8):
+        x = 0.0
+        a: R @ DRAM
+        a = x

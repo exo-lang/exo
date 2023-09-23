@@ -3251,46 +3251,24 @@ class DoSimplify(Cursor_Rewrite):
             raise NotImplementedError(f"bad case {type(s)}")
 
 
-class DoAssertIf(Cursor_Rewrite):
-    def __init__(self, proc_cursor, if_cursor, cond):
-        self.if_stmt = if_cursor._node
+def DoAssertIf(if_cursor, cond):
+    if_stmt = if_cursor._node
 
-        assert isinstance(self.if_stmt, LoopIR.If)
-        assert isinstance(cond, bool)
+    assert isinstance(if_stmt, LoopIR.If)
+    assert isinstance(cond, bool)
 
-        self.cond = cond
+    ir, fwd = if_cursor.get_root(), lambda x: x
 
-        super().__init__(proc_cursor)
+    cond_node = LoopIR.Const(cond, T.bool, if_stmt.srcinfo)
+    Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.if_stmt:
-            # check if the condition matches the asserted constant
-            cond_node = LoopIR.Const(self.cond, T.bool, s.srcinfo)
-            Check_ExprEqvInContext(self.orig_proc._node, s.cond, [s], cond_node)
-            # if so, then we can simplify away the guard
-            if self.cond:
-                body = self.map_stmts(sc.body())
-                if body is None:
-                    return [node._node for node in sc.body()]
-                else:
-                    return body
-            else:
-                orelse = self.map_stmts(sc.orelse())
-                if orelse is None:
-                    return [node._node for node in sc.orelse()]
-                else:
-                    return orelse
-        elif isinstance(s, LoopIR.Seq):
-            body = self.map_stmts(sc.body())
-            if body is None:
-                return None
-            elif body == []:
-                return []
-            else:
-                return [s.update(body=body)]
+    body = if_cursor.body() if cond else if_cursor.orelse()
 
-        return super().map_s(sc)
+    ir, fwd = body._move(if_cursor.after())
+    ir, fwd_del = fwd(if_cursor)._delete()
+    fwd = _compose(fwd_del, fwd)
+
+    return ir, fwd
 
 
 def DoDataReuse(buf_cursor, rep_cursor):
