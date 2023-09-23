@@ -3,6 +3,6 @@ def foo(n: size):
     for i in seq(0, 3):
         x: R @ DRAM
         x = 0.0
-    for i in seq(0, -3 + n):
+    for i in seq(3, n):
         x: R @ DRAM
         x = 0.0

@@ -1542,18 +1542,20 @@ def mult_loops(proc, nested_loops, new_iter_name):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA, PosIntA])
-def cut_loop(proc, loop, cut_point):
+@sched_op([ForSeqCursorA, NewExprA("loop_cursor")])
+def cut_loop(proc, loop_cursor, cut_point):
     """
-    Cut a loop into two loops, one iterating from 0 to `cut_point` and
-    the second iterating from `cut_point` to the original loop upper bound.
+    Cut a loop into two loops.
 
-    Right now, cut_point has to be an integer.
-    TODO: support expressions for the cut_point.
+    First loop iterates from `lo` to `cut_point` and
+    the second iterating from `cut_point` to `hi`.
+
+    We must have:
+        `lo` <= `cut_point` <= `hi`
 
     args:
-        loop            - cursor pointing to the loop to split
-        cut_point       - integer saying which iteration to cut at
+        loop_cursor     - cursor pointing to the loop to split
+        cut_point       - expression representing iteration to cut at
 
     rewrite:
         `for i in seq(0,n):`
@@ -1561,10 +1563,33 @@ def cut_loop(proc, loop, cut_point):
         ->
         `for i in seq(0,cut):`
         `    s`
-        `for i in seq(0,n-cut):`
-        `    s[i -> i+cut]`
+        `for i in seq(cut, n):`
+        `    s`
     """
-    ir, fwd = scheduling.DoPartitionLoop(loop._impl, cut_point)
+    ir, fwd = scheduling.DoCutLoop(loop_cursor._impl, cut_point)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([ForSeqCursorA, NewExprA("loop_cursor")])
+def shift_loop(proc, loop_cursor, new_lo):
+    """
+    Shift a loop iterations so that now it starts at `new_lo`
+
+    We must have:
+        0 <= `new_lo`
+
+    args:
+        loop_cursor     - cursor pointing to the loop to shift
+        new_lo          - expression representing new loop lo
+
+    rewrite:
+        `for i in seq(m,n):`
+        `    s(i)`
+        ->
+        `for i in seq(new_lo, new_lo + n - m):`
+        `    s(i + (m - new_lo))`
+    """
+    ir, fwd = scheduling.DoShiftLoop(loop_cursor._impl, new_lo)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

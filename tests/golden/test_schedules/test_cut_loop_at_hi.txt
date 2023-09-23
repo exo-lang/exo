@@ -1,0 +1,5 @@
+def foo():
+    for i in seq(3, 5):
+        x: f32 @ DRAM
+    for i in seq(5, 5):
+        x: f32 @ DRAM

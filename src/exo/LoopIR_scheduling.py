@@ -285,6 +285,18 @@ def get_rest_of_block(c):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Analysis Helpers
+
+
+def Check_IsNonNegativeExpr(proc, stmts, expr):
+    expr = LoopIR.BinOp(
+        "+", expr, LoopIR.Const(1, T.int, expr.srcinfo), expr.type, expr.srcinfo
+    )
+    Check_IsPositiveExpr(proc, stmts, expr)
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Scheduling directives
 
 
@@ -301,42 +313,74 @@ def DoReorderStmt(f_cursor, s_cursor):
     return ir, fwd
 
 
-def DoPartitionLoop(stmt, partition_by):
-    s = stmt._node
+def DoCutLoop(loop_c, cut_point):
+    s = loop_c._node
 
     assert isinstance(s, LoopIR.Seq)
 
-    part_by = LoopIR.Const(partition_by, T.int, s.srcinfo)
-    new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
     try:
-        Check_IsPositiveExpr(
-            stmt.get_root(),
+        Check_IsNonNegativeExpr(
+            loop_c.get_root(),
             [s],
-            LoopIR.BinOp(
-                "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
-            ),
+            LoopIR.BinOp("-", cut_point, s.lo, T.index, s.srcinfo),
         )
     except SchedulingError:
-        raise SchedulingError(
-            f"expected the new loop bound {new_hi} to be always non-negative"
-        )
+        raise SchedulingError(f"Expected `lo` <= `cut_point`")
 
-    loop1 = Alpha_Rename([s.update(hi=part_by)]).result()[0]
+    try:
+        Check_IsNonNegativeExpr(
+            loop_c.get_root(),
+            [s],
+            LoopIR.BinOp("-", s.hi, cut_point, T.index, s.srcinfo),
+        )
+    except SchedulingError:
+        raise SchedulingError(f"Expected `cut_point` <= `hi`")
+
+    ir, fwd1 = loop_c._child_node("hi")._replace(cut_point)
+    loop2 = Alpha_Rename([s.update(lo=cut_point)]).result()[0]
+    ir, fwd2 = fwd1(loop_c).after()._insert([loop2])
+    fwd = _compose(fwd2, fwd1)
+
+    return ir, fwd
+
+
+def DoShiftLoop(loop_c, new_lo):
+    s = loop_c._node
+
+    assert isinstance(s, LoopIR.Seq)
+
+    try:
+        Check_IsNonNegativeExpr(
+            loop_c.get_root(),
+            [s],
+            new_lo,
+        )
+    except SchedulingError:
+        raise SchedulingError(f"Expected 0 <= `new_lo`")
+
+    loop_length = LoopIR.BinOp("-", s.hi, s.lo, T.index, s.srcinfo)
+    new_hi = LoopIR.BinOp("+", new_lo, loop_length, T.index, s.srcinfo)
+
+    ir, fwd1 = loop_c._child_node("lo")._replace(new_lo)
+    ir, fwd2 = fwd1(loop_c)._child_node("hi")._replace(new_hi)
+    fwd12 = _compose(fwd2, fwd1)
 
     # all uses of the loop iteration in the second body need
-    # to be offset by the partition value
-    iter2 = s.iter.copy()
-    iter2_node = LoopIR.Read(iter2, [], T.index, s.srcinfo)
-    iter_off = LoopIR.BinOp("+", iter2_node, part_by, T.index, s.srcinfo)
-    env = {s.iter: iter_off}
+    # to be offset by (`lo` - `new_lo``)
+    loop_iter = s.iter
+    iter_node = LoopIR.Read(loop_iter, [], T.index, s.srcinfo)
+    iter_offset = LoopIR.BinOp("-", s.lo, new_lo, T.index, s.srcinfo)
+    new_iter = LoopIR.BinOp("+", iter_node, iter_offset, T.index, s.srcinfo)
 
-    body2 = SubstArgs(s.body, env).result()
-    zero = LoopIR.Const(0, T.index, s.srcinfo)
-    loop2 = Alpha_Rename(
-        [s.update(iter=iter2, lo=zero, hi=new_hi, body=body2)]
-    ).result()[0]
+    ir, fwd = _replace_reads(
+        ir,
+        fwd12,
+        loop_c,
+        loop_iter,
+        lambda _: new_iter,
+        only_replace_attrs=False,
+    )
 
-    ir, fwd = stmt._replace([loop1, loop2])
     return ir, fwd
 
 
@@ -3781,7 +3825,8 @@ __all__ = [
     "DoSplit",
     "DoUnroll",
     "DoAddLoop",
-    "DoPartitionLoop",
+    "DoCutLoop",
+    "DoShiftLoop",
     "DoProductLoop",
     "DoRemoveLoop",
     "DoLiftAllocSimple",

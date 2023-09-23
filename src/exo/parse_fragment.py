@@ -294,7 +294,7 @@ class ParseFragment:
             return loopIR_expr.update(idx=idx, srcinfo=self.srcinfo)
         elif isinstance(loopIR_expr, LoopIR.Const):
             return loopIR_expr.update(srcinfo=self.srcinfo)
-        elif isinstance(loopIR_expr, loopIR.USub):
+        elif isinstance(loopIR_expr, LoopIR.USub):
             return loopIR_expr.update(
                 arg=self.rebuild_ast(loopIR_expr.arg), srcinfo=self.srcinfo
             )
@@ -326,7 +326,7 @@ class ParseFragment:
         elif isinstance(loopIR_expr, LoopIR.StrideExpr):
             check_sym_consistency(loopIR_expr.name)
             return loopIR_expr.update(srcinfo=self.srcinfo)
-        elif isinstance(loopIR_expr, loopIR.ReadConfig):
+        elif isinstance(loopIR_expr, LoopIR.ReadConfig):
             config_name = loopIR_expr.config.name()
             if config_name not in self.configs:
                 raise ParseFragmentError(

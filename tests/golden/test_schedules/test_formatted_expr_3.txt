@@ -1,0 +1,6 @@
+def foo(n: size, x: f32[n] @ DRAM):
+    assert n >= 10
+    for i in seq(0, -3 + n):
+        x[i] = 0.0
+    for i in seq(-3 + n, -2 + n):
+        x[i] = 0.0
