@@ -2373,7 +2373,8 @@ def test_cut_loop_syrk(golden):
                     for k in seq(0, K):
                         C[4 * io + ii, j] += A[4 * io + ii, k] * A_t[j, k]
 
-    SYRK = cut_loop(SYRK, "for j in _:_", 1)
+    SYRK = cut_loop(SYRK, SYRK.find_loop("j"), 1)
+    SYRK = shift_loop(SYRK, SYRK.find_loop("j #1"), 0)
     assert str(simplify(SYRK)) == golden
 
 
@@ -2488,22 +2489,9 @@ def test_cut_loop_by_expr1(golden):
     assert str(foo) == golden
 
 
-def test_cut_loop_by_expr1(golden):
-    @proc
-    def foo(n: size, x: f32[n]):
-        assert n >= 1
-        for i in seq(0, n):
-            x[i] = 0.0
-
-    loop_cursor = foo.find_loop("i")
-    foo = cut_loop(foo, loop_cursor, FormattedExprStr("_ - 1", loop_cursor.hi()))
-    assert str(foo) == golden
-
-
 def test_cut_loop_by_expr2(golden):
     @proc
     def foo(n: size, m: size):
-        assert m >= 5
         assert n > m
         x: R[n]
         for i in seq(m, n):
