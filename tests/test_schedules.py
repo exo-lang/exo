@@ -2558,6 +2558,20 @@ def test_shift_loop_nonzero_lo(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_cut_then_shift_loop(golden):
+    @proc
+    def foo(n: size, m: size, x: f32[20] @ DRAM):
+        assert n >= m
+        for i in seq(2, 20):
+            x[i] = 0.0
+
+    loop_cursor = foo.find_loop("i")
+    foo = cut_loop(foo, loop_cursor, 10)
+    foo = shift_loop(foo, foo.find_loop("i"), 5)
+    foo = shift_loop(foo, foo.forward(loop_cursor).next(), 0)
+    assert str(simplify(foo)) == golden
+
+
 def test_mem_aware_replace(golden):
     @proc
     def bar(src: f32[8] @ DRAM):
