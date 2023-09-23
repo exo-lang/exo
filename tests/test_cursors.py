@@ -416,7 +416,7 @@ def test_remove_if_forwarding():
     if_cursor = loop_cursor.body()[0]
     if_true_stmt = if_cursor.body()[0]
     if_false_stmt = if_cursor.orelse()[0]
-    foo = remove_if(foo, "if _:_ #0", True)
+    foo = remove_if(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
     with pytest.raises(InvalidCursorError, match=""):
         if_cursor = foo.forward(if_cursor)
@@ -447,7 +447,7 @@ def test_remove_if_forwarding2():
     if_cursor = loop_cursor.body()[0]
     if_true_stmt = if_cursor.body()[0]
     if_false_stmt = if_cursor.orelse()[0]
-    foo = remove_if(foo, "if _:_ #0", False)
+    foo = remove_if(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
     with pytest.raises(InvalidCursorError, match=""):
         if_cursor = foo.forward(if_cursor)
@@ -473,7 +473,7 @@ def test_remove_if_forwarding3():
     loop_cursor = foo.find_loop("i")
     if_cursor = loop_cursor.body()[0]
     if_true_stmt = if_cursor.body()[0]
-    foo = remove_if(foo, "if _:_ #0", True)
+    foo = remove_if(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
     with pytest.raises(InvalidCursorError, match=""):
         if_cursor = foo.forward(if_cursor)
@@ -497,7 +497,7 @@ def test_remove_if_forwarding4():
     loop_cursor = foo.find_loop("i")
     if_cursor = loop_cursor.body()[0]
     if_true_stmt = if_cursor.body()[0]
-    foo = remove_if(foo, "if _:_ #0", False)
+    foo = remove_if(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
     with pytest.raises(InvalidCursorError, match=""):
         if_cursor = foo.forward(if_cursor)

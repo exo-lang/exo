@@ -1941,8 +1941,8 @@ def lift_scope(proc, scope_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([IfCursorA, BoolA])
-def remove_if(proc, if_cursor, cond):
+@sched_op([IfCursorA])
+def remove_if(proc, if_cursor):
     """
     Remove the if-statement by determining either that it is always
     True or always False

@@ -2628,7 +2628,7 @@ def test_remove_if(golden):
                 b: R
                 b = x
 
-    assert str(remove_if(foo, "if _:_ #0", True)) == golden
+    assert str(remove_if(foo, "if _:_ #0")) == golden
 
 
 def test_remove_if2(golden):
@@ -2644,7 +2644,7 @@ def test_remove_if2(golden):
                 b: R
                 b = x
 
-    assert str(remove_if(foo, "if _:_ #0", False)) == golden
+    assert str(remove_if(foo, "if _:_ #0")) == golden
 
 
 def test_remove_if3(golden):
@@ -2657,7 +2657,7 @@ def test_remove_if3(golden):
                 a: R
                 a = x
 
-    assert str(remove_if(foo, "if _:_ #0", True)) == golden
+    assert str(remove_if(foo, "if _:_ #0")) == golden
 
 
 def test_remove_if4(golden):
@@ -2670,7 +2670,7 @@ def test_remove_if4(golden):
                 a: R
                 a = x
 
-    assert str(remove_if(foo, "if _:_ #0", False)) == golden
+    assert str(remove_if(foo, "if _:_ #0")) == golden
 
 
 def test_remove_if5():
@@ -2685,7 +2685,7 @@ def test_remove_if5():
         SchedulingError,
         match="If condition isn't always True or always False",
     ):
-        remove_if(foo, "if _:_ #0", False)
+        remove_if(foo, "if _:_ #0")
 
 
 def test_lift_reduce_constant_1(golden):
