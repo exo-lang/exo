@@ -1941,31 +1941,26 @@ def lift_scope(proc, scope_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([IfCursorA, BoolA])
-def assert_if(proc, if_cursor, cond):
+@sched_op([IfCursorA])
+def remove_if(proc, if_cursor):
     """
-    Eliminate the if-statement by determining either that it is always
+    Remove the if-statement by determining either that it is always
     True or always False
 
-    DEPRECATED
-    TODO: This directive should drop the extra conditional argument
-          and be renamed something like "remove_if"
-
     args:
-        if_cursor       - cursor to the if-statement to simplify
-        cond            - True or False: what the condition should always be
+        if_cursor       - cursor to the if-statement to remove
 
     rewrite:
         `if p:`
         `    s1`
         `else:`
         `    s2`
-        -> (assuming cond=True)
+        -> (assuming `p` is always True)
         `s1`
     """
-    stmt = if_cursor._impl
 
-    return scheduling.DoAssertIf(proc, stmt, cond).result()
+    ir, fwd = scheduling.DoRemoveIf(if_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA, ListOrElemA(NewExprA("block_cursor"))])
