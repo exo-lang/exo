@@ -272,10 +272,10 @@ CIR = ADT(
     """
 module CIR {
 
-    expr    = Read    ( sym name, bool ispos )
+    expr    = Read    ( sym name, bool is_non_neg )
             | Stride  ( sym name, int dim )
             | Const   ( object val )
-            | BinOp   ( op op, expr lhs, expr rhs, bool ispos )
+            | BinOp   ( op op, expr lhs, expr rhs, bool is_non_neg )
 
 } """,
     ext_types={
@@ -686,7 +686,7 @@ class LoopIR_Rewrite:
             new_args = self.map_exprs(s.args)
             if new_args is not None:
                 return [s.update(args=new_args or s.args)]
-        elif isinstance(s, LoopIR.Alloc):
+        elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)):
             new_type = self.map_t(s.type)
             if new_type:
                 return [s.update(type=new_type or s.type)]

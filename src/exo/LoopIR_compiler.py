@@ -13,6 +13,7 @@ from .memory import MemGenError, Memory, DRAM, StaticMemory
 from .prec_analysis import PrecisionAnalysis
 from .prelude import *
 from .win_analysis import WindowAnalysis
+from .new_eff import Check_IsNonNegativeExpr, SchedulingError
 
 
 def sanitize_str(s):
@@ -45,22 +46,6 @@ op_prec = {
     # unary minus
     "~": 70,
 }
-
-
-def lift_to_cir(e):
-    assert e.type.is_indexable(), "why are you here?"
-
-    if isinstance(e, LoopIR.Read):
-        return CIR.Read(e.name, e.type == T.size)
-    elif isinstance(e, LoopIR.Const):
-        return CIR.Const(e.val)
-    elif isinstance(e, LoopIR.BinOp):
-        lhs = lift_to_cir(e.lhs)
-        rhs = lift_to_cir(e.rhs)
-        return CIR.BinOp(e.op, lhs, rhs, e.type == T.size)
-    else:
-        assert False, "bad case!"
-
 
 operations = {
     "+": lambda x, y: x + y,
@@ -108,7 +93,7 @@ def simplify_cir(e):
         if isinstance(rhs, CIR.Const) and rhs.val == 1 and (e.op == "*" or e.op == "/"):
             return lhs
 
-        return CIR.BinOp(e.op, lhs, rhs, e.ispos)
+        return CIR.BinOp(e.op, lhs, rhs, e.is_non_neg)
 
     else:
         assert False, "bad case!"
@@ -505,6 +490,7 @@ class Compiler:
         self._needed_helpers = set()
         self.window_defns = set()
         self._known_strides = {}
+        self._current_stmt = None
 
         assert self.proc.name is not None, "expected names for compilation"
         name = self.proc.name
@@ -674,6 +660,35 @@ class Compiler:
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
+    def check_indexable_is_non_neg(self, e):
+        assert e.type.is_indexable()
+
+        # Will only affect asserts
+        if self._current_stmt is None:
+            return False
+
+        try:
+            Check_IsNonNegativeExpr(self.proc, [self._current_stmt], e)
+            return True
+        except SchedulingError:
+            return False
+        except:
+            raise
+
+    def lift_to_cir(self, e):
+        assert e.type.is_indexable(), "why are you here?"
+
+        if isinstance(e, LoopIR.Read):
+            return CIR.Read(e.name, self.check_indexable_is_non_neg(e))
+        elif isinstance(e, LoopIR.Const):
+            return CIR.Const(e.val)
+        elif isinstance(e, LoopIR.BinOp):
+            lhs = self.lift_to_cir(e.lhs)
+            rhs = self.lift_to_cir(e.rhs)
+            return CIR.BinOp(e.op, lhs, rhs, self.check_indexable_is_non_neg(e))
+        else:
+            assert False, "bad case!"
+
     def comp_cir(self, e, env, prec) -> str:
         if isinstance(e, CIR.Read):
             return env[e.name]
@@ -691,7 +706,7 @@ class Compiler:
                 rhs = f"({rhs})"
 
             if e.op == "/":
-                if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.ispos) or (
+                if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg) or (
                     isinstance(e.lhs, CIR.Const) and e.lhs.val > 0
                 ):
                     return f"({lhs} / {rhs})"
@@ -712,7 +727,7 @@ class Compiler:
 
     def access_str(self, nm, idx_list) -> str:
         type = self.envtyp[nm]
-        cirs = [lift_to_cir(i) for i in idx_list]
+        cirs = [self.lift_to_cir(i) for i in idx_list]
         idx_expr = self.get_idx_offset(nm, type, cirs)
         idx_expr_s = self.comp_cir(simplify_cir(idx_expr), self.env, prec=0)
         buf = self.env[nm]
@@ -723,12 +738,13 @@ class Compiler:
 
     def shape_strs(self, shape, prec=100) -> str:
         comp_res = [
-            self.comp_cir(simplify_cir(lift_to_cir(i)), self.env, prec) for i in shape
+            self.comp_cir(simplify_cir(self.lift_to_cir(i)), self.env, prec)
+            for i in shape
         ]
         return comp_res
 
     def tensor_strides(self, shape) -> CIR:
-        szs = [lift_to_cir(i) for i in shape]
+        szs = [self.lift_to_cir(i) for i in shape]
         assert len(szs) >= 1
         strides = [CIR.Const(1)]
         s = szs[-1]
@@ -784,6 +800,7 @@ class Compiler:
         return win.name
 
     def comp_s(self, s):
+        self._current_stmt = s
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
@@ -982,7 +999,9 @@ class Compiler:
             rhs = self.comp_e(e.rhs, local_prec + 1)
 
             if int_div:
-                if isinstance(e.lhs.type, LoopIR.Size):
+                if isinstance(e.lhs.type, LoopIR.Size) or (
+                    e.lhs.type.is_indexable() and self.check_indexable_is_non_neg(e)
+                ):
                     # TODO: too many parens?
                     return f"(({lhs}) / ({rhs}))"
                 return self._call_static_helper("exo_floor_div", lhs, rhs)
@@ -1027,7 +1046,7 @@ class Compiler:
         def w_lo(w):
             return w.lo if isinstance(w, LoopIR.Interval) else w.pt
 
-        cirs = [lift_to_cir(w_lo(w)) for w in e.idx]
+        cirs = [self.lift_to_cir(w_lo(w)) for w in e.idx]
         idxs = [self.comp_cir(simplify_cir(i), self.env, prec=0) for i in cirs]
 
         # compute new window strides
