@@ -28,6 +28,7 @@ from .new_eff import (
     Check_IsDeadAfter,
     Check_IsIdempotent,
     Check_IsPositiveExpr,
+    Check_IsNonNegativeExpr,
     Check_Aliasing,
 )
 from .range_analysis import IndexRangeAnalysis
@@ -281,18 +282,6 @@ def _replace_writes(ir, fwd, c, sym, repl, only_replace_attrs=True):
 
 def get_rest_of_block(c):
     return c.as_block().expand(delta_lo=0)
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Analysis Helpers
-
-
-def Check_IsNonNegativeExpr(proc, stmts, expr):
-    expr = LoopIR.BinOp(
-        "+", expr, LoopIR.Const(1, T.int, expr.srcinfo), expr.type, expr.srcinfo
-    )
-    Check_IsPositiveExpr(proc, stmts, expr)
 
 
 # --------------------------------------------------------------------------- #

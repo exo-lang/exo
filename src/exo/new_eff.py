@@ -2023,8 +2023,10 @@ def Check_IsIdempotent(proc, stmts):
         raise SchedulingError(f"The statement at {stmts[0].srcinfo} is not idempotent.")
 
 
-def Check_IsPositiveExpr(proc, stmts, expr):
+def Check_IsExprGreaterThan(proc, stmts, expr, value, orEqual=False):
     assert len(stmts) > 0
+    assert isinstance(value, int)
+
     ctxt = ContextExtraction(proc, stmts)
 
     p = ctxt.get_control_predicate()
@@ -2035,15 +2037,30 @@ def Check_IsPositiveExpr(proc, stmts, expr):
     slv.assume(AMay(p))
 
     e = G(lift_e(expr))
-    is_pos = slv.verify(ADef(e > AInt(0)))
+    if not orEqual:
+        success = slv.verify(ADef(e > AInt(value)))
+    else:
+        success = slv.verify(ADef(e >= AInt(value)))
     slv.pop()
-    if not is_pos:
+    if not success:
         estr = str(expr)
         if estr[-1] == "\n":
             estr = estr[:-1]
+
+        orEqualErrorMsg = ""
+        if orEqual:
+            orEqualErrorMsg = " or equal to"
         raise SchedulingError(
-            f"The expression {estr} is not guaranteed to be positive."
+            f"The expression {estr} is not guaranteed to be greater than{orEqualErrorMsg} {value}."
         )
+
+
+def Check_IsPositiveExpr(proc, stmts, expr):
+    Check_IsExprGreaterThan(proc, stmts, expr, 0)
+
+
+def Check_IsNonNegativeExpr(proc, stmts, expr):
+    Check_IsExprGreaterThan(proc, stmts, expr, 0, orEqual=True)
 
 
 def Check_CodeIsDead(proc, stmts):

@@ -201,7 +201,8 @@ def test_add_loop6_runs_fail():
         x = 3.0
 
     with pytest.raises(
-        SchedulingError, match="The expression 0 is not " "guaranteed to be positive"
+        SchedulingError,
+        match="The expression 0 is not " "guaranteed to be greater than 0",
     ):
         add_loop(foo, "x = 2.0", "i", 0)
 
@@ -685,12 +686,14 @@ def test_expand_dim4(golden):
                 pass
 
     with pytest.raises(
-        SchedulingError, match="The expression 10 - 20 is not guaranteed to be positive"
+        SchedulingError,
+        match="The expression 10 - 20 is not guaranteed to be greater than 0",
     ):
         expand_dim(foo, "a : i8", "10-20", "10")  # this is not fine
 
     with pytest.raises(
-        SchedulingError, match="The expression n - m is not guaranteed to be positive"
+        SchedulingError,
+        match="The expression n - m is not guaranteed to be greater than 0",
     ):
         expand_dim(foo, "a : i8", "n - m", "i")  # out of bounds
 
