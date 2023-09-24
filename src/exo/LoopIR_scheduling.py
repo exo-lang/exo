@@ -30,7 +30,7 @@ from .new_eff import (
     Check_IsPositiveExpr,
     Check_Aliasing,
 )
-from .range_analysis import IndexRangeAnalysis
+from .range_analysis import index_range_analysis
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
 import exo.internal_cursors as ic
@@ -2683,9 +2683,9 @@ class _DoNormalize(Cursor_Rewrite):
                 non_divisible_expr = generate_loopIR(
                     e.lhs, constant.update(val=0), non_divisible_terms
                 )
-                non_divisible_expr_range = IndexRangeAnalysis(
+                non_divisible_expr_range = index_range_analysis(
                     non_divisible_expr, self.env
-                ).result()
+                )
 
                 if (
                     non_divisible_expr_range is not None
@@ -2704,9 +2704,9 @@ class _DoNormalize(Cursor_Rewrite):
                 non_divisible_expr = generate_loopIR(
                     e.lhs, constant, non_divisible_terms
                 )
-                non_divisible_expr_range = IndexRangeAnalysis(
+                non_divisible_expr_range = index_range_analysis(
                     non_divisible_expr, self.env
-                ).result()
+                )
 
                 if (
                     non_divisible_expr_range is not None
@@ -2810,7 +2810,7 @@ class _DoNormalize(Cursor_Rewrite):
                 constant = constant.update(val=0)
 
             new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
-            new_lhs_range = IndexRangeAnalysis(new_lhs, self.env).result()
+            new_lhs_range = index_range_analysis(new_lhs, self.env)
             if new_lhs_range is not None and new_lhs_range[1] < m:
                 assert new_lhs_range[0] >= 0
                 return new_lhs
@@ -2902,8 +2902,8 @@ class _DoNormalize(Cursor_Rewrite):
             new_hi = self.map_e(s.hi)
 
             self.env = self.env.new_child()
-            lo_range = IndexRangeAnalysis(new_lo, self.env).result()
-            hi_range = IndexRangeAnalysis(new_hi, self.env).result()
+            lo_range = index_range_analysis(new_lo, self.env)
+            hi_range = index_range_analysis(new_hi, self.env)
 
             if lo_range is not None and hi_range is not None:
                 assert lo_range[0] <= hi_range[1]

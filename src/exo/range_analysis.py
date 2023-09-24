@@ -1,7 +1,7 @@
 from .LoopIR import LoopIR
 
 
-class IndexRangeAnalysis:
+def index_range_analysis(expr, env):
     """
     Performs range-analysis on an index expression.
 
@@ -18,15 +18,12 @@ class IndexRangeAnalysis:
         or a failure to perform the analysis.
     """
 
-    @staticmethod
     def merge_add(lhs_range, rhs_range):
         return (lhs_range[0] + rhs_range[0], lhs_range[1] + rhs_range[1])
 
-    @staticmethod
     def merge_sub(lhs_range, rhs_range):
         return (lhs_range[0] - rhs_range[1], lhs_range[1] - rhs_range[0])
 
-    @staticmethod
     def merge_mul(lhs_range, rhs_range):
         if lhs_range[0] < 0 or rhs_range[0] < 0:
             return None
@@ -34,7 +31,6 @@ class IndexRangeAnalysis:
         a = [i * j for i in lhs_range for j in rhs_range]
         return (min(a), max(a))
 
-    @staticmethod
     def merge_div(lhs_range, rhs_range):
         assert rhs_range[0] == rhs_range[1]
         assert rhs_range[0] > 0
@@ -45,7 +41,6 @@ class IndexRangeAnalysis:
         d = rhs_range[0]
         return (lhs_range[0] // d, lhs_range[1] // d)
 
-    @staticmethod
     def merge_mod(lhs_range, rhs_range):
         assert rhs_range[0] == rhs_range[1]
         assert rhs_range[0] > 0
@@ -59,49 +54,45 @@ class IndexRangeAnalysis:
 
         return (0, m)
 
-    def __init__(self, e, env) -> None:
-        self._env = env
-        self._e_symbols = set()
-        self._result = self._analyze_range(e)
+    e_symbols = set()
 
-    def result(self):
-        return self._result
+    def analyze_range(expr):
+        assert isinstance(expr, LoopIR.expr)
 
-    def _analyze_range(self, e):
-        assert isinstance(e, LoopIR.expr)
-
-        if not e.type.is_indexable():
+        if not expr.type.is_indexable():
             return None
 
-        if isinstance(e, LoopIR.Read):
-            sym = e.name
-            if sym in self._e_symbols:
+        if isinstance(expr, LoopIR.Read):
+            sym = expr.name
+            if sym in e_symbols:
                 # It is unclear how to do range analysis when a symbol
                 # is read twice within an expression. In most cases,
                 # this won't matter since the expression are normalized
                 # before we try to do range analysis on them
                 return None
-            self._e_symbols.add(sym)
-            return self._env.get(sym)
-        elif isinstance(e, LoopIR.Const):
-            return (e.val, e.val)
-        elif isinstance(e, LoopIR.USub):
-            e_range = self._analyze_range(e.arg)
+            e_symbols.add(sym)
+            return env.get(sym)
+        elif isinstance(expr, LoopIR.Const):
+            return (expr.val, expr.val)
+        elif isinstance(expr, LoopIR.USub):
+            e_range = analyze_range(expr.arg)
             if e_range is None:
                 return None
             return (-e_range[1], -e_range[0])
-        elif isinstance(e, LoopIR.BinOp):
-            lhs_range = self._analyze_range(e.lhs)
-            rhs_range = self._analyze_range(e.rhs)
+        elif isinstance(expr, LoopIR.BinOp):
+            lhs_range = analyze_range(expr.lhs)
+            rhs_range = analyze_range(expr.rhs)
             if lhs_range is None or rhs_range is None:
                 return None
             merge_binop = {
-                "+": IndexRangeAnalysis.merge_add,
-                "-": IndexRangeAnalysis.merge_sub,
-                "*": IndexRangeAnalysis.merge_mul,
-                "/": IndexRangeAnalysis.merge_div,
-                "%": IndexRangeAnalysis.merge_mod,
+                "+": merge_add,
+                "-": merge_sub,
+                "*": merge_mul,
+                "/": merge_div,
+                "%": merge_mod,
             }
-            return merge_binop[e.op](lhs_range, rhs_range)
+            return merge_binop[expr.op](lhs_range, rhs_range)
         else:
             return None
+
+    return analyze_range(expr)
