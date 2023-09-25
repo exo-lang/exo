@@ -360,3 +360,150 @@ def test_argcursor_introspection():
     with pytest.raises(AssertionError, match=""):
         shape = result_arg.shape()
     assert result_arg.type() == ExoType.R
+
+
+def test_cut_loop_forwarding():
+    @proc
+    def foo(n: size):
+        for i in seq(0, 10):
+            pass
+
+    loop_cursor = foo.find_loop("i")
+    pass_cursor = loop_cursor.body()[0]
+    foo = cut_loop(foo, loop_cursor, 3)
+    loop_cursor = foo.forward(loop_cursor)
+    second_loop = loop_cursor.next()
+    pass_cursor = foo.forward(pass_cursor)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(second_loop, ForSeqCursor)
+    assert isinstance(pass_cursor, PassCursor)
+    assert isinstance(pass_cursor.parent(), ForSeqCursor)
+    assert pass_cursor.parent().hi().value() == 3
+
+
+def test_shift_loop_forwarding():
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = 1.0
+
+    loop_cursor = foo.find_loop("i")
+    assign_cursor = loop_cursor.body()[0]
+    foo = shift_loop(foo, loop_cursor, 3)
+    loop_cursor = foo.forward(loop_cursor)
+    assign_cursor = foo.forward(assign_cursor)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(assign_cursor, AssignCursor)
+    assert isinstance(assign_cursor.parent(), ForSeqCursor)
+
+
+def test_remove_if_forwarding():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 > -1:
+                x = 0.0
+                pass
+            else:
+                x += 1.0
+                pass
+                pass
+
+    loop_cursor = foo.find_loop("i")
+    if_cursor = loop_cursor.body()[0]
+    if_true_stmt = if_cursor.body()[0]
+    if_false_stmt = if_cursor.orelse()[0]
+    foo = remove_if(foo, "if _:_ #0")
+    loop_cursor = foo.forward(loop_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_cursor = foo.forward(if_cursor)
+    if_true_stmt = foo.forward(if_true_stmt)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_false_stmt = foo.forward(if_false_stmt)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert len(loop_cursor.body()) == 2
+    assert isinstance(if_true_stmt, AssignCursor)
+    assert isinstance(if_true_stmt.parent(), ForSeqCursor)
+
+
+def test_remove_if_forwarding2():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 < -1:
+                x = 0.0
+                pass
+            else:
+                x += 1.0
+                pass
+                pass
+
+    loop_cursor = foo.find_loop("i")
+    if_cursor = loop_cursor.body()[0]
+    if_true_stmt = if_cursor.body()[0]
+    if_false_stmt = if_cursor.orelse()[0]
+    foo = remove_if(foo, "if _:_ #0")
+    loop_cursor = foo.forward(loop_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_cursor = foo.forward(if_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_true_stmt = foo.forward(if_true_stmt)
+    if_false_stmt = foo.forward(if_false_stmt)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert len(loop_cursor.body()) == 3
+    assert isinstance(if_false_stmt, ReduceCursor)
+    assert isinstance(if_false_stmt.parent(), ForSeqCursor)
+
+
+def test_remove_if_forwarding3():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 > -1:
+                x = 0.0
+                pass
+
+    loop_cursor = foo.find_loop("i")
+    if_cursor = loop_cursor.body()[0]
+    if_true_stmt = if_cursor.body()[0]
+    foo = remove_if(foo, "if _:_ #0")
+    loop_cursor = foo.forward(loop_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_cursor = foo.forward(if_cursor)
+    if_true_stmt = foo.forward(if_true_stmt)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert len(loop_cursor.body()) == 2
+    assert isinstance(if_true_stmt, AssignCursor)
+    assert isinstance(if_true_stmt.parent(), ForSeqCursor)
+
+
+def test_remove_if_forwarding4():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i + 3 < -1:
+                x = 0.0
+                pass
+
+    loop_cursor = foo.find_loop("i")
+    if_cursor = loop_cursor.body()[0]
+    if_true_stmt = if_cursor.body()[0]
+    foo = remove_if(foo, "if _:_ #0")
+    loop_cursor = foo.forward(loop_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_cursor = foo.forward(if_cursor)
+    with pytest.raises(InvalidCursorError, match=""):
+        if_true_stmt = foo.forward(if_true_stmt)
+
+    assert isinstance(loop_cursor, ForSeqCursor)
+    assert len(loop_cursor.body()) == 1
+    assert isinstance(loop_cursor.body()[0], PassCursor)

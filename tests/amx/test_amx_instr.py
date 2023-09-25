@@ -541,6 +541,7 @@ def matmul_i8_2x2_blocks():
 
     print("Staging A and B memory and replacing their loads")
     amx = cut_loop(amx, "ji_unroll", 1)
+    amx = shift_loop(amx, "ji_unroll #1", 0)
     B_mem_template = "B[16*ko:16*(ko+1), 128*jo+64*(ji_unroll+{j_lo}):128*jo+64*(ji_unroll+{j_lo}+1)]"
     for i in range(2):
         amx = stage_mem(
@@ -554,6 +555,7 @@ def matmul_i8_2x2_blocks():
     amx = fission(amx, amx.find("for ji_unroll in _:_ #1").after(), n_lifts=1)
     amx = remove_loop(amx, "ii_unroll #0")
     amx = cut_loop(amx, "ii_unroll", 1)
+    amx = shift_loop(amx, "ii_unroll #1", 0)
     A_mem_template = "A[32 * io + 16*(ii_unroll+{i_lo}):32 * io + 16*(ii_unroll+{i_lo}+1), 64*ko:64*(ko+1)]"
     for i in range(2):
         amx = fuse(amx, f"for ji_unroll in _:_ #{i+2}", f"for ji_unroll in _:_ #{i+3}")

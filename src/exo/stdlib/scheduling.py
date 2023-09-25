@@ -62,6 +62,7 @@ from ..API_scheduling import (
     divide_loop,
     mult_loops,
     cut_loop,
+    shift_loop,
     reorder_loops,
     merge_writes,
     lift_reduce_constant,
@@ -73,7 +74,7 @@ from ..API_scheduling import (
     #
     # guard rewriting
     lift_scope,
-    assert_if,
+    remove_if,
     specialize,
     #
     # deprecated scheduling operations

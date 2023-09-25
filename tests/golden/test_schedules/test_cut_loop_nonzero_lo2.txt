@@ -1,8 +1,10 @@
 def foo(n: size, m: size):
-    assert m > 5
-    assert n > m
+    assert m >= 5
+    assert m <= 8
+    assert n >= 9
+    assert n > 1 + m
     x: R[n] @ DRAM
-    for i in seq(m, 5):
+    for i in seq(m, 9):
         x[i] = 0.0
-    for i in seq(0, -5 + n):
-        x[5 + i] = 0.0
+    for i in seq(9, n):
+        x[i] = 0.0

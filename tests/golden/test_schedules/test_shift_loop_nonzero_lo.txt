@@ -1,0 +1,4 @@
+def foo(n: size, m: size, x: f32[n + 1] @ DRAM):
+    assert n >= m
+    for i in seq(4, 4 - m + n):
+        x[-4 + i + m] = 0.0

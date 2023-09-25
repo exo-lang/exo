@@ -285,6 +285,18 @@ def get_rest_of_block(c):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Analysis Helpers
+
+
+def Check_IsNonNegativeExpr(proc, stmts, expr):
+    expr = LoopIR.BinOp(
+        "+", expr, LoopIR.Const(1, T.int, expr.srcinfo), expr.type, expr.srcinfo
+    )
+    Check_IsPositiveExpr(proc, stmts, expr)
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Scheduling directives
 
 
@@ -301,42 +313,74 @@ def DoReorderStmt(f_cursor, s_cursor):
     return ir, fwd
 
 
-def DoPartitionLoop(stmt, partition_by):
-    s = stmt._node
+def DoCutLoop(loop_c, cut_point):
+    s = loop_c._node
 
     assert isinstance(s, LoopIR.Seq)
 
-    part_by = LoopIR.Const(partition_by, T.int, s.srcinfo)
-    new_hi = LoopIR.BinOp("-", s.hi, part_by, T.int, s.srcinfo)
     try:
-        Check_IsPositiveExpr(
-            stmt.get_root(),
+        Check_IsNonNegativeExpr(
+            loop_c.get_root(),
             [s],
-            LoopIR.BinOp(
-                "+", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.int, s.srcinfo
-            ),
+            LoopIR.BinOp("-", cut_point, s.lo, T.index, s.srcinfo),
         )
     except SchedulingError:
-        raise SchedulingError(
-            f"expected the new loop bound {new_hi} to be always non-negative"
-        )
+        raise SchedulingError(f"Expected `lo` <= `cut_point`")
 
-    loop1 = Alpha_Rename([s.update(hi=part_by)]).result()[0]
+    try:
+        Check_IsNonNegativeExpr(
+            loop_c.get_root(),
+            [s],
+            LoopIR.BinOp("-", s.hi, cut_point, T.index, s.srcinfo),
+        )
+    except SchedulingError:
+        raise SchedulingError(f"Expected `cut_point` <= `hi`")
+
+    ir, fwd1 = loop_c._child_node("hi")._replace(cut_point)
+    loop2 = Alpha_Rename([s.update(lo=cut_point)]).result()[0]
+    ir, fwd2 = fwd1(loop_c).after()._insert([loop2])
+    fwd = _compose(fwd2, fwd1)
+
+    return ir, fwd
+
+
+def DoShiftLoop(loop_c, new_lo):
+    s = loop_c._node
+
+    assert isinstance(s, LoopIR.Seq)
+
+    try:
+        Check_IsNonNegativeExpr(
+            loop_c.get_root(),
+            [s],
+            new_lo,
+        )
+    except SchedulingError:
+        raise SchedulingError(f"Expected 0 <= `new_lo`")
+
+    loop_length = LoopIR.BinOp("-", s.hi, s.lo, T.index, s.srcinfo)
+    new_hi = LoopIR.BinOp("+", new_lo, loop_length, T.index, s.srcinfo)
+
+    ir, fwd1 = loop_c._child_node("lo")._replace(new_lo)
+    ir, fwd2 = fwd1(loop_c)._child_node("hi")._replace(new_hi)
+    fwd12 = _compose(fwd2, fwd1)
 
     # all uses of the loop iteration in the second body need
-    # to be offset by the partition value
-    iter2 = s.iter.copy()
-    iter2_node = LoopIR.Read(iter2, [], T.index, s.srcinfo)
-    iter_off = LoopIR.BinOp("+", iter2_node, part_by, T.index, s.srcinfo)
-    env = {s.iter: iter_off}
+    # to be offset by (`lo` - `new_lo``)
+    loop_iter = s.iter
+    iter_node = LoopIR.Read(loop_iter, [], T.index, s.srcinfo)
+    iter_offset = LoopIR.BinOp("-", s.lo, new_lo, T.index, s.srcinfo)
+    new_iter = LoopIR.BinOp("+", iter_node, iter_offset, T.index, s.srcinfo)
 
-    body2 = SubstArgs(s.body, env).result()
-    zero = LoopIR.Const(0, T.index, s.srcinfo)
-    loop2 = Alpha_Rename(
-        [s.update(iter=iter2, lo=zero, hi=new_hi, body=body2)]
-    ).result()[0]
+    ir, fwd = _replace_reads(
+        ir,
+        fwd12,
+        loop_c,
+        loop_iter,
+        lambda _: new_iter,
+        only_replace_attrs=False,
+    )
 
-    ir, fwd = stmt._replace([loop1, loop2])
     return ir, fwd
 
 
@@ -3207,46 +3251,31 @@ class DoSimplify(Cursor_Rewrite):
             raise NotImplementedError(f"bad case {type(s)}")
 
 
-class DoAssertIf(Cursor_Rewrite):
-    def __init__(self, proc_cursor, if_cursor, cond):
-        self.if_stmt = if_cursor._node
+def DoRemoveIf(if_cursor):
+    if_stmt = if_cursor._node
 
-        assert isinstance(self.if_stmt, LoopIR.If)
-        assert isinstance(cond, bool)
+    assert isinstance(if_stmt, LoopIR.If)
 
-        self.cond = cond
+    ir, fwd = if_cursor.get_root(), lambda x: x
 
-        super().__init__(proc_cursor)
+    try:
+        cond_node = LoopIR.Const(True, T.bool, if_stmt.srcinfo)
+        Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
+        cond = True
+    except SchedulingError:
+        try:
+            cond_node = LoopIR.Const(False, T.bool, if_stmt.srcinfo)
+            Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
+            cond = False
+        except SchedulingError:
+            raise SchedulingError("If condition isn't always True or always False")
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.if_stmt:
-            # check if the condition matches the asserted constant
-            cond_node = LoopIR.Const(self.cond, T.bool, s.srcinfo)
-            Check_ExprEqvInContext(self.orig_proc._node, s.cond, [s], cond_node)
-            # if so, then we can simplify away the guard
-            if self.cond:
-                body = self.map_stmts(sc.body())
-                if body is None:
-                    return [node._node for node in sc.body()]
-                else:
-                    return body
-            else:
-                orelse = self.map_stmts(sc.orelse())
-                if orelse is None:
-                    return [node._node for node in sc.orelse()]
-                else:
-                    return orelse
-        elif isinstance(s, LoopIR.Seq):
-            body = self.map_stmts(sc.body())
-            if body is None:
-                return None
-            elif body == []:
-                return []
-            else:
-                return [s.update(body=body)]
+    body = if_cursor.body() if cond else if_cursor.orelse()
+    ir, fwd = body._move(if_cursor.after())
+    ir, fwd_del = fwd(if_cursor)._delete()
+    fwd = _compose(fwd_del, fwd)
 
-        return super().map_s(sc)
+    return ir, fwd
 
 
 def DoDataReuse(buf_cursor, rep_cursor):
@@ -3781,7 +3810,8 @@ __all__ = [
     "DoSplit",
     "DoUnroll",
     "DoAddLoop",
-    "DoPartitionLoop",
+    "DoCutLoop",
+    "DoShiftLoop",
     "DoProductLoop",
     "DoRemoveLoop",
     "DoLiftAllocSimple",
@@ -3812,7 +3842,7 @@ __all__ = [
     "DoFissionLoops",
     "DoBoundAndGuard",
     "DoDeletePass",
-    "DoAssertIf",
+    "DoRemoveIf",
     "DoAddUnsafeGuard",
     "DoStageWindow",
     "DoBoundAlloc",
