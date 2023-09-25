@@ -48,11 +48,6 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 
 
 
-static int exo_floor_div(int num, int quot) {
-  int off = (num>=0)? 0 : quot-1;
-  return (num-off)/quot;
-}
-
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -64,7 +59,7 @@ static int exo_floor_div(int num, int quot) {
 // )
 void foo( void *ctxt, int_fast32_t N, float* x ) {
 for (int_fast32_t ii = 0; ii < N % 4; ii++) {
-  for (int_fast32_t joo = 0; joo < exo_floor_div(ii + ((N) / (4)) * 4, 16); joo++) {
+  for (int_fast32_t joo = 0; joo < ((ii + ((N) / (4)) * 4) / (16)); joo++) {
     x[ii * N + joo] = 0.0;
   }
 }

@@ -118,11 +118,6 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 
 
 
-static int exo_floor_div(int num, int quot) {
-  int off = (num>=0)? 0 : quot-1;
-  return (num-off)/quot;
-}
-
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -133,14 +128,14 @@ static int exo_floor_div(int num, int quot) {
 //     x : f32[N] @DRAM
 // )
 void foo( void *ctxt, int_fast32_t N, float* x ) {
-for (int_fast32_t io = 0; io < exo_floor_div(N + 7, 8) - 1; io++) {
+for (int_fast32_t io = 0; io < ((N + 7) / (8)) - 1; io++) {
   for (int_fast32_t ii = 0; ii < 8; ii++) {
     if (8 * io + ii < N) {
       x[8 * io + ii] = 0.0;
     }
   }
 }
-for (int_fast32_t io = exo_floor_div(N + 7, 8) - 1; io < ((N + 7) / (8)); io++) {
+for (int_fast32_t io = ((N + 7) / (8)) - 1; io < ((N + 7) / (8)); io++) {
   for (int_fast32_t ii = 0; ii < 8; ii++) {
     if (8 * io + ii < N) {
       x[8 * io + ii] = 0.0;
@@ -200,11 +195,6 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 
 
 
-static int exo_floor_div(int num, int quot) {
-  int off = (num>=0)? 0 : quot-1;
-  return (num-off)/quot;
-}
-
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -215,9 +205,9 @@ static int exo_floor_div(int num, int quot) {
 //     x : f32[N] @DRAM
 // )
 void foo( void *ctxt, int_fast32_t N, float* x ) {
-for (int_fast32_t ioo = 0; ioo < exo_floor_div(exo_floor_div(N + 7, 8) - 1 + 3, 4); ioo++) {
+for (int_fast32_t ioo = 0; ioo < ((((N + 7) / (8)) - 1 + 3) / (4)); ioo++) {
   for (int_fast32_t ioi = 0; ioi < 4; ioi++) {
-    if (4 * ioo + ioi < exo_floor_div(N + 7, 8) - 1) {
+    if (4 * ioo + ioi < ((N + 7) / (8)) - 1) {
       for (int_fast32_t ii = 0; ii < 8; ii++) {
         if (8 * (4 * ioo + ioi) + ii < N) {
           x[8 * (4 * ioo + ioi) + ii] = 0.0;
@@ -226,7 +216,7 @@ for (int_fast32_t ioo = 0; ioo < exo_floor_div(exo_floor_div(N + 7, 8) - 1 + 3, 
     }
   }
 }
-for (int_fast32_t io = exo_floor_div(N + 7, 8) - 1; io < ((N + 7) / (8)); io++) {
+for (int_fast32_t io = ((N + 7) / (8)) - 1; io < ((N + 7) / (8)); io++) {
   for (int_fast32_t ii = 0; ii < 8; ii++) {
     if (8 * io + ii < N) {
       x[8 * io + ii] = 0.0;

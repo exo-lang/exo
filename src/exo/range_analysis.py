@@ -42,14 +42,21 @@ def index_range_analysis(expr, env):
         return (new_lhs, new_rhs)
 
     def merge_mul(lhs_range, rhs_range):
-        if any(i is None for i in lhs_range + rhs_range):
+        # We make sure numbers aren't negative here,
+        # there is probably a way to come up with a correct
+        # range even when the range contains negative numbers
+        if (lhs_range[0] is not None and lhs_range[0] < 0) or (
+            rhs_range[0] is not None and rhs_range[0] < 0
+        ):
             return (None, None)
 
-        if lhs_range[0] < 0 or rhs_range[0] < 0:
-            return (None, None)
-
-        a = [i * j for i in lhs_range for j in rhs_range]
-        return (min(a), max(a))
+        new_lhs = None
+        new_rhs = None
+        if lhs_range[0] is not None and rhs_range[0] is not None:
+            new_lhs = lhs_range[0] * rhs_range[0]
+        if lhs_range[1] is not None and rhs_range[1] is not None:
+            new_rhs = lhs_range[1] * rhs_range[1]
+        return (new_lhs, new_rhs)
 
     def merge_div(lhs_range, rhs_range):
         assert isinstance(rhs_range[0], int)
@@ -80,7 +87,7 @@ def index_range_analysis(expr, env):
         m = rhs_range[0]
         if (
             lhs_range[0] is not None
-            and lhs_range[0] is not None
+            and lhs_range[1] is not None
             and lhs_range[0] // m == lhs_range[1] // m
         ):
             return (lhs_range[0] % m, lhs_range[1] % m)
@@ -125,7 +132,8 @@ def index_range_analysis(expr, env):
                 "/": merge_div,
                 "%": merge_mod,
             }
-            return merge_binop[expr.op](lhs_range, rhs_range)
+            binop_range = merge_binop[expr.op](lhs_range, rhs_range)
+            return binop_range
         else:
             return None
 
