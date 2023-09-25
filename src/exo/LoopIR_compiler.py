@@ -499,7 +499,7 @@ class Compiler:
         self.proc = proc
         self.ctxt_name = ctxt_name
         self.env = ChainMap()
-        self.range_env = IndexRangeEnvironment(proc)
+        self.range_env = IndexRangeEnvironment(proc, fast=False)
         self.names = ChainMap()
         self.envtyp = dict()
         self.mems = dict()

@@ -140,7 +140,7 @@ def index_range_analysis(expr, env):
     return analyze_range(expr)
 
 
-def arg_range_analysis(proc, arg):
+def arg_range_analysis(proc, arg, fast=True):
     """
     Try to find a bounding range on the arguments
     of a proc.
@@ -155,6 +155,9 @@ def arg_range_analysis(proc, arg):
     and storing the result within LoopIR.fnarg.
     """
     assert isinstance(arg.type, LoopIR.Size)
+
+    if fast:
+        return (1, None)
 
     def binary_search(left, right, check):
         result = None
@@ -226,14 +229,14 @@ class IndexRangeEnvironment:
     leq = "<="
     eq = "=="
 
-    def __init__(self, proc) -> None:
+    def __init__(self, proc, fast=True) -> None:
         assert isinstance(proc, LoopIR.proc)
 
         self.proc = proc
         self.env = ChainMap()
         for arg in proc.args:
             if isinstance(arg.type, LoopIR.Size):
-                self.env[arg.name] = arg_range_analysis(proc, arg)
+                self.env[arg.name] = arg_range_analysis(proc, arg, fast=fast)
 
     def enter_scope(self):
         self.env = self.env.new_child()

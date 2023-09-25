@@ -2202,18 +2202,6 @@ def test_simplify_index_div6(golden):
     assert str(bar) == golden
 
 
-def test_simplify_index_div7(golden):
-    @proc
-    def bar(N: size):
-        assert N >= 1
-        assert N < 10
-        for i in seq(0, 1 + N / 11):
-            pass
-
-    bar = simplify(bar)
-    assert str(bar) == golden
-
-
 def test_simplify_index_div_fail(golden):
     @proc
     def bar(N: size, x: R[1 + N]):

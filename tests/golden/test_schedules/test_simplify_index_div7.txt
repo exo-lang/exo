@@ -1,5 +1,0 @@
-def bar(N: size):
-    assert N >= 1
-    assert N < 10
-    for i in seq(0, 1):
-        pass
