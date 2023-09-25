@@ -530,6 +530,16 @@ def test_remove_loop_fail(golden):
         remove_loop(foo, "for i in _:_")
 
 
+def test_sink_alloc(golden):
+    @proc
+    def foo():
+        a: i8[10] @ DRAM
+        for i in seq(0, 10):
+            pass
+
+    foo = sink_alloc(foo, foo.find("a : _"), foo.find_loop("i"))
+
+
 def test_lift_alloc_simple(golden):
     @proc
     def bar(n: size, A: i8[n]):

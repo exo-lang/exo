@@ -51,6 +51,7 @@ from ..API_scheduling import (
     bound_alloc,
     divide_dim,
     mult_dim,
+    sink_alloc,
     lift_alloc,
     reuse_buffer,
     inline_window,

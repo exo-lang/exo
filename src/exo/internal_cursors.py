@@ -273,6 +273,10 @@ class Block(Cursor):
     # ------------------------------------------------------------------------ #
 
     def expand(self, delta_lo=None, delta_hi=None):
+        """
+        [delta_lo] or [delta_hi] being [None] means expand as much as possible to the left
+        or right, respectively.
+        """
         full_block = self.parent()._child_block(self._attr)
         full_range = full_block._range
 

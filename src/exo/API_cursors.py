@@ -519,6 +519,7 @@ class IfCursor(StmtCursor):
         assert isinstance(self._impl._node, LoopIR.If)
 
         orelse = self._impl._child_block("orelse")
+        print(orelse)
         return BlockCursor(orelse, self._proc) if len(orelse) > 0 else InvalidCursor()
 
 

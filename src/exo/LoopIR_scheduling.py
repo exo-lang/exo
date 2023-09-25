@@ -279,8 +279,12 @@ def _replace_writes(ir, fwd, c, sym, repl, only_replace_attrs=True):
     return ir, _compose(cur_fwd, fwd)
 
 
-def get_rest_of_block(c):
-    return c.as_block().expand(delta_lo=0)
+def get_rest_of_block(c, inclusive=False):
+    block = c.as_block().expand(delta_lo=0)
+    if inclusive:
+        return block
+    else:
+        return block[1:]
 
 
 # --------------------------------------------------------------------------- #
@@ -899,7 +903,7 @@ def DoInlineWindow(window_cursor):
         idxs = calc_idx(s.idx)
         return {"name": window_s.rhs.name, "idx": idxs}
 
-    for c in get_rest_of_block(window_cursor)[1:]:
+    for c in get_rest_of_block(window_cursor):
         ir, fwd = _replace_reads(ir, fwd, c, window_s.lhs, mk_read)
         ir, fwd = _replace_pats(
             ir, fwd, c, f"stride({repr(window_s.lhs)}, _)", mk_stride_expr
@@ -1005,7 +1009,7 @@ def DoBindExpr(new_name, expr_cursors, cse=False):
 
     new_read = LoopIR.Read(new_name, [], expr.type, expr.srcinfo)
     first_write_c = None
-    for c in get_rest_of_block(init_c):
+    for c in get_rest_of_block(init_c, inclusive=True):
         for block in match_pattern(c, "_ = _"):
             assert len(block) == 1
             sc = block[0]
@@ -1576,9 +1580,10 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# *Only* lifting an allocation
+# Lifting and sinking an allocation
 
-
+# TODO: the primitive should probably just be lifting once, and then we can expose
+# a higher-level API that lifts multiple times
 def DoLiftAllocSimple(alloc_cursor, n_lifts):
     alloc_stmt = alloc_cursor._node
 
@@ -1604,6 +1609,9 @@ def DoLiftAllocSimple(alloc_cursor, n_lifts):
                         f"with iteration variable {i} because "
                         f"the allocation size depends on {i}."
                     )
+
+            # TODO: we need analysis here about the effects on this allocation within the scope
+            # Specifically, each loop iteration should have disjoint accesses.
         except ic.InvalidCursorError:
             raise SchedulingError(
                 f"specified lift level {n_lifts} is more than {i}, "
@@ -1612,6 +1620,26 @@ def DoLiftAllocSimple(alloc_cursor, n_lifts):
 
     gap_c = stmt_c.before()
     ir, fwd = alloc_cursor._move(gap_c)
+    return ir, fwd
+
+
+def DoSinkAlloc(alloc_cursor, scope_cursor):
+    alloc_stmt = alloc_cursor._node
+    assert isinstance(alloc_stmt, LoopIR.Alloc)
+
+    # TODO: we need analysis here about the effects on this allocation within the scope
+    # Specifically, each loop iteration should have disjoint accesses (e.g. no dependencies
+    # on each other), so if a loop iteration has exprs E_i, then we need to show that E_i
+    # an E_j are always disjoint for i != j.
+
+    after_scope = get_rest_of_block(scope_cursor)
+    accesses = get_reads_of_stmts(after_scope) + get_writes_of_stmts(after_scope)
+    if alloc_stmt.name in [name for name, _ in accesses]:
+        raise SchedulingError(
+            f"Cannot sink allocation {alloc_stmt} because the buffer is accessed outside of the scope provided."
+        )
+
+    ir, fwd = alloc_cursor._move(scope_cursor.body()[0].before())
     return ir, fwd
 
 
@@ -3300,7 +3328,7 @@ def DoDataReuse(buf_cursor, rep_cursor):
             Check_IsDeadAfter(buf_cursor.get_root(), [c._node], buf_name, buf_dims)
         return {"name": buf_name}
 
-    for c in get_rest_of_block(rep_cursor)[1:]:
+    for c in get_rest_of_block(rep_cursor):
         ir, fwd = _replace_reads(ir, fwd, c, rep_name, mk_read)
         ir, fwd = _replace_writes(ir, fwd, c, rep_name, mk_write)
 
@@ -3814,6 +3842,7 @@ __all__ = [
     "DoShiftLoop",
     "DoProductLoop",
     "DoRemoveLoop",
+    "DoSinkAlloc",
     "DoLiftAllocSimple",
     "DoLiftConstant",
     "DoLiftScope",

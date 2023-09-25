@@ -1315,6 +1315,34 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([AllocCursorA, ForSeqOrIfCursorA])
+def sink_alloc(proc, alloc_cursor, scope_cursor):
+    """
+    Sinks a buffer allocation into a scope (for loop/if statement). Requires
+    that the alloc_cursor occurs right before the scope_cursor
+
+    args:
+        alloc_cursor    - cursor to the allocation to sink up
+        scope_cursor    - cursor to the scope to sink into
+
+    rewrite:
+        `for i in _:`
+        `    buf : T` <- alloc_cursor
+        `    ...`
+        ->
+        `buf : T`
+        `for i in _:`
+        `    ...`
+    """
+    if alloc_cursor._impl.next() != scope_cursor._impl:
+        raise ValueError(
+            "Allocation cursor must be located immediately before the for loop/if statement that it is being sunk into"
+        )
+
+    ir, fwd = scheduling.DoSinkAlloc(alloc_cursor._impl, scope_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([AllocCursorA, PosIntA, EnumA(["row", "col"]), OptionalA(PosIntA), BoolA])
 def autolift_alloc(
     proc, alloc_cursor, n_lifts=1, mode="row", size=None, keep_dims=False
