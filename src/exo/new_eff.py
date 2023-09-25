@@ -1268,6 +1268,11 @@ def get_changing_scalars(stmts, changeset=None, aliases=None):
 
 class ContextExtraction:
     def __init__(self, proc, stmts):
+        if len(stmts) == 0:
+            proc = proc.update(
+                body=[LoopIR.Pass(eff=None, srcinfo=proc.srcinfo)] + proc.body
+            )
+            stmts = [proc.body[0]]
         self.proc = proc
         self.stmts = stmts
 
@@ -2023,8 +2028,17 @@ def Check_IsIdempotent(proc, stmts):
         raise SchedulingError(f"The statement at {stmts[0].srcinfo} is not idempotent.")
 
 
-def Check_IsPositiveExpr(proc, stmts, expr):
-    assert len(stmts) > 0
+class Check_ExprBound_Options(Enum):
+    LT = 0
+    LEQ = 1
+    GT = 2
+    GEQ = 3
+    EQ = 4
+
+
+def Check_ExprBound(proc, stmts, expr, value, option, exception=True):
+    assert isinstance(option, Check_ExprBound_Options)
+
     ctxt = ContextExtraction(proc, stmts)
 
     p = ctxt.get_control_predicate()
@@ -2035,14 +2049,37 @@ def Check_IsPositiveExpr(proc, stmts, expr):
     slv.assume(AMay(p))
 
     e = G(lift_e(expr))
-    is_pos = slv.verify(ADef(e > AInt(0)))
+
+    if option == Check_ExprBound_Options.GEQ:
+        query = ADef(e >= AInt(value))
+        err_msg = f"greater than or equal to {value}"
+    elif option == Check_ExprBound_Options.GT:
+        query = ADef(e > AInt(value))
+        err_msg = f"greater than {value}"
+    elif option == Check_ExprBound_Options.LEQ:
+        query = ADef(e <= AInt(value))
+        err_msg = f"less than or equal to {value}"
+    elif option == Check_ExprBound_Options.LT:
+        query = ADef(e < AInt(value))
+        err_msg = f"greater than {value}"
+    elif option == Check_ExprBound_Options.EQ:
+        query = ADef(e=AInt(value))
+        err_msg = f"equal to {value}"
+    else:
+        assert False, "Bad case"
+
+    success = slv.verify(query)
     slv.pop()
-    if not is_pos:
+
+    if not exception:
+        return success
+
+    if not success:
         estr = str(expr)
         if estr[-1] == "\n":
             estr = estr[:-1]
         raise SchedulingError(
-            f"The expression {estr} is not guaranteed to be positive."
+            f"The expression {estr} is not guaranteed to be {err_msg}."
         )
 
 
