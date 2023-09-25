@@ -229,14 +229,36 @@ class IndexRangeEnvironment:
     leq = "<="
     eq = "=="
 
+    @staticmethod
+    def get_pred_reads(expr):
+        if isinstance(expr, LoopIR.Read):
+            return {expr.name}
+        elif isinstance(expr, LoopIR.USub):
+            return IndexRangeEnvironment.get_pred_reads(expr.arg)
+        elif isinstance(expr, LoopIR.BinOp):
+            return IndexRangeEnvironment.get_pred_reads(
+                expr.lhs
+            ) | IndexRangeEnvironment.get_pred_reads(expr.rhs)
+        else:
+            return set()
+
     def __init__(self, proc, fast=True) -> None:
         assert isinstance(proc, LoopIR.proc)
+
+        preds_reads = set()
+        if not fast:
+            # Get parameters referenced in predicates
+            # to only analyze those
+            for pred in proc.preds:
+                preds_reads = preds_reads | IndexRangeEnvironment.get_pred_reads(pred)
 
         self.proc = proc
         self.env = ChainMap()
         for arg in proc.args:
             if isinstance(arg.type, LoopIR.Size):
-                self.env[arg.name] = arg_range_analysis(proc, arg, fast=fast)
+                self.env[arg.name] = arg_range_analysis(
+                    proc, arg, fast=arg.name not in preds_reads
+                )
 
     def enter_scope(self):
         self.env = self.env.new_child()
