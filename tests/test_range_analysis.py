@@ -6,7 +6,7 @@ from exo.stdlib.scheduling import *
 from exo import proc
 from exo.range_analysis import (
     index_range_analysis,
-    arg_range_analyize,
+    arg_range_analysis,
     IndexRangeEnvironment,
 )
 from exo.LoopIR import LoopIR, T
@@ -219,7 +219,7 @@ def test_arg_range():
     def foo(N: size):
         pass
 
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[0]) == (1, None)
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[0]) == (1, None)
 
 
 def test_arg_range2():
@@ -229,8 +229,8 @@ def test_arg_range2():
         assert K > 20
         pass
 
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[0]) == (50, None)
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[1]) == (21, None)
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[0]) == (50, None)
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[1]) == (21, None)
 
 
 def test_arg_range3():
@@ -241,8 +241,8 @@ def test_arg_range3():
         assert K >= 100
         pass
 
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[0]) == (50, 50)
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[1]) == (100, None)
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[0]) == (50, 50)
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[1]) == (100, None)
 
 
 def test_arg_range4():
@@ -253,8 +253,8 @@ def test_arg_range4():
         assert K >= 100000
         pass
 
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[0]) == (1, 499)
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[1]) == (
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[0]) == (1, 499)
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[1]) == (
         100000,
         None,
     )
@@ -268,8 +268,8 @@ def test_arg_range4():
         assert K >= 100000
         pass
 
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[0]) == (1, 499)
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[1]) == (
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[0]) == (1, 499)
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[1]) == (
         100000,
         None,
     )
@@ -284,11 +284,11 @@ def test_arg_range5():
         assert K < val
         pass
 
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[0]) == (
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[0]) == (
         None,
         None,
     )
-    assert arg_range_analyize(foo._loopir_proc, foo._loopir_proc.args[1]) == (1, None)
+    assert arg_range_analysis(foo._loopir_proc, foo._loopir_proc.args[1]) == (1, None)
 
 
 def test_inedex_range_env():
