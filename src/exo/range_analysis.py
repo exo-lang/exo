@@ -140,7 +140,7 @@ def index_range_analysis(expr, env):
     return analyze_range(expr)
 
 
-def arg_range_analyize(proc, arg):
+def arg_range_analysis(proc, arg):
     """
     Try to find a bounding range on the arguments
     of a proc.
@@ -149,6 +149,10 @@ def arg_range_analyize(proc, arg):
     `[T[0], T[1]]` (both inclusive).
     If `T[0]` or `T[1]` is `None` it represents no knowledge
     of the value of that side of the range.
+
+    NOTE: This is analysis can be slow. We should
+    consider doing it when constructing a new proc
+    and storing the result within LoopIR.fnarg.
     """
     assert isinstance(arg.type, LoopIR.Size)
 
@@ -229,7 +233,7 @@ class IndexRangeEnvironment:
         self.env = ChainMap()
         for arg in proc.args:
             if isinstance(arg.type, LoopIR.Size):
-                self.env[arg.name] = arg_range_analyize(proc, arg)
+                self.env[arg.name] = arg_range_analysis(proc, arg)
 
     def enter_scope(self):
         self.env = self.env.new_child()
