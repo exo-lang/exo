@@ -181,7 +181,7 @@ def arg_range_analysis(proc, arg, fast=True):
     def lower_bound_check(value):
         return Check_ExprBound(
             proc,
-            [],
+            [proc.body[0]],
             LoopIR.Read(name=arg.name, idx=[], type=T.size, srcinfo=proc.srcinfo),
             value,
             Check_ExprBound_Options.GEQ,
@@ -191,7 +191,7 @@ def arg_range_analysis(proc, arg, fast=True):
     def upper_bound_check(value):
         return not Check_ExprBound(
             proc,
-            [],
+            [proc.body[0]],
             LoopIR.Read(name=arg.name, idx=[], type=T.size, srcinfo=proc.srcinfo),
             value,
             Check_ExprBound_Options.LT,

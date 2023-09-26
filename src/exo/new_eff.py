@@ -1268,11 +1268,6 @@ def get_changing_scalars(stmts, changeset=None, aliases=None):
 
 class ContextExtraction:
     def __init__(self, proc, stmts):
-        if len(stmts) == 0:
-            proc = proc.update(
-                body=[LoopIR.Pass(eff=None, srcinfo=proc.srcinfo)] + proc.body
-            )
-            stmts = [proc.body[0]]
         self.proc = proc
         self.stmts = stmts
 
@@ -2038,6 +2033,7 @@ class Check_ExprBound_Options(Enum):
 
 def Check_ExprBound(proc, stmts, expr, value, option, exception=True):
     assert isinstance(option, Check_ExprBound_Options)
+    assert len(stmts) > 0
 
     ctxt = ContextExtraction(proc, stmts)
 
