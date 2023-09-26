@@ -275,7 +275,7 @@ def test_arg_range4():
     assert arg_range_analysis(
         foo._loopir_proc, foo._loopir_proc.args[1], fast=False
     ) == (
-        100000,
+        2**15,
         None,
     )
 
@@ -294,7 +294,7 @@ def test_arg_range4():
     assert arg_range_analysis(
         foo._loopir_proc, foo._loopir_proc.args[1], fast=False
     ) == (
-        100000,
+        2**15,
         None,
     )
 
@@ -311,12 +311,30 @@ def test_arg_range5():
     assert arg_range_analysis(
         foo._loopir_proc, foo._loopir_proc.args[0], fast=False
     ) == (
-        None,
+        2**15,
         None,
     )
     assert arg_range_analysis(
         foo._loopir_proc, foo._loopir_proc.args[1], fast=False
     ) == (1, None)
+
+
+def test_arg_range6():
+    @proc
+    def foo(N: index, K: index):
+        assert -10 < K
+        assert K < 4
+        pass
+
+    assert arg_range_analysis(
+        foo._loopir_proc, foo._loopir_proc.args[0], fast=False
+    ) == (
+        None,
+        None,
+    )
+    assert arg_range_analysis(
+        foo._loopir_proc, foo._loopir_proc.args[1], fast=False
+    ) == (-9, 3)
 
 
 def test_inedex_range_env():

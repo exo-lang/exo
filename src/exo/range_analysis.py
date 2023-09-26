@@ -154,29 +154,13 @@ def arg_range_analysis(proc, arg, fast=True):
     consider doing it when constructing a new proc
     and storing the result within LoopIR.fnarg.
     """
-    assert isinstance(arg.type, LoopIR.Size)
+    assert arg.type.is_indexable()
 
     if fast:
-        return (1, None)
-
-    def binary_search(left, right, check):
-        result = None
-
-        while left <= right:
-            mid = left + (right - left) // 2
-            if check(mid):
-                result = mid
-                left = mid + 1
-            else:
-                right = mid - 1
-
-        return result
-
-    # Let's try to find a bounding range on args between
-    # 0 and 2^31 - 1. The upper bound on the range is a
-    # reasonable large value so that if an answer exists
-    # it will probably be within this.
-    size_type_max = 2**31 - 1
+        if isinstance(arg.type, LoopIR.Size):
+            return (1, None)
+        else:
+            return (None, None)
 
     def lower_bound_check(value):
         return Check_ExprBound(
@@ -189,39 +173,53 @@ def arg_range_analysis(proc, arg, fast=True):
         )
 
     def upper_bound_check(value):
-        return not Check_ExprBound(
+        return Check_ExprBound(
             proc,
             [proc.body[0]],
             LoopIR.Read(name=arg.name, idx=[], type=T.size, srcinfo=proc.srcinfo),
             value,
-            Check_ExprBound_Options.LT,
+            Check_ExprBound_Options.LEQ,
             exception=False,
         )
 
-    def try_range(left, right, func):
-        # We need to check this to make sure our
-        # upper-bound is a correct over-approximation.
-        # It is also a good way to prune analysis: e.g. most of the
-        # time there won't actually be an upper bound on the arg.
-        if func(right + 1):
-            return None
-        else:
-            return binary_search(left, right, func)
+    def binary_search_lower_bound(left, right):
+        result = None
 
-    def split_search(func):
-        # Try to split the search into multiple ranges
-        # then run a binary search for each if the previous
-        # smaller range didn't work. This is useful to prune
-        # some trials since most of the time if there is an
-        # answer, it will be for small values
-        bound = try_range(1, 128, func)
-        if bound is None:
-            bound = try_range(129, 2048, func)
-            if bound is None:
-                bound = try_range(2049, size_type_max, func)
-        return bound
+        while left <= right:
+            mid = left + (right - left) // 2
+            if lower_bound_check(mid):
+                result = mid
+                left = mid + 1
+            else:
+                right = mid - 1
 
-    return (split_search(lower_bound_check), split_search(upper_bound_check))
+        return result
+
+    def binary_search_upper_bound(left, right):
+        result = None
+
+        while left <= right:
+            mid = left + (right - left) // 2
+            if upper_bound_check(mid):
+                result = mid
+                right = mid - 1
+            else:
+                left = mid + 1
+
+        return result
+
+    # Let's try to find a bounding range on args.
+    # The upper bound on the absolute value of the range is a
+    # reasonable large value so that if an answer exists
+    # it will probably be within this.
+    max_abs_search = 2**15
+
+    min_search = 1 if isinstance(arg.type, LoopIR.Size) else -max_abs_search
+
+    lower_bound = binary_search_lower_bound(min_search, max_abs_search)
+    upper_bound = binary_search_upper_bound(min_search, max_abs_search)
+
+    return (lower_bound, upper_bound)
 
 
 class IndexRangeEnvironment:
