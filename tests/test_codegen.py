@@ -461,3 +461,45 @@ def test_static_memory_check(compiler):
         MemGenError, match="Cannot generate static memory in non-leaf procs"
     ):
         compiler.compile(caller)
+
+
+# Tests for NO exo_floor_div
+
+
+def test_no_exo_floor_div_after_divide_loop_with_guard(golden):
+    @proc
+    def foo(N: size, x: f32[N]):
+        for i in seq(0, N):
+            x[i] = 0.0
+
+    foo = divide_loop(foo, foo.find_loop("i"), 8, ("io", "ii"))
+
+    c_file, h_file = compile_procs_to_strings([foo], "test.h")
+    code0 = f"{h_file}\n{c_file}"
+
+    foo = cut_loop(foo, foo.find_loop("io"), "((N + 7) / (8)) - 1")
+
+    c_file, h_file = compile_procs_to_strings([foo], "test.h")
+    code1 = f"{h_file}\n{c_file}"
+
+    foo = divide_loop(foo, foo.find_loop("io"), 4, ("ioo", "ioi"))
+
+    c_file, h_file = compile_procs_to_strings([foo], "test.h")
+    code2 = f"{h_file}\n{c_file}"
+
+    code = f"{code0}\n{code1}\n{code2}\n"
+
+    assert code == golden
+
+
+def test_no_exo_floor_div_triangular_access(golden):
+    @proc
+    def foo(N: size, x: f32[N, N]):
+        for ii in seq(0, N % 4):
+            for joo in seq(0, (ii + N / 4 * 4) / 16):
+                x[ii, joo] = 0.0
+
+    c_file, h_file = compile_procs_to_strings([foo], "test.h")
+    code = f"{h_file}\n{c_file}"
+
+    assert code == golden
