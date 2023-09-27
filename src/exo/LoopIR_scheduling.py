@@ -3071,6 +3071,8 @@ class DoSimplify(Cursor_Rewrite):
         elif e.op == "-":
             if is_const_zero(rhs):
                 return lhs
+            if is_const_zero(lhs):
+                return LoopIR.USub(rhs, rhs.type, rhs.srcinfo)
             if isinstance(lhs, LoopIR.BinOp) and lhs.op == "+":
                 if lhs.lhs == rhs:
                     return lhs.rhs

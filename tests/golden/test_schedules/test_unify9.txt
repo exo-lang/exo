@@ -1,5 +1,5 @@
 def foo(n: size, m: size, x: f32[n] @ DRAM):
-    assert 0 - m + n >= 1
-    assert 0 - m + n <= 8
+    assert -m + n >= 1
+    assert -m + n <= 8
     y: f32[8] @ DRAM
-    bar(y[0:8], x[0:8], 0 - m + n)
+    bar(y[0:8], x[0:8], -m + n)
