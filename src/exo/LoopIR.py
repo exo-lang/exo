@@ -280,6 +280,7 @@ module CIR {
             | Stride  ( sym name, int dim )
             | Const   ( object val )
             | BinOp   ( op op, expr lhs, expr rhs, bool is_non_neg )
+            | USub    ( expr arg, bool is_non_neg )
 
 } """,
     ext_types={
