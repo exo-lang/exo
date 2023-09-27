@@ -1125,7 +1125,8 @@ class Unification:
                     f"cannot unify a '{pe.op}' (@{pe.srcinfo}) with "
                     f"a '{be.op}'' (@{be.srcinfo})"
                 )
-            if pe.op in comparision_ops:
+            exprs = [pe.rhs, pe.lhs, be.rhs, be.lhs]
+            if pe.op in comparision_ops and all(e.type.is_indexable() for e in exprs):
                 pe_rhs_sub_lhs = LoopIR.BinOp("-", pe.rhs, pe.lhs, T.index, pe.srcinfo)
                 be_rhs_sub_lhs = LoopIR.BinOp("-", be.rhs, be.lhs, T.index, be.srcinfo)
                 self.unify_e(pe_rhs_sub_lhs, be_rhs_sub_lhs)
