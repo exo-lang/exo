@@ -7,7 +7,7 @@ import pysmt
 from asdl_adt import ADT
 from pysmt import shortcuts as SMT
 
-from .LoopIR import LoopIR, T, LoopIR_Rewrite, LoopIR_Do, FreeVars, Alpha_Rename
+from .LoopIR import LoopIR, T, LoopIR_Do, FreeVars, Alpha_Rename, comparision_ops
 from .LoopIR_dataflow import LoopIR_Dependencies
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
@@ -1125,8 +1125,13 @@ class Unification:
                     f"cannot unify a '{pe.op}' (@{pe.srcinfo}) with "
                     f"a '{be.op}'' (@{be.srcinfo})"
                 )
-            self.unify_e(pe.lhs, be.lhs)
-            self.unify_e(pe.rhs, be.rhs)
+            if pe.op in comparision_ops:
+                pe_rhs_sub_lhs = LoopIR.BinOp("-", pe.rhs, pe.lhs, T.index, pe.srcinfo)
+                be_rhs_sub_lhs = LoopIR.BinOp("-", be.rhs, be.lhs, T.index, be.srcinfo)
+                self.unify_e(pe_rhs_sub_lhs, be_rhs_sub_lhs)
+            else:
+                self.unify_e(pe.lhs, be.lhs)
+                self.unify_e(pe.rhs, be.rhs)
         elif isinstance(pe, LoopIR.BuiltIn):
             if pe.f != be.f:
                 raise UnificationError(

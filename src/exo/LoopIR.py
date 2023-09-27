@@ -35,7 +35,11 @@ class IdentifierOrHole(str):
         raise ValueError(f"invalid identifier: {name}")
 
 
-front_ops = {"+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "and", "or"}
+comparision_ops = {"<", ">", "<=", ">=", "=="}
+arithmetic_ops = {"+", "-", "*", "/", "%"}
+logical_ops = {"and", "or"}
+
+front_ops = comparision_ops | arithmetic_ops | logical_ops
 
 
 class Operator(str):
