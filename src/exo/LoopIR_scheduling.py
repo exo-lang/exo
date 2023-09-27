@@ -1632,7 +1632,7 @@ def DoSinkAlloc(alloc_cursor, scope_cursor):
     # on each other), so if a loop iteration has exprs E_i, then we need to show that E_i
     # an E_j are always disjoint for i != j.
 
-    after_scope = get_rest_of_block(scope_cursor)
+    after_scope = [s._node for s in get_rest_of_block(scope_cursor)]
     accesses = get_reads_of_stmts(after_scope) + get_writes_of_stmts(after_scope)
     if alloc_stmt.name in [name for name, _ in accesses]:
         raise SchedulingError(
