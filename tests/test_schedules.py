@@ -538,6 +538,7 @@ def test_sink_alloc_simple_for_loop(golden):
             pass
 
     foo = sink_alloc(foo, foo.find("a : _"), foo.find_loop("i"))
+    assert str(foo) == golden
 
 
 def test_sink_alloc_simple_if_stmt(golden):
@@ -547,29 +548,24 @@ def test_sink_alloc_simple_if_stmt(golden):
         if 1 < 10:
             a[1] = 0.0
 
-    foo = sink_alloc(foo, foo.find("a : _"), foo.find_loop("i"))
+    foo = sink_alloc(foo, foo.find("a : _"), foo.find("if _:_"))
+    assert str(foo) == golden
 
 
-# TODO: This should fail, but current analysis is insufficient to reason about it
-# def test_lift_and_sink_alloc_should_fail():
-#     # The following two programs are not equivalent because in the latter, the writes
-#     # to i + 1 carry over into iteration of the loop
-#     @proc
-#     def foo1():
-#         for i in seq(0, 10):
-#             a: i8[11] @ DRAM
-#             a[i] += 1.0
-#             a[i + 1] = 1.0
+def test_sink_alloc_fails_when_if_has_else():
+    @proc
+    def foo():
+        a: i8[10] @ DRAM
+        if 1 < 10:
+            a[1] = 0.0
+        else:
+            a[1] = 1.0
 
-#     @proc
-#     def foo2():
-#         a: i8[11] @ DRAM
-#         for i in seq(0, 10):
-#             a[i] += 1.0
-#             a[i + 1] = 1.0
-
-#     foo = lift_alloc(foo1, foo1.find("a : _"))
-#     foo = sink_alloc(foo2, foo2.find("a : _"), foo2.find_loop("i"))
+    with pytest.raises(
+        SchedulingError,
+        match="Currently sink_alloc cannot handle if statements with an else clause",
+    ):
+        foo = sink_alloc(foo, foo.find("a : _"), foo.find("if _:_"))
 
 
 def test_sink_alloc_fail_because_accesses_outside_scope():

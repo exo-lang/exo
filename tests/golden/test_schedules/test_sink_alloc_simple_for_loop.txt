@@ -1,0 +1,4 @@
+def foo():
+    for i in seq(0, 10):
+        a: i8[10] @ DRAM
+        pass
