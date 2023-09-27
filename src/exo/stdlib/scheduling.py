@@ -63,6 +63,7 @@ from ..API_scheduling import (
     divide_loop,
     mult_loops,
     cut_loop,
+    join_loops,
     shift_loop,
     reorder_loops,
     merge_writes,

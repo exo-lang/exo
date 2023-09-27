@@ -6,6 +6,7 @@ from .LoopIR import (
     LoopIR_Rewrite,
     Alpha_Rename,
     LoopIR_Do,
+    LoopIR_Compare,
     SubstArgs,
     T,
     get_reads_of_expr,
@@ -315,6 +316,30 @@ def DoReorderStmt(f_cursor, s_cursor):
     Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node)
     ir, fwd = s_cursor._move(f_cursor.before())
     return ir, fwd
+
+
+def DoJoinLoops(loop1_c, loop2_c):
+    if loop1_c.next() != loop2_c:
+        raise SchedulingError("expected the second loop to be directly after the first")
+
+    loop1 = loop1_c._node
+    loop2 = loop2_c._node
+
+    try:
+        Check_ExprEqvInContext(loop1_c.get_root(), loop1.hi, [loop1], loop2.lo, [loop2])
+    except Exception as e:
+        raise SchedulingError(
+            f"expected the first loop's upper bound ({loop1.hi}) to be the same as the second loop's lower bound ({loop2.lo})"
+        )
+
+    compare_ir = LoopIR_Compare()
+    if compare_ir.match_stmts(loop1.body, loop2.body):
+        raise SchedulingError("expected the two loops to have identical bodies")
+
+    ir, fwd = loop1_c._child_node("hi")._replace(loop2.hi)
+    ir, fwd_del = fwd(loop2_c)._delete()
+
+    return ir, _compose(fwd_del, fwd)
 
 
 def DoCutLoop(loop_c, cut_point):
@@ -2330,7 +2355,7 @@ def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
 
     if f_cursor.next() != s_cursor:
         raise SchedulingError(
-            "expected the two loops to be fused to come one right after the other"
+            f"expected the two loops to be fused to come one right after the other. However, the statement after the first loop is:\n{f_cursor.next()._node}\n, not the provided second loop:\n {s_cursor._node}"
         )
 
     # check if the loop bounds are equivalent
@@ -3839,6 +3864,7 @@ __all__ = [
     "DoUnroll",
     "DoAddLoop",
     "DoCutLoop",
+    "DoJoinLoops",
     "DoShiftLoop",
     "DoProductLoop",
     "DoRemoveLoop",

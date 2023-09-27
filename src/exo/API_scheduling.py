@@ -1570,6 +1570,29 @@ def mult_loops(proc, nested_loops, new_iter_name):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([ForSeqCursorA, ForSeqCursorA])
+def join_loops(proc, loop1_cursor, loop2_cursor):
+    """
+    Joins two loops with identical bodies and consecutive iteration spaces
+    into one loop.
+
+    args:
+        loop1_cursor     - cursor pointing to the first loop
+        loop2_cursor     - cursor pointing to the second loop
+
+    rewrite:
+        `for i in seq(lo, mid):`
+        `    s`
+        `for i in seq(mid, hi):`
+        `    s`
+        ->
+        `for i in seq(lo, hi):`
+        `    s`
+    """
+    ir, fwd = scheduling.DoJoinLoops(loop1_cursor._impl, loop2_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([ForSeqCursorA, NewExprA("loop_cursor")])
 def cut_loop(proc, loop_cursor, cut_point):
     """

@@ -2570,6 +2570,18 @@ def test_cut_then_shift_loop(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_join_loops(golden):
+    @proc
+    def foo(n: size, x: i8[n + 1]):
+        for i in seq(0, n):
+            x[i] = 0.0
+        for i in seq(n, n + 1):
+            x[i] = 0.0
+
+    foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+    assert str(foo) == golden
+
+
 def test_mem_aware_replace(golden):
     @proc
     def bar(src: f32[8] @ DRAM):
