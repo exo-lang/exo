@@ -27,10 +27,11 @@ from .new_eff import (
     Check_Bounds,
     Check_IsDeadAfter,
     Check_IsIdempotent,
-    Check_IsPositiveExpr,
+    Check_ExprBound,
+    Check_ExprBound_Options,
     Check_Aliasing,
 )
-from .range_analysis import IndexRangeAnalysis
+from .range_analysis import IndexRangeEnvironment
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
 import exo.internal_cursors as ic
@@ -292,11 +293,12 @@ def get_rest_of_block(c, inclusive=False):
 # Analysis Helpers
 
 
+def Check_IsPositiveExpr(proc, stmts, expr):
+    Check_ExprBound(proc, stmts, expr, 0, Check_ExprBound_Options.GT)
+
+
 def Check_IsNonNegativeExpr(proc, stmts, expr):
-    expr = LoopIR.BinOp(
-        "+", expr, LoopIR.Const(1, T.int, expr.srcinfo), expr.type, expr.srcinfo
-    )
-    Check_IsPositiveExpr(proc, stmts, expr)
+    Check_ExprBound(proc, stmts, expr, 0, Check_ExprBound_Options.GEQ)
 
 
 # --------------------------------------------------------------------------- #
@@ -2596,10 +2598,7 @@ class _DoNormalize(Cursor_Rewrite):
     # This map concatenation is handled by concat_map function.
     def __init__(self, proc):
         self.C = Sym("temporary_constant_symbol")
-        self.env = ChainMap()
-        # TODO: dispatch to Z3 to reason about preds ranges
-        for arg in proc._loopir_proc.args:
-            self.env[arg.name] = None
+        self.env = IndexRangeEnvironment(proc._loopir_proc)
 
         self.ir = proc._loopir_proc
         self.fwd = lambda x: x
@@ -2718,14 +2717,13 @@ class _DoNormalize(Cursor_Rewrite):
                 non_divisible_expr = generate_loopIR(
                     e.lhs, constant.update(val=0), non_divisible_terms
                 )
-                non_divisible_expr_range = IndexRangeAnalysis(
-                    non_divisible_expr, self.env
-                ).result()
 
-                if (
-                    non_divisible_expr_range is not None
-                    and 0 <= non_divisible_expr_range[0]
-                    and non_divisible_expr_range[1] < d
+                if self.env.check_expr_bounds(
+                    0,
+                    IndexRangeEnvironment.leq,
+                    non_divisible_expr,
+                    IndexRangeEnvironment.lt,
+                    d,
                 ):
                     divisible_terms = [
                         (coeff // d, v)
@@ -2739,14 +2737,13 @@ class _DoNormalize(Cursor_Rewrite):
                 non_divisible_expr = generate_loopIR(
                     e.lhs, constant, non_divisible_terms
                 )
-                non_divisible_expr_range = IndexRangeAnalysis(
-                    non_divisible_expr, self.env
-                ).result()
 
-                if (
-                    non_divisible_expr_range is not None
-                    and 0 <= non_divisible_expr_range[0]
-                    and non_divisible_expr_range[1] < d
+                if self.env.check_expr_bounds(
+                    0,
+                    IndexRangeEnvironment.leq,
+                    non_divisible_expr,
+                    IndexRangeEnvironment.lt,
+                    d,
                 ):
                     divisible_terms = [
                         (coeff // d, v)
@@ -2845,9 +2842,7 @@ class _DoNormalize(Cursor_Rewrite):
                 constant = constant.update(val=0)
 
             new_lhs = generate_loopIR(e.lhs, constant, normalization_list)
-            new_lhs_range = IndexRangeAnalysis(new_lhs, self.env).result()
-            if new_lhs_range is not None and new_lhs_range[1] < m:
-                assert new_lhs_range[0] >= 0
+            if self.env.check_expr_bound(new_lhs, IndexRangeEnvironment.lt, m):
                 return new_lhs
 
             return LoopIR.BinOp("%", new_lhs, e.rhs, e.type, e.srcinfo)
@@ -2921,13 +2916,13 @@ class _DoNormalize(Cursor_Rewrite):
         if isinstance(s, LoopIR.If):
             new_cond = self.map_e(s.cond)
 
-            self.env = self.env.new_child()
+            self.env.enter_scope()
             self.map_stmts(sc.body())
-            self.env = self.env.parents
+            self.env.exit_scope()
 
-            self.env = self.env.new_child()
+            self.env.enter_scope()
             self.map_stmts(sc.orelse())
-            self.env = self.env.parents
+            self.env.exit_scope()
 
             if new_cond:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("cond")._replace(new_cond)
@@ -2936,28 +2931,27 @@ class _DoNormalize(Cursor_Rewrite):
             new_lo = self.map_e(s.lo)
             new_hi = self.map_e(s.hi)
 
-            self.env = self.env.new_child()
-            lo_range = IndexRangeAnalysis(new_lo, self.env).result()
-            hi_range = IndexRangeAnalysis(new_hi, self.env).result()
-
-            if lo_range is not None and hi_range is not None:
-                assert lo_range[0] <= hi_range[1]
-                if lo_range[0] == hi_range[1]:
-                    self.env[s.iter] = None
-                else:
-                    self.env[s.iter] = (lo_range[0], hi_range[1] - 1)
-            else:
-                self.env[s.iter] = None
-
-            self.map_stmts(sc.body())
             if new_lo:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("lo")._replace(new_lo)
                 self.fwd = _compose(fwd_repl, self.fwd)
+            else:
+                new_lo = s.lo
             if new_hi:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("hi")._replace(new_hi)
                 self.fwd = _compose(fwd_repl, self.fwd)
+            else:
+                new_hi = s.hi
 
-            self.env = self.env.parents
+            self.env.enter_scope()
+
+            new_hi_prev = LoopIR.BinOp(
+                "-", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
+            )
+            self.env.add_sym(s.iter, new_lo, new_hi_prev)
+
+            self.map_stmts(sc.body())
+
+            self.env.exit_scope()
 
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             new_type = self.map_t(s.type)
@@ -3112,6 +3106,8 @@ class DoSimplify(Cursor_Rewrite):
         elif e.op == "-":
             if is_const_zero(rhs):
                 return lhs
+            if is_const_zero(lhs):
+                return LoopIR.USub(rhs, rhs.type, rhs.srcinfo)
             if isinstance(lhs, LoopIR.BinOp) and lhs.op == "+":
                 if lhs.lhs == rhs:
                     return lhs.rhs

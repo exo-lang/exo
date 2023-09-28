@@ -1,4 +1,4 @@
 def foo(n: size, m: size):
     assert m == 1 and n == 1
     y: R[10] @ DRAM
-    y[0 - 8 * n + 10 * m] = 2.0
+    y[-(8 * n) + 10 * m] = 2.0

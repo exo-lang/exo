@@ -201,7 +201,8 @@ def test_add_loop6_runs_fail():
         x = 3.0
 
     with pytest.raises(
-        SchedulingError, match="The expression 0 is not " "guaranteed to be positive"
+        SchedulingError,
+        match="The expression 0 is not " "guaranteed to be greater than 0",
     ):
         add_loop(foo, "x = 2.0", "i", 0)
 
@@ -732,12 +733,14 @@ def test_expand_dim4(golden):
                 pass
 
     with pytest.raises(
-        SchedulingError, match="The expression 10 - 20 is not guaranteed to be positive"
+        SchedulingError,
+        match="The expression 10 - 20 is not guaranteed to be greater than 0",
     ):
         expand_dim(foo, "a : i8", "10-20", "10")  # this is not fine
 
     with pytest.raises(
-        SchedulingError, match="The expression n - m is not guaranteed to be positive"
+        SchedulingError,
+        match="The expression n - m is not guaranteed to be greater than 0",
     ):
         expand_dim(foo, "a : i8", "n - m", "i")  # out of bounds
 
@@ -1639,6 +1642,26 @@ def test_unify8(golden):
 
     foo = replace(foo, "for i in _ : _", bar)
     assert str(foo) == golden
+
+
+def test_unify9(golden):
+    @proc
+    def bar(dst: [f32][8], src: [f32][8], bound: size):
+        for i in seq(0, 8):
+            if i < bound:
+                dst[i] = src[i]
+
+    @proc
+    def foo(n: size, m: size, x: f32[n]):
+        assert n - m >= 1
+        assert n - m <= 8
+        y: f32[8]
+        for i in seq(0, 8):
+            if i + m < n:
+                y[i] = x[i]
+
+    foo = replace(foo, foo.find_loop("i"), bar)
+    assert str(simplify(foo)) == golden
 
 
 def test_inline_window(golden):
