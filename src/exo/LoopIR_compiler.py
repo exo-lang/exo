@@ -13,6 +13,7 @@ from .memory import MemGenError, Memory, DRAM, StaticMemory
 from .prec_analysis import PrecisionAnalysis
 from .prelude import *
 from .win_analysis import WindowAnalysis
+from .range_analysis import IndexRangeEnvironment
 
 
 def sanitize_str(s):
@@ -47,17 +48,22 @@ op_prec = {
 }
 
 
-def lift_to_cir(e):
+def lift_to_cir(e, range_env):
     assert e.type.is_indexable(), "why are you here?"
 
+    is_non_neg = lambda e: range_env.check_expr_bound(0, IndexRangeEnvironment.leq, e)
+
     if isinstance(e, LoopIR.Read):
-        return CIR.Read(e.name, e.type == T.size)
+        return CIR.Read(e.name, is_non_neg(e))
     elif isinstance(e, LoopIR.Const):
         return CIR.Const(e.val)
     elif isinstance(e, LoopIR.BinOp):
-        lhs = lift_to_cir(e.lhs)
-        rhs = lift_to_cir(e.rhs)
-        return CIR.BinOp(e.op, lhs, rhs, e.type == T.size)
+        lhs = lift_to_cir(e.lhs, range_env)
+        rhs = lift_to_cir(e.rhs, range_env)
+        return CIR.BinOp(e.op, lhs, rhs, is_non_neg(e))
+    elif isinstance(e, LoopIR.USub):
+        arg = lift_to_cir(e.arg, range_env)
+        return CIR.USub(arg, is_non_neg(e))
     else:
         assert False, "bad case!"
 
@@ -108,8 +114,14 @@ def simplify_cir(e):
         if isinstance(rhs, CIR.Const) and rhs.val == 1 and (e.op == "*" or e.op == "/"):
             return lhs
 
-        return CIR.BinOp(e.op, lhs, rhs, e.ispos)
-
+        return CIR.BinOp(e.op, lhs, rhs, e.is_non_neg)
+    elif isinstance(e, CIR.USub):
+        arg = simplify_cir(e.arg)
+        if isinstance(arg, CIR.USub):
+            return arg.arg
+        if isinstance(arg, CIR.Const):
+            return arg.update(val=-(arg.val))
+        return e.update(arg=arg)
     else:
         assert False, "bad case!"
 
@@ -496,6 +508,7 @@ class Compiler:
         self.proc = proc
         self.ctxt_name = ctxt_name
         self.env = ChainMap()
+        self.range_env = IndexRangeEnvironment(proc, fast=False)
         self.names = ChainMap()
         self.envtyp = dict()
         self.mems = dict()
@@ -659,10 +672,12 @@ class Compiler:
     def push(self, only=None):
         if only is None:
             self.env = self.env.new_child()
+            self.range_env.enter_scope()
             self.names = self.names.new_child()
             self._tab = self._tab + "  "
         elif only == "env":
             self.env = self.env.new_child()
+            self.range_env.enter_scope()
             self.names = self.names.new_child()
         elif only == "tab":
             self._tab = self._tab + "  "
@@ -671,6 +686,7 @@ class Compiler:
 
     def pop(self):
         self.env = self.env.parents
+        self.range_env.exit_scope()
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
@@ -691,7 +707,7 @@ class Compiler:
                 rhs = f"({rhs})"
 
             if e.op == "/":
-                if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.ispos) or (
+                if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg) or (
                     isinstance(e.lhs, CIR.Const) and e.lhs.val > 0
                 ):
                     return f"({lhs} / {rhs})"
@@ -706,13 +722,14 @@ class Compiler:
 
         elif isinstance(e, CIR.Stride):
             return f"{e.name}.strides[{e.dim}]"
-
+        elif isinstance(e, CIR.USub):
+            return f'-{self.comp_cir(e.arg, env, op_prec["~"])}'
         else:
             assert False, "bad case!"
 
     def access_str(self, nm, idx_list) -> str:
         type = self.envtyp[nm]
-        cirs = [lift_to_cir(i) for i in idx_list]
+        cirs = [lift_to_cir(i, self.range_env) for i in idx_list]
         idx_expr = self.get_idx_offset(nm, type, cirs)
         idx_expr_s = self.comp_cir(simplify_cir(idx_expr), self.env, prec=0)
         buf = self.env[nm]
@@ -723,12 +740,13 @@ class Compiler:
 
     def shape_strs(self, shape, prec=100) -> str:
         comp_res = [
-            self.comp_cir(simplify_cir(lift_to_cir(i)), self.env, prec) for i in shape
+            self.comp_cir(simplify_cir(lift_to_cir(i, self.range_env)), self.env, prec)
+            for i in shape
         ]
         return comp_res
 
     def tensor_strides(self, shape) -> CIR:
-        szs = [lift_to_cir(i) for i in shape]
+        szs = [lift_to_cir(i, self.range_env) for i in shape]
         assert len(szs) >= 1
         strides = [CIR.Const(1)]
         s = szs[-1]
@@ -855,6 +873,13 @@ class Compiler:
             hi = self.comp_e(s.hi)
             self.push(only="env")
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
+            self.range_env.add_sym(
+                s.iter,
+                s.lo,
+                LoopIR.BinOp(
+                    "-", s.hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
+                ),
+            )
             self.add_line(f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
             self.push(only="tab")
             self.comp_stmts(s.body)
@@ -982,7 +1007,7 @@ class Compiler:
             rhs = self.comp_e(e.rhs, local_prec + 1)
 
             if int_div:
-                if isinstance(e.lhs.type, LoopIR.Size):
+                if self.range_env.check_expr_bound(0, IndexRangeEnvironment.leq, e):
                     # TODO: too many parens?
                     return f"(({lhs}) / ({rhs}))"
                 return self._call_static_helper("exo_floor_div", lhs, rhs)
@@ -1027,7 +1052,7 @@ class Compiler:
         def w_lo(w):
             return w.lo if isinstance(w, LoopIR.Interval) else w.pt
 
-        cirs = [lift_to_cir(w_lo(w)) for w in e.idx]
+        cirs = [lift_to_cir(w_lo(w), self.range_env) for w in e.idx]
         idxs = [self.comp_cir(simplify_cir(i), self.env, prec=0) for i in cirs]
 
         # compute new window strides
