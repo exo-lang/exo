@@ -35,7 +35,11 @@ class IdentifierOrHole(str):
         raise ValueError(f"invalid identifier: {name}")
 
 
-front_ops = {"+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "and", "or"}
+comparision_ops = {"<", ">", "<=", ">=", "=="}
+arithmetic_ops = {"+", "-", "*", "/", "%"}
+logical_ops = {"and", "or"}
+
+front_ops = comparision_ops | arithmetic_ops | logical_ops
 
 
 class Operator(str):
@@ -276,6 +280,7 @@ module CIR {
             | Stride  ( sym name, int dim )
             | Const   ( object val )
             | BinOp   ( op op, expr lhs, expr rhs, bool is_non_neg )
+            | USub    ( expr arg, bool is_non_neg )
 
 } """,
     ext_types={

@@ -61,6 +61,9 @@ def lift_to_cir(e, range_env):
         lhs = lift_to_cir(e.lhs, range_env)
         rhs = lift_to_cir(e.rhs, range_env)
         return CIR.BinOp(e.op, lhs, rhs, is_non_neg(e))
+    elif isinstance(e, LoopIR.USub):
+        arg = lift_to_cir(e.arg, range_env)
+        return CIR.USub(arg, is_non_neg(e))
     else:
         assert False, "bad case!"
 
@@ -112,7 +115,13 @@ def simplify_cir(e):
             return lhs
 
         return CIR.BinOp(e.op, lhs, rhs, e.is_non_neg)
-
+    elif isinstance(e, CIR.USub):
+        arg = simplify_cir(e.arg)
+        if isinstance(arg, CIR.USub):
+            return arg.arg
+        if isinstance(arg, CIR.Const):
+            return arg.update(val=-(arg.val))
+        return e.update(arg=arg)
     else:
         assert False, "bad case!"
 
@@ -713,7 +722,8 @@ class Compiler:
 
         elif isinstance(e, CIR.Stride):
             return f"{e.name}.strides[{e.dim}]"
-
+        elif isinstance(e, CIR.USub):
+            return f'-{self.comp_cir(e.arg, env, op_prec["~"])}'
         else:
             assert False, "bad case!"
 

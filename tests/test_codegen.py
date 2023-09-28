@@ -503,3 +503,18 @@ def test_no_exo_floor_div_triangular_access(golden):
     code = f"{h_file}\n{c_file}"
 
     assert code == golden
+
+
+# Tests for CIR
+
+
+def test_CIR_USub(golden):
+    @proc
+    def foo(N: size, x: f32[N]):
+        for i in seq(0, N):
+            x[-i + N - 1] = 0.0
+
+    c_file, h_file = compile_procs_to_strings([foo], "test.h")
+    code = f"{h_file}\n{c_file}"
+
+    assert code == golden

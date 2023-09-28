@@ -1597,6 +1597,26 @@ def test_unify8(golden):
     assert str(foo) == golden
 
 
+def test_unify9(golden):
+    @proc
+    def bar(dst: [f32][8], src: [f32][8], bound: size):
+        for i in seq(0, 8):
+            if i < bound:
+                dst[i] = src[i]
+
+    @proc
+    def foo(n: size, m: size, x: f32[n]):
+        assert n - m >= 1
+        assert n - m <= 8
+        y: f32[8]
+        for i in seq(0, 8):
+            if i + m < n:
+                y[i] = x[i]
+
+    foo = replace(foo, foo.find_loop("i"), bar)
+    assert str(simplify(foo)) == golden
+
+
 def test_inline_window(golden):
     @proc
     def foo(n: size, m: size, x: R[n, m]):
