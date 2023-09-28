@@ -537,7 +537,7 @@ def test_sink_alloc_simple_for_loop(golden):
         for i in seq(0, 10):
             pass
 
-    foo = sink_alloc(foo, foo.find("a : _"), foo.find_loop("i"))
+    foo = sink_alloc(foo, foo.find("a : _"))
     assert str(foo) == golden
 
 
@@ -548,11 +548,11 @@ def test_sink_alloc_simple_if_stmt(golden):
         if 1 < 10:
             a[1] = 0.0
 
-    foo = sink_alloc(foo, foo.find("a : _"), foo.find("if _:_"))
+    foo = sink_alloc(foo, foo.find("a : _"))
     assert str(foo) == golden
 
 
-def test_sink_alloc_fails_when_if_has_else():
+def test_sink_alloc_when_if_has_else(golden):
     @proc
     def foo():
         a: i8[10] @ DRAM
@@ -561,11 +561,8 @@ def test_sink_alloc_fails_when_if_has_else():
         else:
             a[1] = 1.0
 
-    with pytest.raises(
-        SchedulingError,
-        match="Currently sink_alloc cannot handle if statements with an else clause",
-    ):
-        foo = sink_alloc(foo, foo.find("a : _"), foo.find("if _:_"))
+    foo = sink_alloc(foo, foo.find("a : _"))
+    assert str(foo) == golden
 
 
 def test_sink_alloc_fail_because_accesses_outside_scope():
@@ -577,7 +574,7 @@ def test_sink_alloc_fail_because_accesses_outside_scope():
         a[0] = 0.0
 
     with pytest.raises(SchedulingError, match="Cannot sink allocation"):
-        foo = sink_alloc(foo, foo.find("a : _"), foo.find_loop("i"))
+        foo = sink_alloc(foo, foo.find("a : _"))
 
 
 def test_lift_alloc_simple(golden):

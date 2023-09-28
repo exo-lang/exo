@@ -1627,6 +1627,7 @@ def DoSinkAlloc(alloc_cursor, scope_cursor):
     alloc_stmt = alloc_cursor._node
     scope_stmt = scope_cursor._node
     assert isinstance(alloc_stmt, LoopIR.Alloc)
+    assert isinstance(scope_stmt, (LoopIR.If, LoopIR.Seq))
 
     # TODO: we need analysis here about the effects on this allocation within the scope
     # Specifically, each loop iteration should have disjoint accesses (e.g. no dependencies
@@ -1640,12 +1641,12 @@ def DoSinkAlloc(alloc_cursor, scope_cursor):
             f"Cannot sink allocation {alloc_stmt} because the buffer is accessed outside of the scope provided."
         )
 
-    if isinstance(scope_stmt, LoopIR.If) and len(scope_stmt.orelse) > 0:
-        raise SchedulingError(
-            "Currently sink_alloc cannot handle if statements with an else clause"
-        )
-
     ir, fwd = alloc_cursor._move(scope_cursor.body()[0].before())
+    if isinstance(scope_stmt, LoopIR.If) and len(scope_stmt.orelse) > 0:
+        else_alloc = Alpha_Rename([alloc_stmt]).result()
+        ir, fwd_ins = fwd(scope_cursor).orelse()[0].before()._insert(else_alloc)
+        fwd = _compose(fwd_ins, fwd)
+
     return ir, fwd
 
 
