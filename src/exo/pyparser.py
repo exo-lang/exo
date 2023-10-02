@@ -408,6 +408,7 @@ class Parser:
         "f32": UAST.F32(),
         "f64": UAST.F64(),
         "i8": UAST.INT8(),
+        "ui8": UAST.UINT8(),
         "i32": UAST.INT32(),
     }
 
