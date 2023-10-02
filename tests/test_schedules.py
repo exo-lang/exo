@@ -531,6 +531,53 @@ def test_remove_loop_fail(golden):
         remove_loop(foo, "for i in _:_")
 
 
+def test_sink_alloc_simple_for_loop(golden):
+    @proc
+    def foo():
+        a: i8[10] @ DRAM
+        for i in seq(0, 10):
+            pass
+
+    foo = sink_alloc(foo, foo.find("a : _"))
+    assert str(foo) == golden
+
+
+def test_sink_alloc_simple_if_stmt(golden):
+    @proc
+    def foo():
+        a: i8[10] @ DRAM
+        if 1 < 10:
+            a[1] = 0.0
+
+    foo = sink_alloc(foo, foo.find("a : _"))
+    assert str(foo) == golden
+
+
+def test_sink_alloc_when_if_has_else(golden):
+    @proc
+    def foo():
+        a: i8[10] @ DRAM
+        if 1 < 10:
+            a[1] = 0.0
+        else:
+            a[1] = 1.0
+
+    foo = sink_alloc(foo, foo.find("a : _"))
+    assert str(foo) == golden
+
+
+def test_sink_alloc_fail_because_accesses_outside_scope():
+    @proc
+    def foo():
+        a: i8[10] @ DRAM
+        for i in seq(0, 10):
+            pass
+        a[0] = 0.0
+
+    with pytest.raises(SchedulingError, match="Cannot sink allocation"):
+        foo = sink_alloc(foo, foo.find("a : _"))
+
+
 def test_lift_alloc_simple(golden):
     @proc
     def bar(n: size, A: i8[n]):
