@@ -1315,28 +1315,30 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([AllocCursorA, ForSeqOrIfCursorA])
-def sink_alloc(proc, alloc_cursor, scope_cursor):
+@sched_op([AllocCursorA])
+def sink_alloc(proc, alloc_cursor):
     """
-    Sinks a buffer allocation into a scope (for loop/if statement). Requires
-    that the alloc_cursor occurs right before the scope_cursor
+    Sinks a buffer allocation into a scope (for loop/if statement). This scope
+    must come immediately after the alloc statemenet. Requires that the
+    alloc_cursor occurs right before the scope_cursor
 
     args:
         alloc_cursor    - cursor to the allocation to sink up
-        scope_cursor    - cursor to the scope to sink into
 
     rewrite:
+        `buf : T`       <- alloc_cursor
         `for i in _:`
-        `    buf : T` <- alloc_cursor
-        `    ...`
+            `    ...`
         ->
-        `buf : T`
         `for i in _:`
+        `    buf : T`
         `    ...`
     """
-    if alloc_cursor._impl.next() != scope_cursor._impl:
+
+    scope_cursor = alloc_cursor.next()
+    if not isinstance(scope_cursor._impl._node, (LoopIR.If, LoopIR.Seq)):
         raise ValueError(
-            "Allocation cursor must be located immediately before the for loop/if statement that it is being sunk into"
+            f"Cannot sink alloc because the statement after the allocation is not a loop or if statement, it is {scope_cursor._impl._node}"
         )
 
     ir, fwd = scheduling.DoSinkAlloc(alloc_cursor._impl, scope_cursor._impl)
