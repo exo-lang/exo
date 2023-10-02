@@ -103,6 +103,7 @@ module LoopIR {
          | F32()
          | F64()
          | INT8()
+         | UINT8()
          | INT32()
          | Bool()
          | Int()
@@ -135,6 +136,7 @@ module LoopIR {
         "F32",
         "F64",
         "INT8",
+        "UINT8",
         "INT32" "Bool",
         "Int",
         "Index",
@@ -195,6 +197,7 @@ module UAST {
             | F32   ()
             | F64   ()
             | INT8  ()
+            | UINT8  ()
             | INT32 ()
             | Bool  ()
             | Int   ()
@@ -219,6 +222,7 @@ module UAST {
         "F32",
         "F64",
         "INT8",
+        "UINT8",
         "INT32",
         "Bool",
         "Int",
@@ -352,6 +356,7 @@ module Effects {
 @extclass(UAST.F32)
 @extclass(UAST.F64)
 @extclass(UAST.INT8)
+@extclass(UAST.UINT8)
 @extclass(UAST.INT32)
 def shape(t):
     shp = t.hi if isinstance(t, UAST.Tensor) else []
@@ -391,6 +396,7 @@ class T:
     F32 = LoopIR.F32
     F64 = LoopIR.F64
     INT8 = LoopIR.INT8
+    UINT8 = LoopIR.UINT8
     INT32 = LoopIR.INT32
     Bool = LoopIR.Bool
     Int = LoopIR.Int
@@ -405,7 +411,9 @@ class T:
     f16 = F16()
     f32 = F32()
     int8 = INT8()
+    uint8 = UINT8()
     i8 = INT8()
+    ui8 = UINT8()
     int32 = INT32()
     i32 = INT32()
     f64 = F64()
@@ -428,6 +436,7 @@ class T:
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
+@extclass(T.UINT8)
 @extclass(T.INT32)
 def shape(t):
     if isinstance(t, T.Window):
@@ -447,6 +456,7 @@ del shape
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
+@extclass(T.UINT8)
 @extclass(T.INT32)
 @extclass(T.Bool)
 @extclass(T.Int)
@@ -464,6 +474,8 @@ def ctype(t):
         return "double"
     elif isinstance(t, T.INT8):
         return "int8_t"
+    elif isinstance(t, T.UINT8):
+        return "uint8_t"
     elif isinstance(t, T.INT32):
         return "int32_t"
     elif isinstance(t, T.Bool):
@@ -477,7 +489,7 @@ del ctype
 
 @extclass(LoopIR.type)
 def is_real_scalar(t):
-    return isinstance(t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.INT32))
+    return isinstance(t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.UINT8, T.INT32))
 
 
 del is_real_scalar
