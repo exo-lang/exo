@@ -13,19 +13,15 @@ if __name__ != "__main__" and hasattr(os, "devnull"):
 
 
 @proc
-def blur1d_compute_root(n: size, consumer: i8[n], sin: i8[n + 4]):
-    producer: i8[n + 4]
-    for i in seq(0, n + 4):
-        producer[i] = sin[i]
+def blur1d_compute_root(n: size, consumer: i8[n], inp: i8[n + 6]):
+    producer: i8[n + 1]
+    for i in seq(0, n + 1):
+        producer[i] = (
+            inp[i] + inp[i + 1] + inp[i + 2] + inp[i + 3] + inp[i + 4] + inp[i + 5]
+        ) / 6.0
 
     for i in seq(0, n):
-        consumer[i] = (
-            producer[i]
-            + producer[i + 1]
-            + producer[i + 2]
-            + producer[i + 3]
-            + producer[i + 4]
-        )
+        consumer[i] = (producer[i] + producer[i + 1]) / 2.0
 
 
 @proc
@@ -71,7 +67,7 @@ def schedule_blur1d_compute_at():
 
     prod_loop = blur.find_loop("i")
     consumer_loop = blur.find_loop("i #1")
-    accesses = range(5)  # TODO: need introspection to get this
+    accesses = range(2)  # TODO: need introspection to get this
 
     # Assumes constant, consecutive windows
     first_prod_loop = prod_loop
