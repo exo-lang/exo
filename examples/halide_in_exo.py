@@ -60,10 +60,8 @@ caveats to consider:
 """
 
 
-def schedule_blur1d_compute_at():
-    # TODO: this approach only works for constant sized kernels
-    blur = rename(blur1d_compute_root, "blur_scheduled_compute_root")
-    print("Initial blur:\n", blur)
+def schedule_compute_at(algorithm, name):
+    blur = rename(algorithm, name)
 
     prod_loop = blur.find_loop("i")
     consumer_loop = blur.find_loop("i #1")
@@ -102,5 +100,42 @@ def schedule_blur1d_compute_at():
     return simplify(blur)
 
 
-blur1d_compute_at = schedule_blur1d_compute_at()
+def schedule_store_at(algorithm, producer, consumer, loop, algorithm_name):
+    blur = rename(algorithm, algorithm_name)
+
+    producer_alloc = blur.find(f"{producer}:_")
+    consumer_assign = blur.find(f"{consumer} = _")
+    loop = blur.forward(loop)  # need to forward because rename has a fwding function
+
+    name = producer_alloc.name()
+    bound = 2  # TODO: need bounds inference to figure this out
+
+    before_consumer = consumer_assign.prev().as_block().expand(delta_hi=0)
+    blur = stage_mem(blur, before_consumer, f"{name}[i:i+{bound}]", f"{name}_tmp")
+    blur = simplify(blur)
+
+    blur = sink_alloc(blur, producer_alloc)
+
+    blur = unroll_loop(blur, blur.forward(consumer_assign).prev())
+    blur = simplify(blur)
+
+    for i in range(bound):
+        block = blur.forward(consumer_assign).expand(delta_lo=1, delta_hi=0)
+        blur = inline_assign(blur, block)
+
+    blur = delete_buffer(blur, producer_alloc)
+
+    return simplify(blur)
+
+
+print("Original blur:\n", blur1d_compute_root)
+blur1d_compute_at_store_root = schedule_compute_at(
+    blur1d_compute_root, "blur_compute_at_store_root"
+)
+print("Compute at, store root blur:\n", blur1d_compute_at_store_root)
+
+loop = blur1d_compute_at_store_root.find_loop("i")
+blur1d_compute_at = schedule_store_at(
+    blur1d_compute_at_store_root, "producer", "consumer", loop, "blur_compute_at"
+)
 print("Compute at blur:\n", blur1d_compute_at)

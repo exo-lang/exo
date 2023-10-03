@@ -1284,6 +1284,18 @@ def test_merge_writes_different_lhs_arrays_error():
         bar = merge_writes(bar, "z[i, 1] = y; z[i+1, 1] += y")
 
 
+def test_inline_assign():
+    @proc
+    def foo(n: size, y: i8[n]):
+        for i in seq(0, n):
+            x: i8[5]
+            x[1] = 1.0
+            y[i] = x[1] + x[2]
+
+    foo = inline_assign(foo, foo.find("x = _").expand(delta_lo=0, delta_hi=1))
+    print(foo)
+
+
 def test_simple_unroll(golden):
     @proc
     def bar(A: i8[10]):

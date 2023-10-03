@@ -1377,6 +1377,13 @@ def autolift_alloc(
     return scheduling.DoLiftAlloc(proc, stmt, n_lifts, mode, size, keep_dims).result()
 
 
+@sched_op([AllocCursorA])
+def delete_buffer(proc, buf_cursor):
+    buf_s = buf_cursor._impl
+    ir, fwd = scheduling.DoDeleteBuffer(buf_s)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([AllocCursorA, AllocCursorA])
 def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
@@ -1735,6 +1742,24 @@ def merge_writes(proc, block_cursor):
         )
 
     ir, fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([BlockCursorA(block_size=2)])
+def inline_assign(proc, block_cursor):
+    stmt1 = block_cursor[0]._impl
+    stmt2 = block_cursor[1]._impl
+
+    if not isinstance(stmt1._node, LoopIR.Assign):
+        raise ValueError(
+            f"Expected the first statement of the block to be an assign, isntead got {stmt1._node}"
+        )
+    if not isinstance(stmt2._node, (LoopIR.Assign, LoopIR.Reduce)):
+        raise ValueError(
+            f"Expected the second statement of the block to be an assign or reduce, isntead got {stmt1._node}"
+        )
+
+    ir, fwd = scheduling.DoInlineAssign(stmt1, stmt2)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

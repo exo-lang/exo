@@ -234,13 +234,13 @@ def _replace_helper(c, c_repl, only_replace_attrs):
         return c._replace(c_repl)
 
 
-def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True):
+def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True, use_sym_id=True):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
     cur_fwd = lambda x: x
     c = fwd(c)
-    for rd in match_pattern(c, pat, use_sym_id=True):
+    for rd in match_pattern(c, pat, use_sym_id=use_sym_id):
         rd = cur_fwd(rd)
         if not (c_repl := repl(rd)):
             continue
@@ -529,6 +529,33 @@ def DoMergeWrites(c1, c2):
             [s1.update(rhs=LoopIR.BinOp("+", s1.rhs, s2.rhs, s1.type, s1.srcinfo))]
         )
         fwd = _compose(fwd_repl, fwd)
+
+    return ir, fwd
+
+
+def DoInlineAssign(c1, c2):
+    s1 = c1._node
+    s2 = c2._node
+    assert isinstance(s1, LoopIR.Assign)
+    assert isinstance(s2, (LoopIR.Assign, LoopIR.Reduce))
+
+    def mk_inline_expr(e):
+        return s1.rhs
+
+    # TODO: see if I can replace with Check_IsDeadAfter
+    after_scope = get_rest_of_block(c2, inclusive=False)
+    accesses = get_reads_of_stmts(after_scope) + get_writes_of_stmts(after_scope)
+    if s1.name in [name for name, _ in accesses]:
+        # TODO: this check is currently too strict, it should really only look at indices...
+        raise SchedulingError(
+            f"Cannot inline assign {s1} because the buffer is accessed afterwards."
+        )
+
+    ir, fwd = c1._delete()
+    pat = f"{s1.name}[{','.join([str(idx) for idx in s1.idx])}]"
+    ir, fwd = _replace_pats(
+        ir, fwd, c2, pat, mk_inline_expr, only_replace_attrs=False, use_sym_id=False
+    )
 
     return ir, fwd
 
@@ -1661,6 +1688,7 @@ def DoSinkAlloc(alloc_cursor, scope_cursor):
     # on each other), so if a loop iteration has exprs E_i, then we need to show that E_i
     # an E_j are always disjoint for i != j.
 
+    # TODO: see if I can replace with Check_IsDeadAfter
     after_scope = [s._node for s in get_rest_of_block(scope_cursor)]
     accesses = get_reads_of_stmts(after_scope) + get_writes_of_stmts(after_scope)
     if alloc_stmt.name in [name for name, _ in accesses]:
@@ -3332,6 +3360,16 @@ def DoRemoveIf(if_cursor):
     fwd = _compose(fwd_del, fwd)
 
     return ir, fwd
+
+
+def DoDeleteBuffer(buf_cursor):
+    assert isinstance(buf_cursor._node, LoopIR.Alloc)
+
+    buf_name = buf_cursor._node.name
+    buf_dims = len(buf_cursor._node.type.shape())
+    Check_IsDeadAfter(buf_cursor.get_root(), [buf_cursor._node], buf_name, buf_dims)
+
+    return buf_cursor._delete()
 
 
 def DoDataReuse(buf_cursor, rep_cursor):
