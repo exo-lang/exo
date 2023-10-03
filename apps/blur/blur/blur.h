@@ -31,12 +31,12 @@ extern "C" {
 
 
 
-// blur(
+// blur_staged(
 //     n : size,
 //     g : ui8[n] @DRAM,
 //     inp : ui8[n + 6] @DRAM
 // )
-void blur( void *ctxt, int_fast32_t n, uint8_t* g, const uint8_t* inp );
+void blur_staged( void *ctxt, int_fast32_t n, uint8_t* g, const uint8_t* inp );
 
 
 

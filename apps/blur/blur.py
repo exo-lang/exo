@@ -28,6 +28,8 @@ def blur(n: size, g: ui8[n], inp: ui8[n + 6]):
     consumer(n, f, g)
 
 
+blur_staged = rename(blur, "blur_staged")
+
 blur = inline(blur, "producer(_)")
 blur = inline(blur, "consumer(_)")
 print(blur)
@@ -35,4 +37,4 @@ print(blur)
 if __name__ == "__main__":
     print(blur)
 
-__all__ = ["blur"]
+__all__ = ["blur_staged"]
