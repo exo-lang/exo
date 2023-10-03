@@ -318,69 +318,123 @@ def lift_if(proc, cursor, n_lifts=1):
     return proc
 
 
-def compute_at(proc, proc_name):
-    blur = rename(proc, proc_name)
+# TODO: create a file for useful cursor navigation like this and get_enclosing_scope for BLAS
+def get_toplevel_stmt(cursor):
+    assert not isinstance(cursor, _PC.InvalidCursor)
+    while not isinstance(cursor.parent(), _PC.InvalidCursor):
+        cursor = cursor.parent()
+    return cursor
 
-    prod_loop = blur.find_loop("i")
-    consumer_loop = blur.find_loop("i #1")
-    accesses = range(2)  # TODO: need introspection to get this
+
+def get_stmt_within_scope(cursor, scope):
+    assert not isinstance(cursor, _PC.InvalidCursor)
+    while cursor.parent() != scope:
+        cursor = cursor.parent()
+    return cursor
+
+
+def match_level(cursor, cursor_to_match):
+    assert not isinstance(cursor, _PC.InvalidCursor)
+    while cursor.parent() != cursor_to_match.parent():
+        cursor = cursor.parent()
+    return cursor
+
+
+# Temporary bounds representation: (base, lo, hi)
+def _get_bounds(bound_repr):
+    base, lo, hi = bound_repr
+    return f"{base}+{lo}:{base}+{hi}"
+
+
+def _get_bounds_range(bound_repr):
+    base, lo, hi = bound_repr
+    return range(lo, hi)
+
+
+def fuse_all_nested_loops(proc, loop1, loop2, unsafe_disable_check=True):
+    while isinstance(loop1, _PC.ForSeqCursor) and isinstance(loop2, _PC.ForSeqCursor):
+        proc = fuse(proc, loop1, loop2, unsafe_disable_check=unsafe_disable_check)
+        fused_loop = proc.forward(loop1)
+        if len(fused_loop.body()) > 2:
+            break
+        loop1 = fused_loop.body()[0]
+        loop2 = fused_loop.body()[1]
+    return proc
+
+
+def compute_at(proc, producer, consumer, loop, bounds):
+    """
+    TODO: bounds
+     - currently assumes that bounds is of the form [0, 1, ..., n-1]
+     - bounds should be automatically inferred, not manually passed
+    """
+    p_loop = match_level(proc.find(f"{producer}[_] = _"), loop)
+    c_loop = loop  # TODO: need to think about nested loops here.
+    bounds_range = _get_bounds_range(bounds[0])  # TODO: Only working for first index
 
     # Assumes constant, consecutive windows
-    first_prod_loop = prod_loop
-    for i in accesses[1:]:
+    first_p_loop = p_loop
+    for i in bounds_range[1:]:  # TODO: assumes bounds starts at 0
         # surgery
-        blur = cut_loop(blur, prod_loop, f"n + {i} - 1")
-        blur = cut_loop(blur, prod_loop, i)
+        proc = cut_loop(proc, p_loop, f"n + {i} - 1")
+        proc = cut_loop(proc, p_loop, i)
 
         # duplicate work
-        middle_prod_loop = blur.forward(prod_loop).next()
-        blur = add_loop(blur, middle_prod_loop, "ii", 2)
-        blur = unroll_loop(blur, blur.forward(middle_prod_loop).parent())
+        middle_p_loop = proc.forward(p_loop).next()
+        proc = add_loop(proc, middle_p_loop, "ii", 2)
+        proc = unroll_loop(proc, proc.forward(middle_p_loop).parent())
 
         # stitch together
-        blur = join_loops(blur, prod_loop, blur.forward(prod_loop).next())
-        next_loop = blur.forward(prod_loop).next()
-        blur = join_loops(blur, next_loop, next_loop.next())
-        blur = simplify(blur)
-        prod_loop = next_loop
+        proc = join_loops(proc, p_loop, proc.forward(p_loop).next())
+        next_loop = proc.forward(p_loop).next()
+        proc = join_loops(proc, next_loop, next_loop.next())
+        proc = simplify(proc)
+        p_loop = next_loop
 
     # merge producer loops
-    prod_loop = blur.forward(first_prod_loop)
-    for i in accesses[1:]:
-        next_loop = prod_loop.next()
-        blur = shift_loop(blur, next_loop, 0)
-        blur = fuse(blur, prod_loop, next_loop, unsafe_disable_check=True)
-        prod_loop = blur.forward(prod_loop)
+    p_loop = proc.forward(first_p_loop)
+    for i in bounds_range[1:]:
+        next_loop = p_loop.next()
+        proc = shift_loop(proc, next_loop, 0)
+        proc = fuse_all_nested_loops(proc, p_loop, next_loop, unsafe_disable_check=True)
+        p_loop = proc.forward(p_loop)
 
     # fuse with consumer
-    blur = fuse(blur, prod_loop, consumer_loop, unsafe_disable_check=True)
+    proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
 
-    return simplify(blur)
+    return simplify(proc)
 
 
-def store_at(proc, producer, consumer, loop, proc_name):
-    blur = rename(proc, proc_name)
+def store_at(proc, producer, consumer, loop, bounds):
+    """
+    TODO: bounds
+     - currently assumes that bounds is of the form [0, 1, ..., n-1]
+     - bounds should be automatically inferred, not manually passed
 
-    producer_alloc = blur.find(f"{producer}:_")
-    consumer_assign = blur.find(f"{consumer} = _")
-    loop = blur.forward(loop)  # need to forward because rename has a fwding function
+    TODO: only works on first index
+    """
+    producer_alloc = proc.find(f"{producer}:_")
+    consumer_assign = proc.find(f"{consumer} = _")
+    consumer_stmt = get_stmt_within_scope(proc.find(f"{consumer} = _"), loop)
+    loop = proc.forward(loop)  # need to forward because rename has a fwding function
 
     name = producer_alloc.name()
-    bound = 2  # TODO: need bounds inference to figure this out
 
-    before_consumer = consumer_assign.prev().as_block().expand(delta_hi=0)
-    blur = stage_mem(blur, before_consumer, f"{name}[i:i+{bound}]", f"{name}_tmp")
-    blur = simplify(blur)
+    before_consumer = consumer_stmt.prev().as_block().expand(delta_hi=0)
+    window_bounds = [_get_bounds(bound) for bound in bounds]
+    window = f"{name}[{','.join(window_bounds)}]"
+    proc = stage_mem(proc, before_consumer, window, f"{name}_tmp")
+    proc = simplify(proc)
 
-    blur = sink_alloc(blur, producer_alloc)
+    proc = sink_alloc(proc, producer_alloc)
 
-    blur = unroll_loop(blur, blur.forward(consumer_assign).prev())
-    blur = simplify(blur)
+    proc = unroll_loop(proc, proc.forward(consumer_stmt).prev())
+    proc = simplify(proc)
 
-    for i in range(bound):
-        block = blur.forward(consumer_assign).expand(delta_lo=1, delta_hi=0)
-        blur = inline_assign(blur, block)
+    for i in _get_bounds_range(bounds[0]):
+        block = proc.forward(consumer_assign).expand(delta_lo=1, delta_hi=0)
+        proc = inline_assign(proc, block)
 
-    blur = delete_buffer(blur, producer_alloc)
+    proc = delete_buffer(proc, producer_alloc)
 
-    return simplify(blur)
+    return simplify(proc)

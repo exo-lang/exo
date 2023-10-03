@@ -1023,6 +1023,7 @@ def DoCommuteExpr(expr_cursors):
     return ir, fwd
 
 
+# TODO: make a cursor navigation file
 def get_enclosing_stmt_cursor(c):
     while isinstance(c._node, LoopIR.expr):
         c = c.parent()
