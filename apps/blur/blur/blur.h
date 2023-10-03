@@ -31,6 +31,27 @@ extern "C" {
 
 
 
+// blur_compute_at_store_at(
+//     n : size,
+//     g : ui8[n] @DRAM,
+//     inp : ui8[n + 6] @DRAM
+// )
+void blur_compute_at_store_at( void *ctxt, int_fast32_t n, uint8_t* g, const uint8_t* inp );
+
+// blur_compute_at_store_root(
+//     n : size,
+//     g : ui8[n] @DRAM,
+//     inp : ui8[n + 6] @DRAM
+// )
+void blur_compute_at_store_root( void *ctxt, int_fast32_t n, uint8_t* g, const uint8_t* inp );
+
+// blur_inline(
+//     n : size,
+//     g : ui8[n] @DRAM,
+//     inp : ui8[n + 6] @DRAM
+// )
+void blur_inline( void *ctxt, int_fast32_t n, uint8_t* g, const uint8_t* inp );
+
 // blur_staged(
 //     n : size,
 //     g : ui8[n] @DRAM,

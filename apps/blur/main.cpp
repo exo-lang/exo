@@ -135,6 +135,9 @@ int main() {
     memcpy(parrot, buffer.data(), sizeof(uint8_t) * width * height);
 
     exec_parrot(blur_staged, "blur_staged", width, height, parrot);
+    exec_parrot(blur_compute_at_store_root, "blur_compute_at_store_root", width, height, parrot);
+    exec_parrot(blur_compute_at_store_at, "blur_compute_at_store_at", width, height, parrot);
+    exec_parrot(blur_inline, "blur_inline", width, height, parrot);
   } else {
     std::cerr << "Error reading PNG file." << std::endl;
   }
