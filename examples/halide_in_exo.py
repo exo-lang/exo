@@ -139,3 +139,17 @@ blur1d_compute_at = schedule_store_at(
     blur1d_compute_at_store_root, "producer", "consumer", loop, "blur_compute_at"
 )
 print("Compute at blur:\n", blur1d_compute_at)
+blur1d_compute_at = inline_assign(
+    blur1d_compute_at,
+    blur1d_compute_at.find("producer_tmp[_] = _ #1")
+    .as_block()
+    .expand(delta_lo=0, delta_hi=1),
+)
+blur1d_compute_at = inline_assign(
+    blur1d_compute_at,
+    blur1d_compute_at.find("producer_tmp[_] = _")
+    .as_block()
+    .expand(delta_lo=0, delta_hi=1),
+)
+blur1d_compute_at = delete_buffer(blur1d_compute_at, "producer_tmp : _")
+print("Inline:\n", blur1d_compute_at)
