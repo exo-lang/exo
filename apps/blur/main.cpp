@@ -12,7 +12,7 @@ bool read_png_file(const char *filename, std::vector<uint8_t> &buffer,
     return false;
 
   png_structp png =
-      png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
   if (!png)
     return false;
 
@@ -56,7 +56,7 @@ bool write_png_file(
     return false;
 
   png_structp png =
-      png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
   if (!png)
     return false;
 
@@ -118,22 +118,19 @@ int exec_parrot(blurtype func, std::string output_name, int width, int height, u
 }
 
 int main() {
-    const char* read_file = "gray.png";
-    std::vector<uint8_t> buffer;
-    int width, height;
+  const char* read_file = "gray.png";
+  std::vector<uint8_t> buffer;
+  int width, height;
 
-    if(read_png_file(read_file, buffer, width, height)) {
-        printf("width: %d\n", (int)width);
-        printf("height: %d\n", (int)height);
+  if(read_png_file(read_file, buffer, width, height)) {
+    printf("width: %d\n", (int)width);
+    printf("height: %d\n", (int)height);
 
-        uint8_t *parrot;
-        parrot = (uint8_t *) malloc(sizeof(uint8_t) * width * height);
-        memcpy(parrot, buffer.data(), sizeof(uint8_t) * width * height);
+    uint8_t *parrot;
+    parrot = (uint8_t *) malloc(sizeof(uint8_t) * width * height);
+    memcpy(parrot, buffer.data(), sizeof(uint8_t) * width * height);
 
-        exec_parrot(blur_staged, "blur_staged", width, height, parrot);
-    } else {
-        std::cerr << "Error reading PNG file." << std::endl;
-    }
+    exec_parrot(blur_staged, "blur_staged", width, height, parrot);
   } else {
     std::cerr << "Error reading PNG file." << std::endl;
   }
