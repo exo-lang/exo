@@ -29,34 +29,32 @@ def schedule_blur1d():
 
     bounds = [("i", 0, 2)]
 
-    loop = blur1d_compute_root.find_loop("i #1")
     blur1d_compute_at_store_root = rename(
-        compute_at(blur1d_compute_root, "producer", "consumer", loop, bounds),
-        "blur1d_compte_at_store_root",
+        blur1d_compute_root, "blur1d_compute_at_store_root"
+    )
+    loop = blur1d_compute_at_store_root.find_loop("i #1")
+    blur1d_compute_at_store_root = compute_at(
+        blur1d_compute_at_store_root, "producer", "consumer", loop, bounds
     )
     print(blur1d_compute_at_store_root)
 
+    blur1d_compute_at = rename(blur1d_compute_at_store_root, "blur1d_compute_at")
     loop = blur1d_compute_at_store_root.find_loop("i")
-    blur1d_compute_at = rename(
-        store_at(blur1d_compute_at_store_root, "producer", "consumer", loop, bounds),
-        "blur1d_compute_at",
+    blur1d_compute_at = store_at(
+        blur1d_compute_at_store_root, "producer", "consumer", loop, bounds
     )
     print(blur1d_compute_at)
 
-    blur1d_compute_at = inline_assign(
-        blur1d_compute_at,
-        blur1d_compute_at.find("producer_tmp[_] = _ #1")
-        .as_block()
-        .expand(delta_lo=0, delta_hi=1),
-    )
-    blur1d_compute_at = inline_assign(
-        blur1d_compute_at,
-        blur1d_compute_at.find("producer_tmp[_] = _")
-        .as_block()
-        .expand(delta_lo=0, delta_hi=1),
-    )
-    blur1d_compute_at = delete_buffer(blur1d_compute_at, "producer_tmp : _")
-    print(blur1d_compute_at)
+    blur1d_inline = rename(blur1d_compute_at, "blur1d_inline")
+    for i in range(2):
+        blur1d_inline = inline_assign(
+            blur1d_inline,
+            blur1d_inline.find("consumer[_] = _")
+            .as_block()
+            .expand(delta_lo=1, delta_hi=0),
+        )
+    blur1d_inline = delete_buffer(blur1d_inline, "producer: _")
+    print(blur1d_inline)
 
 
 @proc
@@ -81,34 +79,57 @@ def blur2d_compute_root(n: size, consumer: i8[n, n], sin: i8[n + 1, n + 1]):
 def schedule_blur2d():
     print(blur2d_compute_root)
 
-    bounds = [("i", 0, 2), ("0", 0, "n+1")]
-
     loop = blur2d_compute_root.find_loop("i #1")
+    blur2d_compute_at_i_store_root = compute_at(
+        blur2d_compute_root, "producer", "consumer", loop, (0, "i", 0, 2)
+    )
     blur2d_compute_at_i_store_root = rename(
-        compute_at(blur2d_compute_root, "producer", "consumer", loop, bounds),
+        blur2d_compute_at_i_store_root,
         "blur2d_compute_at_i_store_root",
     )
     print(blur2d_compute_at_i_store_root)
 
+    loop = blur2d_compute_at_i_store_root.find_loop("i")
+    blur2d_compute_at_i = store_at(
+        blur2d_compute_at_i_store_root, "producer", "consumer", loop, (0, "i", 0, 2)
+    )
+    blur2d_compute_at_i = rename(blur2d_compute_at_i, "blur2d_compute_at_i")
+    print(blur2d_compute_at_i)
+
     loop = blur2d_compute_at_i_store_root.find_loop("j #1")
+    blur2d_compute_at_j_store_root = compute_at(
+        blur2d_compute_at_i_store_root, "producer", "consumer", loop, (1, "j", 0, 2)
+    )
     blur2d_compute_at_j_store_root = rename(
-        compute_at(
-            blur2d_compute_at_i_store_root, "producer", "consumer", loop, bounds
-        ),
-        "blur2d_compute_at_j_store_root",
+        blur2d_compute_at_j_store_root, "blur2d_compute_at_j_store_root"
     )
     print(blur2d_compute_at_j_store_root)
 
-    # TODO: current strategy doesn't work with non-constant sizes...
-    # loop = blur2d_compute_at_i_store_root.find_loop("i")
-    # blur2d_compute_at = rename(
-    #     store_at(
-    #         blur2d_compute_at_i_store_root, "producer", "consumer", loop, bounds
-    #     ),
-    #     "blur2d_compute_at"
-    # )
-    # print(blur2d_compute_at)
+    loop = blur2d_compute_at_i.find_loop("j #1")
+    blur2d_compute_at_j_store_at_i = compute_at(
+        blur2d_compute_at_i, "producer", "consumer", loop, (1, "j", 0, 2)
+    )
+    blur2d_compute_at_j_store_at_i = rename(
+        blur2d_compute_at_j_store_at_i, "blur2d_compute_at_j_store_at_i"
+    )
+    blur2d_compute_at_j_store_at_i = simplify(blur2d_compute_at_j_store_at_i)
+    print(blur2d_compute_at_j_store_at_i)
+
+    loop = blur2d_compute_at_j_store_at_i.find_loop("j")
+    blur2d_inline = store_at(
+        blur2d_compute_at_j_store_at_i, "producer", "consumer", loop, (1, "j", 0, 2)
+    )
+    for i in range(4):
+        blur2d_inline = inline_assign(
+            blur2d_inline,
+            blur2d_inline.find("consumer[_] = _")
+            .as_block()
+            .expand(delta_lo=1, delta_hi=0),
+        )
+    blur2d_inline = delete_buffer(blur2d_inline, "producer: _")
+    blur2d_inline = rename(blur2d_inline, "blur2d_inline")
+    print(blur2d_inline)
 
 
-schedule_blur1d()
+# schedule_blur1d()
 schedule_blur2d()

@@ -47,6 +47,7 @@ from ..API_scheduling import (
     #
     # buffer and window oriented operations
     expand_dim,
+    shrink_dim,
     rearrange_dim,
     bound_alloc,
     divide_dim,
@@ -340,14 +341,14 @@ def match_level(cursor, cursor_to_match):
     return cursor
 
 
-# Temporary bounds representation: (base, lo, hi)
+# Temporary bounds representation: (idx, base, lo, hi)
 def _get_bounds(bound_repr):
-    base, lo, hi = bound_repr
-    return f"{base}+{lo}:{base}+{hi}"
+    _, base, lo, hi = bound_repr
+    return f"{base}+{lo}", f"{base}+{hi}"
 
 
 def _get_bounds_range(bound_repr):
-    base, lo, hi = bound_repr
+    _, _, lo, hi = bound_repr
     return range(lo, hi)
 
 
@@ -364,13 +365,15 @@ def fuse_all_nested_loops(proc, loop1, loop2, unsafe_disable_check=True):
 
 def compute_at(proc, producer, consumer, loop, bounds):
     """
+    This version of compute_at will only go down one-level of for loops
+
     TODO: bounds
      - currently assumes that bounds is of the form [0, 1, ..., n-1]
      - bounds should be automatically inferred, not manually passed
     """
     p_loop = match_level(proc.find(f"{producer}[_] = _"), loop)
     c_loop = loop  # TODO: need to think about nested loops here.
-    bounds_range = _get_bounds_range(bounds[0])  # TODO: Only working for first index
+    bounds_range = _get_bounds_range(bounds)
 
     # Assumes constant, consecutive windows
     first_p_loop = p_loop
@@ -416,25 +419,10 @@ def store_at(proc, producer, consumer, loop, bounds):
     producer_alloc = proc.find(f"{producer}:_")
     consumer_assign = proc.find(f"{consumer} = _")
     consumer_stmt = get_stmt_within_scope(proc.find(f"{consumer} = _"), loop)
-    loop = proc.forward(loop)  # need to forward because rename has a fwding function
-
-    name = producer_alloc.name()
-
-    before_consumer = consumer_stmt.prev().as_block().expand(delta_hi=0)
-    window_bounds = [_get_bounds(bound) for bound in bounds]
-    window = f"{name}[{','.join(window_bounds)}]"
-    proc = stage_mem(proc, before_consumer, window, f"{name}_tmp")
-    proc = simplify(proc)
 
     proc = sink_alloc(proc, producer_alloc)
-
-    proc = unroll_loop(proc, proc.forward(consumer_stmt).prev())
-    proc = simplify(proc)
-
-    for i in _get_bounds_range(bounds[0]):
-        block = proc.forward(consumer_assign).expand(delta_lo=1, delta_hi=0)
-        proc = inline_assign(proc, block)
-
-    proc = delete_buffer(proc, producer_alloc)
+    lo, hi = _get_bounds(bounds)
+    dim_idx, _, _, _ = bounds
+    proc = shrink_dim(proc, producer_alloc, dim_idx, lo, hi)
 
     return simplify(proc)

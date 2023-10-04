@@ -1419,9 +1419,52 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         ir, fwd = _replace_reads(ir, fwd, c, alloc_s.name, mk_read)
         ir, fwd = _replace_writes(ir, fwd, c, alloc_s.name, mk_write)
 
-    idx = alloc_cursor.get_index()
-    after_alloc = [c._node for c in fwd(alloc_cursor.parent()).body()[idx + 1 :]]
+    after_alloc = [c._node for c in get_rest_of_block(fwd(alloc_cursor))]
     Check_Bounds(ir, new_alloc, after_alloc)
+
+    return ir, fwd
+
+
+def DoShrinkDim(alloc_cursor, dim_idx: int, lo: LoopIR.expr, hi: LoopIR.expr):
+    alloc_s = alloc_cursor._node
+    assert isinstance(alloc_s, LoopIR.Alloc)
+    assert isinstance(alloc_s.type, T.Tensor)
+
+    new_dim_size = LoopIR.BinOp("-", hi, lo, hi.type, alloc_s.srcinfo)
+    Check_IsPositiveExpr(alloc_cursor.get_root(), [alloc_s], new_dim_size)
+
+    ir, fwd = (
+        alloc_cursor._child_node("type")
+        ._child_block("hi")[dim_idx]
+        ._replace([new_dim_size])
+    )
+
+    def mk_read(c):
+        rd = c._node
+
+        if isinstance(rd, LoopIR.Read):
+            new_idx = rd.idx.copy()
+            new_idx[dim_idx] = LoopIR.BinOp(
+                "-", rd.idx[dim_idx], lo, lo.type, rd.srcinfo
+            )
+            return {"idx": new_idx}
+        else:
+            raise NotImplementedError(
+                f"Did not implement {type(rd)}. This may be a bug."
+            )
+
+    def mk_write(c):
+        s = c._node
+        new_idx = s.idx.copy()
+        new_idx[dim_idx] = LoopIR.BinOp("-", s.idx[dim_idx], lo, lo.type, s.srcinfo)
+        return {"idx": new_idx}
+
+    for c in get_rest_of_block(alloc_cursor):
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_s.name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_s.name, mk_write)
+
+    after_alloc = [c._node for c in get_rest_of_block(fwd(alloc_cursor))]
+    Check_Bounds(ir, alloc_s, after_alloc)
 
     return ir, fwd
 
@@ -3924,6 +3967,7 @@ __all__ = [
     "DoInlineWindow",
     "DoDivideDim",
     "DoExpandDim",
+    "DoShrinkDim",
     "DoMultiplyDim",
     "DoRearrangeDim",
     "DoInline",

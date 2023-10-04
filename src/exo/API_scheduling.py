@@ -1114,9 +1114,38 @@ def write_config(proc, gap_cursor, config, field, rhs):
 # Memory and Windowing-oriented Operations
 
 
+@sched_op([AllocCursorA, IntA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
+def shrink_dim(proc, buf_cursor, dim_idx, lo, hi):
+    """
+    shrinks the [dim_idx]-th dimension of buffer [buf_cursor] to only track the data
+    that was store from [lo] to [hi] in the original buffer. Fails if any other
+    accesses outside the (lo, hi) range are made to the [dim_idx]-th dimension.
+
+    args:
+        buf_cursor      - cursor pointing to the Alloc
+        dim_idx         - which dimension to shrink
+        lo              - an expression for the low end of the range
+        hi              - an expression for the high end of the range
+
+    rewrite:
+        `x : T[n, ...] ; s`
+          ->
+        `x : T[hi - lo, ...] ; s[ x[idx, ...] -> x[idx - lo, ...] ]`
+    checks:
+        The provided dimension size is checked for positivity and the
+        provided indexing expression is checked to make sure it is in-bounds
+    """
+    stmt_c = buf_cursor._impl
+    ir, fwd = scheduling.DoShrinkDim(stmt_c, dim_idx, lo, hi)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor"), BoolA])
 def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks=False):
     """
+    TODO: rename this...expand_dim sounds like its increasing the size
+    of a dimension. It should be more like add_dim.
+
     expand the number of dimensions of a buffer variable (`buf_cursor`).
     After expansion, the existing code will initially only use particular
     entries of the new dimension, chosen by the provided `indexing_expr`
