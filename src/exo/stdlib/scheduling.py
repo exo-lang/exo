@@ -320,32 +320,6 @@ def lift_if(proc, cursor, n_lifts=1):
     return proc
 
 
-# TODO: create a file for useful cursor navigation like this and get_enclosing_scope for BLAS
-def match_level(cursor, cursor_to_match):
-    assert not isinstance(cursor, _PC.InvalidCursor)
-    while cursor.parent() != cursor_to_match.parent():
-        cursor = cursor.parent()
-    return cursor
-
-
-def get_stmt_within_scope(cursor, scope):
-    assert not isinstance(cursor, _PC.InvalidCursor)
-    return match_level(cursor, scope.body()[0])
-
-
-def get_enclosing_loop(cursor, loop_iter=None):
-    """
-    Gets the enclosing loop with the given [loop_iter]. If [loop_iter] is None,
-    returns the innermost loop enclosing [cursor].
-    """
-    match_iter = (
-        lambda x: x.name() == loop_iter if loop_iter is not None else lambda x: True
-    )
-    while not (isinstance(cursor, _PC.ForSeqCursor) and match_iter(cursor)):
-        cursor = cursor.parent()
-    return cursor
-
-
 # Temporary bounds representation: (idx, base, lo, hi)
 def _get_bounds(bound_repr):
     _, base, lo, hi = bound_repr
@@ -381,7 +355,7 @@ def compute_at(proc, producer, consumer, loop, consumer_bounds, producer_bounds)
      - currently assumes that bounds is of the form [0, 1, ..., n-1]
      - bounds should be automatically inferred, not manually passed
     """
-    p_loop = match_level(proc.find(f"{producer}[_] = _"), loop)
+    p_loop = _PC.match_level(proc.find(f"{producer}[_] = _"), loop)
     c_loop = loop  # TODO: need to think about nested loops here.
     N_p = p_loop.hi()._impl._node
     N_c = c_loop.hi()._impl._node
@@ -435,7 +409,7 @@ def compute_at(proc, producer, consumer, loop, consumer_bounds, producer_bounds)
 
 def store_at(proc, producer, consumer, loop, bounds):
     """
-    This version of store_at will only go down one level of for loop
+    Moves [producer]'s allocation into
 
     TODO: bounds
      - currently assumes that bounds is of the form [0, 1, ..., n-1]
@@ -443,7 +417,7 @@ def store_at(proc, producer, consumer, loop, bounds):
     """
     producer_alloc = proc.find(f"{producer}:_")
     consumer_assign = proc.find(f"{consumer} = _")
-    consumer_stmt = get_stmt_within_scope(consumer_assign, loop)
+    consumer_stmt = _PC.get_stmt_within_scope(consumer_assign, loop)
 
     proc = sink_alloc(proc, producer_alloc)
     lo, hi = _get_bounds(bounds)
@@ -465,8 +439,8 @@ def tile(
     perfect=True,
 ):
     consumer_assign = proc.find(f"{consumer}[_] = _")
-    i_loop = get_enclosing_loop(consumer_assign, old_i_iter)
-    j_loop = get_enclosing_loop(consumer_assign, old_j_iter)
+    i_loop = _PC.get_enclosing_loop(consumer_assign, old_i_iter)
+    j_loop = _PC.get_enclosing_loop(consumer_assign, old_j_iter)
 
     assert j_loop.parent() == i_loop
     proc = divide_loop(proc, i_loop, i_tile_size, new_i_iters, perfect=perfect)

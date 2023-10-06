@@ -838,6 +838,43 @@ class StrideExprCursor(ExprCursor):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# High-level cursor navigation functions
+
+
+def match_level(cursor, cursor_to_match):
+    """
+    Lifts [cursor] through the AST until [cursor] and [cursor_to_match] are at
+    the same level, e.g. have the same parent.
+    """
+    assert not isinstance(cursor, InvalidCursor)
+    while cursor.parent() != cursor_to_match.parent():
+        cursor = cursor.parent()
+    return cursor
+
+
+def get_stmt_within_scope(cursor, scope):
+    """
+    Gets the statement containing [cursor] that is directly in the provided [scope]
+    """
+    assert not isinstance(cursor, InvalidCursor)
+    return match_level(cursor, scope.body()[0])
+
+
+def get_enclosing_loop(cursor, loop_iter=None):
+    """
+    Gets the enclosing loop with the given [loop_iter]. If [loop_iter] is None,
+    returns the innermost loop enclosing [cursor].
+    """
+    match_iter = (
+        lambda x: x.name() == loop_iter if loop_iter is not None else lambda x: True
+    )
+    while not (isinstance(cursor, ForSeqCursor) and match_iter(cursor)):
+        cursor = cursor.parent()
+    return cursor
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Internal Functions; Not for Exposure to Users
 
 # helper function to dispatch to constructors
@@ -953,4 +990,8 @@ __all__ = [
     "StrideExprCursor",
     #
     "InvalidCursorError",
+    #
+    match_level,
+    get_stmt_within_scope,
+    get_enclosing_loop,
 ]

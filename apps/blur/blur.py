@@ -24,8 +24,9 @@ def producer(n: size, m: size, f: ui8[n, m], inp: ui8[n, m]):
 @proc
 def consumer(n: size, m: size, f: ui8[n, m], g: ui8[n, m]):
     assert n > 5
+    assert m > 5
     for i in seq(0, n - 4):
-        for j in seq(0, m):
+        for j in seq(0, m - 4):
             g[i, j] = (
                 f[i, j] + f[i + 1, j] + f[i + 2, j] + f[i + 3, j] + f[i + 4, j]
             ) / 5.0
@@ -61,7 +62,7 @@ def prod_inline(p):
     print()
 
     c_bounds_2 = (1, "j", 0, 1)
-    p_bounds_2 = (1, "j", 0, 5)
+    p_bounds_2 = (1, "j", 0, 1)
     p_compute_at_store_root_j = compute_at(
         p_compute_at_store_at,
         "f",
@@ -73,22 +74,21 @@ def prod_inline(p):
 
     print(p_compute_at_store_root_j)
 
-    p_inline = inline_assign(
-        p_compute_at_store_at,
-        p_compute_at_store_at.find("f[_] = _ #1")
-        .as_block()
-        .expand(delta_lo=0, delta_hi=1),
-    )
-    p_inline = inline_assign(
-        p_inline,
-        p_inline.find("f[_] = _ #0").as_block().expand(delta_lo=0, delta_hi=1),
-    )
+    p_inline = p_compute_at_store_root_j
+    for i in range(5):
+        p_inline = inline_assign(
+            p_inline,
+            p_inline.find("g[_] = _").as_block().expand(delta_lo=1, delta_hi=0),
+        )
     p_inline = delete_buffer(p_inline, "f : _")
     p_inline = rename(p_inline, "p_inline")
+    print(p_inline)
+
+    return p_inline
 
 
 blur_staged = rename(blur, "blur_staged")
-blur_inline = prod_inline(blur).rename(blur, "blur_inlined")
+blur_inline = rename(prod_inline(blur), "blur_inlined")
 
 if __name__ == "__main__":
     print(blur)
