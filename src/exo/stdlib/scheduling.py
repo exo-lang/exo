@@ -347,7 +347,9 @@ def fuse_all_nested_loops(proc, loop1, loop2, unsafe_disable_check=True):
     return proc
 
 
-def compute_at(proc, producer, consumer, loop, consumer_bounds, producer_bounds):
+def compute_at(
+    proc, producer, consumer, loop, consumer_bounds, producer_bounds, hardcode=1
+):
     """
     This version of compute_at will only go down one-level of for loops
 
@@ -398,7 +400,7 @@ def compute_at(proc, producer, consumer, loop, consumer_bounds, producer_bounds)
 
         # Hard coded simplify math
         proc = rewrite_expr(proc, proc.find(f"({N_p}) / {w_c}"), f"{N_c}")
-        proc = rewrite_expr(proc, proc.find(f"({N_p}) % {w_c}"), 1)
+        proc = rewrite_expr(proc, proc.find(f"({N_p}) % {w_c}"), hardcode)
         proc = simplify(proc)
 
     # fuse with consumer

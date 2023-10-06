@@ -101,7 +101,7 @@ typedef void (*blurtype)(
 int exec_parrot(blurtype func, std::string output_name, int width, int height,
     uint8_t *parrot) {
   uint8_t *parrot_blurred;
-  parrot_blurred = (uint8_t *)malloc(sizeof(uint8_t) * width * height);
+  parrot_blurred = (uint8_t *)malloc(sizeof(uint8_t) * (width+4) * (height+4));
 
   auto start = std::chrono::steady_clock::now();
   int iterations = 100;
@@ -114,7 +114,12 @@ int exec_parrot(blurtype func, std::string output_name, int width, int height,
   printf("%s: %f microseconds\n", output_name.c_str(), time);
 
   std::string file_name = output_name + std::string(".png");
-  if (!write_png_file(file_name.c_str(), parrot_blurred, width, height)) {
+
+  uint8_t *parrot_write;
+  parrot_write = (uint8_t *)malloc(sizeof(uint8_t) * width * height);
+  for (int i = 0; i < height; i++)
+    memcpy(&parrot_write[i*width], &parrot_blurred[i*(width+4)], sizeof(uint8_t) * width);
+  if (!write_png_file(file_name.c_str(), parrot_write, width, height)) {
     std::cerr << "Error writing PNG file." << std::endl;
   }
 
@@ -131,16 +136,21 @@ int main() {
     printf("height: %d\n", (int)height);
 
     uint8_t *parrot;
-    parrot = (uint8_t *)malloc(sizeof(uint8_t) * width * height);
-    memcpy(parrot, buffer.data(), sizeof(uint8_t) * width * height);
+    parrot = (uint8_t *)malloc(sizeof(uint8_t) * (width+4) * (height+4));
+    for (int i = 0; i < height; i++) {
+      memcpy(&parrot[i*(width+4)], &buffer[i*width], sizeof(uint8_t) * width);
+      parrot[i*(width+4) + width] = buffer[i*width+width];
+      parrot[i*(width+4) + width + 1] = buffer[i*width+width];
+      parrot[i*(width+4) + width + 2] = buffer[i*width+width];
+      parrot[i*(width+4) + width + 3] = buffer[i*width+width];
+    }
 
     exec_parrot(blur_staged, "blur_staged", width, height, parrot);
+    exec_parrot(blur_inline, "blur_inline", width, height, parrot);
+    exec_parrot(blur_tiled, "blur_tiled", width, height, parrot);
     /*
-    exec_parrot(blur_compute_at_store_root, "blur_compute_at_store_root", width,
-        height, parrot);
     exec_parrot(blur_compute_at_store_at, "blur_compute_at_store_at", width,
         height, parrot);
-    exec_parrot(blur_inline, "blur_inline", width, height, parrot);
     */
   } else {
     std::cerr << "Error reading PNG file." << std::endl;

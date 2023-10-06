@@ -1,112 +1,110 @@
 #include "blur.h"
 
+
+
 #include <stdio.h>
 #include <stdlib.h>
+
 
 // consumer(
 //     n : size,
 //     m : size,
-//     f : ui8[n, m] @DRAM,
-//     g : ui8[n, m] @DRAM
+//     f : ui8[n + 4, m + 4] @DRAM,
+//     g : ui8[n + 4, m + 4] @DRAM
 // )
-static void consumer(
-    void *ctxt, int_fast32_t n, int_fast32_t m, const uint8_t *f, uint8_t *g);
+static void consumer( void *ctxt, int_fast32_t n, int_fast32_t m, const uint8_t* f, uint8_t* g );
 
 // producer(
 //     n : size,
 //     m : size,
-//     f : ui8[n, m] @DRAM,
-//     inp : ui8[n, m] @DRAM
+//     f : ui8[n + 4, m + 4] @DRAM,
+//     inp : ui8[n + 4, m + 4] @DRAM
 // )
-static void producer(
-    void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *f, const uint8_t *inp);
+static void producer( void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t* f, const uint8_t* inp );
 
-// blur_inlined(
+// blur_inline(
 //     n : size,
 //     m : size,
-//     g : ui8[n, m] @DRAM,
-//     inp : ui8[n, m] @DRAM
+//     g : ui8[n + 4, m + 4] @DRAM,
+//     inp : ui8[n + 4, m + 4] @DRAM
 // )
-void blur_inlined(void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *g,
-    const uint8_t *inp) {
-  EXO_ASSUME(n > 5);
-  EXO_ASSUME(m > 5);
-  for (int_fast32_t i = 0; i < -4 + n; i++) {
-    for (int_fast32_t j = 0; j < -4 + m; j++) {
-      g[i * m + j] =
-          ((inp[i * m + j] + inp[i * m + 1 + j] + inp[i * m + 2 + j] +
-               inp[i * m + 3 + j] + inp[i * m + 4 + j]) /
-                  5.0 +
-              (inp[(1 + i) * m + j] + inp[(1 + i) * m + 1 + j] +
-                  inp[(1 + i) * m + 2 + j] + inp[(1 + i) * m + 3 + j] +
-                  inp[(1 + i) * m + 4 + j]) /
-                  5.0 +
-              (inp[(2 + i) * m + j] + inp[(2 + i) * m + 1 + j] +
-                  inp[(2 + i) * m + 2 + j] + inp[(2 + i) * m + 3 + j] +
-                  inp[(2 + i) * m + 4 + j]) /
-                  5.0 +
-              (inp[(3 + i) * m + j] + inp[(3 + i) * m + 1 + j] +
-                  inp[(3 + i) * m + 2 + j] + inp[(3 + i) * m + 3 + j] +
-                  inp[(3 + i) * m + 4 + j]) /
-                  5.0 +
-              (inp[(4 + i) * m + j] + inp[(4 + i) * m + 1 + j] +
-                  inp[(4 + i) * m + 2 + j] + inp[(4 + i) * m + 3 + j] +
-                  inp[(4 + i) * m + 4 + j]) /
-                  5.0) /
-          5.0;
-    }
+void blur_inline( void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t* g, const uint8_t* inp ) {
+EXO_ASSUME(n % 256 == 0);
+EXO_ASSUME(m % 256 == 0);
+for (int_fast32_t i = 0; i < n; i++) {
+  for (int_fast32_t j = 0; j < m; j++) {
+    g[i * (m + 4) + j] = ((inp[i * (m + 4) + j] + inp[i * (m + 4) + 1 + j] + inp[i * (m + 4) + 2 + j] + inp[i * (m + 4) + 3 + j] + inp[i * (m + 4) + 4 + j]) / 5 + (inp[(1 + i) * (m + 4) + j] + inp[(1 + i) * (m + 4) + 1 + j] + inp[(1 + i) * (m + 4) + 2 + j] + inp[(1 + i) * (m + 4) + 3 + j] + inp[(1 + i) * (m + 4) + 4 + j]) / 5 + (inp[(2 + i) * (m + 4) + j] + inp[(2 + i) * (m + 4) + 1 + j] + inp[(2 + i) * (m + 4) + 2 + j] + inp[(2 + i) * (m + 4) + 3 + j] + inp[(2 + i) * (m + 4) + 4 + j]) / 5 + (inp[(3 + i) * (m + 4) + j] + inp[(3 + i) * (m + 4) + 1 + j] + inp[(3 + i) * (m + 4) + 2 + j] + inp[(3 + i) * (m + 4) + 3 + j] + inp[(3 + i) * (m + 4) + 4 + j]) / 5 + (inp[(4 + i) * (m + 4) + j] + inp[(4 + i) * (m + 4) + 1 + j] + inp[(4 + i) * (m + 4) + 2 + j] + inp[(4 + i) * (m + 4) + 3 + j] + inp[(4 + i) * (m + 4) + 4 + j]) / 5) / 5;
   }
+}
 }
 
 // blur_staged(
 //     n : size,
 //     m : size,
-//     g : ui8[n, m] @DRAM,
-//     inp : ui8[n, m] @DRAM
+//     g : ui8[n + 4, m + 4] @DRAM,
+//     inp : ui8[n + 4, m + 4] @DRAM
 // )
-void blur_staged(void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *g,
-    const uint8_t *inp) {
-  EXO_ASSUME(n > 5);
-  EXO_ASSUME(m > 5);
-  uint8_t *f = (uint8_t *)malloc(n * m * sizeof(*f));
-  producer(ctxt, n, m, f, inp);
-  consumer(ctxt, n, m, f, g);
-  free(f);
+void blur_staged( void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t* g, const uint8_t* inp ) {
+EXO_ASSUME(n % 256 == 0);
+EXO_ASSUME(m % 256 == 0);
+uint8_t *f = (uint8_t*) malloc((n + 4) * (m + 4) * sizeof(*f));
+producer(ctxt,n,m,f,inp);
+consumer(ctxt,n,m,f,g);
+free(f);
+}
+
+// blur_tiled(
+//     n : size,
+//     m : size,
+//     g : ui8[n + 4, m + 4] @DRAM,
+//     inp : ui8[n + 4, m + 4] @DRAM
+// )
+void blur_tiled( void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t* g, const uint8_t* inp ) {
+EXO_ASSUME(n % 256 == 0);
+EXO_ASSUME(m % 256 == 0);
+uint8_t *f = (uint8_t*) malloc(133 * 128 * sizeof(*f));
+for (int_fast32_t io = 0; io < ((n) / (128)); io++) {
+  for (int_fast32_t jo = 0; jo < ((m) / (128)); jo++) {
+    for (int_fast32_t ji = 0; ji < 128; ji++) {
+      for (int_fast32_t ii = 0; ii < 132; ii++) {
+        f[ii * 128 + ji] = (inp[(ii + 128 * io) * (m + 4) + ji + 128 * jo] + inp[(ii + 128 * io) * (m + 4) + 1 + ji + 128 * jo] + inp[(ii + 128 * io) * (m + 4) + 2 + ji + 128 * jo] + inp[(ii + 128 * io) * (m + 4) + 3 + ji + 128 * jo] + inp[(ii + 128 * io) * (m + 4) + 4 + ji + 128 * jo]) / 5;
+      }
+    }
+    for (int_fast32_t ii = 0; ii < 128; ii++) {
+      for (int_fast32_t ji = 0; ji < 128; ji++) {
+        g[(ii + 128 * io) * (m + 4) + ji + 128 * jo] = (f[ii * 128 + ji] + f[(1 + ii) * 128 + ji] + f[(2 + ii) * 128 + ji] + f[(3 + ii) * 128 + ji] + f[(4 + ii) * 128 + ji]) / 5;
+      }
+    }
+  }
+}
+free(f);
 }
 
 // consumer(
 //     n : size,
 //     m : size,
-//     f : ui8[n, m] @DRAM,
-//     g : ui8[n, m] @DRAM
+//     f : ui8[n + 4, m + 4] @DRAM,
+//     g : ui8[n + 4, m + 4] @DRAM
 // )
-static void consumer(
-    void *ctxt, int_fast32_t n, int_fast32_t m, const uint8_t *f, uint8_t *g) {
-  EXO_ASSUME(n > 5);
-  EXO_ASSUME(m > 5);
-  for (int_fast32_t i = 0; i < n - 4; i++) {
-    for (int_fast32_t j = 0; j < m - 4; j++) {
-      g[i * m + j] = (f[i * m + j] + f[(i + 1) * m + j] + f[(i + 2) * m + j] +
-                         f[(i + 3) * m + j] + f[(i + 4) * m + j]) /
-                     5.0;
-    }
+static void consumer( void *ctxt, int_fast32_t n, int_fast32_t m, const uint8_t* f, uint8_t* g ) {
+for (int_fast32_t i = 0; i < n; i++) {
+  for (int_fast32_t j = 0; j < m; j++) {
+    g[i * (m + 4) + j] = (f[i * (m + 4) + j] + f[(i + 1) * (m + 4) + j] + f[(i + 2) * (m + 4) + j] + f[(i + 3) * (m + 4) + j] + f[(i + 4) * (m + 4) + j]) / 5;
   }
+}
 }
 
 // producer(
 //     n : size,
 //     m : size,
-//     f : ui8[n, m] @DRAM,
-//     inp : ui8[n, m] @DRAM
+//     f : ui8[n + 4, m + 4] @DRAM,
+//     inp : ui8[n + 4, m + 4] @DRAM
 // )
-static void producer(void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *f,
-    const uint8_t *inp) {
-  EXO_ASSUME(m > 5);
-  for (int_fast32_t i = 0; i < n; i++) {
-    for (int_fast32_t j = 0; j < m - 4; j++) {
-      f[i * m + j] = (inp[i * m + j] + inp[i * m + j + 1] + inp[i * m + j + 2] +
-                         inp[i * m + j + 3] + inp[i * m + j + 4]) /
-                     5.0;
-    }
+static void producer( void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t* f, const uint8_t* inp ) {
+for (int_fast32_t i = 0; i < n + 4; i++) {
+  for (int_fast32_t j = 0; j < m; j++) {
+    f[i * (m + 4) + j] = (inp[i * (m + 4) + j] + inp[i * (m + 4) + j + 1] + inp[i * (m + 4) + j + 2] + inp[i * (m + 4) + j + 3] + inp[i * (m + 4) + j + 4]) / 5;
   }
 }
+}
+
