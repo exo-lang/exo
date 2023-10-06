@@ -96,7 +96,7 @@ bool write_png_file(
 }
 
 typedef void (*blurtype)(
-    void *ctxt, int_fast32_t n, uint8_t *g, const uint8_t *inp);
+    void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *g, const uint8_t *inp);
 
 int exec_parrot(blurtype func, std::string output_name, int width, int height,
     uint8_t *parrot) {
@@ -106,7 +106,7 @@ int exec_parrot(blurtype func, std::string output_name, int width, int height,
   auto start = std::chrono::steady_clock::now();
   int iterations = 100;
   for (int i = 0; i < iterations; i++)
-    func(nullptr, width * height, parrot_blurred, parrot);
+    func(nullptr, height, width, parrot_blurred, parrot);
   auto stop = std::chrono::steady_clock::now();
   float time = (float)std::chrono::duration_cast<std::chrono::microseconds>(
       (stop - start) / iterations)
@@ -135,11 +135,13 @@ int main() {
     memcpy(parrot, buffer.data(), sizeof(uint8_t) * width * height);
 
     exec_parrot(blur_staged, "blur_staged", width, height, parrot);
+    /*
     exec_parrot(blur_compute_at_store_root, "blur_compute_at_store_root", width,
         height, parrot);
     exec_parrot(blur_compute_at_store_at, "blur_compute_at_store_at", width,
         height, parrot);
     exec_parrot(blur_inline, "blur_inline", width, height, parrot);
+    */
   } else {
     std::cerr << "Error reading PNG file." << std::endl;
   }

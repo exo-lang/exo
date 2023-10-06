@@ -8,71 +8,89 @@ from exo.stdlib.scheduling import *
 
 
 @proc
-def producer(n: size, f: ui8[n + 1], inp: ui8[n + 6]):
-    for i in seq(0, n + 1):
-        f[i] = (
-            inp[i] + inp[i + 1] + inp[i + 2] + inp[i + 3] + inp[i + 4] + inp[i + 5]
-        ) / 6.0
-
-
-@proc
-def consumer(n: size, f: ui8[n + 1], g: ui8[n]):
+def producer(n: size, m: size, f: ui8[n, m], inp: ui8[n, m]):
+    assert m > 5
     for i in seq(0, n):
-        g[i] = (f[i] + f[i + 1]) / 2.0
+        for j in seq(0, m - 4):
+            f[i, j] = (
+                inp[i, j]
+                + inp[i, j + 1]
+                + inp[i, j + 2]
+                + inp[i, j + 3]
+                + inp[i, j + 4]
+            ) / 5.0
 
 
 @proc
-def blur(n: size, g: ui8[n], inp: ui8[n + 6]):
-    f: ui8[n + 1]
-    producer(n, f, inp)
-    consumer(n, f, g)
+def consumer(n: size, m: size, f: ui8[n, m], g: ui8[n, m]):
+    assert n > 5
+    for i in seq(0, n - 4):
+        for j in seq(0, m):
+            g[i, j] = (
+                f[i, j] + f[i + 1, j] + f[i + 2, j] + f[i + 3, j] + f[i + 4, j]
+            ) / 5.0
+
+
+@proc
+def blur(n: size, m: size, g: ui8[n, m], inp: ui8[n, m]):
+    assert n > 5
+    assert m > 5
+    f: ui8[n, m]
+    producer(n, m, f, inp)
+    consumer(n, m, f, g)
+
+
+def prod_inline(p):
+    p = inline(p, "producer(_)")
+    p = inline(p, "consumer(_)")
+
+    print(p)
+    c_bounds = (0, "i", 0, 1)
+    p_bounds = (0, "i", 0, 5)
+    p_compute_at_store_root = compute_at(
+        p, "f", "g", p.find_loop("i #1"), c_bounds, p_bounds
+    )
+    print("p_compute_at_store_root")
+    print(p_compute_at_store_root)
+    print()
+
+    loop = p_compute_at_store_root.find_loop("i")
+    p_compute_at_store_at = store_at(p_compute_at_store_root, "f", "g", loop, p_bounds)
+    print("p_compute_at_store_at")
+    print(p_compute_at_store_at)
+    print()
+
+    c_bounds_2 = (1, "j", 0, 1)
+    p_bounds_2 = (1, "j", 0, 5)
+    p_compute_at_store_root_j = compute_at(
+        p_compute_at_store_at,
+        "f",
+        "g",
+        p_compute_at_store_at.find_loop("j #1"),
+        c_bounds_2,
+        p_bounds_2,
+    )
+
+    print(p_compute_at_store_root_j)
+
+    p_inline = inline_assign(
+        p_compute_at_store_at,
+        p_compute_at_store_at.find("f[_] = _ #1")
+        .as_block()
+        .expand(delta_lo=0, delta_hi=1),
+    )
+    p_inline = inline_assign(
+        p_inline,
+        p_inline.find("f[_] = _ #0").as_block().expand(delta_lo=0, delta_hi=1),
+    )
+    p_inline = delete_buffer(p_inline, "f : _")
+    p_inline = rename(p_inline, "p_inline")
 
 
 blur_staged = rename(blur, "blur_staged")
-
-print("blur_staged")
-print(blur_staged)
-print()
-
-blur = inline(blur, "producer(_)")
-blur = inline(blur, "consumer(_)")
-
-blur_compute_at_store_root = compute_at(blur, "blur_compute_at_store_root")
-print("blur_compute_at_store_root")
-print(blur_compute_at_store_root)
-print()
-
-loop = blur.find_loop("i")
-blur_compute_at_store_at = store_at(
-    blur_compute_at_store_root, "f", "g", loop, "blur_compute_at_store_at"
-)
-print("blur_compute_at_store_at")
-print(blur_compute_at_store_at)
-print()
-
-blur_inline = inline_assign(
-    blur_compute_at_store_at,
-    blur_compute_at_store_at.find("f_tmp[_] = _ #1")
-    .as_block()
-    .expand(delta_lo=0, delta_hi=1),
-)
-blur_inline = inline_assign(
-    blur_inline,
-    blur_inline.find("f_tmp[_] = _ #0").as_block().expand(delta_lo=0, delta_hi=1),
-)
-blur_inline = delete_buffer(blur_inline, "f_tmp : _")
-blur_inline = rename(blur_inline, "blur_inline")
-
-print("blur_inline")
-print(blur_inline)
-print()
+blur_inline = prod_inline(blur).rename(blur, "blur_inlined")
 
 if __name__ == "__main__":
     print(blur)
 
-__all__ = [
-    "blur_staged",
-    "blur_compute_at_store_root",
-    "blur_compute_at_store_at",
-    "blur_inline",
-]
+__all__ = ["blur_staged", "blur_inline"]
