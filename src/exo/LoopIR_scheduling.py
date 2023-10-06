@@ -691,8 +691,8 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
 
     # add the tail case
     if tail_strategy in ["cut", "cut_and_guard"]:
-        cut_i = Sym(lo)
-        Ntail = szop("%", i)
+        cut_i = Sym(inner_iter)
+        Ntail = szop("%", N, inner_hi)
 
         # in the tail loop we want the iteration variable to
         # be mapped instead to (Ncut*Q + cut_i)
