@@ -138,14 +138,25 @@ def schedule_blur2d_tiled():
     # TODO: make a tile composed schedule from the below
     compute_root = blur2d_compute_root
 
-    i_loop = compute_root.find_loop("i #1")
-    j_loop = compute_root.find_loop("j #1")
-    tiled = divide_loop(compute_root, i_loop, 4, ["io", "ii"], perfect=True)
-    tiled = divide_loop(tiled, j_loop, 4, ["jo", "ji"], perfect=True)
-    tiled = reorder_loops(tiled, "ii jo")
+    tiled = tile(
+        compute_root,
+        "consumer",
+        "i",
+        "j",
+        ["io", "ii"],
+        ["jo", "ji"],
+        4,
+        4,
+        perfect=True,
+    )
     tiled = rename(tiled, "blur2d_tiled")
     print(tiled)
 
+    # Bounds inference for the consumer and producer at various
+    # loop levels in the tiled implementation. Comes in the form
+    # (dim_idx, base, lo, hi), which means it affects the [dim_idx]
+    # dimension of the buffer, and it ranges from [base+lo, base+hi)
+    # TODO: we should be able to do this automatically
     tiled_c_io_bounds = (0, "4 * io", 0, 4)
     tiled_p_io_bounds = (0, "4 * io", 0, 5)
     tiled_c_jo_bounds = (1, "4 * jo", 0, 4)

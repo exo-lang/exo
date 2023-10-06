@@ -321,23 +321,27 @@ def lift_if(proc, cursor, n_lifts=1):
 
 
 # TODO: create a file for useful cursor navigation like this and get_enclosing_scope for BLAS
-def get_toplevel_stmt(cursor):
+def match_level(cursor, cursor_to_match):
     assert not isinstance(cursor, _PC.InvalidCursor)
-    while not isinstance(cursor.parent(), _PC.InvalidCursor):
+    while cursor.parent() != cursor_to_match.parent():
         cursor = cursor.parent()
     return cursor
 
 
 def get_stmt_within_scope(cursor, scope):
     assert not isinstance(cursor, _PC.InvalidCursor)
-    while cursor.parent() != scope:
-        cursor = cursor.parent()
-    return cursor
+    return match_level(cursor, scope.body()[0])
 
 
-def match_level(cursor, cursor_to_match):
-    assert not isinstance(cursor, _PC.InvalidCursor)
-    while cursor.parent() != cursor_to_match.parent():
+def get_enclosing_loop(cursor, loop_iter=None):
+    """
+    Gets the enclosing loop with the given [loop_iter]. If [loop_iter] is None,
+    returns the innermost loop enclosing [cursor].
+    """
+    match_iter = (
+        lambda x: x.name() == loop_iter if loop_iter is not None else lambda x: True
+    )
+    while not (isinstance(cursor, _PC.ForSeqCursor) and match_iter(cursor)):
         cursor = cursor.parent()
     return cursor
 
@@ -391,8 +395,6 @@ def compute_at(proc, producer, consumer, loop, consumer_bounds, producer_bounds)
             proc = cut_loop(proc, p_loop, f"{N_c} + {i} - 1")
             proc = cut_loop(proc, p_loop, i)
 
-            print("FUCK", proc)
-
             # duplicate work
             middle_p_loop = proc.forward(p_loop).next()
             proc = add_loop(proc, middle_p_loop, "ii", 2)
@@ -404,8 +406,6 @@ def compute_at(proc, producer, consumer, loop, consumer_bounds, producer_bounds)
             proc = join_loops(proc, next_loop, next_loop.next())
             proc = simplify(proc)
             p_loop = next_loop
-
-        print("SHIT", proc)
 
         # merge w_p producer loops
         p_loop = proc.forward(first_p_loop)
@@ -451,3 +451,25 @@ def store_at(proc, producer, consumer, loop, bounds):
     proc = shrink_dim(proc, producer_alloc, dim_idx, lo, hi)
 
     return simplify(proc)
+
+
+def tile(
+    proc,
+    consumer,
+    old_i_iter,
+    old_j_iter,
+    new_i_iters,
+    new_j_iters,
+    i_tile_size,
+    j_tile_size,
+    perfect=True,
+):
+    consumer_assign = proc.find(f"{consumer}[_] = _")
+    i_loop = get_enclosing_loop(consumer_assign, old_i_iter)
+    j_loop = get_enclosing_loop(consumer_assign, old_j_iter)
+
+    assert j_loop.parent() == i_loop
+    proc = divide_loop(proc, i_loop, i_tile_size, new_i_iters, perfect=perfect)
+    proc = divide_loop(proc, j_loop, j_tile_size, new_j_iters, perfect=perfect)
+    proc = reorder_loops(proc, f"{new_i_iters[1]} {new_j_iters[0]}")
+    return proc
