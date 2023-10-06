@@ -650,6 +650,8 @@ class NewExprA(ArgumentProcessor):
 
     def _get_ctxt_stmt(self, all_args):
         cursor = all_args[self.cursor_arg]
+        while isinstance(cursor, PC.ExprCursor):
+            cursor = cursor.parent()
 
         # if we don't have a gap cursor, convert to a gap cursor
         if not isinstance(cursor, PC.GapCursor):
@@ -864,6 +866,12 @@ def commute_expr(proc, expr_cursors):
         )
 
     ir, fwd = scheduling.DoCommuteExpr(exprs)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([ExprCursorA, NewExprA("expr_cursor")])
+def rewrite_expr(proc, expr_cursor, new_expr):
+    ir, fwd = scheduling.DoRewriteExpr(expr_cursor._impl, new_expr)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1530,7 +1538,7 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
         ForSeqCursorA,
         PosIntA,
         ListA(NameA, length=2),
-        EnumA(["cut", "guard", "cut_and_guard"]),
+        EnumA(["cut", "guard", "cut_and_guard", "recompute"]),
         BoolA,
     ]
 )
@@ -1551,7 +1559,8 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
                           outer and inner iteration variable names
         tail (opt)      - specifies the strategy for handling the "remainder"
                           of the loop division (called the tail of the loop).
-                          value can be "cut", "guard", or "cut_and_guard".
+                          value can be "cut", "guard", "cut_and_guard", or
+                          "recompute".
                           Default value: "guard"
         perfect (opt)   - Boolean (default False) that can be set to true
                           to assert that you know the remainder will always
@@ -1577,8 +1586,8 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
     ir, fwd = scheduling.DoSplit(
         stmt,
         quot=div_const,
-        hi=new_iters[0],
-        lo=new_iters[1],
+        outer_iter=new_iters[0],
+        inner_iter=new_iters[1],
         tail=tail,
         perfect=perfect,
     )

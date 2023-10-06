@@ -565,26 +565,26 @@ def DoInlineAssign(c1, c2):
 # Split scheduling directive
 
 
-def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
-    split_loop = loop_cursor._node
-    N = split_loop.hi
-    hi_i = Sym(hi)
-    lo_i = Sym(lo)
-    srcinfo = split_loop.srcinfo
-
-    if not is_const_zero(split_loop.lo):
-        raise SchedulingError(
-            f"expected the lower bound of the loop to be zero, got {split_loop.lo}."
-        )
+def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=False):
+    loop = loop_cursor._node
+    N = loop.hi
+    outer_i = Sym(outer_iter)
+    inner_i = Sym(inner_iter)
+    srcinfo = loop.srcinfo
+    tail_strategy = "perfect" if perfect else tail
 
     assert quot > 1
+    if not is_const_zero(loop.lo):
+        raise SchedulingError(
+            f"expected the lower bound of the loop to be zero, got {loop.lo}."
+        )
 
     def substitute(srcinfo):
         cnst = lambda x: LoopIR.Const(x, T.int, srcinfo)
         rd = lambda x: LoopIR.Read(x, [], T.index, srcinfo)
         op = lambda op, lhs, rhs: LoopIR.BinOp(op, lhs, rhs, T.index, srcinfo)
 
-        return op("+", op("*", cnst(quot), rd(hi_i)), rd(lo_i))
+        return op("+", op("*", cnst(quot), rd(outer_i)), rd(inner_i))
 
     # short-hands for sanity
     def boolop(op, lhs, rhs, typ):
@@ -604,28 +604,20 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         rhs_1 = cnst(rhs.val - 1)
         return szop("/", szop("+", lhs, rhs_1), rhs)
 
-    ir, fwd = loop_cursor._child_node("iter")._replace(hi_i)
-
-    tail_strategy = "perfect" if perfect else tail
-
-    # wrap body in a guard
-    if tail_strategy == "guard":
-        idx_sub = substitute(srcinfo)
-
-        def guard_wrapper(body):
-            cond = boolop("<", idx_sub, N, T.bool)
-            return LoopIR.If(cond, body, [], None, srcinfo)
-
-        ir, fwd_wrap = fwd(loop_cursor).body()._wrap(guard_wrapper, "body")
-        fwd = _compose(fwd_wrap, fwd)
-
-    # determine loop bounds and wrap inner loop
-    lo_rng = cnst(quot)
-    if tail_strategy == "guard":
-        hi_rng = ceildiv(N, lo_rng)
-    elif tail_strategy in ["cut", "cut_and_guard"]:
-        hi_rng = szop("/", N, lo_rng)  # floor div
+    # determine hi and lo loop bounds
+    if tail_strategy == "recompute":
+        Check_IsIdempotent(loop_cursor.get_root(), loop.body)
+        N_recompute = szop("%", N, cnst(quot))
+        inner_hi = szop("+", cnst(quot), N_recompute)
+        outer_hi = szop("/", N, cnst(quot))  # floor div
+    elif tail_strategy == "guard":
+        inner_hi = cnst(quot)
+        outer_hi = ceildiv(N, inner_hi)
+    elif tail_strategy in ["cut", "cut_and_guard", "recompute"]:
+        inner_hi = cnst(quot)
+        outer_hi = szop("/", N, inner_hi)  # floor div
     elif tail_strategy == "perfect":
+        inner_hi = cnst(quot)
         if not isinstance(N, LoopIR.Const):
             is_N_divisible = False
             for pred in loop_cursor.get_root().preds:
@@ -640,34 +632,46 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
                     and pred.lhs.rhs.val > 0
                     and pred.lhs.rhs.val % quot == 0
                     and isinstance(pred.lhs.lhs, LoopIR.Read)
-                    and pred.lhs.lhs.name == split_loop.hi.name
+                    and pred.lhs.lhs.name == loop.hi.name
                 ):
                     is_N_divisible = True
 
             if not is_N_divisible:
-                raise SchedulingError(
-                    f"cannot perfectly split the '{split_loop.iter}' loop."
-                )
+                raise SchedulingError(f"cannot perfectly split the '{loop.iter}' loop.")
 
-            hi_rng = boolop("/", N, cnst(quot), T.index)
+            outer_hi = boolop("/", N, cnst(quot), T.index)
         else:
             if N.val % quot != 0:
                 raise SchedulingError(
-                    f"cannot perfectly split the '{split_loop.iter}' loop "
+                    f"cannot perfectly split the '{loop.iter}' loop "
                     f"because {quot} does not evenly divide "
                     f"{N.val}"
                 )
-            hi_rng = cnst(N.val // quot)
+            outer_hi = cnst(N.val // quot)
     else:
         assert False, f"bad tail strategy: {tail_strategy}"
 
+    # turn current loop into outer loop
+    ir, fwd = loop_cursor._child_node("iter")._replace(outer_i)
+    ir, fwd_repl = fwd(loop_cursor)._child_node("hi")._replace(outer_hi)
+    fwd = _compose(fwd_repl, fwd)
+
+    # wrap body in a guard
+    if tail_strategy == "guard":
+        idx_sub = substitute(srcinfo)
+
+        def guard_wrapper(body):
+            cond = boolop("<", idx_sub, N, T.bool)
+            return LoopIR.If(cond, body, [], None, srcinfo)
+
+        ir, fwd_wrap = fwd(loop_cursor).body()._wrap(guard_wrapper, "body")
+        fwd = _compose(fwd_wrap, fwd)
+
+    # wrap body in inner loop
     def inner_wrapper(body):
         return LoopIR.Seq(
-            lo_i, LoopIR.Const(0, T.index, srcinfo), lo_rng, body, None, srcinfo
+            inner_i, LoopIR.Const(0, T.index, srcinfo), inner_hi, body, None, srcinfo
         )
-
-    ir, fwd_repl = fwd(loop_cursor)._child_node("hi")._replace(hi_rng)
-    fwd = _compose(fwd_repl, fwd)
 
     ir, fwd_wrap = fwd(loop_cursor).body()._wrap(inner_wrapper, "body")
     fwd = _compose(fwd_wrap, fwd)
@@ -680,7 +684,7 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         ir,
         fwd,
         loop_cursor,
-        split_loop.iter,
+        loop.iter,
         mk_main_iter,
         only_replace_attrs=False,
     )
@@ -688,14 +692,14 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
     # add the tail case
     if tail_strategy in ["cut", "cut_and_guard"]:
         cut_i = Sym(lo)
-        Ntail = szop("%", N, lo_rng)
+        Ntail = szop("%", i)
 
         # in the tail loop we want the iteration variable to
         # be mapped instead to (Ncut*Q + cut_i)
-        cut_tail_sub = szop("+", rd(cut_i), szop("*", hi_rng, lo_rng))
+        cut_tail_sub = szop("+", rd(cut_i), szop("*", outer_hi, inner_hi))
 
-        cut_body = Alpha_Rename(split_loop.body).result()
-        env = {split_loop.iter: cut_tail_sub}
+        cut_body = Alpha_Rename(loop.body).result()
+        env = {loop.iter: cut_tail_sub}
         cut_body = SubstArgs(cut_body, env).result()
 
         cut_s = LoopIR.Seq(
@@ -1039,6 +1043,13 @@ def less(c1, c2):
         elif p1[i] > p2[i]:
             return False
     return len(p1) < len(p2)
+
+
+def DoRewriteExpr(expr_cursor, new_expr):
+    proc = expr_cursor.get_root()
+    s = get_enclosing_stmt_cursor(expr_cursor)._node
+    Check_ExprEqvInContext(proc, expr_cursor._node, [s], new_expr, [s])
+    return expr_cursor._replace(new_expr)
 
 
 def DoBindExpr(new_name, expr_cursors, cse=False):
@@ -3962,6 +3973,7 @@ __all__ = [
     "DoFuseIf",
     "DoFuseLoop",
     "DoBindExpr",
+    "DoRewriteExpr",
     "DoStageMem",
     "DoDataReuse",
     "DoInlineWindow",

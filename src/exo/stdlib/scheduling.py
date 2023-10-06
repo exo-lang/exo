@@ -26,6 +26,7 @@ from ..API_scheduling import (
     insert_pass,
     delete_pass,
     reorder_stmts,
+    rewrite_expr,
     bind_expr,
     commute_expr,
     #
@@ -347,6 +348,11 @@ def _get_bounds(bound_repr):
     return f"{base}+{lo}", f"{base}+{hi}"
 
 
+def _get_size(bound_repr):
+    _, base, lo, hi = bound_repr
+    return hi - lo
+
+
 def _get_bounds_range(bound_repr):
     _, _, lo, hi = bound_repr
     return range(lo, hi)
@@ -363,7 +369,7 @@ def fuse_all_nested_loops(proc, loop1, loop2, unsafe_disable_check=True):
     return proc
 
 
-def compute_at(proc, producer, consumer, loop, bounds):
+def compute_at(proc, producer, consumer, loop, consumer_bounds, producer_bounds):
     """
     This version of compute_at will only go down one-level of for loops
 
@@ -373,34 +379,53 @@ def compute_at(proc, producer, consumer, loop, bounds):
     """
     p_loop = match_level(proc.find(f"{producer}[_] = _"), loop)
     c_loop = loop  # TODO: need to think about nested loops here.
-    bounds_range = _get_bounds_range(bounds)
+    N_p = p_loop.hi()._impl._node
+    N_c = c_loop.hi()._impl._node
+    w_p = _get_size(producer_bounds)
+    w_c = _get_size(consumer_bounds)
 
-    # Assumes constant, consecutive windows
-    first_p_loop = p_loop
-    for i in bounds_range[1:]:  # TODO: assumes bounds starts at 0
-        # surgery
-        proc = cut_loop(proc, p_loop, f"n + {i} - 1")
-        proc = cut_loop(proc, p_loop, i)
+    if w_c == 1:
+        first_p_loop = p_loop
+        for i in range(1, w_p):  # TODO: assumes producer bounds starts at offset 0
+            # surgery
+            proc = cut_loop(proc, p_loop, f"{N_c} + {i} - 1")
+            proc = cut_loop(proc, p_loop, i)
 
-        # duplicate work
-        middle_p_loop = proc.forward(p_loop).next()
-        proc = add_loop(proc, middle_p_loop, "ii", 2)
-        proc = unroll_loop(proc, proc.forward(middle_p_loop).parent())
+            print("FUCK", proc)
 
-        # stitch together
-        proc = join_loops(proc, p_loop, proc.forward(p_loop).next())
-        next_loop = proc.forward(p_loop).next()
-        proc = join_loops(proc, next_loop, next_loop.next())
+            # duplicate work
+            middle_p_loop = proc.forward(p_loop).next()
+            proc = add_loop(proc, middle_p_loop, "ii", 2)
+            proc = unroll_loop(proc, proc.forward(middle_p_loop).parent())
+
+            # stitch together
+            proc = join_loops(proc, p_loop, proc.forward(p_loop).next())
+            next_loop = proc.forward(p_loop).next()
+            proc = join_loops(proc, next_loop, next_loop.next())
+            proc = simplify(proc)
+            p_loop = next_loop
+
+        print("SHIT", proc)
+
+        # merge w_p producer loops
+        p_loop = proc.forward(first_p_loop)
+        for i in range(1, w_p):
+            next_loop = p_loop.next()
+            proc = shift_loop(proc, next_loop, 0)
+            proc = fuse_all_nested_loops(
+                proc, p_loop, next_loop, unsafe_disable_check=True
+            )
+            p_loop = proc.forward(p_loop)
+    else:
+        p_iter = p_loop.name()
+        proc = divide_loop(
+            proc, p_loop, w_c, [f"{p_iter}o", f"{p_iter}i"], tail="recompute"
+        )
+
+        # Hard coded simplify math
+        proc = rewrite_expr(proc, proc.find(f"({N_p}) / {w_c}"), f"{N_c}")
+        proc = rewrite_expr(proc, proc.find(f"({N_p}) % {w_c}"), 1)
         proc = simplify(proc)
-        p_loop = next_loop
-
-    # merge producer loops
-    p_loop = proc.forward(first_p_loop)
-    for i in bounds_range[1:]:
-        next_loop = p_loop.next()
-        proc = shift_loop(proc, next_loop, 0)
-        proc = fuse_all_nested_loops(proc, p_loop, next_loop, unsafe_disable_check=True)
-        p_loop = proc.forward(p_loop)
 
     # fuse with consumer
     proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
@@ -410,15 +435,15 @@ def compute_at(proc, producer, consumer, loop, bounds):
 
 def store_at(proc, producer, consumer, loop, bounds):
     """
+    This version of store_at will only go down one level of for loop
+
     TODO: bounds
      - currently assumes that bounds is of the form [0, 1, ..., n-1]
      - bounds should be automatically inferred, not manually passed
-
-    TODO: only works on first index
     """
     producer_alloc = proc.find(f"{producer}:_")
     consumer_assign = proc.find(f"{consumer} = _")
-    consumer_stmt = get_stmt_within_scope(proc.find(f"{consumer} = _"), loop)
+    consumer_stmt = get_stmt_within_scope(consumer_assign, loop)
 
     proc = sink_alloc(proc, producer_alloc)
     lo, hi = _get_bounds(bounds)
