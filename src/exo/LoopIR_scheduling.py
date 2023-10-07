@@ -573,7 +573,6 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
     srcinfo = loop.srcinfo
     tail_strategy = "perfect" if perfect else tail
 
-    assert quot > 1
     if not is_const_zero(loop.lo):
         raise SchedulingError(
             f"expected the lower bound of the loop to be zero, got {loop.lo}."

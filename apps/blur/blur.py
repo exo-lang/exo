@@ -75,17 +75,16 @@ def prod_inline(p):
     return p_inline
 
 
-def prod_tile(p, tile_size=32):
+def prod_tile(p, i_tile=32, j_tile=32):
     p = inline(p, "producer(_)")
     p = inline(p, "consumer(_)")
-    p = tile(
-        p, "g", "i", "j", ["io", "ii"], ["jo", "ji"], tile_size, tile_size, perfect=True
-    )
+    p = tile(p, "g", "i", "j", ["io", "ii"], ["jo", "ji"], i_tile, j_tile, perfect=True)
+    p = simplify(p)
 
-    tiled_c_io_bounds = (0, f"{tile_size} * io", 0, tile_size)
-    tiled_p_io_bounds = (0, f"{tile_size} * io", 0, tile_size + 5)
-    tiled_c_jo_bounds = (1, f"{tile_size} * jo", 0, tile_size)
-    tiled_p_jo_bounds = (1, f"{tile_size} * jo", 0, tile_size)
+    tiled_c_io_bounds = (0, f"{i_tile} * io", 0, i_tile)
+    tiled_p_io_bounds = (0, f"{i_tile} * io", 0, i_tile + 5)
+    tiled_c_jo_bounds = (1, f"{j_tile} * jo", 0, j_tile)
+    tiled_p_jo_bounds = (1, f"{j_tile} * jo", 0, j_tile)
 
     loop = p.find_loop("io")
     p = compute_at(p, "f", "g", loop, tiled_c_io_bounds, tiled_p_io_bounds, hardcode=4)
@@ -94,9 +93,11 @@ def prod_tile(p, tile_size=32):
     loop = p.find_loop("jo")
     p = compute_at(p, "f", "g", loop, tiled_c_jo_bounds, tiled_p_jo_bounds, hardcode=0)
 
+    p = simplify(p)
     p = store_at(p, "f", "g", p.find_loop("io"), tiled_p_io_bounds)
     p = store_at(p, "f", "g", p.find_loop("jo"), tiled_p_jo_bounds)
     p = lift_alloc(p, "f: _", n_lifts=2)
+    p = reorder_loops(p, "ji ii")
 
     return p
 
@@ -107,7 +108,7 @@ print(blur_staged)
 blur_inline = rename(prod_inline(blur), "blur_inline")
 print("blur_inline")
 print(blur_inline)
-blur_tiled = rename(prod_tile(blur, tile_size=128), "blur_tiled")
+blur_tiled = rename(prod_tile(blur, i_tile=128, j_tile=256), "blur_tiled")
 print("blur_tiled")
 print(blur_tiled)
 

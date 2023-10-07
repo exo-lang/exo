@@ -33,7 +33,7 @@ EXO_ASSUME(n % 256 == 0);
 EXO_ASSUME(m % 256 == 0);
 for (int_fast32_t i = 0; i < n; i++) {
   for (int_fast32_t j = 0; j < m; j++) {
-    g[i * (m + 4) + j] = ((inp[i * (m + 4) + j] + inp[i * (m + 4) + 1 + j] + inp[i * (m + 4) + 2 + j] + inp[i * (m + 4) + 3 + j] + inp[i * (m + 4) + 4 + j]) / 5 + (inp[(1 + i) * (m + 4) + j] + inp[(1 + i) * (m + 4) + 1 + j] + inp[(1 + i) * (m + 4) + 2 + j] + inp[(1 + i) * (m + 4) + 3 + j] + inp[(1 + i) * (m + 4) + 4 + j]) / 5 + (inp[(2 + i) * (m + 4) + j] + inp[(2 + i) * (m + 4) + 1 + j] + inp[(2 + i) * (m + 4) + 2 + j] + inp[(2 + i) * (m + 4) + 3 + j] + inp[(2 + i) * (m + 4) + 4 + j]) / 5 + (inp[(3 + i) * (m + 4) + j] + inp[(3 + i) * (m + 4) + 1 + j] + inp[(3 + i) * (m + 4) + 2 + j] + inp[(3 + i) * (m + 4) + 3 + j] + inp[(3 + i) * (m + 4) + 4 + j]) / 5 + (inp[(4 + i) * (m + 4) + j] + inp[(4 + i) * (m + 4) + 1 + j] + inp[(4 + i) * (m + 4) + 2 + j] + inp[(4 + i) * (m + 4) + 3 + j] + inp[(4 + i) * (m + 4) + 4 + j]) / 5) / 5;
+    g[i * (m + 4) + j] = ((inp[i * (m + 4) + j] + inp[i * (m + 4) + 1 + j] + inp[i * (m + 4) + 2 + j] + inp[i * (m + 4) + 3 + j] + inp[i * (m + 4) + 4 + j]) / 5.0 + (inp[(1 + i) * (m + 4) + j] + inp[(1 + i) * (m + 4) + 1 + j] + inp[(1 + i) * (m + 4) + 2 + j] + inp[(1 + i) * (m + 4) + 3 + j] + inp[(1 + i) * (m + 4) + 4 + j]) / 5.0 + (inp[(2 + i) * (m + 4) + j] + inp[(2 + i) * (m + 4) + 1 + j] + inp[(2 + i) * (m + 4) + 2 + j] + inp[(2 + i) * (m + 4) + 3 + j] + inp[(2 + i) * (m + 4) + 4 + j]) / 5.0 + (inp[(3 + i) * (m + 4) + j] + inp[(3 + i) * (m + 4) + 1 + j] + inp[(3 + i) * (m + 4) + 2 + j] + inp[(3 + i) * (m + 4) + 3 + j] + inp[(3 + i) * (m + 4) + 4 + j]) / 5.0 + (inp[(4 + i) * (m + 4) + j] + inp[(4 + i) * (m + 4) + 1 + j] + inp[(4 + i) * (m + 4) + 2 + j] + inp[(4 + i) * (m + 4) + 3 + j] + inp[(4 + i) * (m + 4) + 4 + j]) / 5.0) / 5.0;
   }
 }
 }
@@ -62,17 +62,17 @@ free(f);
 void blur_tiled( void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t* g, const uint8_t* inp ) {
 EXO_ASSUME(n % 256 == 0);
 EXO_ASSUME(m % 256 == 0);
-uint8_t *f = (uint8_t*) malloc(133 * 128 * sizeof(*f));
+uint8_t *f = (uint8_t*) malloc(133 * 256 * sizeof(*f));
 for (int_fast32_t io = 0; io < ((n) / (128)); io++) {
-  for (int_fast32_t jo = 0; jo < ((m) / (128)); jo++) {
-    for (int_fast32_t ji = 0; ji < 128; ji++) {
-      for (int_fast32_t ii = 0; ii < 132; ii++) {
-        f[ii * 128 + ji] = (inp[(ii + 128 * io) * (m + 4) + ji + 128 * jo] + inp[(ii + 128 * io) * (m + 4) + 1 + ji + 128 * jo] + inp[(ii + 128 * io) * (m + 4) + 2 + ji + 128 * jo] + inp[(ii + 128 * io) * (m + 4) + 3 + ji + 128 * jo] + inp[(ii + 128 * io) * (m + 4) + 4 + ji + 128 * jo]) / 5;
+  for (int_fast32_t jo = 0; jo < ((m) / (256)); jo++) {
+    for (int_fast32_t ii = 0; ii < 132; ii++) {
+      for (int_fast32_t ji = 0; ji < 256; ji++) {
+        f[ii * 256 + ji] = (inp[(ii + 128 * io) * (m + 4) + ji + 256 * jo] + inp[(ii + 128 * io) * (m + 4) + 1 + ji + 256 * jo] + inp[(ii + 128 * io) * (m + 4) + 2 + ji + 256 * jo] + inp[(ii + 128 * io) * (m + 4) + 3 + ji + 256 * jo] + inp[(ii + 128 * io) * (m + 4) + 4 + ji + 256 * jo]) / 5.0;
       }
     }
     for (int_fast32_t ii = 0; ii < 128; ii++) {
-      for (int_fast32_t ji = 0; ji < 128; ji++) {
-        g[(ii + 128 * io) * (m + 4) + ji + 128 * jo] = (f[ii * 128 + ji] + f[(1 + ii) * 128 + ji] + f[(2 + ii) * 128 + ji] + f[(3 + ii) * 128 + ji] + f[(4 + ii) * 128 + ji]) / 5;
+      for (int_fast32_t ji = 0; ji < 256; ji++) {
+        g[(ii + 128 * io) * (m + 4) + ji + 256 * jo] = (f[ii * 256 + ji] + f[(1 + ii) * 256 + ji] + f[(2 + ii) * 256 + ji] + f[(3 + ii) * 256 + ji] + f[(4 + ii) * 256 + ji]) / 5.0;
       }
     }
   }
@@ -89,7 +89,7 @@ free(f);
 static void consumer( void *ctxt, int_fast32_t n, int_fast32_t m, const uint8_t* f, uint8_t* g ) {
 for (int_fast32_t i = 0; i < n; i++) {
   for (int_fast32_t j = 0; j < m; j++) {
-    g[i * (m + 4) + j] = (f[i * (m + 4) + j] + f[(i + 1) * (m + 4) + j] + f[(i + 2) * (m + 4) + j] + f[(i + 3) * (m + 4) + j] + f[(i + 4) * (m + 4) + j]) / 5;
+    g[i * (m + 4) + j] = (f[i * (m + 4) + j] + f[(i + 1) * (m + 4) + j] + f[(i + 2) * (m + 4) + j] + f[(i + 3) * (m + 4) + j] + f[(i + 4) * (m + 4) + j]) / 5.0;
   }
 }
 }
@@ -103,7 +103,7 @@ for (int_fast32_t i = 0; i < n; i++) {
 static void producer( void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t* f, const uint8_t* inp ) {
 for (int_fast32_t i = 0; i < n + 4; i++) {
   for (int_fast32_t j = 0; j < m; j++) {
-    f[i * (m + 4) + j] = (inp[i * (m + 4) + j] + inp[i * (m + 4) + j + 1] + inp[i * (m + 4) + j + 2] + inp[i * (m + 4) + j + 3] + inp[i * (m + 4) + j + 4]) / 5;
+    f[i * (m + 4) + j] = (inp[i * (m + 4) + j] + inp[i * (m + 4) + j + 1] + inp[i * (m + 4) + j + 2] + inp[i * (m + 4) + j + 3] + inp[i * (m + 4) + j + 4]) / 5.0;
   }
 }
 }
