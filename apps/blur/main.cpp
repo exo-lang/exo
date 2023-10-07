@@ -101,15 +101,20 @@ typedef void (*blurtype)(
 int exec_parrot(blurtype func, std::string output_name, int width, int height,
     uint8_t *parrot) {
   uint8_t *parrot_blurred_0, *parrot_blurred_1;
-  parrot_blurred_0 = (uint8_t *)malloc(sizeof(uint8_t) * (width+4) * (height+4));
-  parrot_blurred_1 = (uint8_t *)malloc(sizeof(uint8_t) * (width+4) * (height+4));
+  parrot_blurred_0 =
+      (uint8_t *)malloc(sizeof(uint8_t) * (width + 4) * (height + 4));
+  parrot_blurred_1 =
+      (uint8_t *)malloc(sizeof(uint8_t) * (width + 4) * (height + 4));
 
   auto start = std::chrono::steady_clock::now();
   int iterations = 100;
-  for (int i = 0; i < iterations; i+=4) {
-    func(nullptr, height, width, &parrot_blurred_0[2*(width+4)+2], parrot);
-    func(nullptr, height, width, &parrot_blurred_1[2*(width+4)+2], parrot_blurred_0);
-    func(nullptr, height, width, &parrot_blurred_0[2*(width+4)+2], parrot_blurred_1);
+  for (int i = 0; i < iterations; i += 4) {
+    func(
+        nullptr, height, width, &parrot_blurred_0[2 * (width + 4) + 2], parrot);
+    func(nullptr, height, width, &parrot_blurred_1[2 * (width + 4) + 2],
+        parrot_blurred_0);
+    func(nullptr, height, width, &parrot_blurred_0[2 * (width + 4) + 2],
+        parrot_blurred_1);
     func(nullptr, height, width, parrot_blurred_1, parrot_blurred_0);
   }
   auto stop = std::chrono::steady_clock::now();
@@ -123,7 +128,8 @@ int exec_parrot(blurtype func, std::string output_name, int width, int height,
   uint8_t *parrot_write;
   parrot_write = (uint8_t *)malloc(sizeof(uint8_t) * width * height);
   for (int i = 0; i < height; i++)
-    memcpy(&parrot_write[i*width], &parrot_blurred_1[i*(width+4)], sizeof(uint8_t) * width);
+    memcpy(&parrot_write[i * width], &parrot_blurred_1[i * (width + 4)],
+        sizeof(uint8_t) * width);
   if (!write_png_file(file_name.c_str(), parrot_write, width, height)) {
     std::cerr << "Error writing PNG file." << std::endl;
   }
@@ -141,9 +147,10 @@ int main() {
     printf("height: %d\n", (int)height);
 
     uint8_t *parrot;
-    parrot = (uint8_t *)malloc(sizeof(uint8_t) * (width+4) * (height+4));
+    parrot = (uint8_t *)malloc(sizeof(uint8_t) * (width + 4) * (height + 4));
     for (int i = 0; i < height; i++) {
-      memcpy(&parrot[(i+2)*(width+4)+2], &buffer[i*width], sizeof(uint8_t) * width);
+      memcpy(&parrot[(i + 2) * (width + 4) + 2], &buffer[i * width],
+          sizeof(uint8_t) * width);
     }
 
     exec_parrot(blur_staged, "blur_staged", width, height, parrot);
