@@ -399,7 +399,7 @@ def test_shift_loop_forwarding():
     assert isinstance(assign_cursor.parent(), ForSeqCursor)
 
 
-def test_remove_if_forwarding():
+def test_eliminate_dead_code_forwarding():
     @proc
     def foo():
         x: f32 @ DRAM
@@ -416,7 +416,7 @@ def test_remove_if_forwarding():
     if_cursor = loop_cursor.body()[0]
     if_true_stmt = if_cursor.body()[0]
     if_false_stmt = if_cursor.orelse()[0]
-    foo = remove_if(foo, "if _:_ #0")
+    foo = eliminate_dead_code(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
     with pytest.raises(InvalidCursorError, match=""):
         if_cursor = foo.forward(if_cursor)
@@ -430,7 +430,7 @@ def test_remove_if_forwarding():
     assert isinstance(if_true_stmt.parent(), ForSeqCursor)
 
 
-def test_remove_if_forwarding2():
+def test_eliminate_dead_code_forwarding2():
     @proc
     def foo():
         x: f32 @ DRAM
@@ -447,7 +447,7 @@ def test_remove_if_forwarding2():
     if_cursor = loop_cursor.body()[0]
     if_true_stmt = if_cursor.body()[0]
     if_false_stmt = if_cursor.orelse()[0]
-    foo = remove_if(foo, "if _:_ #0")
+    foo = eliminate_dead_code(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
     with pytest.raises(InvalidCursorError, match=""):
         if_cursor = foo.forward(if_cursor)
@@ -461,7 +461,7 @@ def test_remove_if_forwarding2():
     assert isinstance(if_false_stmt.parent(), ForSeqCursor)
 
 
-def test_remove_if_forwarding3():
+def test_eliminate_dead_code_forwarding3():
     @proc
     def foo():
         x: f32 @ DRAM
@@ -473,7 +473,7 @@ def test_remove_if_forwarding3():
     loop_cursor = foo.find_loop("i")
     if_cursor = loop_cursor.body()[0]
     if_true_stmt = if_cursor.body()[0]
-    foo = remove_if(foo, "if _:_ #0")
+    foo = eliminate_dead_code(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
     with pytest.raises(InvalidCursorError, match=""):
         if_cursor = foo.forward(if_cursor)
@@ -485,7 +485,7 @@ def test_remove_if_forwarding3():
     assert isinstance(if_true_stmt.parent(), ForSeqCursor)
 
 
-def test_remove_if_forwarding4():
+def test_eliminate_dead_code_forwarding4():
     @proc
     def foo():
         x: f32 @ DRAM
@@ -497,7 +497,7 @@ def test_remove_if_forwarding4():
     loop_cursor = foo.find_loop("i")
     if_cursor = loop_cursor.body()[0]
     if_true_stmt = if_cursor.body()[0]
-    foo = remove_if(foo, "if _:_ #0")
+    foo = eliminate_dead_code(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
     with pytest.raises(InvalidCursorError, match=""):
         if_cursor = foo.forward(if_cursor)
@@ -507,3 +507,20 @@ def test_remove_if_forwarding4():
     assert isinstance(loop_cursor, ForSeqCursor)
     assert len(loop_cursor.body()) == 1
     assert isinstance(loop_cursor.body()[0], PassCursor)
+
+
+def test_eliminate_dead_code_forwarding5():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            x: f32
+
+    foo = specialize(foo, foo.find_loop("i"), "0 < n")
+    else_loop = foo.find_loop("i #1")
+    else_loop_alloc = else_loop.body()[0]
+    foo = eliminate_dead_code(foo, else_loop)
+
+    with pytest.raises(InvalidCursorError, match=""):
+        foo.forward(else_loop)
+    with pytest.raises(InvalidCursorError, match=""):
+        foo.forward(else_loop_alloc)
