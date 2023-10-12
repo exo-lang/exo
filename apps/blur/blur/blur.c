@@ -37,28 +37,49 @@ void blur_inline(void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *g,
           ((inp[i * (m + 4) + j] + inp[i * (m + 4) + 1 + j] +
                inp[i * (m + 4) + 2 + j] + inp[i * (m + 4) + 3 + j] +
                inp[i * (m + 4) + 4 + j]) /
+<<<<<<< HEAD
                   5.0 +
+=======
+                  5 +
+>>>>>>> 17e4c3a95f7f37189dfcfa8a29f8bc2cf0447f5c
               (inp[(1 + i) * (m + 4) + j] + inp[(1 + i) * (m + 4) + 1 + j] +
                   inp[(1 + i) * (m + 4) + 2 + j] +
                   inp[(1 + i) * (m + 4) + 3 + j] +
                   inp[(1 + i) * (m + 4) + 4 + j]) /
+<<<<<<< HEAD
                   5.0 +
+=======
+                  5 +
+>>>>>>> 17e4c3a95f7f37189dfcfa8a29f8bc2cf0447f5c
               (inp[(2 + i) * (m + 4) + j] + inp[(2 + i) * (m + 4) + 1 + j] +
                   inp[(2 + i) * (m + 4) + 2 + j] +
                   inp[(2 + i) * (m + 4) + 3 + j] +
                   inp[(2 + i) * (m + 4) + 4 + j]) /
+<<<<<<< HEAD
                   5.0 +
+=======
+                  5 +
+>>>>>>> 17e4c3a95f7f37189dfcfa8a29f8bc2cf0447f5c
               (inp[(3 + i) * (m + 4) + j] + inp[(3 + i) * (m + 4) + 1 + j] +
                   inp[(3 + i) * (m + 4) + 2 + j] +
                   inp[(3 + i) * (m + 4) + 3 + j] +
                   inp[(3 + i) * (m + 4) + 4 + j]) /
+<<<<<<< HEAD
                   5.0 +
+=======
+                  5 +
+>>>>>>> 17e4c3a95f7f37189dfcfa8a29f8bc2cf0447f5c
               (inp[(4 + i) * (m + 4) + j] + inp[(4 + i) * (m + 4) + 1 + j] +
                   inp[(4 + i) * (m + 4) + 2 + j] +
                   inp[(4 + i) * (m + 4) + 3 + j] +
                   inp[(4 + i) * (m + 4) + 4 + j]) /
+<<<<<<< HEAD
                   5.0) /
           5.0;
+=======
+                  5) /
+          5;
+>>>>>>> 17e4c3a95f7f37189dfcfa8a29f8bc2cf0447f5c
     }
   }
 }
@@ -100,7 +121,11 @@ void blur_tiled(void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *g,
                   inp[(ii + 128 * io) * (m + 4) + 2 + ji + 256 * jo] +
                   inp[(ii + 128 * io) * (m + 4) + 3 + ji + 256 * jo] +
                   inp[(ii + 128 * io) * (m + 4) + 4 + ji + 256 * jo]) /
+<<<<<<< HEAD
               5.0;
+=======
+              5;
+>>>>>>> 17e4c3a95f7f37189dfcfa8a29f8bc2cf0447f5c
         }
       }
       for (int_fast32_t ii = 0; ii < 128; ii++) {
@@ -109,7 +134,11 @@ void blur_tiled(void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *g,
               (f[ii * 256 + ji] + f[(1 + ii) * 256 + ji] +
                   f[(2 + ii) * 256 + ji] + f[(3 + ii) * 256 + ji] +
                   f[(4 + ii) * 256 + ji]) /
+<<<<<<< HEAD
               5.0;
+=======
+              5;
+>>>>>>> 17e4c3a95f7f37189dfcfa8a29f8bc2cf0447f5c
         }
       }
     }
@@ -131,7 +160,11 @@ static void consumer(
           (f[i * (m + 4) + j] + f[(i + 1) * (m + 4) + j] +
               f[(i + 2) * (m + 4) + j] + f[(i + 3) * (m + 4) + j] +
               f[(i + 4) * (m + 4) + j]) /
+<<<<<<< HEAD
           5.0;
+=======
+          5;
+>>>>>>> 17e4c3a95f7f37189dfcfa8a29f8bc2cf0447f5c
     }
   }
 }
@@ -150,7 +183,11 @@ static void producer(void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *f,
           (inp[i * (m + 4) + j] + inp[i * (m + 4) + j + 1] +
               inp[i * (m + 4) + j + 2] + inp[i * (m + 4) + j + 3] +
               inp[i * (m + 4) + j + 4]) /
+<<<<<<< HEAD
           5.0;
+=======
+          5;
+>>>>>>> 17e4c3a95f7f37189dfcfa8a29f8bc2cf0447f5c
     }
   }
 }

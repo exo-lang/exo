@@ -138,7 +138,7 @@ int exec_parrot(blurtype func, std::string output_name, int width, int height,
 }
 
 int main() {
-  const char *read_file = "gray.png";
+  const char *read_file = "gray_scaled.png";
   std::vector<uint8_t> buffer;
   int width, height;
 
