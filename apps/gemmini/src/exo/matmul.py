@@ -89,7 +89,7 @@ def schedule_matmul_512x512x512():
 
     # Real optimization
     # tile
-    gemmini = tile(gemmini)
+    gemmini = matmul_tile(gemmini)
 
     gemmini = old_lift_alloc(gemmini, "res : _", n_lifts=1)
     gemmini = old_lift_alloc(gemmini, "a : _", n_lifts=4)
