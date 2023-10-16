@@ -314,6 +314,19 @@ class Procedure(ProcedureBase):
 
         return self.find(pattern, many)
 
+    def find_alloc(self, pattern):
+        _name_count_re = r"^([a-zA-Z_]\w*)\s*(\#\s*[0-9]+)?$"
+        results = re.search(_name_count_re, pattern)
+        if results:
+            name, count = results[1], (results[2] if results[2] else "")
+            for arg in self.args():
+                if arg._impl._node.name.name() == name:
+                    return arg
+
+            pattern = f"{name}: _{count}"
+
+        return self.find(pattern)
+
     def find_all(self, pattern):
         return self.find(pattern, many=True)
 

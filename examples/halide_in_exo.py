@@ -25,36 +25,31 @@ def blur1d_compute_root(n: size, consumer: i8[n], inp: i8[n + 6]):
 
 
 def schedule_blur1d():
+    p = blur1d_compute_root
     print(blur1d_compute_root)
 
-    bounds = [("i", 0, 2)]
+    p_bounds = (0, "i", 0, 2)
+    c_bounds = (0, "i", 0, 1)
 
-    blur1d_compute_at_store_root = rename(
-        blur1d_compute_root, "blur1d_compute_at_store_root"
-    )
-    loop = blur1d_compute_at_store_root.find_loop("i #1")
-    blur1d_compute_at_store_root = compute_at(
-        blur1d_compute_at_store_root, "producer", "consumer", loop, bounds
-    )
-    print(blur1d_compute_at_store_root)
+    loop = p.find_loop("i #1")
+    p = fuse_at(p, "producer", "consumer", loop, c_bounds, p_bounds)
+    p = rename(p, "blur1d_compute_at_store_root")
+    print(p)
 
-    blur1d_compute_at = rename(blur1d_compute_at_store_root, "blur1d_compute_at")
-    loop = blur1d_compute_at_store_root.find_loop("i")
-    blur1d_compute_at = store_at(
-        blur1d_compute_at_store_root, "producer", "consumer", loop, bounds
-    )
-    print(blur1d_compute_at)
+    loop = p.find_loop("i")
+    p = store_at(p, "producer", "consumer", loop, p_bounds)
+    p = rename(p, "blur1d_compute_at")
+    print(p)
 
-    blur1d_inline = rename(blur1d_compute_at, "blur1d_inline")
+    p = unroll_loop(p, "ii")
     for i in range(2):
-        blur1d_inline = inline_assign(
-            blur1d_inline,
-            blur1d_inline.find("consumer[_] = _")
-            .as_block()
-            .expand(delta_lo=1, delta_hi=0),
+        p = inline_assign(
+            p,
+            p.find("consumer[_] = _").as_block().expand(delta_lo=1, delta_hi=0),
         )
-    blur1d_inline = delete_buffer(blur1d_inline, "producer: _")
-    print(blur1d_inline)
+    p = delete_buffer(p, "producer: _")
+    p = rename(p, "blur1d_inline")
+    print(p)
 
 
 @proc
@@ -78,60 +73,54 @@ def blur2d_compute_root(n: size, consumer: i8[n, n], sin: i8[n + 1, n + 1]):
 
 
 def schedule_blur2d():
-    compute_root = blur2d_compute_root
-    print(compute_root)
+    p = blur2d_compute_root
+    print(p)
 
     c_i_bounds = (0, "i", 0, 1)
     p_i_bounds = (0, "i", 0, 2)
     c_j_bounds = (1, "j", 0, 1)
     p_j_bounds = (1, "j", 0, 2)
 
-    loop = compute_root.find_loop("i #1")
-    compute_at_i_store_root = compute_at(
-        compute_root, "producer", "consumer", loop, c_i_bounds, p_i_bounds
-    )
-    compute_at_i_store_root = rename(
-        compute_at_i_store_root,
+    loop = p.find_loop("i #1")
+    p = fuse_at(p, "producer", "consumer", loop, c_i_bounds, p_i_bounds)
+    p = rename(
+        p,
         "blur2d_compute_at_i_store_root",
     )
-    print(compute_at_i_store_root)
+    print(p)
+    p_tmp = p  # For testing different branches of scheduling
 
-    loop = compute_at_i_store_root.find_loop("i")
-    compute_at_i = store_at(
-        compute_at_i_store_root, "producer", "consumer", loop, p_i_bounds
-    )
-    compute_at_i = rename(compute_at_i, "blur2d_compute_at_i")
-    print(compute_at_i)
+    p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"), c_j_bounds, p_j_bounds)
+    p = rename(p, "blur2d_compute_at_j_store_root")
+    print(p)
 
-    loop = compute_at_i_store_root.find_loop("j #1")
-    compute_at_j_store_root = compute_at(
-        compute_at_i_store_root, "producer", "consumer", loop, c_j_bounds, p_j_bounds
-    )
-    compute_at_j_store_root = rename(
-        compute_at_j_store_root, "blur2d_compute_at_j_store_root"
-    )
-    print(compute_at_j_store_root)
+    p = store_at(p_tmp, "producer", "consumer", p_tmp.find_loop("i"), p_i_bounds)
+    p = rename(p, "blur2d_compute_at_i")
+    print(p)
 
-    loop = compute_at_i.find_loop("j #1")
-    compute_at_j_store_at_i = compute_at(
-        compute_at_i, "producer", "consumer", loop, c_j_bounds, p_j_bounds
+    p = fuse_at(
+        p,
+        "producer",
+        "consumer",
+        p.find_loop("j #1"),
+        c_j_bounds,
+        p_j_bounds,
     )
-    compute_at_j_store_at_i = rename(
-        compute_at_j_store_at_i, "blur2d_compute_at_j_store_at_i"
-    )
-    compute_at_j_store_at_i = simplify(compute_at_j_store_at_i)
-    print(compute_at_j_store_at_i)
+    p = simplify(p)
+    p = rename(p, "blur2d_compute_at_j_store_at_i")
+    print(p)
 
-    loop = compute_at_j_store_at_i.find_loop("j")
-    inline = store_at(compute_at_j_store_at_i, "producer", "consumer", loop, p_j_bounds)
+    p = store_at(p, "producer", "consumer", p.find_loop("j"), p_j_bounds)
+    p = unroll_loop(p, "ji")
+    p = unroll_loop(p, "ii")
     for i in range(4):
-        inline = inline_assign(
-            inline,
-            inline.find("consumer[_] = _").as_block().expand(delta_lo=1, delta_hi=0),
+        p = inline_assign(
+            p,
+            p.find("consumer[_] = _").as_block().expand(delta_lo=1, delta_hi=0),
         )
-    inline = delete_buffer(inline, "producer: _")
-    inline = rename(inline, "blur2d_inline")
-    print(inline)
+    p = delete_buffer(p, "producer: _")
+    p = rename(p, "blur2d_inline")
+    print(p)
 
 
 def schedule_blur2d_tiled():
@@ -167,35 +156,36 @@ def schedule_blur2d_tiled():
     tiled_p_ji_bounds = (1, "4 * jo + ji", 0, 2)
 
     loop = tiled.find_loop("io")
-    tiled_compute_at_io = compute_at(
+    tiled_compute_at_io = fuse_at(
         tiled, "producer", "consumer", loop, tiled_c_io_bounds, tiled_p_io_bounds
     )
+    # TODO: maybe rewrite_expr of predicates should be in simplify
+    tiled_compute_at_io = simplify(rewrite_expr(tiled_compute_at_io, "n%4", 0))
     tiled_compute_at_io = rename(
         tiled_compute_at_io,
         "blur2d_tiled_compute_at_io",
     )
     print(tiled_compute_at_io)
 
-    tiled_compute_at_jo = reorder_loops(tiled_compute_at_io, "ii j")
-    loop = tiled_compute_at_jo.find_loop("jo")
-    tiled_compute_at_jo = compute_at(
-        tiled_compute_at_jo,
+    loop = tiled_compute_at_io.find_loop("jo")
+    tiled_compute_at_jo = fuse_at(
+        tiled_compute_at_io,
         "producer",
         "consumer",
         loop,
         tiled_c_jo_bounds,
         tiled_p_jo_bounds,
     )
+    tiled_compute_at_jo = simplify(rewrite_expr(tiled_compute_at_jo, "n%4", 0))
     tiled_compute_at_jo = rename(
         tiled_compute_at_jo,
         "blur2d_tiled_compute_at_jo",
     )
     print(tiled_compute_at_jo)
 
-    tiled_compute_at_ii = reorder_loops(tiled_compute_at_jo, "ji ii")
-    loop = tiled_compute_at_ii.find_loop("ii #1")
-    tiled_compute_at_ii = compute_at(
-        tiled_compute_at_ii,
+    loop = tiled_compute_at_jo.find_loop("ii #1")
+    tiled_compute_at_ii = fuse_at(
+        tiled_compute_at_jo,
         "producer",
         "consumer",
         loop,
@@ -209,7 +199,7 @@ def schedule_blur2d_tiled():
     print(tiled_compute_at_ii)
 
     loop = tiled_compute_at_ii.find_loop("ji #1")
-    tiled_compute_at_ji = compute_at(
+    tiled_compute_at_ji = fuse_at(
         tiled_compute_at_ii,
         "producer",
         "consumer",
@@ -224,6 +214,6 @@ def schedule_blur2d_tiled():
     print(tiled_compute_at_ji)
 
 
-# schedule_blur1d()
-# schedule_blur2d()
+schedule_blur1d()
+schedule_blur2d()
 schedule_blur2d_tiled()

@@ -565,6 +565,73 @@ def DoInlineAssign(c1, c2):
 # Split scheduling directive
 
 
+def DoDivideWithRecompute(
+    loop_cursor, outer_hi, outer_stride: int, iter_o: str, iter_i: str
+):
+    proc = loop_cursor.get_root()
+    loop = loop_cursor._node
+    srcinfo = loop.srcinfo
+
+    assert isinstance(loop, LoopIR.Seq)
+    assert isinstance(outer_hi, LoopIR.expr)
+    Check_IsIdempotent(proc, loop.body)
+
+    sym_o = Sym(iter_o)
+    sym_i = Sym(iter_i)
+
+    def rd(i):
+        return LoopIR.Read(i, [], T.index, srcinfo)
+
+    def cnst(intval):
+        return LoopIR.Const(intval, T.int, srcinfo)
+
+    def szop(op, lhs, rhs):
+        return LoopIR.BinOp(op, lhs, rhs, T.index, srcinfo)
+
+    x = cnst(outer_stride)
+    hi_o = outer_hi
+
+    if (
+        isinstance(outer_hi, LoopIR.BinOp)
+        and outer_hi.op == "/"
+        and isinstance(outer_hi.rhs, LoopIR.Const)
+        and outer_hi.rhs.val == outer_stride
+    ):
+        N_tmp = szop("-", outer_hi.lhs, szop("%", outer_hi.lhs, x))
+    else:
+        N_tmp = szop("*", outer_hi, x)
+    hi_i = szop("+", x, szop("-", loop.hi, N_tmp))
+
+    # turn current loop into outer loop
+    ir, fwd = loop_cursor._child_node("iter")._replace(sym_o)
+    ir, fwd_repl = fwd(loop_cursor)._child_node("hi")._replace(hi_o)
+    fwd = _compose(fwd_repl, fwd)
+
+    # wrap body in inner loop
+    def inner_wrapper(body):
+        return LoopIR.Seq(
+            sym_i, LoopIR.Const(0, T.index, srcinfo), hi_i, body, None, srcinfo
+        )
+
+    ir, fwd_wrap = fwd(loop_cursor).body()._wrap(inner_wrapper, "body")
+    fwd = _compose(fwd_wrap, fwd)
+
+    # replace the iteration variable in the body
+    def mk_iter(c):
+        return szop("+", szop("*", rd(sym_o), x), rd(sym_i))
+
+    ir, fwd = _replace_reads(
+        ir,
+        fwd,
+        loop_cursor,
+        loop.iter,
+        mk_iter,
+        only_replace_attrs=False,
+    )
+
+    return ir, fwd
+
+
 def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=False):
     loop = loop_cursor._node
     N = loop.hi
@@ -604,19 +671,12 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
         return szop("/", szop("+", lhs, rhs_1), rhs)
 
     # determine hi and lo loop bounds
-    if tail_strategy == "recompute":
-        Check_IsIdempotent(loop_cursor.get_root(), loop.body)
-        N_recompute = szop("%", N, cnst(quot))
-        inner_hi = szop("+", cnst(quot), N_recompute)
-        outer_hi = szop("/", N, cnst(quot))  # floor div
-    elif tail_strategy == "guard":
-        inner_hi = cnst(quot)
+    inner_hi = cnst(quot)
+    if tail_strategy == "guard":
         outer_hi = ceildiv(N, inner_hi)
-    elif tail_strategy in ["cut", "cut_and_guard", "recompute"]:
-        inner_hi = cnst(quot)
+    elif tail_strategy in ["cut", "cut_and_guard"]:
         outer_hi = szop("/", N, inner_hi)  # floor div
     elif tail_strategy == "perfect":
-        inner_hi = cnst(quot)
         if not isinstance(N, LoopIR.Const):
             is_N_divisible = False
             for pred in loop_cursor.get_root().preds:

@@ -1533,12 +1533,25 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 # Loop and Guard Rewriting
 
 
+@sched_op([ForSeqCursorA, NewExprA("loop_cursor"), PosIntA, ListA(NameA, length=2)])
+def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
+    """
+    Divides a loop into the provided [hi_o] by [hi_i] dimensions, and then
+    adds extra compute so that the inner loop will fully cover the original
+    loop.
+    """
+    ir, fwd = scheduling.DoDivideWithRecompute(
+        loop_cursor._impl, outer_hi, outer_stride, new_iters[0], new_iters[1]
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op(
     [
         ForSeqCursorA,
         PosIntA,
         ListA(NameA, length=2),
-        EnumA(["cut", "guard", "cut_and_guard", "recompute"]),
+        EnumA(["cut", "guard", "cut_and_guard"]),
         BoolA,
     ]
 )
@@ -1559,8 +1572,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
                           outer and inner iteration variable names
         tail (opt)      - specifies the strategy for handling the "remainder"
                           of the loop division (called the tail of the loop).
-                          value can be "cut", "guard", "cut_and_guard", or
-                          "recompute".
+                          value can be "cut", "guard", "cut_and_guard".
                           Default value: "guard"
         perfect (opt)   - Boolean (default False) that can be set to true
                           to assert that you know the remainder will always

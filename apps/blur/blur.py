@@ -31,7 +31,7 @@ def consumer(n: size, m: size, f: ui8[n + 4, m + 4], g: ui8[n + 4, m + 4]):
 
 @proc
 def blur(n: size, m: size, g: ui8[n + 4, m + 4], inp: ui8[n + 4, m + 4]):
-    assert n % 256 == 0
+    assert n % 128 == 0
     assert m % 256 == 0
 
     f: ui8[n + 4, m + 4]
@@ -45,34 +45,37 @@ def prod_inline(p):
 
     c_bounds = (0, "i", 0, 1)
     p_bounds = (0, "i", 0, 5)
-    p_compute_at_store_root = compute_at(
-        p, "f", "g", p.find_loop("i #1"), c_bounds, p_bounds
-    )
+    p = fuse_at(p, "f", "g", p.find_loop("i #1"), c_bounds, p_bounds)
 
-    loop = p_compute_at_store_root.find_loop("i")
-    p_compute_at_store_at = store_at(p_compute_at_store_root, "f", "g", loop, p_bounds)
+    loop = p.find_loop("i")
+    p = store_at(p, "f", "g", loop, p_bounds)
 
     c_bounds_2 = (1, "j", 0, 1)
     p_bounds_2 = (1, "j", 0, 1)
-    p_compute_at_store_root_j = compute_at(
-        p_compute_at_store_at,
+    p = fuse_at(
+        p,
         "f",
         "g",
-        p_compute_at_store_at.find_loop("j #1"),
+        p.find_loop("j #1"),
         c_bounds_2,
         p_bounds_2,
     )
 
-    p_inline = p_compute_at_store_root_j
-    for i in range(5):
-        p_inline = inline_assign(
-            p_inline,
-            p_inline.find("g[_] = _").as_block().expand(delta_lo=1, delta_hi=0),
-        )
-    p_inline = delete_buffer(p_inline, "f : _")
-    p_inline = rename(p_inline, "p_inline")
+    loop = p.find_loop("j")
+    p = store_at(p, "f", "g", loop, p_bounds_2)
 
-    return p_inline
+    p = p
+    p = unroll_loop(p, "ji")
+    p = unroll_loop(p, "ii")
+    for i in range(5):
+        p = inline_assign(
+            p,
+            p.find("g[_] = _").as_block().expand(delta_lo=1, delta_hi=0),
+        )
+    p = delete_buffer(p, "f : _")
+    p = rename(p, "p_inline")
+
+    return p
 
 
 def prod_tile(p, i_tile=32, j_tile=32):
@@ -82,22 +85,25 @@ def prod_tile(p, i_tile=32, j_tile=32):
     p = simplify(p)
 
     tiled_c_io_bounds = (0, f"{i_tile} * io", 0, i_tile)
-    tiled_p_io_bounds = (0, f"{i_tile} * io", 0, i_tile + 5)
+    tiled_p_io_bounds = (0, f"{i_tile} * io", 0, i_tile + 4)
     tiled_c_jo_bounds = (1, f"{j_tile} * jo", 0, j_tile)
     tiled_p_jo_bounds = (1, f"{j_tile} * jo", 0, j_tile)
 
     loop = p.find_loop("io")
-    p = compute_at(p, "f", "g", loop, tiled_c_io_bounds, tiled_p_io_bounds, hardcode=4)
-    p = reorder_loops(p, "ii j")
+    p = fuse_at(p, "f", "g", loop, tiled_c_io_bounds, tiled_p_io_bounds)
 
     loop = p.find_loop("jo")
-    p = compute_at(p, "f", "g", loop, tiled_c_jo_bounds, tiled_p_jo_bounds, hardcode=0)
+    p = fuse_at(p, "f", "g", loop, tiled_c_jo_bounds, tiled_p_jo_bounds)
 
     p = simplify(p)
     p = store_at(p, "f", "g", p.find_loop("io"), tiled_p_io_bounds)
     p = store_at(p, "f", "g", p.find_loop("jo"), tiled_p_jo_bounds)
     p = lift_alloc(p, "f: _", n_lifts=2)
-    p = reorder_loops(p, "ji ii")
+
+    # TODO: eliminate this
+    p = rewrite_expr(p, "n % 128", 0)
+    p = rewrite_expr(p, "m % 256", 0)
+    p = simplify(p)
 
     return p
 

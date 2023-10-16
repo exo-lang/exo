@@ -16,6 +16,7 @@ from ..API_scheduling import (
     BlockCursorA,
     ProcA,
     BoolA,
+    ArgOrAllocCursorA,
     FormattedExprStr,
     # basic operations
     simplify,
@@ -63,6 +64,7 @@ from ..API_scheduling import (
     unroll_buffer,
     #
     # loop rewriting
+    divide_with_recompute,
     divide_loop,
     mult_loops,
     cut_loop,
@@ -347,7 +349,7 @@ def fuse_all_nested_loops(proc, loop1, loop2, unsafe_disable_check=True):
     return proc
 
 
-def compute_at(
+def fuse_at(
     proc, producer, consumer, loop, consumer_bounds, producer_bounds, hardcode=1
 ):
     """
@@ -364,47 +366,18 @@ def compute_at(
     w_p = _get_size(producer_bounds)
     w_c = _get_size(consumer_bounds)
 
-    if w_c == 1:
-        first_p_loop = p_loop
-        for i in range(1, w_p):  # TODO: assumes producer bounds starts at offset 0
-            # surgery
-            proc = cut_loop(proc, p_loop, f"{N_c} + {i} - 1")
-            proc = cut_loop(proc, p_loop, i)
-
-            # duplicate work
-            middle_p_loop = proc.forward(p_loop).next()
-            proc = add_loop(proc, middle_p_loop, "ii", 2)
-            proc = unroll_loop(proc, proc.forward(middle_p_loop).parent())
-
-            # stitch together
-            proc = join_loops(proc, p_loop, proc.forward(p_loop).next())
-            next_loop = proc.forward(p_loop).next()
-            proc = join_loops(proc, next_loop, next_loop.next())
-            proc = simplify(proc)
-            p_loop = next_loop
-
-        # merge w_p producer loops
-        p_loop = proc.forward(first_p_loop)
-        for i in range(1, w_p):
-            next_loop = p_loop.next()
-            proc = shift_loop(proc, next_loop, 0)
-            proc = fuse_all_nested_loops(
-                proc, p_loop, next_loop, unsafe_disable_check=True
-            )
-            p_loop = proc.forward(p_loop)
-    else:
-        p_iter = p_loop.name()
-        proc = divide_loop(
-            proc, p_loop, w_c, [f"{p_iter}o", f"{p_iter}i"], tail="recompute"
-        )
-
-        # Hard coded simplify math
-        proc = rewrite_expr(proc, proc.find(f"({N_p}) / {w_c}"), f"{N_c}")
-        proc = rewrite_expr(proc, proc.find(f"({N_p}) % {w_c}"), hardcode)
-        proc = simplify(proc)
-
-    # fuse with consumer
+    c_iter = c_loop.name()
+    p_iter = p_loop.name()
+    # TODO: need a better way of figuring out inner loop iter
+    new_iters = [f"{c_iter}", f"{p_iter}i"]
+    proc = divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
     proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
+
+    p_inner_loop = proc.find_loop(f"{p_iter}i")
+    # TODO: this should probably reason about the original order of loops (e.g. xi before yi)
+    while isinstance(p_inner_loop.body()[0], _PC.ForSeqCursor):
+        proc = reorder_loops(proc, p_inner_loop)
+        p_inner_loop = proc.forward(p_inner_loop)
 
     return simplify(proc)
 
@@ -419,9 +392,10 @@ def store_at(proc, producer, consumer, loop, bounds):
     """
     producer_alloc = proc.find(f"{producer}:_")
     consumer_assign = proc.find(f"{consumer} = _")
-    consumer_stmt = _PC.get_stmt_within_scope(consumer_assign, loop)
 
+    assert producer_alloc.next() == loop
     proc = sink_alloc(proc, producer_alloc)
+
     lo, hi = _get_bounds(bounds)
     dim_idx, _, _, _ = bounds
     proc = shrink_dim(proc, producer_alloc, dim_idx, lo, hi)
