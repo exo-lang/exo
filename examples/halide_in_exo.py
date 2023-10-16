@@ -43,10 +43,7 @@ def schedule_blur1d():
 
     p = unroll_loop(p, "ii")
     for i in range(2):
-        p = inline_assign(
-            p,
-            p.find("consumer[_] = _").as_block().expand(delta_lo=1, delta_hi=0),
-        )
+        p = inline_assign(p, p.find("producer[_] = _"))
     p = delete_buffer(p, "producer: _")
     p = rename(p, "blur1d_inline")
     print(p)
@@ -114,10 +111,7 @@ def schedule_blur2d():
     p = unroll_loop(p, "ji")
     p = unroll_loop(p, "ii")
     for i in range(4):
-        p = inline_assign(
-            p,
-            p.find("consumer[_] = _").as_block().expand(delta_lo=1, delta_hi=0),
-        )
+        p = inline_assign(p, p.find("producer[_] = _"))
     p = delete_buffer(p, "producer: _")
     p = rename(p, "blur2d_inline")
     print(p)

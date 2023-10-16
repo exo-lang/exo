@@ -882,6 +882,28 @@ def test_mult_dim_fail_1():
         mult_dim(foo, "x", 0, 1)
 
 
+def test_delete_buffer(golden):
+    @proc
+    def foo():
+        a: i8[10]
+
+    foo = delete_buffer(foo, foo.find_alloc("a"))
+    assert str(foo) == golden
+
+
+def test_delete_buffer_fail():
+    @proc
+    def foo():
+        a: i8[10]
+        a[0] = 1.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="The variable a can potentially be used after the statement",
+    ):
+        foo = delete_buffer(foo, foo.find_alloc("a"))
+
+
 def test_reuse_buffer(golden):
     @proc
     def foo(a: f32 @ DRAM, b: f32 @ DRAM):
@@ -1291,8 +1313,10 @@ def test_inline_assign():
             x: i8[5]
             x[1] = 1.0
             y[i] = x[1] + x[2]
+            a: i8
+            a = x[1]
 
-    foo = inline_assign(foo, foo.find("x = _").expand(delta_lo=0, delta_hi=1))
+    foo = inline_assign(foo, foo.find("x = _"))
     print(foo)
 
 

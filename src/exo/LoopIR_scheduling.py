@@ -533,18 +533,15 @@ def DoMergeWrites(c1, c2):
     return ir, fwd
 
 
-def DoInlineAssign(c1, c2):
+def DoInlineAssign(c1):
     s1 = c1._node
-    s2 = c2._node
     assert isinstance(s1, LoopIR.Assign)
-    assert isinstance(s2, (LoopIR.Assign, LoopIR.Reduce))
 
     def mk_inline_expr(e):
         return s1.rhs
 
-    # TODO: see if I can replace with Check_IsDeadAfter
-    after_scope = get_rest_of_block(c2, inclusive=False)
-    accesses = get_reads_of_stmts(after_scope) + get_writes_of_stmts(after_scope)
+    after_scope = get_rest_of_block(c1, inclusive=False)
+    accesses = get_writes_of_stmts(after_scope)
     if s1.name in [name for name, _ in accesses]:
         # TODO: this check is currently too strict, it should really only look at indices...
         raise SchedulingError(
@@ -553,9 +550,10 @@ def DoInlineAssign(c1, c2):
 
     ir, fwd = c1._delete()
     pat = f"{s1.name}[{','.join([str(idx) for idx in s1.idx])}]"
-    ir, fwd = _replace_pats(
-        ir, fwd, c2, pat, mk_inline_expr, only_replace_attrs=False, use_sym_id=False
-    )
+    for c in after_scope:
+        ir, fwd = _replace_pats(
+            ir, fwd, c, pat, mk_inline_expr, only_replace_attrs=False, use_sym_id=False
+        )
 
     return ir, fwd
 

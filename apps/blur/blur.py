@@ -68,10 +68,7 @@ def prod_inline(p):
     p = unroll_loop(p, "ji")
     p = unroll_loop(p, "ii")
     for i in range(5):
-        p = inline_assign(
-            p,
-            p.find("g[_] = _").as_block().expand(delta_lo=1, delta_hi=0),
-        )
+        p = inline_assign(p, p.find("f[_] = _"))
     p = delete_buffer(p, "f : _")
     p = rename(p, "p_inline")
 

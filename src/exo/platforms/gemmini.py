@@ -91,7 +91,7 @@ def replace_mod_part(conv):
     return conv
 
 
-def tile(gemmini):
+def matumul_tile(gemmini):
     gemmini = divide_loop(gemmini, "j", 4, ["jo", "ji"], perfect=True)
     gemmini = divide_loop(gemmini, "i", 8, ["io", "i"], perfect=True)
     gemmini = divide_loop(gemmini, "io", 2, ["ioo", "io"], perfect=True)
