@@ -338,17 +338,6 @@ def _get_bounds_range(bound_repr):
     return range(lo, hi)
 
 
-def fuse_all_nested_loops(proc, loop1, loop2, unsafe_disable_check=True):
-    while isinstance(loop1, _PC.ForSeqCursor) and isinstance(loop2, _PC.ForSeqCursor):
-        proc = fuse(proc, loop1, loop2, unsafe_disable_check=unsafe_disable_check)
-        fused_loop = proc.forward(loop1)
-        if len(fused_loop.body()) > 2:
-            break
-        loop1 = fused_loop.body()[0]
-        loop2 = fused_loop.body()[1]
-    return proc
-
-
 def fuse_at(
     proc, producer, consumer, loop, consumer_bounds, producer_bounds, hardcode=1
 ):

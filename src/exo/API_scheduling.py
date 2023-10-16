@@ -1572,7 +1572,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
                           outer and inner iteration variable names
         tail (opt)      - specifies the strategy for handling the "remainder"
                           of the loop division (called the tail of the loop).
-                          value can be "cut", "guard", "cut_and_guard".
+                          value can be "cut", "guard", or "cut_and_guard".
                           Default value: "guard"
         perfect (opt)   - Boolean (default False) that can be set to true
                           to assert that you know the remainder will always
@@ -1590,6 +1590,9 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         `for lo in seq(0,e - q * (e / q)):`
         `    s[ i -> q * (e / q) + lo ]
     """
+
+    if div_const == 1:
+        raise ValueError("why are you trying to split by 1?")
 
     stmt = loop_cursor._impl
 

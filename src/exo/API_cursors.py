@@ -991,7 +991,7 @@ __all__ = [
     #
     "InvalidCursorError",
     #
-    match_level,
-    get_stmt_within_scope,
-    get_enclosing_loop,
+    "match_level",
+    "get_stmt_within_scope",
+    "get_enclosing_loop",
 ]
