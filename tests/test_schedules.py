@@ -401,6 +401,39 @@ def test_fission_after_simple_fail():
         fission(foo, foo.find("x = 0.0").after(), n_lifts=2)
 
 
+def test_shrink_dim(golden):
+    @proc
+    def foo():
+        x: i8[10]
+        for i in seq(1, 9):
+            x[i] = 1.0
+
+    foo = shrink_dim(foo, "x", 0, 1, 9)
+    assert str(simplify(foo)) == golden
+
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = shrink_dim(foo, "x", 0, 1, 8)
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = shrink_dim(foo, "x", 0, 2, 9)
+
+
+def test_shrink_dim_2(golden):
+    @proc
+    def foo(n: size):
+        assert n > 4
+        x: i8[n]
+        for i in seq(2, n - 1):
+            x[i] = 1.0
+
+    foo = shrink_dim(foo, "x", 0, 2, "n-1")
+    assert str(simplify(foo)) == golden
+
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = shrink_dim(foo, "x", 0, 2, "n-2")
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = shrink_dim(foo, "x", 0, 3, "n-1")
+
+
 def test_rearrange_dim(golden):
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -1306,7 +1339,7 @@ def test_merge_writes_different_lhs_arrays_error():
         bar = merge_writes(bar, "z[i, 1] = y; z[i+1, 1] += y")
 
 
-def test_inline_assign():
+def test_inline_assign(golden):
     @proc
     def foo(n: size, y: i8[n]):
         for i in seq(0, n):
@@ -1317,7 +1350,21 @@ def test_inline_assign():
             a = x[1]
 
     foo = inline_assign(foo, foo.find("x = _"))
-    print(foo)
+    assert str(foo) == golden
+
+
+def test_inline_assign_fail():
+    @proc
+    def foo(n: size, y: i8[n]):
+        for i in seq(0, n):
+            x: i8[5]
+            x[1] = 1.0
+            x[2] = 2.0
+            y[i] = x[1] + x[2]
+
+    # Current check can't reason about indices, so check too strict
+    with pytest.raises(SchedulingError, match="Cannot inline assign"):
+        foo = inline_assign(foo, foo.find("x = _"))
 
 
 def test_simple_unroll(golden):
@@ -1419,6 +1466,40 @@ def test_simple_typ_and_mem(golden):
     bar = set_precision(bar, A, "i32")
     bar = set_memory(bar, A, GEMM_SCRATCH)
     assert str(bar) == golden
+
+
+def test_rewrite_expr(golden):
+    @proc
+    def foo(n: size):
+        assert n % 4 == 2
+        for i in seq(0, 4 + n % 4):
+            pass
+
+    bar = rewrite_expr(foo, "n % 4", "2")
+    assert str(simplify(bar)) == golden
+
+    bar = rewrite_expr(foo, "4 + n % 4", "6")
+    assert str(bar) == golden
+
+
+def test_rewrite_expr_2(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(0, n % 4):
+            pass
+
+    bar = rewrite_expr(foo, "n % 4", "n - n/4 * 4")
+    assert str(simplify(bar)) == golden
+
+
+def test_rewrite_expr_fail():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            pass
+
+    with pytest.raises(SchedulingError, match="Expressions are not equivalent:"):
+        bar = rewrite_expr(foo, "n", "n + n%4")
 
 
 def test_simple_bind_expr(golden):
