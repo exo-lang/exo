@@ -14,6 +14,21 @@ from .LoopIR import LoopIR, Alpha_Rename, SubstArgs, LoopIR_Do, Operator, T, Ide
 # DataflowIR definition
 # --------------------------------------------------------------------------- #
 
+# Ask Gilbert about value dependent analysis
+"""
+n : R[n+1]
+for i in seq(0, n):
+    x[i] = sin(i)
+for i in seq(0, n):
+    x[i+1] = sin(i+1)
+
+Want to analyze that x[i] = sin(i) and x[i+1] = sin(i+1) write the same value to the same memory.
+
+"""
+
+# TODO:
+# implement pretty printing as well
+
 
 def validateAbsEnv(obj):
     if not isinstance(obj, dict):
