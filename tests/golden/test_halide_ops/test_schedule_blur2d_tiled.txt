@@ -1,0 +1,89 @@
+def blur2d_tiled(n: size, consumer: i8[n, n] @ DRAM,
+                 sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    producer: i8[n + 1, n + 1] @ DRAM
+    for i in seq(0, n + 1):
+        for j in seq(0, n + 1):
+            producer[i, j] = sin[i, j]
+    for io in seq(0, n / 4):
+        for jo in seq(0, n / 4):
+            for ii in seq(0, 4):
+                for ji in seq(0, 4):
+                    consumer[4 * io + ii, 4 * jo + ji] = (
+                        producer[4 * io + ii, 4 * jo + ji] +
+                        producer[4 * io + ii, 4 * jo + ji + 1] +
+                        producer[4 * io + ii + 1, 4 * jo + ji] +
+                        producer[4 * io + ii + 1, 4 * jo + ji + 1]) / 4.0
+
+def blur2d_tiled_compute_at_io(n: size, consumer: i8[n, n] @ DRAM,
+                               sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    producer: i8[1 + n, 1 + n] @ DRAM
+    for io in seq(0, n / 4):
+        for j in seq(0, 1 + n):
+            for ii in seq(0, 5):
+                producer[ii + 4 * io, j] = sin[ii + 4 * io, j]
+        for jo in seq(0, n / 4):
+            for ii in seq(0, 4):
+                for ji in seq(0, 4):
+                    consumer[ii + 4 * io, ji + 4 * jo] = (
+                        producer[ii + 4 * io, ji + 4 * jo] +
+                        producer[ii + 4 * io, 1 + ji + 4 * jo] +
+                        producer[1 + ii + 4 * io, ji + 4 * jo] +
+                        producer[1 + ii + 4 * io, 1 + ji + 4 * jo]) / 4.0
+
+def blur2d_tiled_compute_at_jo(n: size, consumer: i8[n, n] @ DRAM,
+                               sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    producer: i8[1 + n, 1 + n] @ DRAM
+    for io in seq(0, n / 4):
+        for jo in seq(0, n / 4):
+            for ii in seq(0, 5):
+                for ji in seq(0, 5):
+                    producer[ii + 4 * io, ji + 4 * jo] = sin[ii + 4 * io,
+                                                             ji + 4 * jo]
+            for ii in seq(0, 4):
+                for ji in seq(0, 4):
+                    consumer[ii + 4 * io, ji + 4 * jo] = (
+                        producer[ii + 4 * io, ji + 4 * jo] +
+                        producer[ii + 4 * io, 1 + ji + 4 * jo] +
+                        producer[1 + ii + 4 * io, ji + 4 * jo] +
+                        producer[1 + ii + 4 * io, 1 + ji + 4 * jo]) / 4.0
+
+def blur2d_tiled_compute_at_ii(n: size, consumer: i8[n, n] @ DRAM,
+                               sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    producer: i8[1 + n, 1 + n] @ DRAM
+    for io in seq(0, n / 4):
+        for jo in seq(0, n / 4):
+            for ii in seq(0, 4):
+                for ji in seq(0, 5):
+                    for iii in seq(0, 2):
+                        producer[ii + iii + 4 * io,
+                                 ji + 4 * jo] = sin[ii + iii + 4 * io,
+                                                    ji + 4 * jo]
+                for ji in seq(0, 4):
+                    consumer[ii + 4 * io, ji + 4 * jo] = (
+                        producer[ii + 4 * io, ji + 4 * jo] +
+                        producer[ii + 4 * io, 1 + ji + 4 * jo] +
+                        producer[1 + ii + 4 * io, ji + 4 * jo] +
+                        producer[1 + ii + 4 * io, 1 + ji + 4 * jo]) / 4.0
+
+def blur2d_tiled_compute_at_ji(n: size, consumer: i8[n, n] @ DRAM,
+                               sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    producer: i8[1 + n, 1 + n] @ DRAM
+    for io in seq(0, n / 4):
+        for jo in seq(0, n / 4):
+            for ii in seq(0, 4):
+                for ji in seq(0, 4):
+                    for iii in seq(0, 2):
+                        for jii in seq(0, 2):
+                            producer[ii + iii + 4 * io, ji + jii +
+                                     4 * jo] = sin[ii + iii + 4 * io,
+                                                   ji + jii + 4 * jo]
+                    consumer[ii + 4 * io, ji + 4 * jo] = (
+                        producer[ii + 4 * io, ji + 4 * jo] +
+                        producer[ii + 4 * io, 1 + ji + 4 * jo] +
+                        producer[1 + ii + 4 * io, ji + 4 * jo] +
+                        producer[1 + ii + 4 * io, 1 + ji + 4 * jo]) / 4.0

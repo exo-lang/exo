@@ -2747,16 +2747,77 @@ def test_cut_then_shift_loop(golden):
     assert str(simplify(foo)) == golden
 
 
-def test_join_loops(golden):
+def test_join_loops_body_match(golden):
+    # TODO: add write_config, stride_expr, read_config
+    @proc
+    def do_nothing(x: [i8][2, 1]):
+        pass
+
     @proc
     def foo(n: size, x: i8[n + 1]):
         for i in seq(0, n):
             x[i] = 0.0
+            x[i] += -(1.0 + x[i])
+            for j in seq(0, 1):
+                if i == j:
+                    pass
+            a: i8[4, 2]
+            y = a[1:3, 1:2]
+            do_nothing(y)
         for i in seq(n, n + 1):
+            x[i] = 0.0
+            x[i] += -(1.0 + x[i])
+            for j in seq(0, 1):
+                if i == j:
+                    pass
+            a: i8[4, 2]
+            y = a[1:3, 1:2]
+            do_nothing(y)
+
+    foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+    assert str(foo) == golden
+
+
+def test_join_loops_equiv_but_diff_bounds(golden):
+    @proc
+    def foo(n: size, x: i8[4]):
+        assert n % 4 == 2
+        for i in seq(0, 2):
+            x[i] = 0.0
+        for i in seq(n % 4, 4):
             x[i] = 0.0
 
     foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
     assert str(foo) == golden
+
+
+def test_join_loops_fail_type_match():
+    @proc
+    def foo():
+        for i in seq(0, 2):
+            x: i8[4]
+            x[i] = 0.0
+        for i in seq(2, 4):
+            x: f32[4]
+            x[i] = 0.0
+
+    with pytest.raises(SchedulingError, match=""):
+        foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+
+
+def test_join_loops_fail_equal_bounds():
+    @proc
+    def foo(n: size, x: i8[n + 2]):
+        for i in seq(0, n):
+            x[i] = 0.0
+        for i in seq(n + 1, n + 2):
+            x[i] = 0.0
+
+    with pytest.raises(
+        SchedulingError,
+        match=r"expected the first loop upper bound n to be the same as the second loop lower bound n \+ 1",
+    ):
+        foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
 
 
 def test_mem_aware_replace(golden):

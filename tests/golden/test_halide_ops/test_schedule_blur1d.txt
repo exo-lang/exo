@@ -1,0 +1,25 @@
+def blur1d_compute_at_store_root(n: size, consumer: i8[n] @ DRAM,
+                                 inp: i8[n + 6] @ DRAM):
+    producer: i8[1 + n] @ DRAM
+    for i in seq(0, n):
+        for ii in seq(0, 2):
+            producer[i + ii] = (inp[i + ii] + inp[1 + i + ii] +
+                                inp[2 + i + ii] + inp[3 + i + ii] +
+                                inp[4 + i + ii] + inp[5 + i + ii]) / 6.0
+        consumer[i] = (producer[i] + producer[1 + i]) / 2.0
+
+def blur1d_compute_at(n: size, consumer: i8[n] @ DRAM, inp: i8[n + 6] @ DRAM):
+    for i in seq(0, n):
+        producer: i8[2] @ DRAM
+        for ii in seq(0, 2):
+            producer[ii] = (inp[i + ii] + inp[1 + i + ii] + inp[2 + i + ii] +
+                            inp[3 + i + ii] + inp[4 + i + ii] +
+                            inp[5 + i + ii]) / 6.0
+        consumer[i] = (producer[0] + producer[1]) / 2.0
+
+def blur1d_inline(n: size, consumer: i8[n] @ DRAM, inp: i8[n + 6] @ DRAM):
+    for i in seq(0, n):
+        consumer[i] = ((inp[i] + inp[1 + i] + inp[2 + i] + inp[3 + i] +
+                        inp[4 + i] + inp[5 + i]) / 6.0 +
+                       (inp[1 + i] + inp[2 + i] + inp[3 + i] + inp[4 + i] +
+                        inp[5 + i] + inp[6 + i]) / 6.0) / 2.0

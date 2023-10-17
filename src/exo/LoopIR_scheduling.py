@@ -331,11 +331,11 @@ def DoJoinLoops(loop1_c, loop2_c):
         Check_ExprEqvInContext(loop1_c.get_root(), loop1.hi, [loop1], loop2.lo, [loop2])
     except Exception as e:
         raise SchedulingError(
-            f"expected the first loop's upper bound ({loop1.hi}) to be the same as the second loop's lower bound ({loop2.lo})"
+            f"expected the first loop upper bound {loop1.hi} to be the same as the second loop lower bound {loop2.lo}"
         )
 
     compare_ir = LoopIR_Compare()
-    if compare_ir.match_stmts(loop1.body, loop2.body):
+    if not compare_ir.match_stmts(loop1.body, loop2.body):
         raise SchedulingError("expected the two loops to have identical bodies")
 
     ir, fwd = loop1_c._child_node("hi")._replace(loop2.hi)
@@ -1796,11 +1796,9 @@ def DoSinkAlloc(alloc_cursor, scope_cursor):
     assert isinstance(scope_stmt, (LoopIR.If, LoopIR.Seq))
 
     # TODO: we need analysis here about the effects on this allocation within the scope
-    # Specifically, each loop iteration should have disjoint accesses (e.g. no dependencies
-    # on each other), so if a loop iteration has exprs E_i, then we need to show that E_i
-    # an E_j are always disjoint for i != j.
+    # Specifically, each loop iteration should only read from indices that were written
+    # during that iteration.
 
-    # TODO: see if I can replace with Check_IsDeadAfter
     after_scope = [s._node for s in get_rest_of_block(scope_cursor)]
     accesses = get_reads_of_stmts(after_scope) + get_writes_of_stmts(after_scope)
     if alloc_stmt.name in [name for name, _ in accesses]:

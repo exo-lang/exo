@@ -947,7 +947,7 @@ class LoopIR_Compare:
         elif isinstance(s1, LoopIR.Alloc):
             return self.match_name(s1.name, s2.name) and self.match_t(s1.type, s2.type)
         elif isinstance(s1, LoopIR.Call):
-            return self.match_name(s1.f, s2.f) and all(
+            return s1.f == s2.f and all(
                 self.match_e(a1, a2) for a1, a2 in zip(s1.args, s2.args)
             )
         elif isinstance(s1, LoopIR.WindowStmt):
@@ -992,25 +992,25 @@ class LoopIR_Compare:
 
     def match_name(self, n1, n2):
         # TODO: if its a free var, check for exact match using ID
-        return n1.name == n2.name
+        return n1.name() == n2.name()
 
     def match_w_access(self, w1, w2):
         if isinstance(w1, LoopIR.Interval):
-            return self.do_e(w1.lo, w2.lo) and self.do_e(w1.hi, w2.hi)
+            return self.match_e(w1.lo, w2.lo) and self.match_e(w1.hi, w2.hi)
         elif isinstance(w1, LoopIR.Point):
-            return self.do_e(w1.pt, w2.pt)
+            return self.match_e(w1.pt, w2.pt)
         else:
             assert False, "bad case"
 
     def match_t(self, t1, t2):
-        # TODO: do later
-        return True
-        # if isinstance(t1, LoopIR.Tensor):
-        #     return all(
-        #         self.match_e(pi, si) for pi, si in zip(t1.hi,t2.hi)
-        #     )
-        # else:  # scalar
-        #     return self.match_name(s2.name, s1.name)
+        if isinstance(t1, LoopIR.Tensor):
+            return (
+                t1.is_window == t2.is_window
+                and self.match_t(t1.type, t2.type)
+                and all(self.match_e(i1, i2) for i1, i2 in zip(t1.hi, t2.hi))
+            )
+        else:  # scalar
+            return type(t1) == type(t2)
 
 
 class GetReads(LoopIR_Do):
