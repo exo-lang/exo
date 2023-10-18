@@ -252,7 +252,7 @@ def _replace_reads(ir, fwd, c, sym, repl, only_replace_attrs=True):
     cur_fwd = lambda x: x
     c = fwd(c)
     for rd in match_pattern(c, f"{repr(sym)}[_]", use_sym_id=True):
-        # Need [_] to pttern match against window expressions
+        # Need [_] to pattern match against window expressions
         rd = cur_fwd(rd)
         if not (c_repl := repl(rd)):
             continue
@@ -768,20 +768,29 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
     oldtyp = s.type
     assert oldtyp.is_numeric()
 
-    ir, fwd = cursor._root, lambda x: x
     if basetyp:
         assert basetyp.is_real_scalar()
+
         if oldtyp.is_real_scalar():
-            ir, fwd_repl = cursor._child_node("type")._replace(basetyp)
-            fwd = _compose(fwd_repl, fwd)
+            ir, fwd = cursor._child_node("type")._replace(basetyp)
         elif isinstance(oldtyp, T.Tensor):
             assert oldtyp.type.is_real_scalar()
-            ir, fwd_repl = (
-                cursor._child_node("type")._child_node("type")._replace(basetyp)
-            )
-            fwd = _compose(fwd_repl, fwd)
+            ir, fwd = cursor._child_node("type")._child_node("type")._replace(basetyp)
         else:
             assert False, "bad case"
+
+        update_typ = lambda _: {"type": basetyp}
+
+        if s in cursor.get_root().args:
+            scope = cursor.root().body()
+        else:
+            scope = get_rest_of_block(cursor, inclusive=True)
+
+        for c in scope:
+            ir, fwd = _replace_reads(ir, fwd, c, s.name, update_typ)
+            ir, fwd = _replace_writes(ir, fwd, c, s.name, update_typ)
+
+        return ir, fwd
     elif win:
         if isinstance(s, LoopIR.Alloc):
             raise SchedulingError(
@@ -794,13 +803,10 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
 
         assert isinstance(oldtyp, T.Tensor)
         assert isinstance(win, bool)
-        ir, fwd_repl = cursor._child_node("type")._replace(oldtyp.update(is_window=win))
-        fwd = _compose(fwd_repl, fwd)
+        # TODO: fix this
+        return cursor._child_node("type")._child_node("is_window")._replace(win)
     elif mem:
-        ir, fwd_repl = cursor._child_node("mem")._replace(mem)
-        fwd = _compose(fwd_repl, fwd)
-
-    return ir, fwd
+        return cursor._child_node("mem")._replace(mem)
 
 
 # --------------------------------------------------------------------------- #

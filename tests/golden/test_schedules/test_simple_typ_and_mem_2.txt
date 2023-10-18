@@ -1,0 +1,3 @@
+def bar(n: size):
+    A: i32[n] @ GEMM_SCRATCH
+    A[0] += 1.0
