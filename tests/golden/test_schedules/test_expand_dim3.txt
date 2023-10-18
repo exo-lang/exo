@@ -49,7 +49,7 @@ for (int_fast32_t i = 0; i < n; i++) {
   }
 }
 for (int_fast32_t i = 0; i < n; i++) {
-  int8_t *a = malloc(n * sizeof(*a));
+  int8_t *a = (int8_t*) malloc(n * sizeof(*a));
   for (int_fast32_t j = 0; j < m; j++) {
     *x = a[i];
   }

@@ -6,6 +6,7 @@ from .LoopIR import (
     LoopIR_Rewrite,
     Alpha_Rename,
     LoopIR_Do,
+    LoopIR_Compare,
     SubstArgs,
     T,
     get_reads_of_expr,
@@ -233,13 +234,13 @@ def _replace_helper(c, c_repl, only_replace_attrs):
         return c._replace(c_repl)
 
 
-def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True):
+def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True, use_sym_id=True):
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
     cur_fwd = lambda x: x
     c = fwd(c)
-    for rd in match_pattern(c, pat, use_sym_id=True):
+    for rd in match_pattern(c, pat, use_sym_id=use_sym_id):
         rd = cur_fwd(rd)
         if not (c_repl := repl(rd)):
             continue
@@ -317,6 +318,30 @@ def DoReorderStmt(f_cursor, s_cursor):
     Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node)
     ir, fwd = s_cursor._move(f_cursor.before())
     return ir, fwd
+
+
+def DoJoinLoops(loop1_c, loop2_c):
+    if loop1_c.next() != loop2_c:
+        raise SchedulingError("expected the second loop to be directly after the first")
+
+    loop1 = loop1_c._node
+    loop2 = loop2_c._node
+
+    try:
+        Check_ExprEqvInContext(loop1_c.get_root(), loop1.hi, [loop1], loop2.lo, [loop2])
+    except Exception as e:
+        raise SchedulingError(
+            f"expected the first loop upper bound {loop1.hi} to be the same as the second loop lower bound {loop2.lo}"
+        )
+
+    compare_ir = LoopIR_Compare()
+    if not compare_ir.match_stmts(loop1.body, loop2.body):
+        raise SchedulingError("expected the two loops to have identical bodies")
+
+    ir, fwd = loop1_c._child_node("hi")._replace(loop2.hi)
+    ir, fwd_del = fwd(loop2_c)._delete()
+
+    return ir, _compose(fwd_del, fwd)
 
 
 def DoCutLoop(loop_c, cut_point):
@@ -508,31 +533,128 @@ def DoMergeWrites(c1, c2):
     return ir, fwd
 
 
+def DoInlineAssign(c1):
+    s1 = c1._node
+    assert isinstance(s1, LoopIR.Assign)
+
+    def mk_inline_expr(e):
+        return s1.rhs
+
+    after_assign = get_rest_of_block(c1, inclusive=False)
+    writes = get_writes_of_stmts([s._node for s in after_assign])
+    if s1.name in [name for name, _ in writes]:
+        # TODO: this check is currently too strict, it should really only look at indices...
+        raise SchedulingError(
+            f"Cannot inline assign {s1} because the buffer is written afterwards."
+        )
+
+    ir, fwd = c1._delete()
+    pat = f"{s1.name}[{','.join([str(idx) for idx in s1.idx])}]"
+    for c in after_assign:
+        ir, fwd = _replace_pats(
+            ir, fwd, c, pat, mk_inline_expr, only_replace_attrs=False, use_sym_id=False
+        )
+
+    return ir, fwd
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Split scheduling directive
 
 
-def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
-    split_loop = loop_cursor._node
-    N = split_loop.hi
-    hi_i = Sym(hi)
-    lo_i = Sym(lo)
-    srcinfo = split_loop.srcinfo
+def DoDivideWithRecompute(
+    loop_cursor, outer_hi, outer_stride: int, iter_o: str, iter_i: str
+):
+    proc = loop_cursor.get_root()
+    loop = loop_cursor._node
+    srcinfo = loop.srcinfo
 
-    if not is_const_zero(split_loop.lo):
-        raise SchedulingError(
-            f"expected the lower bound of the loop to be zero, got {split_loop.lo}."
+    assert isinstance(loop, LoopIR.Seq)
+    assert isinstance(outer_hi, LoopIR.expr)
+    Check_IsIdempotent(proc, loop.body)
+
+    def rd(i):
+        return LoopIR.Read(i, [], T.index, srcinfo)
+
+    def cnst(intval):
+        return LoopIR.Const(intval, T.int, srcinfo)
+
+    def szop(op, lhs, rhs):
+        return LoopIR.BinOp(op, lhs, rhs, T.index, srcinfo)
+
+    sym_o = Sym(iter_o)
+    sym_i = Sym(iter_i)
+    x = cnst(outer_stride)
+
+    if (
+        isinstance(outer_hi, LoopIR.BinOp)
+        and outer_hi.op == "/"
+        and isinstance(outer_hi.rhs, LoopIR.Const)
+        and outer_hi.rhs.val == outer_stride
+    ):
+        N_before_recompute = szop("-", outer_hi.lhs, szop("%", outer_hi.lhs, x))
+    else:
+        N_before_recompute = szop("*", outer_hi, x)
+
+    N_recompute = LoopIR.BinOp("-", loop.hi, N_before_recompute, T.index, srcinfo)
+    try:
+        Check_IsNonNegativeExpr(proc, [loop], N_recompute)
+    except SchedulingError:
+        raise SchedulingError(f"outer_hi * outer_stride exceeds loop's hi {loop.hi}")
+
+    hi_o = outer_hi
+    hi_i = szop("+", x, N_recompute)
+
+    # turn current loop into outer loop
+    ir, fwd = loop_cursor._child_node("iter")._replace(sym_o)
+    ir, fwd_repl = fwd(loop_cursor)._child_node("hi")._replace(hi_o)
+    fwd = _compose(fwd_repl, fwd)
+
+    # wrap body in inner loop
+    def inner_wrapper(body):
+        return LoopIR.Seq(
+            sym_i, LoopIR.Const(0, T.index, srcinfo), hi_i, body, None, srcinfo
         )
 
-    assert quot > 1
+    ir, fwd_wrap = fwd(loop_cursor).body()._wrap(inner_wrapper, "body")
+    fwd = _compose(fwd_wrap, fwd)
+
+    # replace the iteration variable in the body
+    def mk_iter(c):
+        return szop("+", szop("*", rd(sym_o), x), rd(sym_i))
+
+    ir, fwd = _replace_reads(
+        ir,
+        fwd,
+        loop_cursor,
+        loop.iter,
+        mk_iter,
+        only_replace_attrs=False,
+    )
+
+    return ir, fwd
+
+
+def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=False):
+    loop = loop_cursor._node
+    N = loop.hi
+    outer_i = Sym(outer_iter)
+    inner_i = Sym(inner_iter)
+    srcinfo = loop.srcinfo
+    tail_strategy = "perfect" if perfect else tail
+
+    if not is_const_zero(loop.lo):
+        raise SchedulingError(
+            f"expected the lower bound of the loop to be zero, got {loop.lo}."
+        )
 
     def substitute(srcinfo):
         cnst = lambda x: LoopIR.Const(x, T.int, srcinfo)
         rd = lambda x: LoopIR.Read(x, [], T.index, srcinfo)
         op = lambda op, lhs, rhs: LoopIR.BinOp(op, lhs, rhs, T.index, srcinfo)
 
-        return op("+", op("*", cnst(quot), rd(hi_i)), rd(lo_i))
+        return op("+", op("*", cnst(quot), rd(outer_i)), rd(inner_i))
 
     # short-hands for sanity
     def boolop(op, lhs, rhs, typ):
@@ -552,27 +674,12 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         rhs_1 = cnst(rhs.val - 1)
         return szop("/", szop("+", lhs, rhs_1), rhs)
 
-    ir, fwd = loop_cursor._child_node("iter")._replace(hi_i)
-
-    tail_strategy = "perfect" if perfect else tail
-
-    # wrap body in a guard
+    # determine hi and lo loop bounds
+    inner_hi = cnst(quot)
     if tail_strategy == "guard":
-        idx_sub = substitute(srcinfo)
-
-        def guard_wrapper(body):
-            cond = boolop("<", idx_sub, N, T.bool)
-            return LoopIR.If(cond, body, [], None, srcinfo)
-
-        ir, fwd_wrap = fwd(loop_cursor).body()._wrap(guard_wrapper, "body")
-        fwd = _compose(fwd_wrap, fwd)
-
-    # determine loop bounds and wrap inner loop
-    lo_rng = cnst(quot)
-    if tail_strategy == "guard":
-        hi_rng = ceildiv(N, lo_rng)
+        outer_hi = ceildiv(N, inner_hi)
     elif tail_strategy in ["cut", "cut_and_guard"]:
-        hi_rng = szop("/", N, lo_rng)  # floor div
+        outer_hi = szop("/", N, inner_hi)  # floor div
     elif tail_strategy == "perfect":
         if not isinstance(N, LoopIR.Const):
             is_N_divisible = False
@@ -588,34 +695,46 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
                     and pred.lhs.rhs.val > 0
                     and pred.lhs.rhs.val % quot == 0
                     and isinstance(pred.lhs.lhs, LoopIR.Read)
-                    and pred.lhs.lhs.name == split_loop.hi.name
+                    and pred.lhs.lhs.name == loop.hi.name
                 ):
                     is_N_divisible = True
 
             if not is_N_divisible:
-                raise SchedulingError(
-                    f"cannot perfectly split the '{split_loop.iter}' loop."
-                )
+                raise SchedulingError(f"cannot perfectly split the '{loop.iter}' loop.")
 
-            hi_rng = boolop("/", N, cnst(quot), T.index)
+            outer_hi = boolop("/", N, cnst(quot), T.index)
         else:
             if N.val % quot != 0:
                 raise SchedulingError(
-                    f"cannot perfectly split the '{split_loop.iter}' loop "
+                    f"cannot perfectly split the '{loop.iter}' loop "
                     f"because {quot} does not evenly divide "
                     f"{N.val}"
                 )
-            hi_rng = cnst(N.val // quot)
+            outer_hi = cnst(N.val // quot)
     else:
         assert False, f"bad tail strategy: {tail_strategy}"
 
+    # turn current loop into outer loop
+    ir, fwd = loop_cursor._child_node("iter")._replace(outer_i)
+    ir, fwd_repl = fwd(loop_cursor)._child_node("hi")._replace(outer_hi)
+    fwd = _compose(fwd_repl, fwd)
+
+    # wrap body in a guard
+    if tail_strategy == "guard":
+        idx_sub = substitute(srcinfo)
+
+        def guard_wrapper(body):
+            cond = boolop("<", idx_sub, N, T.bool)
+            return LoopIR.If(cond, body, [], None, srcinfo)
+
+        ir, fwd_wrap = fwd(loop_cursor).body()._wrap(guard_wrapper, "body")
+        fwd = _compose(fwd_wrap, fwd)
+
+    # wrap body in inner loop
     def inner_wrapper(body):
         return LoopIR.Seq(
-            lo_i, LoopIR.Const(0, T.index, srcinfo), lo_rng, body, None, srcinfo
+            inner_i, LoopIR.Const(0, T.index, srcinfo), inner_hi, body, None, srcinfo
         )
-
-    ir, fwd_repl = fwd(loop_cursor)._child_node("hi")._replace(hi_rng)
-    fwd = _compose(fwd_repl, fwd)
 
     ir, fwd_wrap = fwd(loop_cursor).body()._wrap(inner_wrapper, "body")
     fwd = _compose(fwd_wrap, fwd)
@@ -628,22 +747,22 @@ def DoSplit(loop_cursor, quot, hi, lo, tail="guard", perfect=False):
         ir,
         fwd,
         loop_cursor,
-        split_loop.iter,
+        loop.iter,
         mk_main_iter,
         only_replace_attrs=False,
     )
 
     # add the tail case
     if tail_strategy in ["cut", "cut_and_guard"]:
-        cut_i = Sym(lo)
-        Ntail = szop("%", N, lo_rng)
+        cut_i = Sym(inner_iter)
+        Ntail = szop("%", N, inner_hi)
 
         # in the tail loop we want the iteration variable to
         # be mapped instead to (Ncut*Q + cut_i)
-        cut_tail_sub = szop("+", rd(cut_i), szop("*", hi_rng, lo_rng))
+        cut_tail_sub = szop("+", rd(cut_i), szop("*", outer_hi, inner_hi))
 
-        cut_body = Alpha_Rename(split_loop.body).result()
-        env = {split_loop.iter: cut_tail_sub}
+        cut_body = Alpha_Rename(loop.body).result()
+        env = {loop.iter: cut_tail_sub}
         cut_body = SubstArgs(cut_body, env).result()
 
         cut_s = LoopIR.Seq(
@@ -977,6 +1096,7 @@ def DoCommuteExpr(expr_cursors):
     return ir, fwd
 
 
+# TODO: make a cursor navigation file
 def get_enclosing_stmt_cursor(c):
     while isinstance(c._node, LoopIR.expr):
         c = c.parent()
@@ -992,6 +1112,13 @@ def less(c1, c2):
         elif p1[i] > p2[i]:
             return False
     return len(p1) < len(p2)
+
+
+def DoRewriteExpr(expr_cursor, new_expr):
+    proc = expr_cursor.get_root()
+    s = get_enclosing_stmt_cursor(expr_cursor)._node
+    Check_ExprEqvInContext(proc, expr_cursor._node, [s], new_expr, [s])
+    return expr_cursor._replace(new_expr)
 
 
 def DoBindExpr(new_name, expr_cursors, cse=False):
@@ -1372,9 +1499,52 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
         ir, fwd = _replace_reads(ir, fwd, c, alloc_s.name, mk_read)
         ir, fwd = _replace_writes(ir, fwd, c, alloc_s.name, mk_write)
 
-    idx = alloc_cursor.get_index()
-    after_alloc = [c._node for c in fwd(alloc_cursor.parent()).body()[idx + 1 :]]
+    after_alloc = [c._node for c in get_rest_of_block(fwd(alloc_cursor))]
     Check_Bounds(ir, new_alloc, after_alloc)
+
+    return ir, fwd
+
+
+def DoShrinkDim(alloc_cursor, dim_idx: int, lo: LoopIR.expr, hi: LoopIR.expr):
+    alloc_s = alloc_cursor._node
+    assert isinstance(alloc_s, LoopIR.Alloc)
+    assert isinstance(alloc_s.type, T.Tensor)
+
+    new_dim_size = LoopIR.BinOp("-", hi, lo, hi.type, alloc_s.srcinfo)
+    Check_IsPositiveExpr(alloc_cursor.get_root(), [alloc_s], new_dim_size)
+
+    ir, fwd = (
+        alloc_cursor._child_node("type")
+        ._child_block("hi")[dim_idx]
+        ._replace([new_dim_size])
+    )
+
+    def mk_read(c):
+        rd = c._node
+
+        if isinstance(rd, LoopIR.Read):
+            new_idx = rd.idx.copy()
+            new_idx[dim_idx] = LoopIR.BinOp(
+                "-", rd.idx[dim_idx], lo, lo.type, rd.srcinfo
+            )
+            return {"idx": new_idx}
+        else:
+            raise NotImplementedError(
+                f"Did not implement {type(rd)}. This may be a bug."
+            )
+
+    def mk_write(c):
+        s = c._node
+        new_idx = s.idx.copy()
+        new_idx[dim_idx] = LoopIR.BinOp("-", s.idx[dim_idx], lo, lo.type, s.srcinfo)
+        return {"idx": new_idx}
+
+    for c in get_rest_of_block(alloc_cursor):
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_s.name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_s.name, mk_write)
+
+    after_alloc = [c._node for c in get_rest_of_block(fwd(alloc_cursor))]
+    Check_Bounds(ir, alloc_s, after_alloc)
 
     return ir, fwd
 
@@ -1638,9 +1808,8 @@ def DoSinkAlloc(alloc_cursor, scope_cursor):
     assert isinstance(scope_stmt, (LoopIR.If, LoopIR.Seq))
 
     # TODO: we need analysis here about the effects on this allocation within the scope
-    # Specifically, each loop iteration should have disjoint accesses (e.g. no dependencies
-    # on each other), so if a loop iteration has exprs E_i, then we need to show that E_i
-    # an E_j are always disjoint for i != j.
+    # Specifically, each loop iteration should only read from indices that were written
+    # during that iteration.
 
     after_scope = [s._node for s in get_rest_of_block(scope_cursor)]
     accesses = get_reads_of_stmts(after_scope) + get_writes_of_stmts(after_scope)
@@ -2345,7 +2514,7 @@ def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
 
     if f_cursor.next() != s_cursor:
         raise SchedulingError(
-            "expected the two loops to be fused to come one right after the other"
+            f"expected the two loops to be fused to come one right after the other. However, the statement after the first loop is:\n{f_cursor.next()._node}\n, not the provided second loop:\n {s_cursor._node}"
         )
 
     # check if the loop bounds are equivalent
@@ -3374,6 +3543,16 @@ def DoEliminateDeadCode(stmt_cursor):
         assert False, f"Unsupported statement type {type(stmt)}"
 
 
+def DoDeleteBuffer(buf_cursor):
+    assert isinstance(buf_cursor._node, LoopIR.Alloc)
+
+    buf_name = buf_cursor._node.name
+    buf_dims = len(buf_cursor._node.type.shape())
+    Check_IsDeadAfter(buf_cursor.get_root(), [buf_cursor._node], buf_name, buf_dims)
+
+    return buf_cursor._delete()
+
+
 def DoDataReuse(buf_cursor, rep_cursor):
     assert isinstance(buf_cursor._node, LoopIR.Alloc)
     assert isinstance(rep_cursor._node, LoopIR.Alloc)
@@ -3907,6 +4086,7 @@ __all__ = [
     "DoUnroll",
     "DoAddLoop",
     "DoCutLoop",
+    "DoJoinLoops",
     "DoShiftLoop",
     "DoProductLoop",
     "DoRemoveLoop",
@@ -3919,11 +4099,13 @@ __all__ = [
     "DoFuseIf",
     "DoFuseLoop",
     "DoBindExpr",
+    "DoRewriteExpr",
     "DoStageMem",
     "DoDataReuse",
     "DoInlineWindow",
     "DoDivideDim",
     "DoExpandDim",
+    "DoShrinkDim",
     "DoMultiplyDim",
     "DoRearrangeDim",
     "DoInline",

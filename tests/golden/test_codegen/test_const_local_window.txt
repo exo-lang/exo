@@ -73,7 +73,7 @@ for (int_fast32_t i = 0; i < N; i++) {
 
 // )
 void caller( void *ctxt ) {
-float *A = malloc(100 * sizeof(*A));
+float *A = (float*) malloc(100 * sizeof(*A));
 callee(ctxt,10,(struct exo_win_1f32){ &A[10], { 1 } });
 free(A);
 }

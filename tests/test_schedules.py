@@ -401,6 +401,39 @@ def test_fission_after_simple_fail():
         fission(foo, foo.find("x = 0.0").after(), n_lifts=2)
 
 
+def test_shrink_dim(golden):
+    @proc
+    def foo():
+        x: i8[10]
+        for i in seq(1, 9):
+            x[i] = 1.0
+
+    foo = shrink_dim(foo, "x", 0, 1, 9)
+    assert str(simplify(foo)) == golden
+
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = shrink_dim(foo, "x", 0, 1, 8)
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = shrink_dim(foo, "x", 0, 2, 9)
+
+
+def test_shrink_dim_2(golden):
+    @proc
+    def foo(n: size):
+        assert n > 4
+        x: i8[n]
+        for i in seq(2, n - 1):
+            x[i] = 1.0
+
+    foo = shrink_dim(foo, "x", 0, 2, "n-1")
+    assert str(simplify(foo)) == golden
+
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = shrink_dim(foo, "x", 0, 2, "n-2")
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = shrink_dim(foo, "x", 0, 3, "n-1")
+
+
 def test_rearrange_dim(golden):
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -882,6 +915,28 @@ def test_mult_dim_fail_1():
         mult_dim(foo, "x", 0, 1)
 
 
+def test_delete_buffer(golden):
+    @proc
+    def foo():
+        a: i8[10]
+
+    foo = delete_buffer(foo, foo.find_alloc("a"))
+    assert str(foo) == golden
+
+
+def test_delete_buffer_fail():
+    @proc
+    def foo():
+        a: i8[10]
+        a[0] = 1.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="The variable a can potentially be used after the statement",
+    ):
+        foo = delete_buffer(foo, foo.find_alloc("a"))
+
+
 def test_reuse_buffer(golden):
     @proc
     def foo(a: f32 @ DRAM, b: f32 @ DRAM):
@@ -1028,6 +1083,43 @@ def test_bind_lhs(golden):
     myfunc_cpu = bind_expr(myfunc_cpu, "inp[_]", "inp_ram", cse=True)
     myfunc_cpu = bind_expr(myfunc_cpu, "out[_]", "out_ram", cse=True)
     assert str(myfunc_cpu) == golden
+
+
+def test_divide_with_recompute(golden):
+    @proc
+    def foo(n: size, A: i8[n + 3]):
+        assert n % 4 == 0
+        for i in seq(0, n + 3):
+            A[i] = 1.0
+
+    foo = divide_with_recompute(foo, foo.find_loop("i"), "n/4", 4, ["io", "ii"])
+    foo = rewrite_expr(foo, "n % 4", 0)
+    foo = simplify(foo)
+    assert str(foo) == golden
+
+
+def test_divide_with_recompute_fail_not_idempotent():
+    @proc
+    def foo(n: size, A: i8[n + 3]):
+        for i in seq(0, n + 3):
+            A[i] += 1.0
+
+    with pytest.raises(SchedulingError, match="The statement at .* is not idempotent"):
+        foo = divide_with_recompute(foo, foo.find_loop("i"), "n/4", 4, ["io", "ii"])
+
+
+def test_divide_with_recompute_fail_outer_hi_too_big():
+    @proc
+    def foo(n: size, A: i8[n + 3]):
+        for i in seq(0, n + 3):
+            A[i] = 1.0
+
+    with pytest.raises(
+        SchedulingError, match=r"outer_hi \* outer_stride exceeds loop's hi n \+ 3"
+    ):
+        foo = divide_with_recompute(
+            foo, foo.find_loop("i"), "(n + 4) / 4", 4, ["io", "ii"]
+        )
 
 
 def test_simple_divide_loop(golden):
@@ -1284,6 +1376,34 @@ def test_merge_writes_different_lhs_arrays_error():
         bar = merge_writes(bar, "z[i, 1] = y; z[i+1, 1] += y")
 
 
+def test_inline_assign(golden):
+    @proc
+    def foo(n: size, y: i8[n]):
+        for i in seq(0, n):
+            x: i8[5]
+            x[1] = 1.0
+            y[i] = x[1] + x[2]
+            a: i8
+            a = x[1]
+
+    foo = inline_assign(foo, foo.find("x = _"))
+    assert str(foo) == golden
+
+
+def test_inline_assign_fail():
+    @proc
+    def foo(n: size, y: i8[n]):
+        for i in seq(0, n):
+            x: i8[5]
+            x[1] = 1.0
+            x[2] = 2.0
+            y[i] = x[1] + x[2]
+
+    # Current check can't reason about indices, so check too strict
+    with pytest.raises(SchedulingError, match="Cannot inline assign"):
+        foo = inline_assign(foo, foo.find("x = _"))
+
+
 def test_simple_unroll(golden):
     @proc
     def bar(A: i8[10]):
@@ -1404,6 +1524,40 @@ def test_simple_typ_and_mem_2(golden):
 
     A_assign = bar.find("A[_] += _")
     assert str(A_assign._impl._node.type) == "i32"
+
+
+def test_rewrite_expr(golden):
+    @proc
+    def foo(n: size):
+        assert n % 4 == 2
+        for i in seq(0, 4 + n % 4):
+            pass
+
+    bar = rewrite_expr(foo, "n % 4", "2")
+    assert str(simplify(bar)) == golden
+
+    bar = rewrite_expr(foo, "4 + n % 4", "6")
+    assert str(bar) == golden
+
+
+def test_rewrite_expr_2(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(0, n % 4):
+            pass
+
+    bar = rewrite_expr(foo, "n % 4", "n - n/4 * 4")
+    assert str(simplify(bar)) == golden
+
+
+def test_rewrite_expr_fail():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            pass
+
+    with pytest.raises(SchedulingError, match="Expressions are not equivalent:"):
+        bar = rewrite_expr(foo, "n", "n + n%4")
 
 
 def test_simple_bind_expr(golden):
@@ -2649,6 +2803,79 @@ def test_cut_then_shift_loop(golden):
     foo = shift_loop(foo, foo.find_loop("i"), 5)
     foo = shift_loop(foo, foo.forward(loop_cursor).next(), 0)
     assert str(simplify(foo)) == golden
+
+
+def test_join_loops_body_match(golden):
+    # TODO: add write_config, stride_expr, read_config
+    @proc
+    def do_nothing(x: [i8][2, 1]):
+        pass
+
+    @proc
+    def foo(n: size, x: i8[n + 1]):
+        for i in seq(0, n):
+            x[i] = 0.0
+            x[i] += -(1.0 + x[i])
+            for j in seq(0, 1):
+                if i == j:
+                    pass
+            a: i8[4, 2]
+            y = a[1:3, 1:2]
+            do_nothing(y)
+        for i in seq(n, n + 1):
+            x[i] = 0.0
+            x[i] += -(1.0 + x[i])
+            for j in seq(0, 1):
+                if i == j:
+                    pass
+            a: i8[4, 2]
+            y = a[1:3, 1:2]
+            do_nothing(y)
+
+    foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+    assert str(foo) == golden
+
+
+def test_join_loops_equiv_but_diff_bounds(golden):
+    @proc
+    def foo(n: size, x: i8[4]):
+        assert n % 4 == 2
+        for i in seq(0, 2):
+            x[i] = 0.0
+        for i in seq(n % 4, 4):
+            x[i] = 0.0
+
+    foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+    assert str(foo) == golden
+
+
+def test_join_loops_fail_type_match():
+    @proc
+    def foo():
+        for i in seq(0, 2):
+            x: i8[4]
+            x[i] = 0.0
+        for i in seq(2, 4):
+            x: f32[4]
+            x[i] = 0.0
+
+    with pytest.raises(SchedulingError, match=""):
+        foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+
+
+def test_join_loops_fail_equal_bounds():
+    @proc
+    def foo(n: size, x: i8[n + 2]):
+        for i in seq(0, n):
+            x[i] = 0.0
+        for i in seq(n + 1, n + 2):
+            x[i] = 0.0
+
+    with pytest.raises(
+        SchedulingError,
+        match=r"expected the first loop upper bound n to be the same as the second loop lower bound n \+ 1",
+    ):
+        foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
 
 
 def test_mem_aware_replace(golden):

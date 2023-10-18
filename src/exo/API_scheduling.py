@@ -316,6 +316,7 @@ class TypeAbbrevA(ArgumentProcessor):
         "f32": T.f32,
         "f64": T.f64,
         "i8": T.int8,
+        "ui8": T.uint8,
         "i32": T.int32,
     }
 
@@ -585,6 +586,14 @@ class NestedForSeqCursorA(StmtCursorA):
         return cursor
 
 
+class AssignCursorA(StmtCursorA):
+    def _cursor_call(self, stmt_pattern, all_args):
+        cursor = super()._cursor_call(stmt_pattern, all_args)
+        if not isinstance(cursor, PC.AssignCursor):
+            self.err(f"expected an AssignCursor, not {type(cursor)}")
+        return cursor
+
+
 class AssignOrReduceCursorA(StmtCursorA):
     def _cursor_call(self, stmt_pattern, all_args):
         cursor = super()._cursor_call(stmt_pattern, all_args)
@@ -649,6 +658,8 @@ class NewExprA(ArgumentProcessor):
 
     def _get_ctxt_stmt(self, all_args):
         cursor = all_args[self.cursor_arg]
+        while isinstance(cursor, PC.ExprCursor):
+            cursor = cursor.parent()
 
         # if we don't have a gap cursor, convert to a gap cursor
         if not isinstance(cursor, PC.GapCursor):
@@ -863,6 +874,21 @@ def commute_expr(proc, expr_cursors):
         )
 
     ir, fwd = scheduling.DoCommuteExpr(exprs)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([ExprCursorA, NewExprA("expr_cursor")])
+def rewrite_expr(proc, expr_cursor, new_expr):
+    """
+    Replaces [expr_cursor] with [new_expr] if the two are equivalent
+    in the context.
+
+    rewrite:
+        `s`
+        ->
+        `s[ expr_cursor -> new_expr]`
+    """
+    ir, fwd = scheduling.DoRewriteExpr(expr_cursor._impl, new_expr)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1113,9 +1139,38 @@ def write_config(proc, gap_cursor, config, field, rhs):
 # Memory and Windowing-oriented Operations
 
 
+@sched_op([AllocCursorA, IntA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
+def shrink_dim(proc, buf_cursor, dim_idx, lo, hi):
+    """
+    shrinks the [dim_idx]-th dimension of buffer [buf_cursor] to only track the data
+    that was store from [lo] to [hi] in the original buffer. Fails if any other
+    accesses outside the (lo, hi) range are made to the [dim_idx]-th dimension.
+
+    args:
+        buf_cursor      - cursor pointing to the Alloc
+        dim_idx         - which dimension to shrink
+        lo              - an expression for the low end of the range
+        hi              - an expression for the high end of the range
+
+    rewrite:
+        `x : T[n, ...] ; s`
+          ->
+        `x : T[hi - lo, ...] ; s[ x[idx, ...] -> x[idx - lo, ...] ]`
+    checks:
+        The provided dimension size is checked for positivity and the
+        provided indexing expression is checked to make sure it is in-bounds
+    """
+    stmt_c = buf_cursor._impl
+    ir, fwd = scheduling.DoShrinkDim(stmt_c, dim_idx, lo, hi)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor"), BoolA])
 def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks=False):
     """
+    TODO: rename this...expand_dim sounds like its increasing the size
+    of a dimension. It should be more like add_dim.
+
     expand the number of dimensions of a buffer variable (`buf_cursor`).
     After expansion, the existing code will initially only use particular
     entries of the new dimension, chosen by the provided `indexing_expr`
@@ -1377,6 +1432,16 @@ def autolift_alloc(
     return scheduling.DoLiftAlloc(proc, stmt, n_lifts, mode, size, keep_dims).result()
 
 
+@sched_op([AllocCursorA])
+def delete_buffer(proc, buf_cursor):
+    """
+    Deletes [buf_cursor] if it is unused.
+    """
+    buf_s = buf_cursor._impl
+    ir, fwd = scheduling.DoDeleteBuffer(buf_s)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([AllocCursorA, AllocCursorA])
 def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
@@ -1488,6 +1553,27 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 # Loop and Guard Rewriting
 
 
+@sched_op([ForSeqCursorA, NewExprA("loop_cursor"), PosIntA, ListA(NameA, length=2)])
+def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
+    """
+    Divides a loop into the provided [outer_hi] by [outer_stride] dimensions,
+    and then adds extra compute so that the inner loop will fully cover the
+    original loop's range.
+
+    rewrite:
+        `for i in seq(0, hi):`
+        `    s`
+            ->
+        `for io in seq(0, outer_hi):`
+        `    for ii in seq(0, outer_stride + (hi - outer_hi * outer_stride)):`
+        `        s[ i -> outer_stride * io + ii ]`
+    """
+    ir, fwd = scheduling.DoDivideWithRecompute(
+        loop_cursor._impl, outer_hi, outer_stride, new_iters[0], new_iters[1]
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op(
     [
         ForSeqCursorA,
@@ -1532,6 +1618,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         `for lo in seq(0,e - q * (e / q)):`
         `    s[ i -> q * (e / q) + lo ]
     """
+
     if div_const == 1:
         raise ValueError("why are you trying to split by 1?")
 
@@ -1540,8 +1627,8 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
     ir, fwd = scheduling.DoSplit(
         stmt,
         quot=div_const,
-        hi=new_iters[0],
-        lo=new_iters[1],
+        outer_iter=new_iters[0],
+        inner_iter=new_iters[1],
         tail=tail,
         perfect=perfect,
     )
@@ -1569,6 +1656,29 @@ def mult_loops(proc, nested_loops, new_iter_name):
         `    s[ i -> k/c, j -> k%c ]`
     """
     ir, fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([ForSeqCursorA, ForSeqCursorA])
+def join_loops(proc, loop1_cursor, loop2_cursor):
+    """
+    Joins two loops with identical bodies and consecutive iteration spaces
+    into one loop.
+
+    args:
+        loop1_cursor     - cursor pointing to the first loop
+        loop2_cursor     - cursor pointing to the second loop
+
+    rewrite:
+        `for i in seq(lo, mid):`
+        `    s`
+        `for i in seq(mid, hi):`
+        `    s`
+        ->
+        `for i in seq(lo, hi):`
+        `    s`
+    """
+    ir, fwd = scheduling.DoJoinLoops(loop1_cursor._impl, loop2_cursor._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1712,6 +1822,28 @@ def merge_writes(proc, block_cursor):
         )
 
     ir, fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([AssignCursorA])
+def inline_assign(proc, alloc_cursor):
+    """
+    Inlines [alloc_cursor] into any statements where it is used after this assignment.
+
+    rewrite:
+        `x = y`
+        `s`
+        ->
+        `s[ x -> y ]`
+    """
+    s = alloc_cursor._impl
+
+    if not isinstance(s._node, LoopIR.Assign):
+        raise ValueError(
+            f"Expected the statement to be an assign, instead got {stmt1._node}"
+        )
+
+    ir, fwd = scheduling.DoInlineAssign(s)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

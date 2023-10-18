@@ -1,0 +1,4 @@
+def foo(n: size):
+    assert n % 4 == 2
+    for i in seq(0, 6):
+        pass
