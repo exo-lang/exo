@@ -2912,7 +2912,7 @@ def test_replace_all_arch(golden):
     assert str(bar) == golden
 
 
-def test_remove_if(golden):
+def test_eliminate_dead_code(golden):
     @proc
     def foo():
         x: f32 @ DRAM
@@ -2925,10 +2925,10 @@ def test_remove_if(golden):
                 b: R
                 b = x
 
-    assert str(remove_if(foo, "if _:_ #0")) == golden
+    assert str(eliminate_dead_code(foo, "if _:_ #0")) == golden
 
 
-def test_remove_if2(golden):
+def test_eliminate_dead_code2(golden):
     @proc
     def foo():
         x: f32 @ DRAM
@@ -2941,10 +2941,10 @@ def test_remove_if2(golden):
                 b: R
                 b = x
 
-    assert str(remove_if(foo, "if _:_ #0")) == golden
+    assert str(eliminate_dead_code(foo, "if _:_ #0")) == golden
 
 
-def test_remove_if3(golden):
+def test_eliminate_dead_code3(golden):
     @proc
     def foo():
         x: f32 @ DRAM
@@ -2954,10 +2954,10 @@ def test_remove_if3(golden):
                 a: R
                 a = x
 
-    assert str(remove_if(foo, "if _:_ #0")) == golden
+    assert str(eliminate_dead_code(foo, "if _:_ #0")) == golden
 
 
-def test_remove_if4(golden):
+def test_eliminate_dead_code4(golden):
     @proc
     def foo():
         x: f32 @ DRAM
@@ -2967,10 +2967,10 @@ def test_remove_if4(golden):
                 a: R
                 a = x
 
-    assert str(remove_if(foo, "if _:_ #0")) == golden
+    assert str(eliminate_dead_code(foo, "if _:_ #0")) == golden
 
 
-def test_remove_if5():
+def test_eliminate_dead_code5():
     @proc
     def foo():
         x: f32 @ DRAM
@@ -2982,7 +2982,32 @@ def test_remove_if5():
         SchedulingError,
         match="If condition isn't always True or always False",
     ):
-        remove_if(foo, "if _:_ #0")
+        eliminate_dead_code(foo, "if _:_ #0")
+
+
+def test_eliminate_dead_code6():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            pass
+
+    with pytest.raises(
+        SchedulingError,
+        match="Loop condition isn't always False",
+    ):
+        eliminate_dead_code(foo, foo.find_loop("i"))
+
+
+def test_eliminate_dead_code7(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            x: f32
+
+    foo = specialize(foo, foo.find_loop("i"), "0 < n")
+    foo = eliminate_dead_code(foo, foo.find_loop("i #1"))
+
+    assert str(foo) == golden
 
 
 def test_lift_reduce_constant_1(golden):

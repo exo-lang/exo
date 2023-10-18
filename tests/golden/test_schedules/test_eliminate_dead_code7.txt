@@ -1,0 +1,6 @@
+def foo(n: size):
+    if 0 < n:
+        for i in seq(0, n):
+            x: f32 @ DRAM
+    else:
+        pass

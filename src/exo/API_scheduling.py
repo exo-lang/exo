@@ -2103,14 +2103,14 @@ def lift_scope(proc, scope_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([IfCursorA])
-def remove_if(proc, if_cursor):
+@sched_op([ForSeqOrIfCursorA])
+def eliminate_dead_code(proc, stmt_cursor):
     """
-    Remove the if-statement by determining either that it is always
-    True or always False
+    if statements: eliminate branch that is never reachable
+    for statements: eliminate loop if its condition is always false
 
     args:
-        if_cursor       - cursor to the if-statement to remove
+        stmt_cursor       - cursor to the if or for statement
 
     rewrite:
         `if p:`
@@ -2121,7 +2121,7 @@ def remove_if(proc, if_cursor):
         `s1`
     """
 
-    ir, fwd = scheduling.DoRemoveIf(if_cursor._impl)
+    ir, fwd = scheduling.DoEliminateDeadCode(stmt_cursor._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
