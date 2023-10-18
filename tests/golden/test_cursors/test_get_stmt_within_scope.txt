@@ -1,4 +1,4 @@
-def foo(x: f32 @ DRAM):
+def foo(x: i8 @ DRAM):
     for i in seq(0, 8):
         if i + 3 < -1:  # <-- NODE
             ...
