@@ -3282,7 +3282,7 @@ class DoSimplify(Cursor_Rewrite):
             raise NotImplementedError(f"bad case {type(s)}")
 
 
-def DoRemoveIf(if_cursor):
+def DoEliminateIfDeadBranch(if_cursor):
     if_stmt = if_cursor._node
 
     assert isinstance(if_stmt, LoopIR.If)
@@ -3307,6 +3307,65 @@ def DoRemoveIf(if_cursor):
     fwd = _compose(fwd_del, fwd)
 
     return ir, fwd
+
+
+def DoEliminateIfDeadBranch(if_cursor):
+    if_stmt = if_cursor._node
+
+    assert isinstance(if_stmt, LoopIR.If)
+
+    ir, fwd = if_cursor.get_root(), lambda x: x
+
+    try:
+        cond_node = LoopIR.Const(True, T.bool, if_stmt.srcinfo)
+        Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
+        cond = True
+    except SchedulingError:
+        try:
+            cond_node = LoopIR.Const(False, T.bool, if_stmt.srcinfo)
+            Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
+            cond = False
+        except SchedulingError:
+            raise SchedulingError("If condition isn't always True or always False")
+
+    body = if_cursor.body() if cond else if_cursor.orelse()
+    ir, fwd = body._move(if_cursor.after())
+    ir, fwd_del = fwd(if_cursor)._delete()
+    fwd = _compose(fwd_del, fwd)
+
+    return ir, fwd
+
+
+def DoEliminateDeadLoop(loop_cursor):
+    loop_stmt = loop_cursor._node
+
+    assert isinstance(loop_stmt, LoopIR.Seq)
+
+    ir, fwd = loop_cursor.get_root(), lambda x: x
+
+    try:
+        false_cond_node = LoopIR.Const(False, T.bool, loop_stmt.srcinfo)
+        loop_cond_node = LoopIR.BinOp(
+            "<", loop_stmt.lo, loop_stmt.hi, T.bool, loop_stmt.srcinfo
+        )
+        Check_ExprEqvInContext(ir, loop_cond_node, [loop_stmt], false_cond_node)
+    except SchedulingError:
+        raise SchedulingError("Loop condition isn't always False")
+
+    ir, fwd_del = loop_cursor._delete()
+
+    return ir, fwd_del
+
+
+def DoEliminateDeadCode(stmt_cursor):
+    stmt = stmt_cursor._node
+
+    if isinstance(stmt, LoopIR.If):
+        return DoEliminateIfDeadBranch(stmt_cursor)
+    elif isinstance(stmt, LoopIR.Seq):
+        return DoEliminateDeadLoop(stmt_cursor)
+    else:
+        assert False, f"Unsupported statement type {type(stmt)}"
 
 
 def DoDataReuse(buf_cursor, rep_cursor):
@@ -3874,7 +3933,7 @@ __all__ = [
     "DoFissionLoops",
     "DoBoundAndGuard",
     "DoDeletePass",
-    "DoRemoveIf",
+    "DoEliminateDeadCode",
     "DoAddUnsafeGuard",
     "DoStageWindow",
     "DoBoundAlloc",
