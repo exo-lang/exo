@@ -1544,6 +1544,7 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 @sched_op([ForSeqCursorA, NewExprA("loop_cursor"), PosIntA, ListA(NameA, length=2)])
 def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
     """
+    TODO: update this
     Divides a loop into the provided [hi_o] by [hi_i] dimensions, and then
     adds extra compute so that the inner loop will fully cover the original
     loop.

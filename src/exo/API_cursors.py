@@ -841,14 +841,35 @@ class StrideExprCursor(ExprCursor):
 # High-level cursor navigation functions
 
 
+class CursorNavigationError(Exception):
+    pass
+
+
+def validate_cursors(c1, c2):
+    """
+    Checks that [c1] and [c2] are both valid cursors, and that they originate from the
+    same proc.
+    """
+    assert not isinstance(c1, InvalidCursor), "first cursor was an InvalidCursor"
+    assert not isinstance(c2, InvalidCursor), "second cursor was an InvalidCursor"
+    assert c1.proc() == c2.proc(), "cursors originate from different procs"
+
+
 def match_level(cursor, cursor_to_match):
     """
     Lifts [cursor] through the AST until [cursor] and [cursor_to_match] are at
-    the same level, e.g. have the same parent.
+    the same level, e.g. have the same parent. Returns an InvalidCursorError if
+    [cursor_to_match]'s parent is not an ancestor of [cursor].
     """
-    assert not isinstance(cursor, InvalidCursor)
+    validate_cursors(cursor, cursor_to_match)
+
     while cursor.parent() != cursor_to_match.parent():
         cursor = cursor.parent()
+        if isinstance(cursor, InvalidCursor):
+            raise CursorNavigationError(
+                "cursor_to_match's parent is not an ancestor of cursor"
+            )
+
     return cursor
 
 
@@ -856,8 +877,15 @@ def get_stmt_within_scope(cursor, scope):
     """
     Gets the statement containing [cursor] that is directly in the provided [scope]
     """
-    assert not isinstance(cursor, InvalidCursor)
-    return match_level(cursor, scope.body()[0])
+    validate_cursors(cursor, scope)
+    assert isinstance(
+        scope, (ForSeqCursor, IfCursor)
+    ), "scope was not an for loop or if statement"
+
+    try:
+        return match_level(cursor, scope.body()[0])
+    except CursorNavigationError:
+        raise CursorNavigationError("scope is not an ancestor of cursor")
 
 
 def get_enclosing_loop(cursor, loop_iter=None):
@@ -865,11 +893,17 @@ def get_enclosing_loop(cursor, loop_iter=None):
     Gets the enclosing loop with the given [loop_iter]. If [loop_iter] is None,
     returns the innermost loop enclosing [cursor].
     """
+    assert not isinstance(cursor, InvalidCursor), "first cursor was an InvalidCursor"
+
     match_iter = (
         lambda x: x.name() == loop_iter if loop_iter is not None else lambda x: True
     )
+
     while not (isinstance(cursor, ForSeqCursor) and match_iter(cursor)):
         cursor = cursor.parent()
+        if isinstance(cursor, InvalidCursor):
+            raise CursorNavigationError("no enclosing loop found")
+
     return cursor
 
 
@@ -991,6 +1025,7 @@ __all__ = [
     #
     "InvalidCursorError",
     #
+    "CursorNavigationError",
     "match_level",
     "get_stmt_within_scope",
     "get_enclosing_loop",

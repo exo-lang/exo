@@ -1,0 +1,4 @@
+def foo(n: size, A: i8[n + 3] @ DRAM):
+    for io in seq(0, n):
+        for ii in seq(0, 4 + (n + 3 - n / 4 * 4)):
+            A[io * 4 + ii] = 1.0

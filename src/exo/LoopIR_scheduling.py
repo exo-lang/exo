@@ -573,6 +573,12 @@ def DoDivideWithRecompute(
     assert isinstance(loop, LoopIR.Seq)
     assert isinstance(outer_hi, LoopIR.expr)
     Check_IsIdempotent(proc, loop.body)
+    try:
+        Check_IsNonNegativeExpr(
+            proc, [loop], LoopIR.BinOp("-", loop.hi, outer_hi, T.index, srcinfo)
+        )
+    except SchedulingError:
+        raise SchedulingError(f"outer_hi is higher than loop's hi {loop.hi}")
 
     sym_o = Sym(iter_o)
     sym_i = Sym(iter_i)
@@ -597,7 +603,7 @@ def DoDivideWithRecompute(
     ):
         N_tmp = szop("-", outer_hi.lhs, szop("%", outer_hi.lhs, x))
     else:
-        N_tmp = szop("*", outer_hi, x)
+        N_tmp = szop("*", szop("/", outer_hi, x), x)
     hi_i = szop("+", x, szop("-", loop.hi, N_tmp))
 
     # turn current loop into outer loop
