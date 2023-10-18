@@ -103,6 +103,7 @@ module LoopIR {
          | F32()
          | F64()
          | INT8()
+         | UINT8()
          | INT32()
          | Bool()
          | Int()
@@ -135,6 +136,7 @@ module LoopIR {
         "F32",
         "F64",
         "INT8",
+        "UINT8",
         "INT32" "Bool",
         "Int",
         "Index",
@@ -195,6 +197,7 @@ module UAST {
             | F32   ()
             | F64   ()
             | INT8  ()
+            | UINT8  ()
             | INT32 ()
             | Bool  ()
             | Int   ()
@@ -219,6 +222,7 @@ module UAST {
         "F32",
         "F64",
         "INT8",
+        "UINT8",
         "INT32",
         "Bool",
         "Int",
@@ -352,6 +356,7 @@ module Effects {
 @extclass(UAST.F32)
 @extclass(UAST.F64)
 @extclass(UAST.INT8)
+@extclass(UAST.UINT8)
 @extclass(UAST.INT32)
 def shape(t):
     shp = t.hi if isinstance(t, UAST.Tensor) else []
@@ -391,6 +396,7 @@ class T:
     F32 = LoopIR.F32
     F64 = LoopIR.F64
     INT8 = LoopIR.INT8
+    UINT8 = LoopIR.UINT8
     INT32 = LoopIR.INT32
     Bool = LoopIR.Bool
     Int = LoopIR.Int
@@ -405,7 +411,9 @@ class T:
     f16 = F16()
     f32 = F32()
     int8 = INT8()
+    uint8 = UINT8()
     i8 = INT8()
+    ui8 = UINT8()
     int32 = INT32()
     i32 = INT32()
     f64 = F64()
@@ -428,6 +436,7 @@ class T:
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
+@extclass(T.UINT8)
 @extclass(T.INT32)
 def shape(t):
     if isinstance(t, T.Window):
@@ -447,6 +456,7 @@ del shape
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
+@extclass(T.UINT8)
 @extclass(T.INT32)
 @extclass(T.Bool)
 @extclass(T.Int)
@@ -464,6 +474,8 @@ def ctype(t):
         return "double"
     elif isinstance(t, T.INT8):
         return "int8_t"
+    elif isinstance(t, T.UINT8):
+        return "uint8_t"
     elif isinstance(t, T.INT32):
         return "int32_t"
     elif isinstance(t, T.Bool):
@@ -477,7 +489,7 @@ del ctype
 
 @extclass(LoopIR.type)
 def is_real_scalar(t):
-    return isinstance(t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.INT32))
+    return isinstance(t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.UINT8, T.INT32))
 
 
 del is_real_scalar
@@ -890,6 +902,117 @@ class LoopIR_Do:
                 self.do_w_access(w)
         else:
             pass
+
+
+class LoopIR_Compare:
+    def __init__(self):
+        pass
+
+    def match_stmts(self, stmts1, stmts2):
+        return all(self.match_s(s1, s2) for s1, s2 in zip(stmts1, stmts2))
+
+    def match_s(self, s1, s2):
+        if type(s1) is not type(s2):
+            return False
+
+        if isinstance(s1, (LoopIR.Assign, LoopIR.Reduce)):
+            return (
+                self.match_name(s1.name, s2.name)
+                and self.match_t(s1.type, s2.type)
+                and all(self.match_e(i1, i2) for i1, i2 in zip(s1.idx, s2.idx))
+                and self.match_e(s1.rhs, s2.rhs)
+            )
+        elif isinstance(s1, LoopIR.WriteConfig):
+            # TODO: check config and field equality
+            return (
+                s1.config == s2.config
+                and s1.field == s2.field
+                and self.match_e(s1.rhs, s2.rhs)
+            )
+        elif isinstance(s1, LoopIR.Pass):
+            return True
+        elif isinstance(s1, LoopIR.If):
+            return (
+                self.match_e(s1.cond, s2.cond)
+                and self.match_stmts(s1.body, s2.body)
+                and self.match_stmts(s1.orelse, s2.orelse)
+            )
+        elif isinstance(s1, LoopIR.Seq):
+            return (
+                self.match_name(s1.iter, s2.iter)
+                and self.match_e(s1.lo, s2.lo)
+                and self.match_e(s1.hi, s2.hi)
+                and self.match_stmts(s1.body, s2.body)
+            )
+        elif isinstance(s1, LoopIR.Alloc):
+            return self.match_name(s1.name, s2.name) and self.match_t(s1.type, s2.type)
+        elif isinstance(s1, LoopIR.Call):
+            return s1.f == s2.f and all(
+                self.match_e(a1, a2) for a1, a2 in zip(s1.args, s2.args)
+            )
+        elif isinstance(s1, LoopIR.WindowStmt):
+            return self.match_name(s1.lhs, s2.lhs) and self.match_e(s1.rhs, s2.rhs)
+        else:
+            assert False, f"bad case: {type(s1)}"
+
+    def match_e(self, e1, e2):
+        if type(e1) is not type(e2):
+            return False
+
+        if isinstance(e1, LoopIR.Read):
+            return self.match_name(e1.name, e2.name) and all(
+                self.match_e(i1, i2) for i1, i2 in zip(e1.idx, e2.idx)
+            )
+        elif isinstance(e1, LoopIR.Const):
+            return e1.val == e2.val
+        elif isinstance(e1, LoopIR.USub):
+            return self.match_e(e1.arg, e2.arg)
+        elif isinstance(e1, LoopIR.BinOp):
+            return (
+                e1.op == e2.op
+                and self.match_e(e1.lhs, e2.lhs)
+                and self.match_e(e1.rhs, e2.rhs)
+            )
+        elif isinstance(e1, LoopIR.BuiltIn):
+            # TODO: check f equality
+            return e1.f is e2.f and all(
+                self.match_e(a1, a2) for a1, a2 in zip(e1.args, e2.args)
+            )
+        elif isinstance(e1, LoopIR.WindowExpr):
+            return self.match_name(e1.name, e2.name) and all(
+                self.match_w_access(w1, w2) for w1, w2 in zip(e1.idx, e2.idx)
+            )
+        elif isinstance(e1, LoopIR.StrideExpr):
+            return self.match_name(e1.name, e2.name) and e1.dim == e2.dim
+        elif isinstance(e1, LoopIR.ReadConfig):
+            # TODO: check configfield equality
+            return e1.config == e2.config and e1.field == e2.field
+        else:
+            assert False, "bad case"
+
+    def match_name(self, n1, n2):
+        # TODO: if its a free var, check for exact match using ID. This
+        # doesn't matter for join_loops, but in general if we use this
+        # anywhere else, we should reason about that.
+        return n1.name() == n2.name()
+
+    def match_w_access(self, w1, w2):
+        if isinstance(w1, LoopIR.Interval):
+            return self.match_e(w1.lo, w2.lo) and self.match_e(w1.hi, w2.hi)
+        elif isinstance(w1, LoopIR.Point):
+            return self.match_e(w1.pt, w2.pt)
+        else:
+            assert False, "bad case"
+
+    def match_t(self, t1, t2):
+        if isinstance(t1, LoopIR.Tensor):
+            return (
+                t1.is_window == t2.is_window
+                and self.match_t(t1.type, t2.type)
+                and all(self.match_e(i1, i2) for i1, i2 in zip(t1.hi, t2.hi))
+            )
+        else:  # scalar
+            return type(t1) == type(t2)
 
 
 class GetReads(LoopIR_Do):

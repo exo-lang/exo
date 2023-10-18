@@ -16,6 +16,7 @@ from ..API_scheduling import (
     BlockCursorA,
     ProcA,
     BoolA,
+    ArgOrAllocCursorA,
     FormattedExprStr,
     # basic operations
     simplify,
@@ -26,6 +27,7 @@ from ..API_scheduling import (
     insert_pass,
     delete_pass,
     reorder_stmts,
+    rewrite_expr,
     bind_expr,
     commute_expr,
     #
@@ -47,12 +49,14 @@ from ..API_scheduling import (
     #
     # buffer and window oriented operations
     expand_dim,
+    shrink_dim,
     rearrange_dim,
     bound_alloc,
     divide_dim,
     mult_dim,
     sink_alloc,
     lift_alloc,
+    delete_buffer,
     reuse_buffer,
     inline_window,
     stage_window,
@@ -60,12 +64,15 @@ from ..API_scheduling import (
     unroll_buffer,
     #
     # loop rewriting
+    divide_with_recompute,
     divide_loop,
     mult_loops,
     cut_loop,
+    join_loops,
     shift_loop,
     reorder_loops,
     merge_writes,
+    inline_assign,
     lift_reduce_constant,
     fission,
     fuse,
@@ -312,4 +319,96 @@ def lift_if(proc, cursor, n_lifts=1):
                 orig=orig_proc,
                 proc=proc,
             ) from e
+    return proc
+
+
+# Temporary bounds representation: (idx, base, lo, hi)
+def _get_bounds(bound_repr):
+    _, base, lo, hi = bound_repr
+    return f"{base}+{lo}", f"{base}+{hi}"
+
+
+def _get_size(bound_repr):
+    _, base, lo, hi = bound_repr
+    return hi - lo
+
+
+def _get_bounds_range(bound_repr):
+    _, _, lo, hi = bound_repr
+    return range(lo, hi)
+
+
+def fuse_at(
+    proc, producer, consumer, loop, consumer_bounds, producer_bounds, hardcode=1
+):
+    """
+    This version of compute_at will only go down one-level of for loops
+
+    TODO: bounds
+     - currently assumes that bounds is of the form [0, 1, ..., n-1]
+     - bounds should be automatically inferred, not manually passed
+    """
+    p_loop = _PC.match_level(proc.find(f"{producer}[_] = _"), loop)
+    c_loop = loop  # TODO: need to think about nested loops here.
+    N_p = p_loop.hi()._impl._node
+    N_c = c_loop.hi()._impl._node
+    w_p = _get_size(producer_bounds)
+    w_c = _get_size(consumer_bounds)
+
+    c_iter = c_loop.name()
+    p_iter = p_loop.name()
+    # TODO: need a better way of figuring out inner loop iter
+    new_iters = [f"{c_iter}", f"{p_iter}i"]
+    proc = divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
+    proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
+
+    p_inner_loop = proc.find_loop(f"{p_iter}i")
+    # TODO: this should probably reason about the original order of loops (e.g. xi before yi)
+    while isinstance(p_inner_loop.body()[0], _PC.ForSeqCursor):
+        proc = reorder_loops(proc, p_inner_loop)
+        p_inner_loop = proc.forward(p_inner_loop)
+
+    return simplify(proc)
+
+
+def store_at(proc, producer, consumer, loop, bounds):
+    """
+    Moves [producer]'s allocation into
+
+    TODO: bounds
+     - currently assumes that bounds is of the form [0, 1, ..., n-1]
+     - bounds should be automatically inferred, not manually passed
+    """
+    producer_alloc = proc.find(f"{producer}:_")
+    consumer_assign = proc.find(f"{consumer} = _")
+
+    assert producer_alloc.next() == loop
+    proc = sink_alloc(proc, producer_alloc)
+
+    lo, hi = _get_bounds(bounds)
+    dim_idx, _, _, _ = bounds
+    proc = shrink_dim(proc, producer_alloc, dim_idx, lo, hi)
+
+    return simplify(proc)
+
+
+def tile(
+    proc,
+    consumer,
+    old_i_iter,
+    old_j_iter,
+    new_i_iters,
+    new_j_iters,
+    i_tile_size,
+    j_tile_size,
+    perfect=True,
+):
+    consumer_assign = proc.find(f"{consumer}[_] = _")
+    i_loop = _PC.get_enclosing_loop(consumer_assign, old_i_iter)
+    j_loop = _PC.get_enclosing_loop(consumer_assign, old_j_iter)
+
+    assert j_loop.parent() == i_loop
+    proc = divide_loop(proc, i_loop, i_tile_size, new_i_iters, perfect=perfect)
+    proc = divide_loop(proc, j_loop, j_tile_size, new_j_iters, perfect=perfect)
+    proc = reorder_loops(proc, f"{new_i_iters[1]} {new_j_iters[0]}")
     return proc

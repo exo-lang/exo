@@ -1,0 +1,3 @@
+def foo(n: size):
+    for i in seq(0, n - n / 4 * 4):
+        pass

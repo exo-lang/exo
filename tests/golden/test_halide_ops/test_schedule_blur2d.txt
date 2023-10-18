@@ -1,0 +1,57 @@
+def blur2d_compute_at_i_store_root(n: size, consumer: i8[n, n] @ DRAM,
+                                   sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    producer: i8[1 + n, 1 + n] @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, 1 + n):
+            for ii in seq(0, 2):
+                producer[i + ii, j] = sin[i + ii, j]
+        for j in seq(0, n):
+            consumer[i,
+                     j] = (producer[i, j] + producer[i, 1 + j] +
+                           producer[1 + i, j] + producer[1 + i, 1 + j]) / 4.0
+
+def blur2d_compute_at_j_store_root(n: size, consumer: i8[n, n] @ DRAM,
+                                   sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    producer: i8[1 + n, 1 + n] @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, n):
+            for ii in seq(0, 2):
+                for ji in seq(0, 2):
+                    producer[i + ii, j + ji] = sin[i + ii, j + ji]
+            consumer[i,
+                     j] = (producer[i, j] + producer[i, 1 + j] +
+                           producer[1 + i, j] + producer[1 + i, 1 + j]) / 4.0
+
+def blur2d_compute_at_i(n: size, consumer: i8[n, n] @ DRAM,
+                        sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    for i in seq(0, n):
+        producer: i8[2, 1 + n] @ DRAM
+        for j in seq(0, 1 + n):
+            for ii in seq(0, 2):
+                producer[ii, j] = sin[i + ii, j]
+        for j in seq(0, n):
+            consumer[i, j] = (producer[0, j] + producer[0, 1 + j] +
+                              producer[1, j] + producer[1, 1 + j]) / 4.0
+
+def blur2d_compute_at_j_store_at_i(n: size, consumer: i8[n, n] @ DRAM,
+                                   sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    for i in seq(0, n):
+        producer: i8[2, 1 + n] @ DRAM
+        for j in seq(0, n):
+            for ii in seq(0, 2):
+                for ji in seq(0, 2):
+                    producer[ii, j + ji] = sin[i + ii, j + ji]
+            consumer[i, j] = (producer[0, j] + producer[0, 1 + j] +
+                              producer[1, j] + producer[1, 1 + j]) / 4.0
+
+def blur2d_inline(n: size, consumer: i8[n, n] @ DRAM,
+                  sin: i8[n + 1, n + 1] @ DRAM):
+    assert n % 4 == 0
+    for i in seq(0, n):
+        for j in seq(0, n):
+            consumer[i, j] = (sin[i + 0, j + 0] + sin[i + 0, j + 1] +
+                              sin[i + 1, j + 0] + sin[i + 1, j + 1]) / 4.0

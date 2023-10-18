@@ -114,3 +114,12 @@ def test_bad_prec2():
 
     with pytest.raises(TypeError, match="Errors occurred during precision checking"):
         bad_prec2.c_code_str()
+
+
+def test_good_ui8_prec(golden):
+    @proc
+    def hoge(n: size, x: ui8[n], y: ui8):
+        for i in seq(0, n):
+            x[i] = y
+
+    assert hoge.c_code_str() == golden

@@ -1,0 +1,4 @@
+def foo(n: size, x: i8[4] @ DRAM):
+    assert n % 4 == 2
+    for i in seq(0, 4):
+        x[i] = 0.0

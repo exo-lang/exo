@@ -122,8 +122,8 @@ def test_matmul_ae(golden):
     gemmini = inline_window(gemmini, "dst = C[_]")
     gemmini = lift_config(gemmini, "config_st_acc_i8(_)")
 
-    # Futher tile the innner loops
-    gemmini = tile(gemmini)
+    # Futher tile the inner loops
+    gemmini = matmul_tile(gemmini)
 
     # Lift the allocations
     gemmini = old_lift_alloc(gemmini, "res : _", n_lifts=1)

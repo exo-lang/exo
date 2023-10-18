@@ -147,7 +147,7 @@ class DRAM(Memory):
 
         return (
             f"{prim_type} *{new_name} = "
-            f"malloc({' * '.join(shape)} * sizeof(*{new_name}));"
+            f"({prim_type}*) malloc({' * '.join(shape)} * sizeof(*{new_name}));"
         )
 
     @classmethod

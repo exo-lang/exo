@@ -1,0 +1,4 @@
+def foo():
+    x: i8[8] @ DRAM
+    for i in seq(1, 9):
+        x[-1 + i] = 1.0
