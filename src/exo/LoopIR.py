@@ -991,7 +991,9 @@ class LoopIR_Compare:
             assert False, "bad case"
 
     def match_name(self, n1, n2):
-        # TODO: if its a free var, check for exact match using ID
+        # TODO: if its a free var, check for exact match using ID. This
+        # doesn't matter for join_loops, but in general if we use this
+        # anywhere else, we should reason about that.
         return n1.name() == n2.name()
 
     def match_w_access(self, w1, w2):

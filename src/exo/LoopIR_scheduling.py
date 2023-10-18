@@ -573,15 +573,6 @@ def DoDivideWithRecompute(
     assert isinstance(loop, LoopIR.Seq)
     assert isinstance(outer_hi, LoopIR.expr)
     Check_IsIdempotent(proc, loop.body)
-    try:
-        Check_IsNonNegativeExpr(
-            proc, [loop], LoopIR.BinOp("-", loop.hi, outer_hi, T.index, srcinfo)
-        )
-    except SchedulingError:
-        raise SchedulingError(f"outer_hi is higher than loop's hi {loop.hi}")
-
-    sym_o = Sym(iter_o)
-    sym_i = Sym(iter_i)
 
     def rd(i):
         return LoopIR.Read(i, [], T.index, srcinfo)
@@ -592,8 +583,9 @@ def DoDivideWithRecompute(
     def szop(op, lhs, rhs):
         return LoopIR.BinOp(op, lhs, rhs, T.index, srcinfo)
 
+    sym_o = Sym(iter_o)
+    sym_i = Sym(iter_i)
     x = cnst(outer_stride)
-    hi_o = outer_hi
 
     if (
         isinstance(outer_hi, LoopIR.BinOp)
@@ -601,10 +593,18 @@ def DoDivideWithRecompute(
         and isinstance(outer_hi.rhs, LoopIR.Const)
         and outer_hi.rhs.val == outer_stride
     ):
-        N_tmp = szop("-", outer_hi.lhs, szop("%", outer_hi.lhs, x))
+        N_before_recompute = szop("-", outer_hi.lhs, szop("%", outer_hi.lhs, x))
     else:
-        N_tmp = szop("*", szop("/", outer_hi, x), x)
-    hi_i = szop("+", x, szop("-", loop.hi, N_tmp))
+        N_before_recompute = szop("*", outer_hi, x)
+
+    N_recompute = LoopIR.BinOp("-", loop.hi, N_before_recompute, T.index, srcinfo)
+    try:
+        Check_IsNonNegativeExpr(proc, [loop], N_recompute)
+    except SchedulingError:
+        raise SchedulingError(f"outer_hi * outer_stride exceeds loop's hi {loop.hi}")
+
+    hi_o = outer_hi
+    hi_i = szop("+", x, N_recompute)
 
     # turn current loop into outer loop
     ir, fwd = loop_cursor._child_node("iter")._replace(sym_o)

@@ -1088,10 +1088,13 @@ def test_bind_lhs(golden):
 def test_divide_with_recompute(golden):
     @proc
     def foo(n: size, A: i8[n + 3]):
+        assert n % 4 == 0
         for i in seq(0, n + 3):
             A[i] = 1.0
 
-    foo = divide_with_recompute(foo, foo.find_loop("i"), "n", 4, ["io", "ii"])
+    foo = divide_with_recompute(foo, foo.find_loop("i"), "n/4", 4, ["io", "ii"])
+    foo = rewrite_expr(foo, "n % 4", 0)
+    foo = simplify(foo)
     assert str(foo) == golden
 
 
@@ -1102,7 +1105,7 @@ def test_divide_with_recompute_fail_not_idempotent():
             A[i] += 1.0
 
     with pytest.raises(SchedulingError, match="The statement at .* is not idempotent"):
-        foo = divide_with_recompute(foo, foo.find_loop("i"), "n", 4, ["io", "ii"])
+        foo = divide_with_recompute(foo, foo.find_loop("i"), "n/4", 4, ["io", "ii"])
 
 
 def test_divide_with_recompute_fail_outer_hi_too_big():
@@ -1112,9 +1115,11 @@ def test_divide_with_recompute_fail_outer_hi_too_big():
             A[i] = 1.0
 
     with pytest.raises(
-        SchedulingError, match=r"outer_hi is higher than loop's hi n \+ 3"
+        SchedulingError, match=r"outer_hi \* outer_stride exceeds loop's hi n \+ 3"
     ):
-        foo = divide_with_recompute(foo, foo.find_loop("i"), "n + 4", 4, ["io", "ii"])
+        foo = divide_with_recompute(
+            foo, foo.find_loop("i"), "(n + 4) / 4", 4, ["io", "ii"]
+        )
 
 
 def test_simple_divide_loop(golden):

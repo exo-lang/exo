@@ -879,6 +879,15 @@ def commute_expr(proc, expr_cursors):
 
 @sched_op([ExprCursorA, NewExprA("expr_cursor")])
 def rewrite_expr(proc, expr_cursor, new_expr):
+    """
+    Replaces [expr_cursor] with [new_expr] if the two are equivalent
+    in the context.
+
+    rewrite:
+        `s`
+        ->
+        `s[ expr_cursor -> new_expr]`
+    """
     ir, fwd = scheduling.DoRewriteExpr(expr_cursor._impl, new_expr)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
@@ -1425,6 +1434,9 @@ def autolift_alloc(
 
 @sched_op([AllocCursorA])
 def delete_buffer(proc, buf_cursor):
+    """
+    Deletes [buf_cursor] if it is unused.
+    """
     buf_s = buf_cursor._impl
     ir, fwd = scheduling.DoDeleteBuffer(buf_s)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
@@ -1544,10 +1556,17 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 @sched_op([ForSeqCursorA, NewExprA("loop_cursor"), PosIntA, ListA(NameA, length=2)])
 def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
     """
-    TODO: update this
-    Divides a loop into the provided [hi_o] by [hi_i] dimensions, and then
-    adds extra compute so that the inner loop will fully cover the original
-    loop.
+    Divides a loop into the provided [outer_hi] by [outer_stride] dimensions,
+    and then adds extra compute so that the inner loop will fully cover the
+    original loop's range.
+
+    rewrite:
+        `for i in seq(0, hi):`
+        `    s`
+            ->
+        `for io in seq(0, outer_hi):`
+        `    for ii in seq(0, outer_stride + (hi - outer_hi * outer_stride)):`
+        `        s[ i -> outer_stride * io + ii ]`
     """
     ir, fwd = scheduling.DoDivideWithRecompute(
         loop_cursor._impl, outer_hi, outer_stride, new_iters[0], new_iters[1]
@@ -1808,6 +1827,15 @@ def merge_writes(proc, block_cursor):
 
 @sched_op([AssignCursorA])
 def inline_assign(proc, alloc_cursor):
+    """
+    Inlines [alloc_cursor] into any statements where it is used after this assignment.
+
+    rewrite:
+        `x = y`
+        `s`
+        ->
+        `s[ x -> y ]`
+    """
     s = alloc_cursor._impl
 
     if not isinstance(s._node, LoopIR.Assign):
