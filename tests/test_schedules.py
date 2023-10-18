@@ -1385,6 +1385,17 @@ def test_simple_typ_and_mem(golden):
     assert str(bar) == golden
 
 
+def test_set_precision_propagates_type():
+    @proc
+    def bar(n: size, A: R[n]):
+        A[0] += 1.0
+
+    A = bar.args()[1]
+    bar = set_precision(bar, A, "i32")
+    Aafter = bar.body()[0]
+    assert str(Aafter._impl._node.type) == "i32"
+
+
 def test_simple_bind_expr(golden):
     @proc
     def bar(n: size, x: i8[n], y: i8[n], z: i8[n]):
