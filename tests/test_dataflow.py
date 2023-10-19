@@ -10,4 +10,5 @@ def test_print():
         z = 4.2
         z = 2.0
 
+    print()
     print(foo.dataflow())

@@ -26,9 +26,6 @@ Want to analyze that x[i] = sin(i) and x[i+1] = sin(i+1) write the same value to
 
 """
 
-# TODO:
-# implement pretty printing as well
-
 
 def validateAbsEnv(obj):
     if not isinstance(obj, dict):
@@ -217,7 +214,7 @@ def dataflow_analysis(proc: LoopIR.proc) -> DataflowIR.proc:
     # step 2 - run abstract interpretation algorithm
     #           to populate contexts with sound values
     # TODO: call constant propagation
-    # datair = ConstantPropagation()
+    ConstantPropagation(datair)
 
     return datair
 
@@ -225,6 +222,42 @@ def dataflow_analysis(proc: LoopIR.proc) -> DataflowIR.proc:
 # --------------------------------------------------------------------------- #
 # Abstract Interpretation on DataflowIR
 # --------------------------------------------------------------------------- #
+
+AbstractDomains = ADT(
+    """
+module AbstractDomains {
+    cprop = CTop() | CBot()
+          | Const( object val, type type )
+          | CStrideExpr( sym name, int dim )
+    
+    iprop = ITop() | IBot()
+          | Interval( int lo, int hi ) -- use for integers
+}
+""",
+    ext_types={
+        "type": LoopIR.type,
+        "sym": Sym,
+    },
+    memoize={"CTop", "CBot", "Const", "ITop", "IBot", "Interval", "IConst"},
+)
+A = AbstractDomains
+
+
+@extclass(AbstractDomains.cprop)
+def __str__(self):
+    if self == A.CTop():
+        return "Top"
+    if self == A.CBot():
+        return "Bottom"
+    if isinstance(self, A.Const):
+        return str(self.val)
+    if isinstance(self, A.CStrideExpr):
+        return self.name + "[" + self.dim + "]"
+
+    assert False, "bad case"
+
+
+del __str__
 
 
 class AbstractInterpretation(ABC):
@@ -248,8 +281,8 @@ class AbstractInterpretation(ABC):
         """Assumes any inputs have already been set in body.ctxts[0]"""
         assert len(body.stmts) + 1 == len(body.ctxts)
 
-        for s, pre, post in zip(body.stmts, body.ctxts[:-1], body.ctxts[1:]):
-            self.fix_stmt(pre, s, post)
+        for i in range(len(body.stmts)):
+            self.fix_stmt(body.ctxts[i], body.stmts[i], body.ctxts[i + 1])
 
     def fix_stmt(self, pre_env, stmt: DataflowIR.stmt, post_env):
         if isinstance(stmt, (DataflowIR.Assign, DataflowIR.Reduce)):
@@ -416,26 +449,6 @@ class AbstractInterpretation(ABC):
     @abstractmethod
     def abs_builtin(self, builtin, args):
         """Implement transfer function abstraction for built-ins"""
-
-
-AbstractDomains = ADT(
-    """
-module AbstractDomains {
-    cprop = CTop() | CBot()
-          | Const( object val, type type )
-          | CStrideExpr( sym name, int dim )
-    
-    iprop = ITop() | IBot()
-          | Interval( int lo, int hi ) -- use for integers
-}
-""",
-    ext_types={
-        "type": LoopIR.type,
-        "sym": Sym,
-    },
-    memoize={"CTop", "CBot", "Const", "ITop", "IBot", "Interval", "IConst"},
-)
-A = AbstractDomains
 
 
 class ConstantPropagation(AbstractInterpretation):

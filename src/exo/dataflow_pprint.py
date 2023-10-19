@@ -28,6 +28,11 @@ def __str__(self):
     return _print_expr(self, PrintEnv())
 
 
+@extclass(DataflowIR.block)
+def __str__(self):
+    return "\n".join(_print_block(self, PrintEnv(), ""))
+
+
 del __str__
 
 
@@ -58,10 +63,10 @@ def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
 
 def _print_absenv(absenv, env: PrintEnv, indent: str) -> list[str]:
     p_res = ""
-    for a in absenv:
-        assert isinstance(a.key, Sym)
-        p_res = p_res + "," + f"{a.key.name} : {a.value}"
-    p_res = "{" + p_res + "}"
+    for key, val in absenv.items():
+        assert isinstance(key, Sym)
+        p_res = p_res + ", " + f"{env.get_name(key)} : {val}"
+    p_res = "{" + p_res[2:] + "}"
 
     return [f"# {indent}  <----- {p_res}"]
 
