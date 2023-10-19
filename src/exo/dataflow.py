@@ -14,7 +14,7 @@ from .LoopIR import LoopIR, Alpha_Rename, SubstArgs, LoopIR_Do, Operator, T, Ide
 # DataflowIR definition
 # --------------------------------------------------------------------------- #
 
-# Ask Gilbert about value dependent analysis
+# Ask Gilbert about symbolic value dependent analysis
 """
 n : R[n+1]
 for i in seq(0, n):
@@ -23,8 +23,8 @@ for i in seq(0, n):
     x[i+1] = sin(i+1)
 
 Want to analyze that x[i] = sin(i) and x[i+1] = sin(i+1) write the same value to the same memory.
-
 """
+# Also ask about Bottom, which is not used anywhere
 
 
 def validateAbsEnv(obj):
@@ -86,6 +86,7 @@ module DataflowIR {
 
 from . import dataflow_pprint
 
+
 # --------------------------------------------------------------------------- #
 # Top Level Call to Dataflow analysis
 # --------------------------------------------------------------------------- #
@@ -99,12 +100,17 @@ class LoopIR_to_DataflowIR:
     def result(self):
         return self.dataflow_proc
 
+    def init_block(self, body):
+        dic = []
+        for i in range(len(body) + 1):
+            dic.append(dict())
+        return DataflowIR.block(body, dic)
+
     def map_proc(self, p):
         df_args = self._map_list(self.map_fnarg, p.args)
         df_preds = self.map_exprs(p.preds)
         df_body = self.map_stmts(p.body)
-        # TODO: Gilbert
-        block = DataflowIR.block(df_body, [{}] * (len(df_body) + 1))
+        block = self.init_block(df_body)
 
         return DataflowIR.proc(p.name, df_args, df_preds, block, p.srcinfo)
 
@@ -147,14 +153,18 @@ class LoopIR_to_DataflowIR:
             df_body = self.map_stmts(s.body)
             df_orelse = self.map_stmts(s.orelse)
 
-            return DataflowIR.If(df_cond, df_body, df_orelse, s.srcinfo)
+            return DataflowIR.If(
+                df_cond, self.init_block(df_body), self.init_block(df_orelse), s.srcinfo
+            )
 
         elif isinstance(s, LoopIR.Seq):
             df_lo = self.map_e(s.lo)
             df_hi = self.map_e(s.hi)
             df_body = self.map_stmts(s.body)
 
-            return DataflowIR.Seq(s.iter, df_lo, df_hi, df_body, s.srcinfo)
+            return DataflowIR.Seq(
+                s.iter, df_lo, df_hi, self.init_block(df_body), s.srcinfo
+            )
 
         elif isinstance(s, LoopIR.Alloc):
             return DataflowIR.Alloc(s.name, s.type, s.srcinfo)

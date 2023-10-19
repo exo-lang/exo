@@ -62,13 +62,14 @@ def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
 
 
 def _print_absenv(absenv, env: PrintEnv, indent: str) -> list[str]:
+    # Using indent actually makes it less readable
     p_res = ""
     for key, val in absenv.items():
         assert isinstance(key, Sym)
         p_res = p_res + ", " + f"{env.get_name(key)} : {val}"
     p_res = "{" + p_res[2:] + "}"
 
-    return [f"# {indent}  <----- {p_res}"]
+    return [f"{indent}" + f"{'-'*(25-len(indent))} {p_res}"]
 
 
 def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
