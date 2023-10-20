@@ -494,6 +494,22 @@ class ForSeqOrIfCursorA(StmtCursorA):
         return cursor
 
 
+class ArgCursorA(CursorArgumentProcessor):
+    def _cursor_call(self, arg_pattern, all_args):
+        if isinstance(arg_pattern, PC.ArgCursor):
+            return arg_pattern
+        elif isinstance(arg_pattern, str):
+            name = arg_pattern
+            proc = all_args["proc"]
+            for arg in proc.args():
+                if arg.name() == name:
+                    return arg
+
+            self.err(f"no argument {name} found")
+        else:
+            self.err("expected an ArgCursor or a string")
+
+
 class ArgOrAllocCursorA(CursorArgumentProcessor):
     def _cursor_call(self, alloc_pattern, all_args):
         try:
@@ -1024,7 +1040,7 @@ def set_precision(proc, cursor, typ):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ArgOrAllocCursorA, BoolA])
+@sched_op([ArgCursorA, BoolA])
 def set_window(proc, cursor, is_window=True):
     """
     Set the annotation on a given buffer to indicate that it should be
