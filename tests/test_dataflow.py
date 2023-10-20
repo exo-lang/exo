@@ -1,6 +1,7 @@
 from __future__ import annotations
 import pytest
 from exo import proc, DRAM, Procedure, config
+from exo.stdlib.scheduling import *
 
 
 def test_print():
@@ -12,6 +13,7 @@ def test_print():
 
     print()
     print(foo.dataflow())
+    print()
 
 
 def test_print_1():
@@ -24,6 +26,7 @@ def test_print_1():
 
     print()
     print(foo.dataflow())
+    print()
 
 
 def test_print_2():
@@ -36,6 +39,7 @@ def test_print_2():
 
     print()
     print(foo.dataflow())
+    print()
 
 
 def test_print_3():
@@ -50,6 +54,7 @@ def test_print_3():
 
     print()
     print(foo.dataflow())
+    print()
 
 
 def test_print_4():
@@ -64,6 +69,7 @@ def test_print_4():
 
     print()
     print(foo.dataflow())
+    print()
 
 
 def test_print_5():
@@ -76,3 +82,4 @@ def test_print_5():
 
     print()
     print(foo.dataflow())
+    print()

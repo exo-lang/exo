@@ -26,6 +26,87 @@ Want to analyze that x[i] = sin(i) and x[i+1] = sin(i+1) write the same value to
 """
 # Also ask about Bottom, which is not used anywhere
 
+"""
+
+-------------------- P(0)
+let size = e
+for i in seq(0,size):
+    ---------------- P(i)     if this is the join point, then join with Q(i-1)
+    stmt
+    ---------------- Q(i)
+-------------------- P(size)
+
+
+fix_stmt (i.e. abstract transfer function)
+STEP <--- name of fix_stmt for below
+STEP: stmt  -->  Abstract State  -->  Abstract State
+
+
+STEP[
+    for i in seq(0,n):
+        stmt
+](S_0) =
+    let S = \i. S_0 and then modify as follows
+    for all arrays x in S_0:
+        let A = S_0[x]
+        S[x] = piece2(i,Bot,A)
+    loop till fixed point:
+        let QS      = STEP[stmt](S)
+        let incS    = SUBSTITUTE[ i -> i-1 ](QS)
+        let S       = JOIN[S,incS]
+    SUBSTITUTE[ i -> n ](S)
+
+
+T == piece2(0, Bot, T)
+
+A == piece2(i,Bot,A)
+
+conc(A)                 = set of all array-functions x s.t. P_A(x)
+conc(Bot)               = emptyset
+conc(piece2(i,Bot,A))   =   for i == 0,     conc(A)
+                          U for i == 1, ... emptyset
+                          U ...             emptyset
+
+conc_{piece2(i,Bot,B)}(x) := { \j. if j<i then conc_{bot} else P_B(x[j])"
+
+
+--------------- { x : piece2(i, Bot, T) }
+x[i] = 3.0
+--------------- { x : piece2(i, 3.0, T) }
+
+--------------- { x : piece2(i, 3.0, T) }
+x[i] = 3.0
+--------------- { x : piece2(i+1, 3.0, T) }
+
+{ x : ABS }
+x[a] = VAL
+    case ABS == piece2(s, A, B):
+        if a is s: # how do you check this?
+            set x to piece2(s+1, JOIN(VAL,A), B)
+        else:
+            set x to T
+    case _:
+        set x to T
+
+
+
+\j. if j<i then P_A(x[j]) else P_B(x[j])
+-->
+-->
+\j. if j<i+1 then P_A(x[j]) else P_B(x[j])
+
+
+Q(i-1)
+
+P == \i. x = piece2(i, A, B)
+     P_{piece2(i,A,B)}(x) :=  \j. if j<i then P_A(x[j]) else P_B(x[j])"
+
+-------------------- P(0) == x = {0..i}
+
+
+
+"""
+
 
 def validateAbsEnv(obj):
     if not isinstance(obj, dict):
