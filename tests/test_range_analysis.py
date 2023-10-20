@@ -6,8 +6,10 @@ from exo.stdlib.scheduling import *
 from exo import proc
 from exo.range_analysis import (
     index_range_analysis,
+    index_range_analysis_v2,
     arg_range_analysis,
     IndexRangeEnvironment,
+    IndexRange,
 )
 from exo.LoopIR import LoopIR, T
 
@@ -337,7 +339,7 @@ def test_arg_range6():
     ) == (-9, 3)
 
 
-def test_inedex_range_env():
+def test_index_range_env():
     N_upper_bound = 20
     K_lower_bound = 30
     M_value = 100
@@ -446,3 +448,80 @@ def test_inedex_range_env():
     assert not env.check_expr_bounds(
         M_value, IndexRangeEnvironment.eq, j_read, IndexRangeEnvironment.lt, M_value
     )
+
+
+def test_test():
+    def merge_mul(lhs_range, rhs_range):
+        # We make sure numbers aren't negative here,
+        # there is probably a way to come up with a correct
+        # range even when the range contains negative numbers
+        if (lhs_range[0] is not None and lhs_range[0] < 0) or (
+            rhs_range[0] is not None and rhs_range[0] < 0
+        ):
+            return (None, None)
+
+        new_lhs = None
+        new_rhs = None
+        if lhs_range[0] is not None and rhs_range[0] is not None:
+            new_lhs = lhs_range[0] * rhs_range[0]
+        if lhs_range[1] is not None and rhs_range[1] is not None:
+            new_rhs = lhs_range[1] * rhs_range[1]
+        return (new_lhs, new_rhs)
+
+    print(merge_mul((None, 5), (None, 5)))
+
+
+def infer_range(expr, scope):
+    c = expr
+    ancestors = []
+    while c != c.parent():  # Only False if c is InvalidCursor
+        ancestors.append(c)
+        c = c.parent()
+    ancestors.reverse()
+    i = ancestors.index(scope)
+
+    proc = expr._impl.get_root()
+    env = IndexRangeEnvironment(proc, fast=False)
+
+    # Only add bound variables to the env
+    for c in ancestors[i:]:
+        env.enter_scope()
+        s = c._impl._node
+        if isinstance(s, LoopIR.Seq):
+            lo = s.lo
+            hi = LoopIR.BinOp(
+                "-", s.hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
+            )
+            env.add_sym(s.iter, lo, hi)
+    bounds = index_range_analysis_v2(expr._impl._node, env.env)
+    return bounds
+
+
+def test_bounds_inference():
+    @proc
+    def foo(n: size, m: size, x: i8[n + 2, m + 5]):
+        assert n % 4 == 0
+        assert m % 3 == 0
+        for io in seq(0, n / 4):
+            for jo in seq(0, m / 3):
+                for ii in seq(0, 6):
+                    for ji in seq(0, 8):
+                        x[io * 4 + ii, jo * 3 + ji] = 1.0
+
+    idx_c = foo.find("x[_] = _").idx()[0]
+    idx = idx_c._impl._node
+
+    print()
+    print(foo)
+    print()
+
+    loop = foo.find_loop("ii")
+    bounds = infer_range(idx_c, loop)
+    print(f"Bounds for {idx} in ii loop:")
+    print(bounds)
+    print()
+
+    loop = foo.find_loop("io")
+    bounds = infer_range(idx_c, loop)
+    print(f"Bounds for {idx} in io loop:")
+    print(bounds)

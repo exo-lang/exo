@@ -1,7 +1,150 @@
+from __future__ import annotations
 from collections import ChainMap
+from dataclasses import dataclass
+from typing import Optional
 
-from .LoopIR import LoopIR, T
+from .LoopIR import LoopIR, T, is_const_zero
 from .new_eff import Check_ExprBound, Check_ExprBound_Options
+
+
+def binop(op: str, e1, e2):
+    return LoopIR.BinOp(op, e1, e2, e1.type, e1.srcinfo)
+
+
+@dataclass
+class IndexRange:
+    """
+    Represents a range of possible values between [base + lo, base + hi]
+        - [base] contains all expressions that we don't want to bounds infer (e.g. free
+        variables). If base is None, it signifies a base of 0.
+        - [lo] and [hi] are bounds. If either is None, it means that there is no
+        constant bound
+    """
+
+    base: Optional[LoopIR.expr]
+    lo: Optional[int]
+    hi: Optional[int]
+
+    def __str__(self):
+        return f"({self.base}, {self.lo}, {self.hi})"
+
+    def __add__(self, c: int):
+        new_lo, new_hi = None, None
+        if self.lo is not None:
+            new_lo = self.lo + c
+        if self.hi is not None:
+            new_hi = self.hi + c
+        return IndexRange(self.base, new_lo, new_hi)
+
+    def __add__(self, other: IndexRange):
+        new_base, new_lo, new_hi = None, None, None
+        if self.base is None:
+            new_base = other.base
+        elif other.base is None:
+            new_base = self.base
+        else:
+            new_base = binop("+", self.base, other.base)
+
+        if self.lo is not None and other.lo is not None:
+            new_lo = self.lo + other.lo
+        if self.hi is not None and other.hi is not None:
+            new_hi = self.hi + other.hi
+        return IndexRange(new_base, new_lo, new_hi)
+
+    def __neg__(self):
+        new_base, new_lo, new_hi = None, None, None
+        if self.base is not None:
+            new_base = LoopIR.USub(self.base, self.base.type, self.base.srcinfo)
+        if self.lo is not None:
+            new_hi = -self.lo
+        if self.hi is not None:
+            new_lo = -self.hi
+        return IndexRange(new_base, new_lo, new_hi)
+
+    def __sub__(self, other: IndexRange):
+        # TODO: see if I should manually implement this
+        return self + (-other)
+
+    def __mul__(self, c: int):
+        if c == 0:
+            return IndexRange(None, 0, 0)
+
+        new_base, new_lo, new_hi = None, None, None
+        if self.base is not None:
+            const = LoopIR.Const(c, T.index, self.base.srcinfo)
+            new_base = binop("*", self.base, const)
+        if self.lo is not None:
+            new_lo = self.lo * c
+        if self.hi is not None:
+            new_hi = self.hi * c
+
+        if c > 0:
+            return IndexRange(new_base, new_lo, new_hi)
+        else:
+            return IndexRange(new_base, new_hi, new_lo)
+
+    def __div__(self, c: int):
+        if other <= 0:
+            return IndexRange(None, None, None)
+
+        new_lo, new_hi = None, None
+        if self.base is None:
+            if self.lo is not None:
+                new_lo = self.lo // c
+            if self.hi is not None:
+                new_hi = self.hi // c
+
+            return IndexRange(None, new_lo, new_hi)
+        else:
+            # TODO: Maybe can do some reasoning about base and lo if new_lo is not None
+            if self.lo is not None and self.hi is not None:
+                new_lo = 0
+                new_hi = (self.hi - self.lo) // c
+
+            return IndexRange(None, new_lo, new_hi)
+
+    def __mod__(self, c: int):
+        # TODO: improve this
+        return IndexRange(None, 0, c - 1)
+
+
+def index_range_analysis_v2(expr, env):
+    def analyze_range(expr):
+        assert isinstance(expr, LoopIR.expr)
+
+        if not expr.type.is_indexable():
+            return (None, None)
+
+        if isinstance(expr, LoopIR.Read):
+            sym = expr.name
+            if sym not in env:
+                return IndexRange(expr, 0, 0)
+            lo, hi = env[sym]
+            return IndexRange(None, lo, hi)
+        elif isinstance(expr, LoopIR.Const):
+            return expr.val
+        elif isinstance(expr, LoopIR.USub):
+            return -analyze_range(expr.arg)
+        elif isinstance(expr, LoopIR.BinOp):
+            lhs_range = analyze_range(expr.lhs)
+            rhs_range = analyze_range(expr.rhs)
+            print(expr, lhs_range, rhs_range)
+            if expr.op == "+":
+                return lhs_range + rhs_range
+            elif expr.op == "-":
+                return lhs_range - rhs_range
+            elif expr.op == "*":
+                return lhs_range * rhs_range
+            elif expr.op == "/":
+                return lhs_range / rhs_range
+            elif expr.op == "%":
+                return lhs_range % rhs_range
+            else:
+                assert False, "invalid binop in index expression"
+        else:
+            assert False, "invalid expr in index expression"
+
+    return analyze_range(expr)
 
 
 def index_range_analysis(expr, env):
@@ -19,6 +162,9 @@ def index_range_analysis(expr, env):
         `[T[0], T[1]]` (both inclusive).
         If `T[0]` or `T[1]` is `None` it represents no knowledge
         of the value of that side of the range.
+
+    TODO: modify this to ignore variables which are free and
+    instead also return a "base" for the range.
     """
     if isinstance(expr, int):
         return (expr, expr)
@@ -310,3 +456,14 @@ class IndexRangeEnvironment:
         return IndexRangeEnvironment._check_range(
             expr0_range, op0, expr1_range
         ) and IndexRangeEnvironment._check_range(expr1_range, op1, expr2_range)
+
+
+"""
+Want to bound an expr within a scope:
+ - determine which variables are free/bound in this scope
+
+Difference between
+- free = don't want to reason about
+- bound, non-constant boudnable = can't reason about
+
+"""
