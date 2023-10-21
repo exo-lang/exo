@@ -2903,6 +2903,19 @@ def test_join_loops_fail_equal_bounds():
         foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
 
 
+def test_replace_once(golden):
+    @proc
+    def bar(src: f32[8] @ DRAM):
+        dst: f32[8] @ AVX2
+        for i in seq(0, 8):
+            dst[i] = src[i]
+        for i in seq(0, 8):
+            src[i] = dst[i]
+
+    bar = replace_once(bar, [mm256_loadu_ps])
+    assert str(bar) == golden
+
+
 def test_mem_aware_replace(golden):
     @proc
     def bar(src: f32[8] @ DRAM):

@@ -1888,8 +1888,8 @@ def lift_reduce_constant(proc, block_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([GapCursorA, PosIntA])
-def fission(proc, gap_cursor, n_lifts=1):
+@sched_op([GapCursorA, PosIntA, BoolA])
+def fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False):
     """
     fission apart the ForSeq and If statements wrapped around
     this block of statements into two copies; the first containing all
@@ -1923,7 +1923,9 @@ def fission(proc, gap_cursor, n_lifts=1):
             "expected cursor to point to a gap between statements, not at an edge"
         )
 
-    ir, fwd = scheduling.DoFissionAfterSimple(stmt._impl, n_lifts)
+    ir, fwd = scheduling.DoFissionAfterSimple(
+        stmt._impl, n_lifts, unsafe_disable_checks
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

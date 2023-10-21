@@ -2212,7 +2212,7 @@ def DoRemoveLoop(loop):
 # This is same as original FissionAfter, except that
 # this does not remove loop. We have separate remove_loop
 # operator for that purpose.
-def DoFissionAfterSimple(stmt_cursor, n_lifts):
+def DoFissionAfterSimple(stmt_cursor, n_lifts, unsafe_disable_checks):
     tgt_stmt = stmt_cursor._node
     assert isinstance(tgt_stmt, LoopIR.stmt)
     assert is_pos_int(n_lifts)
@@ -2264,7 +2264,8 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts):
             # we must check whether the two parts of the
             # fission can commute appropriately
             no_loop_var_pre = par_s.iter not in _FV(pre)
-            Check_FissionLoop(ir, par_s, pre, post, no_loop_var_pre)
+            if not unsafe_disable_checks:
+                Check_FissionLoop(ir, par_s, pre, post, no_loop_var_pre)
 
             # we can skip the loop iteration if the
             # body doesn't depend on the loop
