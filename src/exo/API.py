@@ -315,7 +315,7 @@ class Procedure(ProcedureBase):
 
         return self.find(pattern, many)
 
-    def find_alloc(self, pattern):
+    def find_alloc_or_arg(self, pattern):
         _name_count_re = r"^([a-zA-Z_]\w*)\s*(\#\s*[0-9]+)?$"
         results = re.search(_name_count_re, pattern)
         if results:

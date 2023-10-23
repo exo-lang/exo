@@ -548,12 +548,13 @@ def _print_type(t, env: PrintEnv) -> str:
         return f"{base}[{ranges}]"
 
     elif isinstance(t, T.Window):
+        # Below, we print idx='[x:y]' with single quotes because yapf can't
+        # parse the colon in idx=[0:n] since it thinks its assignment.
         return (
             f"Window(src_type={t.src_type},as_tensor={t.as_tensor},"
             f"src_buf={t.src_buf},"
-            f"idx=[{', '.join([_print_expr(w, env) for w in t.idx])}])"
+            f"idx='[{', '.join([_print_w_access(w, env) for w in t.idx])}]')"
         )
-
     elif isinstance(t, T.Stride):
         return "stride"
 

@@ -898,7 +898,19 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
         else:
             assert False, "bad case"
 
-        update_typ = lambda _: {"type": basetyp}
+        def update_typ(c):
+            s = c._node
+            typ = s.type
+            if isinstance(typ, T.Tensor):
+                return {"type": typ.update(type=basetyp)}
+            elif isinstance(typ, T.Window):
+                new_src_type = typ.src_type.update(type=basetyp)
+                new_as_tensor = typ.as_tensor.update(type=basetyp)
+                return {
+                    "type": typ.update(src_type=new_src_type, as_tensor=new_as_tensor)
+                }
+            else:
+                return {"type": basetyp}
 
         if s in cursor.get_root().args:
             scope = cursor.root().body()
@@ -911,10 +923,6 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
 
         return ir, fwd
     elif win:
-        if isinstance(s, LoopIR.Alloc):
-            raise SchedulingError(
-                "cannot change an allocation to " "be or not be a window"
-            )
         if not oldtyp.is_tensor_or_window():
             raise SchedulingError(
                 "cannot change windowing of a " "non-tensor/window argument"
@@ -922,8 +930,8 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
 
         assert isinstance(oldtyp, T.Tensor)
         assert isinstance(win, bool)
-        # TODO: fix this
-        return cursor._child_node("type")._child_node("is_window")._replace(win)
+
+        return cursor._child_node("type")._replace(oldtyp.update(is_window=win))
     elif mem:
         return cursor._child_node("mem")._replace(mem)
 
