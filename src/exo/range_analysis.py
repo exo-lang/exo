@@ -3,7 +3,7 @@ from collections import ChainMap
 from dataclasses import dataclass
 from typing import Optional
 
-from .LoopIR import LoopIR, T, is_const_zero
+from .LoopIR import LoopIR, T, is_const_zero, LoopIR_Compare
 from .new_eff import Check_ExprBound, Check_ExprBound_Options
 
 
@@ -26,32 +26,35 @@ class IndexRange:
     hi: Optional[int]
 
     def __str__(self):
-        return f"({self.base}, {self.lo}, {self.hi})"
+        base = "0" if self.base is None else str(self.base)
+        lo = "-inf" if self.lo is None else str(self.lo)
+        hi = "inf" if self.hi is None else str(self.hi)
+        return f"({base}, {lo}, {hi})"
 
-    def __add__(self, c: int):
-        new_lo, new_hi = None, None
-        if self.lo is not None:
-            new_lo = self.lo + c
-        if self.hi is not None:
-            new_hi = self.hi + c
-        return IndexRange(self.base, new_lo, new_hi)
-
-    def __add__(self, other: IndexRange):
-        new_base, new_lo, new_hi = None, None, None
-        if self.base is None:
-            new_base = other.base
-        elif other.base is None:
-            new_base = self.base
+    def __add__(self, other: int | IndexRange) -> IndexRange:
+        if isinstance(other, int):
+            new_lo, new_hi = None, None
+            if self.lo is not None:
+                new_lo = self.lo + other
+            if self.hi is not None:
+                new_hi = self.hi + other
+            return IndexRange(self.base, new_lo, new_hi)
         else:
-            new_base = binop("+", self.base, other.base)
+            if self.base is None:
+                new_base = other.base
+            elif other.base is None:
+                new_base = self.base
+            else:
+                new_base = binop("+", self.base, other.base)
 
-        if self.lo is not None and other.lo is not None:
-            new_lo = self.lo + other.lo
-        if self.hi is not None and other.hi is not None:
-            new_hi = self.hi + other.hi
-        return IndexRange(new_base, new_lo, new_hi)
+            new_lo, new_hi = None, None
+            if self.lo is not None and other.lo is not None:
+                new_lo = self.lo + other.lo
+            if self.hi is not None and other.hi is not None:
+                new_hi = self.hi + other.hi
+            return IndexRange(new_base, new_lo, new_hi)
 
-    def __neg__(self):
+    def __neg__(self) -> IndexRange:
         new_base, new_lo, new_hi = None, None, None
         if self.base is not None:
             new_base = LoopIR.USub(self.base, self.base.type, self.base.srcinfo)
@@ -61,13 +64,13 @@ class IndexRange:
             new_lo = -self.hi
         return IndexRange(new_base, new_lo, new_hi)
 
-    def __sub__(self, other: IndexRange):
+    def __sub__(self, other: int | IndexRange) -> IndexRange:
         # TODO: see if I should manually implement this
         return self + (-other)
 
-    def __mul__(self, c: int):
+    def __mul__(self, c: int) -> IndexRange:
         if c == 0:
-            return IndexRange(None, 0, 0)
+            return 0
 
         new_base, new_lo, new_hi = None, None, None
         if self.base is not None:
@@ -83,7 +86,10 @@ class IndexRange:
         else:
             return IndexRange(new_base, new_hi, new_lo)
 
-    def __div__(self, c: int):
+    def __rmul__(self, c: int) -> IndexRange:
+        return self.__mul__(c)
+
+    def __div__(self, c: int) -> IndexRange:
         if other <= 0:
             return IndexRange(None, None, None)
 
@@ -103,9 +109,29 @@ class IndexRange:
 
             return IndexRange(None, new_lo, new_hi)
 
-    def __mod__(self, c: int):
+    def __mod__(self, c: int) -> IndexRange:
         # TODO: improve this
         return IndexRange(None, 0, c - 1)
+
+    # join
+    def __or__(self, other: IndexRange) -> IndexRange:
+        compare_ir = LoopIR_Compare()
+        if compare_ir.match_e(self.base, other.base):
+            if self.lo is None:
+                new_lo = other.lo
+            elif other.lo is None:
+                new_lo = self.lo
+            else:
+                new_lo = min(self.lo, other.lo)
+            if self.hi is None:
+                new_hi = other.hi
+            elif other.hi is None:
+                new_hi = self.hi
+            else:
+                new_hi = max(self.hi, other.hi)
+            return IndexRange(self.base, new_lo, new_hi)
+        else:
+            return IndexRange(None, None, None)
 
 
 def index_range_analysis_v2(expr, env):
@@ -128,7 +154,6 @@ def index_range_analysis_v2(expr, env):
         elif isinstance(expr, LoopIR.BinOp):
             lhs_range = analyze_range(expr.lhs)
             rhs_range = analyze_range(expr.rhs)
-            print(expr, lhs_range, rhs_range)
             if expr.op == "+":
                 return lhs_range + rhs_range
             elif expr.op == "-":
@@ -145,6 +170,58 @@ def index_range_analysis_v2(expr, env):
             assert False, "invalid expr in index expression"
 
     return analyze_range(expr)
+
+
+def infer_range(expr, scope):
+    c = expr
+    ancestors = []
+    while c != c.parent():  # Only False if c is InvalidCursor
+        ancestors.append(c)
+        c = c.parent()
+    ancestors.reverse()
+    i = ancestors.index(scope)
+
+    proc = expr._impl.get_root()
+    env = IndexRangeEnvironment(proc, fast=False)
+
+    # Only add bound variables to the env
+    for c in ancestors[i:]:
+        env.enter_scope()
+        s = c._impl._node
+        if isinstance(s, LoopIR.Seq):
+            lo = s.lo
+            hi = LoopIR.BinOp(
+                "-", s.hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
+            )
+            env.add_sym(s.iter, lo, hi)
+    bounds = index_range_analysis_v2(expr._impl._node, env.env)
+    return bounds
+
+
+# TODO: fix this include interface to be something better
+def bounds_inference(proc, loop, buffer, include=["R", "W"]):
+    dims = proc.find_alloc(buffer).shape()
+    bounds = [None for _ in dims]  # None is basically bottom
+
+    matches = []
+    # TODO: proc.find doesn't take a scope. Either write a variant or add that as an optional arg
+    # TODO: Also, proc.find fails if no matches are found...but we really just want it to return []
+    if "R" in include:
+        matches += proc.find(f"{buffer}[_]", many=True)
+    if "W" in include:
+        matches += proc.find(f"{buffer}[_] = _", many=True)
+
+    for c in matches:
+        idxs = c.idx()
+        for i, dim in enumerate(dims):
+            cur_bounds = infer_range(idxs[i], loop)
+
+            # This is a hacky way of joining the bounds w/o a representation of Bottom
+            if bounds[i] is None:
+                bounds[i] = cur_bounds
+            else:
+                bounds[i] |= cur_bounds
+    return bounds
 
 
 def index_range_analysis(expr, env):

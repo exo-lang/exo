@@ -10,8 +10,11 @@ from exo.range_analysis import (
     arg_range_analysis,
     IndexRangeEnvironment,
     IndexRange,
+    infer_range,
+    bounds_inference,
 )
 from exo.LoopIR import LoopIR, T
+from exo.pattern_match import match_pattern
 
 
 def test_affine_index_range():
@@ -190,7 +193,7 @@ def test_affine_index_range_fail():
     assert e_range == (None, None)
 
 
-def test_affine_index_range_fail1():
+def test_affine_index_range_fail2():
     @proc
     def bar(N: size):
         for i in seq(0, 6):
@@ -203,7 +206,7 @@ def test_affine_index_range_fail1():
     assert e_range == (None, None)
 
 
-def test_affine_index_range_fail2():
+def test_affine_index_range_fail3():
     @proc
     def bar():
         for i in seq(0, 3):
@@ -282,7 +285,7 @@ def test_arg_range4():
     )
 
 
-def test_arg_range4():
+def test_arg_range5():
     @proc
     def foo(N: size, K: size):
         assert N < 500
@@ -301,7 +304,7 @@ def test_arg_range4():
     )
 
 
-def test_arg_range5():
+def test_arg_range6():
     val = 2**32
 
     @proc
@@ -321,7 +324,7 @@ def test_arg_range5():
     ) == (1, None)
 
 
-def test_arg_range6():
+def test_arg_range7():
     @proc
     def foo(N: index, K: index):
         assert -10 < K
@@ -450,54 +453,11 @@ def test_index_range_env():
     )
 
 
-def test_test():
-    def merge_mul(lhs_range, rhs_range):
-        # We make sure numbers aren't negative here,
-        # there is probably a way to come up with a correct
-        # range even when the range contains negative numbers
-        if (lhs_range[0] is not None and lhs_range[0] < 0) or (
-            rhs_range[0] is not None and rhs_range[0] < 0
-        ):
-            return (None, None)
-
-        new_lhs = None
-        new_rhs = None
-        if lhs_range[0] is not None and rhs_range[0] is not None:
-            new_lhs = lhs_range[0] * rhs_range[0]
-        if lhs_range[1] is not None and rhs_range[1] is not None:
-            new_rhs = lhs_range[1] * rhs_range[1]
-        return (new_lhs, new_rhs)
-
-    print(merge_mul((None, 5), (None, 5)))
+# TODO: write test for IndexRange
 
 
-def infer_range(expr, scope):
-    c = expr
-    ancestors = []
-    while c != c.parent():  # Only False if c is InvalidCursor
-        ancestors.append(c)
-        c = c.parent()
-    ancestors.reverse()
-    i = ancestors.index(scope)
-
-    proc = expr._impl.get_root()
-    env = IndexRangeEnvironment(proc, fast=False)
-
-    # Only add bound variables to the env
-    for c in ancestors[i:]:
-        env.enter_scope()
-        s = c._impl._node
-        if isinstance(s, LoopIR.Seq):
-            lo = s.lo
-            hi = LoopIR.BinOp(
-                "-", s.hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
-            )
-            env.add_sym(s.iter, lo, hi)
-    bounds = index_range_analysis_v2(expr._impl._node, env.env)
-    return bounds
-
-
-def test_bounds_inference():
+def test_infer_range_of_expr():
+    # TODO: test loops with non-zero lower bounds
     @proc
     def foo(n: size, m: size, x: i8[n + 2, m + 5]):
         assert n % 4 == 0
@@ -511,17 +471,46 @@ def test_bounds_inference():
     idx_c = foo.find("x[_] = _").idx()[0]
     idx = idx_c._impl._node
 
-    print()
-    print(foo)
-    print()
+    bounds = infer_range(idx_c, foo.find_loop("ii"))
+    assert str(bounds) == "(io * 4, 0, 5)"
 
-    loop = foo.find_loop("ii")
-    bounds = infer_range(idx_c, loop)
-    print(f"Bounds for {idx} in ii loop:")
-    print(bounds)
-    print()
+    bounds = infer_range(idx_c, foo.find_loop("io"))
+    assert str(bounds) == "(0, 0, inf)"
 
-    loop = foo.find_loop("io")
-    bounds = infer_range(idx_c, loop)
-    print(f"Bounds for {idx} in io loop:")
-    print(bounds)
+
+def test_bounds_inference_tiled_blur2d():
+    @proc
+    def blur2d_tiled(n: size, consumer: i8[n, n], sin: i8[n + 1, n + 1]):
+        assert n % 4 == 0
+        producer: i8[n + 1, n + 1]
+        for i in seq(0, n + 1):
+            for j in seq(0, n + 1):
+                producer[i, j] = sin[i, j]
+        for io in seq(0, n / 4):
+            for jo in seq(0, n / 4):
+                for ii in seq(0, 4):
+                    for ji in seq(0, 4):
+                        consumer[4 * io + ii, 4 * jo + ji] = (
+                            producer[4 * io + ii, 4 * jo + ji]
+                            + producer[4 * io + ii, 4 * jo + ji + 1]
+                            + producer[4 * io + ii + 1, 4 * jo + ji]
+                            + producer[4 * io + ii + 1, 4 * jo + ji + 1]
+                        ) / 4.0
+
+    loop = blur2d_tiled.find_loop("ii")
+    bounds = bounds_inference(blur2d_tiled, loop, "producer", include=["R"])
+    assert str(bounds[0]) == "(io * 4, 0, 4)"
+    assert str(bounds[1]) == "(jo * 4, 0, 4)"
+
+
+def test_bounds_inference_fail():
+    @proc
+    def foo(n: size, x: i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                x[i] = 1.0
+                x[j] = 1.0
+
+    loop = foo.find_loop("j")
+    bounds = bounds_inference(foo, loop, "x", include=["W"])
+    assert str(bounds[0]) == "(0, -inf, inf)"
