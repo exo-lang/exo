@@ -851,7 +851,7 @@ def test_pattern_matching_id_in_scheduling_ops(golden):
     bar = bind_expr(bar, "1.0", "reg")
     scalar_reg = bar.find("reg : _ #1")
     bar = expand_dim(bar, scalar_reg, "n", "i")
-    print(bar)
+    assert str(bar) == golden
 
 
 def test_divide_dim_1(golden):
@@ -920,7 +920,7 @@ def test_delete_buffer(golden):
     def foo():
         a: i8[10]
 
-    foo = delete_buffer(foo, foo.find_alloc("a"))
+    foo = delete_buffer(foo, foo.find("a: _"))
     assert str(foo) == golden
 
 
@@ -934,7 +934,7 @@ def test_delete_buffer_fail():
         SchedulingError,
         match="The variable a can potentially be used after the statement",
     ):
-        foo = delete_buffer(foo, foo.find_alloc("a"))
+        foo = delete_buffer(foo, foo.find("a : _"))
 
 
 def test_reuse_buffer(golden):
@@ -1497,12 +1497,58 @@ def test_transpose(golden):
 def test_simple_typ_and_mem(golden):
     @proc
     def bar(n: size, A: R[n]):
-        pass
+        A[0] += 1.0
 
     A = bar.args()[1]
     bar = set_precision(bar, A, "i32")
     bar = set_memory(bar, A, GEMM_SCRATCH)
+    bar = set_window(bar, "A", True)
+
     assert str(bar) == golden
+
+    A_assign = bar.find("A[_] += _")
+    assert str(A_assign._impl._node.type) == "i32"
+
+
+def test_simple_typ_and_mem_2(golden):
+    @proc
+    def bar(n: size):
+        A: R[n]
+        A[0] += 1.0
+
+    A = bar.find("A : _")
+    bar = set_precision(bar, A, "i32")
+    bar = set_memory(bar, A, GEMM_SCRATCH)
+
+    assert str(bar) == golden
+
+    A_assign = bar.find("A[_] += _")
+    assert str(A_assign._impl._node.type) == "i32"
+
+
+def test_set_precision_for_tensors_and_windows():
+    @proc
+    def bar(n: size, x: [i8][n]):
+        pass
+
+    @proc
+    def foo(n: size, y: i8[n]):
+        assert n > 1
+        a = y[0 : n - 1]
+        bar(n, y)
+        bar(n - 1, y[0 : n - 1])
+
+    assign = foo.find("a = _")
+    call1 = foo.find("bar(_)")
+    call2 = foo.find("bar(_)")
+    foo = set_precision(foo, "y", "f32")
+    foo = set_window(foo, "y", True)
+    assert (
+        str(foo.forward(assign)._impl._node.rhs.type)
+        == "Window(src_type=f32[n], as_tensor=[f32][n - 1], src_buf=y, idx='[0:n - 1]')"
+    )
+    assert str(foo.forward(call1)._impl._node.args[1].type) == "f32[n]"
+    assert str(foo.forward(call2)._impl._node.args[1].type) == "f32[n]"
 
 
 def test_rewrite_expr(golden):
