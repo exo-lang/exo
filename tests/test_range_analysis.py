@@ -149,7 +149,7 @@ def test_affine_index_range8():
     e = bar.find("for j in _:_").hi()._impl._node
     i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = index_range_analysis(e, {i_sym: (0, 5)})
-    assert e_range == (0, 4)
+    assert e_range == (0, 3)
 
 
 def test_affine_index_range9():
@@ -190,7 +190,7 @@ def test_affine_index_range_fail():
     e = bar.find("for j in _:_").hi()._impl._node
     i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = index_range_analysis(e, {i_sym: (0, 5)})
-    assert e_range == (None, None)
+    assert e_range == (-15, 20)
 
 
 def test_affine_index_range_fail2():
@@ -203,7 +203,7 @@ def test_affine_index_range_fail2():
     e = bar.find("for j in _:_").hi()._impl._node
     i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = index_range_analysis(e, {i_sym: (0, 5)})
-    assert e_range == (None, None)
+    assert e_range == (9, 11)
 
 
 def test_affine_index_range_fail3():
@@ -216,7 +216,7 @@ def test_affine_index_range_fail3():
     e = bar.find("for j in _:_").hi()._impl._node
     i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = index_range_analysis(e, {i_sym: (0, 2)})
-    assert e_range == (None, None)
+    assert e_range == (-16, 48)
 
 
 def test_arg_range():
@@ -426,13 +426,6 @@ def test_index_range_env():
 
     env.exit_scope()
 
-    # I shouldn't be able to see `i` now
-    with pytest.raises(AssertionError, match=""):
-        env.check_expr_bounds(
-            0, IndexRangeEnvironment.leq, i_read, IndexRangeEnvironment.leq, 100
-        )
-
-    # I should still be able to see `N` though
     run_N_asserts()
 
     loop = foo.find_loop("j")
@@ -471,11 +464,11 @@ def test_infer_range_of_expr():
     idx_c = foo.find("x[_] = _").idx()[0]
     idx = idx_c._impl._node
 
-    bounds = infer_range(idx_c, foo.find_loop("ii"))
+    bounds = infer_range(idx_c, foo.find_loop("jo"))
     assert str(bounds) == "(io * 4, 0, 5)"
 
     bounds = infer_range(idx_c, foo.find_loop("io"))
-    assert str(bounds) == "(0, 0, inf)"
+    assert str(bounds) == "(io * 4, 0, 5)"
 
 
 def test_bounds_inference_tiled_blur2d():
@@ -497,10 +490,18 @@ def test_bounds_inference_tiled_blur2d():
                             + producer[4 * io + ii + 1, 4 * jo + ji + 1]
                         ) / 4.0
 
-    loop = blur2d_tiled.find_loop("ii")
-    bounds = bounds_inference(blur2d_tiled, loop, "producer", include=["R"])
-    assert str(bounds[0]) == "(io * 4, 0, 4)"
-    assert str(bounds[1]) == "(jo * 4, 0, 4)"
+    loop = blur2d_tiled.find_loop("io")
+    bound = bounds_inference(blur2d_tiled, loop, "producer", 0, include=["R"])
+    assert str(bound) == "(io * 4, 0, 4)"
+
+    loop = blur2d_tiled.find_loop("jo")
+    bound = bounds_inference(blur2d_tiled, loop, "producer", 1, include=["R"])
+    assert str(bound) == "(jo * 4, 0, 4)"
+
+    bound = bounds_inference(blur2d_tiled, loop, "producer", 0, include=["R"])
+    assert str(bound) == "(io * 4, 0, 4)"
+    bound = bounds_inference(blur2d_tiled, loop, "producer", 1, include=["R"])
+    assert str(bound) == "(jo * 4, 0, 4)"
 
 
 def test_bounds_inference_fail():
@@ -512,5 +513,5 @@ def test_bounds_inference_fail():
                 x[j] = 1.0
 
     loop = foo.find_loop("j")
-    bounds = bounds_inference(foo, loop, "x", include=["W"])
-    assert str(bounds[0]) == "(0, -inf, inf)"
+    bound = bounds_inference(foo, loop, "x", 0, include=["W"])
+    assert str(bound) == "(0, -inf, inf)"

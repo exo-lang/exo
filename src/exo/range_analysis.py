@@ -3,7 +3,7 @@ from collections import ChainMap
 from dataclasses import dataclass
 from typing import Optional
 
-from .LoopIR import LoopIR, T, is_const_zero, LoopIR_Compare
+from .LoopIR import LoopIR, T, LoopIR_Compare
 from .new_eff import Check_ExprBound, Check_ExprBound_Options
 
 
@@ -24,6 +24,25 @@ class IndexRange:
     base: Optional[LoopIR.expr]
     lo: Optional[int]
     hi: Optional[int]
+
+    def get_bounds(self):
+        """
+        Returns a tuple of the form (base + lo, base + hi + 1). If either
+        endpoint is unboundable, returns inf or -inf.
+        """
+        if self.base is None:
+            lo = "-inf" if self.lo is None else str(self.lo)
+            hi = "inf" if self.hi is None else str(self.hi)
+        else:
+            lo = "-inf" if self.lo is None else f"{self.base} + {self.lo}"
+            hi = "inf" if self.hi is None else f"{self.base} + {self.hi + 1}"
+        return lo, hi
+
+    def get_size(self):
+        if self.lo is None or self.hi is None:
+            return None
+        # +1 because bounds are inclusive
+        return self.hi - self.lo + 1
 
     def __str__(self):
         base = "0" if self.base is None else str(self.base)
@@ -54,6 +73,9 @@ class IndexRange:
                 new_hi = self.hi + other.hi
             return IndexRange(new_base, new_lo, new_hi)
 
+    def __radd__(self, other: int) -> IndexRange:
+        return self.__add__(other)
+
     def __neg__(self) -> IndexRange:
         new_base, new_lo, new_hi = None, None, None
         if self.base is not None:
@@ -67,6 +89,9 @@ class IndexRange:
     def __sub__(self, other: int | IndexRange) -> IndexRange:
         # TODO: see if I should manually implement this
         return self + (-other)
+
+    def __rsub__(self, other: int) -> IndexRange:
+        return -self + other
 
     def __mul__(self, c: int) -> IndexRange:
         if c == 0:
@@ -89,8 +114,10 @@ class IndexRange:
     def __rmul__(self, c: int) -> IndexRange:
         return self.__mul__(c)
 
-    def __div__(self, c: int) -> IndexRange:
-        if other <= 0:
+    def __floordiv__(self, c: int) -> IndexRange:
+        if c == 0:
+            return ValueError("Cannot divide by 0.")
+        elif c < 0:
             return IndexRange(None, None, None)
 
         new_lo, new_hi = None, None
@@ -110,13 +137,17 @@ class IndexRange:
             return IndexRange(None, new_lo, new_hi)
 
     def __mod__(self, c: int) -> IndexRange:
-        # TODO: improve this
+        if self.base is None and self.lo is not None and self.hi is not None:
+            if self.lo // c == self.hi // c:
+                return IndexRange(None, self.lo % c, self.hi % c)
         return IndexRange(None, 0, c - 1)
 
     # join
     def __or__(self, other: IndexRange) -> IndexRange:
         compare_ir = LoopIR_Compare()
-        if compare_ir.match_e(self.base, other.base):
+        if (self.base is None and other.base is None) or compare_ir.match_e(
+            self.base, other.base
+        ):
             if self.lo is None:
                 new_lo = other.lo
             elif other.lo is None:
@@ -161,7 +192,7 @@ def index_range_analysis_v2(expr, env):
             elif expr.op == "*":
                 return lhs_range * rhs_range
             elif expr.op == "/":
-                return lhs_range / rhs_range
+                return lhs_range // rhs_range
             elif expr.op == "%":
                 return lhs_range % rhs_range
             else:
@@ -172,20 +203,27 @@ def index_range_analysis_v2(expr, env):
     return analyze_range(expr)
 
 
-def infer_range(expr, scope):
-    c = expr
+def get_ancestors(c, up_to=None):
     ancestors = []
-    while c != c.parent():  # Only False if c is InvalidCursor
-        ancestors.append(c)
-        c = c.parent()
+    if up_to is not None:
+        while c != up_to:
+            ancestors.append(c)
+            c = c.parent()
+    else:
+        while c != c.parent():  # Only False if c is InvalidCursor
+            ancestors.append(c)
+            c = c.parent()
     ancestors.reverse()
-    i = ancestors.index(scope)
+    return ancestors
 
+
+def infer_range(expr, scope):
     proc = expr._impl.get_root()
     env = IndexRangeEnvironment(proc, fast=False)
 
     # Only add bound variables to the env
-    for c in ancestors[i:]:
+    ancestors = get_ancestors(expr, up_to=scope)
+    for c in ancestors:
         env.enter_scope()
         s = c._impl._node
         if isinstance(s, LoopIR.Seq):
@@ -199,168 +237,43 @@ def infer_range(expr, scope):
 
 
 # TODO: fix this include interface to be something better
-def bounds_inference(proc, loop, buffer, include=["R", "W"]):
-    dims = proc.find_alloc(buffer).shape()
-    bounds = [None for _ in dims]  # None is basically bottom
+def bounds_inference(proc, loop, buffer_name: str, buffer_idx: int, include=["R", "W"]):
+    # TODO: check that loop is a cursor of proc, and try to forward if not
+    dim = proc.find_alloc_or_arg(buffer_name).shape()[buffer_idx]
+    bound = None  # None is basically bottom
 
     matches = []
-    # TODO: proc.find doesn't take a scope. Either write a variant or add that as an optional arg
-    # TODO: Also, proc.find fails if no matches are found...but we really just want it to return []
     if "R" in include:
-        matches += proc.find(f"{buffer}[_]", many=True)
+        # TODO: proc.find doesn't take a scope. Either write a variant or add that as an optional arg
+        # TODO: Also, proc.find fails if no matches are found...but we really just want it to return []
+        matches += proc.find(f"{buffer_name}[_]", many=True)
     if "W" in include:
-        matches += proc.find(f"{buffer}[_] = _", many=True)
+        matches += proc.find(f"{buffer_name}[_] = _", many=True)
 
+    # TODO: This implementation is slower than tree traversal, but maybe easier to understand
     for c in matches:
-        idxs = c.idx()
-        for i, dim in enumerate(dims):
-            cur_bounds = infer_range(idxs[i], loop)
+        idx_expr = c.idx()[buffer_idx]
+        cur_bounds = infer_range(idx_expr, loop)
 
-            # This is a hacky way of joining the bounds w/o a representation of Bottom
-            if bounds[i] is None:
-                bounds[i] = cur_bounds
-            else:
-                bounds[i] |= cur_bounds
-    return bounds
+        # This is effectively joining the bounds w/ Bottom
+        if bound is None:
+            bound = cur_bounds
+        else:
+            bound |= cur_bounds
+    return bound
 
 
 def index_range_analysis(expr, env):
-    """
-    Performs range-analysis on an index expression.
-
-    Function takes in an environment in which the expression exists.
-    The environment is a mapping from `Sym` -> range.
-    It calculates the range of possible values that the index
-    expression could be in.
-
-    Any range, in the environment mapping or the result of the
-    analysis is either:
-        A tuple `T` of length 2 s.t. it represents the range
-        `[T[0], T[1]]` (both inclusive).
-        If `T[0]` or `T[1]` is `None` it represents no knowledge
-        of the value of that side of the range.
-
-    TODO: modify this to ignore variables which are free and
-    instead also return a "base" for the range.
-    """
     if isinstance(expr, int):
         return (expr, expr)
 
-    def merge_add(lhs_range, rhs_range):
-        new_lhs = None
-        new_rhs = None
-        if lhs_range[0] is not None and rhs_range[0] is not None:
-            new_lhs = lhs_range[0] + rhs_range[0]
-        if lhs_range[1] is not None and rhs_range[1] is not None:
-            new_rhs = lhs_range[1] + rhs_range[1]
-        return (new_lhs, new_rhs)
+    idx_rng = index_range_analysis_v2(expr, env)
+    if isinstance(idx_rng, int):
+        return (idx_rng, idx_rng)
 
-    def merge_sub(lhs_range, rhs_range):
-        new_lhs = None
-        new_rhs = None
-        if lhs_range[0] is not None and rhs_range[1] is not None:
-            new_lhs = lhs_range[0] - rhs_range[1]
-        if lhs_range[1] is not None and rhs_range[0] is not None:
-            new_rhs = lhs_range[1] - rhs_range[0]
-        return (new_lhs, new_rhs)
-
-    def merge_mul(lhs_range, rhs_range):
-        # We make sure numbers aren't negative here,
-        # there is probably a way to come up with a correct
-        # range even when the range contains negative numbers
-        if (lhs_range[0] is not None and lhs_range[0] < 0) or (
-            rhs_range[0] is not None and rhs_range[0] < 0
-        ):
-            return (None, None)
-
-        new_lhs = None
-        new_rhs = None
-        if lhs_range[0] is not None and rhs_range[0] is not None:
-            new_lhs = lhs_range[0] * rhs_range[0]
-        if lhs_range[1] is not None and rhs_range[1] is not None:
-            new_rhs = lhs_range[1] * rhs_range[1]
-        return (new_lhs, new_rhs)
-
-    def merge_div(lhs_range, rhs_range):
-        assert isinstance(rhs_range[0], int)
-        assert isinstance(rhs_range[1], int)
-        assert rhs_range[0] == rhs_range[1]
-        assert rhs_range[0] > 0
-
-        if lhs_range[0] is None or lhs_range[0] < 0:
-            return (None, None)
-
-        d = rhs_range[0]
-
-        new_lhs = None
-        new_rhs = None
-        if lhs_range[0] is not None:
-            new_lhs = lhs_range[0] // d
-        if lhs_range[1] is not None:
-            new_rhs = lhs_range[1] // d
-
-        return (new_lhs, new_rhs)
-
-    def merge_mod(lhs_range, rhs_range):
-        assert isinstance(rhs_range[0], int)
-        assert isinstance(rhs_range[1], int)
-        assert rhs_range[0] == rhs_range[1]
-        assert rhs_range[0] > 0
-
-        m = rhs_range[0]
-        if (
-            lhs_range[0] is not None
-            and lhs_range[1] is not None
-            and lhs_range[0] // m == lhs_range[1] // m
-        ):
-            return (lhs_range[0] % m, lhs_range[1] % m)
-
-        # We can be a bit smarter here when lhs_range[1] - lhs_range[0] < m
-        # but we would need to keep track of two ranges for the expression
-
-        return (0, m)
-
-    e_symbols = set()
-
-    def analyze_range(expr):
-        assert isinstance(expr, LoopIR.expr)
-
-        if not expr.type.is_indexable():
-            return (None, None)
-
-        if isinstance(expr, LoopIR.Read):
-            sym = expr.name
-            if sym in e_symbols:
-                # It is unclear how to do range analysis when a symbol
-                # is read twice within an expression. In most cases,
-                # this won't matter since the expression are normalized
-                # before we try to do range analysis on them
-                return (None, None)
-            e_symbols.add(sym)
-            assert sym in env
-            return env[sym]
-        elif isinstance(expr, LoopIR.Const):
-            return (expr.val, expr.val)
-        elif isinstance(expr, LoopIR.USub):
-            e_range = analyze_range(expr.arg)
-            negate = lambda x: -x if x is not None else x
-            return (negate(e_range[1]), negate(e_range[0]))
-        elif isinstance(expr, LoopIR.BinOp):
-            lhs_range = analyze_range(expr.lhs)
-            rhs_range = analyze_range(expr.rhs)
-            merge_binop = {
-                "+": merge_add,
-                "-": merge_sub,
-                "*": merge_mul,
-                "/": merge_div,
-                "%": merge_mod,
-            }
-            binop_range = merge_binop[expr.op](lhs_range, rhs_range)
-            return binop_range
-        else:
-            return None
-
-    return analyze_range(expr)
+    if idx_rng.base is not None:
+        return (None, None)
+    return (idx_rng.lo, idx_rng.hi)
 
 
 def arg_range_analysis(proc, arg, fast=True):
