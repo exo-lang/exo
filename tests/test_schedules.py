@@ -3401,3 +3401,18 @@ def test_unroll_buffer5():
         match="Cannot unroll a buffer at a dimension used as a window",
     ):
         bar = unroll_buffer(bar, "tmp_a : _", 0)
+
+
+def test_software_pipelining(golden):
+    @proc
+    def foo(n: size, x: f32[n], y: f32[n], result: f32):
+        for i in seq(0, n):
+            x_read: f32
+            x_read = x[i]
+            y_read: f32
+            y_read = y[i]
+            result += x_read * y_read
+
+    loop = foo.find_loop("i")
+    foo = software_pipelining(foo, loop, loop.body()[3])
+    assert str(simplify(foo)) == golden

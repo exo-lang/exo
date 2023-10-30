@@ -196,7 +196,7 @@ def loop_hack(sched, find_func, verbose=False):
     return loop_hack_sched
 
 
-import exo.API_cursors as _PC
+from exo.API_cursors import *
 from ..API import Procedure as _Procedure
 from ..LoopIR_unification import UnificationError as _UnificationError
 
@@ -216,13 +216,13 @@ def call_site_mem_aware_replace(proc, block_cursor, subproc, quiet=False):
     def check_all_calls(body_cursor):
         check_passed = True
         for cursor in body_cursor:
-            if isinstance(cursor, _PC.CallCursor):
+            if isinstance(cursor, CallCursor):
                 check_passed = check_passed and check_call_mem_types(cursor)
-            elif isinstance(cursor, _PC.IfCursor):
+            elif isinstance(cursor, IfCursor):
                 check_passed = check_passed and check_all_calls(cursor.body())
-                if type(cursor.orelse()) is not _PC.InvalidCursor:
+                if type(cursor.orelse()) is not InvalidCursor:
                     check_passed = check_passed and check_all_calls(cursor.orelse())
-            elif isinstance(cursor, _PC.ForSeqCursor):
+            elif isinstance(cursor, ForSeqCursor):
                 check_passed = check_passed and check_all_calls(cursor.body())
         return check_passed
 
@@ -253,15 +253,15 @@ def replace_all(proc, subprocs, mem_aware=True):
         )
 
     patterns = {
-        _PC.AssignCursor: "_ = _",
-        _PC.ReduceCursor: "_ += _",
-        _PC.AssignConfigCursor: "TODO",
-        _PC.PassCursor: "TODO",
-        _PC.IfCursor: "TODO",
-        _PC.ForSeqCursor: "for _ in _: _",
-        _PC.AllocCursor: "TODO",
-        _PC.CallCursor: "TODO",
-        _PC.WindowStmtCursor: "TODO",
+        AssignCursor: "_ = _",
+        ReduceCursor: "_ += _",
+        AssignConfigCursor: "TODO",
+        PassCursor: "TODO",
+        IfCursor: "TODO",
+        ForSeqCursor: "for _ in _: _",
+        AllocCursor: "TODO",
+        CallCursor: "TODO",
+        WindowStmtCursor: "TODO",
     }
 
     for subproc in subprocs:
@@ -348,7 +348,7 @@ def fuse_at(
      - currently assumes that bounds is of the form [0, 1, ..., n-1]
      - bounds should be automatically inferred, not manually passed
     """
-    p_loop = _PC.match_level(proc.find(f"{producer}[_] = _"), loop)
+    p_loop = match_level(proc.find(f"{producer}[_] = _"), loop)
     c_loop = loop  # TODO: need to think about nested loops here.
     N_p = p_loop.hi()._impl._node
     N_c = c_loop.hi()._impl._node
@@ -364,7 +364,7 @@ def fuse_at(
 
     p_inner_loop = proc.find_loop(f"{p_iter}i")
     # TODO: this should probably reason about the original order of loops (e.g. xi before yi)
-    while isinstance(p_inner_loop.body()[0], _PC.ForSeqCursor):
+    while isinstance(p_inner_loop.body()[0], ForSeqCursor):
         proc = reorder_loops(proc, p_inner_loop)
         p_inner_loop = proc.forward(p_inner_loop)
 
@@ -404,11 +404,56 @@ def tile(
     perfect=True,
 ):
     consumer_assign = proc.find(f"{consumer}[_] = _")
-    i_loop = _PC.get_enclosing_loop(consumer_assign, old_i_iter)
-    j_loop = _PC.get_enclosing_loop(consumer_assign, old_j_iter)
+    i_loop = get_enclosing_loop(consumer_assign, old_i_iter)
+    j_loop = get_enclosing_loop(consumer_assign, old_j_iter)
 
     assert j_loop.parent() == i_loop
     proc = divide_loop(proc, i_loop, i_tile_size, new_i_iters, perfect=perfect)
     proc = divide_loop(proc, j_loop, j_tile_size, new_j_iters, perfect=perfect)
     proc = reorder_loops(proc, f"{new_i_iters[1]} {new_j_iters[0]}")
+    return proc
+
+
+def software_pipelining(proc, loop, prefix_last_stmt):
+    # Check if this is an inner loop...
+    assert not isinstance(prefix_last_stmt, AllocCursor)
+
+    loop = proc.forward(loop)
+    for stmt in loop.body():
+        if isinstance(stmt, AllocCursor):
+            proc = expand_dim(
+                proc, stmt, FormattedExprStr("_ - _", loop.hi(), loop.lo()), loop.name()
+            )
+            proc = lift_alloc(proc, stmt)
+
+    proc = fission(proc, prefix_last_stmt.after())
+
+    first_loop = proc.forward(loop)
+    second_loop = first_loop.next()
+    proc = cut_loop(proc, first_loop, 1)
+    proc = cut_loop(proc, second_loop, FormattedExprStr("_ - 1", loop.hi()))
+
+    first_loop = proc.forward(first_loop)
+    thrid_loop = proc.forward(second_loop)
+    second_loop = first_loop.next()
+    fourth_loop = thrid_loop.next()
+
+    proc = shift_loop(proc, second_loop, 0)
+    second_loop = proc.forward(second_loop)
+    proc = fuse(proc, second_loop, thrid_loop)
+
+    second_loop = proc.forward(second_loop)
+    for idx, stmt in enumerate(second_loop.body()):
+        try:
+            for _ in range(len(second_loop.body()) - idx - 1):
+                proc = reorder_stmts(proc, proc.forward(stmt).expand(0, 1))
+        except:
+            pass
+    proc = unroll_loop(proc, first_loop)
+    proc = shift_loop(proc, fourth_loop, 0)
+    proc = simplify(proc)
+    proc = unroll_loop(proc, fourth_loop)
+
+    # TODO: Remove the new dimension added to all the allocation cursors within the loop. Requires a new scheduling operations.
+
     return proc
