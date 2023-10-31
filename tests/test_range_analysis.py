@@ -354,7 +354,7 @@ def test_index_range_env():
         assert M == M_value
         for i in seq(K, N * 2 + K):
             pass
-        for j in seq(M, M):
+        for j in seq(M, M + 1):
             pass
 
     env = IndexRangeEnvironment(foo._loopir_proc, fast=False)
@@ -405,7 +405,7 @@ def test_index_range_env():
     # I should still be able to see `N`
     run_N_asserts()
 
-    env.add_sym(node.iter, node.lo, node.hi)
+    env.add_loop_iter(node.iter, node.lo, node.hi)
     i_read = LoopIR.Read(node.iter, [], T.index, foo._loopir_proc.srcinfo)
 
     run_N_asserts()
@@ -430,7 +430,7 @@ def test_index_range_env():
 
     loop = foo.find_loop("j")
     node = loop._impl._node
-    env.add_sym(node.iter, node.lo, node.hi)
+    env.add_loop_iter(node.iter, node.lo, node.hi)
     N_read = LoopIR.Read(
         foo._loopir_proc.args[0].name, [], T.size, foo._loopir_proc.srcinfo
     )

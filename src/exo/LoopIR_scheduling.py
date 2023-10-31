@@ -3127,10 +3127,7 @@ class _DoNormalize(Cursor_Rewrite):
 
             self.env.enter_scope()
 
-            new_hi_prev = LoopIR.BinOp(
-                "-", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
-            )
-            self.env.add_sym(s.iter, new_lo, new_hi_prev)
+            self.env.add_loop_iter(s.iter, new_lo, new_hi)
 
             self.map_stmts(sc.body())
 

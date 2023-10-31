@@ -3,7 +3,7 @@ from collections import ChainMap
 from dataclasses import dataclass
 from typing import Optional
 
-from .LoopIR import LoopIR, T, LoopIR_Compare
+from .LoopIR import LoopIR, T, LoopIR_Compare, get_reads_of_expr
 from .new_eff import Check_ExprBound, Check_ExprBound_Options
 
 
@@ -204,6 +204,10 @@ def index_range_analysis_v2(expr, env):
 
 
 def get_ancestors(c, up_to=None):
+    """
+    Returns all ancestors of `c` below `up_to` from oldest to youngest.
+    If `up_to` is `None`, returns all ancestors of `c` from oldest to youngest.
+    """
     ancestors = []
     if up_to is not None:
         while c != up_to:
@@ -227,20 +231,30 @@ def infer_range(expr, scope):
         env.enter_scope()
         s = c._impl._node
         if isinstance(s, LoopIR.Seq):
-            lo = s.lo
-            hi = LoopIR.BinOp(
-                "-", s.hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
-            )
-            env.add_sym(s.iter, lo, hi)
+            env.add_loop_iter(s.iter, s.lo, s.hi)
     bounds = index_range_analysis_v2(expr._impl._node, env.env)
     return bounds
+
+
+def get_affected_idxs(proc, buffer_name, iter_sym):
+    idxs = set()
+    # TODO: this only matches against writes
+    for c in proc.find(f"{buffer_name}[_] = _", many=True):
+        for idx, idx_expr in enumerate(c.idx()):
+            idx_vars = [
+                name.name() for (name, typ) in get_reads_of_expr(idx_expr._impl._node)
+            ]
+            if iter_sym in idx_vars:
+                idxs.add(idx)
+
+    return idxs
 
 
 # TODO: fix this include interface to be something better
 def bounds_inference(proc, loop, buffer_name: str, buffer_idx: int, include=["R", "W"]):
     # TODO: check that loop is a cursor of proc, and try to forward if not
-    dim = proc.find_alloc_or_arg(buffer_name).shape()[buffer_idx]
-    bound = None  # None is basically bottom
+    alloc = proc.find_alloc_or_arg(buffer_name)
+    dim = alloc.shape()[buffer_idx]
 
     matches = []
     if "R" in include:
@@ -251,6 +265,7 @@ def bounds_inference(proc, loop, buffer_name: str, buffer_idx: int, include=["R"
         matches += proc.find(f"{buffer_name}[_] = _", many=True)
 
     # TODO: This implementation is slower than tree traversal, but maybe easier to understand
+    bound = None  # None is basically bottom
     for c in matches:
         idx_expr = c.idx()[buffer_idx]
         cur_bounds = infer_range(idx_expr, loop)
@@ -264,6 +279,10 @@ def bounds_inference(proc, loop, buffer_name: str, buffer_idx: int, include=["R"
 
 
 def index_range_analysis(expr, env):
+    """
+    Returns constant integer bounds for [expr], if possible, and
+    None otherwise. The bounds are inclusive.
+    """
     if isinstance(expr, int):
         return (expr, expr)
 
@@ -400,15 +419,13 @@ class IndexRangeEnvironment:
     def exit_scope(self):
         self.env = self.env.parents
 
-    def add_sym(self, sym, lo_expr=None, hi_expr=None):
-        range_lo = None
-        range_hi = None
-        if lo_expr is not None:
-            range_lo = index_range_analysis(lo_expr, self.env)
-        if hi_expr is not None:
-            range_hi = index_range_analysis(hi_expr, self.env)
+    def add_loop_iter(self, sym, lo_expr, hi_expr):
+        lo, _ = index_range_analysis(lo_expr, self.env)
+        _, hi = index_range_analysis(hi_expr, self.env)
+        if hi is not None:
+            hi = hi - 1
 
-        sym_range = (range_lo[0], range_hi[1])
+        sym_range = (lo, hi)
 
         # This means that this variable's range is invalid e.g.
         # `for i in seq(4, 4)`
@@ -417,6 +434,8 @@ class IndexRangeEnvironment:
             and sym_range[1] is not None
             and sym_range[0] > sym_range[1]
         ):
+            # TODO: this probably shouldn't get added as (None, None), since that
+            # means it could take on any possible value.
             sym_range = (None, None)
 
         self.env[sym] = sym_range
@@ -446,14 +465,3 @@ class IndexRangeEnvironment:
         return IndexRangeEnvironment._check_range(
             expr0_range, op0, expr1_range
         ) and IndexRangeEnvironment._check_range(expr1_range, op1, expr2_range)
-
-
-"""
-Want to bound an expr within a scope:
- - determine which variables are free/bound in this scope
-
-Difference between
-- free = don't want to reason about
-- bound, non-constant boudnable = can't reason about
-
-"""

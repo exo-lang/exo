@@ -99,10 +99,7 @@ from .analysis import (
     check_call_mem_types,
 )
 
-from exo.range_analysis import (
-    IndexRange,
-    bounds_inference,
-)
+from exo.range_analysis import IndexRange, bounds_inference, get_affected_idxs
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -328,7 +325,7 @@ def lift_if(proc, cursor, n_lifts=1):
     return proc
 
 
-def fuse_at(proc, producer, consumer, loop, buffer_idx):
+def fuse_at(proc, producer, consumer, loop):
     """
     This version of compute_at will only go down one-level of for loops
 
@@ -340,6 +337,13 @@ def fuse_at(proc, producer, consumer, loop, buffer_idx):
     c_loop = loop  # TODO: need to think about nested loops here.
     N_p = p_loop.hi()._impl._node
     N_c = c_loop.hi()._impl._node
+
+    buffer_idxs = get_affected_idxs(proc, consumer, loop.name())
+    if len(buffer_idxs) > 1:
+        raise ValueError(
+            f"{loop.name()} affects multiple indices into buffer {consumer}"
+        )
+    buffer_idx = list(buffer_idxs)[0]
 
     consumer_bound = bounds_inference(proc, loop, consumer, buffer_idx, include=["W"])
     w_c = consumer_bound.get_size()
@@ -362,7 +366,7 @@ def fuse_at(proc, producer, consumer, loop, buffer_idx):
     return simplify(proc)
 
 
-def store_at(proc, producer, consumer, loop, buffer_idx):
+def store_at(proc, producer, consumer, loop):
     """
     Moves [producer]'s allocation into
 
@@ -373,6 +377,13 @@ def store_at(proc, producer, consumer, loop, buffer_idx):
     producer_alloc = proc.find(f"{producer}:_")
     consumer_assign = proc.find(f"{consumer} = _")  # TODO: not used
     assert producer_alloc.next() == loop
+
+    buffer_idxs = get_affected_idxs(proc, producer, loop.name())
+    if len(buffer_idxs) > 1:
+        raise ValueError(
+            f"{loop.name()} affects multiple indices into buffer {producer}"
+        )
+    buffer_idx = list(buffer_idxs)[0]
 
     bound = bounds_inference(proc, loop, producer, buffer_idx, include=["W"])
     lo, hi = bound.get_bounds()

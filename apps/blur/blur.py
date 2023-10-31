@@ -45,10 +45,10 @@ def prod_inline(p):
 
     c_bounds = (0, "i", 0, 1)
     p_bounds = (0, "i", 0, 5)
-    p = fuse_at(p, "f", "g", p.find_loop("i #1"), c_bounds, p_bounds)
+    p = fuse_at(p, "f", "g", p.find_loop("i #1"))
 
     loop = p.find_loop("i")
-    p = store_at(p, "f", "g", loop, p_bounds)
+    p = store_at(p, "f", "g", loop)
 
     c_bounds_2 = (1, "j", 0, 1)
     p_bounds_2 = (1, "j", 0, 1)
@@ -57,18 +57,16 @@ def prod_inline(p):
         "f",
         "g",
         p.find_loop("j #1"),
-        c_bounds_2,
-        p_bounds_2,
     )
 
     loop = p.find_loop("j")
-    p = store_at(p, "f", "g", loop, p_bounds_2)
+    p = store_at(p, "f", "g", loop)
 
     p = p
     p = unroll_loop(p, "ji")
     p = unroll_loop(p, "ii")
     for i in range(5):
-        p = inline_assign(p, p.find("f[_] = _"))
+        p = inline_assign(p, p.find("g[_] = _").prev())
     p = delete_buffer(p, "f : _")
     p = rename(p, "p_inline")
 
@@ -81,27 +79,22 @@ def prod_tile(p, i_tile=32, j_tile=32):
     p = tile(p, "g", "i", "j", ["io", "ii"], ["jo", "ji"], i_tile, j_tile, perfect=True)
     p = simplify(p)
 
-    tiled_c_io_bounds = (0, f"{i_tile} * io", 0, i_tile)
-    tiled_p_io_bounds = (0, f"{i_tile} * io", 0, i_tile + 4)
-    tiled_c_jo_bounds = (1, f"{j_tile} * jo", 0, j_tile)
-    tiled_p_jo_bounds = (1, f"{j_tile} * jo", 0, j_tile)
-
     loop = p.find_loop("io")
-    p = fuse_at(p, "f", "g", loop, tiled_c_io_bounds, tiled_p_io_bounds)
+    p = fuse_at(p, "f", "g", loop)
 
     loop = p.find_loop("jo")
-    p = fuse_at(p, "f", "g", loop, tiled_c_jo_bounds, tiled_p_jo_bounds)
-
-    p = simplify(p)
-    p = store_at(p, "f", "g", p.find_loop("io"), tiled_p_io_bounds)
-    p = store_at(p, "f", "g", p.find_loop("jo"), tiled_p_jo_bounds)
-    p = lift_alloc(p, "f: _", n_lifts=2)
+    p = fuse_at(p, "f", "g", loop)
 
     # TODO: eliminate this
     p = rewrite_expr(p, "n % 128", 0)
     p = rewrite_expr(p, "m % 256", 0)
     p = simplify(p)
 
+    p = store_at(p, "f", "g", p.find_loop("io"))
+    p = store_at(p, "f", "g", p.find_loop("jo"))
+    p = lift_alloc(p, "f: _", n_lifts=2)
+
+    p = simplify(p)
     return p
 
 
