@@ -543,25 +543,25 @@ class ForSeqCursor(StmtCursor):
 
     def name(self) -> str:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return self._impl._node.iter.name()
 
     def lo(self) -> ExprCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return self._child_node("lo")
 
     def hi(self) -> ExprCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return self._child_node("hi")
 
     def body(self) -> BlockCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return BlockCursor(self._impl._child_block("body"), self._proc)
 
@@ -964,7 +964,7 @@ def lift_cursor(impl, proc):
             return PassCursor(impl, proc)
         elif isinstance(n, LoopIR.If):
             return IfCursor(impl, proc)
-        elif isinstance(n, LoopIR.Seq):
+        elif isinstance(n, LoopIR.For):
             return ForSeqCursor(impl, proc)
         elif isinstance(n, LoopIR.Alloc):
             return AllocCursor(impl, proc)

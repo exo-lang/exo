@@ -3414,3 +3414,35 @@ def test_unroll_buffer5():
         match="Cannot unroll a buffer at a dimension used as a window",
     ):
         bar = unroll_buffer(bar, "tmp_a : _", 0)
+
+
+def test_parallelize_loop(golden):
+    @proc
+    def foo(A: i8[10]):
+        for i in seq(0, 10):
+            A[i] = 1.0
+
+    foo = parallelize_loop(foo, foo.find_loop("i"))
+    assert str(foo) == golden
+
+
+def test_parallelize_loop_fail():
+    @proc
+    def foo(A: i8[10]):
+        total: i8
+        for i in seq(0, 10):
+            total += A[i]
+
+    with pytest.raises(SchedulingError, match="Cannot parallelize loop"):
+        foo = parallelize_loop(foo, foo.find_loop("i"))
+
+
+def test_parallelize_loop_fail_2():
+    @proc
+    def foo(A: i8[10]):
+        total: i8
+        for i in seq(0, 10):
+            total = total + A[i]
+
+    with pytest.raises(SchedulingError, match="Cannot parallelize loop"):
+        foo = parallelize_loop(foo, foo.find_loop("i"))

@@ -857,6 +857,14 @@ def reorder_stmts(proc, block_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([ForSeqCursorA])
+def parallelize_loop(proc, loop_cursor):
+    loop = loop_cursor._impl
+
+    ir, fwd = scheduling.DoParallelizeLoop(loop)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([ExprCursorA(many=True)])
 def commute_expr(proc, expr_cursors):
     """
@@ -1407,7 +1415,7 @@ def sink_alloc(proc, alloc_cursor):
     """
 
     scope_cursor = alloc_cursor.next()
-    if not isinstance(scope_cursor._impl._node, (LoopIR.If, LoopIR.Seq)):
+    if not isinstance(scope_cursor._impl._node, (LoopIR.If, LoopIR.For)):
         raise ValueError(
             f"Cannot sink alloc because the statement after the allocation is not a loop or if statement, it is {scope_cursor._impl._node}"
         )
@@ -1777,7 +1785,7 @@ def reorder_loops(proc, nested_loops):
     """
 
     stmt_c = nested_loops._impl
-    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.Seq):
+    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.For):
         raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
     ir, fwd = scheduling.DoLiftScope(stmt_c.body()[0])

@@ -64,6 +64,7 @@ from ..API_scheduling import (
     unroll_buffer,
     #
     # loop rewriting
+    parallelize_loop,
     divide_with_recompute,
     divide_loop,
     mult_loops,

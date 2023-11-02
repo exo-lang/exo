@@ -119,7 +119,7 @@ class Interpreter:
                 self.env.new_child()
                 self.eval_stmts(s.orelse)
                 self.env.parents
-        elif styp is LoopIR.Seq:
+        elif styp is LoopIR.For:
             lo = self.eval_e(s.lo)
             hi = self.eval_e(s.hi)
             assert self.use_randomization is False, "TODO: Implement Rand"

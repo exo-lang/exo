@@ -167,7 +167,7 @@ class LoopIR_to_QAST:
             return QAST.If(
                 self.map_expr(s.cond), self.map_stmts(s.body), self.map_stmts(s.orelse)
             )
-        elif styp is LoopIR.Seq:
+        elif styp is LoopIR.For:
             name = self.bindname(s.iter)
             return QAST.For(
                 name,
