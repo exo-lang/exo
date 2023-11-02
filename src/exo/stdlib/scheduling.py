@@ -223,7 +223,7 @@ def call_site_mem_aware_replace(proc, block_cursor, subproc, quiet=False):
                 check_passed = check_passed and check_all_calls(cursor.body())
                 if type(cursor.orelse()) is not _PC.InvalidCursor:
                     check_passed = check_passed and check_all_calls(cursor.orelse())
-            elif isinstance(cursor, _PC.ForSeqCursor):
+            elif isinstance(cursor, _PC.ForCursor):
                 check_passed = check_passed and check_all_calls(cursor.body())
         return check_passed
 
@@ -254,7 +254,7 @@ def _replace_helper(proc, subprocs, mem_aware, once):
         _PC.AssignConfigCursor: "TODO",
         _PC.PassCursor: "TODO",
         _PC.IfCursor: "TODO",
-        _PC.ForSeqCursor: "for _ in _: _",
+        _PC.ForCursor: "for _ in _: _",
         _PC.AllocCursor: "TODO",
         _PC.CallCursor: "TODO",
         _PC.WindowStmtCursor: "TODO",
@@ -391,7 +391,7 @@ def fuse_at(
 
     p_inner_loop = proc.find_loop(f"{p_iter}i")
     # TODO: this should probably reason about the original order of loops (e.g. xi before yi)
-    while isinstance(p_inner_loop.body()[0], _PC.ForSeqCursor):
+    while isinstance(p_inner_loop.body()[0], _PC.ForCursor):
         proc = reorder_loops(proc, p_inner_loop)
         p_inner_loop = proc.forward(p_inner_loop)
 

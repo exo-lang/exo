@@ -59,7 +59,7 @@ class Cursor(ABC):
                | AssignConfig( config : Config, field : str, rhs : Expr )
                | Pass()
                | If( cond : Expr, body : Block, orelse : Block? )
-               | ForSeq( name : str, hi : Expr, body : Block )
+               | For( name : str, hi : Expr, body : Block )
                | Alloc( name : str, mem : Memory? )
                | Call( subproc : Procedure, args : ExprList )
                | WindowStmt( name : str, winexpr : WindowExpr )
@@ -532,7 +532,7 @@ class IfCursor(StmtCursor):
         return BlockCursor(orelse, self._proc) if len(orelse) > 0 else InvalidCursor()
 
 
-class ForSeqCursor(StmtCursor):
+class ForCursor(StmtCursor):
     """
     Cursor pointing to a loop statement:
         ```
@@ -889,7 +889,7 @@ def get_stmt_within_scope(cursor, scope):
     """
     validate_cursors(cursor, scope)
     assert isinstance(
-        scope, (ForSeqCursor, IfCursor)
+        scope, (ForCursor, IfCursor)
     ), "scope was not an for loop or if statement"
 
     try:
@@ -909,7 +909,7 @@ def get_enclosing_loop(cursor, loop_iter=None):
         lambda x: x.name() == loop_iter if loop_iter is not None else lambda x: True
     )
 
-    while not (isinstance(cursor, ForSeqCursor) and match_iter(cursor)):
+    while not (isinstance(cursor, ForCursor) and match_iter(cursor)):
         cursor = cursor.parent()
         if isinstance(cursor, InvalidCursor):
             raise CursorNavigationError("no enclosing loop found")
@@ -965,7 +965,7 @@ def lift_cursor(impl, proc):
         elif isinstance(n, LoopIR.If):
             return IfCursor(impl, proc)
         elif isinstance(n, LoopIR.For):
-            return ForSeqCursor(impl, proc)
+            return ForCursor(impl, proc)
         elif isinstance(n, LoopIR.Alloc):
             return AllocCursor(impl, proc)
         elif isinstance(n, LoopIR.Call):
@@ -1019,7 +1019,7 @@ __all__ = [
     "AssignConfigCursor",
     "PassCursor",
     "IfCursor",
-    "ForSeqCursor",
+    "ForCursor",
     "AllocCursor",
     "CallCursor",
     "WindowStmtCursor",
