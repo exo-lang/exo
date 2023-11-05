@@ -8,67 +8,58 @@ from exo.stdlib.scheduling import *
 
 
 @proc
-def producer(n: size, m: size, f: ui8[n + 4, m + 4], inp: ui8[n + 4, m + 4]):
-    for i in seq(0, n + 4):
-        for j in seq(0, m):
-            f[i, j] = (
-                inp[i, j]
-                + inp[i, j + 1]
-                + inp[i, j + 2]
-                + inp[i, j + 3]
-                + inp[i, j + 4]
-            ) / 5.0
+def do_blur_x(W: size, H: size, inp: ui16[H + 2, W + 2], out: ui16[H + 2, W]):
+    for y in seq(0, H + 2):
+        for x in seq(0, W):
+            out[y, x] = (inp[y, x] + inp[y, x + 1] + inp[y, x + 2]) / 3.0
 
 
 @proc
-def consumer(n: size, m: size, f: ui8[n + 4, m + 4], g: ui8[n + 4, m + 4]):
-    for i in seq(0, n):
-        for j in seq(0, m):
-            g[i, j] = (
-                f[i, j] + f[i + 1, j] + f[i + 2, j] + f[i + 3, j] + f[i + 4, j]
-            ) / 5.0
+def do_blur_y(W: size, H: size, inp: ui16[H + 2, W], out: ui16[H, W]):
+    for y in seq(0, H):
+        for x in seq(0, W):
+            out[y, x] = (inp[y, x] + inp[y + 1, x] + inp[y + 2, x]) / 3.0
 
 
 @proc
-def blur(n: size, m: size, g: ui8[n + 4, m + 4], inp: ui8[n + 4, m + 4]):
-    assert n % 128 == 0
-    assert m % 256 == 0
+def blur(W: size, H: size, blur_y: ui16[H, W], inp: ui16[H + 2, W + 2]):
+    assert H % 32 == 0
+    assert W % 16 == 0
 
-    f: ui8[n + 4, m + 4]
-    producer(n, m, f, inp)
-    consumer(n, m, f, g)
+    blur_x: ui16[H + 2, W]
+    do_blur_x(W, H, inp, blur_x)
+    do_blur_y(W, H, blur_x, blur_y)
 
 
-def prod_inline(p):
-    p = inline(p, "producer(_)")
-    p = inline(p, "consumer(_)")
+def inline_stages(p):
+    p = inline(p, "do_blur_y(_)")
+    p = inline(p, "do_blur_x(_)")
+    return p
 
-    c_bounds = (0, "i", 0, 1)
-    p_bounds = (0, "i", 0, 5)
-    p = fuse_at(p, "f", "g", p.find_loop("i #1"))
 
-    loop = p.find_loop("i")
-    p = store_at(p, "f", "g", loop)
+def prod_halide(p):
+    p = inline(p, "do_blur_y(_)")
+    p = inline(p, "do_blur_x(_)")
 
-    c_bounds_2 = (1, "j", 0, 1)
-    p_bounds_2 = (1, "j", 0, 1)
-    p = fuse_at(
-        p,
-        "f",
-        "g",
-        p.find_loop("j #1"),
-    )
+    p = divide_loop(p, p.find_loop("y #1"), 32, ["y", "yi"], perfect=True)
 
-    loop = p.find_loop("j")
-    p = store_at(p, "f", "g", loop)
+    # blur_x.compute_at(blur_y, x)
+    # TODO: would rather not have to find the loop every time,
+    # but fuse invalidates the second loop...
+    p = fuse_at(p, "blur_x", "blur_y", p.find_loop("y #1"), reorder=False)
+    # TODO: This simplify is ugly
+    p = rewrite_expr(p, "H % 32", 0)
+    p = simplify(p)
 
-    p = p
-    p = unroll_loop(p, "ji")
-    p = unroll_loop(p, "ii")
-    for i in range(5):
-        p = inline_assign(p, p.find("g[_] = _").prev())
-    p = delete_buffer(p, "f : _")
-    p = rename(p, "p_inline")
+    p = fuse_at(p, "blur_x", "blur_y", p.find_loop("yi #1"))
+
+    p = fuse_at(p, "blur_x", "blur_y", p.find_loop("x #1"))
+    p = unroll_loop(p, "xi")
+
+    # blur_x.store_at(blur_y, y)
+    p = store_at(p, "blur_x", "blur_y", p.find_loop("y"))
+
+    p = lift_alloc(p, p.find("blur_x: _"))
 
     return p
 
@@ -98,17 +89,21 @@ def prod_tile(p, i_tile=32, j_tile=32):
     return p
 
 
-blur_staged = rename(blur, "blur_staged")
+blur_staged = rename(inline_stages(blur), "exo_blur_staged")
 print("blur_staged")
 print(blur_staged)
-blur_inline = rename(prod_inline(blur), "blur_inline")
-print("blur_inline")
-print(blur_inline)
-blur_tiled = rename(prod_tile(blur, i_tile=128, j_tile=256), "blur_tiled")
-print("blur_tiled")
-print(blur_tiled)
+blur_halide = rename(prod_halide(blur), "exo_blur_halide")
+print("blur_halide")
+print(blur_halide)
+# blur_inline = rename(prod_inline(blur), "blur_inline")
+# print("blur_inline")
+# print(blur_inline)
+# blur_tiled = rename(prod_tile(blur, i_tile=128, j_tile=256), "blur_tiled")
+# print("blur_tiled")
+# print(blur_tiled)
 
 if __name__ == "__main__":
     print(blur)
 
-__all__ = ["blur_staged", "blur_inline", "blur_tiled"]
+# __all__ = ["blur_staged", "blur_inline", "blur_tiled"]
+__all__ = ["blur_staged", "blur_halide"]

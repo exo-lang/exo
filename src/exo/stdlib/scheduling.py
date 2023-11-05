@@ -325,12 +325,12 @@ def lift_if(proc, cursor, n_lifts=1):
     return proc
 
 
-def fuse_at(proc, producer, consumer, loop):
+def fuse_at(proc, producer, consumer, loop, reorder=True):
     """
     This version of compute_at will only go down one-level of for loops
 
-    TODO: bounds
-     - currently assumes that bounds is of the form [0, 1, ..., n-1]
+    TODO: bounds currently assumes that bounds is of the form [0, 1, ..., n-1]
+    TODO: remove the [reorder] hack.
     """
 
     p_loop = _PC.match_level(proc.find(f"{producer}[_] = _"), loop)
@@ -358,10 +358,11 @@ def fuse_at(proc, producer, consumer, loop):
 
     # TODO: this should match producer loop structure to consumer's. Currently, it just
     # makes the newly divided loop the innermost loop of the producer.
-    p_inner_loop = proc.find_loop(f"{p_iter}i")
-    while isinstance(p_inner_loop.body()[0], _PC.ForSeqCursor):
-        proc = reorder_loops(proc, p_inner_loop)
-        p_inner_loop = proc.forward(p_inner_loop)
+    if reorder:
+        p_inner_loop = proc.find_loop(f"{p_iter}i")
+        while isinstance(p_inner_loop.body()[0], _PC.ForSeqCursor):
+            proc = reorder_loops(proc, p_inner_loop)
+            p_inner_loop = proc.forward(p_inner_loop)
 
     return simplify(proc)
 
@@ -374,6 +375,7 @@ def store_at(proc, producer, consumer, loop):
      - currently assumes that bounds is of the form [0, 1, ..., n-1]
      - bounds should be automatically inferred, not manually passed
     """
+    loop = proc.forward(loop)
     producer_alloc = proc.find(f"{producer}:_")
     consumer_assign = proc.find(f"{consumer} = _")  # TODO: not used
     assert producer_alloc.next() == loop
