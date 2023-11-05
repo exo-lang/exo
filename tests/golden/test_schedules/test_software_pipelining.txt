@@ -5,6 +5,6 @@ def foo(n: size, x: f32[n] @ DRAM, y: f32[n] @ DRAM, result: f32 @ DRAM):
     y_read[0] = y[0]
     for i in seq(0, -1 + n):
         result += x_read[i] * y_read[i]
-        y_read[1 + i] = y[1 + i]
         x_read[1 + i] = x[1 + i]
+        y_read[1 + i] = y[1 + i]
     result += x_read[-1 + n] * y_read[-1 + n]

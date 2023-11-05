@@ -429,6 +429,7 @@ def software_pipelining(proc, loop, prefix_last_stmt):
     proc = fission(proc, prefix_last_stmt.after())
 
     first_loop = proc.forward(loop)
+    num_stmts = len(first_loop.body())
     second_loop = first_loop.next()
     proc = cut_loop(proc, first_loop, 1)
     proc = cut_loop(proc, second_loop, FormattedExprStr("_ - 1", loop.hi()))
@@ -443,12 +444,10 @@ def software_pipelining(proc, loop, prefix_last_stmt):
     proc = fuse(proc, second_loop, thrid_loop)
 
     second_loop = proc.forward(second_loop)
-    for idx, stmt in enumerate(second_loop.body()):
-        try:
-            for _ in range(len(second_loop.body()) - idx - 1):
-                proc = reorder_stmts(proc, proc.forward(stmt).expand(0, 1))
-        except:
-            pass
+    loop_len = len(second_loop.body())
+    for stmt in second_loop.body()[:num_stmts]:
+        for _ in range(loop_len - 1):
+            proc = reorder_stmts(proc, proc.forward(stmt).expand(0, 1))
     proc = unroll_loop(proc, first_loop)
     proc = shift_loop(proc, fourth_loop, 0)
     proc = simplify(proc)
