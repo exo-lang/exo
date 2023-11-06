@@ -1415,7 +1415,7 @@ class ContextExtraction:
         new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
         pre_body = SubstArgs(s.body, {s.iter: new_i}).result()
         pre_loop = LoopIR.For(
-            new_i.name, s.lo, old_i, pre_body, s.config, None, s.srcinfo
+            new_i.name, s.lo, old_i, pre_body, s.loop_mode, None, s.srcinfo
         )
         return globenv([pre_loop])
 
@@ -1432,7 +1432,7 @@ class ContextExtraction:
         )
         post_body = SubstArgs(s.body, {s.iter: new_i}).result()
         post_loop = LoopIR.For(
-            new_i.name, old_plus1, hi, post_body, s.config, None, s.srcinfo
+            new_i.name, old_plus1, hi, post_body, s.loop_mode, None, s.srcinfo
         )
         return stmts_effs([post_loop])
 

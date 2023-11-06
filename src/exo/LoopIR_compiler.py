@@ -881,7 +881,7 @@ class Compiler:
                     "-", s.hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
                 ),
             )
-            if isinstance(s.config, LoopIR.Par):
+            if isinstance(s.loop_mode, LoopIR.Par):
                 self.add_line(f"#pragma omp parallel for")
             self.add_line(f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
             self.push(only="tab")

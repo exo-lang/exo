@@ -76,14 +76,14 @@ module LoopIR {
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
          | If( expr cond, stmt* body, stmt* orelse )
-         | For( sym iter, expr lo, expr hi, stmt* body, loop_config config )
+         | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem? mem )
          | Free( sym name, type type, mem? mem )
          | Call( proc f, expr* args )
          | WindowStmt( sym lhs, expr rhs )
          attributes( effect? eff, srcinfo srcinfo )
 
-    loop_config = Seq()
+    loop_mode = Seq()
                 | Par()
 
     expr = Read( sym name, expr* idx )

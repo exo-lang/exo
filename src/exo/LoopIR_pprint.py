@@ -454,7 +454,7 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
         body_env = env.push()
-        loop_type = "par" if isinstance(stmt.config, LoopIR.Par) else "seq"
+        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
         lines = [
             f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):"
         ]

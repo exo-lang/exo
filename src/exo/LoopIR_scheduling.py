@@ -324,7 +324,7 @@ def DoReorderStmt(f_cursor, s_cursor):
 def DoParallelizeLoop(loop_cursor):
     # TODO: Check commutativiity of loop body
     Check_ParallelizeLoop(loop_cursor.get_root(), loop_cursor._node)
-    return loop_cursor._child_node("config")._replace(LoopIR.Par())
+    return loop_cursor._child_node("loop_mode")._replace(LoopIR.Par())
 
 
 def DoJoinLoops(loop1_c, loop2_c):
@@ -750,7 +750,7 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
             LoopIR.Const(0, T.index, srcinfo),
             inner_hi,
             body,
-            loop.config,
+            loop.loop_mode,
             None,
             srcinfo,
         )
@@ -789,7 +789,7 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
             LoopIR.Const(0, T.index, srcinfo),
             Ntail,
             cut_body,
-            loop.config,
+            loop.loop_mode,
             None,
             srcinfo,
         )
