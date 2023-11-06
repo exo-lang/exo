@@ -2264,6 +2264,114 @@ def test_stage_mem_accum2(golden):
     assert str(simplify(accum)) == golden
 
 
+def get_1D_memcpy_tiled():
+    @proc
+    def memcpy(n: size, x: f32[n], y: f32[n]):
+        for i in seq(0, n):
+            x[i] = y[i]
+
+    loop = memcpy.find_loop("i")
+    memcpy = divide_loop(memcpy, loop, 4, ("io", "ii"), tail="guard")
+
+    return memcpy
+
+
+def get_2D_mempcpy_1D_tiled():
+    @proc
+    def memcpy_2D(m: size, n: size, x: f32[m, n], y: f32[m, n]):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                x[i, j] = y[i, j]
+
+    j_loop = memcpy_2D.find_loop("j")
+    memcpy_2D = divide_loop(memcpy_2D, j_loop, 4, ("jo", "ji"), tail="guard")
+
+    return memcpy_2D
+
+
+def get_2D_mempcpy_2D_tiled():
+    @proc
+    def memcpy_2D(m: size, n: size, x: f32[m, n], y: f32[m, n]):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                x[i, j] = y[i, j]
+
+    i_loop = memcpy_2D.find_loop("i")
+    j_loop = memcpy_2D.find_loop("j")
+    memcpy_2D = divide_loop(memcpy_2D, j_loop, 4, ("jo", "ji"), tail="guard")
+    memcpy_2D = divide_loop(memcpy_2D, i_loop, 7, ("io", "ii"), tail="guard")
+
+    memcpy_2D = lift_scope(memcpy_2D, j_loop)
+    memcpy_2D = lift_scope(memcpy_2D, j_loop)
+
+    return memcpy_2D
+
+
+def test_stage_mem_out_of_bounds_load_1D(golden):
+    memcpy = get_1D_memcpy_tiled()
+    memcpy = stage_mem(memcpy, memcpy.find_loop("ii"), "y[4 * io:4 * io + 4]", "yReg")
+    memcpy = simplify(memcpy)
+
+    return str(memcpy) == golden
+
+
+def test_stage_mem_out_of_bounds_load_2D_one_cond(golden):
+    memcpy_2D = get_2D_mempcpy_1D_tiled()
+    memcpy_2D = stage_mem(
+        memcpy_2D, memcpy_2D.find_loop("ji"), "y[i, 4 * jo:4 * jo + 4]", "yReg"
+    )
+    memcpy_2D = simplify(memcpy_2D)
+
+    return str(memcpy_2D) == golden
+
+
+def test_stage_mem_out_of_bounds_load_2D_two_conds(golden):
+    memcpy_2D = get_2D_mempcpy_2D_tiled()
+    memcpy_2D = stage_mem(
+        memcpy_2D,
+        memcpy_2D.find_loop("ii"),
+        "y[7 * io: 7 * io + 7, 4 * jo:4 * jo + 4]",
+        "yReg",
+    )
+    memcpy_2D = simplify(memcpy_2D)
+
+    return str(memcpy_2D) == golden
+
+
+def test_stage_mem_out_of_bounds_store_1D(golden):
+    memcpy = get_1D_memcpy_tiled()
+    memcpy = stage_mem(memcpy, memcpy.find_loop("ii"), "x[4 * io:4 * io + 4]", "xReg")
+    memcpy = simplify(memcpy)
+
+    return str(memcpy) == golden
+
+
+def test_stage_mem_out_of_bounds_reduction(golden):
+    @proc
+    def axpy(n: size, x: f32[n], y: f32[n]):
+        for i in seq(0, n):
+            y[i] += x[i]
+
+    axpy = divide_loop(axpy, axpy.find_loop("i"), 5, ("io", "ii"), tail="guard")
+    axpy = stage_mem(axpy, axpy.find_loop("ii"), "y[5*io:5*io+5]", "yReg")
+    axpy = simplify(axpy)
+
+    return str(axpy) == golden
+
+
+def test_stage_mem_out_of_bound_reduction_accum(golden):
+    @proc
+    def axpy(n: size, x: f32[n], y: f32[n]):
+        for i in seq(0, n):
+            y[i] += x[i]
+
+    axpy = divide_loop(axpy, axpy.find_loop("i"), 5, ("io", "ii"), tail="guard")
+    axpy = stage_mem(axpy, axpy.find_loop("ii"), "y[5*io:5*io+5]", "yReg", accum=True)
+    axpy = simplify(axpy)
+
+    assert str(axpy) == golden
+
+
 def test_new_expr_multi_vars(golden):
     @proc
     def bar(n: size, arr: R[n] @ DRAM):
