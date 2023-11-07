@@ -6,7 +6,6 @@ from exo.stdlib.scheduling import *
 from exo import proc
 from exo.range_analysis import (
     index_range_analysis,
-    index_range_analysis_v2,
     arg_range_analysis,
     IndexRangeEnvironment,
     IndexRange,
@@ -14,7 +13,6 @@ from exo.range_analysis import (
     bounds_inference,
 )
 from exo.LoopIR import LoopIR, T
-from exo.pattern_match import match_pattern
 
 
 def test_affine_index_range():

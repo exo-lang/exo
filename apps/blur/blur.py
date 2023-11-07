@@ -43,21 +43,12 @@ def prod_inline(p):
     p = inline(p, "producer(_)")
     p = inline(p, "consumer(_)")
 
-    c_bounds = (0, "i", 0, 1)
-    p_bounds = (0, "i", 0, 5)
     p = fuse_at(p, "f", "g", p.find_loop("i #1"))
 
     loop = p.find_loop("i")
     p = store_at(p, "f", "g", loop)
 
-    c_bounds_2 = (1, "j", 0, 1)
-    p_bounds_2 = (1, "j", 0, 1)
-    p = fuse_at(
-        p,
-        "f",
-        "g",
-        p.find_loop("j #1"),
-    )
+    p = fuse_at(p, "f", "g", p.find_loop("j #1"))
 
     loop = p.find_loop("j")
     p = store_at(p, "f", "g", loop)

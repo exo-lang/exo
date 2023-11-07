@@ -7,7 +7,7 @@ from .LoopIR import LoopIR, T, LoopIR_Compare, get_reads_of_expr
 from .new_eff import Check_ExprBound, Check_ExprBound_Options
 
 
-def binop(op: str, e1, e2):
+def binop(op: str, e1: LoopIR.expr, e2: LoopIR.expr):
     return LoopIR.BinOp(op, e1, e2, e1.type, e1.srcinfo)
 
 
@@ -58,7 +58,7 @@ class IndexRange:
             if self.hi is not None:
                 new_hi = self.hi + other
             return IndexRange(self.base, new_lo, new_hi)
-        else:
+        elif isinstance(other, IndexRange):
             if self.base is None:
                 new_base = other.base
             elif other.base is None:
@@ -72,9 +72,12 @@ class IndexRange:
             if self.hi is not None and other.hi is not None:
                 new_hi = self.hi + other.hi
             return IndexRange(new_base, new_lo, new_hi)
+        else:
+            raise ValueError(f"Invalid type for add: {type(other)}")
 
-    def __radd__(self, other: int) -> IndexRange:
-        return self.__add__(other)
+    def __radd__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
+        return self.__add__(c)
 
     def __neg__(self) -> IndexRange:
         new_base, new_lo, new_hi = None, None, None
@@ -87,13 +90,15 @@ class IndexRange:
         return IndexRange(new_base, new_lo, new_hi)
 
     def __sub__(self, other: int | IndexRange) -> IndexRange:
-        # TODO: see if I should manually implement this
+        assert isinstance(other, (int, IndexRange))
         return self + (-other)
 
-    def __rsub__(self, other: int) -> IndexRange:
-        return -self + other
+    def __rsub__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
+        return -self + c
 
     def __mul__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
         if c == 0:
             return 0
 
@@ -112,9 +117,11 @@ class IndexRange:
             return IndexRange(new_base, new_hi, new_lo)
 
     def __rmul__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
         return self.__mul__(c)
 
     def __floordiv__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
         if c == 0:
             return ValueError("Cannot divide by 0.")
         elif c < 0:
@@ -137,6 +144,7 @@ class IndexRange:
             return IndexRange(None, new_lo, new_hi)
 
     def __mod__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
         if self.base is None and self.lo is not None and self.hi is not None:
             if self.lo // c == self.hi // c:
                 return IndexRange(None, self.lo % c, self.hi % c)
@@ -144,6 +152,7 @@ class IndexRange:
 
     # join
     def __or__(self, other: IndexRange) -> IndexRange:
+        assert isinstance(c, IndexRange)
         compare_ir = LoopIR_Compare()
         if (self.base is None and other.base is None) or compare_ir.match_e(
             self.base, other.base

@@ -99,7 +99,7 @@ from .analysis import (
     check_call_mem_types,
 )
 
-from exo.range_analysis import IndexRange, bounds_inference, get_affected_idxs
+from exo.range_analysis import bounds_inference, get_affected_idxs
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
