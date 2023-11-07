@@ -392,6 +392,11 @@ class ExprCursor(ExprCursorPrototype):
     See `help(Cursor)` for more details.
     """
 
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.expr)
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
+
 
 class ExprListCursor(ListCursorPrototype):
     """
@@ -432,6 +437,11 @@ class AssignCursor(StmtCursor):
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Assign)
         return self._child_node("rhs")
+
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Assign)
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
 
 
 class ReduceCursor(StmtCursor):

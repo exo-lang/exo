@@ -237,12 +237,7 @@ def call_site_mem_aware_replace(proc, block_cursor, subproc, quiet=False):
     return proc
 
 
-def replace_all(proc, subprocs, mem_aware=True):
-    """
-    DEPRECATED ?
-    Is there a better way to write this out of primitives?
-    Does this simply require that we have better introspection facilities?
-    """
+def _replace_helper(proc, subprocs, mem_aware, once):
 
     if not isinstance(subprocs, list):
         subprocs = [subprocs]
@@ -279,6 +274,8 @@ def replace_all(proc, subprocs, mem_aware=True):
                     )
                 else:
                     proc = replace(proc, f"{pattern} #{i}", subproc, quiet=True)
+                if once:
+                    break
             except (TypeError, SchedulingError) as e:
                 if "failed to find matches" in str(e):
                     break
@@ -287,6 +284,35 @@ def replace_all(proc, subprocs, mem_aware=True):
                 i += 1
 
     return proc
+
+
+def replace_all(proc, subprocs, mem_aware=True):
+    """
+    Givin a proc and subprocs, replace the body of proc with subproc
+    as much as possible.
+
+    args:
+        subprocs  - list of subprocedures (or instruction definitions) to
+                    be replaced with
+        mem_aware - if True, replace will only suceed when memory annotation
+                    also matches
+    """
+
+    return _replace_helper(proc, subprocs, mem_aware, False)
+
+
+def replace_once(proc, subprocs, mem_aware=True):
+    """
+    Givin a proc and subprocs, replace the body of proc with subproc only once.
+
+    args:
+        subprocs  - list of subprocedures (or instruction definitions) to
+                    be replaced with
+        mem_aware - if True, replace will only suceed when memory annotation
+                    also matches
+    """
+
+    return _replace_helper(proc, subprocs, mem_aware, True)
 
 
 def lift_if(proc, cursor, n_lifts=1):
