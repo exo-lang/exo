@@ -174,10 +174,16 @@ class AVX2(Memory):
         if not shape:
             raise MemGenError(f"{srcinfo}: AVX2 vectors are not scalar values")
 
-        vec_types = {"float": (8, "__m256"), "double": (4, "__m256d")}
+        vec_types = {
+            "float": (8, "__m256"),
+            "double": (4, "__m256d"),
+            "uint16_t": (16, "__m256i"),
+        }
 
         if not prim_type in vec_types.keys():
-            raise MemGenError(f"{srcinfo}: AVX2 vectors must be f32/f64 (for now)")
+            raise MemGenError(
+                f"{srcinfo}: AVX2 vectors must be f32/f64 (for now), got {prim_type}"
+            )
 
         reg_width, C_reg_type_name = vec_types[prim_type]
         if not _is_const_size(shape[-1], reg_width):

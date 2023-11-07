@@ -335,7 +335,6 @@ def fuse_at(proc, producer, consumer, loop, reorder=True):
 
     p_loop = _PC.match_level(proc.find(f"{producer}[_] = _"), loop)
     c_loop = loop  # TODO: need to think about nested loops here.
-    N_p = p_loop.hi()._impl._node
     N_c = c_loop.hi()._impl._node
 
     buffer_idxs = get_affected_idxs(proc, consumer, loop.name())
@@ -348,9 +347,9 @@ def fuse_at(proc, producer, consumer, loop, reorder=True):
     consumer_bound = bounds_inference(proc, loop, consumer, buffer_idx, include=["W"])
     w_c = consumer_bound.get_size()
 
+    # TODO: need a better way of deciding inner loop iter name
     c_iter = c_loop.name()
     p_iter = p_loop.name()
-    # TODO: need a better way of deciding inner loop iter name
     new_iters = [f"{c_iter}", f"{p_iter}i"]
 
     proc = divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
