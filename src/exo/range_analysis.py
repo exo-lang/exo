@@ -152,7 +152,7 @@ class IndexRange:
 
     # join
     def __or__(self, other: IndexRange) -> IndexRange:
-        assert isinstance(c, IndexRange)
+        assert isinstance(other, IndexRange)
         compare_ir = LoopIR_Compare()
         if (self.base is None and other.base is None) or compare_ir.match_e(
             self.base, other.base
