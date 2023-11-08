@@ -18,7 +18,6 @@ from .LoopIR_dataflow import LoopIR_Dependencies
 from .new_eff import (
     SchedulingError,
     Check_ReorderStmts,
-    Check_ParallelizeLoop,
     Check_ReorderLoops,
     Check_FissionLoop,
     Check_DeleteConfigWrite,
@@ -322,8 +321,6 @@ def DoReorderStmt(f_cursor, s_cursor):
 
 
 def DoParallelizeLoop(loop_cursor):
-    # TODO: Check commutativiity of loop body
-    Check_ParallelizeLoop(loop_cursor.get_root(), loop_cursor._node)
     return loop_cursor._child_node("loop_mode")._replace(LoopIR.Par())
 
 

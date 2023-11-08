@@ -10,6 +10,7 @@ from .LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
 from .configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from .memory import MemGenError, Memory, DRAM, StaticMemory
+from .parallel_analysis import ParallelAnalysis
 from .prec_analysis import PrecisionAnalysis
 from .prelude import *
 from .win_analysis import WindowAnalysis
@@ -399,6 +400,7 @@ def compile_to_strings(lib_name, proc_list):
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
+            p = ParallelAnalysis().run(p)
 
             comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
             d, b = comp.comp_top()

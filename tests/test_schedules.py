@@ -3424,25 +3424,3 @@ def test_parallelize_loop(golden):
 
     foo = parallelize_loop(foo, foo.find_loop("i"))
     assert str(foo) == golden
-
-
-def test_parallelize_loop_fail():
-    @proc
-    def foo(A: i8[10]):
-        total: i8
-        for i in seq(0, 10):
-            total += A[i]
-
-    with pytest.raises(SchedulingError, match="Cannot parallelize loop"):
-        foo = parallelize_loop(foo, foo.find_loop("i"))
-
-
-def test_parallelize_loop_fail_2():
-    @proc
-    def foo(A: i8[10]):
-        total: i8
-        for i in seq(0, 10):
-            total = total + A[i]
-
-    with pytest.raises(SchedulingError, match="Cannot parallelize loop"):
-        foo = parallelize_loop(foo, foo.find_loop("i"))
