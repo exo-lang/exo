@@ -71,11 +71,6 @@ def test_schedule_blur2d(golden):
     p = blur2d_compute_root
     procs = []
 
-    c_i_bounds = (0, "i", 0, 1)
-    p_i_bounds = (0, "i", 0, 2)
-    c_j_bounds = (1, "j", 0, 1)
-    p_j_bounds = (1, "j", 0, 2)
-
     p = fuse_at(p, "producer", "consumer", p.find_loop("i #1"))
     p = rename(p, "blur2d_compute_at_i_store_root")
     procs.append(p)
@@ -144,5 +139,11 @@ def test_schedule_tiled_blur2d(golden):
     p = rename(p, "blur2d_tiled_compute_at_ji")
     procs.append(p)
 
+    p = store_at(p, "producer", "consumer", p.find_loop("ji"))
+    p = rename(p, "blur2d_tiled_compute_at_and_store_at_ji")
+    procs.append(p)
+
     print("\n\n".join([str(p) for p in procs]))
     assert "\n\n".join([str(p) for p in procs]) == golden
+
+    print(p)

@@ -99,7 +99,7 @@ from .analysis import (
     check_call_mem_types,
 )
 
-from exo.range_analysis import IndexRange, bounds_inference, get_affected_idxs
+from exo.range_analysis import bounds_inference, get_affected_dims
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -337,14 +337,14 @@ def fuse_at(proc, producer, consumer, loop, reorder=True):
     c_loop = loop  # TODO: need to think about nested loops here.
     N_c = c_loop.hi()._impl._node
 
-    buffer_idxs = get_affected_idxs(proc, consumer, loop.name())
-    if len(buffer_idxs) > 1:
+    buffer_dims = get_affected_dims(proc, consumer, loop.name())
+    if len(buffer_dims) > 1:
         raise ValueError(
             f"{loop.name()} affects multiple indices into buffer {consumer}"
         )
-    buffer_idx = list(buffer_idxs)[0]
+    buffer_dim = list(buffer_dims)[0]
 
-    consumer_bound = bounds_inference(proc, loop, consumer, buffer_idx, include=["W"])
+    consumer_bound = bounds_inference(proc, loop, consumer, buffer_dim, include=["W"])
     w_c = consumer_bound.get_size()
 
     # TODO: need a better way of deciding inner loop iter name
@@ -366,7 +366,7 @@ def fuse_at(proc, producer, consumer, loop, reorder=True):
     return simplify(proc)
 
 
-def store_at(proc, producer, consumer, loop):
+def store_at(proc, producer, consumer, target_loop):
     """
     Moves [producer]'s allocation into
 
@@ -374,23 +374,32 @@ def store_at(proc, producer, consumer, loop):
      - currently assumes that bounds is of the form [0, 1, ..., n-1]
      - bounds should be automatically inferred, not manually passed
     """
-    loop = proc.forward(loop)
+    target_loop = proc.forward(target_loop)
     producer_alloc = proc.find(f"{producer}:_")
-    consumer_assign = proc.find(f"{consumer} = _")  # TODO: not used
-    assert producer_alloc.next() == loop
 
-    buffer_idxs = get_affected_idxs(proc, producer, loop.name())
-    if len(buffer_idxs) > 1:
-        raise ValueError(
-            f"{loop.name()} affects multiple indices into buffer {producer}"
-        )
-    buffer_idx = list(buffer_idxs)[0]
+    top_loop = _PC.match_level(target_loop, producer_alloc)
+    loops = _PC.get_ancestors(target_loop, up_to=top_loop)
 
-    bound = bounds_inference(proc, loop, producer, buffer_idx, include=["W"])
-    lo, hi = bound.get_bounds()
+    for loop in reversed(loops):
+        buffer_dims = get_affected_dims(proc, producer, loop.name())
+        if len(buffer_dims) > 1:
+            raise ValueError(
+                f"{loop.name()} affects multiple indices into buffer {producer}"
+            )
+        buffer_dim = list(buffer_dims)[0]
 
-    proc = sink_alloc(proc, producer_alloc)
-    proc = shrink_dim(proc, producer_alloc, buffer_idx, lo, hi)
+        loop = proc.forward(loop)
+        producer_alloc = proc.forward(producer_alloc)
+
+        bound = bounds_inference(proc, loop, producer, buffer_dim, include=["W"])
+        lo, hi = bound.get_bounds()
+
+        while producer_alloc.next() != loop:
+            reorder_stmts(proc, producer_alloc.expand(0, 1))
+            producer_alloc = proc.forward(producer_alloc)
+
+        proc = sink_alloc(proc, producer_alloc)
+        proc = shrink_dim(proc, producer_alloc, buffer_dim, lo, hi)
 
     return simplify(proc)
 

@@ -294,6 +294,15 @@ class StmtCursor(StmtCursorPrototype):
         """Shorthand for stmt_cursor.as_block().expand(...)"""
         return self.as_block().expand(delta_lo, delta_hi)
 
+    def is_ancestor_of(self, other):
+        """
+        Returns True if this cursor is an ancestor of the other cursor.
+        """
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl, C.Node)
+
+        return self._impl.is_ancestor_of(other._impl)
+
 
 class BlockCursor(StmtCursorPrototype, ListCursorPrototype):
     """
@@ -839,6 +848,8 @@ class StrideExprCursor(ExprCursor):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # High-level cursor navigation functions
+# --------------------------------------------------------------------------- #
+# These could all be user-level code, but are convenient enough to include.
 
 
 class CursorNavigationError(Exception):
@@ -878,9 +889,7 @@ def get_stmt_within_scope(cursor, scope):
     Gets the statement containing [cursor] that is directly in the provided [scope]
     """
     validate_cursors(cursor, scope)
-    assert isinstance(
-        scope, (ForSeqCursor, IfCursor)
-    ), "scope was not an for loop or if statement"
+    assert isinstance(scope, (ForSeqCursor, IfCursor))
 
     try:
         return match_level(cursor, scope.body()[0])
@@ -905,6 +914,36 @@ def get_enclosing_loop(cursor, loop_iter=None):
             raise CursorNavigationError("no enclosing loop found")
 
     return cursor
+
+
+def get_ancestors(c, up_to=None):
+    """
+    Returns all ancestors of `c` up to `up_to`, inclusive. If `up_to` is `None`,
+    returns all ancestors of `c` up to the root of the AST.
+    """
+    ancestors = []
+    if up_to is not None:
+        while c != up_to:
+            ancestors.append(c)
+            c = c.parent()
+        ancestors.append(up_to)
+    else:
+        while not isinstance(c, InvalidCursor):
+            ancestors.append(c)
+            c = c.parent()
+    return ancestors
+
+
+def get_lca(cursor1, cursor2):
+    """
+    Gets the lowest common ancestor of [cursor1] and [cursor2].
+    """
+    c = cursor1
+    while not c.is_ancestor_of(cursor2):
+        c = c.parent()
+        if isinstance(c, InvalidCursor):
+            raise CursorNavigationError("these cursors do not have a common ancestor")
+    return c
 
 
 # --------------------------------------------------------------------------- #
@@ -1024,9 +1063,10 @@ __all__ = [
     "StrideExprCursor",
     #
     "InvalidCursorError",
-    #
     "CursorNavigationError",
+    #
     "match_level",
     "get_stmt_within_scope",
     "get_enclosing_loop",
+    "get_lca",
 ]

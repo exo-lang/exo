@@ -615,3 +615,35 @@ def test_get_enclosing_loop_fail():
         CursorNavigationError, match="scope is not an ancestor of cursor"
     ):
         c = get_stmt_within_scope(foo.find("x = _"), foo.find_loop("j"))
+
+
+def test_is_ancestor_of_and_lca():
+    @proc
+    def foo():
+        for i in seq(0, 10):
+            for j in seq(0, 10):
+                pass
+            x: i8
+
+    i_loop = foo.find_loop("i")
+    j_loop = foo.find_loop("j")
+    x_alloc = foo.find("x:_")
+    pass_stmt = foo.find("pass")
+
+    assert i_loop.is_ancestor_of(i_loop)
+
+    assert i_loop.is_ancestor_of(j_loop)
+    assert i_loop.is_ancestor_of(pass_stmt)
+    assert i_loop.is_ancestor_of(x_alloc)
+
+    assert not j_loop.is_ancestor_of(i_loop)
+    assert j_loop.is_ancestor_of(pass_stmt)
+    assert not j_loop.is_ancestor_of(x_alloc)
+
+    assert not pass_stmt.is_ancestor_of(i_loop)
+    assert not pass_stmt.is_ancestor_of(j_loop)
+
+    assert not x_alloc.is_ancestor_of(i_loop)
+    assert not x_alloc.is_ancestor_of(j_loop)
+
+    assert get_lca(x_alloc, pass_stmt) == i_loop
