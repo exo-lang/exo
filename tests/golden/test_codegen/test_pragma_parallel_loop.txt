@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+
 
 
 // foo(
@@ -13,7 +16,8 @@
 void foo( void *ctxt, int8_t* x ) {
 #pragma omp parallel for
 for (int_fast32_t i = 0; i < 10; i++) {
-  x[i] = 1.0;
+  int8_t y[10];
+  x[i] = y[i];
 }
 }
 
