@@ -76,12 +76,15 @@ module LoopIR {
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
          | If( expr cond, stmt* body, stmt* orelse )
-         | Seq( sym iter, expr lo, expr hi, stmt* body )
+         | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem? mem )
          | Free( sym name, type type, mem? mem )
          | Call( proc f, expr* args )
          | WindowStmt( sym lhs, expr rhs )
          attributes( effect? eff, srcinfo srcinfo )
+
+    loop_mode = Seq()
+                | Par()
 
     expr = Read( sym name, expr* idx )
          | Const( object val )
@@ -703,7 +706,7 @@ class LoopIR_Rewrite:
                         orelse=new_orelse or s.orelse,
                     )
                 ]
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             new_lo = self.map_e(s.lo)
             new_hi = self.map_e(s.hi)
             new_body = self.map_stmts(s.body)
@@ -863,7 +866,7 @@ class LoopIR_Do:
             self.do_e(s.cond)
             self.do_stmts(s.body)
             self.do_stmts(s.orelse)
-        elif styp is LoopIR.Seq:
+        elif styp is LoopIR.For:
             self.do_e(s.lo)
             self.do_e(s.hi)
             self.do_stmts(s.body)
@@ -951,7 +954,7 @@ class LoopIR_Compare:
                 and self.match_stmts(s1.body, s2.body)
                 and self.match_stmts(s1.orelse, s2.orelse)
             )
-        elif isinstance(s1, LoopIR.Seq):
+        elif isinstance(s1, LoopIR.For):
             return (
                 self.match_name(s1.iter, s2.iter)
                 and self.match_e(s1.lo, s2.lo)
@@ -1122,7 +1125,7 @@ class FreeVars(LoopIR_Do):
             self.do_stmts(s.orelse)
             self.pop()
             return
-        elif styp is LoopIR.Seq:
+        elif styp is LoopIR.For:
             self.do_e(s.lo)
             self.do_e(s.hi)
             self.push()
@@ -1209,7 +1212,7 @@ class Alpha_Rename(LoopIR_Rewrite):
             stmts = super().map_s(s)
             self.pop()
             return stmts
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             lo = self.map_e(s.lo) or s.lo
             hi = self.map_e(s.hi) or s.hi
 

@@ -152,7 +152,7 @@ class LoopIR_Dependencies(LoopIR_Do):
 
             self._context = old_context
 
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             old_context = self._context
             self._context = old_context.copy()
 

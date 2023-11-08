@@ -606,7 +606,7 @@ class Compiler:
                 if isinstance(s, LoopIR.Alloc):
                     mem = s.mem if s.mem else DRAM
                     check |= issubclass(mem, StaticMemory)
-                elif isinstance(s, LoopIR.Seq):
+                elif isinstance(s, LoopIR.For):
                     check |= allocates_static_memory(s.body)
                 elif isinstance(s, LoopIR.If):
                     check |= allocates_static_memory(s.body)
@@ -621,7 +621,7 @@ class Compiler:
                     # them for leaf-node classification purposes. We want
                     # to avoid nested procs that both allocate static memory.
                     check &= s.f.instr is not None
-                elif isinstance(s, LoopIR.Seq):
+                elif isinstance(s, LoopIR.For):
                     check &= is_leaf_proc(s.body)
                 elif isinstance(s, LoopIR.If):
                     check &= is_leaf_proc(s.body)
@@ -870,7 +870,7 @@ class Compiler:
                 self.pop()
             self.add_line("}")
 
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             lo = self.comp_e(s.lo)
             hi = self.comp_e(s.hi)
             self.push(only="env")
@@ -880,6 +880,8 @@ class Compiler:
                 s.lo,
                 s.hi,
             )
+            if isinstance(s.loop_mode, LoopIR.Par):
+                self.add_line(f"#pragma omp parallel for")
             self.add_line(f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
             self.push(only="tab")
             self.comp_stmts(s.body)

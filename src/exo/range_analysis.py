@@ -176,6 +176,7 @@ def index_range_analysis_v2(expr, env):
         if isinstance(expr, LoopIR.Read):
             sym = expr.name
             if sym not in env:
+                print(sym)
                 return IndexRange(expr, 0, 0)
             lo, hi = env[sym]
             return IndexRange(None, lo, hi)
@@ -212,7 +213,7 @@ def infer_range(expr, scope):
     ancestors = get_ancestors(expr, up_to=scope)[:-1]
     for c in ancestors:
         s = c._impl._node
-        if isinstance(s, LoopIR.Seq):
+        if isinstance(s, LoopIR.For):
             env.add_loop_iter(s.iter, s.lo, s.hi)
     bounds = index_range_analysis_v2(expr._impl._node, env.env)
     return bounds

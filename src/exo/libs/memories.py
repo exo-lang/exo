@@ -56,6 +56,29 @@ class DRAM_STATIC(DRAM):
         return ""
 
 
+# ----------- DRAM using stack memory ----------------
+# This is necessary for parallelization, since the stack is thread-local whereas
+# static is per-binary.
+
+
+class DRAM_STACK(DRAM):
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        for extent in shape:
+            try:
+                int(extent)
+            except ValueError as e:
+                raise MemGenError(
+                    f"DRAM_STATIC requires constant shapes. Saw: {extent}"
+                ) from e
+
+        return f'{prim_type} {new_name}[{" * ".join(shape)}];'
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ""
+
+
 # ----------- GEMMINI scratchpad ----------------
 
 

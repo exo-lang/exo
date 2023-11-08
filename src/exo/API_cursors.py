@@ -59,7 +59,7 @@ class Cursor(ABC):
                | AssignConfig( config : Config, field : str, rhs : Expr )
                | Pass()
                | If( cond : Expr, body : Block, orelse : Block? )
-               | ForSeq( name : str, hi : Expr, body : Block )
+               | For( name : str, hi : Expr, body : Block )
                | Alloc( name : str, mem : Memory? )
                | Call( subproc : Procedure, args : ExprList )
                | WindowStmt( name : str, winexpr : WindowExpr )
@@ -401,6 +401,11 @@ class ExprCursor(ExprCursorPrototype):
     See `help(Cursor)` for more details.
     """
 
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.expr)
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
+
 
 class ExprListCursor(ListCursorPrototype):
     """
@@ -441,6 +446,11 @@ class AssignCursor(StmtCursor):
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Assign)
         return self._child_node("rhs")
+
+    def type(self) -> API.ExoType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Assign)
+        return loopir_type_to_exotype(self._impl._node.type.basetype())
 
 
 class ReduceCursor(StmtCursor):
@@ -531,7 +541,7 @@ class IfCursor(StmtCursor):
         return BlockCursor(orelse, self._proc) if len(orelse) > 0 else InvalidCursor()
 
 
-class ForSeqCursor(StmtCursor):
+class ForCursor(StmtCursor):
     """
     Cursor pointing to a loop statement:
         ```
@@ -542,25 +552,25 @@ class ForSeqCursor(StmtCursor):
 
     def name(self) -> str:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return self._impl._node.iter.name()
 
     def lo(self) -> ExprCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return self._child_node("lo")
 
     def hi(self) -> ExprCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return self._child_node("hi")
 
     def body(self) -> BlockCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return BlockCursor(self._impl._child_block("body"), self._proc)
 
@@ -908,7 +918,7 @@ def get_enclosing_loop(cursor, loop_iter=None):
         lambda x: x.name() == loop_iter if loop_iter is not None else lambda x: True
     )
 
-    while not (isinstance(cursor, ForSeqCursor) and match_iter(cursor)):
+    while not (isinstance(cursor, ForCursor) and match_iter(cursor)):
         cursor = cursor.parent()
         if isinstance(cursor, InvalidCursor):
             raise CursorNavigationError("no enclosing loop found")
@@ -993,8 +1003,8 @@ def lift_cursor(impl, proc):
             return PassCursor(impl, proc)
         elif isinstance(n, LoopIR.If):
             return IfCursor(impl, proc)
-        elif isinstance(n, LoopIR.Seq):
-            return ForSeqCursor(impl, proc)
+        elif isinstance(n, LoopIR.For):
+            return ForCursor(impl, proc)
         elif isinstance(n, LoopIR.Alloc):
             return AllocCursor(impl, proc)
         elif isinstance(n, LoopIR.Call):
@@ -1048,7 +1058,7 @@ __all__ = [
     "AssignConfigCursor",
     "PassCursor",
     "IfCursor",
-    "ForSeqCursor",
+    "ForCursor",
     "AllocCursor",
     "CallCursor",
     "WindowStmtCursor",

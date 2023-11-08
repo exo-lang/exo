@@ -64,6 +64,7 @@ from ..API_scheduling import (
     unroll_buffer,
     #
     # loop rewriting
+    parallelize_loop,
     divide_with_recompute,
     divide_loop,
     mult_loops,
@@ -225,7 +226,7 @@ def call_site_mem_aware_replace(proc, block_cursor, subproc, quiet=False):
                 check_passed = check_passed and check_all_calls(cursor.body())
                 if type(cursor.orelse()) is not _PC.InvalidCursor:
                     check_passed = check_passed and check_all_calls(cursor.orelse())
-            elif isinstance(cursor, _PC.ForSeqCursor):
+            elif isinstance(cursor, _PC.ForCursor):
                 check_passed = check_passed and check_all_calls(cursor.body())
         return check_passed
 
@@ -237,12 +238,7 @@ def call_site_mem_aware_replace(proc, block_cursor, subproc, quiet=False):
     return proc
 
 
-def replace_all(proc, subprocs, mem_aware=True):
-    """
-    DEPRECATED ?
-    Is there a better way to write this out of primitives?
-    Does this simply require that we have better introspection facilities?
-    """
+def _replace_helper(proc, subprocs, mem_aware, once):
 
     if not isinstance(subprocs, list):
         subprocs = [subprocs]
@@ -261,7 +257,7 @@ def replace_all(proc, subprocs, mem_aware=True):
         _PC.AssignConfigCursor: "TODO",
         _PC.PassCursor: "TODO",
         _PC.IfCursor: "TODO",
-        _PC.ForSeqCursor: "for _ in _: _",
+        _PC.ForCursor: "for _ in _: _",
         _PC.AllocCursor: "TODO",
         _PC.CallCursor: "TODO",
         _PC.WindowStmtCursor: "TODO",
@@ -279,6 +275,8 @@ def replace_all(proc, subprocs, mem_aware=True):
                     )
                 else:
                     proc = replace(proc, f"{pattern} #{i}", subproc, quiet=True)
+                if once:
+                    break
             except (TypeError, SchedulingError) as e:
                 if "failed to find matches" in str(e):
                     break
@@ -287,6 +285,35 @@ def replace_all(proc, subprocs, mem_aware=True):
                 i += 1
 
     return proc
+
+
+def replace_all(proc, subprocs, mem_aware=True):
+    """
+    Givin a proc and subprocs, replace the body of proc with subproc
+    as much as possible.
+
+    args:
+        subprocs  - list of subprocedures (or instruction definitions) to
+                    be replaced with
+        mem_aware - if True, replace will only suceed when memory annotation
+                    also matches
+    """
+
+    return _replace_helper(proc, subprocs, mem_aware, False)
+
+
+def replace_once(proc, subprocs, mem_aware=True):
+    """
+    Givin a proc and subprocs, replace the body of proc with subproc only once.
+
+    args:
+        subprocs  - list of subprocedures (or instruction definitions) to
+                    be replaced with
+        mem_aware - if True, replace will only suceed when memory annotation
+                    also matches
+    """
+
+    return _replace_helper(proc, subprocs, mem_aware, True)
 
 
 def lift_if(proc, cursor, n_lifts=1):
@@ -345,6 +372,7 @@ def fuse_at(proc, producer, consumer, loop, reorder=True):
     buffer_dim = list(buffer_dims)[0]
 
     consumer_bound = bounds_inference(proc, loop, consumer, buffer_dim, include=["W"])
+    print(consumer_bound)
     w_c = consumer_bound.get_size()
 
     # TODO: need a better way of deciding inner loop iter name
@@ -359,7 +387,7 @@ def fuse_at(proc, producer, consumer, loop, reorder=True):
     # makes the newly divided loop the innermost loop of the producer.
     if reorder:
         p_inner_loop = proc.find_loop(f"{p_iter}i")
-        while isinstance(p_inner_loop.body()[0], _PC.ForSeqCursor):
+        while isinstance(p_inner_loop.body()[0], _PC.ForCursor):
             proc = reorder_loops(proc, p_inner_loop)
             p_inner_loop = proc.forward(p_inner_loop)
 
