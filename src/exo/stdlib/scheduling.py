@@ -95,12 +95,14 @@ from ..API_scheduling import (
     autolift_alloc,
 )
 
-
+# TODO: remove
+from ..LoopIR import LoopIR
 from .analysis import (
     check_call_mem_types,
 )
 
-from exo.range_analysis import bounds_inference, get_affected_dims
+from ..range_analysis import bounds_inference, get_affected_dim
+from ..API_cursors import InvalidCursor
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -245,11 +247,6 @@ def _replace_helper(proc, subprocs, mem_aware, once):
 
     for subproc in subprocs:
         assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
-        body = subproc.body()
-        assert len(body) == 1, (
-            "replace_all only supports single statement "
-            "subprocedure bodies right now"
-        )
 
     patterns = {
         _PC.AssignCursor: "_ = _",
@@ -269,19 +266,24 @@ def _replace_helper(proc, subprocs, mem_aware, once):
         i = 0
         while True:
             try:
+                block = proc.find(f"{pattern} #{i}").expand(0, len(body) - 1)
+                assert len(block) == len(body)
                 if mem_aware:
-                    proc = call_site_mem_aware_replace(
-                        proc, f"{pattern} #{i}", subproc, quiet=True
-                    )
+                    proc = call_site_mem_aware_replace(proc, block, subproc, quiet=True)
                 else:
-                    proc = replace(proc, f"{pattern} #{i}", subproc, quiet=True)
+                    proc = replace(proc, block, subproc, quiet=True)
                 if once:
                     break
             except (TypeError, SchedulingError) as e:
                 if "failed to find matches" in str(e):
                     break
                 raise
-            except (_UnificationError, MemoryError, NotImplementedError):
+            except (
+                _UnificationError,
+                MemoryError,
+                NotImplementedError,
+                AssertionError,
+            ):
                 i += 1
 
     return proc
@@ -352,7 +354,7 @@ def lift_if(proc, cursor, n_lifts=1):
     return proc
 
 
-def fuse_at(proc, producer, consumer, loop, reorder=True):
+def fuse_at(proc, producer: str, consumer: str, loop, reorder=True):
     """
     This version of compute_at will only go down one-level of for loops
 
@@ -360,36 +362,45 @@ def fuse_at(proc, producer, consumer, loop, reorder=True):
     TODO: remove the [reorder] hack.
     """
 
-    p_loop = _PC.match_level(proc.find(f"{producer}[_] = _"), loop)
-    c_loop = loop  # TODO: need to think about nested loops here.
-    N_c = c_loop.hi()._impl._node
+    p_assign = proc.find(f"{producer}[_] = _")
+    p_loop = _PC.get_top_level_stmt(p_assign)
+    c_loops = _PC.get_ancestors(loop, up_to=None)
 
-    buffer_dims = get_affected_dims(proc, consumer, loop.name())
-    if len(buffer_dims) > 1:
-        raise ValueError(
-            f"{loop.name()} affects multiple indices into buffer {consumer}"
+    for c_loop in reversed(c_loops):
+        c_loop = proc.forward(c_loop)
+        p_loop = _PC.get_enclosing_loop(proc.forward(p_assign), c_loop.name())
+
+        # infer bounds of consumer to determine cut-factor
+        N_c = c_loop.hi()._impl._node
+        buffer_dim = get_affected_dim(proc, consumer, c_loop.name())
+        consumer_bound = bounds_inference(
+            proc, c_loop, consumer, buffer_dim, include=["W"]
         )
-    buffer_dim = list(buffer_dims)[0]
+        w_c = consumer_bound.get_size()
 
-    consumer_bound = bounds_inference(proc, loop, consumer, buffer_dim, include=["W"])
-    print(consumer_bound)
-    w_c = consumer_bound.get_size()
+        p_iter = p_loop.name()
+        new_iters = [f"{p_iter}", f"{p_iter}i"]
 
-    # TODO: need a better way of deciding inner loop iter name
-    c_iter = c_loop.name()
-    p_iter = p_loop.name()
-    new_iters = [f"{c_iter}", f"{p_iter}i"]
+        assert p_loop.next() == c_loop
+        proc = divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
+        proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
 
-    proc = divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
-    proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
-
-    # TODO: this should match producer loop structure to consumer's. Currently, it just
-    # makes the newly divided loop the innermost loop of the producer.
-    if reorder:
-        p_inner_loop = proc.find_loop(f"{p_iter}i")
+        p_inner_loop = proc.forward(p_loop).body()[0]
         while isinstance(p_inner_loop.body()[0], _PC.ForCursor):
             proc = reorder_loops(proc, p_inner_loop)
             p_inner_loop = proc.forward(p_inner_loop)
+
+        for pred in p_assign._impl.get_root().preds:
+            if (
+                isinstance(pred, LoopIR.BinOp)
+                and pred.op == "=="
+                and isinstance(pred.rhs, LoopIR.Const)
+            ):
+                try:
+                    proc = rewrite_expr(proc, f"{pred.lhs}", pred.rhs.val)
+                except:
+                    pass
+        proc = simplify(proc)
 
     return simplify(proc)
 
@@ -409,12 +420,7 @@ def store_at(proc, producer, consumer, target_loop):
     loops = _PC.get_ancestors(target_loop, up_to=top_loop)
 
     for loop in reversed(loops):
-        buffer_dims = get_affected_dims(proc, producer, loop.name())
-        if len(buffer_dims) > 1:
-            raise ValueError(
-                f"{loop.name()} affects multiple indices into buffer {producer}"
-            )
-        buffer_dim = list(buffer_dims)[0]
+        buffer_dim = get_affected_dim(proc, producer, loop.name())
 
         loop = proc.forward(loop)
         producer_alloc = proc.forward(producer_alloc)

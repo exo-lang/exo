@@ -196,7 +196,7 @@ def mm256_storeu_si256(dst: [ui16][16] @ DRAM, src: [ui16][16] @ AVX2):
         dst[i] = src[i]
 
 
-@instr("{out_data} = _mm256_add_epi16({x_data}, {y_data});")
+@instr("{out_data} = _mm256_adds_epu16({x_data}, {y_data});")
 def mm256_add_epi16(out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2, y: [ui16][16] @ AVX2):
     assert stride(out, 0) == 1
     assert stride(x, 0) == 1
@@ -541,19 +541,28 @@ def avx2_convert_f32_upper_to_f64(dst: [f64][4] @ AVX2, src: [f32][8] @ AVX2):
         dst[i] = src[4 + i]
 
 
+# TODO: This is
 @instr(
+    # """
+    # {{
+    #     {three_data} = _mm256_set1_epi16(21846);
+    #     {out_data} = _mm256_mulhi_epu16({x_data}, {three_data});
+    # }}
+    # """
     """
     {{
-        __m256i one_third = _mm256_set1_epi16(21846);
-        {out_data} = _mm256_mulhi_epi16({x_data}, one_third);
+        {three_data} = _mm256_set1_epi16(43691);
+        {out_data} = _mm256_mulhi_epu16({x_data}, {three_data});
+        {out_data} = _mm256_srli_epi16({out_data}, 1);
     }}
     """
 )
-def avx2_ui16_divide_by_3(out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2):
+def avx2_ui16_divide_by_3(
+    three: [ui16][16] @ AVX2, out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2
+):
     assert stride(out, 0) == 1
     assert stride(x, 0) == 1
 
-    three: ui16[16] @ AVX2
     for xii in seq(0, 16):
         three[xii] = 3.0
     for xii in seq(0, 16):

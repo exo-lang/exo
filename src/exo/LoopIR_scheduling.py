@@ -3214,8 +3214,10 @@ class DoSimplify(Cursor_Rewrite):
 
         # might need to update IR with predicate changes
         if new_preds := self.map_exprs(self.ir.preds):
-            # TODO KQ: is this line covered? do we not need to forward here?
-            self.ir = self.ir.update(preds=new_preds)
+            self.ir, fwd = (
+                ic.Cursor.create(self.ir)._child_block("preds")._replace(new_preds)
+            )
+            self.fwd = _compose(fwd, self.fwd)
 
     def cfold(self, op, lhs, rhs):
         if op == "+":

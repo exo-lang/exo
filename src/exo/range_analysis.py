@@ -5,7 +5,7 @@ from typing import Optional
 
 from .LoopIR import LoopIR, T, LoopIR_Compare, get_reads_of_expr
 from .new_eff import Check_ExprBound, Check_ExprBound_Options
-from .API_cursors import get_ancestors
+from .API_cursors import get_ancestors, Cursor
 
 
 def binop(op: str, e1, e2):
@@ -39,7 +39,7 @@ class IndexRange:
             hi = "inf" if self.hi is None else f"{self.base} + {self.hi + 1}"
         return lo, hi
 
-    def get_size(self):
+    def get_size(self) -> int:
         if self.lo is None or self.hi is None:
             return None
         # +1 because bounds are inclusive
@@ -176,7 +176,6 @@ def index_range_analysis_v2(expr, env):
         if isinstance(expr, LoopIR.Read):
             sym = expr.name
             if sym not in env:
-                print(sym)
                 return IndexRange(expr, 0, 0)
             lo, hi = env[sym]
             return IndexRange(None, lo, hi)
@@ -219,11 +218,12 @@ def infer_range(expr, scope):
     return bounds
 
 
-def get_affected_dims(proc, buffer_name, iter_sym):
+def get_affected_dim(proc, buffer_name: str, iter_sym):
     """
-    Return which dimensions of buffer are affected by [iter_sym]
+    Return which dimension of buffer are affected by [iter_sym]. Raises
+    an error if there are multiple.
     """
-    idxs = set()
+    dims = set()
     # TODO: this only matches against writes
     for c in proc.find(f"{buffer_name}[_] = _", many=True):
         for idx, idx_expr in enumerate(c.idx()):
@@ -231,18 +231,22 @@ def get_affected_dims(proc, buffer_name, iter_sym):
                 name.name() for (name, typ) in get_reads_of_expr(idx_expr._impl._node)
             ]
             if iter_sym in idx_vars:
-                idxs.add(idx)
+                dims.add(idx)
 
-    return idxs
+    if len(dims) > 1:
+        raise ValueError(f"{buffer_name} affects multiple indices in {consumer}")
+
+    return list(dims)[0]
 
 
 # TODO: fix this include interface to be something better
 def bounds_inference(proc, loop, buffer_name: str, buffer_dim: int, include=["R", "W"]):
-    # TODO: check that loop is a cursor of proc, and try to forward if not
+    loop = proc.forward(loop)
     alloc = proc.find_alloc_or_arg(buffer_name)
     dim = alloc.shape()[buffer_dim]
 
     matches = []
+    # TODO: also want probably reduces... for both read and write
     if "R" in include:
         # TODO: proc.find doesn't take a scope. Either write a variant or add that as an optional arg
         # TODO: Also, proc.find fails if no matches are found...but we really just want it to return []
@@ -256,14 +260,18 @@ def bounds_inference(proc, loop, buffer_name: str, buffer_dim: int, include=["R"
         idx_expr = c.idx()[buffer_dim]
         cur_bounds = infer_range(idx_expr, loop)
 
-        # This is effectively joining the bounds w/ Bottom
         if bound is None:
+            # This is effectively joining the bounds w/ Bottom
             bound = cur_bounds
         else:
             bound |= cur_bounds
     return bound
 
 
+# Should define a new file with user-facing functions:
+# - index_range_analysis
+# - user can reinvent some of the wheel (e.g. the add_loop_iter function)
+#
 def index_range_analysis(expr, env):
     """
     Returns constant integer bounds for [expr], if possible, and

@@ -944,6 +944,12 @@ def get_ancestors(c, up_to=None):
     return ancestors
 
 
+def get_top_level_stmt(c):
+    while not isinstance(c.parent(), InvalidCursor):
+        c = c.parent()
+    return c
+
+
 def get_lca(cursor1, cursor2):
     """
     Gets the lowest common ancestor of [cursor1] and [cursor2].
