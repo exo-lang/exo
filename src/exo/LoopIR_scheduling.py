@@ -670,7 +670,7 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
         return LoopIR.Read(i, [], T.index, srcinfo)
 
     def ceildiv(lhs, rhs):
-        assert isinstance(rhs, LoopIR.Const) and rhs.val > 1
+        assert isinstance(rhs, LoopIR.Const) and rhs.val > 0
         rhs_1 = cnst(rhs.val - 1)
         return szop("/", szop("+", lhs, rhs_1), rhs)
 
