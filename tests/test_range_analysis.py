@@ -8,6 +8,9 @@ from exo.range_analysis import (
     index_range_analysis,
     arg_range_analysis,
     IndexRangeEnvironment,
+    IndexRange,
+    infer_range,
+    bounds_inference,
 )
 from exo.LoopIR import LoopIR, T
 
@@ -144,7 +147,7 @@ def test_affine_index_range8():
     e = bar.find("for j in _:_").hi()._impl._node
     i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = index_range_analysis(e, {i_sym: (0, 5)})
-    assert e_range == (0, 4)
+    assert e_range == (0, 3)
 
 
 def test_affine_index_range9():
@@ -185,10 +188,10 @@ def test_affine_index_range_fail():
     e = bar.find("for j in _:_").hi()._impl._node
     i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = index_range_analysis(e, {i_sym: (0, 5)})
-    assert e_range == (None, None)
+    assert e_range == (-15, 20)
 
 
-def test_affine_index_range_fail1():
+def test_affine_index_range_fail2():
     @proc
     def bar(N: size):
         for i in seq(0, 6):
@@ -198,10 +201,10 @@ def test_affine_index_range_fail1():
     e = bar.find("for j in _:_").hi()._impl._node
     i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = index_range_analysis(e, {i_sym: (0, 5)})
-    assert e_range == (None, None)
+    assert e_range == (9, 11)
 
 
-def test_affine_index_range_fail2():
+def test_affine_index_range_fail3():
     @proc
     def bar():
         for i in seq(0, 3):
@@ -211,7 +214,7 @@ def test_affine_index_range_fail2():
     e = bar.find("for j in _:_").hi()._impl._node
     i_sym = bar.find("for i in _:_")._impl._node.iter
     e_range = index_range_analysis(e, {i_sym: (0, 2)})
-    assert e_range == (None, None)
+    assert e_range == (-16, 48)
 
 
 def test_arg_range():
@@ -280,7 +283,7 @@ def test_arg_range4():
     )
 
 
-def test_arg_range4():
+def test_arg_range5():
     @proc
     def foo(N: size, K: size):
         assert N < 500
@@ -299,7 +302,7 @@ def test_arg_range4():
     )
 
 
-def test_arg_range5():
+def test_arg_range6():
     val = 2**32
 
     @proc
@@ -319,7 +322,7 @@ def test_arg_range5():
     ) == (1, None)
 
 
-def test_arg_range6():
+def test_arg_range7():
     @proc
     def foo(N: index, K: index):
         assert -10 < K
@@ -337,7 +340,7 @@ def test_arg_range6():
     ) == (-9, 3)
 
 
-def test_inedex_range_env():
+def test_index_range_env():
     N_upper_bound = 20
     K_lower_bound = 30
     M_value = 100
@@ -349,7 +352,7 @@ def test_inedex_range_env():
         assert M == M_value
         for i in seq(K, N * 2 + K):
             pass
-        for j in seq(M, M):
+        for j in seq(M, M + 1):
             pass
 
     env = IndexRangeEnvironment(foo._loopir_proc, fast=False)
@@ -400,7 +403,7 @@ def test_inedex_range_env():
     # I should still be able to see `N`
     run_N_asserts()
 
-    env.add_sym(node.iter, node.lo, node.hi)
+    env.add_loop_iter(node.iter, node.lo, node.hi)
     i_read = LoopIR.Read(node.iter, [], T.index, foo._loopir_proc.srcinfo)
 
     run_N_asserts()
@@ -421,18 +424,11 @@ def test_inedex_range_env():
 
     env.exit_scope()
 
-    # I shouldn't be able to see `i` now
-    with pytest.raises(AssertionError, match=""):
-        env.check_expr_bounds(
-            0, IndexRangeEnvironment.leq, i_read, IndexRangeEnvironment.leq, 100
-        )
-
-    # I should still be able to see `N` though
     run_N_asserts()
 
     loop = foo.find_loop("j")
     node = loop._impl._node
-    env.add_sym(node.iter, node.lo, node.hi)
+    env.add_loop_iter(node.iter, node.lo, node.hi)
     N_read = LoopIR.Read(
         foo._loopir_proc.args[0].name, [], T.size, foo._loopir_proc.srcinfo
     )
@@ -446,3 +442,74 @@ def test_inedex_range_env():
     assert not env.check_expr_bounds(
         M_value, IndexRangeEnvironment.eq, j_read, IndexRangeEnvironment.lt, M_value
     )
+
+
+# TODO: write test for IndexRange
+
+
+def test_infer_range_of_expr():
+    # TODO: test loops with non-zero lower bounds
+    @proc
+    def foo(n: size, m: size, x: i8[n + 2, m + 5]):
+        assert n % 4 == 0
+        assert m % 3 == 0
+        for io in seq(0, n / 4):
+            for jo in seq(0, m / 3):
+                for ii in seq(0, 6):
+                    for ji in seq(0, 8):
+                        x[io * 4 + ii, jo * 3 + ji] = 1.0
+
+    idx_c = foo.find("x[_] = _").idx()[0]
+    idx = idx_c._impl._node
+
+    bounds = infer_range(idx_c, foo.find_loop("jo"))
+    assert str(bounds) == "(io * 4, 0, 5)"
+
+    bounds = infer_range(idx_c, foo.find_loop("io"))
+    assert str(bounds) == "(io * 4, 0, 5)"
+
+
+def test_bounds_inference_tiled_blur2d():
+    @proc
+    def blur2d_tiled(n: size, consumer: i8[n, n], sin: i8[n + 1, n + 1]):
+        assert n % 4 == 0
+        producer: i8[n + 1, n + 1]
+        for i in seq(0, n + 1):
+            for j in seq(0, n + 1):
+                producer[i, j] = sin[i, j]
+        for io in seq(0, n / 4):
+            for jo in seq(0, n / 4):
+                for ii in seq(0, 4):
+                    for ji in seq(0, 4):
+                        consumer[4 * io + ii, 4 * jo + ji] = (
+                            producer[4 * io + ii, 4 * jo + ji]
+                            + producer[4 * io + ii, 4 * jo + ji + 1]
+                            + producer[4 * io + ii + 1, 4 * jo + ji]
+                            + producer[4 * io + ii + 1, 4 * jo + ji + 1]
+                        ) / 4.0
+
+    loop = blur2d_tiled.find_loop("io")
+    bound = bounds_inference(blur2d_tiled, loop, "producer", 0, include=["R"])
+    assert str(bound) == "(io * 4, 0, 4)"
+
+    loop = blur2d_tiled.find_loop("jo")
+    bound = bounds_inference(blur2d_tiled, loop, "producer", 1, include=["R"])
+    assert str(bound) == "(jo * 4, 0, 4)"
+
+    bound = bounds_inference(blur2d_tiled, loop, "producer", 0, include=["R"])
+    assert str(bound) == "(io * 4, 0, 4)"
+    bound = bounds_inference(blur2d_tiled, loop, "producer", 1, include=["R"])
+    assert str(bound) == "(jo * 4, 0, 4)"
+
+
+def test_bounds_inference_fail():
+    @proc
+    def foo(n: size, x: i8[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                x[i] = 1.0
+                x[j] = 1.0
+
+    loop = foo.find_loop("j")
+    bound = bounds_inference(foo, loop, "x", 0, include=["W"])
+    assert str(bound) == "(0, -inf, inf)"

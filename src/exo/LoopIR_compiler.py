@@ -874,12 +874,10 @@ class Compiler:
             hi = self.comp_e(s.hi)
             self.push(only="env")
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.range_env.add_sym(
+            self.range_env.add_loop_iter(
                 s.iter,
                 s.lo,
-                LoopIR.BinOp(
-                    "-", s.hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
-                ),
+                s.hi,
             )
             if isinstance(s.loop_mode, LoopIR.Par):
                 self.add_line(f"#pragma omp parallel for")
