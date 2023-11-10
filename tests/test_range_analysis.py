@@ -10,6 +10,8 @@ from exo.range_analysis import (
     arg_range_analysis,
     IndexRangeEnvironment,
     IndexRange,
+)
+from exo.stdlib.range_analysis import (
     infer_range,
     bounds_inference,
 )

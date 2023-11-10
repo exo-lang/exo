@@ -101,7 +101,7 @@ from .analysis import (
     check_call_mem_types,
 )
 
-from ..range_analysis import bounds_inference, get_affected_dim
+from .range_analysis import bounds_inference, get_affected_dim
 from ..API_cursors import InvalidCursor
 
 # --------------------------------------------------------------------------- #
@@ -354,6 +354,12 @@ def lift_if(proc, cursor, n_lifts=1):
     return proc
 
 
+def apply(p, cursors, schedop):
+    for c in cursors:
+        p = schedop(p, c)
+    return p
+
+
 def fuse_at(proc, producer: str, consumer: str, loop, reorder=True):
     """
     This version of compute_at will only go down one-level of for loops
@@ -373,10 +379,7 @@ def fuse_at(proc, producer: str, consumer: str, loop, reorder=True):
         # infer bounds of consumer to determine cut-factor
         N_c = c_loop.hi()._impl._node
         buffer_dim = get_affected_dim(proc, consumer, c_loop.name())
-        consumer_bound = bounds_inference(
-            proc, c_loop, consumer, buffer_dim, include=["W"]
-        )
-        w_c = consumer_bound.get_size()
+        w_c = bounds_inference(proc, c_loop, consumer, buffer_dim).get_size()
 
         p_iter = p_loop.name()
         new_iters = [f"{p_iter}", f"{p_iter}i"]
@@ -425,8 +428,7 @@ def store_at(proc, producer, consumer, target_loop):
         loop = proc.forward(loop)
         producer_alloc = proc.forward(producer_alloc)
 
-        bound = bounds_inference(proc, loop, producer, buffer_dim, include=["W"])
-        lo, hi = bound.get_bounds()
+        lo, hi = bounds_inference(proc, loop, producer, buffer_dim).get_bounds()
 
         while producer_alloc.next() != loop:
             reorder_stmts(proc, producer_alloc.expand(0, 1))
@@ -436,6 +438,16 @@ def store_at(proc, producer, consumer, target_loop):
         proc = shrink_dim(proc, producer_alloc, buffer_dim, lo, hi)
 
     return simplify(proc)
+
+
+def compute_at(proc, producer, consumer, target_loop):
+    """
+    Combination of fuse_at and store_at.
+    """
+    proc = fuse_at(proc, producer, consumer, target_loop)
+    target_loop = proc.forward(target_loop.body()[0]).parent()
+    proc = store_at(proc, producer, consumer, target_loop)
+    return proc
 
 
 def tile(
@@ -454,6 +466,7 @@ def tile(
     j_loop = _PC.get_enclosing_loop(consumer_assign, old_j_iter)
 
     assert j_loop.parent() == i_loop
+    # TODO: check that this works for perfect=False
     proc = divide_loop(proc, i_loop, i_tile_size, new_i_iters, perfect=perfect)
     proc = divide_loop(proc, j_loop, j_tile_size, new_j_iters, perfect=perfect)
     proc = reorder_loops(proc, f"{new_i_iters[1]} {new_j_iters[0]}")
