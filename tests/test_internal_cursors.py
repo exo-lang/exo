@@ -176,7 +176,7 @@ def test_fwd_replace_expr_node_2():
     stmt = foo.find("y + z").rhs()
     c = stmt._impl
     ir, fwd = c._replace(LoopIR.Const(42, T.size, c._node.srcinfo))
-    assert str(fwd(c)._node) == "42.0"
+    assert str(fwd(c)._node) == "42"
 
 
 def test_block_delete_whole_block(proc_bar, golden):
