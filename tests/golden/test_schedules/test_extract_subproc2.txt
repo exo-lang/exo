@@ -1,0 +1,6 @@
+def foo(N: size, M: size, K: size, x: R[N, K + M] @ DRAM):
+    assert N >= 8
+    fooooo(K, M, N, x)
+def fooooo(K: size, M: size, N: size, x: R[N, K + M]):
+    for i in seq(0, 8):
+        x[i, 0] += 2.0
