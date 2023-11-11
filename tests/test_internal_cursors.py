@@ -157,6 +157,28 @@ def test_block_replace(proc_bar, golden):
     assert str(bar2) == golden
 
 
+def test_fwd_replace_stmt_node():
+    @proc
+    def foo():
+        x: i8
+
+    stmt = foo.find("x: i8")
+    c = stmt._impl
+    ir, fwd = c._replace(LoopIR.Pass(None, c._node.srcinfo))
+    assert str(fwd(c)._node) == "pass"
+
+
+def test_fwd_replace_expr_node_2():
+    @proc
+    def foo(x: i8, y: i8, z: i8):
+        x = y + z
+
+    stmt = foo.find("y + z").rhs()
+    c = stmt._impl
+    ir, fwd = c._replace(LoopIR.Const(42, T.size, c._node.srcinfo))
+    assert str(fwd(c)._node) == "42.0"
+
+
 def test_block_delete_whole_block(proc_bar, golden):
     c = _find_stmt(proc_bar, "for j in _: _")
     bar2, _ = c.body()._delete()
@@ -292,8 +314,6 @@ def test_cursor_forward_expr_deep():
     four = LoopIR.Const(4.0, T.f32, c2._node.srcinfo)
 
     example_new, fwd = c2._replace(four)
-    with pytest.raises(InvalidCursorError, match="cannot forward replaced nodes"):
-        fwd(c2)
 
     assert fwd(_find_stmt(example, "x = _")) == _find_stmt(example_new, "x = _")
     assert (

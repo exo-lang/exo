@@ -681,7 +681,7 @@ class Node(Cursor):
         modules, but not from end-user code.
         """
         attr, idx = self._path[-1]
-        if idx is not None:
+        if isinstance(ast, list):
             # noinspection PyProtectedMember
             # delegate block replacement to the Block class
             return self.as_block()._replace(ast)
@@ -694,12 +694,50 @@ class Node(Cursor):
         return p, fwd
 
     def _forward_replace(self, new_root):
-        assert self._path[-1][1] is None
+        # TODO: This is copy and pasted from _local_forward, refactor this into its
+        # own function since it has been copy and pasted three times
+        orig_root = self._root
 
-        def fwd_node(*_):
-            raise InvalidCursorError("cannot forward replaced nodes")
+        edit_path = self._path
 
-        return self._local_forward(new_root, fwd_node)
+        if isinstance(self, Node):
+            attr = self._path[-1][0]
+        elif isinstance(self, Gap):
+            attr = self.anchor()._path[-1][0]
+        else:
+            assert isinstance(self, Block)
+            attr = self._attr
+
+        depth = len(edit_path)
+
+        def forward(cursor: Cursor) -> Cursor:
+            if cursor._root is not orig_root:
+                raise InvalidCursorError("cannot forward from unknown root")
+
+            if isinstance(cursor, Gap):
+                return Gap(new_root, forward(cursor.anchor()), cursor.type())
+
+            if isinstance(cursor, Block):
+                raise InvalidCursorError("cannot forward blocks")
+
+            assert isinstance(cursor, Node)
+
+            def evolve(p):
+                return dataclasses.replace(cursor, _root=new_root, _path=p)
+
+            old_path = cursor._path
+
+            if len(old_path) < depth + 1:
+                # Too shallow
+                return evolve(old_path)
+
+            if not (_starts_with(old_path, edit_path) and old_attr == attr):
+                # Same path down tree
+                return evolve(old_path)
+
+            return InvalidCursorError("cannot forward replaced nodes")
+
+        return forward
 
 
 class GapType(enum.Enum):
