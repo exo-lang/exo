@@ -5,6 +5,7 @@ from exo.libs.memories import DRAM_STATIC
 from exo.platforms.x86 import *
 from exo.syntax import *
 from exo.stdlib.scheduling import *
+from exo.stdlib.stdlib import *
 
 
 def reorder_up(p, stmt_pattern, n=1):
@@ -59,6 +60,8 @@ M_L1_BLK = M_REG_BLK * M_L1_FAC
 N_L1_BLK = N_REG_BLK * N_L1_FAC
 K_L1_BLK = 512
 
+AVX512F_instructions = [mm512_loadu_ps, mm512_storeu_ps, mm512_fmadd_ps, mm512_set1_ps]
+
 COPY_STREAMS = 3
 
 basic_kernel_Mx4 = {}
@@ -72,46 +75,25 @@ for M in range(1, M_REG_BLK + 1):
         return p
 
     basic_kernel_Mx4[M] = make_basic(SGEMM_WINDOW)
-    # (
-    #    SGEMM_WINDOW
-    #        .rename(f'basic_kernel_{M}x4')
-    #        .partial_eval(M, N_REG_BLK)
-    #        .simplify()
-    # )
+
     def make_avx512_kernel(p):
         p = rename(p, f"sgemm_kernel_avx512_{M}x4")
-        # Vectorize columns
-        p = divide_loop(p, "j", VEC_W, ["jo", "ji"], perfect=True)
-        # Stage C for reduction
-        p = stage_mem(p, "C[_] += _", f"C[i, {VEC_W} * jo + ji]", "C_reg")
-        p = set_memory(p, "C_reg", AVX512)
-        p = autolift_alloc(p, "C_reg: _", n_lifts=3, keep_dims=True)
-        p = autolift_alloc(p, "C_reg: _")
-        p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=4)
-        p = autofission(p, p.find("C[_] = _").before(), n_lifts=4)
-        # Stage A & B
-        def stage_input(p, expr, new_buf):
-            p = bind_expr(p, expr, new_buf)
-            p = expand_dim(p, new_buf, 16, "ji")
-            p = lift_alloc(p, new_buf)
-            p = set_memory(p, new_buf, AVX512)
-            p = fission(p, p.find(f"{new_buf} = _").after())
-            return p
-
-        p = stage_input(p, "A[_]", "A_vec")
-        p = stage_input(p, "B[_]", "B_vec")
-        # Schedule ops
-        p = replace(p, "for ji in _: _ #0", mm512_loadu_ps)
-        p = replace(p, "for ji in _: _ #3", mm512_storeu_ps)
-        p = replace_all(p, mm512_set1_ps)
-        p = replace_all(p, mm512_loadu_ps)
-        p = replace_all(p, mm512_fmadd_ps)
-        # LICM
-        p = autolift_alloc(p, "A_vec: _", keep_dims=True)
-        p = autofission(p, p.find("mm512_set1_ps(_)").after())
-        # Clean up
-        p = simplify(p)
-        print(p)
+        p = simplify(auto_stage_mem(p, p.find("C[_] += _"), "C_reg", n_lifts=3))
+        C_reg = p.body()[0]
+        p = set_memory(divide_dim(p, C_reg, 1, VEC_W), C_reg, AVX512)
+        for loop_iter in ["i1", "j", "i1"]:
+            p = vectorize(
+                p,
+                p.find_loop(loop_iter),
+                VEC_W,
+                1,
+                1,
+                AVX512,
+                "f32",
+                AVX512F_instructions,
+                vectorize_tail=False,
+            )
+        p = apply_to_block(p, p.find_loop("jo").body(), hoist_stmt)
         return p
 
     sgemm_kernel_avx512_Mx4[M] = make_avx512_kernel(basic_kernel_Mx4[M])
