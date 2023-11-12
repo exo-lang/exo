@@ -60,7 +60,16 @@ M_L1_BLK = M_REG_BLK * M_L1_FAC
 N_L1_BLK = N_REG_BLK * N_L1_FAC
 K_L1_BLK = 512
 
-AVX512F_instructions = [mm512_loadu_ps, mm512_storeu_ps, mm512_fmadd_ps, mm512_set1_ps]
+AVX512F_instructions = [
+    mm512_loadu_ps,
+    mm512_storeu_ps,
+    mm512_fmadd_ps,
+    mm512_set1_ps,
+    mm512_maskz_loadu_ps,
+    mm512_mask_storeu_ps,
+    mm512_mask_fmadd_ps,
+    mm512_mask_set1_ps,
+]
 
 COPY_STREAMS = 3
 
@@ -136,91 +145,40 @@ right_panel_kernel = make_right_panel_kernel()
 
 
 def make_right_panel_kernel_opt(p=right_panel_kernel):
-    p = rename(p, "right_panel_kernel_opt")
-    #
-    p = stage_mem(p, "C[_] += _", "C[i, j]", "C_reg")
-    p = divide_loop(p, "j", VEC_W, ["jo", "ji"], tail="cut")
-    p = bound_and_guard(p, "for ji in _: _ #1")
-    p = fission(p, p.find("for jo in _: _").after(), n_lifts=2)
-    #
-    p = autolift_alloc(p, "C_reg: _", n_lifts=3, keep_dims=True)
-    p = autolift_alloc(p, "C_reg: _ #1", n_lifts=3, keep_dims=True)
-    p = autolift_alloc(p, "C_reg: _")
-    p = autolift_alloc(p, "C_reg: _ #1")
-    p = reorder_up(p, "C_reg : _ #1")
-    # p = reorder_stmts(p, 'for k in _ : _\n'
-    #                     'C_reg: _')
-    #
-    p = autofission(p, p.find("C_reg[_] = _ #0").after(), n_lifts=4)
-    p = autofission(p, p.find("C_reg[_] = _ #1").after(), n_lifts=4)
-    p = autofission(p, p.find("C_reg[_] += _ #0").after(), n_lifts=4)
-    p = autofission(p, p.find("C_reg[_] += _ #1").after(), n_lifts=4)
-    #
-    p = reorder_up(p, "for i in _: _ #3")
-    p = reorder_up(p, "for i in _: _ #2")
-    p = reorder_up(p, "for k in _: _ #1")
-    #
-    p = set_memory(p, "C_reg", AVX512)
-    p = set_memory(p, "C_reg #1", AVX512)
-    #
-    def stage_input(p, expr, new_buf, n_lifts=1):
-        p = bind_expr(p, expr, new_buf)
-        p = expand_dim(p, new_buf, 16, "ji", unsafe_disable_checks=True)
-        p = lift_alloc(p, new_buf, n_lifts=n_lifts)
-        p = set_memory(p, new_buf, AVX512)
-        p = fission(p, p.find(f"{new_buf} = _").after(), n_lifts=n_lifts)
-        return p
-
-    p = stage_input(p, "A[_]", "A_reg")
-    p = stage_input(p, "B[_]", "B_reg")
-    #
-    p = replace_all(p, mm512_set1_ps)
-    p = replace_all(p, mm512_fmadd_ps)
-    p = replace(p, "for ji in _:\n" "  C[_] = _", mm512_storeu_ps)
-    p = replace_all(p, mm512_loadu_ps)
-    #
-    p = replace(p, "for ji in _: _ #0", mm512_maskz_loadu_ps)
-    p = replace(p, "for ji in _: _ #1", mm512_mask_storeu_ps)
-    #
-    p = stage_input(p, "A[_] #1", "A_reg2", n_lifts=2)
-    p = stage_input(p, "B[_] #1", "B_reg2", n_lifts=2)
-    #
-    p = replace_all(p, mm512_mask_set1_ps)
-    p = replace_all(p, mm512_mask_fmadd_ps)
-    p = replace_all(p, mm512_maskz_loadu_ps)
-    #
-    for tgt in ["i #0", "k #0", "i #1", "i #2"]:
-        p = fuse_after(p, tgt)
-    #
-    p = simplify(p)
-    return p
-
-
-right_panel_kernel_opt = make_right_panel_kernel_opt()
-
-
-def make_right_panel_kernel_scheduled(p=right_panel_kernel):
-    p = rename(p, "right_panel_kernel_scheduled")
-    p = replace_all(p, right_panel_kernel)
-    #
+    p, _ = auto_divide_loop(p, p.find_loop("j"), VEC_W)
     p = specialize(
         p,
-        "right_panel_kernel(_)",
-        [f"(N / 16) == {i}" for i in range(N_REG_BLK // VEC_W)],
+        p.body()[0],
+        [
+            f"((N + {VEC_W - 1}) / {VEC_W}) == {i}"
+            for i in range(1, 1 + (N_REG_BLK // VEC_W))
+        ],
     )
-    #
-    p = repeat(call_eqv)(p, "right_panel_kernel(_)", right_panel_kernel_opt)
-    p = repeat(inline)(p, "right_panel_kernel_opt")
-    #
-    p = repeat(inline_window)(p, "A = _")
-    p = repeat(inline_window)(p, "B = _")
-    p = repeat(inline_window)(p, "C = _")
-    #
+
+    for fma in p.find("C[_] += _", many=True):
+        p = simplify(auto_stage_mem(p, fma, "C_reg", 4))
+    p = eliminate_dead_code_pass(p)
+    for C_reg in p.find("C_reg : _", many=True):
+        p = simplify(divide_dim(p, C_reg, 1, VEC_W))
+        p = set_memory(p, C_reg, AVX512)
+
+    for loop in p.find_loop("i1", many=True):
+        p = vectorize_to_loops(p, loop, VEC_W, AVX512, "f32")
+    for loop in p.find_loop("ji", many=True):
+        p = vectorize_to_loops(p, loop, VEC_W, AVX512, "f32")
     p = simplify(p)
+    for loop in p.find_loop("i1o", many=True):
+        p = unroll_loop(p, loop)
+    for loop in p.find_loop("jo", many=True):
+        p = unroll_loop(p, loop)
+    p = simplify(p)
+    p = eliminate_dead_code_pass(p)
+    p = replace_all(p, AVX512F_instructions)
+    p = rename(p, "right_panel_kernel_scheduled")
     return p
 
 
-right_panel_kernel_scheduled = make_right_panel_kernel_scheduled()
+right_panel_kernel_scheduled = make_right_panel_kernel_opt()
 
 
 def make_sgemm_above_kernel(p=SGEMM_WINDOW):
