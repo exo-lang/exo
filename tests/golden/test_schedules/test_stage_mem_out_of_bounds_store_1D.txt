@@ -1,0 +1,9 @@
+def memcpy(n: size, x: f32[n] @ DRAM, y: f32[n] @ DRAM):
+    for io in seq(0, (3 + n) / 4):
+        xReg: f32[4] @ DRAM
+        for ii in seq(0, 4):
+            if ii + 4 * io < n:
+                xReg[ii] = y[ii + 4 * io]
+        for i0 in seq(0, 4):
+            if i0 + 4 * io < n:
+                x[i0 + 4 * io] = xReg[i0]
