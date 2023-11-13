@@ -24,9 +24,6 @@ def fuse_after(p, stmt):
 # noinspection PyPep8Naming
 @proc
 def SGEMM(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):
-    assert M >= 1
-    assert N >= 1
-    assert K >= 1
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
     assert stride(C, 1) == 1
@@ -218,78 +215,25 @@ sgemm_above_kernel = make_sgemm_above_kernel()
 
 def make_sgemm_exo(p=SGEMM):
     p = rename(p, "sgemm_exo")
-    # Split all loops
-    p = divide_loop(p, "k", K_L1_BLK, ["ko", "ki"], tail="cut_and_guard")
-    p = repeat(divide_loop)(p, "i", M_L1_BLK, ["io", "ii"], tail="cut_and_guard")
-    p = repeat(divide_loop)(p, "j", N_L1_BLK, ["jo", "ji"], tail="cut_and_guard")
-    # Explode into 8 cases
-    for i in range(0, 2):
-        p = fission(p, p.find(f"for io in _:_ #{i}").after(), n_lifts=2)
-    for i in range(0, 4):
-        p = fission(p, p.find(f"for jo in _:_ #{i}").after(), n_lifts=4)
-    # Case 1:
-    p = repeat(reorder_loops)(p, "ki io")
-    p = repeat(reorder_loops)(p, "ii jo")
-    p = repeat(reorder_loops)(p, "ki jo")
-    p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
-    # Case 2:
-    p = lift_if(p, f"if N%{N_L1_BLK} > 0: _ #0", n_lifts=4)
-    p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
-    # Case 3:
-    p = lift_if(p, f"if M%{M_L1_BLK} > 0: _ #0", n_lifts=2)
-    p = repeat(reorder_loops)(p, "ki jo")
-    p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
-    # Case 4:
-    p = lift_if(p, f"if M%{M_L1_BLK} > 0: _ #1", n_lifts=2)
-    p = lift_if(p, f"if N%{N_L1_BLK} > 0: _ #1", n_lifts=3)
-    p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
-    # Case 5:
-    p = replace(p, f"for ki in _: _ #0", SGEMM_WINDOW)
-    # Case 6:
-    p = lift_if(p, f"if N%{N_L1_BLK} > 0: _ #2", n_lifts=3)
-    p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
-    # Case 7:
-    p = lift_if(p, f"if M%{M_L1_BLK} > 0: _ #2")
-    p = repeat(reorder_loops)(p, "ki jo")
-    p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
-    # Case 8:
-    p = lift_if(p, f"if M%{M_L1_BLK} > 0: _ #3")
-    p = lift_if(p, f"if N%{N_L1_BLK} > 0: _ #3", n_lifts=2)
-    p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
-    ##
-    ## Case 1 memory staging
-    p = stage_window(p, "A[_] #0", "A1_cache", DRAM_STATIC)
-    p = stage_window(p, "B[_] #0", "B1_cache", DRAM_STATIC)
-    p = autolift_alloc(p, "A1_cache : _", n_lifts=3)
-    p = autolift_alloc(p, "B1_cache : _", n_lifts=3)
-    p = autofission(p, p.find_loop("i0 #0").after())
-    ### Case 2 memory staging
-    p = stage_window(p, "B[_] #1", "B2_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B2_cache", [None, N_L1_BLK], unsafe_disable_checks=True)
-    p = lift_alloc(p, "B2_cache")
-    p = autofission(p, p.find_loop("i0 #2").after())
-    ## Case 3 memory staging
-    p = stage_window(p, "B[_] #2", "B3_cache", DRAM_STATIC)
-    ## Case 4 memory staging
-    p = stage_window(p, "B[_] #3", "B4_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B4_cache", [None, N_L1_BLK], unsafe_disable_checks=True)
-    ## Case 5 memory staging
-    p = stage_window(p, "B[_] #4", "B5_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B5_cache", [K_L1_BLK, None], unsafe_disable_checks=True)
-    ## Case 6 memory staging
-    p = stage_window(p, "B[_] #5", "B6_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B6_cache", [K_L1_BLK, N_L1_BLK], unsafe_disable_checks=True)
-    ## Case 7 memory staging
-    p = stage_window(p, "B[_] #6", "B7_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B7_cache", [K_L1_BLK, None], unsafe_disable_checks=True)
-    ## Case 8 memory staging
-    p = stage_window(p, "B[_] #7", "B8_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B8_cache", [K_L1_BLK, N_L1_BLK], unsafe_disable_checks=True)
-    ## Replace SGEMM_WINDOW with optimized form
-    # These must come AFTER bound_alloc since the internal check-effects
-    # is a whole program analysis that is VERY expensive
+    p = tile_loops_bottom_up(p, p.body()[0], (K_L1_BLK, M_L1_BLK, N_L1_BLK))
+    for i in range(0, 8):
+        B_name = "B_cache"
+        p = auto_stage_mem(p, p.find(f"B[_] #{i}"), B_name, n_lifts=3)
+        B_alloc_ref = B_name + f":_ #{i}"
+        p = bound_alloc(
+            p, B_alloc_ref, [K_L1_BLK, N_L1_BLK], unsafe_disable_checks=True
+        )
+        p = set_memory(p, B_alloc_ref, DRAM_STATIC)
+    p = auto_stage_mem(p, p.find(f"A[_] #0"), "A_cache", n_lifts=3)
+    p = bound_alloc(
+        p, f"A_cache : _ #0", [M_L1_BLK, K_L1_BLK], unsafe_disable_checks=True
+    )
+    p = set_memory(p, f"A_cache : _ #0", DRAM_STATIC)
+    A_alloc_parent = p.find(f"A_cache : _ #0").parent()
+    if isinstance(A_alloc_parent, ForSeqCursor):
+        p = apply_to_block(p, A_alloc_parent.body(), hoist_stmt)
+    p = replace_all(p, SGEMM_WINDOW)
     p = repeat(call_eqv)(p, SGEMM_WINDOW, sgemm_above_kernel)
-    # Clean up
     p = simplify(p)
     return p
 

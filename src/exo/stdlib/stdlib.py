@@ -181,8 +181,10 @@ def auto_divide_loop(proc, loop_cursor, div_const, tail="guard", perfect=False):
 
     if perfect == True or tail == "guard":
         tail_loop_cursor = InvalidCursor()
-    else:
+    elif tail == "cut":
         tail_loop_cursor = outer_loop_cursor.next()
+    else:
+        tail_loop_cursor = outer_loop_cursor.next().body()[0]
 
     return proc, auto_divide_loop_cursors(
         outer_loop_cursor, inner_loop_cursor, tail_loop_cursor
@@ -818,7 +820,7 @@ def tile_loops_bottom_up(proc, outer_most_loop, tiles):
         loop = loop.body()[0]
 
     def get_depth(loop):
-        if not isinstance(loop, ForSeqCursor):
+        if not isinstance(loop, (ForSeqCursor, IfCursor)):
             return 0
         return max([get_depth(i) for i in loop.body()]) + 1
 
@@ -836,12 +838,22 @@ def tile_loops_bottom_up(proc, outer_most_loop, tiles):
         for loop in loops:
             if get_depth(loop) == depth:
                 continue
-            proc = reorder_loops(proc, loop)
-            proc = push_loop_in(proc, proc.forward(loop), depth)
+            loop = proc.forward(loop)
+            child = loop.body()[0]
+            if isinstance(child, ForSeqCursor):
+                proc = reorder_loops(proc, loop)
+                forwarded_loop = proc.forward(loop)
+            elif isinstance(child, IfCursor):
+                proc = lift_scope(proc, child)
+                child = proc.forward(child)
+                forwarded_loop = child.body()[0]
+            else:
+                assert False, "Invalid"
+            proc = push_loop_in(proc, forwarded_loop, depth)
         return proc
 
     for depth, (loop, tile) in enumerate(loops[::-1]):
-        proc, cursors = auto_divide_loop(proc, loop, tile, tail="cut")
+        proc, cursors = auto_divide_loop(proc, loop, tile, tail="cut_and_guard")
         proc = push_loop_in(proc, cursors.inner_loop_cursor, depth + 1)
         proc = push_loop_in(proc, cursors.tail_loop_cursor, depth + 1)
 
