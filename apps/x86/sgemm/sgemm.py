@@ -111,7 +111,7 @@ for M in range(1, M_REG_BLK + 1):
 def make_bottom_panel_kernel(p):
     p = rename(p, "bottom_panel_kernel")
     p = p.partial_eval(N=N_REG_BLK)
-    p = p.add_assertion("M < 6")
+    p = p.add_assertion(f"M < {M_REG_BLK}")
     p = simplify(p)
     return p
 
@@ -123,7 +123,7 @@ def make_bottom_panel_kernel_scheduled(p=bottom_panel_kernel):
     p = rename(p, "bottom_panel_kernel_scheduled")
     p = specialize(p, "for k in _: _ #0", [f"M == {i}" for i in range(1, M_REG_BLK)])
     p = simplify(p)
-    for M in range(1, 6):
+    for M in range(1, M_REG_BLK):
         p = replace_all(p, basic_kernel_Mx4[M])
         p = call_eqv(p, f"basic_kernel_{M}x4(_)", sgemm_kernel_avx512_Mx4[M])
     p = simplify(p)
@@ -136,7 +136,7 @@ bottom_panel_kernel_scheduled = make_bottom_panel_kernel_scheduled()
 def make_right_panel_kernel(p=SGEMM_WINDOW):
     p = rename(p, "right_panel_kernel")
     p = p.partial_eval(M=M_REG_BLK)
-    p = p.add_assertion("N / 16 < 4")
+    p = p.add_assertion(f"N < {N_REG_BLK}")
     p = simplify(p)
     return p
 
@@ -192,16 +192,16 @@ def make_sgemm_above_kernel(p=SGEMM_WINDOW):
     p = fission(p, p.find("for io in _: _ #1").after())
     p = reorder_loops(p, "k io #0")
     p = reorder_loops(p, "k jo #0")
-    p = lift_if(p, "if N % 64 > 0: _ #0", n_lifts=3)
+    p = lift_if(p, f"if N % {N_REG_BLK} > 0: _ #0", n_lifts=3)
     p = reorder_loops(p, "k io")
-    p = lift_if(p, "if M % 6 > 0: _ #0")
+    p = lift_if(p, f"if M % {M_REG_BLK} > 0: _ #0")
     p = fission(p, p.find("for jo in _: _ #1").after(), n_lifts=2)
     p = reorder_loops(p, "ii jo")
     p = reorder_loops(p, "k jo")
-    p = lift_if(p, "if N % 64 > 0: _ #1", n_lifts=2)
+    p = lift_if(p, f"if N % {N_REG_BLK} > 0: _ #1", n_lifts=2)
     # Main block
-    p = replace_all(p, basic_kernel_Mx4[6])
-    p = call_eqv(p, basic_kernel_Mx4[6], sgemm_kernel_avx512_Mx4[6])
+    p = replace_all(p, basic_kernel_Mx4[M_REG_BLK])
+    p = call_eqv(p, basic_kernel_Mx4[M_REG_BLK], sgemm_kernel_avx512_Mx4[M_REG_BLK])
     # Right panel
     p = replace_all(p, right_panel_kernel)
     p = call_eqv(p, right_panel_kernel, right_panel_kernel_scheduled)
@@ -233,28 +233,28 @@ def make_sgemm_exo(p=SGEMM):
     p = repeat(reorder_loops)(p, "ki jo")
     p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
     # Case 2:
-    p = lift_if(p, "if N%64 > 0: _ #0", n_lifts=4)
+    p = lift_if(p, f"if N%{N_L1_BLK} > 0: _ #0", n_lifts=4)
     p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
     # Case 3:
-    p = lift_if(p, "if M%264 > 0: _ #0", n_lifts=2)
+    p = lift_if(p, f"if M%{M_L1_BLK} > 0: _ #0", n_lifts=2)
     p = repeat(reorder_loops)(p, "ki jo")
     p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
     # Case 4:
-    p = lift_if(p, "if M%264 > 0: _ #1", n_lifts=2)
-    p = lift_if(p, "if N%64 > 0: _ #1", n_lifts=3)
+    p = lift_if(p, f"if M%{M_L1_BLK} > 0: _ #1", n_lifts=2)
+    p = lift_if(p, f"if N%{N_L1_BLK} > 0: _ #1", n_lifts=3)
     p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
     # Case 5:
-    p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
+    p = replace(p, f"for ki in _: _ #0", SGEMM_WINDOW)
     # Case 6:
-    p = lift_if(p, "if N%64 > 0: _ #2", n_lifts=3)
+    p = lift_if(p, f"if N%{N_L1_BLK} > 0: _ #2", n_lifts=3)
     p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
     # Case 7:
-    p = lift_if(p, "if M%264 > 0: _ #2")
+    p = lift_if(p, f"if M%{M_L1_BLK} > 0: _ #2")
     p = repeat(reorder_loops)(p, "ki jo")
     p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
     # Case 8:
-    p = lift_if(p, "if M%264 > 0: _ #3")
-    p = lift_if(p, "if N%64 > 0: _ #3", n_lifts=2)
+    p = lift_if(p, f"if M%{M_L1_BLK} > 0: _ #3")
+    p = lift_if(p, f"if N%{N_L1_BLK} > 0: _ #3", n_lifts=2)
     p = replace(p, "for ki in _: _ #0", SGEMM_WINDOW)
     ##
     ## Case 1 memory staging
@@ -265,26 +265,26 @@ def make_sgemm_exo(p=SGEMM):
     p = autofission(p, p.find_loop("i0 #0").after())
     ### Case 2 memory staging
     p = stage_window(p, "B[_] #1", "B2_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B2_cache", [None, "64"], unsafe_disable_checks=True)
+    p = bound_alloc(p, "B2_cache", [None, N_L1_BLK], unsafe_disable_checks=True)
     p = lift_alloc(p, "B2_cache")
     p = autofission(p, p.find_loop("i0 #2").after())
     ## Case 3 memory staging
     p = stage_window(p, "B[_] #2", "B3_cache", DRAM_STATIC)
     ## Case 4 memory staging
     p = stage_window(p, "B[_] #3", "B4_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B4_cache", [None, "64"], unsafe_disable_checks=True)
+    p = bound_alloc(p, "B4_cache", [None, N_L1_BLK], unsafe_disable_checks=True)
     ## Case 5 memory staging
     p = stage_window(p, "B[_] #4", "B5_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B5_cache", ["512", None], unsafe_disable_checks=True)
+    p = bound_alloc(p, "B5_cache", [K_L1_BLK, None], unsafe_disable_checks=True)
     ## Case 6 memory staging
     p = stage_window(p, "B[_] #5", "B6_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B6_cache", ["512", "64"], unsafe_disable_checks=True)
+    p = bound_alloc(p, "B6_cache", [K_L1_BLK, N_L1_BLK], unsafe_disable_checks=True)
     ## Case 7 memory staging
     p = stage_window(p, "B[_] #6", "B7_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B7_cache", ["512", None], unsafe_disable_checks=True)
+    p = bound_alloc(p, "B7_cache", [K_L1_BLK, None], unsafe_disable_checks=True)
     ## Case 8 memory staging
     p = stage_window(p, "B[_] #7", "B8_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B8_cache", ["512", "64"], unsafe_disable_checks=True)
+    p = bound_alloc(p, "B8_cache", [K_L1_BLK, N_L1_BLK], unsafe_disable_checks=True)
     ## Replace SGEMM_WINDOW with optimized form
     # These must come AFTER bound_alloc since the internal check-effects
     # is a whole program analysis that is VERY expensive
