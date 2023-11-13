@@ -19,8 +19,9 @@ def process_arg(i, typ):
 
 
 flops = process_arg(1, float) * 1e9
-for_paper = process_arg(2, int)
-jsons = sys.argv[3:]
+include_pop_gm = process_arg(2, int)
+for_paper = process_arg(3, int)
+jsons = sys.argv[4:]
 
 ##
 # Load and clean data
@@ -93,6 +94,14 @@ matplotlib.rcParams.update(
 )
 
 
+# Calculate the GeoMean of Percent of Peak
+def calc_PoP_GM(values):
+    result = 1.0
+    for val in values:
+        result *= val
+    return result ** (1 / len(values))
+
+
 ##
 # Plotting function
 
@@ -107,10 +116,14 @@ def plot_perf(data, filename, xkey, xlabel, xscale, ykey, ylabel):
     }
 
     for series, points in data.items():
+        PoP_GM = calc_PoP_GM([i / flops for i in points[ykey]]) * 100
+        PoP_GM = round(PoP_GM, 2)
+        PoP_GM_label = f" (PoP GM {PoP_GM})"
+        label = series + PoP_GM_label if include_pop_gm else ""
         ax1.plot(
             points[xkey],
             points[ykey],
-            label=series,
+            label=label,
             color=color_table.get(series, None),
             zorder=100 if series == "exo" else 1,
         )
