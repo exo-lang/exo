@@ -13,6 +13,9 @@ add_exo_library(
 add_library(alex_sgemm OBJECT alex_sgemm.cpp)
 target_compile_features(alex_sgemm PRIVATE cxx_std_17)
 
+add_library(pldi22_sgemm OBJECT pldi22_sgemm.c)
+target_compile_features(pldi22_sgemm PRIVATE cxx_std_17)
+
 add_executable(bench_sgemm bench_sgemm.cpp)
 target_link_libraries(
   bench_sgemm
@@ -21,6 +24,7 @@ target_link_libraries(
   MKL::MKL
   benchmark::benchmark_main
   alex_sgemm
+  pldi22_sgemm
 )
 target_compile_features(bench_sgemm PRIVATE cxx_std_17)
 target_compile_definitions(bench_sgemm PRIVATE CBLAS_NAME="MKL")
@@ -37,6 +41,7 @@ target_link_libraries(
   benchmark::benchmark_main
   PkgConfig::OpenBLAS
   alex_sgemm
+  pldi22_sgemm
 )
 target_compile_features(bench_sgemm_openblas PRIVATE cxx_std_17)
 target_compile_definitions(bench_sgemm_openblas PRIVATE CBLAS_NAME="OpenBLAS")

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "alex_sgemm.h"
+#include "pldi22_sgemm.h"
 
 #ifndef CBLAS_NAME
 #error Must set CBLAS_NAME
@@ -130,6 +131,22 @@ struct alex_square {
 BENCHMARK_TEMPLATE(BM_sgemm, alex_square)
     ->Name("sgemm_alex")  //
     ARG_SQUARE_SIZES;
+
+
+// ----------------------------------------------------------------------------
+// PLDI22 Exo SGEMM benchmark
+
+struct exo_pldi22 {
+  void operator()(float *a, float *b, float *c, long m, long n, long k) {
+    sgemm_pldi22_exo(nullptr, m, n, k, a, b, c);
+  }
+};
+
+BENCHMARK_TEMPLATE(BM_sgemm, exo_pldi22)
+    ->Name("sgemm_pldi22_exo")  //
+    ARG_SQUARE_SIZES     //
+    ARG_CONST_512_SIZES;
+
 
 // ----------------------------------------------------------------------------
 // Exo SGEMM benchmark

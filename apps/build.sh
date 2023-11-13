@@ -7,8 +7,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 
 ## Compiler configuration
 
-: "${CC:=clang-13}"
-: "${CXX:=clang++-13}"
+: "${CC:=clang}"
+: "${CXX:=clang++}"
 : "${CFLAGS:=-march=native}"
 : "${CXXFLAGS:=$CFLAGS}"
 : "${CMAKE_BUILD_TYPE:=Release}"
@@ -50,7 +50,9 @@ export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
 ./build/apps/x86/sgemm/bench_sgemm \
-  --benchmark_filter=exo --benchmark_out=sgemm_exo.json
+  --benchmark_filter=sgemm_exo --benchmark_out=sgemm_exo.json
+./build/apps/x86/sgemm/bench_sgemm \
+--benchmark_filter=sgemm_pldi22_exo --benchmark_out=sgemm_pldi22_exo.json
 ./build/apps/x86/sgemm/bench_sgemm \
   --benchmark_filter=MKL --benchmark_out=sgemm_mkl.json
 ./build/apps/x86/sgemm/bench_sgemm_openblas \
