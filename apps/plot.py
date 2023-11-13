@@ -8,11 +8,19 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-##
-# Get peak flops
+help_msg = "usage: python3 plot.py [max_gflops] [include Percent of Peak Geomean?] [For Paper?] [jsons...]"
 
-if flops := os.getenv("MAX_GFLOPS"):
-    flops = float(flops) * 1e9
+
+def process_arg(i, typ):
+    try:
+        return typ(sys.argv[i])
+    except:
+        exit(help_msg)
+
+
+flops = process_arg(1, float) * 1e9
+for_paper = process_arg(2, int)
+jsons = sys.argv[3:]
 
 ##
 # Load and clean data
@@ -22,7 +30,7 @@ matcher = re.compile(r"^sgemm_(?P<name>\w+)/(?P<m>\d+)/(?P<n>\d+)/(?P<k>\d+)$")
 square_plots = defaultdict(lambda: defaultdict(list))
 aspect_plots = defaultdict(lambda: defaultdict(list))
 
-for filename in sys.argv[1:]:
+for filename in jsons:
     with open(filename) as f:
         data = json.load(f)
 
@@ -53,11 +61,11 @@ for series, points in aspect_plots.items():
 # Common plotting styles for ACM one-column figure in two-column layout.
 
 # Size constants
-pts_per_inch = 72.27
+pts_per_inch = 72.27 if for_paper else 20
 golden_ratio = (5**0.5 - 1) / 2
 
 # Get from LaTeX by writing \showthe\textwidth (prints points in log)
-latex_textwidth_pts = 240.94499
+latex_textwidth_pts = 395.8225 / 2 if for_paper else 300
 
 # Compute figure size
 width = latex_textwidth_pts / pts_per_inch
