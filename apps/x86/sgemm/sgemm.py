@@ -120,6 +120,7 @@ def make_bottom_panel_kernel_scheduled(p=bottom_panel_kernel):
     p = rename(p, "bottom_panel_kernel_scheduled")
     p = specialize(p, "for k in _: _ #0", [f"M == {i}" for i in range(1, M_REG_BLK)])
     p = simplify(p)
+    p = eliminate_dead_code_pass(p)
     for M in range(1, M_REG_BLK):
         p = replace_all(p, basic_kernel_Mx4[M])
         p = call_eqv(p, f"basic_kernel_{M}x4(_)", sgemm_kernel_avx512_Mx4[M])
