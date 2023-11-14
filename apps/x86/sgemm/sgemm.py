@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from exo import *
-from exo.libs.memories import DRAM_STATIC
+from exo.libs.memories import get_DRAM_STATIC
 from exo.platforms.x86 import *
 from exo.syntax import *
 from exo.stdlib.scheduling import *
@@ -209,12 +209,12 @@ def make_sgemm_exo(p=SGEMM):
         p = bound_alloc(
             p, B_alloc_ref, [K_L1_BLK, N_L1_BLK], unsafe_disable_checks=True
         )
-        p = set_memory(p, B_alloc_ref, DRAM_STATIC)
+        p = set_memory(p, B_alloc_ref, get_DRAM_STATIC(4096))
     p = auto_stage_mem(p, p.find(f"A[_] #0"), "A_cache", n_lifts=3)
     p = bound_alloc(
         p, f"A_cache : _ #0", [M_L1_BLK, K_L1_BLK], unsafe_disable_checks=True
     )
-    p = set_memory(p, f"A_cache : _ #0", DRAM_STATIC)
+    p = set_memory(p, f"A_cache : _ #0", get_DRAM_STATIC(4096))
     A_alloc_parent = p.find(f"A_cache : _ #0").parent()
     if isinstance(A_alloc_parent, ForSeqCursor):
         p = apply_to_block(p, A_alloc_parent.body(), hoist_stmt)
