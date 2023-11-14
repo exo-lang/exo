@@ -235,6 +235,19 @@ def make_sgemm_exo(p=SGEMM):
     p = replace_all(p, SGEMM_WINDOW)
     p = repeat(call_eqv)(p, SGEMM_WINDOW, sgemm_above_kernel)
     p = replace_all(p, copy_submatrix)
+    B_caches = p.find("B_cache : _", many=True)
+    for i in range(0, 3):
+        for j in range(1, 8):
+            try:
+                p = reuse_buffer(p, B_caches[0], B_caches[j])
+                # p = reuse_buffer(p, "A_cache", f"A_cache #{i}")
+            except:
+                pass
+        try:
+            p = lift_alloc(p, B_caches[0])
+            # p = lift_alloc(p, "A_cache")
+        except:
+            pass
     p = simplify(p)
     return p
 
