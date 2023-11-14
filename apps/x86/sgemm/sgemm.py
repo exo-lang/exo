@@ -199,6 +199,13 @@ def make_sgemm_above_kernel(p=SGEMM_WINDOW):
 sgemm_above_kernel = make_sgemm_above_kernel()
 
 
+@proc
+def copy_submatrix(m: size, n: size, dst: [f32][m, n], src: [f32][m, n]):
+    for i in seq(0, m):
+        for j in seq(0, n):
+            dst[i, j] = src[i, j]
+
+
 def make_sgemm_exo(p=SGEMM):
     p = rename(p, "sgemm_exo")
     p = tile_loops_bottom_up(p, p.body()[0], (K_L1_BLK, M_L1_BLK, N_L1_BLK))
@@ -220,6 +227,7 @@ def make_sgemm_exo(p=SGEMM):
         p = apply_to_block(p, A_alloc_parent.body(), hoist_stmt)
     p = replace_all(p, SGEMM_WINDOW)
     p = repeat(call_eqv)(p, SGEMM_WINDOW, sgemm_above_kernel)
+    p = replace_all(p, copy_submatrix)
     p = simplify(p)
     return p
 
