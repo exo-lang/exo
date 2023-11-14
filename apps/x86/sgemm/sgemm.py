@@ -24,6 +24,9 @@ def fuse_after(p, stmt):
 # noinspection PyPep8Naming
 @proc
 def SGEMM(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):
+    assert M >= 1
+    assert N >= 1
+    assert K >= 1
     assert stride(A, 1) == 1
     assert stride(B, 1) == 1
     assert stride(C, 1) == 1
@@ -200,9 +203,13 @@ sgemm_above_kernel = make_sgemm_above_kernel()
 
 
 @proc
-def copy_submatrix(m: size, n: size, dst: [f32][m, n], src: [f32][m, n]):
-    for i in seq(0, m):
-        for j in seq(0, n):
+def copy_submatrix(M: size, N: size, dst: [f32][M, N], src: [f32][M, N]):
+    assert M >= 1
+    assert N >= 1
+    assert stride(dst, 1) == 1
+    assert stride(src, 1) == 1
+    for i in seq(0, M):
+        for j in seq(0, N):
             dst[i, j] = src[i, j]
 
 
