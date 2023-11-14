@@ -224,30 +224,33 @@ def make_sgemm_exo(p=SGEMM):
             p, B_alloc_ref, [K_L1_BLK, N_L1_BLK], unsafe_disable_checks=True
         )
         p = set_memory(p, B_alloc_ref, get_DRAM_STATIC(4096))
-    p = auto_stage_mem(p, p.find(f"A[_] #0"), "A_cache", n_lifts=3)
-    p = bound_alloc(
-        p, f"A_cache : _ #0", [M_L1_BLK, K_L1_BLK], unsafe_disable_checks=True
-    )
-    p = set_memory(p, f"A_cache : _ #0", get_DRAM_STATIC(4096))
-    A_alloc_parent = p.find(f"A_cache : _ #0").parent()
-    if isinstance(A_alloc_parent, ForSeqCursor):
-        p = apply_to_block(p, A_alloc_parent.body(), hoist_stmt)
+        p = auto_stage_mem(p, p.find(f"A[_] #{i}"), "A_cache", n_lifts=3)
+        p = bound_alloc(
+            p, f"A_cache : _ #{i}", [M_L1_BLK, K_L1_BLK], unsafe_disable_checks=True
+        )
+        p = set_memory(p, f"A_cache : _ #{i}", get_DRAM_STATIC(4096))
+        A_alloc_parent = p.find(f"A_cache : _ #{i}").parent()
+        if isinstance(A_alloc_parent, ForSeqCursor):
+            p = apply_to_block(p, A_alloc_parent.body(), hoist_stmt)
     p = replace_all(p, SGEMM_WINDOW)
     p = repeat(call_eqv)(p, SGEMM_WINDOW, sgemm_above_kernel)
     p = replace_all(p, copy_submatrix)
-    B_caches = p.find("B_cache : _", many=True)
-    for i in range(0, 3):
-        for j in range(1, 8):
+
+    def try_reuse(p, caches):
+        for i in range(0, 3):
+            for j in range(1, 8):
+                try:
+                    p = reuse_buffer(p, caches[0], caches[j])
+                except:
+                    pass
             try:
-                p = reuse_buffer(p, B_caches[0], B_caches[j])
-                # p = reuse_buffer(p, "A_cache", f"A_cache #{i}")
+                p = lift_alloc(p, caches[0])
             except:
                 pass
-        try:
-            p = lift_alloc(p, B_caches[0])
-            # p = lift_alloc(p, "A_cache")
-        except:
-            pass
+        return p
+
+    p = try_reuse(p, p.find("B_cache : _", many=True))
+    p = try_reuse(p, p.find("A_cache : _", many=True))
     p = simplify(p)
     return p
 
