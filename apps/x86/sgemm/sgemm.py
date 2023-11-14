@@ -180,22 +180,7 @@ right_panel_kernel_scheduled = make_right_panel_kernel_opt()
 
 def make_sgemm_above_kernel(p=SGEMM_WINDOW):
     p = rename(p, "sgemm_above_kernel")
-    # Split up into cases
-    p = divide_loop(p, "j", N_REG_BLK, ["jo", "ji"], tail="cut_and_guard")
-    p = divide_loop(p, "i", M_REG_BLK, ["io", "ii"], tail="cut_and_guard")
-    p = fission(p, p.find("for jo in _: _ #0").after(), n_lifts=2)
-    p = reorder_loops(p, "ii jo #0")
-    p = fission(p, p.find("for io in _: _").after())
-    p = fission(p, p.find("for io in _: _ #1").after())
-    p = reorder_loops(p, "k io #0")
-    p = reorder_loops(p, "k jo #0")
-    p = lift_if(p, f"if N % {N_REG_BLK} > 0: _ #0", n_lifts=3)
-    p = reorder_loops(p, "k io")
-    p = lift_if(p, f"if M % {M_REG_BLK} > 0: _ #0")
-    p = fission(p, p.find("for jo in _: _ #1").after(), n_lifts=2)
-    p = reorder_loops(p, "ii jo")
-    p = reorder_loops(p, "k jo")
-    p = lift_if(p, f"if N % {N_REG_BLK} > 0: _ #1", n_lifts=2)
+    p = tile_loops_bottom_up(p, p.body()[0], (None, M_REG_BLK, N_REG_BLK))
     # Main block
     p = replace_all(p, basic_kernel_Mx4[M_REG_BLK])
     p = call_eqv(p, basic_kernel_Mx4[M_REG_BLK], sgemm_kernel_avx512_Mx4[M_REG_BLK])

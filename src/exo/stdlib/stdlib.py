@@ -825,6 +825,7 @@ def tile_loops_bottom_up(proc, outer_most_loop, tiles):
         return max([get_depth(i) for i in loop.body()]) + 1
 
     def push_loop_in(proc, loop, depth):
+        loop = proc.forward(loop)
         if get_depth(loop) == depth:
             return proc
         count = len(loop.body())
@@ -853,9 +854,12 @@ def tile_loops_bottom_up(proc, outer_most_loop, tiles):
         return proc
 
     for depth, (loop, tile) in enumerate(loops[::-1]):
-        proc, cursors = auto_divide_loop(proc, loop, tile, tail="cut_and_guard")
-        proc = push_loop_in(proc, cursors.inner_loop_cursor, depth + 1)
-        proc = push_loop_in(proc, cursors.tail_loop_cursor, depth + 1)
+        if tile is not None:
+            proc, cursors = auto_divide_loop(proc, loop, tile, tail="cut_and_guard")
+            proc = push_loop_in(proc, cursors.inner_loop_cursor, depth + 1)
+            proc = push_loop_in(proc, cursors.tail_loop_cursor, depth + 1)
+        else:
+            proc = push_loop_in(proc, loop, depth + 1)
 
     return proc
 
