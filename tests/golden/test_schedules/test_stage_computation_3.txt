@@ -1,0 +1,7 @@
+def negate(n: size, x: f32[n] @ DRAM):
+    for i in seq(0, n):
+        reg_1: f32
+        reg_1 = x[i]
+        reg_2: f32
+        reg_2 = -reg_1
+        x[i] = reg_2

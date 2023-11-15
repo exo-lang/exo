@@ -6,6 +6,7 @@ from exo import ParseFragmentError
 from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
+from exo.stdlib.stdlib import *
 from exo.platforms.x86 import *
 
 
@@ -3546,3 +3547,87 @@ def test_unroll_buffer5():
         match="Cannot unroll a buffer at a dimension used as a window",
     ):
         bar = unroll_buffer(bar, "tmp_a : _", 0)
+
+
+def test_stage_computation_1(golden):
+    @proc
+    def scal(n: size, x: f32[n], alpha: f32):
+        for i in seq(0, n):
+            x[i] = alpha * x[i]
+
+    scal = stage_computation(scal, scal.find_loop("i"))
+    assert str(simplify(scal)) == golden
+
+
+def test_stage_computation_2(golden):
+    @proc
+    def axpy(n: size, y: f32[n], x: f32[n], alpha: f32):
+        for i in seq(0, n):
+            y[i] += x[i] * alpha
+
+    axpy = stage_computation(axpy, axpy.find_loop("i"))
+    assert str(simplify(axpy)) == golden
+
+
+def test_stage_computation_3(golden):
+    @proc
+    def negate(n: size, x: f32[n]):
+        for i in seq(0, n):
+            x[i] = -x[i]
+
+    negate = stage_computation(negate, negate.find_loop("i"))
+    assert str(simplify(negate)) == golden
+
+
+def test_stage_computation_4(golden):
+    @proc
+    def buffer_select(n: size, dst: f32[n], a: f32[n], b: f32[n], c: f32[n], d: f32[n]):
+        for i in seq(0, n):
+            dst[i] = select(a[i], b[i], c[i], d[i])
+
+    buffer_select = stage_computation(buffer_select, buffer_select.find_loop("i"))
+    assert str(simplify(buffer_select)) == golden
+
+
+def test_stage_computation_5(golden):
+    @proc
+    def matmul(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):
+        for k in seq(0, K):
+            for i in seq(0, M):
+                for j in seq(0, N):
+                    C[i, j] += A[i, k] * B[k, j]
+
+    matmul = stage_computation(matmul, matmul.find_loop("j"))
+    assert str(simplify(matmul)) == golden
+
+
+def test_stage_computation_6(golden):
+    @proc
+    def blur(n: size, y: f32[n], x: f32[n + 2]):
+        for i in seq(0, n):
+            y[i] = (x[i] + x[i + 1] + x[i + 2]) / 3.0
+
+    blur = stage_computation(blur, blur.find_loop("i"))
+    assert str(simplify(blur)) == golden
+
+
+def test_stage_computation_7(golden):
+    @proc
+    def fused_axpy_scal(n: size, y: f32[n], x: f32[n], alpha: f32, beta: f32):
+        for i in seq(0, n):
+            x[i] = alpha * x[i]
+            y[i] += beta * x[i]
+
+    fused_axpy_scal = stage_computation(fused_axpy_scal, fused_axpy_scal.find_loop("i"))
+    assert str(simplify(fused_axpy_scal)) == golden
+
+
+def test_stage_computation_8(golden):
+    @proc
+    def guarded_scal(n: size, m: size, x: f32[n], alpha: f32):
+        for i in seq(0, m):
+            if i < n:
+                x[i] = alpha * x[i]
+
+    guarded_scal = stage_computation(guarded_scal, guarded_scal.find_loop("i"))
+    assert str(simplify(guarded_scal)) == golden

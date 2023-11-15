@@ -1,0 +1,20 @@
+def fused_axpy_scal(n: size, y: f32[n] @ DRAM, x: f32[n] @ DRAM,
+                    alpha: f32 @ DRAM, beta: f32 @ DRAM):
+    for i in seq(0, n):
+        reg_1: f32
+        reg_1 = alpha
+        reg_2: f32
+        reg_2 = x[i]
+        reg_3: f32
+        reg_3 = reg_1 * reg_2
+        x[i] = reg_3
+        reg_4: f32
+        reg_4 = beta
+        reg_5: f32
+        reg_5 = x[i]
+        reg_6: f32
+        reg_6 = reg_4 * reg_5
+        reg_7: f32 @ DRAM
+        reg_7 = y[i]
+        reg_7 += reg_6
+        y[i] = reg_7

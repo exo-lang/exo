@@ -1,0 +1,10 @@
+def guarded_scal(n: size, m: size, x: f32[n] @ DRAM, alpha: f32 @ DRAM):
+    for i in seq(0, m):
+        if i < n:
+            reg_1: f32
+            reg_1 = alpha
+            reg_2: f32
+            reg_2 = x[i]
+            reg_3: f32
+            reg_3 = reg_1 * reg_2
+            x[i] = reg_3

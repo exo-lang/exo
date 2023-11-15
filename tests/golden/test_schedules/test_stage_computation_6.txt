@@ -1,0 +1,17 @@
+def blur(n: size, y: f32[n] @ DRAM, x: f32[n + 2] @ DRAM):
+    for i in seq(0, n):
+        reg_1: f32
+        reg_1 = x[i]
+        reg_2: f32
+        reg_2 = x[1 + i]
+        reg_3: f32
+        reg_3 = reg_1 + reg_2
+        reg_4: f32
+        reg_4 = x[2 + i]
+        reg_5: f32
+        reg_5 = reg_3 + reg_4
+        reg_6: R
+        reg_6 = 3.0
+        reg_7: f32
+        reg_7 = reg_5 / reg_6
+        y[i] = reg_7

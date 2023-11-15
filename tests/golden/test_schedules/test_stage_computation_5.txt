@@ -1,0 +1,15 @@
+def matmul(M: size, N: size, K: size, A: f32[M, K] @ DRAM, B: f32[K, N] @ DRAM,
+           C: f32[M, N] @ DRAM):
+    for k in seq(0, K):
+        for i in seq(0, M):
+            for j in seq(0, N):
+                reg_1: f32
+                reg_1 = A[i, k]
+                reg_2: f32
+                reg_2 = B[k, j]
+                reg_3: f32
+                reg_3 = reg_1 * reg_2
+                reg_4: f32 @ DRAM
+                reg_4 = C[i, j]
+                reg_4 += reg_3
+                C[i, j] = reg_4

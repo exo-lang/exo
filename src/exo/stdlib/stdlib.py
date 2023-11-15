@@ -1009,3 +1009,65 @@ def eliminate_dead_code_pass(proc):
         return proc
 
     return visit(proc, proc.body())
+
+
+def post_order_stmts(block):
+    for stmt in block:
+        if isinstance(stmt, ForSeqCursor):
+            yield from post_order_stmts(stmt.body())
+        elif isinstance(stmt, IfCursor):
+            yield from post_order_stmts(stmt.body())
+            if not isinstance(stmt.orelse(), InvalidCursor):
+                yield from post_order_stmts(stmt.orelse())
+        yield stmt
+
+
+def is_inner_loop(loop):
+    return all(
+        not isinstance(stmt, ForSeqCursor) for stmt in post_order_stmts(loop.body())
+    )
+
+
+def name_exists(proc, name):
+    return any(arg.name() == name for arg in proc.args()) or any(
+        isinstance(stmt, AllocCursor) and stmt.name() == name
+        for stmt in post_order_stmts(proc.body())
+    )
+
+
+def get_reg_name(proc):
+    counter = 0
+    while True:
+        counter += 1
+        new_name = f"reg_{counter}"
+        if not name_exists(proc, new_name):
+            yield new_name
+
+
+def stage_computation(proc, loop):
+    def post_order_data_exprs(expr):
+        if isinstance(expr, UnaryMinusCursor):
+            yield from post_order_data_exprs(expr.arg())
+            yield expr
+        elif isinstance(expr, BinaryOpCursor):
+            yield from post_order_data_exprs(expr.lhs())
+            yield from post_order_data_exprs(expr.rhs())
+            yield expr
+        elif isinstance(expr, BuiltInFunctionCursor):
+            for arg in expr.args():
+                yield from post_order_data_exprs(arg)
+            yield expr
+        elif isinstance(expr, (ReadCursor, LiteralCursor)):
+            yield expr
+
+    name_generator = get_reg_name(proc)
+
+    for stmt in post_order_stmts(loop.body()):
+        if isinstance(stmt, (AssignCursor, ReduceCursor)):
+            for expr in post_order_data_exprs(stmt.rhs()):
+                proc = bind_expr(proc, [expr], next(name_generator))
+        if isinstance(stmt, ReduceCursor):
+            lhs = f"{stmt.name()}{expr_to_string(stmt.idx())}"
+            proc = stage_mem(proc, stmt, lhs, next(name_generator))
+
+    return proc
