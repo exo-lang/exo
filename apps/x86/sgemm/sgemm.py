@@ -92,18 +92,10 @@ for M in range(1, M_REG_BLK + 1):
         p = set_memory(divide_dim(p, C_reg, 1, VEC_W), C_reg, AVX512)
         for loop_iter in ["i1", "j", "i1"]:
             p = vectorize(
-                p,
-                p.find_loop(loop_iter),
-                VEC_W,
-                1,
-                1,
-                AVX512,
-                "f32",
-                AVX512F_instructions,
-                vectorize_tail=False,
+                p, p.find_loop(loop_iter), VEC_W, AVX512, AVX512F_instructions
             )
         p = apply_to_block(p, p.find_loop("jo").body(), hoist_stmt)
-        return p
+        return simplify(p)
 
     sgemm_kernel_avx512_Mx4[M] = make_avx512_kernel(basic_kernel_Mx4[M])
 
@@ -164,10 +156,12 @@ def make_right_panel_kernel_opt(p=right_panel_kernel):
         p = set_memory(p, C_reg, AVX512)
 
     for loop in p.find_loop("i1", many=True):
-        p = vectorize_to_loops(p, loop, VEC_W, AVX512, "f32")
+        p = scalar_loop_to_simd_loops(p, loop, VEC_W, AVX512)
     for loop in p.find_loop("ji", many=True):
-        p = vectorize_to_loops(p, loop, VEC_W, AVX512, "f32")
+        p = scalar_loop_to_simd_loops(p, loop, VEC_W, AVX512)
     p = simplify(p)
+    for loop in p.find_loop("jio", many=True):
+        p = unroll_loop(p, loop)
     for loop in p.find_loop("i1o", many=True):
         p = unroll_loop(p, loop)
     for loop in p.find_loop("jo", many=True):

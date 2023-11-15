@@ -229,7 +229,7 @@ def scalar_loop_to_simd_loops(proc, loop_cursor, vec_width, memory_type):
     if is_already_divided(loop_cursor, vec_width):
         inner_loop_cursor = loop_cursor.body()[0]
     else:
-        proc, cursors = auto_divide_loop(proc, loop_cursor, vec_width, tail=tail)
+        proc, cursors = auto_divide_loop(proc, loop_cursor, vec_width, tail="cut")
         inner_loop_cursor = cursors.inner_loop_cursor
 
     inner_loop_cursor = proc.forward(inner_loop_cursor)
@@ -374,7 +374,7 @@ def scalar_loop_to_simd_loops(proc, loop_cursor, vec_width, memory_type):
             assert len(inner_loop.body()) == 1
             proc = vectorize_stmt(proc, inner_loop.body()[0])
 
-    return proc
+    return simplify(proc)
 
 
 def interleave_execution(proc, loop_cursor, interleave_factor):
