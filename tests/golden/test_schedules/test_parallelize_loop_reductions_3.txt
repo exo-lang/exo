@@ -1,0 +1,20 @@
+def dot_2d(n: size, x: f32[n, n] @ DRAM, y: f32[n, n] @ DRAM,
+           result: f32[n] @ DRAM, result_scalar: f32 @ DRAM):
+    for i in seq(0, n):
+        reg: f32[4] @ DRAM
+        for ji in seq(0, 4):
+            reg[ji] = 0.0
+        reg_1: f32[4] @ DRAM
+        for ji in seq(0, 4):
+            reg_1[ji] = 0.0
+        for jo in seq(0, n / 4):
+            for ji in seq(0, 4):
+                reg[ji] += x[i, ji + 4 * jo] * y[i, ji + 4 * jo]
+                reg_1[ji] += x[i, ji + 4 * jo] * y[i, ji + 4 * jo]
+        for ji in seq(0, 4):
+            result_scalar += reg_1[ji]
+        for ji in seq(0, 4):
+            result[i] += reg[ji]
+        for ji in seq(0, n % 4):
+            result[i] += x[i, ji + n / 4 * 4] * y[i, ji + n / 4 * 4]
+            result_scalar += x[i, ji + n / 4 * 4] * y[i, ji + n / 4 * 4]

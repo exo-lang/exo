@@ -3631,3 +3631,49 @@ def test_stage_computation_8(golden):
 
     guarded_scal = stage_computation(guarded_scal, guarded_scal.find_loop("i"))
     assert str(simplify(guarded_scal)) == golden
+
+
+def get_dot():
+    @proc
+    def dot(n: size, x: f32[n], y: f32[n], result: f32):
+        result = 0.0
+        for i in seq(0, n):
+            result += x[i] * y[i]
+
+    return dot
+
+
+def test_parallelize_reduction_1(golden):
+    dot = get_dot()
+    loop = dot.find_loop("i")
+    dot = parallelize_reduction(dot, loop, loop.body()[0], 4)
+    assert str(simplify(dot)) == golden
+
+
+def test_parallelize_loop_reductions_1(golden):
+    dot = get_dot()
+    dot = parallelize_loop_reductions(dot, dot.find_loop("i"), 4)
+    assert str(simplify(dot)) == golden
+
+
+def test_parallelize_loop_reductions_2(golden):
+    @proc
+    def dot_2d(n: size, x: f32[n, n], y: f32[n, n], result: f32[n]):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                result[i] += x[i, j] * y[i, j]
+
+    dot_2d = parallelize_loop_reductions(dot_2d, dot_2d.find_loop("j"), 4)
+    assert str(simplify(dot_2d)) == golden
+
+
+def test_parallelize_loop_reductions_3(golden):
+    @proc
+    def dot_2d(n: size, x: f32[n, n], y: f32[n, n], result: f32[n], result_scalar: f32):
+        for i in seq(0, n):
+            for j in seq(0, n):
+                result[i] += x[i, j] * y[i, j]
+                result_scalar += x[i, j] * y[i, j]
+
+    dot_2d = parallelize_loop_reductions(dot_2d, dot_2d.find_loop("j"), 4)
+    assert str(simplify(dot_2d)) == golden

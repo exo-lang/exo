@@ -509,10 +509,8 @@ def apply_to_block(proc, block_cursor, stmt_scheduling_op):
 def parallelize_reduction(
     proc,
     loop_cursor,
-    reduction_buffer_window,
+    reduction_stmt,
     parallel_factor,
-    memory_type,
-    precision,
     tail="cut",
 ):
     """
@@ -542,6 +540,12 @@ def parallelize_reduction(
     if parallel_factor <= 1:
         return proc, None
 
+    reduction_stmt = proc.forward(reduction_stmt)
+
+    reduction_buffer_window = reduction_stmt.name()
+    for idx in reduction_stmt.idx():
+        reduction_buffer_window += f"[{expr_to_string(idx)}]"
+
     # Forward input cursors
     loop_cursor = proc.forward(loop_cursor)
 
@@ -560,8 +564,6 @@ def parallelize_reduction(
     )
     outer_loop_cursor = proc.forward(outer_loop_cursor)
     alloc_cursor = outer_loop_cursor.prev().prev()
-    proc = set_memory(proc, alloc_cursor, memory_type)
-    proc = set_precision(proc, alloc_cursor, precision)
 
     outer_loop_cursor = proc.forward(outer_loop_cursor)
     proc = parallelize_and_lift_alloc(proc, outer_loop_cursor.prev().prev())
@@ -571,7 +573,7 @@ def parallelize_reduction(
     proc = reorder_loops(proc, outer_loop_cursor.parent())
     outer_loop_cursor = proc.forward(outer_loop_cursor)
 
-    return proc, proc.forward(alloc_cursor)
+    return proc
 
 
 def interleave_outer_loop_with_inner_loop(
@@ -643,6 +645,24 @@ def interleave_outer_loop_with_inner_loop(
     return proc
 
 
+def get_reduction_stmts(proc, loop):
+    for stmt in post_order_stmts(loop.body()):
+        if isinstance(stmt, ReduceCursor):
+
+            def get_idx_deps(stmt):
+                for idx in stmt.idx():
+                    yield from get_expr_dependencies(idx)
+
+            if not loop.name() in get_idx_deps(stmt):
+                yield stmt
+
+
+def parallelize_loop_reductions(proc, loop, parallel_factor):
+    for reduction in get_reduction_stmts(proc, loop):
+        proc = parallelize_reduction(proc, loop, reduction, parallel_factor)
+    return proc
+
+
 def vectorize(
     proc,
     loop_cursor,
@@ -681,10 +701,6 @@ def vectorize(
     # Get reduction buffers, for now assumes those are buffers
     # of 0 dimensions. We should change to be buffers that are
     # independent on the loop
-    reduction_buffers = []
-    for stmt in loop_cursor.body():
-        if isinstance(stmt, ReduceCursor) and len(stmt.idx()) == 0:
-            reduction_buffers.append(stmt.name())
 
     is_perfect = (
         isinstance(loop_cursor.hi(), LiteralCursor)
@@ -699,12 +715,7 @@ def vectorize(
     inner_loop_cursor = cursors.inner_loop_cursor
 
     # Parallelize all reductions
-    allocation_cursors = []
-    for reduction_buffer in reduction_buffers:
-        proc, allocation_cursor = parallelize_reduction(
-            proc, outer_loop_cursor, reduction_buffer, vec_width, memory_type, precision
-        )
-        allocation_cursors.append(allocation_cursor)
+    proc = parallelize_loop_reductions(proc, outer_loop_cursor, vec_width)
 
     outer_loop_cursor = proc.forward(outer_loop_cursor)
     inner_loop_cursor = outer_loop_cursor.body()[0]
@@ -750,15 +761,7 @@ def vectorize(
         inner_loop_cursor = cursors.inner_loop_cursor
 
         for reduction in allocation_cursors:
-            proc, _ = parallelize_reduction(
-                proc,
-                outer_loop_cursor,
-                f"{reduction.name()}[0:{vec_width}]",
-                accumulators_count,
-                memory_type,
-                precision,
-                tail="cut",
-            )
+            proc = parallelize_loop_reductions(proc, outer_loop_cursor, vec_width)
             outer_loop_cursor = proc.forward(outer_loop_cursor)
             proc = unroll_loop(proc, outer_loop_cursor.prev())
             proc = unroll_loop(proc, outer_loop_cursor.next())

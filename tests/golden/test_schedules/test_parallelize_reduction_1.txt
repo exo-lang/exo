@@ -1,0 +1,12 @@
+def dot(n: size, x: f32[n] @ DRAM, y: f32[n] @ DRAM, result: f32 @ DRAM):
+    result = 0.0
+    reg: f32[4] @ DRAM
+    for ii in seq(0, 4):
+        reg[ii] = 0.0
+    for io in seq(0, n / 4):
+        for ii in seq(0, 4):
+            reg[ii] += x[ii + 4 * io] * y[ii + 4 * io]
+    for ii in seq(0, 4):
+        result += reg[ii]
+    for ii in seq(0, n % 4):
+        result += x[ii + n / 4 * 4] * y[ii + n / 4 * 4]
