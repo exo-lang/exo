@@ -1165,7 +1165,7 @@ def write_config(proc, gap_cursor, config, field, rhs):
 
 
 @sched_op([AllocCursorA, IntA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
-def shrink_dim(proc, buf_cursor, dim_idx, lo, hi):
+def resize_dim(proc, buf_cursor, dim_idx, lo, hi):
     """
     shrinks the [dim_idx]-th dimension of buffer [buf_cursor] to only track the data
     that was store from [lo] to [hi] in the original buffer. Fails if any other

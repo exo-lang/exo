@@ -118,9 +118,8 @@ def test_schedule_tiled_blur2d(golden):
 
     p_tiled = tile(
         compute_root,
-        "consumer",
-        "i",
-        "j",
+        compute_root.find_loop("i #1"),
+        compute_root.find_loop("j #1"),
         ["i", "ii"],
         ["j", "ji"],
         4,

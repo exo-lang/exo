@@ -49,7 +49,7 @@ from ..API_scheduling import (
     #
     # buffer and window oriented operations
     expand_dim,
-    shrink_dim,
+    resize_dim,
     rearrange_dim,
     bound_alloc,
     divide_dim,
@@ -360,7 +360,7 @@ def apply(p, cursors, schedop):
     return p
 
 
-def fuse_at(proc, producer: str, consumer: str, loop, reorder=True):
+def fuse_at(proc, producer: str, consumer: str, target_loop, reorder=True):
     """
     This version of compute_at will only go down one-level of for loops
 
@@ -368,9 +368,10 @@ def fuse_at(proc, producer: str, consumer: str, loop, reorder=True):
     TODO: remove the [reorder] hack.
     """
 
+    target_loop = proc.forward(target_loop)
     p_assign = proc.find(f"{producer}[_] = _")
     p_loop = _PC.get_top_level_stmt(p_assign)
-    c_loops = _PC.get_ancestors(loop, up_to=None)
+    c_loops = _PC.get_ancestors(target_loop, up_to=None)
 
     for c_loop in reversed(c_loops):
         c_loop = proc.forward(c_loop)
@@ -419,10 +420,11 @@ def store_at(proc, producer, consumer, target_loop):
     target_loop = proc.forward(target_loop)
     producer_alloc = proc.find(f"{producer}:_")
 
-    top_loop = _PC.match_level(target_loop, producer_alloc)
-    loops = _PC.get_ancestors(target_loop, up_to=top_loop)
+    def loops_between(producer_alloc, target_loop):
+        top_loop = _PC.match_level(target_loop, producer_alloc)
+        return _PC.get_ancestors(target_loop, up_to=top_loop)
 
-    for loop in reversed(loops):
+    for loop in reversed(loops_between(producer_alloc, target_loop)):
         buffer_dim = get_affected_dim(proc, producer, loop.name())
 
         loop = proc.forward(loop)
@@ -435,7 +437,7 @@ def store_at(proc, producer, consumer, target_loop):
             producer_alloc = proc.forward(producer_alloc)
 
         proc = sink_alloc(proc, producer_alloc)
-        proc = shrink_dim(proc, producer_alloc, buffer_dim, lo, hi)
+        proc = resize_dim(proc, producer_alloc, buffer_dim, lo, hi)
 
     return simplify(proc)
 
@@ -444,6 +446,7 @@ def compute_at(proc, producer, consumer, target_loop):
     """
     Combination of fuse_at and store_at.
     """
+    target_loop = proc.forward(target_loop)
     proc = fuse_at(proc, producer, consumer, target_loop)
     target_loop = proc.forward(target_loop.body()[0]).parent()
     proc = store_at(proc, producer, consumer, target_loop)
@@ -452,22 +455,18 @@ def compute_at(proc, producer, consumer, target_loop):
 
 def tile(
     proc,
-    consumer,
-    old_i_iter,
-    old_j_iter,
+    i_loop,
+    j_loop,
     new_i_iters,
     new_j_iters,
     i_tile_size,
     j_tile_size,
     perfect=True,
 ):
-    consumer_assign = proc.find(f"{consumer}[_] = _")
-    i_loop = _PC.get_enclosing_loop(consumer_assign, old_i_iter)
-    j_loop = _PC.get_enclosing_loop(consumer_assign, old_j_iter)
-
     assert j_loop.parent() == i_loop
-    # TODO: check that this works for perfect=False
+    # TODO: fix this for perfect=False
     proc = divide_loop(proc, i_loop, i_tile_size, new_i_iters, perfect=perfect)
     proc = divide_loop(proc, j_loop, j_tile_size, new_j_iters, perfect=perfect)
-    proc = reorder_loops(proc, f"{new_i_iters[1]} {new_j_iters[0]}")
+    ii_loop = proc.forward(i_loop).body()[0]
+    proc = reorder_loops(proc, ii_loop)
     return proc
