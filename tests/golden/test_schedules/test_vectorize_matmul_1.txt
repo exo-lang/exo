@@ -1,0 +1,15 @@
+def matmul(M: size, N: size, K: size, A: f32[M, K] @ DRAM, B: f32[K, N] @ DRAM,
+           C: f32[M, N] @ DRAM):
+    for k in seq(0, K):
+        for i in seq(0, M):
+            for jo in seq(0, N / 8):
+                reg: f32[8] @ AVX2
+                mm256_broadcast_ss(reg[0:8], A[i, k:1 + k])
+                reg_1: f32[8] @ AVX2
+                mm256_loadu_ps(reg_1[0:8], B[k, 8 * jo:8 + 8 * jo])
+                reg_2: f32[8] @ AVX2
+                mm256_loadu_ps(reg_2[0:8], C[i, 8 * jo:8 + 8 * jo])
+                mm256_fmadd_ps(reg_2[0:8], reg[0:8], reg_1[0:8])
+                mm256_storeu_ps(C[i, 8 * jo:8 + 8 * jo], reg_2[0:8])
+            for ji in seq(0, N % 8):
+                C[i, ji + N / 8 * 8] += A[i, k] * B[k, ji + N / 8 * 8]
