@@ -1,0 +1,11 @@
+def scal(n: size, x: f32[n] @ DRAM, alpha: f32 @ DRAM):
+    for io in seq(0, n / 8):
+        reg: f32[8] @ AVX2
+        mm256_broadcast_ss_scalar(reg[0:8], alpha)
+        reg_1: f32[8] @ AVX2
+        mm256_loadu_ps(reg_1[0:8], x[8 * io:8 + 8 * io])
+        reg_2: f32[8] @ AVX2
+        mm256_mul_ps(reg_2[0:8], reg[0:8], reg_1[0:8])
+        mm256_storeu_ps(x[8 * io:8 + 8 * io], reg_2[0:8])
+    for ii in seq(0, n % 8):
+        x[ii + n / 8 * 8] = alpha * x[ii + n / 8 * 8]

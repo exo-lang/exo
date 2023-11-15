@@ -3549,12 +3549,17 @@ def test_unroll_buffer5():
         bar = unroll_buffer(bar, "tmp_a : _", 0)
 
 
-def test_stage_computation_1(golden):
+def get_scal():
     @proc
     def scal(n: size, x: f32[n], alpha: f32):
         for i in seq(0, n):
             x[i] = alpha * x[i]
 
+    return scal
+
+
+def test_stage_computation_1(golden):
+    scal = get_scal()
     scal = stage_computation(scal, scal.find_loop("i"))
     assert str(simplify(scal)) == golden
 
@@ -3589,7 +3594,7 @@ def test_stage_computation_4(golden):
     assert str(simplify(buffer_select)) == golden
 
 
-def test_stage_computation_5(golden):
+def get_matmul():
     @proc
     def matmul(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):
         for k in seq(0, K):
@@ -3597,6 +3602,11 @@ def test_stage_computation_5(golden):
                 for j in seq(0, N):
                     C[i, j] += A[i, k] * B[k, j]
 
+    return matmul
+
+
+def test_stage_computation_5(golden):
+    matmul = get_matmul()
     matmul = stage_computation(matmul, matmul.find_loop("j"))
     assert str(simplify(matmul)) == golden
 
@@ -3677,3 +3687,62 @@ def test_parallelize_loop_reductions_3(golden):
 
     dot_2d = parallelize_loop_reductions(dot_2d, dot_2d.find_loop("j"), 4)
     assert str(simplify(dot_2d)) == golden
+
+
+def get_AVX2_instructions():
+    return [
+        mm256_loadu_ps,
+        mm256_storeu_ps,
+        mm256_mul_ps,
+        mm256_broadcast_ss_scalar,
+        avx2_reduce_add_wide_ps,
+        avx2_assoc_reduce_add_ps,
+        mm256_setzero_ps,
+        mm256_fmadd_ps,
+        mm256_broadcast_ss,
+    ]
+
+
+def test_vectorize_scal(golden):
+    scal = get_scal()
+    scal = vectorize(scal, scal.find_loop("i"), 8, AVX2, get_AVX2_instructions())
+    assert str(simplify(scal)) == golden
+
+
+def test_vectorize_dot(golden):
+    dot = get_dot()
+    dot = vectorize(dot, dot.find_loop("i"), 8, AVX2, get_AVX2_instructions())
+    assert str(simplify(dot)) == golden
+
+
+def test_vectorize_matmul_1(golden):
+    passed = False
+    # We test this way because unification to choose a scalar window from a 2D buffer
+    # is non-deterministic
+    for i in range(10):
+        matmul = get_matmul()
+        matmul = vectorize(
+            matmul, matmul.find_loop("j"), 8, AVX2, get_AVX2_instructions()
+        )
+        if str(simplify(matmul)) == golden:
+            passed = True
+            break
+    assert passed
+
+
+def test_vectorize_matmul_2(golden):
+    passed = False
+    # We test this way because unification to choose a scalar window from a 2D buffer
+    # is non-deterministic
+    for i in range(10):
+        matmul = get_matmul()
+        matmul = matmul.partial_eval(M=4, N=8)
+        matmul = stage_mem(matmul, matmul.find_loop("k"), "C[0:4,0:8]", "C_reg")
+        matmul = simplify(set_memory(matmul, "C_reg", AVX2))
+        matmul = vectorize(
+            matmul, matmul.find_loop("j"), 8, AVX2, get_AVX2_instructions()
+        )
+        if str(simplify(matmul)) == golden:
+            passed = True
+            break
+    assert passed

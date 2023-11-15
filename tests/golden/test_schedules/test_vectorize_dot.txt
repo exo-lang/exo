@@ -1,0 +1,13 @@
+def dot(n: size, x: f32[n] @ DRAM, y: f32[n] @ DRAM, result: f32 @ DRAM):
+    result = 0.0
+    reg: f32[8] @ AVX2
+    mm256_setzero_ps(reg[0:8])
+    for io in seq(0, n / 8):
+        reg_1: f32[8] @ AVX2
+        mm256_loadu_ps(reg_1[0:8], x[8 * io:8 + 8 * io])
+        reg_2: f32[8] @ AVX2
+        mm256_loadu_ps(reg_2[0:8], y[8 * io:8 + 8 * io])
+        mm256_fmadd_ps(reg[0:8], reg_1[0:8], reg_2[0:8])
+    avx2_assoc_reduce_add_ps(reg[0:8], result)
+    for ii in seq(0, n % 8):
+        result += x[ii + n / 8 * 8] * y[ii + n / 8 * 8]

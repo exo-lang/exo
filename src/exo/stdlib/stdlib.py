@@ -95,7 +95,7 @@ def is_already_divided(loop_cursor, div_factor):
     )
 
 
-def stage_expr(proc, expr_cursors, new_name, precision="R", memory=DRAM, n_lifts=1):
+def stage_expr(proc, expr_cursors, new_name, memory=DRAM, n_lifts=1):
     """
     for i in seq(0, hi):
         s (e(i));
@@ -119,7 +119,6 @@ def stage_expr(proc, expr_cursors, new_name, precision="R", memory=DRAM, n_lifts
     stmt = proc.forward(stmt)
     bind_stmt = stmt.prev()
     alloc_stmt = bind_stmt.prev()
-    proc = set_precision(proc, alloc_stmt, precision)
     proc = set_memory(proc, alloc_stmt, memory)
     proc = expand_dim(
         proc, alloc_stmt, expr_to_string(enclosing_loop.hi()), enclosing_loop.name()
@@ -191,11 +190,7 @@ def auto_divide_loop(proc, loop_cursor, div_const, tail="guard", perfect=False):
     )
 
 
-def scalar_loop_to_simd_loops(proc, loop_cursor, vec_width, memory_type, precision):
-    return vectorize_to_loops(proc, loop_cursor, vec_width, memory_type, precision)
-
-
-def vectorize_to_loops(proc, loop_cursor, vec_width, memory_type, precision):
+def scalar_loop_to_simd_loops(proc, loop_cursor, vec_width, memory_type):
     """
     for i in seq(0, hi):
         lhs(i) = (e_0(i), e_1(i), ..., e_n(i));
@@ -258,7 +253,6 @@ def vectorize_to_loops(proc, loop_cursor, vec_width, memory_type, precision):
             if isinstance(stmt, AllocCursor):
                 proc = parallelize_and_lift_alloc(proc, stmt, n_lifts=depth)
                 proc = set_memory(proc, stmt, memory_type)
-                proc = set_precision(proc, stmt, precision)
             else:
                 forwarded_stmt = proc.forward(stmt)
                 stmts.append(stmt)
@@ -343,7 +337,7 @@ def vectorize_to_loops(proc, loop_cursor, vec_width, memory_type, precision):
         flat_rhs = get_expr_subtree_cursors(stmt.rhs(), stmt, False)
 
         for expr in flat_rhs:
-            proc = stage_expr(proc, expr, f"reg", precision, memory_type, depth)
+            proc = stage_expr(proc, expr, f"reg", memory_type, depth)
 
         return proc
 
@@ -370,7 +364,6 @@ def vectorize_to_loops(proc, loop_cursor, vec_width, memory_type, precision):
                 proc = fission(proc, forwarded_stmt.before(), n_lifts=depth)
 
                 proc = set_memory(proc, alloc_cursor, memory_type)
-                proc = set_precision(proc, alloc_cursor, precision)
         elif isinstance(stmt, IfCursor):
             assert len(stmt.body()) == 1
             if not isinstance(stmt.orelse(), InvalidCursor):
@@ -511,6 +504,7 @@ def parallelize_reduction(
     loop_cursor,
     reduction_stmt,
     parallel_factor,
+    memory=DRAM,
     tail="cut",
 ):
     """
@@ -564,6 +558,7 @@ def parallelize_reduction(
     )
     outer_loop_cursor = proc.forward(outer_loop_cursor)
     alloc_cursor = outer_loop_cursor.prev().prev()
+    proc = set_memory(proc, alloc_cursor, memory)
 
     outer_loop_cursor = proc.forward(outer_loop_cursor)
     proc = parallelize_and_lift_alloc(proc, outer_loop_cursor.prev().prev())
@@ -657,9 +652,11 @@ def get_reduction_stmts(proc, loop):
                 yield stmt
 
 
-def parallelize_loop_reductions(proc, loop, parallel_factor):
+def parallelize_loop_reductions(proc, loop, parallel_factor, memory=DRAM):
     for reduction in get_reduction_stmts(proc, loop):
-        proc = parallelize_reduction(proc, loop, reduction, parallel_factor)
+        proc = parallelize_reduction(
+            proc, loop, reduction, parallel_factor, memory=memory
+        )
     return proc
 
 
@@ -667,113 +664,26 @@ def vectorize(
     proc,
     loop_cursor,
     vec_width,
-    interleave_factor,
-    accumulators_count,
-    memory_type,
-    precision,
+    memory,
     instructions,
-    vectorize_tail=True,
 ):
-    # Check pre-conditions
-    if not isinstance(loop_cursor, ForSeqCursor):
-        raise BLAS_SchedulingError("Expected loop_cursor to be a ForSeqCursor")
-
-    if not isinstance(vec_width, int) and vec_width > 1:
-        raise BLAS_SchedulingError("Expected vec_width to be an integer > 1")
-
-    if not isinstance(interleave_factor, int) and interleave_factor > 0:
-        raise BLAS_SchedulingError("Expected interleave_factor to be an integer > 1")
-
-    if not isinstance(accumulators_count, int) and accumulators_count > 0:
-        raise BLAS_SchedulingError("Expected accumulators_count to be an integer > 1")
-
-    # You add multiple accumulators to increase your ILP.
-    # If you don't interleave the execution by at least that
-    # much, there is no reason to use mutliple accumulators.
-    if interleave_factor % accumulators_count != 0:
-        raise BLAS_SchedulingError(
-            "Expected interleave_factor % accumulators_count == 0"
-        )
-
     # Forward argument cursors
     loop_cursor = proc.forward(loop_cursor)
 
-    # Get reduction buffers, for now assumes those are buffers
-    # of 0 dimensions. We should change to be buffers that are
-    # independent on the loop
-
-    is_perfect = (
-        isinstance(loop_cursor.hi(), LiteralCursor)
-        and isinstance(loop_cursor.lo(), LiteralCursor)
-        and (loop_cursor.hi().value() - loop_cursor.lo().value()) % vec_width == 0
-    )
-    tail = "cut" if is_perfect or not vectorize_tail else "guard"
-
     # Divide the loop to expose parallelism
-    proc, cursors = auto_divide_loop(proc, loop_cursor, vec_width, tail=tail)
+    proc, cursors = auto_divide_loop(proc, loop_cursor, vec_width, tail="cut")
     outer_loop_cursor = cursors.outer_loop_cursor
     inner_loop_cursor = cursors.inner_loop_cursor
 
     # Parallelize all reductions
-    proc = parallelize_loop_reductions(proc, outer_loop_cursor, vec_width)
+    proc = parallelize_loop_reductions(proc, outer_loop_cursor, vec_width, memory)
 
     outer_loop_cursor = proc.forward(outer_loop_cursor)
     inner_loop_cursor = outer_loop_cursor.body()[0]
 
-    if tail == "guard":
-        # Generate tail loop
-        # We manually cut the loop to get the tail loop so that the tail loop
-        # automatically uses the parallelized reduction buffer, instead of
-        # accumulating into a scalar. This also means that when you vectorize
-        # the tail loop (e.g. using mask instructions). You don't need
-        # to do two vector reduction, but only one.
-        proc = cut_loop(
-            proc, outer_loop_cursor, FormattedExprStr("_ - 1", outer_loop_cursor.hi())
-        )
-
-        outer_loop_cursor = proc.forward(outer_loop_cursor)
-        tail_loop_cursor = outer_loop_cursor.next().body()[0]
-
-        # Now that we have a tail loop, the conditional in the main loop
-        # can be removed
-        proc = eliminate_dead_code(proc, inner_loop_cursor.body()[0])
-
-        proc = vectorize_to_loops(
-            proc, tail_loop_cursor, vec_width, memory_type, precision
-        )
-
     # We can now expand scalar operations to SIMD in the main loop
-    proc = vectorize_to_loops(
-        proc, inner_loop_cursor, vec_width, memory_type, precision
-    )
+    proc = scalar_loop_to_simd_loops(proc, inner_loop_cursor, vec_width, memory)
 
-    if interleave_factor == 1:
-        proc = simplify(proc)
-        return replace_all(proc, instructions)
-
-    div_factor = accumulators_count if accumulators_count > 1 else interleave_factor
-
-    if accumulators_count > 1:
-        proc, cursors = auto_divide_loop(
-            proc, outer_loop_cursor, div_factor, tail="cut"
-        )
-        outer_loop_cursor = cursors.outer_loop_cursor
-        inner_loop_cursor = cursors.inner_loop_cursor
-
-        for reduction in allocation_cursors:
-            proc = parallelize_loop_reductions(proc, outer_loop_cursor, vec_width)
-            outer_loop_cursor = proc.forward(outer_loop_cursor)
-            proc = unroll_loop(proc, outer_loop_cursor.prev())
-            proc = unroll_loop(proc, outer_loop_cursor.next())
-        outer_loop_cursor = proc.forward(outer_loop_cursor)
-        inner_loop_cursor = outer_loop_cursor.body()[0]
-        inner_loop_cursor = proc.forward(inner_loop_cursor)
-        proc = interleave_execution(proc, inner_loop_cursor, interleave_factor)
-
-    proc = interleave_execution(
-        proc, outer_loop_cursor, interleave_factor // accumulators_count
-    )
-    proc = simplify(proc)
     proc = replace_all(proc, instructions)
 
     return proc
