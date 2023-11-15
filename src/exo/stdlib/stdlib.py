@@ -226,22 +226,11 @@ def scalar_loop_to_simd_loops(proc, loop_cursor, vec_width, memory_type):
 
     loop_cursor = proc.forward(loop_cursor)
 
-    if not (
-        isinstance(loop_cursor.hi(), LiteralCursor)
-        and loop_cursor.hi().value() == vec_width
-    ):
-        proc = divide_loop(
-            proc,
-            loop_cursor,
-            vec_width,
-            (loop_cursor.name() + "o", loop_cursor.name() + "i"),
-            tail="cut",
-        )
-
-        outer_loop_cursor = proc.forward(loop_cursor)
-        inner_loop_cursor = outer_loop_cursor.body()[0]
+    if is_already_divided(loop_cursor, vec_width):
+        inner_loop_cursor = loop_cursor.body()[0]
     else:
-        inner_loop_cursor = loop_cursor
+        proc, cursors = auto_divide_loop(proc, loop_cursor, vec_width, tail=tail)
+        inner_loop_cursor = cursors.inner_loop_cursor
 
     inner_loop_cursor = proc.forward(inner_loop_cursor)
 
@@ -667,25 +656,13 @@ def vectorize(
     memory,
     instructions,
 ):
-    # Forward argument cursors
     loop_cursor = proc.forward(loop_cursor)
-
-    # Divide the loop to expose parallelism
     proc, cursors = auto_divide_loop(proc, loop_cursor, vec_width, tail="cut")
-    outer_loop_cursor = cursors.outer_loop_cursor
-    inner_loop_cursor = cursors.inner_loop_cursor
-
-    # Parallelize all reductions
-    proc = parallelize_loop_reductions(proc, outer_loop_cursor, vec_width, memory)
-
-    outer_loop_cursor = proc.forward(outer_loop_cursor)
-    inner_loop_cursor = outer_loop_cursor.body()[0]
-
-    # We can now expand scalar operations to SIMD in the main loop
-    proc = scalar_loop_to_simd_loops(proc, inner_loop_cursor, vec_width, memory)
-
+    proc = parallelize_loop_reductions(
+        proc, cursors.outer_loop_cursor, vec_width, memory
+    )
+    proc = scalar_loop_to_simd_loops(proc, cursors.outer_loop_cursor, vec_width, memory)
     proc = replace_all(proc, instructions)
-
     return proc
 
 
