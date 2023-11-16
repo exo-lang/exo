@@ -37,26 +37,22 @@ class MDRAM(DRAM):
 # ----------- DRAM using static memory ----------------
 
 
-def get_DRAM_STATIC(alignment=None):
-    class DRAM_STATIC(DRAM):
-        @classmethod
-        def alloc(cls, new_name, prim_type, shape, srcinfo):
-            # Error checking only
-            for extent in shape:
-                try:
-                    int(extent)
-                except ValueError as e:
-                    raise MemGenError(
-                        f"DRAM_STATIC requires constant shapes. Saw: {extent}"
-                    ) from e
-            alignment_str = "" if alignment == None else f"_Alignas({alignment}) "
-            return f'{alignment_str}static {prim_type} {new_name}[{" * ".join(shape)}];'
+class DRAM_STATIC(DRAM):
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        # Error checking only
+        for extent in shape:
+            try:
+                int(extent)
+            except ValueError as e:
+                raise MemGenError(
+                    f"DRAM_STATIC requires constant shapes. Saw: {extent}"
+                ) from e
+        return f'static {prim_type} {new_name}[{" * ".join(shape)}];'
 
-        @classmethod
-        def free(cls, new_name, prim_type, shape, srcinfo):
-            return ""
-
-    return DRAM_STATIC
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ""
 
 
 # ----------- GEMMINI scratchpad ----------------
