@@ -116,36 +116,35 @@ def make_right_panel_kernel(p=SGEMM_WINDOW):
 right_panel_kernel = make_right_panel_kernel()
 
 
-def make_right_panel_kernel_opt(p=right_panel_kernel):
-    p, _ = auto_divide_loop(p, p.find_loop("j"), VEC_W)
-    p = specialize(
-        p,
-        p.body()[0],
-        [
-            f"((N + {VEC_W - 1}) / {VEC_W}) == {i}"
-            for i in range(1, 1 + (N_REG_BLK // VEC_W))
-        ],
-    )
-    for fma in p.find("C[_] += _", many=True):
-        p = simplify(auto_stage_mem(p, fma, "C_reg", 4))
+def schedule_kernel(p, cond):
+    og_p = p.add_assertion(cond)
+    p, _ = auto_divide_loop(og_p, og_p.find_loop("j"), VEC_W)
+    p = simplify(specialize(p, p.find_loop("k"), cond))
     p = eliminate_dead_code_pass(p)
-    for C_reg in p.find("C_reg : _", many=True):
-        p = simplify(divide_dim(p, C_reg, 1, VEC_W))
-        p = set_memory(p, C_reg, AVX512)
-    for loop in p.find_loop("i1", many=True):
-        p = scalar_loop_to_simd_loops(p, loop, VEC_W, AVX512)
-    for loop in p.find_loop("ji", many=True):
-        p = scalar_loop_to_simd_loops(p, loop, VEC_W, AVX512)
-    p = simplify(p)
-    for loop in p.find_loop("jio", many=True):
-        p = unroll_loop(p, loop)
-    for loop in p.find_loop("i1o", many=True):
-        p = unroll_loop(p, loop)
-    for loop in p.find_loop("jo", many=True):
-        p = unroll_loop(p, loop)
-    p = simplify(p)
+    p = simplify(auto_stage_mem(p, p.find("C[_] += _"), "C_reg", 4))
+    p = simplify(divide_dim(p, "C_reg", 1, VEC_W))
+    p = set_memory(p, "C_reg", AVX512)
+    for it in ("i1", "ji", "i1"):
+        p = scalar_loop_to_simd_loops(p, p.find_loop(it), VEC_W, AVX512)
+    for it in ("i1o", "jio", "jo", "i1o"):
+        p = unroll_loop(p, it)
     p = eliminate_dead_code_pass(p)
     p = replace_all(p, AVX512F_instructions)
+    return og_p, simplify(p)
+
+
+def make_right_panel_kernel_opt(p=right_panel_kernel):
+    conds = [
+        f"((N + {VEC_W - 1}) / {VEC_W}) == {i}"
+        for i in range(1, 1 + (N_REG_BLK // VEC_W))
+    ]
+    p = specialize(p, p.body()[0], conds)
+    p = eliminate_dead_code_pass(p)
+    for i, cond in enumerate(conds):
+        case, case_sched = schedule_kernel(right_panel_kernel, cond)
+        case_sched = rename(case_sched, f"{case_sched.name()}{i}")
+        p = replace(p, p.find_loop("k"), case)
+        p = call_eqv(p, case, case_sched)
     p = rename(p, "right_panel_kernel_scheduled")
     return p
 
