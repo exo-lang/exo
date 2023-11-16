@@ -602,12 +602,7 @@ def reduce(op, top):
 def get_reduction_stmts(loop):
     for stmt in lrn(loop.body()):
         if isinstance(stmt, ReduceCursor):
-
-            def get_idx_deps(stmt):
-                for idx in stmt.idx():
-                    yield from get_expr_dependencies(idx)
-
-            if not loop.name() in get_idx_deps(stmt):
+            if not loop.name() in get_expr_dependencies(stmt.idx()):
                 yield stmt
 
 
@@ -623,7 +618,7 @@ def vectorize(
     instructions,
 ):
     proc, _ = auto_divide_loop(proc, loop, vec_width, tail="cut")
-    proc = reduce(parallelize_reduction, get_reduction_stmts)(proc, loop, memory)
+    proc = parallelize_loop_reductions(proc, loop, memory)
     proc = scalar_loop_to_simd_loops(proc, loop, vec_width, memory)
     proc = replace_all(proc, instructions)
     return proc
