@@ -52,6 +52,24 @@ AVX512F_instructions = [
     mm512_mask_set1_ps,
 ]
 
+
+def schedule_kernel(p, cond):
+    og_p = p.add_assertion(cond)
+    p, _ = auto_divide_loop(og_p, og_p.find_loop("j"), VEC_W)
+    p = simplify(specialize(p, p.find_loop("k"), cond))
+    p = eliminate_dead_code_pass(p)
+    p = simplify(auto_stage_mem(p, p.find("C[_] += _"), "C_reg", 4))
+    p = simplify(divide_dim(p, "C_reg", 1, VEC_W))
+    p = set_memory(p, "C_reg", AVX512)
+    for it in ("i1", "ji", "i1"):
+        p = scalar_loop_to_simd_loops(p, p.find_loop(it), VEC_W, AVX512)
+    for it in ("i1o", "jio", "jo", "i1o"):
+        p = unroll_loop(p, it)
+    p = eliminate_dead_code_pass(p)
+    p = replace_all(p, AVX512F_instructions)
+    return og_p, simplify(p)
+
+
 basic_kernel_Mx4 = {}
 sgemm_kernel_avx512_Mx4 = {}
 for M in range(1, M_REG_BLK + 1):
@@ -62,21 +80,10 @@ for M in range(1, M_REG_BLK + 1):
         p = simplify(p)
         return p
 
-    basic_kernel_Mx4[M] = make_basic(SGEMM_WINDOW)
-
-    def make_avx512_kernel(p):
-        p = rename(p, f"sgemm_kernel_avx512_{M}x4")
-        p = simplify(auto_stage_mem(p, p.find("C[_] += _"), "C_reg", n_lifts=3))
-        C_reg = p.body()[0]
-        p = set_memory(divide_dim(p, C_reg, 1, VEC_W), C_reg, AVX512)
-        for loop_iter in ["i1", "j", "i1"]:
-            p = vectorize(
-                p, p.find_loop(loop_iter), VEC_W, AVX512, AVX512F_instructions
-            )
-        p = apply_to_block(p, p.find_loop("jo").body(), hoist_stmt)
-        return simplify(p)
-
-    sgemm_kernel_avx512_Mx4[M] = make_avx512_kernel(basic_kernel_Mx4[M])
+    p = make_basic(SGEMM_WINDOW)
+    p, p_sched = schedule_kernel(p, "0 == 0")
+    basic_kernel_Mx4[M] = p
+    sgemm_kernel_avx512_Mx4[M] = p_sched
 
 
 def make_bottom_panel_kernel(p):
@@ -114,23 +121,6 @@ def make_right_panel_kernel(p=SGEMM_WINDOW):
 
 
 right_panel_kernel = make_right_panel_kernel()
-
-
-def schedule_kernel(p, cond):
-    og_p = p.add_assertion(cond)
-    p, _ = auto_divide_loop(og_p, og_p.find_loop("j"), VEC_W)
-    p = simplify(specialize(p, p.find_loop("k"), cond))
-    p = eliminate_dead_code_pass(p)
-    p = simplify(auto_stage_mem(p, p.find("C[_] += _"), "C_reg", 4))
-    p = simplify(divide_dim(p, "C_reg", 1, VEC_W))
-    p = set_memory(p, "C_reg", AVX512)
-    for it in ("i1", "ji", "i1"):
-        p = scalar_loop_to_simd_loops(p, p.find_loop(it), VEC_W, AVX512)
-    for it in ("i1o", "jio", "jo", "i1o"):
-        p = unroll_loop(p, it)
-    p = eliminate_dead_code_pass(p)
-    p = replace_all(p, AVX512F_instructions)
-    return og_p, simplify(p)
 
 
 def make_right_panel_kernel_opt(p=right_panel_kernel):
