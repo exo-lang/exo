@@ -3656,13 +3656,16 @@ def get_dot():
 def test_parallelize_reduction_1(golden):
     dot = get_dot()
     loop = dot.find_loop("i")
-    dot = parallelize_reduction(dot, loop, loop.body()[0], 4)
+    dot, _ = auto_divide_loop(dot, dot.find_loop("i"), 4, tail="cut")
+    dot = parallelize_reduction(dot, loop.body()[0])
     assert str(simplify(dot)) == golden
 
 
 def test_parallelize_loop_reductions_1(golden):
     dot = get_dot()
-    dot = parallelize_loop_reductions(dot, dot.find_loop("i"), 4)
+    loop = dot.find_loop("i")
+    dot, _ = auto_divide_loop(dot, loop, 4, tail="cut")
+    dot = parallelize_loop_reductions(dot, loop)
     assert str(simplify(dot)) == golden
 
 
@@ -3673,7 +3676,9 @@ def test_parallelize_loop_reductions_2(golden):
             for j in seq(0, n):
                 result[i] += x[i, j] * y[i, j]
 
-    dot_2d = parallelize_loop_reductions(dot_2d, dot_2d.find_loop("j"), 4)
+    loop = dot_2d.find_loop("j")
+    dot_2d, _ = auto_divide_loop(dot_2d, loop, 4, tail="cut")
+    dot_2d = parallelize_loop_reductions(dot_2d, loop)
     assert str(simplify(dot_2d)) == golden
 
 
@@ -3685,7 +3690,9 @@ def test_parallelize_loop_reductions_3(golden):
                 result[i] += x[i, j] * y[i, j]
                 result_scalar += x[i, j] * y[i, j]
 
-    dot_2d = parallelize_loop_reductions(dot_2d, dot_2d.find_loop("j"), 4)
+    loop = dot_2d.find_loop("j")
+    dot_2d, _ = auto_divide_loop(dot_2d, loop, 4, tail="cut")
+    dot_2d = parallelize_loop_reductions(dot_2d, loop)
     assert str(simplify(dot_2d)) == golden
 
 

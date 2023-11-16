@@ -9,6 +9,7 @@ from exo.syntax import *
 from exo.stdlib.scheduling import *
 from exo.API_cursors import *
 from .introspection import get_stmt_dependencies, get_declaration, get_expr_dependencies
+from functools import partial
 
 
 class BLAS_SchedulingError(Exception):
@@ -488,40 +489,7 @@ def apply_to_block(proc, block_cursor, stmt_scheduling_op):
     return proc
 
 
-def parallelize_reduction(
-    proc,
-    loop_cursor,
-    reduction_stmt,
-    parallel_factor,
-    memory=DRAM,
-    tail="cut",
-):
-    """
-    for i in seq(0, n):
-        x[...] += y[i]
-
-    ----->
-
-    xReg: f32[parallel_factor]
-    for ii in seq(0, parallel_factor):
-        xReg[ii][...] = 0.0
-    for io in seq(0, n / parallel_factor):
-        for ii in seq(0, vec_width):
-            xReg[ii][..] += y[io * parallel_factor + ii]
-    for ii in seq(0, parallel_factor):
-        x[...] += xReg[ii]
-
-    Returns: (proc, allocation cursors)
-    """
-    # Check arguments pre-condition
-    if not isinstance(loop_cursor, ForSeqCursor):
-        raise BLAS_SchedulingError("vectorize loop_cursor must be a ForSeqCursor")
-
-    if not isinstance(parallel_factor, int):
-        raise BLAS_SchedulingError("parallel_factor must be an integer")
-
-    if parallel_factor <= 1:
-        return proc, None
+def parallelize_reduction(proc, reduction_stmt, memory=DRAM):
 
     reduction_stmt = proc.forward(reduction_stmt)
 
@@ -529,33 +497,26 @@ def parallelize_reduction(
     for idx in reduction_stmt.idx():
         reduction_buffer_window += f"[{expr_to_string(idx)}]"
 
-    # Forward input cursors
-    loop_cursor = proc.forward(loop_cursor)
+    inner_loop = get_enclosing_loop(reduction_stmt)
+    outer_loop = inner_loop.parent()
 
-    # Divide the loop if necessary
-    if is_already_divided(loop_cursor, parallel_factor):
-        outer_loop_cursor = loop_cursor
-    else:
-        proc, cursors = auto_divide_loop(proc, loop_cursor, parallel_factor, tail=tail)
-        outer_loop_cursor = cursors.outer_loop_cursor
-
-    proc = reorder_loops(proc, outer_loop_cursor)
-    outer_loop_cursor = proc.forward(outer_loop_cursor)
+    proc = reorder_loops(proc, outer_loop)
+    outer_loop = proc.forward(outer_loop)
 
     proc = simplify(
-        stage_mem(proc, outer_loop_cursor, reduction_buffer_window, "reg", accum=True)
+        stage_mem(proc, outer_loop, reduction_buffer_window, "reg", accum=True)
     )
-    outer_loop_cursor = proc.forward(outer_loop_cursor)
-    alloc_cursor = outer_loop_cursor.prev().prev()
-    proc = set_memory(proc, alloc_cursor, memory)
+    outer_loop = proc.forward(outer_loop)
+    alloc = outer_loop.prev().prev()
+    proc = set_memory(proc, alloc, memory)
 
-    outer_loop_cursor = proc.forward(outer_loop_cursor)
-    proc = parallelize_and_lift_alloc(proc, outer_loop_cursor.prev().prev())
-    proc = fission(proc, outer_loop_cursor.before())
-    proc = fission(proc, outer_loop_cursor.after())
-    outer_loop_cursor = proc.forward(outer_loop_cursor)
-    proc = reorder_loops(proc, outer_loop_cursor.parent())
-    outer_loop_cursor = proc.forward(outer_loop_cursor)
+    outer_loop = proc.forward(outer_loop)
+    proc = parallelize_and_lift_alloc(proc, outer_loop.prev().prev())
+    proc = fission(proc, outer_loop.before())
+    proc = fission(proc, outer_loop.after())
+    outer_loop = proc.forward(outer_loop)
+    proc = reorder_loops(proc, outer_loop.parent())
+    outer_loop = proc.forward(outer_loop)
 
     return proc
 
@@ -629,8 +590,17 @@ def interleave_outer_loop_with_inner_loop(
     return proc
 
 
-def get_reduction_stmts(proc, loop):
-    for stmt in post_order_stmts(loop.body()):
+def reduce(op, top):
+    def func(p, cursor, *args):
+        for c in top(cursor):
+            p = op(p, c, *args)
+        return p
+
+    return func
+
+
+def get_reduction_stmts(loop):
+    for stmt in lrn(loop.body()):
         if isinstance(stmt, ReduceCursor):
 
             def get_idx_deps(stmt):
@@ -641,27 +611,20 @@ def get_reduction_stmts(proc, loop):
                 yield stmt
 
 
-def parallelize_loop_reductions(proc, loop, parallel_factor, memory=DRAM):
-    for reduction in get_reduction_stmts(proc, loop):
-        proc = parallelize_reduction(
-            proc, loop, reduction, parallel_factor, memory=memory
-        )
-    return proc
+def parallelize_loop_reductions(proc, loop, memory=DRAM):
+    return reduce(parallelize_reduction, get_reduction_stmts)(proc, loop, memory)
 
 
 def vectorize(
     proc,
-    loop_cursor,
+    loop,
     vec_width,
     memory,
     instructions,
 ):
-    loop_cursor = proc.forward(loop_cursor)
-    proc, cursors = auto_divide_loop(proc, loop_cursor, vec_width, tail="cut")
-    proc = parallelize_loop_reductions(
-        proc, cursors.outer_loop_cursor, vec_width, memory
-    )
-    proc = scalar_loop_to_simd_loops(proc, cursors.outer_loop_cursor, vec_width, memory)
+    proc, _ = auto_divide_loop(proc, loop, vec_width, tail="cut")
+    proc = reduce(parallelize_reduction, get_reduction_stmts)(proc, loop, memory)
+    proc = scalar_loop_to_simd_loops(proc, loop, vec_width, memory)
     proc = replace_all(proc, instructions)
     return proc
 
@@ -901,27 +864,25 @@ def eliminate_dead_code_pass(proc):
     return visit(proc, proc.body())
 
 
-def post_order_stmts(block):
+def lrn(block):
     for stmt in block:
         if isinstance(stmt, ForSeqCursor):
-            yield from post_order_stmts(stmt.body())
+            yield from lrn(stmt.body())
         elif isinstance(stmt, IfCursor):
-            yield from post_order_stmts(stmt.body())
+            yield from lrn(stmt.body())
             if not isinstance(stmt.orelse(), InvalidCursor):
-                yield from post_order_stmts(stmt.orelse())
+                yield from lrn(stmt.orelse())
         yield stmt
 
 
 def is_inner_loop(loop):
-    return all(
-        not isinstance(stmt, ForSeqCursor) for stmt in post_order_stmts(loop.body())
-    )
+    return all(not isinstance(stmt, ForSeqCursor) for stmt in lrn(loop.body()))
 
 
 def name_exists(proc, name):
     return any(arg.name() == name for arg in proc.args()) or any(
         isinstance(stmt, AllocCursor) and stmt.name() == name
-        for stmt in post_order_stmts(proc.body())
+        for stmt in lrn(proc.body())
     )
 
 
@@ -952,7 +913,7 @@ def stage_computation(proc, loop):
 
     name_generator = get_reg_name(proc)
 
-    for stmt in post_order_stmts(loop.body()):
+    for stmt in lrn(loop.body()):
         if isinstance(stmt, (AssignCursor, ReduceCursor)):
             for expr in post_order_data_exprs(stmt.rhs()):
                 proc = bind_expr(proc, [expr], next(name_generator))
