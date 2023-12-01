@@ -613,7 +613,7 @@ def test_wrap_block(proc_bar, golden):
         src = body[0].srcinfo
         zero = LoopIR.Const(0, T.index, src)
         eight = LoopIR.Const(8, T.index, src)
-        return LoopIR.Seq(k, zero, eight, body, None, src)
+        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), None, src)
 
     procs = []
     for i in range(0, 6):

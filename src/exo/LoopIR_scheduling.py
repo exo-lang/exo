@@ -134,7 +134,7 @@ class Cursor_Rewrite(LoopIR_Rewrite):
                         orelse=new_orelse or s.orelse,
                     )
                 ]
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             new_lo = self.map_e(s.lo)
             new_hi = self.map_e(s.hi)
             new_body = self.map_stmts(sc.body())
@@ -320,6 +320,10 @@ def DoReorderStmt(f_cursor, s_cursor):
     return ir, fwd
 
 
+def DoParallelizeLoop(loop_cursor):
+    return loop_cursor._child_node("loop_mode")._replace(LoopIR.Par())
+
+
 def DoJoinLoops(loop1_c, loop2_c):
     if loop1_c.next() != loop2_c:
         raise SchedulingError("expected the second loop to be directly after the first")
@@ -347,7 +351,7 @@ def DoJoinLoops(loop1_c, loop2_c):
 def DoCutLoop(loop_c, cut_point):
     s = loop_c._node
 
-    assert isinstance(s, LoopIR.Seq)
+    assert isinstance(s, LoopIR.For)
 
     try:
         Check_IsNonNegativeExpr(
@@ -378,7 +382,7 @@ def DoCutLoop(loop_c, cut_point):
 def DoShiftLoop(loop_c, new_lo):
     s = loop_c._node
 
-    assert isinstance(s, LoopIR.Seq)
+    assert isinstance(s, LoopIR.For)
 
     try:
         Check_IsNonNegativeExpr(
@@ -419,7 +423,7 @@ def DoProductLoop(outer_loop_c, new_name):
     body = outer_loop_c.body()
     outer_loop = outer_loop_c._node
 
-    if len(body) != 1 or not isinstance(body[0]._node, LoopIR.Seq):
+    if len(body) != 1 or not isinstance(body[0]._node, LoopIR.For):
         raise SchedulingError(
             f"expected loop directly inside of {body[0]._node.iter} loop"
         )
@@ -570,7 +574,7 @@ def DoDivideWithRecompute(
     loop = loop_cursor._node
     srcinfo = loop.srcinfo
 
-    assert isinstance(loop, LoopIR.Seq)
+    assert isinstance(loop, LoopIR.For)
     assert isinstance(outer_hi, LoopIR.expr)
     Check_IsIdempotent(proc, loop.body)
 
@@ -613,8 +617,14 @@ def DoDivideWithRecompute(
 
     # wrap body in inner loop
     def inner_wrapper(body):
-        return LoopIR.Seq(
-            sym_i, LoopIR.Const(0, T.index, srcinfo), hi_i, body, None, srcinfo
+        return LoopIR.For(
+            sym_i,
+            LoopIR.Const(0, T.index, srcinfo),
+            hi_i,
+            body,
+            LoopIR.Seq(),
+            None,
+            srcinfo,
         )
 
     ir, fwd_wrap = fwd(loop_cursor).body()._wrap(inner_wrapper, "body")
@@ -732,8 +742,14 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
 
     # wrap body in inner loop
     def inner_wrapper(body):
-        return LoopIR.Seq(
-            inner_i, LoopIR.Const(0, T.index, srcinfo), inner_hi, body, None, srcinfo
+        return LoopIR.For(
+            inner_i,
+            LoopIR.Const(0, T.index, srcinfo),
+            inner_hi,
+            body,
+            loop.loop_mode,
+            None,
+            srcinfo,
         )
 
     ir, fwd_wrap = fwd(loop_cursor).body()._wrap(inner_wrapper, "body")
@@ -765,8 +781,14 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
         env = {loop.iter: cut_tail_sub}
         cut_body = SubstArgs(cut_body, env).result()
 
-        cut_s = LoopIR.Seq(
-            cut_i, LoopIR.Const(0, T.index, srcinfo), Ntail, cut_body, None, srcinfo
+        cut_s = LoopIR.For(
+            cut_i,
+            LoopIR.Const(0, T.index, srcinfo),
+            Ntail,
+            cut_body,
+            loop.loop_mode,
+            None,
+            srcinfo,
         )
         if tail_strategy == "cut_and_guard":
             cond = boolop(">", Ntail, LoopIR.Const(0, T.int, srcinfo), T.bool)
@@ -1194,7 +1216,7 @@ def DoBindExpr(new_name, expr_cursors, cse=False):
 
 def DoLiftScope(inner_c):
     inner_s = inner_c._node
-    assert isinstance(inner_s, (LoopIR.If, LoopIR.Seq))
+    assert isinstance(inner_s, (LoopIR.If, LoopIR.For))
     target_type = "if statement" if isinstance(inner_s, LoopIR.If) else "for loop"
 
     outer_c = inner_c.parent()
@@ -1268,7 +1290,7 @@ def DoLiftScope(inner_c):
                     fwd = _compose(fwd_wrap, fwd)
                     ir, fwd_repl = fwd(inner_c).orelse()[0].body()._replace(blk_a)
                     fwd = _compose(fwd_repl, fwd)
-        elif isinstance(inner_s, LoopIR.Seq):
+        elif isinstance(inner_s, LoopIR.For):
             # if OUTER:                for INNER in _:
             #   for INNER in _: A  ~>    if OUTER: A
             if len(outer_s.body) > 1:
@@ -1291,7 +1313,7 @@ def DoLiftScope(inner_c):
 
             return ir, fwd
 
-    elif isinstance(outer_s, LoopIR.Seq):
+    elif isinstance(outer_s, LoopIR.For):
         if len(outer_s.body) > 1:
             raise SchedulingError(
                 f"expected {target_type} to be directly nested in parent"
@@ -1313,7 +1335,7 @@ def DoLiftScope(inner_c):
             if inner_s.orelse:
                 ir, fwd_wrap = fwd(inner_c).orelse()._wrap(loop_wrapper, "body")
                 fwd = _compose(fwd_wrap, fwd)
-        elif isinstance(inner_s, LoopIR.Seq):
+        elif isinstance(inner_s, LoopIR.For):
             # for OUTER in _:          for INNER in _:
             #   for INNER in _: A  ~>    for OUTER in _: A
             reads = get_reads_of_expr(inner_s.lo) + get_reads_of_expr(inner_s.hi)
@@ -1378,7 +1400,7 @@ def DoLiftConstant(assign_c, loop_c):
                 reduces += find_relevant_scaled_reduces(sc.body())
                 if s.orelse:
                     reduces += find_relevant_scaled_reduces(sc.orelse())
-            elif isinstance(s, LoopIR.Seq):
+            elif isinstance(s, LoopIR.For):
                 reduces += find_relevant_scaled_reduces(sc.body())
             elif isinstance(s, (LoopIR.WindowStmt, LoopIR.WriteConfig, LoopIR.Call)):
                 raise NotImplementedError(
@@ -1788,7 +1810,7 @@ def DoLiftAllocSimple(alloc_cursor, n_lifts):
                 raise ic.InvalidCursorError(
                     f"Cannot lift allocation {alloc_stmt} beyond its root proc."
                 )
-            if isinstance(stmt_c._node, LoopIR.Seq):
+            if isinstance(stmt_c._node, LoopIR.For):
                 if stmt_c._node.iter in szvars:
                     raise SchedulingError(
                         f"Cannot lift allocation statement {alloc_stmt} past loop "
@@ -1813,7 +1835,7 @@ def DoSinkAlloc(alloc_cursor, scope_cursor):
     alloc_stmt = alloc_cursor._node
     scope_stmt = scope_cursor._node
     assert isinstance(alloc_stmt, LoopIR.Alloc)
-    assert isinstance(scope_stmt, (LoopIR.If, LoopIR.Seq))
+    assert isinstance(scope_stmt, (LoopIR.If, LoopIR.For))
 
     # TODO: we need analysis here about the effects on this allocation within the scope
     # Specifically, each loop iteration should only read from indices that were written
@@ -1932,7 +1954,7 @@ class DoLiftAlloc(Cursor_Rewrite):
             # erase the statement from this location
             return []
 
-        elif isinstance(s, (LoopIR.If, LoopIR.Seq)):
+        elif isinstance(s, (LoopIR.If, LoopIR.For)):
             # handle recursive part of pass at this statement
             self.ctrl_ctxt.append(s)
             stmts = super().map_s(sc)
@@ -2030,7 +2052,7 @@ class DoLiftAlloc(Cursor_Rewrite):
                 # shrink the allocation by being aware of
                 # guards; oh well.
                 continue
-            elif isinstance(s, LoopIR.Seq):
+            elif isinstance(s, LoopIR.For):
                 # TODO: may need to fix to support lo for backwards compatability
                 if s.iter in self.alloc_deps and self.keep_dims:
                     idxs.append(s.iter)
@@ -2139,7 +2161,7 @@ class _FreeVars(LoopIR_Do):
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name not in self._bound:
                 self._fvs.add(s.name)
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             self._bound.add(s.iter)
         elif isinstance(s, LoopIR.Alloc):
             self._bound.add(s.name)
@@ -2167,7 +2189,7 @@ def _is_idempotent(stmts):
             return _is_idempotent(s.f.body)
         elif styp is LoopIR.If:
             return _is_idempotent(s.body) and _is_idempotent(s.orelse)
-        elif styp is LoopIR.Seq:
+        elif styp is LoopIR.For:
             return _is_idempotent(s.body)
         else:
             return True
@@ -2239,7 +2261,7 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts, unsafe_disable_checks):
         par_c = cur_c.parent()
         par_s = par_c._node
 
-        if isinstance(par_s, LoopIR.Seq):
+        if isinstance(par_s, LoopIR.For):
             pre_c = par_c.body()[:idx]
             post_c = par_c.body()[idx:]
         elif isinstance(par_s, LoopIR.If):
@@ -2260,7 +2282,7 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts, unsafe_disable_checks):
 
         alloc_check(pre, post)
 
-        if isinstance(par_s, LoopIR.Seq):
+        if isinstance(par_s, LoopIR.For):
             # we must check whether the two parts of the
             # fission can commute appropriately
             no_loop_var_pre = par_s.iter not in _FV(pre)
@@ -2404,7 +2426,7 @@ class DoFissionLoops:
             single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
 
         # TODO: may need to fix to support lo for backwards compatability
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             # check if we need to split the loop
             pre, post = self.map_stmts(s.body)
             do_fission = len(pre) > 0 and len(post) > 0 and self.n_lifts > 0
@@ -2498,7 +2520,7 @@ class DoBoundAndGuard(Cursor_Rewrite):
     def map_s(self, sc):
         s = sc._node
         if s == self.loop:
-            assert isinstance(s, LoopIR.Seq)
+            assert isinstance(s, LoopIR.For)
             bound = _get_constant_bound(s.hi)
             guard = LoopIR.If(
                 LoopIR.BinOp(
@@ -2601,8 +2623,14 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
             cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
             body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
 
-        return LoopIR.Seq(
-            sym, LoopIR.Const(0, T.index, s.srcinfo), hi, body, None, s.srcinfo
+        return LoopIR.For(
+            sym,
+            LoopIR.Const(0, T.index, s.srcinfo),
+            hi,
+            body,
+            LoopIR.Seq(),
+            None,
+            s.srcinfo,
         )
 
     ir, fwd = stmt_cursor.as_block()._wrap(wrapper, "body")
@@ -2689,7 +2717,7 @@ class DoDeletePass(Cursor_Rewrite):
         if isinstance(s, LoopIR.Pass):
             return []
 
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             body = self.map_stmts(sc.body())
             if body is None:
                 return None
@@ -2738,7 +2766,7 @@ class DoExtractMethod(Cursor_Rewrite):
         elif isinstance(s, LoopIR.Alloc):
             self.var_types[s.name] = s.type
             return None
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             self.push()
             self.var_types[s.iter] = T.index
             body = self.map_stmts(sc.body())
@@ -3111,7 +3139,7 @@ class _DoNormalize(Cursor_Rewrite):
             if new_cond:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("cond")._replace(new_cond)
                 self.fwd = _compose(fwd_repl, self.fwd)
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             new_lo = self.map_e(s.lo)
             new_hi = self.map_e(s.hi)
 
@@ -3402,7 +3430,7 @@ class DoSimplify(Cursor_Rewrite):
             if cond:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("cond")._replace(cond)
                 self.fwd = _compose(fwd_repl, self.fwd)
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             lo = self.map_e(s.lo)
             hi = self.map_e(s.hi)
 
@@ -3520,7 +3548,7 @@ def DoEliminateIfDeadBranch(if_cursor):
 def DoEliminateDeadLoop(loop_cursor):
     loop_stmt = loop_cursor._node
 
-    assert isinstance(loop_stmt, LoopIR.Seq)
+    assert isinstance(loop_stmt, LoopIR.For)
 
     ir, fwd = loop_cursor.get_root(), lambda x: x
 
@@ -3543,7 +3571,7 @@ def DoEliminateDeadCode(stmt_cursor):
 
     if isinstance(stmt, LoopIR.If):
         return DoEliminateIfDeadBranch(stmt_cursor)
-    elif isinstance(stmt, LoopIR.Seq):
+    elif isinstance(stmt, LoopIR.For):
         return DoEliminateDeadLoop(stmt_cursor)
     else:
         assert False, f"Unsupported statement type {type(stmt)}"
@@ -3640,7 +3668,7 @@ class _DoStageMem_FindBufData(LoopIR_Do):
             self.push()
             self.do_stmts(s.orelse)
             self.pop()
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             self.push()
             self.do_stmts(s.body)
             self.pop()
@@ -3742,8 +3770,14 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         ]
 
         for i, n in reversed(list(zip(load_iter, shape))):
-            loop = LoopIR.Seq(
-                i, LoopIR.Const(0, T.index, srcinfo), n, load_nest, None, srcinfo
+            loop = LoopIR.For(
+                i,
+                LoopIR.Const(0, T.index, srcinfo),
+                n,
+                load_nest,
+                LoopIR.Seq(),
+                None,
+                srcinfo,
             )
             load_nest = [loop]
 
@@ -3769,8 +3803,14 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         ]
 
         for i, n in reversed(list(zip(store_iter, shape))):
-            loop = LoopIR.Seq(
-                i, LoopIR.Const(0, T.index, srcinfo), n, store_nest, None, srcinfo
+            loop = LoopIR.For(
+                i,
+                LoopIR.Const(0, T.index, srcinfo),
+                n,
+                store_nest,
+                LoopIR.Seq(),
+                None,
+                srcinfo,
             )
             store_nest = [loop]
 
@@ -3887,11 +3927,12 @@ class DoStageWindow(Cursor_Rewrite):
         # for i0 in par(0, 10):
         #     for i1 in par(0, hi - lo):
         for sym_i, extent_i in reversed(list(zip(staged_vars, staged_extents))):
-            copy_stmt = LoopIR.Seq(
+            copy_stmt = LoopIR.For(
                 sym_i,
                 LoopIR.Const(0, T.index, srcinfo),
                 extent_i,
                 [copy_stmt],
+                LoopIR.Seq(),
                 None,
                 srcinfo,
             )

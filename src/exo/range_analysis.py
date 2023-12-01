@@ -239,7 +239,7 @@ def infer_range(expr, scope):
     for c in ancestors:
         env.enter_scope()
         s = c._impl._node
-        if isinstance(s, LoopIR.Seq):
+        if isinstance(s, LoopIR.For):
             env.add_loop_iter(s.iter, s.lo, s.hi)
     bounds = index_range_analysis_v2(expr._impl._node, env.env)
     return bounds
