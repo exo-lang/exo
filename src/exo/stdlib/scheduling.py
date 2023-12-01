@@ -386,7 +386,6 @@ def fuse_at(proc, producer, consumer, loop):
     # TODO: this should match producer loop structure to consumer's. Currently, it just
     # makes the newly divided loop the innermost loop of the producer.
     p_inner_loop = proc.find_loop(f"{p_iter}i")
-    # TODO: this should probably reason about the original order of loops (e.g. xi before yi)
     while isinstance(p_inner_loop.body()[0], _PC.ForCursor):
         proc = reorder_loops(proc, p_inner_loop)
         p_inner_loop = proc.forward(p_inner_loop)

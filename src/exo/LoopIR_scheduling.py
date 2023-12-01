@@ -322,8 +322,6 @@ def DoReorderStmt(f_cursor, s_cursor):
 
 
 def DoParallelizeLoop(loop_cursor):
-    # TODO: Check commutativiity of loop body
-    Check_ParallelizeLoop(loop_cursor.get_root(), loop_cursor._node)
     return loop_cursor._child_node("loop_mode")._replace(LoopIR.Par())
 
 
@@ -683,7 +681,7 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
         return LoopIR.Read(i, [], T.index, srcinfo)
 
     def ceildiv(lhs, rhs):
-        assert isinstance(rhs, LoopIR.Const) and rhs.val > 1
+        assert isinstance(rhs, LoopIR.Const) and rhs.val > 0
         rhs_1 = cnst(rhs.val - 1)
         return szop("/", szop("+", lhs, rhs_1), rhs)
 

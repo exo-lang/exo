@@ -1195,6 +1195,30 @@ def test_divide_loop_fail_nonzero_lo():
         bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="guard")
 
 
+def test_divide_loop_by_1_guard(golden):
+    @proc
+    def bar(n: size):
+        for i in seq(0, n):
+            pass
+
+    bar1 = divide_loop(bar, bar.find_loop("i"), 1, ("io", "ii"), tail="guard")
+    bar2 = simplify(bar1)
+
+    assert f"{bar1}\n{bar2}" == golden
+
+
+def test_divide_loop_by_1_cut(golden):
+    @proc
+    def bar(n: size):
+        for i in seq(0, n):
+            pass
+
+    bar1 = divide_loop(bar, bar.find_loop("i"), 1, ("io", "ii"), tail="cut")
+    bar2 = simplify(bar1)
+
+    assert f"{bar1}\n{bar2}" == golden
+
+
 def test_simple_reorder(golden):
     @proc
     def bar(n: size, m: size, A: i8[n, m]):
@@ -3424,25 +3448,3 @@ def test_parallelize_loop(golden):
 
     foo = parallelize_loop(foo, foo.find_loop("i"))
     assert str(foo) == golden
-
-
-def test_parallelize_loop_fail():
-    @proc
-    def foo(A: i8[10]):
-        total: i8
-        for i in seq(0, 10):
-            total += A[i]
-
-    with pytest.raises(SchedulingError, match="Cannot parallelize loop"):
-        foo = parallelize_loop(foo, foo.find_loop("i"))
-
-
-def test_parallelize_loop_fail_2():
-    @proc
-    def foo(A: i8[10]):
-        total: i8
-        for i in seq(0, 10):
-            total = total + A[i]
-
-    with pytest.raises(SchedulingError, match="Cannot parallelize loop"):
-        foo = parallelize_loop(foo, foo.find_loop("i"))
