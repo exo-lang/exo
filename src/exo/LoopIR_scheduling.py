@@ -680,7 +680,7 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
         return LoopIR.Read(i, [], T.index, srcinfo)
 
     def ceildiv(lhs, rhs):
-        assert isinstance(rhs, LoopIR.Const) and rhs.val > 1
+        assert isinstance(rhs, LoopIR.Const) and rhs.val > 0
         rhs_1 = cnst(rhs.val - 1)
         return szop("/", szop("+", lhs, rhs_1), rhs)
 
@@ -3156,10 +3156,7 @@ class _DoNormalize(Cursor_Rewrite):
 
             self.env.enter_scope()
 
-            new_hi_prev = LoopIR.BinOp(
-                "-", new_hi, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
-            )
-            self.env.add_sym(s.iter, new_lo, new_hi_prev)
+            self.env.add_loop_iter(s.iter, new_lo, new_hi)
 
             self.map_stmts(sc.body())
 
