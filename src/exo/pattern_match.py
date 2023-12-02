@@ -94,7 +94,7 @@ _PAST_to_LoopIR = {
     PAST.Reduce: [LoopIR.Reduce],
     PAST.Pass: [LoopIR.Pass],
     PAST.If: [LoopIR.If],
-    PAST.Seq: [LoopIR.For],
+    PAST.For: [LoopIR.For],
     PAST.Alloc: [LoopIR.Alloc],
     PAST.Call: [LoopIR.Call],
     PAST.WriteConfig: [LoopIR.WriteConfig],

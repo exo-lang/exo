@@ -1644,9 +1644,6 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         `    s[ i -> q * (e / q) + lo ]
     """
 
-    if div_const == 1:
-        raise ValueError("why are you trying to split by 1?")
-
     stmt = loop_cursor._impl
 
     ir, fwd = scheduling.DoSplit(

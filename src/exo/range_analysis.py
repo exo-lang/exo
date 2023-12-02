@@ -137,6 +137,7 @@ class IndexRange:
             return IndexRange(None, new_lo, new_hi)
 
     def __mod__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
         if self.base is None and self.lo is not None and self.hi is not None:
             if self.lo // c == self.hi // c:
                 return IndexRange(None, self.lo % c, self.hi % c)
@@ -144,6 +145,7 @@ class IndexRange:
 
     # join
     def __or__(self, other: IndexRange) -> IndexRange:
+        assert isinstance(other, IndexRange)
         compare_ir = LoopIR_Compare()
         if (self.base is None and other.base is None) or compare_ir.match_e(
             self.base, other.base

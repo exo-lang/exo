@@ -176,7 +176,7 @@ module UAST {
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
             | If      ( expr cond, stmt* body,  stmt* orelse )
-            | Seq     ( sym iter,  expr cond,   stmt* body )
+            | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
             | Call    ( loopir_proc f, expr* args )
             attributes( srcinfo srcinfo )
@@ -252,7 +252,7 @@ module PAST {
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
             | If      ( expr cond, stmt* body, stmt* orelse )
-            | Seq     ( name iter, expr lo, expr hi, stmt* body )
+            | For     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
             | Call    ( name f, expr* args )
             | WriteConfig ( name config, name field )

@@ -226,7 +226,7 @@ class TypeChecker:
                 ebody = self.check_stmts(stmt.orelse)
             return [LoopIR.If(cond, body, ebody, None, stmt.srcinfo)]
 
-        elif isinstance(stmt, UAST.Seq):
+        elif isinstance(stmt, UAST.For):
             self.env[stmt.iter] = T.index
 
             # handle standard ParRanges

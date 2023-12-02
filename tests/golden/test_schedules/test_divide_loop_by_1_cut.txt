@@ -1,0 +1,10 @@
+def bar(n: size):
+    for io in seq(0, n / 1):
+        for ii in seq(0, 1):
+            pass
+    for ii in seq(0, n % 1):
+        pass
+def bar(n: size):
+    for io in seq(0, n):
+        for ii in seq(0, 1):
+            pass

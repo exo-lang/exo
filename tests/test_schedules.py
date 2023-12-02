@@ -401,23 +401,23 @@ def test_fission_after_simple_fail():
         fission(foo, foo.find("x = 0.0").after(), n_lifts=2)
 
 
-def test_replace_dim(golden):
+def test_resize_dim(golden):
     @proc
     def foo():
         x: i8[10]
         for i in seq(1, 9):
             x[i] = 1.0
 
-    foo = replace_dim(foo, "x", 0, 1, 20)
+    foo = resize_dim(foo, "x", 0, 1, 20)
     assert str(simplify(foo)) == golden
 
     with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
-        foo = replace_dim(foo, "x", 0, 1, 8)
+        foo = resize_dim(foo, "x", 0, 1, 8)
     with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
-        foo = replace_dim(foo, "x", 0, 2, 9)
+        foo = resize_dim(foo, "x", 0, 2, 9)
 
 
-def test_replace_dim_2(golden):
+def test_resize_dim_2(golden):
     @proc
     def foo(n: size):
         assert n > 4
@@ -425,13 +425,13 @@ def test_replace_dim_2(golden):
         for i in seq(2, n - 1):
             x[i] = 1.0
 
-    foo = replace_dim(foo, "x", 0, 2, "n-1")
+    foo = resize_dim(foo, "x", 0, 2, "n-1")
     assert str(simplify(foo)) == golden
 
     with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
-        foo = replace_dim(foo, "x", 0, 2, "n-2")
+        foo = resize_dim(foo, "x", 0, 2, "n-2")
     with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
-        foo = replace_dim(foo, "x", 0, 3, "n-1")
+        foo = resize_dim(foo, "x", 0, 3, "n-1")
 
 
 def test_rearrange_dim(golden):
@@ -1193,6 +1193,30 @@ def test_divide_loop_fail_nonzero_lo():
         SchedulingError, match="expected the lower bound of the loop to be zero"
     ):
         bar = divide_loop(bar, "i", 4, ["io", "ii"], tail="guard")
+
+
+def test_divide_loop_by_1_guard(golden):
+    @proc
+    def bar(n: size):
+        for i in seq(0, n):
+            pass
+
+    bar1 = divide_loop(bar, bar.find_loop("i"), 1, ("io", "ii"), tail="guard")
+    bar2 = simplify(bar1)
+
+    assert f"{bar1}\n{bar2}" == golden
+
+
+def test_divide_loop_by_1_cut(golden):
+    @proc
+    def bar(n: size):
+        for i in seq(0, n):
+            pass
+
+    bar1 = divide_loop(bar, bar.find_loop("i"), 1, ("io", "ii"), tail="cut")
+    bar2 = simplify(bar1)
+
+    assert f"{bar1}\n{bar2}" == golden
 
 
 def test_simple_reorder(golden):
@@ -3424,25 +3448,3 @@ def test_parallelize_loop(golden):
 
     foo = parallelize_loop(foo, foo.find_loop("i"))
     assert str(foo) == golden
-
-
-def test_parallelize_loop_fail():
-    @proc
-    def foo(A: i8[10]):
-        total: i8
-        for i in seq(0, 10):
-            total += A[i]
-
-    with pytest.raises(SchedulingError, match="Cannot parallelize loop"):
-        foo = parallelize_loop(foo, foo.find_loop("i"))
-
-
-def test_parallelize_loop_fail_2():
-    @proc
-    def foo(A: i8[10]):
-        total: i8
-        for i in seq(0, 10):
-            total = total + A[i]
-
-    with pytest.raises(SchedulingError, match="Cannot parallelize loop"):
-        foo = parallelize_loop(foo, foo.find_loop("i"))

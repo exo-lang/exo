@@ -899,7 +899,9 @@ def get_stmt_within_scope(cursor, scope):
     Gets the statement containing [cursor] that is directly in the provided [scope]
     """
     validate_cursors(cursor, scope)
-    assert isinstance(scope, (ForCursor, IfCursor))
+    assert isinstance(
+        scope, (ForCursor, IfCursor)
+    ), "scope was not an for loop or if statement"
 
     try:
         return match_level(cursor, scope.body()[0])

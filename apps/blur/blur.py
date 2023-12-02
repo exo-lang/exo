@@ -44,22 +44,8 @@ def prod_halide(p):
     p = divide_loop(p, p.find_loop("y #1"), 32, ["y", "yi"], perfect=True)
 
     # blur_x.compute_at(blur_y, x)
-    # TODO: would rather not have to find the loop every time,
-    # but fuse invalidates the second loop...
     p = fuse_at(p, "blur_x", "blur_y", p.find_loop("y #1"), reorder=False)
-    # TODO: This simplify is ugly
-    p = rewrite_expr(p, "H % 32", 0)
-    p = simplify(p)
-
-    p = fuse_at(p, "blur_x", "blur_y", p.find_loop("yi #1"))
-
-    p = fuse_at(p, "blur_x", "blur_y", p.find_loop("x #1"))
-    p = unroll_loop(p, "xi")
-
-    # blur_x.store_at(blur_y, y)
     p = store_at(p, "blur_x", "blur_y", p.find_loop("y"))
-
-    p = lift_alloc(p, p.find("blur_x: _"))
 
     return p
 
