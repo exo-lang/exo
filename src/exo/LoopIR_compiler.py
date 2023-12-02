@@ -397,10 +397,10 @@ def compile_to_strings(lib_name, proc_list):
         else:
             is_public_decl = id(p) in orig_procs
 
+            p = ParallelAnalysis().run(p)
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
-            p = ParallelAnalysis().run(p)
 
             comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
             d, b = comp.comp_top()
