@@ -3753,8 +3753,8 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             return loop_nest_c
         return get_inner_stmt(loop_nest_c.body()[0])
 
-    # Get condition to ensure load/store stages don't access out of bounds
-    def get_safety_cond(ir, fwd, ctxt_stmt_c, access, buf_typ):
+    # Insert guards to ensure load/store stages don't access out of bounds
+    def insert_safety_guards(ir, fwd, ctxt_stmt_c, access, buf_typ):
         def check_cond(cond):
             ctxt_stmt = ctxt_stmt_c._node
             true_node = LoopIR.Const(True, T.bool, ctxt_stmt.srcinfo)
@@ -3835,7 +3835,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         if not use_accum_zero:
             load_nest_c = fwd(block_cursor[0]).prev()
-            ir, fwd = get_safety_cond(
+            ir, fwd = insert_safety_guards(
                 ir, fwd, get_inner_stmt(load_nest_c), load_rhs, buf_typ
             )
     if isW:
@@ -3874,7 +3874,9 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         store_nest_c = fwd(block_cursor[-1]).next()
         store_stmt_c = get_inner_stmt(store_nest_c)
-        ir, fwd = get_safety_cond(ir, fwd, store_stmt_c, store_stmt_c._node, buf_typ)
+        ir, fwd = insert_safety_guards(
+            ir, fwd, store_stmt_c, store_stmt_c._node, buf_typ
+        )
 
     def mk_read(c):
         rd = c._node
