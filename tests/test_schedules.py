@@ -2336,7 +2336,7 @@ def test_stage_mem_out_of_bounds_load_1D(golden):
     memcpy = stage_mem(memcpy, memcpy.find_loop("ii"), "y[4 * io:4 * io + 4]", "yReg")
     memcpy = simplify(memcpy)
 
-    return str(memcpy) == golden
+    assert str(memcpy) == golden
 
 
 def test_stage_mem_out_of_bounds_load_2D_one_cond(golden):
@@ -2346,7 +2346,7 @@ def test_stage_mem_out_of_bounds_load_2D_one_cond(golden):
     )
     memcpy_2D = simplify(memcpy_2D)
 
-    return str(memcpy_2D) == golden
+    assert str(memcpy_2D) == golden
 
 
 def test_stage_mem_out_of_bounds_load_2D_two_conds(golden):
@@ -2359,7 +2359,7 @@ def test_stage_mem_out_of_bounds_load_2D_two_conds(golden):
     )
     memcpy_2D = simplify(memcpy_2D)
 
-    return str(memcpy_2D) == golden
+    assert str(memcpy_2D) == golden
 
 
 def test_stage_mem_out_of_bounds_store_1D(golden):
@@ -2367,7 +2367,7 @@ def test_stage_mem_out_of_bounds_store_1D(golden):
     memcpy = stage_mem(memcpy, memcpy.find_loop("ii"), "x[4 * io:4 * io + 4]", "xReg")
     memcpy = simplify(memcpy)
 
-    return str(memcpy) == golden
+    assert str(memcpy) == golden
 
 
 def test_stage_mem_out_of_bounds_reduction(golden):
@@ -2380,7 +2380,7 @@ def test_stage_mem_out_of_bounds_reduction(golden):
     axpy = stage_mem(axpy, axpy.find_loop("ii"), "y[5*io:5*io+5]", "yReg")
     axpy = simplify(axpy)
 
-    return str(axpy) == golden
+    assert str(axpy) == golden
 
 
 def test_stage_mem_out_of_bound_reduction_accum(golden):
