@@ -617,7 +617,7 @@ class AllocCursor(StmtCursor):
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Alloc)
         assert isinstance(self._impl._node.type, LoopIR.Tensor)
-        assert is_tensor()
+        assert self.is_tensor()
 
         return ExprListCursor(
             self._impl._child_node("type")._child_block("hi"), self._proc
