@@ -91,7 +91,7 @@ class BuildEnv(LoopIR_Do):
                 self.do_e(e)
             self.do_e(s.rhs)
             self.do_t(s.type)
-        elif styp is LoopIR.Seq:
+        elif styp is LoopIR.For:
             self.push()
             self.env[s.iter] = T.index
             self.do_e(s.lo)
@@ -136,7 +136,7 @@ class BuildEnv_after(LoopIR_Do):
                     self.do_e(e)
                 self.do_e(s.rhs)
                 self.do_t(s.type)
-            elif styp is LoopIR.Seq:
+            elif styp is LoopIR.For:
                 self.env[s.iter] = T.index
                 self.do_e(s.lo)
                 self.do_e(s.hi)
@@ -153,7 +153,7 @@ class BuildEnv_after(LoopIR_Do):
                 super().do_s(s)
         else:
             # Can introduce scope
-            if styp is LoopIR.Seq:
+            if styp is LoopIR.For:
                 self.do_e(s.lo)
                 self.do_e(s.hi)
                 self.do_stmts(s.body)

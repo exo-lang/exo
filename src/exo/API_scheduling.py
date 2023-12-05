@@ -476,9 +476,9 @@ class WindowStmtCursorA(StmtCursorA):
         return cursor
 
 
-class ForSeqOrIfCursorA(StmtCursorA):
+class ForOrIfCursorA(StmtCursorA):
     def _cursor_call(self, cursor_pat, all_args):
-        # TODO: eliminate this redundancy with the ForSeqCursorA code
+        # TODO: eliminate this redundancy with the ForCursorA code
         # allow for a special pattern short-hand, but otherwise
         # handle as expected for a normal statement cursor
         try:
@@ -489,8 +489,8 @@ class ForSeqOrIfCursorA(StmtCursorA):
             pass
 
         cursor = super()._cursor_call(cursor_pat, all_args)
-        if not isinstance(cursor, (PC.ForSeqCursor, PC.IfCursor)):
-            self.err(f"expected a ForSeqCursor or IfCursor, not {type(cursor)}")
+        if not isinstance(cursor, (PC.ForCursor, PC.IfCursor)):
+            self.err(f"expected a ForCursor or IfCursor, not {type(cursor)}")
         return cursor
 
 
@@ -539,7 +539,7 @@ class ArgOrAllocCursorA(CursorArgumentProcessor):
         return cursor
 
 
-class ForSeqCursorA(StmtCursorA):
+class ForCursorA(StmtCursorA):
     def _cursor_call(self, loop_pattern, all_args):
         # allow for a special pattern short-hand, but otherwise
         # handle as expected for a normal statement cursor
@@ -551,8 +551,8 @@ class ForSeqCursorA(StmtCursorA):
             pass
 
         cursor = super()._cursor_call(loop_pattern, all_args)
-        if not isinstance(cursor, PC.ForSeqCursor):
-            self.err(f"expected a ForSeqCursor, not {type(cursor)}")
+        if not isinstance(cursor, PC.ForCursor):
+            self.err(f"expected a ForCursor, not {type(cursor)}")
         return cursor
 
 
@@ -567,12 +567,12 @@ class IfCursorA(StmtCursorA):
 _name_name_count_re = r"^([a-zA-Z_]\w*)\s*([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$"
 
 
-class NestedForSeqCursorA(StmtCursorA):
+class NestedForCursorA(StmtCursorA):
     def _cursor_call(self, loops_pattern, all_args):
-        if isinstance(loops_pattern, PC.ForSeqCursor):
+        if isinstance(loops_pattern, PC.ForCursor):
             cursor = loops_pattern
         elif isinstance(loops_pattern, PC.Cursor):
-            self.err(f"expected a ForSeqCursor, not {type(loops_pattern)}")
+            self.err(f"expected a ForCursor, not {type(loops_pattern)}")
         elif isinstance(loops_pattern, str) and (
             match_result := re.search(_name_name_count_re, loops_pattern)
         ):
@@ -583,15 +583,15 @@ class NestedForSeqCursorA(StmtCursorA):
             cursor = super()._cursor_call(pattern, all_args)
         elif isinstance(loops_pattern, str):
             cursor = super()._cursor_call(loops_pattern, all_args)
-            if not isinstance(cursor, PC.ForSeqCursor):
-                self.err(f"expected a ForSeqCursor, not {type(cursor)}")
+            if not isinstance(cursor, PC.ForCursor):
+                self.err(f"expected a ForCursor, not {type(cursor)}")
         else:
             self.err(
-                "expected a ForSeqCursor, pattern match string, "
+                "expected a ForCursor, pattern match string, "
                 "or 'outer_loop inner_loop' shorthand"
             )
 
-        if len(cursor.body()) != 1 or not isinstance(cursor.body()[0], PC.ForSeqCursor):
+        if len(cursor.body()) != 1 or not isinstance(cursor.body()[0], PC.ForCursor):
             self.err(
                 f"expected the body of the outer loop "
                 f"to be a single loop, but it was a "
@@ -854,6 +854,14 @@ def reorder_stmts(proc, block_cursor):
     s2 = block_cursor[1]._impl
 
     ir, fwd = scheduling.DoReorderStmt(s1, s2)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([ForCursorA])
+def parallelize_loop(proc, loop_cursor):
+    loop = loop_cursor._impl
+
+    ir, fwd = scheduling.DoParallelizeLoop(loop)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1407,7 +1415,7 @@ def sink_alloc(proc, alloc_cursor):
     """
 
     scope_cursor = alloc_cursor.next()
-    if not isinstance(scope_cursor._impl._node, (LoopIR.If, LoopIR.Seq)):
+    if not isinstance(scope_cursor._impl._node, (LoopIR.If, LoopIR.For)):
         raise ValueError(
             f"Cannot sink alloc because the statement after the allocation is not a loop or if statement, it is {scope_cursor._impl._node}"
         )
@@ -1575,7 +1583,7 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 # Loop and Guard Rewriting
 
 
-@sched_op([ForSeqCursorA, NewExprA("loop_cursor"), PosIntA, ListA(NameA, length=2)])
+@sched_op([ForCursorA, NewExprA("loop_cursor"), PosIntA, ListA(NameA, length=2)])
 def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
     """
     Divides a loop into the provided [outer_hi] by [outer_stride] dimensions,
@@ -1598,7 +1606,7 @@ def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
 
 @sched_op(
     [
-        ForSeqCursorA,
+        ForCursorA,
         PosIntA,
         ListA(NameA, length=2),
         EnumA(["cut", "guard", "cut_and_guard"]),
@@ -1654,7 +1662,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([NestedForSeqCursorA, NameA])
+@sched_op([NestedForCursorA, NameA])
 def mult_loops(proc, nested_loops, new_iter_name):
     """
     Perform the inverse operation to `divide_loop`.  Take two loops,
@@ -1678,7 +1686,7 @@ def mult_loops(proc, nested_loops, new_iter_name):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA, ForSeqCursorA])
+@sched_op([ForCursorA, ForCursorA])
 def join_loops(proc, loop1_cursor, loop2_cursor):
     """
     Joins two loops with identical bodies and consecutive iteration spaces
@@ -1701,7 +1709,7 @@ def join_loops(proc, loop1_cursor, loop2_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA, NewExprA("loop_cursor")])
+@sched_op([ForCursorA, NewExprA("loop_cursor")])
 def cut_loop(proc, loop_cursor, cut_point):
     """
     Cut a loop into two loops.
@@ -1729,7 +1737,7 @@ def cut_loop(proc, loop_cursor, cut_point):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA, NewExprA("loop_cursor")])
+@sched_op([ForCursorA, NewExprA("loop_cursor")])
 def shift_loop(proc, loop_cursor, new_lo):
     """
     Shift a loop iterations so that now it starts at `new_lo`
@@ -1752,7 +1760,7 @@ def shift_loop(proc, loop_cursor, new_lo):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([NestedForSeqCursorA])
+@sched_op([NestedForCursorA])
 def reorder_loops(proc, nested_loops):
     """
     Reorder two loops that are directly nested with each other.
@@ -1780,7 +1788,7 @@ def reorder_loops(proc, nested_loops):
     """
 
     stmt_c = nested_loops._impl
-    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.Seq):
+    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.For):
         raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
     ir, fwd = scheduling.DoLiftScope(stmt_c.body()[0])
@@ -1894,7 +1902,7 @@ def lift_reduce_constant(proc, block_cursor):
 @sched_op([GapCursorA, PosIntA, BoolA])
 def fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False):
     """
-    fission apart the ForSeq and If statements wrapped around
+    fission apart the For and If statements wrapped around
     this block of statements into two copies; the first containing all
     statements before the cursor, and the second all statements after the
     cursor.
@@ -1935,7 +1943,7 @@ def fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False):
 @sched_op([GapCursorA, PosIntA])
 def autofission(proc, gap_cursor, n_lifts=1):
     """
-    Split the enclosing ForSeq and If statements wrapped around
+    Split the enclosing For and If statements wrapped around
     this block of statements at the indicated point.
 
     If doing so splits a loop, this version of fission attempts
@@ -1972,7 +1980,7 @@ def autofission(proc, gap_cursor, n_lifts=1):
 
 
 # TODO: Debug scheduling error in fuse
-@sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA, BoolA])
+@sched_op([ForOrIfCursorA, ForOrIfCursorA, BoolA])
 def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     """
     fuse together two loops or if-guards, provided that the loop bounds
@@ -2015,7 +2023,7 @@ def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA])
+@sched_op([ForCursorA])
 def remove_loop(proc, loop_cursor):
     """
     Remove the loop around some block of statements.
@@ -2071,7 +2079,7 @@ def add_loop(
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA])
+@sched_op([ForCursorA])
 def unroll_loop(proc, loop_cursor):
     """
     Unroll a loop with a constant, literal loop bound
@@ -2096,7 +2104,7 @@ def unroll_loop(proc, loop_cursor):
 # Guard Conditions
 
 
-@sched_op([ForSeqOrIfCursorA])
+@sched_op([ForOrIfCursorA])
 def lift_scope(proc, scope_cursor):
     """
     Lift the indicated For/If-statement upwards one scope.
@@ -2124,7 +2132,7 @@ def lift_scope(proc, scope_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqOrIfCursorA])
+@sched_op([ForOrIfCursorA])
 def eliminate_dead_code(proc, stmt_cursor):
     """
     if statements: eliminate branch that is never reachable
@@ -2199,7 +2207,7 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     return scheduling.DoAddUnsafeGuard(proc, stmt, var_expr).result()
 
 
-@sched_op([ForSeqCursorA])
+@sched_op([ForCursorA])
 def bound_and_guard(proc, loop):
     """
     DEPRECATED

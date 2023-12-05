@@ -221,7 +221,7 @@ class UAST_PPrinter:
                     self.push()
                     self.pstmts(stmt.orelse)
                     self.pop()
-            elif isinstance(stmt, UAST.Seq):
+            elif isinstance(stmt, UAST.For):
                 cond = self.pexpr(stmt.cond)
                 self.push(only="env")
                 self.addline(f"for {self.new_name(stmt.iter)} in {cond}:")
@@ -450,11 +450,14 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
             lines.extend(_print_block(stmt.orelse, env.push(), indent + "  "))
         return lines
 
-    elif isinstance(stmt, LoopIR.Seq):
+    elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
         body_env = env.push()
-        lines = [f"{indent}for {body_env.get_name(stmt.iter)} in seq({lo}, {hi}):"]
+        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
+        lines = [
+            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):"
+        ]
         lines.extend(_print_block(stmt.body, body_env, indent + "  "))
         return lines
 
@@ -687,12 +690,13 @@ def _print_cursor_stmt(
                 _print_cursor_block(cur.orelse(), target, env.push(), indent + "  ")
             )
 
-    elif isinstance(stmt, LoopIR.Seq):
+    elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
         body_env = env.push()
+        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
         lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in seq({lo}, {hi}):",
+            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):",
             *_print_cursor_block(cur.body(), target, body_env, indent + "  "),
         ]
 

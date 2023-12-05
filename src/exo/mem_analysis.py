@@ -89,7 +89,7 @@ class MemoryAnalysis:
                     res += used_s(b)
                 for b in s.orelse:
                     res += used_s(b)
-            elif isinstance(s, LoopIR.Seq):
+            elif isinstance(s, LoopIR.For):
                 for b in s.body:
                     res += used_s(b)
             elif isinstance(s, LoopIR.Alloc):
@@ -160,7 +160,7 @@ class MemoryAnalysis:
             ebody = self.mem_stmts(s.orelse)
             self.pop()
             return LoopIR.If(s.cond, body, ebody, None, s.srcinfo)
-        elif styp is LoopIR.Seq:
+        elif styp is LoopIR.For:
             self.push()
             body = self.mem_stmts(s.body)
             self.pop()

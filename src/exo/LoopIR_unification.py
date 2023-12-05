@@ -64,7 +64,7 @@ def Get_Live_Variables(stmt_cursor):
             live_vars[s.name] = s.type
         elif isinstance(s, LoopIR.If):
             live_vars = live_vars.new_child()
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             live_vars = live_vars.new_child()
             live_vars[s.iter] = T.index
 
@@ -896,7 +896,7 @@ class Unification:
             self.unify_e(ps.cond, bs.cond)
             self.unify_stmts(ps.body, bs.body)
             self.unify_stmts(ps.orelse, bs.orelse)
-        elif isinstance(ps, LoopIR.Seq):
+        elif isinstance(ps, LoopIR.For):
             # BINDING
             self.idx_subst[ps.iter] = bs.iter
             self.unify_e(ps.lo, bs.lo)

@@ -375,10 +375,10 @@ def test_cut_loop_forwarding():
     second_loop = loop_cursor.next()
     pass_cursor = foo.forward(pass_cursor)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
-    assert isinstance(second_loop, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
+    assert isinstance(second_loop, ForCursor)
     assert isinstance(pass_cursor, PassCursor)
-    assert isinstance(pass_cursor.parent(), ForSeqCursor)
+    assert isinstance(pass_cursor.parent(), ForCursor)
     assert pass_cursor.parent().hi().value() == 3
 
 
@@ -394,9 +394,9 @@ def test_shift_loop_forwarding():
     loop_cursor = foo.forward(loop_cursor)
     assign_cursor = foo.forward(assign_cursor)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert isinstance(assign_cursor, AssignCursor)
-    assert isinstance(assign_cursor.parent(), ForSeqCursor)
+    assert isinstance(assign_cursor.parent(), ForCursor)
 
 
 def test_eliminate_dead_code_forwarding():
@@ -424,10 +424,10 @@ def test_eliminate_dead_code_forwarding():
     with pytest.raises(InvalidCursorError, match=""):
         if_false_stmt = foo.forward(if_false_stmt)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert len(loop_cursor.body()) == 2
     assert isinstance(if_true_stmt, AssignCursor)
-    assert isinstance(if_true_stmt.parent(), ForSeqCursor)
+    assert isinstance(if_true_stmt.parent(), ForCursor)
 
 
 def test_eliminate_dead_code_forwarding2():
@@ -455,10 +455,10 @@ def test_eliminate_dead_code_forwarding2():
         if_true_stmt = foo.forward(if_true_stmt)
     if_false_stmt = foo.forward(if_false_stmt)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert len(loop_cursor.body()) == 3
     assert isinstance(if_false_stmt, ReduceCursor)
-    assert isinstance(if_false_stmt.parent(), ForSeqCursor)
+    assert isinstance(if_false_stmt.parent(), ForCursor)
 
 
 def test_eliminate_dead_code_forwarding3():
@@ -479,10 +479,10 @@ def test_eliminate_dead_code_forwarding3():
         if_cursor = foo.forward(if_cursor)
     if_true_stmt = foo.forward(if_true_stmt)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert len(loop_cursor.body()) == 2
     assert isinstance(if_true_stmt, AssignCursor)
-    assert isinstance(if_true_stmt.parent(), ForSeqCursor)
+    assert isinstance(if_true_stmt.parent(), ForCursor)
 
 
 def test_eliminate_dead_code_forwarding4():
@@ -504,7 +504,7 @@ def test_eliminate_dead_code_forwarding4():
     with pytest.raises(InvalidCursorError, match=""):
         if_true_stmt = foo.forward(if_true_stmt)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert len(loop_cursor.body()) == 1
     assert isinstance(loop_cursor.body()[0], PassCursor)
 
