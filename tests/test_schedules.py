@@ -2396,6 +2396,19 @@ def test_stage_mem_out_of_bound_reduction_accum(golden):
     assert str(axpy) == golden
 
 
+def test_stage_mem_out_of_bound_block(golden):
+    @proc
+    def axpy(n: size, x: f32[n], y: f32[n]):
+        for i in seq(0, n):
+            y[i] += x[i]
+
+    axpy = divide_loop(axpy, axpy.find_loop("i"), 5, ("io", "ii"), tail="guard")
+    axpy = stage_mem(axpy, axpy.find_loop("io").body(), "x[5*io:5*io+5]", "xReg")
+    axpy = simplify(axpy)
+
+    assert str(axpy) == golden
+
+
 def test_new_expr_multi_vars(golden):
     @proc
     def bar(n: size, arr: R[n] @ DRAM):

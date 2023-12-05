@@ -3749,7 +3749,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
     def get_inner_stmt(loop_nest_c):
         node = loop_nest_c._node
-        if not isinstance(node, LoopIR.Seq):
+        if not isinstance(node, LoopIR.For):
             return loop_nest_c
         return get_inner_stmt(loop_nest_c.body()[0])
 
