@@ -245,11 +245,6 @@ def _replace_helper(proc, subprocs, mem_aware, once):
 
     for subproc in subprocs:
         assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
-        body = subproc.body()
-        assert len(body) == 1, (
-            "replace_all only supports single statement "
-            "subprocedure bodies right now"
-        )
 
     patterns = {
         _PC.AssignCursor: "_ = _",
@@ -269,19 +264,26 @@ def _replace_helper(proc, subprocs, mem_aware, once):
         i = 0
         while True:
             try:
+                block = proc.find(f"{pattern} #{i}").expand(0, len(body) - 1)
+                assert len(block) == len(
+                    body
+                ), "block is too close to the end of the body"
                 if mem_aware:
-                    proc = call_site_mem_aware_replace(
-                        proc, f"{pattern} #{i}", subproc, quiet=True
-                    )
+                    proc = call_site_mem_aware_replace(proc, block, subproc, quiet=True)
                 else:
-                    proc = replace(proc, f"{pattern} #{i}", subproc, quiet=True)
+                    proc = replace(proc, block, subproc, quiet=True)
                 if once:
                     break
             except (TypeError, SchedulingError) as e:
                 if "failed to find matches" in str(e):
                     break
                 raise
-            except (_UnificationError, MemoryError, NotImplementedError):
+            except (
+                _UnificationError,
+                MemoryError,
+                NotImplementedError,
+                AssertionError,
+            ):
                 i += 1
 
     return proc
