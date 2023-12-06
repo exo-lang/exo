@@ -434,6 +434,17 @@ def test_resize_dim_2(golden):
         foo = resize_dim(foo, "x", 0, "n-4", 3)
 
 
+def test_resize_dim_3(golden):
+    @proc
+    def foo(n: size):
+        x: i8[n + 4]
+        for i in seq(n + 1, n + 3):
+            x[i] = 1.0
+
+    foo = resize_dim(foo, "x", 0, 2, "n + 1")
+    assert str(foo) == golden
+
+
 def test_rearrange_dim(golden):
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
