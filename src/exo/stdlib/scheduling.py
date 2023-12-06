@@ -265,9 +265,9 @@ def _replace_helper(proc, subprocs, mem_aware, once):
         while True:
             try:
                 block = proc.find(f"{pattern} #{i}").expand(0, len(body) - 1)
-                assert len(block) == len(
-                    body
-                ), "block is too close to the end of the body"
+                if len(block) != len(body):
+                    raise _UnificationError("Unification failed due to length mismatch")
+
                 if mem_aware:
                     proc = call_site_mem_aware_replace(proc, block, subproc, quiet=True)
                 else:
