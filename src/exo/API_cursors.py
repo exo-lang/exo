@@ -607,10 +607,17 @@ class AllocCursor(StmtCursor):
 
         return self._impl._node.mem
 
+    def is_tensor(self) -> bool:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+
+        return isinstance(self._impl._node.type, LoopIR.Tensor)
+
     def shape(self) -> ExprListCursor:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Alloc)
         assert isinstance(self._impl._node.type, LoopIR.Tensor)
+        assert self.is_tensor()
 
         return ExprListCursor(
             self._impl._child_node("type")._child_block("hi"), self._proc
