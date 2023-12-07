@@ -298,6 +298,7 @@ def window_struct(base_type, n_dims, is_const) -> WindowStruct:
         T.f64: "f64",
         T.i8: "i8",
         T.ui8: "ui8",
+        T.ui16: "ui16",
         T.i32: "i32",
     }
 

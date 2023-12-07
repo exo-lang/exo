@@ -2987,8 +2987,7 @@ def test_replace_all_unambiguous(golden):
         for i in seq(0, 8):
             src[i] = dst[i]
 
-    bar = replace_all(bar, mm256_loadu_ps)
-    bar = replace_all(bar, mm256_storeu_ps)
+    bar = replace_all(bar, [mm256_loadu_ps, mm256_storeu_ps])
     assert str(bar) == golden
 
 
@@ -3004,6 +3003,22 @@ def test_replace_all_arch(golden):
     arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
     bar = replace_all(bar, arch)
     assert str(bar) == golden
+
+
+def test_replace_all_length_mismatch(golden):
+    @proc
+    def bar(x: i8):
+        x = 1.0
+        x += 1.0
+
+    @proc
+    def foo(x: i8):
+        x = 1.0
+        x += 1.0
+        x = 1.0
+
+    foo = replace_all(foo, [bar])
+    assert str(foo) == golden
 
 
 def test_eliminate_dead_code(golden):
