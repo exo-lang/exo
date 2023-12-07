@@ -18,7 +18,6 @@ from .LoopIR_dataflow import LoopIR_Dependencies
 from .new_eff import (
     SchedulingError,
     Check_ReorderStmts,
-    Check_ParallelizeLoop,
     Check_ReorderLoops,
     Check_FissionLoop,
     Check_DeleteConfigWrite,

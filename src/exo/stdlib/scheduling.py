@@ -431,14 +431,16 @@ def store_at(proc, producer, consumer, target_loop):
         loop = proc.forward(loop)
         producer_alloc = proc.forward(producer_alloc)
 
-        lo, hi = bounds_inference(proc, loop, producer, buffer_dim).get_bounds()
+        bounds = bounds_inference(proc, loop, producer, buffer_dim)
+        lo, _ = bounds.get_bounds()
+        size = bounds.get_size()
 
         while producer_alloc.next() != loop:
             reorder_stmts(proc, producer_alloc.expand(0, 1))
             producer_alloc = proc.forward(producer_alloc)
 
         proc = sink_alloc(proc, producer_alloc)
-        proc = resize_dim(proc, producer_alloc, buffer_dim, lo, hi)
+        proc = resize_dim(proc, producer_alloc, buffer_dim, size, lo)
 
     return simplify(proc)
 
