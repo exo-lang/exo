@@ -140,7 +140,6 @@ module LoopIR {
         "F32",
         "F64",
         "INT8",
-        "UINT16",
         "UINT8",
         "UINT16",
         "INT32" "Bool",

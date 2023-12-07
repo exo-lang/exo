@@ -7,7 +7,7 @@ from .LoopIR import LoopIR, T, LoopIR_Compare, get_reads_of_expr
 from .new_eff import Check_ExprBound, Check_ExprBound_Options
 
 
-def binop(op: str, e1, e2):
+def binop(op: str, e1: LoopIR.expr, e2: LoopIR.expr):
     return LoopIR.BinOp(op, e1, e2, e1.type, e1.srcinfo)
 
 
@@ -51,6 +51,7 @@ class IndexRange:
         return f"({base}, {lo}, {hi})"
 
     def __add__(self, other: int | IndexRange) -> IndexRange:
+        assert isinstance(other, (int, IndexRange))
         if isinstance(other, int):
             new_lo, new_hi = None, None
             if self.lo is not None:
@@ -73,8 +74,9 @@ class IndexRange:
                 new_hi = self.hi + other.hi
             return IndexRange(new_base, new_lo, new_hi)
 
-    def __radd__(self, other: int) -> IndexRange:
-        return self.__add__(other)
+    def __radd__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
+        return self.__add__(c)
 
     def __neg__(self) -> IndexRange:
         new_base, new_lo, new_hi = None, None, None
@@ -87,13 +89,15 @@ class IndexRange:
         return IndexRange(new_base, new_lo, new_hi)
 
     def __sub__(self, other: int | IndexRange) -> IndexRange:
-        # TODO: see if I should manually implement this
+        assert isinstance(other, (int, IndexRange))
         return self + (-other)
 
-    def __rsub__(self, other: int) -> IndexRange:
-        return -self + other
+    def __rsub__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
+        return -self + c
 
     def __mul__(self, c: int) -> IndexRange:
+        assert isinstance(other, int)
         if c == 0:
             return 0
 
@@ -112,9 +116,11 @@ class IndexRange:
             return IndexRange(new_base, new_hi, new_lo)
 
     def __rmul__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
         return self.__mul__(c)
 
     def __floordiv__(self, c: int) -> IndexRange:
+        assert isinstance(c, int)
         if c == 0:
             return ValueError("Cannot divide by 0.")
         elif c < 0:
