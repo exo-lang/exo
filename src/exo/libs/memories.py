@@ -205,7 +205,7 @@ class AVX2(Memory):
 
         if not prim_type in vec_types.keys():
             raise MemGenError(
-                f"{srcinfo}: AVX2 vectors must be f32/f64 (for now), got {prim_type}"
+                f"{srcinfo}: AVX2 vectors must be f32/f64/ui16 (for now), got {prim_type}"
             )
 
         reg_width, C_reg_type_name = vec_types[prim_type]
