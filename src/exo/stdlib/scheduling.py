@@ -282,7 +282,6 @@ def _replace_helper(proc, subprocs, mem_aware, once):
                 _UnificationError,
                 MemoryError,
                 NotImplementedError,
-                AssertionError,
             ):
                 i += 1
 
