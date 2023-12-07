@@ -49,7 +49,7 @@ from ..API_scheduling import (
     #
     # buffer and window oriented operations
     expand_dim,
-    shrink_dim,
+    resize_dim,
     rearrange_dim,
     bound_alloc,
     divide_dim,
@@ -413,10 +413,11 @@ def store_at(proc, producer, consumer, loop):
     buffer_idx = list(buffer_idxs)[0]
 
     bound = bounds_inference(proc, loop, producer, buffer_idx, include=["W"])
-    lo, hi = bound.get_bounds()
+    offset, _ = bound.get_bounds()
+    size = bound.get_size()  # assuming in many cases that sizes will be constant
 
     proc = sink_alloc(proc, producer_alloc)
-    proc = shrink_dim(proc, producer_alloc, buffer_idx, lo, hi)
+    proc = resize_dim(proc, producer_alloc, buffer_idx, size, offset)
 
     return simplify(proc)
 

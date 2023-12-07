@@ -1164,11 +1164,13 @@ def write_config(proc, gap_cursor, config, field, rhs):
 
 
 @sched_op([AllocCursorA, IntA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
-def shrink_dim(proc, buf_cursor, dim_idx, lo, hi):
+def resize_dim(proc, buf_cursor, dim_idx, size, offset):
     """
-    shrinks the [dim_idx]-th dimension of buffer [buf_cursor] to only track the data
-    that was store from [lo] to [hi] in the original buffer. Fails if any other
-    accesses outside the (lo, hi) range are made to the [dim_idx]-th dimension.
+    Resizes the [dim_idx]-th dimension of buffer [buf_cursor] to [size]. The [offset]
+    specifies how to adjust the indices relative to the old buffer.
+
+    Fails if there are any accesses to the [dim_idx]-th dimension outside of the
+    (offset, offset + size) range.
 
     args:
         buf_cursor      - cursor pointing to the Alloc
@@ -1179,13 +1181,13 @@ def shrink_dim(proc, buf_cursor, dim_idx, lo, hi):
     rewrite:
         `x : T[n, ...] ; s`
           ->
-        `x : T[hi - lo, ...] ; s[ x[idx, ...] -> x[idx - lo, ...] ]`
+        `x : T[size, ...] ; s[ x[idx, ...] -> x[idx - offset, ...] ]`
     checks:
         The provided dimension size is checked for positivity and the
         provided indexing expression is checked to make sure it is in-bounds
     """
     stmt_c = buf_cursor._impl
-    ir, fwd = scheduling.DoShrinkDim(stmt_c, dim_idx, lo, hi)
+    ir, fwd = scheduling.DoResizeDim(stmt_c, dim_idx, size, offset)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
