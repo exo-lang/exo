@@ -1531,3 +1531,19 @@ def test_avx2_reg_copy_pd(compiler):
     getattr(fn, "avx2_reg_copy_pd_ref")(None, dst_copy, src_copy)
     np.testing.assert_almost_equal(dst, dst_copy)
     np.testing.assert_almost_equal(src, src_copy)
+
+
+def test_avx2_divide_by_3(golden):
+    @proc
+    def foo():
+        three: ui16[16] @ AVX2
+        out: ui16[16] @ AVX2
+        x: ui16[16] @ AVX2
+
+        for i in seq(0, 16):
+            three[i] = 3.0
+        for i in seq(0, 16):
+            out[i] = x[i] / three[i]
+
+    foo = replace_all(foo, [avx2_ui16_divide_by_3])
+    assert str(foo) == golden

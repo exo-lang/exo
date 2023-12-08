@@ -1,0 +1,5 @@
+def foo():
+    three: ui16[16] @ AVX2
+    out: ui16[16] @ AVX2
+    x: ui16[16] @ AVX2
+    avx2_ui16_divide_by_3(three[0:16], out[0:16], x[0:16])

@@ -1535,18 +1535,15 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
     return ir, fwd
 
 
-def DoShrinkDim(alloc_cursor, dim_idx: int, lo: LoopIR.expr, hi: LoopIR.expr):
+def DoResizeDim(alloc_cursor, dim_idx: int, size: LoopIR.expr, offset: LoopIR.expr):
     alloc_s = alloc_cursor._node
     assert isinstance(alloc_s, LoopIR.Alloc)
     assert isinstance(alloc_s.type, T.Tensor)
 
-    new_dim_size = LoopIR.BinOp("-", hi, lo, hi.type, alloc_s.srcinfo)
-    Check_IsPositiveExpr(alloc_cursor.get_root(), [alloc_s], new_dim_size)
+    Check_IsPositiveExpr(alloc_cursor.get_root(), [alloc_s], size)
 
     ir, fwd = (
-        alloc_cursor._child_node("type")
-        ._child_block("hi")[dim_idx]
-        ._replace([new_dim_size])
+        alloc_cursor._child_node("type")._child_block("hi")[dim_idx]._replace([size])
     )
 
     def mk_read(c):
@@ -1555,7 +1552,7 @@ def DoShrinkDim(alloc_cursor, dim_idx: int, lo: LoopIR.expr, hi: LoopIR.expr):
         if isinstance(rd, LoopIR.Read):
             new_idx = rd.idx.copy()
             new_idx[dim_idx] = LoopIR.BinOp(
-                "-", rd.idx[dim_idx], lo, lo.type, rd.srcinfo
+                "-", rd.idx[dim_idx], offset, offset.type, rd.srcinfo
             )
             return {"idx": new_idx}
         else:
@@ -1566,7 +1563,9 @@ def DoShrinkDim(alloc_cursor, dim_idx: int, lo: LoopIR.expr, hi: LoopIR.expr):
     def mk_write(c):
         s = c._node
         new_idx = s.idx.copy()
-        new_idx[dim_idx] = LoopIR.BinOp("-", s.idx[dim_idx], lo, lo.type, s.srcinfo)
+        new_idx[dim_idx] = LoopIR.BinOp(
+            "-", s.idx[dim_idx], offset, offset.type, s.srcinfo
+        )
         return {"idx": new_idx}
 
     for c in get_rest_of_block(alloc_cursor):
@@ -3747,6 +3746,55 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     new_alloc = [LoopIR.Alloc(new_name, new_typ, mem, None, srcinfo)]
     ir, fwd = block_cursor[0].before()._insert(new_alloc)
 
+    def get_inner_stmt(loop_nest_c):
+        node = loop_nest_c._node
+        if not isinstance(node, LoopIR.For):
+            return loop_nest_c
+        return get_inner_stmt(loop_nest_c.body()[0])
+
+    # Insert guards to ensure load/store stages don't access out of bounds
+    def insert_safety_guards(ir, fwd, ctxt_stmt_c, access, buf_typ):
+        def check_cond(cond):
+            ctxt_stmt = ctxt_stmt_c._node
+            true_node = LoopIR.Const(True, T.bool, ctxt_stmt.srcinfo)
+            try:
+                Check_ExprEqvInContext(ir, cond, [ctxt_stmt], true_node)
+                return True
+            except SchedulingError:
+                return False
+
+        # Get a list of lower/upper bound on the index accesses
+        const_0 = LoopIR.Const(0, T.int, access.srcinfo)
+        conds = []
+        for i in zip(access.idx, buf_typ.shape()):
+            lower_bound_cond = LoopIR.BinOp("<=", const_0, i[0], T.bool, access.srcinfo)
+            if not check_cond(lower_bound_cond):
+                conds.append(lower_bound_cond)
+            upper_bound_cond = LoopIR.BinOp("<", i[0], i[1], T.bool, access.srcinfo)
+            if not check_cond(upper_bound_cond):
+                conds.append(upper_bound_cond)
+
+        if len(conds) == 0:
+            return ir, fwd
+
+        # Construct the condition
+        cond = conds[0]
+        for c in conds[1:]:
+            cond = LoopIR.BinOp("and", cond, c, T.bool, cond.srcinfo)
+
+        # Construct the If statement and wrap the context statement
+        def guard_wrapper(body):
+            return LoopIR.If(cond, body, [], None, srcinfo)
+
+        # You want to forward `ctxt_stmt_c` instead of relying on passing
+        # the forwarded version. However, in all the current callees, the
+        # statement would have been just constructed and if you try to forward
+        # you get an error.
+        ir, fwd_wrap = ctxt_stmt_c.parent().body()._wrap(guard_wrapper, "body")
+        fwd = _compose(fwd_wrap, fwd)
+
+        return ir, fwd
+
     isR, isW = Check_BufferRW(ir, block, buf_name, n_dims)
     if isR:
         load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
@@ -3783,6 +3831,12 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         ir, fwd_ins = fwd(block_cursor[0]).before()._insert(load_nest)
         fwd = _compose(fwd_ins, fwd)
+
+        if not use_accum_zero:
+            load_nest_c = fwd(block_cursor[0]).prev()
+            ir, fwd = insert_safety_guards(
+                ir, fwd, get_inner_stmt(load_nest_c), load_rhs, buf_typ
+            )
     if isW:
         store_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         store_ridx = [LoopIR.Read(s, [], T.index, srcinfo) for s in store_iter]
@@ -3816,6 +3870,12 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         ir, fwd_ins = fwd(block_cursor[-1]).after()._insert(store_nest)
         fwd = _compose(fwd_ins, fwd)
+
+        store_nest_c = fwd(block_cursor[-1]).next()
+        store_stmt_c = get_inner_stmt(store_nest_c)
+        ir, fwd = insert_safety_guards(
+            ir, fwd, store_stmt_c, store_stmt_c._node, buf_typ
+        )
 
     def mk_read(c):
         rd = c._node
@@ -4152,7 +4212,7 @@ __all__ = [
     "DoInlineWindow",
     "DoDivideDim",
     "DoExpandDim",
-    "DoShrinkDim",
+    "DoResizeDim",
     "DoMultiplyDim",
     "DoRearrangeDim",
     "DoInline",

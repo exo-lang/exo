@@ -1,0 +1,4 @@
+def foo(n: size):
+    x: i8[2] @ DRAM
+    for i in seq(n + 1, n + 3):
+        x[i - (n + 1)] = 1.0

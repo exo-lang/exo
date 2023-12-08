@@ -178,6 +178,34 @@ def mm256_add_pd(out: [f64][4] @ AVX2, x: [f64][4] @ AVX2, y: [f64][4] @ AVX2):
         out[i] = x[i] + y[i]
 
 
+@instr("{dst_data} = _mm256_loadu_si256((const __m256i *) &{src_data});")
+def mm256_loadu_si256(dst: [ui16][16] @ AVX2, src: [ui16][16] @ DRAM):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 16):
+        dst[i] = src[i]
+
+
+@instr("_mm256_storeu_si256((__m256i *) &{dst_data}, {src_data});")
+def mm256_storeu_si256(dst: [ui16][16] @ DRAM, src: [ui16][16] @ AVX2):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 16):
+        dst[i] = src[i]
+
+
+@instr("{out_data} = _mm256_adds_epu16({x_data}, {y_data});")
+def mm256_add_epi16(out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2, y: [ui16][16] @ AVX2):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+
+    for i in seq(0, 16):
+        out[i] = x[i] + y[i]
+
+
 # --------------------------------------------------------------------------- #
 #   AVX512 intrinsics
 # --------------------------------------------------------------------------- #
@@ -488,6 +516,29 @@ def avx2_mask_storeu_ps(N: size, dst: [f32][N] @ DRAM, src: [f32][8] @ AVX2):
     for i in seq(0, 8):
         if i < N:
             dst[i] = src[i]
+
+
+# TODO: This is hacked specifically for the 2D blur with kernel size 3. We should
+# be able to support fast integer division instruction selection in a better way.
+@instr(
+    """
+    {{
+        {three_data} = _mm256_set1_epi16(43691);
+        {out_data} = _mm256_mulhi_epu16({x_data}, {three_data});
+        {out_data} = _mm256_srli_epi16({out_data}, 1);
+    }}
+    """
+)
+def avx2_ui16_divide_by_3(
+    three: [ui16][16] @ AVX2, out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2
+):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+
+    for xii in seq(0, 16):
+        three[xii] = 3.0
+    for xii in seq(0, 16):
+        out[xii] = x[xii] / three[xii]
 
 
 # --------------------------------------------------------------------------- #

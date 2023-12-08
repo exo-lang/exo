@@ -496,6 +496,8 @@ class TypeChecker:
                             typ = T.int8
                         elif lhs.type == T.uint8:
                             typ = T.uint8
+                        elif lhs.type == T.uint16:
+                            typ = T.uint16
                         elif lhs.type == T.int32:
                             typ = T.int32
                 elif rhs.type.is_real_scalar():
@@ -610,6 +612,7 @@ class TypeChecker:
         UAST.F64: T.f64,
         UAST.INT8: T.int8,
         UAST.UINT8: T.uint8,
+        UAST.UINT16: T.uint16,
         UAST.INT32: T.int32,
         UAST.Bool: T.bool,
         UAST.Int: T.int,
