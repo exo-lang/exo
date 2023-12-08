@@ -1535,6 +1535,12 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     the load or store between the original buffer and staging buffer, then
     the load/store loops/statements will be omitted.
 
+    If code analysis determines determines that `win_expr` accesses
+    out-of-bounds locations of the buffer, it will generate loop nests
+    for the load/store stages corresponding to that window, but will add
+    guards within the inner loop to ensure that all accesses to the buffer
+    are within the buffer's bounds.
+
     In the event that the indicated block of code strictly reduces into
     the specified window, then the optional argument `accum` can be set
     to initialize the staging memory to zero, accumulate into it, and
