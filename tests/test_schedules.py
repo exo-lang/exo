@@ -401,23 +401,23 @@ def test_fission_after_simple_fail():
         fission(foo, foo.find("x = 0.0").after(), n_lifts=2)
 
 
-def test_shrink_dim(golden):
+def test_resize_dim(golden):
     @proc
     def foo():
         x: i8[10]
         for i in seq(1, 9):
             x[i] = 1.0
 
-    foo = shrink_dim(foo, "x", 0, 1, 9)
+    foo = resize_dim(foo, "x", 0, 19, 1)
     assert str(simplify(foo)) == golden
 
     with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
-        foo = shrink_dim(foo, "x", 0, 1, 8)
+        foo = resize_dim(foo, "x", 0, 7, 1)
     with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
-        foo = shrink_dim(foo, "x", 0, 2, 9)
+        foo = resize_dim(foo, "x", 0, 7, 2)
 
 
-def test_shrink_dim_2(golden):
+def test_resize_dim_2(golden):
     @proc
     def foo(n: size):
         assert n > 4
@@ -425,13 +425,24 @@ def test_shrink_dim_2(golden):
         for i in seq(2, n - 1):
             x[i] = 1.0
 
-    foo = shrink_dim(foo, "x", 0, 2, "n-1")
+    foo = resize_dim(foo, "x", 0, "n-3", 2)
     assert str(simplify(foo)) == golden
 
     with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
-        foo = shrink_dim(foo, "x", 0, 2, "n-2")
+        foo = resize_dim(foo, "x", 0, "n-4", 2)
     with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
-        foo = shrink_dim(foo, "x", 0, 3, "n-1")
+        foo = resize_dim(foo, "x", 0, "n-4", 3)
+
+
+def test_resize_dim_3(golden):
+    @proc
+    def foo(n: size):
+        x: i8[n + 4]
+        for i in seq(n + 1, n + 3):
+            x[i] = 1.0
+
+    foo = resize_dim(foo, "x", 0, 2, "n + 1")
+    assert str(foo) == golden
 
 
 def test_rearrange_dim(golden):
@@ -3097,8 +3108,7 @@ def test_replace_all_unambiguous(golden):
         for i in seq(0, 8):
             src[i] = dst[i]
 
-    bar = replace_all(bar, mm256_loadu_ps)
-    bar = replace_all(bar, mm256_storeu_ps)
+    bar = replace_all(bar, [mm256_loadu_ps, mm256_storeu_ps])
     assert str(bar) == golden
 
 
@@ -3114,6 +3124,22 @@ def test_replace_all_arch(golden):
     arch = [mm256_storeu_ps, mm256_mul_ps, mm256_loadu_ps]
     bar = replace_all(bar, arch)
     assert str(bar) == golden
+
+
+def test_replace_all_length_mismatch(golden):
+    @proc
+    def bar(x: i8):
+        x = 1.0
+        x += 1.0
+
+    @proc
+    def foo(x: i8):
+        x = 1.0
+        x += 1.0
+        x = 1.0
+
+    foo = replace_all(foo, [bar])
+    assert str(foo) == golden
 
 
 def test_eliminate_dead_code(golden):

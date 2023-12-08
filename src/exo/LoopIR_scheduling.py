@@ -1535,18 +1535,15 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
     return ir, fwd
 
 
-def DoShrinkDim(alloc_cursor, dim_idx: int, lo: LoopIR.expr, hi: LoopIR.expr):
+def DoResizeDim(alloc_cursor, dim_idx: int, size: LoopIR.expr, offset: LoopIR.expr):
     alloc_s = alloc_cursor._node
     assert isinstance(alloc_s, LoopIR.Alloc)
     assert isinstance(alloc_s.type, T.Tensor)
 
-    new_dim_size = LoopIR.BinOp("-", hi, lo, hi.type, alloc_s.srcinfo)
-    Check_IsPositiveExpr(alloc_cursor.get_root(), [alloc_s], new_dim_size)
+    Check_IsPositiveExpr(alloc_cursor.get_root(), [alloc_s], size)
 
     ir, fwd = (
-        alloc_cursor._child_node("type")
-        ._child_block("hi")[dim_idx]
-        ._replace([new_dim_size])
+        alloc_cursor._child_node("type")._child_block("hi")[dim_idx]._replace([size])
     )
 
     def mk_read(c):
@@ -1555,7 +1552,7 @@ def DoShrinkDim(alloc_cursor, dim_idx: int, lo: LoopIR.expr, hi: LoopIR.expr):
         if isinstance(rd, LoopIR.Read):
             new_idx = rd.idx.copy()
             new_idx[dim_idx] = LoopIR.BinOp(
-                "-", rd.idx[dim_idx], lo, lo.type, rd.srcinfo
+                "-", rd.idx[dim_idx], offset, offset.type, rd.srcinfo
             )
             return {"idx": new_idx}
         else:
@@ -1566,7 +1563,9 @@ def DoShrinkDim(alloc_cursor, dim_idx: int, lo: LoopIR.expr, hi: LoopIR.expr):
     def mk_write(c):
         s = c._node
         new_idx = s.idx.copy()
-        new_idx[dim_idx] = LoopIR.BinOp("-", s.idx[dim_idx], lo, lo.type, s.srcinfo)
+        new_idx[dim_idx] = LoopIR.BinOp(
+            "-", s.idx[dim_idx], offset, offset.type, s.srcinfo
+        )
         return {"idx": new_idx}
 
     for c in get_rest_of_block(alloc_cursor):
@@ -4213,7 +4212,7 @@ __all__ = [
     "DoInlineWindow",
     "DoDivideDim",
     "DoExpandDim",
-    "DoShrinkDim",
+    "DoResizeDim",
     "DoMultiplyDim",
     "DoRearrangeDim",
     "DoInline",
