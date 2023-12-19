@@ -161,50 +161,6 @@ class Cursor_Rewrite(LoopIR_Rewrite):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Finding Names
-
-
-def name_plus_count(namestr):
-    results = re.search(r"^([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$", namestr)
-    if not results:
-        raise TypeError(
-            "expected name pattern of the form\n"
-            "  ident (# integer)?\n"
-            "where ident is the name of a variable "
-            "and (e.g.) '#2' may optionally be attached to mean "
-            "'the second occurence of that identifier"
-        )
-
-    name = results[1]
-    count = int(results[3]) if results[3] else None
-    return name, count
-
-
-def iter_name_to_pattern(namestr):
-    name, count = name_plus_count(namestr)
-    if count is not None:
-        count = f" #{count}"
-    else:
-        count = ""
-
-    pattern = f"for {name} in _: _{count}"
-    return pattern
-
-
-def nested_iter_names_to_pattern(namestr, inner):
-    name, count = name_plus_count(namestr)
-    if count is not None:
-        count = f" #{count}"
-    else:
-        count = ""
-    assert is_valid_name(inner)
-
-    pattern = f"for {name} in _:\n  for {inner} in _: _{count}"
-    return pattern
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
 # Cursor form scheduling directive helpers
 
 
@@ -271,8 +227,7 @@ def _replace_writes(ir, fwd, c, sym, repl, only_replace_attrs=True):
         c, f"{repr(sym)} += _", use_sym_id=True
     )
     for block in matches:
-        # match_pattern on stmts return blocks
-        assert len(block) == 1
+        assert len(block) == 1  # match_pattern on stmts return blocks
         s = cur_fwd(block[0])
         if not (c_repl := repl(s)):
             continue

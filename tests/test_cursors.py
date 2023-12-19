@@ -615,3 +615,18 @@ def test_get_enclosing_loop_fail():
         CursorNavigationError, match="scope is not an ancestor of cursor"
     ):
         c = get_stmt_within_scope(foo.find("x = _"), foo.find_loop("j"))
+
+
+def test_cursor_find_loop():
+    @proc
+    def foo(n: size, x: i8[n]):
+        for i in seq(0, n):
+            pass
+        if n > 1:
+            for i in seq(0, n):
+                x[i] = 0.0
+
+    i_loop2 = foo.find("for i in _:_ #1")
+    if_stmt = foo.find("if _: _ ")
+    i_loop_alternative = if_stmt.find("for i in _: _")
+    assert i_loop2 == i_loop_alternative

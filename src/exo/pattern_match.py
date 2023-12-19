@@ -57,7 +57,11 @@ def get_match_no(pattern_str: str) -> Optional[int]:
 
 
 def match_pattern(
-    context, pattern_str, call_depth=0, default_match_no=None, use_sym_id=False
+    context: Cursor,
+    pattern_str: str,
+    call_depth=0,
+    default_match_no=None,
+    use_sym_id=False,
 ):
     """
     If [default_match_no] is None, then all matches are returned
