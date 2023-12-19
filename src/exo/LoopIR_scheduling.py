@@ -1151,11 +1151,8 @@ def DoRewriteExpr(expr_cursor, new_expr):
     return expr_cursor._replace(new_expr)
 
 
-def DoBindExpr(new_name, expr_cursors, cse=False):
+def DoBindExpr(new_name, expr_cursors):
     assert expr_cursors
-
-    if not cse:
-        expr_cursors = expr_cursors[0:1]
 
     expr = expr_cursors[0]._node
     assert isinstance(expr, LoopIR.expr)

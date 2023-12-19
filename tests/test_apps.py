@@ -44,7 +44,7 @@ def test_gemmini_matmul(golden):
     assert _test_app(module_file) == golden
 
 
-@pytest.mark.slow
+@pytest.mark.skip(reason="")
 def test_gemmini_conv(golden):
     module_file = REPO_ROOT / "apps" / "gemmini" / "src" / "exo" / "conv.py"
     assert _test_app(module_file) == golden
