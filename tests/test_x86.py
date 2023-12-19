@@ -108,7 +108,7 @@ def simple_math_avx2_sched():
         p = replace(p, "for i0 in _:_ #0", mm256_loadu_ps)
         p = replace(p, "for i0 in _:_ #0", mm256_storeu_ps)
 
-        p = bind_expr(p, "y[_]", "yVec", cse=True)
+        p = bind_expr(p, p.find("y[_]", many=True), "yVec")
         p = autolift_alloc(p, "yVec: _", keep_dims=True)
         p = set_memory(p, "yVec", AVX2)
         p = old_fission_after(p, "yVec[_] = _")

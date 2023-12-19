@@ -917,20 +917,19 @@ def rewrite_expr(proc, expr_cursor, new_expr):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ExprCursorA(many=True), NameA, BoolA])
-def bind_expr(proc, expr_cursors, new_name, cse=False):
+@sched_op([ListOrElemA(ExprCursorA), NameA])
+def bind_expr(proc, expr_cursors, new_name):
     """
-    Bind some numeric/data-value type expression into a new intermediate,
-    scalar-sized buffer.  If `cse=True` and more than one expression is
-    pointed to, then this operation will attempt to perform
-    common sub-expression elimination while binding. It will stop upon
-    encountering a read of any buffer that the expression depends on.
+    Bind some numeric/data-value type expression(s) into a new intermediate,
+    scalar-sized buffer. Attempts to perform common sub-expression
+    elimination while binding. It will stop upon encountering a read of any
+    buffer that the expression depends on. The precision of the new allocation
+    is that of the bound expression.
 
     args:
         expr_cursors    - a list of cursors to multiple instances of the
                           same expression
         new_name        - a string to name the new buffer
-        cse             - (bool) use common sub-expression elimination?
 
     rewrite:
         bind_expr(..., '32.0 * x[i]', 'b')
@@ -947,7 +946,7 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
             "can be bound by bind_expr()"
         )
 
-    ir, fwd = scheduling.DoBindExpr(new_name, exprs, cse)
+    ir, fwd = scheduling.DoBindExpr(new_name, exprs)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

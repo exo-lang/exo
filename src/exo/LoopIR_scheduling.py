@@ -1151,11 +1151,8 @@ def DoRewriteExpr(expr_cursor, new_expr):
     return expr_cursor._replace(new_expr)
 
 
-def DoBindExpr(new_name, expr_cursors, cse=False):
+def DoBindExpr(new_name, expr_cursors):
     assert expr_cursors
-
-    if not cse:
-        expr_cursors = expr_cursors[0:1]
 
     expr = expr_cursors[0]._node
     assert isinstance(expr, LoopIR.expr)
@@ -1168,8 +1165,10 @@ def DoBindExpr(new_name, expr_cursors, cse=False):
     init_c = get_enclosing_stmt_cursor(expr_cursors[0])
 
     new_name = Sym(new_name)
-    alloc_s = LoopIR.Alloc(new_name, T.R, None, None, expr.srcinfo)
-    assign_s = LoopIR.Assign(new_name, T.R, None, [], expr, None, expr.srcinfo)
+    alloc_s = LoopIR.Alloc(new_name, expr.type.basetype(), None, None, expr.srcinfo)
+    assign_s = LoopIR.Assign(
+        new_name, expr.type.basetype(), None, [], expr, None, expr.srcinfo
+    )
     ir, fwd = init_c.before()._insert([alloc_s, assign_s])
 
     new_read = LoopIR.Read(new_name, [], expr.type, expr.srcinfo)

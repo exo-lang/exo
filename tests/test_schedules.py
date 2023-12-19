@@ -1091,9 +1091,18 @@ def test_bind_lhs(golden):
                     out[ii, jj, kk] += out[ii, jj, kk] + inp[ii, jj, kk]
                     out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
 
-    myfunc_cpu = bind_expr(myfunc_cpu, "inp[_]", "inp_ram", cse=True)
-    myfunc_cpu = bind_expr(myfunc_cpu, "out[_]", "out_ram", cse=True)
+    myfunc_cpu = bind_expr(myfunc_cpu, myfunc_cpu.find("inp[_]", many=True), "inp_ram")
+    myfunc_cpu = bind_expr(myfunc_cpu, myfunc_cpu.find("out[_]", many=True), "out_ram")
     assert str(myfunc_cpu) == golden
+
+
+def test_bind_cursor_arg(golden):
+    @proc
+    def foo(a: R):
+        a = 1.0
+
+    foo = bind_expr(foo, foo.find("1.0"), "const")
+    assert str(foo) == golden
 
 
 def test_divide_with_recompute(golden):
@@ -1640,7 +1649,7 @@ def test_bind_expr_diff_indices(golden):
             x[i] = y[i]
             w[i] = x[i] + y[i] + 1.0
 
-    bar = bind_expr(bar, "x[i]+y[i]+1.0", "tmp", cse=True)
+    bar = bind_expr(bar, bar.find("x[i]+y[i]+1.0", many=True), "tmp")
     assert str(bar) == golden
 
 
