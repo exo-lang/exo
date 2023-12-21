@@ -1088,6 +1088,28 @@ def is_const_zero(e):
     return isinstance(e, LoopIR.Const) and e.val == 0
 
 
+class GetConfigWrites(LoopIR_Do):
+    def __init__(self):
+        self.writes = []
+
+    def do_s(self, s):
+        if isinstance(s, LoopIR.WriteConfig):
+            self.writes.append(s)
+        elif isinstance(s, LoopIR.Call):
+            self.writes += get_config_writes_of_stmts(s.f.body)
+        super().do_s(s)
+
+    # early exit
+    def do_e(self, e):
+        return
+
+
+def get_config_writes_of_stmts(stmts):
+    gwc = GetConfigWrites()
+    gwc.do_stmts(stmts)
+    return gwc.writes
+
+
 class FreeVars(LoopIR_Do):
     def __init__(self, node):
         assert isinstance(node, list)

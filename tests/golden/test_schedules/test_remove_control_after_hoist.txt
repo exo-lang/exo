@@ -1,0 +1,5 @@
+def foo(n: size, b: f32 @ DRAM):
+    a: f32 @ DRAM
+    a = 1.0
+    for i in seq(0, n / 8):
+        b += a

@@ -12,6 +12,7 @@ from .LoopIR import (
     get_reads_of_expr,
     get_reads_of_stmts,
     get_writes_of_stmts,
+    get_config_writes_of_stmts,
     is_const_zero,
 )
 from .LoopIR_dataflow import LoopIR_Dependencies
@@ -3489,29 +3490,114 @@ class DoSimplify(Cursor_Rewrite):
             raise NotImplementedError(f"bad case {type(s)}")
 
 
-def DoEliminateIfDeadBranch(if_cursor):
+def _get_alloc(stmt_cursor, name):
+    for arg in stmt_cursor.root()._child_block("args"):
+        if arg._node.name == name:
+            return arg
+    while True:
+        node = stmt_cursor._node
+        assert not isinstance(node, LoopIR.proc), "Unreachable, must find allocation"
+        if isinstance(node, LoopIR.Alloc) and node.name == name:
+            return stmt_cursor
+        elif stmt_cursor.get_index() == 0:
+            stmt_cursor = stmt_cursor.parent()
+        else:
+            stmt_cursor = stmt_cursor.prev()
+
+
+def _Check_BlockAccessesBounds(ir, block):
+    nodes = [s._node for s in block]
+    accesses = get_reads_of_stmts(nodes) + get_writes_of_stmts(nodes)
+    accesses = set(name for name, typ in accesses if typ.is_numeric())
+    for access in accesses:
+        alloc = _get_alloc(block[-1], access)
+        alloc_within_block = any(stmt.is_ancestor_of(alloc) for stmt in block)
+        if not alloc_within_block:
+            Check_Bounds(ir, alloc._node, nodes)
+        else:
+            stmts_after_alloc = [
+                stmt._node for stmt in alloc.as_block().expand(delta_lo=-1)
+            ]
+            Check_Bounds(ir, alloc._node, stmts_after_alloc)
+
+
+def _Check_IfEffectsObservedUnderCond(ir, if_cursor):
+    assert not if_cursor._node.orelse
+
+    nodes = [s._node for s in if_cursor.body()]
+
+    # Check for effects on any configuration state
+    if get_config_writes_of_stmts(nodes):
+        raise SchedulingError(
+            f"If statement body has effects on a configuration state; "
+            + "effects can be observed when the condition doesn't hold (from the caller)"
+        )
+
+    # Check for effects on any data arguments
+    writes = get_writes_of_stmts(nodes)
+    writes = set(name for name, typ in writes if typ.is_numeric())
+    for write in writes:
+        alloc = _get_alloc(if_cursor.body()[-1], write)
+        if isinstance(alloc._node, LoopIR.fnarg):
+            raise SchedulingError(
+                f"If statement body has effects on argument {alloc._node.name} of the procedure; "
+                + "effects can be observed when the condition doesn't hold (from the caller)"
+            )
+        # TODO: We should be able to relax this condition
+        if alloc.parent() != if_cursor.parent() and not if_cursor.is_ancestor_of(alloc):
+            raise SchedulingError(
+                "If statement must be in the same scope of the allocations it affects"
+            )
+
+    # Check that effects on local data variables are only observed when the if condition holds
+    cond = if_cursor._node.cond
+    true_node = LoopIR.Const(True, T.bool, cond.srcinfo)
+
+    def check(block):
+        for stmt in block:
+            node = stmt._node
+            if isinstance(node, LoopIR.For):
+                check(stmt.body())
+            elif isinstance(node, LoopIR.If):
+                check(stmt.body())
+                check(stmt.orelse())
+            else:
+                accesses = get_reads_of_stmts([node]) + get_writes_of_stmts([node])
+                accesses = set(name for name, _ in accesses)
+                if len(writes & accesses):
+                    try:
+                        Check_ExprEqvInContext(ir, cond, [stmt._node], true_node)
+                    except SchedulingError:
+                        raise SchedulingError(
+                            "Writes within the if statement are observed when the condition doesn't hold"
+                        )
+
+    block_after = if_cursor.as_block().expand(delta_lo=-1)
+    check(block_after)
+
+
+def DoRemoveControl(if_cursor):
     if_stmt = if_cursor._node
 
     assert isinstance(if_stmt, LoopIR.If)
 
-    ir, fwd = if_cursor.get_root(), lambda x: x
+    """
+    TODO: The difficult part with this is making sure that effect of the if branch don't affect the else branch.
+    We can handle this by splitting the if/else statement into two if statements with no else branch. 
+    Then, removing the control from both. This splitting rewrite could itself be its own operation.
+    """
+    if if_stmt.orelse:
+        raise SchedulingError("Cannot have an else branch")
 
-    try:
-        cond_node = LoopIR.Const(True, T.bool, if_stmt.srcinfo)
-        Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
-        cond = True
-    except SchedulingError:
-        try:
-            cond_node = LoopIR.Const(False, T.bool, if_stmt.srcinfo)
-            Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
-            cond = False
-        except SchedulingError:
-            raise SchedulingError("If condition isn't always True or always False")
+    _Check_IfEffectsObservedUnderCond(if_cursor.get_root(), if_cursor)
 
-    body = if_cursor.body() if cond else if_cursor.orelse()
+    body = if_cursor.body()
     ir, fwd = body._move(if_cursor.after())
     ir, fwd_del = fwd(if_cursor)._delete()
     fwd = _compose(fwd_del, fwd)
+
+    stmts = [fwd(s) for s in body]
+    _Check_BlockAccessesBounds(ir, stmts)
 
     return ir, fwd
 
@@ -4227,7 +4313,7 @@ __all__ = [
     "DoFissionLoops",
     "DoBoundAndGuard",
     "DoDeletePass",
-    "DoEliminateDeadCode",
+    "DoRemoveControl" "DoEliminateDeadCode",
     "DoAddUnsafeGuard",
     "DoStageWindow",
     "DoBoundAlloc",
