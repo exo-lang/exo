@@ -3151,6 +3151,117 @@ def test_replace_all_length_mismatch(golden):
     assert str(foo) == golden
 
 
+def test_remove_control(golden):
+    @proc
+    def foo(b: f32):
+        for i in seq(0, 8):
+            a: f32
+            if i < 7:
+                a = 1.0
+
+    foo = remove_control(foo, "if _ : _")
+    assert str(foo) == golden
+
+
+def test_remove_control_after_hoist(golden):
+    @proc
+    def foo(n: size, b: f32):
+        a: f32
+        for i in seq(0, n / 8):
+            a = 1.0
+            b += a
+
+    foo = fission(foo, foo.find("a = _").after())
+    foo = remove_loop(foo, foo.find_loop("i"))
+    foo = remove_control(foo, "if _ : _")
+
+    assert str(foo) == golden
+
+
+def test_remove_control_broadcast(golden):
+    @proc
+    def foo(n: size, c: f32[n]):
+        for i in seq(0, n):
+            a: f32
+            a = 1.0
+            c[i] += a
+
+    foo = divide_loop(foo, "i", 4, ("io", "ii"))
+    foo = lift_alloc(foo, "a : _")
+    foo = fission(foo, foo.find("a = 1.0").after())
+    foo = remove_control(foo, "if _ : _")
+
+    assert str(foo) == golden
+
+    with pytest.raises(
+        SchedulingError,
+        match="If statement body has effects on argument c of the procedure",
+    ):
+        remove_control(foo, "if _ : _")
+
+
+def test_remove_control_out_of_bound_1():
+    @proc
+    def foo():
+        for i in seq(0, 8):
+            a: f32[4]
+            if i < 4:
+                a[i] = 1.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="The buffer a is accessed out-of-bounds",
+    ):
+        remove_control(foo, "if _ : _")
+
+
+def test_remove_control_out_of_bound_2():
+    @proc
+    def foo():
+        for i in seq(0, 8):
+            if i < 4:
+                a: f32[4]
+                a[i] = 1.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="The buffer a is accessed out-of-bounds",
+    ):
+        remove_control(foo, "if _ : _")
+
+
+def test_remove_control_with_config_write():
+    @config
+    class CFG:
+        j: index
+
+    @proc
+    def foo(n: size, x: R[n]):
+        if n > 2:
+            CFG.j = 0
+
+    with pytest.raises(
+        SchedulingError,
+        match="If statement body has effects on a configuration state",
+    ):
+        remove_control(foo, "if _ : _")
+
+
+def test_remove_control_read_later_fail():
+    @proc
+    def foo(n: size, b: f32):
+        a: f32
+        if n > 2:
+            a = 1.0
+        b = a
+
+    with pytest.raises(
+        SchedulingError,
+        match="Writes within the if statement are observed when the condition doesn't hold",
+    ):
+        remove_control(foo, "if _ : _")
+
+
 def test_eliminate_dead_code(golden):
     @proc
     def foo():

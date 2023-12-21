@@ -2134,6 +2134,32 @@ def lift_scope(proc, scope_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([IfCursorA])
+def remove_control(proc, if_cursor):
+    """
+    Eliminate the control introduced by the if statement and replace
+    the if statement by the code within the body.
+
+    This rewrite works only when effects (writes) within the body are only
+    observed when the if condition holds. As a result, if writes happen
+    to any procedure arguments or configuration state, then the rewrite
+    isn't allowed.
+
+    Note: that this is different from when the the condition is always
+    true or false, which is handled by `eliminate_dead_code`.
+
+    rewrite:
+        `if p:`
+        `    s1`
+        -> (assuming effects of `s1` are only observed when `p` holds)
+        `s1`
+    """
+    if_c = if_cursor._impl
+
+    ir, fwd = scheduling.DoRemoveControl(if_c)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([ForOrIfCursorA])
 def eliminate_dead_code(proc, stmt_cursor):
     """

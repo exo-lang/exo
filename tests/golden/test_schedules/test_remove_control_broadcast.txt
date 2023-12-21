@@ -1,0 +1,7 @@
+def foo(n: size, c: f32[n] @ DRAM):
+    for io in seq(0, (n + 3) / 4):
+        for ii in seq(0, 4):
+            a: f32 @ DRAM
+            a = 1.0
+            if 4 * io + ii < n:
+                c[4 * io + ii] += a

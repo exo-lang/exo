@@ -731,7 +731,6 @@ def _lsstr(ls, prec=0):
         typ = f":{ls.type}" if ls.type else ""
         return f"{{({ls.name},{coords}{typ})}}"
     elif isinstance(ls, LS.WholeBuf):
-        coords = ",".join([str(a) for a in ls.coords])
         return f"{{{ls.name}|{ls.ndim}}}"
     elif isinstance(ls, (LS.Union, LS.Isct, LS.Diff)):
         if isinstance(ls, LS.Union):
@@ -2013,6 +2012,10 @@ def Check_BufferReduceOnly(proc, stmts, buf, ndim):
 
 
 def Check_Bounds(proc, alloc_stmt, block):
+    """
+    Check bounds accesses to the `alloc_stmt` within the `block`.
+    `alloc_stmt` must not be within the `block`.
+    """
     if len(block) == 0:
         return
     ctxt = ContextExtraction(proc, block)
