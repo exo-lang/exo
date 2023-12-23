@@ -72,6 +72,22 @@ def proc_bar():
     yield bar
 
 
+@pytest.fixture(scope="session")
+def proc_baz():
+    @proc
+    def baz(n: size, m: size):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x: f32
+                x = 0.0
+                y: f32
+                y = 1.1
+                for k in seq(0, n):
+                    pass
+
+    yield baz
+
+
 def test_get_root(proc_foo):
     cursor = proc_foo._root()
     assert cursor._node is proc_foo.INTERNAL_proc()
@@ -720,3 +736,40 @@ def test_move_forward_if_orelse(golden):
     ir, fwd = alloc_x._move(alloc_y.after())
     assert fwd(alloc_x)._path == [("body", 0), ("orelse", 1)]
     assert str(ir) == golden
+
+
+def test_insert_forward_block(proc_baz, golden):
+    @proc
+    def foo():
+        x: i8
+        y: i8
+        z: i8
+
+    output = []
+
+    c = _find_stmt(proc_baz, "x = 0.0")
+    b_above = c.parent()
+    b_edit = b_above.body()
+    b_before = b_edit[0:2]
+    b_after = b_edit[2:]
+    _, fwd = c.after()._insert([LoopIR.Pass(None, c._node.srcinfo)])
+    output.append(_print_cursor(fwd(b_above)))
+    output.append(_print_cursor(fwd(b_before)))
+    output.append(_print_cursor(fwd(b_after)))
+    output.append(_print_cursor(fwd(b_edit)))
+
+    print("\n\n".join(output))
+
+    assert "\n\n".join(output) == golden
+
+
+def test_delete_forward_block(golden):
+    pass
+
+
+def test_replace_forward_block(golden):
+    pass
+
+
+def test_wrap_forward_block(golden):
+    pass

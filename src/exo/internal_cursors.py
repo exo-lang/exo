@@ -177,7 +177,31 @@ class Cursor(ABC):
                 return Gap(new_root, forward(cursor.anchor()), cursor.type())
 
             if isinstance(cursor, Block):
-                raise InvalidCursorError("cannot forward blocks")
+                old_path = cursor._anchor._path
+
+                if len(old_path) < depth:
+                    # Too shallow
+                    return dataclasses.replace(cursor, _root=new_root)
+
+                if not (_starts_with(old_path, edit_path) and cursor._attr == attr):
+                    # Different subtree
+                    return dataclasses.replace(cursor, _root=new_root)
+
+                try:
+                    # Same subtree
+                    start_idx = fwd_node(attr, cursor._range.start)[0][1]
+                    end_idx = fwd_node(attr, cursor._range.stop - 1)[0][1]
+
+                    return dataclasses.replace(
+                        cursor,
+                        _root=new_root,
+                        _anchor=Node(new_root, old_path),
+                        _range=range(start_idx, end_idx + 1),
+                    )
+
+                    # Need some way to merge paths (warp can return length 2 paths)
+                except:
+                    raise InvalidCursorError("cannot forward this block cursor")
 
             assert isinstance(cursor, Node)
 
