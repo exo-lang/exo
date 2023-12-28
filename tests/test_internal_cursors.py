@@ -738,38 +738,57 @@ def test_move_forward_if_orelse(golden):
     assert str(ir) == golden
 
 
-def test_insert_forward_block(proc_baz, golden):
-    @proc
-    def foo():
-        x: i8
-        y: i8
-        z: i8
-
-    output = []
-
+def test_insert_forwarding_for_blocks(proc_baz, golden):
     c = _find_stmt(proc_baz, "x = 0.0")
+
     b_above = c.parent()
     b_edit = b_above.body()
-    b_before = b_edit[0:2]
+    b_below = b_edit[-1].body()
+    b_before = b_edit[:2]
     b_after = b_edit[2:]
-    _, fwd = c.after()._insert([LoopIR.Pass(None, c._node.srcinfo)])
-    output.append(_print_cursor(fwd(b_above)))
-    output.append(_print_cursor(fwd(b_before)))
-    output.append(_print_cursor(fwd(b_after)))
-    output.append(_print_cursor(fwd(b_edit)))
 
-    print("\n\n".join(output))
+    _, fwd = c.after()._insert([LoopIR.Pass(None, c._node.srcinfo)])
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+    output.append(_print_cursor(fwd(b_below)))  # below edit level
+    output.append(_print_cursor(fwd(b_before)))  # same edit level, disjoint
+    output.append(_print_cursor(fwd(b_after)))  # same dit level, disjoint
+
+    # Blocks containing the insertion point also work intuitively.
+    output.append(_print_cursor(fwd(b_edit)))
 
     assert "\n\n".join(output) == golden
 
 
-def test_delete_forward_block(golden):
+def test_delete_forwarding_for_blocks(proc_baz, golden):
+    c = _find_stmt(proc_baz, "x = 0.0")
+
+    b_above = c.parent()
+    b_edit = b_above.body()
+    b_below = b_edit[-1].body()
+    b_before = b_edit[:1]
+    b_after = b_edit[2:]
+    b_with_deletion_as_endpoint = b_edit[:2]
+
+    _, fwd = c._delete()
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+    output.append(_print_cursor(fwd(b_below)))  # below edit level
+    output.append(_print_cursor(fwd(b_before)))  # same edit level, disjoint
+    output.append(_print_cursor(fwd(b_after)))  # same edit level, disjoint
+
+    # Blocks containing the deletion block also work intuitively.
+    output.append(_print_cursor(fwd(b_edit)))
+    output.append(_print_cursor(fwd(b_with_deletion_as_endpoint)))
+
+    assert "\n\n".join(output) == golden
+
+
+def test_replace_forwarding_for_blocks(proc_baz, golden):
     pass
 
 
-def test_replace_forward_block(golden):
-    pass
-
-
-def test_wrap_forward_block(golden):
+def test_wrap_forwarding_for_blocks(proc_baz, golden):
     pass
