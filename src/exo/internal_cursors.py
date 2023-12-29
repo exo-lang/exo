@@ -420,6 +420,8 @@ class Block(Cursor):
                 )
             elif block_rng.stop <= rng.start:
                 return block_rng
+            elif rng.start in block_rng and rng.stop - 1 in block_rng:
+                return range(block_rng.start, block_rng.stop - len(rng) + 1)
 
             # We could arguably try to forward to something?
             raise InvalidCursorError("block no longer exists")
@@ -739,11 +741,11 @@ class Node(Cursor):
         fwd = self._forward_replace(p)
         return p, fwd
 
-    def _forward_replace(self, new_root):
+    def _forward_replace(self, new_root, can_fwd_node=True):
         assert self._path[-1][1] is None
 
-        def fwd_node(*_):
-            raise InvalidCursorError("cannot forward replaced nodes")
+        def fwd_node(attr, i):
+            return [(attr, i)]
 
         def fwd_block(attr, rng):
             return rng

@@ -769,7 +769,7 @@ def test_delete_forwarding_for_blocks(proc_baz, golden):
     b_below = b_edit[-1].body()
     b_before = b_edit[:1]
     b_after = b_edit[2:]
-    b_with_deletion_as_endpoint = b_edit[:2]
+    b_with_endpoint_in_deletion = b_edit[:2]
 
     _, fwd = c._delete()
 
@@ -781,14 +781,78 @@ def test_delete_forwarding_for_blocks(proc_baz, golden):
 
     # Blocks containing the deletion block also work intuitively.
     output.append(_print_cursor(fwd(b_edit)))
-    output.append(_print_cursor(fwd(b_with_deletion_as_endpoint)))
+    output.append(_print_cursor(fwd(b_with_endpoint_in_deletion)))
 
     assert "\n\n".join(output) == golden
 
 
-def test_replace_forwarding_for_blocks(proc_baz, golden):
-    pass
+def test_block_replace_forwarding_for_blocks(proc_baz, golden):
+    c = _find_stmt(proc_baz, "x = 0.0")
+
+    b_above = c.parent()
+    b_edit = b_above.body()
+    b_below = b_edit[-1].body()
+    b_before = b_edit[:1]
+    b_after = b_edit[4:]
+    b_with_endpoint_in_replace = b_edit[:2]
+
+    # replace 1:4 with two pass stmts
+    pass_ir = LoopIR.Pass(None, c._node.srcinfo)
+    _, fwd = c.as_block().expand(delta_lo=0, delta_hi=2)._replace([pass_ir, pass_ir])
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+    output.append(_print_cursor(fwd(b_below)))  # below edit level
+    output.append(_print_cursor(fwd(b_before)))  # same edit level, disjoint
+    output.append(_print_cursor(fwd(b_after)))  # same edit level, disjoint
+
+    # Blocks containing the entire replace block work intuitively.
+    output.append(_print_cursor(fwd(b_edit)))
+
+    # Blocks partially containing the replace block have undefined behavior. OK if this changes.
+    output.append(_print_cursor(fwd(b_with_endpoint_in_replace)))
+
+    assert "\n\n".join(output) == golden
+
+
+def test_node_replace_forwarding(proc_baz, golden):
+    c = _find_cursors(proc_baz, "1.1")[0]
+    _, fwd = c._replace(LoopIR.Const(42.0, T.f32, c._node.srcinfo))
+    assert fwd(c)._node.val == 42.0
 
 
 def test_wrap_forwarding_for_blocks(proc_baz, golden):
-    pass
+    c = _find_stmt(proc_baz, "y: _")
+
+    b_above = c.parent()
+    b_edit = b_above.body()
+    b_below = b_edit[-1].body()
+    b_before = b_edit[:2]
+    b_after = b_edit[4:]
+    b_with_endpoint_in_replace = b_edit[:3]
+
+    # wrap 2:4 with a for loop
+    k = Sym("k")
+
+    def wrapper(body):
+        src = body[0].srcinfo
+        zero = LoopIR.Const(0, T.index, src)
+        eight = LoopIR.Const(8, T.index, src)
+        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), None, src)
+
+    _, fwd = c.as_block().expand(delta_lo=0, delta_hi=1)._wrap(wrapper, "body")
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+    output.append(_print_cursor(fwd(b_below)))  # below edit level
+    output.append(_print_cursor(fwd(b_before)))  # same edit level, disjoint
+    output.append(_print_cursor(fwd(b_after)))  # same edit level, disjoint
+
+    # Blocks containing the entire wrap block work intuitively.
+    output.append(_print_cursor(fwd(b_edit)))
+
+    # Blocks partially containing the wrap block don't work.
+    with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
+        output.append(_print_cursor(fwd(b_with_endpoint_in_replace)))
+
+    assert "\n\n".join(output) == golden
