@@ -4,12 +4,11 @@ import re
 import types
 from pathlib import Path
 from typing import Optional, Union, List
-from enum import Enum, auto
 
 import exo.LoopIR_scheduling as scheduling
 from exo.LoopIR_scheduling import SchedulingError
 
-from .API_types import ProcedureBase
+from .API_types import ProcedureBase, ExoType
 from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_interpreter import run_interpreter
@@ -18,7 +17,7 @@ from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
-from .pattern_match import match_pattern, get_match_no
+from .pattern_match import match_pattern
 from .prelude import *
 from .new_eff import Check_Aliasing
 
@@ -279,24 +278,7 @@ class Procedure(ProcedureBase):
 
         In any event, if no matches are found, a SchedulingError is raised
         """
-        if not isinstance(pattern, str):
-            raise TypeError("expected a pattern string")
-        default_match_no = None if many else 0
-        raw_cursors = match_pattern(
-            self._root(), pattern, call_depth=1, default_match_no=default_match_no
-        )
-        assert isinstance(raw_cursors, list)
-        cursors = []
-        for c in raw_cursors:
-            c = C.lift_cursor(c, self)
-            if isinstance(c, (C.BlockCursor, C.ExprListCursor)) and len(c) == 1:
-                c = c[0]
-            cursors.append(c)
-
-        if not cursors:
-            raise SchedulingError("failed to find matches", pattern=pattern)
-
-        return cursors if many else cursors[0]
+        return C.find(self._root(), self, pattern, many)
 
     def find_loop(self, pattern, many=False):
         """
@@ -430,27 +412,3 @@ class Procedure(ProcedureBase):
 
     def _root(self):
         return IC.Cursor.create(self._loopir_proc)
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-
-
-class ExoType(Enum):
-    F32 = auto()
-    F64 = auto()
-    I8 = auto()
-    I32 = auto()
-    R = auto()
-    Index = auto()
-    Bool = auto()
-    Size = auto()
-
-    def is_indexable(self):
-        return self in [ExoType.Index, ExoType.Size]
-
-    def is_numeric(self):
-        return self in [ExoType.F32, ExoType.F64, ExoType.I8, ExoType.I32, ExoType.R]
-
-    def is_bool(self):
-        return self == ExoType.Bool
