@@ -815,10 +815,16 @@ def test_block_replace_forwarding_for_blocks(proc_baz, golden):
     assert "\n\n".join(output) == golden
 
 
-def test_node_replace_forwarding(proc_baz, golden):
+def test_node_replace_forwarding(proc_baz):
     c = _find_cursors(proc_baz, "1.1")[0]
     _, fwd = c._replace(LoopIR.Const(42.0, T.f32, c._node.srcinfo))
     assert fwd(c)._node.val == 42.0
+
+
+def test_block_replace_forwarding_stmt_to_stmt(proc_baz):
+    c = _find_stmt(proc_baz, "x = 0")
+    _, fwd = c._replace(LoopIR.Pass(None, c._node.srcinfo))
+    assert isinstance(fwd(c)._node, LoopIR.Pass)
 
 
 def test_wrap_forwarding_for_blocks(proc_baz, golden):

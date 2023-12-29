@@ -729,7 +729,7 @@ class Node(Cursor):
         modules, but not from end-user code.
         """
         attr, idx = self._path[-1]
-        if idx is not None:
+        if idx is not None and isinstance(ast, list):
             # noinspection PyProtectedMember
             # delegate block replacement to the Block class
             return self.as_block()._replace(ast)
@@ -742,10 +742,8 @@ class Node(Cursor):
         return p, fwd
 
     def _forward_replace(self, new_root, can_fwd_node=True):
-        assert self._path[-1][1] is None
-
-        def fwd_node(attr, i):
-            return [(attr, i)]
+        def fwd_node(*_):
+            return self._path[-1:]
 
         def fwd_block(attr, rng):
             return rng
