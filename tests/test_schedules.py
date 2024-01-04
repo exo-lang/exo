@@ -587,7 +587,7 @@ def test_remove_loop_deterministic(golden):
     # to fail non-deterministically (return an unknwon result).
     # This test make sure that over a few runs, it always passes.
     for i in range(10):
-        assert golden == str(remove_loop(foo, "k"))
+        assert str(remove_loop(foo, "k")) == golden
 
 
 def test_sink_alloc_simple_for_loop(golden):
