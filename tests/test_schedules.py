@@ -575,6 +575,21 @@ def test_remove_loop_fail(golden):
         remove_loop(foo, "for i in _:_")
 
 
+def test_remove_loop_deterministic(golden):
+    @proc
+    def foo(M: size, N: size, K: size, A: f32[M, N]):
+        for k in seq(0, K / 4):
+            for i in seq(0, M):
+                for j in seq(0, N):
+                    A[i, j] = 1.0
+
+    # An older Z3 version caused check within remove_loop
+    # to fail non-deterministically (return an unknwon result).
+    # This test make sure that over a few runs, it always passes.
+    for i in range(10):
+        assert golden == str(remove_loop(foo, "k"))
+
+
 def test_sink_alloc_simple_for_loop(golden):
     @proc
     def foo():
