@@ -4,7 +4,7 @@ import inspect
 import re
 
 # import types
-from dataclasses import dataclass
+from dataclasses import dataclass, make_dataclass, field
 from typing import Any, List, Tuple
 
 from .API import Procedure
@@ -75,7 +75,18 @@ class AtomicSchedulingOp:
     def __str__(self):
         return f"<AtomicSchedulingOp-{self.__name__}>"
 
+    @staticmethod
+    def _pop_implicit_rc_arg(kwargs):
+        name = "rc"
+        value = kwargs.pop(name, False)
+        # TODO: this doesn't properly calls `setdata` on BoolA.
+        BoolA()(value, None)
+        return value
+
     def __call__(self, *args, **kwargs):
+        # pop implicit arguments
+        rc_arg = self._pop_implicit_rc_arg(kwargs)
+
         # capture the arguments according to the provided signature
         bound_args = self.sig.bind(*args, **kwargs)
 
@@ -97,7 +108,16 @@ class AtomicSchedulingOp:
             bargs[nm] = argp(bargs[nm], bargs)
 
         # invoke the scheduling function with the modified arguments
-        return self.func(*bound_args.args, **bound_args.kwargs)
+        ret_val = self.func(*bound_args.args, **bound_args.kwargs)
+        if rc_arg:
+            # TODO: should we always expect primitives to return the a set of returned cursors?
+            # Another option is to check here if the returned cursors are provided by the primitive
+            # and if not throw an error since they were requested by the user.
+            return ret_val
+        else:
+            # Supress the returned cursors
+            # TODO: This would cause an issue with `extract_subproc`
+            return ret_val[0]
 
 
 # decorator for building Atomic Scheduling Operations in the
@@ -750,6 +770,31 @@ class CustomWindowExprA(NewExprA):
 
 
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Returned Cursors Dataclass
+
+
+@dataclass
+class CursorsSet:
+    pass
+
+
+def make_cursors_set(sched_op, fields):
+    assert is_atomic_scheduling_op(sched_op)
+
+    name = f"{sched_op.__name__}CursorsSet"
+    invalid_cursor_default = field(default=PC.InvalidCursor)
+
+    for i, fld in enumerate(fields):
+        if isinstance(fld, str):
+            fields[i] = (fld, PC.Cursor, invalid_cursor_default)
+        elif isinstance(fld, tuple) and len(fld) == 2:
+            fields[i] = fld + (invalid_cursor_default,)
+
+    globals()[name] = make_dataclass(name, fields, bases=(CursorsSet,))
+
+
+# --------------------------------------------------------------------------- #
 #  - * - * - * - * - * - * - * - * - * - * - * - * - * - * - * - * - * - * -
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -773,7 +818,10 @@ def simplify(proc):
     conditions to simplify expressions inside the branches.
     """
     # TODO: remove provenance handling from simplifier implementation
-    return scheduling.DoSimplify(proc).result()
+    return scheduling.DoSimplify(proc).result(), simplifyCursorsSet()
+
+
+make_cursors_set(simplify, [])
 
 
 @sched_op([NameA])
