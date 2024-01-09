@@ -2621,6 +2621,8 @@ def _make_closure(name, stmts, var_types, order):
                 elif isinstance(sz, LoopIR.BinOp):
                     add_size(sz.lhs)
                     add_size(sz.rhs)
+                elif isinstance(sz, LoopIR.USub):
+                    add_size(sz.arg)
 
             for sz in typ.shape():
                 add_size(sz)
