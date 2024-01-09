@@ -1,0 +1,5 @@
+def foo(M: size, N: size, K: size, A: f32[M, N] @ DRAM):
+    if K / 4 > 0:
+        for i in seq(0, M):
+            for j in seq(0, N):
+                A[i, j] = 1.0
