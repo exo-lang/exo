@@ -2615,9 +2615,17 @@ def _make_closure(name, stmts, var_types, order):
             fnargs.append(LoopIR.fnarg(v, typ, None, info))
         else:
             # add sizes (that this arg depends on) to the signature
+            def add_size(sz):
+                if isinstance(sz, LoopIR.Read):
+                    sizes.add(sz.name)
+                elif isinstance(sz, LoopIR.BinOp):
+                    add_size(sz.lhs)
+                    add_size(sz.rhs)
+                elif isinstance(sz, LoopIR.USub):
+                    add_size(sz.arg)
+
             for sz in typ.shape():
-                if isinstance(sz, Sym):
-                    sizes.add(sz)
+                add_size(sz)
             args.append(LoopIR.Read(v, [], typ, info))
             fnargs.append(LoopIR.fnarg(v, typ, None, info))
 
