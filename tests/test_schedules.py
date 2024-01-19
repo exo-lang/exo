@@ -3622,6 +3622,19 @@ def test_unroll_buffer5():
         bar = unroll_buffer(bar, "tmp_a : _", 0)
 
 
+def test_unroll_buffer6(golden):
+    @proc
+    def foo():
+        a: f32[2]
+        b: f32[2]
+        a[0] = b[0]
+        a[1] = b[1]
+
+    foo = unroll_buffer(foo, "a : _", 0)
+    foo = unroll_buffer(foo, "b : _", 0)
+    assert str(foo) == golden
+
+
 def test_parallelize_loop(golden):
     @proc
     def foo(A: i8[10]):

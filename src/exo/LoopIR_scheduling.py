@@ -4073,7 +4073,7 @@ def DoUnrollBuffer(alloc_cursor, dim):
 
             used_allocs.add(e.idx[dim].val)
 
-            sym = [e.idx[dim].val]
+            sym = buf_syms[e.idx[dim].val]
             new_idx = e.idx.copy()
             del new_idx[dim]
 
@@ -4120,7 +4120,10 @@ def DoUnrollBuffer(alloc_cursor, dim):
 
     new_shape = alloc_stmt.type.shape().copy()
     del new_shape[dim]
-    new_type = LoopIR.Tensor(new_shape, False, alloc_stmt.type.basetype())
+    if len(new_shape):
+        new_type = LoopIR.Tensor(new_shape, False, alloc_stmt.type.basetype())
+    else:
+        new_type = alloc_stmt.type.basetype()
 
     new_allocs = []
     for itr in used_allocs:
