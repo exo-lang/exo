@@ -1449,6 +1449,17 @@ def test_inline_assign(golden):
     assert str(foo) == golden
 
 
+def test_inline_assign_scalar(golden):
+    @proc
+    def foo(b: f32):
+        a: f32
+        a = 1.0
+        b = a
+
+    foo = inline_assign(foo, foo.find("a = _"))
+    assert str(foo) == golden
+
+
 def test_inline_assign_fail():
     @proc
     def foo(n: size, y: i8[n]):
