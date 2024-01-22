@@ -508,7 +508,8 @@ def DoInlineAssign(c1):
         )
 
     ir, fwd = c1._delete()
-    pat = f"{s1.name}[{','.join([str(idx) for idx in s1.idx])}]"
+    idx = f"[{','.join([str(idx) for idx in s1.idx])}]" if s1.idx else ""
+    pat = f"{s1.name}{idx}"
     for c in after_assign:
         ir, fwd = _replace_pats(
             ir, fwd, c, pat, mk_inline_expr, only_replace_attrs=False, use_sym_id=False
