@@ -1,0 +1,2 @@
+def bar(result: f32 @ DRAM):
+    result += 1.0

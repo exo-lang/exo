@@ -1855,6 +1855,24 @@ def merge_writes(proc, block_cursor):
 
 
 @sched_op([AssignCursorA])
+def fold_into_reduce(proc, assign):
+    """
+    Fold an assignment into a reduction if the rhs is an addition
+    whose rhs is equal to the lhs of the assignment.
+
+    args:
+        assign: a cursor pointing to the assignment to fold.
+
+    rewrite:
+        a = ... + a
+            ->
+        a += ...
+    """
+    ir, fwd = scheduling.DoFoldIntoReduce(assign._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([AssignCursorA])
 def inline_assign(proc, alloc_cursor):
     """
     Inlines [alloc_cursor] into any statements where it is used after this assignment.

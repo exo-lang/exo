@@ -492,6 +492,32 @@ def DoMergeWrites(c1, c2):
     return ir, fwd
 
 
+def DoFoldIntoReduce(assign):
+    def access_to_str(node):
+        idx = f"[{','.join([str(idx) for idx in node.idx])}]" if node.idx else ""
+        return f"{node.name}{idx}"
+
+    assign_s = assign._node
+
+    if not isinstance(assign_s.rhs, LoopIR.BinOp) or assign_s.rhs.op != "+":
+        raise SchedulingError("The rhs of the assignment must be an add.")
+    if not isinstance(assign_s.rhs.rhs, LoopIR.Read) or access_to_str(
+        assign_s
+    ) != access_to_str(assign_s.rhs.rhs):
+        raise SchedulingError("The rhs of the addition is not a read to the lhs.")
+
+    reduce_stmt = LoopIR.Reduce(
+        assign_s.name,
+        assign_s.type,
+        assign_s.cast,
+        assign_s.idx,
+        assign_s.rhs.lhs,
+        None,
+        assign_s.srcinfo,
+    )
+    return assign._replace([reduce_stmt])
+
+
 def DoInlineAssign(c1):
     s1 = c1._node
     assert isinstance(s1, LoopIR.Assign)
@@ -4169,6 +4195,7 @@ __all__ = [
     "DoLiftScope",
     "DoFissionAfterSimple",
     "DoMergeWrites",
+    "DoFoldIntoReduce",
     "DoFuseIf",
     "DoFuseLoop",
     "DoBindExpr",
