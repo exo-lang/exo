@@ -903,7 +903,7 @@ def commute_expr(proc, expr_cursors):
 
 
 @sched_op([ExprCursorA])
-def reassociate_expr(proc, expr):
+def left_reassociate_expr(proc, expr):
     """
     Reassociate the binary operations of '+' and '*'.
 
@@ -927,7 +927,7 @@ def reassociate_expr(proc, expr):
         raise TypeError(
             f"The rhs of the expression must be the same binary operation as the expression ({expr._node.op})"
         )
-    ir, fwd = scheduling.DoReassociateExpr(expr)
+    ir, fwd = scheduling.DoLeftReassociateExpr(expr)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

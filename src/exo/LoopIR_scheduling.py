@@ -1108,7 +1108,7 @@ def DoCommuteExpr(expr_cursors):
     return ir, fwd
 
 
-def DoReassociateExpr(expr):
+def DoLeftReassociateExpr(expr):
     # a + (b + c) -> (a + b) + c
     a = expr._child_node("lhs")
     rhs = expr._child_node("rhs")
@@ -4192,7 +4192,7 @@ __all__ = [
     "DoInsertPass",
     "DoReorderStmt",
     "DoCommuteExpr",
-    "DoReassociateExpr",
+    "DoLeftReassociateExpr",
     "DoSpecialize",
     "DoSplit",
     "DoUnroll",
