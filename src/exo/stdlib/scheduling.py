@@ -30,6 +30,7 @@ from ..API_scheduling import (
     rewrite_expr,
     bind_expr,
     commute_expr,
+    reassociate_expr,
     #
     # subprocedure oriented operations
     extract_subproc,

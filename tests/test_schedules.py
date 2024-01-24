@@ -46,6 +46,55 @@ def test_commute4():
         commute_expr(foo, "x[0] - y[_]")
 
 
+def test_reassociate_expr_1(golden):
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a + (b + c)
+
+    foo = reassociate_expr(foo, "_ + _")
+    foo = commute_expr(foo, [foo.find("_ + _")])
+    assert str(foo) == golden
+
+
+def test_reassociate_expr_2(golden):
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = (a * b) * (b * c)
+
+    foo = reassociate_expr(foo, "_ * _")
+    foo = commute_expr(foo, [foo.find("_ * _")])
+    assert str(foo) == golden
+
+
+def test_reassociate_then_fold(golden):
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a + (b + c)
+
+    foo = commute_expr(foo, [foo.find("_ + _ #1")])
+    foo = reassociate_expr(foo, "_ + _")
+    foo = fold_into_reduce(foo, "_ = _")
+    assert str(foo) == golden
+
+
+def test_reassociate_expr_fail_1():
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a - (b + c)
+
+    with pytest.raises(TypeError, match="got -"):
+        foo = reassociate_expr(foo, "_ - _")
+
+
+def test_reassociate_expr_fail_2():
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a + (b - c)
+
+    with pytest.raises(TypeError, match="same binary operation as the expression"):
+        foo = reassociate_expr(foo, "_ + _")
+
+
 def test_product_loop(golden):
     @proc
     def foo(n: size):

@@ -1108,6 +1108,18 @@ def DoCommuteExpr(expr_cursors):
     return ir, fwd
 
 
+def DoReassociateExpr(expr):
+    # a + (b + c) -> (a + b) + c
+    a = expr._child_node("lhs")
+    rhs = expr._child_node("rhs")
+    b = rhs._child_node("lhs")
+    c = rhs._child_node("rhs")
+    new_lhs = LoopIR.BinOp(expr._node.op, a._node, b._node, T.R, a._node.srcinfo)
+    ir, fwd1 = a._replace(new_lhs)
+    ir, fwd2 = fwd1(rhs)._replace(c._node)
+    return ir, _compose(fwd2, fwd1)
+
+
 # TODO: make a cursor navigation file
 def get_enclosing_stmt_cursor(c):
     while isinstance(c._node, LoopIR.expr):
@@ -4180,6 +4192,7 @@ __all__ = [
     "DoInsertPass",
     "DoReorderStmt",
     "DoCommuteExpr",
+    "DoReassociateExpr",
     "DoSpecialize",
     "DoSplit",
     "DoUnroll",

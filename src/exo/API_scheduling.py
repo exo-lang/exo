@@ -902,6 +902,35 @@ def commute_expr(proc, expr_cursors):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([ExprCursorA])
+def reassociate_expr(proc, expr):
+    """
+    Reassociate the binary operations of '+' and '*'.
+
+    args:
+        expr - the expression to reassociate
+
+    rewrite:
+        a + (b + c)
+            ->
+        (a + b) + c
+    """
+    expr = expr._impl
+    if not isinstance(expr._node, LoopIR.BinOp) or (
+        expr._node.op != "+" and expr._node.op != "*"
+    ):
+        raise TypeError(f"Only '+' or '*' can be reassociated, got {expr._node.op}")
+    if (
+        not isinstance(expr._node.rhs, LoopIR.BinOp)
+        or expr._node.rhs.op != expr._node.op
+    ):
+        raise TypeError(
+            f"The rhs of the expression must be the same binary operation as the expression ({expr._node.op})"
+        )
+    ir, fwd = scheduling.DoReassociateExpr(expr)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([ExprCursorA, NewExprA("expr_cursor")])
 def rewrite_expr(proc, expr_cursor, new_expr):
     """
