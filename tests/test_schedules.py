@@ -46,6 +46,56 @@ def test_commute4():
         commute_expr(foo, "x[0] - y[_]")
 
 
+def test_left_reassociate_expr_1(golden):
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a + (b + c)
+
+    foo = left_reassociate_expr(foo, "_ + _")
+    foo = commute_expr(foo, [foo.find("_ + _")])
+    assert str(foo) == golden
+
+
+def test_left_reassociate_expr_2(golden):
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = (a * b) * (b * c)
+
+    foo = left_reassociate_expr(foo, "_ * _")
+    foo = commute_expr(foo, [foo.find("_ * _")])
+    assert str(foo) == golden
+
+
+def test_reassociate_then_fold(golden):
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a + (b + c)
+
+    foo = commute_expr(foo, [foo.find("_ + _ #1")])
+    foo = left_reassociate_expr(foo, "_ + _")
+    foo = commute_expr(foo, [foo.find("_ + _")])
+    foo = fold_into_reduce(foo, "_ = _")
+    assert str(foo) == golden
+
+
+def test_left_reassociate_expr_fail_1():
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a - (b + c)
+
+    with pytest.raises(TypeError, match="got -"):
+        foo = left_reassociate_expr(foo, "_ - _")
+
+
+def test_left_reassociate_expr_fail_2():
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a + (b - c)
+
+    with pytest.raises(TypeError, match="same binary operation as the expression"):
+        foo = left_reassociate_expr(foo, "_ + _")
+
+
 def test_product_loop(golden):
     @proc
     def foo(n: size):
@@ -1433,6 +1483,80 @@ def test_merge_writes_different_lhs_arrays_error():
         SchedulingError, match="expected the left hand side's indices to be the same."
     ):
         bar = merge_writes(bar, "z[i, 1] = y; z[i+1, 1] += y")
+
+
+def test_fold_into_reduce_1(golden):
+    @proc
+    def bar(result: f32):
+        result = result + 1.0
+
+    bar = fold_into_reduce(bar, bar.find("result = _"))
+    assert str(bar) == golden
+
+
+def test_fold_into_reduce_2(golden):
+    @proc
+    def bar(m: size, n: size, a: f32[m, n], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = a[i, j] + (x * x)
+
+    bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+    assert str(bar) == golden
+
+
+def test_fold_into_reduce_fail_1():
+    @proc
+    def bar(m: size, n: size, a: f32[m, n], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = a[i, j] * x
+
+    with pytest.raises(
+        SchedulingError, match="The rhs of the assignment must be an add."
+    ):
+        bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+
+
+def test_fold_into_reduce_fail_1():
+    @proc
+    def bar(m: size, n: size, a: f32[m, n], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = a[i, j]
+
+    with pytest.raises(
+        SchedulingError, match="The rhs of the assignment must be an add."
+    ):
+        bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+
+
+def test_fold_into_reduce_fail_3():
+    @proc
+    def bar(m: size, n: size, a: f32[m, n + 1], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = a[i, j + 1] + x
+
+    with pytest.raises(
+        SchedulingError,
+        match="The lhs of the addition is not a read to the lhs of the assignment.",
+    ):
+        bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+
+
+def test_fold_into_reduce_fail_4():
+    @proc
+    def bar(m: size, n: size, a: f32[m, n], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = (x + a[i, j]) + x
+
+    with pytest.raises(
+        SchedulingError,
+        match="The lhs of the addition is not a read to the lhs of the assignment.",
+    ):
+        bar = fold_into_reduce(bar, bar.find("a[_] = _"))
 
 
 def test_inline_assign(golden):

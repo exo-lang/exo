@@ -902,6 +902,35 @@ def commute_expr(proc, expr_cursors):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([ExprCursorA])
+def left_reassociate_expr(proc, expr):
+    """
+    Reassociate the binary operations of '+' and '*'.
+
+    args:
+        expr - the expression to reassociate
+
+    rewrite:
+        a + (b + c)
+            ->
+        (a + b) + c
+    """
+    expr = expr._impl
+    if not isinstance(expr._node, LoopIR.BinOp) or (
+        expr._node.op != "+" and expr._node.op != "*"
+    ):
+        raise TypeError(f"Only '+' or '*' can be reassociated, got {expr._node.op}")
+    if (
+        not isinstance(expr._node.rhs, LoopIR.BinOp)
+        or expr._node.rhs.op != expr._node.op
+    ):
+        raise TypeError(
+            f"The rhs of the expression must be the same binary operation as the expression ({expr._node.op})"
+        )
+    ir, fwd = scheduling.DoLeftReassociateExpr(expr)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([ExprCursorA, NewExprA("expr_cursor")])
 def rewrite_expr(proc, expr_cursor, new_expr):
     """
@@ -1851,6 +1880,24 @@ def merge_writes(proc, block_cursor):
         )
 
     ir, fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([AssignCursorA])
+def fold_into_reduce(proc, assign):
+    """
+    Fold an assignment into a reduction if the rhs is an addition
+    whose lhs is equal to the lhs of the assignment.
+
+    args:
+        assign: a cursor pointing to the assignment to fold.
+
+    rewrite:
+        a = a + (expr)
+            ->
+        a += expr
+    """
+    ir, fwd = scheduling.DoFoldIntoReduce(assign._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
