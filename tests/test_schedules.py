@@ -73,6 +73,7 @@ def test_reassociate_then_fold(golden):
 
     foo = commute_expr(foo, [foo.find("_ + _ #1")])
     foo = left_reassociate_expr(foo, "_ + _")
+    foo = commute_expr(foo, [foo.find("_ + _")])
     foo = fold_into_reduce(foo, "_ = _")
     assert str(foo) == golden
 
@@ -1487,7 +1488,7 @@ def test_merge_writes_different_lhs_arrays_error():
 def test_fold_into_reduce_1(golden):
     @proc
     def bar(result: f32):
-        result = 1.0 + result
+        result = result + 1.0
 
     bar = fold_into_reduce(bar, bar.find("result = _"))
     assert str(bar) == golden
@@ -1498,7 +1499,7 @@ def test_fold_into_reduce_2(golden):
     def bar(m: size, n: size, a: f32[m, n], x: f32):
         for i in seq(0, m):
             for j in seq(0, n):
-                a[i, j] = (x * x) + a[i, j]
+                a[i, j] = a[i, j] + (x * x)
 
     bar = fold_into_reduce(bar, bar.find("a[_] = _"))
     assert str(bar) == golden
@@ -1509,7 +1510,7 @@ def test_fold_into_reduce_fail_1():
     def bar(m: size, n: size, a: f32[m, n], x: f32):
         for i in seq(0, m):
             for j in seq(0, n):
-                a[i, j] = x * a[i, j]
+                a[i, j] = a[i, j] * x
 
     with pytest.raises(
         SchedulingError, match="The rhs of the assignment must be an add."
@@ -1517,28 +1518,43 @@ def test_fold_into_reduce_fail_1():
         bar = fold_into_reduce(bar, bar.find("a[_] = _"))
 
 
-def test_fold_into_reduce_fail_2():
+def test_fold_into_reduce_fail_1():
     @proc
-    def bar(m: size, n: size, a: f32[m, n + 1], x: f32):
+    def bar(m: size, n: size, a: f32[m, n], x: f32):
         for i in seq(0, m):
             for j in seq(0, n):
-                a[i, j] = x + a[i, j + 1]
+                a[i, j] = a[i, j]
 
     with pytest.raises(
-        SchedulingError, match="The rhs of the addition is not a read to the lhs."
+        SchedulingError, match="The rhs of the assignment must be an add."
     ):
         bar = fold_into_reduce(bar, bar.find("a[_] = _"))
 
 
 def test_fold_into_reduce_fail_3():
     @proc
+    def bar(m: size, n: size, a: f32[m, n + 1], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = a[i, j + 1] + x
+
+    with pytest.raises(
+        SchedulingError,
+        match="The lhs of the addition is not a read to the lhs of the assignment.",
+    ):
+        bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+
+
+def test_fold_into_reduce_fail_4():
+    @proc
     def bar(m: size, n: size, a: f32[m, n], x: f32):
         for i in seq(0, m):
             for j in seq(0, n):
-                a[i, j] = x + (x + a[i, j])
+                a[i, j] = (x + a[i, j]) + x
 
     with pytest.raises(
-        SchedulingError, match="The rhs of the addition is not a read to the lhs."
+        SchedulingError,
+        match="The lhs of the addition is not a read to the lhs of the assignment.",
     ):
         bar = fold_into_reduce(bar, bar.find("a[_] = _"))
 

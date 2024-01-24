@@ -1887,13 +1887,13 @@ def merge_writes(proc, block_cursor):
 def fold_into_reduce(proc, assign):
     """
     Fold an assignment into a reduction if the rhs is an addition
-    whose rhs is equal to the lhs of the assignment.
+    whose lhs is equal to the lhs of the assignment.
 
     args:
         assign: a cursor pointing to the assignment to fold.
 
     rewrite:
-        a = ... + a
+        a = a + ...
             ->
         a += ...
     """

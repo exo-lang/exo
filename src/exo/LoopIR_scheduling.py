@@ -501,17 +501,19 @@ def DoFoldIntoReduce(assign):
 
     if not isinstance(assign_s.rhs, LoopIR.BinOp) or assign_s.rhs.op != "+":
         raise SchedulingError("The rhs of the assignment must be an add.")
-    if not isinstance(assign_s.rhs.rhs, LoopIR.Read) or access_to_str(
+    if not isinstance(assign_s.rhs.lhs, LoopIR.Read) or access_to_str(
         assign_s
-    ) != access_to_str(assign_s.rhs.rhs):
-        raise SchedulingError("The rhs of the addition is not a read to the lhs.")
+    ) != access_to_str(assign_s.rhs.lhs):
+        raise SchedulingError(
+            "The lhs of the addition is not a read to the lhs of the assignment."
+        )
 
     reduce_stmt = LoopIR.Reduce(
         assign_s.name,
         assign_s.type,
         assign_s.cast,
         assign_s.idx,
-        assign_s.rhs.lhs,
+        assign_s.rhs.rhs,
         None,
         assign_s.srcinfo,
     )
