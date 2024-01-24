@@ -1893,9 +1893,9 @@ def fold_into_reduce(proc, assign):
         assign: a cursor pointing to the assignment to fold.
 
     rewrite:
-        a = a + ...
+        a = a + (expr)
             ->
-        a += ...
+        a += expr
     """
     ir, fwd = scheduling.DoFoldIntoReduce(assign._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
