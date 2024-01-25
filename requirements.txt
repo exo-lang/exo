@@ -8,7 +8,7 @@ black==22.10.0
 coverage==6.3.2
 jupyter-contrib-nbextensions==0.5.1
 numpy==1.23.4
-pre-commit==2.20.0
+pre-commit==3.6.0
 pytest-cov==3.0.0
 pytest-xdist==3.0.2
 pytest==7.1.1

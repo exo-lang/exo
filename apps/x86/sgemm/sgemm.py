@@ -183,7 +183,7 @@ def make_right_panel_kernel_opt(p=right_panel_kernel):
     #
     def stage_input(p, expr, new_buf, n_lifts=1):
         p = bind_expr(p, expr, new_buf)
-        p = expand_dim(p, new_buf, 16, "ji", unsafe_disable_checks=True)
+        p = expand_dim(p, new_buf, 16, "ji")
         p = lift_alloc(p, new_buf, n_lifts=n_lifts)
         p = set_memory(p, new_buf, AVX512)
         p = fission(p, p.find(f"{new_buf} = _").after(), n_lifts=n_lifts)

@@ -1220,8 +1220,8 @@ def resize_dim(proc, buf_cursor, dim_idx, size, offset):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor"), BoolA])
-def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks=False):
+@sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
+def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr):
     """
     TODO: rename this...expand_dim sounds like its increasing the size
     of a dimension. It should be more like add_dim.
