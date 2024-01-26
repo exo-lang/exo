@@ -63,13 +63,14 @@ def test_neon_simple_math(compiler):
     def simple_math_neon(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):  # pragma: no cover
         assert n % 4 == 0
         for i in seq(0, n / 4):
-            xVec: f32[4] @ Neon
+            xVec1: f32[4] @ Neon
+            xVec2: f32[4] @ Neon
             yVec: f32[4] @ Neon
-            neon_vld_4xf32(xVec, x[4 * i : 4 * i + 4])
+            neon_vld_4xf32(xVec2, x[4 * i : 4 * i + 4])
             neon_vld_4xf32(yVec, y[4 * i : 4 * i + 4])
-            neon_vmul_4xf32(xVec, xVec, yVec)
-            neon_vmul_4xf32(xVec, xVec, yVec)
-            neon_vst_4xf32(x[4 * i : 4 * i + 4], xVec)
+            neon_vmul_4xf32(xVec1, xVec2, yVec)
+            neon_vmul_4xf32(xVec2, xVec1, yVec)
+            neon_vst_4xf32(x[4 * i : 4 * i + 4], xVec2)
 
     fn = compiler.compile(
         simple_math_neon, skip_on_fail=True, CMAKE_C_FLAGS="-mcpu=apple-a14"
@@ -187,7 +188,7 @@ def test_neon_vfmla_f16():
 
 @pytest.mark.isa("neon")
 def test_gen_neon_vfmla_f16(golden, test_neon_vfmla_f16):
-    assert str(test_neon_vfmla_16) == golden
+    assert str(test_neon_vfmla_f16) == golden
 
 
 @pytest.fixture
@@ -240,7 +241,7 @@ def test_neon_vfmla_f16():
 
 @pytest.mark.isa("neon")
 def test_gen_neon_vfmla_f16(golden, test_neon_vfmla_f16):
-    assert str(test_neon_vfmla_16) == golden
+    assert str(test_neon_vfmla_f16) == golden
 
 
 @pytest.fixture
@@ -293,7 +294,7 @@ def test_neon_vfmla_f16():
 
 @pytest.mark.isa("neon")
 def test_gen_neon_vfmla_f16(golden, test_neon_vfmla_f16):
-    assert str(test_neon_vfmla_16) == golden
+    assert str(test_neon_vfmla_f16) == golden
 
 
 @pytest.fixture

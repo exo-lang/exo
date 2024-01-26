@@ -1,0 +1,4 @@
+def bar(m: size, n: size, a: f32[m, n] @ DRAM, x: f32 @ DRAM):
+    for i in seq(0, m):
+        for j in seq(0, n):
+            a[i, j] += x * x

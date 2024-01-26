@@ -1,0 +1,2 @@
+def foo(a: f32 @ DRAM, b: f32 @ DRAM, c: f32 @ DRAM):
+    b += a + c

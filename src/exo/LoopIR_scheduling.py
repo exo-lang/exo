@@ -492,6 +492,34 @@ def DoMergeWrites(c1, c2):
     return ir, fwd
 
 
+def DoFoldIntoReduce(assign):
+    def access_to_str(node):
+        idx = f"[{','.join([str(idx) for idx in node.idx])}]" if node.idx else ""
+        return f"{node.name}{idx}"
+
+    assign_s = assign._node
+
+    if not isinstance(assign_s.rhs, LoopIR.BinOp) or assign_s.rhs.op != "+":
+        raise SchedulingError("The rhs of the assignment must be an add.")
+    if not isinstance(assign_s.rhs.lhs, LoopIR.Read) or access_to_str(
+        assign_s
+    ) != access_to_str(assign_s.rhs.lhs):
+        raise SchedulingError(
+            "The lhs of the addition is not a read to the lhs of the assignment."
+        )
+
+    reduce_stmt = LoopIR.Reduce(
+        assign_s.name,
+        assign_s.type,
+        assign_s.cast,
+        assign_s.idx,
+        assign_s.rhs.rhs,
+        None,
+        assign_s.srcinfo,
+    )
+    return assign._replace([reduce_stmt])
+
+
 def DoInlineAssign(c1):
     s1 = c1._node
     assert isinstance(s1, LoopIR.Assign)
@@ -1080,6 +1108,18 @@ def DoCommuteExpr(expr_cursors):
         ir, fwd_repl = fwd(expr_c._child_node("rhs"))._replace(e.lhs)
         fwd = _compose(fwd_repl, fwd)
     return ir, fwd
+
+
+def DoLeftReassociateExpr(expr):
+    # a + (b + c) -> (a + b) + c
+    a = expr._child_node("lhs")
+    rhs = expr._child_node("rhs")
+    b = rhs._child_node("lhs")
+    c = rhs._child_node("rhs")
+    new_lhs = LoopIR.BinOp(expr._node.op, a._node, b._node, T.R, a._node.srcinfo)
+    ir, fwd1 = a._replace(new_lhs)
+    ir, fwd2 = fwd1(rhs)._replace(c._node)
+    return ir, _compose(fwd2, fwd1)
 
 
 # TODO: make a cursor navigation file
@@ -4154,6 +4194,7 @@ __all__ = [
     "DoInsertPass",
     "DoReorderStmt",
     "DoCommuteExpr",
+    "DoLeftReassociateExpr",
     "DoSpecialize",
     "DoSplit",
     "DoUnroll",
@@ -4169,6 +4210,7 @@ __all__ = [
     "DoLiftScope",
     "DoFissionAfterSimple",
     "DoMergeWrites",
+    "DoFoldIntoReduce",
     "DoFuseIf",
     "DoFuseLoop",
     "DoBindExpr",
