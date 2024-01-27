@@ -3399,6 +3399,164 @@ def test_eliminate_dead_code7(golden):
     assert str(foo) == golden
 
 
+def test_bound_loop_by_if_1(golden):
+    @proc
+    def foo():
+        for i in seq(0, 8):
+            if i < 5:
+                pass
+
+    foo = bound_loop_by_if(foo, "i")
+    assert str(foo) == golden
+
+
+def test_bound_loop_by_if_2(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            if i < n:
+                pass
+
+    foo = bound_loop_by_if(foo, "i")
+    assert str(foo) == golden
+
+
+def test_bound_loop_by_if_3(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            pass
+
+    loop = foo.find_loop("i")
+    foo = divide_loop(foo, loop, 4, ("io", "ii"), tail="guard")
+    foo = mult_loops(foo, loop, "i")
+    foo = simplify(foo)
+    foo = bound_loop_by_if(foo, loop)
+    assert str(foo) == golden
+
+
+def test_bound_loop_by_if_4(golden):
+    @proc
+    def tbmv(n: size, k: size, x: [R][n], A: [R][n, k + 1]):
+        assert stride(A, 1) == 1
+        assert k <= n - 1
+
+        for i in seq(0, n):
+            dot: R
+            dot = x[i]
+            for j in seq(0, k):
+                if j < n - i - 1:
+                    dot += A[i, j + 1] * x[i + j + 1]
+            x[i] = dot
+
+    tbmv = cut_loop(tbmv, "i", "n - k")
+    tbmv = eliminate_dead_code(tbmv, "if _ : _")
+    tbmv = bound_loop_by_if(tbmv, "j #1")
+    assert str(tbmv) == golden
+
+
+def test_bound_loop_by_if_fail_1():
+    @proc
+    def foo(n: size):
+        for i in seq(1, n):
+            if i < n:
+                pass
+
+    with pytest.raises(
+        SchedulingError, match="Expected the lower bound of the loop to be zero, got 1"
+    ):
+        bound_loop_by_if(foo, "i")
+
+
+def test_bound_loop_by_if_fail_2():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            if i < n:
+                pass
+            pass
+
+    @proc
+    def bar(n: size):
+        for i in seq(0, n):
+            pass
+
+    for p in [foo, bar]:
+        with pytest.raises(
+            SchedulingError, match="Loop must have one statement that is an if."
+        ):
+            bound_loop_by_if(p, "i")
+
+
+def test_bound_loop_by_if_fail_3():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            if i < n:
+                pass
+            else:
+                pass
+
+    with pytest.raises(
+        SchedulingError, match="If statement cannot have an else branch."
+    ):
+        bound_loop_by_if(foo, "i")
+
+
+def test_bound_loop_by_if_fail_4():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            if n > i:
+                pass
+
+    with pytest.raises(
+        SchedulingError, match="If condition operation must be <, got >"
+    ):
+        bound_loop_by_if(foo, "i")
+
+
+def test_bound_loop_by_if_fail_5():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            if i < n + 1:
+                pass
+
+    with pytest.raises(
+        SchedulingError,
+        match="If condition doesn't empose a tighter iteration space than the loop.",
+    ):
+        bound_loop_by_if(foo, "i")
+
+
+def test_bound_loop_by_if_fail_5():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            if i < n + i:
+                pass
+
+    with pytest.raises(
+        SchedulingError, match="Loop iteration is read in the rhs of the if condition."
+    ):
+        bound_loop_by_if(foo, "i")
+
+
+def test_bound_loop_by_if_fail_6():
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            if i < n + 1:
+                pass
+
+    with pytest.raises(
+        SchedulingError,
+        match="If condition doesn't empose a tighter iteration space than the loop.",
+    ):
+        bound_loop_by_if(foo, "i")
+
+
 def test_lift_reduce_constant_1(golden):
     @proc
     def foo():

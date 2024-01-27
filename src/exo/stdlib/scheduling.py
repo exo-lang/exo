@@ -86,6 +86,7 @@ from ..API_scheduling import (
     # guard rewriting
     lift_scope,
     eliminate_dead_code,
+    bound_loop_by_if,
     specialize,
     #
     # deprecated scheduling operations

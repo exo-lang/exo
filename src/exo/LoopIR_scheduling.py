@@ -257,6 +257,11 @@ def Check_IsNonNegativeExpr(proc, stmts, expr):
     Check_ExprBound(proc, stmts, expr, 0, Check_ExprBound_Options.GEQ)
 
 
+def Check_CompareExprs(proc, stmts, expr0, expr1, option):
+    sub = LoopIR.BinOp("-", expr0, expr1, T.index, null_srcinfo())
+    Check_ExprBound(proc, stmts, sub, 0, option)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Scheduling directives
@@ -3579,6 +3584,55 @@ def DoEliminateDeadCode(stmt_cursor):
         assert False, f"Unsupported statement type {type(stmt)}"
 
 
+def DoBoundLoopByIf(loop_c):
+    loop_s = loop_c._node
+    if not is_const_zero(loop_s.lo):
+        raise SchedulingError(
+            f"Expected the lower bound of the loop to be zero, got {loop_s.lo}."
+        )
+
+    if_c = loop_c.body()[0]
+    if len(loop_c.body()) != 1 or not isinstance(if_c._node, LoopIR.If):
+        raise SchedulingError("Loop must have one statement that is an if.")
+
+    if_s = if_c._node
+    if if_s.orelse:
+        raise SchedulingError("If statement cannot have an else branch.")
+
+    cond = if_s.cond
+
+    if cond.op != "<":
+        raise SchedulingError(f"If condition operation must be <, got {cond.op}")
+
+    if not isinstance(cond.lhs, LoopIR.Read) or cond.lhs.name != loop_s.iter:
+        raise SchedulingError(
+            "lhs of the if condition must be a read to the loop iteration."
+        )
+
+    if match_pattern(
+        if_c._child_node("cond")._child_node("rhs"), repr(loop_s.iter), use_sym_id=True
+    ):
+        raise SchedulingError("Loop iteration is read in the rhs of the if condition.")
+
+    ir = loop_c.get_root()
+    try:
+        Check_CompareExprs(
+            ir, [loop_s], cond.rhs, loop_s.hi, Check_ExprBound_Options.LEQ
+        )
+    except SchedulingError:
+        raise SchedulingError(
+            "If condition doesn't empose a tighter iteration space than the loop."
+        )
+
+    body = if_c.body()
+    ir, fwd = body._move(if_c.after())
+    ir, fwd_del = fwd(if_c)._delete()
+    fwd = _compose(fwd_del, fwd)
+    ir, fwd_repl = fwd(loop_c)._child_node("hi")._replace(if_s.cond.rhs)
+    fwd = _compose(fwd_repl, fwd)
+    return ir, fwd
+
+
 def DoDeleteBuffer(buf_cursor):
     assert isinstance(buf_cursor._node, LoopIR.Alloc)
 
@@ -4237,6 +4291,7 @@ __all__ = [
     "DoBoundAndGuard",
     "DoDeletePass",
     "DoEliminateDeadCode",
+    "DoBoundLoopByIf",
     "DoAddUnsafeGuard",
     "DoStageWindow",
     "DoBoundAlloc",

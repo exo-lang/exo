@@ -1,0 +1,15 @@
+def tbmv(n: size, k: size, x: [R][n] @ DRAM, A: [R][n, k + 1] @ DRAM):
+    assert stride(A, 1) == 1
+    assert k <= n - 1
+    for i in seq(0, n - k):
+        dot: R @ DRAM
+        dot = x[i]
+        for j in seq(0, k):
+            dot += A[i, j + 1] * x[i + j + 1]
+        x[i] = dot
+    for i in seq(n - k, n):
+        dot: R @ DRAM
+        dot = x[i]
+        for j in seq(0, n - i - 1):
+            dot += A[i, j + 1] * x[i + j + 1]
+        x[i] = dot

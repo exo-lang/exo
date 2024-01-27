@@ -2203,6 +2203,30 @@ def eliminate_dead_code(proc, stmt_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([ForCursorA])
+def bound_loop_by_if(proc, loop):
+    """
+    Bound the loop by the inner if statement.
+
+    Requires:
+        - The inner if to be the only statement in the loop body.
+        - The condition of the if statement emposes a tigher
+            iteration space than that of the loop.
+        - Loop `lo` to be `0`.
+        - The if condition to be of the form `iter < e`.
+
+    Rewrite:
+        for i in seq(0, hi):
+            if i < e:
+                B
+        ---> if e <= hi
+        for i in seq(0, e):
+            B
+    """
+    ir, fwd = scheduling.DoBoundLoopByIf(loop._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([BlockCursorA, ListOrElemA(NewExprA("block_cursor"))])
 def specialize(proc, block_cursor, conds):
     """
