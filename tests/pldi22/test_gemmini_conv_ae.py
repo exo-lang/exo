@@ -128,9 +128,8 @@ def test_conv_ae(golden):
     gemmini = old_fission_after(gemmini, "for ocol_o in _:_ #0")
     gemmini = old_reorder(gemmini, "orow ocol_o")
     gemmini = old_split(gemmini, "orow", 28, ["orow_o", "orow_i"], perfect=True)
-    gemmini = expand_dim(
-        gemmini, "i_s: i8[_]", "30", "krow + orow_i", unsafe_disable_checks=True
-    )
+    gemmini = expand_dim(gemmini, "i_s: i8[_]", "30", "krow + orow_i")
+
     # TODO: Use cursor + repeat to improve this!
     gemmini = old_lift_alloc(gemmini, "i_s : _ #0", n_lifts=5, keep_dims=False)
     gemmini = old_lift_alloc(gemmini, "i_s : _ #1", n_lifts=4, keep_dims=False)

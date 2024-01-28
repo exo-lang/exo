@@ -102,7 +102,7 @@ def test_neon_vfmla():
 
     def simple_vfmla(p=vfmla):
         p = stage_mem(p, "C[_] += _", "C[i]", "C_reg")
-        p = expand_dim(p, "C_reg", 4, "i", unsafe_disable_checks=True)
+        p = expand_dim(p, "C_reg", 4, "i")
         p = lift_alloc(p, "C_reg", n_lifts=2)
         p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=2)
         p = autofission(p, p.find("C[_] = _").before(), n_lifts=2)
@@ -111,14 +111,14 @@ def test_neon_vfmla():
         p = set_memory(p, "C_reg", Neon)
 
         p = bind_expr(p, "A[_]", "A_vec")
-        p = expand_dim(p, "A_vec", 4, "i", unsafe_disable_checks=True)
+        p = expand_dim(p, "A_vec", 4, "i")
         p = lift_alloc(p, "A_vec", n_lifts=2)
         p = autofission(p, p.find("A_vec[_] = _").after(), n_lifts=2)
         p = replace(p, "for i in _: _ #0", neon_vld_4xf32)
         p = set_memory(p, "A_vec", Neon)
 
         p = bind_expr(p, "B[_]", "B_vec")
-        p = expand_dim(p, "B_vec", 4, "l", unsafe_disable_checks=True)
+        p = expand_dim(p, "B_vec", 4, "l")
         p = lift_alloc(p, "B_vec", n_lifts=2)
         p = autofission(p, p.find("B_vec[_] = _").after(), n_lifts=2)
         p = replace(p, "for l in _: _ #0", neon_vld_4xf32)
@@ -155,7 +155,7 @@ def test_neon_vfmla_f16():
 
     def simple_vfmla_f16(p=vfmla_f16):
         p = stage_mem(p, "C[_] += _", "C[i]", "C_reg")
-        p = expand_dim(p, "C_reg", 8, "i", unsafe_disable_checks=True)
+        p = expand_dim(p, "C_reg", 8, "i")
         p = lift_alloc(p, "C_reg", n_lifts=2)
         p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=2)
         p = autofission(p, p.find("C[_] = _").before(), n_lifts=2)
@@ -164,14 +164,14 @@ def test_neon_vfmla_f16():
         p = set_memory(p, "C_reg", Neon)
 
         p = bind_expr(p, "A[_]", "A_vec")
-        p = expand_dim(p, "A_vec", 8, "i", unsafe_disable_checks=True)
+        p = expand_dim(p, "A_vec", 8, "i")
         p = lift_alloc(p, "A_vec", n_lifts=2)
         p = autofission(p, p.find("A_vec[_] = _").after(), n_lifts=2)
         p = replace(p, "for i in _: _ #0", neon_vld_8xf16)
         p = set_memory(p, "A_vec", Neon)
 
         p = bind_expr(p, "B[_]", "B_vec")
-        p = expand_dim(p, "B_vec", 8, "l", unsafe_disable_checks=True)
+        p = expand_dim(p, "B_vec", 8, "l")
         p = lift_alloc(p, "B_vec", n_lifts=2)
         p = autofission(p, p.find("B_vec[_] = _").after(), n_lifts=2)
         p = replace(p, "for l in _: _ #0", neon_vld_8xf16)
@@ -208,7 +208,7 @@ def test_neon_vfmla_f16():
 
     def simple_vfmla_f16(p=vfmla_f16):
         p = stage_mem(p, "C[_] += _", "C[i]", "C_reg")
-        p = expand_dim(p, "C_reg", 8, "i", unsafe_disable_checks=True)
+        p = expand_dim(p, "C_reg", 8, "i")
         p = lift_alloc(p, "C_reg", n_lifts=2)
         p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=2)
         p = autofission(p, p.find("C[_] = _").before(), n_lifts=2)
@@ -217,14 +217,14 @@ def test_neon_vfmla_f16():
         p = set_memory(p, "C_reg", Neon)
 
         p = bind_expr(p, "A[_]", "A_vec")
-        p = expand_dim(p, "A_vec", 8, "i", unsafe_disable_checks=True)
+        p = expand_dim(p, "A_vec", 8, "i")
         p = lift_alloc(p, "A_vec", n_lifts=2)
         p = autofission(p, p.find("A_vec[_] = _").after(), n_lifts=2)
         p = replace(p, "for i in _: _ #0", neon_vld_8xf16)
         p = set_memory(p, "A_vec", Neon)
 
         p = bind_expr(p, "B[_]", "B_vec")
-        p = expand_dim(p, "B_vec", 8, "l", unsafe_disable_checks=True)
+        p = expand_dim(p, "B_vec", 8, "l")
         p = lift_alloc(p, "B_vec", n_lifts=2)
         p = autofission(p, p.find("B_vec[_] = _").after(), n_lifts=2)
         p = replace(p, "for l in _: _ #0", neon_vld_8xf16)
@@ -261,7 +261,7 @@ def test_neon_vfmla_f16():
 
     def simple_vfmla_f16(p=vfmla_f16):
         p = stage_mem(p, "C[_] += _", "C[i]", "C_reg")
-        p = expand_dim(p, "C_reg", 8, "i", unsafe_disable_checks=True)
+        p = expand_dim(p, "C_reg", 8, "i")
         p = lift_alloc(p, "C_reg", n_lifts=2)
         p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=2)
         p = autofission(p, p.find("C[_] = _").before(), n_lifts=2)
@@ -270,14 +270,14 @@ def test_neon_vfmla_f16():
         p = set_memory(p, "C_reg", Neon)
 
         p = bind_expr(p, "A[_]", "A_vec")
-        p = expand_dim(p, "A_vec", 8, "i", unsafe_disable_checks=True)
+        p = expand_dim(p, "A_vec", 8, "i")
         p = lift_alloc(p, "A_vec", n_lifts=2)
         p = autofission(p, p.find("A_vec[_] = _").after(), n_lifts=2)
         p = replace(p, "for i in _: _ #0", neon_vld_8xf16)
         p = set_memory(p, "A_vec", Neon)
 
         p = bind_expr(p, "B[_]", "B_vec")
-        p = expand_dim(p, "B_vec", 8, "l", unsafe_disable_checks=True)
+        p = expand_dim(p, "B_vec", 8, "l")
         p = lift_alloc(p, "B_vec", n_lifts=2)
         p = autofission(p, p.find("B_vec[_] = _").after(), n_lifts=2)
         p = replace(p, "for l in _: _ #0", neon_vld_8xf16)
