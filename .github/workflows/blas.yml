@@ -50,6 +50,7 @@ jobs:
 
       - name: Install Google benchmark
         run: git clone https://github.com/google/benchmark; cmake -S benchmark -B benchmark/build -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_TESTING=NO ; cmake --build benchmark/build; cmake --install benchmark/build --prefix ~/.local
+        if: ${{matrix.runner == 'ubuntu-latest'}}
 
       - name: Checkout BLAS repo
         uses: actions/checkout@v4
