@@ -52,7 +52,6 @@ from ..API_scheduling import (
     expand_dim,
     resize_dim,
     rearrange_dim,
-    bound_alloc,
     divide_dim,
     mult_dim,
     sink_alloc,

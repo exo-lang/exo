@@ -325,29 +325,29 @@ def make_sgemm_exo(p=SGEMM):
     p = autofission(p, p.find_loop("i0 #0").after())
     ### Case 2 memory staging
     p = stage_window(p, "B[_] #1", "B2_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B2_cache", [None, "64"], unsafe_disable_checks=True)
+    p = resize_dim(p, "B2_cache", 1, "64", 0)
     p = lift_alloc(p, "B2_cache")
     p = autofission(p, p.find_loop("i0 #2").after())
     ## Case 3 memory staging
     p = stage_window(p, "B[_] #2", "B3_cache", DRAM_STATIC)
     ## Case 4 memory staging
     p = stage_window(p, "B[_] #3", "B4_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B4_cache", [None, "64"], unsafe_disable_checks=True)
+    p = resize_dim(p, "B4_cache", 1, "64", 0)
     ## Case 5 memory staging
     p = stage_window(p, "B[_] #4", "B5_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B5_cache", ["512", None], unsafe_disable_checks=True)
+    p = resize_dim(p, "B5_cache", 0, "512", 0)
     ## Case 6 memory staging
     p = stage_window(p, "B[_] #5", "B6_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B6_cache", ["512", "64"], unsafe_disable_checks=True)
+    p = resize_dim(p, "B6_cache", 0, "512", 0)
+    p = resize_dim(p, "B6_cache", 1, "64", 0)
     ## Case 7 memory staging
     p = stage_window(p, "B[_] #6", "B7_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B7_cache", ["512", None], unsafe_disable_checks=True)
+    p = resize_dim(p, "B7_cache", 0, "512", 0)
     ## Case 8 memory staging
     p = stage_window(p, "B[_] #7", "B8_cache", DRAM_STATIC)
-    p = bound_alloc(p, "B8_cache", ["512", "64"], unsafe_disable_checks=True)
+    p = resize_dim(p, "B8_cache", 0, "512", 0)
+    p = resize_dim(p, "B8_cache", 1, "64", 0)
     ## Replace SGEMM_WINDOW with optimized form
-    # These must come AFTER bound_alloc since the internal check-effects
-    # is a whole program analysis that is VERY expensive
     p = repeat(call_eqv)(p, SGEMM_WINDOW, sgemm_above_kernel)
     # Clean up
     p = simplify(p)
