@@ -1544,11 +1544,26 @@ def DoResizeDim(alloc_cursor, dim_idx: int, size: LoopIR.expr, offset: LoopIR.ex
     def mk_read(c):
         rd = c._node
 
+        def mk_binop(e):
+            return LoopIR.BinOp("-", e, offset, offset.type, rd.srcinfo)
+
+        new_idx = rd.idx.copy()
         if isinstance(rd, LoopIR.Read):
-            new_idx = rd.idx.copy()
-            new_idx[dim_idx] = LoopIR.BinOp(
-                "-", rd.idx[dim_idx], offset, offset.type, rd.srcinfo
-            )
+            new_idx[dim_idx] = mk_binop(rd.idx[dim_idx])
+            return {"idx": new_idx}
+
+        elif isinstance(rd, LoopIR.WindowExpr):
+            if isinstance(rd.idx[dim_idx], LoopIR.Point):
+                new_idx[dim_idx] = LoopIR.Point(
+                    mk_binop(rd.idx[dim_idx].pt), rd.srcinfo
+                )
+            else:
+                new_idx[dim_idx] = LoopIR.Interval(
+                    mk_binop(rd.idx[dim_idx].lo),
+                    mk_binop(rd.idx[dim_idx].hi),
+                    rd.srcinfo,
+                )
+
             return {"idx": new_idx}
         else:
             raise NotImplementedError(
@@ -4050,39 +4065,6 @@ class DoStageWindow(Cursor_Rewrite):
         return super().map_e(e)
 
 
-class DoBoundAlloc(Cursor_Rewrite):
-    def __init__(self, proc_cursor, alloc_cursor, bounds):
-        self.alloc_site = alloc_cursor._node
-        self.bounds = bounds
-        super().__init__(proc_cursor)
-
-    def map_stmts(self, stmts_c):
-        new_stmts = []
-        for i, sc in enumerate(stmts_c):
-            s = sc._node
-            if s is self.alloc_site:
-                assert isinstance(s.type, T.Tensor)
-                if len(self.bounds) != len(s.type.hi):
-                    raise SchedulingError(
-                        f"bound_alloc: dimensions do not match: "
-                        f"{len(self.bounds)} != {len(s.type.hi)} (expected)"
-                    )
-
-                new_bounds = [
-                    new if new else old for old, new in zip(s.type.hi, self.bounds)
-                ]
-                newtyp = T.Tensor(new_bounds, s.type.is_window, s.type.type)
-
-                # TODO: CHECK THE BOUNDS OF ACCESSES IN stmts[i+1:] here
-
-                s = LoopIR.Alloc(s.name, newtyp, s.mem, s.eff, s.srcinfo)
-                return new_stmts + [s] + [s._node for s in stmts_c[i + 1 :]]
-            else:
-                new_stmts += self.map_s(sc) or [s]
-
-        return new_stmts
-
-
 def DoUnrollBuffer(alloc_cursor, dim):
     alloc_stmt = alloc_cursor._node
 
@@ -4239,5 +4221,4 @@ __all__ = [
     "DoEliminateDeadCode",
     "DoAddUnsafeGuard",
     "DoStageWindow",
-    "DoBoundAlloc",
 ]

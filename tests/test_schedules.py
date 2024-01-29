@@ -495,6 +495,30 @@ def test_resize_dim_3(golden):
     assert str(foo) == golden
 
 
+def test_resize_dim_4(golden):
+    @proc
+    def bar(A: [i8][3]):
+        for i in seq(0, 3):
+            A[i] = 0.0
+
+    @proc
+    def foo1():
+        x: i8[10]
+        for i in seq(3, 6):
+            bar(x[i : i + 3])
+
+    @proc
+    def foo2():
+        x: i8[10, 10]
+        for i in seq(3, 6):
+            bar(x[i, i : i + 3])
+
+    foo1 = resize_dim(foo1, "x", 0, 5, "2")
+    foo2 = resize_dim(foo2, "x", 0, 15, "2")
+
+    assert str(foo1) + "\n" + str(foo2) == golden
+
+
 def test_rearrange_dim(golden):
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):

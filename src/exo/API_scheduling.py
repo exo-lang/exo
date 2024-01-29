@@ -1204,8 +1204,8 @@ def resize_dim(proc, buf_cursor, dim_idx, size, offset):
     args:
         buf_cursor      - cursor pointing to the Alloc
         dim_idx         - which dimension to shrink
-        lo              - an expression for the low end of the range
-        hi              - an expression for the high end of the range
+        size            - new size as a positive expression
+        offset          - offset for adjusting the buffer access
 
     rewrite:
         `x : T[n, ...] ; s`
@@ -1276,42 +1276,6 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
 
     ir, fwd = scheduling.DoRearrangeDim(stmt, permute_vector)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
-
-
-@sched_op([AllocCursorA, ListA(OptionalA(NewExprA("buf_cursor"))), BoolA])
-def bound_alloc(proc, buf_cursor, new_bounds, unsafe_disable_checks=False):
-    """
-    NOTE: TODO: This name needs to be changed
-    change the dimensional extents of an allocation, but leave the number
-    and order of dimensions the same.
-
-    args:
-        buf_cursor      - cursor pointing to the Alloc to change bounds of
-        new_bounds      - (list of strings/ints) expressions for the
-                          new sizes of each buffer dimension.
-                          Pass `None` for any dimensions you do not want
-                          to change the extent/bound of.
-
-    rewrite:
-        bound_alloc(p, 'x : _', ['N+1',None])
-        `x : T[N,M]` -> `x : T[N+1,M]`
-
-    checks:
-        The new bounds are checked to make sure they don't cause any
-        out-of-bounds memory accesses
-    """
-    stmt = buf_cursor._impl
-    if len(stmt._node.type.hi) != len(new_bounds):
-        raise ValueError(
-            f"buffer has {len(stmt._node.type.hi)} dimensions, "
-            f"but only {len(new_bounds)} bounds were supplied"
-        )
-    new_proc_c = scheduling.DoBoundAlloc(proc, stmt, new_bounds).result()
-
-    if not unsafe_disable_checks:
-        CheckEffects(new_proc_c._node)
-
-    return new_proc_c
 
 
 @sched_op([AllocCursorA, IntA, PosIntA])
