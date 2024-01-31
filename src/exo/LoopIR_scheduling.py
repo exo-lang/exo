@@ -529,10 +529,22 @@ def DoInlineAssign(c1):
 
     after_assign = get_rest_of_block(c1, inclusive=False)
     writes = get_writes_of_stmts([s._node for s in after_assign])
-    if s1.name in [name for name, _ in writes]:
+    written_names = set(name for name, _ in writes)
+    if s1.name in written_names:
         # TODO: this check is currently too strict, it should really only look at indices...
         raise SchedulingError(
             f"Cannot inline assign {s1} because the buffer is written afterwards."
+        )
+    rhs_reads = get_reads_of_expr(s1.rhs)
+    rhs_read_names = set(name for name, _ in rhs_reads)
+    read_and_written = rhs_read_names & written_names
+    if read_and_written:
+        names = tuple(x.name() for x in read_and_written)
+        # TODO: this check is currently too strict, it should really only look at indices...
+        # In addition, you can allow them to also be written as long as the inline sites
+        # are before any of the writes to the buffers that are read in the rhs.
+        raise SchedulingError(
+            f"Cannot inline assign {s1} because the following reads {names} in the rhs are written later."
         )
 
     ir, fwd = c1._delete()

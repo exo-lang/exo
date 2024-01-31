@@ -1622,6 +1622,21 @@ def test_inline_assign_fail():
         foo = inline_assign(foo, foo.find("x = _"))
 
 
+def test_inline_assign_fail_rhs_written():
+    @proc
+    def swap(a: f32, b: f32):
+        tmp: f32
+        tmp = a
+        a = b
+        b = tmp
+
+    with pytest.raises(
+        SchedulingError,
+        match="Cannot inline assign tmp = a because the following reads",
+    ):
+        inline_assign(swap, "tmp = _")
+
+
 def test_simple_unroll(golden):
     @proc
     def bar(A: i8[10]):
