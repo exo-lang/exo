@@ -166,7 +166,7 @@ def test_type_and_shape_introspection():
         b: i32[n]
         c: i8[n]
         d: f32[n]
-        e: f64[n]
+        e: f64[2]
 
     assert foo.find("a:_").type() == ExoType.R
     assert foo.find("b:_").type() == ExoType.I32
@@ -177,6 +177,7 @@ def test_type_and_shape_introspection():
     assert foo.args()[1].type() == ExoType.Index
     assert foo.args()[2].type() == ExoType.Bool
     assert str(foo.find("a:_").shape()[0]._impl._node) == "n + m"
+    assert foo.find("e : _").shape()[0].type() == ExoType.Int
 
 
 def test_expand_dim_forwarding(golden):

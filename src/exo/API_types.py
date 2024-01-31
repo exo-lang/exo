@@ -14,9 +14,10 @@ class ExoType(Enum):
     Index = auto()
     Bool = auto()
     Size = auto()
+    Int = auto()
 
     def is_indexable(self):
-        return self in [ExoType.Index, ExoType.Size]
+        return self in [ExoType.Index, ExoType.Size, ExoType.Int]
 
     def is_numeric(self):
         return self in [ExoType.F32, ExoType.F64, ExoType.I8, ExoType.I32, ExoType.R]
