@@ -589,6 +589,8 @@ def loopir_type_to_exotype(typ: LoopIR.Type) -> API.ExoType:
         return API.ExoType.Size
     elif isinstance(typ, LoopIR.Index):
         return API.ExoType.Index
+    elif isinstance(typ, LoopIR.Int):
+        return API.ExoType.Int
     else:
         raise NotImplementedError(f"Unsupported {typ}")
 
