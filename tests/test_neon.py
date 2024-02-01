@@ -68,7 +68,7 @@ def test_neon_simple_math(compiler):
             yVec: f32[4] @ Neon
             neon_vld_4xf32(xVec2, x[4 * i : 4 * i + 4])
             neon_vld_4xf32(yVec, y[4 * i : 4 * i + 4])
-            neon_vmul_4xf32(xVec1, xVec1, yVec)
+            neon_vmul_4xf32(xVec1, xVec2, yVec)
             neon_vmul_4xf32(xVec2, xVec1, yVec)
             neon_vst_4xf32(x[4 * i : 4 * i + 4], xVec2)
 

@@ -5,24 +5,22 @@ jobs:
   testing:
     strategy:
       matrix:
-        runner: [ self-hosted, ubuntu-latest ]
+        runner: [ macos-14, ubuntu-latest ]
         include:
           - runner: ubuntu-latest
             CC: clang-13
             CXX: clang++-13
             CLANG: clang-13
             PRESET: avx2
-          - runner: self-hosted
+          - runner: macos-14
             CC: clang # This will be system AppleClang
             CXX: clang++ # This will be system AppleClang
             CLANG: /usr/local/opt/llvm/bin/clang
             PRESET: apple-silicon
-            CMAKE_PREFIX_PATH: /Users/yuka/benchmark/build
     env:
       CC: ${{matrix.CC}}
       CXX: ${{matrix.CXX}}
       BUILD_TYPE: Release
-      CMAKE_PREFIX_PATH: ${{matrix.CMAKE_PREFIX_PATH}}
       CTEST_OUTPUT_ON_FAILURE: 1
     runs-on: ${{matrix.runner}}
     steps:
@@ -50,7 +48,6 @@ jobs:
 
       - name: Install Google benchmark
         run: git clone https://github.com/google/benchmark; cmake -S benchmark -B benchmark/build -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_TESTING=NO ; cmake --build benchmark/build; cmake --install benchmark/build --prefix ~/.local
-        if: ${{matrix.runner == 'ubuntu-latest'}}
 
       - name: Checkout BLAS repo
         uses: actions/checkout@v4

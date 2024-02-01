@@ -13,7 +13,7 @@ jobs:
             CC: clang-13
             CXX: clang++-13
             CLANG: clang-13
-          - runner: macos-latest
+          - runner: macos-14
             CC: clang # This will be system AppleClang
             CXX: clang++ # This will be system AppleClang
             CLANG: /usr/local/opt/llvm/bin/clang
