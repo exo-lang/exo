@@ -17,11 +17,13 @@ jobs:
             CXX: clang++ # This will be system AppleClang
             CLANG: /usr/local/opt/llvm/bin/clang
             PRESET: apple-silicon
+            CMAKE_PREFIX_PATH: /Users/runner/work/exo/exo/benchmark/build
     env:
       CC: ${{matrix.CC}}
       CXX: ${{matrix.CXX}}
       BUILD_TYPE: Release
       CTEST_OUTPUT_ON_FAILURE: 1
+      CMAKE_PREFIX_PATH: ${{matrix.CMAKE_PREFIX_PATH}}
     runs-on: ${{matrix.runner}}
     steps:
       - name: Checkout sources (including submodules)
