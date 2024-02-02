@@ -3811,7 +3811,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         # the forwarded version. However, in all the current callees, the
         # statement would have been just constructed and if you try to forward
         # you get an error.
-        ir, fwd_wrap = ctxt_stmt_c.parent().body()._wrap(guard_wrapper, "body")
+        ir, fwd_wrap = ctxt_stmt_c.as_block()._wrap(guard_wrapper, "body")
         fwd = _compose(fwd_wrap, fwd)
 
         return ir, fwd

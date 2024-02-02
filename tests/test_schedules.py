@@ -2603,6 +2603,20 @@ def test_stage_mem_out_of_bound_block(golden):
     assert str(axpy) == golden
 
 
+def test_stage_mem_out_of_bound_point(golden):
+    @proc
+    def foo(n: size, m: size, x: f32[n], y: f32[n]):
+        assert m >= n
+        for i in seq(0, m):
+            if i < n:
+                y[i] = x[i]
+            if i < n:
+                y[i] = x[i]
+
+    foo = stage_mem(foo, foo.find_loop("i").body(), "x[i]", "tmp")
+    assert str(foo) == golden
+
+
 def test_new_expr_multi_vars(golden):
     @proc
     def bar(n: size, arr: R[n] @ DRAM):
