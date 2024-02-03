@@ -158,6 +158,19 @@ def test_simplify_forwarding(golden):
     assert str(foo1.forward(stmt)._impl._node) == golden
 
 
+def test_simplify_predicates_forwarding():
+    @proc
+    def foo(n: size):
+        assert n >= 1
+        for i in seq(0, n):
+            pass
+
+    loop = foo.find_loop("i")
+    foo = simplify(foo)
+    loop = foo.forward(loop)
+    assert loop == foo.find_loop("i")
+
+
 def test_type_and_shape_introspection():
     @proc
     def foo(n: size, m: index, flag: bool):
