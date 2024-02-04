@@ -106,7 +106,7 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
             lines.extend(_print_block(stmt.orelse, env.push(), indent + "  "))
         return lines
 
-    elif isinstance(stmt, DataflowIR.Seq):
+    elif isinstance(stmt, DataflowIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
         body_env = env.push()

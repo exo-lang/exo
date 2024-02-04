@@ -137,7 +137,7 @@ module DataflowIR {
          | WriteConfig( sym config_field, expr rhs )
          | Pass()
          | If( expr cond, block body, block orelse )
-         | Seq( sym iter, expr lo, expr hi, block body )
+         | For( sym iter, expr lo, expr hi, block body )
          | Alloc( sym name, type type )
          | InlinedCall( proc f, block body ) -- f is only there for comments
          attributes( srcinfo srcinfo )
@@ -238,12 +238,12 @@ class LoopIR_to_DataflowIR:
                 df_cond, self.init_block(df_body), self.init_block(df_orelse), s.srcinfo
             )
 
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             df_lo = self.map_e(s.lo)
             df_hi = self.map_e(s.hi)
             df_body = self.map_stmts(s.body)
 
-            return DataflowIR.Seq(
+            return DataflowIR.For(
                 s.iter, df_lo, df_hi, self.init_block(df_body), s.srcinfo
             )
 
@@ -438,7 +438,7 @@ class AbstractInterpretation(ABC):
                 val = self.abs_join(bodyval, elseval)
                 post_env[nm] = val
 
-        elif isinstance(stmt, DataflowIR.Seq):
+        elif isinstance(stmt, DataflowIR.For):
             # TODO: Add support for loop-condition analysis in some way?
 
             # set up the loop body for fixed-point iteration
