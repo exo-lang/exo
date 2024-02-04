@@ -29,7 +29,6 @@ from .new_eff import (
     Check_IsDeadAfter,
     Check_IsIdempotent,
     Check_ExprBound,
-    Check_ExprBound_Options,
     Check_Aliasing,
 )
 from .range_analysis import IndexRangeEnvironment
@@ -250,11 +249,16 @@ def get_rest_of_block(c, inclusive=False):
 
 
 def Check_IsPositiveExpr(proc, stmts, expr):
-    Check_ExprBound(proc, stmts, expr, 0, Check_ExprBound_Options.GT)
+    Check_ExprBound(proc, stmts, expr, ">", 0)
 
 
 def Check_IsNonNegativeExpr(proc, stmts, expr):
-    Check_ExprBound(proc, stmts, expr, 0, Check_ExprBound_Options.GEQ)
+    Check_ExprBound(proc, stmts, expr, ">=", 0)
+
+
+def Check_CompareExprs(proc, stmts, lhs, op, rhs):
+    expr = LoopIR.BinOp("-", lhs, rhs, T.index, null_srcinfo())
+    Check_ExprBound(proc, stmts, expr, op, 0)
 
 
 # --------------------------------------------------------------------------- #
@@ -308,21 +312,15 @@ def DoCutLoop(loop_c, cut_point):
 
     assert isinstance(s, LoopIR.For)
 
+    ir = loop_c.get_root()
+
     try:
-        Check_IsNonNegativeExpr(
-            loop_c.get_root(),
-            [s],
-            LoopIR.BinOp("-", cut_point, s.lo, T.index, s.srcinfo),
-        )
+        Check_CompareExprs(ir, [s], cut_point, ">=", s.lo)
     except SchedulingError:
         raise SchedulingError(f"Expected `lo` <= `cut_point`")
 
     try:
-        Check_IsNonNegativeExpr(
-            loop_c.get_root(),
-            [s],
-            LoopIR.BinOp("-", s.hi, cut_point, T.index, s.srcinfo),
-        )
+        Check_CompareExprs(ir, [s], s.hi, ">=", cut_point)
     except SchedulingError:
         raise SchedulingError(f"Expected `cut_point` <= `hi`")
 
@@ -3538,33 +3536,6 @@ def DoEliminateIfDeadBranch(if_cursor):
     return ir, fwd
 
 
-def DoEliminateIfDeadBranch(if_cursor):
-    if_stmt = if_cursor._node
-
-    assert isinstance(if_stmt, LoopIR.If)
-
-    ir, fwd = if_cursor.get_root(), lambda x: x
-
-    try:
-        cond_node = LoopIR.Const(True, T.bool, if_stmt.srcinfo)
-        Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
-        cond = True
-    except SchedulingError:
-        try:
-            cond_node = LoopIR.Const(False, T.bool, if_stmt.srcinfo)
-            Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
-            cond = False
-        except SchedulingError:
-            raise SchedulingError("If condition isn't always True or always False")
-
-    body = if_cursor.body() if cond else if_cursor.orelse()
-    ir, fwd = body._move(if_cursor.after())
-    ir, fwd_del = fwd(if_cursor)._delete()
-    fwd = _compose(fwd_del, fwd)
-
-    return ir, fwd
-
-
 def DoEliminateDeadLoop(loop_cursor):
     loop_stmt = loop_cursor._node
 
@@ -3573,11 +3544,7 @@ def DoEliminateDeadLoop(loop_cursor):
     ir, fwd = loop_cursor.get_root(), lambda x: x
 
     try:
-        false_cond_node = LoopIR.Const(False, T.bool, loop_stmt.srcinfo)
-        loop_cond_node = LoopIR.BinOp(
-            "<", loop_stmt.lo, loop_stmt.hi, T.bool, loop_stmt.srcinfo
-        )
-        Check_ExprEqvInContext(ir, loop_cond_node, [loop_stmt], false_cond_node)
+        Check_CompareExprs(ir, [loop_stmt], loop_stmt.lo, ">=", loop_stmt.hi)
     except SchedulingError:
         raise SchedulingError("Loop condition isn't always False")
 

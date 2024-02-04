@@ -3435,6 +3435,26 @@ def test_eliminate_dead_code7(golden):
     assert str(foo) == golden
 
 
+def test_eliminate_dead_code8(golden):
+    @proc
+    def foo(n: size):
+        for i in seq((7 + n) / 8 * 8, (7 + n) / 8 * 8):
+            pass
+
+    foo = eliminate_dead_code(foo, foo.find_loop("i"))
+    assert str(foo) == golden
+
+
+def test_eliminate_dead_code9(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(0 + (7 + n) / 8 * 8, ((7 + n) / 8 * 8 + 7) / 8 * 8):
+            pass
+
+    foo = eliminate_dead_code(foo, foo.find_loop("i"))
+    assert str(foo) == golden
+
+
 def test_lift_reduce_constant_1(golden):
     @proc
     def foo():
