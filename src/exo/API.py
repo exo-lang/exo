@@ -20,6 +20,7 @@ from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern
 from .prelude import *
 from .new_eff import Check_Aliasing
+from .dataflow import dataflow_analysis
 
 # Moved to new file
 from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
@@ -412,3 +413,30 @@ class Procedure(ProcedureBase):
 
     def _root(self):
         return IC.Cursor.create(self._loopir_proc)
+
+    def dataflow(self):
+        return dataflow_analysis(self._loopir_proc)
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
+
+class ExoType(Enum):
+    F32 = auto()
+    F64 = auto()
+    I8 = auto()
+    I32 = auto()
+    R = auto()
+    Index = auto()
+    Bool = auto()
+    Size = auto()
+
+    def is_indexable(self):
+        return self in [ExoType.Index, ExoType.Size]
+
+    def is_numeric(self):
+        return self in [ExoType.F32, ExoType.F64, ExoType.I8, ExoType.I32, ExoType.R]
+
+    def is_bool(self):
+        return self == ExoType.Bool

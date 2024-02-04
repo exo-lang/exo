@@ -1,219 +1,18 @@
-# import re
-from collections import OrderedDict, ChainMap
+from abc import ABC, abstractmethod
 from enum import Enum
 from itertools import chain
 from typing import Mapping, Any
-
-# from typing import Type
-
 from asdl_adt import ADT, validators
 
 from .builtins import BuiltIn
 from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
-
-from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do, Operator, T
+from .LoopIR import LoopIR, Alpha_Rename, SubstArgs, LoopIR_Do, Operator, T, Identifier
 
 # --------------------------------------------------------------------------- #
-# Top Level Call
+# DataflowIR definition
 # --------------------------------------------------------------------------- #
-
-
-def loopir_to_dataflow(proc):
-    # another LoopIR traversal
-    # TODO: inline functioncall -> inline windowstmt -> lowering
-    pass
-
-
-# Probably actually make this a class (pass) so it can inherit from LoopIR_Do
-def dataflow_analysis(proc: LoopIR.proc) -> DataflowIR.proc:
-    # step 1 - convert LoopIR to DataflowIR
-    #           with empty contexts (i.e. AbsEnvs)
-    datair = loopir_to_dataflow(proc)
-    # step 2 - run abstract interpretation algorithm
-    #           to populate contexts with sound values
-    # TODO: call constant propagation
-    datair = ConstantPropagation()
-    # TODO: display dataflow ir with the annotation pretty printing
-    print(datair)
-    return datair
-
-
-# Big Question: How do we represent the result of dataflow analysis?
-
-# Option 1: Take LoopIR and transform into a similar but different IR
-#           which includes dataflow annotations and "desugars"/eliminates
-#           constructs we don't care about for analysis purposes
-#           (e.g. just inline all windowing)
-#
-#
-#  pyAST  -->  UAST
-#         --[type checking, inference, bounds checking]-->  [LoopIR]
-#         --[backend checks]-->  C-code as strings
-#
-#  [LoopIR]  --[Primitive Transformation 42]-->  [LoopIR]
-#
-#   As part of Primitive Transformation:
-#       [LoopIR]  --[Dataflow analysis]-->  "AST annotated w/dataflow results"
-#                 --[modified new_eff_analysis]-->  AExpr/Query
-#                                                   (Discharged to SMT)
-#
-#
-
-"""
-A Lattice is a set X equipped with
-    - a partial order < relation and
-    - two binary operators, join (^) and meet (v)
-    - two constants, top and bottom
-i.e. a Lattice is a quadruple (X, <, ^, v)
-
-satisfying the following axioms:
-    * join and meet are both commutative and associative
-    * absorption: a v (a ^ b) = a,  a ^ (a v b) = a
-
-Consequences
-    * idempotency: a v a = a,   a ^ a = a
-    * meet is the greatest lower bound of the two elements (aka, min)
-    * join is the least upper bound of the two elements (aka, max)
-    * note meet and join are not well defined in arbitrary partial orders
-
-Examples:
-    * powerset of a set forms a lattice
-    * logical formulas form a lattice (meet is and, join is or)
-
-Def. Lattice Homomorphism:
-    A function f : X -> Y from one lattice to another is a homomorphism if
-    *   f(a v b) = f(a) v f(b)
-    *   f(a ^ b) = f(a) ^ f(b)
-    *   Every lattice homomorphism is monotonic:
-            i.e. if a <= b, then f(a) <= f(b)
-"""
-
-
-"""
-P(V_1 x V_2 x ...)
-I have a concrete domain of values V.
-Define the "Concrete" lattice for V to be Powerset(V)
-(note every powerset is a lattice, with subset as partial order,
-    union as join, and intersection as meet)
-
-An abstraction of V (eqv. Powerset(V)) is a lattice A s.t. we have
-two lattice homomorphisms:
-    abstraction (abs : P(V) -> A)
-    concretization (conc : A -> P(V))
-satisfying a property: namely that they are "adjoint" in the following sense
-        abs(conc(x)) = x
-        conc(abs(x)) <= x
-"""
-
-"""
-This is an attempt to think something through, not an implementation plan:
-
-A product lattice of lattices A and B is given as
-    - set of values A x B
-    - top = (top,top)
-    - bot = (bot,bot)
-    - (a0,b0) <= (a1,b1) iff. a0 <= a1 and b0 <= b1
-    - (a0,b0) ^ (a1,b1) = (a0^a1, b0^b1)
-    - (a0,b0) v (a1,b1) = (a0 v a1, b0 v b1)
-
-Can we form a product abstraction?
-Well, we have some V which A abstracts and some W which B abstracts?
-No, we're actually interested in the case where A and B both abstract V.
-So, what we are actually interested in isn't a totally arbitrary product...
-
-Product Abstraction (on a common concrete domain V)
-Given abstractions (A,absA,concA) and (B,absB,concB) both of V,
-Construct a product abstraction:
-    - product lattice A x B
-    - absAB(X)    = ???
-    - concAB(a,b) = concA(a) ^ concB(b)
-
-conclusion 1: any (bot,_) or (_,bot) must be bot in A x B!
-              i.e. we cannot simply use a product lattice
-conjecture: this occurs for any (singleton) set, not just bottom
-
-Major Conclusion:
-    - Trying to form product abstractions is a bad idea!
-"""
-
-"""
-Btw, suppose I have P(X) the power set of X.
-Using "type theory" notation, I can also talk about the set of
-all functions X -> Bool, or all predicates on X
-(e.g. in Coq one would write X -> Prop)
-All of these are (ignoring stupid logical foundation issues)
-essentially the same.  Why?  Well, consider some S in P(X)
-S is a subset of X; define f_S(x) = "x in S".
-Similarly, using set comprehension and given f : X -> Bool,
-define S_f = { x | f(x) }
-
-(one more thing for fun)
-X -> P(Y)  ~==  X -> Y -> Bool  ~==  X x Y -> Bool  ~==  P(X x Y)
-                                                    ~==  Rel X Y
-"""
-
-"""
-A program is a control-flow-graph, and btw, let's fission each basic block
-into invidividual SSA statements (including unique variable names,
-and phi nodes)
-
-A program point is basically an edge between statements in this CFG
-In some sense, program points are the real "states" and the statements
-are transitions.
-
-More precisely the state of my machine is
-(PC (i.e. program point), stack (i.e. variable environment mapping))
-
-Abstract States
-(PC, stack but values from A instead of from V)
-
-How do I abstract a statement (i.e. function) y = f(x)
-    Well, first x is now a abstract value, so concretize it to a set of values
-    Then, we know how to map each individual value with f
-    This produces a set of values for y
-    Then re-abstract this set
-In other words...
-    _y = _f(_x) = abs({ f(x) | x in conc(_x) })
-That's a definition; we need to work it out for any given
-    choice of language (i.e. statements/functions f_i) and
-    choice of abstract lattice (i.e. A, abs, conc)
-
-How do we abstract multiple incoming edges to some program point?
-(i.e. how do we abstract phi nodes)
-Answer: phi is join. done.
-"""
-
-"""
-The Abstract Interpretation Algorithm:
-    Propagate abstract values through statements in any order.
-    This will compute a fixed-point assignment of variables to
-    abstract values at every program point
-
-    This algorithm will terminate if the abstract lattice has finite
-    height.
-"""
-
-"""
-Abs     = V U {top, bot}   -- only decision we've made
-Conc    = P(V)
-abs  : Conc -> Abs
-conc : Abs -> Conc
-s.t.
-abs(conc(x)) = x
-conc(abs(X)) >= X
-
-What is the specific definition of `conc`?
-conc(v) = {v} for v in V
-conc(bot) = {}
-conc(top) = V
-
-
-"""
-
-
-AbsEnv: TypeAlias = Mapping[Sym, Any]
 
 
 def validateAbsEnv(obj):
@@ -225,17 +24,18 @@ def validateAbsEnv(obj):
     return obj
 
 
-# TODO: Add srcinfo
 DataflowIR = ADT(
     """
 module DataflowIR {
     proc = ( name    name,
              fnarg*  args,
              expr*   preds,
-             block   body )
+             block   body,
+             srcinfo srcinfo )
 
     fnarg  = ( sym     name,
-               type    type )
+               type    type,
+               srcinfo srcinfo )
 
     block = ( stmt* stmts, absenv* ctxts ) -- len(stmts) + 1 == len(ctxts)
 
@@ -247,6 +47,7 @@ module DataflowIR {
          | Seq( sym iter, expr lo, expr hi, block body )
          | Alloc( sym name, type type )
          | InlinedCall( proc f, block body ) -- f is only there for comments
+         attributes( srcinfo srcinfo )
 
     expr = Read( sym name, expr* idx )
          | Const( object val )
@@ -255,7 +56,7 @@ module DataflowIR {
          | BuiltIn( builtin f, expr* args )
          | StrideExpr( sym name, int dim )
          | ReadConfig( sym config_field )
-         attributes( type type )
+         attributes( type type, srcinfo srcinfo )
 
 }""",
     ext_types={
@@ -266,18 +67,152 @@ module DataflowIR {
         "binop": validators.instance_of(Operator, convert=True),
         "type": LoopIR.type,
         "absenv": validateAbsEnv,
+        "srcinfo": SrcInfo,
     },
     memoize={},
 )
 
-# Option 2: Leave the input LoopIR as is, and create auxiliary datastructures
-#           which allow us to "lookup" dataflow results for different variables
-#           at different points in the code.
-#
-#           For instance, use Python dictionaries to hold the annotations
+from . import dataflow_pprint
+
+# --------------------------------------------------------------------------- #
+# Top Level Call to Dataflow analysis
+# --------------------------------------------------------------------------- #
 
 
-class AbstractInterpretation(collections.ABC):
+class LoopIR_to_DataflowIR:
+    def __init__(self, proc):
+        self.loopir_proc = proc
+        self.dataflow_proc = self.map_proc(self.loopir_proc)
+
+    def result(self):
+        return self.dataflow_proc
+
+    def map_proc(self, p):
+        df_args = self._map_list(self.map_fnarg, p.args)
+        df_preds = self.map_exprs(p.preds)
+        df_body = self.map_stmts(p.body)
+        # TODO: Gilbert
+        block = DataflowIR.block(df_body, [{}] * (len(df_body) + 1))
+
+        return DataflowIR.proc(p.name, df_args, df_preds, block, p.srcinfo)
+
+    def map_fnarg(self, a):
+        return DataflowIR.fnarg(a.name, a.type, a.srcinfo)
+
+    def map_stmts(self, stmts):
+        return self._map_list(self.map_s, stmts)
+
+    def map_exprs(self, exprs):
+        return self._map_list(self.map_e, exprs)
+
+    def map_s(self, s):
+        if isinstance(s, (LoopIR.Call, LoopIR.WindowStmt)):
+            raise NotImplementedError(
+                "LoopIR.Call and LoopIR.WindowStmt should be inlined when we reach here!"
+            )
+
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            df_idx = self.map_exprs(s.idx)
+            df_rhs = self.map_e(s.rhs)
+            if isinstance(s, LoopIR.Assign):
+                return DataflowIR.Assign(
+                    s.name, s.type, s.cast, df_idx, df_rhs, s.srcinfo
+                )
+            else:
+                return DataflowIR.Reduce(
+                    s.name, s.type, s.cast, df_idx, df_rhs, s.srcinfo
+                )
+
+        elif isinstance(s, LoopIR.WriteConfig):
+            # TODO: Confirm with Gilbert!
+            df_config_sym = Sym(f"{config.name}_{field}")
+            df_rhs = self.map_e(s.rhs)
+
+            return DataflowIR_WriteConfig(df_config_sym, df_rhs, s.srcinfo)
+
+        elif isinstance(s, LoopIR.If):
+            df_cond = self.map_e(s.cond)
+            df_body = self.map_stmts(s.body)
+            df_orelse = self.map_stmts(s.orelse)
+
+            return DataflowIR.If(df_cond, df_body, df_orelse, s.srcinfo)
+
+        elif isinstance(s, LoopIR.Seq):
+            df_lo = self.map_e(s.lo)
+            df_hi = self.map_e(s.hi)
+            df_body = self.map_stmts(s.body)
+
+            return DataflowIR.Seq(s.iter, df_lo, df_hi, df_body, s.srcinfo)
+
+        elif isinstance(s, LoopIR.Alloc):
+            return DataflowIR.Alloc(s.name, s.type, s.srcinfo)
+
+        elif isinstance(s, LoopIR.Pass):
+            return DataflowIR.Pass(s.srcinfo)
+
+        else:
+            raise NotImplementedError(f"bad case {type(s)}")
+
+    def map_e(self, e):
+        if isinstance(e, LoopIR.Read):
+            df_idx = self.map_exprs(e.idx)
+            return DataflowIR.Read(e.name, df_idx, e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.BinOp):
+            df_lhs = self.map_e(e.lhs)
+            df_rhs = self.map_e(e.rhs)
+            return DataflowIR.BinOp(e.op, df_lhs, df_rhs, e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.BuiltIn):
+            df_args = self.map_exprs(e.args)
+            return DataflowIR.BuiltIn(e.f, df_args, e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.USub):
+            df_arg = self.map_e(e.arg)
+            return DataflowIR.USub(df_arg, e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.WindowExpr):
+            raise NotImplementedError("WindowExpr should not appear here!")
+
+        elif isinstance(e, LoopIR.ReadConfig):
+            # TODO: This needs to coodinate with Writeconfig
+            raise NotImplementedError("Implement ReadConfig")
+
+        elif isinstance(e, LoopIR.Const):
+            return DataflowIR.Const(e.val, e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.StrideExpr):
+            return DataflowIR.StrideExpr(e.name, e.dim, e.type, e.srcinfo)
+
+        else:
+            raise NotImplementedError(f"bad case {type(e)}")
+
+    @staticmethod
+    def _map_list(fn, nodes):
+        return [fn(n) for n in nodes]
+
+
+def dataflow_analysis(proc: LoopIR.proc) -> DataflowIR.proc:
+    # step 1 - convert LoopIR to DataflowIR with empty contexts (i.e. AbsEnvs)
+    # TODO: inline functioncall -> inline windowstmt -> lowering
+    # FIXME: new_proc = inline_func(proc)
+    # FIXME: new_proc = inline_windowstmt(proc)
+    datair = LoopIR_to_DataflowIR(proc).result()
+
+    # step 2 - run abstract interpretation algorithm
+    #           to populate contexts with sound values
+    # TODO: call constant propagation
+    # datair = ConstantPropagation()
+
+    return datair
+
+
+# --------------------------------------------------------------------------- #
+# Abstract Interpretation on DataflowIR
+# --------------------------------------------------------------------------- #
+
+
+class AbstractInterpretation(ABC):
     def __init__(self, proc: DataflowIR.proc):
         self.proc = proc
 
@@ -430,26 +365,6 @@ class AbstractInterpretation(collections.ABC):
             return pre_env[expr.config_field]
         else:
             assert False, f"bad case {type(expr)}"
-
-    """
-    stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
-         | Reduce( sym name, type type, string? cast, expr* idx, expr rhs )
-         | WriteConfig( sym config_field, expr rhs )
-         | Pass()
-         | If( expr cond, block body, block orelse )
-         | Seq( sym iter, expr lo, expr hi, block body )
-         | Alloc( sym name, type type )
-         | InlinedCall( proc f, block body ) -- f is only there for comments
-
-    expr = Read( sym name, expr* idx )
-         | Const( object val )
-         | USub( expr arg )  -- i.e.  -(...)
-         | BinOp( binop op, expr lhs, expr rhs )
-         | BuiltIn( builtin f, expr* args )
-         | StrideExpr( sym name, int dim )
-         | ReadConfig( sym config_field )
-         attributes( type type )
-    """
 
     @abstractmethod
     def abs_init_val(self, name, typ):
