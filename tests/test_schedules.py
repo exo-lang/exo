@@ -2611,7 +2611,6 @@ def test_stage_mem_out_of_bound_point(golden):
             if i < n:
                 y[i] = x[i]
 
-
     foo = stage_mem(foo, foo.find_loop("i").body(), "x[i]", "tmp")
     assert str(foo) == golden
 
