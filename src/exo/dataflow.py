@@ -382,8 +382,10 @@ class AbstractInterpretation(ABC):
             # if reducing, then expand to x = x + rhs
             rhs_e = stmt.rhs
             if isinstance(stmt, DataflowIR.Reduce):
-                read_buf = DataflowIR.Read(stmt.name, stmt.idx)
-                rhs_e = DataflowIR.BinOp("+", read_buf, rhs_e)
+                read_buf = DataflowIR.Read(
+                    stmt.name, stmt.idx, rhs_e.type, stmt.srcinfo
+                )
+                rhs_e = DataflowIR.BinOp("+", read_buf, rhs_e, rhs_e.type, stmt.srcinfo)
             # now we can handle both cases uniformly
             rval = self.fix_expr(pre_env, rhs_e)
             # need to be careful for buffers (no overwrite guarantee)
