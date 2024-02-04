@@ -6,5 +6,3 @@ def foo(n: size, m: size, x: f32[n] @ DRAM, y: f32[n] @ DRAM):
             tmp = x[i]
         if i < n:
             y[i] = tmp
-        if i < n:
-            y[i] = tmp
