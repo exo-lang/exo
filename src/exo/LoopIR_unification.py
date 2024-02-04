@@ -1096,6 +1096,8 @@ class Unification:
         elif e.op == ">=":
             # rewrite `lhs >= rhs` into `0 < lhs - rhs + 1`
             return add1(sub(e.lhs, e.rhs))
+        else:
+            assert False, f"Unreachable op found: {e.op}"
 
     def unify_e(self, pe, be):
         if pe.type.is_indexable() != be.type.is_indexable() or (pe.type == T.bool) != (
