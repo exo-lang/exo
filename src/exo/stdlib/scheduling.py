@@ -30,6 +30,7 @@ from ..API_scheduling import (
     rewrite_expr,
     bind_expr,
     commute_expr,
+    left_reassociate_expr,
     #
     # subprocedure oriented operations
     extract_subproc,
@@ -51,7 +52,6 @@ from ..API_scheduling import (
     expand_dim,
     resize_dim,
     rearrange_dim,
-    bound_alloc,
     divide_dim,
     mult_dim,
     sink_alloc,
@@ -73,6 +73,7 @@ from ..API_scheduling import (
     shift_loop,
     reorder_loops,
     merge_writes,
+    fold_into_reduce,
     inline_assign,
     lift_reduce_constant,
     fission,

@@ -7,13 +7,13 @@ jobs:
   build:
     strategy:
       matrix:
-        runner: [ ubuntu-latest, macos-latest ]
+        runner: [ ubuntu-latest, macos-14 ]
         include:
           - runner: ubuntu-latest
             CC: clang-13
             CXX: clang++-13
             CLANG: clang-13
-          - runner: macos-latest
+          - runner: macos-14
             CC: clang # This will be system AppleClang
             CXX: clang++ # This will be system AppleClang
             CLANG: /usr/local/opt/llvm/bin/clang
@@ -24,14 +24,14 @@ jobs:
     runs-on: ${{matrix.runner}}
     steps:
       - name: Checkout sources (including submodules)
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Setup Python environment
         uses: actions/setup-python@v4
         with:
-          python-version: 3.9
+          python-version: '3.10'
           cache: 'pip'
 
       - name: Install Python dependencies
@@ -40,11 +40,11 @@ jobs:
           python -m pip install tox==3.24.5
 
       - name: Get latest CMake and ninja
-        uses: lukka/get-cmake@v3.21.2
+        uses: lukka/get-cmake@latest
 
       - name: Setup SDE binaries
         if: runner.os != 'macOS'
-        uses: petarpetrovt/setup-sde@v2.1
+        uses: petarpetrovt/setup-sde@v2.3
 
       - name: Install Clang 13 (Linux)
         if: runner.os == 'Linux'

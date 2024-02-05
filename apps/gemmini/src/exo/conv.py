@@ -181,13 +181,9 @@ def schedule_conv_3():
     conv = old_fission_after(conv, "for ocol_o in _:_ #0")
     conv = old_reorder(conv, "orow ocol_o")
     conv = old_split(conv, "orow", 28, ["orow_o", "orow_i"], perfect=True)
-    # FIXME(#133): Remove unsafe_disable_checks once we have new effectcheck working
-    conv = expand_dim(
-        conv, "i_s: i8[_]", "30", "krow + orow_i", unsafe_disable_checks=True
-    )
-    conv = expand_dim(
-        conv, "i_s: i8[_] #1", "30", "krow + orow_i", unsafe_disable_checks=True
-    )
+    conv = expand_dim(conv, "i_s: i8[_]", "30", "krow + orow_i")
+    conv = expand_dim(conv, "i_s: i8[_] #1", "30", "krow + orow_i")
+
     # TODO: We should definitely use repeat for this!
     conv = old_lift_alloc(conv, "i_s : _ #0", n_lifts=5, keep_dims=False)
     conv = old_lift_alloc(conv, "i_s : _ #1", n_lifts=4, keep_dims=False)
@@ -318,13 +314,8 @@ def schedule_conv_17():
     conv = old_unroll(conv, "ocol_o")
     conv = old_fission_after(conv, "for och_o in _:_ #2", n_lifts=2)
     conv = old_split(conv, "orow", 14, ["orow_o", "orow_i"], perfect=True)
-    # FIXME(#133): Remove unsafe_disable_checks once we have new effectcheck working
-    conv = expand_dim(
-        conv, "i_s: i8[_]", "16", "krow + orow_i", unsafe_disable_checks=True
-    )
-    conv = expand_dim(
-        conv, "i_s: i8[_] #1", "16", "krow + orow_i", unsafe_disable_checks=True
-    )
+    conv = expand_dim(conv, "i_s: i8[_]", "16", "krow + orow_i")
+    conv = expand_dim(conv, "i_s: i8[_] #1", "16", "krow + orow_i")
     conv = old_lift_alloc(conv, "w_s : _", n_lifts=2)
     conv = old_split(conv, "b", 4, ["bo", "bi"], perfect=True)
     conv = old_lift_alloc(conv, "i_s : _", n_lifts=4, keep_dims=False)
@@ -453,10 +444,7 @@ def schedule_conv_30():
 
     conv = old_lift_alloc(conv, "w_s : _", n_lifts=2)
     conv = old_split(conv, "orow", 7, ["orow_o", "orow_i"], perfect=True)
-    # FIXME(#133): Remove unsafe_disable_checks once we have new effectcheck working
-    conv = expand_dim(
-        conv, "i_s: i8[_]", "9", "krow + orow_i", unsafe_disable_checks=True
-    )
+    conv = expand_dim(conv, "i_s: i8[_]", "9", "krow + orow_i")
     conv = old_lift_alloc(conv, "res : _", n_lifts=1)
     conv = old_lift_alloc(conv, "i_s : _", n_lifts=5, keep_dims=False)
     conv = old_lift_alloc(conv, "w_s : _", n_lifts=4, keep_dims=False)

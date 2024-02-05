@@ -5,17 +5,20 @@ from dataclasses import dataclass
 
 from typing import Optional, List, Any
 
-from . import API
+from . import API  # TODO: remove this circular import
+from .API_types import ExoType
 from .LoopIR import LoopIR
 from .configs import Config
 from .memory import Memory
 
 from . import internal_cursors as C
+from .pattern_match import match_pattern
 from .prelude import Sym
 
 # expose this particular exception as part of the API
 from .internal_cursors import InvalidCursorError
 from .LoopIR_pprint import _print_cursor
+from .LoopIR_scheduling import SchedulingError
 
 
 # --------------------------------------------------------------------------- #
@@ -124,6 +127,9 @@ class Cursor(ABC):
         elif isinstance(impl_parent._node, LoopIR.proc):
             return InvalidCursor()
         return lift_cursor(impl_parent, self._proc)
+
+    def find(self, pattern, many=False):
+        return find(self._impl, self._proc, pattern, many)
 
     def _child_node(self, *args, **kwargs):
         return lift_cursor(self._impl._child_node(*args, **kwargs), self._proc)
@@ -583,6 +589,8 @@ def loopir_type_to_exotype(typ: LoopIR.Type) -> API.ExoType:
         return API.ExoType.Size
     elif isinstance(typ, LoopIR.Index):
         return API.ExoType.Index
+    elif isinstance(typ, LoopIR.Int):
+        return API.ExoType.Int
     else:
         raise NotImplementedError(f"Unsupported {typ}")
 
@@ -1003,6 +1011,38 @@ def lift_cursor(impl, proc):
 
     else:
         assert False, f"bad case: {type(impl)}"
+
+
+def find(scope: C, proc: API.Procedure, pattern: str, many: bool):
+    """
+    Find the most specific possible cursor for the given pattern in
+    the given scope of the proc. For example, a pattern matching a
+    single assignment statement will return an AssignCursor, not a
+    StmtCursor or BlockCursor.
+
+    If the optional parameter `many` is set to True, then return a list,
+    potentially containing more than one Cursor.
+
+    In any event, if no matches are found, a SchedulingError is raised.
+    """
+    if not isinstance(pattern, str):
+        raise TypeError("expected a pattern string")
+    default_match_no = None if many else 0
+    raw_cursors = match_pattern(
+        scope, pattern, call_depth=1, default_match_no=default_match_no
+    )
+    assert isinstance(raw_cursors, list)
+    cursors = []
+    for c in raw_cursors:
+        c = lift_cursor(c, proc)
+        if isinstance(c, (BlockCursor, ExprListCursor)) and len(c) == 1:
+            c = c[0]
+        cursors.append(c)
+
+    if not cursors:
+        raise SchedulingError("failed to find matches", pattern=pattern)
+
+    return cursors if many else cursors[0]
 
 
 # --------------------------------------------------------------------------- #

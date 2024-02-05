@@ -1,0 +1,8 @@
+def foo(n: size, m: size, x: f32[n] @ DRAM, y: f32[n] @ DRAM):
+    assert m >= n
+    for i in seq(0, m):
+        tmp: f32 @ DRAM
+        if i < n:
+            tmp = x[i]
+        if i < n:
+            y[i] = tmp
