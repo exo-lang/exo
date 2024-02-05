@@ -10,6 +10,7 @@ def baz(n: size, m: size):
             for k in seq(0, n):
                 # BLOCK START
                 pass
+                pass
                 # BLOCK END
 
 def baz(n: size, m: size):
@@ -39,6 +40,16 @@ def baz(n: size, m: size):
             for k in seq(0, n):
                 ...
             # BLOCK END
+
+def baz(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            ...
+            # BLOCK START
+            pass
+            pass
+            # BLOCK END
+            ...
 
 def baz(n: size, m: size):
     for i in seq(0, n):
