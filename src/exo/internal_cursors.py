@@ -356,25 +356,10 @@ class Block(Cursor):
             return [(attr, idx_update(i))]
 
         def fwd_block(_, rng):
-            if rng == del_range:
-                return range(del_range.start, del_range.start + n_ins)
-
-            if rng.start in del_range and rng.stop - 1 in del_range:
+            if (rng.start in del_range) != (rng.stop - 1 in del_range):
                 raise InvalidCursorError("block no longer exists")
 
-            if rng.start not in del_range:
-                new_start = idx_update(rng.start)
-            else:
-                # Forward to after the deletion. We know that rng.stop > del_range.stop so this node must exist.
-                new_start = idx_update(del_range.stop)
-
-            if rng.stop - 1 not in del_range:
-                new_stop = idx_update(rng.stop - 1) + 1
-            else:
-                # Forward to before the deletion. We know that rng.start < del_range.start so this node must exist.
-                new_stop = idx_update(del_range.start - 1) + 1
-
-            return range(new_start, new_stop)
+            return range(idx_update(rng.start), idx_update(rng.stop))
 
         return self._local_forward(new_proc, fwd_node, fwd_block)
 

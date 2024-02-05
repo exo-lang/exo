@@ -779,9 +779,12 @@ def test_delete_forwarding_for_blocks(proc_baz, golden):
     output.append(_print_cursor(fwd(b_before)))  # same edit level, disjoint
     output.append(_print_cursor(fwd(b_after)))  # same edit level, disjoint
 
-    # Blocks containing the deletion block also work intuitively.
+    # Blocks entirely containing the deletion block also work intuitively.
     output.append(_print_cursor(fwd(b_edit)))
-    output.append(_print_cursor(fwd(b_with_endpoint_in_deletion)))
+
+    # Blocks partially containing the deletion block don't work.
+    with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
+        fwd(b_with_endpoint_in_deletion)
 
     assert "\n\n".join(output) == golden
 
@@ -827,8 +830,9 @@ def test_block_replace_forwarding_for_blocks(proc_baz, golden):
     output.append(_print_cursor(fwd(b_edit)))
     output.append(_print_cursor(fwd(c)))
 
-    # Blocks partially containing the replace block have undefined behavior. OK if this changes.
-    output.append(_print_cursor(fwd(b_with_endpoint_in_replace)))
+    # Blocks partially containing the replace block have undefined behavior.
+    with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
+        fwd(b_with_endpoint_in_replace)
 
     assert "\n\n".join(output) == golden
 
