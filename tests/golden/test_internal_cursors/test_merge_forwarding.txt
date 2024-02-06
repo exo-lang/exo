@@ -1,0 +1,9 @@
+def foo(n: size):
+    ...
+    for i in seq(0, n):  # <-- NODE
+        ...
+
+def foo(n: size):
+    ...
+    for i in seq(0, n):
+        x = 0.0  # <-- NODE

@@ -615,6 +615,43 @@ class Block(Cursor):
 
         return forward
 
+    def _merge(self):
+        """
+        This is an UNSAFE internal function for merging the contents of a block
+        in an AST into a single node (the last node of the block). It performs
+        a deep merge, so all children of nodes in the block will also forward
+        to children of the last node of the block.
+
+        This function also provides a forwarding function as collateral. It is
+        meant to be package-private, not class-private, so it may be called
+        from other internal classes and modules, but not from end-user code.
+        """
+        blk = self.expand(delta_lo=-1, delta_hi=0)
+        p, _ = blk._delete()
+
+        fwd = self._forward_merge(p)
+
+        return p, fwd
+
+    def _forward_merge(self, new_proc):
+        merge_range = self._range
+        n_del = len(merge_range) - 1
+
+        def idx_update(i):
+            if i in merge_range:
+                return merge_range.start
+            return i - n_del * (i >= merge_range.stop)
+
+        def fwd_node(attr, i):
+            return [(attr, idx_update(i))]
+
+        def fwd_block(_, rng):
+            if (rng.start in merge_range) != (rng.stop - 1 in merge_range):
+                raise InvalidCursorError("block no longer exists")
+            return range(idx_update(rng.start), idx_update(rng.stop))
+
+        return self._local_forward(new_proc, fwd_node, fwd_block)
+
 
 @dataclass
 class Node(Cursor):

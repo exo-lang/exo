@@ -302,7 +302,7 @@ def DoJoinLoops(loop1_c, loop2_c):
         raise SchedulingError("expected the two loops to have identical bodies")
 
     ir, fwd = loop1_c._child_node("hi")._replace(loop2.hi)
-    ir, fwd_del = fwd(loop2_c)._delete()
+    ir, fwd_del = fwd(loop1_c).as_block().expand(0, 1)._merge()
 
     return ir, _compose(fwd_del, fwd)
 
@@ -432,17 +432,17 @@ def DoProductLoop(outer_loop_c, new_name):
             only_replace_attrs=False,
         )
 
-    ir, fwdRepl = fwd(outer_loop_c)._child_node("iter")._replace(new_var)
+    ir, fwdRepl = fwd(inner_loop_c)._child_node("iter")._replace(new_var)
     fwd = _compose(fwdRepl, fwd)
 
     new_hi = LoopIR.BinOp("*", outer_loop.hi, inner_hi, T.index, outer_loop.srcinfo)
-    ir, fwdRepl = fwd(outer_loop_c)._child_node("hi")._replace(new_hi)
+    ir, fwdRepl = fwd(inner_loop_c)._child_node("hi")._replace(new_hi)
     fwd = _compose(fwdRepl, fwd)
 
-    ir, fwdMv = fwd(inner_loop_c).body()._move(fwd(inner_loop_c).after())
+    ir, fwdMv = fwd(inner_loop_c)._move(fwd(outer_loop_c).before())
     fwd = _compose(fwdMv, fwd)
 
-    ir, fwdDel = fwd(inner_loop_c)._delete()
+    ir, fwdDel = fwd(inner_loop_c).as_block().expand(0, 1)._merge()
     fwd = _compose(fwdDel, fwd)
 
     return ir, fwd
@@ -2569,7 +2569,7 @@ def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
     )
     ir, fwd_move = fwd(s_cursor).body()._move(fwd(f_cursor).body()[-1].after())
     fwd = _compose(fwd_move, fwd)
-    ir, fwdDel = fwd(s_cursor)._delete()
+    ir, fwdDel = fwd(f_cursor).as_block().expand(0, 1)._merge()
     fwd = _compose(fwdDel, fwd)
 
     if not unsafe_disable_check:
