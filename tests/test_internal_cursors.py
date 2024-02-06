@@ -801,7 +801,7 @@ def test_delete_forwarding_for_blocks_2(golden):
     _, fwd = body.parent()._delete()
 
     with pytest.raises(
-        InvalidCursorError, match=r"block no longer exists \(parent was deleted\)"
+        InvalidCursorError, match=r"block no longer exists \(parent deleted\)"
     ):
         fwd(body)
 
