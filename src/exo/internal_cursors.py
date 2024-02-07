@@ -49,43 +49,9 @@ def _is_sub_range(a: range, b: range):
     return (a.start >= b.start) and (a.stop <= b.stop) and a != b
 
 
-def update_rng(a: range, b: int):
-    return range(a.start + b, a.stop + b)
-
-
-def _overlaps_one_side(a: range, b: range):
-    """
-    Returns True if `a` overlaps `b` on exactly one side, without containing `b`.
-    Only applies to step-1 ranges.
-    >>> _overlaps_one_side(range(0, 4), range(4, 8))  # fully to left
-    False
-    >>> _overlaps_one_side(range(0, 5), range(4, 8))  # rightmost overlaps leftmost
-    True
-    >>> _overlaps_one_side(range(0, 7), range(4, 8))  # almost contains on right side
-    True
-    >>> _overlaps_one_side(range(0, 8), range(4, 8))  # contains on right side
-    False
-    >>> _overlaps_one_side(range(4, 7), range(4, 8))  # contained, left-aligned
-    True
-    >>> _overlaps_one_side(range(4, 8), range(4, 8))  # equal
-    False
-    >>> _overlaps_one_side(range(5, 8), range(4, 8))  # contained, right-aligned
-    False
-    >>> _overlaps_one_side(range(4, 12), range(4, 8))  # contains on left side
-    False
-    >>> _overlaps_one_side(range(5, 12), range(4, 8))  # almost contains on left side
-    True
-    >>> _overlaps_one_side(range(7, 12), range(4, 8))  # leftmost overlaps rightmost
-    True
-    >>> _overlaps_one_side(range(8, 12), range(4, 8))  # fully to right
-    False
-    """
+def _intersects_partially(a: range, b: range):
     assert a.step == b.step and a.step in (1, None)
-    return (
-        a.start < b.start < a.stop < b.stop
-        or a.start == b.start < a.stop < b.stop
-        or b.start < a.start < b.stop < a.stop
-    )
+    return a.start < b.start < a.stop < b.stop or b.start < a.start < b.stop < a.stop
 
 
 def forward_identity(p, fwd=None):
@@ -353,7 +319,7 @@ class Block(Cursor):
             return [(attr, idx_update(i))]
 
         def fwd_block(attr, rng):
-            if (rng.start in del_range) != (rng.stop - 1 in del_range):
+            if _intersects_partially(rng, del_range):
                 raise InvalidCursorError("block no longer exists")
 
             return [(attr, range(idx_update(rng.start), idx_update(rng.stop)))]
@@ -520,8 +486,7 @@ class Block(Cursor):
                 attr = cursor._attr
                 rng = cursor._range
                 if anchor._path == block_path and attr == block_attr:
-                    if (rng.start in blk_rng) != (rng.stop - 1 in blk_rng):
-                        # only one endpoint of block cursor intersects with the moved block
+                    if _intersects_partially(rng, blk_rng):
                         raise InvalidCursorError(
                             "move cannot forward block because exactly one endpoint intersects with moved block"
                         )

@@ -762,13 +762,16 @@ def test_insert_forwarding_for_blocks(proc_baz, golden):
 
 
 def test_delete_forwarding_for_blocks(proc_baz, golden):
-    c = _find_stmt(proc_baz, "x = 0.0")
+    c = _find_cursors(proc_baz, "x = 0.0; y: _")[0]
 
     b_above = c.parent()
     b_edit = b_above.body()
     b_below = b_edit[-1].body()
     b_before = b_edit[:1]
-    b_after = b_edit[2:]
+    b_after = b_edit[3:]
+
+    b_aligned_with_deletion_on_left = b_edit[1:]
+    b_aligned_with_deletion_on_right = b_edit[:3]
     b_with_endpoint_in_deletion = b_edit[:2]
 
     _, fwd = c._delete()
@@ -781,6 +784,8 @@ def test_delete_forwarding_for_blocks(proc_baz, golden):
 
     # Blocks entirely containing the deletion block also work intuitively.
     output.append(_print_cursor(fwd(b_edit)))
+    output.append(_print_cursor(fwd(b_aligned_with_deletion_on_left)))
+    output.append(_print_cursor(fwd(b_aligned_with_deletion_on_right)))
 
     # Blocks partially containing the deletion block don't work.
     with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
@@ -789,7 +794,7 @@ def test_delete_forwarding_for_blocks(proc_baz, golden):
     assert "\n\n".join(output) == golden
 
 
-def test_delete_forwarding_for_blocks_2(golden):
+def test_delete_forwarding_for_blocks_fail():
     @proc
     def foo():
         for i in seq(0, 4):
