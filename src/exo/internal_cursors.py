@@ -49,39 +49,9 @@ def _is_sub_range(a: range, b: range):
     return (a.start >= b.start) and (a.stop <= b.stop) and a != b
 
 
-def _overlaps_one_side(a: range, b: range):
-    """
-    Returns True if `a` overlaps `b` on exactly one side, without containing `b`.
-    Only applies to step-1 ranges.
-    >>> _overlaps_one_side(range(0, 4), range(4, 8))  # fully to left
-    False
-    >>> _overlaps_one_side(range(0, 5), range(4, 8))  # rightmost overlaps leftmost
-    True
-    >>> _overlaps_one_side(range(0, 7), range(4, 8))  # almost contains on right side
-    True
-    >>> _overlaps_one_side(range(0, 8), range(4, 8))  # contains on right side
-    False
-    >>> _overlaps_one_side(range(4, 7), range(4, 8))  # contained, left-aligned
-    True
-    >>> _overlaps_one_side(range(4, 8), range(4, 8))  # equal
-    False
-    >>> _overlaps_one_side(range(5, 8), range(4, 8))  # contained, right-aligned
-    False
-    >>> _overlaps_one_side(range(4, 12), range(4, 8))  # contains on left side
-    False
-    >>> _overlaps_one_side(range(5, 12), range(4, 8))  # almost contains on left side
-    True
-    >>> _overlaps_one_side(range(7, 12), range(4, 8))  # leftmost overlaps rightmost
-    True
-    >>> _overlaps_one_side(range(8, 12), range(4, 8))  # fully to right
-    False
-    """
+def _intersects_partially(a: range, b: range):
     assert a.step == b.step and a.step in (1, None)
-    return (
-        a.start < b.start < a.stop < b.stop
-        or a.start == b.start < a.stop < b.stop
-        or b.start < a.start < b.stop < a.stop
-    )
+    return a.start < b.start < a.stop < b.stop or b.start < a.start < b.stop < a.stop
 
 
 def forward_identity(p, fwd=None):
@@ -141,7 +111,7 @@ class Cursor(ABC):
     # Protected path / mutation helpers
     # ------------------------------------------------------------------------ #
 
-    def _local_forward(self, new_root, fwd_node):
+    def _local_forward(self, new_root, fwd_node, fwd_block):
         """
         Creates a forwarding function for "local" edits to the AST.
         Here, local means that all affected nodes share a common LCA,
@@ -154,6 +124,11 @@ class Cursor(ABC):
         for the edit. See the implementation of insert and delete for some
         simple examples, or wrap for a more complex example (that lengthens
         certain paths).
+
+        The fwd_block function is applied to a range of this cursor's children
+        and is expected to return a list of new tree edges which are adjusted
+        for the edit. This differs from fwd_node in that the last element of the
+        list is of the form (attr, range) instead of (attr, index).
         """
         orig_root = self._root
 
@@ -176,29 +151,48 @@ class Cursor(ABC):
             if isinstance(cursor, Gap):
                 return Gap(new_root, forward(cursor.anchor()), cursor.type())
 
+            assert isinstance(cursor, (Node, Block))
+
+            def evolve(c, **kwargs):
+                return dataclasses.replace(c, _root=new_root, **kwargs)
+
             if isinstance(cursor, Block):
-                raise InvalidCursorError("cannot forward blocks")
+                if cursor._anchor._path == edit_path and cursor._attr == attr:
+                    # Block is directly in edit scope
+                    blk_path = fwd_block(attr, cursor._range)
+                    new_attr, new_rng = blk_path[-1]
 
-            assert isinstance(cursor, Node)
+                    return evolve(
+                        cursor,
+                        _anchor=evolve(
+                            cursor._anchor, _path=cursor._anchor._path + blk_path[:-1]
+                        ),
+                        _attr=new_attr,
+                        _range=new_rng,
+                    )
 
-            def evolve(p):
-                return dataclasses.replace(cursor, _root=new_root, _path=p)
+                # Otherwise, just forward the anchor
+                try:
+                    return evolve(cursor, _anchor=forward(cursor._anchor))
+                except InvalidCursorError:
+                    raise InvalidCursorError("block no longer exists (parent deleted)")
 
             old_path = cursor._path
 
             if len(old_path) < depth + 1:
                 # Too shallow
-                return evolve(old_path)
+                return evolve(cursor)
 
             old_attr, old_idx = old_path[depth]
 
             if not (_starts_with(old_path, edit_path) and old_attr == attr):
-                # Same path down tree
-                return evolve(old_path)
+                # Different path down tree
+                return evolve(cursor)
 
-            return evolve(
+            new_path = (
                 old_path[:depth] + fwd_node(attr, old_idx) + old_path[depth + 1 :]
             )
+            return evolve(cursor, _path=new_path)
 
         return forward
 
@@ -317,12 +311,20 @@ class Block(Cursor):
         del_range = self._range
         n_diff = n_ins - len(del_range)
 
+        idx_update = lambda i: i + n_diff * (i >= del_range.stop)
+
         def fwd_node(attr, i):
             if i in del_range:
                 raise InvalidCursorError("node no longer exists")
-            return [(attr, i + n_diff * (i >= del_range.stop))]
+            return [(attr, idx_update(i))]
 
-        return self._local_forward(new_proc, fwd_node)
+        def fwd_block(attr, rng):
+            if _intersects_partially(rng, del_range):
+                raise InvalidCursorError("block no longer exists")
+
+            return [(attr, range(idx_update(rng.start), idx_update(rng.stop)))]
+
+        return self._local_forward(new_proc, fwd_node, fwd_block)
 
     def _delete(self):
         """
@@ -370,16 +372,35 @@ class Block(Cursor):
 
     def _forward_wrap(self, p, wrap_attr):
         rng = self._range
+        n_delta = len(rng) - 1
 
-        def forward(attr, i):
+        def fwd_node(attr, i):
             if i >= rng.stop:
-                return [(attr, i - len(rng) + 1)]
+                return [(attr, i - n_delta)]
             elif i >= rng.start:
                 return [(attr, rng.start), (wrap_attr, i - rng.start)]
             else:
                 return [(attr, i)]
 
-        return self._local_forward(p, forward)
+        def fwd_block(attr, blk_rng):
+            if blk_rng.start >= rng.stop:
+                new_rng = range(blk_rng.start - n_delta, blk_rng.stop - n_delta)
+                return [(attr, new_rng)]
+            elif blk_rng.stop <= rng.start:
+                return [(attr, blk_rng)]
+            elif blk_rng.start in rng and blk_rng.stop - 1 in rng:
+                new_rng = range(blk_rng.start - rng.start, blk_rng.stop - rng.start)
+                return [
+                    (attr, blk_rng.start),
+                    (wrap_attr, new_rng),
+                ]
+            elif rng.start in blk_rng and rng.stop - 1 in blk_rng:
+                return [(attr, range(blk_rng.start, blk_rng.stop - len(rng) + 1))]
+
+            # We could arguably try to forward to something?
+            raise InvalidCursorError("block no longer exists")
+
+        return self._local_forward(p, fwd_node, fwd_block)
 
     def _move(self, target: Gap):
         """
@@ -443,8 +464,8 @@ class Block(Cursor):
 
         block_attr = self._attr
 
-        block_rng = self._range
-        edit_n = len(block_rng)
+        blk_rng = self._range
+        edit_n = len(blk_rng)
 
         gap_path = target._anchor._path[:]
         gap_path[-1] = (gap_path[-1][0], target._insertion_index())
@@ -461,7 +482,32 @@ class Block(Cursor):
                 return Gap(p, forward(cursor.anchor()), cursor.type())
 
             if isinstance(cursor, Block):
-                raise InvalidCursorError("cannot forward blocks")
+                anchor = cursor._anchor
+                attr = cursor._attr
+                rng = cursor._range
+                if anchor._path == block_path and attr == block_attr:
+                    if _intersects_partially(rng, blk_rng):
+                        raise InvalidCursorError(
+                            "move cannot forward block because exactly one endpoint intersects with moved block"
+                        )
+
+                new_start_node = forward(anchor._child_node(attr, rng.start))
+                new_stop_node = forward(anchor._child_node(attr, rng.stop - 1))
+
+                assert new_start_node.parent() == new_stop_node.parent()
+                new_anchor = new_start_node.parent()
+
+                attr1, new_start = new_start_node._path[-1]
+                attr2, new_end = new_stop_node._path[-1]
+                assert attr1 == attr2
+                assert new_start <= new_end
+
+                return dataclasses.replace(
+                    cursor,
+                    _root=p,
+                    _anchor=new_anchor,
+                    _range=range(new_start, new_end + 1),
+                )
 
             assert isinstance(cursor, Node)
 
@@ -476,14 +522,14 @@ class Block(Cursor):
                 and block_path == cur_path[:block_n]
                 and block_attr == cur_path[block_n][0]
             ):
-                if block_rng.stop <= cur_path[block_n][1]:
+                if blk_rng.stop <= cur_path[block_n][1]:
                     # if after orig. block end, subtract edit_n
                     offsets.append((block_n, -edit_n))
-                elif block_rng.start <= cur_path[block_n][1]:
+                elif blk_rng.start <= cur_path[block_n][1]:
                     new_gap_path = gap_path
                     if block_n <= gap_n:
                         # compute new gap_path
-                        block_start_path = block_path + [(block_attr, block_rng.start)]
+                        block_start_path = block_path + [(block_attr, blk_rng.start)]
 
                         new_gap_path = []
                         for lca_n, (bs, gs) in enumerate(
@@ -501,7 +547,7 @@ class Block(Cursor):
                         new_gap_path.extend(gap_path[lca_n + 1 :])
 
                     # if inside orig block, move to gap location
-                    off = cur_path[block_n][1] - block_rng.start
+                    off = cur_path[block_n][1] - blk_rng.start
                     return dataclasses.replace(
                         cursor,
                         _root=p,
@@ -681,7 +727,7 @@ class Node(Cursor):
         modules, but not from end-user code.
         """
         attr, idx = self._path[-1]
-        if idx is not None:
+        if idx is not None and isinstance(ast, list):
             # noinspection PyProtectedMember
             # delegate block replacement to the Block class
             return self.as_block()._replace(ast)
@@ -693,13 +739,14 @@ class Node(Cursor):
         fwd = self._forward_replace(p)
         return p, fwd
 
-    def _forward_replace(self, new_root):
-        assert self._path[-1][1] is None
-
+    def _forward_replace(self, new_root, can_fwd_node=True):
         def fwd_node(*_):
-            raise InvalidCursorError("cannot forward replaced nodes")
+            return self._path[-1:]
 
-        return self._local_forward(new_root, fwd_node)
+        def fwd_block(attr, rng):
+            return [(attr, rng)]
+
+        return self._local_forward(new_root, fwd_node, fwd_block)
 
 
 class GapType(enum.Enum):
@@ -769,10 +816,19 @@ class Gap(Cursor):
     def _forward_insert(self, new_root, ins_len):
         ins_idx = self._insertion_index()
 
-        def fwd_node(attr, i):
-            return [(attr, i + ins_len * (i >= ins_idx))]
+        idx_update = lambda i: i + ins_len * (i >= ins_idx)
 
-        return self._local_forward(new_root, fwd_node)
+        def fwd_node(attr, i):
+            return [(attr, idx_update(i))]
+
+        def fwd_block(attr, rng):
+            new_rng = range(
+                idx_update(rng.start),
+                idx_update(rng.stop - 1) + 1,
+            )
+            return [(attr, new_rng)]
+
+        return self._local_forward(new_root, fwd_node, fwd_block)
 
     def _insertion_index(self):
         _, i = self._anchor._path[-1]
