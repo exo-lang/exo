@@ -762,13 +762,16 @@ def test_insert_forwarding_for_blocks(proc_baz, golden):
 
 
 def test_delete_forwarding_for_blocks(proc_baz, golden):
-    c = _find_stmt(proc_baz, "x = 0.0")
+    c = _find_cursors(proc_baz, "x = 0.0; y: _")[0]
 
     b_above = c.parent()
     b_edit = b_above.body()
     b_below = b_edit[-1].body()
     b_before = b_edit[:1]
-    b_after = b_edit[2:]
+    b_after = b_edit[3:]
+
+    b_aligned_with_deletion_on_left = b_edit[1:]
+    b_aligned_with_deletion_on_right = b_edit[:3]
     b_with_endpoint_in_deletion = b_edit[:2]
 
     _, fwd = c._delete()
@@ -781,6 +784,8 @@ def test_delete_forwarding_for_blocks(proc_baz, golden):
 
     # Blocks entirely containing the deletion block also work intuitively.
     output.append(_print_cursor(fwd(b_edit)))
+    output.append(_print_cursor(fwd(b_aligned_with_deletion_on_left)))
+    output.append(_print_cursor(fwd(b_aligned_with_deletion_on_right)))
 
     # Blocks partially containing the deletion block don't work.
     with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
@@ -789,7 +794,7 @@ def test_delete_forwarding_for_blocks(proc_baz, golden):
     assert "\n\n".join(output) == golden
 
 
-def test_delete_forwarding_for_blocks_2(golden):
+def test_delete_forwarding_for_blocks_fail():
     @proc
     def foo():
         for i in seq(0, 4):
@@ -801,7 +806,7 @@ def test_delete_forwarding_for_blocks_2(golden):
     _, fwd = body.parent()._delete()
 
     with pytest.raises(
-        InvalidCursorError, match=r"block no longer exists \(parent was deleted\)"
+        InvalidCursorError, match=r"block no longer exists \(parent deleted\)"
     ):
         fwd(body)
 
@@ -970,21 +975,22 @@ def test_merge_forwarding(golden):
             x = 0.0
 
     loop1 = _find_stmt(foo, "for i in _:_ #0")
-    loop2 = _find_stmt(foo, "for i in _:_ #1")
-    stmt1 = _find_stmt(foo, "x = _ #0")
-    stmt2 = _find_stmt(foo, "x = _ #1")
+    body1 = loop1.body()
     four = _find_cursors(foo, "4")[0]
+
+    loop2 = _find_stmt(foo, "for i in _:_ #1")
+    body2 = loop2.body()
     n_var = _find_cursors(foo, "n")[0]
 
     blk = loop1.as_block().expand(0, 1)
 
     _, fwd = blk._merge()
 
-    assert str(fwd(loop1)._node) == str(fwd(loop2)._node)
-    assert str(fwd(stmt1)._node) == str(fwd(stmt2)._node)
-    assert str(fwd(four)._node) == str(fwd(n_var)._node)
+    assert fwd(loop1) == fwd(loop2)
+    assert fwd(body1) == fwd(body2)
+    assert fwd(four) == fwd(n_var)
 
     output = []
     output.append(_print_cursor(fwd(loop1)))
-    output.append(_print_cursor(fwd(stmt1)))
+    output.append(_print_cursor(fwd(body1)))
     assert "\n\n".join(output) == golden
