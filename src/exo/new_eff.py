@@ -2121,7 +2121,7 @@ def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
         query = ADef(e < AInt(value))
         err_msg = f"greater than {value}"
     elif op == "==":
-        query = ADef(e=AInt(value))
+        query = AEq(e, AInt(value))
         err_msg = f"equal to {value}"
     else:
         assert False, "Bad case"

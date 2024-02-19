@@ -1,0 +1,7 @@
+def foo(m: size, n: size, A: R[m, n] @ DRAM):
+    assert n % 4 == 0 and m % 8 == 0
+    for io in seq(0, m / 8):
+        for ii in seq(0, 8):
+            for jo in seq(0, n / 4):
+                for ji in seq(0, 4):
+                    A[ii + 8 * io, ji + 4 * jo] = 0.2
