@@ -1,0 +1,2 @@
+def bar(n: size, x: f32[n] @ DRAM):
+    pass
