@@ -336,7 +336,7 @@ class TypeAbbrevA(ArgumentProcessor):
                 f"expected an instance of {ExoType} or {str} specifying the precision",
                 TypeError,
             )
-        assert not isinstance(typ, ExoType) or typ in _shorthand
+        assert not isinstance(typ, ExoType) or typ in TypeAbbrevA._shorthand
         if typ in TypeAbbrevA._shorthand:
             return TypeAbbrevA._shorthand[typ]
         else:
