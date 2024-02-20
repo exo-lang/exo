@@ -1265,6 +1265,19 @@ def test_divide_loop_perfect2(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_divide_loop_perfect3(golden):
+    @proc
+    def foo(m: size, n: size, A: R[m, n]):
+        assert n % 4 == 0 and m % 8 == 0
+        for i in seq(0, m):
+            for j in seq(0, n):
+                A[i, j] = 0.2
+
+    foo = divide_loop(foo, "i", 8, ["io", "ii"], perfect=True)
+    foo = divide_loop(foo, "j", 4, ["jo", "ji"], perfect=True)
+    assert str(simplify(foo)) == golden
+
+
 def test_divide_loop_perfect_fail():
     @proc
     def foo(n: size, A: i8[n]):

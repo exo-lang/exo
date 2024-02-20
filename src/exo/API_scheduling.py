@@ -1646,7 +1646,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
 
     stmt = loop_cursor._impl
 
-    ir, fwd = scheduling.DoSplit(
+    ir, fwd = scheduling.DoDivideLoop(
         stmt,
         quot=div_const,
         outer_iter=new_iters[0],
