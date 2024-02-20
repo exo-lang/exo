@@ -11,6 +11,7 @@ from .API import Procedure
 import exo.API_cursors as PC
 from .LoopIR import LoopIR, T
 import exo.LoopIR_scheduling as scheduling
+from .API_types import ExoType
 
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
@@ -312,13 +313,21 @@ class EnumA(ArgumentProcessor):
 class TypeAbbrevA(ArgumentProcessor):
     _shorthand = {
         "R": T.R,
+        ExoType.R: T.R,
         "f16": T.f16,
+        ExoType.F16: T.f16,
         "f32": T.f32,
+        ExoType.F32: T.f32,
         "f64": T.f64,
+        ExoType.F64: T.f64,
         "i8": T.int8,
+        ExoType.I8: T.i8,
         "ui8": T.uint8,
+        ExoType.UI8: T.uint8,
         "ui16": T.uint16,
+        ExoType.UI16: T.ui16,
         "i32": T.int32,
+        ExoType.I32: T.i32,
     }
 
     def __call__(self, typ, all_args):
