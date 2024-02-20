@@ -331,12 +331,20 @@ class TypeAbbrevA(ArgumentProcessor):
     }
 
     def __call__(self, typ, all_args):
+        if not isinstance(typ, (str, ExoType)):
+            self.err(
+                f"expected an instance of {ExoType} or {str} specifying the precision",
+                TypeError,
+            )
+        assert not isinstance(typ, ExoType) or typ in _shorthand
         if typ in TypeAbbrevA._shorthand:
             return TypeAbbrevA._shorthand[typ]
         else:
-            precisions = ", ".join([t for t in TypeAbbrevA._shorthand])
+            precisions = ", ".join(
+                [t for t in TypeAbbrevA._shorthand if type(t) is str]
+            )
             self.err(
-                f"expected one of the following strings specifying "
+                f"expected an instance of {ExoType} or one of the following strings specifying "
                 f"precision: {precisions}",
                 ValueError,
             )

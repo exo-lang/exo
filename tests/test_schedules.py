@@ -1792,6 +1792,30 @@ def test_set_precision_api_type(golden):
     assert str(bar) == golden
 
 
+def test_set_precision_illegal_precision_value():
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    with pytest.raises(
+        ValueError,
+        match="expected an instance of <enum 'ExoType'> or one of the following strings",
+    ):
+        bar = set_precision(bar, bar.args()[1], "Z")
+
+
+def test_set_precision_illegal_precision_type():
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    with pytest.raises(
+        TypeError,
+        match="expected an instance of <enum 'ExoType'> or <class 'str'> specifying the precision",
+    ):
+        bar = set_precision(bar, bar.args()[1], bar)
+
+
 def test_rewrite_expr(golden):
     @proc
     def foo(n: size):
