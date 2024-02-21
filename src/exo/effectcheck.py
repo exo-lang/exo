@@ -604,7 +604,7 @@ class CheckEffects:
         if isinstance(expr, E.Const):
             if expr.type == T.bool:
                 return SMT.Bool(expr.val)
-            elif expr.type.is_indexable():
+            elif expr.type.is_indexable() or expr.type.is_stridable():
                 return SMT.Int(expr.val)
             else:
                 assert False, f"unrecognized const type: {type(expr.val)}"
@@ -786,7 +786,7 @@ class CheckEffects:
     def check_bounds(self, sym, shape, eff):
         effs = [(eff.reads, "read"), (eff.writes, "written"), (eff.reduces, "reduced")]
 
-        for (es, y) in effs:
+        for es, y in effs:
             for e in es:
                 self.check_in_bounds(sym, shape, e, y)
 

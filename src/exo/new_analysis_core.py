@@ -90,6 +90,7 @@ module AExpr {
     },
 )
 
+
 # constructor helpers...
 def AInt(x):
     if type(x) is int:
@@ -914,7 +915,7 @@ class SMTSolver:
                     return Z3.BoolVal(e.val)
                 else:
                     return SMT.Bool(e.val)
-            elif e.type.is_indexable():
+            elif e.type.is_indexable() or e.type.is_stridable():
                 if self.Z3_MODE:
                     return Z3.IntVal(e.val)
                 else:
