@@ -110,14 +110,20 @@ class AtomicSchedulingOp:
 
         # invoke the scheduling function with the modified arguments
         ret_val = self.func(*bound_args.args, **bound_args.kwargs)
+
+        # TODO: should we always expect primitives to return the a set of returned cursors?
+        # Or should we check here if the returned cursors are provided by the primitive
+        # and if not throw an error since they were requested by the user.
+
+        # TODO: `extract_subproc` requires careful attention here.
+
+        if not isinstance(ret_val, Tuple) or not isinstance(ret_val[1], CursorsSet):
+            return ret_val
+
         if rc_arg:
-            # TODO: should we always expect primitives to return the a set of returned cursors?
-            # Another option is to check here if the returned cursors are provided by the primitive
-            # and if not throw an error since they were requested by the user.
             return ret_val
         else:
             # Supress the returned cursors
-            # TODO: This would cause an issue with `extract_subproc`
             return ret_val[0]
 
 
@@ -789,6 +795,11 @@ class CustomWindowExprA(NewExprA):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Returned Cursors Dataclass
+
+# TODO: I could not find a way to automatically generate an `__iter__`
+# method for a dataclass. We can easily metaprogram it in `make_cursors_set` below.
+# Another option is to use a `NamedTuple`, but one drawback of this is that we
+# cannot make it a subtype of some base class like we did below.
 
 
 @dataclass
