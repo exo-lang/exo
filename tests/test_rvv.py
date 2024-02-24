@@ -36,8 +36,8 @@ def test_rvv_vfmul():
         p = divide_loop(p, "i", 4, ["io", "ii"], perfect=True)
         t = "C[4 * io + ii]"
         p = stage_mem(p, "C[_] += _", t, "C_reg")
-        p = expand_dim(p, "C_reg", 4, "ii", unsafe_disable_checks=True)
-        p = expand_dim(p, "C_reg", 2, "io", unsafe_disable_checks=True)
+        p = expand_dim(p, "C_reg", 4, "ii")
+        p = expand_dim(p, "C_reg", 2, "io")
 
         p = lift_alloc(p, "C_reg", n_lifts=2)
         p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=2)
@@ -49,8 +49,8 @@ def test_rvv_vfmul():
         p = set_memory(p, "C_reg", RVV)
         for buf in ["A", "B"]:
             p = bind_expr(p, f"{buf}[_]", f"{buf}_vec")
-            p = expand_dim(p, f"{buf}_vec", 4, "ii", unsafe_disable_checks=True)
-            p = expand_dim(p, f"{buf}_vec", 2, "io", unsafe_disable_checks=True)
+            p = expand_dim(p, f"{buf}_vec", 4, "ii")
+            p = expand_dim(p, f"{buf}_vec", 2, "io")
             p = lift_alloc(p, f"{buf}_vec", n_lifts=2)
             p = autofission(p, p.find(f"{buf}_vec[_] = _").after(), n_lifts=2)
             p = replace(p, "for ii in _: _ #0", rvv_vld_4xf32)

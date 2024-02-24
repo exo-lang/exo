@@ -1,0 +1,29 @@
+def bar(n: size, A: i8[n] @ DRAM):
+    for i in seq(0, n):
+        for j in seq(0, n):
+            tmp_a: i8[n] @ DRAM  # <-- NODE
+            ...
+def bar(n: size, A: i8[n] @ DRAM):
+    for i in seq(0, n):
+        for j in seq(0, n):
+            ...
+            tmp_b: i8[n] @ DRAM  # <-- NODE
+            ...
+def bar(n: size, A: i8[n] @ DRAM):
+    for i in seq(0, n):
+        for j in seq(0, n):
+            ...
+            tmp_a[i] = A[i]  # <-- NODE
+            ...
+def bar(n: size, A: i8[n] @ DRAM):
+    for i in seq(0, n):
+        for j in seq(0, n):
+            ...
+            tmp_b[i] = A[i]  # <-- NODE
+def bar(n: size, A: i8[n] @ DRAM):
+    for i in seq(0, n):
+        for j in seq(0, n):  # <-- NODE
+            ...
+def bar(n: size, A: i8[n] @ DRAM):
+    for i in seq(0, n):  # <-- NODE
+        ...

@@ -72,6 +72,23 @@ def proc_bar():
     yield bar
 
 
+@pytest.fixture(scope="session")
+def proc_baz():
+    @proc
+    def baz(n: size, m: size):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                x: f32
+                x = 0.0
+                y: f32
+                y = 1.1
+                for k in seq(0, n):
+                    pass
+                    pass
+
+    yield baz
+
+
 def test_get_root(proc_foo):
     cursor = proc_foo._root()
     assert cursor._node is proc_foo.INTERNAL_proc()
@@ -292,8 +309,7 @@ def test_cursor_forward_expr_deep():
     four = LoopIR.Const(4.0, T.f32, c2._node.srcinfo)
 
     example_new, fwd = c2._replace(four)
-    with pytest.raises(InvalidCursorError, match="cannot forward replaced nodes"):
-        fwd(c2)
+    assert fwd(c2) == _find_cursors(example_new, "4.0")[0]
 
     assert fwd(_find_stmt(example, "x = _")) == _find_stmt(example_new, "x = _")
     assert (
@@ -720,3 +736,230 @@ def test_move_forward_if_orelse(golden):
     ir, fwd = alloc_x._move(alloc_y.after())
     assert fwd(alloc_x)._path == [("body", 0), ("orelse", 1)]
     assert str(ir) == golden
+
+
+def test_insert_forwarding_for_blocks(proc_baz, golden):
+    c = _find_stmt(proc_baz, "x = 0.0")
+
+    b_above = c.parent()
+    b_edit = b_above.body()
+    b_below = b_edit[-1].body()
+    b_before = b_edit[:2]
+    b_after = b_edit[2:]
+
+    _, fwd = c.after()._insert([LoopIR.Pass(None, c._node.srcinfo)])
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+    output.append(_print_cursor(fwd(b_below)))  # below edit level
+    output.append(_print_cursor(fwd(b_before)))  # same edit level, disjoint
+    output.append(_print_cursor(fwd(b_after)))  # same dit level, disjoint
+
+    # Blocks containing the insertion point also work intuitively.
+    output.append(_print_cursor(fwd(b_edit)))
+
+    assert "\n\n".join(output) == golden
+
+
+def test_delete_forwarding_for_blocks(proc_baz, golden):
+    c = _find_cursors(proc_baz, "x = 0.0; y: _")[0]
+
+    b_above = c.parent()
+    b_edit = b_above.body()
+    b_below = b_edit[-1].body()
+    b_before = b_edit[:1]
+    b_after = b_edit[3:]
+
+    b_aligned_with_deletion_on_left = b_edit[1:]
+    b_aligned_with_deletion_on_right = b_edit[:3]
+    b_with_endpoint_in_deletion = b_edit[:2]
+
+    _, fwd = c._delete()
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+    output.append(_print_cursor(fwd(b_below)))  # below edit level
+    output.append(_print_cursor(fwd(b_before)))  # same edit level, disjoint
+    output.append(_print_cursor(fwd(b_after)))  # same edit level, disjoint
+
+    # Blocks entirely containing the deletion block also work intuitively.
+    output.append(_print_cursor(fwd(b_edit)))
+    output.append(_print_cursor(fwd(b_aligned_with_deletion_on_left)))
+    output.append(_print_cursor(fwd(b_aligned_with_deletion_on_right)))
+
+    # Blocks partially containing the deletion block don't work.
+    with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
+        fwd(b_with_endpoint_in_deletion)
+
+    assert "\n\n".join(output) == golden
+
+
+def test_delete_forwarding_for_blocks_fail():
+    @proc
+    def foo():
+        for i in seq(0, 4):
+            x: i8
+            y: i8
+            z: i8
+
+    body = _find_stmt(foo, "for i in _: _").body()
+    _, fwd = body.parent()._delete()
+
+    with pytest.raises(
+        InvalidCursorError, match=r"block no longer exists \(parent deleted\)"
+    ):
+        fwd(body)
+
+
+def test_block_replace_forwarding_for_blocks(proc_baz, golden):
+    c = _find_cursors(proc_baz, "x = 0.0; _; y = 1.1")[0]
+
+    b_above = c.parent()
+    b_edit = b_above.body()
+    b_below = b_edit[-1].body()
+    b_before = b_edit[:1]
+    b_after = b_edit[4:]
+    b_with_endpoint_in_replace = b_edit[:2]
+
+    # replace 1:4 with two pass stmts
+    pass_ir = LoopIR.Pass(None, c[0]._node.srcinfo)
+    _, fwd = c._replace([pass_ir, pass_ir])
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+    output.append(_print_cursor(fwd(b_below)))  # below edit level
+    output.append(_print_cursor(fwd(b_before)))  # same edit level, disjoint
+    output.append(_print_cursor(fwd(b_after)))  # same edit level, disjoint
+
+    # Blocks containing the entire replace block work intuitively.
+    output.append(_print_cursor(fwd(b_edit)))
+    output.append(_print_cursor(fwd(c)))
+
+    # Blocks partially containing the replace block have undefined behavior.
+    with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
+        fwd(b_with_endpoint_in_replace)
+
+    assert "\n\n".join(output) == golden
+
+
+def test_node_replace_forwarding(proc_baz):
+    c = _find_cursors(proc_baz, "1.1")[0]
+    _, fwd = c._replace(LoopIR.Const(42.0, T.f32, c._node.srcinfo))
+    assert fwd(c)._node.val == 42.0
+
+
+def test_block_replace_forwarding_stmt_to_stmt(proc_baz):
+    c = _find_stmt(proc_baz, "x = 0")
+    _, fwd = c._replace(LoopIR.Pass(None, c._node.srcinfo))
+    assert isinstance(fwd(c)._node, LoopIR.Pass)
+
+
+def test_wrap_forwarding_for_blocks(proc_baz, golden):
+    c = _find_cursors(proc_baz, "y: _; y = 1.1")[0]
+
+    b_above = c.parent()
+    b_edit = b_above.body()
+    b_below = b_edit[-1].body()
+
+    b_before = b_edit[:2]
+    b_after = b_edit[4:]
+    b_with_endpoint_in_replace = b_edit[:3]
+
+    # wrap 2:4 with a for loop
+    k = Sym("k")
+
+    def wrapper(body):
+        src = body[0].srcinfo
+        zero = LoopIR.Const(0, T.index, src)
+        eight = LoopIR.Const(8, T.index, src)
+        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), None, src)
+
+    _, fwd = c._wrap(wrapper, "body")
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+    output.append(_print_cursor(fwd(b_below)))  # below edit level
+    output.append(_print_cursor(fwd(b_before)))  # same edit level, disjoint
+    output.append(_print_cursor(fwd(b_after)))  # same edit level, disjoint
+
+    # Blocks containing the entire wrap block work intuitively.
+    output.append(_print_cursor(fwd(b_edit)))
+
+    # Blocks within the wrap block work intuitively
+    output.append(_print_cursor(fwd(c)))
+
+    # Blocks partially containing the wrap block don't work.
+    with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
+        output.append(_print_cursor(fwd(b_with_endpoint_in_replace)))
+
+    assert "\n\n".join(output) == golden
+
+
+def test_move_forwarding_for_blocks(proc_baz, golden):
+    c = _find_cursors(proc_baz, "y: _; y = 1.1")[0]
+    g = c[0].prev().before()
+
+    b_above = c.parent()
+    b_edit = b_above.body()
+    b_below = b_edit[-1].body()
+
+    b_with_gap = b_edit[:2]
+    b_without_gap = b_edit[4:]
+    b_with_endpoint_in_moved_block = b_edit[:3]
+
+    _, fwd = c._move(g)
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+    output.append(_print_cursor(fwd(b_below)))  # below edit level
+    output.append(_print_cursor(fwd(b_with_gap)))  # contains gap we are moving block to
+    output.append(_print_cursor(fwd(b_without_gap)))
+
+    # Blocks containing the entire moved block work intuitively.
+    output.append(_print_cursor(fwd(b_edit)))
+
+    # Blocks within the moved block work intuitively
+    output.append(_print_cursor(fwd(c)))
+
+    # Blocks partially containing the wrap block don't work.
+    with pytest.raises(
+        InvalidCursorError,
+        match=r"move cannot forward block because exactly one endpoint",
+    ):
+        output.append(_print_cursor(fwd(b_with_endpoint_in_moved_block)))
+
+    assert "\n\n".join(output) == golden
+
+
+def test_move_forwarding_for_blocks_gap_after(proc_baz, golden):
+    c = _find_cursors(proc_baz, "y: _; y = 1.1")[0]
+    g = _find_stmt(proc_baz, "pass #0").after()
+
+    b_above = c.parent()
+    b_moved_block_body = b_above.body()
+    b_gap_body = g.anchor().parent().body()
+
+    b_with_endpoint_in_moved_block = b_moved_block_body[:3]
+
+    _, fwd = c._move(g)
+
+    output = []
+    output.append(_print_cursor(fwd(b_above)))  # above edit level
+
+    # Blocks containing the entire moved block work intuitively.
+    output.append(_print_cursor(fwd(b_moved_block_body)))
+
+    # Blocks containing the gap we are moving block to work intuitively
+    output.append(_print_cursor(fwd(b_gap_body)))
+
+    # Blocks within the moved block work intuitively
+    output.append(_print_cursor(fwd(c)))
+
+    # Blocks partially containing the wrap block don't work.
+    with pytest.raises(
+        InvalidCursorError,
+        match=r"move cannot forward block because exactly one endpoint",
+    ):
+        output.append(_print_cursor(fwd(b_with_endpoint_in_moved_block)))
+
+    assert "\n\n".join(output) == golden

@@ -11,6 +11,7 @@ from .API import Procedure
 import exo.API_cursors as PC
 from .LoopIR import LoopIR, T
 import exo.LoopIR_scheduling as scheduling
+from .API_types import ExoType
 
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
@@ -332,22 +333,38 @@ class EnumA(ArgumentProcessor):
 class TypeAbbrevA(ArgumentProcessor):
     _shorthand = {
         "R": T.R,
+        ExoType.R: T.R,
         "f16": T.f16,
+        ExoType.F16: T.f16,
         "f32": T.f32,
+        ExoType.F32: T.f32,
         "f64": T.f64,
+        ExoType.F64: T.f64,
         "i8": T.int8,
+        ExoType.I8: T.i8,
         "ui8": T.uint8,
+        ExoType.UI8: T.uint8,
         "ui16": T.uint16,
+        ExoType.UI16: T.ui16,
         "i32": T.int32,
+        ExoType.I32: T.i32,
     }
 
     def __call__(self, typ, all_args):
+        if not isinstance(typ, (str, ExoType)):
+            self.err(
+                f"expected an instance of {ExoType} or {str} specifying the precision",
+                TypeError,
+            )
+        assert not isinstance(typ, ExoType) or typ in TypeAbbrevA._shorthand
         if typ in TypeAbbrevA._shorthand:
             return TypeAbbrevA._shorthand[typ]
         else:
-            precisions = ", ".join([t for t in TypeAbbrevA._shorthand])
+            precisions = ", ".join(
+                [t for t in TypeAbbrevA._shorthand if type(t) is str]
+            )
             self.err(
-                f"expected one of the following strings specifying "
+                f"expected an instance of {ExoType} or one of the following strings specifying "
                 f"precision: {precisions}",
                 ValueError,
             )
@@ -950,6 +967,35 @@ def commute_expr(proc, expr_cursors):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([ExprCursorA])
+def left_reassociate_expr(proc, expr):
+    """
+    Reassociate the binary operations of '+' and '*'.
+
+    args:
+        expr - the expression to reassociate
+
+    rewrite:
+        a + (b + c)
+            ->
+        (a + b) + c
+    """
+    expr = expr._impl
+    if not isinstance(expr._node, LoopIR.BinOp) or (
+        expr._node.op != "+" and expr._node.op != "*"
+    ):
+        raise TypeError(f"Only '+' or '*' can be reassociated, got {expr._node.op}")
+    if (
+        not isinstance(expr._node.rhs, LoopIR.BinOp)
+        or expr._node.rhs.op != expr._node.op
+    ):
+        raise TypeError(
+            f"The rhs of the expression must be the same binary operation as the expression ({expr._node.op})"
+        )
+    ir, fwd = scheduling.DoLeftReassociateExpr(expr)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([ExprCursorA, NewExprA("expr_cursor")])
 def rewrite_expr(proc, expr_cursor, new_expr):
     """
@@ -1223,8 +1269,8 @@ def resize_dim(proc, buf_cursor, dim_idx, size, offset):
     args:
         buf_cursor      - cursor pointing to the Alloc
         dim_idx         - which dimension to shrink
-        lo              - an expression for the low end of the range
-        hi              - an expression for the high end of the range
+        size            - new size as a positive expression
+        offset          - offset for adjusting the buffer access
 
     rewrite:
         `x : T[n, ...] ; s`
@@ -1239,8 +1285,8 @@ def resize_dim(proc, buf_cursor, dim_idx, size, offset):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor"), BoolA])
-def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks=False):
+@sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
+def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr):
     """
     TODO: rename this...expand_dim sounds like its increasing the size
     of a dimension. It should be more like add_dim.
@@ -1295,42 +1341,6 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
 
     ir, fwd = scheduling.DoRearrangeDim(stmt, permute_vector)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
-
-
-@sched_op([AllocCursorA, ListA(OptionalA(NewExprA("buf_cursor"))), BoolA])
-def bound_alloc(proc, buf_cursor, new_bounds, unsafe_disable_checks=False):
-    """
-    NOTE: TODO: This name needs to be changed
-    change the dimensional extents of an allocation, but leave the number
-    and order of dimensions the same.
-
-    args:
-        buf_cursor      - cursor pointing to the Alloc to change bounds of
-        new_bounds      - (list of strings/ints) expressions for the
-                          new sizes of each buffer dimension.
-                          Pass `None` for any dimensions you do not want
-                          to change the extent/bound of.
-
-    rewrite:
-        bound_alloc(p, 'x : _', ['N+1',None])
-        `x : T[N,M]` -> `x : T[N+1,M]`
-
-    checks:
-        The new bounds are checked to make sure they don't cause any
-        out-of-bounds memory accesses
-    """
-    stmt = buf_cursor._impl
-    if len(stmt._node.type.hi) != len(new_bounds):
-        raise ValueError(
-            f"buffer has {len(stmt._node.type.hi)} dimensions, "
-            f"but only {len(new_bounds)} bounds were supplied"
-        )
-    new_proc_c = scheduling.DoBoundAlloc(proc, stmt, new_bounds).result()
-
-    if not unsafe_disable_checks:
-        CheckEffects(new_proc_c._node)
-
-    return new_proc_c
 
 
 @sched_op([AllocCursorA, IntA, PosIntA])
@@ -1701,7 +1711,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
 
     stmt = loop_cursor._impl
 
-    ir, fwd = scheduling.DoSplit(
+    ir, fwd = scheduling.DoDivideLoop(
         stmt,
         quot=div_const,
         outer_iter=new_iters[0],
@@ -1899,6 +1909,24 @@ def merge_writes(proc, block_cursor):
         )
 
     ir, fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([AssignCursorA])
+def fold_into_reduce(proc, assign):
+    """
+    Fold an assignment into a reduction if the rhs is an addition
+    whose lhs is equal to the lhs of the assignment.
+
+    args:
+        assign: a cursor pointing to the assignment to fold.
+
+    rewrite:
+        a = a + (expr)
+            ->
+        a += expr
+    """
+    ir, fwd = scheduling.DoFoldIntoReduce(assign._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

@@ -158,6 +158,19 @@ def test_simplify_forwarding(golden):
     assert str(foo1.forward(stmt)._impl._node) == golden
 
 
+def test_simplify_predicates_forwarding():
+    @proc
+    def foo(n: size):
+        assert n >= 1
+        for i in seq(0, n):
+            pass
+
+    loop = foo.find_loop("i")
+    foo = simplify(foo)
+    loop = foo.forward(loop)
+    assert loop == foo.find_loop("i")
+
+
 def test_type_and_shape_introspection():
     @proc
     def foo(n: size, m: index, flag: bool):
@@ -166,7 +179,7 @@ def test_type_and_shape_introspection():
         b: i32[n]
         c: i8[n]
         d: f32[n]
-        e: f64[n]
+        e: f64[2]
 
     assert foo.find("a:_").type() == ExoType.R
     assert foo.find("b:_").type() == ExoType.I32
@@ -177,6 +190,7 @@ def test_type_and_shape_introspection():
     assert foo.args()[1].type() == ExoType.Index
     assert foo.args()[2].type() == ExoType.Bool
     assert str(foo.find("a:_").shape()[0]._impl._node) == "n + m"
+    assert foo.find("e : _").shape()[0].type() == ExoType.Int
 
 
 def test_expand_dim_forwarding(golden):

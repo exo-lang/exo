@@ -1,0 +1,8 @@
+def foo1():
+    x: i8[5] @ DRAM
+    for i in seq(3, 6):
+        bar(x[i - 2:i + 3 - 2])
+def foo2():
+    x: i8[15, 10] @ DRAM
+    for i in seq(3, 6):
+        bar(x[i - 2, i:i + 3])
