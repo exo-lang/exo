@@ -111,8 +111,8 @@ class AtomicSchedulingOp:
         # invoke the scheduling function with the modified arguments
         ret_val = self.func(*bound_args.args, **bound_args.kwargs)
 
-        # TODO: should we always expect primitives to return the a set of returned cursors?
-        # Or should we check here if the returned cursors are provided by the primitive
+        # TODO: should we always expect primitives to return the a set of relevant cursors?
+        # Or should we check here if the relevant cursors are provided by the primitive
         # and if not throw an error since they were requested by the user.
 
         # TODO: `extract_subproc` requires careful attention here.
@@ -123,7 +123,7 @@ class AtomicSchedulingOp:
         if rc_arg:
             return ret_val
         else:
-            # Supress the returned cursors
+            # Supress the relevant cursors
             return ret_val[0]
 
 
@@ -794,7 +794,7 @@ class CustomWindowExprA(NewExprA):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Returned Cursors Dataclass
+# relevant cursors Dataclass
 
 # TODO: I could not find a way to automatically generate an `__iter__`
 # method for a dataclass. We can easily metaprogram it in `make_cursors_set` below.
@@ -844,6 +844,15 @@ def simplify(proc):
     Simplify the code in the procedure body. Tries to reduce expressions
     to constants and eliminate dead branches and loops. Uses branch
     conditions to simplify expressions inside the branches.
+
+    TODO: Now that we tried to write the documentation of this, it feels
+    awkward to support it when there is nothing to return.
+
+    args:
+        rc      - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        No cursors are returned.
     """
     # TODO: remove provenance handling from simplifier implementation
     return scheduling.DoSimplify(proc).result(), simplifyCursorsSet()
@@ -859,6 +868,10 @@ def rename(proc, name):
 
     args:
         name    - string
+        rc      - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        No cursors are returned.
     """
     ir = proc._loopir_proc
     ir = ir.update(name=name)
@@ -874,6 +887,10 @@ def make_instr(proc, instr):
 
     args:
         name    - string representing an instruction macro
+        rc      - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        No cursors are returned.
     """
     ir = proc._loopir_proc
     ir = ir.update(instr=instr)
@@ -894,6 +911,10 @@ def insert_pass(proc, gap_cursor):
 
     args:
         gap_cursor  - where to insert the new `pass` statement
+        rc          - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        pass        - a cursor to the inserted pass statement
 
     rewrite:
         `s1 ; s2` <--- gap_cursor pointed at the semi-colon
@@ -910,6 +931,12 @@ def delete_pass(proc):
     DEPRECATED (to be replaced by a more general operation)
 
     Delete all `pass` statements in the procedure.
+
+    args:
+        rc          - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        No cursors are returned.
     """
     return scheduling.DoDeletePass(proc).result()
 
@@ -921,6 +948,10 @@ def reorder_stmts(proc, block_cursor):
 
     args:
         block_cursor    - a cursor to a two statement block to reorder
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        block           - a block containing the two statements after the reordering.
 
     rewrite:
         `s1 ; s2`  <-- block_cursor
@@ -936,6 +967,23 @@ def reorder_stmts(proc, block_cursor):
 
 @sched_op([ForCursorA])
 def parallelize_loop(proc, loop_cursor):
+    """
+    Mark a loop as a parallel loop.
+
+    args:
+        loop            - a cursor to the the loop to mark as parallel
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        loop            - a cursor to the parallelized loop
+
+    rewrite:
+        for i in seq(lo, hi):
+            B
+        -->
+        for i in par(lo, hi):
+            B
+    """
     loop = loop_cursor._impl
 
     ir, fwd = scheduling.DoParallelizeLoop(loop)
@@ -949,6 +997,10 @@ def commute_expr(proc, expr_cursors):
 
     args:
         expr_cursors - a list of cursors to the binary operation
+        rc           - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        exprs        - a tuple of cursors to the commuted expressions
 
     rewrite:
         `a * b` <-- expr_cursor
@@ -985,6 +1037,10 @@ def left_reassociate_expr(proc, expr):
 
     args:
         expr - the expression to reassociate
+        rc   - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        expr - a cursor to the expression after left-reassociation
 
     rewrite:
         a + (b + c)
@@ -1013,6 +1069,14 @@ def rewrite_expr(proc, expr_cursor, new_expr):
     Replaces [expr_cursor] with [new_expr] if the two are equivalent
     in the context.
 
+    args:
+        expr_cursor     - a cursor to the expression to rewrite
+        new_expr        - the new expression
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        expr            - a cursor to the new expression
+
     rewrite:
         `s`
         ->
@@ -1035,6 +1099,12 @@ def bind_expr(proc, expr_cursors, new_name):
         expr_cursors    - a list of cursors to multiple instances of the
                           same expression
         new_name        - a string to name the new buffer
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        alloc           - a cursor to the new allocation
+        assign          - a cursor to the assignment that binds the expression
+        reads           - a tuple of cursors to the reads of the new buffer
 
     rewrite:
         bind_expr(..., '32.0 * x[i]', 'b')
@@ -1078,6 +1148,10 @@ def inline(proc, call_cursor):
     args:
         call_cursor     - Cursor or pattern pointing to a Call statement
                           whose body we want to inline
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        block           - a block containing the inlined body of the sub-procedure call
     """
     ir, fwd = scheduling.DoInline(call_cursor._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
@@ -1096,6 +1170,10 @@ def replace(proc, block_cursor, subproc, quiet=False):
                           call to
         quiet           - (bool) control how much this operation prints
                           out debug info
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        call           - a cursor to the call of the subprocedure
     """
     try:
         ir, fwd = DoReplace(subproc._loopir_proc, block_cursor._impl)
@@ -1120,6 +1198,10 @@ def call_eqv(proc, call_cursor, eqv_proc):
         call_cursor     - Cursor or pattern pointing to a Call statement
         eqv_proc        - Procedure object for the procedure to be
                           substituted in
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        call           - a cursor to the call of the equivalent proc
 
     rewrite:
         `orig_proc(...)`    ->    `eqv_proc(...)`
@@ -1145,6 +1227,10 @@ def set_precision(proc, cursor, typ):
     args:
         name    - string w/ optional count, e.g. "x" or "x #3"
         typ     - string representing base data type
+        rc      - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        cursor  - a cursor to the arg/alloc after setting the precision
 
     rewrite:
         `name : _[...]    ->    name : typ[...]`
@@ -1162,6 +1248,10 @@ def set_window(proc, cursor, is_window=True):
     args:
         name        - string w/ optional count, e.g. "x" or "x #3"
         is_window   - boolean representing whether a buffer is a window
+        rc          - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        arg         - a cursor to the argument after setting the window
 
     rewrite when is_window = True:
         `name : R[...]    ->    name : [R][...]`
@@ -1178,6 +1268,10 @@ def set_memory(proc, cursor, memory_type):
     args:
         name    - string w/ optional count, e.g. "x" or "x #3"
         mem     - new Memory object
+        rc      - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        cursor  - a cursor to the arg/alloc after setting the memory
 
     rewrite:
         `name : _ @ _    ->    name : _ @ mem`
