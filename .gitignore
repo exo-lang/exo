@@ -26,3 +26,4 @@ configure
 dependencies/chipyard
 
 .vscode
+scratch/

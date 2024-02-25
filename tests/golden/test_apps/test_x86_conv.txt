@@ -74,22 +74,22 @@ double _relu_(double x) {
 //     bias : f32[128] @DRAM
 // )
 void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias ) {
-for (int_fast32_t oc_o = 0; oc_o < 2; oc_o++) {
-  for (int_fast32_t n = 0; n < 5; n++) {
-    for (int_fast32_t oy = 0; oy < 80; oy++) {
-      for (int_fast32_t ox_o = 0; ox_o < 20; ox_o++) {
+for (int_fast32_t oc_o = ((int_fast32_t) 0); oc_o < ((int_fast32_t) 2); oc_o++) {
+  for (int_fast32_t n = ((int_fast32_t) 0); n < ((int_fast32_t) 5); n++) {
+    for (int_fast32_t oy = ((int_fast32_t) 0); oy < ((int_fast32_t) 80); oy++) {
+      for (int_fast32_t ox_o = ((int_fast32_t) 0); ox_o < ((int_fast32_t) 20); ox_o++) {
         __m512 res[5][4];
-        for (int_fast32_t ox_i = 0; ox_i < 5; ox_i++) {
-          for (int_fast32_t oc_u = 0; oc_u < 4; oc_u++) {
+        for (int_fast32_t ox_i = ((int_fast32_t) 0); ox_i < ((int_fast32_t) 5); ox_i++) {
+          for (int_fast32_t oc_u = ((int_fast32_t) 0); oc_u < ((int_fast32_t) 4); oc_u++) {
             res[ox_i][oc_u] = _mm512_loadu_ps(&bias[16 * oc_u + 64 * oc_o]);
           }
         }
-        for (int_fast32_t ky = 0; ky < 3; ky++) {
-          for (int_fast32_t kx = 0; kx < 3; kx++) {
-            for (int_fast32_t kc_o = 0; kc_o < 64; kc_o++) {
-              for (int_fast32_t kc_i = 0; kc_i < 2; kc_i++) {
-                for (int_fast32_t ox_i = 0; ox_i < 5; ox_i++) {
-                  for (int_fast32_t oc_u = 0; oc_u < 4; oc_u++) {
+        for (int_fast32_t ky = ((int_fast32_t) 0); ky < ((int_fast32_t) 3); ky++) {
+          for (int_fast32_t kx = ((int_fast32_t) 0); kx < ((int_fast32_t) 3); kx++) {
+            for (int_fast32_t kc_o = ((int_fast32_t) 0); kc_o < ((int_fast32_t) 64); kc_o++) {
+              for (int_fast32_t kc_i = ((int_fast32_t) 0); kc_i < ((int_fast32_t) 2); kc_i++) {
+                for (int_fast32_t ox_i = ((int_fast32_t) 0); ox_i < ((int_fast32_t) 5); ox_i++) {
+                  for (int_fast32_t oc_u = ((int_fast32_t) 0); oc_u < ((int_fast32_t) 4); oc_u++) {
                     __m512 wt_vec;
                     wt_vec = _mm512_loadu_ps(&weights[(kc_i + 2 * kc_o) * (1152) + (ky) * (384) + (kx) * (128) + 16 * oc_u + 64 * oc_o]);
                     __m512 in_vec;
@@ -101,8 +101,8 @@ for (int_fast32_t oc_o = 0; oc_o < 2; oc_o++) {
             }
           }
         }
-        for (int_fast32_t ox_i = 0; ox_i < 5; ox_i++) {
-          for (int_fast32_t oc_u = 0; oc_u < 4; oc_u++) {
+        for (int_fast32_t ox_i = ((int_fast32_t) 0); ox_i < ((int_fast32_t) 5); ox_i++) {
+          for (int_fast32_t oc_u = ((int_fast32_t) 0); oc_u < ((int_fast32_t) 4); oc_u++) {
             __m512 relu_v;
             relu_v = _mm512_max_ps(res[ox_i][oc_u], (__m512){0});
             _mm512_storeu_ps(&output[(n) * (1024000) + (oy) * (12800) + (ox_i + 5 * ox_o) * (128) + 16 * oc_u + 64 * oc_o], relu_v);

@@ -12,8 +12,8 @@
 // )
 void foo( void *ctxt, int8_t* x ) {
 #pragma omp parallel for
-for (int_fast32_t i = 0; i < 10; i++) {
-  x[i] = 1.0;
+for (int_fast32_t i = ((int_fast32_t) 0); i < ((int_fast32_t) 10); i++) {
+  x[i] = ((int8_t) 1.0);
 }
 }
 

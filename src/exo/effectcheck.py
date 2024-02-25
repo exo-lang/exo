@@ -604,7 +604,7 @@ class CheckEffects:
         if isinstance(expr, E.Const):
             if expr.type == T.bool:
                 return SMT.Bool(expr.val)
-            elif expr.type.is_indexable() or expr.type.is_stridable():
+            elif expr.type.is_indexable():
                 return SMT.Int(expr.val)
             else:
                 assert False, f"unrecognized const type: {type(expr.val)}"

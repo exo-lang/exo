@@ -994,7 +994,7 @@ class Compiler:
         elif isinstance(e, LoopIR.Const):
             if isinstance(e.val, bool):
                 return "true" if e.val else "false"
-            return str(e.val)
+            return f"(({e.type.ctype()}) {str(e.val)})"
 
         elif isinstance(e, LoopIR.BinOp):
             local_prec = op_prec[e.op]

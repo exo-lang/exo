@@ -209,7 +209,10 @@ def test_call_pass1():
     def hoge(y: R):
         pass
 
-    with pytest.raises(TypeError, match="expected scalar type"):
+    # integer scalar now coerces to R if it is an environment where R is required
+    with pytest.raises(
+        TypeError, match="expected scalar arguments to be simply variable names for now"
+    ):
 
         @proc
         def huga():
@@ -350,11 +353,10 @@ def test_binop6():
 
 
 def test_binop7():
-    with pytest.raises(TypeError, match="expected scalar type"):
-
-        @proc
-        def hoge(x: R):
-            x = x + 8
+    # integer scalar now coerces to R if it is an environment where R is required
+    @proc
+    def hoge(x: R):
+        x = x + 8
 
 
 def test_binop8():

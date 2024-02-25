@@ -58,8 +58,8 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 //     x : f32[N] @DRAM
 // )
 void foo( void *ctxt, int_fast32_t N, float* x ) {
-for (int_fast32_t i = 0; i < N; i++) {
-  x[-i + N - 1] = 0.0;
+for (int_fast32_t i = ((int_fast32_t) 0); i < N; i++) {
+  x[-i + N - 1] = ((float) 0.0);
 }
 }
 

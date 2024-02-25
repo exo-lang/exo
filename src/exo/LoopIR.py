@@ -105,12 +105,10 @@ module LoopIR {
          | F16()
          | F32()
          | F64()
-         | FX()
          | INT8()
          | UINT8()
          | UINT16()
          | INT32()
-         | INTX()
          | Bool()
          | Int()
          | Index()
@@ -141,12 +139,10 @@ module LoopIR {
         "F16",
         "F32",
         "F64",
-        "FX",
         "INT8",
         "UINT16",
         "UINT8",
         "INT32",
-        "INTX",
         "Bool",
         "Int",
         "Index",
@@ -408,12 +404,10 @@ class T:
     F16 = LoopIR.F16
     F32 = LoopIR.F32
     F64 = LoopIR.F64
-    FX = LoopIR.FX
     INT8 = LoopIR.INT8
     UINT8 = LoopIR.UINT8
     UINT16 = LoopIR.UINT16
     INT32 = LoopIR.INT32
-    INTX = LoopIR.INTX
     Bool = LoopIR.Bool
     Int = LoopIR.Int
     Index = LoopIR.Index
@@ -426,7 +420,6 @@ class T:
     R = Num()
     f16 = F16()
     f32 = F32()
-    fx = FX()
     int8 = INT8()
     uint8 = UINT8()
     uint16 = UINT16()
@@ -435,7 +428,6 @@ class T:
     ui16 = UINT16()
     int32 = INT32()
     i32 = INT32()
-    ix = INTX()
     f64 = F64()
     bool = Bool()  # note: accessed as T.bool outside this module
     int = Int()
@@ -455,12 +447,10 @@ class T:
 @extclass(T.F16)
 @extclass(T.F32)
 @extclass(T.F64)
-@extclass(T.FX)
 @extclass(T.INT8)
 @extclass(T.UINT8)
 @extclass(T.UINT16)
 @extclass(T.INT32)
-@extclass(T.INTX)
 def shape(t):
     if isinstance(t, T.Window):
         return t.as_tensor.shape()
@@ -478,12 +468,10 @@ del shape
 @extclass(T.F16)
 @extclass(T.F32)
 @extclass(T.F64)
-@extclass(T.FX)
 @extclass(T.INT8)
 @extclass(T.UINT8)
 @extclass(T.UINT16)
 @extclass(T.INT32)
-@extclass(T.INTX)
 @extclass(T.Bool)
 @extclass(T.Int)
 @extclass(T.Index)
@@ -498,9 +486,6 @@ def ctype(t):
         return "float"
     elif isinstance(t, T.F64):
         return "double"
-    elif isinstance(t, T.FX):
-        # as convention with C, unconstrained floating point literal is assumed to be f64
-        return "double"
     elif isinstance(t, T.INT8):
         return "int8_t"
     elif isinstance(t, T.UINT8):
@@ -508,9 +493,6 @@ def ctype(t):
     elif isinstance(t, T.UINT16):
         return "uint16_t"
     elif isinstance(t, T.INT32):
-        return "int32_t"
-    elif isinstance(t, T.INTX):
-        # as convention with C, unconstrained integer literal is assumed to be i32
         return "int32_t"
     elif isinstance(t, T.Bool):
         return "bool"
@@ -524,8 +506,7 @@ del ctype
 @extclass(LoopIR.type)
 def is_real_scalar(t):
     return isinstance(
-        t,
-        (T.Num, T.F16, T.F32, T.F64, T.FX, T.INT8, T.UINT8, T.UINT16, T.INT32, T.INTX),
+        t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.UINT8, T.UINT16, T.INT32)
     )
 
 
