@@ -156,7 +156,6 @@ class InferEffects:
             return styp(
                 stmt.name,
                 stmt.type,
-                stmt.cast,
                 stmt.idx,
                 stmt.rhs,
                 effects,

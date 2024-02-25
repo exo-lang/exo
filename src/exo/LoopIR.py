@@ -71,8 +71,8 @@ module LoopIR {
                mem?    mem,
                srcinfo srcinfo )
 
-    stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
-         | Reduce( sym name, type type, string? cast, expr* idx, expr rhs )
+    stmt = Assign( sym name, type type, expr* idx, expr rhs )
+         | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
          | If( expr cond, stmt* body, stmt* orelse )

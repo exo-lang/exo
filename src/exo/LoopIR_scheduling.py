@@ -509,7 +509,6 @@ def DoFoldIntoReduce(assign):
     reduce_stmt = LoopIR.Reduce(
         assign_s.name,
         assign_s.type,
-        assign_s.cast,
         assign_s.idx,
         assign_s.rhs.rhs,
         None,
@@ -1161,7 +1160,7 @@ def DoBindExpr(new_name, expr_cursors):
     new_name = Sym(new_name)
     alloc_s = LoopIR.Alloc(new_name, expr.type.basetype(), None, None, expr.srcinfo)
     assign_s = LoopIR.Assign(
-        new_name, expr.type.basetype(), None, [], expr, None, expr.srcinfo
+        new_name, expr.type.basetype(), [], expr, None, expr.srcinfo
     )
     ir, fwd = init_c.before()._insert([alloc_s, assign_s])
 
@@ -1360,7 +1359,7 @@ def DoLiftConstant(assign_c, loop_c):
     assign_s = assign_c._node
     loop = loop_c._node
 
-    for (name, typ) in get_reads_of_stmts(loop.body):
+    for name, typ in get_reads_of_stmts(loop.body):
         if assign_s.name == name and assign_s.type == typ:
             raise SchedulingError(
                 "cannot lift constant because the buffer is read in the loop body"
@@ -1441,7 +1440,7 @@ def DoLiftConstant(assign_c, loop_c):
 
     constant = relevant_reduces[0]._node.rhs.lhs
     if isinstance(constant, LoopIR.Read):
-        for (name, typ) in get_writes_of_stmts(loop.body):
+        for name, typ in get_writes_of_stmts(loop.body):
             if constant.name == name and constant.type == typ:
                 raise SchedulingError(
                     "cannot lift constant because it is a buffer that is written in the loop body"
@@ -1797,6 +1796,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
 # --------------------------------------------------------------------------- #
 # Lifting and sinking an allocation
 
+
 # TODO: the primitive should probably just be lifting once, and then we can expose
 # a higher-level API that lifts multiple times
 def DoLiftAllocSimple(alloc_cursor, n_lifts):
@@ -1867,6 +1867,7 @@ def DoSinkAlloc(alloc_cursor, scope_cursor):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
+
 
 # TODO: Implement autolift_alloc's logic using high-level scheduling metaprogramming and
 #       delete this code
@@ -3802,7 +3803,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             load_rhs = LoopIR.Read(buf_name, load_ridx, basetyp, srcinfo)
 
         load_nest = [
-            LoopIR.Assign(new_name, basetyp, None, load_widx, load_rhs, None, srcinfo)
+            LoopIR.Assign(new_name, basetyp, load_widx, load_rhs, None, srcinfo)
         ]
 
         for i, n in reversed(list(zip(load_iter, shape))):
@@ -3841,7 +3842,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         store_rhs = LoopIR.Read(new_name, store_ridx, basetyp, srcinfo)
         store_stmt = LoopIR.Reduce if use_accum_zero else LoopIR.Assign
         store_nest = [
-            store_stmt(buf_name, basetyp, None, store_widx, store_rhs, None, srcinfo)
+            store_stmt(buf_name, basetyp, store_widx, store_rhs, None, srcinfo)
         ]
 
         for i, n in reversed(list(zip(store_iter, shape))):
@@ -3965,7 +3966,6 @@ class DoStageWindow(Cursor_Rewrite):
         copy_stmt = LoopIR.Assign(
             self.new_name,
             data_type,
-            None,
             staged_var_reads,
             LoopIR.Read(self.target_expr.name, buf_points, data_type, srcinfo),
             None,

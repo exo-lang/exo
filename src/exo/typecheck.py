@@ -165,7 +165,7 @@ class TypeChecker:
             assert typ.is_real_scalar() or typ is T.err
 
             IRnode = LoopIR.Assign if isinstance(stmt, UAST.Assign) else LoopIR.Reduce
-            return [IRnode(stmt.name, typ, None, idx, rhs, None, stmt.srcinfo)]
+            return [IRnode(stmt.name, typ, idx, rhs, None, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.WriteConfig):
             # Check that field is in config
