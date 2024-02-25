@@ -438,6 +438,30 @@ def test_binop15():
                 pass
 
 
+def test_binop16():
+    @proc
+    def foo(x: f32, y: f32):
+        x = y + (1 * 4)
+
+
+def test_binop17():
+    # attempt to coerce to R should not allow mod on R scalars
+    with pytest.raises(TypeError, match="expected scalar type"):
+
+        @proc
+        def foo(x: i32, y: i32):
+            x = y + (1 % 4)
+
+
+def test_binop18():
+    # do not coerce if adding to control value
+    with pytest.raises(TypeError, match="expected scalar type"):
+
+        @proc
+        def foo(x: i32, y: i32, n: size):
+            x = y * (n + 1)
+
+
 def test_proj_bad():
     msg = "type-shape of calling argument may not equal the required type-shape"
 

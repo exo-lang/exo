@@ -530,3 +530,18 @@ def test_pragma_parallel_loop(golden):
     c_file, _ = compile_procs_to_strings([foo], "test.h")
 
     assert c_file == golden
+
+
+def test_const_type_coercion(compiler):
+    # 16777216 = 1 << 24 = integer precision limit for f32
+    @proc
+    def foo(x: f64[1], y: f32[1]):
+        x[0] = (16777216.0 + 1.0) + y[0]
+
+    # all consts should coerce to f32
+    # so, 16777216 + 1 should yield 16777216 again
+    x = np.array([3.0], dtype=np.float64)
+    y = np.array([1.0], dtype=np.float32)
+    fn = compiler.compile(foo)
+    fn(None, x, y)
+    assert x[0] == 16777216
