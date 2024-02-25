@@ -1521,6 +1521,10 @@ def unroll_buffer(proc, alloc_cursor, dimension):
     args:
         alloc_cursor  - cursor to the buffer with constant dimension
         dimension     - dimension to unroll
+        rc            - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        alloc         - a block cursor to the unrolled allocations
 
     rewrite:
         `buf : T[2]` <- alloc_cursor
@@ -1543,6 +1547,10 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
     args:
         alloc_cursor    - cursor to the allocation to lift up
         n_lifts         - number of times to try to move the allocation up
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        alloc           - cursor to the lifted allocation (alloc_cursor forwarded)
 
     rewrite:
         `for i in _:`
@@ -1568,6 +1576,10 @@ def sink_alloc(proc, alloc_cursor):
 
     args:
         alloc_cursor    - cursor to the allocation to sink up
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        alloc           - cursor to the sunken allocation (alloc_cursor forwarded)
 
     rewrite:
         `buf : T`       <- alloc_cursor
@@ -1606,6 +1618,10 @@ def autolift_alloc(
                           on the inner or outer position
         size            - dimension extents to expand to?
         keep_dims       - ???
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        alloc           - cursor to the lifted allocation (alloc_cursor forwarded)
 
     rewrite:
         `for i in _:`
@@ -1624,7 +1640,15 @@ def autolift_alloc(
 @sched_op([AllocCursorA])
 def delete_buffer(proc, buf_cursor):
     """
-    Deletes [buf_cursor] if it is unused.
+    Deletes the allocation [buf_cursor] if it is unused.
+
+    args:
+        buf_cursor      - cursor pointing to the buffer to delete
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        No cursors are returned.
+
     """
     buf_s = buf_cursor._impl
     ir, fwd = scheduling.DoDeleteBuffer(buf_s)
@@ -1642,6 +1666,10 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     args:
         buf_cursor      - cursor pointing to the Alloc to reuse
         replace_cursor  - cursor pointing to the Alloc to eliminate
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        alloc           - a cursor to the reused allocation (buf_cursor forwarded)
 
     rewrite:
         `x : T ; ... ; y : T ; s`
@@ -1665,6 +1693,12 @@ def inline_window(proc, winstmt_cursor):
 
     args:
         winstmt_cursor  - cursor pointing to the WindowStmt to inline
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        No cursors are returned.
+        TODO: unsure of this one, since it's hard to distinguish
+        existing accesses to x[...] from new ones.
 
     rewrite:
         `y = x[...] ; s` -> `s[ y -> x[...] ]`
@@ -1720,6 +1754,13 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
                           (32, i), (32, i+1), (32, i+2), or (32, i+3)
         new_buf_name    - the name of the newly created staging buffer
         accum           - (optional, bool) see above
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        alloc           - a cursor to the newly staged buffer's allocation
+        load            - a cursor to the code which initializes the staged buffer with values from the original buffer
+        block           - a cursor to the block of code that was staged around (block_cursor forwarded)
+        store           - a cursor to the code which writes the staged buffer back to the original buffer
 
     rewrite:
         stage_mem(..., 'x[0:n,j-1:j]', 'xtmp')
@@ -1751,9 +1792,21 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
 @sched_op([ForCursorA, NewExprA("loop_cursor"), PosIntA, ListA(NameA, length=2)])
 def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
     """
-    Divides a loop into the provided [outer_hi] by [outer_stride] dimensions,
-    and then adds extra compute so that the inner loop will fully cover the
-    original loop's range.
+    Divides a loop into two loops where the outer loop runs [outer_hi] iterations,
+    each strided by [outer_stride]. The inner loop's dimensions are automatically
+    chosen so that this loop nest will fully cover the original loop's extent.
+
+    args:
+        loop_cursor     - cursor pointing to the loop to divide
+        outer_hi        - the new upper bound of the outer loop
+        outer_stride    - the stride of the outer loop
+        new_iters       - list of two strings specifying the new outer and
+                          inner iteration variable names
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        outer_loop      - a cursor to the new outer loop
+        inner_loop      - a cursor to the new inner loop
 
     rewrite:
         `for i in seq(0, hi):`
@@ -1801,6 +1854,14 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
                           to assert that you know the remainder will always
                           be zero (i.e. there is no tail).  You will get an
                           error if the compiler cannot verify this fact itself.
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        outer_loop      - a cursor to the new outer loop
+        inner_loop      - a cursor to the new inner loop
+        ?main_guard     - a cursor to the guard inside the main loop (only for "guard")
+        ?tail_guard     - a cursor to the guard enclosing the tail loop (only for "cut_and_guard")
+        ?tail           - a cursor to the tail loop (only for "cut" and "cut_and_guard")
 
     rewrite:
         divide(..., div_const=q, new_iters=['hi','lo'], tail='cut')
@@ -1838,6 +1899,10 @@ def mult_loops(proc, nested_loops, new_iter_name):
     args:
         nested_loops    - cursor pointing to a loop whose body is also a loop
         new_iter_name   - string with name of the new iteration variable
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        loop            - a cursor to the new loop over the product space
 
     rewrite:
         `for i in seq(0,e):`
@@ -1860,6 +1925,10 @@ def join_loops(proc, loop1_cursor, loop2_cursor):
     args:
         loop1_cursor     - cursor pointing to the first loop
         loop2_cursor     - cursor pointing to the second loop
+        rc               - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        loop             - a cursor to the new joined loop
 
     rewrite:
         `for i in seq(lo, mid):`
@@ -1888,6 +1957,11 @@ def cut_loop(proc, loop_cursor, cut_point):
     args:
         loop_cursor     - cursor pointing to the loop to split
         cut_point       - expression representing iteration to cut at
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        loop1           - a cursor to the loop from [lo, cut_point)
+        loop2           - a cursor to the loop from [cut_point, hi)
 
     rewrite:
         `for i in seq(0,n):`
@@ -1913,6 +1987,10 @@ def shift_loop(proc, loop_cursor, new_lo):
     args:
         loop_cursor     - cursor pointing to the loop to shift
         new_lo          - expression representing new loop lo
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        loop            - a cursor to the loop with shifted bounds (loop_cursor forwarded)
 
     rewrite:
         `for i in seq(m,n):`
@@ -1941,6 +2019,11 @@ def reorder_loops(proc, nested_loops):
                           variable of the inner loop.  An optional '#int'
                           can be added to the end of this shorthand to
                           specify which match you want,
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        outer_loop      - a cursor to the new outer loop
+        inner_loop      - a cursor to the new inner loop
 
     rewrite:
         `for outer in _:`
@@ -1969,6 +2052,10 @@ def merge_writes(proc, block_cursor):
     args:
         block_cursor          - cursor pointing to the block of two consecutive
                                 assign/reduce statement.
+        rc                    - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        stmt                - a cursor to the merged statement
 
     rewrite:
         `a = b`
@@ -2040,6 +2127,13 @@ def inline_assign(proc, alloc_cursor):
     """
     Inlines [alloc_cursor] into any statements where it is used after this assignment.
 
+    args:
+        alloc_cursor    - cursor pointing to the assignment to inline
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        No cursors are returned.
+
     rewrite:
         `x = y`
         `s`
@@ -2064,6 +2158,12 @@ def lift_reduce_constant(proc, block_cursor):
 
     args:
         block_cursor       - block of size 2 containing the zero assignment and the for loop to lift the constant out of
+        TODO: I feel like the above should really be split into two separate arguments, and we should
+        locally check that the two are back-to-back.
+        rc                 - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        stmt               - a cursor to the final scaling statement.
 
     rewrite:
         `x = 0.0`
@@ -2086,7 +2186,7 @@ def lift_reduce_constant(proc, block_cursor):
 def fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False):
     """
     fission apart the For and If statements wrapped around
-    this block of statements into two copies; the first containing all
+    this block of statements into two; the first containing all
     statements before the cursor, and the second all statements after the
     cursor.
 
@@ -2094,6 +2194,12 @@ def fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False):
         gap_cursor          - a cursor pointing to the point in the
                               statement block that we want to fission at.
         n_lifts (optional)  - number of levels to fission upwards (default=1)
+        rc                  - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        cursor1             - a cursor to the first loop/if statement
+        cursor2             - a cursor to the second loop/if statement
+        gap                 - a cursor to the gap between the two loops
 
     rewrite:
         `for i in _:`
@@ -2136,6 +2242,12 @@ def autofission(proc, gap_cursor, n_lifts=1):
         gap_cursor          - a cursor pointing to the point in the
                               statement block that we want to fission at.
         n_lifts (optional)  - number of levels to fission upwards (default=1)
+        rc                  - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        cursor1             - a cursor to the first loop/if statement
+        cursor2             - a cursor to the second loop/if statement
+        gap                 - a cursor to the gap between the two loops
 
     rewrite:
         `for i in _:`
@@ -2172,6 +2284,10 @@ def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     args:
         stmt1, stmt2        - cursors to the two loops or if-statements
                               that are being fused
+        rc                  - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        cursor              - a cursor to the fused loop or if-statement
 
     rewrite:
         `for i in e:` <- stmt1
@@ -2209,12 +2325,17 @@ def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
 @sched_op([ForCursorA])
 def remove_loop(proc, loop_cursor):
     """
-    Remove the loop around some block of statements.
-    This operation is allowable when the block of statements in question
-    can be proven to be idempotent.
+    Remove the loop around some block of statements. This operation is allowable
+    when the block of statements in question can be proven to be idempotent. If the
+    loop is not guaranteed to execute at least once, we wrap a guard around its body.
 
     args:
         loop_cursor     - cursor pointing to the loop to remove
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        block           - a cursor to the block of statements that was inside the loop
+        ?guard          - a cursor to the guard around the loop body
 
     rewrite:
         `for i in _:`
@@ -2231,9 +2352,10 @@ def add_loop(
     proc, block_cursor, iter_name, hi_expr, guard=False, unsafe_disable_check=False
 ):
     """
-    Add a loop around some block of statements.
-    This operation is allowable when the block of statements in question
-    can be proven to be idempotent.
+    Add a loop around some block of statements. This operation is allowable when the
+    block of statements in question can be proven to be idempotent. Alternatively,
+    one can specify `guard=True` to wrap the block with a `if iter_name == 0:` stmt,
+    in which case one does not need to prove idempotency.
 
     args:
         block_cursor    - cursor pointing to the block to wrap in a loop
@@ -2244,6 +2366,12 @@ def add_loop(
                           wrap the block in a `if iter_name == 0: block`
                           condition; in which case idempotency need not
                           be proven.
+        rc              - bool (whether to return relevant cursors)
+
+    relevant_cursors:
+        loop            - a cursor to the new loop
+        block           - a cursor to the block of statements that was wrapped inside the loop
+        ?guard          - a cursor to the guard around the loop body
 
     rewrite:
         `s`  <--- block_cursor
@@ -2265,10 +2393,14 @@ def add_loop(
 @sched_op([ForCursorA])
 def unroll_loop(proc, loop_cursor):
     """
-    Unroll a loop with a constant, literal loop bound
+    Unroll a loop with a constant, literal loop bound.
 
     args:
         loop_cursor     - cursor pointing to the loop to unroll
+        rc              - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        block           - a cursor to the block of unrolled statements
 
     rewrite:
         `for i in seq(0,3):`
