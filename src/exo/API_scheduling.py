@@ -1524,7 +1524,7 @@ def unroll_buffer(proc, alloc_cursor, dimension):
         rc            - bool (whether to return relevant cursors)
 
     relevant cursors:
-        alloc         - a block cursor to the unrolled allocations
+        allocs        - a block cursor to the unrolled allocations
 
     rewrite:
         `buf : T[2]` <- alloc_cursor
@@ -2055,7 +2055,7 @@ def merge_writes(proc, block_cursor):
         rc                    - bool (whether to return relevant cursors)
 
     relevant cursors:
-        stmt                - a cursor to the merged statement
+        stmt                  - a cursor to the merged statement
 
     rewrite:
         `a = b`
@@ -2111,7 +2111,11 @@ def fold_into_reduce(proc, assign):
     whose lhs is equal to the lhs of the assignment.
 
     args:
-        assign: a cursor pointing to the assignment to fold.
+        assign      - a cursor pointing to the assignment to fold.
+        rc          - bool (whether to return relevant cursors)
+
+    relevant_cursors:
+        stmt        - a cursor to the new reduction statement
 
     rewrite:
         a = a + (expr)
@@ -2426,6 +2430,16 @@ def lift_scope(proc, scope_cursor):
 
     args:
         scope_cursor       - cursor to the inner scope statement to lift up
+        rc                 - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        ?if                - a cursor to the lifted if statement
+        ?if_block          - a cursor to the block within the if-clause
+        ?else_block        - a cursor to the block within the else-clause
+        ?for               - a cursor to the lifted for statement
+        TODO: In trying to decide relevant cursors for this scheduling operation,
+        I think that this scheduling operation should really be split into two
+        operations: lift_if and lift_for.
 
     rewrite: (one example)
         `for i in _:`
@@ -2455,6 +2469,12 @@ def eliminate_dead_code(proc, stmt_cursor):
 
     args:
         stmt_cursor       - cursor to the if or for statement
+        rc                - bool (whether to return relevant cursors)
+
+    relevant cursors:
+        ?block             - block within the if statement which is always executed
+        TODO: In trying to decide relevant cursors for this scheduling operation,
+        I think that this scheduling operation should really be split into two.
 
     rewrite:
         `if p:`
@@ -2484,6 +2504,10 @@ def specialize(proc, block_cursor, conds):
         block_cursor    - cursor pointing to the block to duplicate/specialize
         conds           - list of strings or string to be parsed into
                           guard conditions for the
+        rc              - bool (whether to return relevant cursors)
+
+    relevant_cursors:
+        if              - a cursor to the outermost if-statement
 
     rewrite:
         `s`
