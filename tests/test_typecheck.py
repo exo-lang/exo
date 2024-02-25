@@ -294,6 +294,12 @@ def test_usub2():
             x = -x
 
 
+def test_usub3():
+    @proc
+    def foo(x: f32):
+        x = -1 + x
+
+
 def test_binop1():
     with pytest.raises(TypeError, match="cannot negate expression of type "):
 
