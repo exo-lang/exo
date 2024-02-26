@@ -627,7 +627,9 @@ def DoDivideWithRecompute(
     return ir, fwd
 
 
-def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=False):
+def DoDivideLoop(
+    loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=False
+):
     loop = loop_cursor._node
     N = loop.hi
     outer_i = Sym(outer_iter)
@@ -673,26 +675,15 @@ def DoSplit(loop_cursor, quot, outer_iter, inner_iter, tail="guard", perfect=Fal
         outer_hi = szop("/", N, inner_hi)  # floor div
     elif tail_strategy == "perfect":
         if not isinstance(N, LoopIR.Const):
-            is_N_divisible = False
-            for pred in loop_cursor.get_root().preds:
-                if (
-                    isinstance(pred, LoopIR.BinOp)
-                    and pred.op == "=="
-                    and isinstance(pred.rhs, LoopIR.Const)
-                    and pred.rhs.val == 0
-                    and isinstance(pred.lhs, LoopIR.BinOp)
-                    and pred.lhs.op == "%"
-                    and isinstance(pred.lhs.rhs, LoopIR.Const)
-                    and pred.lhs.rhs.val > 0
-                    and pred.lhs.rhs.val % quot == 0
-                    and isinstance(pred.lhs.lhs, LoopIR.Read)
-                    and pred.lhs.lhs.name == loop.hi.name
-                ):
-                    is_N_divisible = True
-
-            if not is_N_divisible:
-                raise SchedulingError(f"cannot perfectly split the '{loop.iter}' loop.")
-
+            hi_mod_quot = boolop("%", N, cnst(quot), T.index)
+            try:
+                ir = loop_cursor.get_root()
+                loop = loop_cursor._node
+                Check_CompareExprs(ir, [loop], hi_mod_quot, "==", cnst(0))
+            except SchedulingError:
+                raise SchedulingError(
+                    f"cannot perfectly split the '{loop.iter}' loop " f"by {quot}"
+                )
             outer_hi = boolop("/", N, cnst(quot), T.index)
         else:
             if N.val % quot != 0:
@@ -2801,7 +2792,7 @@ class DoExtractMethod(Cursor_Rewrite):
             self.pop()
 
             if body or orelse:
-                return [s.update(body=body or s.body, orelse=orelse or s.orlse)]
+                return [s.update(body=body or s.body, orelse=orelse or s.orelse)]
 
             return None
 
@@ -4148,7 +4139,7 @@ __all__ = [
     "DoCommuteExpr",
     "DoLeftReassociateExpr",
     "DoSpecialize",
-    "DoSplit",
+    "DoDivideLoop",
     "DoUnroll",
     "DoAddLoop",
     "DoCutLoop",

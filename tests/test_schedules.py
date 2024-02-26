@@ -7,6 +7,7 @@ from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
 from exo.platforms.x86 import *
+from exo.API_types import *
 
 
 def test_commute(golden):
@@ -1265,6 +1266,19 @@ def test_divide_loop_perfect2(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_divide_loop_perfect3(golden):
+    @proc
+    def foo(m: size, n: size, A: R[m, n]):
+        assert n % 4 == 0 and m % 8 == 0
+        for i in seq(0, m):
+            for j in seq(0, n):
+                A[i, j] = 0.2
+
+    foo = divide_loop(foo, "i", 8, ["io", "ii"], perfect=True)
+    foo = divide_loop(foo, "j", 4, ["jo", "ji"], perfect=True)
+    assert str(simplify(foo)) == golden
+
+
 def test_divide_loop_perfect_fail():
     @proc
     def foo(n: size, A: i8[n]):
@@ -1767,6 +1781,39 @@ def test_set_precision_for_tensors_and_windows():
     )
     assert str(foo.forward(call1)._impl._node.args[1].type) == "f32[n]"
     assert str(foo.forward(call2)._impl._node.args[1].type) == "f32[n]"
+
+
+def test_set_precision_api_type(golden):
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    bar = set_precision(bar, bar.args()[1], ExoType.F32)
+    assert str(bar) == golden
+
+
+def test_set_precision_illegal_precision_value():
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    with pytest.raises(
+        ValueError,
+        match="expected an instance of <enum 'ExoType'> or one of the following strings",
+    ):
+        bar = set_precision(bar, bar.args()[1], "Z")
+
+
+def test_set_precision_illegal_precision_type():
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    with pytest.raises(
+        TypeError,
+        match="expected an instance of <enum 'ExoType'> or <class 'str'> specifying the precision",
+    ):
+        bar = set_precision(bar, bar.args()[1], bar)
 
 
 def test_rewrite_expr(golden):
