@@ -1729,7 +1729,7 @@ def inline_window(proc, winstmt_cursor):
         rc              - (bool) whether to return relevant cursors
 
     relevant cursors:
-        No cursors are returned.
+        exprs           - cursors to all replaced window expressions
         TODO: unsure of this one, since it's hard to distinguish
         existing accesses to x[...] from new ones.
 
@@ -2148,7 +2148,7 @@ def fold_into_reduce(proc, assign):
         rc          - bool (whether to return relevant cursors)
 
     relevant_cursors:
-        stmt        - a cursor to the new reduction statement
+        reduce      - a cursor to the new reduction statement
 
     rewrite:
         a = a + (expr)
@@ -2541,6 +2541,11 @@ def specialize(proc, block_cursor, conds):
 
     relevant_cursors:
         if              - a cursor to the outermost if-statement
+        TODO: should we return each of the subcases? There's a natural navigation
+        from the outermost if-statement to each of the subcases, so it's not necessary
+        capability-wise. Alternatively, maybe the specialize primitive should be reduced
+        to just introducing a single condition (though this would preclude doing switch
+        statements in the future...)
 
     rewrite:
         `s`
