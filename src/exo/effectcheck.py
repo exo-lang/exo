@@ -156,7 +156,6 @@ class InferEffects:
             return styp(
                 stmt.name,
                 stmt.type,
-                stmt.cast,
                 stmt.idx,
                 stmt.rhs,
                 effects,
@@ -786,7 +785,7 @@ class CheckEffects:
     def check_bounds(self, sym, shape, eff):
         effs = [(eff.reads, "read"), (eff.writes, "written"), (eff.reduces, "reduced")]
 
-        for (es, y) in effs:
+        for es, y in effs:
             for e in es:
                 self.check_in_bounds(sym, shape, e, y)
 

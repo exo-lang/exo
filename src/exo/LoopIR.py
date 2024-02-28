@@ -71,8 +71,8 @@ module LoopIR {
                mem?    mem,
                srcinfo srcinfo )
 
-    stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
-         | Reduce( sym name, type type, string? cast, expr* idx, expr rhs )
+    stmt = Assign( sym name, type type, expr* idx, expr rhs )
+         | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
          | If( expr cond, stmt* body, stmt* orelse )
@@ -142,7 +142,8 @@ module LoopIR {
         "INT8",
         "UINT16",
         "UINT8",
-        "INT32" "Bool",
+        "INT32",
+        "Bool",
         "Int",
         "Index",
         "Size",
@@ -583,6 +584,7 @@ from . import LoopIR_pprint
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+
 
 # convert from LoopIR.expr to E.expr
 def lift_to_eff_expr(e):

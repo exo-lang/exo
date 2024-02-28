@@ -1,0 +1,16 @@
+#include "test.h"
+
+
+
+
+
+
+// foo(
+
+// )
+void foo( void *ctxt ) {
+for (int_fast32_t x = 0; x < 6; x++) {
+  ; // NO-OP
+}
+}
+
