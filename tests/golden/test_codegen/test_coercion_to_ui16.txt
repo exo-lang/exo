@@ -1,0 +1,17 @@
+#include "test.h"
+
+
+
+#include <stdio.h>
+#include <stdlib.h>
+
+
+
+// foo(
+
+// )
+void foo( void *ctxt ) {
+uint16_t a;
+a = a + ((uint16_t) 3);
+}
+

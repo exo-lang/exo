@@ -545,3 +545,91 @@ def test_const_type_coercion(compiler):
     fn = compiler.compile(foo)
     fn(None, x, y)
     assert x[0] == 16777216
+
+
+def test_coercion_to_i8(golden):
+    @proc
+    def foo():
+        a: i8
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_ui8(golden):
+    @proc
+    def foo():
+        a: ui8
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_ui16(golden):
+    @proc
+    def foo():
+        a: ui16
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_i32(golden):
+    @proc
+    def foo():
+        a: i32
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_f16(golden):
+    @proc
+    def foo():
+        a: f16
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_f32(golden):
+    @proc
+    def foo():
+        a: f32
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_f64(golden):
+    @proc
+    def foo():
+        a: f64
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_index(golden):
+    @proc
+    def foo():
+        for x in seq(0, 6):
+            pass
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden

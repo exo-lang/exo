@@ -43,7 +43,7 @@ void hoge( void *ctxt, int_fast32_t n, uint8_t* x, const uint8_t* y );
 //     y : ui8 @DRAM
 // )
 void hoge( void *ctxt, int_fast32_t n, uint8_t* x, const uint8_t* y ) {
-for (int_fast32_t i = ((int_fast32_t) 0); i < n; i++) {
+for (int_fast32_t i = 0; i < n; i++) {
   x[i] = *y;
 }
 }

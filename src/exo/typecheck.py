@@ -44,7 +44,7 @@ class TypeChecker:
 
         preds = []
         for p in proc.preds:
-            pred = self.check_e(p)
+            pred = self.check_e(p, is_index=True)
             if pred.type != T.err and pred.type != T.bool:
                 self.err(pred, f"expected a bool expression")
             preds.append(pred)
@@ -85,7 +85,7 @@ class TypeChecker:
 
     def check_access(self, node, nm, idx, lvalue=False):
         # check indexing
-        idx = [self.check_e(i) for i in idx]
+        idx = [self.check_e(i, is_index=True) for i in idx]
         for i in idx:
             if i.type != T.err and not i.type.is_indexable():
                 self.err(i, f"cannot index with expression of type '{i.type}'")
@@ -157,7 +157,7 @@ class TypeChecker:
                 return []
 
         if isinstance(stmt, (UAST.Assign, UAST.Reduce)):
-            rhs = self.try_coerce_to_real(self.check_e(stmt.rhs))
+            rhs = self.check_e(stmt.rhs)
             if rhs.type != T.err and not rhs.type.is_real_scalar():
                 self.err(rhs, f"cannot assign/reduce a '{rhs.type}' type value")
 
@@ -177,11 +177,13 @@ class TypeChecker:
                 )
 
             ftyp = stmt.config.lookup(stmt.field)[1]
-            rhs = self.check_e(stmt.rhs)
+            rhs = self.check_e(
+                stmt.rhs,
+                is_index=ftyp.is_indexable() or ftyp.is_stridable() or ftyp == T.bool,
+            )
 
             if rhs.type != T.err:
                 if ftyp.is_real_scalar():
-                    rhs = self.try_coerce_to_real(rhs)
                     if not rhs.type.is_real_scalar():
                         self.err(
                             rhs,
@@ -218,7 +220,7 @@ class TypeChecker:
             return [LoopIR.Pass(None, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.If):
-            cond = self.check_e(stmt.cond)
+            cond = self.check_e(stmt.cond, is_index=True)
             if cond.type != T.err and cond.type != T.bool:
                 self.err(cond, f"expected a bool expression")
             body = self.check_stmts(stmt.body)
@@ -240,10 +242,10 @@ class TypeChecker:
             if not isinstance(stmt.cond, (UAST.ParRange, UAST.SeqRange)):
                 self.err(stmt.cond, parerr)
 
-            lo = self.check_e(stmt.cond.lo)
+            lo = self.check_e(stmt.cond.lo, is_index=True)
             if lo.type != T.err and not lo.type.is_indexable():
                 self.err(lo, "expected loop bound to be indexable.")
-            hi = self.check_e(stmt.cond.hi)
+            hi = self.check_e(stmt.cond.hi, is_index=True)
             if hi.type != T.err and not hi.type.is_indexable():
                 self.err(hi, "expected loop bound to be indexable.")
 
@@ -272,7 +274,12 @@ class TypeChecker:
             return [LoopIR.Alloc(stmt.name, typ, mem, None, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.Call):
-            args = [self.check_e(a) for a in stmt.args]
+            args = [
+                self.check_e(
+                    call_a, is_index=sig_a.type in (T.size, T.index, T.stride, T.bool)
+                )
+                for call_a, sig_a in zip(stmt.args, stmt.f.args)
+            ]
 
             for call_a, sig_a in zip(args, stmt.f.args):
                 if call_a.type == T.err:
@@ -331,7 +338,7 @@ class TypeChecker:
 
     def check_w_access(self, e, orig_hi):
         if isinstance(e, UAST.Point):
-            pt = self.check_e(e.pt)
+            pt = self.check_e(e.pt, is_index=True)
             if pt.type != T.err and not pt.type.is_indexable():
                 self.err(pt, f"cannot index with expression of type '{pt.type}'")
             return LoopIR.Point(pt, e.srcinfo)
@@ -340,14 +347,14 @@ class TypeChecker:
             if e.lo is None:
                 lo = LoopIR.Const(0, T.int, e.srcinfo)
             else:
-                lo = self.check_e(e.lo)
+                lo = self.check_e(e.lo, is_index=True)
                 if lo.type != T.err and not lo.type.is_indexable():
                     self.err(lo, f"cannot index with expression of type '{lo.type}'")
 
             if e.hi is None:
                 hi = orig_hi
             else:
-                hi = self.check_e(e.hi)
+                hi = self.check_e(e.hi, is_index=True)
                 if hi.type != T.err and not hi.type.is_indexable():
                     self.err(hi, f"cannot index with expression of type '{hi.type}'")
 
@@ -362,7 +369,7 @@ class TypeChecker:
 
         return [subtract(w.hi, w.lo) for w in ws if isinstance(w, LoopIR.Interval)]
 
-    def check_e(self, e):
+    def check_e(self, e, is_index=False):
         if isinstance(e, UAST.Read):
             typ = self.env[e.name]
             # if we only partially accessed the base tensor/window,
@@ -412,7 +419,9 @@ class TypeChecker:
             return LoopIR.WindowExpr(e.name, idx, w_typ, e.srcinfo)
 
         elif isinstance(e, UAST.Const):
-            ty = {float: T.R, bool: T.bool, int: T.int}.get(type(e.val))
+            ty = {float: T.R, bool: T.bool, int: T.int if is_index else T.R}.get(
+                type(e.val)
+            )
             if not ty:
                 self.err(
                     e,
@@ -423,7 +432,7 @@ class TypeChecker:
             return LoopIR.Const(e.val, ty, e.srcinfo)
 
         elif isinstance(e, UAST.USub):
-            arg = self.check_e(e.arg)
+            arg = self.check_e(e.arg, is_index=is_index)
             if arg.type.is_real_scalar() or arg.type.is_indexable():
                 if isinstance(arg, LoopIR.Const):
                     return LoopIR.Const(-arg.val, arg.type, e.srcinfo)
@@ -434,8 +443,8 @@ class TypeChecker:
             return LoopIR.Const(0, T.err, e.srcinfo)
 
         elif isinstance(e, UAST.BinOp):
-            lhs = self.check_e(e.lhs)
-            rhs = self.check_e(e.rhs)
+            lhs = self.check_e(e.lhs, is_index=is_index)
+            rhs = self.check_e(e.rhs, is_index=is_index)
             typ = T.err
             if lhs.type == T.err or rhs.type == T.err:
                 typ = T.err
@@ -444,25 +453,16 @@ class TypeChecker:
                     if operand.type is not T.bool:
                         self.err(operand, "expected 'bool' argument to logical op")
                 typ = T.bool
-            elif e.op == "==":
-                lt, rt = lhs.type, rhs.type
-                if (
-                    (lt == T.bool and rt == T.bool)
-                    or (
-                        lt.is_stridable()
-                        and rt.is_stridable()
-                        and not (lt == T.int and rt == T.int)
-                    )
-                    or (lt.is_indexable() and rt.is_indexable())
-                ):
-                    typ = T.bool
-                else:
-                    self.err(
-                        operand,
-                        f"expected 'index' or 'size' argument to "
-                        f"comparison op: {e.op}",
-                    )
-            elif e.op in ("<", "<=", ">", ">="):
+            elif e.op == "==" and (
+                (lhs.type == T.bool and rhs.type == T.bool)
+                or (
+                    lhs.type.is_stridable()
+                    and rhs.type.is_stridable()
+                    and not (lhs.type == T.int and rhs.type == T.int)
+                )
+            ):
+                typ = T.bool
+            elif e.op in ("<", "<=", "==", ">", ">="):
                 for operand in (lhs, rhs):
                     if not operand.type.is_indexable():
                         self.err(
@@ -472,9 +472,6 @@ class TypeChecker:
                         )
                 typ = T.bool
             elif e.op in ("+", "-", "*", "/", "%"):
-                if lhs.type.is_real_scalar() or rhs.type.is_real_scalar():
-                    lhs = self.try_coerce_to_real(lhs)
-                    rhs = self.try_coerce_to_real(rhs)
                 if lhs.type.is_real_scalar():
                     if not rhs.type.is_real_scalar():
                         self.err(rhs, "expected scalar type")
@@ -605,28 +602,11 @@ class TypeChecker:
         UAST.Stride: T.stride,
     }
 
-    def try_coerce_to_real(self, e_typed):
-        if e_typed.type == T.int:
-            if isinstance(e_typed, LoopIR.Const):
-                return e_typed.update(type=T.R)
-            if isinstance(e_typed, LoopIR.USub):
-                arg = self.try_coerce_to_real(e_typed.arg)
-                if arg.type.is_real_scalar():
-                    return e_typed.update(arg=arg, type=arg.type)
-            if isinstance(e_typed, LoopIR.BinOp):
-                # modulo operation does not work on R type
-                if e_typed.op != "%":
-                    lhs = self.try_coerce_to_real(e_typed.lhs)
-                    rhs = self.try_coerce_to_real(e_typed.rhs)
-                    if lhs.type.is_real_scalar() and rhs.type.is_real_scalar():
-                        return e_typed.update(lhs=lhs, rhs=rhs, type=lhs.type)
-        return e_typed
-
     def check_t(self, typ):
         if type(typ) in TypeChecker._typ_table:
             return TypeChecker._typ_table[type(typ)]
         elif isinstance(typ, UAST.Tensor):
-            hi = [self.check_e(h) for h in typ.hi]
+            hi = [self.check_e(h, is_index=True) for h in typ.hi]
             sub_typ = self.check_t(typ.type)
             for h in hi:
                 if not h.type.is_indexable():

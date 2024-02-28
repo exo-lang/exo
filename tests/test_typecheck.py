@@ -452,7 +452,7 @@ def test_binop16():
 
 def test_binop17():
     # attempt to coerce to R should not allow mod on R scalars
-    with pytest.raises(TypeError, match="expected scalar type"):
+    with pytest.raises(TypeError, match="cannot compute modulus of 'R' values"):
 
         @proc
         def foo(x: i32, y: i32):
@@ -466,6 +466,22 @@ def test_binop18():
         @proc
         def foo(x: i32, y: i32, n: size):
             x = y * (n + 1)
+
+
+def test_binop19():
+    # make sure constant 10 coerces to indexable int type in mod expression
+    @proc
+    def foo(n: size, m: size):
+        if n == m % 10:
+            pass
+
+
+def test_binop20():
+    # make sure constant 10 coerces to indexable int type in comparison operations
+    @proc
+    def foo(n: size):
+        if n == 10:
+            pass
 
 
 def test_proj_bad():

@@ -92,33 +92,33 @@ neon_broadcast_4xf32(dst,src)
 //     C : [f32][4, 16] @DRAM
 // )
 static void neon_microkernel( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
-EXO_ASSUME(K >= ((int_fast32_t) 1));
+EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
 float32x4_t C_reg[4][4];
-for (int_fast32_t i = ((int_fast32_t) 0); i < ((int_fast32_t) 4); i++) {
-  for (int_fast32_t jo = ((int_fast32_t) 0); jo < ((int_fast32_t) 4); jo++) {
+for (int_fast32_t i = 0; i < 4; i++) {
+  for (int_fast32_t jo = 0; jo < 4; jo++) {
     C_reg[i][jo] = vld1q_f32(&C.data[(i) * (C.strides[0]) + 4 * jo]);
   }
 }
-for (int_fast32_t k = ((int_fast32_t) 0); k < K; k++) {
+for (int_fast32_t k = 0; k < K; k++) {
   float32x4_t A_vec;
-  for (int_fast32_t i = ((int_fast32_t) 0); i < ((int_fast32_t) 4); i++) {
+  for (int_fast32_t i = 0; i < 4; i++) {
     A_vec = vld1q_dup_f32(&A.data[(i) * (A.strides[0]) + k]);
   }
   float32x4_t B_vec;
-  for (int_fast32_t jo = ((int_fast32_t) 0); jo < ((int_fast32_t) 4); jo++) {
+  for (int_fast32_t jo = 0; jo < 4; jo++) {
     B_vec = vld1q_f32(&B.data[(k) * (B.strides[0]) + 4 * jo]);
   }
-  for (int_fast32_t i = ((int_fast32_t) 0); i < ((int_fast32_t) 4); i++) {
-    for (int_fast32_t jo = ((int_fast32_t) 0); jo < ((int_fast32_t) 4); jo++) {
+  for (int_fast32_t i = 0; i < 4; i++) {
+    for (int_fast32_t jo = 0; jo < 4; jo++) {
       C_reg[i][jo] = vmlaq_f32(C_reg[i][jo], A_vec, B_vec);
     }
   }
 }
-for (int_fast32_t i = ((int_fast32_t) 0); i < ((int_fast32_t) 4); i++) {
-  for (int_fast32_t jo = ((int_fast32_t) 0); jo < ((int_fast32_t) 4); jo++) {
+for (int_fast32_t i = 0; i < 4; i++) {
+  for (int_fast32_t jo = 0; jo < 4; jo++) {
     vst1q_f32(&C.data[(i) * (C.strides[0]) + 4 * jo], C_reg[i][jo]);
   }
 }
@@ -148,30 +148,30 @@ vst1q_f32(&{dst_data}, {src_data});
 //     C : f32[M, N] @DRAM
 // )
 void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C ) {
-EXO_ASSUME(M >= ((int_fast32_t) 1));
-EXO_ASSUME(N >= ((int_fast32_t) 1));
-EXO_ASSUME(K >= ((int_fast32_t) 1));
+EXO_ASSUME(M >= 1);
+EXO_ASSUME(N >= 1);
+EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
 float *Atile = (float*) malloc(64 * 64 * sizeof(*Atile));
 float *Btile = (float*) malloc(64 * 64 * sizeof(*Btile));
-for (int_fast32_t ko = ((int_fast32_t) 0); ko < ((K) / (((int_fast32_t) 64))); ko++) {
-  for (int_fast32_t io = ((int_fast32_t) 0); io < ((M) / (((int_fast32_t) 64))); io++) {
-    for (int_fast32_t i0 = ((int_fast32_t) 0); i0 < ((int_fast32_t) 64); i0++) {
-      for (int_fast32_t i1 = ((int_fast32_t) 0); i1 < ((int_fast32_t) 64); i1++) {
+for (int_fast32_t ko = 0; ko < ((K) / (64)); ko++) {
+  for (int_fast32_t io = 0; io < ((M) / (64)); io++) {
+    for (int_fast32_t i0 = 0; i0 < 64; i0++) {
+      for (int_fast32_t i1 = 0; i1 < 64; i1++) {
         Atile[i0 * 64 + i1] = A[(i0 + 64 * io) * K + i1 + 64 * ko];
       }
     }
-    for (int_fast32_t jo = ((int_fast32_t) 0); jo < ((N) / (((int_fast32_t) 64))); jo++) {
-      for (int_fast32_t i0 = ((int_fast32_t) 0); i0 < ((int_fast32_t) 64); i0++) {
-        for (int_fast32_t i1 = ((int_fast32_t) 0); i1 < ((int_fast32_t) 64); i1++) {
+    for (int_fast32_t jo = 0; jo < ((N) / (64)); jo++) {
+      for (int_fast32_t i0 = 0; i0 < 64; i0++) {
+        for (int_fast32_t i1 = 0; i1 < 64; i1++) {
           Btile[i0 * 64 + i1] = B[(i0 + 64 * ko) * N + i1 + 64 * jo];
         }
       }
-      for (int_fast32_t im = ((int_fast32_t) 0); im < ((int_fast32_t) 16); im++) {
-        for (int_fast32_t jm = ((int_fast32_t) 0); jm < ((int_fast32_t) 4); jm++) {
-          neon_microkernel(ctxt,((int_fast32_t) 64),(struct exo_win_2f32c){ &Atile[(4 * im) * (64)], { 64, 1 } },(struct exo_win_2f32c){ &Btile[16 * jm], { 64, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * N + 16 * jm + 64 * jo], { N, 1 } });
+      for (int_fast32_t im = 0; im < 16; im++) {
+        for (int_fast32_t jm = 0; jm < 4; jm++) {
+          neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &Atile[(4 * im) * (64)], { 64, 1 } },(struct exo_win_2f32c){ &Btile[16 * jm], { 64, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * N + 16 * jm + 64 * jo], { N, 1 } });
         }
       }
     }
@@ -179,26 +179,26 @@ for (int_fast32_t ko = ((int_fast32_t) 0); ko < ((K) / (((int_fast32_t) 64))); k
 }
 free(Btile);
 free(Atile);
-for (int_fast32_t ko = ((int_fast32_t) 0); ko < ((K) / (((int_fast32_t) 64))); ko++) {
-  for (int_fast32_t io = ((int_fast32_t) 0); io < ((M) / (((int_fast32_t) 64))); io++) {
-    for (int_fast32_t jm = ((int_fast32_t) 0); jm < ((N) / (((int_fast32_t) 16))) % ((int_fast32_t) 4); jm++) {
-      for (int_fast32_t im = ((int_fast32_t) 0); im < ((int_fast32_t) 16); im++) {
-        neon_microkernel(ctxt,((int_fast32_t) 64),(struct exo_win_2f32c){ &A[(4 * im + 64 * io) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * (jm + (N / 64) * 4)], { N, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * N + 16 * (jm + (N / 64) * 4)], { N, 1 } });
+for (int_fast32_t ko = 0; ko < ((K) / (64)); ko++) {
+  for (int_fast32_t io = 0; io < ((M) / (64)); io++) {
+    for (int_fast32_t jm = 0; jm < ((N) / (16)) % 4; jm++) {
+      for (int_fast32_t im = 0; im < 16; im++) {
+        neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * im + 64 * io) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * (jm + (N / 64) * 4)], { N, 1 } },(struct exo_win_2f32){ &C[(4 * im + 64 * io) * N + 16 * (jm + (N / 64) * 4)], { N, 1 } });
       }
     }
   }
-  for (int_fast32_t jo = ((int_fast32_t) 0); jo < ((N) / (((int_fast32_t) 16))); jo++) {
-    for (int_fast32_t im = ((int_fast32_t) 0); im < ((M) / (((int_fast32_t) 4))) % ((int_fast32_t) 16); im++) {
-      neon_microkernel(ctxt,((int_fast32_t) 64),(struct exo_win_2f32c){ &A[(4 * (im + (M / 64) * 16)) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * jo], { N, 1 } },(struct exo_win_2f32){ &C[(4 * (im + (M / 64) * 16)) * N + 16 * jo], { N, 1 } });
+  for (int_fast32_t jo = 0; jo < ((N) / (16)); jo++) {
+    for (int_fast32_t im = 0; im < ((M) / (4)) % 16; im++) {
+      neon_microkernel(ctxt,64,(struct exo_win_2f32c){ &A[(4 * (im + (M / 64) * 16)) * K + 64 * ko], { K, 1 } },(struct exo_win_2f32c){ &B[(64 * ko) * N + 16 * jo], { N, 1 } },(struct exo_win_2f32){ &C[(4 * (im + (M / 64) * 16)) * N + 16 * jo], { N, 1 } });
     }
   }
 }
-for (int_fast32_t io = ((int_fast32_t) 0); io < ((M) / (((int_fast32_t) 4))); io++) {
-  for (int_fast32_t jo = ((int_fast32_t) 0); jo < ((N) / (((int_fast32_t) 16))); jo++) {
-    for (int_fast32_t ii = ((int_fast32_t) 0); ii < ((int_fast32_t) 4); ii++) {
-      for (int_fast32_t ji = ((int_fast32_t) 0); ji < ((int_fast32_t) 16); ji++) {
-        if (K % ((int_fast32_t) 64) > ((int_fast32_t) 0)) {
-          for (int_fast32_t ki = ((int_fast32_t) 0); ki < K % ((int_fast32_t) 64); ki++) {
+for (int_fast32_t io = 0; io < ((M) / (4)); io++) {
+  for (int_fast32_t jo = 0; jo < ((N) / (16)); jo++) {
+    for (int_fast32_t ii = 0; ii < 4; ii++) {
+      for (int_fast32_t ji = 0; ji < 16; ji++) {
+        if (K % 64 > 0) {
+          for (int_fast32_t ki = 0; ki < K % 64; ki++) {
             C[(ii + 4 * io) * N + ji + 16 * jo] += A[(ii + 4 * io) * K + ki + (K / 64) * 64] * B[(ki + (K / 64) * 64) * N + ji + 16 * jo];
           }
         }
@@ -206,21 +206,21 @@ for (int_fast32_t io = ((int_fast32_t) 0); io < ((M) / (((int_fast32_t) 4))); io
     }
   }
 }
-for (int_fast32_t io = ((int_fast32_t) 0); io < ((M) / (((int_fast32_t) 4))); io++) {
-  for (int_fast32_t ii = ((int_fast32_t) 0); ii < ((int_fast32_t) 4); ii++) {
-    if (N % ((int_fast32_t) 16) > ((int_fast32_t) 0)) {
-      for (int_fast32_t ji = ((int_fast32_t) 0); ji < N % ((int_fast32_t) 16); ji++) {
-        for (int_fast32_t k = ((int_fast32_t) 0); k < K; k++) {
+for (int_fast32_t io = 0; io < ((M) / (4)); io++) {
+  for (int_fast32_t ii = 0; ii < 4; ii++) {
+    if (N % 16 > 0) {
+      for (int_fast32_t ji = 0; ji < N % 16; ji++) {
+        for (int_fast32_t k = 0; k < K; k++) {
           C[(ii + 4 * io) * N + ji + (N / 16) * 16] += A[(ii + 4 * io) * K + k] * B[k * N + ji + (N / 16) * 16];
         }
       }
     }
   }
 }
-if (M % ((int_fast32_t) 4) > ((int_fast32_t) 0)) {
-  for (int_fast32_t ii = ((int_fast32_t) 0); ii < M % ((int_fast32_t) 4); ii++) {
-    for (int_fast32_t j = ((int_fast32_t) 0); j < N; j++) {
-      for (int_fast32_t k = ((int_fast32_t) 0); k < K; k++) {
+if (M % 4 > 0) {
+  for (int_fast32_t ii = 0; ii < M % 4; ii++) {
+    for (int_fast32_t j = 0; j < N; j++) {
+      for (int_fast32_t k = 0; k < K; k++) {
         C[(ii + (M / 4) * 4) * N + j] += A[(ii + (M / 4) * 4) * K + k] * B[k * N + j];
       }
     }
