@@ -182,6 +182,33 @@ def test_delete_pass(golden):
 
     assert str(delete_pass(foo)) == golden
 
+    @proc
+    def foo(x: R):
+        for i in seq(0, 16):
+            pass
+            for j in seq(0, 2):
+                pass
+                pass
+            pass
+        x = 0.0
+
+    assert str(delete_pass(foo)) == golden
+
+
+def test_delete_pass_1(golden):
+    @proc
+    def foo(x: R):
+        for i in seq(0, 16):
+            x = 1.0
+            pass
+            for j in seq(0, 2):
+                pass
+                pass
+            pass
+        x = 0.0
+
+    assert str(delete_pass(foo)) == golden
+
 
 def test_add_loop(golden):
     @proc

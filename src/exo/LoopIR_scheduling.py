@@ -2716,24 +2716,34 @@ def DoDeleteConfig(proc_cursor, config_cursor):
 
 
 class DoDeletePass(Cursor_Rewrite):
-    def __init__(self, proc_cursor):
-        super().__init__(proc_cursor)
+    def __init__(self, proc):
+        self.ir = proc._loopir_proc
+        self.fwd = lambda x: x
+        super().__init__(proc)
+
+    def result(self, **kwargs):
+        return api.Procedure(
+            self.ir, _provenance_eq_Procedure=self.provenance, _forward=self.fwd
+        )
+
+    def delete_cursor(self, sc):
+        self.ir, fwd = self.fwd(sc)._delete()
+        self.fwd = _compose(fwd, self.fwd)
 
     def map_s(self, sc):
         s = sc._node
         if isinstance(s, LoopIR.Pass):
-            return []
+            self.delete_cursor(sc)
 
         elif isinstance(s, LoopIR.For):
-            body = self.map_stmts(sc.body())
-            if body is None:
-                return None
-            elif not body:
-                return []
-            else:
-                return [s.update(body=body)]
-
-        return super().map_s(sc)
+            self.map_stmts(sc.body())
+            fwd_sc = self.fwd(sc)
+            if len(fwd_sc.body()) == 1 and isinstance(
+                fwd_sc.body()[0]._node, LoopIR.Pass
+            ):
+                self.delete_cursor(sc)
+        else:
+            return super().map_s(sc)
 
 
 class DoExtractMethod(Cursor_Rewrite):

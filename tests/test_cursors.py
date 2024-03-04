@@ -305,6 +305,28 @@ def test_forwarding_for_procs_with_identical_code():
     foo.forward(loop_cursor)
 
 
+def test_delete_pass_forwarding():
+    @proc
+    def foo(x: R):
+        for i in seq(0, 16):
+            x = 1.0
+            pass
+            for j in seq(0, 2):
+                pass
+                pass
+            pass
+        x = 0.0
+
+    i_loop = foo.body()[0]
+    assign_1 = i_loop.body()[0]
+    assign_0 = foo.body()[1]
+
+    foo = delete_pass(foo)
+    assert isinstance(foo.forward(i_loop), ForCursor)
+    assert isinstance(foo.forward(assign_1), AssignCursor)
+    assert isinstance(foo.forward(assign_0), AssignCursor)
+
+
 def test_arg_cursor(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n, n]):
