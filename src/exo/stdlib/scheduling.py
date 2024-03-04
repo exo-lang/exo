@@ -84,6 +84,7 @@ from ..API_scheduling import (
     #
     # guard rewriting
     lift_scope,
+    remove_control,
     eliminate_dead_code,
     specialize,
     #
