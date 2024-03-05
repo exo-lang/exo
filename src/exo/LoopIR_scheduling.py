@@ -2715,35 +2715,35 @@ def DoDeleteConfig(proc_cursor, config_cursor):
     return p, fwd, eq_mod_config
 
 
-class DoDeletePass(Cursor_Rewrite):
-    def __init__(self, proc):
-        self.ir = proc._loopir_proc
-        self.fwd = lambda x: x
-        super().__init__(proc)
+def DoDeletePass(proc):
+    ir = proc._loopir_proc
+    fwd = lambda x: x
 
-    def result(self, **kwargs):
-        return api.Procedure(
-            self.ir, _provenance_eq_Procedure=self.provenance, _forward=self.fwd
-        )
+    def delete_cursor(c):
+        nonlocal ir, fwd
+        ir, fwd_d = fwd(c)._delete()
+        fwd = _compose(fwd_d, fwd)
 
-    def delete_cursor(self, sc):
-        self.ir, fwd = self.fwd(sc)._delete()
-        self.fwd = _compose(fwd, self.fwd)
+    def should_delete_loop(c):
+        c_fwd = fwd(c)
+        body = c_fwd.body()
+        return isinstance(c._node, LoopIR.For) and len(body) == 1
 
-    def map_s(self, sc):
-        s = sc._node
-        if isinstance(s, LoopIR.Pass):
-            self.delete_cursor(sc)
+    def delete_up(c):
+        c_to_delete = c
+        while should_delete_loop(c):
+            c_to_delete = c
+            c = c.parent()
+        delete_cursor(c_to_delete)
 
-        elif isinstance(s, LoopIR.For):
-            self.map_stmts(sc.body())
-            fwd_sc = self.fwd(sc)
-            if len(fwd_sc.body()) == 1 and isinstance(
-                fwd_sc.body()[0]._node, LoopIR.Pass
-            ):
-                self.delete_cursor(sc)
+    for c in proc.find("pass", many=True):
+        parent = c._impl.parent()
+        if should_delete_loop(parent):
+            delete_up(parent)
         else:
-            return super().map_s(sc)
+            delete_cursor(c._impl)
+
+    return ir, fwd
 
 
 class DoExtractMethod(Cursor_Rewrite):
