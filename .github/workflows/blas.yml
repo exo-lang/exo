@@ -67,8 +67,9 @@ jobs:
       - name: Build
         run: cmake --build ${{github.workspace}}/BLAS-repo/build --config ${{env.BUILD_TYPE}}
 
-      - name: Test
+      - name: Test Correctness
         run: ctest --test-dir ${{github.workspace}}/BLAS-repo/build -C ${{env.BUILD_TYPE}} -R correctness
 
-
-
+      - name: Test Codegen
+        run: ctest --test-dir ${{github.workspace}}/BLAS-repo/build/${{matrix.PRESET}} -C ${{env.BUILD_TYPE}} -R codegen_verbose
+        if: ${{matrix.runner == 'ubuntu-latest'}}
