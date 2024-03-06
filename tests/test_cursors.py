@@ -358,7 +358,6 @@ def test_arg_cursor(golden):
                 output += f", {dim._impl._node}"
         output += "\n"
 
-    print(output)
     assert output == golden
 
 

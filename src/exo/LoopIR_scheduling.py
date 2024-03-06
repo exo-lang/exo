@@ -2728,15 +2728,40 @@ def DoExtractSubproc(block, subproc_name):
         body = [s._node for s in block]
         info = body[0].srcinfo
 
+        # Get all symbols used in the body
+        body_symbols = set()
+        reads = get_reads_of_stmts(body)
+        writes = get_writes_of_stmts(body)
+        for var, _ in reads + writes:
+            body_symbols.add(var)
+
+        # Get all the symbols used by the shapes of the buffers used in the body
+        for var, typ in var_types:
+            if var in body_symbols and isinstance(typ, LoopIR.Tensor):
+                for dim in typ.shape():
+                    for sym, _ in get_reads_of_expr(dim):
+                        body_symbols.add(sym)
+
+        # Construct the parameters and arguments
         args = []
         fnargs = []
         for var, typ in var_types:
-            args.append(LoopIR.Read(var, [], typ, info))
-            fnargs.append(LoopIR.fnarg(var, typ, None, info))
+            if var in body_symbols:
+                args.append(LoopIR.Read(var, [], typ, info))
+                fnargs.append(LoopIR.fnarg(var, typ, None, info))
+
+        # Filter the predicates we have for ones that use the symbols of the subproc
+        def check_pred(pred):
+            reads = {var for var, _ in get_reads_of_expr(pred)}
+            return reads <= body_symbols
+
+        subproc_preds = list(filter(check_pred, preds))
 
         eff = None
         # TODO: raise NotImplementedError("need to figure out effect of new closure")
-        subproc_ir = LoopIR.proc(subproc_name, fnargs, preds, body, None, eff, info)
+        subproc_ir = LoopIR.proc(
+            subproc_name, fnargs, subproc_preds, body, None, eff, info
+        )
         call = LoopIR.Call(subproc_ir, args, None, info)
         return subproc_ir, call
 
