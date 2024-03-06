@@ -2746,70 +2746,52 @@ def DoDeletePass(proc):
     return ir, fwd
 
 
-class DoExtractMethod(Cursor_Rewrite):
-    def __init__(self, proc, name, stmt_cursor, order):
-        self.match_stmt = stmt_cursor._node
-        assert isinstance(self.match_stmt, LoopIR.stmt)
-        self.sub_proc_name = name
-        self.new_subproc = None
-        self.orig_proc = proc._loopir_proc
-        self.order = order
+def DoExtractMethod(stmt_c, subproc_name, order):
+    proc = stmt_c.get_root()
 
-        self.var_types = ChainMap()
+    def get_env_info(stmt_c):
+        preds = proc.preds.copy()
+        var_types = dict()
 
-        for a in self.orig_proc.args:
-            self.var_types[a.name] = a.type
+        for a in proc.args:
+            var_types[a.name] = a.type
 
-        super().__init__(proc)
-        Check_Aliasing(self.proc)
+        def move_back(c):
+            if c.get_index() == 0:
+                return c.parent()
+            else:
+                return c.prev()
 
-    def subproc(self):
-        return api.Procedure(self.new_subproc)
+        prev_c = stmt_c
+        c = move_back(stmt_c)
+        while not isinstance(c._node, LoopIR.proc):
+            s = c._node
+            if isinstance(s, LoopIR.For):
+                var_types[s.iter] = T.index
+                iter_read = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
+                preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.index, s.srcinfo))
+                preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.index, s.srcinfo))
+            elif isinstance(s, LoopIR.If):
+                branch_taken = LoopIR.Const(prev_c in c.body(), T.bool, s.srcinfo)
+                preds.append(
+                    LoopIR.BinOp("==", s.cond, branch_taken, T.bool, s.srcinfo)
+                )
+            elif isinstance(s, LoopIR.Alloc):
+                var_types[s.name] = s.type
+            prev_c = c
+            c = move_back(c)
 
-    def push(self):
-        self.var_types = self.var_types.new_child()
+        return preds, var_types
 
-    def pop(self):
-        self.var_types = self.var_types.parents
+    preds, var_types = get_env_info(stmt_c)
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.match_stmt:
-            subproc, args = _make_closure(
-                self.sub_proc_name, [s], self.var_types, self.order
-            )
-            self.new_subproc = subproc
-            return [LoopIR.Call(subproc, args, None, s.srcinfo)]
-        elif isinstance(s, LoopIR.Alloc):
-            self.var_types[s.name] = s.type
-            return None
-        elif isinstance(s, LoopIR.For):
-            self.push()
-            self.var_types[s.iter] = T.index
-            body = self.map_stmts(sc.body())
-            self.pop()
+    stmt = stmt_c._node
+    subproc_ir, args = _make_closure(subproc_name, [stmt], var_types, order)
 
-            if body:
-                return [s.update(body=body)]
+    call = LoopIR.Call(subproc_ir, args, None, stmt.srcinfo)
+    ir, fwd = stmt_c._replace(call)
 
-            return None
-        elif isinstance(s, LoopIR.If):
-            self.push()
-            body = self.map_stmts(sc.body())
-            self.pop()
-            self.push()
-            orelse = self.map_stmts(sc.orelse())
-            self.pop()
-
-            if body or orelse:
-                return [s.update(body=body or s.body, orelse=orelse or s.orelse)]
-
-            return None
-
-        return super().map_s(sc)
-
-    def map_e(self, e):
-        return None
+    return ir, fwd, subproc_ir
 
 
 class _DoNormalize(Cursor_Rewrite):
