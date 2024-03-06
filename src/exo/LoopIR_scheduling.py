@@ -4121,9 +4121,9 @@ __all__ = [
     "DoConfigWrite",
     "DoDeleteConfig",
     "DoUnrollBuffer",
+    "DoExtractSubproc",
     ### END Scheduling Ops with Cursor Forwarding ###
     "DoPartialEval",
-    "DoExtractSubproc",
     "DoLiftAlloc",
     "DoFissionLoops",
     "DoBoundAndGuard",
