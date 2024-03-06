@@ -2654,6 +2654,9 @@ def DoDeleteConfig(proc_cursor, config_cursor):
 
 
 def DoDeletePass(proc):
+    ir = proc._loopir_proc
+    fwd = lambda x: x
+
     for c in proc.find("pass", many=True):
         c = fwd(c._impl)
         while isinstance(c.parent()._node, LoopIR.For) and len(c.parent().body()) == 1:
