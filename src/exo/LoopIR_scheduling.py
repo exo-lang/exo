@@ -2684,7 +2684,7 @@ def DoDeletePass(proc):
     return ir, fwd
 
 
-def DoExtractSubproc(stmt_c, subproc_name, order):
+def DoExtractSubproc(stmt_c, subproc_name):
     proc = stmt_c.get_root()
     Check_Aliasing(proc)
 
@@ -2732,22 +2732,6 @@ def DoExtractSubproc(stmt_c, subproc_name, order):
         for var, typ in var_types:
             args.append(LoopIR.Read(var, [], typ, info))
             fnargs.append(LoopIR.fnarg(var, typ, None, info))
-
-        def shuffle(arg_list):
-            if sorted(order.values()) != [i for i in range(0, len(arg_list))]:
-                raise SchedulingError(f"expected to provide full ordering of arguments")
-
-            new_args = [0 for a in arg_list]
-            for key in order:
-                for i in range(len(arg_list)):
-                    if arg_list[i].name.name() == key:
-                        new_args[order[key]] = arg_list[i]
-
-            return new_args
-
-        if order:
-            args = shuffle(args)
-            fnargs = shuffle(fnargs)
 
         eff = None
         # TODO: raise NotImplementedError("need to figure out effect of new closure")
