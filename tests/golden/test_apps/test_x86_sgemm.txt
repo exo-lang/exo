@@ -477,17 +477,7 @@ if (M == 1) {
       if (M == 4) {
         basic_kernel_4x4(ctxt,K,(struct exo_win_2f32c){ &A.data[0], { A.strides[0], 1 } },(struct exo_win_2f32c){ &B.data[0], { B.strides[0], 1 } },(struct exo_win_2f32){ &C.data[0], { C.strides[0], 1 } });
       } else {
-        if (M == 5) {
-          basic_kernel_5x4(ctxt,K,(struct exo_win_2f32c){ &A.data[0], { A.strides[0], 1 } },(struct exo_win_2f32c){ &B.data[0], { B.strides[0], 1 } },(struct exo_win_2f32){ &C.data[0], { C.strides[0], 1 } });
-        } else {
-          for (int_fast32_t k = 0; k < K; k++) {
-            for (int_fast32_t i = 0; i < M; i++) {
-              for (int_fast32_t j = 0; j < 64; j++) {
-                C.data[i * C.strides[0] + j] += A.data[i * A.strides[0] + k] * B.data[k * B.strides[0] + j];
-              }
-            }
-          }
-        }
+        basic_kernel_5x4(ctxt,K,(struct exo_win_2f32c){ &A.data[0], { A.strides[0], 1 } },(struct exo_win_2f32c){ &B.data[0], { B.strides[0], 1 } },(struct exo_win_2f32){ &C.data[0], { C.strides[0], 1 } });
       }
     }
   }
