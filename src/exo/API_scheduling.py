@@ -1005,7 +1005,37 @@ def bind_expr(proc, expr_cursors, new_name):
 @sched_op([NameA, BlockCursorA, DictA])
 def extract_subproc(proc, subproc_name, block, order=dict()):
     """
-    Documentation
+    Extract a block as a subprocedure with the name `subproc_name`.
+
+    # TODO: deprecate `order` and swap the order of `subproc_name` and `block`.
+
+    args:
+        subproc_name    - the name of the new subprocedure.
+        block           - the block to extract as a subprocedure.
+        order           - deprecated.
+
+    returns:
+        a tuple (proc, subproc).
+
+    rewrite:
+        extract_subproc(..., "sub_foo", "for i in _:_")
+        ```
+        def foo(N: size, M: size, K: size, x: R[N, K + M]):
+            assert N >= 8
+            for i in seq(0, 8):
+                x[i, 0] += 2.0
+        ```
+        -->
+        ```
+        def foo(N: size, M: size, K: size, x: R[N, K + M]):
+            assert N >= 8
+            sub_foo(N, M, K, x)
+        def sub_foo(N: size, M: size, K: size, x: R[N, K + M]):
+            assert N >= 8
+            for i in seq(0, 8):
+                x[i, 0] += 2.0
+        ```
+
     """
 
     ir, fwd, subproc_ir = scheduling.DoExtractSubproc(block._impl, subproc_name)
