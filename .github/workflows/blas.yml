@@ -62,13 +62,14 @@ jobs:
       - name: Configure CMake
         env:
           CMAKE_PREFIX_PATH: ${{github.workspace}}/benchmark/build
-        run: cmake ${{github.workspace}}/BLAS-repo -B ${{github.workspace}}/BLAS-repo/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} --preset ${{matrix.PRESET}}
+        run: cmake ${{github.workspace}}/BLAS-repo -B ${{github.workspace}}/BLAS-repo/build/${{matrix.PRESET}} -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} --preset ${{matrix.PRESET}}
 
       - name: Build
-        run: cmake --build ${{github.workspace}}/BLAS-repo/build --config ${{env.BUILD_TYPE}}
+        run: cmake --build ${{github.workspace}}/BLAS-repo/build/${{matrix.PRESET}} --config ${{env.BUILD_TYPE}}
 
-      - name: Test
-        run: ctest --test-dir ${{github.workspace}}/BLAS-repo/build -C ${{env.BUILD_TYPE}} -R correctness
+      - name: Test Correctness
+        run: ctest --test-dir ${{github.workspace}}/BLAS-repo/build/${{matrix.PRESET}} -C ${{env.BUILD_TYPE}} -R correctness
 
-
-
+      - name: Test Codegen
+        run: ctest --test-dir ${{github.workspace}}/BLAS-repo/build/${{matrix.PRESET}} -C ${{env.BUILD_TYPE}} -R codegen_verbose
+        if: ${{matrix.runner == 'ubuntu-latest'}}
