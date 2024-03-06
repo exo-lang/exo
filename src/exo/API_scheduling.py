@@ -852,7 +852,8 @@ def delete_pass(proc):
 
     Delete all `pass` statements in the procedure.
     """
-    return scheduling.DoDeletePass(proc).result()
+    ir, fwd = scheduling.DoDeletePass(proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA(block_size=2)])

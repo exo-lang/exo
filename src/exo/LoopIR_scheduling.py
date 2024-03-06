@@ -2681,25 +2681,18 @@ def DoDeleteConfig(proc_cursor, config_cursor):
     return p, fwd, eq_mod_config
 
 
-class DoDeletePass(Cursor_Rewrite):
-    def __init__(self, proc_cursor):
-        super().__init__(proc_cursor)
+def DoDeletePass(proc):
+    ir = proc._loopir_proc
+    fwd = lambda x: x
 
-    def map_s(self, sc):
-        s = sc._node
-        if isinstance(s, LoopIR.Pass):
-            return []
+    for c in proc.find("pass", many=True):
+        c = fwd(c._impl)
+        while isinstance(c.parent()._node, LoopIR.For) and len(c.parent().body()) == 1:
+            c = c.parent()
+        ir, fwd_d = c._delete()
+        fwd = _compose(fwd_d, fwd)
 
-        elif isinstance(s, LoopIR.For):
-            body = self.map_stmts(sc.body())
-            if body is None:
-                return None
-            elif not body:
-                return []
-            else:
-                return [s.update(body=body)]
-
-        return super().map_s(sc)
+    return ir, fwd
 
 
 class DoExtractMethod(Cursor_Rewrite):
