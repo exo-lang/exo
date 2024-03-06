@@ -2505,40 +2505,6 @@ def DoSpecialize(stmt_cursor, conds):
     return ir, fwd
 
 
-def _get_constant_bound(e):
-    if isinstance(e, LoopIR.BinOp) and e.op == "%":
-        return e.rhs
-    raise SchedulingError(f"Could not derive constant bound on {e}")
-
-
-class DoBoundAndGuard(Cursor_Rewrite):
-    def __init__(self, proc_cursor, loop_cursor):
-        self.loop = loop_cursor._node
-        super().__init__(proc_cursor)
-
-    def map_s(self, sc):
-        s = sc._node
-        if s == self.loop:
-            assert isinstance(s, LoopIR.For)
-            bound = _get_constant_bound(s.hi)
-            guard = LoopIR.If(
-                LoopIR.BinOp(
-                    "<",
-                    LoopIR.Read(s.iter, [], T.index, s.srcinfo),
-                    s.hi,
-                    T.bool,
-                    s.srcinfo,
-                ),
-                s.body,
-                [],
-                None,
-                s.srcinfo,
-            )
-            return [s.update(hi=bound, body=[guard])]
-
-        return super().map_s(sc)
-
-
 def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
     proc = f_cursor.get_root()
 
@@ -4172,14 +4138,13 @@ __all__ = [
     "DoConfigWrite",
     "DoDeleteConfig",
     "DoUnrollBuffer",
+    "DoEliminateDeadCode",
+    "DoDeletePass",
     ### END Scheduling Ops with Cursor Forwarding ###
     "DoPartialEval",
     "DoExtractMethod",
     "DoLiftAlloc",
     "DoFissionLoops",
-    "DoBoundAndGuard",
-    "DoDeletePass",
-    "DoEliminateDeadCode",
     "DoAddUnsafeGuard",
     "DoStageWindow",
 ]

@@ -89,7 +89,6 @@ from ..API_scheduling import (
     #
     # deprecated scheduling operations
     add_unsafe_guard,
-    bound_and_guard,
     #
     # to be replaced by stdlib compositions eventually
     autofission,

@@ -2235,23 +2235,3 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     stmt = block_cursor._impl[0]
 
     return scheduling.DoAddUnsafeGuard(proc, stmt, var_expr).result()
-
-
-@sched_op([ForCursorA])
-def bound_and_guard(proc, loop):
-    """
-    DEPRECATED
-    recommendation: replace with similar but more general primitive
-
-    Replace
-      for i in par(0, e): ...
-    with
-      for i in par(0, c):
-        if i < e: ...
-    where c is the tightest constant bound on e
-
-    This currently only works when e is of the form x % n
-    """
-    stmt = loop._impl
-
-    return scheduling.DoBoundAndGuard(proc, stmt).result()
