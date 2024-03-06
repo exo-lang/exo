@@ -994,7 +994,14 @@ class Compiler:
         elif isinstance(e, LoopIR.Const):
             if isinstance(e.val, bool):
                 return "true" if e.val else "false"
-            return str(e.val)
+            elif e.type.is_indexable():
+                return f"{int(e.val)}"
+            elif e.type == T.f64:
+                return f"{float(e.val)}"
+            elif e.type == T.f32:
+                return f"{float(e.val)}f"
+            else:
+                return f"(({e.type.ctype()}) {str(e.val)})"
 
         elif isinstance(e, LoopIR.BinOp):
             local_prec = op_prec[e.op]

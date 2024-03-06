@@ -209,7 +209,10 @@ def test_call_pass1():
     def hoge(y: R):
         pass
 
-    with pytest.raises(TypeError, match="expected scalar type"):
+    # integer scalar now coerces to R if it is an environment where R is required
+    with pytest.raises(
+        TypeError, match="expected scalar arguments to be simply variable names for now"
+    ):
 
         @proc
         def huga():
@@ -291,6 +294,12 @@ def test_usub2():
             x = -x
 
 
+def test_usub3():
+    @proc
+    def foo(x: f32):
+        x = -1 + x
+
+
 def test_binop1():
     with pytest.raises(TypeError, match="cannot negate expression of type "):
 
@@ -350,11 +359,10 @@ def test_binop6():
 
 
 def test_binop7():
-    with pytest.raises(TypeError, match="expected scalar type"):
-
-        @proc
-        def hoge(x: R):
-            x = x + 8
+    # integer scalar now coerces to R if it is an environment where R is required
+    @proc
+    def hoge(x: R):
+        x = x + 8
 
 
 def test_binop8():
@@ -434,6 +442,46 @@ def test_binop15():
         def hoge(x: size, y: size):
             if (y * x) > 0:
                 pass
+
+
+def test_binop16():
+    @proc
+    def foo(x: f32, y: f32):
+        x = y + (1 * 4)
+
+
+def test_binop17():
+    # attempt to coerce to R should not allow mod on R scalars
+    with pytest.raises(TypeError, match="cannot compute modulus of 'R' values"):
+
+        @proc
+        def foo(x: i32, y: i32):
+            x = y + (1 % 4)
+
+
+def test_binop18():
+    # do not coerce if adding to control value
+    with pytest.raises(TypeError, match="expected scalar type"):
+
+        @proc
+        def foo(x: i32, y: i32, n: size):
+            x = y * (n + 1)
+
+
+def test_binop19():
+    # make sure constant 10 coerces to indexable int type in mod expression
+    @proc
+    def foo(n: size, m: size):
+        if n == m % 10:
+            pass
+
+
+def test_binop20():
+    # make sure constant 10 coerces to indexable int type in comparison operations
+    @proc
+    def foo(n: size):
+        if n == 10:
+            pass
 
 
 def test_proj_bad():

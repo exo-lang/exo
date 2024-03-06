@@ -120,11 +120,6 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                     result[0] = result[0].update(rhs=self.coerce_e(result[0].rhs, ltyp))
                     rtyp = ltyp
 
-                # TODO: remove the `cast` field entirely
-                if ltyp != rtyp:
-                    # then we have an implicit cast at this point
-                    result[0] = result[0].update(cast="yup, cast!")
-
         elif isinstance(s, LoopIR.WriteConfig):
             rtyp = result[0].rhs.type
             ltyp = s.config.lookup(s.field)[1]
