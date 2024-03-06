@@ -2684,7 +2684,7 @@ def DoDeletePass(proc):
     return ir, fwd
 
 
-def DoExtractMethod(stmt_c, subproc_name, order):
+def DoExtractSubproc(stmt_c, subproc_name, order):
     proc = stmt_c.get_root()
     Check_Aliasing(proc)
 
@@ -4136,7 +4136,7 @@ __all__ = [
     "DoUnrollBuffer",
     ### END Scheduling Ops with Cursor Forwarding ###
     "DoPartialEval",
-    "DoExtractMethod",
+    "DoExtractSubproc",
     "DoLiftAlloc",
     "DoFissionLoops",
     "DoBoundAndGuard",

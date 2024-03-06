@@ -1008,7 +1008,7 @@ def extract_subproc(proc, subproc_name, stmt, order=dict()):
     Documentation
     """
 
-    ir, fwd, subproc_ir = scheduling.DoExtractMethod(stmt._impl, subproc_name, order)
+    ir, fwd, subproc_ir = scheduling.DoExtractSubproc(stmt._impl, subproc_name, order)
     proc = Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     subproc = Procedure(subproc_ir)
     return proc, subproc
