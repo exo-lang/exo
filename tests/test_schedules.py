@@ -3850,6 +3850,23 @@ def test_extract_subproc2(golden):
     assert (str(foo) + "\n" + str(new)) == golden
 
 
+def test_extract_subproc3(golden):
+    @proc
+    def foo(N: size, M: size, K: size, x: R[N, K + M]):
+        assert N >= 8
+        assert M >= 2
+        if N < 10 and M < 4:
+            for i in seq(0, 8):
+                x[i, 0] += 2.0
+        else:
+            for i in seq(0, 8):
+                x[i, 0] += 1.0
+
+    foo, foo_if = extract_subproc(foo, "foo_if", "for i in _:_")
+    foo, foo_else = extract_subproc(foo, "foo_else", "for i in _:_")
+    assert f"{foo}\n{foo_if}\n{foo_else}" == golden
+
+
 def test_unroll_buffer(golden):
     @proc
     def bar(n: size, A: i8[n]):

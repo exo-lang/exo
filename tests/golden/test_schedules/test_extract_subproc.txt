@@ -5,5 +5,7 @@ def foo():
         x = 0.0
         fooooo(y, x, j)
 def fooooo(y: R[8], x: R, j: index):
+    assert 0 <= j
+    assert j < 8
     for i in seq(0, 8):
         x += y[j] * 2.0

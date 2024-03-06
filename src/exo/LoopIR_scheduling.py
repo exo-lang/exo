@@ -2641,68 +2641,6 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
 #   Factor out a sub-statement as a Procedure scheduling directive
 
 
-def _make_closure(name, stmts, var_types, order):
-    FVs = list(sorted(_FV(stmts)))
-    info = stmts[0].srcinfo
-
-    # work out the calling arguments (args) and sub-proc args (fnargs)
-    args = []
-    fnargs = []
-
-    # first, scan over all the arguments and convert them.
-    # accumulate all size symbols separately
-    sizes = set()
-    for v in FVs:
-        typ = var_types[v]
-        if typ is T.size:
-            sizes.add(v)
-        elif typ is T.index:
-            args.append(LoopIR.Read(v, [], typ, info))
-            fnargs.append(LoopIR.fnarg(v, typ, None, info))
-        else:
-            # add sizes (that this arg depends on) to the signature
-            def add_size(sz):
-                if isinstance(sz, LoopIR.Read):
-                    sizes.add(sz.name)
-                elif isinstance(sz, LoopIR.BinOp):
-                    add_size(sz.lhs)
-                    add_size(sz.rhs)
-                elif isinstance(sz, LoopIR.USub):
-                    add_size(sz.arg)
-
-            for sz in typ.shape():
-                add_size(sz)
-            args.append(LoopIR.Read(v, [], typ, info))
-            fnargs.append(LoopIR.fnarg(v, typ, None, info))
-
-    # now prepend all sizes to the argument list
-    sizes = list(sorted(sizes))
-    args = [LoopIR.Read(sz, [], T.size, info) for sz in sizes] + args
-    fnargs = [LoopIR.fnarg(sz, T.size, None, info) for sz in sizes] + fnargs
-
-    def shuffle(arg_list):
-        if sorted(order.values()) != [i for i in range(0, len(arg_list))]:
-            raise SchedulingError(f"expected to provide full ordering of arguments")
-
-        new_args = [0 for a in arg_list]
-        for key in order:
-            for i in range(len(arg_list)):
-                if arg_list[i].name.name() == key:
-                    new_args[order[key]] = arg_list[i]
-
-        return new_args
-
-    if order:
-        args = shuffle(args)
-        fnargs = shuffle(fnargs)
-
-    eff = None
-    # TODO: raise NotImplementedError("need to figure out effect of new closure")
-    closure = LoopIR.proc(name, fnargs, [], stmts, None, eff, info)
-
-    return closure, args
-
-
 def DoInsertPass(gap):
     srcinfo = gap.parent()._node.srcinfo
     ir, fwd = gap._insert([LoopIR.Pass(None, srcinfo=srcinfo)])
@@ -2748,13 +2686,11 @@ def DoDeletePass(proc):
 
 def DoExtractMethod(stmt_c, subproc_name, order):
     proc = stmt_c.get_root()
+    Check_Aliasing(proc)
 
     def get_env_info(stmt_c):
         preds = proc.preds.copy()
-        var_types = dict()
-
-        for a in proc.args:
-            var_types[a.name] = a.type
+        var_types = []
 
         def move_back(c):
             if c.get_index() == 0:
@@ -2767,7 +2703,7 @@ def DoExtractMethod(stmt_c, subproc_name, order):
         while not isinstance(c._node, LoopIR.proc):
             s = c._node
             if isinstance(s, LoopIR.For):
-                var_types[s.iter] = T.index
+                var_types.append((s.iter, T.index))
                 iter_read = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
                 preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.index, s.srcinfo))
                 preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.index, s.srcinfo))
@@ -2777,16 +2713,50 @@ def DoExtractMethod(stmt_c, subproc_name, order):
                     LoopIR.BinOp("==", s.cond, branch_taken, T.bool, s.srcinfo)
                 )
             elif isinstance(s, LoopIR.Alloc):
-                var_types[s.name] = s.type
+                var_types.append((s.name, s.type))
             prev_c = c
             c = move_back(c)
 
-        return preds, var_types
+        for a in proc.args[::-1]:
+            var_types.append((a.name, a.type))
+
+        return preds, var_types[::-1]
 
     preds, var_types = get_env_info(stmt_c)
 
+    def make_closure(stmts):
+        info = stmts[0].srcinfo
+
+        args = []
+        fnargs = []
+        for var, typ in var_types:
+            args.append(LoopIR.Read(var, [], typ, info))
+            fnargs.append(LoopIR.fnarg(var, typ, None, info))
+
+        def shuffle(arg_list):
+            if sorted(order.values()) != [i for i in range(0, len(arg_list))]:
+                raise SchedulingError(f"expected to provide full ordering of arguments")
+
+            new_args = [0 for a in arg_list]
+            for key in order:
+                for i in range(len(arg_list)):
+                    if arg_list[i].name.name() == key:
+                        new_args[order[key]] = arg_list[i]
+
+            return new_args
+
+        if order:
+            args = shuffle(args)
+            fnargs = shuffle(fnargs)
+
+        eff = None
+        # TODO: raise NotImplementedError("need to figure out effect of new closure")
+        closure = LoopIR.proc(subproc_name, fnargs, preds, stmts, None, eff, info)
+
+        return closure, args
+
     stmt = stmt_c._node
-    subproc_ir, args = _make_closure(subproc_name, [stmt], var_types, order)
+    subproc_ir, args = make_closure([stmt])
 
     call = LoopIR.Call(subproc_ir, args, None, stmt.srcinfo)
     ir, fwd = stmt_c._replace(call)
