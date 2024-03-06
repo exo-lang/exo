@@ -2654,32 +2654,12 @@ def DoDeleteConfig(proc_cursor, config_cursor):
 
 
 def DoDeletePass(proc):
-    ir = proc._loopir_proc
-    fwd = lambda x: x
-
-    def delete_cursor(c):
-        nonlocal ir, fwd
-        ir, fwd_d = fwd(c)._delete()
-        fwd = _compose(fwd_d, fwd)
-
-    def should_delete_loop(c):
-        c_fwd = fwd(c)
-        body = c_fwd.body()
-        return isinstance(c._node, LoopIR.For) and len(body) == 1
-
-    def delete_up(c):
-        c_to_delete = c
-        while should_delete_loop(c):
-            c_to_delete = c
-            c = c.parent()
-        delete_cursor(c_to_delete)
-
     for c in proc.find("pass", many=True):
-        parent = c._impl.parent()
-        if should_delete_loop(parent):
-            delete_up(parent)
-        else:
-            delete_cursor(c._impl)
+        c = fwd(c._impl)
+        while isinstance(c.parent()._node, LoopIR.For) and len(c.parent().body()) == 1:
+            c = c.parent()
+        ir, fwd_d = c._delete()
+        fwd = _compose(fwd_d, fwd)
 
     return ir, fwd
 
