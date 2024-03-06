@@ -327,6 +327,21 @@ def test_delete_pass_forwarding():
     assert isinstance(foo.forward(assign_0), AssignCursor)
 
 
+def test_extract_subproc_forwarding():
+    @proc
+    def foo(N: size, M: size, K: size, x: R[N, K + M]):
+        assert N >= 8
+        x[0, 0] = 0.0
+        for i in seq(0, 8):
+            x[i, 0] += 2.0
+
+    block = foo.body()
+    foo, new = extract_subproc(foo, "fooooo", block)
+    block = foo.forward(block)
+    assert len(block) == 1
+    assert isinstance(block[0], CallCursor)
+
+
 def test_arg_cursor(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n, n]):

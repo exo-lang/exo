@@ -1002,13 +1002,13 @@ def bind_expr(proc, expr_cursors, new_name):
 # Sub-procedure Operations
 
 
-@sched_op([NameA, StmtCursorA, DictA])
-def extract_subproc(proc, subproc_name, stmt, order=dict()):
+@sched_op([NameA, BlockCursorA, DictA])
+def extract_subproc(proc, subproc_name, block, order=dict()):
     """
     Documentation
     """
 
-    ir, fwd, subproc_ir = scheduling.DoExtractSubproc(stmt._impl, subproc_name)
+    ir, fwd, subproc_ir = scheduling.DoExtractSubproc(block._impl, subproc_name)
     proc = Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     subproc = Procedure(subproc_ir)
     return proc, subproc

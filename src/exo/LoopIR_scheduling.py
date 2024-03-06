@@ -2684,8 +2684,8 @@ def DoDeletePass(proc):
     return ir, fwd
 
 
-def DoExtractSubproc(stmt_c, subproc_name):
-    proc = stmt_c.get_root()
+def DoExtractSubproc(block, subproc_name):
+    proc = block.get_root()
     Check_Aliasing(proc)
 
     def get_env_info(stmt_c):
@@ -2722,10 +2722,11 @@ def DoExtractSubproc(stmt_c, subproc_name):
 
         return preds, var_types[::-1]
 
-    preds, var_types = get_env_info(stmt_c)
+    preds, var_types = get_env_info(block[0])
 
-    def make_closure(stmts):
-        info = stmts[0].srcinfo
+    def make_closure():
+        body = [s._node for s in block]
+        info = body[0].srcinfo
 
         args = []
         fnargs = []
@@ -2735,15 +2736,12 @@ def DoExtractSubproc(stmt_c, subproc_name):
 
         eff = None
         # TODO: raise NotImplementedError("need to figure out effect of new closure")
-        closure = LoopIR.proc(subproc_name, fnargs, preds, stmts, None, eff, info)
+        subproc_ir = LoopIR.proc(subproc_name, fnargs, preds, body, None, eff, info)
+        call = LoopIR.Call(subproc_ir, args, None, info)
+        return subproc_ir, call
 
-        return closure, args
-
-    stmt = stmt_c._node
-    subproc_ir, args = make_closure([stmt])
-
-    call = LoopIR.Call(subproc_ir, args, None, stmt.srcinfo)
-    ir, fwd = stmt_c._replace(call)
+    subproc_ir, call = make_closure()
+    ir, fwd = block._replace([call])
 
     return ir, fwd, subproc_ir
 
