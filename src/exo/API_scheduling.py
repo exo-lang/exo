@@ -1002,14 +1002,47 @@ def bind_expr(proc, expr_cursors, new_name):
 # Sub-procedure Operations
 
 
-@sched_op([NameA, StmtCursorA, DictA])
-def extract_subproc(proc, subproc_name, body_stmt, order=dict()):
+@sched_op([BlockCursorA, NameA, BoolA])
+def extract_subproc(proc, block, subproc_name, include_asserts=True):
     """
-    Documentation
+    Extract a block as a subprocedure with the name `subproc_name`.
+
+    args:
+        block           - the block to extract as a subprocedure.
+        subproc_name    - the name of the new subprocedure.
+        include_asserts - whether to include asserts about the parameters
+                          that can be inferred from the parent.
+
+    returns:
+        a tuple (proc, subproc).
+
+    rewrite:
+        extract_subproc(..., "sub_foo", "for i in _:_")
+        ```
+        def foo(N: size, M: size, K: size, x: R[N, K + M]):
+            assert N >= 8
+            for i in seq(0, 8):
+                x[i, 0] += 2.0
+        ```
+        -->
+        ```
+        def foo(N: size, M: size, K: size, x: R[N, K + M]):
+            assert N >= 8
+            sub_foo(N, M, K, x)
+        def sub_foo(N: size, M: size, K: size, x: R[N, K + M]):
+            assert N >= 8
+            for i in seq(0, 8):
+                x[i, 0] += 2.0
+        ```
+
     """
-    stmt = body_stmt._impl
-    passobj = scheduling.DoExtractMethod(proc, subproc_name, stmt, order)
-    return passobj.result(), passobj.subproc()
+
+    ir, fwd, subproc_ir = scheduling.DoExtractSubproc(
+        block._impl, subproc_name, include_asserts
+    )
+    proc = Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    subproc = Procedure(subproc_ir)
+    return proc, subproc
 
 
 @sched_op([CallCursorA])

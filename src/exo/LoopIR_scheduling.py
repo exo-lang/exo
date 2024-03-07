@@ -2607,68 +2607,6 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
 #   Factor out a sub-statement as a Procedure scheduling directive
 
 
-def _make_closure(name, stmts, var_types, order):
-    FVs = list(sorted(_FV(stmts)))
-    info = stmts[0].srcinfo
-
-    # work out the calling arguments (args) and sub-proc args (fnargs)
-    args = []
-    fnargs = []
-
-    # first, scan over all the arguments and convert them.
-    # accumulate all size symbols separately
-    sizes = set()
-    for v in FVs:
-        typ = var_types[v]
-        if typ is T.size:
-            sizes.add(v)
-        elif typ is T.index:
-            args.append(LoopIR.Read(v, [], typ, info))
-            fnargs.append(LoopIR.fnarg(v, typ, None, info))
-        else:
-            # add sizes (that this arg depends on) to the signature
-            def add_size(sz):
-                if isinstance(sz, LoopIR.Read):
-                    sizes.add(sz.name)
-                elif isinstance(sz, LoopIR.BinOp):
-                    add_size(sz.lhs)
-                    add_size(sz.rhs)
-                elif isinstance(sz, LoopIR.USub):
-                    add_size(sz.arg)
-
-            for sz in typ.shape():
-                add_size(sz)
-            args.append(LoopIR.Read(v, [], typ, info))
-            fnargs.append(LoopIR.fnarg(v, typ, None, info))
-
-    # now prepend all sizes to the argument list
-    sizes = list(sorted(sizes))
-    args = [LoopIR.Read(sz, [], T.size, info) for sz in sizes] + args
-    fnargs = [LoopIR.fnarg(sz, T.size, None, info) for sz in sizes] + fnargs
-
-    def shuffle(arg_list):
-        if sorted(order.values()) != [i for i in range(0, len(arg_list))]:
-            raise SchedulingError(f"expected to provide full ordering of arguments")
-
-        new_args = [0 for a in arg_list]
-        for key in order:
-            for i in range(len(arg_list)):
-                if arg_list[i].name.name() == key:
-                    new_args[order[key]] = arg_list[i]
-
-        return new_args
-
-    if order:
-        args = shuffle(args)
-        fnargs = shuffle(fnargs)
-
-    eff = None
-    # TODO: raise NotImplementedError("need to figure out effect of new closure")
-    closure = LoopIR.proc(name, fnargs, [], stmts, None, eff, info)
-
-    return closure, args
-
-
 def DoInsertPass(gap):
     srcinfo = gap.parent()._node.srcinfo
     ir, fwd = gap._insert([LoopIR.Pass(None, srcinfo=srcinfo)])
@@ -2695,70 +2633,94 @@ def DoDeletePass(proc):
     return ir, fwd
 
 
-class DoExtractMethod(Cursor_Rewrite):
-    def __init__(self, proc, name, stmt_cursor, order):
-        self.match_stmt = stmt_cursor._node
-        assert isinstance(self.match_stmt, LoopIR.stmt)
-        self.sub_proc_name = name
-        self.new_subproc = None
-        self.orig_proc = proc._loopir_proc
-        self.order = order
+def DoExtractSubproc(block, subproc_name, include_asserts):
+    proc = block.get_root()
+    Check_Aliasing(proc)
 
-        self.var_types = ChainMap()
+    def get_env_info(stmt_c):
+        preds = proc.preds.copy()
+        var_types = []
 
-        for a in self.orig_proc.args:
-            self.var_types[a.name] = a.type
+        def move_back(c):
+            if c.get_index() == 0:
+                return c.parent()
+            else:
+                return c.prev()
 
-        super().__init__(proc)
-        Check_Aliasing(self.proc)
+        prev_c = stmt_c
+        c = move_back(stmt_c)
+        while not isinstance(c._node, LoopIR.proc):
+            s = c._node
+            if isinstance(s, LoopIR.For):
+                var_types.append((s.iter, T.index))
+                iter_read = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
+                preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.index, s.srcinfo))
+                preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.index, s.srcinfo))
+            elif isinstance(s, LoopIR.If):
+                branch_taken = LoopIR.Const(prev_c in c.body(), T.bool, s.srcinfo)
+                preds.append(
+                    LoopIR.BinOp("==", s.cond, branch_taken, T.bool, s.srcinfo)
+                )
+            elif isinstance(s, LoopIR.Alloc):
+                var_types.append((s.name, s.type))
+            prev_c = c
+            c = move_back(c)
 
-    def subproc(self):
-        return api.Procedure(self.new_subproc)
+        for a in proc.args[::-1]:
+            var_types.append((a.name, a.type))
 
-    def push(self):
-        self.var_types = self.var_types.new_child()
+        return preds, var_types[::-1]
 
-    def pop(self):
-        self.var_types = self.var_types.parents
+    preds, var_types = get_env_info(block[0])
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.match_stmt:
-            subproc, args = _make_closure(
-                self.sub_proc_name, [s], self.var_types, self.order
-            )
-            self.new_subproc = subproc
-            return [LoopIR.Call(subproc, args, None, s.srcinfo)]
-        elif isinstance(s, LoopIR.Alloc):
-            self.var_types[s.name] = s.type
-            return None
-        elif isinstance(s, LoopIR.For):
-            self.push()
-            self.var_types[s.iter] = T.index
-            body = self.map_stmts(sc.body())
-            self.pop()
+    def make_closure():
+        body = [s._node for s in block]
+        info = body[0].srcinfo
 
-            if body:
-                return [s.update(body=body)]
+        # Get all symbols used in the body
+        body_symbols = set()
+        reads = get_reads_of_stmts(body)
+        writes = get_writes_of_stmts(body)
+        for var, _ in reads + writes:
+            body_symbols.add(var)
 
-            return None
-        elif isinstance(s, LoopIR.If):
-            self.push()
-            body = self.map_stmts(sc.body())
-            self.pop()
-            self.push()
-            orelse = self.map_stmts(sc.orelse())
-            self.pop()
+        # Get all the symbols used by the shapes of the buffers used in the body
+        for var, typ in var_types:
+            if var in body_symbols and isinstance(typ, LoopIR.Tensor):
+                for dim in typ.shape():
+                    for sym, _ in get_reads_of_expr(dim):
+                        body_symbols.add(sym)
 
-            if body or orelse:
-                return [s.update(body=body or s.body, orelse=orelse or s.orelse)]
+        # Construct the parameters and arguments
+        args = []
+        fnargs = []
+        for var, typ in var_types:
+            if var in body_symbols:
+                args.append(LoopIR.Read(var, [], typ, info))
+                fnargs.append(LoopIR.fnarg(var, typ, None, info))
 
-            return None
+        # Filter the predicates we have for ones that use the symbols of the subproc
+        def check_pred(pred):
+            reads = {var for var, _ in get_reads_of_expr(pred)}
+            return reads <= body_symbols
 
-        return super().map_s(sc)
+        subproc_preds = list(filter(check_pred, preds))
 
-    def map_e(self, e):
-        return None
+        if not include_asserts:
+            subproc_preds = []
+
+        eff = None
+        # TODO: raise NotImplementedError("need to figure out effect of new closure")
+        subproc_ir = LoopIR.proc(
+            subproc_name, fnargs, subproc_preds, body, None, eff, info
+        )
+        call = LoopIR.Call(subproc_ir, args, None, info)
+        return subproc_ir, call
+
+    subproc_ir, call = make_closure()
+    ir, fwd = block._replace([call])
+
+    return ir, fwd, subproc_ir
 
 
 class _DoNormalize(Cursor_Rewrite):
@@ -3999,9 +3961,9 @@ __all__ = [
     "DoUnrollBuffer",
     "DoEliminateDeadCode",
     "DoDeletePass",
+    "DoExtractSubproc",
     ### END Scheduling Ops with Cursor Forwarding ###
     "DoPartialEval",
-    "DoExtractMethod",
     "DoLiftAlloc",
     "DoFissionLoops",
     "DoAddUnsafeGuard",
