@@ -3834,9 +3834,9 @@ def test_extract_subproc(golden):
                 x += y[j] * 2.0
 
     _, new_no_asserts = extract_subproc(
-        foo, "fooooo", "for i in _:_", include_asserts=False
+        foo, "for i in _:_", "fooooo", include_asserts=False
     )
-    foo, new = extract_subproc(foo, "fooooo", "for i in _:_")
+    foo, new = extract_subproc(foo, "for i in _:_", "fooooo")
     assert f"{foo}\n{new_no_asserts}\n{new}" == golden
 
 
@@ -3847,7 +3847,7 @@ def test_extract_subproc2(golden):
         for i in seq(0, 8):
             x[i, 0] += 2.0
 
-    foo, new = extract_subproc(foo, "fooooo", "for i in _:_")
+    foo, new = extract_subproc(foo, "for i in _:_", "fooooo")
     assert (str(foo) + "\n" + str(new)) == golden
 
 
@@ -3863,8 +3863,8 @@ def test_extract_subproc3(golden):
             for i in seq(0, 8):
                 x[i, 0] += 1.0
 
-    foo, foo_if = extract_subproc(foo, "foo_if", "for i in _:_")
-    foo, foo_else = extract_subproc(foo, "foo_else", "for i in _:_")
+    foo, foo_if = extract_subproc(foo, "for i in _:_", "foo_if")
+    foo, foo_else = extract_subproc(foo, "for i in _:_", "foo_else")
     assert f"{foo}\n{foo_if}\n{foo_else}" == golden
 
 
@@ -3876,7 +3876,7 @@ def test_extract_subproc4(golden):
         for i in seq(0, 8):
             x[i, 0] += 2.0
 
-    foo, new = extract_subproc(foo, "fooooo", foo.body())
+    foo, new = extract_subproc(foo, foo.body(), "fooooo")
     assert (str(foo) + "\n" + str(new)) == golden
 
 

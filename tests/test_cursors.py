@@ -336,7 +336,7 @@ def test_extract_subproc_forwarding():
             x[i, 0] += 2.0
 
     block = foo.body()
-    foo, new = extract_subproc(foo, "fooooo", block)
+    foo, new = extract_subproc(foo, block, "fooooo")
     block = foo.forward(block)
     assert len(block) == 1
     assert isinstance(block[0], CallCursor)

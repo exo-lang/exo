@@ -1002,17 +1002,14 @@ def bind_expr(proc, expr_cursors, new_name):
 # Sub-procedure Operations
 
 
-@sched_op([NameA, BlockCursorA, DictA, BoolA])
-def extract_subproc(proc, subproc_name, block, order=dict(), include_asserts=True):
+@sched_op([BlockCursorA, NameA, BoolA])
+def extract_subproc(proc, block, subproc_name, include_asserts=True):
     """
     Extract a block as a subprocedure with the name `subproc_name`.
 
-    # TODO: deprecate `order` and swap the order of `subproc_name` and `block`.
-
     args:
-        subproc_name    - the name of the new subprocedure.
         block           - the block to extract as a subprocedure.
-        order           - deprecated.
+        subproc_name    - the name of the new subprocedure.
         include_asserts - whether to include asserts about the parameters
                           that can be inferred from the parent.
 
