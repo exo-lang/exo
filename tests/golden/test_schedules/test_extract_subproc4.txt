@@ -3,5 +3,6 @@ def foo(N: size, M: size, K: size, x: R[N, K + M] @ DRAM):
     fooooo(N, M, K, x)
 def fooooo(N: size, M: size, K: size, x: R[N, K + M]):
     assert N >= 8
+    x[0, 0] = 0.0
     for i in seq(0, 8):
         x[i, 0] += 2.0
