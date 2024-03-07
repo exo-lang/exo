@@ -1555,20 +1555,6 @@ def inline_window(proc, winstmt_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ExprCursorA, NameA, OptionalA(MemoryA)])
-def stage_window(proc, expr_cursor, win_name, memory=None):
-    """
-    TODO: Describe this scheduling operation.
-
-    Do we want to keep this operation?
-
-    Should it resemble `stage_mem` instead?
-    """
-    e = expr_cursor._impl
-
-    return scheduling.DoStageWindow(proc, win_name, memory, e).result()
-
-
 @sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA])
 def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     """
@@ -2269,23 +2255,3 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     stmt = block_cursor._impl[0]
 
     return scheduling.DoAddUnsafeGuard(proc, stmt, var_expr).result()
-
-
-@sched_op([ForCursorA])
-def bound_and_guard(proc, loop):
-    """
-    DEPRECATED
-    recommendation: replace with similar but more general primitive
-
-    Replace
-      for i in par(0, e): ...
-    with
-      for i in par(0, c):
-        if i < e: ...
-    where c is the tightest constant bound on e
-
-    This currently only works when e is of the form x % n
-    """
-    stmt = loop._impl
-
-    return scheduling.DoBoundAndGuard(proc, stmt).result()

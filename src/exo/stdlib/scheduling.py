@@ -59,7 +59,6 @@ from ..API_scheduling import (
     delete_buffer,
     reuse_buffer,
     inline_window,
-    stage_window,
     stage_mem,
     unroll_buffer,
     #
@@ -89,7 +88,6 @@ from ..API_scheduling import (
     #
     # deprecated scheduling operations
     add_unsafe_guard,
-    bound_and_guard,
     #
     # to be replaced by stdlib compositions eventually
     autofission,
