@@ -1522,20 +1522,6 @@ def inline_window(proc, winstmt_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ExprCursorA, NameA, OptionalA(MemoryA)])
-def stage_window(proc, expr_cursor, win_name, memory=None):
-    """
-    TODO: Describe this scheduling operation.
-
-    Do we want to keep this operation?
-
-    Should it resemble `stage_mem` instead?
-    """
-    e = expr_cursor._impl
-
-    return scheduling.DoStageWindow(proc, win_name, memory, e).result()
-
-
 @sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA])
 def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     """
