@@ -3833,10 +3833,11 @@ def test_extract_subproc(golden):
             for i in seq(0, 8):
                 x += y[j] * 2.0
 
-    foo, new = extract_subproc(
-        foo, "fooooo", "for i in _:_", order={"x": 1, "y": 0, "j": 2}
+    _, new_no_asserts = extract_subproc(
+        foo, "fooooo", "for i in _:_", include_asserts=False
     )
-    assert (str(foo) + "\n" + str(new)) == golden
+    foo, new = extract_subproc(foo, "fooooo", "for i in _:_")
+    assert f"{foo}\n{new_no_asserts}\n{new}" == golden
 
 
 def test_extract_subproc2(golden):

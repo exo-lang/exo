@@ -1002,8 +1002,8 @@ def bind_expr(proc, expr_cursors, new_name):
 # Sub-procedure Operations
 
 
-@sched_op([NameA, BlockCursorA, DictA])
-def extract_subproc(proc, subproc_name, block, order=dict()):
+@sched_op([NameA, BlockCursorA, DictA, BoolA])
+def extract_subproc(proc, subproc_name, block, order=dict(), include_asserts=True):
     """
     Extract a block as a subprocedure with the name `subproc_name`.
 
@@ -1013,6 +1013,8 @@ def extract_subproc(proc, subproc_name, block, order=dict()):
         subproc_name    - the name of the new subprocedure.
         block           - the block to extract as a subprocedure.
         order           - deprecated.
+        include_asserts - whether to include asserts about the parameters
+                          that can be inferred from the parent.
 
     returns:
         a tuple (proc, subproc).
@@ -1038,7 +1040,9 @@ def extract_subproc(proc, subproc_name, block, order=dict()):
 
     """
 
-    ir, fwd, subproc_ir = scheduling.DoExtractSubproc(block._impl, subproc_name)
+    ir, fwd, subproc_ir = scheduling.DoExtractSubproc(
+        block._impl, subproc_name, include_asserts
+    )
     proc = Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     subproc = Procedure(subproc_ir)
     return proc, subproc

@@ -2667,7 +2667,7 @@ def DoDeletePass(proc):
     return ir, fwd
 
 
-def DoExtractSubproc(block, subproc_name):
+def DoExtractSubproc(block, subproc_name, include_asserts):
     proc = block.get_root()
     Check_Aliasing(proc)
 
@@ -2739,6 +2739,9 @@ def DoExtractSubproc(block, subproc_name):
             return reads <= body_symbols
 
         subproc_preds = list(filter(check_pred, preds))
+
+        if not include_asserts:
+            subproc_preds = []
 
         eff = None
         # TODO: raise NotImplementedError("need to figure out effect of new closure")
