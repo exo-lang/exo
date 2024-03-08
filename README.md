@@ -1,6 +1,6 @@
-[![CI](https://github.com/exo-lang/exo/actions/workflows/main.yml/badge.svg)](https://github.com/exo-lang/exo/actions/workflows/main.yml)
+![CI](https://github.com/exo-lang/exo/actions/workflows/main.yml/badge.svg)(https://github.com/exo-lang/exo/actions/workflows/main.yml)
 ![GitHub last commit](https://img.shields.io/github/last-commit/exo-lang/exo)
-[![codecov](https://codecov.io/gh/exo-lang/exo/branch/master/graph/badge.svg?token=BFIZ0WKP4I)](https://codecov.io/gh/exo-lang/exo)
+![codecov](https://codecov.io/gh/exo-lang/exo/branch/master/graph/badge.svg?token=BFIZ0WKP4I)(https://codecov.io/gh/exo-lang/exo)
 
 # Install Exo
 
