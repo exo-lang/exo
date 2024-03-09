@@ -8,8 +8,7 @@ on:
 
 jobs:
   build-test:
-    # TODO: change @reusable-workflow to @main
-    uses: exo-lang/ExoBLAS/.github/workflows/build-test.yml@reusable-workflow
+    uses: exo-lang/ExoBLAS/.github/workflows/build-test.yml@main
     with:
       exo-ref: ${{ github.ref }}
       exo-blas-ref: main
