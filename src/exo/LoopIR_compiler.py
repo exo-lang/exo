@@ -606,7 +606,8 @@ class Compiler:
             check = False
             for s in stmts:
                 if isinstance(s, LoopIR.Alloc):
-                    mem = s.mem if s.mem else DRAM
+                    mem = s.mem
+                    assert issubclass(mem, Memory)
                     check |= issubclass(mem, StaticMemory)
                 elif isinstance(s, LoopIR.For):
                     check |= allocates_static_memory(s.body)

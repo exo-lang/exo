@@ -3,8 +3,8 @@ def matmul_on_gemmini(A: R[128, 128] @ DRAM, B: R[128, 128] @ DRAM,
     config_st_acc(stride(C, 0))
     config_matmul()
     res: R[8, 8, 16, 16] @ DRAM
-    a: R[8, 8, 16, 16]
-    b: R[8, 8, 16, 16]
+    a: R[8, 8, 16, 16] @ DRAM
+    b: R[8, 8, 16, 16] @ DRAM
     for io in seq(0, 8):
         for jo in seq(0, 8):
             config_ld(stride(C, 0))

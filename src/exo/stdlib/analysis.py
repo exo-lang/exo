@@ -74,31 +74,27 @@ def check_call_mem_types(call_cursor):
     caller = call_cursor.proc()
 
     # Add proc parameters to env
-    caller_parameters = caller._loopir_proc.args
-    for arg in caller_parameters:
-        if arg.type.is_numeric():
-            mem = arg.mem
-            mem = mem if mem is not None else DRAM
-            env[arg.name.name()] = mem
+    for arg in caller.args():
+        if arg.type().is_numeric():
+            mem = arg.mem()
+            env[arg.name()] = mem
 
     # Search through observed statement to find allocations
     for stmt_cursor in get_observed_stmts(call_cursor):
         # Found a buffer allocation, record memory type
         if type(stmt_cursor) is _PC.AllocCursor:
             mem = stmt_cursor.mem()
-            mem = mem if mem is not None else DRAM
             env[stmt_cursor.name()] = mem
 
     ###################################################################
     # Check memory consistency at call site
     ###################################################################
     call_args = call_cursor.args()
-    callee_parameters = call_cursor.subproc()._loopir_proc.args
+    callee_parameters = call_cursor.subproc().args()
     for ca, sa in zip(call_args, callee_parameters):
-        if sa.type.is_numeric():
-            smem = sa.mem if sa.mem else DRAM
+        if sa.type().is_numeric():
+            smem = sa.mem()
             cmem = env[ca.name()]
-
             # Check if the argument memory type is a subclass of the callee's parameter
             if not issubclass(cmem, smem):
                 return False
