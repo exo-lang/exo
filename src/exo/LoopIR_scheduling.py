@@ -3456,7 +3456,7 @@ def DoEliminateIfDeadBranch(if_cursor):
     assert isinstance(if_stmt, LoopIR.If)
 
     ir, fwd = if_cursor.get_root(), lambda x: x
-
+    return ir, fwd
     try:
         cond_node = LoopIR.Const(True, T.bool, if_stmt.srcinfo)
         Check_ExprEqvInContext(ir, if_stmt.cond, [if_stmt], cond_node)
