@@ -1,4 +1,5 @@
 name: ExoBLAS
+
 on:
   push:
     branches:
@@ -6,8 +7,22 @@ on:
   pull_request:
 
 jobs:
-  call_test_ExoBLAS:
-    # point to reusable-workflow branch for testing before merging
-    uses: exo-lang/ExoBLAS/.github/workflows/test_ExoBLAS.yml@reusable-workflow
+  prepare-input:
+    runs-on: ubuntu-latest
+    outputs:
+      exo-ref: ${{ steps.set-input.outputs.exo-ref }}
+    steps:
+      - id: set-input
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "exo-ref=main" >> $GITHUB_ENV
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "exo-ref=${{ github.event.pull_request.merge_commit_sha }}" >> $GITHUB_ENV
+          fi
+        shell: bash
+  build-test:
+    needs: prepare-input
+    uses: ./.github/workflows/build-test.yml
     with:
-      exo-ref: ${{ github.event.pull_request.merge_commit_sha }}
+      exo-ref: ${{ needs.prepare-input.outputs.exo-ref }}
+      exo-blas-ref: main
