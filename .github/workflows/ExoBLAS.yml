@@ -1,0 +1,13 @@
+name: ExoBLAS
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  call_test_ExoBLAS:
+    # point to reusable-workflow branch for testing before merging
+    uses: exo-lang/ExoBLAS/.github/workflows/test_ExoBLAS.yml@reusable-workflow
+    with:
+      exo-ref: ${{ github.head_ref }}"
