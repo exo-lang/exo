@@ -22,7 +22,8 @@ jobs:
         shell: bash
   build-test:
     needs: prepare-input
-    uses: exo-lang/ExoBLAS/.github/workflows/build-test.yml@main
+    # TODO: change @reusable-workflow to @main
+    uses: exo-lang/ExoBLAS/.github/workflows/build-test.yml@reusable-workflow
     with:
       exo-ref: ${{ needs.prepare-input.outputs.exo-ref }}
       exo-blas-ref: main
