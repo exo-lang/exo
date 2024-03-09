@@ -22,7 +22,7 @@ jobs:
         shell: bash
   build-test:
     needs: prepare-input
-    uses: ./.github/workflows/build-test.yml
+    uses: exo-lang/ExoBLAS/.github/workflows/build-test.yml
     with:
       exo-ref: ${{ needs.prepare-input.outputs.exo-ref }}
       exo-blas-ref: main
