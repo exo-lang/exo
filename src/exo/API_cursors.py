@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Any
 
 from . import API  # TODO: remove this circular import
-from .API_types import ExoType
+from .API_types import ExoType, loopir_type_to_exotype
 from .LoopIR import LoopIR
 from .configs import Config
 from .memory import Memory
@@ -199,12 +199,14 @@ class ArgCursor(Cursor):
 
         return self._impl._node.name.name()
 
-    def mem(self) -> Optional[Memory]:
+    def mem(self) -> Memory:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.fnarg)
         assert not self._impl._node.type.is_indexable()
 
-        return self._impl._node.mem
+        mem = self._impl._node.mem
+        assert issubclass(mem, Memory)
+        return mem
 
     def is_tensor(self) -> bool:
         assert isinstance(self._impl, C.Node)
@@ -224,7 +226,6 @@ class ArgCursor(Cursor):
     def type(self) -> API.ExoType:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.fnarg)
-
         return loopir_type_to_exotype(self._impl._node.type.basetype())
 
 
@@ -572,29 +573,6 @@ class ForCursor(StmtCursor):
         return BlockCursor(self._impl._child_block("body"), self._proc)
 
 
-def loopir_type_to_exotype(typ: LoopIR.Type) -> API.ExoType:
-    if isinstance(typ, LoopIR.Num):
-        return API.ExoType.R
-    elif isinstance(typ, LoopIR.F32):
-        return API.ExoType.F32
-    elif isinstance(typ, LoopIR.F64):
-        return API.ExoType.F64
-    elif isinstance(typ, LoopIR.INT8):
-        return API.ExoType.I8
-    elif isinstance(typ, LoopIR.INT32):
-        return API.ExoType.I32
-    elif isinstance(typ, LoopIR.Bool):
-        return API.ExoType.Bool
-    elif isinstance(typ, LoopIR.Size):
-        return API.ExoType.Size
-    elif isinstance(typ, LoopIR.Index):
-        return API.ExoType.Index
-    elif isinstance(typ, LoopIR.Int):
-        return API.ExoType.Int
-    else:
-        raise NotImplementedError(f"Unsupported {typ}")
-
-
 class AllocCursor(StmtCursor):
     """
     Cursor pointing to a buffer definition statement:
@@ -609,11 +587,14 @@ class AllocCursor(StmtCursor):
 
         return self._impl._node.name.name()
 
-    def mem(self) -> Optional[Memory]:
+    def mem(self) -> Memory:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Alloc)
+        assert not self._impl._node.type.is_indexable()
 
-        return self._impl._node.mem
+        mem = self._impl._node.mem
+        assert issubclass(mem, Memory)
+        return mem
 
     def is_tensor(self) -> bool:
         assert isinstance(self._impl, C.Node)

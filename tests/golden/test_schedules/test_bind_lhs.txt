@@ -2,9 +2,9 @@ def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
     for ii in seq(0, 1):
         for jj in seq(0, 1):
             for kk in seq(0, 16):
-                inp_ram: i32
+                inp_ram: i32 @ DRAM
                 inp_ram = inp[ii, jj, kk]
-                out_ram: i32
+                out_ram: i32 @ DRAM
                 out_ram = out[ii, jj, kk]
                 out[ii, jj, kk] += out_ram + inp_ram
                 out[ii, jj, kk] = out[ii, jj, kk] * inp_ram
