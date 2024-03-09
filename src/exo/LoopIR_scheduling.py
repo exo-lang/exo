@@ -3157,7 +3157,6 @@ class _DoNormalize(Cursor_Rewrite):
 class DoSimplify(Cursor_Rewrite):
     def __init__(self, proc):
         proc = _DoNormalize(proc).result()
-        raise ValueError("Raising an error")
 
         self.facts = ChainMap()
 
