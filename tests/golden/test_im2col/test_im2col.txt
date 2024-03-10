@@ -1,11 +1,12 @@
-def im2col(C: size, W: size, R: size, x: R[C, W], y: R[C + 1, R + 1, W + 1]):
+def im2col(C: size, W: size, R: size, x: R[C, W] @ DRAM,
+           y: R[C + 1, R + 1, W + 1] @ DRAM):
     for c in seq(0, C):
         for r in seq(0, R):
             for i in seq(0, W):
                 if 0 <= i - r:
                     y[c, r, i] = x[c, i - r]
-def matmul(K: size, C: size, W: size, R: size, w: R[K, C, R], res: R[K, W],
-           y: R[C + 1, R + 1, W + 1]):
+def matmul(K: size, C: size, W: size, R: size, w: R[K, C, R] @ DRAM,
+           res: R[K, W] @ DRAM, y: R[C + 1, R + 1, W + 1] @ DRAM):
     for k in seq(0, K):
         for c in seq(0, C):
             for r in seq(0, R):

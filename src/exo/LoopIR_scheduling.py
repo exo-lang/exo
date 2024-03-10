@@ -2722,10 +2722,10 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
         # Construct the parameters and arguments
         args = []
         fnargs = []
-        for sym, typ, _ in sym_env:
+        for sym, typ, mem in sym_env:
             if sym in body_symbols:
                 args.append(LoopIR.Read(sym, [], typ, info))
-                fnargs.append(LoopIR.fnarg(sym, typ, None, info))
+                fnargs.append(LoopIR.fnarg(sym, typ, mem, info))
 
         # Filter the predicates we have for ones that use the symbols of the subproc
         def check_pred(pred):

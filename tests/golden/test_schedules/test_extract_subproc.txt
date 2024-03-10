@@ -4,10 +4,10 @@ def foo():
     for j in seq(0, 8):
         x = 0.0
         fooooo(x, y, j)
-def fooooo(x: R, y: R[8], j: index):
+def fooooo(x: R @ DRAM, y: R[8] @ DRAM, j: index):
     for i in seq(0, 8):
         x += y[j] * 2.0
-def fooooo(x: R, y: R[8], j: index):
+def fooooo(x: R @ DRAM, y: R[8] @ DRAM, j: index):
     assert 0 <= j
     assert j < 8
     for i in seq(0, 8):
