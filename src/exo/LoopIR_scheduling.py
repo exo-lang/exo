@@ -1,5 +1,6 @@
 import re
 from collections import ChainMap
+from typing import List, Tuple
 
 from .LoopIR import (
     LoopIR,
@@ -37,7 +38,7 @@ from .proc_eqv import get_strictest_eqv_proc
 import exo.internal_cursors as ic
 import exo.API as api
 from .pattern_match import match_pattern
-
+from .memory import DRAM
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -259,6 +260,45 @@ def Check_IsNonNegativeExpr(proc, stmts, expr):
 def Check_CompareExprs(proc, stmts, lhs, op, rhs):
     expr = LoopIR.BinOp("-", lhs, rhs, T.index, null_srcinfo())
     Check_ExprBound(proc, stmts, expr, op, 0)
+
+
+def extract_env(c: ic.Cursor) -> List[Tuple[Sym, ic.Cursor]]:
+    """
+    Extract the environment of live variables at `c`.
+
+    Returns a list of pairs of the symbol and the corresponding
+    alloc/arg cursor. The list is ordered by distance from the input
+    cursor `c`.
+    """
+
+    syms_env = []
+
+    c = move_back(c)
+    while not isinstance(c._node, LoopIR.proc):
+        s = c._node
+        if isinstance(s, LoopIR.For):
+            syms_env.append((s.iter, T.index, None))
+        elif isinstance(s, LoopIR.Alloc):
+            syms_env.append((s.name, s.type, s.mem))
+        c = move_back(c)
+
+    proc = c.get_root()
+    for a in proc.args[::-1]:
+        syms_env.append((a.name, a.type, a.mem))
+
+    return syms_env
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Traversal Helpers
+
+
+def move_back(c):
+    if c.get_index() == 0:
+        return c.parent()
+    else:
+        return c.prev()
 
 
 # --------------------------------------------------------------------------- #
@@ -1149,7 +1189,7 @@ def DoBindExpr(new_name, expr_cursors):
     init_c = get_enclosing_stmt_cursor(expr_cursors[0])
 
     new_name = Sym(new_name)
-    alloc_s = LoopIR.Alloc(new_name, expr.type.basetype(), None, None, expr.srcinfo)
+    alloc_s = LoopIR.Alloc(new_name, expr.type.basetype(), DRAM, None, expr.srcinfo)
     assign_s = LoopIR.Assign(
         new_name, expr.type.basetype(), [], expr, None, expr.srcinfo
     )
@@ -2637,22 +2677,14 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
     proc = block.get_root()
     Check_Aliasing(proc)
 
-    def get_env_info(stmt_c):
+    def get_env_preds(stmt_c):
         preds = proc.preds.copy()
-        var_types = []
-
-        def move_back(c):
-            if c.get_index() == 0:
-                return c.parent()
-            else:
-                return c.prev()
 
         prev_c = stmt_c
         c = move_back(stmt_c)
         while not isinstance(c._node, LoopIR.proc):
             s = c._node
             if isinstance(s, LoopIR.For):
-                var_types.append((s.iter, T.index))
                 iter_read = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
                 preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.index, s.srcinfo))
                 preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.index, s.srcinfo))
@@ -2661,17 +2693,13 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
                 preds.append(
                     LoopIR.BinOp("==", s.cond, branch_taken, T.bool, s.srcinfo)
                 )
-            elif isinstance(s, LoopIR.Alloc):
-                var_types.append((s.name, s.type))
             prev_c = c
             c = move_back(c)
 
-        for a in proc.args[::-1]:
-            var_types.append((a.name, a.type))
+        return preds
 
-        return preds, var_types[::-1]
-
-    preds, var_types = get_env_info(block[0])
+    sym_env = extract_env(block[0])[::-1]
+    preds = get_env_preds(block[0])
 
     def make_closure():
         body = [s._node for s in block]
@@ -2681,12 +2709,12 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
         body_symbols = set()
         reads = get_reads_of_stmts(body)
         writes = get_writes_of_stmts(body)
-        for var, _ in reads + writes:
-            body_symbols.add(var)
+        for sym, _ in reads + writes:
+            body_symbols.add(sym)
 
         # Get all the symbols used by the shapes of the buffers used in the body
-        for var, typ in var_types:
-            if var in body_symbols and isinstance(typ, LoopIR.Tensor):
+        for sym, typ, _ in sym_env:
+            if sym in body_symbols and isinstance(typ, LoopIR.Tensor):
                 for dim in typ.shape():
                     for sym, _ in get_reads_of_expr(dim):
                         body_symbols.add(sym)
@@ -2694,14 +2722,14 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
         # Construct the parameters and arguments
         args = []
         fnargs = []
-        for var, typ in var_types:
-            if var in body_symbols:
-                args.append(LoopIR.Read(var, [], typ, info))
-                fnargs.append(LoopIR.fnarg(var, typ, None, info))
+        for sym, typ, _ in sym_env:
+            if sym in body_symbols:
+                args.append(LoopIR.Read(sym, [], typ, info))
+                fnargs.append(LoopIR.fnarg(sym, typ, None, info))
 
         # Filter the predicates we have for ones that use the symbols of the subproc
         def check_pred(pred):
-            reads = {var for var, _ in get_reads_of_expr(pred)}
+            reads = {sym for sym, _ in get_reads_of_expr(pred)}
             return reads <= body_symbols
 
         subproc_preds = list(filter(check_pred, preds))
@@ -3516,77 +3544,18 @@ def DoDataReuse(buf_cursor, rep_cursor):
     return ir, fwd
 
 
-# TODO: This can probably be re-factored into a generic
-# "Live Variables" analysis w.r.t. a context/stmt separation?
-class _DoStageMem_FindBufData(LoopIR_Do):
-    def __init__(self, proc, buf_name, stmt_start):
-        self.buf_str = buf_name
-        self.buf_sym = None
-        self.buf_typ = None
-        self.buf_mem = None
-        self.stmt_start = stmt_start
-        self.buf_map = ChainMap()
-        self.orig_proc = proc
-
-        for fa in self.orig_proc.args:
-            if fa.type.is_numeric():
-                self.buf_map[str(fa.name)] = (fa.name, fa.type, fa.mem)
-
-        super().__init__(proc)
-
-    def result(self):
-        return self.buf_sym, self.buf_typ, self.buf_mem
-
-    def push(self):
-        self.buf_map = self.buf_map.new_child()
-
-    def pop(self):
-        self.buf_map = self.buf_map.parents
-
-    def do_s(self, s):
-        if s is self.stmt_start:
-            if self.buf_str not in self.buf_map:
-                raise SchedulingError(
-                    f"no buffer or window "
-                    f"named {self.buf_str} was live "
-                    f"in the indicated statement block"
-                )
-            nm, typ, mem = self.buf_map[self.buf_str]
-            self.buf_sym = nm
-            self.buf_typ = typ
-            self.buf_mem = mem
-
-        if isinstance(s, LoopIR.Alloc):
-            self.buf_map[str(s.name)] = (s.name, s.type, s.mem)
-        if isinstance(s, LoopIR.WindowStmt):
-            nm, typ, mem = self.buf_map[s.rhs.name]
-            self.buf_map[str(s.name)] = (s.name, s.rhs.type, mem)
-        elif isinstance(s, LoopIR.If):
-            self.push()
-            self.do_stmts(s.body)
-            self.pop()
-            self.push()
-            self.do_stmts(s.orelse)
-            self.pop()
-        elif isinstance(s, LoopIR.For):
-            self.push()
-            self.do_stmts(s.body)
-            self.pop()
-        else:
-            super().do_s(s)
-
-    # short-circuit
-    def do_e(self, e):
-        pass
-
-
 def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     proc = block_cursor.get_root()
     new_name = Sym(new_name)
 
-    buf_name, buf_typ, mem = _DoStageMem_FindBufData(
-        proc, buf_name, block_cursor[0]._node
-    ).result()
+    def get_typ_mem():
+        syms_env = extract_env(block_cursor[0])
+        for name, typ, mem in syms_env:
+            if str(name) == buf_name:
+                return name, typ, mem
+        assert False, "Must find the symbol in env"
+
+    buf_name, buf_typ, mem = get_typ_mem()
     buf_typ = buf_typ if not isinstance(buf_typ, T.Window) else buf_typ.as_tensor
 
     if len(w_exprs) != len(buf_typ.shape()):

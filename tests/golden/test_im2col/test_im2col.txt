@@ -17,6 +17,6 @@ def im2col_conv(K: size, C: size, W: size, R: size, w: R[K, C, R] @ DRAM,
     for k_init in seq(0, K):
         for i_init in seq(0, W):
             res[k_init, i_init] = 0.0
-    y: R[C + 1, R + 1, W + 1]
+    y: R[C + 1, R + 1, W + 1] @ DRAM
     im2col(C, W, R, x, y)
     tiled_matmul(K, C, W, R, w, res, y)
