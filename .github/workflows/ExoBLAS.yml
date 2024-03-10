@@ -1,0 +1,14 @@
+name: ExoBLAS
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build-test:
+    uses: exo-lang/ExoBLAS/.github/workflows/build-test.yml@main
+    with:
+      exo-ref: ${{ github.ref }}
+      exo-blas-ref: main
