@@ -3893,6 +3893,19 @@ def test_extract_subproc5(golden):
     assert (str(foo) + "\n" + str(new)) == golden
 
 
+def test_extract_subproc6(golden):
+    @proc
+    def foo(x: [f32][8], y: [f32][8]):
+        assert stride(x, 0) == 1
+        assert stride(y, 0) == 1
+        reg: f32[8] @ AVX2
+        for i in seq(0, 8):
+            reg[i] = x[i]
+
+    foo, new = extract_subproc(foo, foo.body()[1:], "fooooo")
+    assert (str(foo) + "\n" + str(new)) == golden
+
+
 def test_unroll_buffer(golden):
     @proc
     def bar(n: size, A: i8[n]):
