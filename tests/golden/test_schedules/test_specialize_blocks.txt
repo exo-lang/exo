@@ -1,7 +1,11 @@
 def foo(n: size, a: f32 @ DRAM):
     if n > 0:
+        b: f32 @ DRAM
         a = 1.0
         a = 2.0
+        b = 1.2
     else:
+        b: f32 @ DRAM
         a = 1.0
         a = 2.0
+        b = 1.2

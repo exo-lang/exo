@@ -2532,11 +2532,27 @@ def DoSpecialize(block_c, conds):
         else:
             return False
 
+    def are_allocs_used_after_block():
+        allocs = filter(lambda c: isinstance(c._node, LoopIR.Alloc), block_c)
+        allocs = set(a._node.name for a in allocs)
+        rest_of_block = get_rest_of_block(block_c[-1])
+        rest_of_block = [s._node for s in rest_of_block]
+        reads = get_reads_of_stmts(rest_of_block)
+        writes = get_writes_of_stmts(rest_of_block)
+        accesses = set(sym for sym, _ in reads + writes)
+        return accesses & allocs
+
+    if s := are_allocs_used_after_block():
+        names = tuple(a.name() for a in s)
+        raise SchedulingError(
+            f"Block contains allocations {names} which are used outside the block."
+        )
+
     block = [c._node for c in block_c]
     else_br = Alpha_Rename(block).result()
     for cond in reversed(conds):
         if not is_valid_condition(cond):
-            raise SchedulingError("Invalid specialization condition. ")
+            raise SchedulingError("Invalid specialization condition.")
 
         then_br = Alpha_Rename(block).result()
         else_br = [LoopIR.If(cond, then_br, else_br, None, block[0].srcinfo)]
