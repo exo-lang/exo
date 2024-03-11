@@ -132,8 +132,8 @@ module DataflowIR {
 
     block = ( stmt* stmts, absenv* ctxts ) -- len(stmts) + 1 == len(ctxts)
 
-    stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
-         | Reduce( sym name, type type, string? cast, expr* idx, expr rhs )
+    stmt = Assign( sym name, type type, expr* idx, expr rhs )
+         | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( sym config_field, expr rhs )
          | Pass()
          | If( expr cond, block body, block orelse )
@@ -214,13 +214,9 @@ class LoopIR_to_DataflowIR:
             df_idx = self.map_exprs(s.idx)
             df_rhs = self.map_e(s.rhs)
             if isinstance(s, LoopIR.Assign):
-                return DataflowIR.Assign(
-                    s.name, s.type, s.cast, df_idx, df_rhs, s.srcinfo
-                )
+                return DataflowIR.Assign(s.name, s.type, df_idx, df_rhs, s.srcinfo)
             else:
-                return DataflowIR.Reduce(
-                    s.name, s.type, s.cast, df_idx, df_rhs, s.srcinfo
-                )
+                return DataflowIR.Reduce(s.name, s.type, df_idx, df_rhs, s.srcinfo)
 
         elif isinstance(s, LoopIR.WriteConfig):
             # TODO: Confirm with Gilbert!
