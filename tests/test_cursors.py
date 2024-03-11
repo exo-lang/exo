@@ -576,6 +576,17 @@ def test_eliminate_dead_code_forwarding5():
         foo.forward(else_loop_alloc)
 
 
+def test_specialize_forwarding():
+    @proc
+    def foo(n: size, a: f32):
+        a = 1.0
+        a = 2.0
+
+    body = foo.body()
+    foo = specialize(foo, body, ["n > 0"])
+    assert foo.forward(body) == foo.body()
+
+
 def test_match_level(golden):
     @proc
     def foo(x: i8):

@@ -3800,6 +3800,17 @@ def test_specialize_sizes(golden):
     assert str(foo) == golden
 
 
+def test_specialize_blocks(golden):
+    @proc
+    def foo(n: size, a: f32):
+        a = 1.0
+        a = 2.0
+
+    body = foo.body()
+    foo = specialize(foo, body, ["n > 0"])
+    assert str(foo) == golden
+
+
 def test_specialize_data():
     @proc
     def gemm(
