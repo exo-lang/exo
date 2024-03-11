@@ -2686,8 +2686,8 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
             s = c._node
             if isinstance(s, LoopIR.For) and c.is_ancestor_of(stmt_c):
                 iter_read = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
-                preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.index, s.srcinfo))
-                preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.index, s.srcinfo))
+                preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.bool, s.srcinfo))
+                preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.bool, s.srcinfo))
             elif isinstance(s, LoopIR.If):
                 branch_taken = LoopIR.Const(prev_c in c.body(), T.bool, s.srcinfo)
                 preds.append(
@@ -2807,7 +2807,7 @@ class _DoNormalize(Cursor_Rewrite):
                 assert len(lhs) == 1 and self.C in lhs
                 return {key: rhs[key] * lhs[self.C] for key in rhs}
         else:
-            assert False, "bad case"
+            assert False, f"bad case {op}"
 
     def normalize_e(self, e):
         assert e.type.is_indexable(), f"{e} is not indexable!"
