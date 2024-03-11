@@ -5,13 +5,13 @@ def foo(N: size, M: size, K: size, x: R[N, K + M] @ DRAM):
         foo_if(N, M, K, x)
     else:
         foo_else(N, M, K, x)
-def foo_if(N: size, M: size, K: size, x: R[N, K + M]):
+def foo_if(N: size, M: size, K: size, x: R[N, K + M] @ DRAM):
     assert N >= 8
     assert M >= 2
     assert (N < 10 and M < 4) == True
     for i in seq(0, 8):
         x[i, 0] += 2.0
-def foo_else(N: size, M: size, K: size, x: R[N, K + M]):
+def foo_else(N: size, M: size, K: size, x: R[N, K + M] @ DRAM):
     assert N >= 8
     assert M >= 2
     assert (N < 10 and M < 4) == False

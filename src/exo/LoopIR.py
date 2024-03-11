@@ -1039,7 +1039,7 @@ class GetReads(LoopIR_Do):
         self.reads = []
 
     def do_e(self, e):
-        if isinstance(e, LoopIR.Read):
+        if hasattr(e, "name"):
             self.reads.append((e.name, e.type))
         super().do_e(e)
 

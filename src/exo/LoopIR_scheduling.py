@@ -273,14 +273,14 @@ def extract_env(c: ic.Cursor) -> List[Tuple[Sym, ic.Cursor]]:
 
     syms_env = []
 
-    c = move_back(c)
-    while not isinstance(c._node, LoopIR.proc):
-        s = c._node
-        if isinstance(s, LoopIR.For):
+    cur_c = move_back(c)
+    while not isinstance(cur_c._node, LoopIR.proc):
+        s = cur_c._node
+        if isinstance(s, LoopIR.For) and cur_c.is_ancestor_of(c):
             syms_env.append((s.iter, T.index, None))
         elif isinstance(s, LoopIR.Alloc):
             syms_env.append((s.name, s.type, s.mem))
-        c = move_back(c)
+        cur_c = move_back(cur_c)
 
     proc = c.get_root()
     for a in proc.args[::-1]:
@@ -2684,10 +2684,10 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
         c = move_back(stmt_c)
         while not isinstance(c._node, LoopIR.proc):
             s = c._node
-            if isinstance(s, LoopIR.For):
+            if isinstance(s, LoopIR.For) and c.is_ancestor_of(stmt_c):
                 iter_read = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
-                preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.index, s.srcinfo))
-                preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.index, s.srcinfo))
+                preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.bool, s.srcinfo))
+                preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.bool, s.srcinfo))
             elif isinstance(s, LoopIR.If):
                 branch_taken = LoopIR.Const(prev_c in c.body(), T.bool, s.srcinfo)
                 preds.append(
@@ -2722,10 +2722,10 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
         # Construct the parameters and arguments
         args = []
         fnargs = []
-        for sym, typ, _ in sym_env:
+        for sym, typ, mem in sym_env:
             if sym in body_symbols:
                 args.append(LoopIR.Read(sym, [], typ, info))
-                fnargs.append(LoopIR.fnarg(sym, typ, None, info))
+                fnargs.append(LoopIR.fnarg(sym, typ, mem, info))
 
         # Filter the predicates we have for ones that use the symbols of the subproc
         def check_pred(pred):
@@ -2807,7 +2807,7 @@ class _DoNormalize(Cursor_Rewrite):
                 assert len(lhs) == 1 and self.C in lhs
                 return {key: rhs[key] * lhs[self.C] for key in rhs}
         else:
-            assert False, "bad case"
+            assert False, f"bad case {op}"
 
     def normalize_e(self, e):
         assert e.type.is_indexable(), f"{e} is not indexable!"
