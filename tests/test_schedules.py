@@ -3906,6 +3906,22 @@ def test_extract_subproc6(golden):
     assert (str(foo) + "\n" + str(new)) == golden
 
 
+def test_extract_subproc7(golden):
+    @proc
+    def gemv(m: size, n: size, alpha: R, beta: R, A: [R][m, n], x: [R][n], y: [R][m]):
+        assert stride(A, 1) == 1
+
+        for i in seq(0, m):
+            y[i] = y[i] * beta
+            for j in seq(0, n):
+                y[i] += alpha * x[j] * A[i, j]
+
+    gemv = fission(gemv, gemv.find("y[_] = _").after())
+    gemv = reorder_loops(gemv, gemv.find_loop("i #1"))
+    gemv, new = extract_subproc(gemv, gemv.find_loop("i #1"), "fooooo")
+    assert (str(gemv) + "\n" + str(new)) == golden
+
+
 def test_unroll_buffer(golden):
     @proc
     def bar(n: size, A: i8[n]):

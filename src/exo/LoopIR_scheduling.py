@@ -273,14 +273,14 @@ def extract_env(c: ic.Cursor) -> List[Tuple[Sym, ic.Cursor]]:
 
     syms_env = []
 
-    c = move_back(c)
-    while not isinstance(c._node, LoopIR.proc):
-        s = c._node
-        if isinstance(s, LoopIR.For):
+    cur_c = move_back(c)
+    while not isinstance(cur_c._node, LoopIR.proc):
+        s = cur_c._node
+        if isinstance(s, LoopIR.For) and cur_c.is_ancestor_of(c):
             syms_env.append((s.iter, T.index, None))
         elif isinstance(s, LoopIR.Alloc):
             syms_env.append((s.name, s.type, s.mem))
-        c = move_back(c)
+        cur_c = move_back(cur_c)
 
     proc = c.get_root()
     for a in proc.args[::-1]:
@@ -2684,7 +2684,7 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
         c = move_back(stmt_c)
         while not isinstance(c._node, LoopIR.proc):
             s = c._node
-            if isinstance(s, LoopIR.For):
+            if isinstance(s, LoopIR.For) and c.is_ancestor_of(stmt_c):
                 iter_read = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
                 preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.index, s.srcinfo))
                 preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.index, s.srcinfo))
