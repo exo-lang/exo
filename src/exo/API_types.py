@@ -19,9 +19,10 @@ class ExoType(Enum):
     Bool = auto()
     Size = auto()
     Int = auto()
+    Stride = auto()
 
     def is_indexable(self):
-        return self in [ExoType.Index, ExoType.Size, ExoType.Int]
+        return self in [ExoType.Index, ExoType.Size, ExoType.Int, ExoType.Stride]
 
     def is_numeric(self):
         return self in [
@@ -53,8 +54,9 @@ def loopir_type_to_exotype(typ: T) -> ExoType:
         LoopIR.Bool: ExoType.Bool,
         LoopIR.Size: ExoType.Size,
         LoopIR.Int: ExoType.Int,
+        LoopIR.Stride: ExoType.Stride,
     }
     for key, val in mapping.items():
         if isinstance(typ, key):
             return val
-    assert False, "Type must be found"
+    assert False, f"Type {typ} not found"
