@@ -2204,8 +2204,8 @@ def eliminate_dead_code(proc, stmt_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([BlockCursorA, ListOrElemA(NewExprA("block_cursor"))])
-def specialize(proc, block_cursor, conds):
+@sched_op([BlockCursorA, ListOrElemA(NewExprA("block"))])
+def specialize(proc, block, conds):
     """
     Duplicate a statement block multiple times, with the provided
     `cond`itions indicating when each copy should be invoked.
@@ -2216,28 +2216,23 @@ def specialize(proc, block_cursor, conds):
     are created (with the last copy as a "default" version).
 
     args:
-        block_cursor    - cursor pointing to the block to duplicate/specialize
+        block           - cursor pointing to the block to duplicate/specialize
         conds           - list of strings or string to be parsed into
                           guard conditions for the
 
     rewrite:
-        `s`
+        `B`
             ->
         `if cond_0:`
-        `    s`
+        `    B`
         `elif cond_1:`
-        `    s`
+        `    B`
         ...
         `else:`
-        `    s`
+        `    B`
     """
 
-    if len(block_cursor) != 1:
-        raise NotImplementedError("TODO: support blocks of size > 1")
-
-    stmt = block_cursor[0]._impl
-
-    ir, fwd = scheduling.DoSpecialize(stmt, conds)
+    ir, fwd = scheduling.DoSpecialize(block._impl, conds)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

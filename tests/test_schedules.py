@@ -3800,6 +3800,19 @@ def test_specialize_sizes(golden):
     assert str(foo) == golden
 
 
+def test_specialize_blocks(golden):
+    @proc
+    def foo(n: size, a: f32):
+        b: f32
+        a = 1.0
+        a = 2.0
+        b = 1.2
+
+    body = foo.body()
+    foo = specialize(foo, body, ["n > 0"])
+    assert str(foo) == golden
+
+
 def test_specialize_data():
     @proc
     def gemm(
@@ -3821,6 +3834,19 @@ def test_specialize_data():
         match="Invalid specialization condition",
     ):
         specialize(gemm, "for i in _:_", [f"alpha == {x}" for x in [0.0, 1.0, -1.0]])
+
+
+def test_specialize_alloc_fails():
+    @proc
+    def foo(n: size):
+        a: f32
+        a = 1.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="Block contains allocations",
+    ):
+        foo = specialize(foo, foo.body()[0], "n > 0")
 
 
 def test_extract_subproc(golden):
