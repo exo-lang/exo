@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from exo import proc, ExoType
-from exo.stdlib.scheduling import *
+from exo.stdlib.stdlib import *
 from exo.libs.memories import *
 from exo.API_cursors import *
 
@@ -707,7 +707,10 @@ def test_is_ancestor_of_and_lca():
     assert not x_alloc.is_ancestor_of(i_loop)
     assert not x_alloc.is_ancestor_of(j_loop)
 
-    assert get_lca(x_alloc, pass_stmt) == i_loop
+    assert get_lca(foo, x_alloc, pass_stmt) == i_loop
+    assert get_lca(foo, pass_stmt, x_alloc) == i_loop
+    assert get_lca(foo, i_loop, x_alloc) == i_loop
+    assert get_lca(foo, x_alloc, i_loop) == i_loop
 
 
 def test_cursor_find_loop():

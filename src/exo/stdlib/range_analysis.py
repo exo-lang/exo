@@ -2,6 +2,8 @@ from exo.API_cursors import *
 from exo.LoopIR import get_reads_of_expr
 from exo.range_analysis import IndexRange
 
+from .inspection import get_parents
+
 
 def user_level_range_analysis(expr, env):
     def analyze_range(expr):
@@ -56,11 +58,13 @@ def constant_bound(expr, env):
     return (idx_rng.lo, idx_rng.hi)
 
 
-def infer_range(idx_expr, scope):
+def infer_range(idx_expr: Cursor, scope: Cursor):
+    assert isinstance(idx_expr, Cursor)
+    assert isinstance(scope, Cursor)
     env = dict()
 
     # Only add bound variables to the env (which excludes scope)
-    ancestors = get_ancestors(idx_expr, up_to=scope)[:-1]
+    ancestors = list(get_parents(idx_expr.proc(), idx_expr, up_to=scope))[:-1]
     for c in filter(lambda x: isinstance(x, ForCursor), ancestors):
         lo, _ = constant_bound(c.lo(), env)
         _, hi = constant_bound(c.hi(), env)

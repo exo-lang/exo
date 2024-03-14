@@ -924,39 +924,9 @@ def get_enclosing_loop(cursor, loop_iter=None):
     return cursor
 
 
-def get_ancestors(c, up_to=None):
-    """
-    Returns all ancestors of `c` up to `up_to`, inclusive. If `up_to` is `None`,
-    returns all ancestors of `c` up to the root of the AST.
-    """
-    ancestors = []
-    if up_to is not None:
-        while c != up_to:
-            ancestors.append(c)
-            c = c.parent()
-        ancestors.append(up_to)
-    else:
-        while not isinstance(c, InvalidCursor):
-            ancestors.append(c)
-            c = c.parent()
-    return ancestors
-
-
 def get_top_level_stmt(c):
     while not isinstance(c.parent(), InvalidCursor):
         c = c.parent()
-    return c
-
-
-def get_lca(cursor1, cursor2):
-    """
-    Gets the lowest common ancestor of [cursor1] and [cursor2].
-    """
-    c = cursor1
-    while not c.is_ancestor_of(cursor2):
-        c = c.parent()
-        if isinstance(c, InvalidCursor):
-            raise CursorNavigationError("these cursors do not have a common ancestor")
     return c
 
 
@@ -1114,6 +1084,4 @@ __all__ = [
     "match_level",
     "get_stmt_within_scope",
     "get_enclosing_loop",
-    "get_ancestors",
-    "get_lca",
 ]

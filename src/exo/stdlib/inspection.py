@@ -263,12 +263,30 @@ def get_parent(proc, stmt):
     return parent
 
 
-def get_parents(proc, stmt):
+def get_parents(proc, stmt, up_to=None):
+    """
+    Returns all ancestors of `stmt` (exclusive) up to `up_to` (inclusive).
+    If `up_to` is `None`, returns ancestors up to the AST root.
+    """
     stmt = proc.forward(stmt)
-    stmt = stmt.parent()
-    while not isinstance(stmt, InvalidCursor):
-        yield stmt
+
+    if up_to is not None:
+        up_to = proc.forward(up_to)
+
+        assert up_to.is_ancestor_of(stmt)
+        if up_to == stmt:
+            return
+
         stmt = stmt.parent()
+        while stmt != up_to:
+            yield stmt
+            stmt = stmt.parent()
+        yield up_to
+    else:
+        stmt = stmt.parent()
+        while not isinstance(stmt, InvalidCursor):
+            yield stmt
+            stmt = stmt.parent()
 
 
 def get_nth_inner_loop(proc, loop, n):
@@ -381,25 +399,18 @@ def get_depth(proc, cursor):
 
 
 def get_lca(proc, cursor1, cursor2):
+    """
+    Gets the lowest common ancestor of [cursor1] and [cursor2].
+    """
     cursor1 = proc.forward(cursor1)
     cursor2 = proc.forward(cursor2)
 
-    depth1 = get_depth(proc, cursor1)
-    depth2 = get_depth(proc, cursor2)
-
-    if depth1 < depth2:
-        cursor1, cursor2 = cursor2, cursor1
-        depth1, depth2 = depth2, depth1
-
-    while depth1 > depth2:
-        cursor1 = cursor1.parent()
-        depth1 -= 1
-
-    while cursor1 != cursor2:
-        cursor1 = cursor1.parent()
-        cursor2 = cursor2.parent()
-
-    return cursor1
+    c = cursor1
+    while not c.is_ancestor_of(cursor2):
+        c = c.parent()
+        if isinstance(c, InvalidCursor):
+            raise CursorNavigationError("these cursors do not have a common ancestor")
+    return c
 
 
 def get_distance(proc, cursor1, cursor2):

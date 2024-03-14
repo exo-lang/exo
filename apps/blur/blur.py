@@ -22,7 +22,7 @@ def halide_tile(p, buffer, y, x, yi, xi, yTile, xTile):
 
 def halide_compute_at(p, producer: str, consumer: str, loop: str):
     x_loop = get_enclosing_loop(p.find(f"{consumer} = _"), loop)
-    return compute_at(p, "blur_x", "blur_y", x_loop)
+    return compute_at(p, producer, consumer, x_loop)
 
 
 def halide_parallel(p, loop: str):
@@ -82,5 +82,4 @@ def prod_halide(p):
 
 
 blur_halide = rename(prod_halide(blur), "exo_blur_halide")
-print("blur_halide")
 print(blur_halide)

@@ -103,6 +103,8 @@ from .analysis import (
 from .range_analysis import bounds_inference, get_affected_dim
 from ..API_cursors import InvalidCursor
 
+from .inspection import get_parents
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Higher-order Scheduling operations
@@ -354,22 +356,45 @@ def lift_if(proc, cursor, n_lifts=1):
     return proc
 
 
-def fuse_at(proc, producer: str, consumer: str, target_loop, reorder=True):
+def fuse_at(proc, producer: str, consumer: str, target_loop):
     """
-    This version of compute_at will only go down one-level of for loops
+    Computes the necessary values of producer at the level of [target_loop]
+    in the consumer loop nest by fusing the two loop nests.
+
+    Example transformation:
+        for i in _:
+            for j in _:
+                producer[_] = ...
+        for io in _:
+            for jo in _:
+                for ii in _:
+                    for ji in _:
+                        consumer[_] = ...
+    ->
+        for io in _:
+            for jo in _:
+                for ii in _:
+                    for ji in _:
+                        producer[_] = ...
+                for ii in _:
+                    for ji in _:
+                        consumer[_] = ...
 
     TODO: bounds currently assumes that bounds is of the form [0, 1, ..., n-1]
-    TODO: remove the [reorder] hack.
+    TODO: add returning relevant cursors
     """
 
     target_loop = proc.forward(target_loop)
     p_assign = proc.find(f"{producer}[_] = _")
     p_loop = _PC.get_top_level_stmt(p_assign)
-    c_loops = _PC.get_ancestors(target_loop, up_to=None)
+    c_loops = [target_loop] + list(get_parents(proc, target_loop, up_to=None))
+
+    assert p_loop.next() == c_loops[-1], "loop nests must be consecutive"
 
     for c_loop in reversed(c_loops):
         c_loop = proc.forward(c_loop)
         p_loop = _PC.get_enclosing_loop(proc.forward(p_assign), c_loop.name())
+        assert p_loop.next() == c_loop
 
         # infer bounds of consumer to determine cut-factor
         N_c = c_loop.hi()._impl._node
@@ -379,15 +404,16 @@ def fuse_at(proc, producer: str, consumer: str, target_loop, reorder=True):
         p_iter = p_loop.name()
         new_iters = [f"{p_iter}", f"{p_iter}i"]
 
-        assert p_loop.next() == c_loop
         proc = divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
         proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
 
+        # TODO: rethink the reorder thing here
         p_inner_loop = proc.forward(p_loop).body()[0]
         while isinstance(p_inner_loop.body()[0], _PC.ForCursor):
             proc = reorder_loops(proc, p_inner_loop)
             p_inner_loop = proc.forward(p_inner_loop)
 
+        # TODO: try to simplify the expressions without needing this
         for pred in p_assign._impl.get_root().preds:
             if (
                 isinstance(pred, LoopIR.BinOp)
@@ -415,10 +441,19 @@ def store_at(proc, producer, consumer, target_loop):
     producer_alloc = proc.find(f"{producer}:_")
 
     def loops_between(producer_alloc, target_loop):
+        """
+        producer_alloc
+        for i in _:
+            for j in _:
+                for k in _: <- target_loop
+        loops_between(producer_alloc, target_loop) -> [i, j, k]
+        """
         top_loop = _PC.match_level(target_loop, producer_alloc)
-        return _PC.get_ancestors(target_loop, up_to=top_loop)
+        return reversed(
+            [target_loop] + list(get_parents(proc, target_loop, up_to=top_loop))
+        )
 
-    for loop in reversed(loops_between(producer_alloc, target_loop)):
+    for loop in loops_between(producer_alloc, target_loop):
         buffer_dim = get_affected_dim(proc, producer, loop.name())
 
         loop = proc.forward(loop)
@@ -444,8 +479,10 @@ def compute_at(proc, producer, consumer, target_loop):
     """
     target_loop = proc.forward(target_loop)
     proc = fuse_at(proc, producer, consumer, target_loop)
+
     target_loop = proc.forward(target_loop.body()[0]).parent()
     proc = store_at(proc, producer, consumer, target_loop)
+
     return proc
 
 
