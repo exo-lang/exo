@@ -173,8 +173,16 @@ class IndexRange:
             return IndexRange(None, None, None)
 
 
-def index_range_analysis_v2(expr, env):
-    def analyze_range(expr):
+def index_range_analysis(expr: LoopIR.expr, env: dict) -> IndexRange | int:
+    """
+    Based on the supplied [env], recursively performs range analysis on
+    the possible values for [expr]. Returns either an int if the value
+    is constant, or an IndexRange of the form [offset+lo, offset+hi].
+    """
+    assert isinstance(expr, LoopIR.expr)
+    assert isinstance(env, (ChainMap, dict))
+
+    def analyze_range(expr) -> IndexRange | int:
         assert isinstance(expr, LoopIR.expr)
 
         if not expr.type.is_indexable():
@@ -211,7 +219,7 @@ def index_range_analysis_v2(expr, env):
     return analyze_range(expr)
 
 
-def index_range_analysis(expr, env):
+def constant_bound(expr, env) -> (int, int) | None:
     """
     Returns constant integer bounds for [expr], if possible, and
     None otherwise. The bounds are inclusive.
@@ -219,7 +227,7 @@ def index_range_analysis(expr, env):
     if isinstance(expr, int):
         return (expr, expr)
 
-    idx_rng = index_range_analysis_v2(expr, env)
+    idx_rng = index_range_analysis(expr, env)
     if isinstance(idx_rng, int):
         return (idx_rng, idx_rng)
 
@@ -353,8 +361,8 @@ class IndexRangeEnvironment:
         self.env = self.env.parents
 
     def add_loop_iter(self, sym, lo_expr, hi_expr):
-        lo, _ = index_range_analysis(lo_expr, self.env)
-        _, hi = index_range_analysis(hi_expr, self.env)
+        lo, _ = constant_bound(lo_expr, self.env)
+        _, hi = constant_bound(hi_expr, self.env)
         if hi is not None:
             hi = hi - 1
 
@@ -387,14 +395,14 @@ class IndexRangeEnvironment:
             return range0[0] == range0[1] == range1[0] == range1[1]
 
     def check_expr_bound(self, expr0, op, expr1):
-        expr0_range = index_range_analysis(expr0, self.env)
-        expr1_range = index_range_analysis(expr1, self.env)
+        expr0_range = constant_bound(expr0, self.env)
+        expr1_range = constant_bound(expr1, self.env)
         return IndexRangeEnvironment._check_range(expr0_range, op, expr1_range)
 
     def check_expr_bounds(self, expr0, op0, expr1, op1, expr2):
-        expr0_range = index_range_analysis(expr0, self.env)
-        expr1_range = index_range_analysis(expr1, self.env)
-        expr2_range = index_range_analysis(expr2, self.env)
+        expr0_range = constant_bound(expr0, self.env)
+        expr1_range = constant_bound(expr1, self.env)
+        expr2_range = constant_bound(expr2, self.env)
         return IndexRangeEnvironment._check_range(
             expr0_range, op0, expr1_range
         ) and IndexRangeEnvironment._check_range(expr1_range, op1, expr2_range)

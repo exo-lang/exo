@@ -1,12 +1,20 @@
+from __future__ import annotations
+
 from exo.API_cursors import *
-from exo.LoopIR import get_reads_of_expr
+from exo.LoopIR import get_reads_of_expr  # TODO: get rid of this
 from exo.range_analysis import IndexRange
 
 from .inspection import get_parents
 
 
-def user_level_range_analysis(expr, env):
-    def analyze_range(expr):
+def index_range_analysis(expr: ExprCursor, env: dict) -> IndexRange | int:
+    """
+    User-level implementation of range analysis implemented inside compiler.
+    """
+    assert isinstance(expr, ExprCursor)
+    assert isinstance(env, dict)
+
+    def analyze_range(expr) -> IndexRange | int:
         assert isinstance(expr, ExprCursor)
 
         if isinstance(expr, ReadCursor):
@@ -41,15 +49,16 @@ def user_level_range_analysis(expr, env):
     return analyze_range(expr)
 
 
-def constant_bound(expr, env):
+def constant_bound(expr: ExprCursor, env: dict) -> (int, int) | None:
     """
-    Returns constant integer bounds for [expr], if possible, and
-    None otherwise. The bounds are inclusive.
+    This is an exact copy and paste of the constant_bound function
+    in the compiler's range_analysis. The only difference is that
+    it uses the user-level index_range_analysis implemented above.
     """
     if isinstance(expr, int):
         return (expr, expr)
 
-    idx_rng = user_level_range_analysis(expr, env)
+    idx_rng = index_range_analysis(expr, env)
     if isinstance(idx_rng, int):
         return (idx_rng, idx_rng)
 
@@ -72,7 +81,7 @@ def infer_range(idx_expr: Cursor, scope: Cursor):
             hi -= 1  # loop upper bound is exclusive
         env[c.name()] = (lo, hi)
 
-    bounds = user_level_range_analysis(idx_expr, env)
+    bounds = index_range_analysis(idx_expr, env)
     return bounds
 
 
@@ -86,15 +95,13 @@ def get_affected_dim(proc, buffer_name: str, iter_sym):
     for c in proc.find(f"{buffer_name}[_] = _", many=True):
         for idx, idx_expr in enumerate(c.idx()):
             idx_vars = [
-                # TODO: get rid of this
-                name.name()
-                for (name, typ) in get_reads_of_expr(idx_expr._impl._node)
+                name.name() for (name, _) in get_reads_of_expr(idx_expr._impl._node)
             ]
             if iter_sym in idx_vars:
                 dims.add(idx)
 
     if len(dims) > 1:
-        raise ValueError(f"{buffer_name} affects multiple indices in {consumer}")
+        raise ValueError(f"{iter_sym} affects multiple indices into {buffer_name}")
 
     return list(dims)[0]
 
