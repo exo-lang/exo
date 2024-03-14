@@ -3,13 +3,13 @@ on:
   release:
     types: [ created ]
   push:
-    branches: [ 'master' ]
+    branches: [ 'main' ]
   pull_request:
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v4
 

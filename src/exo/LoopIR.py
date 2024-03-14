@@ -71,14 +71,14 @@ module LoopIR {
                mem?    mem,
                srcinfo srcinfo )
 
-    stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
-         | Reduce( sym name, type type, string? cast, expr* idx, expr rhs )
+    stmt = Assign( sym name, type type, expr* idx, expr rhs )
+         | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
-         | Alloc( sym name, type type, mem? mem )
-         | Free( sym name, type type, mem? mem )
+         | Alloc( sym name, type type, mem mem )
+         | Free( sym name, type type, mem mem )
          | Call( proc f, expr* args )
          | WindowStmt( sym lhs, expr rhs )
          attributes( effect? eff, srcinfo srcinfo )
@@ -142,7 +142,8 @@ module LoopIR {
         "INT8",
         "UINT8",
         "UINT16",
-        "INT32" "Bool",
+        "INT32",
+        "Bool",
         "Int",
         "Index",
         "Size",
@@ -583,6 +584,7 @@ from . import LoopIR_pprint
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+
 
 # convert from LoopIR.expr to E.expr
 def lift_to_eff_expr(e):
@@ -1037,7 +1039,7 @@ class GetReads(LoopIR_Do):
         self.reads = []
 
     def do_e(self, e):
-        if isinstance(e, LoopIR.Read):
+        if hasattr(e, "name"):
             self.reads.append((e.name, e.type))
         super().do_e(e)
 

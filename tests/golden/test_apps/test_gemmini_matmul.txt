@@ -228,8 +228,8 @@ acc_scale(src,dst,scale)
 static void clamp( test_case_Context *ctxt, const float* src, int8_t* dst ) {
 float l;
 float h;
-l = -128.0;
-h = 127.0;
+l = -128.0f;
+h = 127.0f;
 *dst = (int8_t)(_select_((double)*&h, (double)*src, (double)*&h, (double)*src));
 *dst = _select_((double)*src, (double)*&l, (double)*&l, (double)*dst);
 }
@@ -275,7 +275,7 @@ void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const
 for (int_fast32_t i = 0; i < 3136; i++) {
   for (int_fast32_t j = 0; j < 512; j++) {
     int32_t res;
-    res = 0.0;
+    res = ((int32_t) 0.0);
     for (int_fast32_t k = 0; k < 128; k++) {
       int8_t a;
       a = A[i * 128 + k];
@@ -312,7 +312,7 @@ void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const
 for (int_fast32_t i = 0; i < 3136; i++) {
   for (int_fast32_t j = 0; j < 128; j++) {
     int32_t res;
-    res = 0.0;
+    res = ((int32_t) 0.0);
     for (int_fast32_t k = 0; k < 512; k++) {
       int8_t a;
       a = A[i * 512 + k];
@@ -349,7 +349,7 @@ void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const
 for (int_fast32_t i = 0; i < 784; i++) {
   for (int_fast32_t j = 0; j < 1024; j++) {
     int32_t res;
-    res = 0.0;
+    res = ((int32_t) 0.0);
     for (int_fast32_t k = 0; k < 256; k++) {
       int8_t a;
       a = A[i * 256 + k];
@@ -386,7 +386,7 @@ void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const 
 for (int_fast32_t i = 0; i < 12544; i++) {
   for (int_fast32_t j = 0; j < 256; j++) {
     int32_t res;
-    res = 0.0;
+    res = ((int32_t) 0.0);
     for (int_fast32_t k = 0; k < 64; k++) {
       int8_t a;
       a = A[i * 64 + k];
@@ -423,7 +423,7 @@ void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool a
 for (int_fast32_t i = 0; i < 512; i++) {
   for (int_fast32_t j = 0; j < 512; j++) {
     int32_t res;
-    res = 0.0;
+    res = ((int32_t) 0.0);
     for (int_fast32_t k = 0; k < 512; k++) {
       int8_t a;
       a = A[i * 512 + k];
@@ -460,7 +460,7 @@ void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const 
 for (int_fast32_t i = 0; i < 12544; i++) {
   for (int_fast32_t j = 0; j < 64; j++) {
     int32_t res;
-    res = 0.0;
+    res = ((int32_t) 0.0);
     for (int_fast32_t k = 0; k < 256; k++) {
       int8_t a;
       a = A[i * 256 + k];

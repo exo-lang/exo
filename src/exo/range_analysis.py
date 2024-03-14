@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .LoopIR import LoopIR, T, LoopIR_Compare, get_reads_of_expr
-from .new_eff import Check_ExprBound, Check_ExprBound_Options
+from .new_eff import Check_ExprBound
 
 
 def binop(op: str, e1: LoopIR.expr, e2: LoopIR.expr):
@@ -97,7 +97,7 @@ class IndexRange:
         return -self + c
 
     def __mul__(self, c: int) -> IndexRange:
-        assert isinstance(other, int)
+        assert isinstance(c, int)
         if c == 0:
             return 0
 
@@ -255,8 +255,8 @@ def arg_range_analysis(proc, arg, fast=True):
             proc,
             [proc.body[0]],
             LoopIR.Read(name=arg.name, idx=[], type=T.size, srcinfo=proc.srcinfo),
+            ">=",
             value,
-            Check_ExprBound_Options.GEQ,
             exception=False,
         )
 
@@ -265,8 +265,8 @@ def arg_range_analysis(proc, arg, fast=True):
             proc,
             [proc.body[0]],
             LoopIR.Read(name=arg.name, idx=[], type=T.size, srcinfo=proc.srcinfo),
+            "<=",
             value,
-            Check_ExprBound_Options.LEQ,
             exception=False,
         )
 

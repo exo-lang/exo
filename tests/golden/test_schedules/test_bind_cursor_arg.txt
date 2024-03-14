@@ -1,0 +1,4 @@
+def foo(a: R @ DRAM):
+    const: R @ DRAM
+    const = 1.0
+    a = const

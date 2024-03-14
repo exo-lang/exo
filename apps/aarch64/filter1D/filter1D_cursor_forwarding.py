@@ -42,7 +42,6 @@ filter1D = fission(filter1D, filter1D.find("xX4[_] = _").after())
 # set memories & precision
 filter1D = set_memory(filter1D, "sum #1", Neon)
 filter1D = set_memory(filter1D, "xX4", Neon)
-filter1D = set_precision(filter1D, "xX4", "f32")
 
 # replace
 filter1D = replace(filter1D, "for outXi in _:_", neon_zero_4xf32)

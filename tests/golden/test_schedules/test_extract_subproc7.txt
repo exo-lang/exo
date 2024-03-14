@@ -1,0 +1,14 @@
+def gemv(m: size, n: size, alpha: R @ DRAM, beta: R @ DRAM,
+         A: [R][m, n] @ DRAM, x: [R][n] @ DRAM, y: [R][m] @ DRAM):
+    assert stride(A, 1) == 1
+    for i in seq(0, m):
+        y[i] = y[i] * beta
+    for j in seq(0, n):
+        fooooo(m, n, alpha, A, x, y, j)
+def fooooo(m: size, n: size, alpha: R @ DRAM, A: [R][m, n] @ DRAM,
+           x: [R][n] @ DRAM, y: [R][m] @ DRAM, j: index):
+    assert stride(A, 1) == 1
+    assert 0 <= j
+    assert j < n
+    for i in seq(0, m):
+        y[i] += alpha * x[j] * A[i, j]

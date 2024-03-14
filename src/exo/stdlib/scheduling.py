@@ -30,6 +30,7 @@ from ..API_scheduling import (
     rewrite_expr,
     bind_expr,
     commute_expr,
+    left_reassociate_expr,
     #
     # subprocedure oriented operations
     extract_subproc,
@@ -51,7 +52,6 @@ from ..API_scheduling import (
     expand_dim,
     resize_dim,
     rearrange_dim,
-    bound_alloc,
     divide_dim,
     mult_dim,
     sink_alloc,
@@ -59,7 +59,6 @@ from ..API_scheduling import (
     delete_buffer,
     reuse_buffer,
     inline_window,
-    stage_window,
     stage_mem,
     unroll_buffer,
     #
@@ -73,6 +72,7 @@ from ..API_scheduling import (
     shift_loop,
     reorder_loops,
     merge_writes,
+    fold_into_reduce,
     inline_assign,
     lift_reduce_constant,
     fission,
@@ -88,7 +88,6 @@ from ..API_scheduling import (
     #
     # deprecated scheduling operations
     add_unsafe_guard,
-    bound_and_guard,
     #
     # to be replaced by stdlib compositions eventually
     autofission,
@@ -353,12 +352,6 @@ def lift_if(proc, cursor, n_lifts=1):
                 proc=proc,
             ) from e
     return proc
-
-
-def apply(p, cursors, schedop):
-    for c in cursors:
-        p = schedop(p, c)
-    return p
 
 
 def fuse_at(proc, producer: str, consumer: str, target_loop, reorder=True):

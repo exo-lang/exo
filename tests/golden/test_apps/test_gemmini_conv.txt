@@ -176,8 +176,8 @@ acc_scale(src,dst,scale)
 static void clamp( test_case_Context *ctxt, const float* src, int8_t* dst ) {
 float l;
 float h;
-l = -128.0;
-h = 127.0;
+l = -128.0f;
+h = 127.0f;
 *dst = (int8_t)(_select_((double)*&h, (double)*src, (double)*&h, (double)*src));
 *dst = _select_((double)*src, (double)*&l, (double)*&l, (double)*dst);
 }

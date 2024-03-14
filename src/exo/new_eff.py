@@ -2094,16 +2094,7 @@ def Check_IsIdempotent(proc, stmts):
         raise SchedulingError(f"The statement at {stmts[0].srcinfo} is not idempotent.")
 
 
-class Check_ExprBound_Options(Enum):
-    LT = 0
-    LEQ = 1
-    GT = 2
-    GEQ = 3
-    EQ = 4
-
-
-def Check_ExprBound(proc, stmts, expr, value, option, exception=True):
-    assert isinstance(option, Check_ExprBound_Options)
+def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
     assert len(stmts) > 0
 
     ctxt = ContextExtraction(proc, stmts)
@@ -2117,20 +2108,20 @@ def Check_ExprBound(proc, stmts, expr, value, option, exception=True):
 
     e = G(lift_e(expr))
 
-    if option == Check_ExprBound_Options.GEQ:
+    if op == ">=":
         query = ADef(e >= AInt(value))
         err_msg = f"greater than or equal to {value}"
-    elif option == Check_ExprBound_Options.GT:
+    elif op == ">":
         query = ADef(e > AInt(value))
         err_msg = f"greater than {value}"
-    elif option == Check_ExprBound_Options.LEQ:
+    elif op == "<=":
         query = ADef(e <= AInt(value))
         err_msg = f"less than or equal to {value}"
-    elif option == Check_ExprBound_Options.LT:
+    elif op == "<":
         query = ADef(e < AInt(value))
         err_msg = f"greater than {value}"
-    elif option == Check_ExprBound_Options.EQ:
-        query = ADef(e=AInt(value))
+    elif op == "==":
+        query = ADef(AEq(e, AInt(value)))
         err_msg = f"equal to {value}"
     else:
         assert False, "Bad case"

@@ -158,6 +158,19 @@ def test_simplify_forwarding(golden):
     assert str(foo1.forward(stmt)._impl._node) == golden
 
 
+def test_simplify_predicates_forwarding():
+    @proc
+    def foo(n: size):
+        assert n >= 1
+        for i in seq(0, n):
+            pass
+
+    loop = foo.find_loop("i")
+    foo = simplify(foo)
+    loop = foo.forward(loop)
+    assert loop == foo.find_loop("i")
+
+
 def test_type_and_shape_introspection():
     @proc
     def foo(n: size, m: index, flag: bool):
@@ -166,7 +179,7 @@ def test_type_and_shape_introspection():
         b: i32[n]
         c: i8[n]
         d: f32[n]
-        e: f64[n]
+        e: f64[2]
 
     assert foo.find("a:_").type() == ExoType.R
     assert foo.find("b:_").type() == ExoType.I32
@@ -177,6 +190,7 @@ def test_type_and_shape_introspection():
     assert foo.args()[1].type() == ExoType.Index
     assert foo.args()[2].type() == ExoType.Bool
     assert str(foo.find("a:_").shape()[0]._impl._node) == "n + m"
+    assert foo.find("e : _").shape()[0].type() == ExoType.Int
 
 
 def test_expand_dim_forwarding(golden):
@@ -291,6 +305,43 @@ def test_forwarding_for_procs_with_identical_code():
     foo.forward(loop_cursor)
 
 
+def test_delete_pass_forwarding():
+    @proc
+    def foo(x: R):
+        for i in seq(0, 16):
+            x = 1.0
+            pass
+            for j in seq(0, 2):
+                pass
+                pass
+            pass
+        x = 0.0
+
+    i_loop = foo.body()[0]
+    assign_1 = i_loop.body()[0]
+    assign_0 = foo.body()[1]
+
+    foo = delete_pass(foo)
+    assert isinstance(foo.forward(i_loop), ForCursor)
+    assert isinstance(foo.forward(assign_1), AssignCursor)
+    assert isinstance(foo.forward(assign_0), AssignCursor)
+
+
+def test_extract_subproc_forwarding():
+    @proc
+    def foo(N: size, M: size, K: size, x: R[N, K + M]):
+        assert N >= 8
+        x[0, 0] = 0.0
+        for i in seq(0, 8):
+            x[i, 0] += 2.0
+
+    block = foo.body()
+    foo, new = extract_subproc(foo, block, "fooooo")
+    block = foo.forward(block)
+    assert len(block) == 1
+    assert isinstance(block[0], CallCursor)
+
+
 def test_arg_cursor(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n, n]):
@@ -307,7 +358,6 @@ def test_arg_cursor(golden):
                 output += f", {dim._impl._node}"
         output += "\n"
 
-    print(output)
     assert output == golden
 
 
@@ -526,6 +576,17 @@ def test_eliminate_dead_code_forwarding5():
         foo.forward(else_loop_alloc)
 
 
+def test_specialize_forwarding():
+    @proc
+    def foo(n: size, a: f32):
+        a = 1.0
+        a = 2.0
+
+    body = foo.body()
+    foo = specialize(foo, body, ["n > 0"])
+    assert foo.forward(body) == foo.body()
+
+
 def test_match_level(golden):
     @proc
     def foo(x: i8):
@@ -647,3 +708,18 @@ def test_is_ancestor_of_and_lca():
     assert not x_alloc.is_ancestor_of(j_loop)
 
     assert get_lca(x_alloc, pass_stmt) == i_loop
+
+
+def test_cursor_find_loop():
+    @proc
+    def foo(n: size, x: i8[n]):
+        for i in seq(0, n):
+            pass
+        if n > 1:
+            for i in seq(0, n):
+                x[i] = 0.0
+
+    i_loop2 = foo.find("for i in _:_ #1")
+    if_stmt = foo.find("if _: _ ")
+    i_loop_alternative = if_stmt.find("for i in _: _")
+    assert i_loop2 == i_loop_alternative

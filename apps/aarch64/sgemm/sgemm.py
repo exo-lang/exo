@@ -88,7 +88,7 @@ neon_microkernel = make_neon_microkernel()
 def stage_C_microkernel(p=neon_microkernel):
     p = stage_mem(p, "C[_] += _", "C[i, 4 * jo + ji]", "C_reg")
     for iname in reversed(["i", "jo", "ji"]):
-        p = expand_dim(p, "C_reg", 4, iname, unsafe_disable_checks=True)
+        p = expand_dim(p, "C_reg", 4, iname)
     p = lift_alloc(p, "C_reg", n_lifts=4)
     p = autofission(p, p.find("C_reg[_] = _").after(), n_lifts=4)
     p = autofission(p, p.find("C[_] = _").before(), n_lifts=4)
@@ -105,7 +105,7 @@ neon_microkernel = stage_C_microkernel()
 def stage_A_B_microkernel(p=neon_microkernel):
     for buf in ("A", "B"):
         p = bind_expr(p, f"{buf}[_]", f"{buf}_vec")
-        p = expand_dim(p, f"{buf}_vec", 4, "ji", unsafe_disable_checks=True)
+        p = expand_dim(p, f"{buf}_vec", 4, "ji")
         p = lift_alloc(p, f"{buf}_vec")
         p = fission(p, p.find(f"{buf}_vec[_] = _").after())
         p = set_memory(p, f"{buf}_vec", Neon)

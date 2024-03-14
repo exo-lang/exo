@@ -7,6 +7,7 @@ from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
 from exo.platforms.x86 import *
+from exo.API_types import *
 
 
 def test_commute(golden):
@@ -44,6 +45,56 @@ def test_commute4():
 
     with pytest.raises(TypeError, match="can commute"):
         commute_expr(foo, "x[0] - y[_]")
+
+
+def test_left_reassociate_expr_1(golden):
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a + (b + c)
+
+    foo = left_reassociate_expr(foo, "_ + _")
+    foo = commute_expr(foo, [foo.find("_ + _")])
+    assert str(foo) == golden
+
+
+def test_left_reassociate_expr_2(golden):
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = (a * b) * (b * c)
+
+    foo = left_reassociate_expr(foo, "_ * _")
+    foo = commute_expr(foo, [foo.find("_ * _")])
+    assert str(foo) == golden
+
+
+def test_reassociate_then_fold(golden):
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a + (b + c)
+
+    foo = commute_expr(foo, [foo.find("_ + _ #1")])
+    foo = left_reassociate_expr(foo, "_ + _")
+    foo = commute_expr(foo, [foo.find("_ + _")])
+    foo = fold_into_reduce(foo, "_ = _")
+    assert str(foo) == golden
+
+
+def test_left_reassociate_expr_fail_1():
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a - (b + c)
+
+    with pytest.raises(TypeError, match="got -"):
+        foo = left_reassociate_expr(foo, "_ - _")
+
+
+def test_left_reassociate_expr_fail_2():
+    @proc
+    def foo(a: f32, b: f32, c: f32):
+        b = a + (b - c)
+
+    with pytest.raises(TypeError, match="same binary operation as the expression"):
+        foo = left_reassociate_expr(foo, "_ + _")
 
 
 def test_product_loop(golden):
@@ -127,6 +178,33 @@ def test_delete_pass(golden):
         for i in seq(0, 16):
             for j in seq(0, 2):
                 pass
+        x = 0.0
+
+    assert str(delete_pass(foo)) == golden
+
+    @proc
+    def foo(x: R):
+        for i in seq(0, 16):
+            pass
+            for j in seq(0, 2):
+                pass
+                pass
+            pass
+        x = 0.0
+
+    assert str(delete_pass(foo)) == golden
+
+
+def test_delete_pass_1(golden):
+    @proc
+    def foo(x: R):
+        for i in seq(0, 16):
+            x = 1.0
+            pass
+            for j in seq(0, 2):
+                pass
+                pass
+            pass
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
@@ -445,6 +523,30 @@ def test_resize_dim_3(golden):
     assert str(foo) == golden
 
 
+def test_resize_dim_4(golden):
+    @proc
+    def bar(A: [i8][3]):
+        for i in seq(0, 3):
+            A[i] = 0.0
+
+    @proc
+    def foo1():
+        x: i8[10]
+        for i in seq(3, 6):
+            bar(x[i : i + 3])
+
+    @proc
+    def foo2():
+        x: i8[10, 10]
+        for i in seq(3, 6):
+            bar(x[i, i : i + 3])
+
+    foo1 = resize_dim(foo1, "x", 0, 5, "2")
+    foo2 = resize_dim(foo2, "x", 0, 15, "2")
+
+    assert str(foo1) + "\n" + str(foo2) == golden
+
+
 def test_rearrange_dim(golden):
     @proc
     def foo(N: size, M: size, K: size, x: i8[N, M, K]):
@@ -573,6 +675,21 @@ def test_remove_loop_fail(golden):
 
     with pytest.raises(SchedulingError, match="The statement at .* is not idempotent"):
         remove_loop(foo, "for i in _:_")
+
+
+def test_remove_loop_deterministic(golden):
+    @proc
+    def foo(M: size, N: size, K: size, A: f32[M, N]):
+        for k in seq(0, K / 4):
+            for i in seq(0, M):
+                for j in seq(0, N):
+                    A[i, j] = 1.0
+
+    # An older Z3 version caused check within remove_loop
+    # to fail non-deterministically (return an unknwon result).
+    # This test make sure that over a few runs, it always passes.
+    for i in range(10):
+        assert str(remove_loop(foo, "k")) == golden
 
 
 def test_sink_alloc_simple_for_loop(golden):
@@ -1091,9 +1208,18 @@ def test_bind_lhs(golden):
                     out[ii, jj, kk] += out[ii, jj, kk] + inp[ii, jj, kk]
                     out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
 
-    myfunc_cpu = bind_expr(myfunc_cpu, "inp[_]", "inp_ram", cse=True)
-    myfunc_cpu = bind_expr(myfunc_cpu, "out[_]", "out_ram", cse=True)
+    myfunc_cpu = bind_expr(myfunc_cpu, myfunc_cpu.find("inp[_]", many=True), "inp_ram")
+    myfunc_cpu = bind_expr(myfunc_cpu, myfunc_cpu.find("out[_]", many=True), "out_ram")
     assert str(myfunc_cpu) == golden
+
+
+def test_bind_cursor_arg(golden):
+    @proc
+    def foo(a: R):
+        a = 1.0
+
+    foo = bind_expr(foo, foo.find("1.0"), "const")
+    assert str(foo) == golden
 
 
 def test_divide_with_recompute(golden):
@@ -1164,6 +1290,19 @@ def test_divide_loop_perfect2(golden):
 
     foo = divide_loop(foo, "i", 4, ["io", "ii"], perfect=True)
     foo = stage_mem(foo, "for ii in _:_", "A[io*4:io*4+4]", "tile")
+    assert str(simplify(foo)) == golden
+
+
+def test_divide_loop_perfect3(golden):
+    @proc
+    def foo(m: size, n: size, A: R[m, n]):
+        assert n % 4 == 0 and m % 8 == 0
+        for i in seq(0, m):
+            for j in seq(0, n):
+                A[i, j] = 0.2
+
+    foo = divide_loop(foo, "i", 8, ["io", "ii"], perfect=True)
+    foo = divide_loop(foo, "j", 4, ["jo", "ji"], perfect=True)
     assert str(simplify(foo)) == golden
 
 
@@ -1411,6 +1550,80 @@ def test_merge_writes_different_lhs_arrays_error():
         bar = merge_writes(bar, "z[i, 1] = y; z[i+1, 1] += y")
 
 
+def test_fold_into_reduce_1(golden):
+    @proc
+    def bar(result: f32):
+        result = result + 1.0
+
+    bar = fold_into_reduce(bar, bar.find("result = _"))
+    assert str(bar) == golden
+
+
+def test_fold_into_reduce_2(golden):
+    @proc
+    def bar(m: size, n: size, a: f32[m, n], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = a[i, j] + (x * x)
+
+    bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+    assert str(bar) == golden
+
+
+def test_fold_into_reduce_fail_1():
+    @proc
+    def bar(m: size, n: size, a: f32[m, n], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = a[i, j] * x
+
+    with pytest.raises(
+        SchedulingError, match="The rhs of the assignment must be an add."
+    ):
+        bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+
+
+def test_fold_into_reduce_fail_1():
+    @proc
+    def bar(m: size, n: size, a: f32[m, n], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = a[i, j]
+
+    with pytest.raises(
+        SchedulingError, match="The rhs of the assignment must be an add."
+    ):
+        bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+
+
+def test_fold_into_reduce_fail_3():
+    @proc
+    def bar(m: size, n: size, a: f32[m, n + 1], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = a[i, j + 1] + x
+
+    with pytest.raises(
+        SchedulingError,
+        match="The lhs of the addition is not a read to the lhs of the assignment.",
+    ):
+        bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+
+
+def test_fold_into_reduce_fail_4():
+    @proc
+    def bar(m: size, n: size, a: f32[m, n], x: f32):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                a[i, j] = (x + a[i, j]) + x
+
+    with pytest.raises(
+        SchedulingError,
+        match="The lhs of the addition is not a read to the lhs of the assignment.",
+    ):
+        bar = fold_into_reduce(bar, bar.find("a[_] = _"))
+
+
 def test_inline_assign(golden):
     @proc
     def foo(n: size, y: i8[n]):
@@ -1422,6 +1635,17 @@ def test_inline_assign(golden):
             a = x[1]
 
     foo = inline_assign(foo, foo.find("x = _"))
+    assert str(foo) == golden
+
+
+def test_inline_assign_scalar(golden):
+    @proc
+    def foo(b: f32):
+        a: f32
+        a = 1.0
+        b = a
+
+    foo = inline_assign(foo, foo.find("a = _"))
     assert str(foo) == golden
 
 
@@ -1586,6 +1810,39 @@ def test_set_precision_for_tensors_and_windows():
     assert str(foo.forward(call2)._impl._node.args[1].type) == "f32[n]"
 
 
+def test_set_precision_api_type(golden):
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    bar = set_precision(bar, bar.args()[1], ExoType.F32)
+    assert str(bar) == golden
+
+
+def test_set_precision_illegal_precision_value():
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    with pytest.raises(
+        ValueError,
+        match="expected an instance of <enum 'ExoType'> or one of the following strings",
+    ):
+        bar = set_precision(bar, bar.args()[1], "Z")
+
+
+def test_set_precision_illegal_precision_type():
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    with pytest.raises(
+        TypeError,
+        match="expected an instance of <enum 'ExoType'> or <class 'str'> specifying the precision",
+    ):
+        bar = set_precision(bar, bar.args()[1], bar)
+
+
 def test_rewrite_expr(golden):
     @proc
     def foo(n: size):
@@ -1640,7 +1897,7 @@ def test_bind_expr_diff_indices(golden):
             x[i] = y[i]
             w[i] = x[i] + y[i] + 1.0
 
-    bar = bind_expr(bar, "x[i]+y[i]+1.0", "tmp", cse=True)
+    bar = bind_expr(bar, bar.find("x[i]+y[i]+1.0", many=True), "tmp")
     assert str(bar) == golden
 
 
@@ -1893,6 +2150,66 @@ def test_unify9(golden):
         y: f32[8]
         for i in seq(0, 8):
             if i + m < n:
+                y[i] = x[i]
+
+    foo = replace(foo, foo.find_loop("i"), bar)
+    assert str(simplify(foo)) == golden
+
+
+def test_unify10(golden):
+    @proc
+    def bar(dst: [f32][8], src: [f32][8], bound: size):
+        for i in seq(0, 8):
+            if i < bound:
+                dst[i] = src[i]
+
+    @proc
+    def foo(n: size, m: size, x: f32[n]):
+        assert n - m >= 1
+        assert n - m <= 8
+        y: f32[8]
+        for i in seq(0, 8):
+            if i + m <= n:
+                y[i] = x[i]
+
+    foo = replace(foo, foo.find_loop("i"), bar)
+    assert str(simplify(foo)) == golden
+
+
+def test_unify11(golden):
+    @proc
+    def bar(dst: [f32][8], src: [f32][8], bound: size):
+        for i in seq(0, 8):
+            if i < bound:
+                dst[i] = src[i]
+
+    @proc
+    def foo(n: size, m: size, x: f32[n]):
+        assert n - m >= 1
+        assert n - m <= 8
+        y: f32[8]
+        for i in seq(0, 8):
+            if m > n + i:
+                y[i] = x[i]
+
+    foo = replace(foo, foo.find_loop("i"), bar)
+    assert str(simplify(foo)) == golden
+
+
+def test_unify12(golden):
+    @proc
+    def bar(dst: [f32][8], src: [f32][8], bound: size):
+        for i in seq(0, 8):
+            if i < bound:
+                dst[i] = src[i]
+
+    @proc
+    def foo(n: size, m: size, x: f32[n]):
+        assert n - m >= 1
+        assert n - m <= 8
+        y: f32[8]
+        for i in seq(0, 8):
+            if m >= n + i:
                 y[i] = x[i]
 
     foo = replace(foo, foo.find_loop("i"), bar)
@@ -2297,6 +2614,139 @@ def test_stage_mem_accum2(golden):
     accum = stage_mem(accum, "for i in _:_", "out[k, 0:16, 0:16]", "o")
 
     assert str(simplify(accum)) == golden
+
+
+def get_1D_memcpy_tiled():
+    @proc
+    def memcpy(n: size, x: f32[n], y: f32[n]):
+        for i in seq(0, n):
+            x[i] = y[i]
+
+    loop = memcpy.find_loop("i")
+    memcpy = divide_loop(memcpy, loop, 4, ("io", "ii"), tail="guard")
+
+    return memcpy
+
+
+def get_2D_mempcpy_1D_tiled():
+    @proc
+    def memcpy_2D(m: size, n: size, x: f32[m, n], y: f32[m, n]):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                x[i, j] = y[i, j]
+
+    j_loop = memcpy_2D.find_loop("j")
+    memcpy_2D = divide_loop(memcpy_2D, j_loop, 4, ("jo", "ji"), tail="guard")
+
+    return memcpy_2D
+
+
+def get_2D_mempcpy_2D_tiled():
+    @proc
+    def memcpy_2D(m: size, n: size, x: f32[m, n], y: f32[m, n]):
+        for i in seq(0, m):
+            for j in seq(0, n):
+                x[i, j] = y[i, j]
+
+    i_loop = memcpy_2D.find_loop("i")
+    j_loop = memcpy_2D.find_loop("j")
+    memcpy_2D = divide_loop(memcpy_2D, j_loop, 4, ("jo", "ji"), tail="guard")
+    memcpy_2D = divide_loop(memcpy_2D, i_loop, 7, ("io", "ii"), tail="guard")
+
+    memcpy_2D = lift_scope(memcpy_2D, j_loop)
+    memcpy_2D = lift_scope(memcpy_2D, j_loop)
+
+    return memcpy_2D
+
+
+def test_stage_mem_out_of_bounds_load_1D(golden):
+    memcpy = get_1D_memcpy_tiled()
+    memcpy = stage_mem(memcpy, memcpy.find_loop("ii"), "y[4 * io:4 * io + 4]", "yReg")
+    memcpy = simplify(memcpy)
+
+    assert str(memcpy) == golden
+
+
+def test_stage_mem_out_of_bounds_load_2D_one_cond(golden):
+    memcpy_2D = get_2D_mempcpy_1D_tiled()
+    memcpy_2D = stage_mem(
+        memcpy_2D, memcpy_2D.find_loop("ji"), "y[i, 4 * jo:4 * jo + 4]", "yReg"
+    )
+    memcpy_2D = simplify(memcpy_2D)
+
+    assert str(memcpy_2D) == golden
+
+
+def test_stage_mem_out_of_bounds_load_2D_two_conds(golden):
+    memcpy_2D = get_2D_mempcpy_2D_tiled()
+    memcpy_2D = stage_mem(
+        memcpy_2D,
+        memcpy_2D.find_loop("ii"),
+        "y[7 * io: 7 * io + 7, 4 * jo:4 * jo + 4]",
+        "yReg",
+    )
+    memcpy_2D = simplify(memcpy_2D)
+
+    assert str(memcpy_2D) == golden
+
+
+def test_stage_mem_out_of_bounds_store_1D(golden):
+    memcpy = get_1D_memcpy_tiled()
+    memcpy = stage_mem(memcpy, memcpy.find_loop("ii"), "x[4 * io:4 * io + 4]", "xReg")
+    memcpy = simplify(memcpy)
+
+    assert str(memcpy) == golden
+
+
+def test_stage_mem_out_of_bounds_reduction(golden):
+    @proc
+    def axpy(n: size, x: f32[n], y: f32[n]):
+        for i in seq(0, n):
+            y[i] += x[i]
+
+    axpy = divide_loop(axpy, axpy.find_loop("i"), 5, ("io", "ii"), tail="guard")
+    axpy = stage_mem(axpy, axpy.find_loop("ii"), "y[5*io:5*io+5]", "yReg")
+    axpy = simplify(axpy)
+
+    assert str(axpy) == golden
+
+
+def test_stage_mem_out_of_bound_reduction_accum(golden):
+    @proc
+    def axpy(n: size, x: f32[n], y: f32[n]):
+        for i in seq(0, n):
+            y[i] += x[i]
+
+    axpy = divide_loop(axpy, axpy.find_loop("i"), 5, ("io", "ii"), tail="guard")
+    axpy = stage_mem(axpy, axpy.find_loop("ii"), "y[5*io:5*io+5]", "yReg", accum=True)
+    axpy = simplify(axpy)
+
+    assert str(axpy) == golden
+
+
+def test_stage_mem_out_of_bound_block(golden):
+    @proc
+    def axpy(n: size, x: f32[n], y: f32[n]):
+        for i in seq(0, n):
+            y[i] += x[i]
+
+    axpy = divide_loop(axpy, axpy.find_loop("i"), 5, ("io", "ii"), tail="guard")
+    axpy = stage_mem(axpy, axpy.find_loop("io").body(), "x[5*io:5*io+5]", "xReg")
+    axpy = simplify(axpy)
+
+    assert str(axpy) == golden
+
+
+def test_stage_mem_out_of_bound_point(golden):
+    @proc
+    def foo(n: size, m: size, x: f32[n], y: f32[n]):
+        assert m >= n
+        for i in seq(0, m):
+            if i < n:
+                y[i] = x[i]
+
+    foo = stage_mem(foo, foo.find_loop("i").body(), "x[i]", "tmp")
+    assert str(foo) == golden
 
 
 def test_new_expr_multi_vars(golden):
@@ -3119,6 +3569,26 @@ def test_eliminate_dead_code7(golden):
     assert str(foo) == golden
 
 
+def test_eliminate_dead_code8(golden):
+    @proc
+    def foo(n: size):
+        for i in seq((7 + n) / 8 * 8, (7 + n) / 8 * 8):
+            pass
+
+    foo = eliminate_dead_code(foo, foo.find_loop("i"))
+    assert str(foo) == golden
+
+
+def test_eliminate_dead_code9(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(0 + (7 + n) / 8 * 8, ((7 + n) / 8 * 8 + 7) / 8 * 8):
+            pass
+
+    foo = eliminate_dead_code(foo, foo.find_loop("i"))
+    assert str(foo) == golden
+
+
 def test_lift_reduce_constant_1(golden):
     @proc
     def foo():
@@ -3330,6 +3800,19 @@ def test_specialize_sizes(golden):
     assert str(foo) == golden
 
 
+def test_specialize_blocks(golden):
+    @proc
+    def foo(n: size, a: f32):
+        b: f32
+        a = 1.0
+        a = 2.0
+        b = 1.2
+
+    body = foo.body()
+    foo = specialize(foo, body, ["n > 0"])
+    assert str(foo) == golden
+
+
 def test_specialize_data():
     @proc
     def gemm(
@@ -3353,6 +3836,19 @@ def test_specialize_data():
         specialize(gemm, "for i in _:_", [f"alpha == {x}" for x in [0.0, 1.0, -1.0]])
 
 
+def test_specialize_alloc_fails():
+    @proc
+    def foo(n: size):
+        a: f32
+        a = 1.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="Block contains allocations",
+    ):
+        foo = specialize(foo, foo.body()[0], "n > 0")
+
+
 def test_extract_subproc(golden):
     @proc
     def foo():
@@ -3363,10 +3859,93 @@ def test_extract_subproc(golden):
             for i in seq(0, 8):
                 x += y[j] * 2.0
 
-    foo, new = extract_subproc(
-        foo, "fooooo", "for i in _:_", order={"x": 1, "y": 0, "j": 2}
+    _, new_no_asserts = extract_subproc(
+        foo, "for i in _:_", "fooooo", include_asserts=False
     )
+    foo, new = extract_subproc(foo, "for i in _:_", "fooooo")
+    assert f"{foo}\n{new_no_asserts}\n{new}" == golden
+
+
+def test_extract_subproc2(golden):
+    @proc
+    def foo(N: size, M: size, K: size, x: R[N, K + M]):
+        assert N >= 8
+        for i in seq(0, 8):
+            x[i, 0] += 2.0
+
+    foo, new = extract_subproc(foo, "for i in _:_", "fooooo")
     assert (str(foo) + "\n" + str(new)) == golden
+
+
+def test_extract_subproc3(golden):
+    @proc
+    def foo(N: size, M: size, K: size, x: R[N, K + M]):
+        assert N >= 8
+        assert M >= 2
+        if N < 10 and M < 4:
+            for i in seq(0, 8):
+                x[i, 0] += 2.0
+        else:
+            for i in seq(0, 8):
+                x[i, 0] += 1.0
+
+    foo, foo_if = extract_subproc(foo, "for i in _:_", "foo_if")
+    foo, foo_else = extract_subproc(foo, "for i in _:_", "foo_else")
+    assert f"{foo}\n{foo_if}\n{foo_else}" == golden
+
+
+def test_extract_subproc4(golden):
+    @proc
+    def foo(N: size, M: size, K: size, x: R[N, K + M]):
+        assert N >= 8
+        x[0, 0] = 0.0
+        for i in seq(0, 8):
+            x[i, 0] += 2.0
+
+    foo, new = extract_subproc(foo, foo.body(), "fooooo")
+    assert (str(foo) + "\n" + str(new)) == golden
+
+
+def test_extract_subproc5(golden):
+    @proc
+    def foo(x: f32[8], y: f32[8]):
+        reg: f32[8] @ AVX2
+        for i in seq(0, 8):
+            reg[i] = x[i]
+        for i in seq(0, 8):
+            y[i] = reg[i]
+
+    foo, new = extract_subproc(foo, foo.body()[1:], "fooooo")
+    assert (str(foo) + "\n" + str(new)) == golden
+
+
+def test_extract_subproc6(golden):
+    @proc
+    def foo(x: [f32][8], y: [f32][8]):
+        assert stride(x, 0) == 1
+        assert stride(y, 0) == 1
+        reg: f32[8] @ AVX2
+        for i in seq(0, 8):
+            reg[i] = x[i]
+
+    foo, new = extract_subproc(foo, foo.body()[1:], "fooooo")
+    assert (str(foo) + "\n" + str(new)) == golden
+
+
+def test_extract_subproc7(golden):
+    @proc
+    def gemv(m: size, n: size, alpha: R, beta: R, A: [R][m, n], x: [R][n], y: [R][m]):
+        assert stride(A, 1) == 1
+
+        for i in seq(0, m):
+            y[i] = y[i] * beta
+            for j in seq(0, n):
+                y[i] += alpha * x[j] * A[i, j]
+
+    gemv = fission(gemv, gemv.find("y[_] = _").after())
+    gemv = reorder_loops(gemv, gemv.find_loop("i #1"))
+    gemv, new = extract_subproc(gemv, gemv.find_loop("i #1"), "fooooo")
+    assert (str(gemv) + "\n" + str(new)) == golden
 
 
 def test_unroll_buffer(golden):
@@ -3464,6 +4043,19 @@ def test_unroll_buffer5():
         match="Cannot unroll a buffer at a dimension used as a window",
     ):
         bar = unroll_buffer(bar, "tmp_a : _", 0)
+
+
+def test_unroll_buffer6(golden):
+    @proc
+    def foo():
+        a: f32[2]
+        b: f32[2]
+        a[0] = b[0]
+        a[1] = b[1]
+
+    foo = unroll_buffer(foo, "a : _", 0)
+    foo = unroll_buffer(foo, "b : _", 0)
+    assert str(foo) == golden
 
 
 def test_parallelize_loop(golden):

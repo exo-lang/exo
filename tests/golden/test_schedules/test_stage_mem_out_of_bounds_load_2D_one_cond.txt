@@ -1,0 +1,10 @@
+def memcpy_2D(m: size, n: size, x: f32[m, n] @ DRAM, y: f32[m, n] @ DRAM):
+    for i in seq(0, m):
+        for jo in seq(0, (3 + n) / 4):
+            yReg: f32[4] @ DRAM
+            for i0 in seq(0, 4):
+                if i0 + 4 * jo < n:
+                    yReg[i0] = y[i, i0 + 4 * jo]
+            for ji in seq(0, 4):
+                if ji + 4 * jo < n:
+                    x[i, ji + 4 * jo] = yReg[ji]

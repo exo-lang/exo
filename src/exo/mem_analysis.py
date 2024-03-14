@@ -1,7 +1,7 @@
 from collections import ChainMap
 from .LoopIR import LoopIR
 
-from .memory import DRAM
+from .memory import Memory
 
 
 # --------------------------------------------------------------------------- #
@@ -22,7 +22,8 @@ class MemoryAnalysis:
 
         for a in proc.args:
             if a.type.is_numeric():
-                mem = a.mem if a.mem else DRAM
+                mem = a.mem
+                assert issubclass(mem, Memory)
                 self.mem_env[a.name] = mem
 
         self.push()
@@ -141,7 +142,8 @@ class MemoryAnalysis:
             # check memory consistency at call boundaries
             for ca, sa in zip(s.args, s.f.args):
                 if sa.type.is_numeric():
-                    smem = sa.mem if sa.mem else DRAM
+                    smem = sa.mem
+                    assert issubclass(smem, Memory)
                     cmem = self.get_e_mem(ca)
                     if not issubclass(cmem, smem):
                         raise TypeError(
@@ -166,7 +168,8 @@ class MemoryAnalysis:
             self.pop()
             return s.update(body=body)
         elif styp is LoopIR.Alloc:
-            mem = s.mem if s.mem else DRAM
+            mem = s.mem
+            assert issubclass(mem, Memory)
             self.mem_env[s.name] = mem
             self.add_malloc(s.name, s.type, s.mem)
             return s
