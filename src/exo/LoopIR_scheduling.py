@@ -1056,7 +1056,7 @@ def DoInlineWindow(window_cursor):
             new_idxs = calc_idx(rd.idx)
             old_typ = window_s.rhs.type
             new_typ = old_typ.update(src_buf=buf_name, idx=new_idxs)
-            return rd.updae(name=buf_name, idx=new_idxs, type=new_typ)
+            return rd.update(name=buf_name, idx=new_idxs, type=new_typ)
         elif isinstance(rd, LoopIR.Read):
             if rd.idx:
                 new_idxs = calc_idx(rd.idx)
