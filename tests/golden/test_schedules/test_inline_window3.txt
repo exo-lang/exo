@@ -1,0 +1,6 @@
+def memset(n: size, x: [R][n] @ DRAM):
+    assert n % 16 == 0
+    res: R @ DRAM
+    for io in seq(0, n / 16):
+        inner_memset(x[16 * io:16 + 16 * io])
+        res += x[16 * io]

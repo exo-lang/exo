@@ -1056,10 +1056,14 @@ def DoInlineWindow(window_cursor):
             new_idxs = calc_idx(rd.idx)
             old_typ = window_s.rhs.type
             new_typ = old_typ.update(src_buf=buf_name, idx=new_idxs)
-            return {"name": buf_name, "idx": new_idxs, "type": new_typ}
+            return rd.updae(name=buf_name, idx=new_idxs, type=new_typ)
         elif isinstance(rd, LoopIR.Read):
-            new_idxs = calc_idx(rd.idx)
-            return {"name": buf_name, "idx": new_idxs}
+            if rd.idx:
+                new_idxs = calc_idx(rd.idx)
+                return rd.update(name=buf_name, idx=new_idxs)
+            else:
+                assert isinstance(c.parent()._node, LoopIR.Call)
+                return window_s.rhs
 
     def mk_stride_expr(c):
         e = c._node
@@ -1073,7 +1077,9 @@ def DoInlineWindow(window_cursor):
         return {"name": window_s.rhs.name, "idx": idxs}
 
     for c in get_rest_of_block(window_cursor):
-        ir, fwd = _replace_reads(ir, fwd, c, window_s.name, mk_read)
+        ir, fwd = _replace_reads(
+            ir, fwd, c, window_s.name, mk_read, only_replace_attrs=False
+        )
         ir, fwd = _replace_pats(
             ir, fwd, c, f"stride({repr(window_s.name)}, _)", mk_stride_expr
         )
