@@ -1,9 +1,9 @@
 from __future__ import annotations
 from collections import ChainMap
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
-from .LoopIR import LoopIR, T, LoopIR_Compare, get_reads_of_expr
+from .LoopIR import LoopIR, T, LoopIR_Compare
 from .new_eff import Check_ExprBound
 
 
@@ -41,8 +41,7 @@ class IndexRange:
     def get_size(self) -> int:
         if self.lo is None or self.hi is None:
             return None
-        # +1 because bounds are inclusive
-        return self.hi - self.lo + 1
+        return self.hi - self.lo + 1  # +1 because bounds are inclusive
 
     def __str__(self):
         base = "0" if self.base is None else str(self.base)
@@ -219,7 +218,7 @@ def index_range_analysis(expr: LoopIR.expr, env: dict) -> IndexRange | int:
     return analyze_range(expr)
 
 
-def constant_bound(expr, env) -> (int, int) | None:
+def constant_bound(expr, env) -> Tuple[int, int] | None:
     """
     Returns constant integer bounds for [expr], if possible, and
     None otherwise. The bounds are inclusive.

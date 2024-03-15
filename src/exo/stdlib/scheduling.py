@@ -5,9 +5,7 @@ from functools import wraps as _wraps
 # --------------------------------------------------------------------------- #
 # Expose the built-in Scheduling operators here
 
-from ..API import (
-    SchedulingError,
-)
+from ..API import SchedulingError, Procedure
 
 from ..API_scheduling import (
     is_atomic_scheduling_op,
@@ -94,16 +92,10 @@ from ..API_scheduling import (
     autolift_alloc,
 )
 
-# TODO: remove
-from ..LoopIR import LoopIR
-from .analysis import (
-    check_call_mem_types,
-)
+from .analysis import check_call_mem_types
+from ..API_cursors import *
+from ..LoopIR_unification import UnificationError as _UnificationError
 
-from .range_analysis import bounds_inference, get_affected_dim
-from ..API_cursors import InvalidCursor
-
-from .inspection import get_parents
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -203,11 +195,6 @@ def loop_hack(sched, find_func, verbose=False):
     return loop_hack_sched
 
 
-import exo.API_cursors as _PC
-from ..API import Procedure as _Procedure
-from ..LoopIR_unification import UnificationError as _UnificationError
-
-
 class MemoryError(Exception):
     def __init__(self, msg):
         self._err_msg = str(msg)
@@ -223,13 +210,13 @@ def call_site_mem_aware_replace(proc, block_cursor, subproc, quiet=False):
     def check_all_calls(body_cursor):
         check_passed = True
         for cursor in body_cursor:
-            if isinstance(cursor, _PC.CallCursor):
+            if isinstance(cursor, CallCursor):
                 check_passed = check_passed and check_call_mem_types(cursor)
-            elif isinstance(cursor, _PC.IfCursor):
+            elif isinstance(cursor, IfCursor):
                 check_passed = check_passed and check_all_calls(cursor.body())
-                if type(cursor.orelse()) is not _PC.InvalidCursor:
+                if type(cursor.orelse()) is not InvalidCursor:
                     check_passed = check_passed and check_all_calls(cursor.orelse())
-            elif isinstance(cursor, _PC.ForCursor):
+            elif isinstance(cursor, ForCursor):
                 check_passed = check_passed and check_all_calls(cursor.body())
         return check_passed
 
@@ -247,18 +234,18 @@ def _replace_helper(proc, subprocs, mem_aware, once):
         subprocs = [subprocs]
 
     for subproc in subprocs:
-        assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
+        assert isinstance(subproc, Procedure), "expected Procedure as 2nd argument"
 
     patterns = {
-        _PC.AssignCursor: "_ = _",
-        _PC.ReduceCursor: "_ += _",
-        _PC.AssignConfigCursor: "TODO",
-        _PC.PassCursor: "TODO",
-        _PC.IfCursor: "TODO",
-        _PC.ForCursor: "for _ in _: _",
-        _PC.AllocCursor: "TODO",
-        _PC.CallCursor: "TODO",
-        _PC.WindowStmtCursor: "TODO",
+        AssignCursor: "_ = _",
+        ReduceCursor: "_ += _",
+        AssignConfigCursor: "TODO",
+        PassCursor: "TODO",
+        IfCursor: "TODO",
+        ForCursor: "for _ in _: _",
+        AllocCursor: "TODO",
+        CallCursor: "TODO",
+        WindowStmtCursor: "TODO",
     }
 
     for subproc in subprocs:
@@ -353,153 +340,4 @@ def lift_if(proc, cursor, n_lifts=1):
                 orig=orig_proc,
                 proc=proc,
             ) from e
-    return proc
-
-
-def fuse_at(proc, producer: str, consumer: str, target_loop):
-    """
-    Computes the necessary values of producer at the level of [target_loop]
-    in the consumer loop nest by fusing the two loop nests.
-
-    Example transformation:
-        for i in _:
-            for j in _:
-                producer[_] = ...
-        for io in _:
-            for jo in _:
-                for ii in _:
-                    for ji in _:
-                        consumer[_] = ...
-    ->
-        for io in _:
-            for jo in _:
-                for ii in _:
-                    for ji in _:
-                        producer[_] = ...
-                for ii in _:
-                    for ji in _:
-                        consumer[_] = ...
-
-    TODO: bounds currently assumes that bounds is of the form [0, 1, ..., n-1]
-    TODO: add returning relevant cursors
-    """
-
-    target_loop = proc.forward(target_loop)
-    p_assign = proc.find(f"{producer}[_] = _")
-    p_loop = _PC.get_top_level_stmt(p_assign)
-    c_loops = [target_loop] + list(get_parents(proc, target_loop, up_to=None))
-
-    assert p_loop.next() == c_loops[-1], "loop nests must be consecutive"
-
-    for c_loop in reversed(c_loops):
-        c_loop = proc.forward(c_loop)
-        p_loop = _PC.get_enclosing_loop(proc.forward(p_assign), c_loop.name())
-        assert p_loop.next() == c_loop
-
-        # infer bounds of consumer to determine cut-factor
-        N_c = c_loop.hi()._impl._node
-        buffer_dim = get_affected_dim(proc, consumer, c_loop.name())
-        w_c = bounds_inference(proc, c_loop, consumer, buffer_dim).get_size()
-
-        p_iter = p_loop.name()
-        new_iters = [f"{p_iter}", f"{p_iter}i"]
-
-        proc = divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
-        proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
-
-        # TODO: rethink the reorder thing here
-        p_inner_loop = proc.forward(p_loop).body()[0]
-        while isinstance(p_inner_loop.body()[0], _PC.ForCursor):
-            proc = reorder_loops(proc, p_inner_loop)
-            p_inner_loop = proc.forward(p_inner_loop)
-
-        # TODO: try to simplify the expressions without needing this
-        for pred in p_assign._impl.get_root().preds:
-            if (
-                isinstance(pred, LoopIR.BinOp)
-                and pred.op == "=="
-                and isinstance(pred.rhs, LoopIR.Const)
-            ):
-                try:
-                    proc = rewrite_expr(proc, f"{pred.lhs}", pred.rhs.val)
-                except:
-                    pass
-        proc = simplify(proc)
-
-    return simplify(proc)
-
-
-def store_at(proc, producer, consumer, target_loop):
-    """
-    Moves [producer]'s allocation into
-
-    TODO: bounds
-     - currently assumes that bounds is of the form [0, 1, ..., n-1]
-     - bounds should be automatically inferred, not manually passed
-    """
-    target_loop = proc.forward(target_loop)
-    producer_alloc = proc.find(f"{producer}:_")
-
-    def loops_between(producer_alloc, target_loop):
-        """
-        producer_alloc
-        for i in _:
-            for j in _:
-                for k in _: <- target_loop
-        loops_between(producer_alloc, target_loop) -> [i, j, k]
-        """
-        top_loop = _PC.match_level(target_loop, producer_alloc)
-        return reversed(
-            [target_loop] + list(get_parents(proc, target_loop, up_to=top_loop))
-        )
-
-    for loop in loops_between(producer_alloc, target_loop):
-        buffer_dim = get_affected_dim(proc, producer, loop.name())
-
-        loop = proc.forward(loop)
-        producer_alloc = proc.forward(producer_alloc)
-
-        bounds = bounds_inference(proc, loop, producer, buffer_dim)
-        lo, _ = bounds.get_bounds()
-        size = bounds.get_size()
-
-        while producer_alloc.next() != loop:
-            reorder_stmts(proc, producer_alloc.expand(0, 1))
-            producer_alloc = proc.forward(producer_alloc)
-
-        proc = sink_alloc(proc, producer_alloc)
-        proc = resize_dim(proc, producer_alloc, buffer_dim, size, lo)
-
-    return simplify(proc)
-
-
-def compute_at(proc, producer, consumer, target_loop):
-    """
-    Combination of fuse_at and store_at.
-    """
-    target_loop = proc.forward(target_loop)
-    proc = fuse_at(proc, producer, consumer, target_loop)
-
-    target_loop = proc.forward(target_loop.body()[0]).parent()
-    proc = store_at(proc, producer, consumer, target_loop)
-
-    return proc
-
-
-def tile(
-    proc,
-    i_loop,
-    j_loop,
-    new_i_iters,
-    new_j_iters,
-    i_tile_size,
-    j_tile_size,
-    perfect=True,
-):
-    assert j_loop.parent() == i_loop
-    # TODO: fix this for perfect=False
-    proc = divide_loop(proc, i_loop, i_tile_size, new_i_iters, perfect=perfect)
-    proc = divide_loop(proc, j_loop, j_tile_size, new_j_iters, perfect=perfect)
-    ii_loop = proc.forward(i_loop).body()[0]
-    proc = reorder_loops(proc, ii_loop)
     return proc

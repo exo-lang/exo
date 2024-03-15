@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 
 from exo import proc, ExoType
-from exo.stdlib.stdlib import *
 from exo.libs.memories import *
 from exo.API_cursors import *
+
+from exo.stdlib.inspection import *
+from exo.stdlib.scheduling import *
 
 
 @pytest.fixture(scope="session")
@@ -587,7 +589,7 @@ def test_specialize_forwarding():
     assert foo.forward(body) == foo.body()
 
 
-def test_match_level(golden):
+def test_match_depth(golden):
     @proc
     def foo(x: i8):
         for i in seq(0, 8):
@@ -597,11 +599,11 @@ def test_match_level(golden):
         for i in seq(0, 2):
             x = 1.0
 
-    c = match_level(foo.find("x = 1.0"), foo.find_loop("i"))
+    c = match_depth(foo.find("x = 1.0"), foo.find_loop("i"))
     assert str(c) == golden
 
 
-def test_match_level_fail():
+def test_match_depth_fail():
     @proc
     def foo(x: i8):
         for i in seq(0, 8):
@@ -617,39 +619,13 @@ def test_match_level_fail():
         CursorNavigationError,
         match="cursor_to_match's parent is not an ancestor of cursor",
     ):
-        c = match_level(foo.find("x = _ #0"), foo.find("x = _ #1"))
+        match_depth(foo.find("x = _ #0"), foo.find("x = _ #1"))
 
     with pytest.raises(AssertionError, match="cursors originate from different procs"):
-        c = match_level(foo.find("x = _"), bar.find("pass"))
+        match_depth(foo.find("x = _"), bar.find("pass"))
 
 
-def test_get_stmt_within_scope(golden):
-    @proc
-    def foo(x: i8):
-        for i in seq(0, 8):
-            if i + 3 < -1:
-                x = 0.0
-                pass
-
-    c = get_stmt_within_scope(foo.find("pass"), foo.find_loop("i"))
-    assert str(c) == golden
-
-
-def test_get_stmt_within_scope_fail():
-    @proc
-    def foo(x: i8):
-        for i in seq(0, 8):
-            x = 1.0
-        for j in seq(0, 2):
-            x = 2.0
-
-    with pytest.raises(
-        CursorNavigationError, match="scope is not an ancestor of cursor"
-    ):
-        c = get_stmt_within_scope(foo.find("x = _"), foo.find_loop("j"))
-
-
-def test_get_enclosing_loop(golden):
+def test_get_enclosing_loop_by_name(golden):
     @proc
     def foo(x: i8):
         for i in seq(0, 5):
@@ -657,13 +633,13 @@ def test_get_enclosing_loop(golden):
                 if i == 0:
                     x = 1.0
 
-    c1 = get_enclosing_loop(foo.find("x = _"))
-    c2 = get_enclosing_loop(foo.find("x = _"), "i")
+    c1 = get_enclosing_loop(foo, foo.find("x = _"))
+    c2 = get_enclosing_loop_by_name(foo, foo.find("x = _"), "i")
 
     assert "\n\n".join([str(c) for c in [c1, c2]]) == golden
 
 
-def test_get_enclosing_loop_fail():
+def test_get_enclosing_loop_by_name_fail():
     @proc
     def foo(x: i8):
         for i in seq(0, 8):
@@ -672,10 +648,8 @@ def test_get_enclosing_loop_fail():
             x = 2.0
         x = 3.0
 
-    with pytest.raises(
-        CursorNavigationError, match="scope is not an ancestor of cursor"
-    ):
-        c = get_stmt_within_scope(foo.find("x = _"), foo.find_loop("j"))
+    with pytest.raises(CursorNavigationError, match="no enclosing loop found"):
+        get_enclosing_loop_by_name(foo, foo.find("x = _"), foo.find_loop("j"))
 
 
 def test_is_ancestor_of_and_lca():

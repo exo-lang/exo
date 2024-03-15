@@ -1,7 +1,7 @@
 from __future__ import annotations
+from typing import Tuple
 
 from exo.API_cursors import *
-from exo.LoopIR import get_reads_of_expr  # TODO: get rid of this
 from exo.range_analysis import IndexRange
 
 from .inspection import get_parents
@@ -9,7 +9,9 @@ from .inspection import get_parents
 
 def index_range_analysis(expr: ExprCursor, env: dict) -> IndexRange | int:
     """
-    User-level implementation of range analysis implemented inside compiler.
+    User-level implementation of range analysis implemented inside compiler. This
+    implementation is more a proof of concept, since we could really just write
+    a wrapper around the compiler's range analysis.
     """
     assert isinstance(expr, ExprCursor)
     assert isinstance(env, dict)
@@ -49,11 +51,14 @@ def index_range_analysis(expr: ExprCursor, env: dict) -> IndexRange | int:
     return analyze_range(expr)
 
 
-def constant_bound(expr: ExprCursor, env: dict) -> (int, int) | None:
+def constant_bound(expr: ExprCursor, env: dict) -> Tuple[int, int] | None:
     """
+    Returns constant integer bounds for [expr], if possible, and
+    None otherwise. The bounds are inclusive.
+
     This is an exact copy and paste of the constant_bound function
     in the compiler's range_analysis. The only difference is that
-    it uses the user-level index_range_analysis implemented above.
+    it calls the user-level index_range_analysis defined above.
     """
     if isinstance(expr, int):
         return (expr, expr)
@@ -67,7 +72,10 @@ def constant_bound(expr: ExprCursor, env: dict) -> (int, int) | None:
     return (idx_rng.lo, idx_rng.hi)
 
 
-def infer_range(idx_expr: Cursor, scope: Cursor):
+def infer_range(idx_expr: Cursor, scope: Cursor) -> IndexRange:
+    """
+    Infers the range of possible values of [idx_expr] within [scope].
+    """
     assert isinstance(idx_expr, Cursor)
     assert isinstance(scope, Cursor)
     env = dict()
@@ -82,53 +90,35 @@ def infer_range(idx_expr: Cursor, scope: Cursor):
         env[c.name()] = (lo, hi)
 
     bounds = index_range_analysis(idx_expr, env)
+
+    if isinstance(bounds, int):
+        return IndexRange(None, bounds, bounds)
+
     return bounds
 
 
-def get_affected_dim(proc, buffer_name: str, iter_sym):
-    """
-    Return which dimension of buffer are affected by [iter_sym]. Raises
-    an error if there are multiple.
-    """
-    dims = set()
-    # TODO: this only matches against writes
-    for c in proc.find(f"{buffer_name}[_] = _", many=True):
-        for idx, idx_expr in enumerate(c.idx()):
-            idx_vars = [
-                name.name() for (name, _) in get_reads_of_expr(idx_expr._impl._node)
-            ]
-            if iter_sym in idx_vars:
-                dims.add(idx)
-
-    if len(dims) > 1:
-        raise ValueError(f"{iter_sym} affects multiple indices into {buffer_name}")
-
-    return list(dims)[0]
-
-
-# TODO: fix this include interface to be something better
 def bounds_inference(proc, loop, buffer_name: str, buffer_dim: int, include=["W"]):
+    """ """
     loop = proc.forward(loop)
     alloc = proc.find_alloc_or_arg(buffer_name)
-    dim = alloc.shape()[buffer_dim]
 
     matches = []
     # TODO: also want probably reduces... for both read and write
     if "R" in include:
         # TODO: proc.find doesn't take a scope. Either write a variant or add that as an optional arg
-        # TODO: Also, proc.find fails if no matches are found...but we really just want it to return []
+        # Also, proc.find fails if no matches are found...but we really just want it to return []
         matches += proc.find(f"{buffer_name}[_]", many=True)
     if "W" in include:
         matches += proc.find(f"{buffer_name}[_] = _", many=True)
 
-    # TODO: This implementation is slower than tree traversal, but maybe easier to understand
-    bound = None  # None is basically bottom
+    bound = None  # None is basically bottom in abstract interpretation
     for c in matches:
         idx_expr = c.idx()[buffer_dim]
+        # TODO: This implementation is slower, but easier to understand than a tree traversal
+        # because we have to rebuild the environment for each infer_range call.
         cur_bounds = infer_range(idx_expr, loop)
 
         if bound is None:
-            # This is effectively joining the bounds w/ Bottom
             bound = cur_bounds
         else:
             bound |= cur_bounds

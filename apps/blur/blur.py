@@ -1,27 +1,23 @@
 from __future__ import annotations
 
-from exo import *
 from exo.libs.memories import DRAM_STACK
 from exo.platforms.x86 import *
-from exo.syntax import *
-from exo.stdlib.scheduling import *
-from exo.API_cursors import get_enclosing_loop
-from exo.stdlib.stdlib import vectorize, is_div, is_literal
 
-# TODO: fix duplicated functions, e.g. get_enclosing_loop
-# TODO: change check_replace to work for blocks
+from exo.stdlib.halide_scheduling_ops import *
+from exo.stdlib.inspection import get_enclosing_loop_by_name
+from exo.stdlib.stdlib import vectorize, is_div, is_literal
 
 
 def halide_tile(p, buffer, y, x, yi, xi, yTile, xTile):
     assign = p.find(f"{buffer} = _")
-    y_loop = get_enclosing_loop(assign, y)
-    x_loop = get_enclosing_loop(assign, x)
+    y_loop = get_enclosing_loop_by_name(p, assign, y)
+    x_loop = get_enclosing_loop_by_name(p, assign, x)
 
     return tile(p, y_loop, x_loop, [y, yi], [x, xi], yTile, xTile, perfect=True)
 
 
 def halide_compute_at(p, producer: str, consumer: str, loop: str):
-    x_loop = get_enclosing_loop(p.find(f"{consumer} = _"), loop)
+    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
     return compute_at(p, producer, consumer, x_loop)
 
 
@@ -45,7 +41,7 @@ def divide_by_3_rule(proc, expr):
 
 
 def halide_vectorize(p, buffer: str, loop: str, width: int):
-    loop = get_enclosing_loop(p.find(f"{buffer} = _"), loop)
+    loop = get_enclosing_loop_by_name(p, p.find(f"{buffer} = _"), loop)
     rules = [divide_by_3_rule]
     p = vectorize(
         p, loop, width, "ui16", AVX2, avx_ui16_insts, rules=rules, tail="perfect"

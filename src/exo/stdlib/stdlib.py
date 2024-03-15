@@ -1012,6 +1012,7 @@ class replace_cursors:
         yield self.call
 
 
+# TODO: change this to work for blocks
 def checked_replace(proc, stmt, subproc, quiet=False):
     stmt = proc.forward(stmt)
     parent = stmt.parent()

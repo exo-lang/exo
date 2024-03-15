@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import os
-import sys
 
 from exo import proc
 from exo.platforms.x86 import *
-from exo.stdlib.scheduling import *
+from exo.stdlib.halide_scheduling_ops import *
 
 
 @proc
@@ -31,7 +29,7 @@ def test_schedule_blur1d(golden):
 
     loop = p.find_loop("i")
     p_bounds = (0, "i", 0, 2)
-    p = store_at(p, "producer", "consumer", loop)
+    p = store_at(p, "producer", loop)
     p = rename(p, "blur1d_compute_at")
     procs.append(p)
 
@@ -84,14 +82,14 @@ def test_schedule_blur2d(golden):
 
     p = blur2d_compute_root
     p = fuse_at(p, "producer", "consumer", p.find_loop("i #1"))
-    p = store_at(p, "producer", "consumer", p.find_loop("i"))
+    p = store_at(p, "producer", p.find_loop("i"))
     p = rename(p, "blur2d_compute_at_i")
     print(p)
     procs.append(p)
 
     p = blur2d_compute_root
     p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"))
-    p = store_at(p, "producer", "consumer", p.find_loop("i"))
+    p = store_at(p, "producer", p.find_loop("i"))
     p = simplify(p)
     p = rename(p, "blur2d_compute_at_j_store_at_i")
     print(p)
@@ -99,7 +97,7 @@ def test_schedule_blur2d(golden):
 
     p = blur2d_compute_root
     p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"))
-    p = store_at(p, "producer", "consumer", p.find_loop("j"))
+    p = store_at(p, "producer", p.find_loop("j"))
     p = unroll_loop(p, "ji")
     p = unroll_loop(p, "ii")
     for i in range(4):
@@ -158,7 +156,7 @@ def test_schedule_tiled_blur2d(golden):
 
     p = p_tiled
     p = fuse_at(p, "producer", "consumer", p.find_loop("ji"))
-    p = store_at(p, "producer", "consumer", p.find_loop("ji"))
+    p = store_at(p, "producer", p.find_loop("ji"))
     p = rename(p, "blur2d_tiled_compute_at_and_store_at_ji")
     print(p)
     procs.append(p)
