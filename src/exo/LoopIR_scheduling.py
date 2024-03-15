@@ -1073,11 +1073,11 @@ def DoInlineWindow(window_cursor):
         return {"name": window_s.rhs.name, "idx": idxs}
 
     for c in get_rest_of_block(window_cursor):
-        ir, fwd = _replace_reads(ir, fwd, c, window_s.lhs, mk_read)
+        ir, fwd = _replace_reads(ir, fwd, c, window_s.name, mk_read)
         ir, fwd = _replace_pats(
-            ir, fwd, c, f"stride({repr(window_s.lhs)}, _)", mk_stride_expr
+            ir, fwd, c, f"stride({repr(window_s.name)}, _)", mk_stride_expr
         )
-        ir, fwd = _replace_writes(ir, fwd, c, window_s.lhs, mk_write)
+        ir, fwd = _replace_writes(ir, fwd, c, window_s.name, mk_write)
 
     return ir, fwd
 

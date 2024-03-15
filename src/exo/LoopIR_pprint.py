@@ -428,7 +428,7 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
     elif isinstance(stmt, LoopIR.WindowStmt):
         rhs = _print_expr(stmt.rhs, env)
-        return [f"{indent}{env.get_name(stmt.lhs)} = {rhs}"]
+        return [f"{indent}{env.get_name(stmt.name)} = {rhs}"]
 
     elif isinstance(stmt, LoopIR.Alloc):
         mem = f" @{stmt.mem.name()}" if stmt.mem else ""

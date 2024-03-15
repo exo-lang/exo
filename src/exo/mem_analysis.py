@@ -135,7 +135,7 @@ class MemoryAnalysis:
 
         elif styp is LoopIR.WindowStmt:
             mem = self.get_e_mem(s.rhs)
-            self.mem_env[s.lhs] = mem
+            self.mem_env[s.name] = mem
             return s
 
         elif styp is LoopIR.Call:
