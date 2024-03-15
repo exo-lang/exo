@@ -53,7 +53,6 @@ def fuse_at(proc, producer: str, consumer: str, target_loop):
                     for ji in _:
                         consumer[_] = ...
 
-    TODO: bounds currently assumes that bounds is of the form [0, 1, ..., n-1]
     TODO: add returning relevant cursors
     """
 
@@ -169,7 +168,7 @@ def tile(
     perfect=True,
 ):
     assert j_loop.parent() == i_loop
-    # TODO: fix this for perfect=False
+    assert perfect, "only perfect tiling is supported"
     proc = divide_loop(proc, i_loop, i_tile_size, new_i_iters, perfect=perfect)
     proc = divide_loop(proc, j_loop, j_tile_size, new_j_iters, perfect=perfect)
     ii_loop = proc.forward(i_loop).body()[0]

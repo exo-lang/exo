@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from exo.stdlib.scheduling import *
 from exo import proc
 from exo.range_analysis import (
@@ -14,7 +12,6 @@ from exo.stdlib.range_analysis import (
     bounds_inference,
 )
 from exo.LoopIR import LoopIR, T
-from exo.pattern_match import match_pattern
 
 
 def test_affine_index_range():

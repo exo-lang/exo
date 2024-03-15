@@ -71,20 +71,17 @@ def test_schedule_blur2d(golden):
 
     p = fuse_at(p, "producer", "consumer", p.find_loop("i #1"))
     p = rename(p, "blur2d_compute_at_i_store_root")
-    print(p)
     procs.append(p)
 
     p = blur2d_compute_root
     p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"))
     p = rename(p, "blur2d_compute_at_j_store_root")
-    print(p)
     procs.append(p)
 
     p = blur2d_compute_root
     p = fuse_at(p, "producer", "consumer", p.find_loop("i #1"))
     p = store_at(p, "producer", p.find_loop("i"))
     p = rename(p, "blur2d_compute_at_i")
-    print(p)
     procs.append(p)
 
     p = blur2d_compute_root
@@ -92,7 +89,6 @@ def test_schedule_blur2d(golden):
     p = store_at(p, "producer", p.find_loop("i"))
     p = simplify(p)
     p = rename(p, "blur2d_compute_at_j_store_at_i")
-    print(p)
     procs.append(p)
 
     p = blur2d_compute_root
@@ -104,7 +100,6 @@ def test_schedule_blur2d(golden):
         p = inline_assign(p, p.find("consumer[_] = _").prev())
     p = delete_buffer(p, "producer: _")
     p = rename(p, "blur2d_inline")
-    print(p)
     procs.append(p)
 
     assert "\n\n".join([str(p) for p in procs]) == golden
@@ -127,38 +122,32 @@ def test_schedule_tiled_blur2d(golden):
 
     p = p_tiled
     p = rename(p, "blur2d_tiled")
-    print(p)
     procs.append(p)
 
     p = p_tiled
     p = fuse_at(p, "producer", "consumer", p.find_loop("i #1"))
     p = rename(p, "blur2d_tiled_compute_at_i")
-    print(p)
     procs.append(p)
 
     p = p_tiled
     p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"))
     p = rename(p, "blur2d_tiled_compute_at_j")
-    print(p)
     procs.append(p)
 
     p = p_tiled
     p = fuse_at(p, "producer", "consumer", p.find_loop("ii"))
     p = rename(p, "blur2d_tiled_compute_at_ii")
-    print(p)
     procs.append(p)
 
     p = p_tiled
     p = fuse_at(p, "producer", "consumer", p.find_loop("ji"))
     p = rename(p, "blur2d_tiled_compute_at_ji")
-    print(p)
     procs.append(p)
 
     p = p_tiled
     p = fuse_at(p, "producer", "consumer", p.find_loop("ji"))
     p = store_at(p, "producer", p.find_loop("ji"))
     p = rename(p, "blur2d_tiled_compute_at_and_store_at_ji")
-    print(p)
     procs.append(p)
 
     assert "\n\n".join([str(p) for p in procs]) == golden
