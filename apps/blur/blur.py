@@ -1,105 +1,83 @@
 from __future__ import annotations
 
 from exo import *
-from exo.libs.memories import DRAM_STATIC
+from exo.libs.memories import DRAM_STACK
 from exo.platforms.x86 import *
-from exo.syntax import *
+
 from exo.stdlib.scheduling import *
+from exo.stdlib.halide_scheduling_ops import *
+from exo.stdlib.inspection import get_enclosing_loop_by_name
+from exo.stdlib.stdlib import vectorize, is_div, is_literal
 
 
-@proc
-def producer(n: size, m: size, f: ui8[n + 4, m + 4], inp: ui8[n + 4, m + 4]):
-    for i in seq(0, n + 4):
-        for j in seq(0, m):
-            f[i, j] = (
-                inp[i, j]
-                + inp[i, j + 1]
-                + inp[i, j + 2]
-                + inp[i, j + 3]
-                + inp[i, j + 4]
-            ) / 5.0
+def halide_tile(p, buffer, y, x, yi, xi, yTile, xTile):
+    assign = p.find(f"{buffer} = _")
+    y_loop = get_enclosing_loop_by_name(p, assign, y)
+    x_loop = get_enclosing_loop_by_name(p, assign, x)
+
+    return tile(p, y_loop, x_loop, [y, yi], [x, xi], yTile, xTile, perfect=True)
 
 
-@proc
-def consumer(n: size, m: size, f: ui8[n + 4, m + 4], g: ui8[n + 4, m + 4]):
-    for i in seq(0, n):
-        for j in seq(0, m):
-            g[i, j] = (
-                f[i, j] + f[i + 1, j] + f[i + 2, j] + f[i + 3, j] + f[i + 4, j]
-            ) / 5.0
+def halide_compute_at(p, producer: str, consumer: str, loop: str):
+    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
+    return compute_at(p, producer, consumer, x_loop)
 
 
-@proc
-def blur(n: size, m: size, g: ui8[n + 4, m + 4], inp: ui8[n + 4, m + 4]):
-    assert n % 128 == 0
-    assert m % 256 == 0
-
-    f: ui8[n + 4, m + 4]
-    producer(n, m, f, inp)
-    consumer(n, m, f, g)
+def halide_parallel(p, loop: str):
+    return parallelize_loop(p, p.find_loop(loop))
 
 
-def prod_inline(p):
-    p = inline(p, "producer(_)")
-    p = inline(p, "consumer(_)")
+avx_ui16_insts = [
+    mm256_loadu_si256,
+    mm256_storeu_si256,
+    mm256_add_epi16,
+    avx2_ui16_divide_by_3,
+]
 
-    p = fuse_at(p, "f", "g", p.find_loop("i #1"))
 
-    loop = p.find_loop("i")
-    p = store_at(p, "f", "g", loop)
+def divide_by_3_rule(proc, expr):
+    expr = proc.forward(expr)
 
-    p = fuse_at(p, "f", "g", p.find_loop("j #1"))
+    if is_div(proc, expr) and is_literal(proc, expr.rhs(), value=3):
+        return [expr.lhs()]
 
-    loop = p.find_loop("j")
-    p = store_at(p, "f", "g", loop)
 
-    p = p
-    p = unroll_loop(p, "ji")
-    p = unroll_loop(p, "ii")
-    for i in range(5):
-        p = inline_assign(p, p.find("g[_] = _").prev())
-    p = delete_buffer(p, "f : _")
-    p = rename(p, "p_inline")
+def halide_vectorize(p, buffer: str, loop: str, width: int):
+    loop = get_enclosing_loop_by_name(p, p.find(f"{buffer} = _"), loop)
+    rules = [divide_by_3_rule]
+    p = vectorize(
+        p, loop, width, "ui16", AVX2, avx_ui16_insts, rules=rules, tail="perfect"
+    )
 
     return p
 
 
-def prod_tile(p, i_tile=32, j_tile=32):
-    p = inline(p, "producer(_)")
-    p = inline(p, "consumer(_)")
-    p = tile(p, "g", "i", "j", ["io", "ii"], ["jo", "ji"], i_tile, j_tile, perfect=True)
-    p = simplify(p)
+@proc
+def blur(W: size, H: size, blur_y: ui16[H, W], inp: ui16[H + 2, W + 2]):
+    assert H % 32 == 0
+    assert W % 256 == 0
 
-    loop = p.find_loop("io")
-    p = fuse_at(p, "f", "g", loop)
+    blur_x: ui16[H + 2, W]
+    for y in seq(0, H + 2):
+        for x in seq(0, W):
+            blur_x[y, x] = (inp[y, x] + inp[y, x + 1] + inp[y, x + 2]) / 3.0
+    for y in seq(0, H):
+        for x in seq(0, W):
+            blur_y[y, x] = (blur_x[y, x] + blur_x[y + 1, x] + blur_x[y + 2, x]) / 3.0
 
-    loop = p.find_loop("jo")
-    p = fuse_at(p, "f", "g", loop)
 
-    # TODO: eliminate this
-    p = rewrite_expr(p, "n % 128", 0)
-    p = rewrite_expr(p, "m % 256", 0)
-    p = simplify(p)
-
-    p = store_at(p, "f", "g", p.find_loop("io"))
-    p = store_at(p, "f", "g", p.find_loop("jo"))
-    p = lift_alloc(p, "f: _", n_lifts=2)
-
-    p = simplify(p)
+def prod_halide(p):
+    p = halide_tile(p, "blur_y", "y", "x", "yi", "xi", 32, 256)
+    p = halide_compute_at(p, "blur_x", "blur_y", "x")
+    p = halide_parallel(p, "y")
+    p = halide_vectorize(p, "blur_x", "xi", 16)
+    p = halide_vectorize(p, "blur_y", "xi", 16)
+    p = set_memory(p, p.find(f"blur_x : _"), DRAM_STACK)
+    p = simplify(
+        p
+    )  # necessary because unification is not deterministic, which breaks test cases
     return p
 
 
-blur_staged = rename(blur, "blur_staged")
-print("blur_staged")
-print(blur_staged)
-blur_inline = rename(prod_inline(blur), "blur_inline")
-print("blur_inline")
-print(blur_inline)
-blur_tiled = rename(prod_tile(blur, i_tile=128, j_tile=256), "blur_tiled")
-print("blur_tiled")
-print(blur_tiled)
-
-if __name__ == "__main__":
-    print(blur)
-
-__all__ = ["blur_staged", "blur_inline", "blur_tiled"]
+blur_halide = rename(prod_halide(blur), "exo_blur_halide")
+print(blur_halide)

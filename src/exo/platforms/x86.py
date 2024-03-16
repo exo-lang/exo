@@ -523,22 +523,17 @@ def avx2_mask_storeu_ps(N: size, dst: [f32][N] @ DRAM, src: [f32][8] @ AVX2):
 @instr(
     """
     {{
-        {three_data} = _mm256_set1_epi16(43691);
-        {out_data} = _mm256_mulhi_epu16({x_data}, {three_data});
+        {out_data} = _mm256_mulhi_epu16({x_data}, _mm256_set1_epi16(43691));
         {out_data} = _mm256_srli_epi16({out_data}, 1);
     }}
     """
 )
-def avx2_ui16_divide_by_3(
-    three: [ui16][16] @ AVX2, out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2
-):
+def avx2_ui16_divide_by_3(out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2):
     assert stride(out, 0) == 1
     assert stride(x, 0) == 1
 
     for xii in seq(0, 16):
-        three[xii] = 3.0
-    for xii in seq(0, 16):
-        out[xii] = x[xii] / three[xii]
+        out[xii] = x[xii] / 3.0
 
 
 # --------------------------------------------------------------------------- #

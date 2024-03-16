@@ -5,7 +5,6 @@ from exo.libs.memories import *
 from exo.platforms.x86 import *
 from exo.platforms.neon import *
 from exo.syntax import *
-from exo.stdlib.scheduling import *
 from exo.API_cursors import *
 from exo.stdlib.analysis import *
 
@@ -203,6 +202,43 @@ def is_single_stmt_loop(proc, loop):
     return loop_body_len(proc, loop) == 1
 
 
+# --------------------------------------------------------------------------- #
+# High-level cursor navigation functions
+# --------------------------------------------------------------------------- #
+
+
+class CursorNavigationError(Exception):
+    pass
+
+
+def match_depth(cursor, cursor_to_match):
+    """
+    Lifts [cursor] through the AST until [cursor] and [cursor_to_match] are at
+    the same level, e.g. have the same parent. Returns an InvalidCursorError if
+    [cursor_to_match]'s parent is not an ancestor of [cursor].
+    """
+    assert (
+        cursor.proc() == cursor_to_match.proc()
+    ), "cursors originate from different procs"
+
+    while cursor.parent() != cursor_to_match.parent():
+        cursor = cursor.parent()
+        if isinstance(cursor, InvalidCursor):
+            raise CursorNavigationError(
+                "cursor_to_match's parent is not an ancestor of cursor"
+            )
+
+    return cursor
+
+
+def get_top_level_stmt(proc, c):
+    c = proc.forward(c)
+
+    while not isinstance(c.parent(), InvalidCursor):
+        c = c.parent()
+    return c
+
+
 def get_enclosing_scope(proc, cursor, scope_type):
     cursor = proc.forward(cursor)
     cursor = cursor.parent()
@@ -219,6 +255,20 @@ def get_enclosing_loop(proc, cursor, n=1):
     cursor = proc.forward(cursor)
     for i in range(n):
         cursor = get_enclosing_scope(proc, cursor, ForCursor)
+    return cursor
+
+
+def get_enclosing_loop_by_name(proc, cursor: Cursor, loop_iter: str):
+    """
+    Gets the enclosing loop with the given iteration variable [loop_iter].
+    """
+    cursor = proc.forward(cursor)
+
+    while not (isinstance(cursor, ForCursor) and cursor.name() == loop_iter):
+        cursor = cursor.parent()
+        if isinstance(cursor, InvalidCursor):
+            raise CursorNavigationError("no enclosing loop found")
+
     return cursor
 
 
@@ -263,12 +313,30 @@ def get_parent(proc, stmt):
     return parent
 
 
-def get_parents(proc, stmt):
+def get_parents(proc, stmt, up_to=None):
+    """
+    Returns all ancestors of `stmt` (exclusive) up to `up_to` (inclusive).
+    If `up_to` is `None`, returns ancestors up to the AST root.
+    """
     stmt = proc.forward(stmt)
-    stmt = stmt.parent()
-    while not isinstance(stmt, InvalidCursor):
-        yield stmt
+
+    if up_to is not None:
+        up_to = proc.forward(up_to)
+
+        assert up_to.is_ancestor_of(stmt)
+        if up_to == stmt:
+            return
+
         stmt = stmt.parent()
+        while stmt != up_to:
+            yield stmt
+            stmt = stmt.parent()
+        yield up_to
+    else:
+        stmt = stmt.parent()
+        while not isinstance(stmt, InvalidCursor):
+            yield stmt
+            stmt = stmt.parent()
 
 
 def get_nth_inner_loop(proc, loop, n):
@@ -381,25 +449,18 @@ def get_depth(proc, cursor):
 
 
 def get_lca(proc, cursor1, cursor2):
+    """
+    Gets the lowest common ancestor of [cursor1] and [cursor2].
+    """
     cursor1 = proc.forward(cursor1)
     cursor2 = proc.forward(cursor2)
 
-    depth1 = get_depth(proc, cursor1)
-    depth2 = get_depth(proc, cursor2)
-
-    if depth1 < depth2:
-        cursor1, cursor2 = cursor2, cursor1
-        depth1, depth2 = depth2, depth1
-
-    while depth1 > depth2:
-        cursor1 = cursor1.parent()
-        depth1 -= 1
-
-    while cursor1 != cursor2:
-        cursor1 = cursor1.parent()
-        cursor2 = cursor2.parent()
-
-    return cursor1
+    c = cursor1
+    while not c.is_ancestor_of(cursor2):
+        c = c.parent()
+        if isinstance(c, InvalidCursor):
+            raise CursorNavigationError("these cursors do not have a common ancestor")
+    return c
 
 
 def get_distance(proc, cursor1, cursor2):

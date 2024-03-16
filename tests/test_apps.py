@@ -48,3 +48,8 @@ def test_gemmini_matmul(golden):
 def test_gemmini_conv(golden):
     module_file = REPO_ROOT / "apps" / "gemmini" / "src" / "exo" / "conv.py"
     assert _test_app(module_file) == golden
+
+
+def test_blur(golden):
+    module_file = REPO_ROOT / "apps" / "blur" / "blur.py"
+    assert _test_app(module_file) == golden
