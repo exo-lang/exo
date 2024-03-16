@@ -429,7 +429,7 @@ def possible_config_writes(stmts):
                 # accumulate windowing expressions
                 awin = lift_e(s.rhs)
                 assert isinstance(awin, AWin)
-                aenv = self.windows[-1] + AEnv(s.lhs, awin, addnames=False)
+                aenv = self.windows[-1] + AEnv(s.name, awin, addnames=False)
                 self.windows[-1] = aenv
 
             elif isinstance(s, LoopIR.Call):
@@ -467,7 +467,7 @@ def globenv(stmts):
             aenvs.append(AEnv(globname, rhs, addnames=True))
         elif isinstance(s, LoopIR.WindowStmt):
             win = lift_e(s.rhs)
-            aenvs.append(AEnv(s.lhs, win))
+            aenvs.append(AEnv(s.name, win))
         elif isinstance(s, LoopIR.Alloc):
             win = AWinAlloc(s.name, s.type.shape())
             aenvs.append(AEnv(s.name, win))
@@ -1254,7 +1254,7 @@ def get_changing_scalars(stmts, changeset=None, aliases=None):
             for nm in pchgs:
                 add_name(nm)
         elif isinstance(s, LoopIR.WindowStmt):
-            aliases[s.lhs] = s.rhs.name
+            aliases[s.name] = s.rhs.name
         else:
             pass
 
@@ -2271,7 +2271,7 @@ class _OverApproxEffects(LoopIR_Do):
                 self.add_name(name)
             return  # don't call do_e on all of the arguments
         elif isinstance(s, LoopIR.WindowStmt):
-            self._aliases[s.lhs] = s.rhs.name
+            self._aliases[s.name] = s.rhs.name
 
         super().do_s(s)
 
@@ -2344,7 +2344,7 @@ class _Check_Aliasing_Helper(LoopIR_Do):
             name = s.rhs.name
             while name in self._aliases:
                 name = self._aliases[name]
-            self._aliases[s.lhs] = name
+            self._aliases[s.name] = name
         else:
             super().do_s(s)
 

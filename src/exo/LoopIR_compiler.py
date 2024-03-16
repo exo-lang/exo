@@ -858,8 +858,8 @@ class Compiler:
             rhs = self.comp_e(s.rhs)
             assert isinstance(s.rhs, LoopIR.WindowExpr)
             mem = self.mems[s.rhs.name]
-            lhs = self.new_varname(s.lhs, typ=s.rhs.type, mem=mem)
-            self.add_line(f"struct {win_struct} {lhs} = {rhs};")
+            name = self.new_varname(s.name, typ=s.rhs.type, mem=mem)
+            self.add_line(f"struct {win_struct} {name} = {rhs};")
         elif isinstance(s, LoopIR.If):
             cond = self.comp_e(s.cond)
             self.add_line(f"if ({cond}) {{")

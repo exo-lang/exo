@@ -132,7 +132,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
 
         elif isinstance(s, LoopIR.WindowStmt):
             # update the type binding for this symbol...
-            self.set_type(result[0].lhs, result[0].rhs.type)
+            self.set_type(result[0].name, result[0].rhs.type)
 
         elif isinstance(s, LoopIR.Alloc):
             typ = result[0].type
