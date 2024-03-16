@@ -3,9 +3,9 @@ from dataclasses import dataclass
 
 from exo import *
 from exo.syntax import *
-from exo.stdlib.scheduling import *
 from exo.API_cursors import *
 
+from .scheduling import *
 from .inspection import *
 from .higher_order import *
 from .rc_wrappers import *
@@ -1012,6 +1012,7 @@ class replace_cursors:
         yield self.call
 
 
+# TODO: change this to work for blocks
 def checked_replace(proc, stmt, subproc, quiet=False):
     stmt = proc.forward(stmt)
     parent = stmt.parent()

@@ -3182,8 +3182,7 @@ class DoSimplify(Cursor_Rewrite):
         super().__init__(proc)
 
         # might need to update IR with predicate changes
-        new_preds = self.map_exprs(self.ir.preds)
-        if new_preds:
+        if new_preds := self.map_exprs(self.ir.preds):
             self.ir, fwd = (
                 ic.Cursor.create(self.ir)._child_block("preds")._replace(new_preds)
             )
