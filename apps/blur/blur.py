@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from exo import *
 from exo.libs.memories import DRAM_STACK
 from exo.platforms.x86 import *
 
+from exo.stdlib.scheduling import *
 from exo.stdlib.halide_scheduling_ops import *
 from exo.stdlib.inspection import get_enclosing_loop_by_name
 from exo.stdlib.stdlib import vectorize, is_div, is_literal

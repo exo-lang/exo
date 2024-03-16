@@ -174,3 +174,11 @@ def tile(
     ii_loop = proc.forward(i_loop).body()[0]
     proc = reorder_loops(proc, ii_loop)
     return proc
+
+
+__all__ = [
+    "fuse_at",
+    "store_at",
+    "compute_at",
+    "tile",
+]
