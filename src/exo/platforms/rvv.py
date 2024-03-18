@@ -31,11 +31,10 @@ class RVV(Memory):
             raise MemGenError(f"{srcinfo}: RVV vectors are not scalar values")
 
         vec_types = {
-            "float": (4, "vfloat32m1_t")
-        }  # , "double": (2, "float64x2_t"), "_Float16" : (8, "float16x8_t")}
+            "float": (4, "vfloat32m1_t"), "double": (2, "vfloat64m1_t"), "_Float16" : (8, "vfloat16m1_t")}
 
         if not prim_type in vec_types.keys():
-            raise MemGenError(f"{srcinfo}: RVV vectors must be f32 (for now)")
+            raise MemGenError(f"{srcinfo}: RVV vectors must be floats (for now)")
 
         reg_width, C_reg_type_name = vec_types[prim_type]
 
@@ -170,6 +169,109 @@ def rvv_vfmacc_1xf32_4xf32(
     assert stride(rhs, 0) == 1
     assert vl >= 0
     assert vl <= 4
+
+    for i in seq(0, vl):
+        dst[i] += lhs[0] * rhs[i]
+
+# --------------------------------------------------------------------------- #
+#   f16 RVV intrinsics
+# --------------------------------------------------------------------------- #
+
+#
+# Load, Store, Broadcast, FMAdd, Mul, Add?
+#
+# float16
+
+
+@instr("{dst_data} = __riscv_vle16_v_f16m1(&{src_data},{vl});")
+def rvv_vld_8xf16(dst: [f16][8] @ RVV, src: [f16][8] @ DRAM, vl: size):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+    assert vl >= 0
+    assert vl <= 8
+
+    for i in seq(0, vl):
+        dst[i] = src[i]
+
+
+@instr("__riscv_vse16_v_f16m1(&{dst_data}, {src_data},{vl});")
+def rvv_vst_8xf16(dst: [f16][8] @ DRAM, src: [f16][8] @ RVV, vl: size):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+    assert vl >= 0
+    assert vl <= 8
+
+    for i in seq(0, vl):
+        dst[i] = src[i]
+
+
+@instr("{dst_data} = __riscv_vfmv_v_f_f16m1({src_data},{vl});")
+def rvv_broadcast_8xf16(dst: [f16][8] @ RVV, src: [f16][1] @ DRAM, vl: size):
+    assert stride(dst, 0) == 1
+    assert vl >= 0
+    assert vl <= 8
+
+    for i in seq(0, vl):
+        dst[i] = src[0]
+
+
+@instr("{dst_data} = __riscv_vfmv_v_f_f16m1({src_data},{vl});")
+def rvv_broadcast_8xf16_scalar(dst: [f16][8] @ RVV, src: f16 @ DRAM, vl: size):
+    assert stride(dst, 0) == 1
+    assert vl >= 0
+    assert vl <= 8
+
+    for i in seq(0, vl):
+        dst[i] = src
+
+
+@instr("{dst_data} = __riscv_vfmv_v_f_f16m1(0.0f,{vl});")
+def rvv_broadcast_8xf16_0(dst: [f16][8] @ RVV, vl: size):
+    assert stride(dst, 0) == 1
+    assert vl >= 0
+    assert vl <= 8
+
+    for i in seq(0, vl):
+        dst[i] = 0.0
+
+
+@instr("{dst_data} = __riscv_vfmacc_vv_f16m1({dst_data}, {lhs_data}, {rhs_data},{vl});")
+def rvv_vfmacc_8xf16_8xf16(
+    dst: [f16][8] @ RVV, lhs: [f16][8] @ RVV, rhs: [f16][8] @ RVV, vl: size
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert vl >= 0
+    assert vl <= 8
+
+    for i in seq(0, vl):
+        dst[i] += lhs[i] * rhs[i]
+
+
+@instr("{dst_data} = __riscv_vfmacc_vf_f16m1{dst_data}, {rhs_data}, {lhs_data},{vl});")
+def rvv_vfmacc_8xf16_1xf16(
+    dst: [f16][8] @ RVV, lhs: [f16][8] @ RVV, rhs: [f16][1] @ DRAM, vl: size
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert vl >= 0
+    assert vl <= 8
+
+    for i in seq(0, vl):
+        dst[i] += lhs[i] * rhs[0]
+
+
+@instr("{dst_data} = __riscv_vfmacc_vf_f16m1{dst_data}, {lhs_data}, {rhs_data},{vl});")
+def rvv_vfmacc_1xf16_8xf16(
+    dst: [f16][8] @ RVV, lhs: [f16][1] @ DRAM, rhs: [f16][8] @ RVV, vl: size
+):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert vl >= 0
+    assert vl <= 8
 
     for i in seq(0, vl):
         dst[i] += lhs[0] * rhs[i]

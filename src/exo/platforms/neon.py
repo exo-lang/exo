@@ -281,7 +281,7 @@ def neon_broadcast_8xf16(dst: [f16][8] @ Neon, src: [f16][1] @ DRAM):
         dst[i] = src[0]
 
 
-@instr("{dst_data} = vmovq_n_f16(0.0f);")
+@instr("{dst_data} = vmovq_n_f16((float16_t *)0.0f);")
 def neon_zero_8xf16(dst: [f16][8] @ Neon):
     assert stride(dst, 0) == 1
 
