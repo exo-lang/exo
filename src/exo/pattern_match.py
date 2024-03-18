@@ -57,7 +57,11 @@ def get_match_no(pattern_str: str) -> Optional[int]:
 
 
 def match_pattern(
-    context, pattern_str, call_depth=0, default_match_no=None, use_sym_id=False
+    context: Cursor,
+    pattern_str: str,
+    call_depth=0,
+    default_match_no=None,
+    use_sym_id=False,
 ):
     """
     If [default_match_no] is None, then all matches are returned
@@ -94,7 +98,7 @@ _PAST_to_LoopIR = {
     PAST.Reduce: [LoopIR.Reduce],
     PAST.Pass: [LoopIR.Pass],
     PAST.If: [LoopIR.If],
-    PAST.Seq: [LoopIR.Seq],
+    PAST.For: [LoopIR.For],
     PAST.Alloc: [LoopIR.Alloc],
     PAST.Call: [LoopIR.Call],
     PAST.WriteConfig: [LoopIR.WriteConfig],
@@ -190,7 +194,7 @@ class PatternMatch:
         if isinstance(curs[0]._node, LoopIR.If):
             self.find_stmts_in_block(pats, curs[0].body())
             self.find_stmts_in_block(pats, curs[0].orelse())
-        elif isinstance(curs[0]._node, LoopIR.Seq):
+        elif isinstance(curs[0]._node, LoopIR.For):
             self.find_stmts_in_block(pats, curs[0].body())
         else:
             pass  # other forms of statement do not contain stmt blocks
@@ -255,7 +259,7 @@ class PatternMatch:
                 and self.match_stmts(pat.body, cur.body()) is not None
                 and self.match_stmts(pat.orelse, cur.orelse()) is not None
             )
-        elif isinstance(stmt, LoopIR.Seq):
+        elif isinstance(stmt, LoopIR.For):
             return (
                 self.match_name(pat.iter, stmt.iter)
                 and self.match_e(pat.lo, stmt.lo)
@@ -353,7 +357,7 @@ def _children(cur) -> Iterable[Node]:
         yield from []
     elif isinstance(n, LoopIR.If):
         yield from _children_from_attrs(cur, n, "cond", "body", "orelse")
-    elif isinstance(n, LoopIR.Seq):
+    elif isinstance(n, LoopIR.For):
         yield from _children_from_attrs(cur, n, "lo", "hi", "body")
     elif isinstance(n, LoopIR.Call):
         yield from _children_from_attrs(cur, n, "args")

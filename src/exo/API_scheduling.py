@@ -316,6 +316,7 @@ class TypeAbbrevA(ArgumentProcessor):
         "f64": T.f64,
         "i8": T.int8,
         "ui8": T.uint8,
+        "ui16": T.uint16,
         "i32": T.int32,
     }
 
@@ -475,9 +476,9 @@ class WindowStmtCursorA(StmtCursorA):
         return cursor
 
 
-class ForSeqOrIfCursorA(StmtCursorA):
+class ForOrIfCursorA(StmtCursorA):
     def _cursor_call(self, cursor_pat, all_args):
-        # TODO: eliminate this redundancy with the ForSeqCursorA code
+        # TODO: eliminate this redundancy with the ForCursorA code
         # allow for a special pattern short-hand, but otherwise
         # handle as expected for a normal statement cursor
         try:
@@ -488,8 +489,8 @@ class ForSeqOrIfCursorA(StmtCursorA):
             pass
 
         cursor = super()._cursor_call(cursor_pat, all_args)
-        if not isinstance(cursor, (PC.ForSeqCursor, PC.IfCursor)):
-            self.err(f"expected a ForSeqCursor or IfCursor, not {type(cursor)}")
+        if not isinstance(cursor, (PC.ForCursor, PC.IfCursor)):
+            self.err(f"expected a ForCursor or IfCursor, not {type(cursor)}")
         return cursor
 
 
@@ -538,7 +539,7 @@ class ArgOrAllocCursorA(CursorArgumentProcessor):
         return cursor
 
 
-class ForSeqCursorA(StmtCursorA):
+class ForCursorA(StmtCursorA):
     def _cursor_call(self, loop_pattern, all_args):
         # allow for a special pattern short-hand, but otherwise
         # handle as expected for a normal statement cursor
@@ -550,8 +551,8 @@ class ForSeqCursorA(StmtCursorA):
             pass
 
         cursor = super()._cursor_call(loop_pattern, all_args)
-        if not isinstance(cursor, PC.ForSeqCursor):
-            self.err(f"expected a ForSeqCursor, not {type(cursor)}")
+        if not isinstance(cursor, PC.ForCursor):
+            self.err(f"expected a ForCursor, not {type(cursor)}")
         return cursor
 
 
@@ -566,12 +567,12 @@ class IfCursorA(StmtCursorA):
 _name_name_count_re = r"^([a-zA-Z_]\w*)\s*([a-zA-Z_]\w*)\s*(\#\s*([0-9]+))?$"
 
 
-class NestedForSeqCursorA(StmtCursorA):
+class NestedForCursorA(StmtCursorA):
     def _cursor_call(self, loops_pattern, all_args):
-        if isinstance(loops_pattern, PC.ForSeqCursor):
+        if isinstance(loops_pattern, PC.ForCursor):
             cursor = loops_pattern
         elif isinstance(loops_pattern, PC.Cursor):
-            self.err(f"expected a ForSeqCursor, not {type(loops_pattern)}")
+            self.err(f"expected a ForCursor, not {type(loops_pattern)}")
         elif isinstance(loops_pattern, str) and (
             match_result := re.search(_name_name_count_re, loops_pattern)
         ):
@@ -582,15 +583,15 @@ class NestedForSeqCursorA(StmtCursorA):
             cursor = super()._cursor_call(pattern, all_args)
         elif isinstance(loops_pattern, str):
             cursor = super()._cursor_call(loops_pattern, all_args)
-            if not isinstance(cursor, PC.ForSeqCursor):
-                self.err(f"expected a ForSeqCursor, not {type(cursor)}")
+            if not isinstance(cursor, PC.ForCursor):
+                self.err(f"expected a ForCursor, not {type(cursor)}")
         else:
             self.err(
-                "expected a ForSeqCursor, pattern match string, "
+                "expected a ForCursor, pattern match string, "
                 "or 'outer_loop inner_loop' shorthand"
             )
 
-        if len(cursor.body()) != 1 or not isinstance(cursor.body()[0], PC.ForSeqCursor):
+        if len(cursor.body()) != 1 or not isinstance(cursor.body()[0], PC.ForCursor):
             self.err(
                 f"expected the body of the outer loop "
                 f"to be a single loop, but it was a "
@@ -856,6 +857,14 @@ def reorder_stmts(proc, block_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([ForCursorA])
+def parallelize_loop(proc, loop_cursor):
+    loop = loop_cursor._impl
+
+    ir, fwd = scheduling.DoParallelizeLoop(loop)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([ExprCursorA(many=True)])
 def commute_expr(proc, expr_cursors):
     """
@@ -892,6 +901,35 @@ def commute_expr(proc, expr_cursors):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([ExprCursorA])
+def left_reassociate_expr(proc, expr):
+    """
+    Reassociate the binary operations of '+' and '*'.
+
+    args:
+        expr - the expression to reassociate
+
+    rewrite:
+        a + (b + c)
+            ->
+        (a + b) + c
+    """
+    expr = expr._impl
+    if not isinstance(expr._node, LoopIR.BinOp) or (
+        expr._node.op != "+" and expr._node.op != "*"
+    ):
+        raise TypeError(f"Only '+' or '*' can be reassociated, got {expr._node.op}")
+    if (
+        not isinstance(expr._node.rhs, LoopIR.BinOp)
+        or expr._node.rhs.op != expr._node.op
+    ):
+        raise TypeError(
+            f"The rhs of the expression must be the same binary operation as the expression ({expr._node.op})"
+        )
+    ir, fwd = scheduling.DoLeftReassociateExpr(expr)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([ExprCursorA, NewExprA("expr_cursor")])
 def rewrite_expr(proc, expr_cursor, new_expr):
     """
@@ -907,20 +945,19 @@ def rewrite_expr(proc, expr_cursor, new_expr):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ExprCursorA(many=True), NameA, BoolA])
-def bind_expr(proc, expr_cursors, new_name, cse=False):
+@sched_op([ListOrElemA(ExprCursorA), NameA])
+def bind_expr(proc, expr_cursors, new_name):
     """
-    Bind some numeric/data-value type expression into a new intermediate,
-    scalar-sized buffer.  If `cse=True` and more than one expression is
-    pointed to, then this operation will attempt to perform
-    common sub-expression elimination while binding. It will stop upon
-    encountering a read of any buffer that the expression depends on.
+    Bind some numeric/data-value type expression(s) into a new intermediate,
+    scalar-sized buffer. Attempts to perform common sub-expression
+    elimination while binding. It will stop upon encountering a read of any
+    buffer that the expression depends on. The precision of the new allocation
+    is that of the bound expression.
 
     args:
         expr_cursors    - a list of cursors to multiple instances of the
                           same expression
         new_name        - a string to name the new buffer
-        cse             - (bool) use common sub-expression elimination?
 
     rewrite:
         bind_expr(..., '32.0 * x[i]', 'b')
@@ -937,7 +974,7 @@ def bind_expr(proc, expr_cursors, new_name, cse=False):
             "can be bound by bind_expr()"
         )
 
-    ir, fwd = scheduling.DoBindExpr(new_name, exprs, cse)
+    ir, fwd = scheduling.DoBindExpr(new_name, exprs)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1155,33 +1192,35 @@ def write_config(proc, gap_cursor, config, field, rhs):
 
 
 @sched_op([AllocCursorA, IntA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
-def shrink_dim(proc, buf_cursor, dim_idx, lo, hi):
+def resize_dim(proc, buf_cursor, dim_idx, size, offset):
     """
-    shrinks the [dim_idx]-th dimension of buffer [buf_cursor] to only track the data
-    that was store from [lo] to [hi] in the original buffer. Fails if any other
-    accesses outside the (lo, hi) range are made to the [dim_idx]-th dimension.
+    Resizes the [dim_idx]-th dimension of buffer [buf_cursor] to [size]. The [offset]
+    specifies how to adjust the indices relative to the old buffer.
+
+    Fails if there are any accesses to the [dim_idx]-th dimension outside of the
+    (offset, offset + size) range.
 
     args:
         buf_cursor      - cursor pointing to the Alloc
         dim_idx         - which dimension to shrink
-        lo              - an expression for the low end of the range
-        hi              - an expression for the high end of the range
+        size            - new size as a positive expression
+        offset          - offset for adjusting the buffer access
 
     rewrite:
         `x : T[n, ...] ; s`
           ->
-        `x : T[hi - lo, ...] ; s[ x[idx, ...] -> x[idx - lo, ...] ]`
+        `x : T[size, ...] ; s[ x[idx, ...] -> x[idx - offset, ...] ]`
     checks:
         The provided dimension size is checked for positivity and the
         provided indexing expression is checked to make sure it is in-bounds
     """
     stmt_c = buf_cursor._impl
-    ir, fwd = scheduling.DoShrinkDim(stmt_c, dim_idx, lo, hi)
+    ir, fwd = scheduling.DoResizeDim(stmt_c, dim_idx, size, offset)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor"), BoolA])
-def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr, unsafe_disable_checks=False):
+@sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
+def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr):
     """
     TODO: rename this...expand_dim sounds like its increasing the size
     of a dimension. It should be more like add_dim.
@@ -1236,42 +1275,6 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
 
     ir, fwd = scheduling.DoRearrangeDim(stmt, permute_vector)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
-
-
-@sched_op([AllocCursorA, ListA(OptionalA(NewExprA("buf_cursor"))), BoolA])
-def bound_alloc(proc, buf_cursor, new_bounds, unsafe_disable_checks=False):
-    """
-    NOTE: TODO: This name needs to be changed
-    change the dimensional extents of an allocation, but leave the number
-    and order of dimensions the same.
-
-    args:
-        buf_cursor      - cursor pointing to the Alloc to change bounds of
-        new_bounds      - (list of strings/ints) expressions for the
-                          new sizes of each buffer dimension.
-                          Pass `None` for any dimensions you do not want
-                          to change the extent/bound of.
-
-    rewrite:
-        bound_alloc(p, 'x : _', ['N+1',None])
-        `x : T[N,M]` -> `x : T[N+1,M]`
-
-    checks:
-        The new bounds are checked to make sure they don't cause any
-        out-of-bounds memory accesses
-    """
-    stmt = buf_cursor._impl
-    if len(stmt._node.type.hi) != len(new_bounds):
-        raise ValueError(
-            f"buffer has {len(stmt._node.type.hi)} dimensions, "
-            f"but only {len(new_bounds)} bounds were supplied"
-        )
-    new_proc_c = scheduling.DoBoundAlloc(proc, stmt, new_bounds).result()
-
-    if not unsafe_disable_checks:
-        CheckEffects(new_proc_c._node)
-
-    return new_proc_c
 
 
 @sched_op([AllocCursorA, IntA, PosIntA])
@@ -1406,7 +1409,7 @@ def sink_alloc(proc, alloc_cursor):
     """
 
     scope_cursor = alloc_cursor.next()
-    if not isinstance(scope_cursor._impl._node, (LoopIR.If, LoopIR.Seq)):
+    if not isinstance(scope_cursor._impl._node, (LoopIR.If, LoopIR.For)):
         raise ValueError(
             f"Cannot sink alloc because the statement after the allocation is not a loop or if statement, it is {scope_cursor._impl._node}"
         )
@@ -1523,6 +1526,12 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False, init_zero
     the load or store between the original buffer and staging buffer, then
     the load/store loops/statements will be omitted.
 
+    If code analysis determines determines that `win_expr` accesses
+    out-of-bounds locations of the buffer, it will generate loop nests
+    for the load/store stages corresponding to that window, but will add
+    guards within the inner loop to ensure that all accesses to the buffer
+    are within the buffer's bounds.
+
     In the event that the indicated block of code strictly reduces into
     the specified window, then the optional argument `accum` can be set
     to initialize the staging memory to zero, accumulate into it, and
@@ -1568,7 +1577,7 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False, init_zero
 # Loop and Guard Rewriting
 
 
-@sched_op([ForSeqCursorA, NewExprA("loop_cursor"), PosIntA, ListA(NameA, length=2)])
+@sched_op([ForCursorA, NewExprA("loop_cursor"), PosIntA, ListA(NameA, length=2)])
 def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
     """
     Divides a loop into the provided [outer_hi] by [outer_stride] dimensions,
@@ -1591,7 +1600,7 @@ def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
 
 @sched_op(
     [
-        ForSeqCursorA,
+        ForCursorA,
         PosIntA,
         ListA(NameA, length=2),
         EnumA(["cut", "guard", "cut_and_guard"]),
@@ -1647,7 +1656,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([NestedForSeqCursorA, NameA])
+@sched_op([NestedForCursorA, NameA])
 def mult_loops(proc, nested_loops, new_iter_name):
     """
     Perform the inverse operation to `divide_loop`.  Take two loops,
@@ -1671,7 +1680,7 @@ def mult_loops(proc, nested_loops, new_iter_name):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA, ForSeqCursorA])
+@sched_op([ForCursorA, ForCursorA])
 def join_loops(proc, loop1_cursor, loop2_cursor):
     """
     Joins two loops with identical bodies and consecutive iteration spaces
@@ -1694,7 +1703,7 @@ def join_loops(proc, loop1_cursor, loop2_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA, NewExprA("loop_cursor")])
+@sched_op([ForCursorA, NewExprA("loop_cursor")])
 def cut_loop(proc, loop_cursor, cut_point):
     """
     Cut a loop into two loops.
@@ -1722,7 +1731,7 @@ def cut_loop(proc, loop_cursor, cut_point):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA, NewExprA("loop_cursor")])
+@sched_op([ForCursorA, NewExprA("loop_cursor")])
 def shift_loop(proc, loop_cursor, new_lo):
     """
     Shift a loop iterations so that now it starts at `new_lo`
@@ -1745,7 +1754,7 @@ def shift_loop(proc, loop_cursor, new_lo):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([NestedForSeqCursorA])
+@sched_op([NestedForCursorA])
 def reorder_loops(proc, nested_loops):
     """
     Reorder two loops that are directly nested with each other.
@@ -1773,7 +1782,7 @@ def reorder_loops(proc, nested_loops):
     """
 
     stmt_c = nested_loops._impl
-    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.Seq):
+    if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.For):
         raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
     ir, fwd = scheduling.DoLiftScope(stmt_c.body()[0])
@@ -1838,6 +1847,24 @@ def merge_writes(proc, block_cursor):
 
 
 @sched_op([AssignCursorA])
+def fold_into_reduce(proc, assign):
+    """
+    Fold an assignment into a reduction if the rhs is an addition
+    whose lhs is equal to the lhs of the assignment.
+
+    args:
+        assign: a cursor pointing to the assignment to fold.
+
+    rewrite:
+        a = a + (expr)
+            ->
+        a += expr
+    """
+    ir, fwd = scheduling.DoFoldIntoReduce(assign._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([AssignCursorA])
 def inline_assign(proc, alloc_cursor):
     """
     Inlines [alloc_cursor] into any statements where it is used after this assignment.
@@ -1887,7 +1914,7 @@ def lift_reduce_constant(proc, block_cursor):
 @sched_op([GapCursorA, PosIntA, BoolA])
 def fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False):
     """
-    fission apart the ForSeq and If statements wrapped around
+    fission apart the For and If statements wrapped around
     this block of statements into two copies; the first containing all
     statements before the cursor, and the second all statements after the
     cursor.
@@ -1928,7 +1955,7 @@ def fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False):
 @sched_op([GapCursorA, PosIntA])
 def autofission(proc, gap_cursor, n_lifts=1):
     """
-    Split the enclosing ForSeq and If statements wrapped around
+    Split the enclosing For and If statements wrapped around
     this block of statements at the indicated point.
 
     If doing so splits a loop, this version of fission attempts
@@ -1965,7 +1992,7 @@ def autofission(proc, gap_cursor, n_lifts=1):
 
 
 # TODO: Debug scheduling error in fuse
-@sched_op([ForSeqOrIfCursorA, ForSeqOrIfCursorA, BoolA])
+@sched_op([ForOrIfCursorA, ForOrIfCursorA, BoolA])
 def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     """
     fuse together two loops or if-guards, provided that the loop bounds
@@ -2008,7 +2035,7 @@ def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA])
+@sched_op([ForCursorA])
 def remove_loop(proc, loop_cursor):
     """
     Remove the loop around some block of statements.
@@ -2064,7 +2091,7 @@ def add_loop(
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqCursorA])
+@sched_op([ForCursorA])
 def unroll_loop(proc, loop_cursor):
     """
     Unroll a loop with a constant, literal loop bound
@@ -2089,7 +2116,7 @@ def unroll_loop(proc, loop_cursor):
 # Guard Conditions
 
 
-@sched_op([ForSeqOrIfCursorA])
+@sched_op([ForOrIfCursorA])
 def lift_scope(proc, scope_cursor):
     """
     Lift the indicated For/If-statement upwards one scope.
@@ -2117,7 +2144,7 @@ def lift_scope(proc, scope_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForSeqOrIfCursorA])
+@sched_op([ForOrIfCursorA])
 def eliminate_dead_code(proc, stmt_cursor):
     """
     if statements: eliminate branch that is never reachable
@@ -2192,7 +2219,7 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     return scheduling.DoAddUnsafeGuard(proc, stmt, var_expr).result()
 
 
-@sched_op([ForSeqCursorA])
+@sched_op([ForCursorA])
 def bound_and_guard(proc, loop):
     """
     DEPRECATED

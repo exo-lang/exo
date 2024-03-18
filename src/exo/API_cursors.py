@@ -5,17 +5,20 @@ from dataclasses import dataclass
 
 from typing import Optional, List, Any
 
-from . import API
+from . import API  # TODO: remove this circular import
+from .API_types import ExoType
 from .LoopIR import LoopIR
 from .configs import Config
 from .memory import Memory
 
 from . import internal_cursors as C
+from .pattern_match import match_pattern
 from .prelude import Sym
 
 # expose this particular exception as part of the API
 from .internal_cursors import InvalidCursorError
 from .LoopIR_pprint import _print_cursor
+from .LoopIR_scheduling import SchedulingError
 
 
 # --------------------------------------------------------------------------- #
@@ -59,7 +62,7 @@ class Cursor(ABC):
                | AssignConfig( config : Config, field : str, rhs : Expr )
                | Pass()
                | If( cond : Expr, body : Block, orelse : Block? )
-               | ForSeq( name : str, hi : Expr, body : Block )
+               | For( name : str, hi : Expr, body : Block )
                | Alloc( name : str, mem : Memory? )
                | Call( subproc : Procedure, args : ExprList )
                | WindowStmt( name : str, winexpr : WindowExpr )
@@ -124,6 +127,9 @@ class Cursor(ABC):
         elif isinstance(impl_parent._node, LoopIR.proc):
             return InvalidCursor()
         return lift_cursor(impl_parent, self._proc)
+
+    def find(self, pattern, many=False):
+        return find(self._impl, self._proc, pattern, many)
 
     def _child_node(self, *args, **kwargs):
         return lift_cursor(self._impl._child_node(*args, **kwargs), self._proc)
@@ -532,7 +538,7 @@ class IfCursor(StmtCursor):
         return BlockCursor(orelse, self._proc) if len(orelse) > 0 else InvalidCursor()
 
 
-class ForSeqCursor(StmtCursor):
+class ForCursor(StmtCursor):
     """
     Cursor pointing to a loop statement:
         ```
@@ -543,25 +549,25 @@ class ForSeqCursor(StmtCursor):
 
     def name(self) -> str:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return self._impl._node.iter.name()
 
     def lo(self) -> ExprCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return self._child_node("lo")
 
     def hi(self) -> ExprCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return self._child_node("hi")
 
     def body(self) -> BlockCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.Seq)
+        assert isinstance(self._impl._node, LoopIR.For)
 
         return BlockCursor(self._impl._child_block("body"), self._proc)
 
@@ -583,6 +589,8 @@ def loopir_type_to_exotype(typ: LoopIR.Type) -> API.ExoType:
         return API.ExoType.Size
     elif isinstance(typ, LoopIR.Index):
         return API.ExoType.Index
+    elif isinstance(typ, LoopIR.Int):
+        return API.ExoType.Int
     else:
         raise NotImplementedError(f"Unsupported {typ}")
 
@@ -607,10 +615,17 @@ class AllocCursor(StmtCursor):
 
         return self._impl._node.mem
 
+    def is_tensor(self) -> bool:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+
+        return isinstance(self._impl._node.type, LoopIR.Tensor)
+
     def shape(self) -> ExprListCursor:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Alloc)
         assert isinstance(self._impl._node.type, LoopIR.Tensor)
+        assert self.is_tensor()
 
         return ExprListCursor(
             self._impl._child_node("type")._child_block("hi"), self._proc
@@ -889,7 +904,7 @@ def get_stmt_within_scope(cursor, scope):
     """
     validate_cursors(cursor, scope)
     assert isinstance(
-        scope, (ForSeqCursor, IfCursor)
+        scope, (ForCursor, IfCursor)
     ), "scope was not an for loop or if statement"
 
     try:
@@ -909,7 +924,7 @@ def get_enclosing_loop(cursor, loop_iter=None):
         lambda x: x.name() == loop_iter if loop_iter is not None else lambda x: True
     )
 
-    while not (isinstance(cursor, ForSeqCursor) and match_iter(cursor)):
+    while not (isinstance(cursor, ForCursor) and match_iter(cursor)):
         cursor = cursor.parent()
         if isinstance(cursor, InvalidCursor):
             raise CursorNavigationError("no enclosing loop found")
@@ -964,8 +979,8 @@ def lift_cursor(impl, proc):
             return PassCursor(impl, proc)
         elif isinstance(n, LoopIR.If):
             return IfCursor(impl, proc)
-        elif isinstance(n, LoopIR.Seq):
-            return ForSeqCursor(impl, proc)
+        elif isinstance(n, LoopIR.For):
+            return ForCursor(impl, proc)
         elif isinstance(n, LoopIR.Alloc):
             return AllocCursor(impl, proc)
         elif isinstance(n, LoopIR.Call):
@@ -998,6 +1013,38 @@ def lift_cursor(impl, proc):
         assert False, f"bad case: {type(impl)}"
 
 
+def find(scope: C, proc: API.Procedure, pattern: str, many: bool):
+    """
+    Find the most specific possible cursor for the given pattern in
+    the given scope of the proc. For example, a pattern matching a
+    single assignment statement will return an AssignCursor, not a
+    StmtCursor or BlockCursor.
+
+    If the optional parameter `many` is set to True, then return a list,
+    potentially containing more than one Cursor.
+
+    In any event, if no matches are found, a SchedulingError is raised.
+    """
+    if not isinstance(pattern, str):
+        raise TypeError("expected a pattern string")
+    default_match_no = None if many else 0
+    raw_cursors = match_pattern(
+        scope, pattern, call_depth=1, default_match_no=default_match_no
+    )
+    assert isinstance(raw_cursors, list)
+    cursors = []
+    for c in raw_cursors:
+        c = lift_cursor(c, proc)
+        if isinstance(c, (BlockCursor, ExprListCursor)) and len(c) == 1:
+            c = c[0]
+        cursors.append(c)
+
+    if not cursors:
+        raise SchedulingError("failed to find matches", pattern=pattern)
+
+    return cursors if many else cursors[0]
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # List of objects to expose
@@ -1019,7 +1066,7 @@ __all__ = [
     "AssignConfigCursor",
     "PassCursor",
     "IfCursor",
-    "ForSeqCursor",
+    "ForCursor",
     "AllocCursor",
     "CallCursor",
     "WindowStmtCursor",

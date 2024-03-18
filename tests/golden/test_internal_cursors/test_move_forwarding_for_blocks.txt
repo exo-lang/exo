@@ -1,0 +1,56 @@
+def baz(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):  # <-- NODE
+            ...
+
+def baz(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            ...
+            for k in seq(0, n):
+                # BLOCK START
+                pass
+                pass
+                # BLOCK END
+
+def baz(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            # BLOCK START
+            x: f32 @ DRAM
+            y: f32 @ DRAM
+            y = 1.1
+            x = 0.0
+            # BLOCK END
+            ...
+
+def baz(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            ...
+            # BLOCK START
+            for k in seq(0, n):
+                ...
+            # BLOCK END
+
+def baz(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            # BLOCK START
+            x: f32 @ DRAM
+            y: f32 @ DRAM
+            y = 1.1
+            x = 0.0
+            for k in seq(0, n):
+                ...
+            # BLOCK END
+
+def baz(n: size, m: size):
+    for i in seq(0, n):
+        for j in seq(0, m):
+            ...
+            # BLOCK START
+            y: f32 @ DRAM
+            y = 1.1
+            # BLOCK END
+            ...

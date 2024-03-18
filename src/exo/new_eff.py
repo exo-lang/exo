@@ -419,7 +419,7 @@ def possible_config_writes(stmts):
                 self.do_stmts(s.orelse)
                 self.pop()
 
-            elif isinstance(s, LoopIR.Seq):
+            elif isinstance(s, LoopIR.For):
                 self.push()
                 self.do_stmts(s.body)
                 self.filter(s.iter)
@@ -501,7 +501,7 @@ def globenv(stmts):
                 newbinds[nm] = val
             aenvs.append(AEnvPar(newbinds, addnames=True))
 
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             # extract environment for the body and bind its
             # results via copies of the variables
             i, j = s.iter, s.iter.copy()
@@ -1160,7 +1160,7 @@ def stmts_effs(stmts):
                 E.Guard(lift_e(s.cond), stmts_effs(s.body)),
                 E.Guard(ANot(lift_e(s.cond)), stmts_effs(s.orelse)),
             ]
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             effs += expr_effs(s.lo)
             effs += expr_effs(s.hi)
             bds = AAnd(lift_e(s.lo) <= AInt(s.iter), AInt(s.iter) < lift_e(s.hi))
@@ -1240,7 +1240,7 @@ def get_changing_scalars(stmts, changeset=None, aliases=None):
         elif isinstance(s, LoopIR.If):
             get_changing_scalars(s.body, changeset, aliases)
             get_changing_scalars(s.orelse, changeset, aliases)
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             get_changing_scalars(s.body, changeset, aliases)
         elif isinstance(s, LoopIR.Call):
             for fa, a in zip(s.f.args, s.args):
@@ -1310,7 +1310,7 @@ class ContextExtraction:
             if p is not None:
                 return AAnd(ANot(lift_e(s.cond)), p)
             return None
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             p = self.ctrlp_stmts(s.body)
             if p is not None:
                 G = self.loop_preenv(s)
@@ -1341,7 +1341,7 @@ class ContextExtraction:
             if preG is not None:
                 return preG
             return None
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             preG = self.preenv_stmts(s.body)
             if preG is not None:
                 G = self.loop_preenv(s)
@@ -1373,7 +1373,7 @@ class ContextExtraction:
             if effs is not None:
                 return [E.Guard(ANot(lift_e(s.cond)), effs)]
             return None
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             body = self.posteff_stmts(s.body)
             if body is None:
                 return None
@@ -1410,11 +1410,13 @@ class ContextExtraction:
             return None
 
     def loop_preenv(self, s):
-        assert isinstance(s, LoopIR.Seq)
+        assert isinstance(s, LoopIR.For)
         old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
         new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
         pre_body = SubstArgs(s.body, {s.iter: new_i}).result()
-        pre_loop = LoopIR.Seq(new_i.name, s.lo, old_i, pre_body, None, s.srcinfo)
+        pre_loop = LoopIR.For(
+            new_i.name, s.lo, old_i, pre_body, s.loop_mode, None, s.srcinfo
+        )
         return globenv([pre_loop])
 
     def loop_posteff(self, s, hi):
@@ -1422,20 +1424,36 @@ class ContextExtraction:
         #   for x' in seq(x+1, hi): s
         # but instead generate
         #   for x' in seq(0, hi-(x+1)): [x' -> x' + (x+1)]s
-        assert isinstance(s, LoopIR.Seq)
+        assert isinstance(s, LoopIR.For)
         old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
         new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
         old_plus1 = LoopIR.BinOp(
             "+", old_i, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
         )
         post_body = SubstArgs(s.body, {s.iter: new_i}).result()
-        post_loop = LoopIR.Seq(new_i.name, old_plus1, hi, post_body, None, s.srcinfo)
+        post_loop = LoopIR.For(
+            new_i.name, old_plus1, hi, post_body, s.loop_mode, None, s.srcinfo
+        )
         return stmts_effs([post_loop])
 
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Common Predicates
+
+
+def Disjoint_Memory(a1, a2):
+    W1, Red1, All1 = getsets([ES.WRITE_ALL, ES.REDUCE, ES.ALL], a1)
+    W2, Red2, All2 = getsets([ES.WRITE_ALL, ES.REDUCE, ES.ALL], a2)
+
+    pred = AAnd(
+        ADef(is_empty(LIsct(W1, All2))),
+        ADef(is_empty(LIsct(W2, All1))),
+        ADef(is_empty(LIsct(Red1, All2))),
+        ADef(is_empty(LIsct(Red2, All1))),
+    )
+
+    return pred
 
 
 def Commutes(a1, a2):
@@ -1574,7 +1592,7 @@ def loop_globenv(i, lo_expr, hi_expr, body):
     assert isinstance(lo_expr, LoopIR.expr)
     assert isinstance(hi_expr, LoopIR.expr)
 
-    loop = [LoopIR.Seq(i, lo_expr, hi_expr, body, None, null_srcinfo())]
+    loop = [LoopIR.For(i, lo_expr, hi_expr, body, LoopIR.Seq(), None, null_srcinfo())]
     return globenv(loop)
 
 
@@ -1611,7 +1629,7 @@ def Check_ReorderLoops(proc, s):
     slv.assume(AMay(p))
 
     assert len(s.body) == 1
-    assert isinstance(s.body[0], LoopIR.Seq)
+    assert isinstance(s.body[0], LoopIR.For)
     x_loop = s
     y_loop = s.body[0]
     body = y_loop.body
@@ -1670,6 +1688,59 @@ def Check_ReorderLoops(proc, s):
 
 
 # Formal Statement
+#       for i in e: s1   -->  parallel_for i in e: s1
+#
+#   Let a1' = [i -> i']a1
+#
+#   (forall i. May(InBound(i,e)) ==> Commutes(ae, a1))
+#   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i') => Commutes(a1', a1) )
+#
+def Check_ParallelizeLoop(proc, s):
+    ctxt = ContextExtraction(proc, [s])
+
+    p = ctxt.get_control_predicate()
+    G = ctxt.get_pre_globenv()
+
+    slv = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    lo = s.lo
+    hi = s.hi
+    body = s.body
+    i = s.iter
+
+    i2 = i.copy()
+    subenv = {i: LoopIR.Read(i2, [], T.index, null_srcinfo())}
+    body2 = SubstArgs(body, subenv).result()
+
+    a_bd = expr_effs(s.lo) + expr_effs(s.hi)
+    a = stmts_effs(body)
+    a2 = stmts_effs(body2)
+
+    def bds(x, lo, hi):
+        return AAnd(lift_e(lo) <= AInt(x), AInt(x) < lift_e(hi))
+
+    no_bound_change = AForAll(
+        [i],
+        AImplies(AMay(bds(i, lo, hi)), Commutes(a_bd, a)),
+    )
+    bodies_commute = AForAll(
+        [i, i2],
+        AImplies(
+            AMay(AAnd(bds(i, lo, hi), bds(i2, lo, hi), AInt(i) < AInt(i2))),
+            Disjoint_Memory(a, a2),
+        ),
+    )
+
+    pred = G(AAnd(no_bound_change, bodies_commute))
+    is_ok = slv.verify(pred)
+    slv.pop()
+    if not is_ok:
+        raise SchedulingError(f"Cannot parallelize loop over {i} at {s.srcinfo}")
+
+
+# Formal Statement
 #       for i in e: (s1 ; s2)  -->  (for i in e: s1); (for i in e: s2)
 #
 #   Let a1' = [i -> i']a1
@@ -1689,7 +1760,7 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     slv.push()
     slv.assume(AMay(p))
 
-    assert isinstance(loop, LoopIR.Seq)
+    assert isinstance(loop, LoopIR.For)
     i = loop.iter
     j = i.copy()
     lo = loop.lo
@@ -2023,16 +2094,7 @@ def Check_IsIdempotent(proc, stmts):
         raise SchedulingError(f"The statement at {stmts[0].srcinfo} is not idempotent.")
 
 
-class Check_ExprBound_Options(Enum):
-    LT = 0
-    LEQ = 1
-    GT = 2
-    GEQ = 3
-    EQ = 4
-
-
-def Check_ExprBound(proc, stmts, expr, value, option, exception=True):
-    assert isinstance(option, Check_ExprBound_Options)
+def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
     assert len(stmts) > 0
 
     ctxt = ContextExtraction(proc, stmts)
@@ -2046,19 +2108,19 @@ def Check_ExprBound(proc, stmts, expr, value, option, exception=True):
 
     e = G(lift_e(expr))
 
-    if option == Check_ExprBound_Options.GEQ:
+    if op == ">=":
         query = ADef(e >= AInt(value))
         err_msg = f"greater than or equal to {value}"
-    elif option == Check_ExprBound_Options.GT:
+    elif op == ">":
         query = ADef(e > AInt(value))
         err_msg = f"greater than {value}"
-    elif option == Check_ExprBound_Options.LEQ:
+    elif op == "<=":
         query = ADef(e <= AInt(value))
         err_msg = f"less than or equal to {value}"
-    elif option == Check_ExprBound_Options.LT:
+    elif op == "<":
         query = ADef(e < AInt(value))
         err_msg = f"greater than {value}"
-    elif option == Check_ExprBound_Options.EQ:
+    elif op == "==":
         query = ADef(e=AInt(value))
         err_msg = f"equal to {value}"
     else:

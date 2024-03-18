@@ -1,16 +1,25 @@
 name: BLAS
 on:
   push:
+    branches:
+      - main
+  pull_request:
 jobs:
   testing:
     strategy:
       matrix:
-        runner: [ ubuntu-latest ]
+        runner: [ macos-14, ubuntu-latest ]
         include:
           - runner: ubuntu-latest
             CC: clang-13
             CXX: clang++-13
             CLANG: clang-13
+            PRESET: avx2
+          - runner: macos-14
+            CC: clang # This will be system AppleClang
+            CXX: clang++ # This will be system AppleClang
+            CLANG: /usr/local/opt/llvm/bin/clang
+            PRESET: apple-silicon
     env:
       CC: ${{matrix.CC}}
       CXX: ${{matrix.CXX}}
@@ -19,14 +28,15 @@ jobs:
     runs-on: ${{matrix.runner}}
     steps:
       - name: Checkout sources (including submodules)
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
+          path: exo-repo
 
       - name: Setup Python environment
         uses: actions/setup-python@v4
         with:
-          python-version: 3.9
+          python-version: '3.10'
           cache: 'pip'
 
       - name: Install Python dependencies
@@ -34,28 +44,31 @@ jobs:
           python -m pip install -U pip wheel build
 
       - name: Install Exo
-        run: python -m build ${{github.workspace}} ; python -m pip install ${{github.workspace}}/dist/*.whl
+        run: python -m build ${{github.workspace}}/exo-repo ; python -m pip install ${{github.workspace}}/exo-repo/dist/*.whl
 
-      - name: Checkout BLAS repo
-        uses: actions/checkout@v3
-        with:
-          repository: exo-lang/BLAS
-          token: ${{ secrets.BLAS_GITHUB_TOKEN }}
-
-      - name: Install Ninja and git
-        run: sudo apt install ninja-build git
+      - name: Get latest CMake and ninja
+        uses: lukka/get-cmake@latest
 
       - name: Install Google benchmark
         run: git clone https://github.com/google/benchmark; cmake -S benchmark -B benchmark/build -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_TESTING=NO ; cmake --build benchmark/build; cmake --install benchmark/build --prefix ~/.local
 
+      - name: Checkout BLAS repo
+        uses: actions/checkout@v4
+        with:
+          repository: exo-lang/BLAS
+          token: ${{ secrets.BLAS_GITHUB_TOKEN }}
+          path: BLAS-repo
+
       - name: Configure CMake
-        run: cmake -B BLAS/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} --preset avx2
+        env:
+          CMAKE_PREFIX_PATH: ${{github.workspace}}/benchmark/build
+        run: cmake ${{github.workspace}}/BLAS-repo -B ${{github.workspace}}/BLAS-repo/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} --preset ${{matrix.PRESET}}
 
       - name: Build
-        run: cmake --build BLAS/build --config ${{env.BUILD_TYPE}}
+        run: cmake --build ${{github.workspace}}/BLAS-repo/build --config ${{env.BUILD_TYPE}}
 
       - name: Test
-        run: ctest --test-dir BLAS/build -C ${{env.BUILD_TYPE}} -R correctness
+        run: ctest --test-dir ${{github.workspace}}/BLAS-repo/build -C ${{env.BUILD_TYPE}} -R correctness
 
 
 

@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from exo import proc, Procedure, DRAM, compile_procs_to_strings
-from exo.libs.memories import MDRAM, MemGenError, StaticMemory
+from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
 from exo.stdlib.scheduling import *
 
 mock_registers = 0
@@ -518,3 +518,15 @@ def test_CIR_USub(golden):
     code = f"{h_file}\n{c_file}"
 
     assert code == golden
+
+
+def test_pragma_parallel_loop(golden):
+    @proc
+    def foo(x: i8[10]):
+        for i in par(0, 10):
+            y: i8[10] @ DRAM_STACK
+            x[i] = y[i]
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden

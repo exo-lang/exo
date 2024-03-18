@@ -409,6 +409,7 @@ class Parser:
         "f64": UAST.F64(),
         "i8": UAST.INT8(),
         "ui8": UAST.UINT8(),
+        "ui16": UAST.UINT16(),
         "i32": UAST.INT32(),
     }
 
@@ -656,9 +657,9 @@ class Parser:
 
                 if self.is_fragment:
                     lo, hi = cond
-                    rstmts.append(PAST.Seq(itr, lo, hi, body, self.getsrcinfo(s)))
+                    rstmts.append(PAST.For(itr, lo, hi, body, self.getsrcinfo(s)))
                 else:
-                    rstmts.append(UAST.Seq(itr, cond, body, self.getsrcinfo(s)))
+                    rstmts.append(UAST.For(itr, cond, body, self.getsrcinfo(s)))
 
                 self.pop()
 

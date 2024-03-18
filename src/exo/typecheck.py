@@ -226,7 +226,7 @@ class TypeChecker:
                 ebody = self.check_stmts(stmt.orelse)
             return [LoopIR.If(cond, body, ebody, None, stmt.srcinfo)]
 
-        elif isinstance(stmt, UAST.Seq):
+        elif isinstance(stmt, UAST.For):
             self.env[stmt.iter] = T.index
 
             # handle standard ParRanges
@@ -248,7 +248,17 @@ class TypeChecker:
 
             body = self.check_stmts(stmt.body)
             if isinstance(stmt.cond, UAST.SeqRange):
-                return [LoopIR.Seq(stmt.iter, lo, hi, body, None, stmt.srcinfo)]
+                return [
+                    LoopIR.For(
+                        stmt.iter, lo, hi, body, LoopIR.Seq(), None, stmt.srcinfo
+                    )
+                ]
+            elif isinstance(stmt.cond, UAST.ParRange):
+                return [
+                    LoopIR.For(
+                        stmt.iter, lo, hi, body, LoopIR.Par(), None, stmt.srcinfo
+                    )
+                ]
             else:
                 assert False, "bad case"
 
@@ -486,6 +496,8 @@ class TypeChecker:
                             typ = T.int8
                         elif lhs.type == T.uint8:
                             typ = T.uint8
+                        elif lhs.type == T.uint16:
+                            typ = T.uint16
                         elif lhs.type == T.int32:
                             typ = T.int32
                 elif rhs.type.is_real_scalar():
@@ -600,6 +612,7 @@ class TypeChecker:
         UAST.F64: T.f64,
         UAST.INT8: T.int8,
         UAST.UINT8: T.uint8,
+        UAST.UINT16: T.uint16,
         UAST.INT32: T.int32,
         UAST.Bool: T.bool,
         UAST.Int: T.int,

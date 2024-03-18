@@ -2,7 +2,7 @@ name: Gemmini CI
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
 jobs:
   gemmini:
@@ -15,7 +15,7 @@ jobs:
         password: ${{ secrets.github_token }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'

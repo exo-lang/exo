@@ -1,0 +1,11 @@
+def axpy(n: size, x: f32[n] @ DRAM, y: f32[n] @ DRAM):
+    for io in seq(0, (4 + n) / 5):
+        yReg: f32[5] @ DRAM
+        for i0 in seq(0, 5):
+            yReg[i0] = 0.0
+        for ii in seq(0, 5):
+            if ii + 5 * io < n:
+                yReg[ii] += x[ii + 5 * io]
+        for i0 in seq(0, 5):
+            if i0 + 5 * io < n:
+                y[i0 + 5 * io] += yReg[i0]

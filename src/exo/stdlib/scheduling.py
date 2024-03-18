@@ -30,6 +30,7 @@ from ..API_scheduling import (
     rewrite_expr,
     bind_expr,
     commute_expr,
+    left_reassociate_expr,
     #
     # subprocedure oriented operations
     extract_subproc,
@@ -49,9 +50,8 @@ from ..API_scheduling import (
     #
     # buffer and window oriented operations
     expand_dim,
-    shrink_dim,
+    resize_dim,
     rearrange_dim,
-    bound_alloc,
     divide_dim,
     mult_dim,
     sink_alloc,
@@ -64,6 +64,7 @@ from ..API_scheduling import (
     unroll_buffer,
     #
     # loop rewriting
+    parallelize_loop,
     divide_with_recompute,
     divide_loop,
     mult_loops,
@@ -72,6 +73,7 @@ from ..API_scheduling import (
     shift_loop,
     reorder_loops,
     merge_writes,
+    fold_into_reduce,
     inline_assign,
     lift_reduce_constant,
     fission,
@@ -225,7 +227,7 @@ def call_site_mem_aware_replace(proc, block_cursor, subproc, quiet=False):
                 check_passed = check_passed and check_all_calls(cursor.body())
                 if type(cursor.orelse()) is not _PC.InvalidCursor:
                     check_passed = check_passed and check_all_calls(cursor.orelse())
-            elif isinstance(cursor, _PC.ForSeqCursor):
+            elif isinstance(cursor, _PC.ForCursor):
                 check_passed = check_passed and check_all_calls(cursor.body())
         return check_passed
 
@@ -244,11 +246,6 @@ def _replace_helper(proc, subprocs, mem_aware, once):
 
     for subproc in subprocs:
         assert isinstance(subproc, _Procedure), "expected Procedure as 2nd argument"
-        body = subproc.body()
-        assert len(body) == 1, (
-            "replace_all only supports single statement "
-            "subprocedure bodies right now"
-        )
 
     patterns = {
         _PC.AssignCursor: "_ = _",
@@ -256,7 +253,7 @@ def _replace_helper(proc, subprocs, mem_aware, once):
         _PC.AssignConfigCursor: "TODO",
         _PC.PassCursor: "TODO",
         _PC.IfCursor: "TODO",
-        _PC.ForSeqCursor: "for _ in _: _",
+        _PC.ForCursor: "for _ in _: _",
         _PC.AllocCursor: "TODO",
         _PC.CallCursor: "TODO",
         _PC.WindowStmtCursor: "TODO",
@@ -268,19 +265,25 @@ def _replace_helper(proc, subprocs, mem_aware, once):
         i = 0
         while True:
             try:
+                block = proc.find(f"{pattern} #{i}").expand(0, len(body) - 1)
+                if len(block) != len(body):
+                    raise _UnificationError("Unification failed due to length mismatch")
+
                 if mem_aware:
-                    proc = call_site_mem_aware_replace(
-                        proc, f"{pattern} #{i}", subproc, quiet=True
-                    )
+                    proc = call_site_mem_aware_replace(proc, block, subproc, quiet=True)
                 else:
-                    proc = replace(proc, f"{pattern} #{i}", subproc, quiet=True)
+                    proc = replace(proc, block, subproc, quiet=True)
                 if once:
                     break
             except (TypeError, SchedulingError) as e:
                 if "failed to find matches" in str(e):
                     break
                 raise
-            except (_UnificationError, MemoryError, NotImplementedError):
+            except (
+                _UnificationError,
+                MemoryError,
+                NotImplementedError,
+            ):
                 i += 1
 
     return proc
@@ -385,7 +388,7 @@ def fuse_at(proc, producer, consumer, loop):
     # TODO: this should match producer loop structure to consumer's. Currently, it just
     # makes the newly divided loop the innermost loop of the producer.
     p_inner_loop = proc.find_loop(f"{p_iter}i")
-    while isinstance(p_inner_loop.body()[0], _PC.ForSeqCursor):
+    while isinstance(p_inner_loop.body()[0], _PC.ForCursor):
         proc = reorder_loops(proc, p_inner_loop)
         p_inner_loop = proc.forward(p_inner_loop)
 
@@ -412,10 +415,11 @@ def store_at(proc, producer, consumer, loop):
     buffer_idx = list(buffer_idxs)[0]
 
     bound = bounds_inference(proc, loop, producer, buffer_idx, include=["W"])
-    lo, hi = bound.get_bounds()
+    offset, _ = bound.get_bounds()
+    size = bound.get_size()  # assuming in many cases that sizes will be constant
 
     proc = sink_alloc(proc, producer_alloc)
-    proc = shrink_dim(proc, producer_alloc, buffer_idx, lo, hi)
+    proc = resize_dim(proc, producer_alloc, buffer_idx, size, offset)
 
     return simplify(proc)
 

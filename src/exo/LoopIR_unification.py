@@ -64,7 +64,7 @@ def Get_Live_Variables(stmt_cursor):
             live_vars[s.name] = s.type
         elif isinstance(s, LoopIR.If):
             live_vars = live_vars.new_child()
-        elif isinstance(s, LoopIR.Seq):
+        elif isinstance(s, LoopIR.For):
             live_vars = live_vars.new_child()
             live_vars[s.iter] = T.index
 
@@ -896,7 +896,7 @@ class Unification:
             self.unify_e(ps.cond, bs.cond)
             self.unify_stmts(ps.body, bs.body)
             self.unify_stmts(ps.orelse, bs.orelse)
-        elif isinstance(ps, LoopIR.Seq):
+        elif isinstance(ps, LoopIR.For):
             # BINDING
             self.idx_subst[ps.iter] = bs.iter
             self.unify_e(ps.lo, bs.lo)
@@ -1075,6 +1075,30 @@ class Unification:
                 f"type {bt} (@{bnode.srcinfo})"
             )
 
+    @staticmethod
+    def comparision_to_unification_expr(e):
+        def sub(lhs, rhs):
+            return LoopIR.BinOp("-", lhs, rhs, T.index, null_srcinfo())
+
+        def add1(e):
+            one = LoopIR.Const(1, T.int, null_srcinfo())
+            return LoopIR.BinOp("+", e, one, T.index, null_srcinfo())
+
+        if e.op == "<" or e.op == "==":
+            # rewrite `lhs op rhs` into `0 op rhs - lhs`
+            return sub(e.rhs, e.lhs)
+        elif e.op == "<=":
+            # rewrite `lhs <= rhs` into `0 < rhs - lhs + 1`
+            return add1(sub(e.rhs, e.lhs))
+        elif e.op == ">":
+            # rewrite `lhs > rhs` into `0 < lhs - rhs`
+            return sub(e.lhs, e.rhs)
+        elif e.op == ">=":
+            # rewrite `lhs >= rhs` into `0 < lhs - rhs + 1`
+            return add1(sub(e.lhs, e.rhs))
+        else:
+            assert False, f"Unreachable op found: {e.op}"
+
     def unify_e(self, pe, be):
         if pe.type.is_indexable() != be.type.is_indexable() or (pe.type == T.bool) != (
             be.type == T.bool
@@ -1120,19 +1144,23 @@ class Unification:
         elif isinstance(pe, LoopIR.USub):
             self.unify_e(pe.arg, be.arg)
         elif isinstance(pe, LoopIR.BinOp):
+            exprs = [pe.rhs, pe.lhs, be.rhs, be.lhs]
+            if pe.op in comparision_ops and all(e.type.is_indexable() for e in exprs):
+                inequality_ops = comparision_ops - {"=="}
+                if pe.op == be.op or (
+                    pe.op in inequality_ops and be.op in inequality_ops
+                ):
+                    pe_e = self.comparision_to_unification_expr(pe)
+                    be_e = self.comparision_to_unification_expr(be)
+                    self.unify_e(pe_e, be_e)
+                    return
             if pe.op != be.op:
                 raise UnificationError(
                     f"cannot unify a '{pe.op}' (@{pe.srcinfo}) with "
                     f"a '{be.op}'' (@{be.srcinfo})"
                 )
-            exprs = [pe.rhs, pe.lhs, be.rhs, be.lhs]
-            if pe.op in comparision_ops and all(e.type.is_indexable() for e in exprs):
-                pe_rhs_sub_lhs = LoopIR.BinOp("-", pe.rhs, pe.lhs, T.index, pe.srcinfo)
-                be_rhs_sub_lhs = LoopIR.BinOp("-", be.rhs, be.lhs, T.index, be.srcinfo)
-                self.unify_e(pe_rhs_sub_lhs, be_rhs_sub_lhs)
-            else:
-                self.unify_e(pe.lhs, be.lhs)
-                self.unify_e(pe.rhs, be.rhs)
+            self.unify_e(pe.lhs, be.lhs)
+            self.unify_e(pe.rhs, be.rhs)
         elif isinstance(pe, LoopIR.BuiltIn):
             if pe.f != be.f:
                 raise UnificationError(

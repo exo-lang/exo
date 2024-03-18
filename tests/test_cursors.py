@@ -158,6 +158,19 @@ def test_simplify_forwarding(golden):
     assert str(foo1.forward(stmt)._impl._node) == golden
 
 
+def test_simplify_predicates_forwarding():
+    @proc
+    def foo(n: size):
+        assert n >= 1
+        for i in seq(0, n):
+            pass
+
+    loop = foo.find_loop("i")
+    foo = simplify(foo)
+    loop = foo.forward(loop)
+    assert loop == foo.find_loop("i")
+
+
 def test_type_and_shape_introspection():
     @proc
     def foo(n: size, m: index, flag: bool):
@@ -166,7 +179,7 @@ def test_type_and_shape_introspection():
         b: i32[n]
         c: i8[n]
         d: f32[n]
-        e: f64[n]
+        e: f64[2]
 
     assert foo.find("a:_").type() == ExoType.R
     assert foo.find("b:_").type() == ExoType.I32
@@ -177,6 +190,7 @@ def test_type_and_shape_introspection():
     assert foo.args()[1].type() == ExoType.Index
     assert foo.args()[2].type() == ExoType.Bool
     assert str(foo.find("a:_").shape()[0]._impl._node) == "n + m"
+    assert foo.find("e : _").shape()[0].type() == ExoType.Int
 
 
 def test_expand_dim_forwarding(golden):
@@ -375,10 +389,10 @@ def test_cut_loop_forwarding():
     second_loop = loop_cursor.next()
     pass_cursor = foo.forward(pass_cursor)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
-    assert isinstance(second_loop, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
+    assert isinstance(second_loop, ForCursor)
     assert isinstance(pass_cursor, PassCursor)
-    assert isinstance(pass_cursor.parent(), ForSeqCursor)
+    assert isinstance(pass_cursor.parent(), ForCursor)
     assert pass_cursor.parent().hi().value() == 3
 
 
@@ -394,9 +408,9 @@ def test_shift_loop_forwarding():
     loop_cursor = foo.forward(loop_cursor)
     assign_cursor = foo.forward(assign_cursor)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert isinstance(assign_cursor, AssignCursor)
-    assert isinstance(assign_cursor.parent(), ForSeqCursor)
+    assert isinstance(assign_cursor.parent(), ForCursor)
 
 
 def test_eliminate_dead_code_forwarding():
@@ -424,10 +438,10 @@ def test_eliminate_dead_code_forwarding():
     with pytest.raises(InvalidCursorError, match=""):
         if_false_stmt = foo.forward(if_false_stmt)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert len(loop_cursor.body()) == 2
     assert isinstance(if_true_stmt, AssignCursor)
-    assert isinstance(if_true_stmt.parent(), ForSeqCursor)
+    assert isinstance(if_true_stmt.parent(), ForCursor)
 
 
 def test_eliminate_dead_code_forwarding2():
@@ -455,10 +469,10 @@ def test_eliminate_dead_code_forwarding2():
         if_true_stmt = foo.forward(if_true_stmt)
     if_false_stmt = foo.forward(if_false_stmt)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert len(loop_cursor.body()) == 3
     assert isinstance(if_false_stmt, ReduceCursor)
-    assert isinstance(if_false_stmt.parent(), ForSeqCursor)
+    assert isinstance(if_false_stmt.parent(), ForCursor)
 
 
 def test_eliminate_dead_code_forwarding3():
@@ -479,10 +493,10 @@ def test_eliminate_dead_code_forwarding3():
         if_cursor = foo.forward(if_cursor)
     if_true_stmt = foo.forward(if_true_stmt)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert len(loop_cursor.body()) == 2
     assert isinstance(if_true_stmt, AssignCursor)
-    assert isinstance(if_true_stmt.parent(), ForSeqCursor)
+    assert isinstance(if_true_stmt.parent(), ForCursor)
 
 
 def test_eliminate_dead_code_forwarding4():
@@ -504,7 +518,7 @@ def test_eliminate_dead_code_forwarding4():
     with pytest.raises(InvalidCursorError, match=""):
         if_true_stmt = foo.forward(if_true_stmt)
 
-    assert isinstance(loop_cursor, ForSeqCursor)
+    assert isinstance(loop_cursor, ForCursor)
     assert len(loop_cursor.body()) == 1
     assert isinstance(loop_cursor.body()[0], PassCursor)
 
@@ -615,3 +629,18 @@ def test_get_enclosing_loop_fail():
         CursorNavigationError, match="scope is not an ancestor of cursor"
     ):
         c = get_stmt_within_scope(foo.find("x = _"), foo.find_loop("j"))
+
+
+def test_cursor_find_loop():
+    @proc
+    def foo(n: size, x: i8[n]):
+        for i in seq(0, n):
+            pass
+        if n > 1:
+            for i in seq(0, n):
+                x[i] = 0.0
+
+    i_loop2 = foo.find("for i in _:_ #1")
+    if_stmt = foo.find("if _: _ ")
+    i_loop_alternative = if_stmt.find("for i in _: _")
+    assert i_loop2 == i_loop_alternative

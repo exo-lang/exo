@@ -118,7 +118,7 @@ class InferEffects:
             self.rec_stmts_types(stmt.body)
             if len(stmt.orelse) > 0:
                 self.rec_stmts_types(stmt.orelse)
-        elif isinstance(stmt, LoopIR.Seq):
+        elif isinstance(stmt, LoopIR.For):
             self.rec_stmts_types(stmt.body)
         elif isinstance(stmt, LoopIR.Alloc):
             self._types[stmt.name] = stmt.type
@@ -189,7 +189,7 @@ class InferEffects:
 
             return LoopIR.If(stmt.cond, body, orelse, effects, stmt.srcinfo)
 
-        elif isinstance(stmt, LoopIR.Seq):
+        elif isinstance(stmt, LoopIR.For):
             # pred is: stmt.lo <= bound < stmt.hi
             bound = E.Var(stmt.iter, T.index, stmt.srcinfo)
             lo = lift_expr(stmt.lo)
@@ -959,7 +959,7 @@ class CheckEffects:
             if isinstance(stmt, LoopIR.If):
                 self.preprocess_stmts(stmt.body)
                 self.preprocess_stmts(stmt.orelse)
-            elif isinstance(stmt, LoopIR.Seq):
+            elif isinstance(stmt, LoopIR.For):
                 self.preprocess_stmts(stmt.body)
             elif isinstance(stmt, LoopIR.Alloc):
                 if stmt.type.is_tensor_or_window():
@@ -990,7 +990,7 @@ class CheckEffects:
         body_eff = eff_null(body[-1].srcinfo)
 
         for stmt in reversed(body):
-            if isinstance(stmt, LoopIR.Seq):
+            if isinstance(stmt, LoopIR.For):
                 self.push()
 
                 def bd_pred(x, lo, hi, srcinfo):

@@ -56,6 +56,29 @@ class DRAM_STATIC(DRAM):
         return ""
 
 
+# ----------- DRAM using stack memory ----------------
+# This is necessary for parallelization, since the stack is thread-local whereas
+# static is per-binary.
+
+
+class DRAM_STACK(DRAM):
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        for extent in shape:
+            try:
+                int(extent)
+            except ValueError as e:
+                raise MemGenError(
+                    f"DRAM_STATIC requires constant shapes. Saw: {extent}"
+                ) from e
+
+        return f'{prim_type} {new_name}[{" * ".join(shape)}];'
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ""
+
+
 # ----------- GEMMINI scratchpad ----------------
 
 
@@ -174,10 +197,16 @@ class AVX2(Memory):
         if not shape:
             raise MemGenError(f"{srcinfo}: AVX2 vectors are not scalar values")
 
-        vec_types = {"float": (8, "__m256"), "double": (4, "__m256d")}
+        vec_types = {
+            "float": (8, "__m256"),
+            "double": (4, "__m256d"),
+            "uint16_t": (16, "__m256i"),
+        }
 
         if not prim_type in vec_types.keys():
-            raise MemGenError(f"{srcinfo}: AVX2 vectors must be f32/f64 (for now)")
+            raise MemGenError(
+                f"{srcinfo}: AVX2 vectors must be f32/f64/ui16 (for now), got {prim_type}"
+            )
 
         reg_width, C_reg_type_name = vec_types[prim_type]
         if not _is_const_size(shape[-1], reg_width):
