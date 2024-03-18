@@ -206,7 +206,6 @@ class BoolA(ArgumentProcessor):
             self.err("expected a bool")
         return bval
 
-
 class OptionalA(ArgumentProcessor):
     def __init__(self, arg_proc):
         if is_subclass_obj(arg_proc, ArgumentProcessor):
@@ -1515,8 +1514,8 @@ def stage_window(proc, expr_cursor, win_name, memory=None):
     return scheduling.DoStageWindow(proc, win_name, memory, e).result()
 
 
-@sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA])
-def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
+@sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA, BoolA])
+def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False, init_zero=False):
     """
     Stage the window of memory specified by `win_expr` into a new buffer
     before the indicated code block and move the memory back after the
@@ -1559,7 +1558,7 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     """
     buf_name, w_exprs = win_expr
     ir, fwd = scheduling.DoStageMem(
-        block_cursor._impl, buf_name, w_exprs, new_buf_name, use_accum_zero=accum
+        block_cursor._impl, buf_name, w_exprs, new_buf_name, use_accum_zero=accum, init_zero=init_zero
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 

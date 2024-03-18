@@ -3652,7 +3652,7 @@ class _DoStageMem_FindBufData(LoopIR_Do):
         pass
 
 
-def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
+def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False, init_zero=False):
     proc = block_cursor.get_root()
     new_name = Sym(new_name)
 
@@ -3735,8 +3735,10 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                     )
                 else:
                     load_ridx.append(w)
-            load_rhs = LoopIR.Read(buf_name, load_ridx, basetyp, srcinfo)
-
+            if init_zero == False:
+                load_rhs = LoopIR.Read(buf_name, load_ridx, basetyp, srcinfo)
+            else:
+                load_rhs = LoopIR.Const(0.0, basetyp, srcinfo)
         load_nest = [
             LoopIR.Assign(new_name, basetyp, None, load_widx, load_rhs, None, srcinfo)
         ]
