@@ -9,103 +9,38 @@ from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
 from .LoopIR import LoopIR, Alpha_Rename, SubstArgs, LoopIR_Do, Operator, T, Identifier
+from .new_dataflow_core import *
+
+# --------------------------------------------------------------------------- #
+# Abstract Domain definition
+# --------------------------------------------------------------------------- #
+
+# { A : ( [dim_0, dim_1, dim_2] , [(constraints, tgt), (constraints, tgt)]) }
+AbstractDomains = ADT(
+    """
+module AbstractDomains {
+    mexpr = Unk()
+          | Var( sym name )
+          | Const( object val, type type )
+          | BinOp( binop op, mexpr lhs, mexpr rhs )
+          | Array( mexpr arg, sym idx ) -- !!This is not enough b/c we'd like to be able to affine-index-access arrays, but is a literal implementation of Fluid update
+    path = ( aexpr constraints, mexpr tgt )
+    env   = ( sym *dims, path* paths ) -- This can handle index access uniformly!
+}
+""",
+    ext_types={
+        "type": LoopIR.type,
+        "sym": Sym,
+        "aexpr": A.expr,
+        "binop": validators.instance_of(Operator, convert=True),
+    },
+    memoize={},
+)
+D = AbstractDomains
 
 # --------------------------------------------------------------------------- #
 # DataflowIR definition
 # --------------------------------------------------------------------------- #
-
-# Ask Gilbert about symbolic value dependent analysis
-"""
-n : R[n+1]
-for i in seq(0, n):
-    x[i] = sin(i)
-for i in seq(0, n):
-    x[i+1] = sin(i+1)
-
-Want to analyze that x[i] = sin(i) and x[i+1] = sin(i+1) write the same value to the same memory.
-"""
-# Also ask about Bottom, which is not used anywhere
-
-"""
-
--------------------- P(0)
-let size = e
-for i in seq(0,size):
-    ---------------- P(i)     if this is the join point, then join with Q(i-1)
-    stmt
-    ---------------- Q(i)
--------------------- P(size)
-
-
-fix_stmt (i.e. abstract transfer function)
-STEP <--- name of fix_stmt for below
-STEP: stmt  -->  Abstract State  -->  Abstract State
-
-
-STEP[
-    for i in seq(0,n):
-        stmt
-](S_0) =
-    let S = \i. S_0 and then modify as follows
-    for all arrays x in S_0:
-        let A = S_0[x]
-        S[x] = piece2(i,Bot,A)
-    loop till fixed point:
-        let QS      = STEP[stmt](S)
-        let incS    = SUBSTITUTE[ i -> i-1 ](QS)
-        let S       = JOIN[S,incS]
-    SUBSTITUTE[ i -> n ](S)
-
-
-T == piece2(0, Bot, T)
-
-A == piece2(i,Bot,A)
-
-conc(A)                 = set of all array-functions x s.t. P_A(x)
-conc(Bot)               = emptyset
-conc(piece2(i,Bot,A))   =   for i == 0,     conc(A)
-                          U for i == 1, ... emptyset
-                          U ...             emptyset
-
-conc_{piece2(i,Bot,B)}(x) := { \j. if j<i then conc_{bot} else P_B(x[j])"
-
-
---------------- { x : piece2(i, Bot, T) }
-x[i] = 3.0
---------------- { x : piece2(i, 3.0, T) }
-
---------------- { x : piece2(i, 3.0, T) }
-x[i] = 3.0
---------------- { x : piece2(i+1, 3.0, T) }
-
-{ x : ABS }
-x[a] = VAL
-    case ABS == piece2(s, A, B):
-        if a is s: # how do you check this?
-            set x to piece2(s+1, JOIN(VAL,A), B)
-        else:
-            set x to T
-    case _:
-        set x to T
-
-
-
-\j. if j<i then P_A(x[j]) else P_B(x[j])
--->
--->
-\j. if j<i+1 then P_A(x[j]) else P_B(x[j])
-
-
-Q(i-1)
-
-P == \i. x = piece2(i, A, B)
-     P_{piece2(i,A,B)}(x) :=  \j. if j<i then P_A(x[j]) else P_B(x[j])"
-
--------------------- P(0) == x = {0..i}
-
-
-
-"""
 
 
 def validateAbsEnv(obj):
@@ -310,41 +245,58 @@ def dataflow_analysis(proc: LoopIR.proc) -> DataflowIR.proc:
 # Abstract Interpretation on DataflowIR
 # --------------------------------------------------------------------------- #
 
-AbstractDomains = ADT(
-    """
-module AbstractDomains {
-    cprop = CTop() | CBot()
-          | Const( object val, type type )
-          | CStrideExpr( sym name, int dim )
-    
-    iprop = ITop() | IBot()
-          | Interval( int lo, int hi ) -- use for integers
-}
-""",
-    ext_types={
-        "type": LoopIR.type,
-        "sym": Sym,
-    },
-    memoize={"CTop", "CBot", "Const", "ITop", "IBot", "Interval", "IConst"},
-)
-A = AbstractDomains
 
-
-@extclass(AbstractDomains.cprop)
+@extclass(AbstractDomains.mexpr)
 def __str__(self):
-    if self == A.CTop():
-        return "Top"
-    if self == A.CBot():
-        return "Bottom"
-    if isinstance(self, A.Const):
+    if self == D.Unk():
+        return "Unknown"
+    if isinstance(self, D.Const):
         return str(self.val)
-    if isinstance(self, A.CStrideExpr):
-        return self.name + "[" + self.dim + "]"
+    if isinstance(self, D.BinOp):
+        return str(self.lhs) + str(e.op) + str(self.rhs)
+    if isinstance(self, D.Array):
+        return str(self.arg) + "[" + str(self.idx) + "]"
 
     assert False, "bad case"
 
 
+@extclass(AbstractDomains.path)
+def __str__(self):
+    return "(" + str(self.constraints) + ", " + str(self.tgt) + ")"
+
+
+@extclass(AbstractDomains.env)
+def __str__(self):
+    return (
+        "{ ("
+        + ", ".join([str(d) for d in self.dims])
+        + ") , ["
+        + ", ".join([str(p) for p in self.paths])
+        + "]}"
+    )
+
+
 del __str__
+
+
+def update(env: D, rval: list[D.path]):
+    new_paths = env.paths.copy()
+    old_paths = rval
+
+    for path in old_paths:
+        # if path.tgt is already in new_paths, skip.
+        for p in new_paths:
+            new_cons = A.BinOp(
+                "and", path.constraints, p.constraints, T.bool, null_srcinfo()
+            )
+            if isinstance(path.tgt, D.Unk):
+                new_paths.append(D.path(new_cons, p.tgt))
+            elif isinstance(p.tgt, D.Unk):
+                new_paths.append(D.path(new_cons, path.tgt))
+            else:
+                pass
+
+    return D.env(env.dims, new_paths)
 
 
 class AbstractInterpretation(ABC):
@@ -359,8 +311,8 @@ class AbstractInterpretation(ABC):
         # We probably ought to somehow use precondition assertions
         # TODO: leave it for now
         # { n == 16; }
-        for p in proc.preds:
-            self.assume_pred(p, init_env)
+        # for p in proc.preds:
+        #    self.assume_pred(p, init_env)
 
         self.fix_block(self.proc.body)
 
@@ -372,9 +324,8 @@ class AbstractInterpretation(ABC):
             self.fix_stmt(body.ctxts[i], body.stmts[i], body.ctxts[i + 1])
 
     def fix_stmt(self, pre_env, stmt: DataflowIR.stmt, post_env):
-        if isinstance(stmt, (DataflowIR.Assign, DataflowIR.Reduce)):
-            # TODO: Design approach for parameterization over idx
 
+        if isinstance(stmt, (DataflowIR.Assign, DataflowIR.Reduce)):
             # if reducing, then expand to x = x + rhs
             rhs_e = stmt.rhs
             if isinstance(stmt, DataflowIR.Reduce):
@@ -382,12 +333,12 @@ class AbstractInterpretation(ABC):
                     stmt.name, stmt.idx, rhs_e.type, stmt.srcinfo
                 )
                 rhs_e = DataflowIR.BinOp("+", read_buf, rhs_e, rhs_e.type, stmt.srcinfo)
+
             # now we can handle both cases uniformly
             rval = self.fix_expr(pre_env, rhs_e)
-            # need to be careful for buffers (no overwrite guarantee)
-            if len(stmt.idx) > 0:
-                rval = self.abs_join(pre_env[stmt.name], rval)
-            post_env[stmt.name] = rval
+
+            # TODO: Handle constraints!
+            post_env[stmt.name] = update(pre_env[stmt.name], rval)
 
             # propagate un-touched variables
             for nm in pre_env:
@@ -396,7 +347,8 @@ class AbstractInterpretation(ABC):
 
         elif isinstance(stmt, DataflowIR.WriteConfig):
             rval = self.fix_expr(pre_env, stmt.rhs)
-            post_env[stmt.config_field] = rval
+
+            post_env[stmt.config_field] = update(pre_env[stmt.config_field], rval)
 
             # propagate un-touched variables
             for nm in pre_env:
@@ -409,7 +361,6 @@ class AbstractInterpretation(ABC):
                 post_env[nm] = pre_env[nm]
 
         elif isinstance(stmt, DataflowIR.Alloc):
-            # TODO: Add support for parameterization over idx?
 
             post_env[stmt.name] = self.abs_alloc_val(stmt.name, stmt.type)
 
@@ -418,6 +369,7 @@ class AbstractInterpretation(ABC):
                 post_env[nm] = pre_env[nm]
 
         elif isinstance(stmt, DataflowIR.If):
+            # TODO: Handle constraints!!
             # TODO: Add support for path-dependency in analysis
             # TODO: Add support for "I know cond is true!"
             pre_body, post_body = stmt.body.ctxts[0], stmt.body.ctxts[-1]
@@ -481,9 +433,9 @@ class AbstractInterpretation(ABC):
         else:
             assert False, f"bad case: {type(stmt)}"
 
-    def fix_expr(self, pre_env, expr: DataflowIR.expr):
+    def fix_expr(self, pre_env: D.env, expr: DataflowIR.expr) -> list[D.path]:
         if isinstance(expr, DataflowIR.Read):
-            return pre_env[expr.name]
+            return pre_env[expr.name].paths
         elif isinstance(expr, DataflowIR.Const):
             return self.abs_const(expr.val, expr.type)
         elif isinstance(expr, DataflowIR.USub):
@@ -493,13 +445,15 @@ class AbstractInterpretation(ABC):
             lhs = self.fix_expr(pre_env, expr.lhs)
             rhs = self.fix_expr(pre_env, expr.rhs)
             return self.abs_binop(expr.op, lhs, rhs)
+
+        # TODO: Fix them
         elif isinstance(expr, DataflowIR.BuiltIn):
             args = [self.fix_expr(pre_env, a) for a in expr.args]
             return self.abs_builtin(expr.f, args)
         elif isinstance(expr, DataflowIR.StrideExpr):
             return self.abs_stride_expr(expr.name, expr.dim)
         elif isinstance(expr, DataflowIR.ReadConfig):
-            return pre_env[expr.config_field]
+            return pre_env[expr.name]
         else:
             assert False, f"bad case {type(expr)}"
 
@@ -540,43 +494,89 @@ class AbstractInterpretation(ABC):
         """Implement transfer function abstraction for built-ins"""
 
 
+def make_empty_path(me: D.mexpr) -> D.path:
+    return [D.path(A.Const(True, T.bool, null_srcinfo()), me)]
+
+
+def make_unk() -> D.path:
+    return [D.path(A.Const(True, T.bool, null_srcinfo()), D.Unk())]
+
+
 class ConstantPropagation(AbstractInterpretation):
     def abs_init_val(self, name, typ):
-        return A.CTop()
+        if isinstance(typ, T.Tensor):
+            dims = []
+            for i in range(len(typ.hi)):
+                dims.append(Sym(name.name() + "_" + str(i)))
+            return D.env(dims, make_unk())
+        else:
+            return D.env([], make_unk())
 
     def abs_alloc_val(self, name, typ):
-        return A.CTop()
+        if isinstance(typ, T.Tensor):
+            dims = []
+            for i in range(len(typ.hi)):
+                dims.append(Sym(name.name() + "_" + str(i)))
+            return D.env(dims, make_unk())
+        else:
+            return D.env([], make_unk())
 
     def abs_iter_val(self, lo, hi):
-        return A.CTop()
+        return D.Unk()
 
     def abs_stride_expr(self, name, dim):
-        return A.CStrideExpr(name, dim)
+        return D.Unk()
 
-    def abs_const(self, val, typ):
-        return A.Const(val, typ)
+    def abs_const(self, val, typ) -> D.path:
+        # TODO: Ignore constraints for now
+        return make_empty_path(D.Const(val, typ))
 
-    def abs_join(self, lval: A.cprop, rval: A.cprop):
-        if lval == A.CBot():
-            return rval
-        elif rval == A.CBot():
-            return lval
-        elif lval == A.CTop() or rval == A.CTop():
-            return A.CTop()
-        else:
-            assert isinstance(lval, A.Const) and isinstance(rval, A.Const)
-            if lval.val == rval.val:
-                return lval
-            else:
-                return A.CTop()
+    def abs_join(self, lval: D.env, rval: D.env):
+        for d1, d2 in zip(lval.dims, rval.dims):
+            assert d1 == d2
 
-    def abs_binop(self, op, lval, rval):
-        if isinstance(lval, A.CBot) or isinstance(rval, A.CBot):
-            return A.CBot()
+        new_paths = []
+        old_paths = lval.paths + rval.paths
+        for path in old_paths:
+            # if path.tgt is already in new_paths, skip.
+            for p in new_paths:
+                if path.tgt == p.tgt:
+                    continue
+
+                new_cons = A.BinOp(
+                    "and", path.constraints, p.constraints, T.bool, null_srcinfo()
+                )
+                if isinstance(path.tgt, D.Unk):
+                    new_paths.append(D.Path(new_cons, p.tgt))
+                elif isinstance(p.tgt, D.Unk):
+                    new_paths.append(D.Path(new_cons, path.tgt))
+                else:
+                    pass
+                # else:
+                #    assert isinstance(path.tgt, D.Const) and isinstance(p.tgt, D.Const)
+                #    if path.tgt.val == p.tgt.val:
+                #        new_paths.append(path)
+
+                # TODO: Do we need Top()???
+                # else:
+                #    return A.CTop()
+
+            # if not, append
+            # TODO: take /\ of constraints, eventually
+            # new_paths.append(path)
+
+    def abs_binop(self, op, lval: list[D.path], rval: list[D.path]) -> list[D.path]:
+        # TODO: Support constraints
+        # TODO: FIX!!
+        lval = lval[0].tgt
+        rval = rval[0].tgt
+
+        if isinstance(lval, D.Unk) or isinstance(rval, D.Unk):
+            return make_empty_path(D.Unk())
 
         # front_ops = {"+", "-", "*", "/", "%",
         #              "<", ">", "<=", ">=", "==", "and", "or"}
-        if isinstance(lval, A.Const) and isinstance(rval, A.Const):
+        if isinstance(lval, D.Const) and isinstance(rval, D.Const):
             typ = lval.type
             if op == "+":
                 val = lval + rval
@@ -607,7 +607,7 @@ class ConstantPropagation(AbstractInterpretation):
                 else:
                     assert False, f"Bad Case Operator: {op}"
 
-            return A.Const(val, typ)
+            return make_empty_path(D.Const(val, typ))
 
         # TODO: and, or short circuiting here
 
@@ -615,19 +615,19 @@ class ConstantPropagation(AbstractInterpretation):
             # NOTE: THIS doesn't work right for integer division...
             # c1 / c2
             # 0 / x == 0
-            if isinstance(lval, A.Const) and lval.val == 0:
-                return lval
+            if isinstance(lval, D.Const) and lval.val == 0:
+                return make_empty_path(lval)
 
         if op == "%":
-            if isinstance(rval, A.Const) and rval.val == 1:
-                return A.Const(0, lval.type)
+            if isinstance(rval, D.Const) and rval.val == 1:
+                return make_empty_path(D.Const(0, lval.type))
 
         if op == "*":
             # x * 0 == 0
-            if isinstance(lval, A.Const) and lval.val == 0:
-                return lval
-            elif isinstance(rval, A.Const) and rval.val == 0:
-                return rval
+            if isinstance(lval, D.Const) and lval.val == 0:
+                return make_empty_path(lval)
+            elif isinstance(rval, D.Const) and rval.val == 0:
+                return make_empty_path(rval)
 
         # memo
         # 0 + x == x
@@ -635,42 +635,20 @@ class ConstantPropagation(AbstractInterpretation):
         #            = abs({ x + 0 | x in anything })
         #            = abs({ x | x in anything })
         #            = TOP
-        return A.CTop()
+        return make_empty_path(D.Unk())
 
-    def abs_usub(self, arg):
-        if isinstance(arg, A.Const):
-            return A.Const(-arg.val, arg.typ)
-        return arg
+    def abs_usub(self, arg: D.path) -> D.path:
+        arg = arg.tgt
+
+        if isinstance(arg, D.Const):
+            return make_empty_path(D.Const(-arg.val, arg.typ))
+        return make_empty_path(arg)
 
     def abs_builtin(self, builtin, args):
-        if any([not isinstance(a, A.Const) for a in args]):
-            return CTop()
+        # TODO: Fix
+        if any([not isinstance(a, D.Const) for a in args]):
+            return D.Unk()
         vargs = [a.val for a in args]
 
         # TODO: write a short circuit for select builtin
-        return A.Const(builtin.interpret(vargs), args[0].typ)
-
-
-class IntervalAnalysis(AbstractInterpretation):
-    def abs_init_val(self, name, typ):
-        return A.ITop()
-
-    def abs_alloc_val(self, name, typ):
-        return A.ITop()
-
-    def abs_iter_val(self, lo, hi):
-        if isinstance(lo, A.IBot) or isinstance(hi, A.IBot):
-            return A.IBot()
-        else:
-            return self.abs_join(lo, hi)
-
-    def abs_join(self, lval: A.iprop, rval: A.iprop):
-        if isinstance(lval, A.ITop) or isinstance(rval, A.ITop):
-            return A.ITop()
-        elif isinstance(lval, A.IBot):
-            return rval
-        elif isinstance(rval, A.IBot):
-            return lval
-        else:
-            assert isinstance(lval, A.Interval) and isinstance(rval, A.Interval)
-            return A.Interval(min(lval.lo, rval.lo), max(lval.hi, rval.hi))
+        return D.Const(builtin.interpret(vargs), args[0].typ)

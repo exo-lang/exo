@@ -4,6 +4,17 @@ from exo import proc, DRAM, Procedure, config
 from exo.stdlib.scheduling import *
 
 
+def test_simple():
+    @proc
+    def foo(z: R, x: R[3]):
+        z = 4.2
+        z = 2.0
+
+    print()
+    print(foo.dataflow())
+    print()
+
+
 def test_print():
     @proc
     def foo(x: R[3], y: R[3], z: R):
