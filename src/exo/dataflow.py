@@ -16,6 +16,7 @@ from .new_dataflow_core import *
 # --------------------------------------------------------------------------- #
 
 # { A : ( [dim_0, dim_1, dim_2] , [(constraints, tgt), (constraints, tgt)]) }
+
 AbstractDomains = ADT(
     """
 module AbstractDomains {
@@ -280,12 +281,11 @@ del __str__
 
 
 def update(env: D, rval: list[D.path]):
-    new_paths = env.paths.copy()
-    old_paths = rval
+    new_paths = []
 
-    for path in old_paths:
+    for path in env.paths:
         # if path.tgt is already in new_paths, skip.
-        for p in new_paths:
+        for p in rval:
             new_cons = A.BinOp(
                 "and", path.constraints, p.constraints, T.bool, null_srcinfo()
             )
@@ -294,7 +294,8 @@ def update(env: D, rval: list[D.path]):
             elif isinstance(p.tgt, D.Unk):
                 new_paths.append(D.path(new_cons, path.tgt))
             else:
-                pass
+                assert isinstance(path.tgt, D.Const) and isinstance(p.tgt, D.Const)
+                new_paths.append(D.path(new_cons, p.tgt))
 
     return D.env(env.dims, new_paths)
 
