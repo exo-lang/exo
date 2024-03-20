@@ -3824,9 +3824,10 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False, 
 
         if not use_accum_zero:
             load_nest_c = fwd(block_cursor[0]).prev()
-            ir, fwd = insert_safety_guards(
-                ir, fwd, get_inner_stmt(load_nest_c), load_rhs, buf_typ
-            )
+            if init_zero == False:
+                ir, fwd = insert_safety_guards(
+                    ir, fwd, get_inner_stmt(load_nest_c), load_rhs, buf_typ
+                )
     if isW:
         store_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         store_ridx = [LoopIR.Read(s, [], T.index, srcinfo) for s in store_iter]
