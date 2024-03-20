@@ -4,7 +4,7 @@ asdl-adt==0.1.0
 asdl==0.1.5
 astor==0.8.1
 build==0.7.0
-black==22.10.0
+black==24.3.0
 coverage==6.3.2
 jupyter-contrib-nbextensions==0.5.1
 numpy==1.23.4
