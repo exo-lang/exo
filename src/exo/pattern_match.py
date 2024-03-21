@@ -245,7 +245,7 @@ class PatternMatch:
         elif isinstance(stmt, LoopIR.WindowStmt):
             if isinstance(pat, PAST.Assign):
                 return (
-                    self.match_name(pat.name, stmt.lhs)
+                    self.match_name(pat.name, stmt.name)
                     and pat.idx == []
                     and self.match_e(pat.rhs, stmt.rhs)
                 )

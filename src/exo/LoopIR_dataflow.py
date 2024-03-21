@@ -133,7 +133,7 @@ class LoopIR_Dependencies(LoopIR_Do):
             self._lhs = None
         elif isinstance(s, LoopIR.WindowStmt):
             rhs_buf = self._alias.get(s.rhs.name, s.rhs.name)
-            self._alias[s.lhs] = rhs_buf
+            self._alias[s.name] = rhs_buf
             self._lhs = rhs_buf
             self._depends[rhs_buf].add(rhs_buf)
             self.do_e(s.rhs)

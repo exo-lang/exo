@@ -2249,6 +2249,25 @@ def test_inline_window2(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_inline_window3(golden):
+    @proc
+    def inner_memset(x: [R][16] @ DRAM):
+        for i in seq(0, 16):
+            x[i] = 0.0
+
+    @proc
+    def memset(n: size, x: [R][n] @ DRAM):
+        assert n % 16 == 0
+        res: R
+        for io in seq(0, n / 16):
+            x_1 = x[16 * io : 16 * io + 16]
+            inner_memset(x_1)
+            res += x_1[0]
+
+    memset = inline_window(memset, "x_1 = _")
+    assert str(simplify(memset)) == golden
+
+
 def test_lift_if_second_statement_in_then_error():
     @proc
     def foo(m: size, x: R[m]):

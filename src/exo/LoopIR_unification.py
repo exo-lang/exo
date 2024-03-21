@@ -59,7 +59,7 @@ def Get_Live_Variables(stmt_cursor):
 
     for s in reversed(covering_stmts):
         if isinstance(s, LoopIR.WindowStmt):
-            live_vars[s.lhs] = s.rhs.type
+            live_vars[s.name] = s.rhs.type
         elif isinstance(s, LoopIR.Alloc):
             live_vars[s.name] = s.type
         elif isinstance(s, LoopIR.If):
@@ -922,10 +922,10 @@ class Unification:
         elif isinstance(ps, LoopIR.WindowStmt):
             self.unify_e(ps.rhs, bs.rhs)
             # new name identification is similar to Alloc
-            pvar = BufVar(ps.lhs, ps.rhs.type.as_tensor, use_win=False)
-            pvar.set_buf_solution(bs.lhs)
-            self.buf_unknowns[ps.lhs] = pvar
-            self.bbuf_types[bs.lhs] = bs.rhs.type.as_tensor
+            pvar = BufVar(ps.name, ps.rhs.type.as_tensor, use_win=False)
+            pvar.set_buf_solution(bs.name)
+            self.buf_unknowns[ps.name] = pvar
+            self.bbuf_types[bs.name] = bs.rhs.type.as_tensor
 
         # tail recursion
         self.unify_stmts(proc_s, block_s)
