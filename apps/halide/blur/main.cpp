@@ -5,7 +5,7 @@
 #include <png.h>
 #include <vector>
 
-bool read_png_file(const char *filename, std::vector<uint8_t> &buffer,
+bool read_png_file(const char *filename, std::vector<uint16_t> &buffer,
     int &width, int &height) {
   FILE *fp = fopen(filename, "rb");
   if (!fp)
@@ -50,7 +50,7 @@ bool read_png_file(const char *filename, std::vector<uint8_t> &buffer,
 }
 
 bool write_png_file(
-    const char *filename, const uint8_t *buffer, int width, int height) {
+    const char *filename, const uint16_t *buffer, int width, int height) {
   FILE *fp = fopen(filename, "wb");
   if (!fp)
     return false;
@@ -96,40 +96,23 @@ bool write_png_file(
 }
 
 typedef void (*blurtype)(
-    void *ctxt, int_fast32_t n, int_fast32_t m, uint8_t *g, const uint8_t *inp);
+    void *ctxt, int_fast32_t n, int_fast32_t m, uint16_t *g, const uint16_t *inp);
 
 int exec_parrot(blurtype func, std::string output_name, int width, int height,
-    uint8_t *parrot) {
-  uint8_t *parrot_blurred_0, *parrot_blurred_1;
-  parrot_blurred_0 =
-      (uint8_t *)malloc(sizeof(uint8_t) * (width + 4) * (height + 4));
-  parrot_blurred_1 =
-      (uint8_t *)malloc(sizeof(uint8_t) * (width + 4) * (height + 4));
+    uint16_t *parrot) {
+  uint16_t *parrot_write = (uint16_t *)malloc(sizeof(uint16_t) * width * height);
 
   auto start = std::chrono::steady_clock::now();
   int iterations = 100;
   for (int i = 0; i < iterations; i += 4) {
-    func(
-        nullptr, height, width, &parrot_blurred_0[2 * (width + 4) + 2], parrot);
-    func(nullptr, height, width, &parrot_blurred_1[2 * (width + 4) + 2],
-        parrot_blurred_0);
-    func(nullptr, height, width, &parrot_blurred_0[2 * (width + 4) + 2],
-        parrot_blurred_1);
-    func(nullptr, height, width, parrot_blurred_1, parrot_blurred_0);
+    func(nullptr, width, height, parrot_write, parrot);
   }
   auto stop = std::chrono::steady_clock::now();
-  float time = (float)std::chrono::duration_cast<std::chrono::microseconds>(
-      (stop - start) / iterations)
-                   .count();
+  float time = (float) std::chrono::duration_cast<std::chrono::microseconds>(
+      (stop - start) / iterations).count();
   printf("%s: %f microseconds\n", output_name.c_str(), time);
 
   std::string file_name = output_name + std::string(".png");
-
-  uint8_t *parrot_write;
-  parrot_write = (uint8_t *)malloc(sizeof(uint8_t) * width * height);
-  for (int i = 0; i < height; i++)
-    memcpy(&parrot_write[i * width], &parrot_blurred_1[i * (width + 4)],
-        sizeof(uint8_t) * width);
   if (!write_png_file(file_name.c_str(), parrot_write, width, height)) {
     std::cerr << "Error writing PNG file." << std::endl;
   }
@@ -139,23 +122,22 @@ int exec_parrot(blurtype func, std::string output_name, int width, int height,
 
 int main() {
   const char *read_file = "gray_scaled.png";
-  std::vector<uint8_t> buffer;
+  std::vector<uint16_t> buffer;
   int width, height;
 
   if (read_png_file(read_file, buffer, width, height)) {
     printf("width: %d\n", (int)width);
     printf("height: %d\n", (int)height);
 
-    uint8_t *parrot;
-    parrot = (uint8_t *)malloc(sizeof(uint8_t) * (width + 4) * (height + 4));
+    uint16_t *parrot;
+    parrot = (uint16_t *)malloc(sizeof(uint16_t) * (width + 2) * (height + 2));
     for (int i = 0; i < height; i++) {
-      memcpy(&parrot[(i + 2) * (width + 4) + 2], &buffer[i * width],
-          sizeof(uint8_t) * width);
+      memcpy(&parrot[(i + 1) * (width + 2) + 1], &buffer[i * width],
+          sizeof(uint16_t) * width);
     }
 
-    exec_parrot(blur_staged, "blur_staged", width, height, parrot);
-    exec_parrot(blur_inline, "blur_inline", width, height, parrot);
-    exec_parrot(blur_tiled, "blur_tiled", width, height, parrot);
+    exec_parrot(blur, "blur", width, height, parrot);
+    exec_parrot(exo_blur_halide, "exo_blur_halide", width, height, parrot);
   } else {
     std::cerr << "Error reading PNG file." << std::endl;
   }
