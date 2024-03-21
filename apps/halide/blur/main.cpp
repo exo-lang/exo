@@ -95,12 +95,13 @@ bool write_png_file(
   return true;
 }
 
-typedef void (*blurtype)(
-    void *ctxt, int_fast32_t n, int_fast32_t m, uint16_t *g, const uint16_t *inp);
+typedef void (*blurtype)(void *ctxt, int_fast32_t n, int_fast32_t m,
+    uint16_t *g, const uint16_t *inp);
 
 int exec_parrot(blurtype func, std::string output_name, int width, int height,
     uint16_t *parrot) {
-  uint16_t *parrot_write = (uint16_t *)malloc(sizeof(uint16_t) * width * height);
+  uint16_t *parrot_write =
+      (uint16_t *)malloc(sizeof(uint16_t) * width * height);
 
   auto start = std::chrono::steady_clock::now();
   int iterations = 100;
@@ -108,8 +109,9 @@ int exec_parrot(blurtype func, std::string output_name, int width, int height,
     func(nullptr, width, height, parrot_write, parrot);
   }
   auto stop = std::chrono::steady_clock::now();
-  float time = (float) std::chrono::duration_cast<std::chrono::microseconds>(
-      (stop - start) / iterations).count();
+  float time = (float)std::chrono::duration_cast<std::chrono::microseconds>(
+      (stop - start) / iterations)
+                   .count();
   printf("%s: %f microseconds\n", output_name.c_str(), time);
 
   std::string file_name = output_name + std::string(".png");
