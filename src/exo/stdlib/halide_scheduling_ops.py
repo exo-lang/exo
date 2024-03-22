@@ -8,10 +8,12 @@ from .scheduling import *
 from .inspection import *
 
 
-def get_affected_dim(proc, buffer_name: str, iter_sym) -> list[int]:
+def get_affected_dim(proc: Procedure, buffer_name: str, iter: str) -> list[int]:
     """
     Return which dimension of buffer are affected by [iter_sym]. Raises
     an error if there are multiple.
+
+    TODO: this should probably take a loop instead of an iter: str to scope the operation
     """
     dims = set()
     # TODO: this only matches against writes
@@ -20,16 +22,16 @@ def get_affected_dim(proc, buffer_name: str, iter_sym) -> list[int]:
             idx_vars = [
                 name.name() for (name, _) in get_reads_of_expr(idx_expr._impl._node)
             ]
-            if iter_sym in idx_vars:
+            if iter in idx_vars:
                 dims.add(idx)
 
     if len(dims) > 1:
-        raise ValueError(f"{iter_sym} affects multiple indices into {buffer_name}")
+        raise ValueError(f"{iter} affects multiple indices into {buffer_name}")
 
     return list(dims)[0]
 
 
-def fuse_at(proc, producer: str, consumer: str, target_loop):
+def fuse_at(proc: Procedure, producer: str, consumer: str, target_loop: ForCursor):
     """
     Computes the necessary values of producer at the level of [target_loop]
     in the consumer loop nest by fusing the two loop nests.
@@ -66,24 +68,31 @@ def fuse_at(proc, producer: str, consumer: str, target_loop):
     for c_loop in reversed(c_loops):
         c_loop = proc.forward(c_loop)
         p_loop = get_enclosing_loop_by_name(proc, proc.forward(p_assign), c_loop.name())
-        assert p_loop.next() == c_loop
 
-        # infer bounds of consumer to determine cut-factor
-        N_c = c_loop.hi()._impl._node
-        buffer_dim = get_affected_dim(proc, consumer, c_loop.name())
-        w_c = bounds_inference(proc, c_loop, consumer, buffer_dim).get_size()
+        # Reorder producer loop up to consumer loop level and adjacent
+        while p_loop.parent() != c_loop.parent():
+            proc = reorder_loops(proc, p_loop.parent())
+            p_loop = proc.forward(p_loop)
+            c_loop = proc.forward(c_loop)
+        while p_loop.next() != c_loop:
+            proc = reorder_stmts(proc, p_loop.expand(0, 1))
+            p_loop = proc.forward(p_loop)
+            c_loop = proc.forward(c_loop)
 
+        # Infer bounds of producer that the are consumed to determine cut-factor
+        N_c = c_loop.hi()._impl._node  # TODO: remove this ._impl._node
+        buffer_dim = get_affected_dim(proc, producer, c_loop.name())
+        bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
+        w_c = bounds.get_stride_of(c_loop._impl._node.iter)
+
+        # Divide if it's not a trivial division (and inner loop dimension would be 1)
         p_iter = p_loop.name()
-        new_iters = [f"{p_iter}", f"{p_iter}i"]
-
+        new_iters = [
+            f"{p_iter}",
+            f"{p_iter}i",
+        ]  # TODO: think about this hard-coded naming convention
         proc = divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
         proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
-
-        # TODO: rethink the reorder thing here
-        p_inner_loop = proc.forward(p_loop).body()[0]
-        while isinstance(p_inner_loop.body()[0], ForCursor):
-            proc = reorder_loops(proc, p_inner_loop)
-            p_inner_loop = proc.forward(p_inner_loop)
 
         # TODO: Try to simplify the expressions without needing this.
         # This would also remove the need for the LoopIR import.
@@ -102,7 +111,7 @@ def fuse_at(proc, producer: str, consumer: str, target_loop):
     return simplify(proc)
 
 
-def store_at(proc, producer, target_loop):
+def store_at(proc: Procedure, producer: str, target_loop: ForCursor):
     """
     Moves [producer]'s allocation into [target_loop] and reduces the dimensions
     as necessary.
@@ -124,29 +133,34 @@ def store_at(proc, producer, target_loop):
         )
 
     for loop in loops_between(producer_alloc, target_loop):
-        buffer_dim = get_affected_dim(proc, producer, loop.name())
-
         loop = proc.forward(loop)
         producer_alloc = proc.forward(producer_alloc)
+
+        buffer_dim = get_affected_dim(proc, producer, loop.name())
 
         bounds = bounds_inference(proc, loop, producer, buffer_dim)
         lo, _ = bounds.get_bounds()
         size = bounds.get_size()
 
-        # TODO: think more about this reorder strategy
         while producer_alloc.next() != loop:
-            reorder_stmts(proc, producer_alloc.expand(0, 1))
+            proc = reorder_stmts(proc, producer_alloc.expand(0, 1))
             producer_alloc = proc.forward(producer_alloc)
+            loop = proc.forward(loop)
 
         proc = sink_alloc(proc, producer_alloc)
         proc = resize_dim(proc, producer_alloc, buffer_dim, size, lo)
+        proc = simplify(proc)
 
     return simplify(proc)
 
 
-def compute_at(proc, producer, consumer, target_loop):
+def compute_at(proc: Procedure, producer: str, consumer: str, target_loop: ForCursor):
     """
     Halide's compute_at is a combination of fuse_at and store_at.
+
+    Args:
+        producer/consumer   - name of the buffers for the producer/consumer stages
+        target_loop         - loop level to compute at
     """
     target_loop = proc.forward(target_loop)
     proc = fuse_at(proc, producer, consumer, target_loop)
@@ -158,21 +172,39 @@ def compute_at(proc, producer, consumer, target_loop):
 
 
 def tile(
-    proc,
-    i_loop,
-    j_loop,
-    new_i_iters,
-    new_j_iters,
-    i_tile_size,
-    j_tile_size,
-    perfect=True,
+    proc: Procedure,
+    i_loop: ForCursor,
+    j_loop: ForCursor,
+    new_i_iters: list[str],
+    new_j_iters: list[str],
+    i_tile_size: int,
+    j_tile_size: int,
+    perfect: bool = True,
 ):
     assert j_loop.parent() == i_loop
-    assert perfect, "only perfect tiling is supported"
+    assert perfect, "only perfect tiling is currently supported"
+
+    i_loop = proc.forward(i_loop)
+    j_loop = proc.forward(j_loop)
+
     proc = divide_loop(proc, i_loop, i_tile_size, new_i_iters, perfect=perfect)
     proc = divide_loop(proc, j_loop, j_tile_size, new_j_iters, perfect=perfect)
     ii_loop = proc.forward(i_loop).body()[0]
     proc = reorder_loops(proc, ii_loop)
+    return proc
+
+
+def split(
+    proc: Procedure,
+    loop: ForCursor,
+    o_iter: str,
+    i_iter: str,
+    split_factor: int,
+    perfect: bool = True,
+):
+    assert perfect, "only perfect splitting is currently supported"
+    loop = proc.forward(loop)
+    proc = divide_loop(proc, loop, split_factor, [o_iter, i_iter], perfect=True)
     return proc
 
 
@@ -181,4 +213,5 @@ __all__ = [
     "store_at",
     "compute_at",
     "tile",
+    "split",
 ]

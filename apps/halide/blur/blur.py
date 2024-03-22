@@ -3,6 +3,7 @@ from __future__ import annotations
 from exo import *
 from exo.libs.memories import DRAM_STACK
 from exo.platforms.x86 import *
+from exo.API_cursors import ForCursor
 
 from exo.stdlib.scheduling import *
 from exo.stdlib.halide_scheduling_ops import *
@@ -44,6 +45,12 @@ def divide_by_3_rule(proc, expr):
 
 def halide_vectorize(p, buffer: str, loop: str, width: int):
     loop = get_enclosing_loop_by_name(p, p.find(f"{buffer} = _"), loop)
+
+    # Ensure that it is the innermost loop
+    while len(loop.body()) == 1 and isinstance(loop.body()[0], ForCursor):
+        p = reorder_loops(p, loop)
+        loop = p.forward(loop)
+
     rules = [divide_by_3_rule]
     p = vectorize(
         p, loop, width, "ui16", AVX2, avx_ui16_insts, rules=rules, tail="perfect"
@@ -73,9 +80,7 @@ def prod_halide(p):
     p = halide_vectorize(p, "blur_x", "xi", 16)
     p = halide_vectorize(p, "blur_y", "xi", 16)
     p = set_memory(p, p.find(f"blur_x : _"), DRAM_STACK)
-    p = simplify(
-        p
-    )  # necessary because unification is not deterministic, which breaks test cases
+    p = simplify(p)  # necessary because unification is not deterministic
     return p
 
 

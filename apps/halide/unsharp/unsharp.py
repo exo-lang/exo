@@ -7,7 +7,7 @@ from exo.platforms.x86 import *
 from exo.stdlib.scheduling import *
 from exo.stdlib.halide_scheduling_ops import *
 from exo.stdlib.inspection import get_enclosing_loop_by_name
-from exo.stdlib.stdlib import vectorize, is_div, is_literal
+from exo.stdlib.stdlib import vectorize
 
 
 def halide_tile(p, buffer, y, x, yi, xi, yTile, xTile):
@@ -16,6 +16,11 @@ def halide_tile(p, buffer, y, x, yi, xi, yTile, xTile):
     x_loop = get_enclosing_loop_by_name(p, assign, x)
 
     return tile(p, y_loop, x_loop, [y, yi], [x, xi], yTile, xTile, perfect=True)
+
+
+def halide_split(p, stage, x, xo, xi, split_factor):
+    loop = get_enclosing_loop_by_name(p, p.find(f"{stage} = _"), x)
+    return split(p, loop, xo, xi, split_factor)
 
 
 def halide_compute_at(p, producer: str, consumer: str, loop: str):
@@ -42,6 +47,7 @@ def halide_vectorize(p, buffer: str, loop: str, width: int):
 
 
 # TODO: define a special case of compute_at which fully inlines computations
+# TODO: implement halide's reorder over arbitrary loop nests
 
 
 # from math import exp, pi, sqrt
@@ -53,7 +59,7 @@ def halide_vectorize(p, buffer: str, loop: str, width: int):
 
 
 @proc
-def blur(W: size, H: size, output: f32[H, W], input: f32[H + 6, W + 6, 3]):
+def unsharp(W: size, H: size, output: f32[H, W], input: f32[H + 6, W + 6, 3]):
     assert H % 32 == 0
     assert W % 256 == 0
 
@@ -100,4 +106,8 @@ def blur(W: size, H: size, output: f32[H, W], input: f32[H + 6, W + 6, 3]):
                 output[y, x] = ratio[y, x] * input[y + 3, x + 3, c]
 
 
-print(blur)
+unsharp = halide_split(unsharp, "output", "y", "y", "yi", 32)
+unsharp = halide_compute_at(unsharp, "ratio", "output", "yi")
+unsharp = halide_compute_at(unsharp, "sharpen", "ratio", "x")
+
+print(unsharp)

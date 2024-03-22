@@ -96,8 +96,8 @@ def test_schedule_blur2d(golden):
     p = blur2d_compute_root
     p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"))
     p = store_at(p, "producer", p.find_loop("j"))
-    p = unroll_loop(p, "ji")
     p = unroll_loop(p, "ii")
+    p = unroll_loop(p, "ji")
     for i in range(4):
         p = inline_assign(p, p.find("consumer[_] = _").prev())
     p = delete_buffer(p, "producer: _")
