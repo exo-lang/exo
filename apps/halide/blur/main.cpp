@@ -2,9 +2,9 @@
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <png.h>
 #include <vector>
-#include <memory>
 
 bool read_png_file(const char *filename, std::vector<uint16_t> &buffer,
     int &width, int &height) {
@@ -129,23 +129,24 @@ int main() {
     printf("width: %d\n", (int)width);
     printf("height: %d\n", (int)height);
 
-    std::vector<uint16_t> img_in ((width + 2) * (height + 2));
+    std::vector<uint16_t> img_in((width + 2) * (height + 2));
     for (int i = 0; i < height; i++) {
       memcpy(&img_in[(i + 1) * (width + 2) + 1], &buffer[i * width],
           sizeof(uint16_t) * width);
     }
 
-    std::vector<uint16_t> ref_img_out (width * height);
-    std::vector<uint16_t> img_out (width * height);
+    std::vector<uint16_t> ref_img_out(width * height);
+    std::vector<uint16_t> img_out(width * height);
     exec_blur(blur, "blur", width, height, img_in.data(), ref_img_out.data());
-    exec_blur(exo_blur_halide, "exo_blur_halide", width, height, img_in.data(), img_out.data());
+    exec_blur(exo_blur_halide, "exo_blur_halide", width, height, img_in.data(),
+        img_out.data());
 
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
         if (ref_img_out[y * width + x] != img_out[y * width + x]) {
-          std::cerr << "Mismatch at (" << x << ", " << y << "): "
-                    << ref_img_out[y * width + x] << " != " << img_out[y * width + x]
-                    << std::endl;
+          std::cerr << "Mismatch at (" << x << ", " << y
+                    << "): " << ref_img_out[y * width + x]
+                    << " != " << img_out[y * width + x] << std::endl;
           return 1;
         }
       }
