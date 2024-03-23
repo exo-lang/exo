@@ -31,7 +31,7 @@ def get_affected_dim(proc: Procedure, buffer_name: str, iter: str) -> list[int]:
     return list(dims)[0]
 
 
-def fuse_at(proc: Procedure, producer: str, consumer: str, target_loop: ForCursor):
+def fuse_at(proc: Procedure, producer: str, target_loop: ForCursor):
     """
     Computes the necessary values of producer at the level of [target_loop]
     in the consumer loop nest by fusing the two loop nests.
@@ -154,7 +154,7 @@ def store_at(proc: Procedure, producer: str, target_loop: ForCursor):
     return simplify(proc)
 
 
-def compute_at(proc: Procedure, producer: str, consumer: str, target_loop: ForCursor):
+def compute_at(proc: Procedure, producer: str, target_loop: ForCursor):
     """
     Halide's compute_at is a combination of fuse_at and store_at.
 
@@ -163,7 +163,7 @@ def compute_at(proc: Procedure, producer: str, consumer: str, target_loop: ForCu
         target_loop         - loop level to compute at
     """
     target_loop = proc.forward(target_loop)
-    proc = fuse_at(proc, producer, consumer, target_loop)
+    proc = fuse_at(proc, producer, target_loop)
 
     target_loop = proc.forward(target_loop.body()[0]).parent()
     proc = store_at(proc, producer, target_loop)

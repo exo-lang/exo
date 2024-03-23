@@ -123,19 +123,21 @@ unsharp = halide_store_at(unsharp, "ratio", "output", "y")
 # This is implicitly an inline in the Halide schedule
 unsharp = halide_compute_at(unsharp, "sharpen", "ratio", "x")
 # TODO: automate this part
-unsharp = unroll_loop(unsharp, unsharp.find_loop("yiii"))
-unsharp = unroll_loop(unsharp, unsharp.find_loop("xi"))
 unsharp = inline_assign(unsharp, unsharp.find("sharpen[_] = _"))
 unsharp = delete_buffer(unsharp, unsharp.find("sharpen: _"))
 
 # This is implicitly an inline in the Halide schedule
 unsharp = halide_compute_at(unsharp, "blur_x", "ratio", "x")
 # TODO: automate this part
-unsharp = unroll_loop(unsharp, unsharp.find_loop("yiii"))
-unsharp = unroll_loop(unsharp, unsharp.find_loop("xi"))
 unsharp = inline_assign(unsharp, unsharp.find("blur_x[_] = _"))
 unsharp = delete_buffer(unsharp, unsharp.find("blur_x: _"))
 
-# unsharp = halide_compute_at(unsharp, "sharpen", "ratio", "x")
+# TODO: when compute_at is at a higher loop level than store_at, we actually want to
+# divide and front load some work with a guard instead of divide_with_recompute.
+unsharp = halide_fuse_at(unsharp, "blur_y", "output", "yi")
+unsharp = halide_store_at(unsharp, "blur_y", "output", "y")
+
+unsharp = halide_fuse_at(unsharp, "gray", "output", "yi")
+unsharp = halide_store_at(unsharp, "gray", "output", "y")
 
 print(unsharp)
