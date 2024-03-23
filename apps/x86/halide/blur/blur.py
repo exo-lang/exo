@@ -21,7 +21,7 @@ def halide_tile(p, buffer, y, x, yi, xi, yTile, xTile):
 
 def halide_compute_at(p, producer: str, consumer: str, loop: str):
     x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
-    return compute_at(p, producer, consumer, x_loop)
+    return compute_at(p, producer, x_loop)
 
 
 def halide_parallel(p, loop: str):

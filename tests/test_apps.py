@@ -51,5 +51,5 @@ def test_gemmini_conv(golden):
 
 
 def test_blur(golden):
-    module_file = REPO_ROOT / "apps" / "halide" / "blur" / "blur.py"
+    module_file = REPO_ROOT / "apps" / "x86" / "halide" / "blur" / "blur.py"
     assert _test_app(module_file) == golden

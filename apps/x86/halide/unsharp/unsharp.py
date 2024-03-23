@@ -23,9 +23,19 @@ def halide_split(p, stage, x, xo, xi, split_factor):
     return split(p, loop, xo, xi, split_factor)
 
 
+def halide_fuse_at(p, producer: str, consumer: str, loop: str):
+    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
+    return fuse_at(p, producer, x_loop)
+
+
+def halide_store_at(p, producer: str, consumer: str, loop: str):
+    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
+    return store_at(p, producer, x_loop)
+
+
 def halide_compute_at(p, producer: str, consumer: str, loop: str):
     x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
-    return compute_at(p, producer, consumer, x_loop)
+    return compute_at(p, producer, x_loop)
 
 
 def halide_parallel(p, loop: str):
@@ -107,7 +117,25 @@ def unsharp(W: size, H: size, output: f32[H, W], input: f32[H + 6, W + 6, 3]):
 
 
 unsharp = halide_split(unsharp, "output", "y", "y", "yi", 32)
-unsharp = halide_compute_at(unsharp, "ratio", "output", "yi")
+unsharp = halide_fuse_at(unsharp, "ratio", "output", "yi")
+unsharp = halide_store_at(unsharp, "ratio", "output", "y")
+
+# This is implicitly an inline in the Halide schedule
 unsharp = halide_compute_at(unsharp, "sharpen", "ratio", "x")
+# TODO: automate this part
+unsharp = unroll_loop(unsharp, unsharp.find_loop("yiii"))
+unsharp = unroll_loop(unsharp, unsharp.find_loop("xi"))
+unsharp = inline_assign(unsharp, unsharp.find("sharpen[_] = _"))
+unsharp = delete_buffer(unsharp, unsharp.find("sharpen: _"))
+
+# This is implicitly an inline in the Halide schedule
+unsharp = halide_compute_at(unsharp, "blur_x", "ratio", "x")
+# TODO: automate this part
+unsharp = unroll_loop(unsharp, unsharp.find_loop("yiii"))
+unsharp = unroll_loop(unsharp, unsharp.find_loop("xi"))
+unsharp = inline_assign(unsharp, unsharp.find("blur_x[_] = _"))
+unsharp = delete_buffer(unsharp, unsharp.find("blur_x: _"))
+
+# unsharp = halide_compute_at(unsharp, "sharpen", "ratio", "x")
 
 print(unsharp)
