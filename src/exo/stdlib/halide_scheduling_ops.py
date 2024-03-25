@@ -31,7 +31,7 @@ def get_affected_dim(proc: Procedure, buffer_name: str, iter: str) -> list[int]:
     return list(dims)[0]
 
 
-def fuse_at(proc: Procedure, producer: str, target_loop: ForCursor):
+def compute_at(proc: Procedure, producer: str, target_loop: ForCursor):
     """
     Computes the necessary values of producer at the level of [target_loop]
     in the consumer loop nest by fusing the two loop nests.
@@ -154,16 +154,17 @@ def store_at(proc: Procedure, producer: str, target_loop: ForCursor):
     return simplify(proc)
 
 
-def compute_at(proc: Procedure, producer: str, target_loop: ForCursor):
+def compute_and_store_at(proc: Procedure, producer: str, target_loop: ForCursor):
     """
-    Halide's compute_at is a combination of fuse_at and store_at.
+    Calling Halide's compute_at without a corresponding store_at is implicitly a combination
+    of compute_at and store_at.
 
     Args:
         producer/consumer   - name of the buffers for the producer/consumer stages
         target_loop         - loop level to compute at
     """
     target_loop = proc.forward(target_loop)
-    proc = fuse_at(proc, producer, target_loop)
+    proc = compute_at(proc, producer, target_loop)
 
     target_loop = proc.forward(target_loop.body()[0]).parent()
     proc = store_at(proc, producer, target_loop)
@@ -208,10 +209,62 @@ def split(
     return proc
 
 
+def halide_tile(p, buffer, y, x, yi, xi, yTile, xTile):
+    assign = p.find(f"{buffer} = _")
+    y_loop = get_enclosing_loop_by_name(p, assign, y)
+    x_loop = get_enclosing_loop_by_name(p, assign, x)
+
+    return tile(p, y_loop, x_loop, [y, yi], [x, xi], yTile, xTile, perfect=True)
+
+
+def halide_split(p, stage, x, xo, xi, split_factor):
+    loop = get_enclosing_loop_by_name(p, p.find(f"{stage} = _"), x)
+    return split(p, loop, xo, xi, split_factor)
+
+
+def halide_compute_at(p, producer: str, consumer: str, loop: str):
+    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
+    return compute_at(p, producer, x_loop)
+
+
+def halide_store_at(p, producer: str, consumer: str, loop: str):
+    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
+    return store_at(p, producer, x_loop)
+
+
+def halide_compute_and_store_at(p, producer: str, consumer: str, loop: str):
+    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
+    return compute_and_store_at(p, producer, x_loop)
+
+
+def halide_fully_inline(p, producer: str, consumer: str):
+    loop = get_enclosing_loop(p, p.find(f"{consumer} = _"))
+    p = compute_and_store_at(p, producer, loop)
+
+    # TODO: currently assumes consumer only uses one producer value
+    p = inline_assign(p, p.find(f"{producer}[_] = _"))
+    p = delete_buffer(p, p.find(f"{producer}: _"))
+
+    return p
+
+
+def halide_parallel(p, loop: str):
+    return parallelize_loop(p, p.find_loop(loop))
+
+
+# TODO: implement halide's reorder over arbitrary loop nests
+
 __all__ = [
-    "fuse_at",
-    "store_at",
     "compute_at",
+    "store_at",
+    "compute_and_store_at",
     "tile",
     "split",
+    "halide_tile",
+    "halide_split",
+    "halide_compute_at",
+    "halide_store_at",
+    "halide_compute_and_store_at",
+    "halide_fully_inline",
+    "halide_parallel",
 ]

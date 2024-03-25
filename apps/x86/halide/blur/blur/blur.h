@@ -44,14 +44,14 @@ struct exo_win_1ui16c {
 void blur(void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t *blur_y,
     const uint16_t *inp);
 
-// exo_blur_halide(
+// exo_blur(
 //     W : size,
 //     H : size,
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_blur_halide(void *ctxt, int_fast32_t W, int_fast32_t H,
-    uint16_t *blur_y, const uint16_t *inp);
+void exo_blur(void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t *blur_y,
+    const uint16_t *inp);
 
 #ifdef __cplusplus
 }

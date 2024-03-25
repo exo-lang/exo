@@ -27,13 +27,30 @@ extern "C" {
 #define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
-// unsharp(
+struct exo_win_1f32 {
+  float *const data;
+  const int_fast32_t strides[1];
+};
+struct exo_win_1f32c {
+  const float *const data;
+  const int_fast32_t strides[1];
+};
+// exo_base_unsharp(
 //     W : size,
 //     H : size,
-//     output : f32[H, W] @DRAM,
-//     input : f32[H + 6, W + 6, 3] @DRAM
+//     output : f32[3, H, W] @DRAM,
+//     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void unsharp(void *ctxt, int_fast32_t W, int_fast32_t H, float *output,
+void exo_base_unsharp(void *ctxt, int_fast32_t W, int_fast32_t H, float *output,
+    const float *input);
+
+// exo_unsharp(
+//     W : size,
+//     H : size,
+//     output : f32[3, H, W] @DRAM,
+//     input : f32[3, H + 6, W + 6] @DRAM
+// )
+void exo_unsharp(void *ctxt, int_fast32_t W, int_fast32_t H, float *output,
     const float *input);
 
 #ifdef __cplusplus
