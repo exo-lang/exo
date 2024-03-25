@@ -612,8 +612,10 @@ def test_rearrange_dim_fail():
                 for k in seq(0, K):
                     a[n, m, k] = x[n, m, k]
 
-    with pytest.raises(ValueError, match="was not a permutation of"):
-        rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
+    perm = [1, 1, 0]
+    for p in (perm, perm + [2]):
+        with pytest.raises(ValueError, match="was not a permutation of"):
+            rearrange_dim(foo, "a : i8[_]", p)
 
 
 def test_rearrange_dim_fail2():
