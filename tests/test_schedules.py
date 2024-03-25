@@ -172,6 +172,7 @@ def test_delete_pass(golden):
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
+    assert str(delete_pass(delete_pass(foo))) == golden
 
     @proc
     def foo(x: R):
@@ -181,6 +182,7 @@ def test_delete_pass(golden):
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
+    assert str(delete_pass(delete_pass(foo))) == golden
 
     @proc
     def foo(x: R):
@@ -193,6 +195,7 @@ def test_delete_pass(golden):
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
+    assert str(delete_pass(delete_pass(foo))) == golden
 
 
 def test_delete_pass_1(golden):
