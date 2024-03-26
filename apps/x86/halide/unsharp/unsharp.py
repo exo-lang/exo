@@ -45,12 +45,11 @@ def halide_vectorize(p, buffer: str, loop: str, width: int):
 
 
 @proc
-def exo_base_unsharp(
+def exo_unsharp_base(
     W: size, H: size, output: f32[3, H, W], input: f32[3, H + 6, W + 6]
 ):
+    # TODO: remove the H % 32 constraint and handle tail cases in the y direction
     assert H % 32 == 0
-    assert W % 256 == 0
-
     # constants
     rgb_to_gray: f32[3]
     rgb_to_gray[0] = 0.299
@@ -113,38 +112,52 @@ def exo_base_unsharp(
 
 
 def halide_schedule(p):
-    p = halide_split(p, "output", "y", "y", "yi", 32)
+    p = halide_split(p, "output", "y", "y", "yi", 32, tail="perfect")
     p = halide_parallel(p, "y")
 
-    p = halide_compute_at(p, "ratio", "output", "yi")
-    p = halide_store_at(p, "ratio", "output", "y")
+    p = halide_compute_and_store_at(p, "ratio", "output", "yi")
+    p = lift_alloc(p, "ratio")
 
     p = halide_fully_inline(p, "sharpen", "ratio")
     p = halide_fully_inline(p, "blur_x", "ratio")
 
-    p = halide_compute_at(p, "blur_y", "output", "yi")
-    p = halide_store_at(p, "blur_y", "output", "y")
+    p = halide_compute_and_store_at(p, "blur_y", "output", "yi")
+    p = lift_alloc(p, "blur_y")
+
+    p = halide_compute_and_store_at(p, "gray", "output", "y")
 
     # TODO: when compute_at is at a higher loop level than store_at, we actually want to
     # divide and front load some work with a guard instead of divide_with_recompute. In this
     # schedule, we only need to do it manually for gray since the other stages don't need to
     # do redundant work, but in general, this should be automated.
-    p = halide_compute_at(p, "gray", "output", "y")
+    p_loop = get_enclosing_loop_by_name(p, p.find("gray = _"), "yi")
+    c_loop = get_enclosing_loop_by_name(p, p.find("output = _"), "yi")
+    hi = str(c_loop.hi()._impl._node)
 
-    p = cut_loop(p, p.find_loop("yi"), 6)
-    main_yi_loop = p.find_loop("yi #1")
-    for i in range(2):
-        p = reorder_stmts(p, main_yi_loop.expand(0, 1))
-        main_yi_loop = p.forward(main_yi_loop)
-    p = shift_loop(p, main_yi_loop, 0)
+    while p_loop.next() != c_loop:
+        p = reorder_stmts(p, p_loop.expand(0, 1))
+        p_loop = p.forward(p_loop)
+        c_loop = p.forward(c_loop)
+
+    p = cut_loop(p, p_loop, 6)  # determine 6 from bounds
+    prologue_loop = p.forward(p_loop)
+    main_loop = prologue_loop.next()
+    p = shift_loop(p, main_loop, 0)
     p = simplify(p)
-    p = fuse(p, main_yi_loop, main_yi_loop.next())
+    p = fuse(p, main_loop, main_loop.next())
 
-    p = halide_store_at(p, "gray", "output", "y")
+    p = add_loop(
+        p, prologue_loop, "y_i", hi, guard=True
+    )  # TODO: some bug with vectorize when nested loops have same Sym name
+    prologue_loop = p.forward(prologue_loop).parent()
+    p = fuse(p, prologue_loop, prologue_loop.next())
 
     print("Before vectorization:\n")
     print(p)
+    return p
 
+
+def vectorize_schedule(p):
     p = halide_vectorize(p, "gray", "x", 8)
     p = halide_vectorize(p, "gray", "x", 8)
     p = halide_vectorize(p, "blur_y", "x", 8)
@@ -156,4 +169,7 @@ def halide_schedule(p):
     return p
 
 
-exo_unsharp = rename(halide_schedule(exo_base_unsharp), "exo_unsharp")
+exo_unsharp = rename(halide_schedule(exo_unsharp_base), "exo_unsharp")
+exo_unsharp_vectorized = rename(
+    vectorize_schedule(exo_unsharp), "exo_unsharp_vectorized"
+)

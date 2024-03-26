@@ -17,7 +17,7 @@ def get_affected_dim(proc: Procedure, buffer_name: str, iter: str) -> list[int]:
     """
     dims = set()
     # TODO: this only matches against writes
-    for c in proc.find(f"{buffer_name}[_] = _", many=True):
+    for c in proc.find(f"{buffer_name} = _", many=True):
         for idx, idx_expr in enumerate(c.idx()):
             idx_vars = [
                 name.name() for (name, _) in get_reads_of_expr(idx_expr._impl._node)
@@ -31,7 +31,7 @@ def get_affected_dim(proc: Procedure, buffer_name: str, iter: str) -> list[int]:
     return list(dims)[0]
 
 
-def compute_at(proc: Procedure, producer: str, target_loop: ForCursor):
+def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForCursor):
     """
     Computes the necessary values of producer at the level of [target_loop]
     in the consumer loop nest by fusing the two loop nests.
@@ -39,9 +39,9 @@ def compute_at(proc: Procedure, producer: str, target_loop: ForCursor):
     Example transformation:
         for i in _:
             for j in _:
-                producer[_] = ...
+                producer[_] = ... # producer_assign
         for io in _:
-            for jo in _:
+            for jo in _: # target_loop
                 for ii in _:
                     for ji in _:
                         consumer[_] = ...
@@ -58,16 +58,20 @@ def compute_at(proc: Procedure, producer: str, target_loop: ForCursor):
     TODO: add returning relevant cursors
     """
 
+    producer_assign = proc.forward(producer_assign)
     target_loop = proc.forward(target_loop)
-    p_assign = proc.find(f"{producer}[_] = _")
-    p_loop = get_top_level_stmt(proc, p_assign)
+
+    producer = producer_assign.name()
+    p_loop = get_top_level_stmt(proc, producer_assign)
     c_loops = [target_loop] + list(get_parents(proc, target_loop, up_to=None))
 
     assert p_loop.next() == c_loops[-1], "loop nests must be consecutive"
 
     for c_loop in reversed(c_loops):
         c_loop = proc.forward(c_loop)
-        p_loop = get_enclosing_loop_by_name(proc, proc.forward(p_assign), c_loop.name())
+        p_loop = get_enclosing_loop_by_name(
+            proc, proc.forward(producer_assign), c_loop.name()
+        )
 
         # Reorder producer loop up to consumer loop level and adjacent
         while p_loop.parent() != c_loop.parent():
@@ -96,7 +100,7 @@ def compute_at(proc: Procedure, producer: str, target_loop: ForCursor):
 
         # TODO: Try to simplify the expressions without needing this.
         # This would also remove the need for the LoopIR import.
-        for pred in p_assign._impl.get_root().preds:
+        for pred in proc._loopir_proc.preds:
             if (
                 isinstance(pred, LoopIR.BinOp)
                 and pred.op == "=="
@@ -111,13 +115,43 @@ def compute_at(proc: Procedure, producer: str, target_loop: ForCursor):
     return simplify(proc)
 
 
-def store_at(proc: Procedure, producer: str, target_loop: ForCursor):
+def compute_at_with_prologue(proc: Procedure, producer: str, target_loop: ForCursor):
+    """
+    Computes the necessary values of producer at the level of [target_loop]
+    in the consumer loop nest by fusing the two loop nests.
+    """
+    p_loop = get_enclosing_loop_by_name(p, p.find(f"{producer} = _"), "yi")
+    target_loop = proc.forward(target_loop)
+
+    buffer_dim = get_affected_dim(proc, producer, c_loop.name())
+    bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
+    w_c = bounds.get_stride_of(c_loop._impl._node.iter)
+
+    p = cut_loop(p, p_loop, w_c - 1)  # determine 6 from bounds
+    prologue_loop = p.forward(p_loop)
+    main_loop = prologue_loop.next()
+    p = shift_loop(p, main_loop, 0)
+    p = simplify(p)
+    p = fuse(p, main_loop, main_loop.next())
+
+    p = add_loop(
+        p, prologue_loop, "y_i", hi, guard=True
+    )  # TODO: some bug with vectorize when nested loops have same Sym name
+    prologue_loop = p.forward(prologue_loop).parent()
+    p = fuse(p, prologue_loop, prologue_loop.next())
+
+    pass
+
+
+def store_at(proc: Procedure, producer_alloc: AllocCursor, target_loop: ForCursor):
     """
     Moves [producer]'s allocation into [target_loop] and reduces the dimensions
     as necessary.
     """
+    producer_alloc = proc.forward(producer_alloc)
     target_loop = proc.forward(target_loop)
-    producer_alloc = proc.find(f"{producer}:_")
+
+    producer = producer_alloc.name()
 
     def loops_between(producer_alloc, target_loop):
         """
@@ -164,10 +198,12 @@ def compute_and_store_at(proc: Procedure, producer: str, target_loop: ForCursor)
         target_loop         - loop level to compute at
     """
     target_loop = proc.forward(target_loop)
-    proc = compute_at(proc, producer, target_loop)
+    producer_assign = proc.find(f"{producer} = _")
+    proc = compute_at(proc, producer_assign, target_loop)
 
+    producer_alloc = proc.find(f"{producer} : _")
     target_loop = proc.forward(target_loop.body()[0]).parent()
-    proc = store_at(proc, producer, target_loop)
+    proc = store_at(proc, producer_alloc, target_loop)
 
     return proc
 
@@ -201,11 +237,13 @@ def split(
     o_iter: str,
     i_iter: str,
     split_factor: int,
-    perfect: bool = True,
+    tail: str,
 ):
-    assert perfect, "only perfect splitting is currently supported"
     loop = proc.forward(loop)
-    proc = divide_loop(proc, loop, split_factor, [o_iter, i_iter], perfect=True)
+    if tail == "perfect":
+        proc = divide_loop(proc, loop, split_factor, [o_iter, i_iter], perfect=True)
+    else:
+        proc = divide_loop(proc, loop, split_factor, [o_iter, i_iter], tail=tail)
     return proc
 
 
@@ -217,24 +255,31 @@ def halide_tile(p, buffer, y, x, yi, xi, yTile, xTile):
     return tile(p, y_loop, x_loop, [y, yi], [x, xi], yTile, xTile, perfect=True)
 
 
-def halide_split(p, stage, x, xo, xi, split_factor):
+def halide_split(
+    p, stage: str, x: str, xo: str, xi: str, split_factor: int, tail: str = "perfect"
+):
+    """
+    tail can be {"perfect", "cut", "guard", "cut_and_guard"}
+    """
     loop = get_enclosing_loop_by_name(p, p.find(f"{stage} = _"), x)
-    return split(p, loop, xo, xi, split_factor)
+    return split(p, loop, xo, xi, split_factor, tail)
 
 
 def halide_compute_at(p, producer: str, consumer: str, loop: str):
-    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
-    return compute_at(p, producer, x_loop)
+    producer_assign = p.find(f"{producer} = _")
+    target_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
+    return compute_at(p, producer_assign, target_loop)
 
 
 def halide_store_at(p, producer: str, consumer: str, loop: str):
-    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
-    return store_at(p, producer, x_loop)
+    target_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
+    producer_alloc = p.find(f"{producer} : _")
+    return store_at(p, producer_alloc, target_loop)
 
 
 def halide_compute_and_store_at(p, producer: str, consumer: str, loop: str):
-    x_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
-    return compute_and_store_at(p, producer, x_loop)
+    target_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
+    return compute_and_store_at(p, producer, target_loop)
 
 
 def halide_fully_inline(p, producer: str, consumer: str):
@@ -242,7 +287,7 @@ def halide_fully_inline(p, producer: str, consumer: str):
     p = compute_and_store_at(p, producer, loop)
 
     # TODO: currently assumes consumer only uses one producer value
-    p = inline_assign(p, p.find(f"{producer}[_] = _"))
+    p = inline_assign(p, p.find(f"{producer} = _"))
     p = delete_buffer(p, p.find(f"{producer}: _"))
 
     return p

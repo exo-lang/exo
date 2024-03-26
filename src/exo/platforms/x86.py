@@ -584,10 +584,10 @@ def avx2_ui16_divide_by_3(out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2):
 @instr(
     """
 {{
-    __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
-    __m256i prefix = _mm256_set1_epi32({bound});
-    __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-    {dst_data} = _mm256_maskload_ps(&{src_data}, cmp);
+__m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
+__m256i prefix = _mm256_set1_epi32({bound});
+__m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
+{dst_data} = _mm256_maskload_ps(&{src_data}, cmp);
 }}
 """
 )
@@ -602,13 +602,13 @@ def mm256_prefix_load_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ DRAM, bound: size
 
 @instr(
     """
-    {{
-    __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
-    __m256i prefix = _mm256_set1_epi32({bound});
-    __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-    _mm256_maskstore_ps(&{dst_data}, cmp, {src_data});
-    }}
-    """
+{{
+__m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
+__m256i prefix = _mm256_set1_epi32({bound});
+__m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
+_mm256_maskstore_ps(&{dst_data}, cmp, {src_data});
+}}
+"""
 )
 def mm256_prefix_store_ps(dst: [f32][8] @ DRAM, src: [f32][8] @ AVX2, bound: size):
     assert stride(dst, 0) == 1
