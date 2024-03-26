@@ -1,0 +1,3 @@
+def foo(n: size, A: i8[n] @ DRAM):
+    for io in seq(0, n):
+        A[io] = 1.0
