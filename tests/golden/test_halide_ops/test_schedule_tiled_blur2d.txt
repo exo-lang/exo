@@ -21,8 +21,8 @@ def blur2d_tiled_compute_at_i(n: size, consumer: i8[n, n] @ DRAM,
     assert n % 4 == 0
     producer: i8[1 + n, 1 + n] @ DRAM
     for i in seq(0, n / 4):
-        for j in seq(0, 1 + n):
-            for ii in seq(0, 5):
+        for ii in seq(0, 5):
+            for j in seq(0, 1 + n):
                 producer[ii + 4 * i, j] = sin[ii + 4 * i, j]
         for j in seq(0, n / 4):
             for ii in seq(0, 4):
@@ -39,8 +39,8 @@ def blur2d_tiled_compute_at_j(n: size, consumer: i8[n, n] @ DRAM,
     producer: i8[1 + n, 1 + n] @ DRAM
     for i in seq(0, n / 4):
         for j in seq(0, n / 4):
-            for ii in seq(0, 5):
-                for ji in seq(0, 5):
+            for ji in seq(0, 5):
+                for ii in seq(0, 5):
                     producer[ii + 4 * i, ji + 4 * j] = sin[ii + 4 * i,
                                                            ji + 4 * j]
             for ii in seq(0, 4):
@@ -58,8 +58,8 @@ def blur2d_tiled_compute_at_ii(n: size, consumer: i8[n, n] @ DRAM,
     for i in seq(0, n / 4):
         for j in seq(0, n / 4):
             for ii in seq(0, 4):
-                for ji in seq(0, 5):
-                    for iii in seq(0, 2):
+                for iii in seq(0, 2):
+                    for ji in seq(0, 5):
                         producer[ii + iii + 4 * i,
                                  ji + 4 * j] = sin[ii + iii + 4 * i,
                                                    ji + 4 * j]
@@ -78,8 +78,8 @@ def blur2d_tiled_compute_at_ji(n: size, consumer: i8[n, n] @ DRAM,
         for j in seq(0, n / 4):
             for ii in seq(0, 4):
                 for ji in seq(0, 4):
-                    for iii in seq(0, 2):
-                        for jii in seq(0, 2):
+                    for jii in seq(0, 2):
+                        for iii in seq(0, 2):
                             producer[ii + iii + 4 * i,
                                      ji + jii + 4 * j] = sin[ii + iii + 4 * i,
                                                              ji + jii + 4 * j]
@@ -97,8 +97,8 @@ def blur2d_tiled_compute_at_and_store_at_ji(n: size, consumer: i8[n, n] @ DRAM,
             for ii in seq(0, 4):
                 for ji in seq(0, 4):
                     producer: i8[2, 2] @ DRAM
-                    for iii in seq(0, 2):
-                        for jii in seq(0, 2):
+                    for jii in seq(0, 2):
+                        for iii in seq(0, 2):
                             producer[iii, jii] = sin[ii + iii + 4 * i,
                                                      ji + jii + 4 * j]
                     consumer[ii + 4 * i, ji +
