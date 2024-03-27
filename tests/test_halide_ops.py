@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 
 from exo import proc
 from exo.platforms.x86 import *
@@ -25,13 +26,14 @@ def test_schedule_blur1d(golden):
     procs = []
 
     loop = p.find_loop("i #1")
-    p = fuse_at(p, "producer", "consumer", loop)
+    producer_assign = p.find("producer = _")
+    p = compute_at(p, producer_assign, loop)
     p = rename(p, "blur1d_compute_at_store_root")
     procs.append(p)
 
     loop = p.find_loop("i")
-    p_bounds = (0, "i", 0, 2)
-    p = store_at(p, "producer", loop)
+    producer_alloc = p.find("producer : _")
+    p = store_at(p, producer_alloc, loop)
     p = rename(p, "blur1d_compute_at")
     procs.append(p)
 
@@ -71,33 +73,37 @@ def test_schedule_blur2d(golden):
     p = blur2d_compute_root
     procs = []
 
-    p = fuse_at(p, "producer", "consumer", p.find_loop("i #1"))
+    producer_assign = p.find("producer = _")
+    producer_alloc = p.find("producer : _")
+
+    p = compute_at(p, producer_assign, p.find_loop("i #1"))
     p = rename(p, "blur2d_compute_at_i_store_root")
     procs.append(p)
 
     p = blur2d_compute_root
-    p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"))
+    p = compute_at(p, producer_assign, p.find_loop("j #1"))
     p = rename(p, "blur2d_compute_at_j_store_root")
     procs.append(p)
 
     p = blur2d_compute_root
-    p = fuse_at(p, "producer", "consumer", p.find_loop("i #1"))
-    p = store_at(p, "producer", p.find_loop("i"))
+    p = compute_at(p, producer_assign, p.find_loop("i #1"))
+    p = store_at(p, producer_alloc, p.find_loop("i"))
     p = rename(p, "blur2d_compute_at_i")
     procs.append(p)
 
     p = blur2d_compute_root
-    p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"))
-    p = store_at(p, "producer", p.find_loop("i"))
+    p = compute_at(p, producer_assign, p.find_loop("j #1"))
+    p = store_at(p, producer_alloc, p.find_loop("i"))
     p = simplify(p)
     p = rename(p, "blur2d_compute_at_j_store_at_i")
     procs.append(p)
 
     p = blur2d_compute_root
-    p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"))
-    p = store_at(p, "producer", p.find_loop("j"))
-    p = unroll_loop(p, "ji")
+    p = compute_at(p, producer_assign, p.find_loop("j #1"))
+    p = store_at(p, producer_alloc, p.find_loop("j"))
     p = unroll_loop(p, "ii")
+    p = unroll_loop(p, "ji")
+    print(p)
     for i in range(4):
         p = inline_assign(p, p.find("consumer[_] = _").prev())
     p = delete_buffer(p, "producer: _")
@@ -107,6 +113,7 @@ def test_schedule_blur2d(golden):
     assert "\n\n".join([str(p) for p in procs]) == golden
 
 
+@pytest.mark.slow
 def test_schedule_tiled_blur2d(golden):
     compute_root = blur2d_compute_root
     procs = []
@@ -122,33 +129,36 @@ def test_schedule_tiled_blur2d(golden):
         perfect=True,
     )
 
+    producer_assign = p_tiled.find("producer = _")
+    producer_alloc = p_tiled.find("producer : _")
+
     p = p_tiled
     p = rename(p, "blur2d_tiled")
     procs.append(p)
 
     p = p_tiled
-    p = fuse_at(p, "producer", "consumer", p.find_loop("i #1"))
+    p = compute_at(p, producer_assign, p.find_loop("i #1"))
     p = rename(p, "blur2d_tiled_compute_at_i")
     procs.append(p)
 
     p = p_tiled
-    p = fuse_at(p, "producer", "consumer", p.find_loop("j #1"))
+    p = compute_at(p, producer_assign, p.find_loop("j #1"))
     p = rename(p, "blur2d_tiled_compute_at_j")
     procs.append(p)
 
     p = p_tiled
-    p = fuse_at(p, "producer", "consumer", p.find_loop("ii"))
+    p = compute_at(p, producer_assign, p.find_loop("ii"))
     p = rename(p, "blur2d_tiled_compute_at_ii")
     procs.append(p)
 
     p = p_tiled
-    p = fuse_at(p, "producer", "consumer", p.find_loop("ji"))
+    p = compute_at(p, producer_assign, p.find_loop("ji"))
     p = rename(p, "blur2d_tiled_compute_at_ji")
     procs.append(p)
 
     p = p_tiled
-    p = fuse_at(p, "producer", "consumer", p.find_loop("ji"))
-    p = store_at(p, "producer", p.find_loop("ji"))
+    p = compute_at(p, producer_assign, p.find_loop("ji"))
+    p = store_at(p, producer_alloc, p.find_loop("ji"))
     p = rename(p, "blur2d_tiled_compute_at_and_store_at_ji")
     procs.append(p)
 

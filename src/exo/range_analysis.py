@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 
 from .LoopIR import LoopIR, T, LoopIR_Compare
 from .new_eff import Check_ExprBound
+from .prelude import Sym
 
 
 def binop(op: str, e1: LoopIR.expr, e2: LoopIR.expr):
@@ -37,6 +38,34 @@ class IndexRange:
             lo = "-inf" if self.lo is None else f"{self.base} + {self.lo}"
             hi = "inf" if self.hi is None else f"{self.base} + {self.hi + 1}"
         return lo, hi
+
+    def get_stride_of(self, idx: Sym) -> int:
+        assert isinstance(idx, Sym)
+
+        def get_coeff(e):
+            if isinstance(e, LoopIR.Read):
+                return 1 if e.name == idx else 0
+            elif isinstance(e, LoopIR.Const):
+                return e.val
+            elif isinstance(e, LoopIR.BinOp):
+                lhs = get_coeff(e.lhs)
+                rhs = get_coeff(e.rhs)
+                op = e.op
+                if op == "+":
+                    return lhs + rhs
+                elif op == "-":
+                    return lhs - rhs
+                elif op == "*":
+                    return lhs * rhs
+                else:
+                    raise ValueError(
+                        f"cannot get stride of {idx} because {e} contains an unsupported operand '{op}'"
+                    )
+            elif isinstance(e, LoopIR.USub):
+                return -get_coeff(e.arg)
+            return 0
+
+        return get_coeff(self.base)
 
     def get_size(self) -> int:
         if self.lo is None or self.hi is None:
