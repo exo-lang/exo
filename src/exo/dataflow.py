@@ -26,13 +26,14 @@ module AbstractDomains {
           | BinOp( binop op, mexpr lhs, mexpr rhs )
           | Array( mexpr arg, sym idx ) -- !!This is not enough b/c we'd like to be able to affine-index-access arrays, but is a literal implementation of Fluid update
     path = ( aexpr constraints, mexpr tgt )
-    env   = ( sym *dims, path* paths ) -- This can handle index access uniformly!
+    env   = ( avar *dims, path* paths ) -- This can handle index access uniformly!
 }
 """,
     ext_types={
         "type": LoopIR.type,
         "sym": Sym,
         "aexpr": A.expr,
+        "avar": A.Var,
         "binop": validators.instance_of(Operator, convert=True),
     },
     memoize={},
@@ -281,23 +282,32 @@ del __str__
 
 
 def update(env: D, rval: list[D.path]):
+    pre_paths = [p for p in env.paths]
+    rval_paths = [p for p in rval]
+
+    merge_paths = []
+    for pre_path in env.paths:
+        for rval_path in rval:
+            pre_cons = pre_path.constraints.simplify()
+            rval_cons = rval_path.constraints.simplify()
+
+            if pre_cons == rval_cons:
+                merge_paths.append(D.path(rval_cons, rval_path.tgt))
+                pre_paths.remove(pre_path)
+                rval_paths.remove(rval_path)
+
+    return D.env(env.dims, pre_paths + merge_paths + rval_paths)
+
+
+def bind_cons(cons: A.expr, rval: list[D.path]):
     new_paths = []
 
-    for path in env.paths:
-        # if path.tgt is already in new_paths, skip.
-        for p in rval:
-            new_cons = A.BinOp(
-                "and", path.constraints, p.constraints, T.bool, null_srcinfo()
-            )
-            if isinstance(path.tgt, D.Unk):
-                new_paths.append(D.path(new_cons, p.tgt))
-            elif isinstance(p.tgt, D.Unk):
-                new_paths.append(D.path(new_cons, path.tgt))
-            else:
-                assert isinstance(path.tgt, D.Const) and isinstance(p.tgt, D.Const)
-                new_paths.append(D.path(new_cons, p.tgt))
+    for path in rval:
+        new_cons = A.BinOp("and", path.constraints, cons, T.bool, null_srcinfo())
+        new_path = D.path(new_cons.simplify(), path.tgt)
+        new_paths.append(new_path)
 
-    return D.env(env.dims, new_paths)
+    return new_paths
 
 
 class AbstractInterpretation(ABC):
@@ -338,7 +348,18 @@ class AbstractInterpretation(ABC):
             # now we can handle both cases uniformly
             rval = self.fix_expr(pre_env, rhs_e)
 
-            # TODO: Handle constraints!
+            # Handle constraints
+            cons = A.Const(True, T.bool, null_srcinfo())
+            for b, e in zip(pre_env[stmt.name].dims, stmt.idx):
+                if isinstance(e, DataflowIR.Const):
+                    e = A.Const(e.val, e.type, null_srcinfo())
+                else:
+                    assert False, "???"
+                eq = A.BinOp("==", b, e, T.bool, null_srcinfo())
+                cons = A.BinOp("and", cons, eq, T.bool, null_srcinfo())
+
+            rval = bind_cons(cons, rval)
+
             post_env[stmt.name] = update(pre_env[stmt.name], rval)
 
             # propagate un-touched variables
@@ -500,7 +521,7 @@ def make_empty_path(me: D.mexpr) -> D.path:
 
 
 def make_unk() -> D.path:
-    return [D.path(A.Const(True, T.bool, null_srcinfo()), D.Unk())]
+    return []
 
 
 class ConstantPropagation(AbstractInterpretation):
@@ -508,7 +529,9 @@ class ConstantPropagation(AbstractInterpretation):
         if isinstance(typ, T.Tensor):
             dims = []
             for i in range(len(typ.hi)):
-                dims.append(Sym(name.name() + "_" + str(i)))
+                dims.append(
+                    A.Var(Sym(name.name() + "_" + str(i)), T.index, null_srcinfo())
+                )
             return D.env(dims, make_unk())
         else:
             return D.env([], make_unk())
@@ -517,7 +540,9 @@ class ConstantPropagation(AbstractInterpretation):
         if isinstance(typ, T.Tensor):
             dims = []
             for i in range(len(typ.hi)):
-                dims.append(Sym(name.name() + "_" + str(i)))
+                dims.append(
+                    A.Var(Sym(name.name() + "_" + str(i)), T.index, null_srcinfo())
+                )
             return D.env(dims, make_unk())
         else:
             return D.env([], make_unk())
@@ -538,6 +563,7 @@ class ConstantPropagation(AbstractInterpretation):
 
         new_paths = []
         old_paths = lval.paths + rval.paths
+        # TODO: Use "update" somehow
         for path in old_paths:
             # if path.tgt is already in new_paths, skip.
             for p in new_paths:

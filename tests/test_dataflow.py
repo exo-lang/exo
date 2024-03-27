@@ -15,6 +15,20 @@ def test_simple():
     print()
 
 
+def test_simple2():
+    @proc
+    def foo(z: R, x: R[3]):
+        z = 4.2
+        x[0] = 2.0
+        x[1] = 3.0
+        x[2] = 5.0
+        x[0] = 12.0
+
+    print()
+    print(foo.dataflow())
+    print()
+
+
 def test_print():
     @proc
     def foo(x: R[3], y: R[3], z: R):
