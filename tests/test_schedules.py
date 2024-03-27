@@ -172,6 +172,7 @@ def test_delete_pass(golden):
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
+    assert str(delete_pass(delete_pass(foo))) == golden
 
     @proc
     def foo(x: R):
@@ -181,6 +182,7 @@ def test_delete_pass(golden):
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
+    assert str(delete_pass(delete_pass(foo))) == golden
 
     @proc
     def foo(x: R):
@@ -193,6 +195,7 @@ def test_delete_pass(golden):
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
+    assert str(delete_pass(delete_pass(foo))) == golden
 
 
 def test_delete_pass_1(golden):
@@ -612,8 +615,10 @@ def test_rearrange_dim_fail():
                 for k in seq(0, K):
                     a[n, m, k] = x[n, m, k]
 
-    with pytest.raises(ValueError, match="was not a permutation of"):
-        rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
+    perm = [1, 1, 0]
+    for p in (perm, perm + [2]):
+        with pytest.raises(ValueError, match="was not a permutation of"):
+            rearrange_dim(foo, "a : i8[_]", p)
 
 
 def test_rearrange_dim_fail2():

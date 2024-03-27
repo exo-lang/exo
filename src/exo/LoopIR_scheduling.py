@@ -2685,8 +2685,10 @@ def DoDeletePass(proc):
     ir = proc._loopir_proc
     fwd = lambda x: x
 
-    for c in proc.find("pass", many=True):
-        c = fwd(c._impl)
+    for block in match_pattern(proc._root(), "pass"):
+        assert len(block) == 1
+        c = block[0]
+        c = fwd(c)
         while isinstance(c.parent()._node, LoopIR.For) and len(c.parent().body()) == 1:
             c = c.parent()
         ir, fwd_d = c._delete()
