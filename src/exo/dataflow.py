@@ -281,7 +281,10 @@ def __str__(self):
 del __str__
 
 
-def update(env: D, rval: list[D.path]):
+# {x : ((x_0), [(0 <= x_0 < 2, 2.0), (1 <= x_0 < 3, 4.0)])}
+
+
+def update(env: D.env, rval: list[D.path]):
     pre_paths = [p for p in env.paths]
     rval_paths = [p for p in rval]
 
@@ -353,8 +356,11 @@ class AbstractInterpretation(ABC):
             # Handle constraints
             cons = A.Const(True, T.bool, null_srcinfo())
             for b, e in zip(pre_env[stmt.name].dims, stmt.idx):
+                # TODO!!: Replace this with a general pass to convert DataflowIR to Aexpr
                 if isinstance(e, DataflowIR.Const):
                     e = A.Const(e.val, e.type, null_srcinfo())
+                elif isinstance(e, DataflowIR.Read):
+                    e = A.Var(e.name, e.type, null_srcinfo())
                 else:
                     assert False, "???"
                 eq = A.BinOp("==", b, e, T.bool, null_srcinfo())
@@ -550,10 +556,10 @@ class ConstantPropagation(AbstractInterpretation):
             return D.env([], make_unk())
 
     def abs_iter_val(self, lo, hi):
-        return D.Unk()
+        return D.env([], make_unk())
 
     def abs_stride_expr(self, name, dim):
-        return D.Unk()
+        assert False, "unimplemented"
 
     def abs_const(self, val, typ) -> D.path:
         # TODO: Ignore constraints for now
@@ -563,36 +569,9 @@ class ConstantPropagation(AbstractInterpretation):
         for d1, d2 in zip(lval.dims, rval.dims):
             assert d1 == d2
 
-        new_paths = []
-        old_paths = lval.paths + rval.paths
-        # TODO: Use "update" somehow
-        for path in old_paths:
-            # if path.tgt is already in new_paths, skip.
-            for p in new_paths:
-                if path.tgt == p.tgt:
-                    continue
+        new_env = update(lval, rval.paths)
 
-                new_cons = A.BinOp(
-                    "and", path.constraints, p.constraints, T.bool, null_srcinfo()
-                )
-                if isinstance(path.tgt, D.Unk):
-                    new_paths.append(D.Path(new_cons, p.tgt))
-                elif isinstance(p.tgt, D.Unk):
-                    new_paths.append(D.Path(new_cons, path.tgt))
-                else:
-                    pass
-                # else:
-                #    assert isinstance(path.tgt, D.Const) and isinstance(p.tgt, D.Const)
-                #    if path.tgt.val == p.tgt.val:
-                #        new_paths.append(path)
-
-                # TODO: Do we need Top()???
-                # else:
-                #    return A.CTop()
-
-            # if not, append
-            # TODO: take /\ of constraints, eventually
-            # new_paths.append(path)
+        return new_env
 
     def abs_binop(self, op, lval: list[D.path], rval: list[D.path]) -> list[D.path]:
         # TODO: Support constraints

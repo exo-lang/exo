@@ -29,6 +29,21 @@ def test_simple2():
     print()
 
 
+def test_simple3():
+    @proc
+    def foo(z: R, n: size, x: R[3]):
+        z = 4.2
+        x[0] = 2.0
+        if n < 3:
+            x[n] = 3.0
+        x[2] = 5.0
+        x[0] = 12.0
+
+    print()
+    print(foo.dataflow())
+    print()
+
+
 def test_print():
     @proc
     def foo(x: R[3], y: R[3], z: R):
