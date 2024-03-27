@@ -3538,7 +3538,7 @@ def DoDeleteBuffer(buf_cursor):
     return buf_cursor._delete()
 
 
-def DoDataReuse(buf_cursor, rep_cursor):
+def DoReuseBuffer(buf_cursor, rep_cursor):
     assert isinstance(buf_cursor._node, LoopIR.Alloc)
     assert isinstance(rep_cursor._node, LoopIR.Alloc)
     assert buf_cursor._node.type == rep_cursor._node.type
@@ -3563,6 +3563,15 @@ def DoDataReuse(buf_cursor, rep_cursor):
     for c in get_rest_of_block(rep_cursor):
         ir, fwd = _replace_reads(ir, fwd, c, rep_name, mk_read)
         ir, fwd = _replace_writes(ir, fwd, c, rep_name, mk_write)
+
+    return ir, fwd
+
+
+def DoCircularBuffer(buf_cursor, dim_idx, new_size):
+    ir, fwd = buf_cursor.get_root(), lambda x: x
+
+    for c in get_rest_of_block(buf_cursor):
+        pass
 
     return ir, fwd
 
@@ -3938,7 +3947,8 @@ __all__ = [
     "DoBindExpr",
     "DoRewriteExpr",
     "DoStageMem",
-    "DoDataReuse",
+    "DoReuseBuffer",
+    "DoCircularBuffer",
     "DoInlineWindow",
     "DoDivideDim",
     "DoExpandDim",
