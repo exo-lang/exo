@@ -1120,6 +1120,36 @@ def test_reuse_buffer_loop_fail():
         foo = reuse_buffer(foo, "bb:_", "c:_")
 
 
+def test_circular_buffer(golden):
+    @proc
+    def foo(N: size):
+        x: i8[N]
+        for i in seq(0, N / 2):
+            x[2 * i] = 1.0
+            x[2 * i + 1] = 2.0
+
+    foo = circular_buffer(foo, foo.find("x: _"), 0, 2)
+    assert str(foo) == golden
+
+
+def test_circular_buffer_fail():
+    @proc
+    def foo_3():
+        x: i8[10]
+        x[0] = 0.0
+        x[2] = 0.0
+        x[3] = 0.0
+        x[2] = 0.0
+        x[7] = 0.0
+        x[5] = 0.0
+
+    with pytest.raises(SchedulingError, match="Something"):
+        foo_3 = circular_buffer(foo_3, foo_3.find("x: _"), 0, 2)
+
+
+# TODO: add more circular buffer tests
+
+
 def test_fuse_loop(golden):
     @proc
     def foo(n: size, x: R[n]):
