@@ -636,38 +636,24 @@ def DoDivideWithRecompute(
     ir, fwd_repl = fwd(loop_cursor)._child_node("hi")._replace(hi_o)
     fwd = _compose(fwd_repl, fwd)
 
-    wrapped_inner_loop = True
-    try:
-        Check_ExprEqvInContext(
-            proc, hi_i, [loop], LoopIR.Const(1.0, T.index, loop.srcinfo), [loop]
+    # wrap body in inner loop
+    def inner_wrapper(body):
+        return LoopIR.For(
+            sym_i,
+            LoopIR.Const(0, T.index, srcinfo),
+            hi_i,
+            body,
+            LoopIR.Seq(),
+            None,
+            srcinfo,
         )
-        wrapped_inner_loop = False
-    except:
-        # wrap body in inner loop
-        def inner_wrapper(body):
-            return LoopIR.For(
-                sym_i,
-                LoopIR.Const(0, T.index, srcinfo),
-                hi_i,
-                body,
-                LoopIR.Seq(),
-                None,
-                srcinfo,
-            )
 
-        ir, fwd_wrap = fwd(loop_cursor).body()._wrap(inner_wrapper, "body")
-        fwd = _compose(fwd_wrap, fwd)
+    ir, fwd_wrap = fwd(loop_cursor).body()._wrap(inner_wrapper, "body")
+    fwd = _compose(fwd_wrap, fwd)
 
     # replace the iteration variable in the body
-    if wrapped_inner_loop:
-
-        def mk_iter(_):
-            return szop("+", szop("*", rd(sym_o), x), rd(sym_i))
-
-    else:
-
-        def mk_iter(_):
-            return rd(sym_o)
+    def mk_iter(_):
+        return szop("+", szop("*", rd(sym_o), x), rd(sym_i))
 
     ir, fwd = _replace_reads(
         ir,

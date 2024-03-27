@@ -1235,16 +1235,6 @@ def test_divide_with_recompute(golden):
     assert str(foo) == golden
 
 
-def test_divide_with_recompute_inner_loop_is_one(golden):
-    @proc
-    def foo(n: size, A: i8[n]):
-        for i in seq(0, n):
-            A[i] = 1.0
-
-    foo = divide_with_recompute(foo, foo.find_loop("i"), "n", 1, ["io", "ii"])
-    assert str(foo) == golden
-
-
 def test_divide_with_recompute_fail_not_idempotent():
     @proc
     def foo(n: size, A: i8[n + 3]):

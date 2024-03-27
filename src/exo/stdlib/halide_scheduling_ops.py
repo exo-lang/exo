@@ -31,6 +31,22 @@ def get_affected_dim(proc: Procedure, buffer_name: str, iter: str) -> list[int]:
     return list(dims)[0]
 
 
+def _divide_with_recompute(
+    proc, loop_cursor: ForCursor, outer_hi, outer_stride: int, new_iters: list[str]
+):
+    """
+    Wrapper around `divide_with_recompute` which will not perform the operation
+    if it generates a trivial inner loop of size 1.
+    """
+    temp_proc = divide_with_recompute(
+        proc, loop_cursor, outer_hi, outer_stride, new_iters
+    )
+    temp_proc = simplify(temp_proc)
+    if is_literal(temp_proc, temp_proc.forward(loop_cursor).body()[0].hi(), 1):
+        return proc
+    return temp_proc
+
+
 def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForCursor):
     """
     Computes the necessary values of producer at the level of [target_loop]
@@ -89,13 +105,10 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
         bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
         w_c = bounds.get_stride_of(c_loop._impl._node.iter)
 
-        # Divide if it's not a trivial division (and inner loop dimension would be 1)
         p_iter = p_loop.name()
-        new_iters = [
-            f"{p_iter}",
-            f"{p_iter}i",
-        ]  # TODO: think about this hard-coded naming convention
-        proc = divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
+        # TODO: think about this hard-coded naming convention
+        new_iters = [f"{p_iter}", f"{p_iter}i"]
+        proc = _divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
         proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
 
         # TODO: Try to simplify the expressions without needing this.

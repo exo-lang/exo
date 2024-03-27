@@ -151,6 +151,7 @@ def halide_schedule(p):
     )  # TODO: some bug with vectorize when nested loops have same Sym name
     prologue_loop = p.forward(prologue_loop).parent()
     p = fuse(p, prologue_loop, prologue_loop.next())
+    p = simplify(p)  # Mostly for deterministic codegen
 
     print("Before vectorization:\n")
     print(p)
@@ -163,6 +164,7 @@ def vectorize_schedule(p):
     p = halide_vectorize(p, "blur_y", "x", 8)
     p = halide_vectorize(p, "ratio", "x", 8)
     p = halide_vectorize(p, "output", "x", 8)
+    p = simplify(p)  # Mostly for deterministic codegen
 
     print("After vectorization:\n")
     print(p)
