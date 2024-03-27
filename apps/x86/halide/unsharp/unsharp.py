@@ -25,7 +25,6 @@ avx_f32_insts = [
     mm256_prefix_sub_ps,
     mm256_prefix_div_ps,
     mm256_prefix_broadcast_ss,
-    # TODO: need constant broadcast and sub/div masked instructions
 ]
 
 
@@ -124,35 +123,12 @@ def halide_schedule(p):
     p = halide_compute_and_store_at(p, "blur_y", "output", "yi")
     p = lift_alloc(p, "blur_y")
 
+    # NOTE: when compute_at is at a higher loop level than store_at, we actually want to
+    # divide and front load some work with a guard instead of divide_with_recompute.
     p = halide_compute_and_store_at(p, "gray", "output", "y")
+    p = halide_compute_at(p, "gray", "output", "yi", divide_with_recompute=False)
 
-    # TODO: when compute_at is at a higher loop level than store_at, we actually want to
-    # divide and front load some work with a guard instead of divide_with_recompute. In this
-    # schedule, we only need to do it manually for gray since the other stages don't need to
-    # do redundant work, but in general, this should be automated.
-    p_loop = get_enclosing_loop_by_name(p, p.find("gray = _"), "yi")
-    c_loop = get_enclosing_loop_by_name(p, p.find("output = _"), "yi")
-    hi = str(c_loop.hi()._impl._node)
-
-    while p_loop.next() != c_loop:
-        p = reorder_stmts(p, p_loop.expand(0, 1))
-        p_loop = p.forward(p_loop)
-        c_loop = p.forward(c_loop)
-
-    p = cut_loop(p, p_loop, 6)  # determine 6 from bounds
-    prologue_loop = p.forward(p_loop)
-    main_loop = prologue_loop.next()
-    p = shift_loop(p, main_loop, 0)
-    p = simplify(p)
-    p = fuse(p, main_loop, main_loop.next())
-
-    p = add_loop(
-        p, prologue_loop, "y_i", hi, guard=True
-    )  # TODO: some bug with vectorize when nested loops have same Sym name
-    prologue_loop = p.forward(prologue_loop).parent()
-    p = fuse(p, prologue_loop, prologue_loop.next())
-    p = simplify(p)  # Mostly for deterministic codegen
-
+    p = simplify(p)  # for deterministic codegen
     print("Before vectorization:\n")
     print(p)
     return p
@@ -164,8 +140,8 @@ def vectorize_schedule(p):
     p = halide_vectorize(p, "blur_y", "x", 8)
     p = halide_vectorize(p, "ratio", "x", 8)
     p = halide_vectorize(p, "output", "x", 8)
-    p = simplify(p)  # Mostly for deterministic codegen
 
+    p = simplify(p)  # for deterministic codegen
     print("After vectorization:\n")
     print(p)
     return p

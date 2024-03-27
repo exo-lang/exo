@@ -47,10 +47,23 @@ def _divide_with_recompute(
     return temp_proc
 
 
+# -------------------------------------------------------------#
+#                   Halide Scheduling Ops                      #
+# -------------------------------------------------------------#
+# TODO: add returning relevant cursors to all the scheduling ops
+
+
 def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForCursor):
     """
     Computes the necessary values of producer at the level of [target_loop]
     in the consumer loop nest by fusing the two loop nests.
+
+    NOTE: This implementation assumes that both loop nests are at the top-level, but
+    it is easy to extend if we replace `get_toplevel_stmt` with an LCA function of
+    producer_assign and target_loop.
+
+    NOTE: This implementation assumes that consumer[i] uses a contiguous range of values,
+    e.g. producer[i:i+k].
 
     Example transformation:
         for i in _:
@@ -70,8 +83,6 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
                 for ii in _:
                     for ji in _:
                         consumer[_] = ...
-
-    TODO: add returning relevant cursors
     """
 
     producer_assign = proc.forward(producer_assign)
@@ -128,32 +139,66 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
     return simplify(proc)
 
 
-def compute_at_with_prologue(proc: Procedure, producer: str, target_loop: ForCursor):
+def compute_at_with_prologue(
+    proc: Procedure, producer_assign: AssignCursor, target_loop: ForCursor
+):
     """
     Computes the necessary values of producer at the level of [target_loop]
     in the consumer loop nest by fusing the two loop nests.
-    """
-    p_loop = get_enclosing_loop_by_name(p, p.find(f"{producer} = _"), "yi")
-    target_loop = proc.forward(target_loop)
 
+    TODO: make it work for multiple levels of consumer loops
+
+    Example transformation:
+        for i in _:
+            producer[_] = ... # producer_assign
+        for i in _:
+            consumer[_] = ... # uses producer[i:i+k]
+    ->
+        for i in _:
+            if i == 0: # prologue
+                for ii in seq(0, k):
+                    producer[_] = ...
+            producer[i + k] = ...
+            consumer[i] = ...
+    """
+    producer_assign = proc.forward(producer_assign)
+    c_loop = proc.forward(target_loop)
+    p_loop = get_enclosing_loop_by_name(proc, producer_assign, c_loop.name())
+    producer = producer_assign.name()
+
+    # Reorder producer loop up to consumer loop level and adjacent
+    while p_loop.parent() != c_loop.parent():
+        proc = reorder_loops(proc, p_loop.parent())
+        p_loop = proc.forward(p_loop)
+        c_loop = proc.forward(c_loop)
+    while p_loop.next() != c_loop:
+        proc = reorder_stmts(proc, p_loop.expand(0, 1))
+        p_loop = proc.forward(p_loop)
+        c_loop = proc.forward(c_loop)
+
+    # bounds inference
+    N_c = c_loop.hi()._impl._node
     buffer_dim = get_affected_dim(proc, producer, c_loop.name())
     bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
-    w_c = bounds.get_stride_of(c_loop._impl._node.iter)
+    w_p = bounds.get_size()
 
-    p = cut_loop(p, p_loop, w_c - 1)  # determine 6 from bounds
-    prologue_loop = p.forward(p_loop)
+    # separate out prologue
+    proc = cut_loop(proc, p_loop, w_p - 1)
+    prologue_loop = proc.forward(p_loop)
     main_loop = prologue_loop.next()
-    p = shift_loop(p, main_loop, 0)
-    p = simplify(p)
-    p = fuse(p, main_loop, main_loop.next())
 
-    p = add_loop(
-        p, prologue_loop, "y_i", hi, guard=True
-    )  # TODO: some bug with vectorize when nested loops have same Sym name
-    prologue_loop = p.forward(prologue_loop).parent()
-    p = fuse(p, prologue_loop, prologue_loop.next())
+    # fuse main loop
+    proc = shift_loop(proc, main_loop, 0)
+    proc = simplify(proc)
+    proc = fuse(proc, main_loop, main_loop.next())
 
-    pass
+    # fuse prologue loop
+    # TODO: some bug with vectorize when nested loops have same Sym name
+    proc = add_loop(proc, prologue_loop, "y_i", str(N_c), guard=True)
+    prologue_loop = proc.forward(prologue_loop).parent()
+    proc = fuse(proc, prologue_loop, prologue_loop.next())
+
+    return proc
 
 
 def store_at(proc: Procedure, producer_alloc: AllocCursor, target_loop: ForCursor):
@@ -260,6 +305,11 @@ def split(
     return proc
 
 
+# -------------------------------------------------------------#
+#                    Halide-like Interface                     #
+# -------------------------------------------------------------#
+
+
 def halide_tile(p, buffer, y, x, yi, xi, yTile, xTile):
     assign = p.find(f"{buffer} = _")
     y_loop = get_enclosing_loop_by_name(p, assign, y)
@@ -278,10 +328,15 @@ def halide_split(
     return split(p, loop, xo, xi, split_factor, tail)
 
 
-def halide_compute_at(p, producer: str, consumer: str, loop: str):
+def halide_compute_at(
+    p, producer: str, consumer: str, loop: str, divide_with_recompute: bool = True
+):
     producer_assign = p.find(f"{producer} = _")
     target_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
-    return compute_at(p, producer_assign, target_loop)
+    if divide_with_recompute:
+        return compute_at(p, producer_assign, target_loop)
+    else:
+        return compute_at_with_prologue(p, producer_assign, target_loop)
 
 
 def halide_store_at(p, producer: str, consumer: str, loop: str):
@@ -310,10 +365,9 @@ def halide_parallel(p, loop: str):
     return parallelize_loop(p, p.find_loop(loop))
 
 
-# TODO: implement halide's reorder over arbitrary loop nests
-
 __all__ = [
     "compute_at",
+    "compute_at_with_prologue",
     "store_at",
     "compute_and_store_at",
     "tile",
