@@ -487,6 +487,7 @@ def test_bounds_inference_tiled_blur2d():
                             + producer[4 * io + ii + 1, 4 * jo + ji + 1]
                         ) / 4.0
 
+    loop = blur2d_tiled.find_loop("io")
     io_sym = loop._impl._node.iter
     bound = bounds_inference(blur2d_tiled, loop, "producer", 0, include=["R"])
     assert str(bound) == "(io * 4, 0, 4)"

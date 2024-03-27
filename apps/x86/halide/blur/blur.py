@@ -27,7 +27,6 @@ def divide_by_3_rule(proc, expr):
 
 def halide_vectorize(p, buffer: str, loop: str, width: int):
     loop = get_enclosing_loop_by_name(p, p.find(f"{buffer} = _"), loop)
-    rules = [divide_by_3_rule]
 
     # Ensure that it is the innermost loop
     while len(loop.body()) == 1 and isinstance(loop.body()[0], ForCursor):
