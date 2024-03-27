@@ -35,23 +35,23 @@ struct exo_win_1ui16c {
   const uint16_t *const data;
   const int_fast32_t strides[1];
 };
-// blur(
+// exo_base_blur(
 //     W : size,
 //     H : size,
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void blur(void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t *blur_y,
+void exo_base_blur(void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t *blur_y,
     const uint16_t *inp);
 
-// exo_blur(
+// exo_blur_halide(
 //     W : size,
 //     H : size,
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_blur(void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t *blur_y,
-    const uint16_t *inp);
+void exo_blur_halide(void *ctxt, int_fast32_t W, int_fast32_t H,
+    uint16_t *blur_y, const uint16_t *inp);
 
 #ifdef __cplusplus
 }

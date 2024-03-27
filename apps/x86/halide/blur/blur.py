@@ -34,10 +34,15 @@ def halide_vectorize(p, buffer: str, loop: str, width: int):
         p = reorder_loops(p, loop)
         loop = p.forward(loop)
 
-    rules = [divide_by_3_rule]
-    # TODO: do the benchmark without relying on a perfect tail case
     p = vectorize(
-        p, loop, width, "ui16", AVX2, avx_ui16_insts, rules=rules, tail="perfect"
+        p,
+        loop,
+        width,
+        "ui16",
+        AVX2,
+        avx_ui16_insts,
+        rules=[divide_by_3_rule],
+        tail="perfect",
     )
 
     return p
@@ -68,5 +73,5 @@ def halide_schedule(p):
     return p
 
 
-exo_blur = rename(halide_schedule(exo_base_blur), "exo_blur")
+exo_blur = rename(halide_schedule(exo_base_blur), "exo_blur_halide")
 print(exo_blur)
