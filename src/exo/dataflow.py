@@ -291,7 +291,9 @@ def update(env: D, rval: list[D.path]):
             pre_cons = pre_path.constraints.simplify()
             rval_cons = rval_path.constraints.simplify()
 
-            if pre_cons == rval_cons:
+            if isinstance(pre_path.tgt, D.Unk):
+                pre_paths.remove(pre_path)
+            elif pre_cons == rval_cons:
                 merge_paths.append(D.path(rval_cons, rval_path.tgt))
                 pre_paths.remove(pre_path)
                 rval_paths.remove(rval_path)
@@ -521,7 +523,7 @@ def make_empty_path(me: D.mexpr) -> D.path:
 
 
 def make_unk() -> D.path:
-    return []
+    return [D.path(A.Const(True, T.bool, null_srcinfo()), D.Unk())]
 
 
 class ConstantPropagation(AbstractInterpretation):
