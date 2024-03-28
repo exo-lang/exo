@@ -652,7 +652,7 @@ def DoDivideWithRecompute(
     fwd = _compose(fwd_wrap, fwd)
 
     # replace the iteration variable in the body
-    def mk_iter(c):
+    def mk_iter(_):
         return szop("+", szop("*", rd(sym_o), x), rd(sym_i))
 
     ir, fwd = _replace_reads(

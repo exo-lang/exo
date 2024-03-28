@@ -103,7 +103,6 @@ def test_schedule_blur2d(golden):
     p = store_at(p, producer_alloc, p.find_loop("j"))
     p = unroll_loop(p, "ii")
     p = unroll_loop(p, "ji")
-    print(p)
     for i in range(4):
         p = inline_assign(p, p.find("consumer[_] = _").prev())
     p = delete_buffer(p, "producer: _")
