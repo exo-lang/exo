@@ -633,3 +633,28 @@ def test_coercion_to_index(golden):
     c_file, _ = compile_procs_to_strings([foo], "test.h")
 
     assert c_file == golden
+
+
+def test_target_another_exo_library(compiler, tmp_path, golden):
+    @proc
+    def foo(n: size, x: f32[n]):
+        for i in seq(0, n):
+            x[i] = 1.0
+
+    foo_sched = divide_loop(foo, foo.body()[0], 4, ("io", "ii"), tail="cut")
+    foo_compile = foo_sched.compile_c(tmp_path, "foo")
+
+    @proc
+    def bar(n: size, y: f32[n]):
+        for i in seq(0, n):
+            y[i] = 1.0
+
+    foo_instr = make_instr(foo, "foo(NULL, {n}, {x_data});", '#include "foo.h"')
+    bar = replace(bar, bar.find_loop("i"), foo_instr)
+
+    foo_h, foo_c = compile_procs_to_strings([foo_sched], "foo.h")
+    bar_h, bar_c = compile_procs_to_strings([bar], "bar.h")
+
+    assert f"{foo_h}\n{foo_c}\n{bar_h}\n{bar_c}" == golden
+
+    compiler.compile(bar, additional_file="foo.c")

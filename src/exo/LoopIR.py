@@ -63,6 +63,7 @@ module LoopIR {
              expr*   preds,
              stmt*   body,
              string? instr,
+             string? global_,
              effect? eff,
              srcinfo srcinfo )
 

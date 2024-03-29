@@ -60,6 +60,7 @@ class TypeChecker:
             preds=preds,
             body=body,
             instr=proc.instr,
+            global_=None,
             eff=None,
             srcinfo=proc.srcinfo,
         )

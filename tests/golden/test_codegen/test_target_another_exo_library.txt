@@ -1,0 +1,141 @@
+#include "foo.h"
+
+
+
+
+#include <stdio.h>
+#include <stdlib.h>
+
+
+
+// foo(
+//     n : size,
+//     x : f32[n] @DRAM
+// )
+void foo( void *ctxt, int_fast32_t n, float* x ) {
+for (int_fast32_t io = 0; io < ((n) / (4)); io++) {
+  for (int_fast32_t ii = 0; ii < 4; ii++) {
+    x[4 * io + ii] = 1.0f;
+  }
+}
+for (int_fast32_t ii = 0; ii < n % 4; ii++) {
+  x[ii + (n / 4) * 4] = 1.0f;
+}
+}
+
+
+
+#pragma once
+#ifndef FOO_H
+#define FOO_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define EXO_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define EXO_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if EXO_HAS_BUILTIN(__builtin_assume)
+#  define EXO_ASSUME(expr) __builtin_assume(expr)
+#elif EXO_HAS_BUILTIN(__builtin_unreachable)
+#  define EXO_ASSUME(expr) \
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define EXO_ASSUME(expr) ((void)(expr))
+#endif
+
+
+
+// foo(
+//     n : size,
+//     x : f32[n] @DRAM
+// )
+void foo( void *ctxt, int_fast32_t n, float* x );
+
+
+
+#ifdef __cplusplus
+}
+#endif
+#endif  // FOO_H
+
+#include "bar.h"
+
+
+
+#include "foo.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+
+
+// bar(
+//     n : size,
+//     y : f32[n] @DRAM
+// )
+void bar( void *ctxt, int_fast32_t n, float* y ) {
+foo(NULL, (n + 0), (y));
+}
+
+
+/* relying on the following instruction..."
+foo(n,x)
+foo(NULL, {n}, {x_data});
+*/
+
+
+#pragma once
+#ifndef BAR_H
+#define BAR_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define EXO_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define EXO_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if EXO_HAS_BUILTIN(__builtin_assume)
+#  define EXO_ASSUME(expr) __builtin_assume(expr)
+#elif EXO_HAS_BUILTIN(__builtin_unreachable)
+#  define EXO_ASSUME(expr) \
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define EXO_ASSUME(expr) ((void)(expr))
+#endif
+
+
+
+// bar(
+//     n : size,
+//     y : f32[n] @DRAM
+// )
+void bar( void *ctxt, int_fast32_t n, float* y );
+
+
+
+#ifdef __cplusplus
+}
+#endif
+#endif  // BAR_H

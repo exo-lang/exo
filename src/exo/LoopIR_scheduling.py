@@ -2401,6 +2401,7 @@ class DoFissionLoops:
             preds=self.orig_proc.preds,
             body=pre_body + post_body,
             instr=None,
+            global_=None,
             eff=self.orig_proc.eff,
             srcinfo=self.orig_proc.srcinfo,
         )
@@ -2764,7 +2765,7 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
         eff = None
         # TODO: raise NotImplementedError("need to figure out effect of new closure")
         subproc_ir = LoopIR.proc(
-            subproc_name, fnargs, subproc_preds, body, None, eff, info
+            subproc_name, fnargs, subproc_preds, body, None, None, eff, info
         )
         call = LoopIR.Call(subproc_ir, args, None, info)
         return subproc_ir, call

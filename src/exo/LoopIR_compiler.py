@@ -379,6 +379,7 @@ def compile_to_strings(lib_name, proc_list):
     builtin_code = _compile_builtins(find_all_builtins(proc_list))
     private_fwd_decls = []
     proc_bodies = []
+    instrs_global = []
 
     needed_helpers = set()
 
@@ -401,6 +402,7 @@ def compile_to_strings(lib_name, proc_list):
                     "*/",
                 ]
             )
+            instrs_global.append(p.global_)
         else:
             is_public_decl = id(p) in orig_procs
 
@@ -452,9 +454,9 @@ def compile_to_strings(lib_name, proc_list):
 """
 
     helper_code = [_static_helpers[v] for v in needed_helpers]
-
+    endl = "\n"
     body_contents = f"""
-{from_lines(helper_code)}
+{from_lines(helper_code)}{from_lines(instrs_global) + endl if instrs_global else ''}
 {from_lines(memory_code)}
 {from_lines(builtin_code)}
 {from_lines(private_fwd_decls)}

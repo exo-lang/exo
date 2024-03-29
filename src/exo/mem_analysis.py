@@ -37,6 +37,7 @@ class MemoryAnalysis:
             proc.preds,
             body,
             proc.instr,
+            proc.global_,
             proc.eff,
             proc.srcinfo,
         )

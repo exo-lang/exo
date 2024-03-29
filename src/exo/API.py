@@ -35,7 +35,7 @@ from . import internal_cursors as IC
 # Top-level decorator
 
 
-def proc(f, _instr=None) -> "Procedure":
+def proc(f, _instr=None, global_="") -> "Procedure":
     if not isinstance(f, types.FunctionType):
         raise TypeError("@proc decorator must be applied to a function")
 
@@ -50,10 +50,10 @@ def proc(f, _instr=None) -> "Procedure":
         instr=_instr,
         as_func=True,
     )
-    return Procedure(parser.result())
+    return Procedure(parser.result(), _global=global_)
 
 
-def instr(instruction):
+def instr(instruction, global_=""):
     if not isinstance(instruction, str):
         raise TypeError("@instr decorator must be @instr(<your instuction>)")
 
@@ -61,7 +61,7 @@ def instr(instruction):
         if not isinstance(f, types.FunctionType):
             raise TypeError("@instr decorator must be applied to a function")
 
-        return proc(f, _instr=instruction)
+        return proc(f, _instr=instruction, global_=global_)
 
     return inner
 
@@ -165,6 +165,7 @@ class Procedure(ProcedureBase):
         _provenance_eq_Procedure: "Procedure" = None,
         _forward=None,
         _mod_config=None,
+        _global="",
     ):
         super().__init__()
 
@@ -177,6 +178,7 @@ class Procedure(ProcedureBase):
             Check_Aliasing(proc)
 
         assert isinstance(proc, LoopIR.LoopIR.proc)
+        proc = proc.update(global_=_global)
 
         # add this procedure into the equivalence tracking mechanism
         if _provenance_eq_Procedure:
@@ -341,7 +343,7 @@ class Procedure(ProcedureBase):
         return decls + "\n" + defns
 
     def compile_c(self, directory: Path, filename: str):
-        compile_procs([self._loopir_proc], directory, f"{filename}.c", f"{filename}.h")
+        compile_procs([self], directory, f"{filename}.c", f"{filename}.h")
 
     def interpret(self, **kwargs):
         run_interpreter(self._loopir_proc, kwargs)
@@ -402,7 +404,14 @@ class Procedure(ProcedureBase):
         p = self._loopir_proc
         assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
         p = LoopIR.LoopIR.proc(
-            p.name, p.args, p.preds + [assertion], p.body, p.instr, p.eff, p.srcinfo
+            p.name,
+            p.args,
+            p.preds + [assertion],
+            p.body,
+            p.instr,
+            p.global_,
+            p.eff,
+            p.srcinfo,
         )
         return Procedure(p, _provenance_eq_Procedure=None)
 
