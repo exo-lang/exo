@@ -35,12 +35,11 @@ def halide_vectorize(p, buffer: str, loop: str, width: int):
     return p
 
 
-# from math import exp, pi, sqrt
-# sigma = 1.5
-# kernel = [exp(-x * x / (2 * sigma * sigma)) / (sqrt(2 * pi) * sigma) for x in range(4)]
-# print(kernel)
-# >> [0.2659615202676218, 0.2129653370149015, 0.10934004978399575, 0.035993977675458706]
-# TODO: it would be nice if meta-programming allowed pre-computing values outside of the proc
+from math import exp, pi, sqrt
+
+sigma = 1.5
+kernel = [exp(-x * x / (2 * sigma * sigma)) / (sqrt(2 * pi) * sigma) for x in range(4)]
+k0, k1, k2, k3 = kernel
 
 
 @proc
@@ -56,10 +55,10 @@ def exo_unsharp_base(
     rgb_to_gray[2] = 0.114
 
     kernel: f32[4]
-    kernel[0] = 0.2659615202676218
-    kernel[1] = 0.2129653370149015
-    kernel[2] = 0.10934004978399575
-    kernel[3] = 0.035993977675458706
+    kernel[0] = k0
+    kernel[1] = k1
+    kernel[2] = k2
+    kernel[3] = k3
 
     # TODO: this is kind of silly
     two: f32[1]
