@@ -30,14 +30,20 @@ extern "C" {
 #endif
 
 
+#ifndef EXO_WIN_1UI16
+#define EXO_WIN_1UI16
 struct exo_win_1ui16{
     uint16_t * const data;
     const int_fast32_t strides[1];
 };
+#endif
+#ifndef EXO_WIN_1UI16C
+#define EXO_WIN_1UI16C
 struct exo_win_1ui16c{
     const uint16_t * const data;
     const int_fast32_t strides[1];
 };
+#endif
 // exo_base_blur(
 //     W : size,
 //     H : size,

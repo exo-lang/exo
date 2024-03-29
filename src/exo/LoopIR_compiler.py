@@ -286,6 +286,12 @@ def _window_struct(typename, ctype, n_dims, is_const) -> WindowStruct:
         f"}};"
     )
 
+    sdef_guard = sname.upper()
+    sdef = f"""#ifndef {sdef_guard}
+#define {sdef_guard}
+{sdef}
+#endif"""
+
     return WindowStruct(sname, sdef)
 
 

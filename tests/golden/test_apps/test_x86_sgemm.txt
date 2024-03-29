@@ -30,22 +30,34 @@ extern "C" {
 #endif
 
 
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
 struct exo_win_1f32{
     float * const data;
     const int_fast32_t strides[1];
 };
+#endif
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
 struct exo_win_1f32c{
     const float * const data;
     const int_fast32_t strides[1];
 };
+#endif
+#ifndef EXO_WIN_2F32
+#define EXO_WIN_2F32
 struct exo_win_2f32{
     float * const data;
     const int_fast32_t strides[2];
 };
+#endif
+#ifndef EXO_WIN_2F32C
+#define EXO_WIN_2F32C
 struct exo_win_2f32c{
     const float * const data;
     const int_fast32_t strides[2];
 };
+#endif
 // sgemm_exo(
 //     M : size,
 //     N : size,
