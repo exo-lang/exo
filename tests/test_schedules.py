@@ -3132,6 +3132,18 @@ def test_simplify_with_window_stmts():
     return simplify(foo)
 
 
+def test_simplify_logical(golden):
+    @proc
+    def foo(n: size):
+        if (n > 0 and True) or (False and n == 1):
+            pass
+        if n > 4 or True:
+            pass
+
+    foo = simplify(foo)
+    assert str(foo) == golden
+
+
 def test_cut_loop_syrk(golden):
     @proc
     def SYRK(
