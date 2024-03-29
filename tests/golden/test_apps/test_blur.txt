@@ -43,6 +43,7 @@ struct exo_win_1ui16c{
     const uint16_t * const data;
     const int_fast32_t strides[1];
 };
+#endif
 // exo_base_blur(
 //     W : size,
 //     H : size,
