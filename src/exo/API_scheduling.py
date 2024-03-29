@@ -1317,9 +1317,9 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
         `x : T[N,M,K]` -> `x : T[K,N,M]`
     """
     stmt = buf_cursor._impl
-    # extra sanity check
+
     N = len(stmt._node.type.hi)
-    if set(range(0, N)) != set(permute_vector):
+    if list(range(0, N)) != sorted(permute_vector):
         raise ValueError(
             f"permute_vector argument ({permute_vector}) "
             f"was not a permutation of {set(range(0, N))}"
