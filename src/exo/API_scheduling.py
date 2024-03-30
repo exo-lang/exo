@@ -818,12 +818,12 @@ def make_instr(proc, instr, global_=""):
         global_ - string representing global C code necessary for this instruction e.g. includes
     """
     ir = proc._loopir_proc
+    instr = LoopIR.instr(instr=instr, global_=global_)
     ir = ir.update(instr=instr)
     return Procedure(
         ir,
         _provenance_eq_Procedure=proc,
         _forward=ic.forward_identity(ir),
-        _global=global_,
     )
 
 

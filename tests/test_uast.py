@@ -11,7 +11,7 @@ def to_uast(f):
         getsrcinfo,
         func_globals=f.__globals__,
         srclocals=get_src_locals(depth=3),
-        instr="TEST",
+        instr=("TEST", ""),
         as_func=True,
     )
     return parser.result()

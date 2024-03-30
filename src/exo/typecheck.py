@@ -54,13 +54,16 @@ class TypeChecker:
         if not proc.name:
             self.err(proc, "expected all procedures to be named")
 
+        instr = proc.instr
+        if instr:
+            instr = LoopIR.instr(instr=instr.instr, global_=instr.global_)
+
         self.loopir_proc = LoopIR.proc(
             name=proc.name or "anon",
             args=args,
             preds=preds,
             body=body,
-            instr=proc.instr,
-            global_=None,
+            instr=instr,
             eff=None,
             srcinfo=proc.srcinfo,
         )

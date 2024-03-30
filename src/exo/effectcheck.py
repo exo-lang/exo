@@ -96,7 +96,6 @@ class InferEffects:
             preds=self.orig_proc.preds,
             body=body,
             instr=self.orig_proc.instr,
-            global_=None,
             eff=eff,
             srcinfo=self.orig_proc.srcinfo,
         )

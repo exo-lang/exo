@@ -35,7 +35,7 @@ from . import internal_cursors as IC
 # Top-level decorator
 
 
-def proc(f, _instr=None, global_="") -> "Procedure":
+def proc(f, _instr=None) -> "Procedure":
     if not isinstance(f, types.FunctionType):
         raise TypeError("@proc decorator must be applied to a function")
 
@@ -50,7 +50,7 @@ def proc(f, _instr=None, global_="") -> "Procedure":
         instr=_instr,
         as_func=True,
     )
-    return Procedure(parser.result(), _global=global_)
+    return Procedure(parser.result())
 
 
 def instr(instruction, global_=""):
@@ -61,7 +61,7 @@ def instr(instruction, global_=""):
         if not isinstance(f, types.FunctionType):
             raise TypeError("@instr decorator must be applied to a function")
 
-        return proc(f, _instr=instruction, global_=global_)
+        return proc(f, _instr=(instruction, global_))
 
     return inner
 
@@ -165,7 +165,6 @@ class Procedure(ProcedureBase):
         _provenance_eq_Procedure: "Procedure" = None,
         _forward=None,
         _mod_config=None,
-        _global="",
     ):
         super().__init__()
 
@@ -178,7 +177,6 @@ class Procedure(ProcedureBase):
             Check_Aliasing(proc)
 
         assert isinstance(proc, LoopIR.LoopIR.proc)
-        proc = proc.update(global_=_global)
 
         # add this procedure into the equivalence tracking mechanism
         if _provenance_eq_Procedure:
@@ -255,7 +253,7 @@ class Procedure(ProcedureBase):
         return self._loopir_proc.instr is not None
 
     def get_instr(self):
-        return self._loopir_proc.instr
+        return self._loopir_proc.instr.instr
 
     def args(self):
         if args := self._root()._child_block("args"):
@@ -409,7 +407,6 @@ class Procedure(ProcedureBase):
             p.preds + [assertion],
             p.body,
             p.instr,
-            p.global_,
             p.eff,
             p.srcinfo,
         )

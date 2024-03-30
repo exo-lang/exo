@@ -398,11 +398,12 @@ def compile_to_strings(lib_name, proc_list):
                     "",
                     '/* relying on the following instruction..."',
                     f"{p.name}({argstr})",
-                    p.instr,
+                    p.instr.instr,
                     "*/",
                 ]
             )
-            instrs_global.append(p.global_)
+            if p.instr.global_:
+                instrs_global.append(p.instr.global_)
         else:
             is_public_decl = id(p) in orig_procs
 
@@ -456,7 +457,7 @@ def compile_to_strings(lib_name, proc_list):
     helper_code = [_static_helpers[v] for v in needed_helpers]
     endl = "\n"
     body_contents = f"""
-{from_lines(helper_code)}{from_lines(instrs_global) + endl if instrs_global else ''}
+{from_lines(helper_code)}{endl + from_lines(instrs_global) if instrs_global else ''}
 {from_lines(memory_code)}
 {from_lines(builtin_code)}
 {from_lines(private_fwd_decls)}
@@ -935,7 +936,7 @@ class Compiler:
                     else:
                         d[f"{arg_name}_data"] = f"({args[i]})"
 
-                self.add_line(f"{s.f.instr.format(**d)}")
+                self.add_line(f"{s.f.instr.instr.format(**d)}")
             else:
                 fname = s.f.name
                 args = ["ctxt"] + args
