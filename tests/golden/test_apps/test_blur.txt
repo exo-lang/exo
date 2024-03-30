@@ -69,16 +69,12 @@ void exo_blur_halide( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur
 
 #include "test_case.h"
 
-
-
 #include <immintrin.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-
-
 
 
 /* relying on the following instruction..."

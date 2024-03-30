@@ -206,8 +206,6 @@ void matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8
 
 #include "test_case.h"
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
 

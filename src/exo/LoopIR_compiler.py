@@ -455,15 +455,18 @@ def compile_to_strings(lib_name, proc_list):
 """
 
     helper_code = [_static_helpers[v] for v in needed_helpers]
-    endl = "\n"
-    body_contents = f"""
-{from_lines(helper_code)}{endl + from_lines(instrs_global) if instrs_global else ''}
-{from_lines(memory_code)}
-{from_lines(builtin_code)}
-{from_lines(private_fwd_decls)}
-{from_lines(proc_bodies)}
-"""
-
+    body_contents = [
+        helper_code,
+        instrs_global,
+        memory_code,
+        builtin_code,
+        private_fwd_decls,
+        proc_bodies,
+    ]
+    body_contents = list(filter(lambda x: x, body_contents))  # filter empty lines
+    body_contents = map(from_lines, body_contents)
+    body_contents = from_lines(body_contents)
+    body_contents += "\n"  # New line at end of file
     return header_contents, body_contents
 
 

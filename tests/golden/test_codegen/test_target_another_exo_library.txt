@@ -1,11 +1,7 @@
 #include "foo.h"
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
-
-
 
 // foo(
 //     n : size,
@@ -71,13 +67,9 @@ void foo( void *ctxt, int_fast32_t n, float* x );
 
 #include "bar.h"
 
-
-
 #include "foo.h"
 #include <stdio.h>
 #include <stdlib.h>
-
-
 
 // bar(
 //     n : size,
