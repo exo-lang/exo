@@ -402,13 +402,7 @@ class Procedure(ProcedureBase):
         p = self._loopir_proc
         assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
         p = LoopIR.LoopIR.proc(
-            p.name,
-            p.args,
-            p.preds + [assertion],
-            p.body,
-            p.instr,
-            p.eff,
-            p.srcinfo,
+            p.name, p.args, p.preds + [assertion], p.body, p.instr, p.eff, p.srcinfo
         )
         return Procedure(p, _provenance_eq_Procedure=None)
 
