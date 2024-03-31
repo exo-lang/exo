@@ -664,7 +664,7 @@ def DoDivideWithRecompute(
     fwd = _compose(fwd_wrap, fwd)
 
     # replace the iteration variable in the body
-    def mk_iter(c):
+    def mk_iter(_):
         return szop("+", szop("*", rd(sym_o), x), rd(sym_i))
 
     ir, fwd = _replace_reads(
@@ -3297,6 +3297,9 @@ class DoSimplify(Cursor_Rewrite):
         if isinstance(lhs, LoopIR.Const) and isinstance(rhs, LoopIR.Const):
             return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type, lhs.srcinfo)
 
+        def is_const_val(e, val):
+            return isinstance(e, LoopIR.Const) and e.val == val
+
         if e.op == "+":
             if is_const_zero(lhs):
                 return rhs
@@ -3319,16 +3322,28 @@ class DoSimplify(Cursor_Rewrite):
         elif e.op == "*":
             if is_const_zero(lhs) or is_const_zero(rhs):
                 return LoopIR.Const(0, lhs.type, lhs.srcinfo)
-            if isinstance(lhs, LoopIR.Const) and lhs.val == 1:
+            if is_const_val(lhs, 1):
                 return rhs
-            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+            if is_const_val(rhs, 1):
                 return lhs
         elif e.op == "/":
-            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+            if is_const_val(rhs, 1):
                 return lhs
         elif e.op == "%":
-            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+            if is_const_val(rhs, 1):
                 return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+        elif e.op == "and":
+            for l, r in (lhs, rhs), (rhs, lhs):
+                if is_const_val(l, False):
+                    return LoopIR.Const(False, T.bool, e.srcinfo)
+                if is_const_val(l, True):
+                    return r
+        elif e.op == "or":
+            for l, r in (lhs, rhs), (rhs, lhs):
+                if is_const_val(l, False):
+                    return r
+                if is_const_val(l, True):
+                    return LoopIR.Const(True, T.bool, e.srcinfo)
 
         return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
 

@@ -53,3 +53,9 @@ def test_gemmini_conv(golden):
 def test_blur(golden):
     module_file = REPO_ROOT / "apps" / "x86" / "halide" / "blur" / "blur.py"
     assert _test_app(module_file) == golden
+
+
+@pytest.mark.slow
+def test_unsharp(golden):
+    module_file = REPO_ROOT / "apps" / "x86" / "halide" / "unsharp" / "unsharp.py"
+    assert _test_app(module_file) == golden
