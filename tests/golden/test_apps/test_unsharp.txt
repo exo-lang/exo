@@ -77,13 +77,9 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
 
 #include "test_case.h"
 
-
-
 #include <immintrin.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-
 
 // exo_unsharp(
 //     W : size,
