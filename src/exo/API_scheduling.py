@@ -1907,6 +1907,9 @@ def split_write(proc, stmt):
         `a += c`
         ----------------------
 
+    forwarding:
+        - cursors to the statement and any cursors within the statement gets invalidated.
+        - blocks containing the statement will forward to a new block containing the resulting block.
     """
     ir, fwd = scheduling.DoSplitWrite(stmt._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
