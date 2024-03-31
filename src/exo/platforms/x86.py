@@ -158,6 +158,26 @@ def mm256_mul_pd(out: [f64][4] @ AVX2, x: [f64][4] @ AVX2, y: [f64][4] @ AVX2):
         out[i] = x[i] * y[i]
 
 
+@instr("{out_data} = _mm256_div_ps({x_data}, {y_data});")
+def mm256_div_ps(out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+
+    for i in seq(0, 8):
+        out[i] = x[i] / y[i]
+
+
+@instr("{out_data} = _mm256_div_pd({x_data}, {y_data});")
+def mm256_div_pd(out: [f64][4] @ AVX2, x: [f64][4] @ AVX2, y: [f64][4] @ AVX2):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+
+    for i in seq(0, 4):
+        out[i] = x[i] / y[i]
+
+
 @instr("{out_data} = _mm256_add_ps({x_data}, {y_data});")
 def mm256_add_ps(out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2):
     assert stride(out, 0) == 1
@@ -176,6 +196,26 @@ def mm256_add_pd(out: [f64][4] @ AVX2, x: [f64][4] @ AVX2, y: [f64][4] @ AVX2):
 
     for i in seq(0, 4):
         out[i] = x[i] + y[i]
+
+
+@instr("{out_data} = _mm256_sub_ps({x_data}, {y_data});")
+def mm256_sub_ps(out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+
+    for i in seq(0, 8):
+        out[i] = x[i] - y[i]
+
+
+@instr("{out_data} = _mm256_sub_pd({x_data}, {y_data});")
+def mm256_sub_pd(out: [f64][4] @ AVX2, x: [f64][4] @ AVX2, y: [f64][4] @ AVX2):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+
+    for i in seq(0, 4):
+        out[i] = x[i] - y[i]
 
 
 @instr("{dst_data} = _mm256_loadu_si256((const __m256i *) &{src_data});")
@@ -534,6 +574,165 @@ def avx2_ui16_divide_by_3(out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2):
 
     for xii in seq(0, 16):
         out[xii] = x[xii] / 3.0
+
+
+# --------------------------------------------------------------------------- #
+#  Prefixed AVX2 Operations
+# --------------------------------------------------------------------------- #
+
+
+@instr(
+    """
+{{
+__m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
+__m256i prefix = _mm256_set1_epi32({bound});
+__m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
+{dst_data} = _mm256_maskload_ps(&{src_data}, cmp);
+}}
+"""
+)
+def mm256_prefix_load_ps(dst: [f32][8] @ AVX2, src: [f32][8] @ DRAM, bound: size):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+    assert bound <= 8
+    for i in seq(0, 8):
+        if i < bound:
+            dst[i] = src[i]
+
+
+@instr(
+    """
+{{
+__m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
+__m256i prefix = _mm256_set1_epi32({bound});
+__m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
+_mm256_maskstore_ps(&{dst_data}, cmp, {src_data});
+}}
+"""
+)
+def mm256_prefix_store_ps(dst: [f32][8] @ DRAM, src: [f32][8] @ AVX2, bound: size):
+    assert stride(dst, 0) == 1
+    assert stride(src, 0) == 1
+    assert bound <= 8
+    for i in seq(0, 8):
+        if i < bound:
+            dst[i] = src[i]
+
+
+@instr(
+    """
+{{
+__m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
+__m256i prefix = _mm256_set1_epi32({bound});
+__m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
+__m256 add = _mm256_add_ps({x_data}, {y_data});
+{out_data} = _mm256_blendv_ps ({out_data}, add, _mm256_castsi256_ps(cmp));
+}}
+"""
+)
+def mm256_prefix_add_ps(
+    out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2, bound: size
+):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+    assert bound <= 8
+
+    for i in seq(0, 8):
+        if i < bound:
+            out[i] = x[i] + y[i]
+
+
+@instr(
+    """
+{{
+__m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
+__m256i prefix = _mm256_set1_epi32({bound});
+__m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
+__m256 mul = _mm256_mul_ps({x_data}, {y_data});
+{out_data} = _mm256_blendv_ps ({out_data}, mul, _mm256_castsi256_ps(cmp));
+}}
+"""
+)
+def mm256_prefix_mul_ps(
+    out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2, bound: size
+):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+    assert bound <= 8
+
+    for i in seq(0, 8):
+        if i < bound:
+            out[i] = x[i] * y[i]
+
+
+@instr(
+    """
+{{
+__m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
+__m256i prefix = _mm256_set1_epi32({bound});
+__m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
+__m256 sub = _mm256_sub_ps({x_data}, {y_data});
+{out_data} = _mm256_blendv_ps ({out_data}, sub, _mm256_castsi256_ps(cmp));
+}}
+"""
+)
+def mm256_prefix_sub_ps(
+    out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2, bound: size
+):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+    assert bound <= 8
+
+    for i in seq(0, 8):
+        if i < bound:
+            out[i] = x[i] - y[i]
+
+
+@instr(
+    """
+{{
+__m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
+__m256i prefix = _mm256_set1_epi32({bound});
+__m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
+__m256 div = _mm256_div_ps({x_data}, {y_data});
+{out_data} = _mm256_blendv_ps ({out_data}, div, _mm256_castsi256_ps(cmp));
+}}
+"""
+)
+def mm256_prefix_div_ps(
+    out: [f32][8] @ AVX2, x: [f32][8] @ AVX2, y: [f32][8] @ AVX2, bound: size
+):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+    assert bound <= 8
+
+    for i in seq(0, 8):
+        if i < bound:
+            out[i] = x[i] / y[i]
+
+
+@instr(
+    """
+{{
+__m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
+__m256i prefix = _mm256_set1_epi32({bound});
+__m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
+__m256 bc = _mm256_broadcast_ss(&{val_data});
+{out_data} = _mm256_blendv_ps ({out_data}, bc, _mm256_castsi256_ps(cmp));
+}}
+"""
+)
+def mm256_prefix_broadcast_ss(out: [f32][8] @ AVX2, val: [f32][1], bound: size):
+    assert stride(out, 0) == 1
+    assert bound <= 8
+
+    for i in seq(0, 8):
+        if i < bound:
+            out[i] = val[0]
 
 
 # --------------------------------------------------------------------------- #
