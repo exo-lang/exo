@@ -66,8 +66,8 @@ module LoopIR {
              effect? eff,
              srcinfo srcinfo )
 
-    instr  = ( string instr,
-               string global_ )
+    instr  = ( string c_instr,
+               string c_global )
 
     fnarg  = ( sym     name,
                type    type,
@@ -169,8 +169,8 @@ module UAST {
                 instr?          instr,
                 srcinfo         srcinfo )
 
-    instr   = ( string          instr,
-                string          global_ )
+    instr   = ( string          c_instr,
+                string          c_global )
 
     fnarg   = ( sym             name,
                 type            type,

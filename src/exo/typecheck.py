@@ -56,7 +56,7 @@ class TypeChecker:
 
         instr = proc.instr
         if instr:
-            instr = LoopIR.instr(instr=instr.instr, global_=instr.global_)
+            instr = LoopIR.instr(c_instr=instr.c_instr, c_global=instr.c_global)
 
         self.loopir_proc = LoopIR.proc(
             name=proc.name or "anon",

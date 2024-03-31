@@ -398,12 +398,12 @@ def compile_to_strings(lib_name, proc_list):
                     "",
                     '/* relying on the following instruction..."',
                     f"{p.name}({argstr})",
-                    p.instr.instr,
+                    p.instr.c_instr,
                     "*/",
                 ]
             )
-            if p.instr.global_:
-                instrs_global.append(p.instr.global_)
+            if p.instr.c_global:
+                instrs_global.append(p.instr.c_global)
         else:
             is_public_decl = id(p) in orig_procs
 
@@ -939,7 +939,7 @@ class Compiler:
                     else:
                         d[f"{arg_name}_data"] = f"({args[i]})"
 
-                self.add_line(f"{s.f.instr.instr.format(**d)}")
+                self.add_line(f"{s.f.instr.c_instr.format(**d)}")
             else:
                 fname = s.f.name
                 args = ["ctxt"] + args

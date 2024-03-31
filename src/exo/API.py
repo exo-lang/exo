@@ -53,15 +53,15 @@ def proc(f, _instr=None) -> "Procedure":
     return Procedure(parser.result())
 
 
-def instr(instruction, global_=""):
-    if not isinstance(instruction, str):
+def instr(c_instr, c_global=""):
+    if not isinstance(c_instr, str):
         raise TypeError("@instr decorator must be @instr(<your instuction>)")
 
     def inner(f):
         if not isinstance(f, types.FunctionType):
             raise TypeError("@instr decorator must be applied to a function")
 
-        return proc(f, _instr=(instruction, global_))
+        return proc(f, _instr=(c_instr, c_global))
 
     return inner
 
@@ -253,7 +253,7 @@ class Procedure(ProcedureBase):
         return self._loopir_proc.instr is not None
 
     def get_instr(self):
-        return self._loopir_proc.instr.instr
+        return self._loopir_proc.instr.c_instr
 
     def args(self):
         if args := self._root()._child_block("args"):
