@@ -260,6 +260,32 @@ def test_reorder_loops_forwarding(golden):
     assert str(foo) == golden
 
 
+def test_split_write_forwarding(golden):
+    @proc
+    def foo(x: i32):
+        x += 1 + 2
+        x = 3 + 4
+
+    stmt0 = foo.body()[0]
+    stmt1 = foo.body()[1]
+    body = foo.body()
+
+    foo = split_write(foo, stmt0)
+    with pytest.raises(InvalidCursorError, match=""):
+        foo.forward(stmt0)
+    assert foo.body()[:2] == foo.forward(stmt0.as_block())
+    assert foo.body()[2] == foo.forward(stmt1)
+    assert foo.body() == foo.forward(body)
+
+    foo = split_write(foo, stmt1)
+    with pytest.raises(InvalidCursorError, match=""):
+        foo.forward(stmt0.rhs())
+
+    assert foo.body()[:2] == foo.forward(stmt0.as_block())
+    assert foo.body()[2:] == foo.forward(stmt1.as_block())
+    assert foo.body() == foo.forward(body)
+
+
 def test_vectorize_forwarding(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n]):
