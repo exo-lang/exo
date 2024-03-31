@@ -1,0 +1,4 @@
+def foo(n: size):
+    if n > 0:
+        pass
+    pass
