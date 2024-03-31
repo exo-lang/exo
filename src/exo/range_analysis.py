@@ -214,7 +214,7 @@ def index_range_analysis(expr: LoopIR.expr, env: dict) -> IndexRange | int:
         assert isinstance(expr, LoopIR.expr)
 
         if not expr.type.is_indexable():
-            return (None, None)
+            return IndexRange(None, None, None)
 
         if isinstance(expr, LoopIR.Read):
             sym = expr.name
