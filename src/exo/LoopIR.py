@@ -107,6 +107,7 @@ module LoopIR {
          | F64()
          | INT8()
          | UINT8()
+         | INT16()
          | UINT16()
          | INT32()
          | Bool()
@@ -140,6 +141,7 @@ module LoopIR {
         "F32",
         "F64",
         "INT8",
+        "INT16",
         "UINT16",
         "UINT8",
         "INT32" "Bool",
@@ -203,6 +205,7 @@ module UAST {
             | F64   ()
             | INT8  ()
             | UINT8  ()
+            | INT16  ()
             | UINT16 ()
             | INT32 ()
             | Bool  ()
@@ -228,6 +231,7 @@ module UAST {
         "F32",
         "F64",
         "INT8",
+        "INT16",
         "UINT8",
         "UINT16",
         "INT32",
@@ -363,6 +367,7 @@ module Effects {
 @extclass(UAST.F32)
 @extclass(UAST.F64)
 @extclass(UAST.INT8)
+@extclass(UAST.INT16)
 @extclass(UAST.UINT8)
 @extclass(UAST.UINT16)
 @extclass(UAST.INT32)
@@ -404,6 +409,7 @@ class T:
     F32 = LoopIR.F32
     F64 = LoopIR.F64
     INT8 = LoopIR.INT8
+    INT16 = LoopIR.INT16
     UINT8 = LoopIR.UINT8
     UINT16 = LoopIR.UINT16
     INT32 = LoopIR.INT32
@@ -420,9 +426,11 @@ class T:
     f16 = F16()
     f32 = F32()
     int8 = INT8()
+    int16 = INT16()
     uint8 = UINT8()
     uint16 = UINT16()
     i8 = INT8()
+    i16 = INT16()
     ui8 = UINT8()
     ui16 = UINT16()
     int32 = INT32()
@@ -447,6 +455,7 @@ class T:
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
+@extclass(T.INT16)
 @extclass(T.UINT8)
 @extclass(T.UINT16)
 @extclass(T.INT32)
@@ -468,6 +477,7 @@ del shape
 @extclass(T.F32)
 @extclass(T.F64)
 @extclass(T.INT8)
+@extclass(T.INT16)
 @extclass(T.UINT8)
 @extclass(T.UINT16)
 @extclass(T.INT32)
@@ -487,6 +497,8 @@ def ctype(t):
         return "double"
     elif isinstance(t, T.INT8):
         return "int8_t"
+    elif isinstance(t, T.INT16):
+        return "int16_t"
     elif isinstance(t, T.UINT8):
         return "uint8_t"
     elif isinstance(t, T.UINT16):
@@ -505,7 +517,7 @@ del ctype
 @extclass(LoopIR.type)
 def is_real_scalar(t):
     return isinstance(
-        t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.UINT8, T.UINT16, T.INT32)
+        t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.INT16, T.UINT8, T.UINT16, T.INT32)
     )
 
 

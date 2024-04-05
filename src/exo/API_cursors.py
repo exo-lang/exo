@@ -581,6 +581,8 @@ def loopir_type_to_exotype(typ: LoopIR.Type) -> API.ExoType:
         return API.ExoType.F64
     elif isinstance(typ, LoopIR.INT8):
         return API.ExoType.I8
+    elif isinstance(typ, LoopIR.INT16):
+        return API.ExoType.I16
     elif isinstance(typ, LoopIR.INT32):
         return API.ExoType.I32
     elif isinstance(typ, LoopIR.Bool):

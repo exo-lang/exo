@@ -31,6 +31,9 @@ class Neon(Memory):
             raise MemGenError(f"{srcinfo}: Neon vectors are not scalar values")
 
         vec_types = {
+            "int8_t": (8, "int8x8_t"),
+            "int16_t": (4, "int16x4_t"),
+            "int32_t": (4, "int32x4_t"),
             "float": (4, "float32x4_t"),
             "double": (2, "float64x2_t"),
             "_Float16": (8, "float16x8_t"),
@@ -526,3 +529,93 @@ def neon_convert_f32_upper_to_f64(dst: [f64][2] @ Neon, src: [f32][4] @ Neon):
 
     for i in seq(0, 2):
         dst[i] = src[2 + i]
+
+# --------------------------------------------------------------------------- #
+#   mixed integer precision
+#   just the minimum needed
+# --------------------------------------------------------------------------- #
+@instr("{dst_data} = vmovl_s8({src_data})")
+def neon_convert_i8_to_i16(dst: [i16][8] @ Neon, src: [i8][8] @ Neon):
+    assert stride(dst, 0) == 1  
+    assert stride(src, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = src[i]
+
+@instr("{dst_data} = vld1_s8(&{src_data});")
+def neon_vld_8xi8(dst: [i8][8] @ Neon, src: [i8][8] @ DRAM):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 8):
+        dst[i] = src[i]
+
+@instr("vst1q_s32(&{dst_data}, {src_data});")
+def neon_vst_4xf32(dst: [i32][4] @ DRAM, src: [i32][4] @ Neon):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src[i]
+
+@instr("vld1q_s32(&{dst_data}, {src_data});")
+def neon_vst_4xf32(dst: [i32][4] @ Neon, src: [i32][4] @ DRAM):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+    
+    for i in seq(0, 4):
+        dst[i] = src[i]
+
+
+@instr("{dst_data} = vmovq_n_s32((int32_t *)0.0);")
+def neon_zero_4xi32(dst: [i32][4] @ Neon):
+    assert stride(dst, 0) == 1
+    
+    for i in seq(0, 4):
+        dst[i] = 0.0
+
+
+
+@instr("{dst_data} = vget_low_s16(&{src_data});")
+def neon_get_low_8xi16(dst: [i16][4] @ Neon, src: [i8][8] @ Neon):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src[i]
+
+@instr("{dst_data} = vget_high_s16(&{src_data});")
+def neon_get_high_8xi16(dst: [i16][4] @ Neon, src: [i8][8] @ Neon):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 4):
+        dst[i] = src[i+4]
+
+@instr("{dst_data} = vmlal_lane_s16({dst_data}, {lhs_data}, {rhs_data}, {jtt});")
+def neon_vmlal_8xi16_8xi16(
+        dst: [i32][4] @ Neon, lhs: [i16][4] @ Neon, rhs: [i16][1,4] @ Neon,
+        jtt:index,
+        ):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert jtt >= 0
+    assert jtt < 4
+    
+    for i in seq(0, 4):
+        dst[i] += lhs[i] * rhs[0,jtt]
+
+@instr("{dst_data} = vmlal_lane_s16({dst_data}, {lhs_data}, {rhs_data}, {jtt});")
+def neon_vmlal_sing_8xi16_8xi16(
+        dst: [i32][4] @ Neon, lhs: [i16][4] @ Neon, rhs: [i16][4] @ Neon,
+        jtt:index,
+        ):
+    assert stride(dst, 0) == 1
+    assert stride(lhs, 0) == 1
+    assert stride(rhs, 0) == 1
+    assert jtt >= 0
+    assert jtt < 4
+    
+    for i in seq(0, 4):
+        dst[i] += lhs[i] * rhs[jtt]

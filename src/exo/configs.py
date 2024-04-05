@@ -28,6 +28,7 @@ def new_config(name, fields, disable_rw=False):
         'f32'       : LoopIR.T.f32,
         'f64'       : LoopIR.T.f64,
         'i8'        : LoopIR.T.i8,
+        'i16'       : LoopIR.T.i16,
         'i32'       : LoopIR.T.i32,
     }
     good_args = (isinstance(name, str) and
@@ -61,6 +62,8 @@ def ctyp(typ):
         return "double"
     elif isinstance(typ, LoopIR.T.INT8):
         return "int8_t"
+    elif isinstance(typ, LoopIR.T.INT16):
+        return "int16_t"
     elif isinstance(typ, LoopIR.T.INT32):
         return "int32_t"
     elif isinstance(typ, LoopIR.T.Bool):
@@ -97,6 +100,7 @@ class Config:
             LoopIR.UAST.F32(): LoopIR.T.f32,
             LoopIR.UAST.F64(): LoopIR.T.f64,
             LoopIR.UAST.INT8(): LoopIR.T.i8,
+            LoopIR.UAST.INT16(): LoopIR.T.i16,
             LoopIR.UAST.INT32(): LoopIR.T.i32,
         }
 

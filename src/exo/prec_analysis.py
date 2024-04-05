@@ -14,6 +14,7 @@ def set_default_prec(name):
         "f32": T.f32,
         "f64": T.f64,
         "i8": T.i8,
+        "i16": T.i16,
         "i32": T.i32,
     }
     if name not in vals:
