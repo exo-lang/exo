@@ -286,6 +286,12 @@ def _window_struct(typename, ctype, n_dims, is_const) -> WindowStruct:
         f"}};"
     )
 
+    sdef_guard = sname.upper()
+    sdef = f"""#ifndef {sdef_guard}
+#define {sdef_guard}
+{sdef}
+#endif"""
+
     return WindowStruct(sname, sdef)
 
 
@@ -606,7 +612,8 @@ class Compiler:
             check = False
             for s in stmts:
                 if isinstance(s, LoopIR.Alloc):
-                    mem = s.mem if s.mem else DRAM
+                    mem = s.mem
+                    assert issubclass(mem, Memory)
                     check |= issubclass(mem, StaticMemory)
                 elif isinstance(s, LoopIR.For):
                     check |= allocates_static_memory(s.body)
@@ -857,8 +864,8 @@ class Compiler:
             rhs = self.comp_e(s.rhs)
             assert isinstance(s.rhs, LoopIR.WindowExpr)
             mem = self.mems[s.rhs.name]
-            lhs = self.new_varname(s.lhs, typ=s.rhs.type, mem=mem)
-            self.add_line(f"struct {win_struct} {lhs} = {rhs};")
+            name = self.new_varname(s.name, typ=s.rhs.type, mem=mem)
+            self.add_line(f"struct {win_struct} {name} = {rhs};")
         elif isinstance(s, LoopIR.If):
             cond = self.comp_e(s.cond)
             self.add_line(f"if ({cond}) {{")
@@ -994,7 +1001,14 @@ class Compiler:
         elif isinstance(e, LoopIR.Const):
             if isinstance(e.val, bool):
                 return "true" if e.val else "false"
-            return str(e.val)
+            elif e.type.is_indexable():
+                return f"{int(e.val)}"
+            elif e.type == T.f64:
+                return f"{float(e.val)}"
+            elif e.type == T.f32:
+                return f"{float(e.val)}f"
+            else:
+                return f"(({e.type.ctype()}) {str(e.val)})"
 
         elif isinstance(e, LoopIR.BinOp):
             local_prec = op_prec[e.op]

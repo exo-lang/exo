@@ -429,7 +429,7 @@ def possible_config_writes(stmts):
                 # accumulate windowing expressions
                 awin = lift_e(s.rhs)
                 assert isinstance(awin, AWin)
-                aenv = self.windows[-1] + AEnv(s.lhs, awin, addnames=False)
+                aenv = self.windows[-1] + AEnv(s.name, awin, addnames=False)
                 self.windows[-1] = aenv
 
             elif isinstance(s, LoopIR.Call):
@@ -467,7 +467,7 @@ def globenv(stmts):
             aenvs.append(AEnv(globname, rhs, addnames=True))
         elif isinstance(s, LoopIR.WindowStmt):
             win = lift_e(s.rhs)
-            aenvs.append(AEnv(s.lhs, win))
+            aenvs.append(AEnv(s.name, win))
         elif isinstance(s, LoopIR.Alloc):
             win = AWinAlloc(s.name, s.type.shape())
             aenvs.append(AEnv(s.name, win))
@@ -1254,7 +1254,7 @@ def get_changing_scalars(stmts, changeset=None, aliases=None):
             for nm in pchgs:
                 add_name(nm)
         elif isinstance(s, LoopIR.WindowStmt):
-            aliases[s.lhs] = s.rhs.name
+            aliases[s.name] = s.rhs.name
         else:
             pass
 
@@ -2094,16 +2094,7 @@ def Check_IsIdempotent(proc, stmts):
         raise SchedulingError(f"The statement at {stmts[0].srcinfo} is not idempotent.")
 
 
-class Check_ExprBound_Options(Enum):
-    LT = 0
-    LEQ = 1
-    GT = 2
-    GEQ = 3
-    EQ = 4
-
-
-def Check_ExprBound(proc, stmts, expr, value, option, exception=True):
-    assert isinstance(option, Check_ExprBound_Options)
+def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
     assert len(stmts) > 0
 
     ctxt = ContextExtraction(proc, stmts)
@@ -2117,20 +2108,20 @@ def Check_ExprBound(proc, stmts, expr, value, option, exception=True):
 
     e = G(lift_e(expr))
 
-    if option == Check_ExprBound_Options.GEQ:
+    if op == ">=":
         query = ADef(e >= AInt(value))
         err_msg = f"greater than or equal to {value}"
-    elif option == Check_ExprBound_Options.GT:
+    elif op == ">":
         query = ADef(e > AInt(value))
         err_msg = f"greater than {value}"
-    elif option == Check_ExprBound_Options.LEQ:
+    elif op == "<=":
         query = ADef(e <= AInt(value))
         err_msg = f"less than or equal to {value}"
-    elif option == Check_ExprBound_Options.LT:
+    elif op == "<":
         query = ADef(e < AInt(value))
         err_msg = f"greater than {value}"
-    elif option == Check_ExprBound_Options.EQ:
-        query = ADef(e=AInt(value))
+    elif op == "==":
+        query = ADef(AEq(e, AInt(value)))
         err_msg = f"equal to {value}"
     else:
         assert False, "Bad case"
@@ -2280,7 +2271,7 @@ class _OverApproxEffects(LoopIR_Do):
                 self.add_name(name)
             return  # don't call do_e on all of the arguments
         elif isinstance(s, LoopIR.WindowStmt):
-            self._aliases[s.lhs] = s.rhs.name
+            self._aliases[s.name] = s.rhs.name
 
         super().do_s(s)
 
@@ -2353,7 +2344,7 @@ class _Check_Aliasing_Helper(LoopIR_Do):
             name = s.rhs.name
             while name in self._aliases:
                 name = self._aliases[name]
-            self._aliases[s.lhs] = name
+            self._aliases[s.name] = name
         else:
             super().do_s(s)
 

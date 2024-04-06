@@ -60,7 +60,7 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 void foo( void *ctxt, int_fast32_t N, float* x ) {
 for (int_fast32_t ii = 0; ii < N % 4; ii++) {
   for (int_fast32_t joo = 0; joo < ((ii + ((N) / (4)) * 4) / (16)); joo++) {
-    x[ii * N + joo] = 0.0;
+    x[ii * N + joo] = 0.0f;
   }
 }
 }

@@ -51,7 +51,7 @@ static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, flo
 //     r : f32 @DRAM
 // )
 static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, float* r ) {
-*r = 0.0;
+*r = 0.0f;
 for (int_fast32_t i = 0; i < m; i++) {
   *r += x[i] * y[i];
 }

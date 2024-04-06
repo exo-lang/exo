@@ -123,7 +123,7 @@ class InferEffects:
         elif isinstance(stmt, LoopIR.Alloc):
             self._types[stmt.name] = stmt.type
         elif isinstance(stmt, LoopIR.WindowStmt):
-            self._types[stmt.lhs] = stmt.rhs.type
+            self._types[stmt.name] = stmt.rhs.type
         else:
             pass
 
@@ -156,7 +156,6 @@ class InferEffects:
             return styp(
                 stmt.name,
                 stmt.type,
-                stmt.cast,
                 stmt.idx,
                 stmt.rhs,
                 effects,
@@ -250,7 +249,7 @@ class InferEffects:
             )
         elif isinstance(stmt, LoopIR.WindowStmt):
             return LoopIR.WindowStmt(
-                stmt.lhs, stmt.rhs, eff_null(stmt.srcinfo), stmt.srcinfo
+                stmt.name, stmt.rhs, eff_null(stmt.srcinfo), stmt.srcinfo
             )
 
         else:
@@ -786,7 +785,7 @@ class CheckEffects:
     def check_bounds(self, sym, shape, eff):
         effs = [(eff.reads, "read"), (eff.writes, "written"), (eff.reduces, "reduced")]
 
-        for (es, y) in effs:
+        for es, y in effs:
             for e in es:
                 self.check_in_bounds(sym, shape, e, y)
 
@@ -968,7 +967,7 @@ class CheckEffects:
                 # src_shape   = stmt.rhs.type.src_type.shape()
                 w_idx = stmt.rhs.type.idx
                 src_buf = stmt.rhs.type.src_buf
-                dst_buf = stmt.lhs
+                dst_buf = stmt.name
 
                 src_dims = [
                     d for d, w in enumerate(w_idx) if isinstance(w, LoopIR.Interval)

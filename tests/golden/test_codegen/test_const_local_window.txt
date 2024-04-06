@@ -30,10 +30,13 @@ extern "C" {
 #endif
 
 
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
 struct exo_win_1f32{
     float * const data;
     const int_fast32_t strides[1];
 };
+#endif
 // caller(
 
 // )
@@ -65,7 +68,7 @@ static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A );
 // )
 static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A ) {
 for (int_fast32_t i = 0; i < N; i++) {
-  A.data[i * A.strides[0]] = 0.0;
+  A.data[i * A.strides[0]] = 0.0f;
 }
 }
 

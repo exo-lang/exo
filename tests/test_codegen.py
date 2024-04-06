@@ -530,3 +530,106 @@ def test_pragma_parallel_loop(golden):
     c_file, _ = compile_procs_to_strings([foo], "test.h")
 
     assert c_file == golden
+
+
+def test_const_type_coercion(compiler):
+    # 16777216 = 1 << 24 = integer precision limit for f32
+    @proc
+    def foo(x: f64[1], y: f32[1]):
+        x[0] = (16777216.0 + 1.0) + y[0]
+
+    # all consts should coerce to f32
+    # so, 16777216 + 1 should yield 16777216 again
+    x = np.array([3.0], dtype=np.float64)
+    y = np.array([1.0], dtype=np.float32)
+    fn = compiler.compile(foo)
+    fn(None, x, y)
+    assert x[0] == 16777216
+
+
+def test_coercion_to_i8(golden):
+    @proc
+    def foo():
+        a: i8
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_ui8(golden):
+    @proc
+    def foo():
+        a: ui8
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_ui16(golden):
+    @proc
+    def foo():
+        a: ui16
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_i32(golden):
+    @proc
+    def foo():
+        a: i32
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_f16(golden):
+    @proc
+    def foo():
+        a: f16
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_f32(golden):
+    @proc
+    def foo():
+        a: f32
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_f64(golden):
+    @proc
+    def foo():
+        a: f64
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_index(golden):
+    @proc
+    def foo():
+        for x in seq(0, 6):
+            pass
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden

@@ -7,6 +7,7 @@ from exo import proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
 from exo.platforms.x86 import *
+from exo.API_types import *
 
 
 def test_commute(golden):
@@ -171,12 +172,42 @@ def test_delete_pass(golden):
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
+    assert str(delete_pass(delete_pass(foo))) == golden
 
     @proc
     def foo(x: R):
         for i in seq(0, 16):
             for j in seq(0, 2):
                 pass
+        x = 0.0
+
+    assert str(delete_pass(foo)) == golden
+    assert str(delete_pass(delete_pass(foo))) == golden
+
+    @proc
+    def foo(x: R):
+        for i in seq(0, 16):
+            pass
+            for j in seq(0, 2):
+                pass
+                pass
+            pass
+        x = 0.0
+
+    assert str(delete_pass(foo)) == golden
+    assert str(delete_pass(delete_pass(foo))) == golden
+
+
+def test_delete_pass_1(golden):
+    @proc
+    def foo(x: R):
+        for i in seq(0, 16):
+            x = 1.0
+            pass
+            for j in seq(0, 2):
+                pass
+                pass
+            pass
         x = 0.0
 
     assert str(delete_pass(foo)) == golden
@@ -584,8 +615,10 @@ def test_rearrange_dim_fail():
                 for k in seq(0, K):
                     a[n, m, k] = x[n, m, k]
 
-    with pytest.raises(ValueError, match="was not a permutation of"):
-        rearrange_dim(foo, "a : i8[_]", [1, 1, 0])
+    perm = [1, 1, 0]
+    for p in (perm, perm + [2]):
+        with pytest.raises(ValueError, match="was not a permutation of"):
+            rearrange_dim(foo, "a : i8[_]", p)
 
 
 def test_rearrange_dim_fail2():
@@ -1265,6 +1298,19 @@ def test_divide_loop_perfect2(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_divide_loop_perfect3(golden):
+    @proc
+    def foo(m: size, n: size, A: R[m, n]):
+        assert n % 4 == 0 and m % 8 == 0
+        for i in seq(0, m):
+            for j in seq(0, n):
+                A[i, j] = 0.2
+
+    foo = divide_loop(foo, "i", 8, ["io", "ii"], perfect=True)
+    foo = divide_loop(foo, "j", 4, ["jo", "ji"], perfect=True)
+    assert str(simplify(foo)) == golden
+
+
 def test_divide_loop_perfect_fail():
     @proc
     def foo(n: size, A: i8[n]):
@@ -1784,6 +1830,39 @@ def test_set_precision_for_tensors_and_windows():
     assert str(foo.forward(call2)._impl._node.args[1].type) == "f32[n]"
 
 
+def test_set_precision_api_type(golden):
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    bar = set_precision(bar, bar.args()[1], ExoType.F32)
+    assert str(bar) == golden
+
+
+def test_set_precision_illegal_precision_value():
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    with pytest.raises(
+        ValueError,
+        match="expected an instance of <enum 'ExoType'> or one of the following strings",
+    ):
+        bar = set_precision(bar, bar.args()[1], "Z")
+
+
+def test_set_precision_illegal_precision_type():
+    @proc
+    def bar(n: size, x: R[n]):
+        pass
+
+    with pytest.raises(
+        TypeError,
+        match="expected an instance of <enum 'ExoType'> or <class 'str'> specifying the precision",
+    ):
+        bar = set_precision(bar, bar.args()[1], bar)
+
+
 def test_rewrite_expr(golden):
     @proc
     def foo(n: size):
@@ -2097,6 +2176,66 @@ def test_unify9(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_unify10(golden):
+    @proc
+    def bar(dst: [f32][8], src: [f32][8], bound: size):
+        for i in seq(0, 8):
+            if i < bound:
+                dst[i] = src[i]
+
+    @proc
+    def foo(n: size, m: size, x: f32[n]):
+        assert n - m >= 1
+        assert n - m <= 8
+        y: f32[8]
+        for i in seq(0, 8):
+            if i + m <= n:
+                y[i] = x[i]
+
+    foo = replace(foo, foo.find_loop("i"), bar)
+    assert str(simplify(foo)) == golden
+
+
+def test_unify11(golden):
+    @proc
+    def bar(dst: [f32][8], src: [f32][8], bound: size):
+        for i in seq(0, 8):
+            if i < bound:
+                dst[i] = src[i]
+
+    @proc
+    def foo(n: size, m: size, x: f32[n]):
+        assert n - m >= 1
+        assert n - m <= 8
+        y: f32[8]
+        for i in seq(0, 8):
+            if m > n + i:
+                y[i] = x[i]
+
+    foo = replace(foo, foo.find_loop("i"), bar)
+    assert str(simplify(foo)) == golden
+
+
+def test_unify12(golden):
+    @proc
+    def bar(dst: [f32][8], src: [f32][8], bound: size):
+        for i in seq(0, 8):
+            if i < bound:
+                dst[i] = src[i]
+
+    @proc
+    def foo(n: size, m: size, x: f32[n]):
+        assert n - m >= 1
+        assert n - m <= 8
+        y: f32[8]
+        for i in seq(0, 8):
+            if m >= n + i:
+                y[i] = x[i]
+
+    foo = replace(foo, foo.find_loop("i"), bar)
+    assert str(simplify(foo)) == golden
+
+
 def test_inline_window(golden):
     @proc
     def foo(n: size, m: size, x: R[n, m]):
@@ -2128,6 +2267,25 @@ def test_inline_window2(golden):
 
     foo = inline_window(foo, "y = _")
     assert str(simplify(foo)) == golden
+
+
+def test_inline_window3(golden):
+    @proc
+    def inner_memset(x: [R][16] @ DRAM):
+        for i in seq(0, 16):
+            x[i] = 0.0
+
+    @proc
+    def memset(n: size, x: [R][n] @ DRAM):
+        assert n % 16 == 0
+        res: R
+        for io in seq(0, n / 16):
+            x_1 = x[16 * io : 16 * io + 16]
+            inner_memset(x_1)
+            res += x_1[0]
+
+    memset = inline_window(memset, "x_1 = _")
+    assert str(simplify(memset)) == golden
 
 
 def test_lift_if_second_statement_in_then_error():
@@ -2618,6 +2776,18 @@ def test_stage_mem_out_of_bound_block(golden):
     assert str(axpy) == golden
 
 
+def test_stage_mem_out_of_bound_point(golden):
+    @proc
+    def foo(n: size, m: size, x: f32[n], y: f32[n]):
+        assert m >= n
+        for i in seq(0, m):
+            if i < n:
+                y[i] = x[i]
+
+    foo = stage_mem(foo, foo.find_loop("i").body(), "x[i]", "tmp")
+    assert str(foo) == golden
+
+
 def test_new_expr_multi_vars(golden):
     @proc
     def bar(n: size, arr: R[n] @ DRAM):
@@ -2975,6 +3145,18 @@ def test_simplify_with_window_stmts():
         x_window[0] = 0.0
 
     return simplify(foo)
+
+
+def test_simplify_logical(golden):
+    @proc
+    def foo(n: size):
+        if (n > 0 and True) or (False and n == 1):
+            pass
+        if n > 4 or True:
+            pass
+
+    foo = simplify(foo)
+    assert str(foo) == golden
 
 
 def test_cut_loop_syrk(golden):
@@ -3438,6 +3620,26 @@ def test_eliminate_dead_code7(golden):
     assert str(foo) == golden
 
 
+def test_eliminate_dead_code8(golden):
+    @proc
+    def foo(n: size):
+        for i in seq((7 + n) / 8 * 8, (7 + n) / 8 * 8):
+            pass
+
+    foo = eliminate_dead_code(foo, foo.find_loop("i"))
+    assert str(foo) == golden
+
+
+def test_eliminate_dead_code9(golden):
+    @proc
+    def foo(n: size):
+        for i in seq(0 + (7 + n) / 8 * 8, ((7 + n) / 8 * 8 + 7) / 8 * 8):
+            pass
+
+    foo = eliminate_dead_code(foo, foo.find_loop("i"))
+    assert str(foo) == golden
+
+
 def test_lift_reduce_constant_1(golden):
     @proc
     def foo():
@@ -3649,6 +3851,19 @@ def test_specialize_sizes(golden):
     assert str(foo) == golden
 
 
+def test_specialize_blocks(golden):
+    @proc
+    def foo(n: size, a: f32):
+        b: f32
+        a = 1.0
+        a = 2.0
+        b = 1.2
+
+    body = foo.body()
+    foo = specialize(foo, body, ["n > 0"])
+    assert str(foo) == golden
+
+
 def test_specialize_data():
     @proc
     def gemm(
@@ -3672,6 +3887,19 @@ def test_specialize_data():
         specialize(gemm, "for i in _:_", [f"alpha == {x}" for x in [0.0, 1.0, -1.0]])
 
 
+def test_specialize_alloc_fails():
+    @proc
+    def foo(n: size):
+        a: f32
+        a = 1.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="Block contains allocations",
+    ):
+        foo = specialize(foo, foo.body()[0], "n > 0")
+
+
 def test_extract_subproc(golden):
     @proc
     def foo():
@@ -3682,10 +3910,11 @@ def test_extract_subproc(golden):
             for i in seq(0, 8):
                 x += y[j] * 2.0
 
-    foo, new = extract_subproc(
-        foo, "fooooo", "for i in _:_", order={"x": 1, "y": 0, "j": 2}
+    _, new_no_asserts = extract_subproc(
+        foo, "for i in _:_", "fooooo", include_asserts=False
     )
-    assert (str(foo) + "\n" + str(new)) == golden
+    foo, new = extract_subproc(foo, "for i in _:_", "fooooo")
+    assert f"{foo}\n{new_no_asserts}\n{new}" == golden
 
 
 def test_extract_subproc2(golden):
@@ -3695,8 +3924,79 @@ def test_extract_subproc2(golden):
         for i in seq(0, 8):
             x[i, 0] += 2.0
 
-    foo, new = extract_subproc(foo, "fooooo", "for i in _:_")
+    foo, new = extract_subproc(foo, "for i in _:_", "fooooo")
     assert (str(foo) + "\n" + str(new)) == golden
+
+
+def test_extract_subproc3(golden):
+    @proc
+    def foo(N: size, M: size, K: size, x: R[N, K + M]):
+        assert N >= 8
+        assert M >= 2
+        if N < 10 and M < 4:
+            for i in seq(0, 8):
+                x[i, 0] += 2.0
+        else:
+            for i in seq(0, 8):
+                x[i, 0] += 1.0
+
+    foo, foo_if = extract_subproc(foo, "for i in _:_", "foo_if")
+    foo, foo_else = extract_subproc(foo, "for i in _:_", "foo_else")
+    assert f"{foo}\n{foo_if}\n{foo_else}" == golden
+
+
+def test_extract_subproc4(golden):
+    @proc
+    def foo(N: size, M: size, K: size, x: R[N, K + M]):
+        assert N >= 8
+        x[0, 0] = 0.0
+        for i in seq(0, 8):
+            x[i, 0] += 2.0
+
+    foo, new = extract_subproc(foo, foo.body(), "fooooo")
+    assert (str(foo) + "\n" + str(new)) == golden
+
+
+def test_extract_subproc5(golden):
+    @proc
+    def foo(x: f32[8], y: f32[8]):
+        reg: f32[8] @ AVX2
+        for i in seq(0, 8):
+            reg[i] = x[i]
+        for i in seq(0, 8):
+            y[i] = reg[i]
+
+    foo, new = extract_subproc(foo, foo.body()[1:], "fooooo")
+    assert (str(foo) + "\n" + str(new)) == golden
+
+
+def test_extract_subproc6(golden):
+    @proc
+    def foo(x: [f32][8], y: [f32][8]):
+        assert stride(x, 0) == 1
+        assert stride(y, 0) == 1
+        reg: f32[8] @ AVX2
+        for i in seq(0, 8):
+            reg[i] = x[i]
+
+    foo, new = extract_subproc(foo, foo.body()[1:], "fooooo")
+    assert (str(foo) + "\n" + str(new)) == golden
+
+
+def test_extract_subproc7(golden):
+    @proc
+    def gemv(m: size, n: size, alpha: R, beta: R, A: [R][m, n], x: [R][n], y: [R][m]):
+        assert stride(A, 1) == 1
+
+        for i in seq(0, m):
+            y[i] = y[i] * beta
+            for j in seq(0, n):
+                y[i] += alpha * x[j] * A[i, j]
+
+    gemv = fission(gemv, gemv.find("y[_] = _").after())
+    gemv = reorder_loops(gemv, gemv.find_loop("i #1"))
+    gemv, new = extract_subproc(gemv, gemv.find_loop("i #1"), "fooooo")
+    assert (str(gemv) + "\n" + str(new)) == golden
 
 
 def test_unroll_buffer(golden):

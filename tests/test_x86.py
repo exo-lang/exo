@@ -1536,14 +1536,11 @@ def test_avx2_reg_copy_pd(compiler):
 def test_avx2_divide_by_3(golden):
     @proc
     def foo():
-        three: ui16[16] @ AVX2
         out: ui16[16] @ AVX2
         x: ui16[16] @ AVX2
 
         for i in seq(0, 16):
-            three[i] = 3.0
-        for i in seq(0, 16):
-            out[i] = x[i] / three[i]
+            out[i] = x[i] / 3.0
 
     foo = replace_all(foo, [avx2_ui16_divide_by_3])
     assert str(foo) == golden

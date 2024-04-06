@@ -11,6 +11,7 @@ from .API import Procedure
 import exo.API_cursors as PC
 from .LoopIR import LoopIR, T
 import exo.LoopIR_scheduling as scheduling
+from .API_types import ExoType
 
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
@@ -312,22 +313,38 @@ class EnumA(ArgumentProcessor):
 class TypeAbbrevA(ArgumentProcessor):
     _shorthand = {
         "R": T.R,
+        ExoType.R: T.R,
         "f16": T.f16,
+        ExoType.F16: T.f16,
         "f32": T.f32,
+        ExoType.F32: T.f32,
         "f64": T.f64,
+        ExoType.F64: T.f64,
         "i8": T.int8,
+        ExoType.I8: T.i8,
         "ui8": T.uint8,
+        ExoType.UI8: T.uint8,
         "ui16": T.uint16,
+        ExoType.UI16: T.ui16,
         "i32": T.int32,
+        ExoType.I32: T.i32,
     }
 
     def __call__(self, typ, all_args):
+        if not isinstance(typ, (str, ExoType)):
+            self.err(
+                f"expected an instance of {ExoType} or {str} specifying the precision",
+                TypeError,
+            )
+        assert not isinstance(typ, ExoType) or typ in TypeAbbrevA._shorthand
         if typ in TypeAbbrevA._shorthand:
             return TypeAbbrevA._shorthand[typ]
         else:
-            precisions = ", ".join([t for t in TypeAbbrevA._shorthand])
+            precisions = ", ".join(
+                [t for t in TypeAbbrevA._shorthand if type(t) is str]
+            )
             self.err(
-                f"expected one of the following strings specifying "
+                f"expected an instance of {ExoType} or one of the following strings specifying "
                 f"precision: {precisions}",
                 ValueError,
             )
@@ -835,7 +852,8 @@ def delete_pass(proc):
 
     Delete all `pass` statements in the procedure.
     """
-    return scheduling.DoDeletePass(proc).result()
+    ir, fwd = scheduling.DoDeletePass(proc)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([BlockCursorA(block_size=2)])
@@ -984,14 +1002,47 @@ def bind_expr(proc, expr_cursors, new_name):
 # Sub-procedure Operations
 
 
-@sched_op([NameA, StmtCursorA, DictA])
-def extract_subproc(proc, subproc_name, body_stmt, order=dict()):
+@sched_op([BlockCursorA, NameA, BoolA])
+def extract_subproc(proc, block, subproc_name, include_asserts=True):
     """
-    Documentation
+    Extract a block as a subprocedure with the name `subproc_name`.
+
+    args:
+        block           - the block to extract as a subprocedure.
+        subproc_name    - the name of the new subprocedure.
+        include_asserts - whether to include asserts about the parameters
+                          that can be inferred from the parent.
+
+    returns:
+        a tuple (proc, subproc).
+
+    rewrite:
+        extract_subproc(..., "sub_foo", "for i in _:_")
+        ```
+        def foo(N: size, M: size, K: size, x: R[N, K + M]):
+            assert N >= 8
+            for i in seq(0, 8):
+                x[i, 0] += 2.0
+        ```
+        -->
+        ```
+        def foo(N: size, M: size, K: size, x: R[N, K + M]):
+            assert N >= 8
+            sub_foo(N, M, K, x)
+        def sub_foo(N: size, M: size, K: size, x: R[N, K + M]):
+            assert N >= 8
+            for i in seq(0, 8):
+                x[i, 0] += 2.0
+        ```
+
     """
-    stmt = body_stmt._impl
-    passobj = scheduling.DoExtractMethod(proc, subproc_name, stmt, order)
-    return passobj.result(), passobj.subproc()
+
+    ir, fwd, subproc_ir = scheduling.DoExtractSubproc(
+        block._impl, subproc_name, include_asserts
+    )
+    proc = Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    subproc = Procedure(subproc_ir)
+    return proc, subproc
 
 
 @sched_op([CallCursorA])
@@ -1266,9 +1317,9 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
         `x : T[N,M,K]` -> `x : T[K,N,M]`
     """
     stmt = buf_cursor._impl
-    # extra sanity check
+
     N = len(stmt._node.type.hi)
-    if set(range(0, N)) != set(permute_vector):
+    if list(range(0, N)) != sorted(permute_vector):
         raise ValueError(
             f"permute_vector argument ({permute_vector}) "
             f"was not a permutation of {set(range(0, N))}"
@@ -1504,20 +1555,6 @@ def inline_window(proc, winstmt_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ExprCursorA, NameA, OptionalA(MemoryA)])
-def stage_window(proc, expr_cursor, win_name, memory=None):
-    """
-    TODO: Describe this scheduling operation.
-
-    Do we want to keep this operation?
-
-    Should it resemble `stage_mem` instead?
-    """
-    e = expr_cursor._impl
-
-    return scheduling.DoStageWindow(proc, win_name, memory, e).result()
-
-
 @sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA])
 def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     """
@@ -1646,7 +1683,7 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
 
     stmt = loop_cursor._impl
 
-    ir, fwd = scheduling.DoSplit(
+    ir, fwd = scheduling.DoDivideLoop(
         stmt,
         quot=div_const,
         outer_iter=new_iters[0],
@@ -2167,8 +2204,8 @@ def eliminate_dead_code(proc, stmt_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([BlockCursorA, ListOrElemA(NewExprA("block_cursor"))])
-def specialize(proc, block_cursor, conds):
+@sched_op([BlockCursorA, ListOrElemA(NewExprA("block"))])
+def specialize(proc, block, conds):
     """
     Duplicate a statement block multiple times, with the provided
     `cond`itions indicating when each copy should be invoked.
@@ -2179,28 +2216,23 @@ def specialize(proc, block_cursor, conds):
     are created (with the last copy as a "default" version).
 
     args:
-        block_cursor    - cursor pointing to the block to duplicate/specialize
+        block           - cursor pointing to the block to duplicate/specialize
         conds           - list of strings or string to be parsed into
                           guard conditions for the
 
     rewrite:
-        `s`
+        `B`
             ->
         `if cond_0:`
-        `    s`
+        `    B`
         `elif cond_1:`
-        `    s`
+        `    B`
         ...
         `else:`
-        `    s`
+        `    B`
     """
 
-    if len(block_cursor) != 1:
-        raise NotImplementedError("TODO: support blocks of size > 1")
-
-    stmt = block_cursor[0]._impl
-
-    ir, fwd = scheduling.DoSpecialize(stmt, conds)
+    ir, fwd = scheduling.DoSpecialize(block._impl, conds)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2218,23 +2250,3 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     stmt = block_cursor._impl[0]
 
     return scheduling.DoAddUnsafeGuard(proc, stmt, var_expr).result()
-
-
-@sched_op([ForCursorA])
-def bound_and_guard(proc, loop):
-    """
-    DEPRECATED
-    recommendation: replace with similar but more general primitive
-
-    Replace
-      for i in par(0, e): ...
-    with
-      for i in par(0, c):
-        if i < e: ...
-    where c is the tightest constant bound on e
-
-    This currently only works when e is of the form x % n
-    """
-    stmt = loop._impl
-
-    return scheduling.DoBoundAndGuard(proc, stmt).result()
