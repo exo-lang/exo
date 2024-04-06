@@ -2557,7 +2557,7 @@ def test_stage_mem_point(golden):
     assert str(simplify(matmul)) == golden
 
 
-def test_fail_stage_mem():
+def test_fail_stage_mem(golden):
     # This test fails to stage the buffer B
     # because it's not just being read in a single way
     # therefore the bounds check will fail
@@ -2575,8 +2575,52 @@ def test_fail_stage_mem():
                                     * B[4 * k + kk, 4 * j + jj]
                                 )
 
-    with pytest.raises(SchedulingError, match="accessed out-of-bounds"):
-        sqmat = stage_mem(sqmat, "for ii in _: _", "B[4*i:4*i+4, 4*k:4*k+4]", "Btile")
+    sqmat = stage_mem(sqmat, "for ii in _: _", "B[4*i:4*i+4, 4*k:4*k+4]", "Btile")
+    # Because stage_mem is checking the indivisual buffer accesess and window expression bounds,
+    # this example will succeed by staging only the first B
+    assert str(simplify(sqmat)) == golden
+
+
+def test_stage_mem_recursive(golden):
+    @proc
+    def recursive(n: size, y: R[n] @ DRAM, x: R[n] @ DRAM):
+        assert n > 2
+        assert (-2 + n) % 4 == 0
+        for io in seq(0, (-2 + n) / 4):
+            y[2 + 4 * io] = y[1 + 4 * io] + y[4 * io] + x[4 * io]
+            y[3 + 4 * io] = (
+                y[1 + 4 * io] + y[4 * io] + x[4 * io] + y[1 + 4 * io] + x[1 + 4 * io]
+            )
+            y[4 + 4 * io] = (
+                y[1 + 4 * io]
+                + y[4 * io]
+                + x[4 * io]
+                + y[1 + 4 * io]
+                + x[1 + 4 * io]
+                + (y[1 + 4 * io] + y[4 * io] + x[4 * io])
+                + x[2 + 4 * io]
+            )
+            y[5 + 4 * io] = (
+                y[1 + 4 * io]
+                + y[4 * io]
+                + x[4 * io]
+                + y[1 + 4 * io]
+                + x[1 + 4 * io]
+                + (y[1 + 4 * io] + y[4 * io] + x[4 * io])
+                + x[2 + 4 * io]
+                + (
+                    y[1 + 4 * io]
+                    + y[4 * io]
+                    + x[4 * io]
+                    + y[1 + 4 * io]
+                    + x[1 + 4 * io]
+                )
+                + x[3 + 4 * io]
+            )
+
+    block = recursive.find_loop("io").body()
+    recursive = stage_mem(recursive, block, "y[2+4*io : 6+4*io]", "y_tmp")
+    assert str(simplify(recursive)) == golden
 
 
 def test_stage_mem_twice(golden):

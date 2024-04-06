@@ -1,5 +1,7 @@
 import re
 from collections import ChainMap
+from functools import partial
+
 from typing import List, Tuple
 
 from .LoopIR import (
@@ -3613,6 +3615,49 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     else:
         new_typ = T.Tensor(shape, False, buf_typ.basetype())
 
+    def check_idx(idx, c, p):
+        assert len(idx) == len(w_exprs)
+        s = get_enclosing_stmt_cursor(c)._node
+        # check win.lo <= e.pt < win.hi
+        for i, w in zip(idx, w_exprs):
+            if not isinstance(w, tuple):
+                continue
+            w_lo, w_hi = w
+
+            try:
+                Check_CompareExprs(p, [s], w_lo, "<=", i)
+                Check_CompareExprs(p, [s], i, "<", w_hi)
+            except:
+                return False
+
+        return True
+
+    def check_win(idx, c, p):
+        assert len(idx) == len(w_exprs)
+        s = get_enclosing_stmt_cursor(c)._node
+
+        for i, w in zip(idx, w_exprs):
+            # check win.lo <= e.lo and e.hi <= win.hi
+            if not isinstance(w, tuple):
+                continue
+            w_lo, w_hi = w
+
+            i_lo = i
+            i_hi = i
+            op = "<"
+            if isinstance(i, LoopIR.Interval):
+                i_lo = i.lo
+                i_hi = i.hi
+                op = "<="
+
+            try:
+                Check_CompareExprs(p, [s], w_lo, "<=", i_lo)
+                Check_CompareExprs(p, [s], i_hi, op, w_hi)
+            except:
+                return False
+
+        return True
+
     def rewrite_idx(idx):
         assert len(idx) == len(w_exprs)
         return [
@@ -3785,29 +3830,32 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             ir, fwd, store_stmt_c, store_stmt_c._node, buf_typ
         )
 
-    def mk_read(c):
+    def mk_read(p, c):
         rd = c._node
-        if isinstance(rd, LoopIR.Read):
-            return {
-                "name": new_name,
-                "idx": rewrite_idx(rd.idx),
-                "type": rd.type,  # non-ideal, but easiest for now
-            }
-        elif isinstance(rd, LoopIR.WindowExpr):
-            w_idx = rewrite_win(rd.idx)
-            return {
-                "name": new_name,
-                "idx": w_idx,
-                "type": T.Window(new_typ, rd.type.as_tensor, new_name, w_idx),
-            }
+        _name = rd.name
+        _idx = rd.idx
+        _typ = rd.type
 
-    def mk_write(c):
+        if isinstance(rd, LoopIR.Read) and check_idx(rd.idx, c, p):
+            _name = new_name
+            _idx = rewrite_idx(rd.idx)
+        elif isinstance(rd, LoopIR.WindowExpr) and check_win(rd.idx, c):
+            _name = new_name
+            _idx = rewrite_win(rd.idx)
+            _typ = T.Window(new_typ, rd.type.as_tensor, new_name, _idx)
+
+        return {"name": _name, "idx": _idx, "type": _typ}
+
+    def mk_write(p, c):
         s = c._node
-        return {"name": new_name, "idx": rewrite_idx(s.idx)}
+        if check_idx(s.idx, c, p):
+            return {"name": new_name, "idx": rewrite_idx(s.idx)}
+
+        return {"name": s.name, "idx": s.idx}
 
     for c in block_cursor:
-        ir, fwd = _replace_reads(ir, fwd, c, buf_name, mk_read)
-        ir, fwd = _replace_writes(ir, fwd, c, buf_name, mk_write)
+        ir, fwd = _replace_reads(ir, fwd, c, buf_name, partial(mk_read, ir))
+        ir, fwd = _replace_writes(ir, fwd, c, buf_name, partial(mk_write, ir))
 
     # new alloc, load_nest + new_body + store_nest
     new_block_c = fwd(block_cursor[0]).as_block().expand(0, len(block_cursor) - 1)
@@ -3817,6 +3865,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         new_block_c = new_block_c.expand(0, 1)
     alloc_c = new_block_c[0].prev()
     Check_Bounds(ir, alloc_c._node, [c._node for c in new_block_c])
+
     return ir, fwd
 
 
