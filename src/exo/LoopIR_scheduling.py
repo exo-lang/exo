@@ -3839,7 +3839,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         if isinstance(rd, LoopIR.Read) and check_idx(rd.idx, c, p):
             _name = new_name
             _idx = rewrite_idx(rd.idx)
-        elif isinstance(rd, LoopIR.WindowExpr) and check_win(rd.idx, c):
+        elif isinstance(rd, LoopIR.WindowExpr) and check_win(rd.idx, c, p):
             _name = new_name
             _idx = rewrite_win(rd.idx)
             _typ = T.Window(new_typ, rd.type.as_tensor, new_name, _idx)
