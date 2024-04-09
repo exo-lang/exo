@@ -1,6 +1,6 @@
 import re
 from collections import ChainMap
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from .LoopIR import (
     LoopIR,
@@ -3567,11 +3567,189 @@ def DoReuseBuffer(buf_cursor, rep_cursor):
     return ir, fwd
 
 
-def DoCircularBuffer(buf_cursor, dim_idx, new_size):
-    ir, fwd = buf_cursor.get_root(), lambda x: x
+# TODO: maybe some feature should be added to IndexRangeEnvironment? Rather
+# than directly imporintg IndexRange and index_range_analysis
+from .range_analysis import IndexRange, index_range_analysis
 
-    for c in get_rest_of_block(buf_cursor):
-        pass
+
+def index_range_analysis_wrapper(
+    expr: LoopIR.expr, env: IndexRangeEnvironment
+) -> IndexRange:
+    range_or_int = index_range_analysis(expr, env.env)
+    if isinstance(range_or_int, int):
+        return IndexRange.create_int(range_or_int)
+    else:
+        assert isinstance(range_or_int, IndexRange)
+        return range_or_int
+
+
+def merge_index_ranges(
+    x: Optional[IndexRange], y: Optional[IndexRange]
+) -> Optional[IndexRange]:
+    if x is None:
+        return y
+    if y is None:
+        return x
+    assert isinstance(x, IndexRange) and isinstance(y, IndexRange)
+    return x | y
+
+
+class CheckFoldBuffer(LoopIR_Do):
+    def __init__(self, proc, buffer_name, buffer_dim, size):
+        self.env = IndexRangeEnvironment(proc)
+        self.bounds = []
+        self.name = buffer_name
+        self.dim = buffer_dim
+        self.size = size
+        self.check_passed = True
+
+    def get_result(self):
+        return self.check_passed
+
+    def enter_scope(self):
+        self.env.enter_scope()
+        self.bounds.append(None)
+
+    def exit_scope(self) -> Optional[IndexRange]:
+        self.env.exit_scope()
+        return self.bounds.pop()
+
+    def validate_access(self, idx: Optional[int]) -> bool:
+        if self.bounds is None:
+            return
+        elif idx is None or self.bounds[-1].hi is None:
+            self.check_passed = False
+        else:
+            self.check_passed &= idx > self.bounds[-1].hi - self.size
+
+    def update_bounds(self, new_bounds: IndexRange, check_safety: bool = False):
+        if self.bounds[-1] is None:
+            self.bounds[-1] = new_bounds
+        else:
+            if check_safety:
+                self.validate_access(new_bounds.lo)
+            self.bounds[-1] |= new_bounds
+
+    def do_stmts(self, stmts):
+        self.enter_scope()
+        super().do_stmts(stmts)
+        return self.exit_scope()
+
+    def do_s(self, s):
+        bounds = None
+        if isinstance(s, LoopIR.For):
+            bounds = self.do_stmts(s.body)
+            env = {
+                s.iter: (
+                    s.lo.val if isinstance(s.lo, LoopIR.Const) else None,
+                    s.hi.val - 1 if isinstance(s.hi, LoopIR.Const) else None,
+                )
+            }
+            bounds = bounds.eval_base_with_env(env)
+        elif isinstance(s, LoopIR.If):
+            if_bounds = self.do_stmts(s.body)
+            orelse_bounds = self.do_stmts(s.orelse)
+            bounds = merge_index_ranges(if_bounds, orelse_bounds)
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            # For Assign and Reduces, we are assuming that the RHS is computed before storing the
+            # result into the LHS, so we perform the checks in that order.
+
+            # First, the RHS
+            self.enter_scope()
+            super().do_e(s.rhs)
+            rhs_bounds = self.exit_scope()
+
+            if rhs_bounds is not None:
+                # We make no assumptions about the order of execution of the RHS
+                self.check_passed &= rhs_bounds.lo > rhs_bounds.hi - self.size
+                self.update_bounds(rhs_bounds, check_safety=True)
+
+            # Second, the LHS
+            if self.name == s.name:
+                bounds = index_range_analysis_wrapper(s.idx[self.dim], self.env)
+        else:
+            super().do_s(s)
+            bounds = self.exit_scope()
+
+        if bounds is not None:
+            self.update_bounds(bounds, check_safety=True)
+
+    def do_e(self, e):
+        if isinstance(e, LoopIR.Read) and e.name == self.name:
+            index_rng = index_range_analysis_wrapper(e.idx[self.dim], self.env)
+            self.update_bounds(index_rng)
+        elif isinstance(e, LoopIR.WindowExpr) and e.name == self.name:
+            w_access = e.idx[self.dim]
+            if isinstance(w_access, LoopIR.Interval):
+                lo_rng = index_range_analysis_wrapper(w_access.lo, self.env)
+                hi_rng = index_range_analysis_wrapper(w_access.hi, self.env)
+                self.update_bounds(lo_rng | hi_rng)
+            else:
+                assert isinstance(w_access, LoopIR.Point)
+                index_rng = index_range_analysis_wrapper(w_access.pt, self.env)
+                self.update_bounds(index_rng)
+        else:
+            super().do_e(e)
+
+
+def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
+    alloc_name = alloc_cursor._node.name
+
+    buffer_check = CheckFoldBuffer(
+        alloc_cursor.get_root(), alloc_name, dim_idx, new_size
+    )
+    buffer_check.do_stmts([c._node for c in get_rest_of_block(alloc_cursor)])
+    if not buffer_check.get_result():
+        raise SchedulingError("Buffer folding not possible")
+
+    size_expr = LoopIR.Const(new_size, T.index, alloc_cursor._node.srcinfo)
+    ir, fwd = (
+        alloc_cursor._child_node("type")
+        ._child_block("hi")[dim_idx]
+        ._replace([size_expr])
+    )
+
+    def make_index_mod(e):
+        return LoopIR.BinOp("%", e, size_expr, T.index, e.srcinfo)
+
+    def mk_read(c):
+        rd = c._node
+        new_idx = rd.idx.copy()
+        if isinstance(rd, LoopIR.Read):
+            new_idx[dim_idx] = make_index_mod(rd.idx[dim_idx])
+            return {"idx": new_idx}
+
+        elif isinstance(rd, LoopIR.WindowExpr):
+            if isinstance(rd.idx[dim_idx], LoopIR.Point):
+                new_idx[dim_idx] = LoopIR.Point(
+                    make_index_mod(rd.idx[dim_idx].pt), rd.srcinfo
+                )
+            else:
+                # TODO: see if check_bounds catches the case where lo, hi spans a multiple
+                # of size, which would break the buffer folding
+                new_idx[dim_idx] = LoopIR.Interval(
+                    make_index_mod(rd.idx[dim_idx].lo),
+                    make_index_mod(rd.idx[dim_idx].hi),
+                    rd.srcinfo,
+                )
+
+            return {"idx": new_idx}
+        else:
+            raise NotImplementedError(f"Did not implement {type(rd)}.")
+
+    def mk_write(c):
+        s = c._node
+        new_idx = s.idx.copy()
+        new_idx[dim_idx] = make_index_mod(s.idx[dim_idx])
+        return {"idx": new_idx}
+
+    for c in get_rest_of_block(alloc_cursor):
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_name, mk_write)
+
+    alloc_cursor = fwd(alloc_cursor)
+    after_alloc = [c._node for c in get_rest_of_block(alloc_cursor)]
+    Check_Bounds(ir, alloc_cursor._node, after_alloc)
 
     return ir, fwd
 
@@ -3948,7 +4126,7 @@ __all__ = [
     "DoRewriteExpr",
     "DoStageMem",
     "DoReuseBuffer",
-    "DoCircularBuffer",
+    "DoFoldBuffer",
     "DoInlineWindow",
     "DoDivideDim",
     "DoExpandDim",

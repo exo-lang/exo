@@ -1532,20 +1532,20 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
-    ir, fwd = scheduling.ReuseBuffer(buf_s, rep_s)
+    ir, fwd = scheduling.DoReuseBuffer(buf_s, rep_s)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, IntA, PosIntA])
-def circular_buffer(proc, buf_cursor, dim_idx, new_size):
+def fold_buffer(proc, buf_cursor, dim_idx, new_size):
     """
     Shrinks the buffer `buf_cursor`'s `dim_idx`-th dimension to `new_size`,
     and then rewrites all accesses to that dimension to be modulo `new_size`.
 
     args:
         buf_cursor      - cursor pointing to the Alloc to reuse
-        dim_idx         - the index of the dimension to make circular
-        new_size        - the new size of the circular dimension
+        dim_idx         - the index of the dimension to fold
+        new_size        - the new size of the folded dimension
 
     rewrite:
         `x : T ; s`
@@ -1554,7 +1554,7 @@ def circular_buffer(proc, buf_cursor, dim_idx, new_size):
     """
     assert dim_idx >= 0, "Dimension index must be non-negative"
     buf_s = buf_cursor._impl
-    ir, fwd = scheduling.DoCircularBuffer(buf_s, dim_idx, new_size)
+    ir, fwd = scheduling.DoFoldBuffer(buf_s, dim_idx, new_size)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

@@ -5,11 +5,19 @@ from typing import Optional, Tuple
 
 from .LoopIR import LoopIR, T, LoopIR_Compare
 from .new_eff import Check_ExprBound
-from .prelude import Sym
+from .prelude import Sym, _null_srcinfo_obj
 
 
 def binop(op: str, e1: LoopIR.expr, e2: LoopIR.expr):
     return LoopIR.BinOp(op, e1, e2, e1.type, e1.srcinfo)
+
+
+def zero():
+    return LoopIR.Const(0, T.index, _null_srcinfo_obj)
+
+
+def is_zero(e):
+    return isinstance(e, LoopIR.Const) and e.val == 0
 
 
 @dataclass
@@ -17,21 +25,30 @@ class IndexRange:
     """
     Represents a range of possible values between [base + lo, base + hi]
         - [base] contains all expressions that we don't want to bounds infer (e.g. free
-        variables). If base is None, it signifies a base of 0.
+        variables.
         - [lo] and [hi] are bounds. If either is None, it means that there is no
         constant bound
     """
 
-    base: Optional[LoopIR.expr]
+    base: LoopIR.expr
     lo: Optional[int]
     hi: Optional[int]
 
-    def get_bounds(self):
+    def create_unbounded() -> IndexRange:
+        return IndexRange(zero(), None, None)
+
+    def create_int(x: int) -> IndexRange:
+        return IndexRange(zero(), x, x)
+
+    def create_constant_range(lo: int, hi: int) -> IndexRange:
+        return IndexRange(zero(), lo, hi)
+
+    def get_bounds(self) -> Tuple[str, str]:
         """
         Returns a tuple of the form (base + lo, base + hi + 1). If either
         endpoint is unboundable, returns inf or -inf.
         """
-        if self.base is None:
+        if is_zero(self.base):
             lo = "-inf" if self.lo is None else str(self.lo)
             hi = "inf" if self.hi is None else str(self.hi)
         else:
@@ -43,6 +60,12 @@ class IndexRange:
         assert isinstance(idx, Sym)
 
         def get_coeff(e):
+            """
+            This implementation assumes that self.base is a linear combination of index
+            variables WITHOUT a constant term, e.g. ax + by + cz where a, b, c are constants
+            and x, y, z are index expression. This holds because constant terms are always
+            folded into self.lo and self.hi
+            """
             if isinstance(e, LoopIR.Read):
                 return 1 if e.name == idx else 0
             elif isinstance(e, LoopIR.Const):
@@ -67,13 +90,18 @@ class IndexRange:
 
         return get_coeff(self.base)
 
-    def get_size(self) -> int:
+    def eval_base_with_env(self, env: ChainMap | dict) -> IndexRange:
+        assert isinstance(env, (ChainMap, dict))
+        base_bounds = index_range_analysis(self.base, env)
+        return base_bounds | IndexRange.create_constant_range(self.lo, self.hi)
+
+    def get_size(self) -> int | None:
         if self.lo is None or self.hi is None:
             return None
         return self.hi - self.lo + 1  # +1 because bounds are inclusive
 
-    def __str__(self):
-        base = "0" if self.base is None else str(self.base)
+    def __str__(self) -> str:
+        base = "0" if is_zero(self.base) else str(self.base)
         lo = "-inf" if self.lo is None else str(self.lo)
         hi = "inf" if self.hi is None else str(self.hi)
         return f"({base}, {lo}, {hi})"
@@ -88,9 +116,9 @@ class IndexRange:
                 new_hi = self.hi + other
             return IndexRange(self.base, new_lo, new_hi)
         else:
-            if self.base is None:
+            if is_zero(self.base):
                 new_base = other.base
-            elif other.base is None:
+            elif is_zero(other.base):
                 new_base = self.base
             else:
                 new_base = binop("+", self.base, other.base)
@@ -107,8 +135,8 @@ class IndexRange:
         return self.__add__(c)
 
     def __neg__(self) -> IndexRange:
-        new_base, new_lo, new_hi = None, None, None
-        if self.base is not None:
+        new_base, new_lo, new_hi = zero(), None, None
+        if not is_zero(self.base):
             new_base = LoopIR.USub(self.base, self.base.type, self.base.srcinfo)
         if self.lo is not None:
             new_hi = -self.lo
@@ -129,8 +157,8 @@ class IndexRange:
         if c == 0:
             return 0
 
-        new_base, new_lo, new_hi = None, None, None
-        if self.base is not None:
+        new_base, new_lo, new_hi = zero(), None, None
+        if not is_zero(self.base):
             const = LoopIR.Const(c, T.index, self.base.srcinfo)
             new_base = binop("*", self.base, const)
         if self.lo is not None:
@@ -152,36 +180,40 @@ class IndexRange:
         if c == 0:
             return ValueError("Cannot divide by 0.")
         elif c < 0:
-            return IndexRange(None, None, None)
+            return IndexRange.create_unbounded()
 
         new_lo, new_hi = None, None
-        if self.base is None:
+        if is_zero(self.base):
             if self.lo is not None:
                 new_lo = self.lo // c
             if self.hi is not None:
                 new_hi = self.hi // c
 
-            return IndexRange(None, new_lo, new_hi)
+            return IndexRange.create_constant_range(new_lo, new_hi)
         else:
             # TODO: Maybe can do some reasoning about base and lo if new_lo is not None
             if self.lo is not None and self.hi is not None:
                 new_lo = 0
                 new_hi = (self.hi - self.lo) // c
 
-            return IndexRange(None, new_lo, new_hi)
+            return IndexRange(zero(), new_lo, new_hi)
 
     def __mod__(self, c: int) -> IndexRange:
         assert isinstance(c, int)
-        if self.base is None and self.lo is not None and self.hi is not None:
-            if self.lo // c == self.hi // c:
-                return IndexRange(None, self.lo % c, self.hi % c)
-        return IndexRange(None, 0, c - 1)
+        if (
+            is_zero(self.base)
+            and self.lo is not None
+            and self.hi is not None
+            and self.lo // c == self.hi // c
+        ):
+            return IndexRange.create_constant_range(self.lo % c, self.hi % c)
+        return IndexRange.create_constant_range(0, c - 1)
 
     # join
     def __or__(self, other: IndexRange) -> IndexRange:
         assert isinstance(other, IndexRange)
         compare_ir = LoopIR_Compare()
-        if (self.base is None and other.base is None) or compare_ir.match_e(
+        if (is_zero(self.base) and other.base is None) or compare_ir.match_e(
             self.base, other.base
         ):
             if self.lo is None:
@@ -198,10 +230,10 @@ class IndexRange:
                 new_hi = max(self.hi, other.hi)
             return IndexRange(self.base, new_lo, new_hi)
         else:
-            return IndexRange(None, None, None)
+            return IndexRange.create_unbounded()
 
 
-def index_range_analysis(expr: LoopIR.expr, env: dict) -> IndexRange | int:
+def index_range_analysis(expr: LoopIR.expr, env: ChainMap | dict) -> IndexRange | int:
     """
     Based on the supplied [env], recursively performs range analysis on
     the possible values for [expr]. Returns either an int if the value
@@ -214,14 +246,14 @@ def index_range_analysis(expr: LoopIR.expr, env: dict) -> IndexRange | int:
         assert isinstance(expr, LoopIR.expr)
 
         if not expr.type.is_indexable():
-            return (None, None)
+            raise ValueError("Cannot analyze range of non-index expression")
 
         if isinstance(expr, LoopIR.Read):
             sym = expr.name
             if sym not in env:
                 return IndexRange(expr, 0, 0)
             lo, hi = env[sym]
-            return IndexRange(None, lo, hi)
+            return IndexRange.create_constant_range(lo, hi)
         elif isinstance(expr, LoopIR.Const):
             return expr.val
         elif isinstance(expr, LoopIR.USub):
@@ -259,7 +291,7 @@ def constant_bound(expr, env) -> Tuple[int, int] | None:
     if isinstance(idx_rng, int):
         return (idx_rng, idx_rng)
 
-    if idx_rng.base is not None:
+    if not is_zero(idx_rng.base):
         return (None, None)
     return (idx_rng.lo, idx_rng.hi)
 
@@ -430,6 +462,7 @@ class IndexRangeEnvironment:
     def check_expr_bounds(self, expr0, op0, expr1, op1, expr2):
         expr0_range = constant_bound(expr0, self.env)
         expr1_range = constant_bound(expr1, self.env)
+        print(expr1, expr1_range)
         expr2_range = constant_bound(expr2, self.env)
         return IndexRangeEnvironment._check_range(
             expr0_range, op0, expr1_range

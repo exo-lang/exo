@@ -1120,7 +1120,7 @@ def test_reuse_buffer_loop_fail():
         foo = reuse_buffer(foo, "bb:_", "c:_")
 
 
-def test_circular_buffer(golden):
+def test_fold_buffer_loop_simple(golden):
     @proc
     def foo(N: size):
         x: i8[N]
@@ -1128,13 +1128,32 @@ def test_circular_buffer(golden):
             x[2 * i] = 1.0
             x[2 * i + 1] = 2.0
 
-    foo = circular_buffer(foo, foo.find("x: _"), 0, 2)
+    foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
+    foo = simplify(foo)
     assert str(foo) == golden
 
 
-def test_circular_buffer_fail():
+def test_fold_buffer_loop_in_context(golden):
     @proc
-    def foo_3():
+    def foo(N: size):
+        assert N > 2
+        x: i8[N]
+        x[2] = 0.0
+        for i in seq(0, N / 2):
+            x[2 * i] = 1.0
+            x[2 * i + 1] = 2.0
+
+    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+        foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
+
+    foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+    foo = simplify(foo)
+    assert str(foo) == golden
+
+
+def test_fold_buffer_sequential_stmts(golden):
+    @proc
+    def foo():
         x: i8[10]
         x[0] = 0.0
         x[2] = 0.0
@@ -1143,11 +1162,24 @@ def test_circular_buffer_fail():
         x[7] = 0.0
         x[5] = 0.0
 
-    with pytest.raises(SchedulingError, match="Something"):
-        foo_3 = circular_buffer(foo_3, foo_3.find("x: _"), 0, 2)
+    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+        foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
+
+    foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+    assert str(simplify(foo)) == golden
 
 
-# TODO: add more circular buffer tests
+def test_fold_buffer_within_stmt(golden):
+    @proc
+    def foo():
+        x: i8[10]
+        x[0] = x[3] + x[1]
+
+    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+        foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+
+    foo = fold_buffer(foo, foo.find("x: _"), 0, 4)
+    assert str(simplify(foo)) == golden
 
 
 def test_fuse_loop(golden):
