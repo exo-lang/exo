@@ -1182,6 +1182,58 @@ def test_fold_buffer_within_stmt(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_fold_buffer_if_stmt(golden):
+    @proc
+    def foo(condition: bool):
+        x: i8[10]
+        x[2] = 0.0
+        if condition:
+            x[0] = 0.0
+            x[5] = 0.0
+        else:
+            for i in seq(2, 5):
+                x[i] = 1.0
+                x[i - 1] = 2.0
+                x[i - 2] = 2.0
+        x[3] = 0.0
+
+    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+        foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
+
+    foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+    assert str(simplify(foo)) == golden
+
+
+def test_fold_buffer_blur(golden):
+    @proc
+    def blur(H: size, W: size, inp: i8[H + 2, W], out: i8[H, W]):
+        assert H % 32 == 0
+        assert W > 32
+        for io in seq(0, H / 32):
+            blur_x: i8[34, W]
+            for ii in seq(0, 2):
+                for j in seq(0, W - 2):
+                    blur_x[ii, j] = (
+                        inp[io * 32 + ii, j]
+                        + inp[io * 32 + ii, j + 1]
+                        + inp[io * 32 + ii, j + 2]
+                    )
+            for ii in seq(0, 32):
+                for j in seq(0, W - 2):
+                    blur_x[ii + 2, j] = (
+                        inp[io * 32 + ii, j]
+                        + inp[io * 32 + ii, j + 1]
+                        + inp[io * 32 + ii, j + 2]
+                    )
+                for j in seq(0, W - 2):
+                    out[32 * io + ii, j] = (
+                        blur_x[ii, j] + blur_x[ii + 1, j] + blur_x[ii + 2, j]
+                    )
+
+    blur = fold_buffer(blur, blur.find("blur_x: _"), 0, 3)
+    assert str(simplify(blur)) == golden
+
+
 def test_fuse_loop(golden):
     @proc
     def foo(n: size, x: R[n]):

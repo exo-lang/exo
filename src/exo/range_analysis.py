@@ -93,7 +93,7 @@ class IndexRange:
     def eval_base_with_env(self, env: ChainMap | dict) -> IndexRange:
         assert isinstance(env, (ChainMap, dict))
         base_bounds = index_range_analysis(self.base, env)
-        return base_bounds | IndexRange.create_constant_range(self.lo, self.hi)
+        return base_bounds + IndexRange.create_constant_range(self.lo, self.hi)
 
     def get_size(self) -> int | None:
         if self.lo is None or self.hi is None:
