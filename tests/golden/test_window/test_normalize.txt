@@ -21,10 +21,13 @@
 #endif
 
 
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
 struct exo_win_1f32c{
     const float * const data;
     const int_fast32_t strides[1];
 };
+#endif
 // proj(
 //     n : size,
 //     m : size,

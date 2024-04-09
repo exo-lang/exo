@@ -21,14 +21,20 @@
 #endif
 
 
+#ifndef EXO_WIN_2I8
+#define EXO_WIN_2I8
 struct exo_win_2i8{
     int8_t * const data;
     const int_fast32_t strides[2];
 };
+#endif
+#ifndef EXO_WIN_2I8C
+#define EXO_WIN_2I8C
 struct exo_win_2i8c{
     const int8_t * const data;
     const int_fast32_t strides[2];
 };
+#endif
 // stride_assert(
 //     n : size,
 //     m : size,

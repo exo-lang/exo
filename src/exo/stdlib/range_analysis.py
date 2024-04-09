@@ -100,7 +100,6 @@ def infer_range(idx_expr: Cursor, scope: Cursor) -> IndexRange:
 def bounds_inference(proc, loop, buffer_name: str, buffer_dim: int, include=["W"]):
     """ """
     loop = proc.forward(loop)
-    alloc = proc.find_alloc_or_arg(buffer_name)
 
     matches = []
     # TODO: also want probably reduces... for both read and write
