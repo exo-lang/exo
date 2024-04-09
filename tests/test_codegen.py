@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from exo import proc, Procedure, DRAM, compile_procs_to_strings
+from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings
 from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
 from exo.stdlib.scheduling import *
 
@@ -649,12 +649,24 @@ def test_target_another_exo_library(compiler, tmp_path, golden):
         for i in seq(0, n):
             y[i] = 1.0
 
-    foo_instr = make_instr(foo, "foo(NULL, {n}, {x_data});", '#include "foo.h"')
-    bar = replace(bar, bar.find_loop("i"), foo_instr)
+    def using_make_instr():
+        foo_instr = make_instr(foo, "foo(NULL, {n}, {x_data});", '#include "foo.h"')
+        return replace(bar, bar.find_loop("i"), foo_instr)
 
-    foo_h, foo_c = compile_procs_to_strings([foo_sched], "foo.h")
-    bar_h, bar_c = compile_procs_to_strings([bar], "bar.h")
+    def using_instr_dec():
+        @instr("foo(NULL, {n}, {x_data});", '#include "foo.h"')
+        def foo(n: size, x: f32[n]):
+            for i in seq(0, n):
+                x[i] = 1.0
 
-    assert f"{foo_h}\n{foo_c}\n{bar_h}\n{bar_c}" == golden
+        return replace(bar, bar.find_loop("i"), foo)
 
-    compiler.compile(bar, additional_file="foo.c")
+    for func in using_make_instr, using_instr_dec:
+        optimized_bar = func()
+
+        foo_h, foo_c = compile_procs_to_strings([foo_sched], "foo.h")
+        bar_h, bar_c = compile_procs_to_strings([optimized_bar], "bar.h")
+
+        assert f"{foo_h}\n{foo_c}\n{bar_h}\n{bar_c}" == golden
+
+        compiler.compile(optimized_bar, additional_file="foo.c")
