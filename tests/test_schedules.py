@@ -544,10 +544,22 @@ def test_resize_dim_4(golden):
         for i in seq(3, 6):
             bar(x[i, i : i + 3])
 
-    foo1 = resize_dim(foo1, "x", 0, 5, "2")
+    foo1 = resize_dim(foo1, "x", 0, 6, "2")
     foo2 = resize_dim(foo2, "x", 0, 15, "2")
 
     assert str(foo1) + "\n" + str(foo2) == golden
+
+
+def test_resize_dim_5(golden):
+    @proc
+    def foo():
+        x: i8[8]
+        for i in seq(1, 8):
+            x[i] = 1.0
+
+    assert str(resize_dim(foo, "x", 0, 10, -1)) == golden
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = resize_dim(foo, "x", 0, 7, 0)
 
 
 def test_rearrange_dim(golden):
@@ -1553,6 +1565,47 @@ def test_merge_writes_different_lhs_arrays_error():
         SchedulingError, match="expected the left hand side's indices to be the same."
     ):
         bar = merge_writes(bar, "z[i, 1] = y; z[i+1, 1] += y")
+
+
+def test_split_write(golden):
+    @proc
+    def bar(x: i8):
+        x = 1 + 2
+        x += 3 + 4
+
+    bar = split_write(bar, bar.body()[0])
+    bar = split_write(bar, bar.body()[2])
+    assert str(bar) == golden
+
+
+def test_split_write_then_merge():
+    @proc
+    def bar(x: i8):
+        x = 1 + 2
+        x += 3 + 4
+
+    start_bar = bar
+    assign = bar.body()[0]
+    reduce = bar.body()[1]
+    bar = split_write(bar, assign)
+    bar = split_write(bar, reduce)
+    bar = merge_writes(bar, assign.as_block())
+    bar = merge_writes(bar, reduce.as_block())
+    assert str(bar) == str(start_bar)
+
+
+def test_split_write_fail():
+    @proc
+    def bar(x: i8):
+        x = 1 * 2
+        x += 4
+
+    for s in bar.body():
+        with pytest.raises(
+            SchedulingError,
+            match="Expected the rhs of the statement to be an addition.",
+        ):
+            bar = split_write(bar, s)
 
 
 def test_fold_into_reduce_1(golden):

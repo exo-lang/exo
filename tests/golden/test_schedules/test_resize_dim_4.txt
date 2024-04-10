@@ -1,5 +1,5 @@
 def foo1():
-    x: i8[5] @ DRAM
+    x: i8[6] @ DRAM
     for i in seq(3, 6):
         bar(x[i - 2:i + 3 - 2])
 def foo2():

@@ -70,6 +70,7 @@ from ..API_scheduling import (
     shift_loop,
     reorder_loops,
     merge_writes,
+    split_write,
     fold_into_reduce,
     inline_assign,
     lift_reduce_constant,

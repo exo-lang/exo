@@ -530,6 +530,18 @@ def DoMergeWrites(c1, c2):
     return ir, fwd
 
 
+def DoSplitWrite(sc):
+    s = sc._node
+
+    if not isinstance(s.rhs, LoopIR.BinOp) or s.rhs.op != "+":
+        raise SchedulingError("Expected the rhs of the statement to be an addition.")
+
+    s0 = s.update(rhs=s.rhs.lhs)
+    s1 = LoopIR.Reduce(s.name, s.type, s.idx, s.rhs.rhs, None, s.srcinfo)
+    ir, fwd = sc._replace([s0, s1])
+    return ir, fwd
+
+
 def DoFoldIntoReduce(assign):
     def access_to_str(node):
         idx = f"[{','.join([str(idx) for idx in node.idx])}]" if node.idx else ""
@@ -1566,6 +1578,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
 
 def DoResizeDim(alloc_cursor, dim_idx: int, size: LoopIR.expr, offset: LoopIR.expr):
     alloc_s = alloc_cursor._node
+    alloc_name = alloc_s.name
     assert isinstance(alloc_s, LoopIR.Alloc)
     assert isinstance(alloc_s.type, T.Tensor)
 
@@ -1613,11 +1626,12 @@ def DoResizeDim(alloc_cursor, dim_idx: int, size: LoopIR.expr, offset: LoopIR.ex
         return {"idx": new_idx}
 
     for c in get_rest_of_block(alloc_cursor):
-        ir, fwd = _replace_reads(ir, fwd, c, alloc_s.name, mk_read)
-        ir, fwd = _replace_writes(ir, fwd, c, alloc_s.name, mk_write)
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_name, mk_write)
 
-    after_alloc = [c._node for c in get_rest_of_block(fwd(alloc_cursor))]
-    Check_Bounds(ir, alloc_s, after_alloc)
+    alloc_cursor = fwd(alloc_cursor)
+    after_alloc = [c._node for c in get_rest_of_block(alloc_cursor)]
+    Check_Bounds(ir, alloc_cursor._node, after_alloc)
 
     return ir, fwd
 
@@ -3947,6 +3961,7 @@ __all__ = [
     "DoLiftScope",
     "DoFissionAfterSimple",
     "DoMergeWrites",
+    "DoSplitWrite",
     "DoFoldIntoReduce",
     "DoFuseIf",
     "DoFuseLoop",
