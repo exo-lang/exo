@@ -91,8 +91,6 @@ struct exo_win_3i8{
 void conv_on_gemmini( c_code_str_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale );
 
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -104,7 +102,6 @@ double _relu_(double x) {
     if (x > 0.0) return x;
     else return 0.0;
 }
-
 
 
 /* relying on the following instruction..."
