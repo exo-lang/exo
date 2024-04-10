@@ -664,9 +664,40 @@ def test_target_another_exo_library(compiler, tmp_path, golden):
     for func in using_make_instr, using_instr_dec:
         optimized_bar = func()
 
-        foo_h, foo_c = compile_procs_to_strings([foo_sched], "foo.h")
-        bar_h, bar_c = compile_procs_to_strings([optimized_bar], "bar.h")
+        foo_c, foo_h = compile_procs_to_strings([foo_sched], "foo.h")
+        bar_c, bar_h = compile_procs_to_strings([optimized_bar], "bar.h")
 
         assert f"{foo_h}\n{foo_c}\n{bar_h}\n{bar_c}" == golden
 
         compiler.compile(optimized_bar, additional_file="foo.c")
+
+
+def test_memcpy_instr(compiler, golden):
+    @instr("memcpy({dst}, {src}, {n} * sizeof(float));", "#include <string.h>")
+    def memcpy(n: size, dst: f32[n], src: f32[n]):
+        for i in seq(0, n):
+            dst[i] = src[i]
+
+    @proc
+    def bar(n: size, dst: f32[n], src: f32[n]):
+        for i in seq(0, n):
+            dst[i] = src[i]
+
+    optimized_bar = replace(bar, bar.body()[0], memcpy)
+
+    bar_c, bar_h = compile_procs_to_strings([optimized_bar], "bar.h")
+
+    assert f"{bar_c}\n{bar_h}" == golden
+
+    fn = compiler.compile(optimized_bar)
+
+    n_size = 5
+    src = np.array([float(i) for i in range(n_size)], dtype=np.float32)
+    dst = np.zeros(shape=n_size, dtype=np.float32)
+
+    fn(None, n_size, dst, src)
+
+    expected = np.array([float(i) for i in range(n_size)], dtype=np.float32)
+
+    np.testing.assert_almost_equal(dst, expected)
+    np.testing.assert_almost_equal(src, expected)
