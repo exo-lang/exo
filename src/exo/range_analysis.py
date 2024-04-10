@@ -8,6 +8,11 @@ from .new_eff import Check_ExprBound
 from .prelude import Sym, _null_srcinfo_obj
 
 
+# TODO: we should implement a more general index analysis which
+# will leverage SMT solver to prove comparisons. But we should still
+# keep all the code below for fast, constant bounds inference.
+
+
 def binop(op: str, e1: LoopIR.expr, e2: LoopIR.expr):
     return LoopIR.BinOp(op, e1, e2, e1.type, e1.srcinfo)
 
@@ -81,7 +86,7 @@ class IndexRange:
                 elif op == "*":
                     return lhs * rhs
                 else:
-                    raise ValueError(
+                    raise ValueErr(
                         f"cannot get stride of {idx} because {e} contains an unsupported operand '{op}'"
                     )
             elif isinstance(e, LoopIR.USub):
@@ -90,10 +95,19 @@ class IndexRange:
 
         return get_coeff(self.base)
 
-    def eval_base_with_env(self, env: ChainMap | dict) -> IndexRange:
-        assert isinstance(env, (ChainMap, dict))
-        base_bounds = index_range_analysis(self.base, env)
-        return base_bounds + IndexRange.create_constant_range(self.lo, self.hi)
+    def partial_eval_with_range(self, var: Sym, rng: IndexRange) -> IndexRange:
+        c = self.get_stride_of(var)
+        if c == 0:
+            return self
+
+        new_bounds = index_range_analysis(self.base, {var: (rng.lo, rng.hi)})
+
+        if is_zero(rng.base):
+            return new_bounds
+        else:
+            c_expr = LoopIR.Const(c, T.index, self.base.srcinfo)
+            new_base = LoopIR.BinOp("*", c_expr, rng.base, T.index, self.base.srcinfo)
+            return new_bounds + IndexRange(new_base, 0, 0)
 
     def get_size(self) -> int | None:
         if self.lo is None or self.hi is None:
@@ -192,11 +206,15 @@ class IndexRange:
             return IndexRange.create_constant_range(new_lo, new_hi)
         else:
             # TODO: Maybe can do some reasoning about base and lo if new_lo is not None
+            c_expr = LoopIR.Const(c, T.index, self.base.srcinfo)
+            new_base = LoopIR.BinOp(
+                "/", self.base, c_expr, self.base.type, self.base.srcinfo
+            )
             if self.lo is not None and self.hi is not None:
-                new_lo = 0
-                new_hi = (self.hi - self.lo) // c
+                new_lo = self.lo // c
+                new_hi = self.hi // c + 1
 
-            return IndexRange(zero(), new_lo, new_hi)
+            return IndexRange(new_base, new_lo, new_hi)
 
     def __mod__(self, c: int) -> IndexRange:
         assert isinstance(c, int)
@@ -233,11 +251,16 @@ class IndexRange:
             return IndexRange.create_unbounded()
 
 
-def index_range_analysis(expr: LoopIR.expr, env: ChainMap | dict) -> IndexRange | int:
+def index_range_analysis(
+    expr: LoopIR.expr, env: ChainMap | dict = {}
+) -> IndexRange | int:
     """
     Based on the supplied [env], recursively performs range analysis on
     the possible values for [expr]. Returns either an int if the value
     is constant, or an IndexRange of the form [offset+lo, offset+hi].
+
+    When env is empty, this function effectively just separates the
+    constants from the non-constants index expressions.
     """
     assert isinstance(expr, LoopIR.expr)
     assert isinstance(env, (ChainMap, dict))
@@ -448,7 +471,7 @@ class IndexRangeEnvironment:
         if op == IndexRangeEnvironment.lt:
             return range0[1] < range1[0]
         elif op == IndexRangeEnvironment.leq:
-            return range0[0] <= range1[0]
+            return range0[1] <= range1[0]
         else:
             if range0[0] is None or range1[1] is None:
                 return False

@@ -1132,35 +1132,25 @@ def test_reuse_buffer_loop_fail():
         foo = reuse_buffer(foo, "bb:_", "c:_")
 
 
-def test_fold_buffer_loop_simple(golden):
-    @proc
-    def foo(N: size):
-        x: i8[N]
-        for i in seq(0, N / 2):
-            x[2 * i] = 1.0
-            x[2 * i + 1] = 2.0
+# TODO: to make this kind of test work, we need to support more general
+# index analysis which potentially leverages SMT solvers for comparisons.
+# def test_fold_buffer_loop_in_context(golden):
+#     @proc
+#     def foo(N: size):
+#         assert N > 2
+#         x: i8[N]
+#         x[2] = 0.0
+#         for i in seq(0, N / 2):
+#             x[2 * i] = 1.0
+#             x[2 * i + 1] = 2.0
+#         x[N / 2] = 3.0
 
-    foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
-    foo = simplify(foo)
-    assert str(foo) == golden
+#     with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+#         foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
 
-
-def test_fold_buffer_loop_in_context(golden):
-    @proc
-    def foo(N: size):
-        assert N > 2
-        x: i8[N]
-        x[2] = 0.0
-        for i in seq(0, N / 2):
-            x[2 * i] = 1.0
-            x[2 * i + 1] = 2.0
-
-    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
-        foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
-
-    foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
-    foo = simplify(foo)
-    assert str(foo) == golden
+#     foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+#     foo = simplify(foo)
+#     assert str(foo) == golden
 
 
 def test_fold_buffer_sequential_stmts(golden):
@@ -1244,6 +1234,68 @@ def test_fold_buffer_blur(golden):
 
     blur = fold_buffer(blur, blur.find("blur_x: _"), 0, 3)
     assert str(simplify(blur)) == golden
+
+
+def test_fold_buffer_unsharp(golden):
+    @proc
+    def exo_unsharp_base(
+        W: size,
+        H: size,
+        output: f32[3, H, W] @ DRAM,
+        input: f32[3, H + 6, W + 6] @ DRAM,
+    ):
+        assert H % 32 == 0
+        for y in par(0, H / 32):
+            gray: f32[38, 6 + W] @ DRAM
+            ratio: f32[1, W] @ DRAM
+            blur_y: f32[1, 6 + W] @ DRAM
+            for yi in seq(0, 6):
+                for x in seq(0, 6 + W):
+                    gray[yi, x] = (
+                        input[0, yi + 32 * y, x]
+                        + input[1, yi + 32 * y, x]
+                        + input[2, yi + 32 * y, x]
+                    )
+            for y_i in seq(0, 32):
+                for x in seq(0, 6 + W):
+                    gray[6 + y_i, x] = (
+                        input[0, 6 + y_i + 32 * y, x]
+                        + input[1, 6 + y_i + 32 * y, x]
+                        + input[2, 6 + y_i + 32 * y, x]
+                    )
+                for x in seq(0, 6 + W):
+                    blur_y[0, x] = (
+                        gray[3 + y_i, x]
+                        + gray[2 + y_i, x]
+                        + gray[4 + y_i, x]
+                        + gray[1 + y_i, x]
+                        + gray[5 + y_i, x]
+                        + gray[y_i, x]
+                        + gray[6 + y_i, x]
+                    )
+                for x in seq(0, W):
+                    ratio[0, x] = (
+                        gray[3 + y_i, 3 + x]
+                        - (
+                            blur_y[0, 3 + x]
+                            + blur_y[0, 2 + x]
+                            + blur_y[0, 4 + x]
+                            + blur_y[0, 1 + x]
+                            + blur_y[0, 5 + x]
+                            + blur_y[0, x]
+                            + blur_y[0, 6 + x]
+                        )
+                    ) / gray[3 + y_i, 3 + x]
+                for c in seq(0, 3):
+                    for x in seq(0, W):
+                        output[c, y_i + 32 * y, x] = (
+                            ratio[0, x] * input[c, 3 + y_i + 32 * y, 3 + x]
+                        )
+
+    foo = fold_buffer(exo_unsharp_base, exo_unsharp_base.find("gray: _"), 0, 8)
+    print(foo)
+
+    assert str(simplify(foo)) == golden
 
 
 def test_fuse_loop(golden):

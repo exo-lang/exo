@@ -32,7 +32,9 @@ from .new_eff import (
     Check_ExprBound,
     Check_Aliasing,
 )
-from .range_analysis import IndexRangeEnvironment
+
+from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis
+
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
 import exo.internal_cursors as ic
@@ -3584,15 +3586,8 @@ def DoReuseBuffer(buf_cursor, rep_cursor):
     return ir, fwd
 
 
-# TODO: maybe some feature should be added to IndexRangeEnvironment? Rather
-# than directly imporintg IndexRange and index_range_analysis
-from .range_analysis import IndexRange, index_range_analysis
-
-
-def index_range_analysis_wrapper(
-    expr: LoopIR.expr, env: IndexRangeEnvironment
-) -> IndexRange:
-    range_or_int = index_range_analysis(expr, env.env)
+def index_range_analysis_wrapper(expr: LoopIR.expr) -> IndexRange:
+    range_or_int = index_range_analysis(expr)
     if isinstance(range_or_int, int):
         return IndexRange.create_int(range_or_int)
     else:
@@ -3612,9 +3607,9 @@ def merge_index_ranges(
 
 
 class CheckFoldBuffer(LoopIR_Do):
-    def __init__(self, proc, buffer_name, buffer_dim, size):
-        self.env = IndexRangeEnvironment(proc)
-        self.bounds = []
+    def __init__(self, buffer_name, buffer_dim, size):
+        self.max_access_per_scope = []
+        self.access_window_within_s = None
         self.name = buffer_name
         self.dim = buffer_dim
         self.size = size
@@ -3624,28 +3619,23 @@ class CheckFoldBuffer(LoopIR_Do):
         return self.check_passed
 
     def enter_scope(self):
-        self.env.enter_scope()
-        self.bounds.append(None)
+        self.max_access_per_scope.append(None)
 
     def exit_scope(self) -> Optional[IndexRange]:
-        self.env.exit_scope()
-        return self.bounds.pop()
-
-    def validate_access(self, idx: Optional[int]) -> bool:
-        if self.bounds is None:
-            return
-        elif idx is None or self.bounds[-1].hi is None:
-            self.check_passed = False
-        else:
-            self.check_passed &= idx > self.bounds[-1].hi - self.size
+        return self.max_access_per_scope.pop()
 
     def update_bounds(self, new_bounds: IndexRange, check_safety: bool = False):
-        if self.bounds[-1] is None:
-            self.bounds[-1] = new_bounds
+        if self.max_access_per_scope[-1] is None:
+            self.max_access_per_scope[-1] = new_bounds
         else:
             if check_safety:
-                self.validate_access(new_bounds.lo)
-            self.bounds[-1] |= new_bounds
+                if new_bounds.lo is None or self.max_access_per_scope[-1].hi is None:
+                    self.check_passed = False
+                else:
+                    self.check_passed &= (
+                        new_bounds.lo > self.max_access_per_scope[-1].hi - self.size
+                    )
+            self.max_access_per_scope[-1] |= new_bounds
 
     def do_stmts(self, stmts):
         self.enter_scope()
@@ -3653,16 +3643,15 @@ class CheckFoldBuffer(LoopIR_Do):
         return self.exit_scope()
 
     def do_s(self, s):
+        print(s, self.max_access_per_scope[-1], len(self.max_access_per_scope))
         bounds = None
         if isinstance(s, LoopIR.For):
             bounds = self.do_stmts(s.body)
-            env = {
-                s.iter: (
-                    s.lo.val if isinstance(s.lo, LoopIR.Const) else None,
-                    s.hi.val - 1 if isinstance(s.hi, LoopIR.Const) else None,
-                )
-            }
-            bounds = bounds.eval_base_with_env(env)
+            lo_rng = index_range_analysis_wrapper(s.lo)
+            hi_rng = index_range_analysis_wrapper(s.hi)
+            iter_rng = lo_rng | hi_rng
+            if bounds is not None:
+                bounds = bounds.partial_eval_with_range(s.iter, iter_rng)
         elif isinstance(s, LoopIR.If):
             if_bounds = self.do_stmts(s.body)
             orelse_bounds = self.do_stmts(s.orelse)
@@ -3672,9 +3661,9 @@ class CheckFoldBuffer(LoopIR_Do):
             # result into the LHS, so we perform the checks in that order.
 
             # First, the RHS
-            self.enter_scope()
+            self.access_window_within_s = None
             super().do_e(s.rhs)
-            rhs_bounds = self.exit_scope()
+            rhs_bounds = self.access_window_within_s
 
             if rhs_bounds is not None:
                 # We make no assumptions about the order of execution of the RHS
@@ -3683,28 +3672,35 @@ class CheckFoldBuffer(LoopIR_Do):
 
             # Second, the LHS
             if self.name == s.name:
-                bounds = index_range_analysis_wrapper(s.idx[self.dim], self.env)
+                bounds = index_range_analysis_wrapper(s.idx[self.dim])
         else:
+            self.access_window_within_s = None
             super().do_s(s)
-            bounds = self.exit_scope()
+            bounds = self.access_window_within_s
 
         if bounds is not None:
             self.update_bounds(bounds, check_safety=True)
 
+    def update_access_window_within_s(self, new_bounds: IndexRange):
+        if self.access_window_within_s is None:
+            self.access_window_within_s = new_bounds
+        else:
+            self.access_window_within_s |= new_bounds
+
     def do_e(self, e):
         if isinstance(e, LoopIR.Read) and e.name == self.name:
-            index_rng = index_range_analysis_wrapper(e.idx[self.dim], self.env)
-            self.update_bounds(index_rng)
+            index_rng = index_range_analysis_wrapper(e.idx[self.dim])
+            self.update_access_window_within_s(index_rng)
         elif isinstance(e, LoopIR.WindowExpr) and e.name == self.name:
             w_access = e.idx[self.dim]
             if isinstance(w_access, LoopIR.Interval):
-                lo_rng = index_range_analysis_wrapper(w_access.lo, self.env)
-                hi_rng = index_range_analysis_wrapper(w_access.hi, self.env)
-                self.update_bounds(lo_rng | hi_rng)
+                lo_rng = index_range_analysis_wrapper(w_access.lo)
+                hi_rng = index_range_analysis_wrapper(w_access.hi)
+                self.update_access_window_within_s(lo_rng | hi_rng)
             else:
                 assert isinstance(w_access, LoopIR.Point)
-                index_rng = index_range_analysis_wrapper(w_access.pt, self.env)
-                self.update_bounds(index_rng)
+                index_rng = index_range_analysis_wrapper(w_access.pt)
+                self.update_access_window_within_s(index_rng)
         else:
             super().do_e(e)
 
@@ -3712,9 +3708,7 @@ class CheckFoldBuffer(LoopIR_Do):
 def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
     alloc_name = alloc_cursor._node.name
 
-    buffer_check = CheckFoldBuffer(
-        alloc_cursor.get_root(), alloc_name, dim_idx, new_size
-    )
+    buffer_check = CheckFoldBuffer(alloc_name, dim_idx, new_size)
     buffer_check.do_stmts([c._node for c in get_rest_of_block(alloc_cursor)])
     if not buffer_check.get_result():
         raise SchedulingError("Buffer folding not possible")

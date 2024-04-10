@@ -1,0 +1,33 @@
+def exo_unsharp_base(W: size, H: size, output: f32[3, H, W] @ DRAM,
+                     input: f32[3, H + 6, W + 6] @ DRAM):
+    assert H % 32 == 0
+    for y in par(0, H / 32):
+        gray: f32[8, 6 + W] @ DRAM
+        ratio: f32[1, W] @ DRAM
+        blur_y: f32[1, 6 + W] @ DRAM
+        for yi in seq(0, 6):
+            for x in seq(0, 6 + W):
+                gray[yi, x] = input[0, yi + 32 * y,
+                                    x] + input[1, yi + 32 * y,
+                                               x] + input[2, yi + 32 * y, x]
+        for y_i in seq(0, 32):
+            for x in seq(0, 6 + W):
+                gray[(6 + y_i) % 8,
+                     x] = input[0, 6 + y_i + 32 * y,
+                                x] + input[1, 6 + y_i + 32 * y,
+                                           x] + input[2, 6 + y_i + 32 * y, x]
+            for x in seq(0, 6 + W):
+                blur_y[0, x] = gray[(3 + y_i) % 8, x] + gray[
+                    (2 + y_i) % 8, x] + gray[(4 + y_i) % 8, x] + gray[
+                        (1 + y_i) % 8, x] + gray[(5 + y_i) % 8, x] + gray[
+                            y_i % 8, x] + gray[(6 + y_i) % 8, x]
+            for x in seq(0, W):
+                ratio[0, x] = (
+                    gray[(3 + y_i) % 8, 3 + x] -
+                    (blur_y[0, 3 + x] + blur_y[0, 2 + x] + blur_y[0, 4 + x] +
+                     blur_y[0, 1 + x] + blur_y[0, 5 + x] + blur_y[0, x] +
+                     blur_y[0, 6 + x])) / gray[(3 + y_i) % 8, 3 + x]
+            for c in seq(0, 3):
+                for x in seq(0, W):
+                    output[c, y_i + 32 * y,
+                           x] = ratio[0, x] * input[c, 3 + y_i + 32 * y, 3 + x]
