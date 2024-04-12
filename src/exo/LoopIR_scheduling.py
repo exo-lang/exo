@@ -3623,17 +3623,16 @@ class CheckFoldBuffer(LoopIR_Do):
     def exit_scope(self) -> Optional[IndexRange]:
         return self.access_window_per_scope.pop()
 
-    def update_bounds(self, new_bounds: IndexRange, check_safety: bool = False):
+    def update_bounds(self, new_bounds: IndexRange):
         if self.access_window_per_scope[-1] is None:
             self.access_window_per_scope[-1] = new_bounds
         else:
-            if check_safety:
-                if new_bounds.lo is None or self.access_window_per_scope[-1].hi is None:
-                    self.check_passed = False
-                else:
-                    self.check_passed &= (
-                        new_bounds.lo > self.access_window_per_scope[-1].hi - self.size
-                    )
+            if new_bounds.lo is None or self.access_window_per_scope[-1].hi is None:
+                self.check_passed = False
+            else:
+                self.check_passed &= (
+                    new_bounds.lo > self.access_window_per_scope[-1].hi - self.size
+                )
             self.access_window_per_scope[-1] |= new_bounds
 
     def do_stmts(self, stmts):
@@ -3674,7 +3673,7 @@ class CheckFoldBuffer(LoopIR_Do):
             if rhs_bounds is not None:
                 # We make no assumptions about the order of execution of the RHS
                 self.check_passed &= rhs_bounds.lo > rhs_bounds.hi - self.size
-                self.update_bounds(rhs_bounds, check_safety=True)
+                self.update_bounds(rhs_bounds)
 
             # Second, the LHS
             if self.name == s.name:
@@ -3685,7 +3684,7 @@ class CheckFoldBuffer(LoopIR_Do):
             bounds = self.access_window_within_s
 
         if bounds is not None:
-            self.update_bounds(bounds, check_safety=True)
+            self.update_bounds(bounds)
 
     def update_access_window_within_s(self, new_bounds: IndexRange):
         if self.access_window_within_s is None:
