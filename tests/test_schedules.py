@@ -1145,35 +1145,26 @@ def test_fold_buffer_loop_simple(golden):
         SchedulingError,
         match="Buffer folding failed because access window of iteration",
     ):
-        foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
+        foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
 
-    foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+    foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
     foo = simplify(foo)
     assert str(foo) == golden
 
 
-# TODO: In general, the current fold_buffer analysis cannot handle non-constant width windows.
+# TODO: In general, the current fold buffer analysis cannot handle non-constant width windows.
 # There are some limited situations where it works (e.g. if the non-constant loop is the only
 # statement in the body). However, if there's any context around it, the check will fail
 # conservatively. For example, the following example's buffer should theoretically be foldable.
 # If we want to support such transformations, we need index analysis which leverages SMT solvers
 # for index comparisons.
-# def test_fold_buffer_loop_in_context(golden):
+
 #     @proc
 #     def foo(N: size):
-#         assert N > 2
 #         x: i8[N]
-#         x[2] = 0.0
-#         for i in seq(0, N / 2):
-#             x[2 * i] = 1.0
-#             x[2 * i + 1] = 2.0
-
-#     with pytest.raises(SchedulingError, match="Buffer folding not possible"):
-#         foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
-
-#     foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
-#     foo = simplify(foo)
-#     assert str(foo) == golden
+#         x[0] = 1.0
+#         for i in seq(0, N):
+#             x[i] = 0.0
 
 
 def test_fold_buffer_sequential_stmts(golden):
@@ -1190,9 +1181,9 @@ def test_fold_buffer_sequential_stmts(golden):
     with pytest.raises(
         SchedulingError, match="Buffer folding failed because access window of x\[5\]"
     ):
-        foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
+        foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
 
-    foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+    foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
     assert str(simplify(foo)) == golden
 
 
@@ -1203,9 +1194,9 @@ def test_fold_buffer_within_stmt(golden):
         x[1] = x[3] + x[0]
 
     with pytest.raises(SchedulingError, match="Buffer folding failed because RHS"):
-        foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+        foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
 
-    foo = fold_buffer(foo, foo.find("x: _"), 0, 4)
+    foo = resize_dim(foo, foo.find("x: _"), 0, 4, 0, fold=True)
     assert str(simplify(foo)) == golden
 
 
@@ -1228,9 +1219,9 @@ def test_fold_buffer_if_stmt(golden):
         SchedulingError,
         match="Buffer folding failed because access window of x\[i \- 2\]",
     ):
-        foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
+        foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
 
-    foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+    foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
     assert str(simplify(foo)) == golden
 
 
@@ -1260,7 +1251,7 @@ def test_fold_buffer_blur(golden):
                         blur_x[ii, j] + blur_x[ii + 1, j] + blur_x[ii + 2, j]
                     )
 
-    blur = fold_buffer(blur, blur.find("blur_x: _"), 0, 3)
+    blur = resize_dim(blur, blur.find("blur_x: _"), 0, 3, 0, fold=True)
     assert str(simplify(blur)) == golden
 
 
@@ -1320,7 +1311,9 @@ def test_fold_buffer_unsharp(golden):
                             ratio[0, x] * input[c, 3 + y_i + 32 * y, 3 + x]
                         )
 
-    foo = fold_buffer(exo_unsharp_base, exo_unsharp_base.find("gray: _"), 0, 8)
+    foo = resize_dim(
+        exo_unsharp_base, exo_unsharp_base.find("gray: _"), 0, 8, 0, fold=True
+    )
 
     assert str(simplify(foo)) == golden
 

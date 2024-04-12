@@ -1243,11 +1243,14 @@ def write_config(proc, gap_cursor, config, field, rhs):
 # Memory and Windowing-oriented Operations
 
 
-@sched_op([AllocCursorA, IntA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
-def resize_dim(proc, buf_cursor, dim_idx, size, offset):
+@sched_op([AllocCursorA, IntA, NewExprA("buf_cursor"), NewExprA("buf_cursor"), BoolA])
+def resize_dim(proc, buf_cursor, dim_idx, size, offset, fold: bool = False):
     """
     Resizes the [dim_idx]-th dimension of buffer [buf_cursor] to [size]. The [offset]
     specifies how to adjust the indices relative to the old buffer.
+
+    If [fold] is True, we will try to perform a circular buffer optimization, which
+    ignores the offset argument.
 
     Fails if there are any accesses to the [dim_idx]-th dimension outside of the
     (offset, offset + size) range.
@@ -1262,13 +1265,30 @@ def resize_dim(proc, buf_cursor, dim_idx, size, offset):
         `x : T[n, ...] ; s`
           ->
         `x : T[size, ...] ; s[ x[idx, ...] -> x[idx - offset, ...] ]`
+
+    rewrite (if fold = True):
+        `x : T ; s`
+          ->
+        `x : T ; s[ x[i] -> x[i % size] ]`
+
     checks:
         The provided dimension size is checked for positivity and the
         provided indexing expression is checked to make sure it is in-bounds
     """
     stmt_c = buf_cursor._impl
-    ir, fwd = scheduling.DoResizeDim(stmt_c, dim_idx, size, offset)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    assert dim_idx >= 0, "Dimension index must be non-negative"
+
+    if fold:
+        # Circular buffer folding
+        assert isinstance(size, LoopIR.Const) and size.val > 0
+        size = size.val
+        buf_s = buf_cursor._impl
+        ir, fwd = scheduling.DoFoldBuffer(buf_s, dim_idx, size)
+        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    else:
+        # Normal resize operation
+        ir, fwd = scheduling.DoResizeDim(stmt_c, dim_idx, size, offset)
+        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
@@ -1533,28 +1553,6 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
     ir, fwd = scheduling.DoReuseBuffer(buf_s, rep_s)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
-
-
-@sched_op([AllocCursorA, IntA, PosIntA])
-def fold_buffer(proc, buf_cursor, dim_idx, new_size):
-    """
-    Shrinks the buffer `buf_cursor`'s `dim_idx`-th dimension to `new_size`,
-    and then rewrites all accesses to that dimension to be modulo `new_size`.
-
-    args:
-        buf_cursor      - cursor pointing to the Alloc to reuse
-        dim_idx         - the index of the dimension to fold
-        new_size        - the new size of the folded dimension
-
-    rewrite:
-        `x : T ; s`
-          ->
-        `x : T ; s[ x[i] -> x[i % new-size] ]`
-    """
-    assert dim_idx >= 0, "Dimension index must be non-negative"
-    buf_s = buf_cursor._impl
-    ir, fwd = scheduling.DoFoldBuffer(buf_s, dim_idx, new_size)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
