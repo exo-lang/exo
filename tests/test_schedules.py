@@ -1144,7 +1144,6 @@ def test_fold_buffer_loop_simple(golden):
     with pytest.raises(SchedulingError, match="Buffer folding not possible"):
         foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
 
-    print("=" * 50)
     foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
     foo = simplify(foo)
     assert str(foo) == golden
@@ -1311,7 +1310,6 @@ def test_fold_buffer_unsharp(golden):
                         )
 
     foo = fold_buffer(exo_unsharp_base, exo_unsharp_base.find("gray: _"), 0, 8)
-    print(foo)
 
     assert str(simplify(foo)) == golden
 
@@ -2482,7 +2480,6 @@ def test_lift_if_second_statement_in_then_error():
         SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
-        print(foo)
 
 
 def test_lift_if_second_statement_in_else_error():
@@ -2500,7 +2497,6 @@ def test_lift_if_second_statement_in_else_error():
         SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
-        print(foo)
 
 
 def test_lift_if_second_statement_in_for_error():
@@ -2515,7 +2511,6 @@ def test_lift_if_second_statement_in_for_error():
         SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if m > 12: _")
-        print(foo)
 
 
 def test_lift_if_too_high_error():
@@ -2529,7 +2524,6 @@ def test_lift_if_too_high_error():
         SchedulingError, match=r"Cannot lift scope of top-level statement"
     ):
         foo = lift_if(foo, "if j < 10: _", n_lifts=2)
-        print(foo)
 
 
 def test_lift_if_dependency_error():
@@ -2543,7 +2537,6 @@ def test_lift_if_dependency_error():
         SchedulingError, match=r"if statement depends on iteration variable"
     ):
         foo = lift_if(foo, "if i < 10: _")
-        print(foo)
 
 
 def test_lift_if_past_if(golden):
