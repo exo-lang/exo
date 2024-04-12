@@ -1141,7 +1141,10 @@ def test_fold_buffer_loop_simple(golden):
             for j in seq(i, i + 4):
                 x[j] = 1.0
 
-    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+    with pytest.raises(
+        SchedulingError,
+        match="Buffer folding failed because access window of iteration",
+    ):
         foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
 
     foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
@@ -1149,8 +1152,12 @@ def test_fold_buffer_loop_simple(golden):
     assert str(foo) == golden
 
 
-# TODO: to make this kind of test work, we need to support more general
-# index analysis which potentially leverages SMT solvers for comparisons.
+# TODO: In general, the current fold_buffer analysis cannot handle non-constant width windows.
+# There are some limited situations where it works (e.g. if the non-constant loop is the only
+# statement in the body). However, if there's any context around it, the check will fail
+# conservatively. For example, the following example's buffer should theoretically be foldable.
+# If we want to support such transformations, we need index analysis which leverages SMT solvers
+# for index comparisons.
 # def test_fold_buffer_loop_in_context(golden):
 #     @proc
 #     def foo(N: size):
@@ -1160,7 +1167,6 @@ def test_fold_buffer_loop_simple(golden):
 #         for i in seq(0, N / 2):
 #             x[2 * i] = 1.0
 #             x[2 * i + 1] = 2.0
-#         x[N / 2] = 3.0
 
 #     with pytest.raises(SchedulingError, match="Buffer folding not possible"):
 #         foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
@@ -1181,7 +1187,9 @@ def test_fold_buffer_sequential_stmts(golden):
         x[7] = 0.0
         x[5] = 0.0
 
-    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+    with pytest.raises(
+        SchedulingError, match="Buffer folding failed because access window of x\[5\]"
+    ):
         foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
 
     foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
@@ -1192,9 +1200,9 @@ def test_fold_buffer_within_stmt(golden):
     @proc
     def foo():
         x: i8[10]
-        x[0] = x[3] + x[1]
+        x[1] = x[3] + x[0]
 
-    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+    with pytest.raises(SchedulingError, match="Buffer folding failed because RHS"):
         foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
 
     foo = fold_buffer(foo, foo.find("x: _"), 0, 4)
@@ -1207,7 +1215,7 @@ def test_fold_buffer_if_stmt(golden):
         x: i8[10]
         x[2] = 0.0
         if condition:
-            x[0] = 0.0
+            x[1] = 0.0
             x[5] = 0.0
         else:
             for i in seq(2, 5):
@@ -1216,7 +1224,10 @@ def test_fold_buffer_if_stmt(golden):
                 x[i - 2] = 2.0
         x[3] = 0.0
 
-    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+    with pytest.raises(
+        SchedulingError,
+        match="Buffer folding failed because access window of x\[i \- 2\]",
+    ):
         foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
 
     foo = fold_buffer(foo, foo.find("x: _"), 0, 3)

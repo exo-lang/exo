@@ -3612,10 +3612,6 @@ class CheckFoldBuffer(LoopIR_Do):
         self.name = buffer_name
         self.dim = buffer_dim
         self.size = size
-        self.check_passed = True
-
-    def get_result(self):
-        return self.check_passed
 
     def enter_scope(self):
         self.access_window_per_scope.append(None)
@@ -3623,17 +3619,19 @@ class CheckFoldBuffer(LoopIR_Do):
     def exit_scope(self) -> Optional[IndexRange]:
         return self.access_window_per_scope.pop()
 
-    def update_bounds(self, new_bounds: IndexRange):
+    def update_access_window(self, s, bounds: IndexRange):
         if self.access_window_per_scope[-1] is None:
-            self.access_window_per_scope[-1] = new_bounds
+            self.access_window_per_scope[-1] = bounds
         else:
-            if new_bounds.lo is None or self.access_window_per_scope[-1].hi is None:
-                self.check_passed = False
-            else:
-                self.check_passed &= (
-                    new_bounds.lo > self.access_window_per_scope[-1].hi - self.size
+            if bounds.lo is None or self.access_window_per_scope[-1].hi is None:
+                raise SchedulingError(
+                    "Buffer folding failed because the current analysis cannot handle variable width access windows."
                 )
-            self.access_window_per_scope[-1] |= new_bounds
+            elif bounds.lo <= self.access_window_per_scope[-1].hi - self.size:
+                raise SchedulingError(
+                    f"Buffer folding failed because access window of {s} accesses more than {self.size} before the largest access of previous statements."
+                )
+            self.access_window_per_scope[-1] |= bounds
 
     def do_stmts(self, stmts):
         self.enter_scope()
@@ -3651,10 +3649,14 @@ class CheckFoldBuffer(LoopIR_Do):
             if bounds is not None:
                 # Checking between iteration i and i + 1
                 c = bounds.get_stride_of(s.iter)
-                if bounds.hi is not None and bounds.lo is not None:
-                    self.check_passed &= bounds.lo + c > bounds.hi - self.size
-                else:
-                    self.check_passed = False
+                if bounds.hi is None or bounds.lo is None:
+                    raise SchedulingError(
+                        "Buffer folding failed because the current analysis cannot handle variable width access windows."
+                    )
+                elif bounds.lo + c <= bounds.hi - self.size:
+                    raise SchedulingError(
+                        f"Buffer folding failed because access window of iteration i + 1 in {s} goes more than {self.size} before the largest access of iteration i"
+                    )
 
                 bounds = bounds.partial_eval_with_range(s.iter, iter_rng)
         elif isinstance(s, LoopIR.If):
@@ -3668,23 +3670,30 @@ class CheckFoldBuffer(LoopIR_Do):
             # First, the RHS
             self.access_window_within_s = None
             super().do_e(s.rhs)
-            rhs_bounds = self.access_window_within_s
+            bounds = self.access_window_within_s
 
-            if rhs_bounds is not None:
-                # We make no assumptions about the order of execution of the RHS
-                self.check_passed &= rhs_bounds.lo > rhs_bounds.hi - self.size
-                self.update_bounds(rhs_bounds)
+            if bounds is not None:
+                # We make no assumptions about the order of execution of the RHS, so if window
+                # is too large, it fails. Below, None means non-constant size
+                rhs_window_size = bounds.get_size()
+                if rhs_window_size is None or rhs_window_size > self.size:
+                    raise SchedulingError(
+                        f"Buffer folding failed because RHS access window's width in stmt {s} exceeded folded size {self.size}."
+                    )
+
+                self.update_access_window(s.rhs, bounds)
 
             # Second, the LHS
             if self.name == s.name:
-                bounds = index_range_analysis_wrapper(s.idx[self.dim])
+                lhs_bounds = index_range_analysis_wrapper(s.idx[self.dim])
+                bounds = merge_index_ranges(bounds, lhs_bounds)
         else:
             self.access_window_within_s = None
             super().do_s(s)
             bounds = self.access_window_within_s
 
         if bounds is not None:
-            self.update_bounds(bounds)
+            self.update_access_window(s, bounds)
 
     def update_access_window_within_s(self, new_bounds: IndexRange):
         if self.access_window_within_s is None:
@@ -3715,8 +3724,6 @@ def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
 
     buffer_check = CheckFoldBuffer(alloc_name, dim_idx, new_size)
     buffer_check.do_stmts([c._node for c in get_rest_of_block(alloc_cursor)])
-    if not buffer_check.get_result():
-        raise SchedulingError("Buffer folding not possible")
 
     size_expr = LoopIR.Const(new_size, T.index, alloc_cursor._node.srcinfo)
     ir, fwd = (
