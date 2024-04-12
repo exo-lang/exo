@@ -56,6 +56,7 @@ from ..API_scheduling import (
     lift_alloc,
     delete_buffer,
     reuse_buffer,
+    fold_buffer,
     inline_window,
     stage_mem,
     unroll_buffer,
