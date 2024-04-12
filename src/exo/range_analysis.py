@@ -86,7 +86,7 @@ class IndexRange:
                 elif op == "*":
                     return lhs * rhs
                 else:
-                    raise ValueErr(
+                    raise ValueError(
                         f"cannot get stride of {idx} because {e} contains an unsupported operand '{op}'"
                     )
             elif isinstance(e, LoopIR.USub):
@@ -485,7 +485,6 @@ class IndexRangeEnvironment:
     def check_expr_bounds(self, expr0, op0, expr1, op1, expr2):
         expr0_range = constant_bound(expr0, self.env)
         expr1_range = constant_bound(expr1, self.env)
-        print(expr1, expr1_range)
         expr2_range = constant_bound(expr2, self.env)
         return IndexRangeEnvironment._check_range(
             expr0_range, op0, expr1_range

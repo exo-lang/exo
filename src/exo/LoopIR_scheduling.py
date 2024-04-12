@@ -3608,8 +3608,7 @@ def merge_index_ranges(
 
 class CheckFoldBuffer(LoopIR_Do):
     def __init__(self, buffer_name, buffer_dim, size):
-        self.max_access_per_scope = []
-        self.access_window_within_s = None
+        self.access_window_per_scope = []
         self.name = buffer_name
         self.dim = buffer_dim
         self.size = size
@@ -3619,23 +3618,23 @@ class CheckFoldBuffer(LoopIR_Do):
         return self.check_passed
 
     def enter_scope(self):
-        self.max_access_per_scope.append(None)
+        self.access_window_per_scope.append(None)
 
     def exit_scope(self) -> Optional[IndexRange]:
-        return self.max_access_per_scope.pop()
+        return self.access_window_per_scope.pop()
 
     def update_bounds(self, new_bounds: IndexRange, check_safety: bool = False):
-        if self.max_access_per_scope[-1] is None:
-            self.max_access_per_scope[-1] = new_bounds
+        if self.access_window_per_scope[-1] is None:
+            self.access_window_per_scope[-1] = new_bounds
         else:
             if check_safety:
-                if new_bounds.lo is None or self.max_access_per_scope[-1].hi is None:
+                if new_bounds.lo is None or self.access_window_per_scope[-1].hi is None:
                     self.check_passed = False
                 else:
                     self.check_passed &= (
-                        new_bounds.lo > self.max_access_per_scope[-1].hi - self.size
+                        new_bounds.lo > self.access_window_per_scope[-1].hi - self.size
                     )
-            self.max_access_per_scope[-1] |= new_bounds
+            self.access_window_per_scope[-1] |= new_bounds
 
     def do_stmts(self, stmts):
         self.enter_scope()
@@ -3643,14 +3642,22 @@ class CheckFoldBuffer(LoopIR_Do):
         return self.exit_scope()
 
     def do_s(self, s):
-        print(s, self.max_access_per_scope[-1], len(self.max_access_per_scope))
+        print(s, self.access_window_per_scope[-1])
         bounds = None
         if isinstance(s, LoopIR.For):
             bounds = self.do_stmts(s.body)
             lo_rng = index_range_analysis_wrapper(s.lo)
-            hi_rng = index_range_analysis_wrapper(s.hi)
+            hi_rng = index_range_analysis_wrapper(s.hi) - 1
             iter_rng = lo_rng | hi_rng
+
             if bounds is not None:
+                # Checking between iteration i and i + 1
+                c = bounds.get_stride_of(s.iter)
+                if bounds.hi is not None and bounds.lo is not None:
+                    self.check_passed &= bounds.lo + c > bounds.hi - self.size
+                else:
+                    self.check_passed = False
+
                 bounds = bounds.partial_eval_with_range(s.iter, iter_rng)
         elif isinstance(s, LoopIR.If):
             if_bounds = self.do_stmts(s.body)
@@ -3680,6 +3687,7 @@ class CheckFoldBuffer(LoopIR_Do):
 
         if bounds is not None:
             self.update_bounds(bounds, check_safety=True)
+        print(s, bounds, self.access_window_per_scope[-1])
 
     def update_access_window_within_s(self, new_bounds: IndexRange):
         if self.access_window_within_s is None:

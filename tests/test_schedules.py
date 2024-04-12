@@ -1132,6 +1132,24 @@ def test_reuse_buffer_loop_fail():
         foo = reuse_buffer(foo, "bb:_", "c:_")
 
 
+def test_fold_buffer_loop_simple(golden):
+    @proc
+    def foo(N: size):
+        assert N > 4
+        x: i8[N]
+        for i in seq(0, N - 4):
+            for j in seq(i, i + 4):
+                x[j] = 1.0
+
+    with pytest.raises(SchedulingError, match="Buffer folding not possible"):
+        foo = fold_buffer(foo, foo.find("x: _"), 0, 2)
+
+    print("=" * 50)
+    foo = fold_buffer(foo, foo.find("x: _"), 0, 3)
+    foo = simplify(foo)
+    assert str(foo) == golden
+
+
 # TODO: to make this kind of test work, we need to support more general
 # index analysis which potentially leverages SMT solvers for comparisons.
 # def test_fold_buffer_loop_in_context(golden):
