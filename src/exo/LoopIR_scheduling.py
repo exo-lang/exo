@@ -3642,7 +3642,6 @@ class CheckFoldBuffer(LoopIR_Do):
         return self.exit_scope()
 
     def do_s(self, s):
-        print(s, self.access_window_per_scope[-1])
         bounds = None
         if isinstance(s, LoopIR.For):
             bounds = self.do_stmts(s.body)
@@ -3687,7 +3686,6 @@ class CheckFoldBuffer(LoopIR_Do):
 
         if bounds is not None:
             self.update_bounds(bounds, check_safety=True)
-        print(s, bounds, self.access_window_per_scope[-1])
 
     def update_access_window_within_s(self, new_bounds: IndexRange):
         if self.access_window_within_s is None:
