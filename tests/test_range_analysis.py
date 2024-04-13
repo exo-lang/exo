@@ -3,7 +3,6 @@ from __future__ import annotations
 from exo.stdlib.scheduling import *
 from exo import proc
 from exo.range_analysis import (
-    index_range_analysis,
     constant_bound,
     arg_range_analysis,
     IndexRangeEnvironment,
