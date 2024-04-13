@@ -4199,3 +4199,46 @@ def test_parallelize_loop(golden):
 
     foo = parallelize_loop(foo, foo.find_loop("i"))
     assert str(foo) == golden
+
+
+def test_stage_mem_should_fail():
+    @proc
+    def foo(x: i8[10, 10, 10]):
+        for i in seq(0, 10):
+            x[i, i, i] = 1.0
+
+    with pytest.raises(SchedulingError, match="Cannot stage"):
+        foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0:2, 0:10]", "x_tmp")
+
+
+def test_stage_mem_should_fail2():
+    @proc
+    def foo(x: i8[10, 10, 10]):
+        y: i8
+        for i in seq(0, 10):
+            y = x[i, i, i]
+
+    with pytest.raises(SchedulingError, match="Cannot stage"):
+        foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0, 0:10]", "x_tmp")
+
+
+def test_stage_mem_should_fail3():
+    @proc
+    def foo(x: i8[10, 10, 10], y: i8[10]):
+        for i in seq(0, 10):
+            x[i, i, i] = 0.0
+
+    with pytest.raises(SchedulingError, match="Cannot stage"):
+        foo = stage_mem(foo, foo.find_loop("i"), "y[0:10]", "y_tmp")
+
+
+def test_stage_mem_okay(golden):
+    @proc
+    def foo(x: i8[10, 10, 10]):
+        y: i8
+        for i in seq(0, 10):
+            x[i, i, i] = 1.0
+            y = x[2, 0, 3]
+
+    foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0, 0:10]", "x_tmp")
+    assert str(simplify(foo)) == golden

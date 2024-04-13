@@ -3,8 +3,6 @@ def recursive(n: size, y: R[n] @ DRAM, x: R[n] @ DRAM):
     assert (-2 + n) % 4 == 0
     for io in seq(0, (-2 + n) / 4):
         y_tmp: R[4] @ DRAM
-        for i0 in seq(0, 4):
-            y_tmp[i0] = y[2 + i0 + 4 * io]
         y_tmp[0] = y[1 + 4 * io] + y[4 * io] + x[4 * io]
         y_tmp[1] = y[1 + 4 * io] + y[4 * io] + x[4 * io] + y[1 + 4 * io] + x[
             1 + 4 * io]

@@ -1963,6 +1963,7 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
         raise SchedulingError(f"Expressions are not equivalent:\n{expr0}\nvs.\n{expr1}")
 
 
+# Not used, can be deprecated
 def Check_BufferRW(proc, stmts, buf, ndim):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
@@ -1978,13 +1979,15 @@ def Check_BufferRW(proc, stmts, buf, ndim):
     a = G(stmts_effs(stmts))
     Mod, Rd, Red = getsets([ES.MODIFY, ES.READ_H, ES.REDUCE], a)
     write = LIsct(wholebuf, Mod)
-    read = LIsct(wholebuf, LUnion(Rd, Red))
+    read = LIsct(wholebuf, Rd)
+    red = LIsct(wholebuf, Red)
 
     no_read = slv.verify(ADef(is_empty(read)))
     no_write = slv.verify(ADef(is_empty(write)))
+    no_reduce = slv.verify(ADef(is_empty(red)))
     slv.pop()
 
-    return (not no_read), (not no_write)
+    return (not no_read), (not no_write), (not no_reduce)
 
 
 def Check_BufferReduceOnly(proc, stmts, buf, ndim):

@@ -220,14 +220,19 @@ def _replace_reads(ir, fwd, c, sym, repl, only_replace_attrs=True):
     return ir, _compose(cur_fwd, fwd)
 
 
-def _replace_writes(ir, fwd, c, sym, repl, only_replace_attrs=True):
+def _replace_writes(
+    ir, fwd, c, sym, repl, only_replace_attrs=True, match_assign=True, match_reduce=True
+):
     cur_fwd = lambda x: x
     c = fwd(c)
 
     # TODO: Consider optimizing to just one call of [match_pattern]
-    matches = match_pattern(c, f"{repr(sym)} = _", use_sym_id=True) + match_pattern(
-        c, f"{repr(sym)} += _", use_sym_id=True
-    )
+    matches = []
+    if match_assign:
+        matches = match_pattern(c, f"{repr(sym)} = _", use_sym_id=True)
+    if match_reduce:
+        matches = matches + match_pattern(c, f"{repr(sym)} += _", use_sym_id=True)
+
     for block in matches:
         assert len(block) == 1  # match_pattern on stmts return blocks
         s = cur_fwd(block[0])
@@ -3632,17 +3637,20 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     def check_idx(idx, c, p):
         assert len(idx) == len(w_exprs)
         s = get_enclosing_stmt_cursor(c)._node
-        # check win.lo <= e.pt < win.hi
         for i, w in zip(idx, w_exprs):
-            if not isinstance(w, tuple):
-                continue
-            w_lo, w_hi = w
-
-            try:
-                Check_CompareExprs(p, [s], w_lo, "<=", i)
-                Check_CompareExprs(p, [s], i, "<", w_hi)
-            except:
-                return False
+            # check win.lo <= e.pt < win.hi
+            if isinstance(w, tuple):
+                w_lo, w_hi = w
+                try:
+                    Check_CompareExprs(p, [s], w_lo, "<=", i)
+                    Check_CompareExprs(p, [s], i, "<", w_hi)
+                except:
+                    return False
+            else:
+                try:
+                    Check_CompareExprs(p, [s], w, "==", i)
+                except:
+                    return False
 
         return True
 
@@ -3651,11 +3659,6 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         s = get_enclosing_stmt_cursor(c)._node
 
         for i, w in zip(idx, w_exprs):
-            # check win.lo <= e.lo and e.hi <= win.hi
-            if not isinstance(w, tuple):
-                continue
-            w_lo, w_hi = w
-
             i_lo = i
             i_hi = i
             op = "<"
@@ -3663,6 +3666,12 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 i_lo = i.lo
                 i_hi = i.hi
                 op = "<="
+
+            # check win.lo <= e.lo and e.hi <= win.hi
+            if isinstance(w, tuple):
+                w_lo, w_hi = w
+            else:
+                w_lo = w_hi = w
 
             try:
                 Check_CompareExprs(p, [s], w_lo, "<=", i_lo)
@@ -3762,8 +3771,48 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         return ir, fwd
 
-    isR, isW = Check_BufferRW(ir, block, buf_name, n_dims)
-    if isR:
+    def mk_read(p, c):
+        rd = c._node
+        _name = rd.name
+        _idx = rd.idx
+        _typ = rd.type
+
+        if isinstance(rd, LoopIR.Read) and check_idx(rd.idx, c, p):
+            _name = new_name
+            _idx = rewrite_idx(rd.idx)
+        elif isinstance(rd, LoopIR.WindowExpr) and check_win(rd.idx, c, p):
+            _name = new_name
+            _idx = rewrite_win(rd.idx)
+            _typ = T.Window(new_typ, rd.type.as_tensor, new_name, _idx)
+
+        return {"name": _name, "idx": _idx, "type": _typ}
+
+    def mk_write(p, c):
+        s = c._node
+        if check_idx(s.idx, c, p):
+            return {"name": new_name, "idx": rewrite_idx(s.idx)}
+
+        return {"name": s.name, "idx": s.idx}
+
+    actualR = actualW = False
+
+    for c in block_cursor:
+        read_ir, fwd = _replace_reads(ir, fwd, c, buf_name, partial(mk_read, ir))
+        write_ir, fwd = _replace_writes(
+            read_ir, fwd, c, buf_name, partial(mk_write, read_ir), match_reduce=False
+        )
+        reduce_ir, fwd = _replace_writes(
+            write_ir, fwd, c, buf_name, partial(mk_write, write_ir), match_assign=False
+        )
+
+        actualR = actualR | (read_ir != ir)
+        actualW = actualW | (write_ir != read_ir)
+        actualR = actualR | (reduce_ir != write_ir)
+        actualW = actualW | (reduce_ir != write_ir)
+
+        ir = reduce_ir
+
+    if actualR:
         load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         load_widx = [LoopIR.Read(s, [], T.index, srcinfo) for s in load_iter]
         if use_accum_zero:
@@ -3804,7 +3853,8 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             ir, fwd = insert_safety_guards(
                 ir, fwd, get_inner_stmt(load_nest_c), load_rhs, buf_typ
             )
-    if isW:
+
+    if actualW:
         store_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         store_ridx = [LoopIR.Read(s, [], T.index, srcinfo) for s in store_iter]
         cp_store_ridx = store_ridx.copy()
@@ -3844,41 +3894,18 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             ir, fwd, store_stmt_c, store_stmt_c._node, buf_typ
         )
 
-    def mk_read(p, c):
-        rd = c._node
-        _name = rd.name
-        _idx = rd.idx
-        _typ = rd.type
-
-        if isinstance(rd, LoopIR.Read) and check_idx(rd.idx, c, p):
-            _name = new_name
-            _idx = rewrite_idx(rd.idx)
-        elif isinstance(rd, LoopIR.WindowExpr) and check_win(rd.idx, c, p):
-            _name = new_name
-            _idx = rewrite_win(rd.idx)
-            _typ = T.Window(new_typ, rd.type.as_tensor, new_name, _idx)
-
-        return {"name": _name, "idx": _idx, "type": _typ}
-
-    def mk_write(p, c):
-        s = c._node
-        if check_idx(s.idx, c, p):
-            return {"name": new_name, "idx": rewrite_idx(s.idx)}
-
-        return {"name": s.name, "idx": s.idx}
-
-    for c in block_cursor:
-        ir, fwd = _replace_reads(ir, fwd, c, buf_name, partial(mk_read, ir))
-        ir, fwd = _replace_writes(ir, fwd, c, buf_name, partial(mk_write, ir))
-
     # new alloc, load_nest + new_body + store_nest
     new_block_c = fwd(block_cursor[0]).as_block().expand(0, len(block_cursor) - 1)
-    if isR:
+    if actualR:
         new_block_c = new_block_c.expand(1, 0)
-    if isW:
+    if actualW:
         new_block_c = new_block_c.expand(0, 1)
-    alloc_c = new_block_c[0].prev()
-    Check_Bounds(ir, alloc_c._node, [c._node for c in new_block_c])
+    if not actualR and not actualW:
+        raise SchedulingError(
+            f"Cannot stage '{buf_name}' with the given window shape. Wrong window shape, or '{buf_name}' not accessed in the given scope?"
+        )
+
+    Check_Bounds(ir, new_alloc[0], [c._node for c in new_block_c])
 
     return ir, fwd
 
