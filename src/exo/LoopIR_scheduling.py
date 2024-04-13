@@ -26,7 +26,6 @@ from .new_eff import (
     Check_DeleteConfigWrite,
     Check_ExtendEqv,
     Check_ExprEqvInContext,
-    Check_BufferRW,
     Check_BufferReduceOnly,
     Check_Bounds,
     Check_IsDeadAfter,

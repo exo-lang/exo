@@ -4242,3 +4242,13 @@ def test_stage_mem_okay(golden):
 
     foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0, 0:10]", "x_tmp")
     assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_okay2(golden):
+    @proc
+    def foo(x: f32[4]):
+        for i in seq(0, 4):
+            x[i] = 1.0
+
+    foo = stage_mem(foo, foo.find_loop("i"), "x[0:6]", "xNew")
+    assert str(simplify(foo)) == golden
