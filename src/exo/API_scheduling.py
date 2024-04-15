@@ -1902,6 +1902,37 @@ def merge_writes(proc, block_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([AssignOrReduceCursorA])
+def split_write(proc, stmt):
+    """
+    Split a reduce or assign statement with an addition on the RHS into two
+    writes.
+
+    This operation is the opposite of the last two cases of `merge_writes`.
+
+    args:
+        stmt    - cursor pointing to the assign/reduce statement.
+
+    rewrite:
+        `a = b + c`
+            ->
+        `a = b`
+        `a += c`
+        ----------------------
+        `a += b + c`
+            ->
+        `a += b`
+        `a += c`
+        ----------------------
+
+    forwarding:
+        - cursors to the statement and any cursors within the statement gets invalidated.
+        - blocks containing the statement will forward to a new block containing the resulting block.
+    """
+    ir, fwd = scheduling.DoSplitWrite(stmt._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([AssignCursorA])
 def fold_into_reduce(proc, assign):
     """
