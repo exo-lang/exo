@@ -24,7 +24,7 @@ def index_range_analysis(expr: ExprCursor, env: dict) -> IndexRange | int:
             if sym not in env:
                 return IndexRange(expr._impl._node, 0, 0)
             lo, hi = env[sym]
-            return IndexRange(None, lo, hi)
+            return IndexRange.create_constant_range(lo, hi)
         elif isinstance(expr, LiteralCursor):
             return expr.value()
         elif isinstance(expr, UnaryMinusCursor):
@@ -92,7 +92,7 @@ def infer_range(idx_expr: Cursor, scope: Cursor) -> IndexRange:
     bounds = index_range_analysis(idx_expr, env)
 
     if isinstance(bounds, int):
-        return IndexRange(None, bounds, bounds)
+        return IndexRange.create_int(bounds, bounds)
 
     return bounds
 

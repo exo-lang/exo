@@ -1132,6 +1132,192 @@ def test_reuse_buffer_loop_fail():
         foo = reuse_buffer(foo, "bb:_", "c:_")
 
 
+def test_fold_buffer_loop_simple(golden):
+    @proc
+    def foo(N: size):
+        assert N > 4
+        x: i8[N]
+        for i in seq(0, N - 4):
+            for j in seq(i, i + 4):
+                x[j] = 1.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="Buffer folding failed because access window of iteration",
+    ):
+        foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
+
+    foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
+    foo = simplify(foo)
+    assert str(foo) == golden
+
+
+# TODO: In general, the current fold buffer analysis cannot handle non-constant width windows.
+# There are some limited situations where it works (e.g. if the non-constant loop is the only
+# statement in the body). However, if there's any context around it, the check will fail
+# conservatively. For example, the following example's buffer should theoretically be foldable.
+# If we want to support such transformations, we need index analysis which leverages SMT solvers
+# for index comparisons.
+
+#     @proc
+#     def foo(N: size):
+#         x: i8[N]
+#         x[0] = 1.0
+#         for i in seq(0, N):
+#             x[i] = 0.0
+
+
+def test_fold_buffer_sequential_stmts(golden):
+    @proc
+    def foo():
+        x: i8[10]
+        x[0] = 0.0
+        x[2] = 0.0
+        x[3] = 0.0
+        x[2] = 0.0
+        x[7] = 0.0
+        x[5] = 0.0
+
+    with pytest.raises(
+        SchedulingError, match="Buffer folding failed because access window of x\[5\]"
+    ):
+        foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
+
+    foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
+    assert str(simplify(foo)) == golden
+
+
+def test_fold_buffer_within_stmt(golden):
+    @proc
+    def foo():
+        x: i8[10]
+        x[1] = x[3] + x[0]
+
+    with pytest.raises(SchedulingError, match="Buffer folding failed because RHS"):
+        foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
+
+    foo = resize_dim(foo, foo.find("x: _"), 0, 4, 0, fold=True)
+    assert str(simplify(foo)) == golden
+
+
+def test_fold_buffer_if_stmt(golden):
+    @proc
+    def foo(condition: bool):
+        x: i8[10]
+        x[2] = 0.0
+        if condition:
+            x[1] = 0.0
+            x[5] = 0.0
+        else:
+            for i in seq(2, 5):
+                x[i] = 1.0
+                x[i - 1] = 2.0
+                x[i - 2] = 2.0
+        x[3] = 0.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="Buffer folding failed because access window of x\[i \- 2\]",
+    ):
+        foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
+
+    foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
+    assert str(simplify(foo)) == golden
+
+
+def test_fold_buffer_blur(golden):
+    @proc
+    def blur(H: size, W: size, inp: i8[H + 2, W], out: i8[H, W]):
+        assert H % 32 == 0
+        assert W > 32
+        for io in seq(0, H / 32):
+            blur_x: i8[34, W]
+            for ii in seq(0, 2):
+                for j in seq(0, W - 2):
+                    blur_x[ii, j] = (
+                        inp[io * 32 + ii, j]
+                        + inp[io * 32 + ii, j + 1]
+                        + inp[io * 32 + ii, j + 2]
+                    )
+            for ii in seq(0, 32):
+                for j in seq(0, W - 2):
+                    blur_x[ii + 2, j] = (
+                        inp[io * 32 + ii, j]
+                        + inp[io * 32 + ii, j + 1]
+                        + inp[io * 32 + ii, j + 2]
+                    )
+                for j in seq(0, W - 2):
+                    out[32 * io + ii, j] = (
+                        blur_x[ii, j] + blur_x[ii + 1, j] + blur_x[ii + 2, j]
+                    )
+
+    blur = resize_dim(blur, blur.find("blur_x: _"), 0, 3, 0, fold=True)
+    assert str(simplify(blur)) == golden
+
+
+def test_fold_buffer_unsharp(golden):
+    @proc
+    def exo_unsharp_base(
+        W: size,
+        H: size,
+        output: f32[3, H, W] @ DRAM,
+        input: f32[3, H + 6, W + 6] @ DRAM,
+    ):
+        assert H % 32 == 0
+        for y in par(0, H / 32):
+            gray: f32[38, 6 + W] @ DRAM
+            ratio: f32[1, W] @ DRAM
+            blur_y: f32[1, 6 + W] @ DRAM
+            for yi in seq(0, 6):
+                for x in seq(0, 6 + W):
+                    gray[yi, x] = (
+                        input[0, yi + 32 * y, x]
+                        + input[1, yi + 32 * y, x]
+                        + input[2, yi + 32 * y, x]
+                    )
+            for y_i in seq(0, 32):
+                for x in seq(0, 6 + W):
+                    gray[6 + y_i, x] = (
+                        input[0, 6 + y_i + 32 * y, x]
+                        + input[1, 6 + y_i + 32 * y, x]
+                        + input[2, 6 + y_i + 32 * y, x]
+                    )
+                for x in seq(0, 6 + W):
+                    blur_y[0, x] = (
+                        gray[3 + y_i, x]
+                        + gray[2 + y_i, x]
+                        + gray[4 + y_i, x]
+                        + gray[1 + y_i, x]
+                        + gray[5 + y_i, x]
+                        + gray[y_i, x]
+                        + gray[6 + y_i, x]
+                    )
+                for x in seq(0, W):
+                    ratio[0, x] = (
+                        gray[3 + y_i, 3 + x]
+                        - (
+                            blur_y[0, 3 + x]
+                            + blur_y[0, 2 + x]
+                            + blur_y[0, 4 + x]
+                            + blur_y[0, 1 + x]
+                            + blur_y[0, 5 + x]
+                            + blur_y[0, x]
+                            + blur_y[0, 6 + x]
+                        )
+                    ) / gray[3 + y_i, 3 + x]
+                for c in seq(0, 3):
+                    for x in seq(0, W):
+                        output[c, y_i + 32 * y, x] = (
+                            ratio[0, x] * input[c, 3 + y_i + 32 * y, 3 + x]
+                        )
+
+    foo = resize_dim(
+        exo_unsharp_base, exo_unsharp_base.find("gray: _"), 0, 8, 0, fold=True
+    )
+
+    assert str(simplify(foo)) == golden
+
+
 def test_fuse_loop(golden):
     @proc
     def foo(n: size, x: R[n]):
@@ -2339,7 +2525,6 @@ def test_lift_if_second_statement_in_then_error():
         SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
-        print(foo)
 
 
 def test_lift_if_second_statement_in_else_error():
@@ -2357,7 +2542,6 @@ def test_lift_if_second_statement_in_else_error():
         SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
-        print(foo)
 
 
 def test_lift_if_second_statement_in_for_error():
@@ -2372,7 +2556,6 @@ def test_lift_if_second_statement_in_for_error():
         SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if m > 12: _")
-        print(foo)
 
 
 def test_lift_if_too_high_error():
@@ -2386,7 +2569,6 @@ def test_lift_if_too_high_error():
         SchedulingError, match=r"Cannot lift scope of top-level statement"
     ):
         foo = lift_if(foo, "if j < 10: _", n_lifts=2)
-        print(foo)
 
 
 def test_lift_if_dependency_error():
@@ -2400,7 +2582,6 @@ def test_lift_if_dependency_error():
         SchedulingError, match=r"if statement depends on iteration variable"
     ):
         foo = lift_if(foo, "if i < 10: _")
-        print(foo)
 
 
 def test_lift_if_past_if(golden):
