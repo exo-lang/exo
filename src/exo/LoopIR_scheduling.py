@@ -1,6 +1,6 @@
 import re
 from collections import ChainMap
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from .LoopIR import (
     LoopIR,
@@ -32,7 +32,9 @@ from .new_eff import (
     Check_ExprBound,
     Check_Aliasing,
 )
-from .range_analysis import IndexRangeEnvironment
+
+from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis
+
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
 import exo.internal_cursors as ic
@@ -3567,7 +3569,7 @@ def DoDeleteBuffer(buf_cursor):
     return buf_cursor._delete()
 
 
-def DoDataReuse(buf_cursor, rep_cursor):
+def DoReuseBuffer(buf_cursor, rep_cursor):
     assert isinstance(buf_cursor._node, LoopIR.Alloc)
     assert isinstance(rep_cursor._node, LoopIR.Alloc)
     assert buf_cursor._node.type == rep_cursor._node.type
@@ -3592,6 +3594,197 @@ def DoDataReuse(buf_cursor, rep_cursor):
     for c in get_rest_of_block(rep_cursor):
         ir, fwd = _replace_reads(ir, fwd, c, rep_name, mk_read)
         ir, fwd = _replace_writes(ir, fwd, c, rep_name, mk_write)
+
+    return ir, fwd
+
+
+def index_range_analysis_wrapper(expr: LoopIR.expr) -> IndexRange:
+    range_or_int = index_range_analysis(expr)
+    if isinstance(range_or_int, int):
+        return IndexRange.create_int(range_or_int)
+    else:
+        assert isinstance(range_or_int, IndexRange)
+        return range_or_int
+
+
+def merge_index_ranges(
+    x: Optional[IndexRange], y: Optional[IndexRange]
+) -> Optional[IndexRange]:
+    if x is None:
+        return y
+    if y is None:
+        return x
+    assert isinstance(x, IndexRange) and isinstance(y, IndexRange)
+    return x | y
+
+
+class CheckFoldBuffer(LoopIR_Do):
+    def __init__(self, buffer_name, buffer_dim, size):
+        self.access_window_per_scope = []
+        self.name = buffer_name
+        self.dim = buffer_dim
+        self.size = size
+
+    def enter_scope(self):
+        self.access_window_per_scope.append(None)
+
+    def exit_scope(self) -> Optional[IndexRange]:
+        return self.access_window_per_scope.pop()
+
+    def update_access_window(self, s, bounds: IndexRange):
+        if self.access_window_per_scope[-1] is None:
+            self.access_window_per_scope[-1] = bounds
+        else:
+            if bounds.lo is None or self.access_window_per_scope[-1].hi is None:
+                raise SchedulingError(
+                    "Buffer folding failed because the current analysis cannot handle variable width access windows."
+                )
+            elif bounds.lo <= self.access_window_per_scope[-1].hi - self.size:
+                raise SchedulingError(
+                    f"Buffer folding failed because access window of {s} accesses more than {self.size} before the largest access of previous statements."
+                )
+            self.access_window_per_scope[-1] |= bounds
+
+    def do_stmts(self, stmts):
+        self.enter_scope()
+        super().do_stmts(stmts)
+        return self.exit_scope()
+
+    def do_s(self, s):
+        bounds = None
+        if isinstance(s, LoopIR.For):
+            bounds = self.do_stmts(s.body)
+            lo_rng = index_range_analysis_wrapper(s.lo)
+            hi_rng = index_range_analysis_wrapper(s.hi) - 1
+            iter_rng = lo_rng | hi_rng
+
+            if bounds is not None:
+                # Checking between iteration i and i + 1
+                c = bounds.get_stride_of(s.iter)
+                if bounds.hi is None or bounds.lo is None:
+                    raise SchedulingError(
+                        "Buffer folding failed because the current analysis cannot handle variable width access windows."
+                    )
+                elif bounds.lo + c <= bounds.hi - self.size:
+                    raise SchedulingError(
+                        f"Buffer folding failed because access window of iteration i + 1 in {s} goes more than {self.size} before the largest access of iteration i"
+                    )
+
+                bounds = bounds.partial_eval_with_range(s.iter, iter_rng)
+        elif isinstance(s, LoopIR.If):
+            if_bounds = self.do_stmts(s.body)
+            orelse_bounds = self.do_stmts(s.orelse)
+            bounds = merge_index_ranges(if_bounds, orelse_bounds)
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            # For Assign and Reduces, we are assuming that the RHS is computed before storing the
+            # result into the LHS, so we perform the checks in that order.
+
+            # First, the RHS
+            self.access_window_within_s = None
+            super().do_e(s.rhs)
+            bounds = self.access_window_within_s
+
+            if bounds is not None:
+                # We make no assumptions about the order of execution of the RHS, so if window
+                # is too large, it fails. Below, None means non-constant size
+                rhs_window_size = bounds.get_size()
+                if rhs_window_size is None or rhs_window_size > self.size:
+                    raise SchedulingError(
+                        f"Buffer folding failed because RHS access window's width in stmt {s} exceeded folded size {self.size}."
+                    )
+
+                self.update_access_window(s.rhs, bounds)
+
+            # Second, the LHS
+            if self.name == s.name:
+                lhs_bounds = index_range_analysis_wrapper(s.idx[self.dim])
+                bounds = merge_index_ranges(bounds, lhs_bounds)
+        else:
+            self.access_window_within_s = None
+            super().do_s(s)
+            bounds = self.access_window_within_s
+
+        if bounds is not None:
+            self.update_access_window(s, bounds)
+
+    def update_access_window_within_s(self, new_bounds: IndexRange):
+        if self.access_window_within_s is None:
+            self.access_window_within_s = new_bounds
+        else:
+            self.access_window_within_s |= new_bounds
+
+    def do_e(self, e):
+        if isinstance(e, LoopIR.Read) and e.name == self.name:
+            index_rng = index_range_analysis_wrapper(e.idx[self.dim])
+            self.update_access_window_within_s(index_rng)
+        elif isinstance(e, LoopIR.WindowExpr) and e.name == self.name:
+            w_access = e.idx[self.dim]
+            if isinstance(w_access, LoopIR.Interval):
+                lo_rng = index_range_analysis_wrapper(w_access.lo)
+                hi_rng = index_range_analysis_wrapper(w_access.hi)
+                self.update_access_window_within_s(lo_rng | hi_rng)
+            else:
+                assert isinstance(w_access, LoopIR.Point)
+                index_rng = index_range_analysis_wrapper(w_access.pt)
+                self.update_access_window_within_s(index_rng)
+        else:
+            super().do_e(e)
+
+
+def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
+    alloc_name = alloc_cursor._node.name
+
+    buffer_check = CheckFoldBuffer(alloc_name, dim_idx, new_size)
+    buffer_check.do_stmts([c._node for c in get_rest_of_block(alloc_cursor)])
+
+    size_expr = LoopIR.Const(new_size, T.index, alloc_cursor._node.srcinfo)
+    ir, fwd = (
+        alloc_cursor._child_node("type")
+        ._child_block("hi")[dim_idx]
+        ._replace([size_expr])
+    )
+
+    def make_index_mod(e):
+        return LoopIR.BinOp("%", e, size_expr, T.index, e.srcinfo)
+
+    def mk_read(c):
+        rd = c._node
+        new_idx = rd.idx.copy()
+        if isinstance(rd, LoopIR.Read):
+            new_idx[dim_idx] = make_index_mod(rd.idx[dim_idx])
+            return {"idx": new_idx}
+
+        elif isinstance(rd, LoopIR.WindowExpr):
+            if isinstance(rd.idx[dim_idx], LoopIR.Point):
+                new_idx[dim_idx] = LoopIR.Point(
+                    make_index_mod(rd.idx[dim_idx].pt), rd.srcinfo
+                )
+            else:
+                # TODO: see if check_bounds catches the case where lo, hi spans a multiple
+                # of size, which would break the buffer folding
+                new_idx[dim_idx] = LoopIR.Interval(
+                    make_index_mod(rd.idx[dim_idx].lo),
+                    make_index_mod(rd.idx[dim_idx].hi),
+                    rd.srcinfo,
+                )
+
+            return {"idx": new_idx}
+        else:
+            raise NotImplementedError(f"Did not implement {type(rd)}.")
+
+    def mk_write(c):
+        s = c._node
+        new_idx = s.idx.copy()
+        new_idx[dim_idx] = make_index_mod(s.idx[dim_idx])
+        return {"idx": new_idx}
+
+    for c in get_rest_of_block(alloc_cursor):
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_name, mk_write)
+
+    alloc_cursor = fwd(alloc_cursor)
+    after_alloc = [c._node for c in get_rest_of_block(alloc_cursor)]
+    Check_Bounds(ir, alloc_cursor._node, after_alloc)
 
     return ir, fwd
 
@@ -3968,7 +4161,8 @@ __all__ = [
     "DoBindExpr",
     "DoRewriteExpr",
     "DoStageMem",
-    "DoDataReuse",
+    "DoReuseBuffer",
+    "DoFoldBuffer",
     "DoInlineWindow",
     "DoDivideDim",
     "DoExpandDim",
