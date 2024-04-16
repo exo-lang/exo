@@ -4433,3 +4433,31 @@ def test_stage_mem_okay2(golden):
 
     foo = stage_mem(foo, foo.find_loop("i"), "x[0:6]", "xNew")
     assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_should_fail4():
+    @proc
+    def foo(N: size, A: i8[N, N]):
+        sum_: i8
+        for i in seq(0, N):
+            for jo in seq(0, N / 4):
+                for ji in seq(0, 4):
+                    A[i, 4 * jo + ji] = 0.0
+                    y = A[i : i + 1, 4 * jo + ji]
+                    sum_ += y[0]
+
+    with pytest.raises(SchedulingError, match="Cannot replace the window of"):
+        foo = stage_mem(foo, "for ji in _:_", "A[i, 4*jo:4*jo+4]", "tile")
+
+
+def test_stage_mem_should_fail5():
+    @proc
+    def foo(N: size, A: i8[N, N]):
+        for i in seq(0, N):
+            for jo in seq(0, N / 4):
+                for ji in seq(0, 4):
+                    A[i, 4 * jo + ji] = 0.0
+                    y = A[i : i + 4, 4 * jo + ji]
+
+    with pytest.raises(SchedulingError, match="Cannot partially stage the window of"):
+        foo = stage_mem(foo, "for ji in _:_", "A[i-1:i+1, 4*jo:4*jo+4]", "tile")

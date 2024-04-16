@@ -3848,27 +3848,67 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     def check_win(idx, c, p):
         assert len(idx) == len(w_exprs)
         s = get_enclosing_stmt_cursor(c)._node
+        flag = False
 
         for i, w in zip(idx, w_exprs):
-            i_lo = i
-            i_hi = i
-            op = "<"
-            if isinstance(i, LoopIR.Interval):
-                i_lo = i.lo
-                i_hi = i.hi
-                op = "<="
+            if isinstance(i, LoopIR.Point) and isinstance(w, tuple):
+                # Check win.lo <= i and i < win.hi
+                try:
+                    Check_CompareExprs(p, [s], w[0], "<=", i)
+                    Check_CompareExprs(p, [s], i, "<", w[1])
+                except:
+                    return False
 
-            # check win.lo <= e.lo and e.hi <= win.hi
-            if isinstance(w, tuple):
+            elif isinstance(i, LoopIR.Point) and not isinstance(w, tuple):
+                # Check that those points are equal
+                try:
+                    Check_CompareExprs(p, [s], w, "==", i)
+                except:
+                    return False
+
+            elif isinstance(i, LoopIR.Interval) and isinstance(w, tuple):
+                # if win.lo <= i.lo and i.hi <= win.hi:
+                #   replace!
+                # elif win.lo <= i.lo or i.hi <= win.hi:
+                #   error, cannot partially stage window
+                # else:
+                #   don't replace
                 w_lo, w_hi = w
-            else:
-                w_lo = w_hi = w
+                try:
+                    Check_CompareExprs(p, [s], w_lo, ">", i.lo)
+                    Check_CompareExprs(p, [s], i.hi, ">", w_hi)
+                    return False  # don't replace
+                except:
+                    # there's an intersection
+                    try:
+                        Check_CompareExprs(p, [s], w_lo, "<=", i.lo)
+                        Check_CompareExprs(p, [s], i.hi, "<=", w_hi)
+                    except:
+                        flag = True
 
-            try:
-                Check_CompareExprs(p, [s], w_lo, "<=", i_lo)
-                Check_CompareExprs(p, [s], i_hi, op, w_hi)
-            except:
-                return False
+                    if flag:
+                        raise SchedulingError(
+                            f"Cannot partially stage the window of '{buf_name}'"
+                        )
+
+            elif isinstance(i, LoopIR.Interval) and not isinstance(w, tuple):
+                # if i.lo <= w < i.hi
+                #   error, because we cannot replace window with points
+                # else:
+                #   don't replace
+                try:
+                    Check_CompareExprs(p, [s], i.lo, "<=", w)
+                    Check_CompareExprs(p, [s], w, "<", i.hi)
+                    flag = True
+                except:
+                    return False  # don't replace
+
+                if flag:
+                    raise SchedulingError(
+                        f"Cannot replace the window of '{buf_name}' with points '{w}'"
+                    )
+            else:
+                assert False, "bad case"
 
         return True
 
