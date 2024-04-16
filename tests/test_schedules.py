@@ -4461,3 +4461,48 @@ def test_stage_mem_should_fail5():
 
     with pytest.raises(SchedulingError, match="Cannot partially stage the window of"):
         foo = stage_mem(foo, "for ji in _:_", "A[i-1:i+1, 4*jo:4*jo+4]", "tile")
+
+
+def test_stage_mem_asum(golden):
+    @proc
+    def asum(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result += select(0.0, x[i], x[i], -x[i])
+
+    asum = stage_mem(asum, "result += _", "x[i]", "tile")
+    assert str(simplify(asum)) == golden
+
+
+def test_stage_mem_reduce(golden):
+    @proc
+    def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result += x[i] + x[i]
+
+    foo = stage_mem(foo, "result += _", "x[i]", "tile")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_assign(golden):
+    @proc
+    def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result = x[i] + x[i]
+
+    foo = stage_mem(foo, "result = _ #1", "x[i]", "tile")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_assign2(golden):
+    @proc
+    def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result = x[i]
+            result = x[i]
+
+    foo = stage_mem(foo, foo.find("result = _ #1").expand(0, 1), "x[i]", "tile")
+    assert str(simplify(foo)) == golden

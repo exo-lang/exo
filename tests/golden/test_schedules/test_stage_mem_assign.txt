@@ -1,0 +1,6 @@
+def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+    result = 0.0
+    for i in seq(0, n):
+        tile: f32 @ DRAM
+        tile = x[i]
+        result = tile + tile
