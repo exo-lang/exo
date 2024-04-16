@@ -4024,7 +4024,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         return {"name": s.name, "idx": s.idx}
 
-    actualR = actualW = False
+    actualR = actualW = writeShadow = False
 
     for c in block_cursor:
         read_ir, fwd = _replace_reads(ir, fwd, c, buf_name, mk_read)
@@ -4041,9 +4041,13 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         actualR = actualR | (reduce_ir != write_ir)
         actualW = actualW | (reduce_ir != write_ir)
 
+        # If write shadows read, no need to initialize the new buffer with load
+        if actualW and (not actualR):
+            writeShadow = True
+
         ir = reduce_ir
 
-    if actualR:
+    if actualR and (not writeShadow):
         load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         load_widx = [LoopIR.Read(s, [], T.index, srcinfo) for s in load_iter]
         if use_accum_zero:
@@ -4127,7 +4131,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
     # new alloc, load_nest + new_body + store_nest
     new_block_c = fwd(block_cursor[0]).as_block().expand(0, len(block_cursor) - 1)
-    if actualR:
+    if actualR and (not writeShadow):
         new_block_c = new_block_c.expand(1, 0)
     if actualW:
         new_block_c = new_block_c.expand(0, 1)

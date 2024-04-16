@@ -4506,3 +4506,14 @@ def test_stage_mem_assign2(golden):
 
     foo = stage_mem(foo, foo.find("result = _ #1").expand(0, 1), "x[i]", "tile")
     assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_reduce2(golden):
+    @proc
+    def foo(x: f32[30], result: f32):
+        result = 0.0
+        for i in seq(0, 30):
+            x[i] = result
+
+    foo = stage_mem(foo, foo.body(), "result", "tmp")
+    assert str(simplify(foo)) == golden
