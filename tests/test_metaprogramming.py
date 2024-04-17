@@ -126,3 +126,17 @@ def test_captured_closure(golden):
 
     c_file, _ = compile_procs_to_strings([bar], "test.h")
     assert c_file == golden
+
+
+def test_capture_nested_quote(golden):
+    a = 2
+
+    @proc
+    def foo(a: i32):
+        with unquote:
+            for _ in range(3):
+                with quote:
+                    a = unquote(a)
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+    assert c_file == golden
