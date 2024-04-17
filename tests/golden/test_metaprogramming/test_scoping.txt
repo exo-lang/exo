@@ -1,0 +1,16 @@
+#include "test.h"
+
+
+
+#include <stdio.h>
+#include <stdlib.h>
+
+
+
+// foo(
+//     a : i8 @DRAM
+// )
+void foo( void *ctxt, int8_t* a ) {
+*a = ((int8_t) 3);
+}
+
