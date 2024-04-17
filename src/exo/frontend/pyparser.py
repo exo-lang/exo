@@ -193,7 +193,7 @@ class QuoteReplacer(pyast.NodeTransformer):
                 self.stmt_collector != None
             ), "Reached quote block with no buffer to place quoted statements"
 
-            def quote_callback(_f):
+            def quote_callback():
                 self.stmt_collector.extend(
                     Parser(
                         node.body,
@@ -205,13 +205,12 @@ class QuoteReplacer(pyast.NodeTransformer):
                 )
 
             callback_name = self.unquote_env.register_quote_callback(quote_callback)
-            return pyast.FunctionDef(
-                name=self.unquote_env.mangle_name(QUOTE_BLOCK_PLACEHOLDER_PREFIX),
-                args=pyast.arguments(
-                    posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]
-                ),
-                body=node.body,
-                decorator_list=[pyast.Name(id=callback_name, ctx=pyast.Load())],
+            return pyast.Expr(
+                value=pyast.Call(
+                    func=pyast.Name(id=callback_name, ctx=pyast.Load()),
+                    args=[],
+                    keywords=[],
+                )
             )
         else:
             return super().generic_visit(node)
@@ -224,7 +223,7 @@ class QuoteReplacer(pyast.NodeTransformer):
             and len(node.args) == 1
         ):
 
-            def quote_callback(_e):
+            def quote_callback():
                 return Parser(
                     node.args[0],
                     self.parser_parent.src_info,
@@ -236,18 +235,7 @@ class QuoteReplacer(pyast.NodeTransformer):
             callback_name = self.unquote_env.register_quote_callback(quote_callback)
             return pyast.Call(
                 func=pyast.Name(id=callback_name, ctx=pyast.Load()),
-                args=[
-                    pyast.Lambda(
-                        args=pyast.arguments(
-                            posonlyargs=[],
-                            args=[],
-                            kwonlyargs=[],
-                            kw_defaults=[],
-                            defaults=[],
-                        ),
-                        body=node,
-                    )
-                ],
+                args=[],
                 keywords=[],
             )
         else:
@@ -330,7 +318,29 @@ class UnquoteEnv:
                                             kw_defaults=[],
                                             defaults=[],
                                         ),
-                                        body=stmts,
+                                        body=[
+                                            pyast.Expr(
+                                                value=pyast.Lambda(
+                                                    args=pyast.arguments(
+                                                        posonlyargs=[],
+                                                        args=[],
+                                                        kwonlyargs=[],
+                                                        kw_defaults=[],
+                                                        defaults=[],
+                                                    ),
+                                                    body=pyast.Tuple(
+                                                        elts=[
+                                                            pyast.Name(
+                                                                id=arg, ctx=pyast.Load()
+                                                            )
+                                                            for arg in self.parent_locals
+                                                        ],
+                                                        ctx=pyast.Load(),
+                                                    ),
+                                                )
+                                            ),
+                                            *stmts,
+                                        ],
                                         decorator_list=[],
                                     ),
                                     pyast.Return(
