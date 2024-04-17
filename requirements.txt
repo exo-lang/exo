@@ -5,7 +5,7 @@ asdl==0.1.5
 astor==0.8.1
 build==0.7.0
 black==24.3.0
-coverage==6.3.2
+coverage==7.4.4
 jupyter-contrib-nbextensions==0.5.1
 numpy==1.23.4
 pre-commit==3.6.0
