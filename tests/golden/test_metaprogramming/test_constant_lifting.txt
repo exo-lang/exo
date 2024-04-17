@@ -1,0 +1,16 @@
+#include "test.h"
+
+
+
+#include <stdio.h>
+#include <stdlib.h>
+
+
+
+// foo(
+//     a : f64 @DRAM
+// )
+void foo( void *ctxt, double* a ) {
+*a = 2.0818897486445276;
+}
+
