@@ -15,6 +15,9 @@ from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
 
+from typing import Any, Callable, Union, NoReturn, Optional
+import copy
+from dataclasses import dataclass
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -35,54 +38,106 @@ def str_to_mem(name):
     return getattr(sys.modules[__name__], name)
 
 
+@dataclass
+class SourceInfo:
+    src_file: str
+    src_line_offset: int
+    src_col_offset: int
+
+    def get_src_info(self, node: pyast.AST):
+        return SrcInfo(
+            filename=self.src_file,
+            lineno=node.lineno + self.src_line_offset,
+            col_offset=node.col_offset + self.src_col_offset,
+            end_lineno=(
+                None
+                if node.end_lineno is None
+                else node.end_lineno + self.src_line_offset
+            ),
+            end_col_offset=(
+                None
+                if node.end_col_offset is None
+                else node.end_col_offset + self.src_col_offset
+            ),
+        )
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Top-level decorator
 
 
-def get_ast_from_python(f):
+def get_ast_from_python(f: Callable[..., Any]) -> tuple[pyast.stmt, SourceInfo]:
     # note that we must dedent in case the function is defined
     # inside of a local scope
-
     rawsrc = inspect.getsource(f)
     src = textwrap.dedent(rawsrc)
     n_dedent = len(re.match("^(.*)", rawsrc).group()) - len(
         re.match("^(.*)", src).group()
     )
-    srcfilename = inspect.getsourcefile(f)
-    _, srclineno = inspect.getsourcelines(f)
-    srclineno -= 1  # adjust for decorator line
-
-    # create way to query for src-code information
-    def getsrcinfo(node):
-        return SrcInfo(
-            filename=srcfilename,
-            lineno=node.lineno + srclineno,
-            col_offset=node.col_offset + n_dedent,
-            end_lineno=(
-                None if node.end_lineno is None else node.end_lineno + srclineno
-            ),
-            end_col_offset=(
-                None if node.end_col_offset is None else node.end_col_offset + n_dedent
-            ),
-        )
 
     # convert into AST nodes; which should be a module with a single node
     module = pyast.parse(src)
     assert len(module.body) == 1
 
-    return module.body[0], getsrcinfo
+    return module.body[0], SourceInfo(
+        src_file=inspect.getsourcefile(f),
+        src_line_offset=inspect.getsourcelines(f)[1] - 1,
+        src_col_offset=n_dedent,
+    )
 
 
-def get_src_locals(*, depth):
+@dataclass
+class BoundLocal:
+    val: Any
+
+
+Local = Optional[BoundLocal]
+
+
+@dataclass
+class FrameScope:
+    frame: inspect.frame
+
+    def get_globals(self) -> dict[str, Any]:
+        return self.frame.f_globals
+
+    def read_locals(self) -> dict[str, Local]:
+        return {
+            var: (
+                BoundLocal(self.frame.f_locals[var])
+                if var in self.frame.f_locals
+                else None
+            )
+            for var in self.frame.f_code.co_varnames
+            + self.frame.f_code.co_cellvars
+            + self.frame.f_code.co_freevars
+        }
+
+
+@dataclass
+class DummyScope:
+    global_dict: dict[str, Any]
+    local_dict: dict[str, Any]
+
+    def get_globals(self) -> dict[str, Any]:
+        return self.global_dict
+
+    def read_locals(self) -> dict[str, Any]:
+        return self.local_dict.copy()
+
+
+Scope = Union[DummyScope, FrameScope]
+
+
+def get_parent_scope(*, depth) -> Scope:
     """
     Get global and local environments for context capture purposes
     """
-    stack_frames: [inspect.FrameInfo] = inspect.stack()
+    stack_frames = inspect.stack()
     assert len(stack_frames) >= depth
-    func_locals = stack_frames[depth].frame.f_locals
-    assert isinstance(func_locals, dict)
-    return ChainMap(func_locals)
+    frame = stack_frames[depth].frame
+    return FrameScope(frame)
 
 
 # --------------------------------------------------------------------------- #
@@ -105,28 +160,228 @@ def pattern(s, filename=None, lineno=None, srclocals=None, srcglobals=None):
     module = pyast.parse(src)
     assert isinstance(module, pyast.Module)
 
-    # create way to query for src-code information
-    def getsrcinfo(node):
-        return SrcInfo(
-            filename=srcfilename,
-            lineno=node.lineno + srclineno,
-            col_offset=node.col_offset + n_dedent,
-            end_lineno=(
-                None if node.end_lineno is None else node.end_lineno + srclineno
-            ),
-            end_col_offset=(
-                None if node.end_col_offset is None else node.end_col_offset + n_dedent
-            ),
-        )
-
     parser = Parser(
         module.body,
-        getsrcinfo,
+        SourceInfo(
+            src_file=srcfilename, src_line_offset=srclineno, src_col_offset=n_dedent
+        ),
+        parent_scope=DummyScope({}, {}),  # add globals from enclosing scope
         is_fragment=True,
-        func_globals=srcglobals,
-        srclocals=srclocals,
     )
     return parser.result()
+
+
+class QuoteReplacer(pyast.NodeTransformer):
+    def __init__(
+        self,
+        parser_parent: "Parser",
+        unquote_env: "UnquoteEnv",
+        stmt_collector: Optional[list[pyast.stmt]] = None,
+    ):
+        self.stmt_collector = stmt_collector
+        self.unquote_env = unquote_env
+        self.parser_parent = parser_parent
+
+    def visit_With(self, node: pyast.With) -> pyast.Any:
+        if (
+            len(node.items) == 1
+            and isinstance(node.items[0].context_expr, pyast.Name)
+            and node.items[0].context_expr.id == "quote"
+            and isinstance(node.items[0].context_expr.ctx, pyast.Load)
+        ):
+            assert (
+                self.stmt_collector != None
+            ), "Reached quote block with no buffer to place quoted statements"
+
+            def quote_callback(_f):
+                self.stmt_collector.extend(
+                    Parser(
+                        node.body,
+                        self.parser_parent.src_info,
+                        parent_scope=get_parent_scope(depth=2),
+                        is_quote_stmt=True,
+                        parent_exo_locals=self.parser_parent.exo_locals,
+                    ).result()
+                )
+
+            callback_name = self.unquote_env.register_quote_callback(quote_callback)
+            return pyast.FunctionDef(
+                name=self.unquote_env.mangle_name(QUOTE_BLOCK_PLACEHOLDER_PREFIX),
+                args=pyast.arguments(
+                    posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]
+                ),
+                body=node.body,
+                decorator_list=[pyast.Name(id=callback_name, ctx=pyast.Load())],
+            )
+        else:
+            return super().generic_visit(node)
+
+    def visit_Call(self, node: pyast.Call) -> Any:
+        if (
+            isinstance(node.func, pyast.Name)
+            and node.func.id == "quote"
+            and len(node.keywords) == 0
+            and len(node.args) == 1
+        ):
+
+            def quote_callback(_e):
+                return Parser(
+                    node.args[0],
+                    self.parser_parent.src_info,
+                    parent_scope=get_parent_scope(depth=2),
+                    is_quote_expr=True,
+                    parent_exo_locals=self.parser_parent.exo_locals,
+                ).result()
+
+            callback_name = self.unquote_env.register_quote_callback(quote_callback)
+            return pyast.Call(
+                func=pyast.Name(id=callback_name, ctx=pyast.Load()),
+                args=[
+                    pyast.Lambda(
+                        args=pyast.arguments(
+                            posonlyargs=[],
+                            args=[],
+                            kwonlyargs=[],
+                            kw_defaults=[],
+                            defaults=[],
+                        ),
+                        body=node,
+                    )
+                ],
+                keywords=[],
+            )
+        else:
+            return super().generic_visit(node)
+
+
+QUOTE_CALLBACK_PREFIX = "__quote_callback"
+QUOTE_BLOCK_PLACEHOLDER_PREFIX = "__quote_block"
+OUTER_SCOPE_HELPER = "__outer_scope"
+NESTED_SCOPE_HELPER = "__nested_scope"
+UNQUOTE_RETURN_HELPER = "__unquote_val"
+
+
+@dataclass
+class UnquoteEnv:
+    parent_globals: dict[str, Any]
+    parent_locals: dict[str, Local]
+
+    def mangle_name(self, prefix: str) -> str:
+        index = 0
+        while True:
+            mangled_name = f"{prefix}{index}"
+            if (
+                mangled_name not in self.parent_locals
+                and mangled_name not in self.parent_globals
+            ):
+                return mangled_name
+            index += 1
+
+    def register_quote_callback(self, quote_callback: Callable[[], None]) -> str:
+        mangled_name = self.mangle_name(QUOTE_CALLBACK_PREFIX)
+        self.parent_locals[mangled_name] = BoundLocal(quote_callback)
+        return mangled_name
+
+    def interpret_quote_block(self, stmts: list[pyast.stmt]) -> Any:
+        bound_locals = {
+            name: val.val for name, val in self.parent_locals.items() if val is not None
+        }
+        unbound_names = {
+            name for name, val in self.parent_locals.items() if val is None
+        }
+        exec(
+            compile(
+                pyast.fix_missing_locations(
+                    pyast.Module(
+                        body=[
+                            pyast.FunctionDef(
+                                name=OUTER_SCOPE_HELPER,
+                                args=pyast.arguments(
+                                    posonlyargs=[],
+                                    args=[
+                                        pyast.arg(arg=arg) for arg in self.parent_locals
+                                    ],
+                                    kwonlyargs=[],
+                                    kw_defaults=[],
+                                    defaults=[],
+                                ),
+                                body=[
+                                    *(
+                                        [
+                                            pyast.Delete(
+                                                targets=[
+                                                    pyast.Name(
+                                                        id=name,
+                                                        ctx=pyast.Del(),
+                                                    )
+                                                    for name in unbound_names
+                                                ]
+                                            )
+                                        ]
+                                        if len(unbound_names) != 0
+                                        else []
+                                    ),
+                                    pyast.FunctionDef(
+                                        name=NESTED_SCOPE_HELPER,
+                                        args=pyast.arguments(
+                                            posonlyargs=[],
+                                            args=[],
+                                            kwonlyargs=[],
+                                            kw_defaults=[],
+                                            defaults=[],
+                                        ),
+                                        body=stmts,
+                                        decorator_list=[],
+                                    ),
+                                    pyast.Return(
+                                        value=pyast.Call(
+                                            func=pyast.Name(
+                                                id=NESTED_SCOPE_HELPER,
+                                                ctx=pyast.Load(),
+                                            ),
+                                            args=[],
+                                            keywords=[],
+                                        )
+                                    ),
+                                ],
+                                decorator_list=[],
+                            ),
+                            pyast.Assign(
+                                targets=[
+                                    pyast.Name(
+                                        id=UNQUOTE_RETURN_HELPER, ctx=pyast.Store()
+                                    )
+                                ],
+                                value=pyast.Call(
+                                    func=pyast.Name(
+                                        id=OUTER_SCOPE_HELPER,
+                                        ctx=pyast.Load(),
+                                    ),
+                                    args=[
+                                        (
+                                            pyast.Constant(value=None)
+                                            if val is None
+                                            else pyast.Name(id=name, ctx=pyast.Load())
+                                        )
+                                        for name, val in self.parent_locals.items()
+                                    ],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                        type_ignores=[],
+                    )
+                ),
+                "",
+                "exec",
+            ),
+            self.parent_globals,
+            bound_locals,
+        )
+        return bound_locals[UNQUOTE_RETURN_HELPER]
+
+    def interpret_quote_expr(self, expr: pyast.expr):
+        return self.interpret_quote_block([pyast.Return(value=expr)])
 
 
 # --------------------------------------------------------------------------- #
@@ -156,19 +411,20 @@ class Parser:
     def __init__(
         self,
         module_ast,
-        getsrcinfo,
+        src_info,
+        parent_scope=None,
         is_fragment=False,
-        func_globals=None,
-        srclocals=None,
         as_func=False,
         as_config=False,
         instr=None,
+        is_quote_stmt=False,
+        is_quote_expr=False,
+        parent_exo_locals=None,
     ):
-
         self.module_ast = module_ast
-        self.globals = func_globals
-        self.locals = srclocals or ChainMap()
-        self.getsrcinfo = getsrcinfo
+        self.parent_scope = parent_scope
+        self.exo_locals = ChainMap() if parent_exo_locals is None else parent_exo_locals
+        self.src_info = src_info
         self.is_fragment = is_fragment
 
         self.push()
@@ -203,18 +459,25 @@ class Parser:
                 self._cached_result = self.parse_expr(s.value)
             else:
                 self._cached_result = self.parse_stmt_block(module_ast)
+        elif is_quote_expr:
+            self._cached_result = self.parse_expr(module_ast)
+        elif is_quote_stmt:
+            self._cached_result = self.parse_stmt_block(module_ast)
         else:
             assert False, "parser mode configuration unsupported"
         self.pop()
+
+    def getsrcinfo(self, ast):
+        return self.src_info.get_src_info(ast)
 
     def result(self):
         return self._cached_result
 
     def push(self):
-        self.locals = self.locals.new_child()
+        self.exo_locals = self.exo_locals.new_child()
 
     def pop(self):
-        self.locals = self.locals.parents
+        self.exo_locals = self.exo_locals.parents
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # parser helper routines
@@ -224,9 +487,13 @@ class Parser:
 
     def eval_expr(self, expr):
         assert isinstance(expr, pyast.expr)
-        code = compile(pyast.Expression(expr), "", "eval")
-        e_obj = eval(code, self.globals, self.locals)
-        return e_obj
+        return UnquoteEnv(
+            self.parent_scope.get_globals(),
+            {
+                **self.parent_scope.read_locals(),
+                **{k: BoundLocal(v) for k, v in self.exo_locals.items()},
+            },
+        ).interpret_quote_expr(expr)
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # structural parsing rules...
@@ -268,10 +535,10 @@ class Parser:
             names.add(a.arg)
             nm = Sym(a.arg)
             if isinstance(typ, UAST.Size):
-                self.locals[a.arg] = SizeStub(nm)
+                self.exo_locals[a.arg] = SizeStub(nm)
             else:
                 # note we don't need to stub the index variables
-                self.locals[a.arg] = nm
+                self.exo_locals[a.arg] = nm
             args.append(UAST.fnarg(nm, typ, mem, self.getsrcinfo(a)))
 
         # return types are non-sensical for Exo, b/c it models procedures
@@ -453,11 +720,8 @@ class Parser:
                 typ = _prim_types[node.value.id]
                 is_window = False
             else:
-                self.err(
-                    node,
-                    "expected tensor type to be "
-                    "of the form 'R[...]', 'f32[...]', etc.",
-                )
+                typ = self.parse_num_type(node.value)
+                is_window = False
 
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
@@ -484,8 +748,29 @@ class Parser:
 
             return typ
 
-        elif isinstance(node, pyast.Name) and node.id in _prim_types:
-            return _prim_types[node.id]
+        elif isinstance(node, pyast.Name) and node.id in Parser._prim_types:
+            return Parser._prim_types[node.id]
+        elif (
+            isinstance(node, pyast.Call)
+            and isinstance(node.func, pyast.Name)
+            and node.func.id == "unquote"
+        ):
+            if len(node.keywords) != 0:
+                self.err(node, "Unquote must take non-keyword argument")
+            elif len(node.args) != 1:
+                self.err(node, "Unquote must take 1 argument")
+            else:
+                unquote_env = UnquoteEnv(
+                    self.parent_scope.get_globals(), self.parent_scope.read_locals()
+                )
+                quote_replacer = QuoteReplacer(self, unquote_env)
+                unquoted = unquote_env.interpret_quote_expr(
+                    quote_replacer.visit(copy.deepcopy(node.args[0]))
+                )
+                if isinstance(unquoted, str) and unquoted in Parser._prim_types:
+                    return Parser._prim_types[unquoted]
+                else:
+                    self.err(node, "Unquote computation did not yield valid type")
         elif isinstance(node, pyast.Name) and (
             _is_size(node) or _is_stride(node) or _is_index(node) or _is_bool(node)
         ):
@@ -501,8 +786,29 @@ class Parser:
         rstmts = []
 
         for s in stmts:
+            if isinstance(s, pyast.With):
+                if (
+                    len(s.items) == 1
+                    and isinstance(s.items[0].context_expr, pyast.Name)
+                    and s.items[0].context_expr.id == "unquote"
+                    and isinstance(s.items[0].context_expr.ctx, pyast.Load)
+                ):
+                    unquote_env = UnquoteEnv(
+                        self.parent_scope.get_globals(), self.parent_scope.read_locals()
+                    )
+                    quoted_stmts = []
+                    quote_stmt_replacer = QuoteReplacer(self, unquote_env, quoted_stmts)
+                    unquote_env.interpret_quote_block(
+                        [
+                            quote_stmt_replacer.visit(copy.deepcopy(python_s))
+                            for python_s in s.body
+                        ],
+                    )
+                    rstmts.extend(quoted_stmts)
+                else:
+                    self.err(s.id, "Expected unquote")
             # ----- Assginment, Reduction, Var Declaration/Allocation parsing
-            if isinstance(s, (pyast.Assign, pyast.AnnAssign, pyast.AugAssign)):
+            elif isinstance(s, (pyast.Assign, pyast.AnnAssign, pyast.AugAssign)):
                 # parse the rhs first, if it's present
                 rhs = None
                 if isinstance(s, pyast.AnnAssign):
@@ -601,7 +907,7 @@ class Parser:
                     # insert any needed Allocs
                     if isinstance(s, pyast.AnnAssign):
                         nm = Sym(name_node.id)
-                        self.locals[name_node.id] = nm
+                        self.exo_locals[name_node.id] = nm
                         typ, mem = self.parse_alloc_typmem(s.annotation)
                         rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
 
@@ -610,10 +916,10 @@ class Parser:
                     if (
                         isinstance(s, pyast.Assign)
                         and len(idxs) == 0
-                        and name_node.id not in self.locals
+                        and name_node.id not in self.exo_locals
                     ):
                         nm = Sym(name_node.id)
-                        self.locals[name_node.id] = nm
+                        self.exo_locals[name_node.id] = nm
                         do_fresh_assignment = True
                     else:
                         do_fresh_assignment = False
@@ -621,9 +927,9 @@ class Parser:
                     # get the symbol corresponding to the name on the
                     # left-hand-side
                     if isinstance(s, (pyast.Assign, pyast.AugAssign)):
-                        if name_node.id not in self.locals:
+                        if name_node.id not in self.exo_locals:
                             self.err(name_node, f"variable '{name_node.id}' undefined")
-                        nm = self.locals[name_node.id]
+                        nm = self.exo_locals[name_node.id]
                         if isinstance(nm, SizeStub):
                             self.err(
                                 name_node,
@@ -660,7 +966,7 @@ class Parser:
                     itr = s.target.id
                 else:
                     itr = Sym(s.target.id)
-                    self.locals[s.target.id] = itr
+                    self.exo_locals[s.target.id] = itr
 
                 cond = self.parse_loop_cond(s.iter)
                 body = self.parse_stmt_block(s.body)
@@ -879,11 +1185,18 @@ class Parser:
                 else:
                     return PAST.Read(nm, idxs, self.getsrcinfo(e))
             else:
-                if nm_node.id in self.locals:
-                    nm = self.locals[nm_node.id]
-                elif nm_node.id in self.globals:
-                    nm = self.globals[nm_node.id]
-                else:  # could not resolve name to anything
+                parent_globals = self.parent_scope.get_globals()
+                parent_locals = self.parent_scope.read_locals()
+                if nm_node.id in self.exo_locals:
+                    nm = self.exo_locals[nm_node.id]
+                elif (
+                    nm_node.id in parent_locals
+                    and parent_locals[nm_node.id] is not None
+                ):
+                    nm = parent_locals[nm_node.id].val
+                elif nm_node.id in parent_globals:
+                    nm = parent_globals[nm_node.id]
+                else:
                     self.err(nm_node, f"variable '{nm_node.id}' undefined")
 
                 if isinstance(nm, SizeStub):
@@ -937,11 +1250,15 @@ class Parser:
                 opnm = (
                     "+"
                     if isinstance(e.op, pyast.UAdd)
-                    else "not"
-                    if isinstance(e.op, pyast.Not)
-                    else "~"
-                    if isinstance(e.op, pyast.Invert)
-                    else "ERROR-BAD-OP-CASE"
+                    else (
+                        "not"
+                        if isinstance(e.op, pyast.Not)
+                        else (
+                            "~"
+                            if isinstance(e.op, pyast.Invert)
+                            else "ERROR-BAD-OP-CASE"
+                        )
+                    )
                 )
                 self.err(e, f"unsupported unary operator: {opnm}")
 
@@ -1039,8 +1356,27 @@ class Parser:
             return res
 
         elif isinstance(e, pyast.Call):
+            if isinstance(e.func, pyast.Name) and e.func.id == "unquote":
+                if len(e.keywords) != 0:
+                    self.err(e, "Unquote must take non-keyword argument")
+                elif len(e.args) != 1:
+                    self.err(e, "Unquote must take 1 argument")
+                else:
+                    unquote_env = UnquoteEnv(
+                        self.parent_scope.get_globals(), self.parent_scope.read_locals()
+                    )
+                    quote_replacer = QuoteReplacer(self, unquote_env)
+                    unquoted = unquote_env.interpret_quote_expr(
+                        quote_replacer.visit(copy.deepcopy(e.args[0]))
+                    )
+                    if isinstance(unquoted, (int, float)):
+                        return self.AST.Const(unquoted, self.getsrcinfo(e))
+                    elif isinstance(unquoted, self.AST.expr):
+                        return unquoted
+                    else:
+                        self.err(e, "Unquote received input that couldn't be unquoted")
             # handle stride expression
-            if isinstance(e.func, pyast.Name) and e.func.id == "stride":
+            elif isinstance(e.func, pyast.Name) and e.func.id == "stride":
                 if (
                     len(e.keywords) > 0
                     or len(e.args) != 2
@@ -1067,9 +1403,9 @@ class Parser:
 
                 dim = int(e.args[1].value)
                 if not self.is_fragment:
-                    if name not in self.locals:
+                    if name not in self.exo_locals:
                         self.err(e.args[0], f"variable '{name}' undefined")
-                    name = self.locals[name]
+                    name = self.exo_locals[name]
 
                 return self.AST.StrideExpr(name, dim, self.getsrcinfo(e))
 

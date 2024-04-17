@@ -5,7 +5,7 @@ import pytest
 from exo import DRAM
 from exo.frontend.pyparser import (
     Parser,
-    get_src_locals,
+    get_parent_scope,
     get_ast_from_python,
     ParseError,
 )
@@ -17,7 +17,7 @@ def to_uast(f):
         body,
         getsrcinfo,
         func_globals=f.__globals__,
-        srclocals=get_src_locals(depth=2),
+        srclocals=get_parent_scope(depth=2),
         instr=("TEST", ""),
         as_func=True,
     )
