@@ -29,7 +29,7 @@ QueryAST
     USub    ( arg  : Expr,  type : Type )
     BinOp   ( op   : str,   lhs  : Expr,
                             rhs  : Expr,          type : Type )
-    BuiltIn ( func : str,   args : list[Expr],    type : Type )
+    Extern ( func : str,   args : list[Expr],    type : Type )
     WindowExpr( name : str, idx : list[WAccess],  type : Type )
     StrideExpr( name : str, dim : int,            type : Type )
     ReadConfig( config : Config, field : str,     type : Type )
@@ -202,7 +202,7 @@ class BinOp(Expr):
 
 
 @_dataclass
-class BuiltIn(Expr):
+class Extern(Expr):
     func: str
     args: list[Expr]
     type: Type

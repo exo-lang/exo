@@ -213,12 +213,17 @@ void matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8
 #include "gemm_acc_malloc.h"
 #include <include/gemmini.h>
 #include "gemm_malloc.h"
-double _relu_(double x) {
+int8_t _relu_int8_t(int8_t x) {
     if (x > 0.0) return x;
     else return 0.0;
 }
 
-double _select_(double x, double v, double y, double z) {
+float _select_float(float x,float v,float y,float z) {
+    if (x < v) return y;
+    else return z;
+}
+
+int8_t _select_int8_t(int8_t x,int8_t v,int8_t y,int8_t z) {
     if (x < v) return y;
     else return z;
 }
@@ -243,8 +248,8 @@ float l;
 float h;
 l = -128.0f;
 h = 127.0f;
-*dst = (int8_t)(_select_((double)*&h, (double)*src, (double)*&h, (double)*src));
-*dst = _select_((double)*src, (double)*&l, (double)*&l, (double)*dst);
+*dst = (int8_t)(_select_float((float)h, (float)*src, (float)h, (float)*src));
+*dst = _select_int8_t((int8_t)*src, (int8_t)l, (int8_t)l, (int8_t)*dst);
 }
 
 
@@ -307,7 +312,7 @@ for (int_fast32_t i = 0; i < 3136; i++) {
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
-      tmp_res2 = _relu_((double)*&tmp_res2);
+      tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
     }
     C[i * 512 + j] = tmp_res2;
   }
@@ -344,7 +349,7 @@ for (int_fast32_t i = 0; i < 3136; i++) {
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
-      tmp_res2 = _relu_((double)*&tmp_res2);
+      tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
     }
     C[i * 128 + j] = tmp_res2;
   }
@@ -381,7 +386,7 @@ for (int_fast32_t i = 0; i < 784; i++) {
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
-      tmp_res2 = _relu_((double)*&tmp_res2);
+      tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
     }
     C[i * 1024 + j] = tmp_res2;
   }
@@ -418,7 +423,7 @@ for (int_fast32_t i = 0; i < 12544; i++) {
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
-      tmp_res2 = _relu_((double)*&tmp_res2);
+      tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
     }
     C[i * 256 + j] = tmp_res2;
   }
@@ -455,7 +460,7 @@ for (int_fast32_t i = 0; i < 512; i++) {
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
-      tmp_res2 = _relu_((double)*&tmp_res2);
+      tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
     }
     C[i * 512 + j] = tmp_res2;
   }
@@ -492,7 +497,7 @@ for (int_fast32_t i = 0; i < 12544; i++) {
     int8_t tmp_res2;
     clamp(ctxt,&tmp_res1,&tmp_res2);
     if (act == true) {
-      tmp_res2 = _relu_((double)*&tmp_res2);
+      tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
     }
     C[i * 64 + j] = tmp_res2;
   }

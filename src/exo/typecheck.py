@@ -1,5 +1,5 @@
 from .LoopIR import T, UAST, LoopIR
-from .builtins import BuiltIn_Typecheck_Error
+from .extern import Extern_Typecheck_Error
 from .memory import *
 
 
@@ -543,17 +543,17 @@ class TypeChecker:
 
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
 
-        elif isinstance(e, UAST.BuiltIn):
+        elif isinstance(e, UAST.Extern):
 
             args = [self.check_e(a) for a in e.args]
 
             try:
                 typ = e.f.typecheck(args)
-            except BuiltIn_Typecheck_Error as err:
+            except Extern_Typecheck_Error as err:
                 typ = T.err
                 self.err(e, str(err))
 
-            return LoopIR.BuiltIn(e.f, args, typ, e.srcinfo)
+            return LoopIR.Extern(e.f, args, typ, e.srcinfo)
 
         elif isinstance(e, UAST.StrideExpr):
             idx, typ = self.check_access(e, e.name, [], lvalue=False)

@@ -196,18 +196,18 @@ class LoopIR_FindMems(LoopIR_Do):
         pass
 
 
-class LoopIR_FindBuiltIns(LoopIR_Do):
+class LoopIR_FindExterns(LoopIR_Do):
     def __init__(self, proc):
-        self._builtins = set()
+        self._externs = set()
         super().__init__(proc)
 
     def result(self):
-        return self._builtins
+        return self._externs
 
     # to improve efficiency
     def do_e(self, e):
-        if isinstance(e, LoopIR.BuiltIn):
-            self._builtins.add(e.f)
+        if isinstance(e, LoopIR.Extern):
+            self._externs.add((e.f, e.type.basetype().ctype()))
         else:
             super().do_e(e)
 
@@ -247,12 +247,12 @@ def find_all_mems(proc_list):
     return [m for m in mems]
 
 
-def find_all_builtins(proc_list):
-    builtins = set()
+def find_all_externs(proc_list):
+    externs = set()
     for p in proc_list:
-        builtins.update(LoopIR_FindBuiltIns(p).result())
+        externs.update(LoopIR_FindExterns(p).result())
 
-    return [b for b in builtins]
+    return externs
 
 
 def find_all_configs(proc_list):
@@ -375,11 +375,10 @@ def compile_to_strings(lib_name, proc_list):
     public_fwd_decls = []
 
     # Body contents
-    memory_code = _compile_memories(find_all_mems(proc_list))
-    builtin_code = _compile_builtins(find_all_builtins(proc_list))
     private_fwd_decls = []
     proc_bodies = []
     instrs_global = []
+    new_proc_list = []
 
     needed_helpers = set()
 
@@ -411,6 +410,7 @@ def compile_to_strings(lib_name, proc_list):
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
+            new_proc_list.append(p)
 
             comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
             d, b = comp.comp_top()
@@ -454,12 +454,15 @@ def compile_to_strings(lib_name, proc_list):
 {from_lines(public_fwd_decls)}
 """
 
+    memory_code = _compile_memories(find_all_mems(new_proc_list))
+    extern_code = _compile_externs(find_all_externs(new_proc_list))
+
     helper_code = [_static_helpers[v] for v in needed_helpers]
     body_contents = [
         helper_code,
         instrs_global,
         memory_code,
-        builtin_code,
+        extern_code,
         private_fwd_decls,
         proc_bodies,
     ]
@@ -470,12 +473,12 @@ def compile_to_strings(lib_name, proc_list):
     return header_contents, body_contents
 
 
-def _compile_builtins(builtins):
-    builtin_code = []
-    for b in sorted(builtins, key=lambda x: x.name()):
-        if glb := b.globl():
-            builtin_code.append(glb)
-    return builtin_code
+def _compile_externs(externs):
+    extern_code = []
+    for f, t in sorted(externs, key=lambda x: x[0].name() + x[1]):
+        if glb := f.globl(t):
+            extern_code.append(glb)
+    return extern_code
 
 
 def _compile_memories(mems):
@@ -971,7 +974,7 @@ class Compiler:
                     x for x, _ in get_writes_of_stmts(fn.body)
                 )
             else:
-                raise NotImplementedError("Passing windows to built-ins")
+                raise NotImplementedError("Passing windows to externs")
             win_struct = self.get_window_type(e.type, is_const)
             data, strides = self.window_struct_fields(e)
             return f"(struct {win_struct}){{ &{data}, {{ {strides} }} }}"
@@ -1044,9 +1047,9 @@ class Compiler:
         elif isinstance(e, LoopIR.USub):
             return f'-{self.comp_e(e.arg, op_prec["~"])}'
 
-        elif isinstance(e, LoopIR.BuiltIn):
-            args = [self.comp_fnarg(a, e, i) for i, a in enumerate(e.args)]
-            return e.f.compile(args)
+        elif isinstance(e, LoopIR.Extern):
+            args = [self.comp_e(a) for a in e.args]
+            return e.f.compile(args, e.type.basetype().ctype())
 
         elif isinstance(e, LoopIR.StrideExpr):
             basetyp = self.envtyp[e.name]

@@ -280,7 +280,7 @@ class InferEffects:
             return eff_null(e.srcinfo)
         elif isinstance(e, LoopIR.WindowExpr):
             return eff_null(e.srcinfo)
-        elif isinstance(e, LoopIR.BuiltIn):
+        elif isinstance(e, LoopIR.Extern):
             return eff_null(e.srcinfo)
         elif isinstance(e, LoopIR.StrideExpr):
             return eff_null(e.srcinfo)
