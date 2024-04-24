@@ -323,6 +323,28 @@ def move_back(c):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# IR Building Helpers
+
+
+def divide_expr(e, quot):
+    assert isinstance(e, LoopIR.expr)
+    if isinstance(quot, int):
+        quot_int = quot
+        quot_ir = LoopIR.Const(quot, e.type, e.srcinfo)
+    elif isinstance(quot, LoopIR.expr):
+        quot_int = quot.val
+        quot_ir = quot
+    else:
+        assert False, f"Bad case {type(quot)}"
+    if isinstance(e, LoopIR.Const) and e.val % quot == 0:
+        div = LoopIR.Const(e.val // quot_int, e.type, e.srcinfo)
+    else:
+        div = LoopIR.BinOp("/", e, quot_ir, e.type, e.srcinfo)
+    return div
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Scheduling directives
 
 
@@ -749,10 +771,7 @@ def DoDivideLoop(
         ir = loop_cursor.get_root()
         loop = loop_cursor._node
         Check_IsDivisible(ir, [loop], N, quot)
-        if not isinstance(N, LoopIR.Const):
-            outer_hi = boolop("/", N, cnst(quot), T.index)
-        else:
-            outer_hi = cnst(N.val // quot)
+        outer_hi = divide_expr(N, quot)
     else:
         assert False, f"bad tail strategy: {tail_strategy}"
 
@@ -1734,10 +1753,7 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
     old_typ = alloc_s.type
     old_shp = old_typ.shape()
     dim = old_shp[dim_idx]
-    if not isinstance(dim, LoopIR.Const):
-        raise SchedulingError(f"Cannot divide non-literal dimension: {dim}")
-    if not dim.val % quotient == 0:
-        raise SchedulingError(f"Cannot divide {dim.val} evenly by {quotient}")
+    Check_IsDivisible(proc, [alloc_s], dim, quotient)
     denom = quotient
     numer = dim.val // denom
     new_shp = (
