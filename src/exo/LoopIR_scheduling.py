@@ -264,6 +264,24 @@ def Check_CompareExprs(proc, stmts, lhs, op, rhs):
     Check_ExprBound(proc, stmts, expr, op, 0)
 
 
+def Check_IsDivisible(proc, stmts, expr, quot):
+    failed = False
+    if not isinstance(expr, LoopIR.Const):
+        try:
+            quot = LoopIR.Const(quot, T.int, null_srcinfo())
+            expr_mod_quot = LoopIR.BinOp("%", expr, quot, T.index, null_srcinfo())
+            zero = LoopIR.Const(0, T.int, null_srcinfo())
+            Check_CompareExprs(proc, stmts, expr_mod_quot, "==", zero)
+        except SchedulingError:
+            failed = True
+    else:
+        # Fast path
+        failed = N.val % quot != 0
+
+    if failed:
+        raise SchedulingError(f"cannot perfectly divide '{expr}' by {quot}")
+
+
 def extract_env(c: ic.Cursor) -> List[Tuple[Sym, ic.Cursor]]:
     """
     Extract the environment of live variables at `c`.
@@ -728,24 +746,12 @@ def DoDivideLoop(
     elif tail_strategy in ["cut", "cut_and_guard"]:
         outer_hi = szop("/", N, inner_hi)  # floor div
     elif tail_strategy == "perfect":
+        ir = loop_cursor.get_root()
+        loop = loop_cursor._node
+        Check_IsDivisible(ir, [loop], N, quot)
         if not isinstance(N, LoopIR.Const):
-            hi_mod_quot = boolop("%", N, cnst(quot), T.index)
-            try:
-                ir = loop_cursor.get_root()
-                loop = loop_cursor._node
-                Check_CompareExprs(ir, [loop], hi_mod_quot, "==", cnst(0))
-            except SchedulingError:
-                raise SchedulingError(
-                    f"cannot perfectly split the '{loop.iter}' loop " f"by {quot}"
-                )
             outer_hi = boolop("/", N, cnst(quot), T.index)
         else:
-            if N.val % quot != 0:
-                raise SchedulingError(
-                    f"cannot perfectly split the '{loop.iter}' loop "
-                    f"because {quot} does not evenly divide "
-                    f"{N.val}"
-                )
             outer_hi = cnst(N.val // quot)
     else:
         assert False, f"bad tail strategy: {tail_strategy}"

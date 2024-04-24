@@ -1516,7 +1516,7 @@ def test_divide_loop_perfect_fail():
         for i in seq(0, n):
             A[i] = 1.0
 
-    with pytest.raises(SchedulingError, match="cannot perfectly split"):
+    with pytest.raises(SchedulingError, match="cannot perfectly divide"):
         foo = divide_loop(foo, "i", 4, ["io", "ii"], perfect=True)
 
 
