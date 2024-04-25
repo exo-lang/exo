@@ -1,0 +1,6 @@
+def foo(n: size, m: size):
+    x: R[n, 1, (7 + m) / 8 * 8 / 8, 8, 1, m, 1] @ DRAM
+    for i in seq(0, n):
+        for j in seq(0, m):
+            for k in seq(0, m):
+                x[i, 0, j / 8, j % 8, 0, k, 0] = 2.0

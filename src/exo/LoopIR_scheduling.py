@@ -276,7 +276,7 @@ def Check_IsDivisible(proc, stmts, expr, quot):
             failed = True
     else:
         # Fast path
-        failed = N.val % quot != 0
+        failed = expr.val % quot != 0
 
     if failed:
         raise SchedulingError(f"cannot perfectly divide '{expr}' by {quot}")
@@ -1753,14 +1753,13 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
     old_typ = alloc_s.type
     old_shp = old_typ.shape()
     dim = old_shp[dim_idx]
-    Check_IsDivisible(proc, [alloc_s], dim, quotient)
-    denom = quotient
-    numer = dim.val // denom
+    Check_IsDivisible(alloc_cursor.get_root(), [alloc_s], dim, quotient)
+    numer = divide_expr(dim, quotient)
     new_shp = (
         old_shp[:dim_idx]
         + [
-            LoopIR.Const(numer, T.int, dim.srcinfo),
-            LoopIR.Const(denom, T.int, dim.srcinfo),
+            numer,
+            LoopIR.Const(quotient, T.int, dim.srcinfo),
         ]
         + old_shp[dim_idx + 1 :]
     )
