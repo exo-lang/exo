@@ -1356,9 +1356,6 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     and lower-order dimensions, where the lower-order dimension is given
     by the constant integer `quotient`.
 
-    This limited implementation of `divide_dim` requires that the dimension
-    being divided is constant itself.
-
     args:
         alloc_cursor    - cursor to the allocation to divide a dimension of
         dim_idx         - the index of the dimension to divide
