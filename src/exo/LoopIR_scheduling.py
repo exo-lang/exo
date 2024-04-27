@@ -331,7 +331,7 @@ def divide_expr(e, quot):
     if isinstance(quot, int):
         quot_int = quot
         quot_ir = LoopIR.Const(quot, e.type, e.srcinfo)
-    elif isinstance(quot, LoopIR.expr):
+    elif isinstance(quot, LoopIR.Const):
         quot_int = quot.val
         quot_ir = quot
     else:
