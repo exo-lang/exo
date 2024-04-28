@@ -4077,6 +4077,53 @@ def test_lift_reduce_constant_bad_8():
         lift_reduce_constant(foo, "x = 0.0; _")
 
 
+def test_lift_reduce_constant_bad_9():
+    @proc
+    def dot(n: size, x: f32[n], y: f32[n]):
+        dot: R
+        dot = 0.0
+        for i in seq(0, n):
+            dot += y[i] * x[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="y\[i\] depends on the variable i which is defined within the loop",
+    ):
+        dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
+
+
+def test_lift_reduce_constant_bad_10():
+    @proc
+    def dot(n: size, x: f32[n], y: f32[n]):
+        dot: R
+        dot = 0.0
+        for i in seq(0, n):
+            for j in seq(0, n):
+                dot += y[j] * x[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="y\[j\] depends on the variable j which is defined within the loop",
+    ):
+        dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
+
+
+def test_lift_reduce_constant_bad_11():
+    @proc
+    def dot(n: size, x: f32[n], y: f32[n]):
+        dot: R
+        dot = 0.0
+        for i in seq(0, n):
+            a: f32
+            dot += a * (y[i] * x[i])
+
+    with pytest.raises(
+        SchedulingError,
+        match="a depends on the variable a which is defined within the loop",
+    ):
+        dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
+
+
 def test_specialize(golden):
     @proc
     def foo(x: f32[4] @ DRAM):

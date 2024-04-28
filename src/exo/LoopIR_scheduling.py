@@ -1516,6 +1516,13 @@ def DoLiftConstant(assign_c, loop_c):
 
     constant = relevant_reduces[0]._node.rhs.lhs
     if isinstance(constant, LoopIR.Read):
+        live_vars = extract_env(loop_c)
+        live_vars = set(sym for sym, _, _ in live_vars)
+        for name, _ in get_reads_of_expr(constant):
+            if name not in live_vars:
+                raise SchedulingError(
+                    f"{constant} depends on the variable {name} which is defined within the loop"
+                )
         for name, typ in get_writes_of_stmts(loop.body):
             if constant.name == name and constant.type == typ:
                 raise SchedulingError(
