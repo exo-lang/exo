@@ -1,0 +1,12 @@
+def foo(condition: bool @ DRAM):
+    x: i8[3] @ DRAM
+    x[2] = 0.0
+    if condition:
+        x[1] = 0.0
+        x[2] = 0.0
+    else:
+        for i in seq(2, 5):
+            x[i % 3] = 1.0
+            x[(-1 + i) % 3] = 2.0
+            x[-2 + i] = 2.0
+    x[0] = 0.0
