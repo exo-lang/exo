@@ -1,0 +1,27 @@
+#include "test.h"
+
+
+
+#include <stdio.h>
+#include <stdlib.h>
+
+
+
+// foo(
+//     a : i8 @DRAM
+// )
+void foo( void *ctxt, const int8_t* a ) {
+int8_t b;
+b = ((int8_t) 0);
+b += *a;
+b += *a;
+b += *a;
+b += *a;
+b += *a;
+b += *a;
+b += *a;
+b += *a;
+b += *a;
+b += *a;
+}
+

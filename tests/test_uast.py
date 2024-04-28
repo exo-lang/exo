@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from exo import DRAM
-from exo.pyparser import Parser, get_src_locals, get_ast_from_python
+from exo.pyparser import Parser, get_parent_scope, get_ast_from_python
 
 
 def to_uast(f):
@@ -9,8 +9,7 @@ def to_uast(f):
     parser = Parser(
         body,
         getsrcinfo,
-        func_globals=f.__globals__,
-        srclocals=get_src_locals(depth=3),
+        parent_scope=get_parent_scope(depth=2),
         instr="TEST",
         as_func=True,
     )
