@@ -194,9 +194,9 @@ def compute_at_with_prologue(
 
     # fuse prologue loop
     # TODO: some bug with vectorize when nested loops have same Sym name
-    proc = add_loop(proc, prologue_loop, "y_i", str(N_c), guard=True)
-    prologue_loop = proc.forward(prologue_loop).parent()
-    proc = fuse(proc, prologue_loop, prologue_loop.next())
+    # proc = add_loop(proc, prologue_loop, "y_i", str(N_c), guard=True)
+    # prologue_loop = proc.forward(prologue_loop).parent()
+    # proc = fuse(proc, prologue_loop, prologue_loop.next())
 
     return proc
 

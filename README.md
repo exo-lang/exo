@@ -146,38 +146,6 @@ In this repository, folders are structured as follows:
 
 # Build Exo from source
 
-## Self-contained install with Python
-
-If you don't want to use your system version of python (e.g. if it's too old),
-you can install Exo and a compatible version of Python with Nix.
-
-First, install Nix (if you don't have it) using either the
-[systemwide installer](https://nixos.org/download.html) or the portable install
-(no root required for portable):
-
-```
-$ wget https://github.com/DavHau/nix-portable/releases/download/v009/nix-portable
-$ chmod +x nix-portable
-```
-
-Then launch a shell which includes Exo and a compatible version of Python:
-
-```
-$ git clone git@github.com:exo-lang/exo.git
-$ cd exo/
-
-# with a systemwide nix installation
-$ nix --experimental-features 'nix-command flakes' develop
-
-# or with a portable nix installation
-$ PATH_TO_NIX_PORTABLE/nix-portable nix develop
-```
-
-This is a virtualenv-like environment that you will need to enter each time you
-wish to use Exo.
-
-## Manual install
-
 We make active use of newer Python 3.x features, so please use the same version
 of Python as our CI if you're getting errors about unsupported features.
 

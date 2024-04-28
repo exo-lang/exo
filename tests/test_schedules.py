@@ -1012,6 +1012,34 @@ def test_divide_dim_1(golden):
     assert str(foo) == golden
 
 
+def test_divide_dim_2(golden):
+    @proc
+    def foo(n: size, m: size, A: R[n + m + 12]):
+        x: R[n, 12 * m, m]
+        for i in seq(0, n):
+            for j in seq(0, 12):
+                for k in seq(0, m):
+                    x[i, j, k] = A[i + j + k]
+
+    foo = simplify(divide_dim(foo, "x", 1, 4))
+    assert str(foo) == golden
+
+
+def test_divide_dim_3(golden):
+    @proc
+    def foo(n: size, m: size):
+        x: R[n, ((m + 7) / 8) * 8, m]
+        for i in seq(0, n):
+            for j in seq(0, m):
+                for k in seq(0, m):
+                    x[i, j, k] = 2.0
+
+    for i in range(2, -1, -1):
+        foo = divide_dim(foo, "x", i, 1)
+    foo = simplify(divide_dim(foo, "x", 2, 8))
+    assert str(foo) == golden
+
+
 def test_divide_dim_fail_1():
     @proc
     def foo(n: size, m: size, A: R[n + m + 12]):
@@ -1024,8 +1052,18 @@ def test_divide_dim_fail_1():
     with pytest.raises(ValueError, match="out-of-bounds"):
         divide_dim(foo, "x", 3, 4)
 
-    with pytest.raises(SchedulingError, match="Cannot divide 12 evenly"):
+    with pytest.raises(SchedulingError, match="cannot perfectly divide"):
         divide_dim(foo, "x", 1, 5)
+
+
+def test_divide_dim_fail_2():
+    @proc
+    def foo(n: size, m: size):
+        x: R[n, 3 * m, m]
+
+    with pytest.raises(SchedulingError, match="cannot perfectly divide"):
+        for i in range(3):
+            divide_dim(foo, "x", i, 15)
 
 
 def test_mult_dim_1(golden):
@@ -1516,7 +1554,7 @@ def test_divide_loop_perfect_fail():
         for i in seq(0, n):
             A[i] = 1.0
 
-    with pytest.raises(SchedulingError, match="cannot perfectly split"):
+    with pytest.raises(SchedulingError, match="cannot perfectly divide"):
         foo = divide_loop(foo, "i", 4, ["io", "ii"], perfect=True)
 
 
