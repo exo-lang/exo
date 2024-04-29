@@ -1,4 +1,4 @@
-PySMT==0.9.0
+PySMT==0.9.5
 asdl-adt==0.1.0
 asdl==0.1.5
 build==0.7.0
