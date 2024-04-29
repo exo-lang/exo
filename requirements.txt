@@ -3,4 +3,4 @@ asdl-adt==0.1.0
 asdl==0.1.5
 build==0.7.0
 z3-solver==4.13.0.0
-yapf==0.32.0
+yapf==0.40.2
