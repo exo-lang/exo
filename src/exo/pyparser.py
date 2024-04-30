@@ -272,6 +272,8 @@ class Parser:
             a = a.test
             preds.append(self.parse_expr(a))
 
+        if instr:
+            instr = UAST.instr(*instr)
         # parse the procedure body
         body = self.parse_stmt_block(pyast_body)
         return UAST.proc(

@@ -163,7 +163,7 @@ class UAST_PPrinter:
 
         self.push()
         if p.instr:
-            instr_lines = p.instr.split("\n")
+            instr_lines = p.instr.c_instr.split("\n")
             instr_lines = [f"# @instr {instr_lines[0]}"] + [
                 f"#        {l}" for l in instr_lines[1:]
             ]
@@ -384,7 +384,7 @@ def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
     indent = indent + "  "
 
     if p.instr:
-        for i, line in enumerate(p.instr.split("\n")):
+        for i, line in enumerate(p.instr.c_instr.split("\n")):
             if i == 0:
                 lines.append(f"{indent}# @instr {line}")
             else:
@@ -609,7 +609,7 @@ def _print_cursor_proc(
 
     if cur == target:
         if p.instr:
-            for i, line in enumerate(p.instr.split("\n")):
+            for i, line in enumerate(p.instr.c_instr.split("\n")):
                 if i == 0:
                     lines.append(f"{indent}# @instr {line}")
                 else:
