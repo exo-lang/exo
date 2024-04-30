@@ -50,11 +50,8 @@ void caller( void *ctxt );
 #endif  // TEST_H
 #include "test.h"
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
-
 
 // callee(
 //     N : size,

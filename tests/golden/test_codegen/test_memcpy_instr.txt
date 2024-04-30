@@ -1,7 +1,28 @@
+#include "bar.h"
+
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+// bar(
+//     n : size,
+//     dst : f32[n] @DRAM,
+//     src : f32[n] @DRAM
+// )
+void bar( void *ctxt, int_fast32_t n, float* dst, const float* src ) {
+memcpy((dst), (src), (n + 0) * sizeof(float));
+}
+
+
+/* relying on the following instruction..."
+memcpy(n,dst,src)
+memcpy({dst}, {src}, {n} * sizeof(float));
+*/
+
 
 #pragma once
-#ifndef TEST_H
-#define TEST_H
+#ifndef BAR_H
+#define BAR_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,31 +52,16 @@ extern "C" {
 
 
 
-// foo(
-//     N : size,
-//     x : f32[N] @DRAM
+// bar(
+//     n : size,
+//     dst : f32[n] @DRAM,
+//     src : f32[n] @DRAM
 // )
-void foo( void *ctxt, int_fast32_t N, float* x );
+void bar( void *ctxt, int_fast32_t n, float* dst, const float* src );
 
 
 
 #ifdef __cplusplus
 }
 #endif
-#endif  // TEST_H
-
-#include "test.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-
-// foo(
-//     N : size,
-//     x : f32[N] @DRAM
-// )
-void foo( void *ctxt, int_fast32_t N, float* x ) {
-for (int_fast32_t i = 0; i < N; i++) {
-  x[-i + N - 1] = 0.0f;
-}
-}
-
+#endif  // BAR_H

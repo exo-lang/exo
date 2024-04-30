@@ -62,9 +62,12 @@ module LoopIR {
              fnarg*  args,
              expr*   preds,
              stmt*   body,
-             string? instr,
+             instr?  instr,
              effect? eff,
              srcinfo srcinfo )
+
+    instr  = ( string c_instr,
+               string c_global )
 
     fnarg  = ( sym     name,
                type    type,
@@ -163,8 +166,11 @@ module UAST {
                 fnarg*          args,
                 expr*           preds,
                 stmt*           body,
-                string?         instr,
+                instr?          instr,
                 srcinfo         srcinfo )
+
+    instr   = ( string          c_instr,
+                string          c_global )
 
     fnarg   = ( sym             name,
                 type            type,

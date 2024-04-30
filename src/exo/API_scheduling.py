@@ -808,18 +808,22 @@ def rename(proc, name):
     )
 
 
-@sched_op([InstrStrA])
-def make_instr(proc, instr):
+@sched_op([InstrStrA, InstrStrA])
+def make_instr(proc, c_instr, c_global=""):
     """
     Turn this procedure into an "instruction" using the provided macro-string
 
     args:
-        name    - string representing an instruction macro
+        c_instr  - string representing an instruction macro
+        c_global - string representing global C code necessary for this instruction e.g. includes
     """
     ir = proc._loopir_proc
+    instr = LoopIR.instr(c_instr=c_instr, c_global=c_global)
     ir = ir.update(instr=instr)
     return Procedure(
-        ir, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(ir)
+        ir,
+        _provenance_eq_Procedure=proc,
+        _forward=ic.forward_identity(ir),
     )
 
 

@@ -154,8 +154,6 @@ void conv_3_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, c
 
 #include "test_case.h"
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
 
