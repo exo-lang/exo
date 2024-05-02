@@ -378,7 +378,7 @@ def compile_to_strings(lib_name, proc_list):
     private_fwd_decls = []
     proc_bodies = []
     instrs_global = []
-    new_proc_list = []
+    analyzed_proc_list = []
 
     needed_helpers = set()
 
@@ -410,7 +410,6 @@ def compile_to_strings(lib_name, proc_list):
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
-            new_proc_list.append(p)
 
             comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
             d, b = comp.comp_top()
@@ -423,6 +422,8 @@ def compile_to_strings(lib_name, proc_list):
                 private_fwd_decls.append(d)
 
             proc_bodies.append(b)
+
+        analyzed_proc_list.append(p)
 
     # Structs are just blobs of code... still sort them for output stability
     struct_defns = [x.definition for x in sorted(struct_defns, key=lambda x: x.name)]
@@ -454,8 +455,8 @@ def compile_to_strings(lib_name, proc_list):
 {from_lines(public_fwd_decls)}
 """
 
-    memory_code = _compile_memories(find_all_mems(new_proc_list))
-    extern_code = _compile_externs(find_all_externs(new_proc_list))
+    memory_code = _compile_memories(find_all_mems(analyzed_proc_list))
+    extern_code = _compile_externs(find_all_externs(analyzed_proc_list))
 
     helper_code = [_static_helpers[v] for v in needed_helpers]
     body_contents = [
